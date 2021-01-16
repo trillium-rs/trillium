@@ -1,0 +1,17 @@
+[workspace]
+members = [
+  "http",
+  "async-std-server",
+  "basic-auth",
+  "errors",
+  "cookies",
+  "example",
+  "http-types",
+  "logger",
+  "myco",
+  "router",
+  "server",
+  "sessions",
+  "websockets",
+  "static",
+]

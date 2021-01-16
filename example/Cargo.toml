@@ -1,0 +1,21 @@
+[package]
+name = "myco-example"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+env_logger = "0.8.2"
+myco = { path = "../myco" }
+# myco-async-std-server = { path = "../async-std-server" }
+# async-std = { features = ["attributes"], version = "1.8.0" }
+myco-router = { path = "../router" }
+myco-logger = { path = "../logger" }
+myco-basic-auth = { path = "../basic-auth" }
+myco-cookies = { path = "../cookies" }
+myco-sessions = { path = "../sessions" }
+myco-websockets = { path = "../websockets" }
+myco-server = { path = "../server" }
+myco-static = { path = "../static" }
+myco-errors = { path = "../errors" }
+futures-lite = "1.11.3"

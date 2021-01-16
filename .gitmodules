@@ -1,0 +1,3 @@
+[submodule "http-types"]
+	path = http-types
+	url = https://github.com/http-rs/http-types.git

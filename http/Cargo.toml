@@ -1,0 +1,19 @@
+[package]
+name = "myco-http"
+version = "0.0.1"
+edition = "2018"
+
+[dependencies]
+httparse = "1.3.4"
+http-types = { path = "../http-types", default-features = false }
+log = "0.4.13"
+pin-project = "1.0.4"
+thiserror = "1.0.23"
+futures-lite = "1.11.3"
+async-lock = "2.3.0"
+memmem = "0.1.1"
+
+[dev-dependencies]
+async-net = "1.5.0"
+env_logger = "0.8.2"
+smol = "1.2.5"

@@ -1,0 +1,9 @@
+[package]
+name = "myco-router"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+route-recognizer = "0.3.0"
+myco = { path = "../myco" }

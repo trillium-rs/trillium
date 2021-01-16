@@ -1,0 +1,8 @@
+[package]
+name = "myco-basic-auth"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+myco = { path = "../myco" }

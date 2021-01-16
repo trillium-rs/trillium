@@ -1,0 +1,15 @@
+[package]
+name = "myco-async-std-server"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+log = "0.4.13"
+myco = { path = "../myco" }
+async-std = "1.9.0"
+myco-http = { path = "../http" }
+
+[dependencies.http-types]
+path = "../http-types"
+default-features = false

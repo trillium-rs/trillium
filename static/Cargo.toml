@@ -1,0 +1,11 @@
+[package]
+name = "myco-static"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+async-fs = "1.5.0"
+myco = { path = "../myco" }
+mime-db = "1.1.0"
+futures-lite = "1.11.3"

@@ -1,0 +1,12 @@
+[package]
+name = "myco-server"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+async-net = "1.5.0"
+myco = { path = "../myco" }
+smol = "1.2.5"
+myco-http = { path = "../http" }
+log = "0.4.13"
