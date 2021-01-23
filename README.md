@@ -45,4 +45,4 @@ Tide endpoints return a Result with an anyhow-like Error type, allowing the use 
 
 ## Http implementation
 
-Although this may look similar to tide on the surface, it includes a different http implementation that only shares some code with [`async-h1`](https://github.com/http-rs/async-h1). This server-only http implementation can be used directly, and an example of that is [here](https://github.com/rhizosphere/myco/blob/main/http/examples/example.rs).
+Although this may look similar to tide on the surface, it includes a different http implementation that only shares some code with [`async-h1`](https://github.com/http-rs/async-h1). This server-only http implementation can be used directly, and an example of that is [here](https://github.com/rhizosphere/myco/blob/main/http/examples/example.rs). One notable feature of this implementation is that the transport does not need to be `Clone` and is moved into the `Conn`.
