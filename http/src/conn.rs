@@ -41,6 +41,7 @@ pub struct Conn<RW> {
     pub(crate) rw: RW,
     pub(crate) buffer: Option<Vec<u8>>,
     pub(crate) request_body_state: RequestBodyState,
+    secure: bool,
 }
 
 impl<RW> Debug for Conn<RW> {
@@ -195,7 +196,12 @@ where
             state: Extensions::new(),
             response_body: None,
             request_body_state: RequestBodyState::Start,
+            secure: false,
         })
+    }
+
+    pub fn is_secure(&self) -> bool {
+        self.secure
     }
 
     async fn send_100_continue(&mut self) -> Result<()> {
