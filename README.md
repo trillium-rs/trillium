@@ -37,7 +37,7 @@ If you do not use a feature, you should not have to compile it, nor do you need 
 
 ## Futures only, minimal dependencies
 
-Myco has no direct dependency on async-std or tokio, and should be able to support a variety of async runtimes. Currently there is support for `async-std` and `smol`, but tokio support is planned.
+Myco's core has no direct dependency on any async runtime. Myco Servers currently exist for async-std, smol, and tokio (using async-compat).
 
 ## Error handling -- a different tradeoff than tide
 
