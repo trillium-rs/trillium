@@ -1,7 +1,7 @@
 use async_std::net::TcpListener;
 use async_std::prelude::*;
 use myco::{BoxedTransport, Conn, Grain, Sequence};
-use myco_http::server::Server as MycoServer;
+use myco_http::Conn as HttpConn;
 
 use std::{
     io::Result,
@@ -54,20 +54,17 @@ impl<G: Grain> Server<G> {
         let mut grain = self.into_grain();
         grain.init().await;
         let grain = Arc::new(grain);
-        let server = Arc::new(MycoServer::new());
 
         while let Some(Ok(stream)) = incoming.next().await {
             let grain = grain.clone();
-            let server = server.clone();
             async_std::task::spawn(async move {
-                let result = server
-                    .accept(BoxedTransport::new(stream), |conn| async {
-                        let conn = Conn::new(conn);
-                        let conn = grain.run(conn).await;
-                        let conn = grain.before_send(conn).await;
-                        conn.into_inner()
-                    })
-                    .await;
+                let result = HttpConn::map(BoxedTransport::new(stream), &|conn| async {
+                    let conn = Conn::new(conn);
+                    let conn = grain.run(conn).await;
+                    let conn = grain.before_send(conn).await;
+                    conn.into_inner()
+                })
+                .await;
 
                 match result {
                     Ok(Some(upgrade)) => {

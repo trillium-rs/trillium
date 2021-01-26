@@ -1,5 +1,4 @@
-use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Cursor};
-
+use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use http_types::headers::{HOST, UPGRADE};
 use http_types::{
     content::ContentLength,
@@ -9,17 +8,26 @@ use http_types::{
     Body, Extensions, Headers, Method, StatusCode, Url, Version,
 };
 use memmem::{Searcher, TwoWaySearcher};
+use std::future::Future;
 
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
 };
 
-use crate::server::ConnectionStatus;
 use crate::{
-    body_encoder::BodyEncoder, request_body::RequestBodyState, Error, RequestBody, Result,
-    MAX_HEADERS, MAX_HEAD_LENGTH,
+    body_encoder::BodyEncoder, request_body::RequestBodyState, Error, RequestBody, Result, Upgrade,
 };
+
+const MAX_HEADERS: usize = 128;
+const MAX_HEAD_LENGTH: usize = 8 * 1024;
+
+#[derive(Debug)]
+pub enum ConnectionStatus<RW> {
+    Close,
+    Conn(Conn<RW>),
+    Upgrade(Upgrade<RW>),
+}
 
 pub struct Conn<RW> {
     pub(crate) request_headers: Headers,
@@ -40,7 +48,6 @@ impl<RW> Debug for Conn<RW> {
         f.debug_struct("Conn")
             .field("request_headers", &self.request_headers)
             .field("response_headers", &self.response_headers)
-            //            .field("url", &self.url.to_string())
             .field("path", &self.path)
             .field("method", &self.method)
             .field("status", &self.status)
@@ -48,14 +55,6 @@ impl<RW> Debug for Conn<RW> {
             .field("request_body_state", &self.request_body_state)
             .finish()
     }
-}
-
-#[derive(Debug)]
-pub(crate) enum ResponseState {
-    Start,
-    Head(Cursor<Vec<u8>>),
-    Body(BodyEncoder),
-    End,
 }
 
 impl<RW> Conn<RW>
@@ -68,18 +67,6 @@ where
 
     pub fn state_mut(&mut self) -> &mut Extensions {
         &mut self.state
-    }
-
-    pub(crate) fn take_buffer(&mut self) -> Option<Vec<u8>> {
-        self.buffer.take()
-    }
-
-    pub(crate) fn buffer(&self) -> Option<&[u8]> {
-        self.buffer.as_deref()
-    }
-
-    pub(crate) fn buffer_mut(&mut self) -> &mut Option<Vec<u8>> {
-        &mut self.buffer
     }
 
     pub fn request_headers(&self) -> &Headers {
@@ -102,7 +89,7 @@ where
         self.request_headers.get(HOST).map(|v| v.to_string())
     }
 
-    pub fn url(&self) -> crate::Result<Url> {
+    pub fn url(&self) -> Result<Url> {
         let path = self.path();
         let host = self.host().unwrap_or_else(|| String::from("_"));
         let method = self.method();
@@ -141,6 +128,22 @@ where
     pub async fn request_body<'a>(&'a mut self) -> RequestBody<'a, RW> {
         self.initialize_request_body_state().await.ok();
         RequestBody::new(self)
+    }
+
+    pub async fn map<F, Fut>(rw: RW, f: &F) -> crate::Result<Option<Upgrade<RW>>>
+    where
+        F: Fn(Conn<RW>) -> Fut,
+        Fut: Future<Output = Conn<RW>> + Send,
+    {
+        let mut conn = Conn::new(rw, None).await?;
+
+        loop {
+            conn = match f(conn).await.encode().await? {
+                ConnectionStatus::Upgrade(upgrade) => return Ok(Some(upgrade)),
+                ConnectionStatus::Close => return Ok(None),
+                ConnectionStatus::Conn(next) => next,
+            }
+        }
     }
 
     pub async fn new(rw: RW, bytes: Option<Vec<u8>>) -> Result<Self> {
@@ -240,9 +243,8 @@ where
         &mut self.rw
     }
 
-    pub fn into_inner(self) -> (RW, Option<Vec<u8>>) {
-        let Self { rw, buffer, .. } = self;
-        (rw, buffer)
+    pub async fn next(self) -> Result<Self> {
+        Conn::new(self.rw, self.buffer).await
     }
 
     fn should_close(&self) -> bool {
@@ -267,19 +269,21 @@ where
         has_upgrade_header && connection_upgrade && response_is_switching_protocols
     }
 
-    pub fn finish(self) -> ConnectionStatus<RW> {
+    pub async fn finish(self) -> Result<ConnectionStatus<RW>> {
         if self.should_close() {
-            ConnectionStatus::Close
+            Ok(ConnectionStatus::Close)
         } else if self.should_upgrade() {
-            ConnectionStatus::Upgrade(self.into())
+            Ok(ConnectionStatus::Upgrade(self.into()))
         } else {
-            let (rw, buffer) = self.into_inner();
-            ConnectionStatus::KeepAlive(rw, buffer)
+            match self.next().await {
+                Err(Error::ClosedByClient) => {
+                    log::trace!("connection closed by client");
+                    Ok(ConnectionStatus::Close)
+                }
+                Err(e) => Err(e),
+                Ok(conn) => Ok(ConnectionStatus::Conn(conn)),
+            }
         }
-    }
-
-    pub(crate) fn request_body_state(&mut self) -> &mut RequestBodyState {
-        &mut self.request_body_state
     }
 
     pub fn request_content_length(&self) -> crate::Result<Option<usize>> {
@@ -319,7 +323,7 @@ where
         Ok(())
     }
 
-    pub async fn encode(mut self) -> crate::Result<ConnectionStatus<RW>> {
+    pub async fn encode(mut self) -> Result<ConnectionStatus<RW>> {
         self.send_headers().await?;
 
         if self.method() != &Method::Head {
@@ -328,7 +332,7 @@ where
             }
         }
 
-        Ok(self.finish())
+        self.finish().await
     }
 
     fn body_len(&self) -> Option<usize> {
@@ -354,7 +358,7 @@ where
     }
 
     /// Encode the headers to a buffer, the first time we poll.
-    async fn send_headers(&mut self) -> io::Result<()> {
+    async fn send_headers(&mut self) -> Result<()> {
         let status = self.status().unwrap_or(&StatusCode::NotFound);
         let first_line = format!("HTTP/1.1 {} {}\r\n", status, status.canonical_reason());
         log::trace!("sending: {}", &first_line);
