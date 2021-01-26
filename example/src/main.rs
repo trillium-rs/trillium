@@ -3,8 +3,8 @@ use myco::Conn;
 use myco_cookies::Cookies;
 use myco_logger::DevLogger;
 use myco_router::{ConnExt, Router};
-use myco_server::Server;
 use myco_sessions::{MemoryStore, Sessions, SessionsExt};
+use myco_smol_server::Server;
 use myco_static::Static;
 use myco_websockets::{Message, WebSocket, WebSocketConnection};
 

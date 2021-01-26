@@ -10,9 +10,9 @@ members = [
   "logger",
   "myco",
   "router",
-  "server",
+  "smol-server",
   "sessions",
   "websockets",
   "static",
-  "tokio"
+  "tokio-server"
 ]

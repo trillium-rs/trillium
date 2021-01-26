@@ -1,5 +1,5 @@
 [package]
-name = "myco-server"
+name = "myco-smol-server"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
