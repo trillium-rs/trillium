@@ -1,0 +1,12 @@
+[package]
+name = "myco-tokio-server"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+myco = { path = "../myco" }
+myco-http = { path = "../http" }
+log = "0.4.13"
+tokio = { version = "1.1.0", features = ["rt", "net", "rt-multi-thread"] }
+async-compat = "0.2.0"
