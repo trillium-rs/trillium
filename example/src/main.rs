@@ -1,5 +1,6 @@
 use futures_lite::prelude::*;
 use myco::Conn;
+use myco_askama::AskamaConnExt;
 use myco_cookies::Cookies;
 use myco_logger::DevLogger;
 use myco_router::{ConnExt, Router};
@@ -7,6 +8,12 @@ use myco_sessions::{MemoryStore, Sessions, SessionsExt};
 use myco_smol_server::Server;
 use myco_static::Static;
 use myco_websockets::{Message, WebSocket, WebSocketConnection};
+
+#[derive(Template)]
+#[template(path = "hello.html")]
+struct HelloTemplate<'a> {
+    name: &'a str,
+}
 
 fn main() {
     env_logger::init();
@@ -30,6 +37,13 @@ fn main() {
                 .post("/", |mut conn: Conn| async move {
                     let body = conn.request_body().await.read_string().await.unwrap();
                     conn.ok(format!("request body: {}", body))
+                })
+                .get("/template/:name", |conn: Conn| async move {
+                    if let Some(name) = conn.param("name").map(String::from) {
+                        conn.render(HelloTemplate { name: &name })
+                    } else {
+                        conn
+                    }
                 })
                 .get(
                     "/ws",
