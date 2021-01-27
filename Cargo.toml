@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "askama",
   "http",
   "async-std-server",
   "basic-auth",
