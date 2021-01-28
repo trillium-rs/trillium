@@ -1,5 +1,5 @@
 use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use http_types::headers::{HOST, UPGRADE};
+use http_types::headers::{CONTENT_TYPE, HOST, UPGRADE};
 use http_types::{
     content::ContentLength,
     headers::{DATE, EXPECT, TRANSFER_ENCODING},
@@ -106,7 +106,14 @@ where
     }
 
     pub fn set_body(&mut self, body: impl Into<Body>) {
-        self.response_body = Some(body.into());
+        let body = body.into();
+
+        if self.response_headers.get(CONTENT_TYPE).is_none() {
+            self.response_headers
+                .insert(CONTENT_TYPE, body.mime().clone());
+        }
+
+        self.response_body = Some(body);
     }
 
     pub fn method(&self) -> &Method {

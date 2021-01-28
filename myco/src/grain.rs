@@ -103,8 +103,13 @@ impl Sequence {
         Self::default()
     }
 
-    pub fn then<G: Grain>(&mut self, grain: G) {
+    pub fn then(&mut self, grain: impl Grain) {
         self.0.push(Box::new(grain));
+    }
+
+    pub fn and(mut self, grain: impl Grain) -> Self {
+        self.then(grain);
+        self
     }
 }
 
@@ -158,4 +163,3 @@ impl Grain for &'static str {
         conn.body(*self)
     }
 }
-

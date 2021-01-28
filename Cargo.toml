@@ -15,5 +15,6 @@ members = [
   "sessions",
   "websockets",
   "static",
-  "tokio-server"
+  "tokio-server",
+  "tera"
 ]
