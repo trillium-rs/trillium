@@ -9,7 +9,7 @@ use async_session::{
 };
 
 use myco::{async_trait, Conn, Grain};
-use myco_cookies::{Cookie, CookiesExt, Key, SameSite};
+use myco_cookies::{Cookie, CookiesConnExt, Key, SameSite};
 use std::time::{Duration, SystemTime};
 
 const BASE64_DIGEST_LEN: usize = 44;
@@ -25,13 +25,13 @@ pub struct Sessions<Store> {
     key: Key,
 }
 
-pub trait SessionsExt {
+pub trait SessionConnExt {
     fn session(&self) -> &Session;
     fn with_session(self, key: &str, value: impl Serialize) -> Self;
     fn session_mut(&mut self) -> &mut Session;
 }
 
-impl SessionsExt for Conn {
+impl SessionConnExt for Conn {
     fn session(&self) -> &Session {
         self.state()
             .expect("Sessions grain must be executed before calling SessionsExt::sessions")

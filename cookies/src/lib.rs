@@ -35,13 +35,13 @@ impl Grain for Cookies {
     }
 }
 
-pub trait CookiesExt {
+pub trait CookiesConnExt {
     fn cookies(&self) -> &CookieJar;
     fn with_cookie(self, cookie: Cookie<'_>) -> Self;
     fn cookies_mut(&mut self) -> &mut CookieJar;
 }
 
-impl CookiesExt for Conn {
+impl CookiesConnExt for Conn {
     fn cookies(&self) -> &CookieJar {
         self.state()
             .expect("Cookies grain must be executed before calling CookiesExt::cookies")

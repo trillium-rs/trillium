@@ -3,11 +3,11 @@ use route_recognizer::{Match, Params, Router as MethodRouter};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-pub trait ConnExt {
+pub trait RouterConnExt {
     fn param<'a>(&'a self, param: &str) -> Option<&'a str>;
 }
 
-impl ConnExt for Conn {
+impl RouterConnExt for Conn {
     fn param<'a>(&'a self, param: &str) -> Option<&'a str> {
         self.state::<Params>().and_then(|p| p.find(param))
     }
