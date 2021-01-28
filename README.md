@@ -50,9 +50,9 @@ Although this may look similar to tide on the surface, it includes a different h
 
 # Contribution and community (this part only relevant once it's published)
 
-This is going to run slightly different from other open source projects I've been part of. Please open an issue for discussion before opening a pull request or writing code for that pull request.
+This is going to run slightly different from other open source projects I've been part of. Please open an issue for discussion before opening a pull request or writing code for that pull request. PRs without prior discussion will be closed, every time.
 
 This is a long term project and I expect contribution to be slow for a while. If you check it out in the early days, please come back in a few months.
 
-Feature requests will be treated differently than bug reports. Since each of the crates is quite small, if a feature request expands the surface area of that crate substantially, we will often want to fork and create a new crate. Every crate in that is compatible with Myco will be featured, and the hope is that most of the crates that are currently in the workspace will be deprecated in preference to something better. The goal is not to build a monolith, but a community and ecosystem of interoperable components. Experimentation is encouraged. If you want to do something and the core types don't provide the right extension point, that is the sort of issue that will be highest priority.
+Feature requests will be treated differently than bug reports. Since each of the crates is quite small, if a feature request expands the surface area of that crate substantially, we will often want to fork and create a new crate, either under your username or under this organization (whichever you prefer). Every crate in that is compatible with Myco will be featured prominently in the documentation, and the hope is that most of the crates that are currently in the workspace will be deprecated in preference to something better. The goal is not to build a monolith, but a community and ecosystem of interoperable components. If you want to write a myco crate and the core types don't provide the right extension point, that is the sort of issue that will be highest priority.
 
