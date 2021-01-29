@@ -56,3 +56,42 @@ This is a long term project and I expect contribution to be slow for a while. If
 
 Feature requests will be treated differently than bug reports. Since each of the crates is quite small, if a feature request expands the surface area of that crate substantially, we will often want to fork and create a new crate, either under your username or under this organization (whichever you prefer). Every crate in that is compatible with Myco will be featured prominently in the documentation, and the hope is that most of the crates that are currently in the workspace will be deprecated in preference to something better. The goal is not to build a monolith, but a community and ecosystem of interoperable components. If you want to write a myco crate and the core types don't provide the right extension point, that is the sort of issue that will be highest priority.
 
+# List of crates:
+
+## currently functional:
+All crates listed here are believed to be fully functional and usable
+
+### servers (you'll need one of these)
+
+* [myco-smol-server](https://github.com/rhizosphere/myco/tree/main/smol-server)
+* [myco-tokio-server](https://github.com/rhizosphere/myco/tree/main/tokio-server)
+* [myco-async-std-server](https://github.com/rhizosphere/myco/tree/main/async-std-server)
+
+### standard components
+most app will want at least some of these, if not all. eventually these will be bundled in a "starter pack" type crate.
+
+* [myco-cookies](https://github.com/rhizosphere/myco/tree/main/cookies)
+* [myco-logger](https://github.com/rhizosphere/myco/tree/main/logger) - http logger
+* [myco-router](https://github.com/rhizosphere/myco/tree/main/router) - the first router
+* [myco-sessions](https://github.com/rhizosphere/myco/tree/main/sessions) - async-session backed sessions. requires cookies to be used as well
+* [myco-static](https://github.com/rhizosphere/myco/tree/main/static) - serve static assets and directories
+* [myco-websockets](https://github.com/rhizosphere/myco/tree/main/websockets)
+
+### template engines
+
+* [myco-askama](https://github.com/rhizosphere/myco/tree/main/askama) - compile-time templating
+* [myco-tera](https://github.com/rhizosphere/myco/tree/main/tera) - run-time templating
+
+### auth
+
+* [myco-basic-auth](https://github.com/rhizosphere/myco/tree/main/basic-auth) - a very simple grain for fixed-username-and-password basic auth
+
+## In the queue:
+* rustls
+* openssl
+* json serialization/deserialization extensions
+* sqlx transaction support
+* standarized auth framework
+
+## Pondering:
+* types to decrease duplication across smol/tokio/async-std/rustls/openssl servers, like a trait for each of them to implement
