@@ -65,11 +65,11 @@ All crates listed here are believed to be fully functional and usable
 
 all of these will be supported out of the box by launch
 
-|        | async-std | smol | tokio |
-| ------ | --------- | ---- | ----- |
-| none   | ✅        | ✅   | ✅    |
-| native | ❌        | ✅   | ❌    |
-| rustls | ❌        | ✅   | ❌    |
+|            | async-std | smol | tokio |
+| ---------- | --------- | ---- | ----- |
+| no tls     | ✅        | ✅   | ✅    |
+| native tls | ❌        | ✅   | ❌    |
+| rustls     | ❌        | ✅   | ❌    |
 
 * [myco-tokio-server](https://github.com/rhizosphere/myco/tree/main/tokio-server)
 * [myco-async-std-server](https://github.com/rhizosphere/myco/tree/main/async-std-server)
