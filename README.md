@@ -86,6 +86,16 @@ most app will want at least some of these, if not all. eventually these will be 
 
 * [myco-basic-auth](https://github.com/rhizosphere/myco/tree/main/basic-auth) - a very simple grain for fixed-username-and-password basic auth
 
+
+### TLS x runtime
+
+all of these will be supported out of the box
+
+       | async-std | smol | tokio
+------ | --------- | ---- | -----
+native | ❌        | ✅   | ❌
+rustls | ❌        | ✅   | ❌
+
 ## In the queue:
 * rustls
 * openssl

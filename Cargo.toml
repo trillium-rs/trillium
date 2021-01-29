@@ -16,5 +16,7 @@ members = [
   "websockets",
   "static",
   "tokio-server",
-  "tera"
+  "tera",
+  "rustls",
+  "openssl"
 ]
