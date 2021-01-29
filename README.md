@@ -63,9 +63,17 @@ All crates listed here are believed to be fully functional and usable
 
 ### servers (you'll need one of these)
 
-* [myco-smol-server](https://github.com/rhizosphere/myco/tree/main/smol-server)
+all of these will be supported out of the box by launch
+
+|        | async-std | smol | tokio |
+| ------ | --------- | ---- | ----- |
+| none   | ✅        | ✅   | ✅    |
+| native | ❌        | ✅   | ❌    |
+| rustls | ❌        | ✅   | ❌    |
+
 * [myco-tokio-server](https://github.com/rhizosphere/myco/tree/main/tokio-server)
 * [myco-async-std-server](https://github.com/rhizosphere/myco/tree/main/async-std-server)
+* [myco-smol-server](https://github.com/rhizosphere/myco/tree/main/smol-server)
 * [myco-rustls](https://github.com/rhizosphere/myco/tree/main/rustls) --- currently just smol
 * [myco-openssl](https://github.com/rhizosphere/myco/tree/main/openssl) --- currently just smol
 
@@ -87,16 +95,6 @@ most app will want at least some of these, if not all. eventually these will be 
 ### auth
 
 * [myco-basic-auth](https://github.com/rhizosphere/myco/tree/main/basic-auth) - a very simple grain for fixed-username-and-password basic auth
-
-
-### TLS x runtime
-
-all of these will be supported out of the box by launch
-
-|        | async-std | smol | tokio |
-| ------ | --------- | ---- | ----- |
-| native | ❌        | ✅   | ❌     |
-| rustls | ❌        | ✅   | ❌     |
 
 ## In the queue:
 * rustls
