@@ -66,6 +66,8 @@ All crates listed here are believed to be fully functional and usable
 * [myco-smol-server](https://github.com/rhizosphere/myco/tree/main/smol-server)
 * [myco-tokio-server](https://github.com/rhizosphere/myco/tree/main/tokio-server)
 * [myco-async-std-server](https://github.com/rhizosphere/myco/tree/main/async-std-server)
+* [myco-rustls](https://github.com/rhizosphere/myco/tree/main/rustls) --- currently just smol
+* [myco-openssl](https://github.com/rhizosphere/myco/tree/main/openssl) --- currently just smol
 
 ### standard components
 most app will want at least some of these, if not all. eventually these will be bundled in a "starter pack" type crate.
