@@ -89,12 +89,12 @@ most app will want at least some of these, if not all. eventually these will be 
 
 ### TLS x runtime
 
-all of these will be supported out of the box
+all of these will be supported out of the box by launch
 
-       | async-std | smol | tokio
------- | --------- | ---- | -----
-native | ❌        | ✅   | ❌
-rustls | ❌        | ✅   | ❌
+|        | async-std | smol | tokio |
+| ------ | --------- | ---- | ----- |
+| native | ❌        | ✅   | ❌     |
+| rustls | ❌        | ✅   | ❌     |
 
 ## In the queue:
 * rustls
