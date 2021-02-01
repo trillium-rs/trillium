@@ -10,3 +10,4 @@ myco-http = { path = "../http" }
 log = "0.4.13"
 tokio = { version = "1.1.0", features = ["rt", "net", "rt-multi-thread"] }
 async-compat = "0.2.0"
+myco-server-common = { path = "../server-common" }

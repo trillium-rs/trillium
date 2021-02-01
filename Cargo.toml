@@ -20,5 +20,6 @@ members = [
   "static",
   "tera",
   "tokio-server",
+  "server-common",
   "websockets",
 ]

@@ -142,7 +142,7 @@ where
         RequestBody::new(self)
     }
 
-    pub async fn map<F, Fut>(rw: RW, f: &F) -> crate::Result<Option<Upgrade<RW>>>
+    pub async fn map<F, Fut>(rw: RW, f: F) -> crate::Result<Option<Upgrade<RW>>>
     where
         F: Fn(Conn<RW>) -> Fut,
         Fut: Future<Output = Conn<RW>> + Send,

@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use async_tls::TlsAcceptor;
 use myco::Conn;
-use myco_rustls::Server;
 use rustls::internal::pemfile::{certs, pkcs8_private_keys};
 use rustls::{NoClientAuth, ServerConfig};
 
@@ -22,6 +21,8 @@ pub fn main() {
                 .remove(0),
         )
         .unwrap();
-    let acceptor = TlsAcceptor::from(Arc::new(config));
-    Server::new("127.0.0.1:8000", acceptor).run(|conn: Conn| async move { dbg!(conn.ok("ok")) });
+
+    myco_rustls::run("127.0.0.1:8000", config, |conn: Conn| async move {
+        dbg!(conn.ok("ok"))
+    });
 }

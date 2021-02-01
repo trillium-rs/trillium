@@ -1,6 +1,7 @@
 use crate::{async_trait, Conn, Upgrade};
 use std::borrow::Cow;
 use std::future::Future;
+use std::sync::Arc;
 
 #[async_trait]
 pub trait Grain: Send + Sync + 'static {
@@ -32,6 +33,36 @@ impl Grain for Box<dyn Grain> {
     }
     async fn init(&mut self) {
         self.as_mut().init().await
+    }
+
+    async fn before_send(&self, conn: Conn) -> Conn {
+        self.as_ref().before_send(conn).await
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        self.as_ref().name().into()
+    }
+
+    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+        self.as_ref().has_upgrade(upgrade)
+    }
+
+    async fn upgrade(&self, upgrade: Upgrade) {
+        self.as_ref().upgrade(upgrade).await
+    }
+}
+
+#[async_trait]
+impl<G: Grain> Grain for Arc<G> {
+    async fn run(&self, conn: Conn) -> Conn {
+        self.as_ref().run(conn).await
+    }
+
+    async fn init(&mut self) {
+        Arc::<G>::get_mut(self)
+            .expect("cannot call init when there are already clones of an Arc<Grain>")
+            .init()
+            .await
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {

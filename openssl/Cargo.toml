@@ -11,6 +11,8 @@ smol = "1.2.5"
 myco-http = { path = "../http" }
 log = "0.4.13"
 async-native-tls = "0.3.3"
+native-tls = "0.2.7"
+myco-server-common = { path = "../server-common" }
 
 [dev-dependencies]
 env_logger = "0.8.2"

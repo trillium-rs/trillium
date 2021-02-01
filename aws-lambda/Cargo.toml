@@ -10,7 +10,6 @@ myco-tokio-server = { path = "../tokio-server" }
 log = "0.4.13"
 tokio = { version = "1.1.0", features = ["rt", "net", "rt-multi-thread"] }
 async-compat = "0.2.0"
-lamedh_http = "0.3.0"
 myco-http = { path = "../http" }
 lamedh_runtime = { path = "../../aws-lambda-rust-runtime/lambda" }
 futures-lite = "1.11.3"
