@@ -1,10 +1,7 @@
-use std::io::BufReader;
-use std::sync::Arc;
-
-use async_tls::TlsAcceptor;
 use myco::Conn;
 use rustls::internal::pemfile::{certs, pkcs8_private_keys};
 use rustls::{NoClientAuth, ServerConfig};
+use std::io::BufReader;
 
 const KEY: &[u8] = include_bytes!("./key.pem");
 const CERT: &[u8] = include_bytes!("./cert.pem");

@@ -86,49 +86,6 @@ impl<Store: SessionStore> Grain for Sessions<Store> {
 }
 
 impl<Store: SessionStore> Sessions<Store> {
-    /// Creates a new SessionMiddleware with a mandatory cookie
-    /// signing secret. The `secret` MUST be at least 32 bytes long,
-    /// and MUST be cryptographically random to be secure. It is
-    /// recommended to retrieve this at runtime from the environment
-    /// instead of compiling it into your
-    /// application.
-    ///
-    /// # Panics
-    ///
-    /// SessionMiddleware::new will panic if the secret is fewer than
-    /// 32 bytes.
-    ///
-    /// # Defaults
-    ///
-    /// The defaults for SessionMiddleware are:
-    /// * cookie path: "/"
-    /// * cookie name: "myco.sid"
-    /// * session ttl: one day
-    /// * same site: strict
-    /// * save unchanged: enabled
-    ///
-    /// # Customization
-    ///
-    /// Although the above defaults are appropriate for most
-    /// applications, they can be overridden. Please be careful
-    /// changing these settings, as they can weaken your application's
-    /// security:
-    ///
-    /// ```rust
-    /// # use myco::http::cookies::SameSite;
-    /// # use std::time::Duration;
-    /// # use myco::sessions::{SessionMiddleware, MemoryStore};
-    /// let mut app = myco::new();
-    /// app.with(
-    ///     SessionMiddleware::new(MemoryStore::new(), b"please do not hardcode your secret")
-    ///         .with_cookie_name("custom.cookie.name")
-    ///         .with_cookie_path("/some/path")
-    ///         .with_cookie_domain("www.rust-lang.org")
-    ///         .with_same_site_policy(SameSite::Lax)
-    ///         .with_session_ttl(Some(Duration::from_secs(1)))
-    ///         .without_save_unchanged(),
-    /// );
-    /// ```
     pub fn new(store: Store, secret: &[u8]) -> Self {
         Self {
             store,
@@ -142,7 +99,7 @@ impl<Store: SessionStore> Sessions<Store> {
         }
     }
 
-    /// Sets a cookie path for this session middleware.
+    /// Sets a cookie path for this session grain.
     /// The default for this value is "/"
     pub fn with_cookie_path(mut self, cookie_path: impl AsRef<str>) -> Self {
         self.cookie_path = cookie_path.as_ref().to_owned();
