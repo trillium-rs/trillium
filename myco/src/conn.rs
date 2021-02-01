@@ -6,7 +6,7 @@ use myco_http::RequestBody;
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
 
-use crate::{BoxedTransport, Grain};
+use crate::{BoxedTransport, Grain, Transport};
 
 pub struct Conn {
     inner: myco_http::Conn<BoxedTransport>,
@@ -25,9 +25,9 @@ impl Debug for Conn {
 }
 
 impl Conn {
-    pub fn new(conn: myco_http::Conn<BoxedTransport>) -> Self {
+    pub fn new(conn: myco_http::Conn<impl Transport + 'static>) -> Self {
         Self {
-            inner: conn,
+            inner: conn.map_transport(BoxedTransport::new),
             halted: false,
             before_send: None,
         }

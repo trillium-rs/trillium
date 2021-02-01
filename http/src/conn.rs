@@ -31,17 +31,17 @@ pub enum ConnectionStatus<RW> {
 
 pub struct Conn<RW> {
     pub(crate) request_headers: Headers,
-    response_headers: Headers,
+    pub(crate) response_headers: Headers,
     pub(crate) path: String,
     pub(crate) method: Method,
     pub(crate) status: Option<StatusCode>,
-    version: Version,
+    pub(crate) version: Version,
     pub(crate) state: Extensions,
-    response_body: Option<Body>,
+    pub(crate) response_body: Option<Body>,
     pub(crate) rw: RW,
     pub(crate) buffer: Option<Vec<u8>>,
     pub(crate) request_body_state: RequestBodyState,
-    secure: bool,
+    pub(crate) secure: bool,
 }
 
 impl<RW> Debug for Conn<RW> {
@@ -114,6 +114,10 @@ where
         }
 
         self.response_body = Some(body);
+    }
+
+    pub fn take_response_body(&mut self) -> Option<Body> {
+        self.response_body.take()
     }
 
     pub fn method(&self) -> &Method {
@@ -394,6 +398,41 @@ where
         self.rw.write_all(b"\r\n").await?;
 
         Ok(())
+    }
+
+    pub fn map_transport<T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static>(
+        self,
+        f: impl Fn(RW) -> T,
+    ) -> Conn<T> {
+        let Conn {
+            request_headers,
+            response_headers,
+            path,
+            status,
+            version,
+            state,
+            rw,
+            buffer,
+            request_body_state,
+            secure,
+            method,
+            response_body,
+        } = self;
+
+        Conn {
+            request_headers,
+            response_headers,
+            method,
+            response_body,
+            path,
+            status,
+            version,
+            state,
+            rw: f(rw),
+            buffer,
+            request_body_state,
+            secure,
+        }
     }
 }
 

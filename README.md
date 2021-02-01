@@ -97,11 +97,9 @@ most app will want at least some of these, if not all. eventually these will be 
 * [myco-basic-auth](https://github.com/rhizosphere/myco/tree/main/basic-auth) - a very simple grain for fixed-username-and-password basic auth
 
 ## In the queue:
-* rustls
-* openssl
 * json serialization/deserialization extensions
 * sqlx transaction support
 * standarized auth framework
 
 ## Pondering:
-* types to decrease duplication across smol/tokio/async-std/rustls/openssl servers, like a trait for each of them to implement
+* types to decrease duplication across smol/tokio/async-std x rustls/openssl servers, like a trait for each of them to implement

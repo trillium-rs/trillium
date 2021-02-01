@@ -13,5 +13,8 @@ pub use error::{Error, Result};
 mod conn;
 pub use conn::{Conn, ConnectionStatus};
 
+mod synthetic;
+pub use synthetic::Synthetic;
+
 mod upgrade;
 pub use upgrade::Upgrade;
