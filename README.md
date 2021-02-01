@@ -35,7 +35,7 @@ Related to the above, Myco ships with the bare minimum required to have interope
 
 If you do not use a feature, you should not have to compile it, nor do you need to update releases to that feature.  This should also make it easier to pick and choose which updates you want to install.
 
-### `Futures` only, no build-in async runtime dep.
+### `Futures` only, no built-in async runtime dep.
 
 Myco's core has no direct dependency on any async runtime. Myco Servers currently exist for async-std, smol, and tokio (using async-compat).
 
@@ -76,6 +76,7 @@ all of these will be supported out of the box by launch
 * [myco-smol-server](https://github.com/rhizosphere/myco/tree/main/smol-server)
 * [myco-rustls](https://github.com/rhizosphere/myco/tree/main/rustls) --- currently just smol
 * [myco-openssl](https://github.com/rhizosphere/myco/tree/main/openssl) --- currently just smol
+* [myco-aws-lambda](https://github.com/rhizosphere/myco/tree/main/aws-lambda)
 
 ### standard components
 most app will want at least some of these, if not all. eventually these will be bundled in a "starter pack" type crate.
