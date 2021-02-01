@@ -16,3 +16,5 @@ mod transport;
 pub use transport::{BoxedTransport, Transport};
 
 pub type Upgrade = myco_http::Upgrade<BoxedTransport>;
+
+mod macros;
