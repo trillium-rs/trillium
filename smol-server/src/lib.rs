@@ -13,7 +13,7 @@ pub async fn run_async(socket_addrs: impl AsyncToSocketAddrs, mut grain: impl Gr
     while let Some(Ok(stream)) = incoming.next().await {
         let grain = grain.clone();
         smol::spawn(async move {
-            let result = HttpConn::map(BoxedTransport::new(stream), &|conn| async {
+            let result = HttpConn::map(stream, &|conn| async {
                 let conn = Conn::new(conn);
                 let conn = grain.run(conn).await;
                 let conn = grain.before_send(conn).await;
@@ -23,6 +23,7 @@ pub async fn run_async(socket_addrs: impl AsyncToSocketAddrs, mut grain: impl Gr
 
             match result {
                 Ok(Some(upgrade)) => {
+                    let upgrade = upgrade.map_transport(BoxedTransport::new);
                     if grain.has_upgrade(&upgrade) {
                         log::debug!("upgrading");
                         grain.upgrade(upgrade).await;

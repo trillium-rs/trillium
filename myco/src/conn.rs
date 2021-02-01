@@ -165,7 +165,10 @@ impl Conn {
         }
     }
 
-    pub fn into_inner(self) -> myco_http::Conn<BoxedTransport> {
-        self.inner
+    pub fn into_inner<T: Transport>(self) -> myco_http::Conn<T> {
+        self.inner.map_transport(|t| {
+            *t.downcast()
+                .expect("attempted to downcast to the wrong transport type")
+        })
     }
 }

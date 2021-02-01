@@ -1,4 +1,5 @@
 use crate::Conn;
+use futures_lite::{AsyncRead, AsyncWrite};
 use http_types::{Extensions, Headers, Method};
 use std::fmt::{self, Debug, Formatter};
 
@@ -23,6 +24,20 @@ impl<RW> Upgrade<RW> {
     }
     pub fn state(&self) -> &Extensions {
         &self.state
+    }
+
+    pub fn map_transport<T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static>(
+        self,
+        f: impl Fn(RW) -> T,
+    ) -> Upgrade<T> {
+        Upgrade {
+            rw: f(self.rw),
+            path: self.path,
+            method: self.method,
+            state: self.state,
+            buffer: self.buffer,
+            request_headers: self.request_headers,
+        }
     }
 }
 
