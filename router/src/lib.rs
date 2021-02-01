@@ -92,3 +92,12 @@ impl Router {
     method!(delete, Delete);
     method!(patch, Patch);
 }
+
+#[macro_export]
+macro_rules! routes {
+    ($($method:ident $path:literal $(-> )?$grain:expr),+ $(,)?) => {
+	$crate::Router::new()$(
+            .$method($path, $grain)
+        )+;
+    };
+}
