@@ -7,8 +7,6 @@ use std::{
     sync::Arc,
 };
 
-use async_tls::TlsAcceptor;
-
 pub struct Server {
     bind: Vec<SocketAddr>,
 }
