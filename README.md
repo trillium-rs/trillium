@@ -2,6 +2,20 @@
 
 [here's a kitchen-sink example app](https://github.com/rhizosphere/myco/blob/main/example/src/main.rs). It makes use of the smol-based server, the router, cookies, sessions, websockets, the devlogger, and the static file server.
 
+# What's blocking release?
+- [ ] documentation
+  - [ ] high level overview, architecture
+  - [ ] readme for each crate
+  - [ ] basic rustdocs
+- [ ] error handling examples / thinking about error handling
+- [ ] rename
+
+# What's up after release
+* json serialization/deserialization extensions
+* sqlx transaction support
+* standarized auth framework
+* 
+
 # Names (Myco?? Grain??)
 
 Rust was named after the [rust fungus](https://en.wikipedia.org/wiki/Rust_(fungus)) and mycology is the study of fungi. [Mycorrhizal networks](https://en.wikipedia.org/wiki/Mycorrhizal_network) are the OG [ent](https://en.wikipedia.org/wiki/Ent)ernet. Naming things is hard, this will probably change several times, as will the name of the gh organization.
@@ -89,11 +103,3 @@ most app will want at least some of these, if not all. eventually these will be 
 ### auth
 
 * [myco-basic-auth](https://github.com/rhizosphere/myco/tree/main/basic-auth) - a very simple grain for fixed-username-and-password basic auth
-
-## In the queue:
-* json serialization/deserialization extensions
-* sqlx transaction support
-* standarized auth framework
-
-## Pondering:
-* types to decrease duplication across smol/tokio/async-std x rustls/openssl servers, like a trait for each of them to implement
