@@ -43,13 +43,13 @@ impl Conn {
 
     pub fn register_before_send<G: Grain>(mut self, grain: G) -> Self {
         self.before_send
-            .get_or_insert_with(|| vec![])
+            .get_or_insert_with(Vec::new)
             .push(Box::new(grain));
 
         self
     }
 
-    pub async fn request_body<'a>(&'a mut self) -> RequestBody<'a, BoxedTransport> {
+    pub async fn request_body(&mut self) -> RequestBody<'_, BoxedTransport> {
         self.inner.request_body().await
     }
 

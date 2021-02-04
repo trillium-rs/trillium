@@ -40,7 +40,7 @@ impl Grain for Box<dyn Grain> {
     }
 
     fn name(&self) -> Cow<'static, str> {
-        self.as_ref().name().into()
+        self.as_ref().name()
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
@@ -70,7 +70,7 @@ impl<G: Grain> Grain for Arc<G> {
     }
 
     fn name(&self) -> Cow<'static, str> {
-        self.as_ref().name().into()
+        self.as_ref().name()
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {

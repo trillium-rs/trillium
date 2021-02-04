@@ -13,6 +13,7 @@ impl RouterConnExt for Conn {
     }
 }
 
+#[derive(Default)]
 pub struct Router {
     method_map: HashMap<Method, MethodRouter<Box<dyn Grain>>>,
 }
@@ -73,6 +74,10 @@ impl Router {
         }
     }
 
+    #[allow(clippy::borrowed_box)] // this allow is because we don't have the ability to deref the
+                                   // contents of the Match container. Clippy wants us to return
+                                   // Option<Match<&dyn Grain>>, but route-recognizer would need
+                                   // to support that
     pub fn recognize(&self, method: &Method, path: &str) -> Option<Match<&Box<dyn Grain>>> {
         self.method_map
             .get(method)

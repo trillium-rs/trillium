@@ -137,7 +137,7 @@ where
             .contains_ignore_ascii_case(EXPECT, "100-continue")
     }
 
-    pub async fn request_body<'a>(&'a mut self) -> RequestBody<'a, RW> {
+    pub async fn request_body(&mut self) -> RequestBody<'_, RW> {
         self.initialize_request_body_state().await.ok();
         RequestBody::new(self)
     }
@@ -277,7 +277,7 @@ where
         let connection_upgrade = match self.request_headers.get("connection") {
             Some(h) => h
                 .as_str()
-                .split(",")
+                .split(',')
                 .any(|h| h.eq_ignore_ascii_case("upgrade")),
             None => false,
         };
@@ -310,7 +310,7 @@ where
     }
 
     pub(crate) async fn initialize_request_body_state(&mut self) -> Result<()> {
-        if let &RequestBodyState::Start = &self.request_body_state {
+        if let RequestBodyState::Start = self.request_body_state {
             if self.needs_100_continue() {
                 self.send_100_continue().await?;
             }

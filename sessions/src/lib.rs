@@ -74,7 +74,7 @@ impl<Store: SessionStore> Grain for Sessions<Store> {
                 conn.cookies_mut()
                     .remove(Cookie::named(self.cookie_name.clone()));
             } else if self.save_unchanged || session.data_changed() {
-                if let Some(Some(cookie_value)) = self.store.store_session(session).await.ok() {
+                if let Ok(Some(cookie_value)) = self.store.store_session(session).await {
                     conn.cookies_mut()
                         .add(self.build_cookie(secure, cookie_value));
                 }

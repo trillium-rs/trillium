@@ -70,7 +70,7 @@ where
                 Poll::Ready(Ok(buf.len()))
             } else {
                 log::trace!("have {} bytes of pending data, using all of it", len);
-                &buf[..len].copy_from_slice(&buffer);
+                buf[..len].copy_from_slice(&buffer);
                 *opt_buffer = None;
                 match Pin::new(rw).poll_read(cx, &mut buf[len..]) {
                     Poll::Ready(Ok(e)) => Poll::Ready(Ok(e + len)),
