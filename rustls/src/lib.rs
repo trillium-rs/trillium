@@ -1,35 +1,55 @@
-use async_net::{AsyncToSocketAddrs, TcpListener};
-use myco::Grain;
-use myco_server_common::handle_stream;
-use smol::prelude::*;
-use std::sync::Arc;
-
+pub use async_tls;
+use async_tls::server::TlsStream;
 use async_tls::TlsAcceptor;
+use myco_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
+pub use rustls;
+use rustls::internal::pemfile::{certs, pkcs8_private_keys};
+use rustls::{NoClientAuth, ServerConfig};
+use std::io::BufReader;
 
-pub async fn run_async(
-    bind: impl AsyncToSocketAddrs,
-    acceptor: impl Into<TlsAcceptor>,
-    mut grain: impl Grain,
-) {
-    let listener = TcpListener::bind(bind).await.unwrap();
-    let mut incoming = listener.incoming();
-    grain.init().await;
-    let grain = Arc::new(grain);
-    let acceptor = acceptor.into();
+#[derive(Clone)]
+pub struct RustTls(TlsAcceptor);
+impl RustTls {
+    pub fn new(t: impl Into<Self>) -> Self {
+        t.into()
+    }
 
-    while let Some(Ok(stream)) = incoming.next().await {
-        let acceptor = acceptor.clone();
-        let grain = grain.clone();
-        smol::spawn(async move {
-            match acceptor.accept(stream).await {
-                Ok(stream) => handle_stream(stream, grain).await,
-                Err(e) => log::error!("tls error: {:?}", e),
-            }
-        })
-        .detach();
+    pub fn from_pkcs8(cert: &[u8], key: &[u8]) -> Self {
+        let mut config = ServerConfig::new(NoClientAuth::new());
+
+        config
+            .set_single_cert(
+                certs(&mut BufReader::new(cert)).unwrap(),
+                pkcs8_private_keys(&mut BufReader::new(key))
+                    .unwrap()
+                    .remove(0),
+            )
+            .expect("could not create a rustls ServerConfig from the supplied cert and key");
+
+        config.into()
     }
 }
 
-pub fn run(bind: impl AsyncToSocketAddrs, acceptor: impl Into<TlsAcceptor>, grain: impl Grain) {
-    smol::block_on(async move { run_async(bind, acceptor, grain).await })
+impl From<ServerConfig> for RustTls {
+    fn from(sc: ServerConfig) -> Self {
+        Self(sc.into())
+    }
+}
+
+impl From<TlsAcceptor> for RustTls {
+    fn from(ta: TlsAcceptor) -> Self {
+        Self(ta)
+    }
+}
+
+#[async_trait]
+impl<Input> Acceptor<Input> for RustTls
+where
+    Input: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+{
+    type Output = TlsStream<Input>;
+    type Error = std::io::Error;
+    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
+        self.0.accept(input).await
+    }
 }

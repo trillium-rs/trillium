@@ -1,18 +1,16 @@
 [package]
-name = "myco-openssl"
+name = "myco-native-tls"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-async-net = "1.5.0"
-myco = { path = "../myco" }
-smol = "1.2.5"
-myco-http = { path = "../http" }
 log = "0.4.13"
 async-native-tls = "0.3.3"
+myco-tls-common = { path = "../tls-common" }
 native-tls = "0.2.7"
-myco-server-common = { path = "../server-common" }
 
 [dev-dependencies]
 env_logger = "0.8.2"
+myco-smol-server = { path = "../smol-server" }
+myco = { path = "../myco" }

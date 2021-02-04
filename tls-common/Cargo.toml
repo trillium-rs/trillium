@@ -1,0 +1,10 @@
+[package]
+name = "myco-tls-common"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+log = "0.4.14"
+futures-lite = "1.11.3"
+async-trait = "0.1.42"

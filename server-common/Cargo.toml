@@ -9,3 +9,5 @@ edition = "2018"
 myco = { path = "../myco" }
 myco-http = { path = "../http" }
 log = "0.4.14"
+futures-lite = "1.11.3"
+myco-tls-common = { path = "../tls-common/" }

@@ -20,6 +20,7 @@ fn main() {
 
     myco_smol_server::run(
         "localhost:8080",
+        (),
         sequence![
             // this macro is optional. sequence![x, y] is sugar for myco::Sequence::new().and(x).and(y), which is a Vec<Box<dyn Grain>>
             DevLogger,

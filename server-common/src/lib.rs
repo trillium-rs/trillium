@@ -1,7 +1,16 @@
 use myco::{BoxedTransport, Conn, Grain, Transport};
 use myco_http::Conn as HttpConn;
+pub use myco_tls_common::Acceptor;
 
-pub async fn handle_stream(stream: impl Transport, grain: impl Grain) {
+pub async fn handle_stream<T: Transport>(stream: T, acceptor: impl Acceptor<T>, grain: impl Grain) {
+    let stream = match acceptor.accept(stream).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            log::error!("acceptor error: {:?}", e);
+            return;
+        }
+    };
+
     let result = HttpConn::map(stream, |conn| async {
         let conn = Conn::new(conn);
         let conn = grain.run(conn).await;
@@ -14,7 +23,7 @@ pub async fn handle_stream(stream: impl Transport, grain: impl Grain) {
         Ok(Some(upgrade)) => {
             let upgrade = upgrade.map_transport(BoxedTransport::new);
             if grain.has_upgrade(&upgrade) {
-                log::debug!("upgrading");
+                log::debug!("upgrading...");
                 grain.upgrade(upgrade).await;
             } else {
                 log::error!("upgrade specified but no upgrade handler provided");
@@ -22,11 +31,11 @@ pub async fn handle_stream(stream: impl Transport, grain: impl Grain) {
         }
 
         Ok(None) => {
-            log::info!("closing");
+            log::info!("closing connection");
         }
 
         Err(e) => {
-            log::error!("{:?}", e);
+            log::error!("http error: {:?}", e);
         }
     };
 }

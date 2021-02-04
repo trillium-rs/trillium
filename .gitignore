@@ -2,3 +2,4 @@ target
 Cargo.lock
 **/*.p12
 **/*.pem
+.envrc
