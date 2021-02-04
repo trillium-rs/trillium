@@ -62,21 +62,15 @@ Feature requests will be treated differently than bug reports. Since each of the
 All crates listed here are believed to be fully functional and usable
 
 ### servers (you'll need one of these)
-
-all of these will be supported out of the box by launch
-
-|            | async-std | smol | tokio |
-| ---------- | --------- | ---- | ----- |
-| no tls     | ✅        | ✅   | ✅    |
-| native tls | ❌        | ✅   | ❌    |
-| rustls     | ❌        | ✅   | ❌    |
-
 * [myco-tokio-server](https://github.com/rhizosphere/myco/tree/main/tokio-server)
 * [myco-async-std-server](https://github.com/rhizosphere/myco/tree/main/async-std-server)
 * [myco-smol-server](https://github.com/rhizosphere/myco/tree/main/smol-server)
-* [myco-rustls](https://github.com/rhizosphere/myco/tree/main/rustls) --- currently just smol
-* [myco-openssl](https://github.com/rhizosphere/myco/tree/main/openssl) --- currently just smol
 * [myco-aws-lambda](https://github.com/rhizosphere/myco/tree/main/aws-lambda)
+
+### tls acceptors (optional)
+one of these can be combined with any of the above other than aws-lambda to allow your application to accept https connections.
+* [myco-rustls](https://github.com/rhizosphere/myco/tree/main/rustls)
+* [myco-native-tls](https://github.com/rhizosphere/myco/tree/main/native-tls)
 
 ### standard components
 most app will want at least some of these, if not all. eventually these will be bundled in a "starter pack" type crate.
@@ -89,7 +83,6 @@ most app will want at least some of these, if not all. eventually these will be 
 * [myco-websockets](https://github.com/rhizosphere/myco/tree/main/websockets)
 
 ### template engines
-
 * [myco-askama](https://github.com/rhizosphere/myco/tree/main/askama) - compile-time templating
 * [myco-tera](https://github.com/rhizosphere/myco/tree/main/tera) - run-time templating
 
