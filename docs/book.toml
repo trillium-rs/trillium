@@ -1,0 +1,6 @@
+[book]
+authors = ["Jacob Rothstein"]
+language = "en"
+multilingual = false
+src = "src"
+title = "myco"

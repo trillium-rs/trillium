@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+env:
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  deploy:
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up mdBook
+        uses: peaceiris/actions-mdbook@v1
+        with:
+          #mdbook-version: '0.4.6'
+          mdbook-version: 'latest'
+
+      - run: mdbook build docs
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/book
+
+  test:
+    name: Build and test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+        rust: [nightly, stable]
+
+    steps:
+    - uses: actions/checkout@master
+    - name: Install ${{ matrix.rust }}
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust }}
+        override: true
+    - name: tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --all
+
+  check_fmt_and_docs:
+    name: Checking fmt, clippy, and docs
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+        override: true
+
+    - name: clippy
+      run: cargo clippy --tests --examples -- -D warnings
+        
+    - name: fmt
+      run: cargo fmt --all -- --check
+
+    - name: Docs
+      run: cargo doc
