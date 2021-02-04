@@ -1,4 +1,4 @@
-use http_types::{
+use crate::http_types::{
     headers::{HeaderName, ToHeaderValues},
     Body, Headers, Method, StatusCode, Url,
 };
@@ -80,18 +80,14 @@ impl Conn {
         self.inner.response_headers()
     }
 
-    pub fn send_header(
-        mut self,
-        name: impl Into<http_types::headers::HeaderName>,
-        values: impl ToHeaderValues,
-    ) -> Self {
+    pub fn send_header(mut self, name: impl Into<HeaderName>, values: impl ToHeaderValues) -> Self {
         self.headers_mut().insert(name, values);
         self
     }
 
     pub fn append_header(
         mut self,
-        name: impl Into<http_types::headers::HeaderName>,
+        name: impl Into<HeaderName>,
         values: impl ToHeaderValues,
     ) -> Self {
         self.headers_mut().append(name, values);
@@ -111,7 +107,7 @@ impl Conn {
         self.inner.state_mut().remove()
     }
 
-    pub fn status(mut self, status: impl TryInto<http_types::StatusCode>) -> Self {
+    pub fn status(mut self, status: impl TryInto<StatusCode>) -> Self {
         self.inner.set_status(status);
         self
     }

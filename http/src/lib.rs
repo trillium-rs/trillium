@@ -18,3 +18,5 @@ pub use synthetic::Synthetic;
 
 mod upgrade;
 pub use upgrade::Upgrade;
+
+pub use http_types;

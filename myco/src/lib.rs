@@ -10,7 +10,7 @@ pub use state::State;
 pub use myco_http::{Error, Result};
 
 pub use async_trait::async_trait;
-pub use http_types;
+pub use myco_http::http_types;
 
 mod transport;
 pub use transport::{BoxedTransport, Transport};

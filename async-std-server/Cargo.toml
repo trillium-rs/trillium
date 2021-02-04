@@ -10,7 +10,3 @@ myco = { path = "../myco" }
 async-std = "1.9.0"
 myco-http = { path = "../http" }
 myco-server-common = { path = "../server-common" }
-
-[dependencies.http-types]
-path = "../http-types"
-default-features = false

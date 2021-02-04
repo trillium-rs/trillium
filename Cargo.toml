@@ -9,7 +9,6 @@ members = [
   "errors",
   "example",
   "http",
-  "http-types",
   "logger",
   "myco",
   "native-tls",
