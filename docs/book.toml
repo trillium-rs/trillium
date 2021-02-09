@@ -4,3 +4,11 @@ language = "en"
 multilingual = false
 src = "src"
 title = "myco"
+
+[rust]
+edition = "2018"
+
+[output.html.playground]
+editable = false
+copy-js = true
+line-numbers = false
