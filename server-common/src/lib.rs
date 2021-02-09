@@ -31,7 +31,7 @@ pub async fn handle_stream<T: Transport>(stream: T, acceptor: impl Acceptor<T>, 
         }
 
         Ok(None) => {
-            log::info!("closing connection");
+            log::debug!("closing connection");
         }
 
         Err(e) => {
