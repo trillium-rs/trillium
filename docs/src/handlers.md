@@ -121,10 +121,46 @@ let handler = sequence![
 
 ## Logger
 
-## Web Socket support
+Currently there's just a DevLogger, but soon there will be more loggers. Myco loggers use the `log` crate and emit one line at the info log level per http request/response pair. We like to use the `env_logger` crate, but any `log` backend will work equally well.
+
+```rust
+pub fn main() {
+    env_logger::init();
+    run("localhost:8000", (), sequence![
+        myco_logger::DevLogger,
+        |conn: Conn| async move { conn.ok("ok!") }
+    ]);
+}
+```
+
+## WebSocket support
+
+WebSockets work a lot like tide's, since I recently wrote that interface as well. One difference in myco is that the websocket connection also contains some aspects of the original http request, such as request headers, the request path and method, and any state that has been accumulated by previous handlers in a sequence.
+
+```rust
+use myco_websockets::{Message, WebSocket, WebSocketConnection};
+pub fn main() {
+    run("localhost:8000", (), WebSocket::new(|mut websocket| async move {
+        while let Some(Ok(Message::Text(input))) = websocket.next().await {
+            websocket.send_string(format!("received your message: {}", &input)).await;
+        }
+    }));
+}
+```
 
 ## Static file serving
 
+Myco offers very rudimentary static file serving for now. There is a lot of room for improvement. This example serves any file within ./public (relative to the current working directory) at the root url, so ./public/index.html would be served at http://localhost:8000/index.html .
+
+There are a large number of additional features that this crate needs in order to be usable in a production environment.
+
+```rust
+pub fn main() {
+    run("localhost:8000", (), myco_static::Static::new("/", "./public"))
+}
+```
+
 ## Template engines
+
 
 
