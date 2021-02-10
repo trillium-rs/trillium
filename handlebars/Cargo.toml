@@ -1,0 +1,22 @@
+[package]
+name = "myco-handlebars"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+myco = { path = "../myco" }
+mime-db = "1.1.0"
+async-lock = "2.3.0"
+glob = "0.3.0"
+serde = "1.0.123"
+serde_json = "1.0.62"
+log = "0.4.14"
+
+[dependencies.handlebars]
+version = "3.5.2"
+features = ["dir_source"]
+
+[dev-dependencies]
+myco-smol-server = { path = "../smol-server" }
+env_logger = "0.8.2"
