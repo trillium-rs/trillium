@@ -1,4 +1,4 @@
-use myco::http_types::Method;
+use http_types::Method;
 use myco_http::{Conn as HttpConn, Synthetic};
 use std::collections::HashMap;
 

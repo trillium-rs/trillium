@@ -16,3 +16,10 @@ serde = "1.0.123"
 serde_derive = "1.0.123"
 base64 = "0.13.0"
 lamedh_runtime = "0.3.0"
+
+[dependencies.http-types]
+git = "https://github.com/jbr/http-types"
+branch = "myco"
+# path = "../../http-types"
+default-features = false
+features = ["serde"]
