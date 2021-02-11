@@ -1,6 +1,7 @@
 # Check out the documentation for more info
 
-When this repo is public this will be published as an mdbook, but for now [start here](https://github.com/rhizosphere/myco/blob/main/docs/src/SUMMARY.md)
+
+[📖 https://myco-docs.netlify.app/ 📖](https://myco-docs.netlify.app/)
 
 # Just show me some code!
 
