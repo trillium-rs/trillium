@@ -1,5 +1,5 @@
-mod grain;
-pub use grain::{Grain, Sequence};
+mod handler;
+pub use handler::{Handler, Sequence};
 
 mod conn;
 pub use conn::Conn;

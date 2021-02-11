@@ -1,11 +1,11 @@
 pub use cookie::*;
 use myco::http_types::headers::{COOKIE, SET_COOKIE};
-use myco::{async_trait, Conn, Grain};
+use myco::{async_trait, Conn, Handler};
 
 pub struct Cookies;
 
 #[async_trait]
-impl Grain for Cookies {
+impl Handler for Cookies {
     async fn run(&self, conn: Conn) -> Conn {
         let mut jar = CookieJar::new();
 
@@ -44,7 +44,7 @@ pub trait CookiesConnExt {
 impl CookiesConnExt for Conn {
     fn cookies(&self) -> &CookieJar {
         self.state()
-            .expect("Cookies grain must be executed before calling CookiesExt::cookies")
+            .expect("Cookies handler must be executed before calling CookiesExt::cookies")
     }
 
     fn with_cookie(mut self, cookie: Cookie<'_>) -> Self {
@@ -54,6 +54,6 @@ impl CookiesConnExt for Conn {
 
     fn cookies_mut(&mut self) -> &mut CookieJar {
         self.state_mut()
-            .expect("Cookies grain must be executed before calling CookiesExt::cookies_mut")
+            .expect("Cookies handler must be executed before calling CookiesExt::cookies_mut")
     }
 }

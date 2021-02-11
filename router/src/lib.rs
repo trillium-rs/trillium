@@ -1,4 +1,4 @@
-use myco::{async_trait, http_types::Method, Conn, Grain};
+use myco::{async_trait, http_types::Method, Conn, Handler};
 use route_recognizer::{Match, Params, Router as MethodRouter};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -15,11 +15,11 @@ impl RouterConnExt for Conn {
 
 #[derive(Default)]
 pub struct Router {
-    method_map: HashMap<Method, MethodRouter<Box<dyn Grain>>>,
+    method_map: HashMap<Method, MethodRouter<Box<dyn Handler>>>,
 }
 
 #[async_trait]
-impl Grain for Router {
+impl Handler for Router {
     async fn run(&self, mut conn: Conn) -> Conn {
         if let Some(m) = self.recognize(conn.method(), conn.path()) {
             conn.set_state(m.params().clone());
@@ -60,8 +60,8 @@ impl Grain for Router {
 
 macro_rules! method {
     ($fn_name:ident, $method:ident) => {
-        pub fn $fn_name(mut self, path: &str, grain: impl Grain) -> Self {
-            self.add(path, Method::$method, grain);
+        pub fn $fn_name(mut self, path: &str, handler: impl Handler) -> Self {
+            self.add(path, Method::$method, handler);
             self
         }
     };
@@ -76,19 +76,19 @@ impl Router {
 
     #[allow(clippy::borrowed_box)] // this allow is because we don't have the ability to deref the
                                    // contents of the Match container. Clippy wants us to return
-                                   // Option<Match<&dyn Grain>>, but route-recognizer would need
+                                   // Option<Match<&dyn Handler>>, but route-recognizer would need
                                    // to support that
-    pub fn recognize(&self, method: &Method, path: &str) -> Option<Match<&Box<dyn Grain>>> {
+    pub fn recognize(&self, method: &Method, path: &str) -> Option<Match<&Box<dyn Handler>>> {
         self.method_map
             .get(method)
             .and_then(|r| r.recognize(path).ok())
     }
 
-    pub fn add(&mut self, path: &str, method: Method, grain: impl Grain) {
+    pub fn add(&mut self, path: &str, method: Method, handler: impl Handler) {
         self.method_map
             .entry(method)
             .or_insert_with(MethodRouter::new)
-            .add(path, Box::new(grain))
+            .add(path, Box::new(handler))
     }
 
     method!(get, Get);
@@ -100,9 +100,9 @@ impl Router {
 
 #[macro_export]
 macro_rules! routes {
-    ($($method:ident $path:literal $(-> )?$grain:expr),+ $(,)?) => {
+    ($($method:ident $path:literal $(-> )?$handler:expr),+ $(,)?) => {
 	$crate::Router::new()$(
-            .$method($path, $grain)
+            .$method($path, $handler)
         )+;
     };
 }

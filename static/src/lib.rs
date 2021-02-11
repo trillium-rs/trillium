@@ -2,7 +2,7 @@ use async_fs::{File, ReadDir};
 use futures_lite::io::BufReader;
 use futures_lite::stream::StreamExt;
 use myco::http_types::content::ContentType;
-use myco::{async_trait, http_types::Body, Conn, Grain};
+use myco::{async_trait, http_types::Body, Conn, Handler};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -115,7 +115,7 @@ impl Static {
 }
 
 #[async_trait]
-impl Grain for Static {
+impl Handler for Static {
     async fn run(&self, mut conn: Conn) -> Conn {
         match self.resolve(conn.path()).await {
             Some(Record::File(path, file, len)) => {

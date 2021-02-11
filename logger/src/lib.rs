@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use colored::*;
-use myco::{async_trait, http_types::StatusCode, Conn, Grain};
+use myco::{async_trait, http_types::StatusCode, Conn, Handler};
 use size::{Base, Size, Style};
 
 #[derive(Debug)]
@@ -16,7 +16,7 @@ impl Start {
 pub struct DevLogger;
 
 #[async_trait]
-impl Grain for DevLogger {
+impl Handler for DevLogger {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(Start::now())
     }

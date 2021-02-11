@@ -8,7 +8,7 @@ use async_session::{
     SessionStore,
 };
 
-use myco::{async_trait, Conn, Grain};
+use myco::{async_trait, Conn, Handler};
 use myco_cookies::{Cookie, CookiesConnExt, Key, SameSite};
 use std::time::{Duration, SystemTime};
 
@@ -34,7 +34,7 @@ pub trait SessionConnExt {
 impl SessionConnExt for Conn {
     fn session(&self) -> &Session {
         self.state()
-            .expect("Sessions grain must be executed before calling SessionsExt::sessions")
+            .expect("Sessions handler must be executed before calling SessionsExt::sessions")
     }
 
     fn with_session(mut self, key: &str, value: impl Serialize) -> Self {
@@ -44,12 +44,12 @@ impl SessionConnExt for Conn {
 
     fn session_mut(&mut self) -> &mut Session {
         self.state_mut()
-            .expect("Sessions grain must be executed before calling SessionsExt::sessions_mut")
+            .expect("Sessions handler must be executed before calling SessionsExt::sessions_mut")
     }
 }
 
 #[async_trait]
-impl<Store: SessionStore> Grain for Sessions<Store> {
+impl<Store: SessionStore> Handler for Sessions<Store> {
     async fn run(&self, conn: Conn) -> Conn {
         let cookie_value = conn
             .cookies()
@@ -99,7 +99,7 @@ impl<Store: SessionStore> Sessions<Store> {
         }
     }
 
-    /// Sets a cookie path for this session grain.
+    /// Sets a cookie path for this session handler.
     /// The default for this value is "/"
     pub fn with_cookie_path(mut self, cookie_path: impl AsRef<str>) -> Self {
         self.cookie_path = cookie_path.as_ref().to_owned();

@@ -1,5 +1,5 @@
 use myco::http_types::Body;
-use myco::{async_trait, Conn, Grain};
+use myco::{async_trait, Conn, Handler};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ impl TeraHandler {
 }
 
 #[async_trait]
-impl Grain for TeraHandler {
+impl Handler for TeraHandler {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone()).with_state(Context::new())
     }
@@ -41,18 +41,18 @@ impl TeraConnExt for Conn {
 
     fn tera(&self) -> &Tera {
         self.state::<TeraHandler>()
-            .expect("tera must be run after the tera grain")
+            .expect("tera must be run after the tera handler")
             .tera()
     }
 
     fn context_mut(&mut self) -> &mut Context {
         self.state_mut()
-            .expect("context_mut must be run after the tera grain")
+            .expect("context_mut must be run after the tera handler")
     }
 
     fn context(&self) -> &Context {
         self.state()
-            .expect("context must be run after the tera grain")
+            .expect("context must be run after the tera handler")
     }
 
     fn render(self, template_name: &str) -> Self {

@@ -22,7 +22,7 @@ fn main() {
         "localhost:8080",
         (),
         sequence![
-            // this macro is optional. sequence![x, y] is sugar for myco::Sequence::new().and(x).and(y), which is a Vec<Box<dyn Grain>>
+            // this macro is optional. sequence![x, y] is sugar for myco::Sequence::new().and(x).and(y), which is a Vec<Box<dyn Handler>>
             DevLogger,
             Cookies,
             Sessions::new(MemoryStore::new(), b"01234567890123456789012345678901123",),

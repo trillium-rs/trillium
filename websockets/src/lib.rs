@@ -7,7 +7,7 @@ use myco::{
         headers::{CONNECTION, UPGRADE},
         StatusCode,
     },
-    Conn, Grain,
+    Conn, Handler,
 };
 use sha1::{Digest, Sha1};
 use std::future::Future;
@@ -54,9 +54,9 @@ where
 struct IsWebsocket;
 
 #[async_trait]
-impl<Handler, Fut> Grain for WebSocket<Handler>
+impl<H, Fut> Handler for WebSocket<H>
 where
-    Handler: Fn(WebSocketConnection) -> Fut + Sync + Send + 'static,
+    H: Fn(WebSocketConnection) -> Fut + Sync + Send + 'static,
     Fut: Future<Output = ()> + Send + Sync + 'static,
 {
     async fn run(&self, mut conn: Conn) -> Conn {

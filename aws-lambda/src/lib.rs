@@ -1,5 +1,5 @@
-use lamedh_runtime::{Context, Handler};
-use myco::{BoxedTransport, Conn, Grain};
+use lamedh_runtime::{Context, Handler as AwsHandler};
+use myco::{BoxedTransport, Conn, Handler};
 use myco_http::{Conn as HttpConn, Synthetic};
 use std::future::Future;
 use std::pin::Pin;
@@ -15,40 +15,40 @@ use response::{AlbMultiHeadersResponse, AlbResponse, LambdaResponse};
 
 pub use context::LambdaConnExt;
 
-struct GrainWrapper<G>(Arc<G>);
+struct HandlerWrapper<G>(Arc<G>);
 
-impl<G: Grain> Handler<LambdaRequest, LambdaResponse> for GrainWrapper<G> {
+impl<G: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<G> {
     type Error = myco::Error;
     type Fut = Pin<Box<dyn Future<Output = Result<LambdaResponse, Self::Error>> + Send + 'static>>;
 
     fn call(&mut self, request: LambdaRequest, context: Context) -> Self::Fut {
-        Box::pin(grain_handler_fn(request, context, Arc::clone(&self.0)))
+        Box::pin(handler_fn(request, context, Arc::clone(&self.0)))
     }
 }
 
-async fn run_grain(conn: HttpConn<Synthetic>, grain: Arc<impl Grain>) -> Conn {
+async fn run_handler(conn: HttpConn<Synthetic>, handler: Arc<impl Handler>) -> Conn {
     let conn = Conn::new(conn.map_transport(BoxedTransport::new));
-    let conn = grain.run(conn).await;
-    grain.before_send(conn).await
+    let conn = handler.run(conn).await;
+    handler.before_send(conn).await
 }
 
-async fn grain_handler_fn(
+async fn handler_fn(
     request: LambdaRequest,
     context: Context,
-    grain: Arc<impl Grain>,
+    handler: Arc<impl Handler>,
 ) -> myco::Result<LambdaResponse> {
     match request {
         LambdaRequest::Alb(request) => {
             let mut conn = request.into_conn().await;
             conn.state_mut().insert(LambdaContext::new(context));
-            let conn = run_grain(conn, grain).await;
+            let conn = run_handler(conn, handler).await;
             Ok(LambdaResponse::Alb(AlbResponse::from_conn(conn).await))
         }
 
         LambdaRequest::AlbMultiHeaders(request) => {
             let mut conn = request.into_conn().await;
             conn.state_mut().insert(LambdaContext::new(context));
-            let conn = run_grain(conn, grain).await;
+            let conn = run_handler(conn, handler).await;
             Ok(LambdaResponse::AlbMultiHeaders(
                 AlbMultiHeadersResponse::from_conn(conn).await,
             ))
@@ -56,13 +56,13 @@ async fn grain_handler_fn(
     }
 }
 
-pub async fn run_async(g: impl Grain) {
-    lamedh_runtime::run(GrainWrapper(Arc::new(g)))
+pub async fn run_async(g: impl Handler) {
+    lamedh_runtime::run(HandlerWrapper(Arc::new(g)))
         .await
         .unwrap()
 }
 
-pub fn run(g: impl Grain) {
+pub fn run(g: impl Handler) {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

@@ -1,5 +1,5 @@
 use myco::http_types::{auth::BasicAuth as AuthHeader, StatusCode};
-use myco::{async_trait, Conn, Grain};
+use myco::{async_trait, Conn, Handler};
 
 pub struct BasicAuth {
     username: String,
@@ -39,7 +39,7 @@ impl BasicAuth {
 }
 
 #[async_trait]
-impl Grain for BasicAuth {
+impl Handler for BasicAuth {
     async fn run(&self, conn: Conn) -> Conn {
         if self.is_allowed(&conn) {
             conn

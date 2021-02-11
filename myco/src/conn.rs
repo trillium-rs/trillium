@@ -6,12 +6,12 @@ use myco_http::RequestBody;
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
 
-use crate::{BoxedTransport, Grain, Transport};
+use crate::{BoxedTransport, Handler, Transport};
 
 pub struct Conn {
     inner: myco_http::Conn<BoxedTransport>,
     halted: bool,
-    before_send: Option<Vec<Box<dyn Grain>>>,
+    before_send: Option<Vec<Box<dyn Handler>>>,
 }
 
 impl Debug for Conn {
@@ -49,10 +49,10 @@ impl Conn {
         self.inner.state_mut().get_or_insert_with(default)
     }
 
-    pub fn register_before_send<G: Grain>(mut self, grain: G) -> Self {
+    pub fn register_before_send<G: Handler>(mut self, handler: G) -> Self {
         self.before_send
             .get_or_insert_with(Vec::new)
-            .push(Box::new(grain));
+            .push(Box::new(handler));
 
         self
     }

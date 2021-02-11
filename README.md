@@ -21,11 +21,11 @@ When this repo is public this will be published as an mdbook, but for now [start
 
 
 
-<!-- # Names (Myco?? Grain??) -->
+<!-- # Names (Myco?? Handler??) -->
 
 <!-- Rust was named after the [rust fungus](https://en.wikipedia.org/wiki/Rust_(fungus)) and mycology is the study of fungi. [Mycorrhizal networks](https://en.wikipedia.org/wiki/Mycorrhizal_network) are the OG [ent](https://en.wikipedia.org/wiki/Ent)ernet. Naming things is hard, this will probably change several times, as will the name of the gh organization. -->
 
-<!-- In myco, a grain is both an endpoint and a middleware, the equivalent of a plug in [`plug`](https://github.com/elixir-plug/plug). -->
+<!-- In myco, a handler is both an endpoint and a middleware, the equivalent of a plug in [`plug`](https://github.com/elixir-plug/plug). -->
 
 <!-- # Comparison with Tide -->
 
@@ -33,7 +33,7 @@ When this repo is public this will be published as an mdbook, but for now [start
 
 <!-- ### `Fn(Conn) -> Conn` vs `Fn(Request) -> Response`, differences between Endpoints and Middleware -->
 
-<!-- This is the biggest difference between tide and Myco. Myco moves the TcpStream into the Conn type, which represents both the request and the response, as well as a state typemap. In Myco, there is no distinction between endpoints and middleware -- they both are a `Grain` that provides several lifecycle hooks but is primarily any async `Fn(Conn) -> Conn`. A `Conn` also has a notion of being halted, and any `Grain` can halt the pipeline, preventing subsequent `Grains` from being executed. -->
+<!-- This is the biggest difference between tide and Myco. Myco moves the TcpStream into the Conn type, which represents both the request and the response, as well as a state typemap. In Myco, there is no distinction between endpoints and middleware -- they both are a `Handler` that provides several lifecycle hooks but is primarily any async `Fn(Conn) -> Conn`. A `Conn` also has a notion of being halted, and any `Handler` can halt the pipeline, preventing subsequent `Handlers` from being executed. -->
 
 <!-- ### State lives as long as the http connection -->
 
@@ -45,8 +45,8 @@ When this repo is public this will be published as an mdbook, but for now [start
 
 <!-- Related to the above, Myco ships with the bare minimum required to have interoperability between crates.  Everything else is a distinct crate. Some examples: -->
 
-<!-- * State: In tide, setting global state is something that the tide Server handles. In Myco, this is achieved through a Grain. -->
-<!-- * Router: In tide, the router exists outside of the middleware pipeline. In Myco, it is a distinct Grain that does not ship with Myco core.  This opens up the possibility for alternative routers that make different design tradeoffs. These routers would be equally interoperable with the rest of the Myco ecosystem. -->
+<!-- * State: In tide, setting global state is something that the tide Server handles. In Myco, this is achieved through a Handler. -->
+<!-- * Router: In tide, the router exists outside of the middleware pipeline. In Myco, it is a distinct Handler that does not ship with Myco core.  This opens up the possibility for alternative routers that make different design tradeoffs. These routers would be equally interoperable with the rest of the Myco ecosystem. -->
 <!-- * Cookies: Tide's cookies middleware ships in the tide crate. Myco provides this as a distinct crate. -->
 <!-- * Sessions: Similarly, shipped as a distinct crate. -->
 <!-- * Logger: Tide ships a default logger. Myco's loggers are provided externally. -->
@@ -107,4 +107,4 @@ When this repo is public this will be published as an mdbook, but for now [start
 
 <!-- ### auth -->
 
-<!-- * [myco-basic-auth](https://github.com/rhizosphere/myco/tree/main/basic-auth) - a very simple grain for fixed-username-and-password basic auth -->
+<!-- * [myco-basic-auth](https://github.com/rhizosphere/myco/tree/main/basic-auth) - a very simple handler for fixed-username-and-password basic auth -->

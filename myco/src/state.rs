@@ -1,4 +1,4 @@
-use crate::{async_trait, Conn, Grain};
+use crate::{async_trait, Conn, Handler};
 pub struct State<T>(T);
 
 impl<T> State<T> {
@@ -7,7 +7,7 @@ impl<T> State<T> {
     }
 }
 #[async_trait]
-impl<T: Clone + Send + Sync + 'static> Grain for State<T> {
+impl<T: Clone + Send + Sync + 'static> Handler for State<T> {
     async fn run(&self, mut conn: Conn) -> Conn {
         conn.set_state(self.0.clone());
         conn

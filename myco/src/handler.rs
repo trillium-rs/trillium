@@ -4,7 +4,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 #[async_trait]
-pub trait Grain: Send + Sync + 'static {
+pub trait Handler: Send + Sync + 'static {
     async fn run(&self, conn: Conn) -> Conn;
 
     async fn init(&mut self) {}
@@ -27,7 +27,7 @@ pub trait Grain: Send + Sync + 'static {
 }
 
 #[async_trait]
-impl Grain for Box<dyn Grain> {
+impl Handler for Box<dyn Handler> {
     async fn run(&self, conn: Conn) -> Conn {
         self.as_ref().run(conn).await
     }
@@ -53,14 +53,14 @@ impl Grain for Box<dyn Grain> {
 }
 
 #[async_trait]
-impl<G: Grain> Grain for Arc<G> {
+impl<G: Handler> Handler for Arc<G> {
     async fn run(&self, conn: Conn) -> Conn {
         self.as_ref().run(conn).await
     }
 
     async fn init(&mut self) {
         Arc::<G>::get_mut(self)
-            .expect("cannot call init when there are already clones of an Arc<Grain>")
+            .expect("cannot call init when there are already clones of an Arc<Handler>")
             .init()
             .await
     }
@@ -83,10 +83,10 @@ impl<G: Grain> Grain for Arc<G> {
 }
 
 #[async_trait]
-impl<G: Grain> Grain for Vec<G> {
+impl<G: Handler> Handler for Vec<G> {
     async fn run(&self, mut conn: Conn) -> Conn {
-        for grain in self {
-            conn = grain.run(conn).await;
+        for handler in self {
+            conn = handler.run(conn).await;
             if conn.is_halted() {
                 break;
             }
@@ -95,14 +95,14 @@ impl<G: Grain> Grain for Vec<G> {
     }
 
     async fn init(&mut self) {
-        for grain in self {
-            grain.init().await;
+        for handler in self {
+            handler.init().await;
         }
     }
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
-        for grain in self.iter().rev() {
-            conn = grain.before_send(conn).await
+        for handler in self.iter().rev() {
+            conn = handler.before_send(conn).await
         }
         conn
     }
@@ -120,32 +120,32 @@ impl<G: Grain> Grain for Vec<G> {
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        if let Some(grain) = self.iter().find(|g| g.has_upgrade(&upgrade)) {
-            grain.upgrade(upgrade).await
+        if let Some(handler) = self.iter().find(|g| g.has_upgrade(&upgrade)) {
+            handler.upgrade(upgrade).await
         }
     }
 }
 
 #[derive(Default)]
-pub struct Sequence(Vec<Box<dyn Grain>>);
+pub struct Sequence(Vec<Box<dyn Handler>>);
 
 impl Sequence {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn then(&mut self, grain: impl Grain) {
-        self.0.push(Box::new(grain));
+    pub fn then(&mut self, handler: impl Handler) {
+        self.0.push(Box::new(handler));
     }
 
-    pub fn and(mut self, grain: impl Grain) -> Self {
-        self.then(grain);
+    pub fn and(mut self, handler: impl Handler) -> Self {
+        self.then(handler);
         self
     }
 }
 
 #[async_trait]
-impl Grain for Sequence {
+impl Handler for Sequence {
     async fn run(&self, conn: Conn) -> Conn {
         self.0.run(conn).await
     }
@@ -171,7 +171,7 @@ impl Grain for Sequence {
 }
 
 #[async_trait]
-impl<Fun, Fut> Grain for Fun
+impl<Fun, Fut> Handler for Fun
 where
     Fun: Fn(Conn) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Conn> + Send + Sync + 'static,
@@ -182,14 +182,14 @@ where
 }
 
 #[async_trait]
-impl Grain for String {
+impl Handler for String {
     async fn run(&self, conn: Conn) -> Conn {
         conn.body(&self[..])
     }
 }
 
 #[async_trait]
-impl Grain for &'static str {
+impl Handler for &'static str {
     async fn run(&self, conn: Conn) -> Conn {
         conn.body(*self)
     }
