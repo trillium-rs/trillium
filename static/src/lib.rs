@@ -14,7 +14,7 @@ pub struct Static {
 
 #[derive(Debug)]
 enum Record {
-    File(PathBuf, File, usize),
+    File(PathBuf, File, u64),
     Dir(PathBuf, ReadDir),
 }
 
@@ -55,7 +55,7 @@ impl Static {
                 .ok()
                 .map(|dir| Record::Dir(fs_path, dir))
         } else if metadata.is_file() {
-            let len = metadata.len() as usize;
+            let len = metadata.len();
             File::open(&fs_path)
                 .await
                 .ok()

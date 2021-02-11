@@ -6,11 +6,11 @@ use std::sync::Arc;
 pub use tera::{Context, Tera};
 
 #[derive(Clone)]
-pub struct TeraGrain(Arc<Tera>);
+pub struct TeraHandler(Arc<Tera>);
 
-impl TeraGrain {
+impl TeraHandler {
     pub fn new(dir: &str) -> Self {
-        TeraGrain(Arc::new(Tera::new(dir).unwrap()))
+        TeraHandler(Arc::new(Tera::new(dir).unwrap()))
     }
 
     pub fn tera(&self) -> &Tera {
@@ -19,7 +19,7 @@ impl TeraGrain {
 }
 
 #[async_trait]
-impl Grain for TeraGrain {
+impl Grain for TeraHandler {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone()).with_state(Context::new())
     }
@@ -40,7 +40,7 @@ impl TeraConnExt for Conn {
     }
 
     fn tera(&self) -> &Tera {
-        self.state::<TeraGrain>()
+        self.state::<TeraHandler>()
             .expect("tera must be run after the tera grain")
             .tera()
     }

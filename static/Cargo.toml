@@ -9,3 +9,6 @@ async-fs = "1.5.0"
 myco = { path = "../myco" }
 mime-db = "1.1.0"
 futures-lite = "1.11.3"
+
+[dev-dependencies]
+myco-smol-server = { path = "../smol-server" }

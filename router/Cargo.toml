@@ -7,3 +7,7 @@ edition = "2018"
 [dependencies]
 route-recognizer = "0.3.0"
 myco = { path = "../myco" }
+
+[dev-dependencies]
+env_logger = "0.8.2"
+myco-smol-server = { path = "../smol-server" }

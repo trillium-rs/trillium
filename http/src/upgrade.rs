@@ -1,6 +1,6 @@
 use crate::Conn;
 use futures_lite::{AsyncRead, AsyncWrite};
-use http_types::{Extensions, Headers, Method};
+use http_types::{headers::Headers, Extensions, Method};
 use std::fmt::{self, Debug, Formatter};
 
 pub struct Upgrade<RW> {

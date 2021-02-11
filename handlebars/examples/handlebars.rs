@@ -1,6 +1,5 @@
 use myco::{sequence, Conn};
 use myco_handlebars::{Handlebars, HandlebarsConnExt};
-use serde_json::json;
 
 fn main() {
     env_logger::init();
@@ -10,7 +9,8 @@ fn main() {
         sequence![
             Handlebars::new("./examples/templates/*.hbs"),
             |conn: Conn| async move {
-                conn.render("examples/templates/hello.hbs", &json!({ "name": "world" }))
+                conn.assign("name", "world")
+                    .render("examples/templates/hello.hbs")
             }
         ],
     );

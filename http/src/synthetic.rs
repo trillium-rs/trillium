@@ -1,6 +1,6 @@
 use futures_lite::io::{self, AsyncRead, AsyncWrite};
-use http_types::headers::CONTENT_LENGTH;
-use http_types::{Extensions, Headers, Method, Version};
+use http_types::headers::{Headers, CONTENT_LENGTH};
+use http_types::{Extensions, Method, Version};
 
 use std::task::Poll;
 

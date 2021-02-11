@@ -9,3 +9,7 @@ myco-cookies = { path = "../cookies" }
 myco = { path = "../myco" }
 async-session = "2.0.1"
 log = "0.4.13"
+
+[dev-dependencies]
+env_logger = "0.8.2"
+myco-smol-server = { path = "../smol-server" }

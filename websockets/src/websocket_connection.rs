@@ -2,9 +2,9 @@ use std::pin::Pin;
 
 use async_tungstenite::tungstenite::protocol::Role;
 use async_tungstenite::{tungstenite::Message, WebSocketStream};
-use futures_util::stream::Stream;
+pub use futures_util::stream::Stream;
 use futures_util::SinkExt;
-use myco::http_types::{Extensions, Headers, Method};
+use myco::http_types::{headers::Headers, Extensions, Method};
 use myco::{BoxedTransport, Upgrade};
 use std::task::{Context, Poll};
 

@@ -1,6 +1,6 @@
 use crate::http_types::{
-    headers::{HeaderName, ToHeaderValues},
-    Body, Headers, Method, StatusCode, Url,
+    headers::{HeaderName, Headers, ToHeaderValues},
+    Body, Method, StatusCode, Url,
 };
 use myco_http::RequestBody;
 use std::convert::TryInto;
@@ -41,6 +41,14 @@ impl Conn {
         self.inner.state_mut().get_mut()
     }
 
+    pub fn state_or_insert_with<T, F>(&mut self, default: F) -> &mut T
+    where
+        T: Send + Sync + 'static,
+        F: FnOnce() -> T,
+    {
+        self.inner.state_mut().get_or_insert_with(default)
+    }
+
     pub fn register_before_send<G: Grain>(mut self, grain: G) -> Self {
         self.before_send
             .get_or_insert_with(Vec::new)
@@ -60,7 +68,7 @@ impl Conn {
         }
     }
 
-    pub fn response_len(&self) -> Option<usize> {
+    pub fn response_len(&self) -> Option<u64> {
         self.inner.response_body().and_then(|b| b.len())
     }
 

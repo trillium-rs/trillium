@@ -2,10 +2,10 @@ use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt}
 use http_types::headers::{CONTENT_TYPE, HOST, UPGRADE};
 use http_types::{
     content::ContentLength,
-    headers::{DATE, EXPECT, TRANSFER_ENCODING},
+    headers::{Headers, DATE, EXPECT, TRANSFER_ENCODING},
     other::Date,
     transfer::{Encoding, TransferEncoding},
-    Body, Extensions, Headers, Method, StatusCode, Url, Version,
+    Body, Extensions, Method, StatusCode, Url, Version,
 };
 use memmem::{Searcher, TwoWaySearcher};
 use std::future::Future;
@@ -352,7 +352,7 @@ where
         self.finish().await
     }
 
-    fn body_len(&self) -> Option<usize> {
+    fn body_len(&self) -> Option<u64> {
         match self.response_body {
             Some(ref body) => body.len(),
             None => Some(0),
@@ -377,7 +377,11 @@ where
     /// Encode the headers to a buffer, the first time we poll.
     async fn send_headers(&mut self) -> Result<()> {
         let status = self.status().unwrap_or(&StatusCode::NotFound);
-        let first_line = format!("HTTP/1.1 {} {}\r\n", status, status.canonical_reason());
+        let first_line = format!(
+            "HTTP/1.1 {} {}\r\n",
+            *status as u16,
+            status.canonical_reason()
+        );
         log::trace!("sending: {}", &first_line);
         self.rw.write_all(first_line.as_bytes()).await?;
 

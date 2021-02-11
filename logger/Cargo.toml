@@ -10,3 +10,7 @@ log = "0.4.13"
 colored = "2.0.0"
 chrono = "0.4.19"
 size = "0.1.2"
+
+[dev-dependencies]
+env_logger = "0.8.2"
+myco-smol-server = { path = "../smol-server" }

@@ -1,5 +1,10 @@
 use handlebars::Handlebars as ActualHandlebars;
 use myco::{async_trait, Conn, Grain};
+use serde::Serialize;
+use serde_json::{json, Value};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 // use std::ops::{Deref, DerefMut};
 // use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -44,21 +49,75 @@ impl Grain for Handlebars {
     }
 }
 
-#[async_trait]
+trait PrivateConnExt {}
+
 pub trait HandlebarsConnExt {
-    fn render(self, template: &str, data: &impl serde::Serialize) -> Self;
+    fn assign(self, key: impl Into<Cow<'static, str>> + Sized, data: impl Serialize) -> Self;
+    fn render_with(self, template: &str, data: &impl Serialize) -> Self;
+    fn render(self, template: &str) -> Self;
+    fn assigns(&self) -> Option<&Assigns>;
+    fn assigns_mut(&mut self) -> &mut Assigns;
 }
 
-#[async_trait]
+#[derive(Default, Serialize)]
+pub struct Assigns(HashMap<Cow<'static, str>, Value>);
+
+impl Deref for Assigns {
+    type Target = HashMap<Cow<'static, str>, Value>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Assigns {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl HandlebarsConnExt for Conn {
-    fn render(self, name: &str, data: &impl serde::Serialize) -> Self {
+    fn render_with(self, template: &str, data: &impl Serialize) -> Self {
         let h: &Handlebars = self
             .state()
             .expect("HandlebarsConnExt::render called without running the handler first");
-        let string = h.0.read().unwrap().render(name, data);
+        let string = h.0.read().unwrap().render(template, data);
         match string {
             Ok(string) => self.ok(string),
             Err(b) => self.status(500).body(b.to_string()),
         }
+    }
+
+    fn assign(mut self, key: impl Into<Cow<'static, str>>, data: impl Serialize) -> Self {
+        self.assigns_mut().insert(
+            key.into(),
+            serde_json::to_value(data).expect("could not serialize assigns"),
+        );
+        self
+    }
+
+    fn render(self, template: &str) -> Self {
+        let h: &Handlebars = self
+            .state()
+            .expect("HandlebarsConnExt::render called without running the handler first");
+
+        let string = if let Some(assigns) = self.assigns() {
+            h.0.read().unwrap().render(template, assigns)
+        } else {
+            h.0.read().unwrap().render(template, &json!({}))
+        };
+
+        match string {
+            Ok(string) => self.ok(string),
+            Err(b) => self.status(500).body(b.to_string()),
+        }
+    }
+
+    fn assigns(&self) -> Option<&Assigns> {
+        self.state()
+    }
+
+    fn assigns_mut(&mut self) -> &mut Assigns {
+        self.state_or_insert_with(Assigns::default)
     }
 }
