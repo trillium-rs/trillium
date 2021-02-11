@@ -3,31 +3,22 @@ use include_dir::{Dir, DirEntry, File};
 use myco::http_types::content::ContentType;
 use myco::{async_trait, Conn, Handler};
 
-pub enum IndexBehavior {
-    None,
-    File(&'static str),
-}
-
 pub struct StaticCompiled {
     dir: Dir<'static>,
-    index_behavior: IndexBehavior,
+    index_file: Option<&'static str>,
 }
 
 impl StaticCompiled {
     pub fn new(dir: Dir<'static>) -> Self {
         Self {
             dir,
-            index_behavior: IndexBehavior::None,
+            index_file: None,
         }
     }
 
-    pub fn with_index_behavior(mut self, index_behavior: IndexBehavior) -> Self {
-        self.index_behavior = index_behavior;
+    pub fn with_index_file(mut self, file: &'static str) -> Self {
+        self.index_file = Some(file);
         self
-    }
-
-    pub fn with_index_file(self, file: &'static str) -> Self {
-        self.with_index_behavior(IndexBehavior::File(file))
     }
 
     fn serve_file(&self, mut conn: Conn, file: File) -> Conn {
@@ -53,19 +44,20 @@ impl StaticCompiled {
 #[async_trait]
 impl Handler for StaticCompiled {
     async fn run(&self, conn: myco::Conn) -> myco::Conn {
-        match self.get_item(conn.path().trim_start_matches('/')) {
-            Some(DirEntry::File(file)) => self.serve_file(conn, file),
-            Some(DirEntry::Dir(dir)) => match self.index_behavior {
-                IndexBehavior::None => conn,
-                IndexBehavior::File(relative_index) => {
-                    if let Some(file) = dir.get_file(relative_index) {
-                        self.serve_file(conn, file)
-                    } else {
-                        conn
-                    }
+        match (
+            self.get_item(conn.path().trim_start_matches('/')),
+            self.index_file,
+        ) {
+            (None, _) => conn,
+            (Some(DirEntry::File(file)), _) => self.serve_file(conn, file),
+            (Some(DirEntry::Dir(_)), None) => conn,
+            (Some(DirEntry::Dir(dir)), Some(index_file)) => {
+                if let Some(file) = dir.get_file(index_file) {
+                    self.serve_file(conn, file)
+                } else {
+                    conn
                 }
-            },
-            None => conn,
+            }
         }
     }
 }
