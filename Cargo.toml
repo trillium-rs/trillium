@@ -22,5 +22,6 @@ members = [
   "tera",
   "tls-common",
   "tokio-server",
-  "websockets"
+  "websockets",
+  "static-compiled"
 ]
