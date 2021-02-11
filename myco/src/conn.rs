@@ -143,7 +143,7 @@ impl Conn {
     }
 
     pub fn ok(self, body: impl Into<Body>) -> Conn {
-        self.status(200).body(body)
+        self.status(200).body(body).halt()
     }
 
     pub fn secure(&self) -> bool {
