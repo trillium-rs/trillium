@@ -26,6 +26,10 @@ impl StaticCompiled {
         self
     }
 
+    pub fn with_index_file(self, file: &'static str) -> Self {
+        self.with_index_behavior(IndexBehavior::File(file))
+    }
+
     fn serve_file(&self, mut conn: Conn, file: File) -> Conn {
         if let Some(mime) = mime_db::lookup(file.path().to_string_lossy().as_ref()) {
             ContentType::new(mime).apply(conn.headers_mut());
@@ -49,7 +53,7 @@ impl StaticCompiled {
 #[async_trait]
 impl Handler for StaticCompiled {
     async fn run(&self, conn: myco::Conn) -> myco::Conn {
-        match dbg!(self.get_item(conn.path().trim_start_matches('/'))) {
+        match self.get_item(conn.path().trim_start_matches('/')) {
             Some(DirEntry::File(file)) => self.serve_file(conn, file),
             Some(DirEntry::Dir(dir)) => match self.index_behavior {
                 IndexBehavior::None => conn,

@@ -83,7 +83,7 @@ where
     }
 
     pub fn path(&self) -> &str {
-        &self.path
+        self.path.split('?').next().unwrap()
     }
 
     pub fn host(&self) -> Option<String> {
