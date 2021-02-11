@@ -1,0 +1,4 @@
+cargo build  --release --target x86_64-unknown-linux-musl && \
+# ln -s ../target/x86_64-unknown-linux-musl/release/myco-aws-lambda-example bootstrap && \
+ zip lambda.zip bootstrap && \
+ aws lambda update-function-code --function-name rustTest --zip-file fileb://lambda.zip --no-paginate

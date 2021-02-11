@@ -20,9 +20,10 @@ fn main() {
         Cookies,
         Sessions::new(CookieStore::new(), b"01234567890123456789012345678901123",),
         |conn: Conn| async move {
-            println!("lambda context: {:?}", conn.lambda_context());
             let count = conn.session().get::<usize>("count").unwrap_or_default();
+            let request_id = conn.lambda_context().request_id.clone();
             conn.send_header("request-count", count.to_string())
+                .send_header("request-id", request_id)
                 .with_session("count", count + 1)
         },
         Router::new()

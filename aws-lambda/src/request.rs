@@ -30,11 +30,11 @@ impl AlbRequest {
         let Self {
             http_method,
             path,
-            //            query_string_parameters,
             headers,
-            //            request_context,
             is_base64_encoded,
             body,
+            //            request_context,
+            //            query_string_parameters,
             ..
         } = self;
         let body = standardize_body(body, is_base64_encoded);

@@ -31,7 +31,7 @@ impl AlbMultiHeadersResponse {
         Self {
             is_base64_encoded,
             status_code: status as u16,
-            status_description: format!("{} {}", status, status.canonical_reason()),
+            status_description: format!("{} {}", status as u16, status.canonical_reason()),
             multi_value_headers,
             body,
         }
@@ -77,7 +77,7 @@ impl AlbResponse {
         Self {
             is_base64_encoded,
             status_code: status as u16,
-            status_description: format!("{} {}", status, status.canonical_reason()),
+            status_description: format!("{} {}", status as u16, status.canonical_reason()),
             headers,
             body,
         }
