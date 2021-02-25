@@ -10,16 +10,17 @@ core of myco.
 
 ## Routers
 
-Currently there is only one router, based on the same interface as
-tide's router,
-[`route-recognizer`](https://github.com/http-rs/route-recognizer). This
-router supports two types of patterns: Untyped params and wildcard
-globs. Named params are captured in a map-like interface. Any handler
-can be mounted inside of a Router (including other Routers), allowing
-entire applications to be mounted on a path, and allowing for
-sequences to be run on a given route.
+The myco router is based on
+[routefinder](https://github.com/jbr/routefinder). This router
+supports two types of patterns: Untyped params and a single
+wildcard. Named params are captured in a map-like interface. Any
+handler can be mounted inside of a Router (including other Routers),
+allowing entire applications to be mounted on a path, and allowing for
+sequences to be run on a given route. Any handler mounted inside of a
+route that includes a `*` will have the url rewritten to the contents
+of that star.
 
-Alternative routers that are not based on route-recognizer are a prime
+Alternative routers that are not based on routefinder are a prime
 opportunity for innovation and exploration.
 
 Here's a simple example of an application that responds to a request
@@ -33,7 +34,8 @@ http://localhost:8000 with "hello everyone"
 
 ### Experimental macro
 
-Because routers are very common, there's also a macro. Currently, the above example with a macro looks like:
+Because routers are very common, there's also a macro. Currently, the
+above example with a macro looks like:
 
 ```rust
 {{#include ../../router/examples/router_with_macro.rs}}
