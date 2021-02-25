@@ -68,6 +68,9 @@ impl WebSocketConnection {
     pub fn state<T: 'static>(&self) -> Option<&T> {
         self.state.get()
     }
+    pub fn take_state<T: 'static>(&mut self) -> Option<T> {
+        self.state.remove()
+    }
 }
 
 impl Stream for WebSocketConnection {
