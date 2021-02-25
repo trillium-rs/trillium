@@ -102,18 +102,20 @@ that has been accumulated by previous handlers in a sequence.
 
 ## Static file serving
 
-Myco offers very rudimentary static file serving for now. There is a
-lot of room for improvement. This example serves ../docs/book/
-(relative to the current working directory) at the root url, so
-../docs/book/index.html would be served at
-http://localhost:8000/index.html . There is not currently
-default-index-serving functionality, but that will be added soon.
+Myco offers two rudimentary approaches to static file serving for now. Neither of these approaches perform any cache-related header checking yet.
 
-There are a large number of additional features that this crate needs
-in order to be usable in a production environment.
+### From disk
+This handler loads content from disk at request, and does not yet do any in-memory caching.
 
 ```rust
 {{#include ../../static/examples/static.rs}}
+```
+
+### From memory, at compile time
+This handler includes all of the static content in the compiled binary, allowing it to be shipped independently from the assets.
+
+```rust
+{{#include ../../static-compiled/examples/static-compiled.rs}}
 ```
 
 ## Template engines

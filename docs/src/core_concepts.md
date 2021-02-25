@@ -24,7 +24,7 @@ here.
 
 ```rust
 pub fn main() {
-    myco_smol_server::run("localhost:8000", (), hello_world);
+    myco_smol_server::run(hello_world);
 }
 ```
 
@@ -32,13 +32,13 @@ We can also define this as a closure:
 
 ```rust
 pub fn main() {
-    myco_smol_server::run("localhost:8000", (), |conn: myco::Conn| async move {
+    myco_smol_server::run(|conn: myco::Conn| async move {
         conn.ok("hello world")
     });
 }
 ```
 
-This handler will respond to any request at port 8000, regardless of
+This handler will respond to any request at localhost:8080, regardless of
 path, and it will always send a `200 Ok` http status with the
 specified body of `"hello world"`.
 
@@ -123,28 +123,32 @@ currently:
 * `myco_tokio_server`
 * `myco_aws_lambda_server`
 
-> 🚧 The interface of these servers is one of the roughest parts of
-> myco, and will likely evolve substantially from where they are
-> today, including the addition of unix domain socket support
-
-
-The design of these is still fairly rough, but currently they each
-offer a `run` and `run_async` interface. If you already are in an
-async context (for example, by using `#[async_std::main]` or
-`#[tokio::main]`, you must use `run_async`. However, many web apps
-really only need to be async inside the server, so using `run`
-simplifies our required configuration steps.
-
 Although we've been using the smol server in these docs thus far, you
 should use whichever runtime you prefer. If you expect to have a
 dependency on async-std or tokio anyway, you might as well use the
 server for that runtime.
+
+To run myco on a different host or port, either provide a `HOST` and/or `PORT` environment variables, or compile the specific values into the server as follows:
+
+```rust
+{{#include ../../smol-server/examples/smol-server-with-config.rs}}
+```
 
 ### TLS / HTTPS
 
 With the exception of aws lambda, which provides its own tls
 termination at the load balancer, each of the above servers can be
 combined with either rustls or native-tls.
+
+Rustls:
+```rust
+{{#include ../../rustls/examples/rustls.rs}}
+```
+
+Native tls:
+```rust
+{{#include ../../native-tls/examples/native-tls.rs}}
+```
 
 ## Sequences
 
@@ -162,8 +166,8 @@ the connection until one of the handlers halts the conn.
 
 ```rust
 env_logger::init();
-run("localhost:8000", (), myco::Sequence::new()
-    .and(myco_logger::DevLogger),
+run(myco::Sequence::new()
+    .and(myco_logger::DevLogger)
     .and(|conn: Conn| async move { conn.ok("sequence!") }));
 ```
 
@@ -181,7 +185,7 @@ makes them even easier to build. Instead of writing
 
 ```rust
 env_logger::init();
-run("localhost:8000", (), myco::sequence![
+run(myco::sequence![
     myco_logger::DevLogger,
     |conn: Conn| async move { conn.ok("sequence!") }
 ]);
