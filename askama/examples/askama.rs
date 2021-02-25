@@ -8,7 +8,5 @@ struct HelloTemplate<'a> {
 }
 
 fn main() {
-    myco_smol_server::run("localhost:8081", (), |conn: Conn| async move {
-        conn.render(HelloTemplate { name: "world" })
-    });
+    myco_smol_server::run(|conn: Conn| async move { conn.render(HelloTemplate { name: "world" }) });
 }

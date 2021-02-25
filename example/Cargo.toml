@@ -14,8 +14,8 @@ myco-cookies = { path = "../cookies" }
 myco-sessions = { path = "../sessions" }
 myco-websockets = { path = "../websockets" }
 myco-smol-server = { path = "../smol-server" }
-myco-static = { path = "../static" }
 myco-askama = { path = "../askama" }
 myco-errors = { path = "../errors" }
 futures-lite = "1.11.3"
 askama = "0.10.5"
+myco-static-compiled = { path = "../static-compiled/" }
