@@ -1,6 +1,5 @@
-use async_fs::{File, ReadDir};
+use async_fs::File;
 use futures_lite::io::BufReader;
-use futures_lite::stream::StreamExt;
 use myco::http_types::content::ContentType;
 use myco::{async_trait, http_types::Body, Conn, Handler};
 use std::path::{Path, PathBuf};
