@@ -52,6 +52,12 @@ impl Handler for Box<dyn Handler> {
     }
 }
 
+impl std::fmt::Debug for Box<dyn Handler> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name().as_ref())
+    }
+}
+
 #[async_trait]
 impl<G: Handler> Handler for Arc<G> {
     async fn run(&self, conn: Conn) -> Conn {
