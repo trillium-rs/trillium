@@ -60,7 +60,7 @@ fn main() {
                 }
             },
 
-            get "*" StaticCompiled::new(include_dir!("../docs/book")).with_index_file("index.html")
+            get "*" StaticCompiled::new(include_dir!("./public/")).with_index_file("index.html")
         ]
     ]);
 }
