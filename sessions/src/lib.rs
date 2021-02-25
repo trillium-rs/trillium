@@ -57,7 +57,6 @@ impl<Store: SessionStore> Handler for Sessions<Store> {
             .and_then(|cookie| self.verify_signature(cookie.value()).ok());
 
         let mut session = self.load_or_create(cookie_value).await;
-        log::debug!("session: {:?}", session);
 
         if let Some(ttl) = self.session_ttl {
             session.expire_in(ttl);
@@ -93,7 +92,7 @@ impl<Store: SessionStore> Sessions<Store> {
             cookie_path: "/".into(),
             cookie_name: "myco.sid".into(),
             cookie_domain: None,
-            same_site_policy: SameSite::Strict,
+            same_site_policy: SameSite::Lax,
             session_ttl: Some(Duration::from_secs(24 * 60 * 60)),
             key: Key::derive_from(secret),
         }
