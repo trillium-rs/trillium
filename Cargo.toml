@@ -19,9 +19,10 @@ members = [
   "sessions",
   "smol-server",
   "static",
+  "static-compiled",
   "tera",
   "tls-common",
   "tokio-server",
   "websockets",
-  "static-compiled"
+  "proxy"
 ]
