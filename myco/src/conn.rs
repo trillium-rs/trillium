@@ -12,6 +12,7 @@ pub struct Conn {
     inner: myco_http::Conn<BoxedTransport>,
     halted: bool,
     before_send: Option<Vec<Box<dyn Handler>>>,
+    path: Vec<String>,
 }
 
 impl Debug for Conn {
@@ -30,6 +31,7 @@ impl Conn {
             inner: conn.map_transport(BoxedTransport::new),
             halted: false,
             before_send: None,
+            path: vec![],
         }
     }
 
@@ -125,7 +127,18 @@ impl Conn {
     }
 
     pub fn path(&self) -> &str {
-        self.inner.path()
+        self.path
+            .last()
+            .map(|p| &**p)
+            .unwrap_or_else(|| self.inner.path())
+    }
+
+    pub fn push_path(&mut self, path: String) {
+        self.path.push(path);
+    }
+
+    pub fn pop_path(&mut self) {
+        self.path.pop();
     }
 
     pub fn halt(mut self) -> Self {

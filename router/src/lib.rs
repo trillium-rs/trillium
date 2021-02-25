@@ -1,36 +1,57 @@
 use myco::{async_trait, http_types::Method, Conn, Handler};
-use route_recognizer::{Match, Params, Router as MethodRouter};
+use routefinder::{Captures, Match};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
 pub trait RouterConnExt {
     fn param<'a>(&'a self, param: &str) -> Option<&'a str>;
+    fn wildcard(&self) -> Option<&str>;
 }
 
 impl RouterConnExt for Conn {
     fn param<'a>(&'a self, param: &str) -> Option<&'a str> {
-        self.state::<Params>().and_then(|p| p.find(param))
+        self.state::<Captures>().and_then(|p| p.get(param))
+    }
+
+    fn wildcard(&self) -> Option<&str> {
+        self.state::<Captures>().and_then(|p| p.wildcard())
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Router {
-    method_map: HashMap<Method, MethodRouter<Box<dyn Handler>>>,
+    method_map: HashMap<Method, routefinder::Router<Box<dyn Handler>>>,
 }
 
 #[async_trait]
 impl Handler for Router {
-    async fn run(&self, mut conn: Conn) -> Conn {
-        if let Some(m) = self.recognize(conn.method(), conn.path()) {
-            conn.set_state(m.params().clone());
-            m.handler().run(conn).await
+    async fn run(&self, conn: Conn) -> Conn {
+        if let Some(m) = self.best_match(conn.method(), conn.path()) {
+            let captures = m.captures();
+            struct HasPath;
+            let mut new_conn = m
+                .handler()
+                .run({
+                    let mut conn = conn;
+                    if let Some(wildcard) = captures.wildcard() {
+                        conn.push_path(String::from(wildcard));
+                        conn.set_state(HasPath);
+                    }
+                    conn.with_state(captures)
+                })
+                .await;
+            if new_conn.take_state::<HasPath>().is_some() {
+                new_conn.pop_path();
+            }
+            new_conn
         } else {
+            println!("{} did not match", conn.path());
             conn
         }
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
-        if let Some(m) = self.recognize(conn.method(), conn.path()) {
+        if let Some(m) = self.best_match(conn.method(), conn.path()) {
             m.handler().before_send(conn).await
         } else {
             conn
@@ -38,7 +59,7 @@ impl Handler for Router {
     }
 
     fn has_upgrade(&self, upgrade: &myco::Upgrade) -> bool {
-        if let Some(m) = self.recognize(upgrade.method(), upgrade.path()) {
+        if let Some(m) = self.best_match(upgrade.method(), upgrade.path()) {
             m.handler().has_upgrade(upgrade)
         } else {
             false
@@ -46,7 +67,7 @@ impl Handler for Router {
     }
 
     async fn upgrade(&self, upgrade: myco::Upgrade) {
-        self.recognize(upgrade.method(), upgrade.path())
+        self.best_match(upgrade.method(), upgrade.path())
             .unwrap()
             .handler()
             .upgrade(upgrade)
@@ -54,13 +75,13 @@ impl Handler for Router {
     }
 
     fn name(&self) -> Cow<'static, str> {
-        "router (display tbd)".into()
+        format!("{:#?}", &self).into()
     }
 }
 
 macro_rules! method {
     ($fn_name:ident, $method:ident) => {
-        pub fn $fn_name(mut self, path: &str, handler: impl Handler) -> Self {
+        pub fn $fn_name(mut self, path: &'static str, handler: impl Handler) -> Self {
             self.add(path, Method::$method, handler);
             self
         }
@@ -74,21 +95,20 @@ impl Router {
         }
     }
 
-    #[allow(clippy::borrowed_box)] // this allow is because we don't have the ability to deref the
-                                   // contents of the Match container. Clippy wants us to return
-                                   // Option<Match<&dyn Handler>>, but route-recognizer would need
-                                   // to support that
-    pub fn recognize(&self, method: &Method, path: &str) -> Option<Match<&Box<dyn Handler>>> {
-        self.method_map
-            .get(method)
-            .and_then(|r| r.recognize(path).ok())
+    pub fn best_match<'a, 'b>(
+        &'a self,
+        method: &Method,
+        path: &'b str,
+    ) -> Option<Match<'a, 'b, Box<dyn Handler>>> {
+        self.method_map.get(method).and_then(|r| r.best_match(path))
     }
 
-    pub fn add(&mut self, path: &str, method: Method, handler: impl Handler) {
+    pub fn add(&mut self, path: &'static str, method: Method, handler: impl Handler) {
         self.method_map
             .entry(method)
-            .or_insert_with(MethodRouter::new)
+            .or_insert_with(routefinder::Router::new)
             .add(path, Box::new(handler))
+            .unwrap()
     }
 
     method!(get, Get);
