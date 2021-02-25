@@ -8,24 +8,17 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub struct Static {
     fs_root: PathBuf,
-    url_root: String,
-    serve_index: bool,
+    index_file: Option<&'static str>,
 }
 
 #[derive(Debug)]
 enum Record {
     File(PathBuf, File, u64),
-    Dir(PathBuf, ReadDir),
+    Dir(PathBuf),
 }
 
 impl Static {
     async fn resolve_fs_path(&self, url_path: &str) -> Option<PathBuf> {
-        if !url_path.starts_with(&self.url_root) {
-            return None;
-        }
-
-        let url_path = url_path.strip_prefix(&self.url_root).unwrap();
-
         let mut file_path = self.fs_root.clone();
         for segment in Path::new(url_path) {
             match segment.to_str() {
@@ -50,10 +43,7 @@ impl Static {
         let fs_path = self.resolve_fs_path(url_path).await?;
         let metadata = async_fs::metadata(&fs_path).await.ok()?;
         if metadata.is_dir() {
-            async_fs::read_dir(&fs_path)
-                .await
-                .ok()
-                .map(|dir| Record::Dir(fs_path, dir))
+            Some(Record::Dir(fs_path))
         } else if metadata.is_file() {
             let len = metadata.len();
             File::open(&fs_path)
@@ -65,68 +55,49 @@ impl Static {
         }
     }
 
-    async fn serve_index(&self, path: PathBuf, dir: ReadDir) -> String {
-        let output = dir
-            .filter_map(|f| f.ok())
-            .map(|f| {
-                format!(
-                    r#"<li><a href="{}{}">{}</a></li>"#,
-                    self.url_root,
-                    f.path()
-                        .strip_prefix(&self.fs_root)
-                        .unwrap()
-                        .to_string_lossy(),
-                    f.path().file_name().unwrap().to_string_lossy()
-                )
-            })
-            .collect::<Vec<_>>()
-            .await
-            .join("\n");
-
-        let dotdot = if path.parent().unwrap().starts_with(&self.fs_root) {
-            format!(
-                r#"<li><a href="{}{}">..</a></li>"#,
-                self.url_root,
-                path.parent()
-                    .unwrap()
-                    .strip_prefix(&self.fs_root)
-                    .unwrap()
-                    .to_string_lossy()
-            )
-        } else {
-            String::from("")
-        };
-
-        format!(
-            "<html><body><h1>{}</h1><ul>{}{}</ul></body></html>",
-            path.strip_prefix(&self.fs_root).unwrap().to_string_lossy(),
-            dotdot,
-            output
-        )
+    pub fn with_index_file(mut self, file: &'static str) -> Self {
+        self.index_file = Some(file);
+        self
     }
 
-    pub fn new(url_root: &str, fs_root: impl Into<PathBuf>) -> Self {
+    pub fn new(fs_root: impl Into<PathBuf>) -> Self {
         Self {
-            url_root: url_root.into(),
             fs_root: fs_root.into().canonicalize().unwrap(),
-            serve_index: true,
+            index_file: None,
         }
+    }
+
+    fn serve_file(mut conn: Conn, path: PathBuf, file: File, len: u64) -> Conn {
+        if let Some(mime) = path.to_str().and_then(mime_db::lookup) {
+            ContentType::new(mime).apply(conn.headers_mut());
+        }
+
+        conn.ok(Body::from_reader(BufReader::new(file), Some(len)))
     }
 }
 
 #[async_trait]
 impl Handler for Static {
-    async fn run(&self, mut conn: Conn) -> Conn {
+    async fn run(&self, conn: Conn) -> Conn {
         match self.resolve(conn.path()).await {
-            Some(Record::File(path, file, len)) => {
-                if let Some(mime) = path.to_str().and_then(mime_db::lookup) {
-                    ContentType::new(mime).apply(conn.headers_mut());
-                }
-                conn.ok(Body::from_reader(BufReader::new(file), Some(len)))
-            }
+            Some(Record::File(path, file, len)) => Self::serve_file(conn, path, file, len),
 
-            Some(Record::Dir(path, dir)) if self.serve_index => {
-                conn.ok(self.serve_index(path, dir).await)
+            Some(Record::Dir(path)) => {
+                if let Some(index) = self.index_file {
+                    let path = path.join(index);
+                    match async_fs::metadata(&path).await {
+                        Ok(md) => {
+                            let len = md.len();
+                            match File::open(path.to_str().unwrap()).await {
+                                Ok(file) => Self::serve_file(conn, path, file, len),
+                                Err(_) => conn,
+                            }
+                        }
+                        Err(_) => conn,
+                    }
+                } else {
+                    conn
+                }
             }
 
             _ => conn,
