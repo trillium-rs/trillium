@@ -21,6 +21,7 @@ members = [
   "static",
   "static-compiled",
   "tera",
+  "testing",
   "tls-common",
   "tokio-server",
   "websockets",

@@ -1,0 +1,10 @@
+[package]
+name = "myco-testing"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+myco = { path = "../myco" }
+myco-http = { path = "../http" }
+futures-lite = "1.11.3"
