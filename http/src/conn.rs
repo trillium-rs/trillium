@@ -101,7 +101,7 @@ where
         } else if method == &Method::Connect {
             Ok(Url::parse(&format!("http://{}/", path))?)
         } else {
-            Err(Error::UnexpectedURIFormat)
+            Err(Error::UnexpectedUriFormat)
         }
     }
 

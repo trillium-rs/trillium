@@ -90,7 +90,7 @@ impl<S: Server<Transport = T>, A: Acceptor<T>, T: Transport> Config<S, A, T> {
             .as_ref()
             .map(String::from)
             .or_else(|| std::env::var("HOST").ok())
-            .unwrap_or(String::from("localhost"))
+            .unwrap_or_else(|| String::from("localhost"))
     }
 
     pub fn port(&self) -> u16 {

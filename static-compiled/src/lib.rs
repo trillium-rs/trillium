@@ -29,7 +29,7 @@ impl StaticCompiled {
     }
 
     fn get_item(&self, path: &str) -> Option<DirEntry> {
-        if path == "" {
+        if path.is_empty() {
             Some(DirEntry::Dir(self.dir))
         } else if let Some(dir) = self.dir.get_dir(path) {
             Some(DirEntry::Dir(dir))

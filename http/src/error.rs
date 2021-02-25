@@ -9,7 +9,7 @@ use thiserror::Error;
 pub enum Error {
     /// [`std::io::Error`]
     #[error(transparent)]
-    IO(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
 
     /// [`url::ParseError`]
     #[error(transparent)]
@@ -18,7 +18,7 @@ pub enum Error {
     /// this error describes a malformed request with a path that does
     /// not start with / or http:// or https://
     #[error("unexpected uri format")]
-    UnexpectedURIFormat,
+    UnexpectedUriFormat,
 
     /// this error describes a http 1.1 request that is missing a Host
     /// header
