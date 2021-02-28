@@ -228,12 +228,16 @@ where
         loop {
             buf.extend(std::iter::repeat(0).take(100));
             let bytes = rw.read(&mut buf[len..]).await?;
-            let search = searcher.search_in(&buf[len..]);
+            let search_start = len.max(3) - 3;
+            let search = searcher.search_in(&buf[search_start..]);
 
             if let Some(index) = search {
                 buf.truncate(len + bytes);
-                log::trace!("in head, finished headers:\n {}", utf8(&buf[..len + index]));
-                let body = buf.split_off(len + index + 4);
+                log::trace!(
+                    "in head, finished headers:\n {}",
+                    utf8(&buf[..search_start + index])
+                );
+                let body = buf.split_off(search_start + index + 4);
                 if !body.is_empty() {
                     log::trace!("read the front of the body: {}", utf8(&body));
                 }
