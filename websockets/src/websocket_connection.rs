@@ -19,11 +19,11 @@ pub struct WebSocketConnection {
 
 impl WebSocketConnection {
     pub async fn send_string(&mut self, s: String) {
-        self.wss.send(Message::Text(s)).await.unwrap();
+        self.wss.send(Message::Text(s)).await.ok();
     }
 
     pub async fn send_bytes(&mut self, bytes: Vec<u8>) {
-        self.wss.send(Message::Binary(bytes)).await.unwrap();
+        self.wss.send(Message::Binary(bytes)).await.ok();
     }
 
     pub async fn send_json(&mut self, json: &impl serde::Serialize) -> serde_json::Result<()> {
