@@ -103,3 +103,10 @@ impl Handler for Static {
         }
     }
 }
+
+#[macro_export]
+macro_rules! relative_path {
+    ($path:literal) => {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/", $path)
+    };
+}
