@@ -3,27 +3,11 @@ use std::convert::TryInto;
 use async_net::TcpStream;
 use http_types::Request;
 use myco::http_types::Body;
-use myco::{async_trait, Conn, Handler};
+use myco::{async_trait, conn_try, Conn, Handler};
 use url::Url;
 
 pub struct Proxy {
     target: Url,
-}
-
-macro_rules! conn_try {
-    ($conn:expr, $expr:expr) => {
-        conn_try!($conn, $expr, "error")
-    };
-
-    ($conn:expr, $expr:expr, $format_str:literal) => {
-        match $expr {
-            Ok(value) => value,
-            Err(error) => {
-                log::error!(concat!($format_str, ": {}"), error);
-                return $conn.status(500);
-            }
-        }
-    };
 }
 
 #[async_trait]
@@ -41,6 +25,7 @@ impl Handler for Proxy {
         }
 
         let mut response = conn_try!(conn, async_h1::connect(tcp_stream, request).await);
+
         if response.status() == 404 {
             conn
         } else {
