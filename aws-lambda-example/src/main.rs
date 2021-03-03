@@ -22,8 +22,8 @@ fn main() {
         |conn: Conn| async move {
             let count = conn.session().get::<usize>("count").unwrap_or_default();
             let request_id = conn.lambda_context().request_id.clone();
-            conn.send_header("request-count", count.to_string())
-                .send_header("request-id", request_id)
+            conn.with_header(("request-count", count.to_string()))
+                .with_header(("request-id", request_id))
                 .with_session("count", count + 1)
         },
         Router::new()

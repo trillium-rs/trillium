@@ -23,7 +23,7 @@ impl StaticCompiled {
 
     fn serve_file(&self, mut conn: Conn, file: File) -> Conn {
         if let Some(mime) = mime_db::lookup(file.path().to_string_lossy().as_ref()) {
-            ContentType::new(mime).apply(conn.headers_mut());
+            conn.headers_mut().apply(ContentType::new(mime));
         }
         conn.ok(file.contents())
     }
@@ -43,7 +43,7 @@ impl StaticCompiled {
 
 #[async_trait]
 impl Handler for StaticCompiled {
-    async fn run(&self, conn: myco::Conn) -> myco::Conn {
+    async fn run(&self, conn: Conn) -> Conn {
         match (
             self.get_item(conn.path().trim_start_matches('/')),
             self.index_file,

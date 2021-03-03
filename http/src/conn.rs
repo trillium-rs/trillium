@@ -2,7 +2,7 @@ use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt}
 use http_types::headers::{CONTENT_TYPE, HOST, UPGRADE};
 use http_types::{
     content::ContentLength,
-    headers::{Headers, DATE, EXPECT, TRANSFER_ENCODING},
+    headers::{Header, Headers, DATE, EXPECT, TRANSFER_ENCODING},
     other::Date,
     transfer::{Encoding, TransferEncoding},
     Body, Extensions, Method, StatusCode, Url, Version,
@@ -169,6 +169,7 @@ where
         let mut httparse_req = httparse::Request::new(&mut headers);
         let status = httparse_req.parse(&buf[..])?;
         if status.is_partial() {
+            log::debug!("partial head content: {}", utf8(&buf[..]));
             return Err(Error::PartialHead);
         }
 
@@ -250,6 +251,7 @@ where
                 if len == 0 {
                     return Err(Error::ClosedByClient);
                 } else {
+                    log::debug!("disconnect? partial head content: \n\n{:?}", utf8(&buf[..]));
                     return Err(Error::PartialHead);
                 }
             }
@@ -368,13 +370,14 @@ where
             // If the body isn't streaming, we can set the content-length ahead of time. Else we need to
             // send all items in chunks.
             if let Some(len) = self.body_len() {
-                ContentLength::new(len as u64).apply(&mut self.response_headers);
+                self.response_headers.apply(ContentLength::new(len));
             } else {
-                TransferEncoding::new(Encoding::Chunked).apply(&mut self.response_headers);
+                self.response_headers
+                    .apply(TransferEncoding::new(Encoding::Chunked));
             }
         }
         if self.response_headers.get(DATE).is_none() {
-            Date::now().apply(&mut self.response_headers);
+            Date::now().apply_header(&mut self.response_headers);
         }
     }
 

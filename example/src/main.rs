@@ -3,6 +3,7 @@ use futures_lite::prelude::*;
 use myco::{sequence, Conn};
 use myco_askama::AskamaConnExt;
 use myco_cookies::Cookies;
+use myco_dashboard::Dashboard;
 use myco_logger::DevLogger;
 use myco_router::{routes, RouterConnExt};
 use myco_sessions::{MemoryStore, SessionConnExt, Sessions};
@@ -19,13 +20,13 @@ fn main() {
     env_logger::init();
 
     myco_smol_server::run(sequence![
-        // this macro is optional. sequence![x, y] is sugar for myco::Sequence::new().and(x).and(y), which is a Vec<Box<dyn Handler>>
         DevLogger,
+        Dashboard::new(),
         Cookies,
         Sessions::new(MemoryStore::new(), b"01234567890123456789012345678901123",),
         |conn: Conn| async move {
             let count = conn.session().get::<usize>("count").unwrap_or_default();
-            conn.send_header("request-count", count.to_string())
+            conn.with_header(("request-count", count.to_string()))
                 .with_session("count", count + 1)
         },
         routes![

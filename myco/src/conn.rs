@@ -1,5 +1,5 @@
 use crate::http_types::{
-    headers::{HeaderName, Headers, ToHeaderValues},
+    headers::{Header, HeaderName, Headers, ToHeaderValues},
     Body, Method, StatusCode, Url,
 };
 use myco_http::RequestBody;
@@ -90,8 +90,8 @@ impl Conn {
         self.inner.response_headers()
     }
 
-    pub fn send_header(mut self, name: impl Into<HeaderName>, values: impl ToHeaderValues) -> Self {
-        self.headers_mut().insert(name, values);
+    pub fn with_header(mut self, header: impl Header) -> Self {
+        self.headers_mut().apply(header);
         self
     }
 

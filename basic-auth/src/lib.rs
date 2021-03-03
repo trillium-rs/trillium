@@ -33,7 +33,7 @@ impl BasicAuth {
 
     pub fn deny(&self, conn: Conn) -> Conn {
         conn.status(StatusCode::Unauthorized)
-            .send_header("www-authenticate", self.www_authenticate())
+            .with_header(("www-authenticate", &*self.www_authenticate()))
             .halt()
     }
 }
