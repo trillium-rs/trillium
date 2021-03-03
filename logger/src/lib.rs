@@ -38,7 +38,7 @@ impl Handler for DevLogger {
                 response_time = std::time::Instant::now() - start.0,
                 method = method,
                 url = conn.path(),
-                status = status.to_string().color(match *status as u16 {
+                status = (*status as u16).to_string().color(match *status as u16 {
                     200..=299 => "green",
                     300..=399 => "cyan",
                     400..=499 => "yellow",
