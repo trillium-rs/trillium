@@ -1,9 +1,10 @@
 use async_net::{TcpListener, TcpStream};
 use myco::{async_trait, Handler};
-use myco_server_common::{handle_stream, Acceptor, Server};
+use myco_server_common::{handle_stream, Acceptor};
 use smol::prelude::*;
 use std::sync::Arc;
 
+pub use myco_server_common::Server;
 pub type Config<A> = myco_server_common::Config<SmolServer, A, TcpStream>;
 
 pub struct SmolServer;
@@ -23,12 +24,14 @@ impl Server for SmolServer {
         let socket_addrs = config.socket_addrs();
         let acceptor = config.acceptor();
         let listener = TcpListener::bind(&socket_addrs[..]).await.unwrap();
+
         log::info!("listening on {:?}", listener.local_addr().unwrap());
         let mut incoming = listener.incoming();
         handler.init().await;
         let handler = Arc::new(handler);
 
         while let Some(Ok(stream)) = incoming.next().await {
+            myco::log_error!(stream.set_nodelay(config.nodelay()));
             smol::spawn(handle_stream(stream, acceptor.clone(), handler.clone())).detach();
         }
     }

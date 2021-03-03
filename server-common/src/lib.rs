@@ -53,6 +53,7 @@ pub struct Config<S, A, T> {
     host: Option<String>,
     transport: PhantomData<T>,
     server: PhantomData<S>,
+    nodelay: bool,
 }
 
 impl<S, T> Default for Config<S, (), T> {
@@ -63,6 +64,7 @@ impl<S, T> Default for Config<S, (), T> {
             host: None,
             transport: PhantomData,
             server: PhantomData,
+            nodelay: false,
         }
     }
 }
@@ -117,10 +119,20 @@ impl<S: Server<Transport = T>, A: Acceptor<T>, T: Transport> Config<S, A, T> {
         self
     }
 
+    pub fn nodelay(&self) -> bool {
+        self.nodelay
+    }
+
+    pub fn set_nodelay(mut self) -> Self {
+        self.nodelay = true;
+        self
+    }
+
     pub fn with_acceptor<A1: Acceptor<T>>(self, acceptor: A1) -> Config<S, A1, T> {
         Config {
             host: self.host,
             port: self.port,
+            nodelay: self.nodelay,
             transport: PhantomData,
             server: PhantomData,
             acceptor,

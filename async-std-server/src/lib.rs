@@ -29,6 +29,7 @@ impl Server for AsyncStdServer {
         let handler = Arc::new(handler);
 
         while let Some(Ok(stream)) = incoming.next().await {
+            myco::log_error!(stream.set_nodelay(config.nodelay()));
             task::spawn(handle_stream(stream, acceptor.clone(), handler.clone()));
         }
     }

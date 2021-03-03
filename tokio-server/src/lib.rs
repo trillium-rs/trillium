@@ -34,6 +34,7 @@ impl Server for TokioServer {
         let handler = Arc::new(handler);
 
         while let Ok((socket, _)) = listener.accept().await {
+            myco::log_error!(socket.set_nodelay(config.nodelay()));
             tokio::spawn(handle_stream(
                 Compat::new(socket),
                 acceptor.clone(),
