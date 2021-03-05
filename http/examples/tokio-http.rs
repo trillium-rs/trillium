@@ -1,6 +1,6 @@
 use async_compat::Compat;
 use futures_lite::prelude::*;
-use myco_http::Conn;
+use myco_http::{Conn, Stopper};
 use tokio::net::{TcpListener, TcpStream};
 
 async fn handler(mut conn: Conn<Compat<TcpStream>>) -> Conn<Compat<TcpStream>> {
@@ -17,12 +17,14 @@ async fn handler(mut conn: Conn<Compat<TcpStream>>) -> Conn<Compat<TcpStream>> {
 #[tokio::main]
 pub async fn main() {
     env_logger::init();
+    let stopper = Stopper::new();
     let listener = TcpListener::bind("127.0.0.1:8081").await.unwrap();
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
+                let stopper = stopper.clone();
                 tokio::spawn(async move {
-                    match Conn::map(Compat::new(stream), &handler).await {
+                    match Conn::map(Compat::new(stream), stopper, handler).await {
                         Ok(Some(_)) => log::info!("upgrade"),
                         Ok(None) => log::info!("closing connection"),
                         Err(e) => log::error!("{:?}", e),
