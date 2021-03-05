@@ -1,7 +1,7 @@
 use async_compat::Compat;
 use futures::stream::StreamExt;
 use myco::{async_trait, Handler};
-use myco_server_common::{Acceptor, Server};
+use myco_server_common::{Acceptor, Server, Stopper};
 use std::sync::Arc;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -10,7 +10,7 @@ use tokio::{
 use tokio_stream::wrappers::TcpListenerStream;
 
 #[cfg(unix)]
-async fn handle_signals(stop: myco::Stopper) {
+async fn handle_signals(stop: Stopper) {
     use signal_hook::consts::signal::*;
     use signal_hook_tokio::Signals;
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
@@ -45,8 +45,13 @@ impl Server for TokioServer {
         config: Config<A>,
         mut handler: H,
     ) {
-        #[cfg(unix)]
-        tokio::spawn(handle_signals(config.stopper()));
+        if config.should_register_signals() {
+            #[cfg(unix)]
+            tokio::spawn(handle_signals(config.stopper()));
+            #[cfg(not(unix))]
+            panic!("signals handling not supported on windows yet");
+        }
+
         let socket_addrs = config.socket_addrs();
         let listener = TcpListener::bind(&socket_addrs[..]).await.unwrap();
         log::info!("listening on {:?}", listener.local_addr().unwrap());

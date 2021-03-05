@@ -39,8 +39,12 @@ impl Server for AsyncStdServer {
         config: Config<A>,
         mut handler: H,
     ) {
-        #[cfg(unix)]
-        task::spawn(handle_signals(config.stopper()));
+        if config.should_register_signals() {
+            #[cfg(unix)]
+            task::spawn(handle_signals(config.stopper()));
+            #[cfg(not(unix))]
+            panic!("signals handling not supported on windows yet");
+        }
 
         let socket_addrs = config.socket_addrs();
         let listener = TcpListener::bind(&socket_addrs[..]).await.unwrap();

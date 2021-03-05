@@ -73,6 +73,7 @@ pub struct Config<S, A, T> {
     nodelay: bool,
     stopper: Stopper,
     counter: CloneCounter,
+    register_signals: bool,
 }
 
 impl<S, A: Clone, T> Clone for Config<S, A, T> {
@@ -86,6 +87,7 @@ impl<S, A: Clone, T> Clone for Config<S, A, T> {
             nodelay: self.nodelay,
             stopper: self.stopper.clone(),
             counter: self.counter.clone(),
+            register_signals: self.register_signals,
         }
     }
 }
@@ -101,6 +103,7 @@ impl<S, T> Default for Config<S, (), T> {
             nodelay: false,
             stopper: Stopper::new(),
             counter: CloneCounter::new(),
+            register_signals: cfg!(unix),
         }
     }
 }
@@ -163,6 +166,15 @@ impl<S: Server<Transport = T>, A: Acceptor<T>, T: Transport> Config<S, A, T> {
         self.nodelay
     }
 
+    pub fn without_signals(mut self) -> Self {
+        self.register_signals = false;
+        self
+    }
+
+    pub fn should_register_signals(&self) -> bool {
+        self.register_signals
+    }
+
     pub fn set_nodelay(mut self) -> Self {
         self.nodelay = true;
         self
@@ -182,6 +194,7 @@ impl<S: Server<Transport = T>, A: Acceptor<T>, T: Transport> Config<S, A, T> {
             stopper: self.stopper,
             acceptor,
             counter: self.counter,
+            register_signals: self.register_signals,
         }
     }
 

@@ -39,8 +39,12 @@ impl Server for SmolServer {
         config: Config<A>,
         mut handler: H,
     ) {
-        #[cfg(unix)]
-        smol::spawn(handle_signals(config.stopper())).detach();
+        if config.should_register_signals() {
+            #[cfg(unix)]
+            smol::spawn(handle_signals(config.stopper())).detach();
+            #[cfg(not(unix))]
+            panic!("signals handling not supported on windows yet");
+        }
 
         let socket_addrs = config.socket_addrs();
         let listener = TcpListener::bind(&socket_addrs[..]).await.unwrap();
