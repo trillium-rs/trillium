@@ -10,6 +10,7 @@ pub type Config<A> = myco_server_common::Config<SmolServer, A, TcpStream>;
 use signal_hook::consts::signal::*;
 use signal_hook_async_std::Signals;
 
+#[cfg(unix)]
 async fn handle_signals(stop: Stopper) {
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
     let mut signals = signals.fuse();
@@ -38,7 +39,9 @@ impl Server for SmolServer {
         config: Config<A>,
         mut handler: H,
     ) {
+        #[cfg(unix)]
         smol::spawn(handle_signals(config.stopper())).detach();
+
         let socket_addrs = config.socket_addrs();
         let listener = TcpListener::bind(&socket_addrs[..]).await.unwrap();
         log::info!("listening on {:?}", listener.local_addr().unwrap());

@@ -7,10 +7,11 @@ use std::sync::Arc;
 pub use myco_server_common::Server;
 pub type Config<A> = myco_server_common::Config<AsyncStdServer, A, TcpStream>;
 
-use signal_hook::consts::signal::*;
-use signal_hook_async_std::Signals;
-
+#[cfg(unix)]
 async fn handle_signals(stop: Stopper) {
+    use signal_hook::consts::signal::*;
+    use signal_hook_async_std::Signals;
+
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
     let mut signals = signals.fuse();
     while signals.next().await.is_some() {
@@ -38,7 +39,9 @@ impl Server for AsyncStdServer {
         config: Config<A>,
         mut handler: H,
     ) {
+        #[cfg(unix)]
         task::spawn(handle_signals(config.stopper()));
+
         let socket_addrs = config.socket_addrs();
         let listener = TcpListener::bind(&socket_addrs[..]).await.unwrap();
         log::info!("listening on {:?}", listener.local_addr().unwrap());
