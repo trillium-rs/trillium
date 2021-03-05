@@ -1,0 +1,28 @@
+[package]
+name = "myco-cli"
+version = "0.0.10"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+description = "a simple http file server binary based on tide"
+keywords = ["tide", "http", "file", "server"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/jbr/tide-serve"
+
+[dependencies]
+env_logger = "0.8.3"
+log = "0.4.14"
+myco = { path = "../myco" }
+myco-logger = { path = "../logger" }
+myco-native-tls = { path = "../native-tls/" }
+myco-proxy = { path = "../proxy" }
+myco-rustls = { path = "../rustls/" }
+myco-smol-server = { path = "../smol-server" }
+myco-static = { path = "../static" }
+structopt = "0.3.21"
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3.4"
+libc = "0.2.86"
+nix = "0.19.1"
+notify = "4.0.15"

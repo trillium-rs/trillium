@@ -45,7 +45,7 @@ impl Handler for Router {
             }
             new_conn
         } else {
-            println!("{} did not match", conn.path());
+            log::trace!("{} did not match any route", conn.path());
             conn
         }
     }

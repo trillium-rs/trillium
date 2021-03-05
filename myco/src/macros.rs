@@ -45,7 +45,13 @@ macro_rules! conn_ok {
 macro_rules! log_error {
     ($expr:expr) => {
         if let Err(err) = $expr {
-            log::error!("{:?}", err);
+            log::error!("{}:{} {:?}", file!(), line!(), err);
+        }
+    };
+
+    ($expr:expr, $message:expr) => {
+        if let Err(err) = $expr {
+            log::error!("{}:{} {} {:?}", file!(), line!(), $message, err);
         }
     };
 }

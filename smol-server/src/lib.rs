@@ -1,7 +1,8 @@
+use async_global_executor::{block_on, spawn};
 use async_net::{TcpListener, TcpStream};
+use futures_lite::prelude::*;
 use myco::{async_trait, Handler};
 use myco_server_common::Acceptor;
-use smol::prelude::*;
 use std::sync::Arc;
 
 pub use myco_server_common::Server;
@@ -32,7 +33,7 @@ impl Server for SmolServer {
     type Transport = TcpStream;
 
     fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
-        smol::block_on(async move { Self::run_async(config, handler).await })
+        block_on(Self::run_async(config, handler))
     }
 
     async fn run_async<A: Acceptor<Self::Transport>, H: Handler>(
@@ -41,7 +42,7 @@ impl Server for SmolServer {
     ) {
         if config.should_register_signals() {
             #[cfg(unix)]
-            smol::spawn(handle_signals(config.stopper())).detach();
+            spawn(handle_signals(config.stopper())).detach();
             #[cfg(not(unix))]
             panic!("signals handling not supported on windows yet");
         }
@@ -55,7 +56,7 @@ impl Server for SmolServer {
 
         while let Some(Ok(stream)) = incoming.next().await {
             myco::log_error!(stream.set_nodelay(config.nodelay()));
-            smol::spawn(config.clone().handle_stream(stream, handler.clone())).detach();
+            spawn(config.clone().handle_stream(stream, handler.clone())).detach();
         }
 
         config.graceful_shutdown().await;

@@ -6,6 +6,7 @@ members = [
   "aws-lambda-example",
   "basic-auth",
   "cookies",
+  "cli",
   "errors",
   "example",
   "handlebars",

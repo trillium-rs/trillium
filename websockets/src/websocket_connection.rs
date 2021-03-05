@@ -61,6 +61,14 @@ impl WebSocketConnection {
         }
     }
 
+    pub fn stopper(&self) -> Stopper {
+        self.stopper.clone()
+    }
+
+    pub async fn close(&mut self) {
+        self.wss.close(None).await.ok();
+    }
+
     pub fn headers(&self) -> &Headers {
         &self.request_headers
     }
