@@ -5,7 +5,7 @@ use async_tungstenite::{tungstenite::Message, WebSocketStream};
 pub use futures_util::stream::Stream;
 use futures_util::SinkExt;
 use myco::http_types::{headers::Headers, Extensions, Method};
-use myco::{BoxedTransport, Upgrade};
+use myco::{BoxedTransport, Stopper, Upgrade};
 use std::task::{Context, Poll};
 
 #[derive(Debug)]
@@ -14,7 +14,9 @@ pub struct WebSocketConnection {
     path: String,
     method: Method,
     state: Extensions,
+    stopper: Stopper,
     wss: WebSocketStream<BoxedTransport>,
+    waker_id: Option<usize>,
 }
 
 impl WebSocketConnection {
@@ -39,6 +41,7 @@ impl WebSocketConnection {
             state,
             buffer,
             rw,
+            stopper,
         } = upgrade;
 
         let wss = if let Some(vec) = buffer {
@@ -53,6 +56,8 @@ impl WebSocketConnection {
             method,
             state,
             wss,
+            stopper,
+            waker_id: None,
         }
     }
 
@@ -77,6 +82,29 @@ impl Stream for WebSocketConnection {
     type Item = crate::Result;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.wss).poll_next(cx)
+        if self.stopper.is_stopped() {
+            return Poll::Ready(None);
+        } else {
+            match Pin::new(&mut self.wss).poll_next(cx) {
+                Poll::Ready(r) => Poll::Ready(r),
+                Poll::Pending => {
+                    let WebSocketConnection {
+                        ref stopper,
+                        ref mut waker_id,
+                        ..
+                    } = *self;
+                    stopper.replace(waker_id, &cx);
+                    Poll::Pending
+                }
+            }
+        }
+    }
+}
+
+impl Drop for WebSocketConnection {
+    fn drop(&mut self) {
+        if let Some(id) = self.waker_id {
+            self.stopper.remove_waker(id);
+        }
     }
 }

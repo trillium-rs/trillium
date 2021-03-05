@@ -4,6 +4,7 @@ use http_types::{Extensions, Method, Version};
 
 use std::task::Poll;
 
+use crate::Stopper;
 use crate::{request_body::RequestBodyState, Conn};
 
 pub struct Synthetic(Option<Vec<u8>>, usize);
@@ -73,6 +74,7 @@ impl Conn<Synthetic> {
             buffer: None,
             request_body_state: RequestBodyState::Start,
             secure: false,
+            stopper: Stopper::new(),
         }
     }
 

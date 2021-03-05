@@ -20,3 +20,5 @@ mod upgrade;
 pub use upgrade::Upgrade;
 
 pub use http_types;
+
+pub use stopper::Stopper;

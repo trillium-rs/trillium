@@ -15,6 +15,7 @@ use std::{
     fmt::{self, Debug, Formatter},
 };
 
+use crate::Stopper;
 use crate::{
     body_encoder::BodyEncoder, request_body::RequestBodyState, Error, RequestBody, Result, Upgrade,
 };
@@ -42,6 +43,7 @@ pub struct Conn<RW> {
     pub(crate) buffer: Option<Vec<u8>>,
     pub(crate) request_body_state: RequestBodyState,
     pub(crate) secure: bool,
+    pub(crate) stopper: Stopper,
 }
 
 impl<RW> Debug for Conn<RW> {
@@ -142,12 +144,16 @@ where
         RequestBody::new(self)
     }
 
-    pub async fn map<F, Fut>(rw: RW, f: F) -> crate::Result<Option<Upgrade<RW>>>
+    pub fn stopper(&self) -> Stopper {
+        self.stopper.clone()
+    }
+
+    pub async fn map<F, Fut>(rw: RW, stopper: Stopper, f: F) -> crate::Result<Option<Upgrade<RW>>>
     where
         F: Fn(Conn<RW>) -> Fut,
         Fut: Future<Output = Conn<RW>> + Send,
     {
-        let mut conn = Conn::new(rw, None).await?;
+        let mut conn = Conn::new(rw, None, stopper).await?;
 
         loop {
             conn = match f(conn).await.encode().await? {
@@ -158,8 +164,8 @@ where
         }
     }
 
-    pub async fn new(rw: RW, bytes: Option<Vec<u8>>) -> Result<Self> {
-        let (rw, buf, extra_bytes) = Self::head(rw, bytes).await?;
+    pub async fn new(rw: RW, bytes: Option<Vec<u8>>, stopper: Stopper) -> Result<Self> {
+        let (rw, buf, extra_bytes) = Self::head(rw, bytes, &stopper).await?;
         let buffer = if extra_bytes.is_empty() {
             None
         } else {
@@ -209,6 +215,7 @@ where
             response_body: None,
             request_body_state: RequestBodyState::Start,
             secure: false,
+            stopper,
         })
     }
 
@@ -221,14 +228,26 @@ where
         Ok(self.rw.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await?)
     }
 
-    async fn head(mut rw: RW, bytes: Option<Vec<u8>>) -> Result<(RW, Vec<u8>, Vec<u8>)> {
+    async fn head(
+        mut rw: RW,
+        bytes: Option<Vec<u8>>,
+        stopper: &Stopper,
+    ) -> Result<(RW, Vec<u8>, Vec<u8>)> {
         let mut buf = bytes.unwrap_or_default();
         let mut len = 0;
 
         let searcher = TwoWaySearcher::new(b"\r\n\r\n");
         loop {
             buf.extend(std::iter::repeat(0).take(100));
-            let bytes = rw.read(&mut buf[len..]).await?;
+            let bytes = if len == 0 {
+                stopper
+                    .stop_future(rw.read(&mut buf[len..]))
+                    .await
+                    .ok_or(Error::Shutdown)??
+            } else {
+                rw.read(&mut buf[len..]).await?
+            };
+
             let search_start = len.max(3) - 3;
             let search = searcher.search_in(&buf[search_start..]);
 
@@ -267,7 +286,7 @@ where
     }
 
     pub async fn next(self) -> Result<Self> {
-        Conn::new(self.rw, self.buffer).await
+        Conn::new(self.rw, self.buffer, self.stopper).await
     }
 
     fn should_close(&self) -> bool {
@@ -367,8 +386,6 @@ where
 
     fn finalize_headers(&mut self) {
         if self.response_headers.get(TRANSFER_ENCODING).is_none() {
-            // If the body isn't streaming, we can set the content-length ahead of time. Else we need to
-            // send all items in chunks.
             if let Some(len) = self.body_len() {
                 self.response_headers.apply(ContentLength::new(len));
             } else {
@@ -376,6 +393,11 @@ where
                     .apply(TransferEncoding::new(Encoding::Chunked));
             }
         }
+
+        if self.stopper.is_stopped() {
+            self.response_headers.insert("connection", "close");
+        }
+
         if self.response_headers.get(DATE).is_none() {
             Date::now().apply_header(&mut self.response_headers);
         }
@@ -428,6 +450,7 @@ where
             secure,
             method,
             response_body,
+            stopper,
         } = self;
 
         Conn {
@@ -443,6 +466,7 @@ where
             buffer,
             request_body_state,
             secure,
+            stopper,
         }
     }
 }

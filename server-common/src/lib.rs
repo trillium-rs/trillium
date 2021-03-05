@@ -1,50 +1,67 @@
+use atomic_waker::AtomicWaker;
+use futures_lite::Future;
+use myco::{async_trait, BoxedTransport, Conn, Error, Handler, Transport};
+use myco_http::Conn as HttpConn;
 use std::marker::PhantomData;
 use std::net::ToSocketAddrs;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::task::Poll;
 
-use myco::{async_trait, BoxedTransport, Conn, Handler, Transport};
-use myco_http::Conn as HttpConn;
+pub use myco_http::Stopper;
 pub use myco_tls_common::Acceptor;
 
-pub async fn handle_stream<T: Transport>(
-    stream: T,
-    acceptor: impl Acceptor<T>,
-    handler: impl Handler,
-) {
-    let stream = match acceptor.accept(stream).await {
-        Ok(stream) => stream,
-        Err(e) => {
-            log::error!("acceptor error: {:?}", e);
-            return;
-        }
-    };
+pub struct CloneCounterInner {
+    count: AtomicUsize,
+    waker: AtomicWaker,
+}
 
-    let result = HttpConn::map(stream, |conn| async {
-        let conn = Conn::new(conn);
-        let conn = handler.run(conn).await;
-        let conn = handler.before_send(conn).await;
-        conn.into_inner()
-    })
-    .await;
+pub struct CloneCounter(Arc<CloneCounterInner>);
+impl CloneCounter {
+    pub fn new() -> Self {
+        Self(Arc::new(CloneCounterInner {
+            count: AtomicUsize::new(0),
+            waker: AtomicWaker::new(),
+        }))
+    }
 
-    match result {
-        Ok(Some(upgrade)) => {
-            let upgrade = upgrade.map_transport(BoxedTransport::new);
-            if handler.has_upgrade(&upgrade) {
-                log::debug!("upgrading...");
-                handler.upgrade(upgrade).await;
+    pub fn current(&self) -> usize {
+        self.0.count.load(Ordering::SeqCst)
+    }
+}
+
+impl Future for CloneCounter {
+    type Output = ();
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        if 0 == self.current() {
+            return Poll::Ready(());
+        } else {
+            self.0.waker.register(cx.waker());
+            if 0 == self.current() {
+                return Poll::Ready(());
             } else {
-                log::error!("upgrade specified but no upgrade handler provided");
+                return Poll::Pending;
             }
         }
+    }
+}
 
-        Ok(None) => {
-            log::debug!("closing connection");
-        }
-
-        Err(e) => {
-            log::error!("http error: {:?}", e);
-        }
-    };
+impl Clone for CloneCounter {
+    fn clone(&self) -> Self {
+        self.0
+            .count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(self.0.clone())
+    }
+}
+impl Drop for CloneCounter {
+    fn drop(&mut self) {
+        self.0
+            .count
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.0.waker.wake();
+    }
 }
 
 pub struct Config<S, A, T> {
@@ -54,6 +71,23 @@ pub struct Config<S, A, T> {
     transport: PhantomData<T>,
     server: PhantomData<S>,
     nodelay: bool,
+    stopper: Stopper,
+    counter: CloneCounter,
+}
+
+impl<S, A: Clone, T> Clone for Config<S, A, T> {
+    fn clone(&self) -> Self {
+        Self {
+            acceptor: self.acceptor.clone(),
+            port: self.port.clone(),
+            host: self.host.clone(),
+            transport: PhantomData,
+            server: PhantomData,
+            nodelay: self.nodelay,
+            stopper: self.stopper.clone(),
+            counter: self.counter.clone(),
+        }
+    }
 }
 
 impl<S, T> Default for Config<S, (), T> {
@@ -65,6 +99,8 @@ impl<S, T> Default for Config<S, (), T> {
             transport: PhantomData,
             server: PhantomData,
             nodelay: false,
+            stopper: Stopper::new(),
+            counter: CloneCounter::new(),
         }
     }
 }
@@ -105,6 +141,10 @@ impl<S: Server<Transport = T>, A: Acceptor<T>, T: Transport> Config<S, A, T> {
         S::run(self, h)
     }
 
+    pub fn counter(&self) -> &CloneCounter {
+        &self.counter
+    }
+
     pub async fn run_async(self, handler: impl Handler) {
         S::run_async(self, handler).await
     }
@@ -128,6 +168,10 @@ impl<S: Server<Transport = T>, A: Acceptor<T>, T: Transport> Config<S, A, T> {
         self
     }
 
+    pub fn stopper(&self) -> Stopper {
+        self.stopper.clone()
+    }
+
     pub fn with_acceptor<A1: Acceptor<T>>(self, acceptor: A1) -> Config<S, A1, T> {
         Config {
             host: self.host,
@@ -135,8 +179,58 @@ impl<S: Server<Transport = T>, A: Acceptor<T>, T: Transport> Config<S, A, T> {
             nodelay: self.nodelay,
             transport: PhantomData,
             server: PhantomData,
+            stopper: self.stopper,
             acceptor,
+            counter: self.counter,
         }
+    }
+
+    pub async fn graceful_shutdown(self) {
+        let current = self.counter.current();
+        if current > 0 {
+            log::info!("waiting for {} in-flight requests to complete", current);
+            self.counter.await;
+            log::info!("all done!")
+        }
+    }
+
+    pub async fn handle_stream(self, stream: T, handler: impl Handler) {
+        let stream = match self.acceptor.accept(stream).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                log::error!("acceptor error: {:?}", e);
+                return;
+            }
+        };
+
+        let result = HttpConn::map(stream, self.stopper.clone(), |conn| async {
+            let conn = Conn::new(conn);
+            let conn = handler.run(conn).await;
+            let conn = handler.before_send(conn).await;
+
+            conn.into_inner()
+        })
+        .await;
+
+        match result {
+            Ok(Some(upgrade)) => {
+                let upgrade = upgrade.map_transport(BoxedTransport::new);
+                if handler.has_upgrade(&upgrade) {
+                    log::debug!("upgrading...");
+                    handler.upgrade(upgrade).await;
+                } else {
+                    log::error!("upgrade specified but no upgrade handler provided");
+                }
+            }
+
+            Err(Error::ClosedByClient) | Err(Error::Shutdown) | Ok(None) => {
+                log::debug!("closing connection");
+            }
+
+            Err(e) => {
+                log::error!("http error: {:?}", e);
+            }
+        };
     }
 }
 

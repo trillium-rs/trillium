@@ -1,4 +1,4 @@
-use crate::Conn;
+use crate::{Conn, Stopper};
 use futures_lite::{AsyncRead, AsyncWrite};
 use http_types::{headers::Headers, Extensions, Method};
 use std::fmt::{self, Debug, Formatter};
@@ -10,6 +10,7 @@ pub struct Upgrade<RW> {
     pub state: Extensions,
     pub rw: RW,
     pub buffer: Option<Vec<u8>>,
+    pub stopper: Stopper,
 }
 
 impl<RW> Upgrade<RW> {
@@ -37,6 +38,7 @@ impl<RW> Upgrade<RW> {
             state: self.state,
             buffer: self.buffer,
             request_headers: self.request_headers,
+            stopper: self.stopper,
         }
     }
 }
@@ -61,6 +63,7 @@ impl<RW> From<Conn<RW>> for Upgrade<RW> {
             state,
             rw,
             buffer,
+            stopper,
             ..
         } = conn;
 
@@ -71,6 +74,7 @@ impl<RW> From<Conn<RW>> for Upgrade<RW> {
             state,
             rw,
             buffer,
+            stopper,
         }
     }
 }

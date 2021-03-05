@@ -10,3 +10,9 @@ myco = { path = "../myco" }
 async-std = "1.9.0"
 myco-http = { path = "../http" }
 myco-server-common = { path = "../server-common" }
+signal-hook-async-std = "0.2.1"
+signal-hook = "0.3.4"
+
+[dev-dependencies]
+env_logger = "0.8.3"
+async-std = { version = "*", features = ["attributes"] }

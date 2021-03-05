@@ -3,7 +3,6 @@ use futures_lite::prelude::*;
 use myco::{sequence, Conn};
 use myco_askama::AskamaConnExt;
 use myco_cookies::Cookies;
-use myco_dashboard::Dashboard;
 use myco_logger::DevLogger;
 use myco_router::{routes, RouterConnExt};
 use myco_sessions::{MemoryStore, SessionConnExt, Sessions};
@@ -21,7 +20,6 @@ fn main() {
 
     myco_smol_server::run(sequence![
         DevLogger,
-        Dashboard::new(),
         Cookies,
         Sessions::new(MemoryStore::new(), b"01234567890123456789012345678901123",),
         |conn: Conn| async move {

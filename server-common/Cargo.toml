@@ -10,3 +10,6 @@ myco-http = { path = "../http" }
 log = "0.4.14"
 futures-lite = "1.11.3"
 myco-tls-common = { path = "../tls-common/" }
+async-channel = "1.5.1"
+pin-project-lite = "0.2.4"
+atomic-waker = "1.0.0"

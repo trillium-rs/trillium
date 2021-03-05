@@ -33,6 +33,10 @@ pub enum Error {
     #[error("connection closed by client")]
     ClosedByClient,
 
+    /// we are closing the connection
+    #[error("server shut down")]
+    Shutdown,
+
     /// [`httparse::Error`]
     #[error(transparent)]
     Httparse(#[from] httparse::Error),

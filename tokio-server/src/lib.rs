@@ -1,11 +1,31 @@
 use async_compat::Compat;
 use myco::{async_trait, Handler};
-use myco_server_common::{handle_stream, Acceptor, Server};
+use myco_server_common::{Acceptor, Server, Stopper};
 use std::sync::Arc;
 use tokio::{
     net::{TcpListener, TcpStream},
     runtime::Runtime,
 };
+use tokio_stream::wrappers::TcpListenerStream;
+
+use futures::stream::StreamExt;
+use signal_hook::consts::signal::*;
+use signal_hook_tokio::Signals;
+
+async fn handle_signals(stop: Stopper) {
+    let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
+    let mut signals = signals.fuse();
+
+    while let Some(_) = signals.next().await {
+        if stop.is_stopped() {
+            println!("second interrupt, shutting down harshly");
+            std::process::exit(1);
+        } else {
+            println!("shutting down gracefully");
+            stop.stop();
+        }
+    }
+}
 
 pub struct TokioServer;
 
@@ -25,22 +45,27 @@ impl Server for TokioServer {
         config: Config<A>,
         mut handler: H,
     ) {
+        tokio::spawn(handle_signals(config.stopper()));
         let socket_addrs = config.socket_addrs();
-        let acceptor = config.acceptor();
-
         let listener = TcpListener::bind(&socket_addrs[..]).await.unwrap();
         log::info!("listening on {:?}", listener.local_addr().unwrap());
         handler.init().await;
         let handler = Arc::new(handler);
 
-        while let Ok((socket, _)) = listener.accept().await {
-            myco::log_error!(socket.set_nodelay(config.nodelay()));
-            tokio::spawn(handle_stream(
-                Compat::new(socket),
-                acceptor.clone(),
-                handler.clone(),
-            ));
+        let mut stream = config
+            .stopper()
+            .stop_stream(TcpListenerStream::new(listener));
+
+        while let Some(Ok(stream)) = stream.next().await {
+            myco::log_error!(stream.set_nodelay(config.nodelay()));
+            tokio::spawn(
+                config
+                    .clone()
+                    .handle_stream(Compat::new(stream), handler.clone()),
+            );
         }
+
+        config.graceful_shutdown().await;
     }
 }
 
@@ -50,4 +75,8 @@ pub fn run(handler: impl Handler) {
 
 pub fn config() -> Config<()> {
     Config::new()
+}
+
+pub async fn run_async(handler: impl Handler) {
+    config().run_async(handler).await
 }
