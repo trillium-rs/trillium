@@ -16,7 +16,7 @@ async fn handle_signals(stop: Stopper) {
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
     let mut signals = signals.fuse();
 
-    while let Some(_) = signals.next().await {
+    while signals.next().await.is_some() {
         if stop.is_stopped() {
             println!("second interrupt, shutting down harshly");
             std::process::exit(1);

@@ -31,12 +31,11 @@ impl StaticCompiled {
     fn get_item(&self, path: &str) -> Option<DirEntry> {
         if path.is_empty() {
             Some(DirEntry::Dir(self.dir))
-        } else if let Some(dir) = self.dir.get_dir(path) {
-            Some(DirEntry::Dir(dir))
-        } else if let Some(file) = self.dir.get_file(path) {
-            Some(DirEntry::File(file))
         } else {
-            None
+            self.dir
+                .get_dir(path)
+                .map(DirEntry::Dir)
+                .or_else(|| self.dir.get_file(path).map(DirEntry::File))
         }
     }
 }

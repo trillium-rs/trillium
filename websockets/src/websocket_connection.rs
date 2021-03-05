@@ -83,7 +83,7 @@ impl Stream for WebSocketConnection {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.stopper.is_stopped() {
-            return Poll::Ready(None);
+            Poll::Ready(None)
         } else {
             match Pin::new(&mut self.wss).poll_next(cx) {
                 Poll::Ready(r) => Poll::Ready(r),

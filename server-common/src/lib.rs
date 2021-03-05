@@ -11,18 +11,18 @@ use std::task::Poll;
 pub use myco_http::Stopper;
 pub use myco_tls_common::Acceptor;
 
+#[derive(Default)]
 pub struct CloneCounterInner {
     count: AtomicUsize,
     waker: AtomicWaker,
 }
 
+#[derive(Default)]
 pub struct CloneCounter(Arc<CloneCounterInner>);
+
 impl CloneCounter {
     pub fn new() -> Self {
-        Self(Arc::new(CloneCounterInner {
-            count: AtomicUsize::new(0),
-            waker: AtomicWaker::new(),
-        }))
+        Self::default()
     }
 
     pub fn current(&self) -> usize {
@@ -35,13 +35,13 @@ impl Future for CloneCounter {
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         if 0 == self.current() {
-            return Poll::Ready(());
+            Poll::Ready(())
         } else {
             self.0.waker.register(cx.waker());
             if 0 == self.current() {
-                return Poll::Ready(());
+                Poll::Ready(())
             } else {
-                return Poll::Pending;
+                Poll::Pending
             }
         }
     }
@@ -79,7 +79,7 @@ impl<S, A: Clone, T> Clone for Config<S, A, T> {
     fn clone(&self) -> Self {
         Self {
             acceptor: self.acceptor.clone(),
-            port: self.port.clone(),
+            port: self.port,
             host: self.host.clone(),
             transport: PhantomData,
             server: PhantomData,
