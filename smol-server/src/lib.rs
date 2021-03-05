@@ -7,11 +7,11 @@ use std::sync::Arc;
 pub use myco_server_common::Server;
 pub type Config<A> = myco_server_common::Config<SmolServer, A, TcpStream>;
 
-use signal_hook::consts::signal::*;
-use signal_hook_async_std::Signals;
-
 #[cfg(unix)]
 async fn handle_signals(stop: Stopper) {
+    use signal_hook::consts::signal::*;
+    use signal_hook_async_std::Signals;
+
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
     let mut signals = signals.fuse();
     while signals.next().await.is_some() {
