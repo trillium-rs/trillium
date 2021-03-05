@@ -1,6 +1,6 @@
 use async_net::{TcpListener, TcpStream};
 use myco::{async_trait, Handler};
-use myco_server_common::{Acceptor, Stopper};
+use myco_server_common::Acceptor;
 use smol::prelude::*;
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ pub use myco_server_common::Server;
 pub type Config<A> = myco_server_common::Config<SmolServer, A, TcpStream>;
 
 #[cfg(unix)]
-async fn handle_signals(stop: Stopper) {
+async fn handle_signals(stop: myco::Stopper) {
     use signal_hook::consts::signal::*;
     use signal_hook_async_std::Signals;
 
