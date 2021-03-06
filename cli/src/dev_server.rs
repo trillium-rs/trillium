@@ -86,7 +86,7 @@ impl DevServer {
             let tx = tx.clone();
             std::thread::spawn(move || {
                 let (t, r) = std::sync::mpsc::channel::<DebouncedEvent>();
-                let mut watcher = RecommendedWatcher::new(t, Duration::from_secs(10)).unwrap();
+                let mut watcher = RecommendedWatcher::new(t, Duration::from_secs(1)).unwrap();
 
                 for watch in watches {
                     watcher
