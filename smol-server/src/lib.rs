@@ -47,9 +47,7 @@ impl Server for SmolServer {
             panic!("signals handling not supported on windows yet");
         }
 
-        let socket_addrs = config.socket_addrs();
-        let listener = TcpListener::bind(&socket_addrs[..]).await.unwrap();
-        log::info!("listening on {:?}", listener.local_addr().unwrap());
+        let listener = config.build_listener::<TcpListener>();
         let mut incoming = config.stopper().stop_stream(listener.incoming());
         handler.init().await;
         let handler = Arc::new(handler);

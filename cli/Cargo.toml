@@ -20,6 +20,8 @@ myco-rustls = { path = "../rustls/" }
 myco-smol-server = { path = "../smol-server" }
 myco-static = { path = "../static" }
 structopt = "0.3.21"
+serde = "1.0.123"
+serde_json = "1.0.62"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3.4"
