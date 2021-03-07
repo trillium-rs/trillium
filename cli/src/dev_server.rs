@@ -47,7 +47,7 @@ enum Event {
 impl DevServer {
     fn determine_bin(&self) -> PathBuf {
         if let Some(ref bin) = self.bin {
-            return bin.canonicalize().unwrap();
+            bin.canonicalize().unwrap()
         } else {
             let metadata = Command::new("cargo")
                 .current_dir(self.cwd.clone().unwrap())
@@ -66,7 +66,7 @@ impl DevServer {
                 .unwrap()
                 .as_str()
                 .unwrap()
-                .split(" ")
+                .split(' ')
                 .next()
                 .unwrap();
 
@@ -119,7 +119,6 @@ impl DevServer {
             });
         }
 
-        let tx = tx.clone();
         std::thread::spawn(move || {
             let (t, r) = std::sync::mpsc::channel::<DebouncedEvent>();
             let mut watcher = RecommendedWatcher::new(t, Duration::from_secs(1)).unwrap();

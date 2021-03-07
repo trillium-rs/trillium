@@ -53,8 +53,8 @@ impl AsRef<PathBuf> for RootPath {
     }
 }
 
-impl Into<PathBuf> for RootPath {
-    fn into(self) -> PathBuf {
-        self.0
+impl From<RootPath> for PathBuf {
+    fn from(root: RootPath) -> Self {
+        root.0
     }
 }
