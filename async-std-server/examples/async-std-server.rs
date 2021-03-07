@@ -1,5 +1,6 @@
 #[async_std::main]
 pub async fn main() {
+    env_logger::init();
     myco_async_std_server::run_async("hello world").await;
 }
 

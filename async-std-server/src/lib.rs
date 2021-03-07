@@ -47,7 +47,7 @@ impl Server for AsyncStdServer {
         }
 
         let listener = config.build_listener::<TcpListener>();
-        let mut incoming = listener.incoming();
+        let mut incoming = config.stopper().stop_stream(listener.incoming());
         handler.init().await;
         let handler = Arc::new(handler);
 
