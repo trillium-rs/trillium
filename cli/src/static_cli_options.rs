@@ -2,7 +2,7 @@ use crate::RootPath;
 use env_logger::Builder;
 use log::LevelFilter;
 use myco::sequence;
-use myco_proxy::Proxy;
+use myco_proxy::{Proxy, Rustls, TcpStream};
 use std::io::Write;
 use std::{fmt::Debug, path::PathBuf};
 use structopt::StructOpt;
@@ -179,7 +179,7 @@ impl StaticCli {
         let mut server = sequence![myco_logger::DevLogger];
 
         if let Some(forward) = self.forward() {
-            server.then(Proxy::new(forward));
+            server.then(Proxy::<Rustls<TcpStream>>::new(forward));
         }
 
         let mut s = myco_static::Static::new(path);

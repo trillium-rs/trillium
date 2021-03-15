@@ -24,7 +24,12 @@ macro_rules! conn_try {
         match $expr {
             Ok(value) => value,
             Err(error) => {
-                log::error!(concat!($format_str, ": {}"), error);
+                log::error!(
+                    concat!("{}:{} ", $format_str, ": {}"),
+                    file!(),
+                    line!(),
+                    error
+                );
                 return $conn.status(500);
             }
         }

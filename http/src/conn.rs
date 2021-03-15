@@ -16,9 +16,7 @@ use std::{
 };
 
 use crate::Stopper;
-use crate::{
-    body_encoder::BodyEncoder, request_body::RequestBodyState, Error, RequestBody, Result, Upgrade,
-};
+use crate::{body_encoder::BodyEncoder, Error, ReceivedBody, ReceivedBodyState, Result, Upgrade};
 
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 8 * 1024;
@@ -41,7 +39,7 @@ pub struct Conn<RW> {
     pub(crate) response_body: Option<Body>,
     pub(crate) rw: RW,
     pub(crate) buffer: Option<Vec<u8>>,
-    pub(crate) request_body_state: RequestBodyState,
+    pub(crate) request_body_state: ReceivedBodyState,
     pub(crate) secure: bool,
     pub(crate) stopper: Stopper,
 }
@@ -139,9 +137,23 @@ where
             .contains_ignore_ascii_case(EXPECT, "100-continue")
     }
 
-    pub async fn request_body(&mut self) -> RequestBody<'_, RW> {
+    fn build_request_body(&mut self) -> ReceivedBody<'_, RW> {
+        ReceivedBody::new(
+            self.request_content_length()
+                .ok()
+                .flatten()
+                .and_then(|u| u.try_into().ok()),
+            &mut self.buffer,
+            &mut self.rw,
+            &mut self.request_body_state,
+            None,
+            "server",
+        )
+    }
+
+    pub async fn request_body(&mut self) -> ReceivedBody<'_, RW> {
         self.initialize_request_body_state().await.ok();
-        RequestBody::new(self)
+        self.build_request_body()
     }
 
     pub fn stopper(&self) -> Stopper {
@@ -213,7 +225,7 @@ where
             status: None,
             state: Extensions::new(),
             response_body: None,
-            request_body_state: RequestBodyState::Start,
+            request_body_state: ReceivedBodyState::Start,
             secure: false,
             stopper,
         })
@@ -243,7 +255,7 @@ where
                 stopper
                     .stop_future(rw.read(&mut buf[len..]))
                     .await
-                    .ok_or(Error::Shutdown)??
+                    .ok_or(Error::Closed)??
             } else {
                 rw.read(&mut buf[len..]).await?
             };
@@ -268,9 +280,12 @@ where
 
             if bytes == 0 {
                 if len == 0 {
-                    return Err(Error::ClosedByClient);
+                    return Err(Error::Closed);
                 } else {
-                    log::debug!("disconnect? partial head content: \n\n{:?}", utf8(&buf[..]));
+                    log::debug!(
+                        "disconnect? partial head content: \n{:?}",
+                        String::from_utf8_lossy(&buf[..])
+                    );
                     return Err(Error::PartialHead);
                 }
             }
@@ -285,7 +300,10 @@ where
         &mut self.rw
     }
 
-    pub async fn next(self) -> Result<Self> {
+    pub async fn next(mut self) -> Result<Self> {
+        if !self.needs_100_continue() || self.request_body_state != ReceivedBodyState::Start {
+            self.build_request_body().drain().await?;
+        }
         Conn::new(self.rw, self.buffer, self.stopper).await
     }
 
@@ -318,7 +336,7 @@ where
             Ok(ConnectionStatus::Upgrade(self.into()))
         } else {
             match self.next().await {
-                Err(Error::ClosedByClient) => {
+                Err(Error::Closed) => {
                     log::trace!("connection closed by client");
                     Ok(ConnectionStatus::Close)
                 }
@@ -328,14 +346,14 @@ where
         }
     }
 
-    pub fn request_content_length(&self) -> crate::Result<Option<usize>> {
+    pub fn request_content_length(&self) -> crate::Result<Option<u64>> {
         Ok(ContentLength::from_headers(&self.request_headers)
             .map_err(|_| crate::Error::MalformedHeader("content-length"))?
-            .map(|cl| cl.len() as usize))
+            .map(|cl| cl.len()))
     }
 
     pub(crate) async fn initialize_request_body_state(&mut self) -> Result<()> {
-        if let RequestBodyState::Start = self.request_body_state {
+        if let ReceivedBodyState::Start = self.request_body_state {
             if self.needs_100_continue() {
                 self.send_100_continue().await?;
             }
@@ -351,14 +369,14 @@ where
             }
 
             self.request_body_state = if transfer_encoding_chunked {
-                RequestBodyState::Chunked { remaining: 0 }
+                ReceivedBodyState::Chunked { remaining: 0 }
             } else if let Some(total_length) = content_length {
-                RequestBodyState::FixedLength {
+                ReceivedBodyState::FixedLength {
                     current_index: 0,
                     total_length,
                 }
             } else {
-                RequestBodyState::End
+                ReceivedBodyState::End
             }
         }
 
@@ -396,6 +414,12 @@ where
 
         if self.stopper.is_stopped() {
             self.response_headers.insert("connection", "close");
+        } else if self.response_headers.get("connection").is_none()
+            && !self
+                .request_headers
+                .contains_ignore_ascii_case("connection", "close")
+        {
+            self.response_headers.insert("connection", "keep-alive");
         }
 
         if self.response_headers.get(DATE).is_none() {

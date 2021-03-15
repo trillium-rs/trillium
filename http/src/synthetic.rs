@@ -5,7 +5,7 @@ use http_types::{Extensions, Method, Version};
 use std::task::Poll;
 
 use crate::Stopper;
-use crate::{request_body::RequestBodyState, Conn};
+use crate::{Conn, ReceivedBodyState};
 
 pub struct Synthetic(Option<Vec<u8>>, usize);
 impl AsyncWrite for Synthetic {
@@ -72,7 +72,7 @@ impl Conn<Synthetic> {
             state: Extensions::new(),
             response_body: None,
             buffer: None,
-            request_body_state: RequestBodyState::Start,
+            request_body_state: ReceivedBodyState::Start,
             secure: false,
             stopper: Stopper::new(),
         }

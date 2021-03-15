@@ -2,7 +2,7 @@ use crate::http_types::{
     headers::{Header, HeaderName, Headers, ToHeaderValues},
     Body, Method, StatusCode, Url,
 };
-use myco_http::RequestBody;
+use myco_http::ReceivedBody;
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
 
@@ -59,7 +59,7 @@ impl Conn {
         self
     }
 
-    pub async fn request_body(&mut self) -> RequestBody<'_, BoxedTransport> {
+    pub async fn request_body(&mut self) -> ReceivedBody<'_, BoxedTransport> {
         self.inner.request_body().await
     }
 

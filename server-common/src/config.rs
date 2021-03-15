@@ -4,6 +4,7 @@ use myco_http::Conn as HttpConn;
 use myco_http::Stopper;
 use myco_tls_common::Acceptor;
 use std::convert::{TryFrom, TryInto};
+use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 
@@ -99,7 +100,6 @@ where
 
         log::info!("listening on {:?}", listener.local_addr().unwrap());
         listener.set_nonblocking(true).unwrap();
-
         listener.try_into().unwrap()
     }
 
@@ -217,7 +217,11 @@ where
                 }
             }
 
-            Err(Error::ClosedByClient) | Err(Error::Shutdown) | Ok(None) => {
+            Err(Error::Closed) | Ok(None) => {
+                log::debug!("closing connection");
+            }
+
+            Err(Error::Io(e)) if e.kind() == ErrorKind::ConnectionReset => {
                 log::debug!("closing connection");
             }
 

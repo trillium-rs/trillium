@@ -26,5 +26,6 @@ members = [
   "tls-common",
   "tokio-server",
   "websockets",
-  "proxy"
+  "proxy",
+  "client"
 ]

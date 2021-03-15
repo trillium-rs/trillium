@@ -10,13 +10,13 @@ use crate::ChunkedEncoder;
 
 #[pin_project(project=BodyEncoderProjection)]
 #[derive(Debug)]
-pub(crate) enum BodyEncoder {
+pub enum BodyEncoder {
     Chunked(#[pin] ChunkedEncoder<Body>),
     Fixed(#[pin] Body),
 }
 
 impl BodyEncoder {
-    pub(crate) fn new(body: Body) -> Self {
+    pub fn new(body: Body) -> Self {
         match body.len() {
             Some(_) => Self::Fixed(body),
             None => Self::Chunked(ChunkedEncoder::new(body)),

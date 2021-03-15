@@ -1,3 +1,4 @@
+use std::num::TryFromIntError;
 use std::str::Utf8Error;
 
 use http_types::url;
@@ -31,15 +32,15 @@ pub enum Error {
 
     /// connection was closed
     #[error("connection closed by client")]
-    ClosedByClient,
-
-    /// we are closing the connection
-    #[error("server shut down")]
-    Shutdown,
+    Closed,
 
     /// [`httparse::Error`]
     #[error(transparent)]
     Httparse(#[from] httparse::Error),
+
+    /// [`TryFromIntError`]
+    #[error(transparent)]
+    TryFromIntError(#[from] TryFromIntError),
 
     /// an incomplete http head
     #[error("partial http head")]

@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 
 mod body_encoder;
-mod chunked_encoder;
-mod request_body;
+pub use body_encoder::BodyEncoder;
 
+mod chunked_encoder;
 pub use chunked_encoder::ChunkedEncoder;
-pub use request_body::RequestBody;
+
+mod received_body;
+pub use received_body::{ReceivedBody, ReceivedBodyState};
 
 mod error;
 pub use error::{Error, Result};
