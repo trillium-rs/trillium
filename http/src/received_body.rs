@@ -75,7 +75,7 @@ pub struct ReceivedBody<'conn, RW> {
     rw: Option<MutCow<'conn, RW>>,
     state: MutCow<'conn, ReceivedBodyState>,
     name: &'static str,
-    on_completion: Option<Box<dyn Fn(RW) -> () + Send + Sync + 'static>>,
+    on_completion: Option<Box<dyn Fn(RW) + Send + Sync + 'static>>,
 }
 
 impl<'conn, RW> ReceivedBody<'conn, RW>
@@ -103,7 +103,7 @@ where
         buffer: impl Into<MutCow<'conn, Option<Vec<u8>>>>,
         rw: impl Into<MutCow<'conn, RW>>,
         state: impl Into<MutCow<'conn, ReceivedBodyState>>,
-        on_completion: Option<Box<dyn Fn(RW) -> () + Send + Sync + 'static>>,
+        on_completion: Option<Box<dyn Fn(RW) + Send + Sync + 'static>>,
         name: &'static str,
     ) -> Self {
         Self {
@@ -413,12 +413,11 @@ where
         };
 
         *self.state = new_body_state;
-        if *self.state == End {
-            if self.on_completion.is_some() && self.owns_transport() {
-                let rw = self.rw.take().unwrap().unwrap_owned();
-                let on_completion = self.on_completion.take().unwrap();
-                on_completion(rw);
-            }
+
+        if *self.state == End && self.on_completion.is_some() && self.owns_transport() {
+            let rw = self.rw.take().unwrap().unwrap_owned();
+            let on_completion = self.on_completion.take().unwrap();
+            on_completion(rw);
         }
 
         Ready(Ok(bytes))
@@ -460,12 +459,12 @@ impl Default for ReceivedBodyState {
     }
 }
 
-impl<RW> Into<Body> for ReceivedBody<'static, RW>
+impl<RW> From<ReceivedBody<'static, RW>> for Body
 where
     RW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
-    fn into(self) -> Body {
-        let len = self.content_length.map(|cl| cl as u64);
-        Body::from_reader(BufReader::new(self), len)
+    fn from(rb: ReceivedBody<'static, RW>) -> Self {
+        let len = rb.content_length.map(|cl| cl as u64);
+        Body::from_reader(BufReader::new(rb), len)
     }
 }

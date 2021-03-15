@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{self, Debug, Formatter};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
@@ -11,7 +11,7 @@ pub struct PoolEntry<V> {
 }
 
 impl<V: Debug> Debug for PoolEntry<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("PoolEntry")
             .field("item", &self.item)
             .field("expiry", &self.expiry)
@@ -42,7 +42,7 @@ impl<V> PoolEntry<V> {
 
 pub struct PoolSet<V>(Arc<Mutex<VecDeque<PoolEntry<V>>>>);
 impl<V: Debug> Debug for PoolSet<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("PoolSet").field(&self.0).finish()
     }
 }
@@ -84,7 +84,7 @@ impl<V> Iterator for PoolSet<V> {
 pub struct Pool<V>(Arc<RwLock<HashMap<SocketAddr, PoolSet<V>>>>);
 
 impl<V> Debug for Pool<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut s = f.debug_struct(if self.is_empty() {
             "Pool (empty)"
         } else {
@@ -137,11 +137,11 @@ impl<V> Pool<V> {
     }
 
     fn stream_for_socket_addr(&self, addr: SocketAddr) -> Option<impl Iterator<Item = V>> {
-        if let Some(x) = self.0.read().unwrap().get(&addr) {
-            Some(x.clone().filter_map(|v| v.take()))
-        } else {
-            None
-        }
+        self.0
+            .read()
+            .unwrap()
+            .get(&addr)
+            .map(|x| x.clone().filter_map(|v| v.take()))
     }
 
     pub fn candidates(&self, addrs: impl ToSocketAddrs) -> impl Iterator<Item = V> {

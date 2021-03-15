@@ -188,10 +188,9 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         head: &[u8],
     ) -> Option<Transport> {
         if let Some(pool) = &self.pool {
-            for mut candidate in pool.candidates(&socket_addrs[..]) {
-                match candidate.write_all(&head).await {
-                    Ok(_) => return Some(candidate),
-                    Err(_) => {}
+            for mut candidate in pool.candidates(&socket_addrs) {
+                if candidate.write_all(&head).await.is_ok() {
+                    return Some(candidate);
                 }
             }
         }
@@ -237,11 +236,11 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         write!(buf, "{} ", method)?;
 
         if method == Method::Connect {
-            let host = url.host_str().ok_or_else(|| Error::UnexpectedUriFormat)?;
+            let host = url.host_str().ok_or(Error::UnexpectedUriFormat)?;
 
             let port = url
                 .port_or_known_default()
-                .ok_or_else(|| Error::UnexpectedUriFormat)?;
+                .ok_or(Error::UnexpectedUriFormat)?;
 
             write!(buf, "{}:{}", host, port)?;
         } else {
@@ -443,7 +442,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
     }
 
     pub fn status(&self) -> Option<StatusCode> {
-        self.status.clone()
+        self.status
     }
 
     pub fn into_inner(mut self) -> Transport {
@@ -496,44 +495,44 @@ impl<Transport: ClientTransport> Drop for Conn<'_, Transport> {
     }
 }
 
-impl<Transport: ClientTransport> Into<Body> for Conn<'_, Transport> {
-    fn into(self) -> Body {
-        let received_body: ReceivedBody<'static, _> = self.into();
+impl<Transport: ClientTransport> From<Conn<'_, Transport>> for Body {
+    fn from(conn: Conn<'_, Transport>) -> Body {
+        let received_body: ReceivedBody<'static, _> = conn.into();
         received_body.into()
     }
 }
 
-impl<Transport: ClientTransport> Into<ReceivedBody<'static, Transport>> for Conn<'_, Transport> {
-    fn into(mut self) -> ReceivedBody<'static, Transport> {
+impl<Transport: ClientTransport> From<Conn<'_, Transport>> for ReceivedBody<'static, Transport> {
+    fn from(mut conn: Conn<'_, Transport>) -> Self {
         ReceivedBody::new(
-            self.response_content_length(),
-            self.buffer.take(),
-            self.transport.take().unwrap(),
-            self.response_body_state,
-            if let Some(pool) = self.pool.take() {
-                Some(Box::new(move |transport| {
-                    pool.insert(
-                        transport.peer_addr().unwrap(),
-                        PoolEntry::new(transport, None),
-                    );
-                }))
-            } else {
-                None
-            },
+            conn.response_content_length(),
+            conn.buffer.take(),
+            conn.transport.take().unwrap(),
+            conn.response_body_state,
+            conn.pool
+                .take()
+                .map(|pool| -> Box<dyn Fn(Transport) + Send + Sync> {
+                    Box::new(move |transport| {
+                        pool.insert(
+                            transport.peer_addr().unwrap(),
+                            PoolEntry::new(transport, None),
+                        );
+                    })
+                }),
             "owned client body",
         )
     }
 }
 
-impl<Transport: ClientTransport> Into<Upgrade<Transport>> for Conn<'_, Transport> {
-    fn into(mut self) -> Upgrade<Transport> {
+impl<Transport: ClientTransport> From<Conn<'_, Transport>> for Upgrade<Transport> {
+    fn from(mut conn: Conn<'_, Transport>) -> Self {
         Upgrade {
-            request_headers: std::mem::replace(&mut self.request_headers, Headers::new()),
-            path: self.url.path().to_string(),
-            method: self.method,
+            request_headers: std::mem::replace(&mut conn.request_headers, Headers::new()),
+            path: conn.url.path().to_string(),
+            method: conn.method,
             state: Extensions::new(),
-            rw: self.transport.take().unwrap(),
-            buffer: self.buffer.take(),
+            rw: conn.transport.take().unwrap(),
+            buffer: conn.buffer.take(),
             stopper: Stopper::new(),
         }
     }

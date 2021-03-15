@@ -139,10 +139,7 @@ where
 
     fn build_request_body(&mut self) -> ReceivedBody<'_, RW> {
         ReceivedBody::new(
-            self.request_content_length()
-                .ok()
-                .flatten()
-                .and_then(|u| u.try_into().ok()),
+            self.request_content_length().ok().flatten(),
             &mut self.buffer,
             &mut self.rw,
             &mut self.request_body_state,

@@ -59,7 +59,7 @@ impl<T: ClientTransport> Client<T> {
         self
     }
 
-    pub fn conn<'a, U>(&'a self, method: Method, url: U) -> Conn<'a, T>
+    pub fn conn<U>(&self, method: Method, url: U) -> Conn<'_, T>
     where
         <U as TryInto<Url>>::Error: Debug,
         U: TryInto<Url>,
