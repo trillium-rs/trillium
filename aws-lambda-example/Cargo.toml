@@ -12,7 +12,6 @@ env_logger = "0.8.2"
 myco = { path = "../myco" }
 myco-router = { path = "../router" }
 myco-logger = { path = "../logger" }
-myco-basic-auth = { path = "../basic-auth" }
 myco-cookies = { path = "../cookies" }
 myco-sessions = { path = "../sessions" }
 myco-askama = { path = "../askama" }

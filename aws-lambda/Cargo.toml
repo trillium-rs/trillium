@@ -8,7 +8,6 @@ edition = "2018"
 myco = { path = "../myco" }
 log = "0.4.13"
 tokio = { version = "1.1.0", features = ["rt", "net", "rt-multi-thread"] }
-async-compat = "0.2.0"
 myco-http = { path = "../http" }
 futures-lite = "1.11.3"
 serde_json = "1.0.61"

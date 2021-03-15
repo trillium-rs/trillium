@@ -9,13 +9,11 @@ env_logger = "0.8.2"
 myco = { path = "../myco" }
 myco-router = { path = "../router" }
 myco-logger = { path = "../logger" }
-myco-basic-auth = { path = "../basic-auth" }
 myco-cookies = { path = "../cookies" }
 myco-sessions = { path = "../sessions" }
 myco-websockets = { path = "../websockets" }
 myco-smol-server = { path = "../smol-server" }
 myco-askama = { path = "../askama" }
-myco-errors = { path = "../errors" }
 futures-lite = "1.11.3"
 askama = "0.10.5"
 myco-static-compiled = { path = "../static-compiled/" }
