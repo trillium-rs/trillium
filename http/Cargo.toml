@@ -15,7 +15,6 @@ stopper = "0.1.0"
 [dependencies.http-types]
 git = "https://github.com/jbr/http-types"
 branch = "myco"
-# path = "../../http-types"
 default-features = false
 
 [dev-dependencies]

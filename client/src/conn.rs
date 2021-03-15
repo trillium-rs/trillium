@@ -123,7 +123,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         self
     }
 
-    fn finalize_headers(&mut self) -> Result<()> {
+    fn finalize_headers(&mut self) {
         if self.request_headers.get(HOST).is_none() {
             let url = &self.url;
             let host = url.host_str().unwrap().to_owned();
@@ -161,8 +161,6 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         } else {
             self.request_headers.insert(TRANSFER_ENCODING, "chunked");
         }
-
-        Ok(())
     }
 
     fn body_len(&self) -> Option<u64> {
@@ -433,7 +431,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
     }
 
     pub async fn send(&mut self) -> Result<()> {
-        self.finalize_headers()?;
+        self.finalize_headers();
         self.connect_and_send_head().await?;
         self.send_body_and_parse_head().await?;
         self.initialize_response_body_state()?;
