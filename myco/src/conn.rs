@@ -142,8 +142,12 @@ impl Conn {
     }
 
     pub fn halt(mut self) -> Self {
-        self.halted = true;
+        self.set_halted(true);
         self
+    }
+
+    pub fn set_halted(&mut self, halted: bool) {
+        self.halted = halted;
     }
 
     pub fn is_halted(&self) -> bool {

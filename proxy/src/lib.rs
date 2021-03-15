@@ -15,6 +15,7 @@ pub struct Proxy<Transport: ClientTransport> {
     target: Url,
     client: Client<Transport>,
     pass_through_not_found: bool,
+    halt: bool,
 }
 
 struct UpstreamUpgrade<T>(Upgrade<T>);
@@ -61,7 +62,7 @@ impl<Transport: ClientTransport> Handler for Proxy<Transport> {
 
         myco::conn_try!(conn, client_conn.send().await);
 
-        match client_conn.status() {
+        let conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
                 for (name, value) in client_conn.response_headers() {
                     for value in value {
@@ -71,12 +72,11 @@ impl<Transport: ClientTransport> Handler for Proxy<Transport> {
 
                 conn.with_state(UpstreamUpgrade(client_conn.into()))
                     .status(SwitchingProtocols)
-                    .halt()
             }
 
             Some(NotFound) if self.pass_through_not_found => {
                 client_conn.recycle().await;
-                conn
+                return conn;
             }
 
             Some(status) => {
@@ -86,9 +86,15 @@ impl<Transport: ClientTransport> Handler for Proxy<Transport> {
                     }
                 }
 
-                conn.body(client_conn).status(status).halt()
+                conn.body(client_conn).status(status)
             }
             _ => unreachable!(),
+        };
+
+        if self.halt {
+            conn.halt()
+        } else {
+            conn
         }
     }
 
@@ -121,10 +127,15 @@ impl<Transport: ClientTransport> Proxy<Transport> {
             Err(_) => panic!("could not convert proxy target into a url"),
         };
 
+        if url.cannot_be_a_base() {
+            panic!("{} cannot be a base", url);
+        }
+
         Self {
             target: url,
             client: Client::new().with_default_pool(),
             pass_through_not_found: true,
+            halt: false,
         }
     }
 }
