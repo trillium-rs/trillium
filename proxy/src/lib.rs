@@ -9,7 +9,9 @@ use url::Url;
 use StatusCode::{NotFound, SwitchingProtocols};
 
 pub use async_net::TcpStream;
-pub use myco_client::{ClientTransport, NativeTls, NativeTlsConfig, Rustls, RustlsConfig};
+pub use myco_client::{
+    ClientTransport, NativeTls, NativeTlsConfig, Rustls, RustlsConfig, TcpConfig,
+};
 
 pub struct Proxy<Transport: ClientTransport> {
     target: Url,
@@ -121,6 +123,17 @@ fn bytes(bytes: u64) -> String {
 }
 
 impl<Transport: ClientTransport> Proxy<Transport> {
+
+    pub fn with_config(mut self, config: Transport::Config) -> Self {
+        self.client = self.client.with_config(config);
+        self
+    }
+
+    pub fn with_client(mut self, client: Client<Transport>) -> Self {
+        self.client = client;
+        self
+    }
+
     pub fn new(target: impl TryInto<Url>) -> Self {
         let url = match target.try_into() {
             Ok(url) => url,
