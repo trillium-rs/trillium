@@ -1,4 +1,5 @@
 pub use async_net::TcpStream;
+use futures_lite::future::poll_once;
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use memmem::{Searcher, TwoWaySearcher};
 use myco::http_types::content::ContentLength;
@@ -185,9 +186,12 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         socket_addrs: &[std::net::SocketAddr],
         head: &[u8],
     ) -> Option<Transport> {
+        let mut byte = [0];
         if let Some(pool) = &self.pool {
             for mut candidate in pool.candidates(&socket_addrs) {
-                if candidate.write_all(&head).await.is_ok() {
+                if poll_once(candidate.read(&mut byte)).await.is_none()
+                    && candidate.write_all(&head).await.is_ok()
+                {
                     return Some(candidate);
                 }
             }
