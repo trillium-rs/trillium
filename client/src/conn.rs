@@ -153,7 +153,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
             }
         }
 
-        if self.request_body.is_some() {
+        if Some(0) != self.body_len() {
             self.request_headers.insert("expect", "100-continue");
         }
 
