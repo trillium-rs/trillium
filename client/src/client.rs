@@ -59,6 +59,11 @@ impl<T: ClientTransport> Client<T> {
         self
     }
 
+    pub fn with_config(mut self, config: T::Config) -> Self {
+        self.config = config;
+        self
+    }
+
     pub fn conn<U>(&self, method: Method, url: U) -> Conn<'_, T>
     where
         <U as TryInto<Url>>::Error: Debug,
