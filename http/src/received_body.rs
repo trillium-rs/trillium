@@ -70,7 +70,7 @@ where
     }
 
     pub fn content_length(&self) -> Option<u64> {
-        self.content_length.clone()
+        self.content_length
     }
 
     pub async fn read_string(self) -> crate::Result<String> {

@@ -383,16 +383,16 @@ where
             .request_headers
             .contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked")
         {
-            return Ok(None);
+            Ok(None)
         } else if let Some(cl) = ContentLength::from_headers(&self.request_headers)
             .map_err(|_| Error::MalformedHeader("content-length"))?
             .map(|cl| cl.len())
         {
-            return Ok(Some(cl));
+            Ok(Some(cl))
         } else if self.method == Method::Get {
-            return Ok(Some(0));
+            Ok(Some(0))
         } else {
-            return Err(Error::HeaderMissing("content-length or transfer-encoding"));
+            Err(Error::HeaderMissing("content-length or transfer-encoding"))
         }
     }
 
