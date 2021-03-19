@@ -1,11 +1,10 @@
-use async_io::Async;
 use bat::{Input, PagingMode, PrettyPrinter};
 use blocking::Unblock;
 use futures_lite::io::BufReader;
 use myco::http_types::{url, Body, Method, Url};
 use myco::Error;
 use myco_client::{ClientTransport, Conn, NativeTls, Rustls, TcpStream};
-use std::{borrow::Cow, fs::File, io::ErrorKind, path::PathBuf, str::FromStr};
+use std::{borrow::Cow, io::ErrorKind, path::PathBuf, str::FromStr};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -22,23 +21,23 @@ pub struct ClientCli {
     ///
     /// three equivalent examples:
     ///
-    /// myco-cli client post http://httpbin.org/anything -f ./body.json
-    /// myco-cli client post http://httpbin.org/anything < ./body.json
-    /// cat ./body.json | myco-cli client post http://httpbin.org/anything
+    /// myco client post http://httpbin.org/anything -f ./body.json
+    /// myco client post http://httpbin.org/anything < ./body.json
+    /// cat ./body.json | myco client post http://httpbin.org/anything
     #[structopt(short, long, parse(from_os_str), verbatim_doc_comment)]
     file: Option<PathBuf>,
 
     /// provide a request body on the command line
     ///
     /// example:
-    /// myco-cli client post http://httpbin.org/post -b '{"hello": "world"}'
+    /// myco client post http://httpbin.org/post -b '{"hello": "world"}'
     #[structopt(short, long, verbatim_doc_comment)]
     body: Option<String>,
 
     /// provide headers in the form -h KEY1=VALUE1 KEY2=VALUE2
     ///
     /// example:
-    /// myco-cli client get http://httpbin.org/headers -h Accept=application/json Authorization="Basic u:p"
+    /// myco client get http://httpbin.org/headers -h Accept=application/json Authorization="Basic u:p"
     #[structopt(short, long, parse(try_from_str = parse_header), verbatim_doc_comment)]
     headers: Vec<(String, String)>,
 
@@ -51,7 +50,7 @@ pub struct ClientCli {
     /// set the log level. add more flags for more verbosity
     ///
     /// example:
-    /// myco-cli client get https://www.google.com -vvv # `trace` verbosity level
+    /// myco client get https://www.google.com -vvv # `trace` verbosity level
     #[structopt(short, long, parse(from_occurrences))]
     verbose: u64,
 }
@@ -67,11 +66,9 @@ impl ClientCli {
             let metadata = std::fs::metadata(path)
                 .unwrap_or_else(|e| panic!("could not read file {:?} ({})", path, e));
 
-            let file = Async::new(
-                File::open(path)
-                    .unwrap_or_else(|e| panic!("could not read file {:?} ({})", path, e)),
-            )
-            .unwrap();
+            let file = async_fs::File::open(path)
+                .await
+                .unwrap_or_else(|e| panic!("could not read file {:?} ({})", path, e));
 
             conn.with_request_body(Body::from_reader(
                 BufReader::new(file),

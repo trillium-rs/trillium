@@ -7,6 +7,10 @@ description = "the myco cli"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 
+[[bin]]
+name = "myco"
+path = "src/main.rs"
+
 [dependencies]
 env_logger = "0.8.3"
 log = "0.4.14"
@@ -42,6 +46,7 @@ bat = { version = "0.18.0", default-features = false, features = [
 atty = "0.2.14"
 async-global-executor = "2.0.2"
 blocking = "1.0.2"
+async-fs = "1.5.0"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3.4"
