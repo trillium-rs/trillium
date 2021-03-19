@@ -27,5 +27,6 @@ members = [
   "tokio-server",
   "websockets",
   "proxy",
-  "client"
+  "client",
+  "html-rewriter"
 ]
