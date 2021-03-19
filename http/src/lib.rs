@@ -24,3 +24,8 @@ pub use upgrade::Upgrade;
 pub use http_types;
 
 pub use stopper::Stopper;
+
+mod mut_cow;
+pub(crate) use mut_cow::MutCow;
+
+pub mod util;

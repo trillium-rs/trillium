@@ -87,6 +87,15 @@ pub enum Error {
     /// for security reasons, we do not allow request headers beyond 8kb.
     #[error("Head byte length should be less than 8kb")]
     HeadersTooLong,
+
+    #[error("malformed chunked transport framing")]
+    InvalidChunkSize,
+}
+
+impl From<httparse::InvalidChunkSize> for Error {
+    fn from(_: httparse::InvalidChunkSize) -> Self {
+        Self::InvalidChunkSize
+    }
 }
 
 /// this crate's result type

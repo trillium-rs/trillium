@@ -15,3 +15,5 @@ pub use client::Client;
 
 mod transport;
 pub use transport::{ClientTransport, TcpConfig};
+
+pub use async_net::TcpStream;

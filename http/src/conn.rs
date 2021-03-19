@@ -1,25 +1,30 @@
+use encoding_rs::Encoding;
 use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use http_types::headers::{CONTENT_TYPE, HOST, UPGRADE};
 use http_types::{
     content::ContentLength,
     headers::{Header, Headers, DATE, EXPECT, TRANSFER_ENCODING},
     other::Date,
-    transfer::{Encoding, TransferEncoding},
+    transfer::TransferEncoding,
     Body, Extensions, Method, StatusCode, Url, Version,
 };
+use httparse::{Request, EMPTY_HEADER};
 use memmem::{Searcher, TwoWaySearcher};
 use std::future::Future;
-
+use std::iter;
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
 };
 
-use crate::Stopper;
-use crate::{body_encoder::BodyEncoder, Error, ReceivedBody, ReceivedBodyState, Result, Upgrade};
+use crate::util::encoding;
+use crate::{
+    body_encoder::BodyEncoder, Error, ReceivedBody, ReceivedBodyState, Result, Stopper, Upgrade,
+};
 
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 8 * 1024;
+const SERVER: &str = concat!("myco/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug)]
 pub enum ConnectionStatus<RW> {
@@ -133,8 +138,10 @@ where
     }
 
     fn needs_100_continue(&self) -> bool {
-        self.request_headers
-            .contains_ignore_ascii_case(EXPECT, "100-continue")
+        self.request_body_state == ReceivedBodyState::Start
+            && self
+                .request_headers
+                .contains_ignore_ascii_case(EXPECT, "100-continue")
     }
 
     fn build_request_body(&mut self) -> ReceivedBody<'_, RW> {
@@ -144,12 +151,23 @@ where
             &mut self.rw,
             &mut self.request_body_state,
             None,
-            "server",
+            encoding(&self.request_headers),
         )
     }
 
+    pub fn request_encoding(&self) -> &'static Encoding {
+        encoding(&self.request_headers)
+    }
+
+    pub fn response_encoding(&self) -> &'static Encoding {
+        encoding(&self.response_headers)
+    }
+
     pub async fn request_body(&mut self) -> ReceivedBody<'_, RW> {
-        self.initialize_request_body_state().await.ok();
+        if self.needs_100_continue() {
+            self.send_100_continue().await.ok();
+        }
+
         self.build_request_body()
     }
 
@@ -173,6 +191,20 @@ where
         }
     }
 
+    pub fn validate_headers(request_headers: &Headers) -> Result<()> {
+        let content_length = ContentLength::from_headers(request_headers)
+            .map_err(|_| Error::MalformedHeader("content-length"))?;
+
+        let transfer_encoding_chunked =
+            request_headers.contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked");
+
+        if content_length.is_some() && transfer_encoding_chunked {
+            Err(Error::UnexpectedHeader("content-length"))
+        } else {
+            Ok(())
+        }
+    }
+
     pub async fn new(rw: RW, bytes: Option<Vec<u8>>, stopper: Stopper) -> Result<Self> {
         let (rw, buf, extra_bytes) = Self::head(rw, bytes, &stopper).await?;
         let buffer = if extra_bytes.is_empty() {
@@ -180,8 +212,8 @@ where
         } else {
             Some(extra_bytes)
         };
-        let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
-        let mut httparse_req = httparse::Request::new(&mut headers);
+        let mut headers = [EMPTY_HEADER; MAX_HEADERS];
+        let mut httparse_req = Request::new(&mut headers);
         let status = httparse_req.parse(&buf[..])?;
         if status.is_partial() {
             log::debug!("partial head content: {}", utf8(&buf[..]));
@@ -204,6 +236,8 @@ where
         for header in httparse_req.headers.iter() {
             request_headers.insert(header.name, std::str::from_utf8(header.value)?);
         }
+
+        Self::validate_headers(&request_headers)?;
 
         log::trace!("parsed headers: {:#?}", &request_headers);
         let path = httparse_req
@@ -247,7 +281,7 @@ where
 
         let searcher = TwoWaySearcher::new(b"\r\n\r\n");
         loop {
-            buf.extend(std::iter::repeat(0).take(100));
+            buf.extend(iter::repeat(0).take(100));
             let bytes = if len == 0 {
                 stopper
                     .stop_future(rw.read(&mut buf[len..]))
@@ -344,40 +378,13 @@ where
     }
 
     pub fn request_content_length(&self) -> crate::Result<Option<u64>> {
-        Ok(ContentLength::from_headers(&self.request_headers)
-            .map_err(|_| crate::Error::MalformedHeader("content-length"))?
-            .map(|cl| cl.len()))
-    }
-
-    pub(crate) async fn initialize_request_body_state(&mut self) -> Result<()> {
-        if let ReceivedBodyState::Start = self.request_body_state {
-            if self.needs_100_continue() {
-                self.send_100_continue().await?;
-            }
-
-            let content_length = self.request_content_length()?;
-
-            let transfer_encoding_chunked = self
-                .request_headers
-                .contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked");
-
-            if content_length.is_some() && transfer_encoding_chunked {
-                return Err(Error::UnexpectedHeader("content-length"));
-            }
-
-            self.request_body_state = if transfer_encoding_chunked {
-                ReceivedBodyState::Chunked { remaining: 0 }
-            } else if let Some(total_length) = content_length {
-                ReceivedBodyState::FixedLength {
-                    current_index: 0,
-                    total_length,
-                }
-            } else {
-                ReceivedBodyState::End
-            }
+        if self.method == Method::Get {
+            Ok(Some(0))
+        } else {
+            Ok(ContentLength::from_headers(&self.request_headers)
+                .map_err(|_| Error::MalformedHeader("content-length"))?
+                .map(|cl| cl.len()))
         }
-
-        Ok(())
     }
 
     pub async fn encode(mut self) -> Result<ConnectionStatus<RW>> {
@@ -404,9 +411,14 @@ where
             if let Some(len) = self.body_len() {
                 self.response_headers.apply(ContentLength::new(len));
             } else {
-                self.response_headers
-                    .apply(TransferEncoding::new(Encoding::Chunked));
+                self.response_headers.apply(TransferEncoding::new(
+                    http_types::transfer::Encoding::Chunked,
+                ));
             }
+        }
+
+        if self.response_headers.get("server").is_none() {
+            self.response_headers.insert("server", SERVER);
         }
 
         if self.stopper.is_stopped() {

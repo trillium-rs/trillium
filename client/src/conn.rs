@@ -1,4 +1,5 @@
 pub use async_net::TcpStream;
+use encoding_rs::Encoding;
 use futures_lite::future::poll_once;
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use memmem::{Searcher, TwoWaySearcher};
@@ -6,6 +7,7 @@ use myco::http_types::content::ContentLength;
 use myco::http_types::headers::{Headers, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
 use myco::http_types::{Body, Extensions, Method, StatusCode};
 use myco::{Error, Result, Stopper};
+use myco_http::util::encoding;
 use myco_http::{BodyEncoder, ReceivedBody, ReceivedBodyState, Upgrade};
 use std::borrow::Cow;
 use std::convert::TryInto;
@@ -46,6 +48,8 @@ macro_rules! method {
         }
     };
 }
+
+const USER_AGENT: &str = concat!("myco-client/", env!("CARGO_PKG_VERSION"));
 
 impl<Transport: ClientTransport> Debug for Conn<'_, Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -137,6 +141,10 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
             };
         }
 
+        if self.request_headers.get("user-agent").is_none() {
+            self.request_headers.insert("user-agent", USER_AGENT);
+        }
+
         if self.method == Method::Connect {
             self.request_headers
                 .insert("proxy-connection", "keep-alive");
@@ -157,10 +165,12 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
             self.request_headers.insert("expect", "100-continue");
         }
 
-        if let Some(len) = self.body_len() {
-            self.request_headers.insert(CONTENT_LENGTH, len.to_string());
-        } else {
-            self.request_headers.insert(TRANSFER_ENCODING, "chunked");
+        if self.method != Method::Get {
+            if let Some(len) = self.body_len() {
+                self.request_headers.insert(CONTENT_LENGTH, len.to_string());
+            } else {
+                self.request_headers.insert(TRANSFER_ENCODING, "chunked");
+            }
         }
     }
 
@@ -349,6 +359,8 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
             self.response_headers
                 .insert(header.name, std::str::from_utf8(header.value)?);
         }
+
+        self.validate_response_headers()?;
         Ok(())
     }
 
@@ -382,6 +394,14 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         Ok(())
     }
 
+    pub fn request_encoding(&self) -> &'static Encoding {
+        encoding(&self.request_headers)
+    }
+
+    pub fn response_encoding(&self) -> &'static Encoding {
+        encoding(&self.response_headers)
+    }
+
     pub fn response_body(&mut self) -> ReceivedBody<'_, Transport> {
         ReceivedBody::new(
             self.response_content_length(),
@@ -389,7 +409,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
             self.transport.as_mut().unwrap(),
             &mut self.response_body_state,
             None,
-            "client",
+            encoding(&self.response_headers),
         )
     }
 
@@ -400,31 +420,19 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
             .map(|cl| cl.len())
     }
 
-    fn initialize_response_body_state(&mut self) -> Result<()> {
-        if let ReceivedBodyState::Start = self.response_body_state {
-            let content_length = self.response_content_length();
+    fn validate_response_headers(&self) -> Result<()> {
+        let content_length = ContentLength::from_headers(&self.response_headers)
+            .map_err(|_| Error::MalformedHeader("content-length"))?;
 
-            let transfer_encoding_chunked = self
-                .request_headers
-                .contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked");
+        let transfer_encoding_chunked = self
+            .response_headers
+            .contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked");
 
-            if content_length.is_some() && transfer_encoding_chunked {
-                return Err(Error::UnexpectedHeader("content-length"));
-            }
-
-            self.response_body_state = if transfer_encoding_chunked {
-                ReceivedBodyState::Chunked { remaining: 0 }
-            } else if let Some(total_length) = content_length {
-                ReceivedBodyState::FixedLength {
-                    current_index: 0,
-                    total_length,
-                }
-            } else {
-                ReceivedBodyState::End
-            }
+        if content_length.is_some() && transfer_encoding_chunked {
+            Err(Error::UnexpectedHeader("content-length"))
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     fn is_keep_alive(&self) -> bool {
@@ -438,7 +446,6 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         self.finalize_headers();
         self.connect_and_send_head().await?;
         self.send_body_and_parse_head().await?;
-        self.initialize_response_body_state()?;
 
         Ok(())
     }
@@ -521,7 +528,7 @@ impl<Transport: ClientTransport> From<Conn<'_, Transport>> for ReceivedBody<'sta
                         );
                     })
                 }),
-            "owned client body",
+            conn.response_encoding(),
         )
     }
 }

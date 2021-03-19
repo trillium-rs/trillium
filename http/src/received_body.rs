@@ -1,13 +1,14 @@
 use std::convert::TryInto;
 use std::io::ErrorKind;
 use std::iter;
-use std::ops::{Deref, DerefMut};
 use std::{
     fmt::{self, Formatter},
     pin::Pin,
     task::{Context, Poll},
 };
 
+use crate::MutCow;
+use encoding_rs::Encoding;
 use futures_lite::io::{self, BufReader};
 use futures_lite::{ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
 use http_types::Body;
@@ -15,58 +16,10 @@ use httparse::Status;
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, Start};
 
-pub enum MutCow<'a, T> {
-    Owned(T),
-    Borrowed(&'a mut T),
-}
-
-impl<'a, T> MutCow<'a, T> {
-    pub fn is_owned(&self) -> bool {
-        matches!(self, MutCow::Owned(_))
-    }
-
-    pub fn is_borrowed(&self) -> bool {
-        matches!(self, MutCow::Borrowed(_))
-    }
-
-    pub fn unwrap_owned(self) -> T {
-        match self {
-            MutCow::Owned(t) => t,
-            _ => panic!("attempted to unwrap a borrow"),
-        }
-    }
-}
-
-impl<'a, T> Deref for MutCow<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            MutCow::Owned(t) => t,
-            MutCow::Borrowed(t) => &**t,
-        }
-    }
-}
-
-impl<'a, T> DerefMut for MutCow<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            MutCow::Owned(t) => t,
-            MutCow::Borrowed(t) => *t,
-        }
-    }
-}
-
-impl<T> From<T> for MutCow<'static, T> {
-    fn from(t: T) -> Self {
-        Self::Owned(t)
-    }
-}
-
-impl<'a, T> From<&'a mut T> for MutCow<'a, T> {
-    fn from(t: &'a mut T) -> Self {
-        Self::Borrowed(t)
-    }
+macro_rules! trace {
+    ($s:literal, $($arg:tt)+) => (
+        log::trace!(concat!(":{} ", $s), line!(), $($arg)+);
+    )
 }
 
 pub struct ReceivedBody<'conn, RW> {
@@ -74,8 +27,8 @@ pub struct ReceivedBody<'conn, RW> {
     buffer: MutCow<'conn, Option<Vec<u8>>>,
     rw: Option<MutCow<'conn, RW>>,
     state: MutCow<'conn, ReceivedBodyState>,
-    name: &'static str,
     on_completion: Option<Box<dyn Fn(RW) + Send + Sync + 'static>>,
+    encoding: &'static Encoding,
 }
 
 impl<'conn, RW> ReceivedBody<'conn, RW>
@@ -88,8 +41,8 @@ where
             buffer: MutCow::Owned(self.buffer.take()),
             rw: self.rw.map(|rw| MutCow::Owned((*rw).clone())),
             state: MutCow::Owned(*self.state),
-            name: self.name,
             on_completion: self.on_completion,
+            encoding: self.encoding,
         }
     }
 }
@@ -104,7 +57,7 @@ where
         rw: impl Into<MutCow<'conn, RW>>,
         state: impl Into<MutCow<'conn, ReceivedBodyState>>,
         on_completion: Option<Box<dyn Fn(RW) + Send + Sync + 'static>>,
-        name: &'static str,
+        encoding: &'static Encoding,
     ) -> Self {
         Self {
             content_length,
@@ -112,19 +65,16 @@ where
             rw: Some(rw.into()),
             state: state.into(),
             on_completion,
-            name,
+            encoding,
         }
     }
 
-    pub async fn read_string(mut self) -> crate::Result<String> {
-        let mut string = if let Some(len) = self.content_length {
-            String::with_capacity(len.try_into().unwrap_or_else(|_| usize::max_value()))
-        } else {
-            String::new()
-        };
+    pub async fn read_string(self) -> crate::Result<String> {
+        let encoding = self.encoding;
+        let bytes = self.read_bytes().await?;
 
-        self.read_to_string(&mut string).await?;
-        Ok(string)
+        let (s, _, _) = encoding.decode(&bytes);
+        Ok(s.to_string())
     }
 
     fn owns_transport(&self) -> bool {
@@ -168,7 +118,7 @@ where
         Some(buffer) => {
             let len = buffer.len();
             if len > buf.len() {
-                log::trace!(
+                trace!(
                     "have {} bytes of pending data but can only use {}",
                     len,
                     buf.len()
@@ -178,7 +128,7 @@ where
                 *buffer = remaining;
                 Ready(Ok(buf.len()))
             } else {
-                log::trace!("have {} bytes of pending data, using all of it", len);
+                trace!("have {} bytes of pending data, using all of it", len);
                 buf[..len].copy_from_slice(&buffer);
                 *opt_buffer = None;
                 match Pin::new(rw).poll_read(cx, &mut buf[len..]) {
@@ -193,30 +143,28 @@ where
     }
 }
 
-fn chunk_decode(remaining: usize, buf: &mut [u8]) -> (ReceivedBodyState, usize, Option<Vec<u8>>) {
+fn chunk_decode(
+    remaining: usize,
+    mut total: usize,
+    buf: &mut [u8],
+) -> io::Result<(ReceivedBodyState, usize, Option<Vec<u8>>)> {
     let mut ranges_to_keep = vec![];
     let mut chunk_start = 0;
     let mut chunk_end = remaining;
     let (request_body_state, unused) = loop {
-        if chunk_end >= buf.len() {
-            ranges_to_keep.push(chunk_start..buf.len());
-            break (
-                Chunked {
-                    remaining: chunk_end - buf.len(),
-                },
-                None,
-            );
+        if chunk_end > 2 {
+            let keep_end = buf.len().min(chunk_end - 2);
+            ranges_to_keep.push(chunk_start..keep_end);
+            total += keep_end - chunk_start;
         }
 
-        if chunk_end > 0 {
-            ranges_to_keep.push(chunk_start..chunk_end);
-            chunk_start = chunk_end + 2;
-        }
+        chunk_start = chunk_end;
 
-        if chunk_start > buf.len() {
+        if chunk_start >= buf.len() {
             break (
                 Chunked {
                     remaining: (chunk_start - buf.len()),
+                    total,
                 },
                 None,
             );
@@ -224,26 +172,14 @@ fn chunk_decode(remaining: usize, buf: &mut [u8]) -> (ReceivedBodyState, usize, 
 
         match httparse::parse_chunk_size(&buf[chunk_start..]) {
             Ok(Status::Complete((framing_bytes, chunk_size))) => {
-                log::trace!(
-                    "chunk size: {:?} {:?} (\"...{}|>{}<|{}...\")",
-                    framing_bytes,
-                    chunk_size,
-                    utf8nl(&buf[10.max(chunk_start) - 10..chunk_start]),
-                    utf8nl(&buf[chunk_start..chunk_start + framing_bytes]),
-                    utf8nl(
-                        &buf[chunk_start + framing_bytes
-                            ..buf.len().min(chunk_start + framing_bytes + 10)]
-                    )
-                );
-
                 chunk_start += framing_bytes;
-                chunk_end = chunk_start + chunk_size as usize;
+                chunk_end = 2 + chunk_start + chunk_size as usize;
 
                 if chunk_size == 0 {
                     break (
                         End,
-                        if chunk_end + 2 < buf.len() {
-                            Some(buf[chunk_end + 2..].to_vec())
+                        if chunk_end < buf.len() {
+                            Some(buf[chunk_end..].to_vec())
                         } else {
                             None
                         },
@@ -253,7 +189,10 @@ fn chunk_decode(remaining: usize, buf: &mut [u8]) -> (ReceivedBodyState, usize, 
 
             Ok(Status::Partial) => {
                 break (
-                    Chunked { remaining: 0 },
+                    Chunked {
+                        remaining: 0,
+                        total,
+                    },
                     if chunk_start < buf.len() {
                         Some(buf[chunk_start..].to_vec())
                     } else {
@@ -262,11 +201,11 @@ fn chunk_decode(remaining: usize, buf: &mut [u8]) -> (ReceivedBodyState, usize, 
                 );
             }
 
-            Err(_) => {
-                panic!(
-                    "need to think through error handling, {:?}",
-                    utf8(&buf[chunk_start..])
-                )
+            Err(httparse::InvalidChunkSize) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid chunk size",
+                ));
             }
         }
     };
@@ -279,64 +218,7 @@ fn chunk_decode(remaining: usize, buf: &mut [u8]) -> (ReceivedBodyState, usize, 
         bytes = new_bytes;
     }
 
-    (request_body_state, bytes, unused)
-}
-
-fn utf8(d: &[u8]) -> &str {
-    std::str::from_utf8(d).unwrap_or("not utf8")
-}
-
-fn utf8nl(d: &[u8]) -> String {
-    utf8(d).replace("\r", "\\r").replace("\n", "\\n")
-}
-
-#[cfg(test)]
-mod chunk_decode {
-
-    use super::{chunk_decode, utf8, ReceivedBodyState};
-
-    fn assert_decoded(input: (usize, &str), expected_output: (Option<usize>, &str, Option<&str>)) {
-        let (remaining, input_data) = input;
-
-        let mut buf = input_data.to_string().into_bytes();
-
-        let (output_state, bytes, unused) = chunk_decode(remaining, &mut buf);
-
-        assert_eq!(
-            (
-                match output_state {
-                    ReceivedBodyState::Chunked { remaining } => Some(remaining),
-                    ReceivedBodyState::End => None,
-                    _ => panic!("unexpected output state {:?}", output_state),
-                },
-                utf8(&buf[0..bytes]),
-                unused.as_deref().map(utf8)
-            ),
-            expected_output
-        );
-    }
-
-    #[test]
-    fn test_chunk_start() {
-        env_logger::init();
-        assert_decoded((0, "5\r\n12345\r\n"), (Some(0), "12345", None));
-        assert_decoded((0, "F\r\n1"), (Some(14), "1", None));
-        assert_decoded((0, "5\r\n123"), (Some(2), "123", None));
-        assert_decoded((0, "1\r\nX\r\n1\r\nX\r\n"), (Some(0), "XX", None));
-        assert_decoded((0, "1\r\nX\r\n1\r\nX\r\n1"), (Some(0), "XX", Some("1")));
-        assert_decoded((0, "FFF\r\n"), (Some(0xfff), "", None));
-        assert_decoded((10, "hello"), (Some(5), "hello", None));
-        assert_decoded((5, "hello\r\nA\r\n world"), (Some(4), "hello world", None));
-        assert_decoded(
-            (0, "e\r\ntest test test\r\n0\r\n\r\n"),
-            (None, "test test test", None),
-        );
-        assert_decoded(
-            (0, "1\r\n_\r\n0\r\n\r\nnext request"),
-            (None, "_", Some("next request")),
-        );
-        assert_decoded((5, "hello\r\n0\r\n"), (None, "hello", None));
-    }
+    Ok((request_body_state, bytes, unused))
 }
 
 const STREAM_READ_BUF_LENGTH: usize = 128;
@@ -377,14 +259,29 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        let (new_body_state, bytes) = match *self.state {
-            ReceivedBodyState::Start => (End, 0),
+        trace!("polling received body with state {:?}", &*self.state);
+        let (new_body_state, bytes, unused) = match *self.state {
+            ReceivedBodyState::Start => (
+                match self.content_length {
+                    Some(0) => ReceivedBodyState::End,
 
-            Chunked { remaining } => {
+                    Some(total_length) => ReceivedBodyState::FixedLength {
+                        current_index: 0,
+                        total_length,
+                    },
+
+                    None => ReceivedBodyState::Chunked {
+                        remaining: 0,
+                        total: 0,
+                    },
+                },
+                0,
+                None,
+            ),
+
+            Chunked { remaining, total } => {
                 let bytes = ready!(self.read_raw(cx, buf)?);
-                let (new_state, bytes, unused_data) = chunk_decode(remaining, &mut buf[..bytes]);
-                *self.buffer = unused_data;
-                (new_state, bytes)
+                chunk_decode(remaining, total, &mut buf[..bytes])?
             }
 
             FixedLength {
@@ -396,31 +293,44 @@ where
                 let buf = &mut buf[..len.min(remaining)];
                 let bytes = ready!(self.read_raw(cx, buf)?);
                 let current_index = current_index + bytes as u64;
-                if bytes == 0 || current_index == total_length {
-                    (End, bytes)
+                let state = if bytes == 0 || current_index == total_length {
+                    End
                 } else {
-                    (
-                        FixedLength {
-                            current_index,
-                            total_length,
-                        },
-                        bytes,
-                    )
-                }
+                    FixedLength {
+                        current_index,
+                        total_length,
+                    }
+                };
+
+                (state, bytes, None)
             }
 
-            End => (End, 0),
+            End => (End, 0, None),
         };
+
+        if let Some(unused) = unused {
+            if let Some(existing) = &mut *self.buffer {
+                existing.extend_from_slice(&unused);
+            } else {
+                *self.buffer = Some(unused);
+            }
+        }
 
         *self.state = new_body_state;
 
-        if *self.state == End && self.on_completion.is_some() && self.owns_transport() {
-            let rw = self.rw.take().unwrap().unwrap_owned();
-            let on_completion = self.on_completion.take().unwrap();
-            on_completion(rw);
+        if *self.state == End {
+            if self.on_completion.is_some() && self.owns_transport() {
+                let rw = self.rw.take().unwrap().unwrap_owned();
+                let on_completion = self.on_completion.take().unwrap();
+                on_completion(rw);
+            }
+            Ready(Ok(bytes))
+        } else if bytes == 0 {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        } else {
+            Ready(Ok(bytes))
         }
-
-        Ready(Ok(bytes))
     }
 }
 
@@ -428,7 +338,6 @@ impl<'rw, RW> fmt::Debug for ReceivedBody<'rw, RW> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("RequestBody")
             .field("state", &*self.state)
-            .field("name", &self.name)
             .field("content_length", &self.content_length)
             .field(
                 "buffer",
@@ -444,6 +353,7 @@ pub enum ReceivedBodyState {
     Start,
     Chunked {
         remaining: usize,
+        total: usize,
     },
 
     FixedLength {
@@ -466,5 +376,109 @@ where
     fn from(rb: ReceivedBody<'static, RW>) -> Self {
         let len = rb.content_length.map(|cl| cl as u64);
         Body::from_reader(BufReader::new(rb), len)
+    }
+}
+
+#[cfg(test)]
+mod chunk_decode {
+
+    use encoding_rs::UTF_8;
+    use futures_lite::io::Cursor;
+    use futures_lite::{AsyncRead, AsyncReadExt};
+
+    use super::{chunk_decode, ReceivedBody, ReceivedBodyState};
+
+    fn assert_decoded(input: (usize, &str), expected_output: (Option<usize>, &str, Option<&str>)) {
+        let (remaining, input_data) = input;
+
+        let mut buf = input_data.to_string().into_bytes();
+
+        let (output_state, bytes, unused) = chunk_decode(remaining, 0, &mut buf).unwrap();
+
+        assert_eq!(
+            (
+                match output_state {
+                    ReceivedBodyState::Chunked { remaining, .. } => Some(remaining),
+                    ReceivedBodyState::End => None,
+                    _ => panic!("unexpected output state {:?}", output_state),
+                },
+                &*String::from_utf8_lossy(&buf[0..bytes]),
+                unused.as_deref().map(String::from_utf8_lossy).as_deref()
+            ),
+            expected_output
+        );
+    }
+
+    async fn read_with_buffers_of_size<R>(reader: &mut R, size: usize) -> crate::Result<String>
+    where
+        R: AsyncRead + Unpin,
+    {
+        let mut return_buffer = vec![];
+        loop {
+            let mut buf = vec![0; size];
+            match reader.read(&mut buf).await? {
+                0 => break Ok(String::from_utf8_lossy(&return_buffer).into()),
+                bytes_read => return_buffer.extend_from_slice(&buf[..bytes_read]),
+            }
+        }
+    }
+
+    fn full_decode_with_size(
+        input: &str,
+        poll_size: usize,
+    ) -> crate::Result<(String, ReceivedBody<'static, Cursor<&str>>)> {
+        let mut rb = ReceivedBody::new(
+            None,
+            None,
+            Cursor::new(input),
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
+            None,
+            &UTF_8,
+        );
+
+        let output = async_io::block_on(read_with_buffers_of_size(&mut rb, poll_size))?;
+        Ok((output, rb))
+    }
+
+    #[test]
+    fn test_full_decode() {
+        env_logger::try_init().ok();
+
+        for size in 3..50 {
+            let input = "5\r\n12345\r\n1\r\na\r\n2\r\nbc\r\n3\r\ndef\r\n0\r\n";
+            let (output, _) = full_decode_with_size(input, size).unwrap();
+            assert_eq!(output, "12345abcdef", "size: {}", size);
+
+            let input = "7\r\nMozilla\r\n9\r\nDeveloper\r\n7\r\nNetwork\r\n0\r\n\r\n";
+            let (output, _) = full_decode_with_size(input, size).unwrap();
+            assert_eq!(output, "MozillaDeveloperNetwork", "size: {}", size);
+        }
+    }
+
+    #[test]
+    fn test_chunk_start() {
+        assert_decoded((0, "5\r\n12345\r\n"), (Some(0), "12345", None));
+        assert_decoded((0, "F\r\n1"), (Some(14 + 2), "1", None));
+        assert_decoded((0, "5\r\n123"), (Some(2 + 2), "123", None));
+        assert_decoded((0, "1\r\nX\r\n1\r\nX\r\n"), (Some(0), "XX", None));
+        assert_decoded((0, "1\r\nX\r\n1\r\nX\r\n1"), (Some(0), "XX", Some("1")));
+        assert_decoded((0, "FFF\r\n"), (Some(0xfff + 2), "", None));
+        assert_decoded((10, "hello"), (Some(5), "hello", None));
+        assert_decoded(
+            (7, "hello\r\nA\r\n world"),
+            (Some(4 + 2), "hello world", None),
+        );
+        assert_decoded(
+            (0, "e\r\ntest test test\r\n0\r\n\r\n"),
+            (None, "test test test", None),
+        );
+        assert_decoded(
+            (0, "1\r\n_\r\n0\r\n\r\nnext request"),
+            (None, "_", Some("next request")),
+        );
+        assert_decoded((7, "hello\r\n0\r\n\r\n"), (None, "hello", None));
     }
 }
