@@ -1,4 +1,4 @@
-#![forbid(unsafe_code, future_incompatible)]
+#![forbid(unsafe_code)]
 #![deny(
     missing_debug_implementations,
     nonstandard_style,
@@ -9,12 +9,14 @@
 use structopt::StructOpt;
 
 mod cli_options;
+mod client;
 #[cfg(unix)]
 mod dev_server;
 mod root_path;
 mod static_cli_options;
 
 pub(crate) use cli_options::*;
+pub(crate) use client::ClientCli;
 #[cfg(unix)]
 pub(crate) use dev_server::DevServer;
 pub(crate) use root_path::*;

@@ -3,11 +3,9 @@ name = "myco-cli"
 version = "0.0.10"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
-description = "a simple http file server binary based on tide"
-keywords = ["tide", "http", "file", "server"]
+description = "the myco cli"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/jbr/tide-serve"
 
 [dependencies]
 env_logger = "0.8.3"
@@ -21,7 +19,29 @@ myco-smol-server = { path = "../smol-server" }
 myco-static = { path = "../static" }
 structopt = "0.3.21"
 serde = "1.0.123"
-serde_json = "1.0.62"
+serde_json = "1.0.64"
+myco-html-rewriter = { path = "../html-rewriter/" }
+myco-websockets = { path = "../websockets/" }
+myco-router = { path = "../router" }
+futures-lite = "1.11.3"
+async-io = "1.3.1"
+async-channel = "1.6.1"
+broadcaster = "1.0.0"
+strip-ansi-escapes = "0.1.0"
+ansi-to-html = "0.1.0"
+myco-client = { path = "../client" }
+bat = { version = "0.18.0", default-features = false, features = [
+  "atty",
+  "clap",
+  "dirs-next",
+  "lazy_static",
+  "paging",
+  "wild",
+  "regex-onig",
+] }
+atty = "0.2.14"
+async-global-executor = "2.0.2"
+blocking = "1.0.2"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3.4"

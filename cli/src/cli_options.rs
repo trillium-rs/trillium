@@ -5,6 +5,7 @@ pub enum Cli {
     Static(crate::StaticCli),
     #[cfg(unix)]
     DevServer(crate::DevServer),
+    Client(crate::ClientCli),
 }
 
 impl Cli {
@@ -14,6 +15,7 @@ impl Cli {
             Static(s) => s.run(),
             #[cfg(unix)]
             DevServer(d) => d.run(),
+            Client(c) => c.run(),
         }
     }
 }
