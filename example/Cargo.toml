@@ -17,3 +17,4 @@ myco-askama = { path = "../askama" }
 futures-lite = "1.11.3"
 askama = "0.10.5"
 myco-static-compiled = { path = "../static-compiled/" }
+myco-proxy = { path = "../proxy" }

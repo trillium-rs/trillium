@@ -4,10 +4,11 @@ use myco::{sequence, Conn};
 use myco_askama::AskamaConnExt;
 use myco_cookies::Cookies;
 use myco_logger::DevLogger;
+use myco_proxy::{Proxy, Rustls, TcpStream};
 use myco_router::{routes, RouterConnExt};
 use myco_sessions::{MemoryStore, SessionConnExt, Sessions};
 use myco_static_compiled::{include_dir, StaticCompiled};
-use myco_websockets::{Message, WebSocket, WebSocketConnection};
+use myco_websockets::{Message, WebSocket};
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -43,10 +44,10 @@ fn main() {
                 }
             },
 
-            get "/ws" WebSocket::new(|mut wsc: WebSocketConnection| async move {
-                while let Some(Ok(Message::Text(input))) = wsc.next().await {
+            get "/ws" WebSocket::new(|mut ws| async move {
+                while let Some(Ok(Message::Text(input))) = ws.next().await {
                     let output: String = input.chars().rev().collect();
-                    wsc.send_string(format!("{} | {}", &input, &output)).await;
+                    ws.send_string(format!("{} | {}", &input, &output)).await;
                 }
             }),
 
@@ -58,6 +59,8 @@ fn main() {
                     conn
                 }
             },
+
+            get "/httpbin/*" Proxy::<Rustls<TcpStream>>::new("https://httpbin.org"),
 
             get "*" StaticCompiled::new(include_dir!("./public/")).with_index_file("index.html")
         ]
