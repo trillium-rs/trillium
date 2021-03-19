@@ -513,6 +513,7 @@ impl<Transport: ClientTransport> From<Conn<'_, Transport>> for Body {
 
 impl<Transport: ClientTransport> From<Conn<'_, Transport>> for ReceivedBody<'static, Transport> {
     fn from(mut conn: Conn<'_, Transport>) -> Self {
+        conn.finalize_headers();
         ReceivedBody::new(
             conn.response_content_length(),
             conn.buffer.take(),

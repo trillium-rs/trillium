@@ -1,6 +1,7 @@
 use encoding_rs::Encoding;
 use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use http_types::headers::{CONTENT_TYPE, HOST, UPGRADE};
+use http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE, HOST, UPGRADE};
+use http_types::transfer::Encoding::Chunked;
 use http_types::{
     content::ContentLength,
     headers::{Header, Headers, DATE, EXPECT, TRANSFER_ENCODING},
@@ -378,12 +379,20 @@ where
     }
 
     pub fn request_content_length(&self) -> crate::Result<Option<u64>> {
-        if self.method == Method::Get {
-            Ok(Some(0))
+        if self
+            .request_headers
+            .contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked")
+        {
+            return Ok(None);
+        } else if let Some(cl) = ContentLength::from_headers(&self.request_headers)
+            .map_err(|_| Error::MalformedHeader("content-length"))?
+            .map(|cl| cl.len())
+        {
+            return Ok(Some(cl));
+        } else if self.method == Method::Get {
+            return Ok(Some(0));
         } else {
-            Ok(ContentLength::from_headers(&self.request_headers)
-                .map_err(|_| Error::MalformedHeader("content-length"))?
-                .map(|cl| cl.len()))
+            return Err(Error::HeaderMissing("content-length or transfer-encoding"));
         }
     }
 
@@ -407,14 +416,14 @@ where
     }
 
     fn finalize_headers(&mut self) {
-        if self.response_headers.get(TRANSFER_ENCODING).is_none() {
-            if let Some(len) = self.body_len() {
-                self.response_headers.apply(ContentLength::new(len));
-            } else {
-                self.response_headers.apply(TransferEncoding::new(
-                    http_types::transfer::Encoding::Chunked,
-                ));
-            }
+        if let Some(len) = self.body_len() {
+            self.response_headers.apply(ContentLength::new(len));
+        }
+
+        if self.response_headers.get(CONTENT_LENGTH).is_none() {
+            self.response_headers.apply(TransferEncoding::new(Chunked));
+        } else {
+            self.response_headers.remove(TRANSFER_ENCODING);
         }
 
         if self.response_headers.get("server").is_none() {
@@ -436,7 +445,6 @@ where
         }
     }
 
-    /// Encode the headers to a buffer, the first time we poll.
     async fn send_headers(&mut self) -> Result<()> {
         let status = self.status().unwrap_or(&StatusCode::NotFound);
         let first_line = format!(

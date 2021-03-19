@@ -69,6 +69,10 @@ where
         }
     }
 
+    pub fn content_length(&self) -> Option<u64> {
+        self.content_length.clone()
+    }
+
     pub async fn read_string(self) -> crate::Result<String> {
         let encoding = self.encoding;
         let bytes = self.read_bytes().await?;

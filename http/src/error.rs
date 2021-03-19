@@ -4,7 +4,7 @@ use std::str::Utf8Error;
 use http_types::url;
 use thiserror::Error;
 
-/// Concrete errors that occur within async-h1
+/// Concrete errors that occur within myco's http implementation
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -21,10 +21,10 @@ pub enum Error {
     #[error("unexpected uri format")]
     UnexpectedUriFormat,
 
-    /// this error describes a http 1.1 request that is missing a Host
-    /// header
-    #[error("mandatory host header missing")]
-    HostHeaderMissing,
+    /// the relevant http protocol expected this header, but it was
+    /// not provided
+    #[error("mandatory {0} header missing")]
+    HeaderMissing(&'static str),
 
     /// this error describes a request that does not specify a path
     #[error("request path missing")]
@@ -87,15 +87,6 @@ pub enum Error {
     /// for security reasons, we do not allow request headers beyond 8kb.
     #[error("Head byte length should be less than 8kb")]
     HeadersTooLong,
-
-    #[error("malformed chunked transport framing")]
-    InvalidChunkSize,
-}
-
-impl From<httparse::InvalidChunkSize> for Error {
-    fn from(_: httparse::InvalidChunkSize) -> Self {
-        Self::InvalidChunkSize
-    }
 }
 
 /// this crate's result type

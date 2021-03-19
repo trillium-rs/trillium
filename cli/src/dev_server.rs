@@ -168,15 +168,12 @@ impl DevServer {
 
             while let Ok(m) = r.recv() {
                 if let Some(path) = m.path {
-                    let path = match path.canonicalize() {
-                        Ok(path) => path,
-                        _ => path,
-                    };
-
-                    if path == bin {
-                        tx.send(Event::BinaryChanged).unwrap();
-                    } else {
-                        tx.send(Event::Rebuild).unwrap();
+                    if let Ok(path) = path.canonicalize() {
+                        if path == bin {
+                            tx.send(Event::Signal).unwrap();
+                        } else {
+                            tx.send(Event::Rebuild).unwrap();
+                        }
                     }
                 }
             }

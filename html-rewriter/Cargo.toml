@@ -12,3 +12,8 @@ async-lock = "2.3.0"
 lol-async = { git = "https://github.com/jbr/lol-async", branch = "main" }
 async-dup = "1.2.2"
 async-global-executor = "2.0.2"
+
+[dev-dependencies]
+myco-smol-server = { path = "../smol-server" }
+myco-proxy = { path = "../proxy" }
+env_logger = "0.8.3"
