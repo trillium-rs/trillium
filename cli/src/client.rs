@@ -116,8 +116,9 @@ impl ClientCli {
             if atty::is(atty::Stream::Stdout) {
                 let body = conn.response_body().read_string().await.unwrap();
 
+                let request_headers_as_string = format!("{:#?}", conn.request_headers());
                 let headers = conn.response_headers();
-                let headers_as_string = format!("{:#?}", headers);
+                let response_headers_as_string = format!("{:#?}", headers);
                 let content_type = headers.get("content-type").map(|c| c.as_str());
                 let filename = match content_type.as_deref() {
                     Some("application/json") => "body.json", // bat can't sniff json for some reason
@@ -131,8 +132,11 @@ impl ClientCli {
                     .header(true)
                     .grid(true)
                     .inputs(vec![
-                        Input::from_bytes(headers_as_string.as_bytes())
-                            .name("headers.rs")
+                        Input::from_bytes(request_headers_as_string.as_bytes())
+                            .name("request_headers.rs")
+                            .title("request headers"),
+                        Input::from_bytes(response_headers_as_string.as_bytes())
+                            .name("response_headers.rs")
                             .title("response headers"),
                         Input::from_bytes(status_string.as_bytes())
                             .name("status")
