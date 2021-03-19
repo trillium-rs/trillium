@@ -5,7 +5,6 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-log = "0.4.13"
 async-native-tls = "0.3.3"
 myco-tls-common = { path = "../tls-common" }
 native-tls = "0.2.7"

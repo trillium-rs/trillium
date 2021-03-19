@@ -7,10 +7,7 @@ edition = "2018"
 [dependencies]
 myco = { path = "../myco" }
 futures-lite = "1.11.3"
-async-ringbuffer = "0.5.5"
-async-lock = "2.3.0"
 lol-async = { git = "https://github.com/jbr/lol-async", branch = "main" }
-async-dup = "1.2.2"
 async-global-executor = "2.0.2"
 
 [dev-dependencies]
