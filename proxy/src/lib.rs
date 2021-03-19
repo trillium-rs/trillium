@@ -123,7 +123,6 @@ fn bytes(bytes: u64) -> String {
 }
 
 impl<Transport: ClientTransport> Proxy<Transport> {
-
     pub fn with_config(mut self, config: Transport::Config) -> Self {
         self.client = self.client.with_config(config);
         self
