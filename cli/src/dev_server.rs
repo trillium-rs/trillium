@@ -170,7 +170,7 @@ impl DevServer {
                 if let Some(path) = m.path {
                     if let Ok(path) = path.canonicalize() {
                         if path == bin {
-                            tx.send(Event::Signal).unwrap();
+                            tx.send(Event::BinaryChanged).unwrap();
                         } else {
                             tx.send(Event::Rebuild).unwrap();
                         }
