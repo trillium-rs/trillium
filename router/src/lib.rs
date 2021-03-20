@@ -79,6 +79,23 @@ impl Handler for Router {
     }
 }
 
+macro_rules! method_ref {
+    ($fn_name:ident, $method:ident) => {
+        pub fn $fn_name(&mut self, path: &'static str, handler: impl Handler) {
+            self.0.add(path, Method::$method, handler);
+        }
+    };
+}
+
+pub struct RouterRef<'r>(&'r mut Router);
+impl RouterRef<'_> {
+    method_ref!(get, Get);
+    method_ref!(post, Post);
+    method_ref!(put, Put);
+    method_ref!(delete, Delete);
+    method_ref!(patch, Patch);
+}
+
 macro_rules! method {
     ($fn_name:ident, $method:ident) => {
         pub fn $fn_name(mut self, path: &'static str, handler: impl Handler) -> Self {
@@ -93,6 +110,12 @@ impl Router {
         Router {
             method_map: HashMap::default(),
         }
+    }
+
+    pub fn build(b: impl Fn(RouterRef)) -> Router {
+        let mut router = Router::new();
+        b(RouterRef(&mut router));
+        router
     }
 
     pub fn best_match<'a, 'b>(

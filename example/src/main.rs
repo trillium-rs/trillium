@@ -5,7 +5,7 @@ use myco_askama::AskamaConnExt;
 use myco_cookies::Cookies;
 use myco_logger::DevLogger;
 use myco_proxy::{Proxy, Rustls, TcpStream};
-use myco_router::{routes, RouterConnExt};
+use myco_router::{routes, Router, RouterConnExt};
 use myco_sessions::{MemoryStore, SessionConnExt, Sessions};
 use myco_static_compiled::{include_dir, StaticCompiled};
 use myco_websockets::{Message, WebSocket};
@@ -28,6 +28,9 @@ fn main() {
             conn.with_header(("request-count", count.to_string()))
                 .with_session("count", count + 1)
         },
+        // three different ways of defining a router. they
+        // fall through, but normally an app would only use one of these
+        // styles. they're all entirely equivalent
         routes![
             get "/hello" "hi",
 
@@ -44,25 +47,35 @@ fn main() {
                 }
             },
 
-            get "/ws" WebSocket::new(|mut ws| async move {
-                while let Some(Ok(Message::Text(input))) = ws.next().await {
-                    let output: String = input.chars().rev().collect();
-                    ws.send_string(format!("{} | {}", &input, &output)).await;
-                }
-            }),
-
-            get "/hello/:planet" |conn: Conn| async move {
+        ],
+        Router::new()
+            .get("/hello/:planet", |conn: Conn| async move {
                 if let Some(planet) = conn.param("planet") {
                     let response = format!("hello, {}", planet);
                     conn.ok(response)
                 } else {
                     conn
                 }
-            },
+            })
+            .get(
+                "/ws",
+                WebSocket::new(|mut ws| async move {
+                    while let Some(Ok(Message::Text(input))) = ws.next().await {
+                        let output: String = input.chars().rev().collect();
+                        ws.send_string(format!("{} | {}", &input, &output)).await;
+                    }
+                })
+            ),
+        Router::build(|mut r| {
+            r.get(
+                "/httpbin/*",
+                Proxy::<Rustls<TcpStream>>::new("https://httpbin.org"),
+            );
 
-            get "/httpbin/*" Proxy::<Rustls<TcpStream>>::new("https://httpbin.org"),
-
-            get "*" StaticCompiled::new(include_dir!("./public/")).with_index_file("index.html")
-        ]
+            r.get(
+                "*",
+                StaticCompiled::new(include_dir!("./public/")).with_index_file("index.html"),
+            );
+        })
     ]);
 }
