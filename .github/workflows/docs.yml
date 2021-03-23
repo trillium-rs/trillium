@@ -1,0 +1,28 @@
+name: docs
+
+on:
+  push:
+    branches:
+      - main
+jobs:
+  docs:
+    name: build rustdocs and put them on github pages
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+        override: true
+
+    - name: Build Documentation
+      run: cargo doc --all
+
+    - name: Deploy Docs
+      uses: peaceiris/actions-gh-pages@364c31d33bb99327c77b3a5438a83a357a6729ad
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_branch: gh-pages
+        publish_dir: ./target/doc
+        force_orphan: true
