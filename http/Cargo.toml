@@ -10,7 +10,7 @@ pin-project = "1.0.4"
 thiserror = "1.0.23"
 futures-lite = "1.11.3"
 memmem = "0.1.1"
-stopper = "0.1.0"
+stopper = "0.2.0"
 encoding_rs = "0.8.28"
 
 [dependencies.http-types]

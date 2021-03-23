@@ -7,6 +7,7 @@ use futures_util::SinkExt;
 use myco::http_types::{headers::Headers, Extensions, Method};
 use myco::{BoxedTransport, Stopper, Upgrade};
 use std::task::{Context, Poll};
+use stopper::StreamStopper;
 
 #[derive(Debug)]
 pub struct WebSocketConnection {
@@ -15,8 +16,7 @@ pub struct WebSocketConnection {
     method: Method,
     state: Extensions,
     stopper: Stopper,
-    wss: WebSocketStream<BoxedTransport>,
-    waker_id: Option<usize>,
+    wss: StreamStopper<WebSocketStream<BoxedTransport>>,
 }
 
 impl WebSocketConnection {
@@ -55,9 +55,8 @@ impl WebSocketConnection {
             path,
             method,
             state,
-            wss,
+            wss: stopper.stop_stream(wss),
             stopper,
-            waker_id: None,
         }
     }
 
@@ -72,15 +71,19 @@ impl WebSocketConnection {
     pub fn headers(&self) -> &Headers {
         &self.request_headers
     }
+
     pub fn path(&self) -> &str {
         &self.path
     }
+
     pub fn method(&self) -> &Method {
         &self.method
     }
+
     pub fn state<T: 'static>(&self) -> Option<&T> {
         self.state.get()
     }
+
     pub fn take_state<T: 'static>(&mut self) -> Option<T> {
         self.state.remove()
     }
@@ -90,29 +93,6 @@ impl Stream for WebSocketConnection {
     type Item = crate::Result;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.stopper.is_stopped() {
-            Poll::Ready(None)
-        } else {
-            match Pin::new(&mut self.wss).poll_next(cx) {
-                Poll::Ready(r) => Poll::Ready(r),
-                Poll::Pending => {
-                    let WebSocketConnection {
-                        ref stopper,
-                        ref mut waker_id,
-                        ..
-                    } = *self;
-                    stopper.replace(waker_id, &cx);
-                    Poll::Pending
-                }
-            }
-        }
-    }
-}
-
-impl Drop for WebSocketConnection {
-    fn drop(&mut self) {
-        if let Some(id) = self.waker_id {
-            self.stopper.remove_waker(id);
-        }
+        Pin::new(&mut self.wss).poll_next(cx)
     }
 }
