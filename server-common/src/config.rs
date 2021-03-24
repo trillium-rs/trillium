@@ -1,26 +1,122 @@
 use crate::{CloneCounter, Server};
-use myco::{BoxedTransport, Conn, Error, Handler, Transport};
-use myco_http::Conn as HttpConn;
+use myco::{Handler, Transport};
 use myco_http::Stopper;
 use myco_tls_common::Acceptor;
-use std::convert::{TryFrom, TryInto};
-use std::io::ErrorKind;
 use std::marker::PhantomData;
-use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 
-pub struct Config<S, A, T> {
-    acceptor: A,
-    port: Option<u16>,
-    host: Option<String>,
-    transport: PhantomData<T>,
-    server: PhantomData<S>,
-    nodelay: bool,
-    stopper: Stopper,
-    counter: CloneCounter,
-    register_signals: bool,
+/// # Primary entrypoint for configuring and running a myco server
+///
+/// The associated methods on this struct are intended to be chained.
+///
+/// ## Example
+/// ```rust
+/// // in reality, you'd use myco_smol_server, myco_async_std_server, myco_tokio_server, etc
+/// myco_testing::server::config()
+///     .with_port(8080) // the default
+///     .with_host("localhost") // the default
+///     .with_nodelay()
+///     .without_signals()
+///     .run(|conn: myco::Conn| async move { conn.ok("hello") });
+/// ```
+/// In order to use this to _implement_ a myco server, see
+/// [`myco_server_common::ConfigExt`]
+pub struct Config<ServerType, AcceptorType, TransportType> {
+    pub(crate) acceptor: AcceptorType,
+    pub(crate) port: Option<u16>,
+    pub(crate) host: Option<String>,
+    pub(crate) nodelay: bool,
+    pub(crate) stopper: Stopper,
+    pub(crate) counter: CloneCounter,
+    pub(crate) register_signals: bool,
+    transport: PhantomData<TransportType>,
+    server: PhantomData<ServerType>,
 }
 
-impl<S, A: Clone, T> Clone for Config<S, A, T> {
+impl<ServerType, AcceptorType, TransportType> Config<ServerType, AcceptorType, TransportType>
+where
+    ServerType: Server<Transport = TransportType>,
+    AcceptorType: Acceptor<TransportType>,
+    TransportType: Transport,
+{
+    /// Starts an async runtime and runs the provided handler with
+    /// this config in that runtime. This is the appropriate
+    /// entrypoint for applications that do not need to spawn tasks
+    /// outside of myco's web server. For applications that embed a
+    /// myco server inside of an already-running async runtime, use
+    /// [`Config::run_async`]
+    pub fn run<H: Handler>(self, h: H) {
+        ServerType::run(self, h)
+    }
+
+    /// Runs the provided handler with this config, in an
+    /// already-running runtime. This is the appropriate entrypoint
+    /// for an application that needs to spawn async tasks that are
+    /// unrelated to the myco application. If you do not need to spawn
+    /// other tasks, [`Config::run`] is the preferred entrypoint
+    pub async fn run_async(self, handler: impl Handler) {
+        ServerType::run_async(self, handler).await
+    }
+
+    /// Configures the server to listen on this port. The default is
+    /// the PORT environment variable or 8080
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self
+    }
+
+    /// Configures the server to listen on this host or ip
+    /// address. The default is the HOST environment variable or
+    /// "localhost"
+    pub fn with_host(mut self, host: &str) -> Self {
+        self.host = Some(host.into());
+        self
+    }
+
+    /// Configures the server to NOT register for graceful-shutdown
+    /// signals with the operating system. Default behavior is for the
+    /// server to listen for SIGINT and SIGTERM and perform a graceful
+    /// shutdown.
+    pub fn without_signals(mut self) -> Self {
+        self.register_signals = false;
+        self
+    }
+
+    /// Configures the tcp listener to use TCP_NODELAY. See
+    /// <https://en.wikipedia.org/wiki/Nagle%27s_algorithm> for more
+    /// information on this setting.
+    pub fn with_nodelay(mut self) -> Self {
+        self.nodelay = true;
+        self
+    }
+
+    /// Configures the tls acceptor for this server
+    pub fn with_acceptor<A: Acceptor<TransportType>>(
+        self,
+        acceptor: A,
+    ) -> Config<ServerType, A, TransportType> {
+        Config {
+            acceptor,
+            host: self.host,
+            port: self.port,
+            nodelay: self.nodelay,
+            transport: PhantomData,
+            server: PhantomData,
+            stopper: self.stopper,
+            counter: self.counter,
+            register_signals: self.register_signals,
+        }
+    }
+}
+
+impl<ServerType, TransportType> Config<ServerType, (), TransportType> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<ServerType, AcceptorType: Clone, TransportType> Clone
+    for Config<ServerType, AcceptorType, TransportType>
+{
     fn clone(&self) -> Self {
         Self {
             acceptor: self.acceptor.clone(),
@@ -36,7 +132,7 @@ impl<S, A: Clone, T> Clone for Config<S, A, T> {
     }
 }
 
-impl<S, T> Default for Config<S, (), T> {
+impl<ServerType, TransportType> Default for Config<ServerType, (), TransportType> {
     fn default() -> Self {
         Self {
             acceptor: (),
@@ -49,185 +145,5 @@ impl<S, T> Default for Config<S, (), T> {
             counter: CloneCounter::new(),
             register_signals: cfg!(unix),
         }
-    }
-}
-
-impl<S, T> Config<S, (), T> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl<S, A, T> Config<S, A, T>
-where
-    S: Server<Transport = T>,
-    A: Acceptor<T>,
-    T: Transport,
-{
-    pub fn acceptor(&self) -> &A {
-        &self.acceptor
-    }
-
-    pub fn socket_addrs(&self) -> Vec<SocketAddr> {
-        (self.host(), self.port())
-            .to_socket_addrs()
-            .unwrap()
-            .collect()
-    }
-
-    pub fn build_listener<Listener>(&self) -> Listener
-    where
-        Listener: TryFrom<TcpListener>,
-        <Listener as TryFrom<TcpListener>>::Error: std::fmt::Debug,
-    {
-        #[cfg(unix)]
-        let listener = {
-            use std::os::unix::prelude::FromRawFd;
-
-            if let Some(fd) = std::env::var("LISTEN_FD")
-                .ok()
-                .and_then(|fd| fd.parse().ok())
-            {
-                log::debug!("using fd {} from LISTEN_FD", fd);
-                unsafe { TcpListener::from_raw_fd(fd) }
-            } else {
-                TcpListener::bind((self.host(), self.port())).unwrap()
-            }
-        };
-
-        #[cfg(not(unix))]
-        let listener = TcpListener::bind((self.host(), self.port())).unwrap();
-
-        log::info!("listening on {:?}", listener.local_addr().unwrap());
-        listener.set_nonblocking(true).unwrap();
-        listener.try_into().unwrap()
-    }
-
-    pub fn host(&self) -> String {
-        self.host
-            .as_ref()
-            .map(String::from)
-            .or_else(|| std::env::var("HOST").ok())
-            .unwrap_or_else(|| String::from("localhost"))
-    }
-
-    pub fn port(&self) -> u16 {
-        self.port
-            .or_else(|| std::env::var("PORT").ok().and_then(|p| p.parse().ok()))
-            .unwrap_or(8080)
-    }
-
-    pub fn run<H: Handler>(self, h: H) {
-        S::run(self, h)
-    }
-
-    pub fn counter(&self) -> &CloneCounter {
-        &self.counter
-    }
-
-    pub async fn run_async(self, handler: impl Handler) {
-        S::run_async(self, handler).await
-    }
-
-    pub fn with_port(mut self, port: u16) -> Self {
-        self.port = Some(port);
-        self
-    }
-
-    pub fn with_host(mut self, host: &str) -> Self {
-        self.host = Some(host.into());
-        self
-    }
-
-    pub fn nodelay(&self) -> bool {
-        self.nodelay
-    }
-
-    pub fn without_signals(mut self) -> Self {
-        self.register_signals = false;
-        self
-    }
-
-    pub fn should_register_signals(&self) -> bool {
-        self.register_signals
-    }
-
-    pub fn set_nodelay(mut self) -> Self {
-        self.nodelay = true;
-        self
-    }
-
-    pub fn stopper(&self) -> Stopper {
-        self.stopper.clone()
-    }
-
-    pub fn with_acceptor<A1: Acceptor<T>>(self, acceptor: A1) -> Config<S, A1, T> {
-        Config {
-            host: self.host,
-            port: self.port,
-            nodelay: self.nodelay,
-            transport: PhantomData,
-            server: PhantomData,
-            stopper: self.stopper,
-            acceptor,
-            counter: self.counter,
-            register_signals: self.register_signals,
-        }
-    }
-
-    pub async fn graceful_shutdown(self) {
-        let current = self.counter.current();
-        if current > 0 {
-            log::info!(
-                "waiting for {} open connection{} to close",
-                current,
-                if current == 1 { "" } else { "s" }
-            );
-            self.counter.await;
-            log::info!("all done!")
-        }
-    }
-
-    pub async fn handle_stream(self, stream: T, handler: impl Handler) {
-        let stream = match self.acceptor.accept(stream).await {
-            Ok(stream) => stream,
-            Err(e) => {
-                log::error!("acceptor error: {:?}", e);
-                return;
-            }
-        };
-
-        let result = HttpConn::map(stream, self.stopper.clone(), |conn| async {
-            let conn = Conn::new(conn);
-            let conn = handler.run(conn).await;
-            let conn = handler.before_send(conn).await;
-
-            conn.into_inner()
-        })
-        .await;
-
-        match result {
-            Ok(Some(upgrade)) => {
-                let upgrade = upgrade.map_transport(BoxedTransport::new);
-                if handler.has_upgrade(&upgrade) {
-                    log::debug!("upgrading...");
-                    handler.upgrade(upgrade).await;
-                } else {
-                    log::error!("upgrade specified but no upgrade handler provided");
-                }
-            }
-
-            Err(Error::Closed) | Ok(None) => {
-                log::debug!("closing connection");
-            }
-
-            Err(Error::Io(e)) if e.kind() == ErrorKind::ConnectionReset => {
-                log::debug!("closing connection");
-            }
-
-            Err(e) => {
-                log::error!("http error: {:?}", e);
-            }
-        };
     }
 }

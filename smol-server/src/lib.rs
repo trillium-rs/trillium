@@ -2,14 +2,15 @@ use async_global_executor::{block_on, spawn};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
 use myco::{async_trait, Handler};
-use myco_server_common::Acceptor;
+use myco_server_common::{Acceptor, ConfigExt, Stopper};
 use std::sync::Arc;
 
 pub use myco_server_common::Server;
+
 pub type Config<A> = myco_server_common::Config<SmolServer, A, TcpStream>;
 
 #[cfg(unix)]
-async fn handle_signals(stop: myco::Stopper) {
+async fn handle_signals(stop: Stopper) {
     use signal_hook::consts::signal::*;
     use signal_hook_async_std::Signals;
 

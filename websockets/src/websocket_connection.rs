@@ -5,9 +5,9 @@ use async_tungstenite::{tungstenite::Message, WebSocketStream};
 pub use futures_util::stream::Stream;
 use futures_util::SinkExt;
 use myco::http_types::{headers::Headers, Extensions, Method};
-use myco::{BoxedTransport, Stopper, Upgrade};
+use myco::{BoxedTransport, Upgrade};
 use std::task::{Context, Poll};
-use stopper::StreamStopper;
+use stopper::{Stopper, StreamStopper};
 
 #[derive(Debug)]
 pub struct WebSocketConnection {

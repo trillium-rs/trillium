@@ -18,7 +18,7 @@ pub use context::LambdaConnExt;
 struct HandlerWrapper<G>(Arc<G>);
 
 impl<G: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<G> {
-    type Error = myco::Error;
+    type Error = std::io::Error;
     type Fut = Pin<Box<dyn Future<Output = Result<LambdaResponse, Self::Error>> + Send + 'static>>;
 
     fn call(&mut self, request: LambdaRequest, context: Context) -> Self::Fut {
@@ -36,7 +36,7 @@ async fn handler_fn(
     request: LambdaRequest,
     context: Context,
     handler: Arc<impl Handler>,
-) -> myco::Result<LambdaResponse> {
+) -> std::io::Result<LambdaResponse> {
     match request {
         LambdaRequest::Alb(request) => {
             let mut conn = request.into_conn().await;

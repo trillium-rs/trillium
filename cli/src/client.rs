@@ -2,8 +2,7 @@ use bat::{Input, PagingMode, PrettyPrinter};
 use blocking::Unblock;
 use futures_lite::io::BufReader;
 use myco::http_types::{url, Body, Method, Url};
-use myco::Error;
-use myco_client::{ClientTransport, Conn, NativeTls, Rustls, TcpStream};
+use myco_client::{ClientTransport, Conn, Error, NativeTls, Rustls, TcpStream};
 use std::{borrow::Cow, io::ErrorKind, path::PathBuf, str::FromStr};
 use structopt::StructOpt;
 

@@ -8,3 +8,5 @@ edition = "2018"
 myco = { path = "../myco" }
 myco-http = { path = "../http" }
 futures-lite = "1.11.3"
+myco-server-common = { path = "../server-common" }
+async-dup = "1.2.2"

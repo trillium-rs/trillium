@@ -6,6 +6,11 @@ use std::convert::TryInto;
 
 mod assertions;
 
+mod test_io;
+pub use test_io::{CloseableCursor, TestIO};
+
+pub mod server;
+
 pub fn test_conn<T>(method: T, path: impl Into<String>, body: Option<Vec<u8>>) -> myco::Conn
 where
     T: TryInto<Method>,
