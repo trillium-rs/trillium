@@ -1,5 +1,5 @@
 use crate::{CloneCounter, Config, Server};
-use myco::{BoxedTransport, Conn, Handler, Transport};
+use myco::{BoxedTransport, Conn, Handler};
 use myco_http::{Conn as HttpConn, Error, Stopper};
 use myco_tls_common::Acceptor;
 use std::{
@@ -15,7 +15,10 @@ use std::{
 /// application.
 
 #[myco::async_trait]
-pub trait ConfigExt<A, T> {
+pub trait ConfigExt<ServerType, AcceptorType>
+where
+    ServerType: Server,
+{
     /// resolve a port for this application, either directly
     /// configured, from the environmental variable `PORT`, or a default
     /// of `8080`
@@ -46,7 +49,7 @@ pub trait ConfigExt<A, T> {
     fn stopper(&self) -> Stopper;
 
     /// returns the tls acceptor for this server
-    fn acceptor(&self) -> &A;
+    fn acceptor(&self) -> &AcceptorType;
 
     /// returns the [`CloneCounter`] for this server. please note that
     /// cloning this type has implications for graceful shutdown and
@@ -61,7 +64,7 @@ pub trait ConfigExt<A, T> {
     /// apply the provided handler to the transport, using
     /// [`myco_http`]'s http implementation. this is the default inner
     /// loop for most myco servers
-    async fn handle_stream(self, stream: T, handler: impl Handler);
+    async fn handle_stream(self, stream: ServerType::Transport, handler: impl Handler);
 
     /// builds any type that is TryFrom<std::net::TcpListener> and
     /// configures it for use. most myco servers should use this if
@@ -78,13 +81,11 @@ pub trait ConfigExt<A, T> {
 }
 
 #[myco::async_trait]
-impl<ServerType, AcceptorType, TransportType> ConfigExt<AcceptorType, TransportType>
-    for Config<ServerType, AcceptorType, TransportType>
+impl<ServerType, AcceptorType> ConfigExt<ServerType, AcceptorType>
+    for Config<ServerType, AcceptorType>
 where
-    ServerType: Server<Transport = TransportType>,
-    AcceptorType: Acceptor<TransportType>,
-    TransportType: Transport,
-    Self: Send,
+    ServerType: Server + Send,
+    AcceptorType: Acceptor<<ServerType as Server>::Transport>,
 {
     fn port(&self) -> u16 {
         self.port
@@ -140,7 +141,7 @@ where
         }
     }
 
-    async fn handle_stream(self, stream: TransportType, handler: impl Handler) {
+    async fn handle_stream(self, stream: ServerType::Transport, handler: impl Handler) {
         let stream = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
             Err(e) => {

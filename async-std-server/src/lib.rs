@@ -5,7 +5,7 @@ use myco_server_common::{Acceptor, ConfigExt, Stopper};
 use std::sync::Arc;
 
 pub use myco_server_common::Server;
-pub type Config<A> = myco_server_common::Config<AsyncStdServer, A, TcpStream>;
+pub type Config<A> = myco_server_common::Config<AsyncStdServer, A>;
 
 #[cfg(unix)]
 async fn handle_signals(stop: Stopper) {

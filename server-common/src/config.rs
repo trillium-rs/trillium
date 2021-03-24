@@ -1,5 +1,5 @@
 use crate::{CloneCounter, Server};
-use myco::{Handler, Transport};
+use myco::Handler;
 use myco_http::Stopper;
 use myco_tls_common::Acceptor;
 use std::marker::PhantomData;
@@ -20,7 +20,7 @@ use std::marker::PhantomData;
 /// ```
 /// In order to use this to _implement_ a myco server, see
 /// [`myco_server_common::ConfigExt`]
-pub struct Config<ServerType, AcceptorType, TransportType> {
+pub struct Config<ServerType, AcceptorType> {
     pub(crate) acceptor: AcceptorType,
     pub(crate) port: Option<u16>,
     pub(crate) host: Option<String>,
@@ -28,15 +28,13 @@ pub struct Config<ServerType, AcceptorType, TransportType> {
     pub(crate) stopper: Stopper,
     pub(crate) counter: CloneCounter,
     pub(crate) register_signals: bool,
-    transport: PhantomData<TransportType>,
     server: PhantomData<ServerType>,
 }
 
-impl<ServerType, AcceptorType, TransportType> Config<ServerType, AcceptorType, TransportType>
+impl<ServerType, AcceptorType> Config<ServerType, AcceptorType>
 where
-    ServerType: Server<Transport = TransportType>,
-    AcceptorType: Acceptor<TransportType>,
-    TransportType: Transport,
+    ServerType: Server,
+    AcceptorType: Acceptor<ServerType::Transport>,
 {
     /// Starts an async runtime and runs the provided handler with
     /// this config in that runtime. This is the appropriate
@@ -90,16 +88,15 @@ where
     }
 
     /// Configures the tls acceptor for this server
-    pub fn with_acceptor<A: Acceptor<TransportType>>(
+    pub fn with_acceptor<A: Acceptor<ServerType::Transport>>(
         self,
         acceptor: A,
-    ) -> Config<ServerType, A, TransportType> {
+    ) -> Config<ServerType, A> {
         Config {
             acceptor,
             host: self.host,
             port: self.port,
             nodelay: self.nodelay,
-            transport: PhantomData,
             server: PhantomData,
             stopper: self.stopper,
             counter: self.counter,
@@ -108,21 +105,18 @@ where
     }
 }
 
-impl<ServerType, TransportType> Config<ServerType, (), TransportType> {
+impl<ServerType> Config<ServerType, ()> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<ServerType, AcceptorType: Clone, TransportType> Clone
-    for Config<ServerType, AcceptorType, TransportType>
-{
+impl<ServerType, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType> {
     fn clone(&self) -> Self {
         Self {
             acceptor: self.acceptor.clone(),
             port: self.port,
             host: self.host.clone(),
-            transport: PhantomData,
             server: PhantomData,
             nodelay: self.nodelay,
             stopper: self.stopper.clone(),
@@ -132,13 +126,12 @@ impl<ServerType, AcceptorType: Clone, TransportType> Clone
     }
 }
 
-impl<ServerType, TransportType> Default for Config<ServerType, (), TransportType> {
+impl<ServerType> Default for Config<ServerType, ()> {
     fn default() -> Self {
         Self {
             acceptor: (),
             port: None,
             host: None,
-            transport: PhantomData,
             server: PhantomData,
             nodelay: false,
             stopper: Stopper::new(),

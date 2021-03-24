@@ -29,7 +29,7 @@ async fn handle_signals(stop: Stopper) {
 
 pub struct TokioServer;
 
-pub type Config<A> = myco_server_common::Config<TokioServer, A, Compat<TcpStream>>;
+pub type Config<A> = myco_server_common::Config<TokioServer, A>;
 
 #[async_trait]
 impl Server for TokioServer {

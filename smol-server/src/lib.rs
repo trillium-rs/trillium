@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 pub use myco_server_common::Server;
 
-pub type Config<A> = myco_server_common::Config<SmolServer, A, TcpStream>;
+pub type Config<A> = myco_server_common::Config<SmolServer, A>;
 
 #[cfg(unix)]
 async fn handle_signals(stop: Stopper) {

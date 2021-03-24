@@ -1,7 +1,7 @@
 use myco::Handler;
 use myco_server_common::{Acceptor, Server};
 pub struct TestingServer;
-pub type Config<A> = myco_server_common::Config<TestingServer, A, crate::TestIO>;
+pub type Config<A> = myco_server_common::Config<TestingServer, A>;
 
 #[myco::async_trait]
 impl Server for TestingServer {

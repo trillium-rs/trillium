@@ -6,12 +6,12 @@ use myco_tls_common::Acceptor;
 pub trait Server: Sized {
     type Transport: Transport;
 
-    fn run<A, H>(config: Config<Self, A, Self::Transport>, handler: H)
+    fn run<A, H>(config: Config<Self, A>, handler: H)
     where
         A: Acceptor<Self::Transport>,
         H: Handler;
 
-    async fn run_async<A, H>(config: Config<Self, A, Self::Transport>, handler: H)
+    async fn run_async<A, H>(config: Config<Self, A>, handler: H)
     where
         A: Acceptor<Self::Transport>,
         H: Handler;
