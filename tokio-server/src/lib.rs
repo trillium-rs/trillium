@@ -1,7 +1,7 @@
 use async_compat::Compat;
 use futures::stream::StreamExt;
 use myco::{async_trait, Handler};
-use myco_server_common::{Acceptor, ConfigExt, Server, Stopper};
+use myco_server_common::{Acceptor, ConfigExt, Server};
 use std::sync::Arc;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -10,7 +10,7 @@ use tokio::{
 use tokio_stream::wrappers::TcpListenerStream;
 
 #[cfg(unix)]
-async fn handle_signals(stop: Stopper) {
+async fn handle_signals(stop: myco_server_common::Stopper) {
     use signal_hook::consts::signal::*;
     use signal_hook_tokio::Signals;
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
