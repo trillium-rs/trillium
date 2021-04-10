@@ -1,7 +1,7 @@
+use std::collections::HashMap;
 use trillium::http_types::StatusCode;
 use trillium::{BoxedTransport, Conn};
 use trillium_http::Conn as HttpConn;
-use std::collections::HashMap;
 
 #[derive(serde::Serialize, Debug)]
 #[serde(rename_all = "camelCase")]

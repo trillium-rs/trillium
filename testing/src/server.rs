@@ -1,9 +1,9 @@
-use trillium::Handler;
+use trillium::{async_trait, Handler};
 use trillium_server_common::{Acceptor, Server};
 pub struct TestingServer;
 pub type Config<A> = trillium_server_common::Config<TestingServer, A>;
 
-#[trillium::async_trait]
+#[async_trait]
 impl Server for TestingServer {
     type Transport = crate::TestIo;
 

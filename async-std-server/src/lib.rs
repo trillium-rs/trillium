@@ -1,8 +1,8 @@
 use async_std::net::{TcpListener, TcpStream};
 use async_std::{prelude::*, task};
+use std::sync::Arc;
 use trillium::{async_trait, Handler};
 use trillium_server_common::{Acceptor, ConfigExt};
-use std::sync::Arc;
 
 pub use trillium_server_common::Server;
 pub type Config<A> = trillium_server_common::Config<AsyncStdServer, A>;

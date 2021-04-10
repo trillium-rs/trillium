@@ -1,6 +1,6 @@
 use http_types::Method;
-use trillium_http::{Conn as HttpConn, Synthetic};
 use std::collections::HashMap;
+use trillium_http::{Conn as HttpConn, Synthetic};
 
 #[cfg(test)]
 mod test {
