@@ -5,7 +5,7 @@ pub type Config<A> = trillium_server_common::Config<TestingServer, A>;
 
 #[trillium::async_trait]
 impl Server for TestingServer {
-    type Transport = crate::TestIO;
+    type Transport = crate::TestIo;
 
     fn run<A, H>(_config: Config<A>, _handler: H)
     where
