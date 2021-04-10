@@ -5,7 +5,7 @@
 
 # Just show me some code!
 
-[here's a kitchen-sink example app](https://github.com/rhizosphere/trillium/blob/main/example/src/main.rs). It makes use of the smol-based server, the router, cookies, sessions, websockets, the devlogger, and the static file server, but it doesn't really make any cohesive sense yet
+[here's a kitchen-sink example app](https://github.com/triullium-rs/trillium/blob/main/example/src/main.rs). It makes use of the smol-based server, the router, cookies, sessions, websockets, the devlogger, and the static file server, but it doesn't really make any cohesive sense yet
 
 # What's blocking release?
 - [x] documentation
@@ -14,7 +14,7 @@
   - [ ] readme for each crate
   - [ ] basic rustdocs
 - [ ] error handling examples / thinking about error handling
-- [ ] rename
+- [x] rename
 
 # What's up after release
 * json serialization/deserialization extensions
