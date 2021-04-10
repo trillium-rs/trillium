@@ -2,7 +2,7 @@
 
 ## Composability
 
-Myco is published as a set of components that can be easily composed
+Trillium is published as a set of components that can be easily composed
 to create web servers. One of the goals of this design is that to the
 extent possible, all components be replaceable by alternatives.
 
@@ -40,7 +40,7 @@ which declares its own dependencies.
 ### Relation to tide, http-types, and async-h1
 
 Currently, trillium uses http-types for several core types, like headers,
-status codes, response bodies, and the conn state type map. Myco
+status codes, response bodies, and the conn state type map. Trillium
 sessions also shares the same session store backends as
 tide. Currently, trillium reuses several types from async-h1, but does not
 depend on the crate in order to avoid pulling in unnecessary

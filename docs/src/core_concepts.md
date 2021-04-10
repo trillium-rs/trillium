@@ -93,7 +93,7 @@ exactly one of each type, so it is highly recommended that you only
 store types that you define in state.
 
 > 🌊 Comparison with Tide: Tide has three different types of state:
-> Server state, request state, and response state. In Myco, server
+> Server state, request state, and response state. In Trillium, server
 > state is achieved using the `trillium::State` handler, which holds any
 > type that is Clone and puts a clone of it into the state of each
 > Conn that passes through the handler.
@@ -113,7 +113,7 @@ accessing that state, and will export a `[Something]ConnExt` trait.
 ## Servers
 
 Let's talk a little more about that `trillium_smol_server::run` line we've
-been writing. Myco itself is built on `futures` (`futures-lite`,
+been writing. Trillium itself is built on `futures` (`futures-lite`,
 specifically). In order to run it, it needs an adapter to an async
 runtime. These adapters are called servers, and there are four of them
 currently:

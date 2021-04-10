@@ -53,7 +53,7 @@ above example with a macro looks like:
 
 Sessions are a common convention in web frameworks, allowing for a
 safe and secure way to associate server-side data with a given http
-client (browser). Myco's session storage is built on the
+client (browser). Trillium's session storage is built on the
 `async-session` crate, which allows us to share session stores with
 tide. Currently, these session stores exist:
 
@@ -82,7 +82,7 @@ tide. Currently, these session stores exist:
 ## Logger
 
 Currently there's just a DevLogger, but soon there will be more
-loggers. Myco loggers use the `log` crate and emit one line at the
+loggers. Trillium loggers use the `log` crate and emit one line at the
 info log level per http request/response pair. We like to use the
 `env_logger` crate, but any `log` backend will work equally well.
 
@@ -104,7 +104,7 @@ that has been accumulated by previous handlers in a sequence.
 
 ## Static file serving
 
-Myco offers two rudimentary approaches to static file serving for now. Neither of these approaches perform any cache-related header checking yet.
+Trillium offers two rudimentary approaches to static file serving for now. Neither of these approaches perform any cache-related header checking yet.
 
 ### From disk
 This handler loads content from disk at request, and does not yet do any in-memory caching.
@@ -142,7 +142,7 @@ Given the following file in `(cargo root)/templates/examples/hello.html`,
 
 ### Tera
 
-Tera offers runtime templating. Myco's tera integration provides an interface very similar to `phoenix` or `rails`, with the notion of `assigns` being set on the conn prior to render.
+Tera offers runtime templating. Trillium's tera integration provides an interface very similar to `phoenix` or `rails`, with the notion of `assigns` being set on the conn prior to render.
 
 
 Given the following file in the same directory as main.rs (examples in this case),
