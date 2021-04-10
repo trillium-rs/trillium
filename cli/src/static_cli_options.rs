@@ -1,11 +1,11 @@
 use crate::RootPath;
 use env_logger::Builder;
 use log::LevelFilter;
-use trillium::sequence;
-use trillium_proxy::{Proxy, Rustls, TcpStream};
 use std::io::Write;
 use std::{fmt::Debug, path::PathBuf};
 use structopt::StructOpt;
+use trillium::sequence;
+use trillium_proxy::{Proxy, Rustls, TcpStream};
 
 #[derive(StructOpt, Debug)]
 #[structopt(

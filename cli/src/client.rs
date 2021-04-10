@@ -1,10 +1,10 @@
 use bat::{Input, PagingMode, PrettyPrinter};
 use blocking::Unblock;
 use futures_lite::io::BufReader;
-use trillium::http_types::{url, Body, Method, Url};
-use trillium_client::{ClientTransport, Conn, Error, NativeTls, Rustls, TcpStream};
 use std::{borrow::Cow, io::ErrorKind, path::PathBuf, str::FromStr};
 use structopt::StructOpt;
+use trillium::http_types::{url, Body, Method, Url};
+use trillium_client::{ClientTransport, Conn, Error, NativeTls, Rustls, TcpStream};
 
 #[derive(StructOpt, Debug)]
 pub struct ClientCli {

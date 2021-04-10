@@ -1,9 +1,9 @@
 use async_global_executor::{block_on, spawn};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
+use std::sync::Arc;
 use trillium::{async_trait, Handler};
 use trillium_server_common::{Acceptor, ConfigExt};
-use std::sync::Arc;
 
 pub use trillium_server_common::Server;
 

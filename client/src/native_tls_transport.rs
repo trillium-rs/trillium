@@ -1,9 +1,9 @@
 use futures_lite::{AsyncRead, AsyncWrite};
-use trillium::async_trait;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use trillium::async_trait;
 
 use url::Url;
 

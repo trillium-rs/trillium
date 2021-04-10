@@ -1,8 +1,8 @@
 use std::time::Instant;
 
 use colored::*;
-use trillium::{async_trait, http_types::StatusCode, Conn, Handler};
 use size::{Base, Size, Style};
+use trillium::{async_trait, http_types::StatusCode, Conn, Handler};
 
 #[derive(Debug)]
 struct Start(Instant);

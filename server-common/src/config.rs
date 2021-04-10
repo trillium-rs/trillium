@@ -1,8 +1,8 @@
 use crate::{CloneCounter, Server};
+use std::marker::PhantomData;
 use trillium::Handler;
 use trillium_http::Stopper;
 use trillium_tls_common::Acceptor;
-use std::marker::PhantomData;
 
 /// # Primary entrypoint for configuring and running a trillium server
 ///

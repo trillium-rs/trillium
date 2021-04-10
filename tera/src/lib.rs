@@ -1,9 +1,9 @@
-use trillium::http_types::Body;
-use trillium::{async_trait, Conn, Handler};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 pub use tera::{Context, Tera};
+use trillium::http_types::Body;
+use trillium::{async_trait, Conn, Handler};
 
 #[derive(Clone)]
 pub struct TeraHandler(Arc<Tera>);

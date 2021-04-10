@@ -1,13 +1,13 @@
 use async_compat::Compat;
 use futures::stream::StreamExt;
-use trillium::{async_trait, Handler};
-use trillium_server_common::{Acceptor, ConfigExt, Server};
 use std::sync::Arc;
 use tokio::{
     net::{TcpListener, TcpStream},
     runtime::Runtime,
 };
 use tokio_stream::wrappers::TcpListenerStream;
+use trillium::{async_trait, Handler};
+use trillium_server_common::{Acceptor, ConfigExt, Server};
 
 #[cfg(unix)]
 async fn handle_signals(stop: trillium_server_common::Stopper) {

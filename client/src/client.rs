@@ -1,7 +1,7 @@
 use crate::{ClientTransport, Conn, Pool};
-use trillium::http_types::Method;
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
+use trillium::http_types::Method;
 use url::Url;
 
 macro_rules! method {

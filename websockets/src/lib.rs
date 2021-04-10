@@ -1,5 +1,8 @@
 mod websocket_connection;
 use async_dup::Arc;
+use sha1::{Digest, Sha1};
+use std::future::Future;
+use std::marker::Send;
 use trillium::Upgrade;
 use trillium::{
     async_trait,
@@ -9,9 +12,6 @@ use trillium::{
     },
     Conn, Handler,
 };
-use sha1::{Digest, Sha1};
-use std::future::Future;
-use std::marker::Send;
 
 pub use async_tungstenite;
 pub use async_tungstenite::tungstenite;

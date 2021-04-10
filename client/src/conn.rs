@@ -3,16 +3,16 @@ use encoding_rs::Encoding;
 use futures_lite::future::poll_once;
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use memmem::{Searcher, TwoWaySearcher};
+use std::borrow::Cow;
+use std::convert::TryInto;
+use std::fmt::{self, Debug, Formatter};
+use std::io::Write;
 use trillium::http_types::content::ContentLength;
 use trillium::http_types::headers::{Headers, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
 use trillium::http_types::{Body, Extensions, Method, StatusCode};
 use trillium_http::util::encoding;
 use trillium_http::{BodyEncoder, ReceivedBody, ReceivedBodyState, Upgrade};
 use trillium_http::{Error, Result, Stopper};
-use std::borrow::Cow;
-use std::convert::TryInto;
-use std::fmt::{self, Debug, Formatter};
-use std::io::Write;
 
 use url::Url;
 

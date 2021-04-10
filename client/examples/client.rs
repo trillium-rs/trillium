@@ -1,7 +1,7 @@
 use async_io::Timer;
 use async_net::TcpStream;
-use trillium_client::{Client, Rustls};
 use std::time::Duration;
+use trillium_client::{Client, Rustls};
 
 pub fn main() {
     async_global_executor::block_on(async {

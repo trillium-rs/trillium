@@ -1,7 +1,6 @@
 use async_tls::client::TlsStream;
 use async_tls::TlsConnector;
 use futures_lite::{AsyncRead, AsyncWrite};
-use trillium::async_trait;
 use rustls::{ClientConfig, RootCertStore};
 use std::fmt::{self, Debug, Formatter};
 use std::io::{Error, ErrorKind, Result};
@@ -9,6 +8,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use trillium::async_trait;
 
 use url::Url;
 

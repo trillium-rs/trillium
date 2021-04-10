@@ -1,10 +1,10 @@
 use handlebars::Handlebars as ActualHandlebars;
-use trillium::{async_trait, Conn, Handler};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
+use trillium::{async_trait, Conn, Handler};
 // use std::ops::{Deref, DerefMut};
 // use std::path::{Path, PathBuf};
 use std::sync::Arc;

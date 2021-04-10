@@ -1,11 +1,11 @@
 use futures_lite::io::BufReader;
 pub use lol_async::html;
 use lol_async::{html::Settings, lol};
+use std::str::FromStr;
 use trillium::async_trait;
 use trillium::http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE};
 use trillium::http_types::mime::Mime;
 use trillium::{http_types::Body, Conn, Handler};
-use std::str::FromStr;
 
 pub struct HtmlRewriter {
     settings: Box<dyn Fn() -> Settings<'static, 'static> + Send + Sync + 'static>,

@@ -1,11 +1,11 @@
 pub use async_tls;
 use async_tls::server::TlsStream;
 use async_tls::TlsAcceptor;
-use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
 pub use rustls;
 use rustls::internal::pemfile::{certs, pkcs8_private_keys};
 use rustls::{NoClientAuth, ServerConfig};
 use std::io::BufReader;
+use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
 
 #[derive(Clone)]
 pub struct RustTls(TlsAcceptor);

@@ -1,7 +1,7 @@
 use async_compat::Compat;
 use futures_lite::prelude::*;
-use trillium_http::{Conn, Stopper};
 use tokio::net::{TcpListener, TcpStream};
+use trillium_http::{Conn, Stopper};
 
 async fn handler(mut conn: Conn<Compat<TcpStream>>) -> Conn<Compat<TcpStream>> {
     let mut body = conn.request_body().await;

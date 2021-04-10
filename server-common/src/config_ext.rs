@@ -1,12 +1,12 @@
 use crate::{CloneCounter, Config, Server};
-use trillium::{BoxedTransport, Conn, Handler};
-use trillium_http::{Conn as HttpConn, Error, Stopper};
-use trillium_tls_common::Acceptor;
 use std::{
     convert::{TryFrom, TryInto},
     io::ErrorKind,
     net::{SocketAddr, TcpListener, ToSocketAddrs},
 };
+use trillium::{BoxedTransport, Conn, Handler};
+use trillium_http::{Conn as HttpConn, Error, Stopper};
+use trillium_tls_common::Acceptor;
 /// # Server-implementer interfaces to Config
 ///
 /// These functions are intended for use by authors of trillium servers,

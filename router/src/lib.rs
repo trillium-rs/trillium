@@ -1,7 +1,7 @@
-use trillium::{async_trait, http_types::Method, Conn, Handler};
 use routefinder::{Captures, Match};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use trillium::{async_trait, http_types::Method, Conn, Handler};
 
 pub trait RouterConnExt {
     fn param<'a>(&'a self, param: &str) -> Option<&'a str>;

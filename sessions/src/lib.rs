@@ -8,9 +8,9 @@ use async_session::{
     SessionStore,
 };
 
+use std::time::{Duration, SystemTime};
 use trillium::{async_trait, Conn, Handler};
 use trillium_cookies::{Cookie, CookiesConnExt, Key, SameSite};
-use std::time::{Duration, SystemTime};
 
 const BASE64_DIGEST_LEN: usize = 44;
 

@@ -4,10 +4,10 @@ use async_tungstenite::tungstenite::protocol::Role;
 use async_tungstenite::{tungstenite::Message, WebSocketStream};
 pub use futures_util::stream::Stream;
 use futures_util::SinkExt;
-use trillium::http_types::{headers::Headers, Extensions, Method};
-use trillium::{BoxedTransport, Upgrade};
 use std::task::{Context, Poll};
 use stopper::{Stopper, StreamStopper};
+use trillium::http_types::{headers::Headers, Extensions, Method};
+use trillium::{BoxedTransport, Upgrade};
 
 #[derive(Debug)]
 pub struct WebSocketConnection {
