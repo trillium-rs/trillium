@@ -1,13 +1,13 @@
 pub use futures_lite;
+use std::convert::TryInto;
 use trillium::Handler;
 pub use trillium_http::http_types::Method;
 use trillium_http::Synthetic;
-use std::convert::TryInto;
 
 mod assertions;
 
 mod test_io;
-pub use test_io::{CloseableCursor, TestIO};
+pub use test_io::{CloseableCursor, TestIo};
 
 pub mod server;
 

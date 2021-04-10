@@ -10,7 +10,7 @@ use std::{
 
 /// a Test IO
 #[derive(Default, Clone, Debug)]
-pub struct TestIO {
+pub struct TestIo {
     pub read: Arc<CloseableCursor>,
     pub write: Arc<CloseableCursor>,
 }
@@ -60,17 +60,17 @@ impl Display for CloseableCursor {
     }
 }
 
-impl TestIO {
-    pub fn new() -> (TestIO, TestIO) {
+impl TestIo {
+    pub fn new() -> (TestIo, TestIo) {
         let client = Arc::new(CloseableCursor::default());
         let server = Arc::new(CloseableCursor::default());
 
         (
-            TestIO {
+            TestIo {
                 read: client.clone(),
                 write: server.clone(),
             },
-            TestIO {
+            TestIo {
                 read: server,
                 write: client,
             },
@@ -160,7 +160,7 @@ impl AsyncWrite for &CloseableCursor {
     }
 }
 
-impl AsyncRead for TestIO {
+impl AsyncRead for TestIo {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -170,7 +170,7 @@ impl AsyncRead for TestIO {
     }
 }
 
-impl AsyncWrite for TestIO {
+impl AsyncWrite for TestIo {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
