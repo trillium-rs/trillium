@@ -1,7 +1,7 @@
 use async_compat::Compat;
 use futures::stream::StreamExt;
-use myco::{async_trait, Handler};
-use myco_server_common::{Acceptor, ConfigExt, Server};
+use trillium::{async_trait, Handler};
+use trillium_server_common::{Acceptor, ConfigExt, Server};
 use std::sync::Arc;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -10,7 +10,7 @@ use tokio::{
 use tokio_stream::wrappers::TcpListenerStream;
 
 #[cfg(unix)]
-async fn handle_signals(stop: myco_server_common::Stopper) {
+async fn handle_signals(stop: trillium_server_common::Stopper) {
     use signal_hook::consts::signal::*;
     use signal_hook_tokio::Signals;
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
@@ -29,7 +29,7 @@ async fn handle_signals(stop: myco_server_common::Stopper) {
 
 pub struct TokioServer;
 
-pub type Config<A> = myco_server_common::Config<TokioServer, A>;
+pub type Config<A> = trillium_server_common::Config<TokioServer, A>;
 
 #[async_trait]
 impl Server for TokioServer {
@@ -61,7 +61,7 @@ impl Server for TokioServer {
             .stop_stream(TcpListenerStream::new(listener));
 
         while let Some(Ok(stream)) = stream.next().await {
-            myco::log_error!(stream.set_nodelay(config.nodelay()));
+            trillium::log_error!(stream.set_nodelay(config.nodelay()));
             tokio::spawn(
                 config
                     .clone()

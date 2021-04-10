@@ -1,5 +1,5 @@
-use myco::http_types::{auth::BasicAuth as AuthHeader, StatusCode};
-use myco::{async_trait, Conn, Handler};
+use trillium::http_types::{auth::BasicAuth as AuthHeader, StatusCode};
+use trillium::{async_trait, Conn, Handler};
 
 pub struct BasicAuth {
     username: String,

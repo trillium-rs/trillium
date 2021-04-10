@@ -8,8 +8,8 @@ use async_session::{
     SessionStore,
 };
 
-use myco::{async_trait, Conn, Handler};
-use myco_cookies::{Cookie, CookiesConnExt, Key, SameSite};
+use trillium::{async_trait, Conn, Handler};
+use trillium_cookies::{Cookie, CookiesConnExt, Key, SameSite};
 use std::time::{Duration, SystemTime};
 
 const BASE64_DIGEST_LEN: usize = 44;
@@ -90,7 +90,7 @@ impl<Store: SessionStore> Sessions<Store> {
             store,
             save_unchanged: true,
             cookie_path: "/".into(),
-            cookie_name: "myco.sid".into(),
+            cookie_name: "trillium.sid".into(),
             cookie_domain: None,
             same_site_policy: SameSite::Lax,
             session_ttl: Some(Duration::from_secs(24 * 60 * 60)),
@@ -117,9 +117,9 @@ impl<Store: SessionStore> Sessions<Store> {
 
     /// Sets the name of the cookie that the session is stored with or in.
     ///
-    /// If you are running multiple myco applications on the same
+    /// If you are running multiple trillium applications on the same
     /// domain, you will need different values for each
-    /// application. The default value is "myco.sid"
+    /// application. The default value is "trillium.sid"
     pub fn with_cookie_name(mut self, cookie_name: impl AsRef<str>) -> Self {
         self.cookie_name = cookie_name.as_ref().to_owned();
         self

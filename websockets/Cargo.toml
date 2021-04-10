@@ -1,5 +1,5 @@
 [package]
-name = "myco-websockets"
+name = "trillium-websockets"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
@@ -9,7 +9,7 @@ async-dup = "1.2.2"
 async-tungstenite = "0.12.0"
 base64 = "0.13.0"
 futures-util = "0.3.12"
-myco = { path = "../myco" }
+trillium = { path = "../trillium" }
 pin-project = "1.0.5"
 serde = "1.0.120"
 serde_json = "1.0.61"
@@ -18,5 +18,5 @@ log = "0.4.13"
 stopper = "0.2.0"
 
 [dev-dependencies]
-myco-smol-server = { path = "../smol-server/" }
+trillium-smol-server = { path = "../smol-server/" }
 env_logger = "0.8.2"

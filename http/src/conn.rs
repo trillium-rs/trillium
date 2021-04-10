@@ -25,7 +25,7 @@ use crate::{
 
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 8 * 1024;
-const SERVER: &str = concat!("myco/", env!("CARGO_PKG_VERSION"));
+const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug)]
 pub enum ConnectionStatus<RW> {

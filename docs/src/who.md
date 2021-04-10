@@ -1,7 +1,7 @@
 # Who is behind this?
 
 Hi, I'm [jbr](https://github.com/jbr). I'm currently the sole author
-of myco, but hopefully that will change over time. I've been working
+of trillium, but hopefully that will change over time. I've been working
 on tide, async-h1, and http-types for the last year, and have landed a
 number of exciting features in that framework, such as sessions, unix
 socket listeners, tls, and websockets. I've also done a bunch of work

@@ -1,6 +1,6 @@
 use crate::Config;
-use myco::{async_trait, Handler, Transport};
-use myco_tls_common::Acceptor;
+use trillium::{async_trait, Handler, Transport};
+use trillium_tls_common::Acceptor;
 
 #[async_trait]
 pub trait Server: Sized {

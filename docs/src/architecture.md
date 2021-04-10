@@ -10,7 +10,7 @@ extent possible, all components be replaceable by alternatives.
 
 It is the author's opinion that async rust web frameworks still have a
 lot of exciting exploration left in the near future. Instead of
-offering one solution as the best, myco offers a playground in which
+offering one solution as the best, trillium offers a playground in which
 you can experiment with alternatives. I want it to be painless to plug
 in an alternative router, or a different http logger, or anything else
 you can imagine.
@@ -27,7 +27,7 @@ will always be tradeoffs for any given design.
 ## Only compile what you need, without having to toggle cargo features
 
 Instead of declaring a large list of top level dependencies and
-conditionally including/excluding them based on cargo features, myco
+conditionally including/excluding them based on cargo features, trillium
 has a "only compile what you need" approach to dependencies.  In
 particular, we avoid pulling in runtimes like tokio or async-std
 except in the crates where you explicitly need those, preferring
@@ -39,10 +39,10 @@ which declares its own dependencies.
 
 ### Relation to tide, http-types, and async-h1
 
-Currently, myco uses http-types for several core types, like headers,
+Currently, trillium uses http-types for several core types, like headers,
 status codes, response bodies, and the conn state type map. Myco
 sessions also shares the same session store backends as
-tide. Currently, myco reuses several types from async-h1, but does not
+tide. Currently, trillium reuses several types from async-h1, but does not
 depend on the crate in order to avoid pulling in unnecessary
 dependencies.
 
@@ -52,7 +52,7 @@ dependencies.
 The general architecture is directly inspired by Plug, and is intended
 to be a hybrid of the best of plug and the best of tide. Eventually, I
 hope to build an opinionated framework like Phoenix on top of the
-components that are myco, but I don't expect that to happen for a
-while. I hope to keep the core feature set of myco quite small and
+components that are trillium, but I don't expect that to happen for a
+while. I hope to keep the core feature set of trillium quite small and
 focus on getting the design right and improving performance as much as
 possible. 

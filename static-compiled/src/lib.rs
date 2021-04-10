@@ -1,7 +1,7 @@
 pub use include_dir::include_dir;
 use include_dir::{Dir, DirEntry, File};
-use myco::http_types::content::ContentType;
-use myco::{async_trait, Conn, Handler};
+use trillium::http_types::content::ContentType;
+use trillium::{async_trait, Conn, Handler};
 
 pub struct StaticCompiled {
     dir: Dir<'static>,

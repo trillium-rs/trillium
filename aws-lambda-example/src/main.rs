@@ -1,11 +1,11 @@
 use askama::Template;
-use myco::{sequence, Conn};
-use myco_askama::AskamaConnExt;
-use myco_aws_lambda::LambdaConnExt;
-use myco_cookies::Cookies;
-use myco_logger::DevLogger;
-use myco_router::{Router, RouterConnExt};
-use myco_sessions::{CookieStore, SessionConnExt, Sessions};
+use trillium::{sequence, Conn};
+use trillium_askama::AskamaConnExt;
+use trillium_aws_lambda::LambdaConnExt;
+use trillium_cookies::Cookies;
+use trillium_logger::DevLogger;
+use trillium_router::{Router, RouterConnExt};
+use trillium_sessions::{CookieStore, SessionConnExt, Sessions};
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -15,7 +15,7 @@ struct HelloTemplate<'a> {
 
 fn main() {
     env_logger::init();
-    myco_aws_lambda::run(sequence![
+    trillium_aws_lambda::run(sequence![
         DevLogger,
         Cookies,
         Sessions::new(CookieStore::new(), b"01234567890123456789012345678901123",),

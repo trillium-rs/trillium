@@ -1,5 +1,5 @@
-use myco::{sequence, Conn, Handler};
-use myco_router::{Router, RouterConnExt};
+use trillium::{sequence, Conn, Handler};
+use trillium_router::{Router, RouterConnExt};
 
 struct User {
     id: usize,
@@ -30,7 +30,7 @@ fn nested_app() -> impl Handler {
 
 pub fn main() {
     env_logger::init();
-    myco_smol_server::run(
+    trillium_smol_server::run(
         Router::new()
             .get("/", |conn: Conn| async move { conn.ok("hello everyone") })
             .get("/users/:user_id/*", nested_app()),

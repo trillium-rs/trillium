@@ -1,16 +1,16 @@
 [package]
-name = "myco-html-rewriter"
+name = "trillium-html-rewriter"
 version = "0.0.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-myco = { path = "../myco" }
+trillium = { path = "../trillium" }
 futures-lite = "1.11.3"
 lol-async = { git = "https://github.com/jbr/lol-async", branch = "main" }
 async-global-executor = "2.0.2"
 
 [dev-dependencies]
-myco-smol-server = { path = "../smol-server" }
-myco-proxy = { path = "../proxy" }
+trillium-smol-server = { path = "../smol-server" }
+trillium-proxy = { path = "../proxy" }
 env_logger = "0.8.3"

@@ -1,6 +1,6 @@
 use async_compat::Compat;
 use futures_lite::prelude::*;
-use myco_http::{Conn, Stopper};
+use trillium_http::{Conn, Stopper};
 use tokio::net::{TcpListener, TcpStream};
 
 async fn handler(mut conn: Conn<Compat<TcpStream>>) -> Conn<Compat<TcpStream>> {

@@ -1,5 +1,5 @@
 [package]
-name = "myco"
+name = "trillium"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
@@ -8,4 +8,4 @@ edition = "2018"
 async-trait = "0.1.42"
 futures-lite = "1.11.3"
 log = "0.4.13"
-myco-http = { path = "../http" }
+trillium-http = { path = "../http" }

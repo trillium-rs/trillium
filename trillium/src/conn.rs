@@ -2,14 +2,14 @@ use crate::http_types::{
     headers::{Header, HeaderName, Headers, ToHeaderValues},
     Body, Method, StatusCode, Url,
 };
-use myco_http::ReceivedBody;
+use trillium_http::ReceivedBody;
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
 
 use crate::{BoxedTransport, Handler, Transport};
 
 pub struct Conn {
-    inner: myco_http::Conn<BoxedTransport>,
+    inner: trillium_http::Conn<BoxedTransport>,
     halted: bool,
     before_send: Option<Vec<Box<dyn Handler>>>,
     path: Vec<String>,
@@ -26,7 +26,7 @@ impl Debug for Conn {
 }
 
 impl Conn {
-    pub fn new(conn: myco_http::Conn<impl Transport + 'static>) -> Self {
+    pub fn new(conn: trillium_http::Conn<impl Transport + 'static>) -> Self {
         Self {
             inner: conn.map_transport(BoxedTransport::new),
             halted: false,
@@ -170,11 +170,11 @@ impl Conn {
         }
     }
 
-    pub fn inner(&self) -> &myco_http::Conn<BoxedTransport> {
+    pub fn inner(&self) -> &trillium_http::Conn<BoxedTransport> {
         &self.inner
     }
 
-    pub fn inner_mut(&mut self) -> &mut myco_http::Conn<BoxedTransport> {
+    pub fn inner_mut(&mut self) -> &mut trillium_http::Conn<BoxedTransport> {
         &mut self.inner
     }
 
@@ -186,7 +186,7 @@ impl Conn {
         }
     }
 
-    pub fn into_inner<T: Transport>(self) -> myco_http::Conn<T> {
+    pub fn into_inner<T: Transport>(self) -> trillium_http::Conn<T> {
         self.inner.map_transport(|t| {
             *t.downcast()
                 .expect("attempted to downcast to the wrong transport type")

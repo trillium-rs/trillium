@@ -1,10 +1,10 @@
-//! Welcome to myco!
+//! Welcome to trillium!
 //!
 //! This crate is the primary and minimum dependency for building a
-//! myco app or library. It contains a handful of core types and
+//! trillium app or library. It contains a handful of core types and
 //! reexports a few others that you will necessarily need, but
 //! otherwise tries to stay small and focused. This crate will
-//! hopefully be the most stable within the myco ecosystem.
+//! hopefully be the most stable within the trillium ecosystem.
 //!
 //!
 mod handler;
@@ -17,11 +17,11 @@ mod state;
 pub use state::State;
 
 pub use async_trait::async_trait;
-pub use myco_http::http_types;
+pub use trillium_http::http_types;
 
 mod transport;
 pub use transport::{BoxedTransport, Transport};
 
-pub type Upgrade = myco_http::Upgrade<BoxedTransport>;
+pub type Upgrade = trillium_http::Upgrade<BoxedTransport>;
 
 mod macros;

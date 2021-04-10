@@ -1,12 +1,12 @@
-use myco_html_rewriter::{
+use trillium_html_rewriter::{
     html::{element, html_content::ContentType, Settings},
     HtmlRewriter,
 };
-use myco_proxy::{Proxy, Rustls, TcpStream};
+use trillium_proxy::{Proxy, Rustls, TcpStream};
 
 pub fn main() {
     env_logger::init();
-    myco_smol_server::run(myco::sequence![
+    trillium_smol_server::run(trillium::sequence![
         Proxy::<Rustls<TcpStream>>::new("http://neverssl.com"),
         HtmlRewriter::new(|| Settings {
             element_content_handlers: vec![element!("body", |el| {

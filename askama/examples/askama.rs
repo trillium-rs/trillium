@@ -1,5 +1,5 @@
-use myco::Conn;
-use myco_askama::{AskamaConnExt, Template};
+use trillium::Conn;
+use trillium_askama::{AskamaConnExt, Template};
 
 #[derive(Template)]
 #[template(path = "examples/hello.html")]
@@ -8,5 +8,5 @@ struct HelloTemplate<'a> {
 }
 
 fn main() {
-    myco_smol_server::run(|conn: Conn| async move { conn.render(HelloTemplate { name: "world" }) });
+    trillium_smol_server::run(|conn: Conn| async move { conn.render(HelloTemplate { name: "world" }) });
 }

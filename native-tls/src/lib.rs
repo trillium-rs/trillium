@@ -1,6 +1,6 @@
 pub use async_native_tls;
 use async_native_tls::{Error, TlsAcceptor, TlsStream};
-use myco_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
+use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
 pub use native_tls;
 pub use native_tls::Identity;
 

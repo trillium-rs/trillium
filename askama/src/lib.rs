@@ -1,13 +1,13 @@
 pub use askama;
 pub use askama::Template;
 
-use myco::http_types::Body;
+use trillium::http_types::Body;
 
 pub trait AskamaConnExt {
     fn render(self, template: impl Template) -> Self;
 }
 
-impl AskamaConnExt for myco::Conn {
+impl AskamaConnExt for trillium::Conn {
     fn render(self, template: impl Template) -> Self {
         let text = template.render().unwrap();
         let mut body = Body::from_string(text);

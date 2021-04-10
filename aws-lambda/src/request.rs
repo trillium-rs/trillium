@@ -1,11 +1,11 @@
 use http_types::Method;
-use myco_http::{Conn as HttpConn, Synthetic};
+use trillium_http::{Conn as HttpConn, Synthetic};
 use std::collections::HashMap;
 
 #[cfg(test)]
 mod test {
 
-    const JSON: &str = r#"{"requestContext":{"elb":{"targetGroupArn":"arn:aws:elasticloadbalancing:us-west-2:915490588716:targetgroup/rust-lambda/a6825ef90a29cea9"}},"httpMethod":"GET","path":"/template/anything-here","multiValueQueryStringParameters":{},"multiValueHeaders":{"content-length":["0"],"cookie":["myco.sid=aXqp%2F9p06OurE0NrgmU4H0O5fCfYmiVehIb+W7J3lH0%3DLAAAAAAAAABMTzNzV3JpZEZrclhnekNVdithMi82R0o1UUkwTTZ5SjUyUjlCSVdNdC9NPQEeAAAAAAAAADIwMjEtMDItMDFUMTk6Mjg6MDcuMTcxMDkzNzEwWgEAAAAAAAAABQAAAAAAAABjb3VudAEAAAAAAAAANA%3D%3D"],"host":["rust-lambda-1068582226.us-west-2.elb.amazonaws.com"],"x-amzn-trace-id":["Root=1-60174c71-6ea8cbb45b214504613872a1"],"x-forwarded-for":["8.45.45.25"],"x-forwarded-port":["80"],"x-forwarded-proto":["http"]},"body":"","isBase64Encoded":false}"#;
+    const JSON: &str = r#"{"requestContext":{"elb":{"targetGroupArn":"arn:aws:elasticloadbalancing:us-west-2:915490588716:targetgroup/rust-lambda/a6825ef90a29cea9"}},"httpMethod":"GET","path":"/template/anything-here","multiValueQueryStringParameters":{},"multiValueHeaders":{"content-length":["0"],"cookie":["trillium.sid=aXqp%2F9p06OurE0NrgmU4H0O5fCfYmiVehIb+W7J3lH0%3DLAAAAAAAAABMTzNzV3JpZEZrclhnekNVdithMi82R0o1UUkwTTZ5SjUyUjlCSVdNdC9NPQEeAAAAAAAAADIwMjEtMDItMDFUMTk6Mjg6MDcuMTcxMDkzNzEwWgEAAAAAAAAABQAAAAAAAABjb3VudAEAAAAAAAAANA%3D%3D"],"host":["rust-lambda-1068582226.us-west-2.elb.amazonaws.com"],"x-amzn-trace-id":["Root=1-60174c71-6ea8cbb45b214504613872a1"],"x-forwarded-for":["8.45.45.25"],"x-forwarded-port":["80"],"x-forwarded-proto":["http"]},"body":"","isBase64Encoded":false}"#;
 
     #[test]
     fn test() {

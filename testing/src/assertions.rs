@@ -2,7 +2,7 @@
 macro_rules! assert_status {
     ($conn:expr, $status:expr) => {{
         use std::convert::TryInto;
-        let expected_status: myco::http_types::StatusCode =
+        let expected_status: trillium::http_types::StatusCode =
             $status.try_into().expect("expected a status code");
 
         match $conn.inner().status() {

@@ -1,5 +1,5 @@
 [package]
-name = "myco-http"
+name = "trillium-http"
 version = "0.0.1"
 edition = "2018"
 
@@ -15,7 +15,7 @@ encoding_rs = "0.8.28"
 
 [dependencies.http-types]
 git = "https://github.com/jbr/http-types"
-branch = "myco"
+branch = "trillium"
 default-features = false
 
 [dev-dependencies]

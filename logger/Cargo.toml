@@ -1,15 +1,15 @@
 [package]
-name = "myco-logger"
+name = "trillium-logger"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-myco = { path = "../myco" }
+trillium = { path = "../trillium" }
 log = "0.4.13"
 colored = "2.0.0"
 size = "0.1.2"
 
 [dev-dependencies]
 env_logger = "0.8.2"
-myco-smol-server = { path = "../smol-server" }
+trillium-smol-server = { path = "../smol-server" }

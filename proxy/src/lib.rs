@@ -1,15 +1,15 @@
 use full_duplex_async_copy::full_duplex_copy;
-use myco::http_types::StatusCode;
-use myco::{async_trait, conn_try, BoxedTransport, Conn, Handler};
-use myco_client::Client;
-use myco_http::Upgrade;
+use trillium::http_types::StatusCode;
+use trillium::{async_trait, conn_try, BoxedTransport, Conn, Handler};
+use trillium_client::Client;
+use trillium_http::Upgrade;
 use size::{Base, Size, Style};
 use std::convert::TryInto;
 use url::Url;
 use StatusCode::{NotFound, SwitchingProtocols};
 
 pub use async_net::TcpStream;
-pub use myco_client::{
+pub use trillium_client::{
     ClientTransport, NativeTls, NativeTlsConfig, Rustls, RustlsConfig, TcpConfig,
 };
 
@@ -62,7 +62,7 @@ impl<Transport: ClientTransport> Handler for Proxy<Transport> {
                 .insert("connection", "keep-alive");
         }
 
-        myco::conn_try!(conn, client_conn.send().await);
+        trillium::conn_try!(conn, client_conn.send().await);
 
         let conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
@@ -104,7 +104,7 @@ impl<Transport: ClientTransport> Handler for Proxy<Transport> {
         upgrade.state.get::<UpstreamUpgrade<Transport>>().is_some()
     }
 
-    async fn upgrade(&self, mut upgrade: myco::Upgrade) {
+    async fn upgrade(&self, mut upgrade: trillium::Upgrade) {
         let upstream = upgrade
             .state
             .remove::<UpstreamUpgrade<Transport>>()

@@ -3,12 +3,12 @@ use encoding_rs::Encoding;
 use futures_lite::future::poll_once;
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use memmem::{Searcher, TwoWaySearcher};
-use myco::http_types::content::ContentLength;
-use myco::http_types::headers::{Headers, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
-use myco::http_types::{Body, Extensions, Method, StatusCode};
-use myco_http::util::encoding;
-use myco_http::{BodyEncoder, ReceivedBody, ReceivedBodyState, Upgrade};
-use myco_http::{Error, Result, Stopper};
+use trillium::http_types::content::ContentLength;
+use trillium::http_types::headers::{Headers, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
+use trillium::http_types::{Body, Extensions, Method, StatusCode};
+use trillium_http::util::encoding;
+use trillium_http::{BodyEncoder, ReceivedBody, ReceivedBodyState, Upgrade};
+use trillium_http::{Error, Result, Stopper};
 use std::borrow::Cow;
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
@@ -49,7 +49,7 @@ macro_rules! method {
     };
 }
 
-const USER_AGENT: &str = concat!("myco-client/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("trillium-client/", env!("CARGO_PKG_VERSION"));
 
 impl<Transport: ClientTransport> Debug for Conn<'_, Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

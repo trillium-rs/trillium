@@ -1,5 +1,5 @@
 use futures_lite::{AsyncRead, AsyncWrite};
-use myco::async_trait;
+use trillium::async_trait;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::pin::Pin;

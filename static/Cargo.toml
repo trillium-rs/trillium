@@ -1,15 +1,15 @@
 [package]
-name = "myco-static"
+name = "trillium-static"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
 async-fs = "1.5.0"
-myco = { path = "../myco" }
+trillium = { path = "../trillium" }
 mime-db = "1.1.0"
 futures-lite = "1.11.3"
 log = "0.4.14"
 
 [dev-dependencies]
-myco-smol-server = { path = "../smol-server" }
+trillium-smol-server = { path = "../smol-server" }

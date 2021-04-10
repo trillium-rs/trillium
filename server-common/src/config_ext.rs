@@ -1,7 +1,7 @@
 use crate::{CloneCounter, Config, Server};
-use myco::{BoxedTransport, Conn, Handler};
-use myco_http::{Conn as HttpConn, Error, Stopper};
-use myco_tls_common::Acceptor;
+use trillium::{BoxedTransport, Conn, Handler};
+use trillium_http::{Conn as HttpConn, Error, Stopper};
+use trillium_tls_common::Acceptor;
 use std::{
     convert::{TryFrom, TryInto},
     io::ErrorKind,
@@ -9,12 +9,12 @@ use std::{
 };
 /// # Server-implementer interfaces to Config
 ///
-/// These functions are intended for use by authors of myco servers,
+/// These functions are intended for use by authors of trillium servers,
 /// and should not be necessary to build an application. Please open
 /// an issue if you find yourself using this trait directly in an
 /// application.
 
-#[myco::async_trait]
+#[trillium::async_trait]
 pub trait ConfigExt<ServerType, AcceptorType>
 where
     ServerType: Server,
@@ -62,12 +62,12 @@ where
     async fn graceful_shutdown(self);
 
     /// apply the provided handler to the transport, using
-    /// [`myco_http`]'s http implementation. this is the default inner
-    /// loop for most myco servers
+    /// [`trillium_http`]'s http implementation. this is the default inner
+    /// loop for most trillium servers
     async fn handle_stream(self, stream: ServerType::Transport, handler: impl Handler);
 
     /// builds any type that is TryFrom<std::net::TcpListener> and
-    /// configures it for use. most myco servers should use this if
+    /// configures it for use. most trillium servers should use this if
     /// possible instead of using [`ConfigExt::port`],
     /// [`ConfigExt::host`], or [`ConfigExt::socket_addrs`].
     ///
@@ -80,7 +80,7 @@ where
         <Listener as TryFrom<TcpListener>>::Error: std::fmt::Debug;
 }
 
-#[myco::async_trait]
+#[trillium::async_trait]
 impl<ServerType, AcceptorType> ConfigExt<ServerType, AcceptorType>
     for Config<ServerType, AcceptorType>
 where

@@ -1,7 +1,7 @@
 mod websocket_connection;
 use async_dup::Arc;
-use myco::Upgrade;
-use myco::{
+use trillium::Upgrade;
+use trillium::{
     async_trait,
     http_types::{
         headers::{CONNECTION, UPGRADE},

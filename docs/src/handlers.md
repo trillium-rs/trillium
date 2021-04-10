@@ -1,16 +1,16 @@
 # A tour of some of the handlers that exist today
 
-In order for myco to be a usable web framework, we offer a number of
+In order for trillium to be a usable web framework, we offer a number of
 core utilities. However, it is our hope that alternative
 implementations for at least some of these will exist in order to
 explore the design space and accommodate different design constraints
 and tradeoffs. Because not every application will need this
 functionality, they are each released as distinct libraries from the
-core of myco.
+core of trillium.
 
 ## Routers
 
-The myco router is based on
+The trillium router is based on
 [routefinder](https://github.com/jbr/routefinder). This router
 supports two types of patterns: Untyped params and a single
 wildcard. Named params are captured in a map-like interface. Any
@@ -57,8 +57,8 @@ client (browser). Myco's session storage is built on the
 `async-session` crate, which allows us to share session stores with
 tide. Currently, these session stores exist:
 
-* MemoryStore (reexported as myco_sessions::MemoryStore) [^1]
-* CookieStore (reexported as myco_sessions::CookieStore) [^1]
+* MemoryStore (reexported as trillium_sessions::MemoryStore) [^1]
+* CookieStore (reexported as trillium_sessions::CookieStore) [^1]
 * PostgresSessionStore and SqliteSessionStore from [async-sqlx-session](https://github.com/jbr/async-sqlx-session)
 * RedisSessionStore from [async-redis-session](https://github.com/jbr/async-redis-session)
 * MongodbSessionStore from [async-mongodb-session](https://github.com/http-rs/async-mongodb-session)
@@ -93,7 +93,7 @@ info log level per http request/response pair. We like to use the
 ## WebSocket support
 
 WebSockets work a lot like tide's, since I recently wrote that
-interface as well. One difference in myco is that the websocket
+interface as well. One difference in trillium is that the websocket
 connection also contains some aspects of the original http request,
 such as request headers, the request path and method, and any state
 that has been accumulated by previous handlers in a sequence.
@@ -122,7 +122,7 @@ This handler includes all of the static content in the compiled binary, allowing
 
 ## Template engines
 
-There are currently three template engines for myco. Although they are in no way mutually exclusive, most applications will want at most one of these.
+There are currently three template engines for trillium. Although they are in no way mutually exclusive, most applications will want at most one of these.
 
 ### Askama
 

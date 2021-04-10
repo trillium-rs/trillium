@@ -1,6 +1,6 @@
 pub use cookie::*;
-use myco::http_types::headers::{COOKIE, SET_COOKIE};
-use myco::{async_trait, Conn, Handler};
+use trillium::http_types::headers::{COOKIE, SET_COOKIE};
+use trillium::{async_trait, Conn, Handler};
 
 pub struct Cookies;
 

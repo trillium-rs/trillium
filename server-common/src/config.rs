@@ -1,25 +1,25 @@
 use crate::{CloneCounter, Server};
-use myco::Handler;
-use myco_http::Stopper;
-use myco_tls_common::Acceptor;
+use trillium::Handler;
+use trillium_http::Stopper;
+use trillium_tls_common::Acceptor;
 use std::marker::PhantomData;
 
-/// # Primary entrypoint for configuring and running a myco server
+/// # Primary entrypoint for configuring and running a trillium server
 ///
 /// The associated methods on this struct are intended to be chained.
 ///
 /// ## Example
 /// ```rust
-/// // in reality, you'd use myco_smol_server, myco_async_std_server, myco_tokio_server, etc
-/// myco_testing::server::config()
+/// // in reality, you'd use trillium_smol_server, trillium_async_std_server, trillium_tokio_server, etc
+/// trillium_testing::server::config()
 ///     .with_port(8080) // the default
 ///     .with_host("localhost") // the default
 ///     .with_nodelay()
 ///     .without_signals()
-///     .run(|conn: myco::Conn| async move { conn.ok("hello") });
+///     .run(|conn: trillium::Conn| async move { conn.ok("hello") });
 /// ```
-/// In order to use this to _implement_ a myco server, see
-/// [`myco_server_common::ConfigExt`]
+/// In order to use this to _implement_ a trillium server, see
+/// [`trillium_server_common::ConfigExt`]
 pub struct Config<ServerType, AcceptorType> {
     pub(crate) acceptor: AcceptorType,
     pub(crate) port: Option<u16>,
@@ -39,8 +39,8 @@ where
     /// Starts an async runtime and runs the provided handler with
     /// this config in that runtime. This is the appropriate
     /// entrypoint for applications that do not need to spawn tasks
-    /// outside of myco's web server. For applications that embed a
-    /// myco server inside of an already-running async runtime, use
+    /// outside of trillium's web server. For applications that embed a
+    /// trillium server inside of an already-running async runtime, use
     /// [`Config::run_async`]
     pub fn run<H: Handler>(self, h: H) {
         ServerType::run(self, h)
@@ -49,7 +49,7 @@ where
     /// Runs the provided handler with this config, in an
     /// already-running runtime. This is the appropriate entrypoint
     /// for an application that needs to spawn async tasks that are
-    /// unrelated to the myco application. If you do not need to spawn
+    /// unrelated to the trillium application. If you do not need to spawn
     /// other tasks, [`Config::run`] is the preferred entrypoint
     pub async fn run_async(self, handler: impl Handler) {
         ServerType::run_async(self, handler).await

@@ -244,26 +244,26 @@ mod proxy_app {
     use super::Event;
     use broadcaster::BroadcastChannel;
     use futures_lite::StreamExt;
-    use myco::{sequence, Conn};
-    use myco_client::Client;
-    use myco_html_rewriter::{
+    use trillium::{sequence, Conn};
+    use trillium_client::Client;
+    use trillium_html_rewriter::{
         html::{element, html_content::ContentType, Settings},
         HtmlRewriter,
     };
-    use myco_proxy::{Proxy, TcpStream};
-    use myco_router::Router;
-    use myco_websockets::WebSocket;
+    use trillium_proxy::{Proxy, TcpStream};
+    use trillium_router::Router;
+    use trillium_websockets::WebSocket;
 
     pub fn run(proxy: String, rx: BroadcastChannel<Event>) {
         static PORT: u16 = 8082;
         let client = Client::new()
             .with_default_pool()
-            .with_config(myco_proxy::TcpConfig {
+            .with_config(trillium_proxy::TcpConfig {
                 nodelay: Some(true),
                 ..Default::default()
             });
 
-        myco_smol_server::config()
+        trillium_smol_server::config()
             .without_signals()
             .with_port(PORT)
             .run(sequence![
@@ -275,7 +275,7 @@ mod proxy_app {
                     .get(
                         "/_dev_server.ws",
                         sequence![
-                            myco::State::new(rx),
+                            trillium::State::new(rx),
                             WebSocket::new(|mut wsc| async move {
                                 let mut rx = wsc.take_state::<BroadcastChannel<Event>>().unwrap();
                                 while let Some(message) = rx.next().await {

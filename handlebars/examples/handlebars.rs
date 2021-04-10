@@ -1,9 +1,9 @@
-use myco::{sequence, Conn};
-use myco_handlebars::{Handlebars, HandlebarsConnExt};
+use trillium::{sequence, Conn};
+use trillium_handlebars::{Handlebars, HandlebarsConnExt};
 
 fn main() {
     env_logger::init();
-    myco_smol_server::run(sequence![
+    trillium_smol_server::run(sequence![
         Handlebars::new("./examples/templates/*.hbs"),
         |conn: Conn| async move {
             conn.assign("name", "world")

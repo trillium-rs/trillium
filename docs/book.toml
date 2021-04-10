@@ -3,7 +3,7 @@ authors = ["Jacob Rothstein"]
 language = "en"
 multilingual = false
 src = "src"
-title = "myco"
+title = "trillium"
 
 [rust]
 edition = "2018"

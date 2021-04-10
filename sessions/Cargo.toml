@@ -1,15 +1,15 @@
 [package]
-name = "myco-sessions"
+name = "trillium-sessions"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-myco-cookies = { path = "../cookies" }
-myco = { path = "../myco" }
+trillium-cookies = { path = "../cookies" }
+trillium = { path = "../trillium" }
 async-session = "2.0.1"
 log = "0.4.13"
 
 [dev-dependencies]
 env_logger = "0.8.2"
-myco-smol-server = { path = "../smol-server" }
+trillium-smol-server = { path = "../smol-server" }

@@ -1,5 +1,5 @@
 use crate::{ClientTransport, Conn, Pool};
-use myco::http_types::Method;
+use trillium::http_types::Method;
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
 use url::Url;

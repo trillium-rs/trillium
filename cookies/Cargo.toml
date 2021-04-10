@@ -1,12 +1,12 @@
 [package]
-name = "myco-cookies"
+name = "trillium-cookies"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
 log = "0.4.13"
-myco = { path = "../myco" }
+trillium = { path = "../trillium" }
 
 [dependencies.cookie]
 version = "0.14.3"
@@ -14,4 +14,4 @@ features = ["percent-encode", "secure"]
 
 [dev-dependencies]
 env_logger = "0.8.2"
-myco-smol-server = { path = "../smol-server" }
+trillium-smol-server = { path = "../smol-server" }

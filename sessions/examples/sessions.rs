@@ -1,11 +1,11 @@
-use myco::{sequence, Conn};
-use myco_sessions::{MemoryStore, SessionConnExt, Sessions};
+use trillium::{sequence, Conn};
+use trillium_sessions::{MemoryStore, SessionConnExt, Sessions};
 
 pub fn main() {
     env_logger::init();
 
-    myco_smol_server::run(sequence![
-        myco_cookies::Cookies,
+    trillium_smol_server::run(sequence![
+        trillium_cookies::Cookies,
         Sessions::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {
             let count: usize = conn.session().get("count").unwrap_or_default();

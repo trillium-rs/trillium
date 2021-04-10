@@ -1,7 +1,7 @@
 use async_fs::File;
 use futures_lite::io::BufReader;
-use myco::http_types::content::ContentType;
-use myco::{async_trait, conn_ok, http_types::Body, Conn, Handler};
+use trillium::http_types::content::ContentType;
+use trillium::{async_trait, conn_ok, http_types::Body, Conn, Handler};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]

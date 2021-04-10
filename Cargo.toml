@@ -12,7 +12,7 @@ members = [
   "handlebars",
   "http",
   "logger",
-  "myco",
+  "trillium",
   "native-tls",
   "router",
   "rustls",

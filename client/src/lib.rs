@@ -17,4 +17,4 @@ mod transport;
 pub use transport::{ClientTransport, TcpConfig};
 
 pub use async_net::TcpStream;
-pub use myco_http::{Error, Result};
+pub use trillium_http::{Error, Result};

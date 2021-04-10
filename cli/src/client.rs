@@ -1,8 +1,8 @@
 use bat::{Input, PagingMode, PrettyPrinter};
 use blocking::Unblock;
 use futures_lite::io::BufReader;
-use myco::http_types::{url, Body, Method, Url};
-use myco_client::{ClientTransport, Conn, Error, NativeTls, Rustls, TcpStream};
+use trillium::http_types::{url, Body, Method, Url};
+use trillium_client::{ClientTransport, Conn, Error, NativeTls, Rustls, TcpStream};
 use std::{borrow::Cow, io::ErrorKind, path::PathBuf, str::FromStr};
 use structopt::StructOpt;
 
@@ -20,23 +20,23 @@ pub struct ClientCli {
     ///
     /// three equivalent examples:
     ///
-    /// myco client post http://httpbin.org/anything -f ./body.json
-    /// myco client post http://httpbin.org/anything < ./body.json
-    /// cat ./body.json | myco client post http://httpbin.org/anything
+    /// trillium client post http://httpbin.org/anything -f ./body.json
+    /// trillium client post http://httpbin.org/anything < ./body.json
+    /// cat ./body.json | trillium client post http://httpbin.org/anything
     #[structopt(short, long, parse(from_os_str), verbatim_doc_comment)]
     file: Option<PathBuf>,
 
     /// provide a request body on the command line
     ///
     /// example:
-    /// myco client post http://httpbin.org/post -b '{"hello": "world"}'
+    /// trillium client post http://httpbin.org/post -b '{"hello": "world"}'
     #[structopt(short, long, verbatim_doc_comment)]
     body: Option<String>,
 
     /// provide headers in the form -h KEY1=VALUE1 KEY2=VALUE2
     ///
     /// example:
-    /// myco client get http://httpbin.org/headers -h Accept=application/json Authorization="Basic u:p"
+    /// trillium client get http://httpbin.org/headers -h Accept=application/json Authorization="Basic u:p"
     #[structopt(short, long, parse(try_from_str = parse_header), verbatim_doc_comment)]
     headers: Vec<(String, String)>,
 
@@ -49,7 +49,7 @@ pub struct ClientCli {
     /// set the log level. add more flags for more verbosity
     ///
     /// example:
-    /// myco client get https://www.google.com -vvv # `trace` verbosity level
+    /// trillium client get https://www.google.com -vvv # `trace` verbosity level
     #[structopt(short, long, parse(from_occurrences))]
     verbose: u64,
 }

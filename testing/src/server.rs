@@ -1,9 +1,9 @@
-use myco::Handler;
-use myco_server_common::{Acceptor, Server};
+use trillium::Handler;
+use trillium_server_common::{Acceptor, Server};
 pub struct TestingServer;
-pub type Config<A> = myco_server_common::Config<TestingServer, A>;
+pub type Config<A> = trillium_server_common::Config<TestingServer, A>;
 
-#[myco::async_trait]
+#[trillium::async_trait]
 impl Server for TestingServer {
     type Transport = crate::TestIO;
 

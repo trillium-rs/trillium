@@ -1,14 +1,14 @@
 use async_std::net::{TcpListener, TcpStream};
 use async_std::{prelude::*, task};
-use myco::{async_trait, Handler};
-use myco_server_common::{Acceptor, ConfigExt};
+use trillium::{async_trait, Handler};
+use trillium_server_common::{Acceptor, ConfigExt};
 use std::sync::Arc;
 
-pub use myco_server_common::Server;
-pub type Config<A> = myco_server_common::Config<AsyncStdServer, A>;
+pub use trillium_server_common::Server;
+pub type Config<A> = trillium_server_common::Config<AsyncStdServer, A>;
 
 #[cfg(unix)]
-async fn handle_signals(stop: myco_server_common::Stopper) {
+async fn handle_signals(stop: trillium_server_common::Stopper) {
     use signal_hook::consts::signal::*;
     use signal_hook_async_std::Signals;
 
@@ -52,7 +52,7 @@ impl Server for AsyncStdServer {
         let handler = Arc::new(handler);
 
         while let Some(Ok(stream)) = incoming.next().await {
-            myco::log_error!(stream.set_nodelay(config.nodelay()));
+            trillium::log_error!(stream.set_nodelay(config.nodelay()));
             task::spawn(config.clone().handle_stream(stream, handler.clone()));
         }
 

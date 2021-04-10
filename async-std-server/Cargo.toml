@@ -1,15 +1,15 @@
 [package]
-name = "myco-async-std-server"
+name = "trillium-async-std-server"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
 log = "0.4.13"
-myco = { path = "../myco" }
+trillium = { path = "../trillium" }
 async-std = "1.9.0"
-myco-http = { path = "../http" }
-myco-server-common = { path = "../server-common" }
+trillium-http = { path = "../http" }
+trillium-server-common = { path = "../server-common" }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-async-std = "0.2.1"

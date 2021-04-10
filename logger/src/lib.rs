@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use colored::*;
-use myco::{async_trait, http_types::StatusCode, Conn, Handler};
+use trillium::{async_trait, http_types::StatusCode, Conn, Handler};
 use size::{Base, Size, Style};
 
 #[derive(Debug)]

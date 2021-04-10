@@ -1,9 +1,9 @@
-use myco::Conn;
-use myco_native_tls::NativeTls;
+use trillium::Conn;
+use trillium_native_tls::NativeTls;
 
 pub fn main() {
     env_logger::init();
-    myco_smol_server::config()
+    trillium_smol_server::config()
         .with_acceptor(NativeTls::from_pkcs12(
             include_bytes!("./identity.p12"),
             "changeit",

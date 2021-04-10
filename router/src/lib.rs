@@ -1,4 +1,4 @@
-use myco::{async_trait, http_types::Method, Conn, Handler};
+use trillium::{async_trait, http_types::Method, Conn, Handler};
 use routefinder::{Captures, Match};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -58,7 +58,7 @@ impl Handler for Router {
         }
     }
 
-    fn has_upgrade(&self, upgrade: &myco::Upgrade) -> bool {
+    fn has_upgrade(&self, upgrade: &trillium::Upgrade) -> bool {
         if let Some(m) = self.best_match(upgrade.method(), upgrade.path()) {
             m.handler().has_upgrade(upgrade)
         } else {
@@ -66,7 +66,7 @@ impl Handler for Router {
         }
     }
 
-    async fn upgrade(&self, upgrade: myco::Upgrade) {
+    async fn upgrade(&self, upgrade: trillium::Upgrade) {
         self.best_match(upgrade.method(), upgrade.path())
             .unwrap()
             .handler()

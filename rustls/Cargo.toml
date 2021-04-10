@@ -1,5 +1,5 @@
 [package]
-name = "myco-rustls"
+name = "trillium-rustls"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
@@ -8,9 +8,9 @@ edition = "2018"
 log = "0.4.13"
 rustls = "0.19.0"
 async-tls = "0.11.0"
-myco-tls-common = { path = "../tls-common" }
+trillium-tls-common = { path = "../tls-common" }
 
 [dev-dependencies]
-myco = { path = "../myco" }
-myco-smol-server = { path = "../smol-server" }
+trillium = { path = "../trillium" }
+trillium-smol-server = { path = "../smol-server" }
 env_logger = "0.8.2"

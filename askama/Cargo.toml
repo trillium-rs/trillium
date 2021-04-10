@@ -1,13 +1,13 @@
 [package]
-name = "myco-askama"
+name = "trillium-askama"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-myco = { path = "../myco" }
+trillium = { path = "../trillium" }
 askama = "0.10.5"
 mime-db = "1.1.0"
 
 [dev-dependencies]
-myco-smol-server = { path = "../smol-server" }
+trillium-smol-server = { path = "../smol-server" }

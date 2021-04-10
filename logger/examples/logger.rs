@@ -1,7 +1,7 @@
-use myco::sequence;
-use myco_logger::DevLogger;
+use trillium::sequence;
+use trillium_logger::DevLogger;
 
 pub fn main() {
     env_logger::init();
-    myco_smol_server::run(sequence![DevLogger, "ok"]);
+    trillium_smol_server::run(sequence![DevLogger, "ok"]);
 }

@@ -18,7 +18,7 @@ pub trait LambdaConnExt {
     fn lambda_context(&self) -> &Context;
 }
 
-impl LambdaConnExt for myco::Conn {
+impl LambdaConnExt for trillium::Conn {
     fn lambda_context(&self) -> &Context {
         &*self
             .state::<LambdaContext>()

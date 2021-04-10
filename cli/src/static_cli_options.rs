@@ -1,8 +1,8 @@
 use crate::RootPath;
 use env_logger::Builder;
 use log::LevelFilter;
-use myco::sequence;
-use myco_proxy::{Proxy, Rustls, TcpStream};
+use trillium::sequence;
+use trillium_proxy::{Proxy, Rustls, TcpStream};
 use std::io::Write;
 use std::{fmt::Debug, path::PathBuf};
 use structopt::StructOpt;
@@ -91,7 +91,7 @@ impl StaticCli {
         self.port
     }
 
-    pub fn rustls_acceptor(&self) -> Option<myco_rustls::RustTls> {
+    pub fn rustls_acceptor(&self) -> Option<trillium_rustls::RustTls> {
         match &self {
             StaticCli {
                 rustls_cert: Some(_),
@@ -111,7 +111,7 @@ impl StaticCli {
                 rustls_key: Some(y),
                 native_tls_identity: None,
                 ..
-            } => Some(myco_rustls::RustTls::from_pkcs8(
+            } => Some(trillium_rustls::RustTls::from_pkcs8(
                 &std::fs::read(x).unwrap(),
                 &std::fs::read(y).unwrap(),
             )),
@@ -129,7 +129,7 @@ impl StaticCli {
         }
     }
 
-    pub fn native_tls_acceptor(&self) -> Option<myco_native_tls::NativeTls> {
+    pub fn native_tls_acceptor(&self) -> Option<trillium_native_tls::NativeTls> {
         match &self {
             StaticCli {
                 native_tls_identity: Some(_),
@@ -150,7 +150,7 @@ impl StaticCli {
                 native_tls_identity: Some(x),
                 native_tls_password: Some(y),
                 ..
-            } => Some(myco_native_tls::NativeTls::from_pkcs12(
+            } => Some(trillium_native_tls::NativeTls::from_pkcs12(
                 &std::fs::read(x).unwrap(),
                 y,
             )),
@@ -170,26 +170,26 @@ impl StaticCli {
 
     pub fn run(self) {
         Builder::new()
-            .filter_module("myco_smol_server", LevelFilter::Info)
-            .filter_module("myco_logger", LevelFilter::Info)
+            .filter_module("trillium_smol_server", LevelFilter::Info)
+            .filter_module("trillium_logger", LevelFilter::Info)
             .format(|buf, record| writeln!(buf, "{}", record.args()))
             .init();
 
         let path = self.root().clone();
-        let mut server = sequence![myco_logger::DevLogger];
+        let mut server = sequence![trillium_logger::DevLogger];
 
         if let Some(forward) = self.forward() {
             server.then(Proxy::<Rustls<TcpStream>>::new(forward));
         }
 
-        let mut s = myco_static::Static::new(path);
+        let mut s = trillium_static::Static::new(path);
         if let Some(index) = self.index() {
             s = s.with_index_file(index);
         }
 
         server.then(s);
 
-        let config = myco_smol_server::config()
+        let config = trillium_smol_server::config()
             .with_port(self.port())
             .with_host(self.host());
 

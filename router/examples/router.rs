@@ -1,9 +1,9 @@
-use myco::Conn;
-use myco_router::{Router, RouterConnExt};
+use trillium::Conn;
+use trillium_router::{Router, RouterConnExt};
 
 pub fn main() {
     env_logger::init();
-    myco_smol_server::run(
+    trillium_smol_server::run(
         Router::new()
             .get("/", |conn: Conn| async move { conn.ok("hello everyone") })
             .get("/hello/:planet", |conn: Conn| async move {

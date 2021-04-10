@@ -1,6 +1,6 @@
-use myco::http_types::StatusCode;
-use myco::{BoxedTransport, Conn};
-use myco_http::Conn as HttpConn;
+use trillium::http_types::StatusCode;
+use trillium::{BoxedTransport, Conn};
+use trillium_http::Conn as HttpConn;
 use std::collections::HashMap;
 
 #[derive(serde::Serialize, Debug)]

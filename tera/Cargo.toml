@@ -1,14 +1,14 @@
 [package]
-name = "myco-tera"
+name = "trillium-tera"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-myco = { path = "../myco" }
+trillium = { path = "../trillium" }
 mime-db = "1.1.0"
 tera = "1.6.1"
 serde = "1.0.123"
 
 [dev-dependencies]
-myco-smol-server = { path = "../smol-server" }
+trillium-smol-server = { path = "../smol-server" }

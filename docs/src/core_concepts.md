@@ -1,6 +1,6 @@
 # Two core concepts: Conn and Handlers
 
-The two most important concepts in myco are the `Conn` type and the
+The two most important concepts in trillium are the `Conn` type and the
 `Handler` trait. Each `Conn` represents a single http request/response
 pair.
 
@@ -11,20 +11,20 @@ The simplest form of a handler is any async function that takes a
 and sets a string body.
 
 ```rust
-use myco::Conn;
+use trillium::Conn;
 async fn hello_world(conn: Conn) -> Conn {
     conn.ok("hello world!")
 }
 ```
 
-With no further modification, we can drop this handler into a myco
+With no further modification, we can drop this handler into a trillium
 server and it will respond to http requests for us. We're using the
 [`smol`](https://github.com/smol-rs/smol)-runtime based server adapter
 here.
 
 ```rust
 pub fn main() {
-    myco_smol_server::run(hello_world);
+    trillium_smol_server::run(hello_world);
 }
 ```
 
@@ -32,7 +32,7 @@ We can also define this as a closure:
 
 ```rust
 pub fn main() {
-    myco_smol_server::run(|conn: myco::Conn| async move {
+    trillium_smol_server::run(|conn: trillium::Conn| async move {
         conn.ok("hello world")
     });
 }
@@ -94,17 +94,17 @@ store types that you define in state.
 
 > 🌊 Comparison with Tide: Tide has three different types of state:
 > Server state, request state, and response state. In Myco, server
-> state is achieved using the `myco::State` handler, which holds any
+> state is achieved using the `trillium::State` handler, which holds any
 > type that is Clone and puts a clone of it into the state of each
 > Conn that passes through the handler.
 
 ### Extending Conn
 
-It is a very common pattern in myco for libraries to extend Conn in
+It is a very common pattern in trillium for libraries to extend Conn in
 order to provide additional functionality.  The Conn interface does
 not provide support for sessions, cookies, route params, or many other
 building blocks that other frameworks build into the core
-types. Instead, to use sessions as an example, `myco_sessions`
+types. Instead, to use sessions as an example, `trillium_sessions`
 provides a `SessionConnExt` trait which provides associated functions
 for Conn that offer session support. In general, handlers that put
 data into conn state also will provide convenience functions for
@@ -112,23 +112,23 @@ accessing that state, and will export a `[Something]ConnExt` trait.
 
 ## Servers
 
-Let's talk a little more about that `myco_smol_server::run` line we've
+Let's talk a little more about that `trillium_smol_server::run` line we've
 been writing. Myco itself is built on `futures` (`futures-lite`,
 specifically). In order to run it, it needs an adapter to an async
 runtime. These adapters are called servers, and there are four of them
 currently:
 
-* `myco_async_std_server`
-* `myco_smol_server`
-* `myco_tokio_server`
-* `myco_aws_lambda_server`
+* `trillium_async_std_server`
+* `trillium_smol_server`
+* `trillium_tokio_server`
+* `trillium_aws_lambda_server`
 
 Although we've been using the smol server in these docs thus far, you
 should use whichever runtime you prefer. If you expect to have a
 dependency on async-std or tokio anyway, you might as well use the
 server for that runtime.
 
-To run myco on a different host or port, either provide a `HOST` and/or `PORT` environment variables, or compile the specific values into the server as follows:
+To run trillium on a different host or port, either provide a `HOST` and/or `PORT` environment variables, or compile the specific values into the server as follows:
 
 ```rust
 {{#include ../../smol-server/examples/smol-server-with-config.rs}}
@@ -166,8 +166,8 @@ the connection until one of the handlers halts the conn.
 
 ```rust
 env_logger::init();
-run(myco::Sequence::new()
-    .and(myco_logger::DevLogger)
+run(trillium::Sequence::new()
+    .and(trillium_logger::DevLogger)
     .and(|conn: Conn| async move { conn.ok("sequence!") }));
 ```
 
@@ -178,15 +178,15 @@ request to localhost:8000, we'll see something like `GET / 200
 
 ### Macros, if you want them
 
-Because sequences are quite common in myco, we also have a macro that
+Because sequences are quite common in trillium, we also have a macro that
 makes them even easier to build. Instead of writing
 `Sequence::new().and(a).and(b).and(c)` we can write
-`myco::sequence![a, b, c]`, which makes our above example:
+`trillium::sequence![a, b, c]`, which makes our above example:
 
 ```rust
 env_logger::init();
-run(myco::sequence![
-    myco_logger::DevLogger,
+run(trillium::sequence![
+    trillium_logger::DevLogger,
     |conn: Conn| async move { conn.ok("sequence!") }
 ]);
 ```

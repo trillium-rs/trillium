@@ -1,5 +1,5 @@
 use handlebars::Handlebars as ActualHandlebars;
-use myco::{async_trait, Conn, Handler};
+use trillium::{async_trait, Conn, Handler};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::borrow::Cow;
@@ -44,7 +44,7 @@ impl From<ActualHandlebars<'static>> for Handlebars {
 
 #[async_trait]
 impl Handler for Handlebars {
-    async fn run(&self, conn: myco::Conn) -> myco::Conn {
+    async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
         conn.with_state(self.clone())
     }
 }

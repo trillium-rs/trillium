@@ -1,6 +1,6 @@
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
-use myco_http::{Conn, Stopper};
+use trillium_http::{Conn, Stopper};
 
 async fn handler(mut conn: Conn<TcpStream>) -> Conn<TcpStream> {
     let mut body = conn.request_body().await;

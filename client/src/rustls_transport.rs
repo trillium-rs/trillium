@@ -1,7 +1,7 @@
 use async_tls::client::TlsStream;
 use async_tls::TlsConnector;
 use futures_lite::{AsyncRead, AsyncWrite};
-use myco::async_trait;
+use trillium::async_trait;
 use rustls::{ClientConfig, RootCertStore};
 use std::fmt::{self, Debug, Formatter};
 use std::io::{Error, ErrorKind, Result};

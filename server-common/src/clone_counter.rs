@@ -18,7 +18,7 @@ pub struct CloneCounter(Arc<CloneCounterInner>);
 ///
 /// ```rust
 /// # async_io::block_on(async {
-/// # use myco_server_common::CloneCounter;
+/// # use trillium_server_common::CloneCounter;
 /// use futures_lite::future::poll_once;
 /// let counter = CloneCounter::new();
 /// assert_eq!(counter.current(), 0);

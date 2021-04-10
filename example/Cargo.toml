@@ -1,20 +1,20 @@
 [package]
-name = "myco-example"
+name = "trillium-example"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
 env_logger = "0.8.2"
-myco = { path = "../myco" }
-myco-router = { path = "../router" }
-myco-logger = { path = "../logger" }
-myco-cookies = { path = "../cookies" }
-myco-sessions = { path = "../sessions" }
-myco-websockets = { path = "../websockets" }
-myco-smol-server = { path = "../smol-server" }
-myco-askama = { path = "../askama" }
+trillium = { path = "../trillium" }
+trillium-router = { path = "../router" }
+trillium-logger = { path = "../logger" }
+trillium-cookies = { path = "../cookies" }
+trillium-sessions = { path = "../sessions" }
+trillium-websockets = { path = "../websockets" }
+trillium-smol-server = { path = "../smol-server" }
+trillium-askama = { path = "../askama" }
 futures-lite = "1.11.3"
 askama = "0.10.5"
-myco-static-compiled = { path = "../static-compiled/" }
-myco-proxy = { path = "../proxy" }
+trillium-static-compiled = { path = "../static-compiled/" }
+trillium-proxy = { path = "../proxy" }

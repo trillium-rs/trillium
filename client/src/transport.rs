@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 
 use async_net::TcpStream;
 use futures_lite::{AsyncRead, AsyncWrite};
-use myco::async_trait;
+use trillium::async_trait;
 use url::Url;
 
 #[async_trait]

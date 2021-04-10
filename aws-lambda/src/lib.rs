@@ -1,6 +1,6 @@
 use lamedh_runtime::{Context, Handler as AwsHandler};
-use myco::{BoxedTransport, Conn, Handler};
-use myco_http::{Conn as HttpConn, Synthetic};
+use trillium::{BoxedTransport, Conn, Handler};
+use trillium_http::{Conn as HttpConn, Synthetic};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;

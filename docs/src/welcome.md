@@ -1,6 +1,6 @@
 # Welcome
 
-Hi! Welcome to the documentation for myco, an async rust web server
+Hi! Welcome to the documentation for trillium, an async rust web server
 toolkit. This section needs a little more content
 
 ## Who is this document for?
@@ -17,4 +17,4 @@ In particular, we offer comparisons to rust's
 [tide](https://github.com/http-rs/tide) and elixir's
 [phoenix](https://www.phoenixframework.org/) /
 [plug](https://hexdocs.pm/plug/readme.html), as they serve as the
-primary inspirations for myco.
+primary inspirations for trillium.

@@ -1,6 +1,6 @@
 use async_io::Timer;
 use async_net::TcpStream;
-use myco_client::{Client, Rustls};
+use trillium_client::{Client, Rustls};
 use std::time::Duration;
 
 pub fn main() {

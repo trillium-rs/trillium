@@ -12,7 +12,7 @@ Here are some conventions in this document.
 * Comparisons with Tide
   > 🌊 Tide endpoints look like `|_req: Request<_>| async { Response::new(200) }` whereas Myco handlers look like `|conn: Conn| async move { conn.status(200) }`
 * Comparisons with Plug:
-  > 🔌 Halting a plug looks like `conn |> halt` (elixir), and the equivalent in myco is returning `conn.halt()`
+  > 🔌 Halting a plug looks like `conn |> halt` (elixir), and the equivalent in trillium is returning `conn.halt()`
 
 
 [^1]: Footnotes can always be skipped

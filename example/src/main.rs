@@ -1,14 +1,14 @@
 use askama::Template;
 use futures_lite::prelude::*;
-use myco::{sequence, Conn};
-use myco_askama::AskamaConnExt;
-use myco_cookies::Cookies;
-use myco_logger::DevLogger;
-use myco_proxy::{Proxy, Rustls, TcpStream};
-use myco_router::{routes, Router, RouterConnExt};
-use myco_sessions::{MemoryStore, SessionConnExt, Sessions};
-use myco_static_compiled::{include_dir, StaticCompiled};
-use myco_websockets::{Message, WebSocket};
+use trillium::{sequence, Conn};
+use trillium_askama::AskamaConnExt;
+use trillium_cookies::Cookies;
+use trillium_logger::DevLogger;
+use trillium_proxy::{Proxy, Rustls, TcpStream};
+use trillium_router::{routes, Router, RouterConnExt};
+use trillium_sessions::{MemoryStore, SessionConnExt, Sessions};
+use trillium_static_compiled::{include_dir, StaticCompiled};
+use trillium_websockets::{Message, WebSocket};
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -19,7 +19,7 @@ struct HelloTemplate<'a> {
 fn main() {
     env_logger::init();
 
-    myco_smol_server::run(sequence![
+    trillium_smol_server::run(sequence![
         DevLogger,
         Cookies,
         Sessions::new(MemoryStore::new(), b"01234567890123456789012345678901123",),

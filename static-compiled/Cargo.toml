@@ -1,5 +1,5 @@
 [package]
-name = "myco-static-compiled"
+name = "trillium-static-compiled"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
@@ -8,10 +8,10 @@ edition = "2018"
 
 [dependencies]
 include_dir = "0.6.0"
-myco = { path = "../myco" }
+trillium = { path = "../trillium" }
 mime-db = "1.1.0"
 log = "0.4.14"
 
 [dev-dependencies]
-myco-smol-server = { path = "../smol-server" }
+trillium-smol-server = { path = "../smol-server" }
 env_logger = "0.8.2"

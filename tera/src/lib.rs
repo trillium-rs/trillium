@@ -1,5 +1,5 @@
-use myco::http_types::Body;
-use myco::{async_trait, Conn, Handler};
+use trillium::http_types::Body;
+use trillium::{async_trait, Conn, Handler};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;

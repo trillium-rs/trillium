@@ -4,7 +4,7 @@ use std::str::Utf8Error;
 use http_types::url;
 use thiserror::Error;
 
-/// Concrete errors that occur within myco's http implementation
+/// Concrete errors that occur within trillium's http implementation
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
