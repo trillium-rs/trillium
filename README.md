@@ -1,7 +1,7 @@
 # Check out the documentation for more info
 
 
-[📖 https://trillium-docs.netlify.app/ 📖](https://trillium-docs.netlify.app/)
+[📖 https://trillium.rs/ 📖](https://trillium.rs/)
 
 # Just show me some code!
 
