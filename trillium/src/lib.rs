@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 #![deny(
-    missing_debug_implementations,
-    nonstandard_style,
     missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
     unused_qualifications
 )]
 //! Welcome to trillium!
@@ -29,6 +31,10 @@ pub use trillium_http::http_types;
 mod transport;
 pub use transport::{BoxedTransport, Transport};
 
+/// An [`Upgrade`](trillium_http::Upgrade) for [`BoxedTransport`]s
+///
+/// This exists to erase the generic transport for convenience. See
+/// [`Upgrade`](trillium_http::Upgrade) for additional documentation
 pub type Upgrade = trillium_http::Upgrade<BoxedTransport>;
 
 mod macros;
