@@ -1,5 +1,16 @@
+use std::fmt::{self, Debug};
+
+use fmt::Formatter;
+
 use crate::{async_trait, Conn, Handler};
+
 pub struct State<T>(T);
+
+impl<T: Debug> Debug for State<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("State").field(&self.0).finish()
+    }
+}
 
 impl<T> State<T> {
     pub fn new(t: T) -> Self {

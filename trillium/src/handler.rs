@@ -135,6 +135,15 @@ impl<G: Handler> Handler for Vec<G> {
 #[derive(Default)]
 pub struct Sequence(Vec<Box<dyn Handler>>);
 
+impl std::fmt::Debug for Sequence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("sequence!")?;
+        f.debug_list()
+            .entries(self.0.iter().map(|h| h.name()))
+            .finish()
+    }
+}
+
 impl Sequence {
     pub fn new() -> Self {
         Self::default()
@@ -198,5 +207,25 @@ impl Handler for String {
 impl Handler for &'static str {
     async fn run(&self, conn: Conn) -> Conn {
         conn.ok(*self)
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        Cow::Borrowed(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Sequence;
+    #[test]
+    fn sequence_debug() {
+        let sequence = Sequence::new();
+        assert_eq!(format!("{:?}", sequence), "sequence![]");
+
+        let sequence = Sequence::new().and("hello").and("world");
+        assert_eq!(format!("{:?}", sequence), "sequence![\"hello\", \"world\"]");
+
+        let sequence = crate::sequence!["hello", "world"];
+        assert_eq!(format!("{:?}", sequence), "sequence![\"hello\", \"world\"]");
     }
 }

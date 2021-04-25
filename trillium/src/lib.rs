@@ -1,3 +1,10 @@
+#![forbid(unsafe_code)]
+#![deny(
+    missing_debug_implementations,
+    nonstandard_style,
+    missing_copy_implementations,
+    unused_qualifications
+)]
 //! Welcome to trillium!
 //!
 //! This crate is the primary and minimum dependency for building a
