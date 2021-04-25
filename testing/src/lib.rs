@@ -16,11 +16,7 @@ where
     T: TryInto<Method>,
     <T as TryInto<Method>>::Error: std::fmt::Debug,
 {
-    trillium::Conn::new(trillium_http::Conn::new_synthetic(
-        method.try_into().unwrap(),
-        path.into(),
-        body,
-    ))
+    trillium_http::Conn::new_synthetic(method.try_into().unwrap(), path.into(), body).into()
 }
 
 pub fn run(handler: &impl trillium::Handler, conn: trillium::Conn) -> trillium::Conn {
@@ -72,9 +68,8 @@ impl TestConn {
     }
 
     pub fn run(self, handler: &impl trillium::Handler) -> Self {
-        let conn = trillium::Conn::new(self.0);
         let conn = futures_lite::future::block_on(async move {
-            let conn = handler.run(conn).await;
+            let conn = handler.run(self.0.into()).await;
             handler.before_send(conn).await
         });
         Self(conn.into_inner())

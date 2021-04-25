@@ -4,7 +4,7 @@ use std::{
     io::ErrorKind,
     net::{SocketAddr, TcpListener, ToSocketAddrs},
 };
-use trillium::{BoxedTransport, Conn, Handler};
+use trillium::{BoxedTransport, Handler};
 use trillium_http::{Conn as HttpConn, Error, Stopper};
 use trillium_tls_common::Acceptor;
 /// # Server-implementer interfaces to Config
@@ -151,8 +151,7 @@ where
         };
 
         let result = HttpConn::map(stream, self.stopper.clone(), |conn| async {
-            let conn = Conn::new(conn);
-            let conn = handler.run(conn).await;
+            let conn = handler.run(conn.into()).await;
             let conn = handler.before_send(conn).await;
 
             conn.into_inner()

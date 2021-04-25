@@ -25,10 +25,10 @@ impl Debug for Conn {
     }
 }
 
-impl Conn {
-    pub fn new(conn: trillium_http::Conn<impl Transport + 'static>) -> Self {
+impl<T: Transport + 'static> From<trillium_http::Conn<T>> for Conn {
+    fn from(inner: trillium_http::Conn<T>) -> Self {
         Self {
-            inner: conn.map_transport(BoxedTransport::new),
+            inner: inner.map_transport(BoxedTransport::new),
             halted: false,
             before_send: None,
             path: vec![],

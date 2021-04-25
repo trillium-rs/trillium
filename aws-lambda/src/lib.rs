@@ -2,7 +2,7 @@ use lamedh_runtime::{Context, Handler as AwsHandler};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use trillium::{BoxedTransport, Conn, Handler};
+use trillium::{Conn, Handler};
 use trillium_http::{Conn as HttpConn, Synthetic};
 
 mod context;
@@ -27,8 +27,7 @@ impl<G: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<G>
 }
 
 async fn run_handler(conn: HttpConn<Synthetic>, handler: Arc<impl Handler>) -> Conn {
-    let conn = Conn::new(conn.map_transport(BoxedTransport::new));
-    let conn = handler.run(conn).await;
+    let conn = handler.run(conn.into()).await;
     handler.before_send(conn).await
 }
 
