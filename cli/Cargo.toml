@@ -7,11 +7,6 @@ description = "the trillium cli"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 
-[[bin]]
-name = "trillium-cli"
-path = "src/main.rs"
-doc = false
-
 [dependencies]
 env_logger = "0.8.3"
 log = "0.4.14"
