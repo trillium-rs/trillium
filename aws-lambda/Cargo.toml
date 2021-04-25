@@ -17,7 +17,7 @@ base64 = "0.13.0"
 lamedh_runtime = "0.3.0"
 
 [dependencies.http-types]
-git = "https://github.com/jbr/http-types"
-branch = "trillium"
+version = "0.0.1"
 default-features = false
 features = ["serde"]
+package = "trillium-http-types"

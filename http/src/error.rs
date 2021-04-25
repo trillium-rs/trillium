@@ -1,7 +1,7 @@
 use std::num::TryFromIntError;
 use std::str::Utf8Error;
 
-use http_types::url;
+use crate::http_types::url;
 use thiserror::Error;
 
 /// Concrete errors that occur within trillium's http implementation

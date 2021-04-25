@@ -2,8 +2,8 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use crate::http_types::Body;
 use futures_lite::io::AsyncRead;
-use http_types::Body;
 use pin_project::pin_project;
 
 use crate::ChunkedEncoder;

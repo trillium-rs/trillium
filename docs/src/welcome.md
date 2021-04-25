@@ -1,7 +1,7 @@
 # Welcome
 
-Hi! Welcome to the documentation for trillium, an async rust web server
-toolkit. This section needs a little more content
+Hi! Welcome to the documentation for trillium, a modular toolkit for
+building async rust web applications.
 
 ## Who is this document for?
 

@@ -17,3 +17,4 @@ full-duplex-async-copy = "0.1.0"
 [dev-dependencies]
 trillium-smol-server = { path = "../smol-server" }
 env_logger = "0.8.3"
+trillium-logger = { path = "../logger" }

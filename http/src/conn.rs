@@ -1,14 +1,14 @@
-use encoding_rs::Encoding;
-use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE, HOST, UPGRADE};
-use http_types::transfer::Encoding::Chunked;
-use http_types::{
+use crate::http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE, HOST, UPGRADE};
+use crate::http_types::transfer::Encoding::Chunked;
+use crate::http_types::{
     content::ContentLength,
     headers::{Header, Headers, DATE, EXPECT, TRANSFER_ENCODING},
     other::Date,
     transfer::TransferEncoding,
     Body, Extensions, Method, StatusCode, Url, Version,
 };
+use encoding_rs::Encoding;
+use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use httparse::{Request, EMPTY_HEADER};
 use memmem::{Searcher, TwoWaySearcher};
 use std::future::Future;
