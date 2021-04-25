@@ -1,9 +1,12 @@
 use crate::{Conn, Stopper};
 use futures_lite::{AsyncRead, AsyncWrite};
 use http_types::{headers::Headers, Extensions, Method};
-use std::fmt::{self, Debug, Formatter};
 use std::pin::Pin;
-use std::task::Poll;
+use std::{
+    fmt::{self, Debug, Formatter},
+    io,
+    task::{Context, Poll},
+};
 
 pub struct Upgrade<RW> {
     pub request_headers: Headers,
@@ -86,10 +89,10 @@ pub fn utf8(d: &[u8]) -> &str {
 
 impl<RW: AsyncRead + Unpin> AsyncRead for Upgrade<RW> {
     fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
         buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+    ) -> Poll<io::Result<usize>> {
         match self.buffer.take() {
             Some(mut buffer) if !buffer.is_empty() => {
                 let len = buffer.len();
@@ -123,23 +126,17 @@ impl<RW: AsyncRead + Unpin> AsyncRead for Upgrade<RW> {
 impl<RW: AsyncWrite + Unpin> AsyncWrite for Upgrade<RW> {
     fn poll_write(
         mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+    ) -> Poll<io::Result<usize>> {
         Pin::new(&mut self.rw).poll_write(cx, buf)
     }
 
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.rw).poll_flush(cx)
     }
 
-    fn poll_close(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.rw).poll_close(cx)
     }
 }

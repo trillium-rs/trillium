@@ -2,7 +2,10 @@ use futures_lite::io::{self, AsyncRead, AsyncWrite};
 use http_types::headers::{Headers, CONTENT_LENGTH};
 use http_types::{Extensions, Method, Version};
 
-use std::task::Poll;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use crate::Stopper;
 use crate::{Conn, ReceivedBodyState};
@@ -10,32 +13,26 @@ use crate::{Conn, ReceivedBodyState};
 pub struct Synthetic(Option<Vec<u8>>, usize);
 impl AsyncWrite for Synthetic {
     fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
         _buf: &[u8],
-    ) -> std::task::Poll<io::Result<usize>> {
+    ) -> Poll<io::Result<usize>> {
         Poll::Ready(Ok(0))
     }
 
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 }
 
 impl AsyncRead for Synthetic {
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         match &self.0 {

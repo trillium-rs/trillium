@@ -1,14 +1,22 @@
+#![forbid(unsafe_code)]
+#![deny(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
 use handlebars::Handlebars as ActualHandlebars;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+    sync::{Arc, RwLock},
+};
 use trillium::{async_trait, Conn, Handler};
-// use std::ops::{Deref, DerefMut};
-// use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::RwLock;
 
 #[derive(Default, Clone)]
 pub struct Handlebars(Arc<RwLock<ActualHandlebars<'static>>>);

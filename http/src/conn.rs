@@ -1,14 +1,14 @@
-use crate::http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE, HOST, UPGRADE};
-use crate::http_types::transfer::Encoding::Chunked;
-use crate::http_types::{
+use encoding_rs::Encoding;
+use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE, HOST, UPGRADE};
+use http_types::transfer::Encoding::Chunked;
+use http_types::{
     content::ContentLength,
     headers::{Header, Headers, DATE, EXPECT, TRANSFER_ENCODING},
     other::Date,
     transfer::TransferEncoding,
     Body, Extensions, Method, StatusCode, Url, Version,
 };
-use encoding_rs::Encoding;
-use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use httparse::{Request, EMPTY_HEADER};
 use memmem::{Searcher, TwoWaySearcher};
 use std::future::Future;
@@ -84,7 +84,7 @@ where
         &mut self.response_headers
     }
 
-    pub fn set_status(&mut self, status: impl TryInto<http_types::StatusCode>) {
+    pub fn set_status(&mut self, status: impl TryInto<StatusCode>) {
         self.status = status.try_into().ok();
     }
 
@@ -176,7 +176,7 @@ where
         self.stopper.clone()
     }
 
-    pub async fn map<F, Fut>(rw: RW, stopper: Stopper, f: F) -> crate::Result<Option<Upgrade<RW>>>
+    pub async fn map<F, Fut>(rw: RW, stopper: Stopper, f: F) -> Result<Option<Upgrade<RW>>>
     where
         F: Fn(Conn<RW>) -> Fut,
         Fut: Future<Output = Conn<RW>> + Send,
@@ -378,7 +378,7 @@ where
         }
     }
 
-    pub fn request_content_length(&self) -> crate::Result<Option<u64>> {
+    pub fn request_content_length(&self) -> Result<Option<u64>> {
         if self
             .request_headers
             .contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked")

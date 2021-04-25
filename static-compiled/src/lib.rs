@@ -1,3 +1,12 @@
+#![forbid(unsafe_code)]
+#![deny(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
 pub use include_dir::include_dir;
 use include_dir::{Dir, DirEntry, File};
 use trillium::http_types::content::ContentType;

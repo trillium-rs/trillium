@@ -1,3 +1,12 @@
+#![forbid(unsafe_code)]
+#![deny(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
 use async_global_executor::{block_on, spawn};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;

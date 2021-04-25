@@ -7,6 +7,7 @@
     nonstandard_style,
     unused_qualifications
 )]
+
 //! Welcome to trillium!
 //!
 //! This crate is the primary and minimum dependency for building a

@@ -1,10 +1,21 @@
+#![forbid(unsafe_code)]
+#![deny(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
 use futures_lite::io::BufReader;
 pub use lol_async::html;
 use lol_async::{html::Settings, lol};
 use std::str::FromStr;
 use trillium::async_trait;
-use trillium::http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE};
-use trillium::http_types::mime::Mime;
+use trillium::http_types::{
+    headers::{CONTENT_LENGTH, CONTENT_TYPE},
+    mime::Mime,
+};
 use trillium::{http_types::Body, Conn, Handler};
 
 pub struct HtmlRewriter {

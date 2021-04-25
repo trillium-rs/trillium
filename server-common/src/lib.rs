@@ -1,3 +1,13 @@
+#![forbid(unsafe_code)]
+#![deny(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
+
 pub use trillium_http::Stopper;
 pub use trillium_tls_common::Acceptor;
 

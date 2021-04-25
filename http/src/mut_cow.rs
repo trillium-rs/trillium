@@ -1,8 +1,17 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt::{self, Debug, Formatter},
+    ops::{Deref, DerefMut},
+};
 
 pub enum MutCow<'a, T> {
     Owned(T),
     Borrowed(&'a mut T),
+}
+
+impl<'a, T: Debug> Debug for MutCow<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Debug::fmt(&**self, f)
+    }
 }
 
 impl<'a, T> MutCow<'a, T> {

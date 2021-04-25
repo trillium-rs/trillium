@@ -265,16 +265,16 @@ where
     ) -> Poll<io::Result<usize>> {
         trace!("polling received body with state {:?}", &*self.state);
         let (new_body_state, bytes, unused) = match *self.state {
-            ReceivedBodyState::Start => (
+            Start => (
                 match self.content_length {
-                    Some(0) => ReceivedBodyState::End,
+                    Some(0) => End,
 
-                    Some(total_length) => ReceivedBodyState::FixedLength {
+                    Some(total_length) => FixedLength {
                         current_index: 0,
                         total_length,
                     },
 
-                    None => ReceivedBodyState::Chunked {
+                    None => Chunked {
                         remaining: 0,
                         total: 0,
                     },
@@ -331,7 +331,7 @@ where
             Ready(Ok(bytes))
         } else if bytes == 0 {
             cx.waker().wake_by_ref();
-            Poll::Pending
+            Pending
         } else {
             Ready(Ok(bytes))
         }

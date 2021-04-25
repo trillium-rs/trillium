@@ -8,6 +8,8 @@ use trillium_http::ReceivedBody;
 
 use crate::{BoxedTransport, Handler, Transport};
 
+/// A Conn is the most important struct in trillium code. It
+/// represents both the request and response of a http connection
 pub struct Conn {
     inner: trillium_http::Conn<BoxedTransport>,
     halted: bool,
@@ -34,15 +36,22 @@ impl<T: Transport + 'static> From<trillium_http::Conn<T>> for Conn {
             path: vec![],
         }
     }
+}
 
+impl Conn {
+    /// attempts to retrieve a &T from the state typemap
+    ///
     pub fn state<T: 'static>(&self) -> Option<&T> {
         self.inner.state().get()
     }
 
+    /// attempts to retrieve a &mut T from the state typemap
     pub fn state_mut<T: 'static>(&mut self) -> Option<&mut T> {
         self.inner.state_mut().get_mut()
     }
 
+    /// either returns the current &mut T from the state typemap, or
+    /// inserts a new one with the provided default function
     pub fn state_or_insert_with<T, F>(&mut self, default: F) -> &mut T
     where
         T: Send + Sync + 'static,

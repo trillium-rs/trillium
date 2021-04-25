@@ -1,3 +1,12 @@
+#![forbid(unsafe_code)]
+#![deny(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
 use lamedh_runtime::{Context, Handler as AwsHandler};
 use std::future::Future;
 use std::pin::Pin;
