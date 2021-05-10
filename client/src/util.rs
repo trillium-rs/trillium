@@ -1,7 +1,7 @@
 use encoding_rs::Encoding;
-use http_types::headers::{Headers, CONTENT_TYPE};
-use http_types::mime::Mime;
 use std::str::FromStr;
+use trillium_http::http_types::headers::{Headers, CONTENT_TYPE};
+use trillium_http::http_types::mime::Mime;
 
 /// a utility function for extracting a character encoding from a set
 /// of [`Headers`][http_types::headers::Headers]

@@ -1,7 +1,8 @@
-use std::pin::Pin;
-
 use futures_lite::{io::AsyncRead, ready};
-use std::task::{Context, Poll};
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 /// An encoder for chunked encoding.
 #[derive(Debug)]

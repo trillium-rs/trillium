@@ -1,13 +1,13 @@
 use encoding_rs::Encoding;
 use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE, HOST, UPGRADE};
+use http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE, UPGRADE};
 use http_types::transfer::Encoding::Chunked;
 use http_types::{
     content::ContentLength,
     headers::{Header, Headers, DATE, EXPECT, TRANSFER_ENCODING},
     other::Date,
     transfer::TransferEncoding,
-    Body, Extensions, Method, StatusCode, Url, Version,
+    Body, Extensions, Method, StatusCode, Version,
 };
 use httparse::{Request, EMPTY_HEADER};
 use memmem::{Searcher, TwoWaySearcher};
@@ -18,23 +18,22 @@ use std::{
     fmt::{self, Debug, Formatter},
 };
 
-use crate::util::encoding;
 use crate::{
-    body_encoder::BodyEncoder, Error, ReceivedBody, ReceivedBodyState, Result, Stopper, Upgrade,
+    body_encoder::BodyEncoder, received_body::ReceivedBodyState, util::encoding, ConnectionStatus,
+    Error, ReceivedBody, Result, Stopper, Upgrade,
 };
 
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 8 * 1024;
 const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
 
-#[derive(Debug)]
-pub enum ConnectionStatus<RW> {
-    Close,
-    Conn(Conn<RW>),
-    Upgrade(Upgrade<RW>),
-}
+/** A http connection
 
-pub struct Conn<RW> {
+Unlike in other rust http implementations, this struct represents both
+the request and the response, and holds the transport over which the
+response will be sent.
+*/
+pub struct Conn<Transport> {
     pub(crate) request_headers: Headers,
     pub(crate) response_headers: Headers,
     pub(crate) path: String,
@@ -43,14 +42,14 @@ pub struct Conn<RW> {
     pub(crate) version: Version,
     pub(crate) state: Extensions,
     pub(crate) response_body: Option<Body>,
-    pub(crate) rw: RW,
+    pub(crate) transport: Transport,
     pub(crate) buffer: Option<Vec<u8>>,
     pub(crate) request_body_state: ReceivedBodyState,
     pub(crate) secure: bool,
     pub(crate) stopper: Stopper,
 }
 
-impl<RW> Debug for Conn<RW> {
+impl<Transport> Debug for Conn<Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Conn")
             .field("request_headers", &self.request_headers)
@@ -64,54 +63,152 @@ impl<RW> Debug for Conn<RW> {
     }
 }
 
-impl<RW> Conn<RW>
+impl<Transport> Conn<Transport>
 where
-    RW: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
+    /**
+    read any number of new `Conn`s from the transport and call the
+    provided handler function until either the connection is closed or
+    an upgrade is requested. A return value of Ok(None) indicates a
+    closed connection, while a return value of Ok(Some(upgrade))
+    represents an upgrade.
+
+    See the documentation for [`Conn`] for a full example.
+    */
+
+    pub async fn map<F, Fut>(
+        transport: Transport,
+        stopper: Stopper,
+        handler: F,
+    ) -> Result<Option<Upgrade<Transport>>>
+    where
+        F: Fn(Conn<Transport>) -> Fut,
+        Fut: Future<Output = Conn<Transport>> + Send,
+    {
+        let mut conn = Conn::new(transport, None, stopper).await?;
+
+        loop {
+            conn = match handler(conn).await.send().await? {
+                ConnectionStatus::Upgrade(upgrade) => return Ok(Some(upgrade)),
+                ConnectionStatus::Close => return Ok(None),
+                ConnectionStatus::Conn(next) => next,
+            }
+        }
+    }
+
+    async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
+        self.send_headers().await?;
+
+        if self.method() != &Method::Head {
+            if let Some(body) = self.response_body.take() {
+                io::copy(BodyEncoder::new(body), &mut self.transport).await?;
+            }
+        }
+
+        self.finish().await
+    }
+
+    /// returns a read-only reference to the [state
+    /// typemap](Extensions) for this conn
+    ///
+    /// stability note: this is not unlikely to be removed at some
+    /// point, as this may end up being more of a trillium concern
+    /// than a trillium_http concern
     pub fn state(&self) -> &Extensions {
         &self.state
     }
 
+    /// returns a mutable reference to the [state
+    /// typemap](Extensions) for this conn
+    ///
+    /// stability note: this is not unlikely to be removed at some
+    /// point, as this may end up being more of a trillium concern
+    /// than a trillium_http concern
     pub fn state_mut(&mut self) -> &mut Extensions {
         &mut self.state
     }
 
+    /// returns an immutable reference to the request headers. it is
+    /// not currently possible to mutate request headers for a conn
+    /// that has been read from a transport. For synthetic conns, use
+    /// [Conn<Synthetic>::request_headers_mut](Conn<trillium_http::Synthetic>::request_headers_mut)
     pub fn request_headers(&self) -> &Headers {
         &self.request_headers
     }
 
+    /// returns a mutable reference to the response [headers](Headers)
     pub fn response_headers(&mut self) -> &mut Headers {
         &mut self.response_headers
     }
 
+    /** sets the http status code from any `TryInto<StatusCode>`.
+
+    Note: This currently will set the s
+    ```
+    # use trillium_http::{Conn, http_types::{Method, StatusCode}};
+    # let mut conn = Conn::new_synthetic(Method::Get, "/", None);
+    assert!(conn.status().is_none());
+
+    conn.set_status(200); // a status can be set as a u16
+    assert_eq!(conn.status().unwrap(), &StatusCode::Ok);
+
+    conn.set_status(StatusCode::ImATeapot); // or as a StatusCode
+    assert_eq!(conn.status().unwrap(), &StatusCode::ImATeapot);
+    ```
+    */
     pub fn set_status(&mut self, status: impl TryInto<StatusCode>) {
-        self.status = status.try_into().ok();
+        self.status = Some(status.try_into().unwrap_or_else(|_| {
+            log::error!("attempted to set an invalid status code");
+            StatusCode::InternalServerError
+        }));
     }
 
+    /// retrieves the current response status code for this conn, if
+    /// it has been set. See [Conn::set_status] for example usage.
+    pub fn status(&self) -> Option<&StatusCode> {
+        self.status.as_ref()
+    }
+
+    /**
+    retrieves the path part of the request url, up to and excluding any query component
+    ```
+    # use trillium_http::{Conn, http_types::Method};
+    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", None);
+    assert_eq!(conn.path(), "/some/path");
+    ```
+    */
     pub fn path(&self) -> &str {
         self.path.split('?').next().unwrap()
     }
 
-    pub fn host(&self) -> Option<String> {
-        self.request_headers.get(HOST).map(|v| v.to_string())
-    }
+    // pub fn url(&self) -> Result<Url> {
+    //     let path = self.path();
+    //     let host = self.host().unwrap_or_else(|| String::from("_"));
+    //     let method = self.method();
+    //     if path.starts_with("http://") || path.starts_with("https://") {
+    //         Ok(Url::parse(path)?)
+    //     } else if path.starts_with('/') {
+    //         Ok(Url::parse(&format!("http://{}{}", host, path))?)
+    //     } else if method == &Method::Connect {
+    //         Ok(Url::parse(&format!("http://{}/", path))?)
+    //     } else {
+    //         Err(Error::UnexpectedUriFormat)
+    //     }
+    // }
 
-    pub fn url(&self) -> Result<Url> {
-        let path = self.path();
-        let host = self.host().unwrap_or_else(|| String::from("_"));
-        let method = self.method();
-        if path.starts_with("http://") || path.starts_with("https://") {
-            Ok(Url::parse(path)?)
-        } else if path.starts_with('/') {
-            Ok(Url::parse(&format!("http://{}{}", host, path))?)
-        } else if method == &Method::Connect {
-            Ok(Url::parse(&format!("http://{}/", path))?)
-        } else {
-            Err(Error::UnexpectedUriFormat)
-        }
-    }
+    /**
+    Sets the response body to anything that is [`impl Into<Body>`][Body].
 
-    pub fn set_body(&mut self, body: impl Into<Body>) {
+    ```
+    # use trillium_http::{Conn, http_types::{Method, Body}};
+    # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", None);
+    conn.set_response_body("hello");
+    conn.set_response_body(String::from("hello"));
+    conn.set_response_body(vec![99, 97, 116]);
+    ```
+    */
+    pub fn set_response_body(&mut self, body: impl Into<Body>) {
         let body = body.into();
 
         if self.response_headers.get(CONTENT_TYPE).is_none() {
@@ -122,20 +219,39 @@ where
         self.response_body = Some(body);
     }
 
+    /// returns a reference to the current response body, if it has been set
+    pub fn response_body(&self) -> Option<&Body> {
+        self.response_body.as_ref()
+    }
+
+    /**
+    remove the response body from this conn and return it
+
+    ```
+    # use trillium_http::{Conn, http_types::{Method, Body}};
+    # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", None);
+    assert!(conn.response_body().is_none());
+    conn.set_response_body("hello");
+    assert!(conn.response_body().is_some());
+    let body = conn.take_response_body();
+    assert!(body.is_some());
+    assert!(conn.response_body().is_none());
+    ```
+    */
     pub fn take_response_body(&mut self) -> Option<Body> {
         self.response_body.take()
     }
 
+    /**
+    returns the http method for this conn's request.
+    ```
+    # use trillium_http::{Conn, http_types::{Method, Body}};
+    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", None);
+    assert_eq!(conn.method(), &Method::Get);
+    ```
+     */
     pub fn method(&self) -> &Method {
         &self.method
-    }
-
-    pub fn status(&self) -> Option<&StatusCode> {
-        self.status.as_ref()
-    }
-
-    pub fn response_body(&self) -> Option<&Body> {
-        self.response_body.as_ref()
     }
 
     fn needs_100_continue(&self) -> bool {
@@ -145,26 +261,64 @@ where
                 .contains_ignore_ascii_case(EXPECT, "100-continue")
     }
 
-    fn build_request_body(&mut self) -> ReceivedBody<'_, RW> {
+    fn build_request_body(&mut self) -> ReceivedBody<'_, Transport> {
         ReceivedBody::new(
             self.request_content_length().ok().flatten(),
             &mut self.buffer,
-            &mut self.rw,
+            &mut self.transport,
             &mut self.request_body_state,
             None,
             encoding(&self.request_headers),
         )
     }
 
+    /**
+    returns the [encoding_rs::Encoding] for this request, as
+    determined from the mime-type charset, if available
+
+    ```
+    # use trillium_http::{Conn, http_types::{Method, Body}};
+    let mut conn = Conn::new_synthetic(Method::Get, "/", None);
+    assert_eq!(conn.request_encoding(), encoding_rs::WINDOWS_1252); // the default
+    conn.request_headers_mut().insert("content-type", "text/plain;charset=utf-16");
+    assert_eq!(conn.request_encoding(), encoding_rs::UTF_16LE);
+    ```
+    */
     pub fn request_encoding(&self) -> &'static Encoding {
         encoding(&self.request_headers)
     }
 
+    /**
+    returns the [encoding_rs::Encoding] for this response, as
+    determined from the mime-type charset, if available
+
+    ```
+    # use trillium_http::{Conn, http_types::{Method, Body}};
+    let mut conn = Conn::new_synthetic(Method::Get, "/", None);
+    assert_eq!(conn.response_encoding(), encoding_rs::WINDOWS_1252); // the default
+    conn.response_headers().insert("content-type", "text/plain;charset=utf-16");
+    assert_eq!(conn.response_encoding(), encoding_rs::UTF_16LE);
+    ```
+    */
     pub fn response_encoding(&self) -> &'static Encoding {
         encoding(&self.response_headers)
     }
 
-    pub async fn request_body(&mut self) -> ReceivedBody<'_, RW> {
+    /**
+    returns a [ReceivedBody] that references this conn. the conn
+    retains all data and holds the singular transport, but the
+    ReceivedBody provides an interface to read body content
+    ```
+    async_io::block_on(async {
+    # use trillium_http::{Conn, http_types::{Method, Body}};
+    let mut conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+    let request_body = conn.request_body().await;
+    assert_eq!(request_body.content_length(), Some(5));
+    assert_eq!(request_body.read_string().await.unwrap(), "hello");
+    });
+    ```
+    */
+    pub async fn request_body(&mut self) -> ReceivedBody<'_, Transport> {
         if self.needs_100_continue() {
             self.send_100_continue().await.ok();
         }
@@ -172,27 +326,14 @@ where
         self.build_request_body()
     }
 
+    /// returns a clone of the [`stopper::Stopper`] for this Conn. use
+    /// this to gracefully stop long-running futures and streams
+    /// inside of handler functions
     pub fn stopper(&self) -> Stopper {
         self.stopper.clone()
     }
 
-    pub async fn map<F, Fut>(rw: RW, stopper: Stopper, f: F) -> Result<Option<Upgrade<RW>>>
-    where
-        F: Fn(Conn<RW>) -> Fut,
-        Fut: Future<Output = Conn<RW>> + Send,
-    {
-        let mut conn = Conn::new(rw, None, stopper).await?;
-
-        loop {
-            conn = match f(conn).await.encode().await? {
-                ConnectionStatus::Upgrade(upgrade) => return Ok(Some(upgrade)),
-                ConnectionStatus::Close => return Ok(None),
-                ConnectionStatus::Conn(next) => next,
-            }
-        }
-    }
-
-    pub fn validate_headers(request_headers: &Headers) -> Result<()> {
+    fn validate_headers(request_headers: &Headers) -> Result<()> {
         let content_length = ContentLength::from_headers(request_headers)
             .map_err(|_| Error::MalformedHeader("content-length"))?;
 
@@ -206,8 +347,16 @@ where
         }
     }
 
-    pub async fn new(rw: RW, bytes: Option<Vec<u8>>, stopper: Stopper) -> Result<Self> {
-        let (rw, buf, extra_bytes) = Self::head(rw, bytes, &stopper).await?;
+    /// Create a new Conn from the provided transport, as well as any
+    /// bytes that have already been read from the transport, and a
+    /// Stopper instance that will be used to signal graceful
+    /// shutdown.
+    pub async fn new(
+        transport: Transport,
+        bytes: Option<Vec<u8>>,
+        stopper: Stopper,
+    ) -> Result<Self> {
+        let (transport, buf, extra_bytes) = Self::head(transport, bytes, &stopper).await?;
         let buffer = if extra_bytes.is_empty() {
             None
         } else {
@@ -217,7 +366,7 @@ where
         let mut httparse_req = Request::new(&mut headers);
         let status = httparse_req.parse(&buf[..])?;
         if status.is_partial() {
-            log::debug!("partial head content: {}", utf8(&buf[..]));
+            log::debug!("partial head content: {}", String::from_utf8_lossy(&buf));
             return Err(Error::PartialHead);
         }
 
@@ -247,7 +396,7 @@ where
             .to_owned();
 
         Ok(Self {
-            rw,
+            transport,
             request_headers,
             method,
             version,
@@ -263,20 +412,29 @@ where
         })
     }
 
+    /// predicate function to indicate whether the connection is
+    /// secure. note that this does not necessarily indicate that the
+    /// transport itself is secure, as it may indicate that
+    /// trillium_http is behind a trusted reverse proxy that has
+    /// terminated tls and provided appropriate headers to indicate
+    /// this.
     pub fn is_secure(&self) -> bool {
         self.secure
     }
 
     async fn send_100_continue(&mut self) -> Result<()> {
         log::trace!("sending 100-continue");
-        Ok(self.rw.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").await?)
+        Ok(self
+            .transport
+            .write_all(b"HTTP/1.1 100 Continue\r\n\r\n")
+            .await?)
     }
 
     async fn head(
-        mut rw: RW,
+        mut transport: Transport,
         bytes: Option<Vec<u8>>,
         stopper: &Stopper,
-    ) -> Result<(RW, Vec<u8>, Vec<u8>)> {
+    ) -> Result<(Transport, Vec<u8>, Vec<u8>)> {
         let mut buf = bytes.unwrap_or_default();
         let mut len = 0;
 
@@ -285,11 +443,11 @@ where
             buf.extend(iter::repeat(0).take(100));
             let bytes = if len == 0 {
                 stopper
-                    .stop_future(rw.read(&mut buf[len..]))
+                    .stop_future(transport.read(&mut buf[len..]))
                     .await
                     .ok_or(Error::Closed)??
             } else {
-                rw.read(&mut buf[len..]).await?
+                transport.read(&mut buf[len..]).await?
             };
 
             let search_start = len.max(3) - 3;
@@ -299,13 +457,16 @@ where
                 buf.truncate(len + bytes);
                 log::trace!(
                     "in head, finished headers:\n {}",
-                    utf8(&buf[..search_start + index])
+                    String::from_utf8_lossy(&buf[..search_start + index])
                 );
                 let body = buf.split_off(search_start + index + 4);
                 if !body.is_empty() {
-                    log::trace!("read the front of the body: {}", utf8(&body));
+                    log::trace!(
+                        "read the front of the body: {}",
+                        String::from_utf8_lossy(&body)
+                    );
                 }
-                return Ok((rw, buf, body));
+                return Ok((transport, buf, body));
             }
 
             len += bytes;
@@ -328,15 +489,15 @@ where
         }
     }
 
-    pub fn inner_mut(&mut self) -> &mut RW {
-        &mut self.rw
-    }
+    // fn inner_mut(&mut self) -> &mut Transport {
+    //     &mut self.transport
+    // }
 
-    pub async fn next(mut self) -> Result<Self> {
+    async fn next(mut self) -> Result<Self> {
         if !self.needs_100_continue() || self.request_body_state != ReceivedBodyState::Start {
             self.build_request_body().drain().await?;
         }
-        Conn::new(self.rw, self.buffer, self.stopper).await
+        Conn::new(self.transport, self.buffer, self.stopper).await
     }
 
     fn should_close(&self) -> bool {
@@ -361,7 +522,7 @@ where
         has_upgrade_header && connection_upgrade && response_is_switching_protocols
     }
 
-    pub async fn finish(self) -> Result<ConnectionStatus<RW>> {
+    async fn finish(self) -> Result<ConnectionStatus<Transport>> {
         if self.should_close() {
             Ok(ConnectionStatus::Close)
         } else if self.should_upgrade() {
@@ -378,7 +539,7 @@ where
         }
     }
 
-    pub fn request_content_length(&self) -> Result<Option<u64>> {
+    fn request_content_length(&self) -> Result<Option<u64>> {
         if self
             .request_headers
             .contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked")
@@ -394,18 +555,6 @@ where
         } else {
             Err(Error::HeaderMissing("content-length or transfer-encoding"))
         }
-    }
-
-    pub async fn encode(mut self) -> Result<ConnectionStatus<RW>> {
-        self.send_headers().await?;
-
-        if self.method() != &Method::Head {
-            if let Some(body) = self.response_body.take() {
-                io::copy(BodyEncoder::new(body), &mut self.rw).await?;
-            }
-        }
-
-        self.finish().await
     }
 
     fn body_len(&self) -> Option<u64> {
@@ -453,7 +602,7 @@ where
             status.canonical_reason()
         );
         log::trace!("sending: {}", &first_line);
-        self.rw.write_all(first_line.as_bytes()).await?;
+        self.transport.write_all(first_line.as_bytes()).await?;
 
         self.finalize_headers();
         let mut headers = self.response_headers.iter().collect::<Vec<_>>();
@@ -463,20 +612,24 @@ where
             for value in values.iter() {
                 log::trace!("sending: {}: {}", &header, &value);
 
-                self.rw
+                self.transport
                     .write_all(format!("{}: {}\r\n", header, value).as_bytes())
                     .await?;
             }
         }
 
-        self.rw.write_all(b"\r\n").await?;
+        self.transport.write_all(b"\r\n").await?;
 
         Ok(())
     }
 
+    /// applies a mapping function from one transport to another. This
+    /// is particularly useful for boxing the transport. unless you're
+    /// sure this is what you're looking for, you probably don't want
+    /// to be using this
     pub fn map_transport<T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static>(
         self,
-        f: impl Fn(RW) -> T,
+        f: impl Fn(Transport) -> T,
     ) -> Conn<T> {
         let Conn {
             request_headers,
@@ -485,7 +638,7 @@ where
             status,
             version,
             state,
-            rw,
+            transport,
             buffer,
             request_body_state,
             secure,
@@ -503,15 +656,11 @@ where
             status,
             version,
             state,
-            rw: f(rw),
+            transport: f(transport),
             buffer,
             request_body_state,
             secure,
             stopper,
         }
     }
-}
-
-pub fn utf8(d: &[u8]) -> &str {
-    std::str::from_utf8(d).unwrap_or("not utf8")
 }

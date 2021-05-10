@@ -1,30 +1,34 @@
-use futures_lite::io::{self, AsyncRead, AsyncWrite};
-use http_types::headers::{Headers, CONTENT_LENGTH};
-use http_types::{Extensions, Method, Version};
-
+use futures_lite::io::{AsyncRead, AsyncWrite, Result};
+use http_types::{
+    headers::{Headers, CONTENT_LENGTH},
+    Extensions, Method, Version,
+};
 use std::{
     pin::Pin,
     task::{Context, Poll},
 };
 
-use crate::Stopper;
-use crate::{Conn, ReceivedBodyState};
+use crate::{received_body::ReceivedBodyState, Conn, Stopper};
 
+/**
+Synthetic represents a simple transport that contains fixed
+content. This is exclusively useful for testing or for server
+implementations that are not read from an io connection, such as a
+faas function, in which the entire body may be available immediately
+on invocation.
+*/
+#[derive(Debug)]
 pub struct Synthetic(Option<Vec<u8>>, usize);
 impl AsyncWrite for Synthetic {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        _buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
+    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, _buf: &[u8]) -> Poll<Result<usize>> {
         Poll::Ready(Ok(0))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<()>> {
         Poll::Ready(Ok(()))
     }
 }
@@ -34,7 +38,7 @@ impl AsyncRead for Synthetic {
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
         buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<Result<usize>> {
         match &self.0 {
             Some(bytes) => {
                 let bytes_left = bytes.len() - self.1;
@@ -48,21 +52,27 @@ impl AsyncRead for Synthetic {
 }
 
 impl Conn<Synthetic> {
-    pub fn new_synthetic(method: Method, path: String, body: Option<Vec<u8>>) -> Self {
+    /**
+    Construct a new synthetic conn with provided method, path, and body.
+    ```rust
+    # use trillium_http::{http_types::Method, Conn};
+    let conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+    assert_eq!(conn.method(), &Method::Get);
+    assert_eq!(conn.path(), "/");
+    ```
+    */
+    pub fn new_synthetic(method: Method, path: impl Into<String>, body: Option<&[u8]>) -> Self {
         let mut request_headers = Headers::new();
         request_headers.insert(
             CONTENT_LENGTH,
-            body.as_ref()
-                .map(|b| b.len())
-                .unwrap_or_default()
-                .to_string(),
+            body.map(|b| b.len()).unwrap_or_default().to_string(),
         );
 
         Self {
-            rw: Synthetic(body, 0),
+            transport: Synthetic(body.map(|body| body.to_owned()), 0),
             request_headers,
             response_headers: Headers::new(),
-            path,
+            path: path.into(),
             method,
             status: None,
             version: Version::Http1_1,
@@ -75,6 +85,19 @@ impl Conn<Synthetic> {
         }
     }
 
+    /**
+    A Conn<Synthetic> provides the ability to mutate request headers
+    with `request_headers_mut`. This is only provided on synthetic
+    requests for now, since it doesn't generally make sense to mutate
+    headers for a request that is read from an io transport.
+
+    ```rust
+    # use trillium_http::{http_types::Method, Conn};
+    let mut conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+    conn.request_headers_mut().insert("content-type", "application/json");
+    assert_eq!(conn.request_headers()["content-type"], "application/json");
+    ```
+    */
     pub fn request_headers_mut(&mut self) -> &mut Headers {
         &mut self.request_headers
     }

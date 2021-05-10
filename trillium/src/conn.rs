@@ -104,15 +104,6 @@ impl Conn {
         self
     }
 
-    pub fn append_header(
-        mut self,
-        name: impl Into<HeaderName>,
-        values: impl ToHeaderValues,
-    ) -> Self {
-        self.headers_mut().append(name, values);
-        self
-    }
-
     pub fn set_state<T: Send + Sync + 'static>(&mut self, val: T) -> Option<T> {
         self.inner.state_mut().insert(val)
     }
@@ -131,9 +122,9 @@ impl Conn {
         self
     }
 
-    pub fn url(&self) -> Option<Url> {
-        self.inner.url().ok()
-    }
+    // pub fn url(&self) -> Option<Url> {
+    //     self.inner.url().ok()
+    // }
 
     pub fn path(&self) -> &str {
         self.path
@@ -164,7 +155,7 @@ impl Conn {
     }
 
     pub fn body(mut self, body: impl Into<Body>) -> Self {
-        self.inner.set_body(body);
+        self.inner.set_response_body(body);
         self
     }
 
@@ -172,11 +163,14 @@ impl Conn {
         self.status(200).body(body).halt()
     }
 
-    pub fn secure(&self) -> bool {
-        match self.url() {
-            Some(url) => url.scheme() == "https",
-            None => false,
-        }
+    /// predicate function to indicate whether the connection is
+    /// secure. note that this does not necessarily indicate that the
+    /// transport itself is secure, as it may indicate that
+    /// trillium_http is behind a trusted reverse proxy that has
+    /// terminated tls and provided appropriate headers to indicate
+    /// this.
+    pub fn is_secure(&self) -> bool {
+        self.inner.is_secure()
     }
 
     pub fn inner(&self) -> &trillium_http::Conn<BoxedTransport> {

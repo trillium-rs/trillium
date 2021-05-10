@@ -1,3 +1,4 @@
+use crate::util::encoding;
 pub use async_net::TcpStream;
 use encoding_rs::Encoding;
 use futures_lite::future::poll_once;
@@ -10,7 +11,6 @@ use std::io::Write;
 use trillium::http_types::content::ContentLength;
 use trillium::http_types::headers::{Headers, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
 use trillium::http_types::{Body, Extensions, Method, StatusCode};
-use trillium_http::util::encoding;
 use trillium_http::{BodyEncoder, ReceivedBody, ReceivedBodyState, Upgrade};
 use trillium_http::{Error, Result, Stopper};
 
@@ -82,6 +82,15 @@ impl<'config, Transport: ClientTransport> Conn<'config, Transport> {
     ) -> Conn<'config, Transport> {
         self.set_config(config);
         self
+    }
+}
+
+impl<Transport: ClientTransport> Conn<'static, Transport> {
+    pub async fn execute(mut self) -> Result<Self> {
+        self.finalize_headers();
+        self.connect_and_send_head().await?;
+        self.send_body_and_parse_head().await?;
+        Ok(self)
     }
 }
 
@@ -541,7 +550,7 @@ impl<Transport: ClientTransport> From<Conn<'_, Transport>> for Upgrade<Transport
             path: conn.url.path().to_string(),
             method: conn.method,
             state: Extensions::new(),
-            rw: conn.transport.take().unwrap(),
+            transport: conn.transport.take().unwrap(),
             buffer: conn.buffer.take(),
             stopper: Stopper::new(),
         }

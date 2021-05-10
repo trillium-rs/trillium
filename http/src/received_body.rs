@@ -1,18 +1,19 @@
-use std::convert::TryInto;
-use std::io::ErrorKind;
-use std::iter;
+use crate::{http_types::Body, MutCow};
+use encoding_rs::Encoding;
+use futures_lite::{
+    io::{self, BufReader},
+    ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream,
+};
+use httparse::Status;
 use std::{
+    convert::TryInto,
     fmt::{self, Formatter},
+    io::ErrorKind,
+    iter,
     pin::Pin,
     task::{Context, Poll},
 };
 
-use crate::MutCow;
-use encoding_rs::Encoding;
-use futures_lite::io::{self, BufReader};
-use futures_lite::{ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
-use http_types::Body;
-use httparse::Status;
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, Start};
 
@@ -22,69 +23,102 @@ macro_rules! trace {
     )
 }
 
-pub struct ReceivedBody<'conn, RW> {
+/** This type represents a body that will be read from the underlying
+transport, which it may either borrow from a [`Conn`] or own.
+```rust
+# futures_lite::future::block_on(async {
+# use trillium_http::{http_types::Method, Conn};
+let mut conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+let body = conn.request_body().await;
+assert_eq!(body.read_string().await?, "hello");
+# trillium_http::Result::Ok(()) }).unwrap();
+```
+*/
+
+pub struct ReceivedBody<'conn, Transport> {
     content_length: Option<u64>,
     buffer: MutCow<'conn, Option<Vec<u8>>>,
-    rw: Option<MutCow<'conn, RW>>,
+    transport: Option<MutCow<'conn, Transport>>,
     state: MutCow<'conn, ReceivedBodyState>,
-    on_completion: Option<Box<dyn Fn(RW) + Send + Sync + 'static>>,
+    on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
     encoding: &'static Encoding,
 }
 
-impl<'conn, RW> ReceivedBody<'conn, RW>
+impl<'conn, Transport> ReceivedBody<'conn, Transport>
 where
-    RW: AsyncRead + Unpin + Send + Sync + Clone + 'static,
+    Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
-    pub fn into_owned_by_cloning_transport(mut self) -> ReceivedBody<'static, RW> {
-        ReceivedBody {
-            content_length: self.content_length,
-            buffer: MutCow::Owned(self.buffer.take()),
-            rw: self.rw.map(|rw| MutCow::Owned((*rw).clone())),
-            state: MutCow::Owned(*self.state),
-            on_completion: self.on_completion,
-            encoding: self.encoding,
-        }
-    }
-}
-
-impl<'conn, RW> ReceivedBody<'conn, RW>
-where
-    RW: AsyncRead + Unpin + Send + Sync + 'static,
-{
+    #[allow(missing_docs)]
+    #[doc(hidden)]
     pub fn new(
         content_length: Option<u64>,
         buffer: impl Into<MutCow<'conn, Option<Vec<u8>>>>,
-        rw: impl Into<MutCow<'conn, RW>>,
+        transport: impl Into<MutCow<'conn, Transport>>,
         state: impl Into<MutCow<'conn, ReceivedBodyState>>,
-        on_completion: Option<Box<dyn Fn(RW) + Send + Sync + 'static>>,
+        on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
         encoding: &'static Encoding,
     ) -> Self {
         Self {
             content_length,
             buffer: buffer.into(),
-            rw: Some(rw.into()),
+            transport: Some(transport.into()),
             state: state.into(),
             on_completion,
             encoding,
         }
     }
 
+    /**
+    Returns the content-length of this body, if available. This
+    usually is derived from the content-length header. If the http
+    request or response that this body is attached to uses
+    transfer-encoding chunked, this will be None.
+
+    ```rust
+    # futures_lite::future::block_on(async {
+    # use trillium_http::{http_types::Method, Conn};
+    let mut conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+    let body = conn.request_body().await;
+    assert_eq!(body.content_length(), Some(5));
+    # trillium_http::Result::Ok(()) }).unwrap();
+    ```
+    */
     pub fn content_length(&self) -> Option<u64> {
         self.content_length
     }
 
-    pub async fn read_string(self) -> crate::Result<String> {
-        let encoding = self.encoding;
-        let bytes = self.read_bytes().await?;
+    /**
+    Reads the entire body to string, using the encoding determined by
+    the content-type (mime) charset. If an encoding problem is
+    encountered, the String returned by read_string will contain utf8
+    replacement characters.
 
+    Note that this can only be performed once per Conn, as the
+    underlying data is not cached anywhere. This is the only copy of
+    the body contents.
+     */
+    pub async fn read_string(self) -> crate::Result<String> {
+        let encoding = self.encoding();
+        let bytes = self.read_bytes().await?;
         let (s, _, _) = encoding.decode(&bytes);
         Ok(s.to_string())
     }
 
     fn owns_transport(&self) -> bool {
-        self.rw.as_ref().map(|rw| rw.is_owned()).unwrap_or_default()
+        self.transport
+            .as_ref()
+            .map(|transport| transport.is_owned())
+            .unwrap_or_default()
     }
 
+    /**
+    Similar to [`read_string`], but returns the raw bytes. This is
+    useful for bodies that are not text.
+
+    You can use this in conjunction with `encoding` if you need
+    different handling of malformed character encoding than the lossy
+    conversion provided by `read_string`.
+    */
     pub async fn read_bytes(mut self) -> crate::Result<Vec<u8>> {
         let mut vec = if let Some(len) = self.content_length {
             Vec::with_capacity(len.try_into().unwrap_or_else(|_| usize::max_value()))
@@ -96,27 +130,43 @@ where
         Ok(vec)
     }
 
+    /**
+    returns the character encoding of this body, usually
+    determined from the content type (mime-type) of the associated
+    Conn.
+    */
+    pub fn encoding(&self) -> &'static Encoding {
+        self.encoding
+    }
+
     fn read_raw(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        if let Some(rw) = self.rw.as_mut() {
-            read_raw(&mut *self.buffer, &mut **rw, cx, buf)
+        if let Some(transport) = self.transport.as_mut() {
+            read_raw(&mut *self.buffer, &mut **transport, cx, buf)
         } else {
             Ready(Err(ErrorKind::NotConnected.into()))
         }
     }
 
+    /**
+    Consumes the remainder of this body from the underlying transport
+    by reading it to the end and discarding the contents. This is
+    important for http1.1 keepalive, but most of the time you do not
+    need to directly call this. It returns the number of bytes
+    consumed.
+    */
     pub async fn drain(self) -> io::Result<u64> {
         io::copy(self, io::sink()).await
     }
 }
 
-pub fn read_raw<RW>(
+fn read_raw<Transport>(
     opt_buffer: &mut Option<Vec<u8>>,
-    rw: &mut RW,
+    transport: &mut Transport,
     cx: &mut Context<'_>,
     buf: &mut [u8],
 ) -> Poll<io::Result<usize>>
 where
-    RW: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
     match opt_buffer {
         Some(buffer) => {
@@ -135,7 +185,7 @@ where
                 trace!("have {} bytes of pending data, using all of it", len);
                 buf[..len].copy_from_slice(&buffer);
                 *opt_buffer = None;
-                match Pin::new(rw).poll_read(cx, &mut buf[len..]) {
+                match Pin::new(transport).poll_read(cx, &mut buf[len..]) {
                     Ready(Ok(e)) => Ready(Ok(e + len)),
                     Pending => Ready(Ok(len)),
                     other => other,
@@ -143,7 +193,7 @@ where
             }
         }
 
-        None => Pin::new(rw).poll_read(cx, buf),
+        None => Pin::new(transport).poll_read(cx, buf),
     }
 }
 
@@ -226,9 +276,9 @@ fn chunk_decode(
 }
 
 const STREAM_READ_BUF_LENGTH: usize = 128;
-impl<'conn, RW> Stream for ReceivedBody<'conn, RW>
+impl<'conn, Transport> Stream for ReceivedBody<'conn, Transport>
 where
-    RW: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
     type Item = Vec<u8>;
 
@@ -254,9 +304,9 @@ where
     }
 }
 
-impl<'conn, RW> AsyncRead for ReceivedBody<'conn, RW>
+impl<'conn, Transport> AsyncRead for ReceivedBody<'conn, Transport>
 where
-    RW: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -324,9 +374,9 @@ where
 
         if *self.state == End {
             if self.on_completion.is_some() && self.owns_transport() {
-                let rw = self.rw.take().unwrap().unwrap_owned();
+                let transport = self.transport.take().unwrap().unwrap_owned();
                 let on_completion = self.on_completion.take().unwrap();
-                on_completion(rw);
+                on_completion(transport);
             }
             Ready(Ok(bytes))
         } else if bytes == 0 {
@@ -338,7 +388,7 @@ where
     }
 }
 
-impl<'rw, RW> fmt::Debug for ReceivedBody<'rw, RW> {
+impl<'conn, Transport> fmt::Debug for ReceivedBody<'conn, Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("RequestBody")
             .field("state", &*self.state)
@@ -353,17 +403,35 @@ impl<'rw, RW> fmt::Debug for ReceivedBody<'rw, RW> {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+/// the current read state of this body
 pub enum ReceivedBodyState {
+    /// initial state
     Start,
+
+    /// read state for a chunked-encoded body. the number of bytes that have been read from the
+    /// current chunk is the difference between remaining and total.
     Chunked {
+        /// remaining indicates the bytes left _in the current
+        /// chunk_. initial state is zero.
         remaining: usize,
+        /// total indicates the size of the current chunk or zero to
+        /// indicate that we expect to read a chunk size at the start
+        /// of the next bytes. initial state is zero.
         total: usize,
     },
 
+    /// read state for a fixed-length body.
     FixedLength {
+        /// current index represents the bytes that have already been
+        /// read. initial state is zero
         current_index: u64,
+
+        /// total length indicates the claimed length, usually
+        /// determined by the content-length header
         total_length: u64,
     },
+
+    /// the terminal read state
     End,
 }
 
@@ -373,24 +441,51 @@ impl Default for ReceivedBodyState {
     }
 }
 
-impl<RW> From<ReceivedBody<'static, RW>> for Body
+impl<Transport> From<ReceivedBody<'static, Transport>> for Body
 where
-    RW: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    Transport: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
-    fn from(rb: ReceivedBody<'static, RW>) -> Self {
+    fn from(rb: ReceivedBody<'static, Transport>) -> Self {
         let len = rb.content_length.map(|cl| cl as u64);
         Body::from_reader(BufReader::new(rb), len)
     }
 }
 
+// This is commented out because I do not have use for it anymore and
+// as I was writing out the documentation I realized it was a footgun
+// without a clear use case. I'm retaining it in the code in case it's
+// useful later, though
+//
+// impl<'conn, Transport> ReceivedBody<'conn, Transport>
+// where
+//     Transport: AsyncRead + Unpin + Send + Sync + Clone + 'static,
+// {
+//     /**
+//     When the transport is Clone, this allows the creation of an owned
+//     body without taking the original transport away from the Conn.
+//
+//     Caution: You
+//     probably don't want to use this if it can be avoided, as it opens
+//     up the potential for two different bodies reading from the same
+//     transport, and rust will not protect you from those mistakes.
+//      */
+//     pub fn into_owned_by_cloning_transport(mut self) -> ReceivedBody<'static, Transport> {
+//         ReceivedBody {
+//             content_length: self.content_length,
+//             buffer: MutCow::Owned(self.buffer.take()),
+//             transport: self.transport.map(|transport| MutCow::Owned((*transport).clone())),
+//             state: MutCow::Owned(*self.state),
+//             on_completion: self.on_completion,
+//             encoding: self.encoding,
+//         }
+//     }
+// }
+
 #[cfg(test)]
 mod chunk_decode {
-
-    use encoding_rs::UTF_8;
-    use futures_lite::io::Cursor;
-    use futures_lite::{AsyncRead, AsyncReadExt};
-
     use super::{chunk_decode, ReceivedBody, ReceivedBodyState};
+    use encoding_rs::UTF_8;
+    use futures_lite::{io::Cursor, AsyncRead, AsyncReadExt};
 
     fn assert_decoded(input: (usize, &str), expected_output: (Option<usize>, &str, Option<&str>)) {
         let (remaining, input_data) = input;

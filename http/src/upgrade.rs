@@ -1,43 +1,76 @@
 use crate::{Conn, Stopper};
 use futures_lite::{AsyncRead, AsyncWrite};
 use http_types::{headers::Headers, Extensions, Method};
-use std::pin::Pin;
 use std::{
     fmt::{self, Debug, Formatter},
     io,
+    pin::Pin,
+    str,
     task::{Context, Poll},
 };
 
-pub struct Upgrade<RW> {
+/**
+This open (pub fields) struct represents a http upgrade. It contains
+all of the data available on a Conn, as well as owning the underlying
+transport.
+
+Important implementation note: When reading directly from the
+transport, ensure that you read from `buffer` first if there are bytes
+in it. Alternatively, read directly from the Upgrade, as that
+AsyncRead implementation will drain the buffer first before reading
+from the transport.
+*/
+pub struct Upgrade<Transport> {
+    /// The http request headers
     pub request_headers: Headers,
+    /// The request path
     pub path: String,
+    /// The http request method
     pub method: Method,
+    /// Any state that has been accumulated on the Conn before negotiating the upgrade
     pub state: Extensions,
-    pub rw: RW,
+    /// The underlying io (often a TcpStream or similar)
+    pub transport: Transport,
+    /// Any bytes that have been read from the underlying tcpstream
+    /// already. It is your responsibility to process these bytes
+    /// before reading directly from the transport.
     pub buffer: Option<Vec<u8>>,
+    /// A [`Stopper`] which can and should be used to gracefully shut
+    /// down any long running streams or futures associated with this
+    /// upgrade
     pub stopper: Stopper,
 }
 
-impl<RW> Upgrade<RW> {
+impl<Transport> Upgrade<Transport> {
+    /// read-only access to the request headers
     pub fn headers(&self) -> &Headers {
         &self.request_headers
     }
+
+    /// the http request path
     pub fn path(&self) -> &str {
         &self.path
     }
+
+    /// the http method
     pub fn method(&self) -> &Method {
         &self.method
     }
+
+    /// any state that has been accumulated on the Conn before
+    /// negotiating the upgrade.
     pub fn state(&self) -> &Extensions {
         &self.state
     }
 
+    /// Modify the transport type of this upgrade. This is useful for
+    /// boxing the transport in order to erase the type argument.
     pub fn map_transport<T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static>(
         self,
-        f: impl Fn(RW) -> T,
+        f: impl Fn(Transport) -> T,
     ) -> Upgrade<T> {
         Upgrade {
-            rw: f(self.rw),
+            transport: f(self.transport),
             path: self.path,
             method: self.method,
             state: self.state,
@@ -48,25 +81,28 @@ impl<RW> Upgrade<RW> {
     }
 }
 
-impl<RW> Debug for Upgrade<RW> {
+impl<Transport> Debug for Upgrade<Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct(&format!("Upgrade<{}>", std::any::type_name::<RW>()))
+        f.debug_struct(&format!("Upgrade<{}>", std::any::type_name::<Transport>()))
             .field("request_headers", &self.request_headers)
             .field("path", &self.path)
             .field("method", &self.method)
-            .field("buffer", &self.buffer.as_deref().map(utf8))
+            .field(
+                "buffer",
+                &self.buffer.as_deref().map(String::from_utf8_lossy),
+            )
             .finish()
     }
 }
 
-impl<RW> From<Conn<RW>> for Upgrade<RW> {
-    fn from(conn: Conn<RW>) -> Self {
+impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
+    fn from(conn: Conn<Transport>) -> Self {
         let Conn {
             request_headers,
             path,
             method,
             state,
-            rw,
+            transport,
             buffer,
             stopper,
             ..
@@ -77,17 +113,14 @@ impl<RW> From<Conn<RW>> for Upgrade<RW> {
             path,
             method,
             state,
-            rw,
+            transport,
             buffer,
             stopper,
         }
     }
 }
-pub fn utf8(d: &[u8]) -> &str {
-    std::str::from_utf8(d).unwrap_or("not utf8")
-}
 
-impl<RW: AsyncRead + Unpin> AsyncRead for Upgrade<RW> {
+impl<Transport: AsyncRead + Unpin> AsyncRead for Upgrade<Transport> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -110,7 +143,7 @@ impl<RW: AsyncRead + Unpin> AsyncRead for Upgrade<RW> {
                     log::trace!("have {} bytes of pending data, using all of it", len);
                     buf[..len].copy_from_slice(&buffer);
                     self.buffer = None;
-                    match Pin::new(&mut self.rw).poll_read(cx, &mut buf[len..]) {
+                    match Pin::new(&mut self.transport).poll_read(cx, &mut buf[len..]) {
                         Poll::Ready(Ok(e)) => Poll::Ready(Ok(e + len)),
                         Poll::Pending => Poll::Ready(Ok(len)),
                         other => other,
@@ -118,25 +151,25 @@ impl<RW: AsyncRead + Unpin> AsyncRead for Upgrade<RW> {
                 }
             }
 
-            _ => Pin::new(&mut self.rw).poll_read(cx, buf),
+            _ => Pin::new(&mut self.transport).poll_read(cx, buf),
         }
     }
 }
 
-impl<RW: AsyncWrite + Unpin> AsyncWrite for Upgrade<RW> {
+impl<Transport: AsyncWrite + Unpin> AsyncWrite for Upgrade<Transport> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.rw).poll_write(cx, buf)
+        Pin::new(&mut self.transport).poll_write(cx, buf)
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.rw).poll_flush(cx)
+        Pin::new(&mut self.transport).poll_flush(cx)
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.rw).poll_close(cx)
+        Pin::new(&mut self.transport).poll_close(cx)
     }
 }

@@ -8,7 +8,7 @@ async fn handler(mut conn: Conn<Compat<TcpStream>>) -> Conn<Compat<TcpStream>> {
     while let Some(chunk) = body.next().await {
         log::info!("< {}", String::from_utf8(chunk).unwrap());
     }
-    conn.set_body("Hello world");
+    conn.set_response_body("Hello world");
     conn.response_headers().insert("Content-type", "text/plain");
     conn.set_status(200);
     conn

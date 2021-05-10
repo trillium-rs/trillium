@@ -7,7 +7,6 @@ members = [
   "basic-auth",
   "cookies",
   "cli",
-  "errors",
   "example",
   "handlebars",
   "http",

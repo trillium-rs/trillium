@@ -3,6 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+#[doc(hidden)]
 pub enum MutCow<'a, T> {
     Owned(T),
     Borrowed(&'a mut T),
@@ -19,11 +20,7 @@ impl<'a, T> MutCow<'a, T> {
         matches!(self, MutCow::Owned(_))
     }
 
-    pub fn is_borrowed(&self) -> bool {
-        matches!(self, MutCow::Borrowed(_))
-    }
-
-    pub fn unwrap_owned(self) -> T {
+    pub(crate) fn unwrap_owned(self) -> T {
         match self {
             MutCow::Owned(t) => t,
             _ => panic!("attempted to unwrap a borrow"),

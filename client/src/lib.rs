@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![deny(
+#![warn(
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
@@ -27,3 +27,5 @@ pub use transport::{ClientTransport, TcpConfig};
 
 pub use async_net::TcpStream;
 pub use trillium_http::{Error, Result};
+
+mod util;
