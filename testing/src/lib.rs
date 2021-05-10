@@ -10,7 +10,7 @@
 
 pub use futures_lite;
 use std::convert::TryInto;
-use trillium::Handler;
+use trillium::{http_types::Body, Handler};
 pub use trillium_http::http_types::Method;
 use trillium_http::Synthetic;
 
@@ -26,7 +26,8 @@ where
     T: TryInto<Method>,
     <T as TryInto<Method>>::Error: std::fmt::Debug,
 {
-    trillium_http::Conn::new_synthetic(method.try_into().unwrap(), path.into(), body).into()
+    trillium_http::Conn::new_synthetic(method.try_into().unwrap(), path.into(), body.as_deref())
+        .into()
 }
 
 pub fn run(handler: &impl trillium::Handler, conn: trillium::Conn) -> trillium::Conn {
@@ -114,4 +115,12 @@ impl<H: Handler> TestHandler<H> {
     test_handler_method!(put, Put);
     test_handler_method!(delete, Delete);
     test_handler_method!(patch, Patch);
+}
+
+pub fn build_conn<M>(method: M, path: impl Into<String>, body: Option<&[u8]>) -> trillium::Conn
+where
+    M: TryInto<Method>,
+    <M as TryInto<Method>>::Error: std::fmt::Debug,
+{
+    trillium_http::Conn::new_synthetic(method.try_into().unwrap(), path, body).into()
 }

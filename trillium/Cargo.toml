@@ -18,3 +18,4 @@ trillium-http = { path = "../http", version = "0.0.1" }
 
 [dev-dependencies]
 trillium-logger = { path = "../logger" }
+trillium-testing = { path = "../testing" }

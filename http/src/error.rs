@@ -84,7 +84,8 @@ pub enum Error {
     #[error("unexpected header: {0}")]
     UnexpectedHeader(&'static str),
 
-    /// for security reasons, we do not allow request headers beyond 8kb.
+    /// for security reasons, we do not allow request headers beyond
+    /// 8kb.
     #[error("Head byte length should be less than 8kb")]
     HeadersTooLong,
 }

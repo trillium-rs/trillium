@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![deny(
+#![warn(
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
@@ -32,7 +32,7 @@ impl Handler for DevLogger {
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if let Some(start) = conn.take_state::<Start>() {
             let method = conn.method();
-            let status = conn.get_status().unwrap_or(&StatusCode::NotFound);
+            let status = conn.status().unwrap_or(&StatusCode::NotFound);
 
             let len = conn
                 .response_len()

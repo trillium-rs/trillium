@@ -309,13 +309,13 @@ where
     retains all data and holds the singular transport, but the
     ReceivedBody provides an interface to read body content
     ```
-    async_io::block_on(async {
+    # async_io::block_on(async {
     # use trillium_http::{Conn, http_types::{Method, Body}};
     let mut conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
     let request_body = conn.request_body().await;
     assert_eq!(request_body.content_length(), Some(5));
     assert_eq!(request_body.read_string().await.unwrap(), "hello");
-    });
+    # });
     ```
     */
     pub async fn request_body(&mut self) -> ReceivedBody<'_, Transport> {

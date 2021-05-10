@@ -69,8 +69,12 @@ where
     Fut: Future<Output = ()> + Send + Sync + 'static,
 {
     async fn run(&self, mut conn: Conn) -> Conn {
-        let connection_upgrade = conn.header_eq_ignore_case(CONNECTION, "upgrade");
-        let upgrade_to_websocket = conn.header_eq_ignore_case(UPGRADE, "websocket");
+        let connection_upgrade = conn
+            .headers()
+            .contains_ignore_ascii_case(CONNECTION, "upgrade");
+        let upgrade_to_websocket = conn
+            .headers()
+            .contains_ignore_ascii_case(UPGRADE, "websocket");
         let upgrade_requested = connection_upgrade && upgrade_to_websocket;
         log::trace!(
             "{:?} {:?} {:?}",
