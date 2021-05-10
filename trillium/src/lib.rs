@@ -18,7 +18,7 @@
 //!
 //!
 mod handler;
-pub use handler::{Handler, Sequence};
+pub use handler::Handler;
 
 mod conn;
 pub use conn::Conn;
@@ -39,3 +39,6 @@ pub use transport::{BoxedTransport, Transport};
 pub type Upgrade = trillium_http::Upgrade<BoxedTransport>;
 
 mod macros;
+
+mod sequence;
+pub use sequence::Sequence;
