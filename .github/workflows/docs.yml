@@ -12,12 +12,12 @@ jobs:
     - uses: actions/checkout@master
     - uses: actions-rs/toolchain@v1
       with:
-        toolchain: stable
+        toolchain: nightly
         components: rustfmt, clippy
         override: true
 
     - name: Build Documentation
-      run: cargo doc --all
+      run: RUSTDOCFLAGS="-Z unstable-options --enable-index-page" cargo +nightly doc --no-deps --lib
 
     - name: Deploy Docs
       uses: peaceiris/actions-gh-pages@364c31d33bb99327c77b3a5438a83a357a6729ad
