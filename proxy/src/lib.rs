@@ -73,7 +73,7 @@ impl<Transport: ClientTransport> Handler for Proxy<Transport> {
                 }
 
                 conn.with_state(UpstreamUpgrade(client_conn.into()))
-                    .status(SwitchingProtocols)
+                    .with_status(SwitchingProtocols)
             }
 
             Some(NotFound) if self.pass_through_not_found => {
@@ -88,7 +88,7 @@ impl<Transport: ClientTransport> Handler for Proxy<Transport> {
                     }
                 }
 
-                conn.body(client_conn).status(status)
+                conn.with_body(client_conn).with_status(status)
             }
             _ => unreachable!(),
         };

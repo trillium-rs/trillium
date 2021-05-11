@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![deny(
+#![warn(
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
@@ -79,7 +79,7 @@ impl TeraConnExt for Conn {
                 self.ok(body)
             }
 
-            Err(e) => self.status(500).body(e.to_string()),
+            Err(e) => self.with_status(500).with_body(e.to_string()),
         }
     }
 }

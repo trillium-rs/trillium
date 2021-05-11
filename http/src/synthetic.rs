@@ -19,6 +19,14 @@ on invocation.
 */
 #[derive(Debug)]
 pub struct Synthetic(Option<Vec<u8>>, usize);
+
+impl Synthetic {
+    /// the length of this synthetic transport's body
+    pub fn len(&self) -> Option<usize> {
+        self.0.as_ref().map(|v| Vec::len(v))
+    }
+}
+
 impl AsyncWrite for Synthetic {
     fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, _buf: &[u8]) -> Poll<Result<usize>> {
         Poll::Ready(Ok(0))
@@ -51,25 +59,63 @@ impl AsyncRead for Synthetic {
     }
 }
 
+impl From<Vec<u8>> for Synthetic {
+    fn from(v: Vec<u8>) -> Self {
+        Some(v).into()
+    }
+}
+
+impl From<&[u8]> for Synthetic {
+    fn from(v: &[u8]) -> Self {
+        v.to_owned().into()
+    }
+}
+
+impl From<String> for Synthetic {
+    fn from(v: String) -> Self {
+        v.into_bytes().into()
+    }
+}
+
+impl From<&str> for Synthetic {
+    fn from(v: &str) -> Self {
+        v.as_bytes().into()
+    }
+}
+
+impl From<()> for Synthetic {
+    fn from(_: ()) -> Self {
+        Self(None, 0)
+    }
+}
+
+impl From<Option<Vec<u8>>> for Synthetic {
+    fn from(v: Option<Vec<u8>>) -> Self {
+        Self(v, 0)
+    }
+}
+
 impl Conn<Synthetic> {
     /**
     Construct a new synthetic conn with provided method, path, and body.
     ```rust
     # use trillium_http::{http_types::Method, Conn};
-    let conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+    let conn = Conn::new_synthetic(Method::Get, "/", "hello");
     assert_eq!(conn.method(), &Method::Get);
     assert_eq!(conn.path(), "/");
     ```
     */
-    pub fn new_synthetic(method: Method, path: impl Into<String>, body: Option<&[u8]>) -> Self {
+    pub fn new_synthetic(
+        method: Method,
+        path: impl Into<String>,
+        body: impl Into<Synthetic>,
+    ) -> Self {
+        let body = body.into();
         let mut request_headers = Headers::new();
-        request_headers.insert(
-            CONTENT_LENGTH,
-            body.map(|b| b.len()).unwrap_or_default().to_string(),
-        );
+        request_headers.insert(CONTENT_LENGTH, body.len().unwrap_or_default().to_string());
 
         Self {
-            transport: Synthetic(body.map(|body| body.to_owned()), 0),
+            transport: body.into(),
             request_headers,
             response_headers: Headers::new(),
             path: path.into(),
@@ -93,7 +139,7 @@ impl Conn<Synthetic> {
 
     ```rust
     # use trillium_http::{http_types::Method, Conn};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+    let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
     conn.request_headers_mut().insert("content-type", "application/json");
     assert_eq!(conn.request_headers()["content-type"], "application/json");
     ```

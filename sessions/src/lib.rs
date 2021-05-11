@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![deny(
+#![warn(
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
@@ -77,7 +77,7 @@ impl<Store: SessionStore> Handler for Sessions<Store> {
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if let Some(session) = conn.take_state::<Session>() {
-            let secure = conn.secure();
+            let secure = conn.is_secure();
             if session.is_destroyed() {
                 self.store.destroy_session(session).await.ok();
                 conn.cookies_mut()

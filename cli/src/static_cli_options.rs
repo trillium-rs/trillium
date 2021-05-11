@@ -179,7 +179,7 @@ impl StaticCli {
         let mut server = sequence![trillium_logger::DevLogger];
 
         if let Some(forward) = self.forward() {
-            server.then(Proxy::<Rustls<TcpStream>>::new(forward));
+            server.push(Proxy::<Rustls<TcpStream>>::new(forward));
         }
 
         let mut s = trillium_static::Static::new(path);
@@ -187,7 +187,7 @@ impl StaticCli {
             s = s.with_index_file(index);
         }
 
-        server.then(s);
+        server.push(s);
 
         let config = trillium_smol_server::config()
             .with_port(self.port())

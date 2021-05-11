@@ -28,7 +28,7 @@ transport, which it may either borrow from a [`Conn`] or own.
 ```rust
 # futures_lite::future::block_on(async {
 # use trillium_http::{http_types::Method, Conn};
-let mut conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
 let body = conn.request_body().await;
 assert_eq!(body.read_string().await?, "hello");
 # trillium_http::Result::Ok(()) }).unwrap();
@@ -77,7 +77,7 @@ where
     ```rust
     # futures_lite::future::block_on(async {
     # use trillium_http::{http_types::Method, Conn};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+    let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
     let body = conn.request_body().await;
     assert_eq!(body.content_length(), Some(5));
     # trillium_http::Result::Ok(()) }).unwrap();

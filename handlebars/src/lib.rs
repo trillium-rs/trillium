@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![deny(
+#![warn(
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
@@ -92,7 +92,7 @@ impl HandlebarsConnExt for Conn {
         let string = h.0.read().unwrap().render(template, data);
         match string {
             Ok(string) => self.ok(string),
-            Err(b) => self.status(500).body(b.to_string()),
+            Err(b) => self.with_status(500).with_body(b.to_string()),
         }
     }
 
@@ -117,7 +117,7 @@ impl HandlebarsConnExt for Conn {
 
         match string {
             Ok(string) => self.ok(string),
-            Err(b) => self.status(500).body(b.to_string()),
+            Err(b) => self.with_status(500).with_body(b.to_string()),
         }
     }
 
@@ -126,6 +126,6 @@ impl HandlebarsConnExt for Conn {
     }
 
     fn assigns_mut(&mut self) -> &mut Assigns {
-        self.state_or_insert_with(Assigns::default)
+        self.mut_state_or_insert_with(Assigns::default)
     }
 }

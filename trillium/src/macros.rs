@@ -1,5 +1,5 @@
 /**
-build a new Sequence
+build a new [`trillium::Sequence`]. see that type for more information.
 
 ```
 let macro_sequence = trillium::sequence![trillium_logger::DevLogger, "hello"];
@@ -7,6 +7,7 @@ let literal_sequence = trillium::Sequence::new().then(trillium_logger::DevLogger
 assert_eq!(format!("{:?}", macro_sequence), format!("{:?}", literal_sequence));
 ```
 */
+
 #[macro_export]
 macro_rules! sequence {
     ($($x:expr),+ $(,)?) => { $crate::Sequence::new()$(.then($x))+ }
@@ -31,7 +32,7 @@ macro_rules! conn_try {
                     line!(),
                     error
                 );
-                return $conn.status(500);
+                return $conn.with_status(500).halt();
             }
         }
     };
@@ -39,8 +40,8 @@ macro_rules! conn_try {
 
 #[macro_export]
 macro_rules! conn_ok {
-    ($conn:expr, $expr:expr) => {
-        match $expr {
+    ($conn:expr, $result:expr) => {
+        match $result {
             Ok(value) => value,
             Err(error) => return $conn,
         }

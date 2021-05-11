@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![deny(
+#![warn(
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
@@ -89,7 +89,7 @@ where
 
         let header = match conn.headers().get("Sec-Websocket-Key") {
             Some(h) => h.as_str(),
-            None => return conn.status(StatusCode::BadRequest),
+            None => return conn.with_status(StatusCode::BadRequest),
         };
 
         let protocol = conn
@@ -118,7 +118,7 @@ where
 
         conn.halt()
             .with_state(IsWebsocket)
-            .status(StatusCode::SwitchingProtocols)
+            .with_status(StatusCode::SwitchingProtocols)
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {

@@ -147,7 +147,7 @@ where
     Note: This currently will set the s
     ```
     # use trillium_http::{Conn, http_types::{Method, StatusCode}};
-    # let mut conn = Conn::new_synthetic(Method::Get, "/", None);
+    # let mut conn = Conn::new_synthetic(Method::Get, "/", ());
     assert!(conn.status().is_none());
 
     conn.set_status(200); // a status can be set as a u16
@@ -174,7 +174,7 @@ where
     retrieves the path part of the request url, up to and excluding any query component
     ```
     # use trillium_http::{Conn, http_types::Method};
-    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", None);
+    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
     assert_eq!(conn.path(), "/some/path");
     ```
     */
@@ -202,7 +202,7 @@ where
 
     ```
     # use trillium_http::{Conn, http_types::{Method, Body}};
-    # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", None);
+    # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
     conn.set_response_body("hello");
     conn.set_response_body(String::from("hello"));
     conn.set_response_body(vec![99, 97, 116]);
@@ -229,7 +229,7 @@ where
 
     ```
     # use trillium_http::{Conn, http_types::{Method, Body}};
-    # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", None);
+    # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
     assert!(conn.response_body().is_none());
     conn.set_response_body("hello");
     assert!(conn.response_body().is_some());
@@ -246,7 +246,7 @@ where
     returns the http method for this conn's request.
     ```
     # use trillium_http::{Conn, http_types::{Method, Body}};
-    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", None);
+    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
     assert_eq!(conn.method(), &Method::Get);
     ```
      */
@@ -278,7 +278,7 @@ where
 
     ```
     # use trillium_http::{Conn, http_types::{Method, Body}};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", None);
+    let mut conn = Conn::new_synthetic(Method::Get, "/", ());
     assert_eq!(conn.request_encoding(), encoding_rs::WINDOWS_1252); // the default
     conn.request_headers_mut().insert("content-type", "text/plain;charset=utf-16");
     assert_eq!(conn.request_encoding(), encoding_rs::UTF_16LE);
@@ -294,7 +294,7 @@ where
 
     ```
     # use trillium_http::{Conn, http_types::{Method, Body}};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", None);
+    let mut conn = Conn::new_synthetic(Method::Get, "/", ());
     assert_eq!(conn.response_encoding(), encoding_rs::WINDOWS_1252); // the default
     conn.response_headers().insert("content-type", "text/plain;charset=utf-16");
     assert_eq!(conn.response_encoding(), encoding_rs::UTF_16LE);
@@ -311,7 +311,7 @@ where
     ```
     # async_io::block_on(async {
     # use trillium_http::{Conn, http_types::{Method, Body}};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", Some(b"hello"));
+    let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
     let request_body = conn.request_body().await;
     assert_eq!(request_body.content_length(), Some(5));
     assert_eq!(request_body.read_string().await.unwrap(), "hello");

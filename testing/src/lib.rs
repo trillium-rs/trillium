@@ -9,8 +9,9 @@
 )]
 
 pub use futures_lite;
+use futures_lite::future;
 use std::convert::TryInto;
-use trillium::{http_types::Body, Handler};
+use trillium::{http_types::Body, Conn, Handler};
 pub use trillium_http::http_types::Method;
 use trillium_http::Synthetic;
 
@@ -21,17 +22,16 @@ pub use test_io::{CloseableCursor, TestIo};
 
 pub mod server;
 
-pub fn test_conn<T>(method: T, path: impl Into<String>, body: Option<Vec<u8>>) -> trillium::Conn
+pub fn test_conn<T>(method: T, path: impl Into<String>, body: impl Into<Synthetic>) -> Conn
 where
     T: TryInto<Method>,
     <T as TryInto<Method>>::Error: std::fmt::Debug,
 {
-    trillium_http::Conn::new_synthetic(method.try_into().unwrap(), path.into(), body.as_deref())
-        .into()
+    trillium_http::Conn::new_synthetic(method.try_into().unwrap(), path.into(), body).into()
 }
 
-pub fn run(handler: &impl trillium::Handler, conn: trillium::Conn) -> trillium::Conn {
-    futures_lite::future::block_on(async move {
+pub fn run(handler: &impl Handler, conn: Conn) -> Conn {
+    future::block_on(async move {
         let conn = handler.run(conn).await;
         handler.before_send(conn).await
     })
@@ -56,7 +56,7 @@ impl TestConn {
         Self(trillium_http::Conn::new_synthetic(
             method.try_into().unwrap(),
             path.into(),
-            None,
+            (),
         ))
     }
 
@@ -78,8 +78,8 @@ impl TestConn {
         &self.0
     }
 
-    pub fn run(self, handler: &impl trillium::Handler) -> Self {
-        let conn = futures_lite::future::block_on(async move {
+    pub fn run(self, handler: &impl Handler) -> Self {
+        let conn = future::block_on(async move {
             let conn = handler.run(self.0.into()).await;
             handler.before_send(conn).await
         });
@@ -117,7 +117,7 @@ impl<H: Handler> TestHandler<H> {
     test_handler_method!(patch, Patch);
 }
 
-pub fn build_conn<M>(method: M, path: impl Into<String>, body: Option<&[u8]>) -> trillium::Conn
+pub fn build_conn<M>(method: M, path: impl Into<String>, body: impl Into<Synthetic>) -> Conn
 where
     M: TryInto<Method>,
     <M as TryInto<Method>>::Error: std::fmt::Debug,

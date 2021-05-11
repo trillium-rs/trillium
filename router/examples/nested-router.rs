@@ -10,7 +10,7 @@ async fn load_user(conn: Conn) -> Conn {
         let user = User { id }; // imagine we were loading a user from a database here
         conn.with_state(user)
     } else {
-        conn.status(404).halt()
+        conn.with_status(404).halt()
     }
 }
 

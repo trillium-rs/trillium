@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![deny(
+#![warn(
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
@@ -37,7 +37,7 @@ impl Handler for HtmlRewriter {
             let (fut, reader) = lol(body, (self.settings)());
             async_global_executor::spawn_local(fut).detach();
             conn.headers_mut().remove(CONTENT_LENGTH); // we no longer know the content length, if we ever did
-            conn.body(Body::from_reader(BufReader::new(reader), None))
+            conn.with_body(Body::from_reader(BufReader::new(reader), None))
         } else {
             conn
         }

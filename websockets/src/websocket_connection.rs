@@ -40,14 +40,14 @@ impl WebSocketConnection {
             method,
             state,
             buffer,
-            rw,
+            transport,
             stopper,
         } = upgrade;
 
         let wss = if let Some(vec) = buffer {
-            WebSocketStream::from_partially_read(rw, vec, Role::Server, None).await
+            WebSocketStream::from_partially_read(transport, vec, Role::Server, None).await
         } else {
-            WebSocketStream::from_raw_socket(rw, Role::Server, None).await
+            WebSocketStream::from_raw_socket(transport, Role::Server, None).await
         };
 
         Self {
