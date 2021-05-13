@@ -10,7 +10,7 @@ Here are some conventions in this document.
 * Advanced asides look like this
   > 🧑‍🎓 The handler trait provides several other lifecycle hooks for library authors
 * Comparisons with Tide
-  > 🌊 Tide endpoints look like `|_req: Request<_>| async { Response::new(200) }` whereas Trillium handlers look like `|conn: Conn| async move { conn.status(200) }`
+  > 🌊 Tide endpoints look like `|_req: Request<_>| async { Response::new(200) }` whereas Trillium handlers look like `|conn: Conn| async move { conn.with_status(200) }`
 * Comparisons with Plug:
   > 🔌 Halting a plug looks like `conn |> halt` (elixir), and the equivalent in trillium is returning `conn.halt()`
 

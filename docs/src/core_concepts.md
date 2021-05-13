@@ -64,9 +64,9 @@ In general, because you'll be returning `Conn` from handlers, it
 supports a chainable (fluent) interface for setting properties, like:
 
 ```rust
-conn.status(202)
-    .send_header("content-type", "application/something-custom")
-    .body("this is my custom body")
+conn.with_status(202)
+    .with_header(("content-type", "application/something-custom"))
+    .with_body("this is my custom body")
 ```
 
 ### Accessing http request properties
