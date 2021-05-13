@@ -39,7 +39,7 @@
 * Router
   * [nested-router](https://github.com/trillium-rs/trillium/blob/main/router/examples/nested-router.rs) example
   * [router](https://github.com/trillium-rs/trillium/blob/main/router/examples/router.rs) example
-  * [router_with_macro](https://github.com/trillium-rs/trillium/blob/main/router/examples/router-with-macro.rs) example
+  * [router-with-macro](https://github.com/trillium-rs/trillium/blob/main/router/examples/router-with-macro.rs) example
 * tls
   * [rustls](https://github.com/trillium-rs/trillium/blob/main/rustls/examples/rustls.rs) example
   * [native-tls](https://github.com/trillium-rs/trillium/blob/main/native-tls/examples/native-tls.rs) example
