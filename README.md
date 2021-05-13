@@ -12,13 +12,16 @@
 [here's a similar example that can be deployed as an aws lambda](https://github.com/trillium-rs/trillium/blob/main/aws-lambda-example/src/main.rs). The actual content is very similar to the kitchen-sink example app, and that's the point. With few exceptions, a trillium app that runs directly will also run in aws lambda.
 
 ## Other examples and links:
-* trillium itself has no examples yet somehow
+* trillium
   * [rustdocs (main)](https://docs.trillium.rs/trillium/index.html)
-* trillium-http, a lower abstraction than trillium itself, but potentially usable directly
+* trillium-http
+  > a lower abstraction than trillium itself, but potentially usable directly for some use cases
   * [rustdocs (main)](https://docs.trillium.rs/trillium_http/index.html)
   * [http](https://github.com/trillium-rs/trillium/blob/main/http/examples/http.rs) example
   * [tokio-http](https://github.com/trillium-rs/trillium/blob/main/http/examples/tokio-http.rs) example using trillium-http on tokio
-* [websockets](https://github.com/trillium-rs/trillium/blob/main/websockets/examples/websockets.rs) example
+* file serving
+  * [static](https://github.com/trillium-rs/trillium/blob/main/static/examples/static.rs) example -- serves assets from the file system
+  * [static-compiled](https://github.com/trillium-rs/trillium/blob/main/static-compiled/examples/static-compiled.rs) example -- includes assets in the compiled binary
 * templating
   * [askama](https://github.com/trillium-rs/trillium/blob/main/askama/examples/askama.rs) example
   * [tera](https://github.com/trillium-rs/trillium/blob/main/tera/examples/tera.rs) example
@@ -26,15 +29,17 @@
 * http client
   * [client](https://github.com/trillium-rs/trillium/blob/main/client/examples/client.rs) example
   > yes, trillium has its own http client. this is primarily for the reverse proxy, but has connection pooling and other nice features that should make it fairly general-purpose.
+* [websockets](https://github.com/trillium-rs/trillium/blob/main/websockets/examples/websockets.rs) example
 * [cookies](https://github.com/trillium-rs/trillium/blob/main/cookies/examples/cookies.rs) example
-* [html-rewriter](https://github.com/trillium-rs/trillium/blob/main/html-rewriter/examples/html-rewriter.rs) example
+* reverse proxy
+  * [proxy](https://github.com/trillium-rs/trillium/blob/main/proxy/examples/proxy.rs) example
+  > this reverse proxy still has some work to go before being used in production but already supports things like forwarding arbitrary http protocol upgrades such as websockets
+* [sessions](https://github.com/trillium-rs/trillium/blob/main/sessions/examples/sessions.rs) example
 * [logger](https://github.com/trillium-rs/trillium/blob/main/logger/examples/logger.rs) example
 * Router
   * [nested-router](https://github.com/trillium-rs/trillium/blob/main/router/examples/nested-router.rs) example
   * [router](https://github.com/trillium-rs/trillium/blob/main/router/examples/router.rs) example
   * [router_with_macro](https://github.com/trillium-rs/trillium/blob/main/router/examples/router-with-macro.rs) example
-* [Reverse proxy](https://github.com/trillium-rs/trillium/blob/main/proxy/examples/proxy.rs) example
-* [sessions](https://github.com/trillium-rs/trillium/blob/main/sessions/examples/sessions.rs) example
 * tls
   * [rustls](https://github.com/trillium-rs/trillium/blob/main/rustls/examples/rustls.rs) example
   * [native-tls](https://github.com/trillium-rs/trillium/blob/main/native-tls/examples/native-tls.rs) example
@@ -44,8 +49,8 @@
   * [aws-lambda](https://github.com/trillium-rs/trillium/blob/main/aws-lambda-server/examples/aws-lambda.rs) example
   * [tokio](https://github.com/trillium-rs/trillium/blob/main/tokio-server/examples/tokio.rs) example
   * [async-std-server](https://github.com/trillium-rs/trillium/blob/main/async-std-server/examples/async-std-server.rs) example
-* file serving
-  * [static](https://github.com/trillium-rs/trillium/blob/main/static/examples/static.rs) example -- serves assets from the file system
-  * [static-compiled](https://github.com/trillium-rs/trillium/blob/main/static-compiled/examples/static-compiled.rs) example -- includes assets in the compiled binary
+* html-rewriter based on cloudflare's lol-html
+  * [html-rewriter](https://github.com/trillium-rs/trillium/blob/main/html-rewriter/examples/html-rewriter.rs) example
+  > I'm not certain if I'm going to publish this as part of trillium, as it is !Send and that requires some more design for cross-runtime compat. It's fun that it works for reverse proxies, though.
 
 Any of the examples can be run by checking out this crate and executing `RUST_LOG=info cargo run --example {example name}`. By default, all examples will bind to port 8080, except `smol-server-with-config`.
