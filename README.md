@@ -54,27 +54,3 @@
   > I'm not certain if I'm going to publish this as part of trillium, as it is !Send and that requires some more design for cross-runtime compat. It's fun that it works for reverse proxies, though.
 
 Any of the examples can be run by checking out this crate and executing `RUST_LOG=info cargo run --example {example name}`. By default, all examples will bind to port 8080, except `smol-server-with-config`.
-
-
-## Bugs! They certainly exist!
-There are no _known_ bugs, but I have high confidence that there are many bugs. They'll be fixed promptly when we find them.
-
-Current areas of suspected bugs:
-* `trillium_http`
-  * http/1.0 vs http/1.1. It does support both, but likely does not do so correctly yet. This just needs a bit more careful attention, and has been less important than showing the other capabilities of the trillium approach
-  * trillium_http _may_ have security vulnerabilities, but once people are using trillium, I intend to make the http implementation comparable in correctness and speed to other rust http implementations
-
-## Plans/aspirations:
-* The router does not support "any method" routes yet.
-* Querystring support with [querystrong](https://github.com/jbr/querystrong)
-* I'd like to drop the dependency on http-types and evaluate the `http` crate. Right now the most important types trillium uses from http-types are Headers, Extensions, StatusCode, Method, and Body. Extensions probably could be replaced with [typemap](https://docs.rs/typemap/0.3.3/typemap/) and Body probably could be something simpler than http-types's body. The other types have direct analogues in `http`.
-* I'm going to explore making Conn generic over the server type, which would open up the possibility of spawning tasks off of Conn. I might hate this in practice because it will require _application code_ import something like `trillium_smol_server::Conn` instead of `trillium::Conn`, but library code would be generic over `trillium::Conn<S> where S: Server`. One exciting upside of this is that some library could say `impl Handler<Smol> for MyHandler` instead of `impl<S> Handler<S> for MyHandler where S: Server`, allowing them to write different implementations.
-* Logic for when the server is overwhelmed, like backpressure or load shedding. Potentially since we have a count of the number of open connections, we can also set a maximum number of connections and choices for what to do when that threshold is met (put them in a queue or just respond immediately with an error). This is not essential now, but I think it's valuable to be able to point to mature features like this when communicating with people assessing this as a framework to build on.
-* Document and publish the CLI so that people can use hot reloading.
-* "framework user" stuff, like
-  * an ecto-inspired datamapper built on top of sqlx, primarily focused on how awkward it is to work with partial changesets in rust
-  * tools for building apis
-  * something more like phoenix channels than the current websocket implementation. this should support falling back to long polling
-* Once I have a sense of how people are using trillium, I'd like to look into h2 and h3. I really don't want to write my own implementation of these, but I'm not sure how hard it will be to fit existing implementations into the `conn` model.
-
-
