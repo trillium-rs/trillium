@@ -9,16 +9,57 @@ use trillium_http::ReceivedBody;
 use crate::{BoxedTransport, Handler, Transport};
 
 /**
-A Conn is the most important struct in trillium code. It
-represents both the request and response of a http
-connection. trillium::Conn is currently implemented as a higher
-layer of abstraction on top of a trillium_http::Conn.
+# Trillium http connection
 
-Stability note: At some point, the abstraction boundary between
-trillium_http and trillium itself may not prove to be useful. If that
-were to happen, the two types would merge, with most of the
-trillium::Conn interface remaining as it currently is.
+A Conn is the most important struct in trillium code. It represents
+both the request and response of a http connection. trillium::Conn is
+currently implemented as an abstraction on top of a
+[`trillium_http::Conn`].
+
+In particular, `trillium::Conn` boxes the transport using a
+[`trillium::BoxedTransport`](crate::BoxedTransport) so that
+application code can be written without transport generics. See
+[`trillium::Transport`](crate::Transport) for further reading on this.
+
+
+## method naming conventions
+
+Additionally, `trillium::Conn` provides a notion of being `halted`
+that is specifically designed for
+[`trillium::Sequence`][crate::Sequence]s. This may eventually be
+removed from Conn and instead be put into a SequenceConnExt for
+consistency with other Handler types.
+
+A convention that is used throughout trillium is that any interface
+that is named `with_{attribute}` will take ownership of the conn, set
+the attribute and return the conn, enabling chained calls like:
+
+```
+struct MyState(&'static str);
+async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
+    conn.with_header(("content-type", "text/plain"))
+        .with_state(MyState("hello"))
+        .with_body("hey there")
+        .with_status(418)
+}
+```
+
+If you need to set a property on the conn without moving it,
+`set_{attribute}` associated functions will be your huckleberry, as is
+conventional in other rust projects.
+
+## State
+
+Every trillium Conn contains a state type which is a set that contains
+at most one element for each type. It is highly recommended that you
+not insert any type into the state set that you have not
+authored. Library authors, this means that you should always offer a
+ConnExt trait that provides an interface for setting and getting
+state. State is also the primary way that handlers attach data to a
+conn as it passes through a [`trillium::Sequence`][crate::Sequence].
+
 */
+
 pub struct Conn {
     inner: trillium_http::Conn<BoxedTransport>,
     halted: bool,
@@ -30,6 +71,7 @@ impl Debug for Conn {
         f.debug_struct("Conn")
             .field("inner", &self.inner)
             .field("halted", &self.halted)
+            .field("path", &self.path)
             .finish()
     }
 }
@@ -56,7 +98,6 @@ impl Conn {
     assert!(test_conn.state::<Hello>().is_some());
     ```
     */
-
     pub fn state<T: 'static>(&self) -> Option<&T> {
         self.inner.state().get()
     }
@@ -228,7 +269,7 @@ impl Conn {
 
     /**
     sets the `halted` attribute of this conn, preventing later
-    processing in a given [`Sequence`](trillium::Sequence). returns
+    processing in a given [`trillium::Sequence`](crate::Sequence). returns
     the conn for fluent chaining
 
     ```

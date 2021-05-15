@@ -1,5 +1,5 @@
 /**
-build a new [`trillium::Sequence`]. see that type for more information.
+build a new [`trillium::Sequence`](crate::Sequence). see that type for more information.
 
 ```
 let macro_sequence = trillium::sequence![trillium_logger::DevLogger, "hello"];
