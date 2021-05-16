@@ -11,7 +11,7 @@ use async_fs::File;
 use futures_lite::io::BufReader;
 use std::path::{Path, PathBuf};
 use trillium::http_types::content::ContentType;
-use trillium::{async_trait, conn_ok, http_types::Body, Conn, Handler};
+use trillium::{async_trait, conn_unwrap, http_types::Body, Conn, Handler};
 
 #[derive(Debug)]
 pub struct Static {
@@ -94,10 +94,10 @@ impl Handler for Static {
             Some(Record::File(path, file, len)) => Self::serve_file(conn, path, file, len),
 
             Some(Record::Dir(path)) => {
-                let index = conn_ok!(conn, self.index_file.as_ref().ok_or(""));
+                let index = conn_unwrap!(conn, self.index_file.as_ref());
                 let path = path.join(index);
-                let metadata = conn_ok!(conn, async_fs::metadata(&path).await);
-                let file = conn_ok!(conn, File::open(path.to_str().unwrap()).await);
+                let metadata = conn_unwrap!(conn, async_fs::metadata(&path).await.ok());
+                let file = conn_unwrap!(conn, File::open(path.to_str().unwrap()).await.ok());
                 Self::serve_file(conn, path, file, metadata.len())
             }
 

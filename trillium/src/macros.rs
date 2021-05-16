@@ -14,40 +14,78 @@ macro_rules! sequence {
 }
 
 /**
+Attempts to unwrap a Result, returning the conn with a 500 status if the result is an Err variant.
+
+```
+use trillium_testing::{assert_body, assert_status, TestConn, TestHandler};
+
+let handler = TestHandler::new(|mut conn: trillium::Conn| async move {
+  let mut request_body = conn.request_body().await;
+  let request_body_string = trillium::conn_try!(conn, request_body.read_string().await);
+  let u8: u8 = trillium::conn_try!(conn, request_body_string.parse());
+  conn.ok(format!("received u8 as body: {}", u8))
+});
+
+assert_status!(
+    TestConn::build("POST", "/", "not u8").run(&handler),
+    500
+);
+
+assert_body!(
+    TestConn::build("POST", "/", "10").run(&handler),
+    "received u8 as body: 10"
+);
+
+
+```
+
 
 */
 #[macro_export]
 macro_rules! conn_try {
     ($conn:expr, $expr:expr) => {
-        conn_try!($conn, $expr, "error")
-    };
-
-    ($conn:expr, $expr:expr, $format_str:literal) => {
         match $expr {
             Ok(value) => value,
             Err(error) => {
-                log::error!(
-                    concat!("{}:{} ", $format_str, ": {}"),
-                    file!(),
-                    line!(),
-                    error
-                );
+                log::error!("{}:{} conn_try error: {}", file!(), line!(), error);
                 return $conn.with_status(500).halt();
             }
         }
     };
 }
 
+/**
+Unwraps an option or returns the conn from the current
+scope. This is useful for gracefully exiting a Handler without
+returning an error.
+
+```
+use trillium_testing::{TestHandler, assert_status};
+struct MyState(&'static str);
+let handler = TestHandler::new(|conn: trillium::Conn| async move {
+  let important_state: &MyState = trillium::conn_unwrap!(conn, conn.state());
+  let ok_response = String::from(important_state.0);
+  conn.ok(ok_response)
+});
+
+assert!(handler.get("/").status().is_none()); // we never reached the conn.ok line.
+```
+*/
 #[macro_export]
-macro_rules! conn_ok {
-    ($conn:expr, $result:expr) => {
-        match $result {
-            Ok(value) => value,
-            Err(error) => return $conn,
+macro_rules! conn_unwrap {
+    ($conn:expr, $option:expr) => {
+        match $option {
+            Some(value) => value,
+            None => return $conn,
         }
     };
 }
 
+/**
+a convenience macro for logging the contents of error variants. this
+is useful when there is no further action required to process the
+error path, but you still want to record that it transpired
+*/
 #[macro_export]
 macro_rules! log_error {
     ($expr:expr) => {

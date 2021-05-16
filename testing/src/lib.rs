@@ -10,7 +10,7 @@
 
 pub use futures_lite;
 use futures_lite::future;
-use std::convert::TryInto;
+use std::{convert::TryInto, ops::Deref};
 use trillium::{http_types::Body, Conn, Handler};
 pub use trillium_http::http_types::Method;
 use trillium_http::Synthetic;
@@ -18,7 +18,7 @@ use trillium_http::Synthetic;
 mod assertions;
 
 mod test_io;
-pub use test_io::{CloseableCursor, TestIo};
+pub use test_io::{CloseableCursor, TestTransport};
 
 pub mod server;
 
@@ -42,13 +42,13 @@ pub struct TestConn(trillium_http::Conn<Synthetic>);
 macro_rules! test_conn_method {
     ($fn_name:ident, $method:ident) => {
         pub fn $fn_name(path: impl Into<String>) -> Self {
-            Self::build(Method::$method, path)
+            Self::build(Method::$method, path, ())
         }
     };
 }
 
 impl TestConn {
-    pub fn build<M>(method: M, path: impl Into<String>) -> Self
+    pub fn build<M>(method: M, path: impl Into<String>, body: impl Into<Synthetic>) -> Self
     where
         M: TryInto<Method>,
         <M as TryInto<Method>>::Error: std::fmt::Debug,
@@ -56,7 +56,7 @@ impl TestConn {
         Self(trillium_http::Conn::new_synthetic(
             method.try_into().unwrap(),
             path.into(),
-            (),
+            body,
         ))
     }
 
@@ -87,7 +87,25 @@ impl TestConn {
     }
 }
 
+impl Deref for TestConn {
+    type Target = trillium_http::Conn<Synthetic>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 pub struct TestHandler<H>(H);
+
+#[trillium::async_trait]
+impl<H> Handler for TestHandler<H>
+where
+    H: Handler,
+{
+    async fn run(&self, conn: Conn) -> Conn {
+        self.0.run(conn).await
+    }
+}
 
 macro_rules! test_handler_method {
     ($fn_name:ident, $method:ident) => {
@@ -107,7 +125,7 @@ impl<H: Handler> TestHandler<H> {
         M: TryInto<Method>,
         <M as TryInto<Method>>::Error: std::fmt::Debug,
     {
-        TestConn::build(method, path).run(&self.0)
+        TestConn::build(method, path, ()).run(&self.0)
     }
 
     test_handler_method!(get, Get);

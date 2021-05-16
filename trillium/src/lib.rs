@@ -30,7 +30,10 @@ pub use async_trait::async_trait;
 pub use trillium_http::http_types;
 
 mod transport;
-pub use transport::{BoxedTransport, Transport};
+pub use transport::Transport;
+
+mod boxed_transport;
+pub use boxed_transport::BoxedTransport;
 
 /// An [`Upgrade`](trillium_http::Upgrade) for [`BoxedTransport`]s
 ///

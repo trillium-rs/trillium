@@ -51,17 +51,26 @@ impl<T: Debug> Debug for State<T> {
     }
 }
 
-impl<T: Default> Default for State<T> {
+impl<T> Default for State<T>
+where
+    T: Default + Clone + Send + Sync + 'static,
+{
     fn default() -> Self {
         Self::new(T::default())
     }
 }
 
-impl<T> State<T> {
+impl<T> State<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    /// Constructs a new State handler from any Clone + Send + Sync +
+    /// 'static
     pub fn new(t: T) -> Self {
         Self(t)
     }
 }
+
 #[async_trait]
 impl<T: Clone + Send + Sync + 'static> Handler for State<T> {
     async fn run(&self, mut conn: Conn) -> Conn {

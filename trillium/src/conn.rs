@@ -1,12 +1,12 @@
 use crate::http_types::{
-    headers::{Header, HeaderName, Headers},
+    headers::{Header, Headers},
     Body, Method, StatusCode,
 };
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
 use trillium_http::ReceivedBody;
 
-use crate::{BoxedTransport, Handler, Transport};
+use crate::{BoxedTransport, Transport};
 
 /**
 # Trillium http connection

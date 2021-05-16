@@ -1,84 +1,43 @@
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::any::Any;
-use std::fmt::Debug;
-use std::ops::Deref;
-use std::{
-    fmt,
-    io::Result,
-    pin::Pin,
-    task::{Context, Poll},
-};
-pub struct BoxedTransport(Box<dyn Transport + Send + Sync + 'static>);
+/**
+Transport represents an AsyncRead + AsyncWrite that the http
+protocol is communicated over.
 
-impl Debug for BoxedTransport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BoxedTransport")
-            .field(
-                "inner",
-                &"Box<dyn AsyncRead + AsyncWrite + Send + Sync + Unpin>",
-            )
-            .finish()
-    }
-}
+Examples of this include:
 
-impl BoxedTransport {
-    pub fn new<T>(t: T) -> Self
-    where
-        T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
-    {
-        Self(Box::new(t))
-    }
+* [async_std::net::TcpStream](https://docs.rs/async-std/1.9.0/async_std/net/struct.TcpStream.html)
+* [async_net::TcpStream](https://docs.rs/async-net/1.6.0/async_net/struct.TcpStream.html)
+* [tokio::net::TcpStream](https://docs.rs/tokio/1.6.0/tokio/net/struct.TcpStream.html) when used with [async-compat](https://docs.rs/async-compat/0.2.1/async_compat/)
+* [async_rustls::TlsStream](https://docs.rs/async-rustls/0.2.0/async_rustls/enum.TlsStream.html)
+* [async_tls::server::TlsStream](https://docs.rs/async-tls/0.11.0/async_tls/server/struct.TlsStream.html)
+* [async_native_tls::TlsStream](https://docs.rs/async-native-tls/0.3.3/async_native_tls/struct.TlsStream.html)
+* [async_net::unix::UnixStream](https://docs.rs/async-net/1.6.0/async_net/unix/struct.UnixStream.html)
+* [async_std:os::unix::net::UnixStream](https://docs.rs/async-std/1.9.0/async_std/os/unix/net/struct.UnixStream.html)
+* [tokio::net::UnixStream](https://docs.rs/tokio/1.6.0/tokio/net/struct.UnixStream.html) with [async-compat](https://docs.rs/async-compat/0.2.1/async_compat/)
 
-    pub fn downcast<T: 'static>(self) -> Option<Box<T>> {
-        let inner: Box<dyn Any> = self.0.as_box_any();
-        inner.downcast().ok()
-    }
-}
 
-impl Deref for BoxedTransport {
-    type Target = Box<dyn Transport + Send + Sync + 'static>;
+**Note:** Transport is currently designed around
+[AsyncWrite](https://docs.rs/futures/0.3.15/futures/io/trait.AsyncWrite.html)
+and
+[AsyncRead](https://docs.rs/futures/0.3.15/futures/io/trait.AsyncRead.html)
+from the futures crate, which are different from the tokio
+[AsyncRead](https://docs.rs/tokio/1.6.0/tokio/io/trait.AsyncRead.html) and [AsyncWrite](https://docs.rs/tokio/1.6.0/tokio/io/trait.AsyncWrite.html) traits. Hopefully this is a temporary
+situation.
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
+It is currently never necessary to manually implement this trait.
+*/
 pub trait Transport: Any + AsyncRead + AsyncWrite + Send + Sync + Unpin {
+    /// in order to support downcasting from a `Box<dyn Transport>`,
+    /// Transport requires implementing an `as_box_any` function.
     fn as_box_any(self: Box<Self>) -> Box<dyn Any>;
 }
+
 impl<T> Transport for T
 where
     T: Any + AsyncRead + AsyncWrite + Send + Sync + Unpin,
 {
     fn as_box_any(self: Box<Self>) -> Box<dyn Any> {
         self
-    }
-}
-
-impl AsyncRead for BoxedTransport {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize>> {
-        Pin::new(&mut self.0).poll_read(cx, buf)
-    }
-}
-
-impl AsyncWrite for BoxedTransport {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize>> {
-        Pin::new(&mut self.0).poll_write(cx, buf)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        Pin::new(&mut self.0).poll_flush(cx)
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        Pin::new(&mut self.0).poll_close(cx)
     }
 }
