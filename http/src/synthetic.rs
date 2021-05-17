@@ -25,6 +25,11 @@ impl Synthetic {
     pub fn len(&self) -> Option<usize> {
         self.0.as_ref().map(|v| Vec::len(v))
     }
+
+    /// predicate to determine if this synthetic contains no content
+    pub fn is_empty(&self) -> bool {
+        self.0.as_ref().map(|v| v.is_empty()).unwrap_or(true)
+    }
 }
 
 impl AsyncWrite for Synthetic {
@@ -110,12 +115,15 @@ impl Conn<Synthetic> {
         path: impl Into<String>,
         body: impl Into<Synthetic>,
     ) -> Self {
-        let body = body.into();
+        let transport = body.into();
         let mut request_headers = Headers::new();
-        request_headers.insert(CONTENT_LENGTH, body.len().unwrap_or_default().to_string());
+        request_headers.insert(
+            CONTENT_LENGTH,
+            transport.len().unwrap_or_default().to_string(),
+        );
 
         Self {
-            transport: body.into(),
+            transport,
             request_headers,
             response_headers: Headers::new(),
             path: path.into(),
