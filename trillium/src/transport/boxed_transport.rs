@@ -1,4 +1,4 @@
-use crate::Transport;
+use crate::transport::Transport;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::any::Any;
 use std::fmt::Debug;
@@ -11,6 +11,8 @@ use std::{
 };
 
 /**
+# A type for dyn [`Transport`][crate::Transport] trait objects
+
 BoxedTransport represents a `Box<dyn Transport>` that supports
 downcasting to the original Transport. This is used in trillium to
 erase the generic on Conn, in order to avoid writing `Conn<TcpStream>`

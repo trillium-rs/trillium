@@ -6,10 +6,10 @@ use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
 use trillium_http::ReceivedBody;
 
-use crate::{BoxedTransport, Transport};
+use crate::transport::{BoxedTransport, Transport};
 
 /**
-# Trillium http connection
+# A Trillium HTTP connection
 
 A Conn is the most important struct in trillium code. It represents
 both the request and response of a http connection. trillium::Conn is

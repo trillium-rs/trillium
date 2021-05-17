@@ -4,7 +4,10 @@ use fmt::Formatter;
 
 use crate::{async_trait, Conn, Handler};
 /**
-State is a handler that puts a clone of any `Clone + Send + Sync + 'static` type into every conn's state map.
+# A handler for sharing state across an application
+
+State is a handler that puts a clone of any `Clone + Send + Sync +
+'static` type into every conn's state map.
 
 ```
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
@@ -31,14 +34,14 @@ trillium_testing::server::run(sequence![
 ]);
 ```
 
-please note that as with the above contrived example, if your state
+Please note that as with the above contrived example, if your state
 needs to be mutable, you need to choose your own interior mutability
 with whatever cross thread synchronization mechanisms are appropriate
 for your application. There will be one clones of the contained T type
 in memory for each http connection, and any locks should be held as
 briefly as possible so as to minimize impact on other conns.
 
-stability note: This is a common enough pattern that it currently
+**Stability note:** This is a common enough pattern that it currently
 exists in the public api, but may be removed at some point for
 simplicity.
 */

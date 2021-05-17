@@ -1,7 +1,7 @@
 use crate::{async_trait, Conn, Handler, Upgrade};
 use std::borrow::Cow;
 /**
-A Sequence is a collection of handlers that are called serially.
+# A collection of handlers that are called serially.
 
 A sequence is the trillium equivalent of a [Plug
 pipeline](https://hexdocs.pm/plug/Plug.html#module-the-plug-pipeline),
@@ -39,7 +39,10 @@ trillium_testing::server::run(sequence);
 ```
 
 
-# using the [`trillium::sequence`] macro
+# Using the `trillium::sequence` macro
+
+See also [`trillium::sequence`][crate::sequence]. Most trillium docs
+and examples use this macro.
 
 ```
 use trillium::{sequence, Conn};

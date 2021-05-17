@@ -1,8 +1,11 @@
+mod boxed_transport;
+pub use boxed_transport::BoxedTransport;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::any::Any;
 /**
-Transport represents an AsyncRead + AsyncWrite that the http
-protocol is communicated over.
+# The interface that the http protocol is communicated over.
+
+Transport represents any type that is AsyncRead + AsyncWrite.
 
 Examples of this include:
 
