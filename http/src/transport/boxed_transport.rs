@@ -11,7 +11,7 @@ use std::{
 };
 
 /**
-# A type for dyn [`Transport`][crate::Transport] trait objects
+# A type for dyn [`Transport`][crate::transport::Transport] trait objects
 
 BoxedTransport represents a `Box<dyn Transport>` that supports
 downcasting to the original Transport. This is used in trillium to
@@ -40,7 +40,7 @@ impl BoxedTransport {
     Create a new BoxedTransport from some Transport.
 
     ```
-    use trillium::BoxedTransport;
+    use trillium_http::transport::BoxedTransport;
     use trillium_testing::TestTransport;
     // this examples uses trillium_testing::TestTransport as an
     // easily-constructed AsyncRead+AsyncWrite.

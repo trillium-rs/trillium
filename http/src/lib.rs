@@ -101,3 +101,7 @@ mod mut_cow;
 pub(crate) use mut_cow::MutCow;
 
 mod util;
+
+/// Types to represent the bidirectional data stream over which the
+/// HTTP protocol is communicated
+pub mod transport;

@@ -1,5 +1,7 @@
 /**
-build a new [`trillium::Sequence`](crate::Sequence). see that type for more information.
+# Builds a new Sequence.
+
+See [`trillium::Sequence`](crate::Sequence) for more information.
 
 ```
 let macro_sequence = trillium::sequence![trillium_logger::DevLogger, "hello"];
@@ -14,7 +16,7 @@ macro_rules! sequence {
 }
 
 /**
-Attempts to unwrap a Result, returning the conn with a 500 status if the result is an Err variant.
+# Unwrap an Ok Result or returns the conn with a 500 status.
 
 ```
 use trillium_testing::{assert_body, assert_status, TestConn, TestHandler};
@@ -55,8 +57,10 @@ macro_rules! conn_try {
 }
 
 /**
-Unwraps an option or returns the conn from the current
-scope. This is useful for gracefully exiting a Handler without
+# Unwraps an option or returns the conn from the current
+scope
+
+This is useful for gracefully exiting a Handler without
 returning an error.
 
 ```
@@ -82,7 +86,9 @@ macro_rules! conn_unwrap {
 }
 
 /**
-a convenience macro for logging the contents of error variants. this
+# A convenience macro for logging the contents of error variants.
+
+This
 is useful when there is no further action required to process the
 error path, but you still want to record that it transpired
 */

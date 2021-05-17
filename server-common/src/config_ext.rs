@@ -4,8 +4,8 @@ use std::{
     io::ErrorKind,
     net::{SocketAddr, TcpListener, ToSocketAddrs},
 };
-use trillium::{BoxedTransport, Handler};
-use trillium_http::{Conn as HttpConn, Error, Stopper};
+use trillium::Handler;
+use trillium_http::{transport::BoxedTransport, Conn as HttpConn, Error, Stopper};
 use trillium_tls_common::Acceptor;
 /// # Server-implementer interfaces to Config
 ///

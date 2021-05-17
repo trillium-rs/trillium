@@ -4,9 +4,10 @@ use crate::http_types::{
 };
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
-use trillium_http::ReceivedBody;
-
-use crate::transport::{BoxedTransport, Transport};
+use trillium_http::{
+    transport::{BoxedTransport, Transport},
+    ReceivedBody,
+};
 
 /**
 # A Trillium HTTP connection

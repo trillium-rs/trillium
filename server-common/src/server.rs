@@ -1,5 +1,6 @@
 use crate::Config;
-use trillium::{async_trait, Handler, Transport};
+use trillium::{async_trait, Handler};
+use trillium_http::transport::Transport;
 use trillium_tls_common::Acceptor;
 
 #[async_trait]

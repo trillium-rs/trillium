@@ -29,14 +29,13 @@ pub use state::State;
 pub use async_trait::async_trait;
 pub use trillium_http::http_types;
 
-/// Types for IO operations
-pub mod transport;
+/**
+# A HTTP protocol upgrade
 
-/// An [`Upgrade`](trillium_http::Upgrade) for [`BoxedTransport`]s
-///
-/// This exists to erase the generic transport for convenience. See
-/// [`Upgrade`](trillium_http::Upgrade) for additional documentation
-pub type Upgrade = trillium_http::Upgrade<transport::BoxedTransport>;
+This exists to erase the generic transport for convenience using a [BoxedTransport](trillium_http::transport::BoxedTransport). See
+[`Upgrade`](trillium_http::Upgrade) for additional documentation
+*/
+pub type Upgrade = trillium_http::Upgrade<trillium_http::transport::BoxedTransport>;
 
 mod macros;
 

@@ -2,9 +2,9 @@ use full_duplex_async_copy::full_duplex_copy;
 use size::{Base, Size, Style};
 use std::convert::TryInto;
 use trillium::http_types::StatusCode;
-use trillium::{async_trait, conn_try, BoxedTransport, Conn, Handler};
+use trillium::{async_trait, conn_try, Conn, Handler};
 use trillium_client::Client;
-use trillium_http::Upgrade;
+use trillium_http::{transport::BoxedTransport, Upgrade};
 use url::Url;
 use StatusCode::{NotFound, SwitchingProtocols};
 

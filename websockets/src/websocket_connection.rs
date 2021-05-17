@@ -7,7 +7,8 @@ use futures_util::SinkExt;
 use std::task::{Context, Poll};
 use stopper::{Stopper, StreamStopper};
 use trillium::http_types::{headers::Headers, Extensions, Method};
-use trillium::{BoxedTransport, Upgrade};
+use trillium::Upgrade;
+use trillium_http::transport::BoxedTransport;
 
 #[derive(Debug)]
 pub struct WebSocketConnection {
