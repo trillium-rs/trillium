@@ -16,7 +16,7 @@ macro_rules! sequence {
 }
 
 /**
-# Unwrap an Ok Result or returns the conn with a 500 status.
+# Unwraps an Result::Ok or returns the conn with a 500 status.
 
 ```
 use trillium_testing::{assert_body, assert_status, TestConn, TestHandler};
@@ -57,8 +57,7 @@ macro_rules! conn_try {
 }
 
 /**
-# Unwraps an option or returns the conn from the current
-scope
+# Unwraps an Option::Some or returns the conn.
 
 This is useful for gracefully exiting a Handler without
 returning an error.

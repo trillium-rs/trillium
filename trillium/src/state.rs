@@ -4,7 +4,7 @@ use fmt::Formatter;
 
 use crate::{async_trait, Conn, Handler};
 /**
-# A handler for sharing state across an application
+# A handler for sharing state across an application.
 
 State is a handler that puts a clone of any `Clone + Send + Sync +
 'static` type into every conn's state map.

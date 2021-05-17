@@ -10,26 +10,13 @@ use trillium_http::{
 };
 
 /**
-# A Trillium HTTP connection
+# A Trillium HTTP connection.
 
-A Conn is the most important struct in trillium code. It represents
-both the request and response of a http connection. trillium::Conn is
-currently implemented as an abstraction on top of a
-[`trillium_http::Conn`].
+A Conn represents both the request and response of a http connection,
+as well as any application state that is associated with that
+connection.
 
-In particular, `trillium::Conn` boxes the transport using a
-[`trillium::BoxedTransport`](crate::BoxedTransport) so that
-application code can be written without transport generics. See
-[`trillium::Transport`](crate::Transport) for further reading on this.
-
-
-## method naming conventions
-
-Additionally, `trillium::Conn` provides a notion of being `halted`
-that is specifically designed for
-[`trillium::Sequence`][crate::Sequence]s. This may eventually be
-removed from Conn and instead be put into a SequenceConnExt for
-consistency with other Handler types.
+## `with_{attribute}` naming convention
 
 A convention that is used throughout trillium is that any interface
 that is named `with_{attribute}` will take ownership of the conn, set
@@ -49,6 +36,13 @@ If you need to set a property on the conn without moving it,
 `set_{attribute}` associated functions will be your huckleberry, as is
 conventional in other rust projects.
 
+## Halting
+`trillium::Conn` provides a notion of being `halted`
+that is specifically designed for
+[`trillium::Sequence`][crate::Sequence]s. This may eventually be
+removed from Conn and instead be put into a SequenceConnExt for
+consistency with other Handler types.
+
 ## State
 
 Every trillium Conn contains a state type which is a set that contains
@@ -58,6 +52,15 @@ authored. Library authors, this means that you should always offer a
 ConnExt trait that provides an interface for setting and getting
 state. State is also the primary way that handlers attach data to a
 conn as it passes through a [`trillium::Sequence`][crate::Sequence].
+
+## In relation to [`trillium_http::Conn`]
+
+`trillium::Conn` is currently implemented as an abstraction on top of a
+[`trillium_http::Conn`]. In particular, `trillium::Conn` boxes the
+transport using a [`BoxedTransport`](trillium_http::transport::BoxedTransport)
+so that application code can be written without transport
+generics. See [`Transport`](trillium_http::transport::Transport) for further
+reading on this.
 
 */
 
@@ -89,7 +92,88 @@ impl<T: Transport + 'static> From<trillium_http::Conn<T>> for Conn {
 
 impl Conn {
     /**
-    attempts to retrieve a &T from the state typemap
+    Conn::ok is a convenience function for the common pattern of
+    setting a body and a 200 status in one call. It is exactly
+    identical to `conn.with_status(200).with_body(body).halt()`
+    ```
+    let conn = trillium_testing::build_conn("GET", "/", ()).ok("hello");
+    assert_eq!(conn.response_len(), Some(5));
+    assert_eq!(*conn.status().unwrap(), 200);
+    assert!(conn.is_halted());
+    ```
+     */
+    pub fn ok(self, body: impl Into<Body>) -> Conn {
+        self.with_status(200).with_body(body).halt()
+    }
+
+    /**
+    returns the response status for this conn, if it has been set.
+    ```
+    let mut conn = trillium_testing::build_conn("GET", "/", ());
+    assert!(conn.status().is_none());
+    conn.set_status(200);
+    assert_eq!(conn.status().unwrap(), &trillium::http_types::StatusCode::Ok);
+    ```
+     */
+    pub fn status(&self) -> Option<&StatusCode> {
+        self.inner.status()
+    }
+
+    /// assigns a status to this response. see [`Conn::status`] for example usage
+    pub fn set_status(&mut self, status: impl TryInto<StatusCode>) {
+        self.inner.set_status(status);
+    }
+
+    /**
+    sets the response status for this conn and returns it. note that
+    this does not set the halted status.
+
+    ```
+    let conn = trillium_testing::build_conn("GET", "/", ()).with_status(200);
+    assert_eq!(conn.status().unwrap(), &trillium::http_types::StatusCode::Ok);
+    assert_eq!(*conn.status().unwrap(), 200);
+    assert!(!conn.is_halted());
+    ```
+     */
+
+    pub fn with_status(mut self, status: impl TryInto<StatusCode>) -> Self {
+        self.set_status(status);
+        self
+    }
+
+    /**
+    Sets the response body from any `impl Into<Body>` and returns the
+    conn for fluent chaining. Note that this does not set the response
+    status or halted. See [`Conn::ok`] for a function that does both
+    of those.
+
+    ```
+    let conn = trillium_testing::build_conn("GET", "/", ()).with_body("hello");
+    assert_eq!(conn.response_len(), Some(5));
+    ```
+    */
+
+    pub fn with_body(mut self, body: impl Into<Body>) -> Self {
+        self.set_body(body);
+        self
+    }
+
+    /**
+    Sets the response body from any `impl Into<Body>`. Note that this does not set the response
+    status or halted.
+
+    ```
+    let mut conn = trillium_testing::build_conn("GET", "/", ());
+    conn.set_body("hello");
+    assert_eq!(conn.response_len(), Some(5));
+    ```
+    */
+    pub fn set_body(&mut self, body: impl Into<Body>) {
+        self.inner.set_response_body(body);
+    }
+
+    /**
+    Attempts to retrieve a &T from the state set
 
     ```
     struct Hello;
@@ -103,32 +187,32 @@ impl Conn {
         self.inner.state().get()
     }
 
-    /// attempts to retrieve a &mut T from the state typemap
+    /// Attempts to retrieve a &mut T from the state set
     pub fn state_mut<T: 'static>(&mut self) -> Option<&mut T> {
         self.inner.state_mut().get_mut()
     }
 
-    /// puts a new type into the state typemap. see [`Conn::state`]
+    /// Puts a new type into the state set. see [`Conn::state`]
     /// for an example. returns the previous instance of this type, if
     /// any
     pub fn set_state<T: Send + Sync + 'static>(&mut self, val: T) -> Option<T> {
         self.inner.state_mut().insert(val)
     }
 
-    /// puts a new type into the state typemap and returns the
+    /// Puts a new type into the state set and returns the
     /// conn. this is useful for fluent chaining
     pub fn with_state<T: Send + Sync + 'static>(mut self, val: T) -> Self {
         self.set_state(val);
         self
     }
 
-    /// removes a type from the state typemap and returns it, if present
+    /// Removes a type from the state set and returns it, if present
     pub fn take_state<T: Send + Sync + 'static>(&mut self) -> Option<T> {
         self.inner.state_mut().remove()
     }
 
     /**
-    either returns the current &mut T from the state typemap, or
+    Either returns the current &mut T from the state set, or
     inserts a new one with the provided default function and
     returns a mutable reference to it
     */
@@ -183,41 +267,6 @@ impl Conn {
         self.inner.method()
     }
 
-    /**
-    returns the response status for this conn, if it has been set.
-    ```
-    let mut conn = trillium_testing::build_conn("GET", "/", ());
-    assert!(conn.status().is_none());
-    conn.set_status(200);
-    assert_eq!(conn.status().unwrap(), &trillium::http_types::StatusCode::Ok);
-    ```
-     */
-    pub fn status(&self) -> Option<&StatusCode> {
-        self.inner.status()
-    }
-
-    /// assigns a status to this response. see [`Conn::status`] for example usage
-    pub fn set_status(&mut self, status: impl TryInto<StatusCode>) {
-        self.inner.set_status(status);
-    }
-
-    /**
-    sets the response status for this conn and returns it. note that
-    this does not set the halted status.
-
-    ```
-    let conn = trillium_testing::build_conn("GET", "/", ()).with_status(200);
-    assert_eq!(conn.status().unwrap(), &trillium::http_types::StatusCode::Ok);
-    assert_eq!(*conn.status().unwrap(), 200);
-    assert!(!conn.is_halted());
-    ```
-     */
-
-    pub fn with_status(mut self, status: impl TryInto<StatusCode>) -> Self {
-        self.set_status(status);
-        self
-    }
-
     /// returns the request headers
     ///
     /// stability note: this may become `request_headers` at some point
@@ -258,16 +307,6 @@ impl Conn {
             .unwrap_or_else(|| self.inner.path())
     }
 
-    /// for router implementations. pushes a route segment onto the path
-    pub fn push_path(&mut self, path: String) {
-        self.path.push(path);
-    }
-
-    /// for router implementations. removes a route segment onto the path
-    pub fn pop_path(&mut self) {
-        self.path.pop();
-    }
-
     /**
     sets the `halted` attribute of this conn, preventing later
     processing in a given [`trillium::Sequence`](crate::Sequence). returns
@@ -301,38 +340,6 @@ impl Conn {
     /// retrieves the halted state of this conn.  see [`Conn::halt`].
     pub fn is_halted(&self) -> bool {
         self.halted
-    }
-
-    /**
-    sets the response body from any `impl Into<Body>` and returns the
-    conn for fluent chaining. note that this does not set the response
-    status or halted. See [`Conn::ok`] for a function that does both
-    of those.
-
-    ```
-    let conn = trillium_testing::build_conn("GET", "/", ()).with_body("hello");
-    assert_eq!(conn.response_len(), Some(5));
-    ```
-    */
-
-    pub fn with_body(mut self, body: impl Into<Body>) -> Self {
-        self.inner.set_response_body(body);
-        self
-    }
-
-    /**
-    Conn::ok is a convenience function for the common pattern of
-    setting a body and a 200 status in one call. It is exactly
-    identical to `conn.with_status(200).with_body(body).halt()`
-    ```
-    let conn = trillium_testing::build_conn("GET", "/", ()).ok("hello");
-    assert_eq!(conn.response_len(), Some(5));
-    assert_eq!(*conn.status().unwrap(), 200);
-    assert!(conn.is_halted());
-    ```
-     */
-    pub fn ok(self, body: impl Into<Body>) -> Conn {
-        self.with_status(200).with_body(body).halt()
     }
 
     /// predicate function to indicate whether the connection is
@@ -378,5 +385,15 @@ impl Conn {
             *t.downcast()
                 .expect("attempted to downcast to the wrong transport type")
         })
+    }
+
+    /// for router implementations. pushes a route segment onto the path
+    pub fn push_path(&mut self, path: String) {
+        self.path.push(path);
+    }
+
+    /// for router implementations. removes a route segment onto the path
+    pub fn pop_path(&mut self) {
+        self.path.pop();
     }
 }

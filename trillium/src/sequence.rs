@@ -41,7 +41,7 @@ trillium_testing::server::run(sequence);
 
 # Using the `trillium::sequence` macro
 
-See also [`trillium::sequence`][crate::sequence]. Most trillium docs
+See also [`trillium::sequence!`][crate::sequence!]. Most trillium docs
 and examples use this macro.
 
 ```
