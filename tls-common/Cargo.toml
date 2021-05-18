@@ -6,4 +6,4 @@ edition = "2018"
 
 [dependencies]
 futures-lite = "1.11.3"
-async-trait = "0.1.42"
+async-trait = "0.1.50"

@@ -14,10 +14,10 @@ categories = ["web-programming::http-server", "web-programming"]
 unstable = []
 
 [dependencies]
-httparse = "1.3.4"
-log = "0.4.13"
-pin-project = "1.0.4"
-thiserror = "1.0.23"
+httparse = "1.4.0"
+log = "0.4.14"
+pin-project = "1.0.7"
+thiserror = "1.0.24"
 futures-lite = "1.11.3"
 memmem = "0.1.1"
 stopper = "0.2.0"
@@ -25,14 +25,14 @@ encoding_rs = "0.8.28"
 http-types = { version = "0.0.1", default-features = false, package = "trillium-http-types" }
 
 [dev-dependencies]
-async-net = "1.5.0"
-env_logger = "0.8.2"
+async-net = "1.6.0"
+env_logger = "0.8.3"
 smol = "1.2.5"
-async-compat = "0.2.0"
-async-io = "1.3.1"
+async-compat = "0.2.1"
+async-io = "1.4.1"
 trillium-client = { path = "../client" }
 trillium-testing = { path = "../testing" }
 
 [dev-dependencies.tokio]
-version = "1.1.0"
+version = "1.5.0"
 features = ["rt", "net", "rt-multi-thread", "macros"]

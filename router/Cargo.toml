@@ -5,7 +5,7 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-routefinder = "0.2"
+routefinder = "0.3.0"
 trillium = { path = "../trillium" }
 log = "0.4.14"
 

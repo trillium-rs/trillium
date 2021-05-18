@@ -113,7 +113,7 @@ impl<T: ClientTransport> AsyncWrite for Rustls<T> {
 #[async_trait]
 impl<T: ClientTransport> ClientTransport for Rustls<T> {
     type Config = RustlsConfig<T::Config>;
-    fn peer_addr(&self) -> std::io::Result<SocketAddr> {
+    fn peer_addr(&self) -> Result<SocketAddr> {
         match self {
             Rustls::Tcp(t) => t.peer_addr(),
             Rustls::Tls(t) => t.get_ref().peer_addr(),
