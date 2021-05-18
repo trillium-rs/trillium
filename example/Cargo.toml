@@ -5,7 +5,7 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-env_logger = "0.8.2"
+env_logger = "0.8.3"
 trillium = { path = "../trillium" }
 trillium-router = { path = "../router" }
 trillium-logger = { path = "../logger" }

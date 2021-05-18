@@ -5,12 +5,12 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-log = "0.4.13"
-rustls = "0.19.0"
+log = "0.4.14"
+rustls = "0.19.1"
 async-tls = "0.11.0"
 trillium-tls-common = { path = "../tls-common" }
 
 [dev-dependencies]
 trillium = { path = "../trillium" }
 trillium-smol-server = { path = "../smol-server" }
-env_logger = "0.8.2"
+env_logger = "0.8.3"

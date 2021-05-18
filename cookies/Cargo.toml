@@ -5,13 +5,13 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-log = "0.4.13"
+log = "0.4.14"
 trillium = { path = "../trillium" }
 
 [dependencies.cookie]
-version = "0.14.3"
+version = "0.15.0"
 features = ["percent-encode", "secure"]
 
 [dev-dependencies]
-env_logger = "0.8.2"
+env_logger = "0.8.3"
 trillium-smol-server = { path = "../smol-server" }
