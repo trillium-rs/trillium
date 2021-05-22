@@ -27,7 +27,7 @@ pub struct Router {
 impl Handler for Router {
     async fn run(&self, conn: Conn) -> Conn {
         if let Some(m) = self.best_match(conn.method(), conn.path()) {
-            let captures = m.captures();
+            let captures = m.captures().into_owned();
             struct HasPath;
             let mut new_conn = m
                 .handler()
