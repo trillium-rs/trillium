@@ -9,7 +9,7 @@
 )]
 use futures_lite::io::BufReader;
 pub use lol_async::html;
-use lol_async::{html::Settings, lol};
+use lol_async::{html::Settings, rewrite};
 use std::str::FromStr;
 use trillium::async_trait;
 use trillium::http_types::{
@@ -34,7 +34,7 @@ impl Handler for HtmlRewriter {
 
         if html && conn.inner().response_body().is_some() {
             let body = conn.inner_mut().take_response_body().unwrap();
-            let (fut, reader) = lol(body, (self.settings)());
+            let (fut, reader) = rewrite(body, (self.settings)());
             async_global_executor::spawn_local(fut).detach();
             conn.headers_mut().remove(CONTENT_LENGTH); // we no longer know the content length, if we ever did
             conn.with_body(Body::from_reader(BufReader::new(reader), None))

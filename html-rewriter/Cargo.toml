@@ -7,8 +7,8 @@ edition = "2018"
 [dependencies]
 trillium = { path = "../trillium" }
 futures-lite = "1.11.3"
-lol-async = { git = "https://github.com/jbr/lol-async", branch = "main" }
 async-global-executor = "2.0.2"
+lol-async = "0.1.1"
 
 [dev-dependencies]
 trillium-smol-server = { path = "../smol-server" }
