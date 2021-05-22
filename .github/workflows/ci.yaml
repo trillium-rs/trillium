@@ -6,8 +6,8 @@ on:
     branches:
       - main
 
-env:
-  RUSTFLAGS: -Dwarnings
+# env:
+#   RUSTFLAGS: -Dwarnings
 
 jobs:
   deploy:
@@ -62,7 +62,7 @@ jobs:
         override: true
 
     - name: clippy
-      run: cargo clippy --tests --examples -- -D warnings
+      run: cargo clippy --tests --examples # -- -D warnings
         
     - name: fmt
       run: cargo fmt --all -- --check
