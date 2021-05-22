@@ -23,10 +23,11 @@ usable interface on top of trillium_http, at very little cost.
     use stopper::Stopper;
     use trillium_http::{Conn, Result};
     let stopper = Stopper::new();
+    let listener = TcpListener::bind(("localhost", 0)).await?;
+    let port = listener.local_addr()?.port();
 
     let server_stopper = stopper.clone();
     let server = smol::spawn(async move {
-        let listener = TcpListener::bind("localhost:8001").await?;
         let mut incoming = server_stopper.stop_stream(listener.incoming());
 
         while let Some(Ok(stream)) = incoming.next().await {
@@ -48,7 +49,8 @@ usable interface on top of trillium_http, at very little cost.
     // this example uses the trillium client
     // please note that this api is still especially unstable.
     // any other http client would work here too
-    let mut client_conn = trillium_client::Conn::<TcpStream>::get("http://localhost:8001")
+    let url = format!("http://localhost:{}/", port);
+    let mut client_conn = trillium_client::Conn::<TcpStream>::get(&*url)
         .execute()
         .await?;
 
