@@ -25,7 +25,7 @@ use trillium_http::{Conn, Result};
 
 let stopper = Stopper::new();
 let port = portpicker::pick_unused_port().unwrap();
-let listener = TcpListener::bind(("localhost", port)).await?;
+let listener = TcpListener::bind(("127.0.0.1", port)).await?;
 
 let server_stopper = stopper.clone();
 let server_handle = smol::spawn(async move {
@@ -46,7 +46,7 @@ let server_handle = smol::spawn(async move {
 // this example uses the trillium client
 // please note that this api is still especially unstable.
 // any other http client would work here too
-let url = format!("http://localhost:{}/", port);
+let url = format!("http://127.0.0.1:{}/", port);
 let mut client_conn = trillium_client::Conn::<TcpStream>::get(&*url)
     .execute()
     .await?;
