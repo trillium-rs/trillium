@@ -303,7 +303,7 @@ macro_rules! reverse_before_send {
 macro_rules! impl_handler_tuple {
         ($($name:ident)+) => (
             #[async_trait]
-            impl<$($name: Handler),*> Handler for ($($name,)*) {
+            impl<$($name),*> Handler for ($($name,)*) where $($name: Handler),* {
                 #[allow(non_snake_case)]
                 async fn run(&self, conn: Conn) -> Conn {
                     let ($(ref $name,)*) = *self;
@@ -352,7 +352,6 @@ macro_rules! impl_handler_tuple {
         );
     }
 
-impl_handler_tuple! { A }
 impl_handler_tuple! { A B }
 impl_handler_tuple! { A B C }
 impl_handler_tuple! { A B C D }
