@@ -150,12 +150,12 @@ Native tls:
 {{#include ../../native-tls/examples/native-tls.rs}}
 ```
 
-## Sequences
+## Sequences and Tuples
 
 Earlier, we discussed that we can use state to send data between
 handlers and that handlers can always pass along the conn
 unchanged. In order to use this, we need to introduce the notion of
-Sequences. A sequence is a `Vec` of handlers, each of which is run on
+Sequences. A Sequence is a `Vec` of handlers, each of which is run on
 the connection until one of the handlers halts the conn.
 
 > 🔌 Readers familiar with elixir plug will recognize this notion as
@@ -195,3 +195,15 @@ Sequence is itself a handler, and as a result can be used in any place
 another handler could be used.  If you need to, you can nest sequences
 inside of each other.
 
+### Tuples, too!
+
+For sequences of up to 15 handlers that are known at compile-time,
+tuples can and should be used. This avoids heap-allocating handlers.
+
+```rust
+env_logger::init();
+run((
+    trillium_logger::DevLogger,
+    |conn: Conn| async move { conn.ok("sequence!") }
+));
+```
