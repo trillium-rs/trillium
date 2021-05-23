@@ -52,8 +52,6 @@ let mut client_conn = trillium_client::Conn::<TcpStream>::get(&*url)
     .execute()
     .await?;
 
-dbg!(&client_conn); // love to debug on ci
-
 assert_eq!(client_conn.status().unwrap(), 200);
 assert_eq!(client_conn.response_headers()["content-length"], "11");
 assert_eq!(
