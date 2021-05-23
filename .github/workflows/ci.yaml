@@ -11,7 +11,7 @@ on:
 
 jobs:
   test:
-    name: Build and test
+    name: Build and Test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -33,16 +33,16 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
-    - name: tests
+    - name: Tests
       uses: actions-rs/cargo@v1
       with:
         command: test
         args: --all
 
   check_fmt_and_docs:
-    name: Checking fmt, clippy, and docs
+    name: Lints and Docs
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@master
@@ -56,11 +56,8 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         args: --all-features
-
-    # - name: clippy
-    #   run: cargo clippy --tests --examples # -- -D warnings
         
-    - name: fmt
+    - name: Format
       run: cargo fmt --all -- --check
 
     - name: Docs
