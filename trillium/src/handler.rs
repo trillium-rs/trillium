@@ -7,6 +7,7 @@ use std::sync::Arc;
 # The building block for Trillium applications.
 
 ## Concept
+
 Many other frameworks have a notion of `middleware` and `endpoints`,
 in which the model is that a request passes through a router and then
 any number of middlewares, then a single endpoint that returns a
@@ -17,7 +18,9 @@ Because a Trillium Conn represents both a request and response, there
 is no distinction between middleware and endpoints, as all of these
 can be thought of as `Fn(Conn) -> Future<Output = Conn>`.
 
-## Implementing Handler The simplest handler is an async closure or
+## Implementing Handler
+
+The simplest handler is an async closure or
 async fn that receives a Conn and returns a Conn, and Handler has a
 blanket implementation for any such Fn.
 
