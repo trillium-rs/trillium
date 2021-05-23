@@ -10,25 +10,6 @@ on:
 #   RUSTFLAGS: -Dwarnings
 
 jobs:
-  deploy:
-    runs-on: ubuntu-18.04
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Set up mdBook
-        uses: peaceiris/actions-mdbook@v1
-        with:
-          #mdbook-version: '0.4.6'
-          mdbook-version: 'latest'
-
-      - run: mdbook build docs
-
-      - name: Deploy
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/book
-
   test:
     name: Build and test
     runs-on: ${{ matrix.os }}
