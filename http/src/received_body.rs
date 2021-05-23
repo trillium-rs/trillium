@@ -169,7 +169,7 @@ where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
     match opt_buffer {
-        Some(buffer) => {
+        Some(buffer) if !buffer.is_empty() => {
             let len = buffer.len();
             if len > buf.len() {
                 trace!(
@@ -193,7 +193,7 @@ where
             }
         }
 
-        None => Pin::new(transport).poll_read(cx, buf),
+        _ => Pin::new(transport).poll_read(cx, buf),
     }
 }
 
