@@ -340,7 +340,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
 
     async fn parse_head(&mut self) -> Result<()> {
         let (head, body) = self.read_head().await?;
-        self.buffer = Some(body);
+        self.buffer = if body.is_empty() { None } else { Some(body) };
         let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
         let mut httparse_res = httparse::Response::new(&mut headers);
         let status = httparse_res.parse(&head[..]);
