@@ -288,3 +288,82 @@ impl Handler for &'static str {
         Cow::Borrowed(self)
     }
 }
+
+macro_rules! reverse_before_send {
+    ($conn:ident, $name:ident) => (
+        let $conn = ($name).before_send($conn).await;
+    );
+
+    ($conn:ident, $name:ident $($other_names:ident)+) => (
+        reverse_before_send!($conn, $($other_names)*);
+        reverse_before_send!($conn, $name);
+    );
+}
+
+macro_rules! impl_handler_tuple {
+        ($($name:ident)+) => (
+            #[async_trait]
+            impl<$($name: Handler),*> Handler for ($($name,)*) {
+                #[allow(non_snake_case)]
+                async fn run(&self, conn: Conn) -> Conn {
+                    let ($(ref $name,)*) = *self;
+                    $(
+                        let conn = ($name).run(conn).await;
+                        if conn.is_halted() { return conn }
+                    )*
+                    conn
+                }
+
+                #[allow(non_snake_case)]
+                fn name(&self) -> Cow<'static, str> {
+                    let ($(ref $name,)*) = *self;
+                    format!("({})", [$(($name).name(),)*].join(", ")).into()
+                }
+
+
+                #[allow(non_snake_case)]
+                async fn init(&mut self) {
+                    let ($(ref mut $name,)*) = *self;
+                    $(($name).init().await;)*
+                }
+
+                #[allow(non_snake_case)]
+                async fn before_send(&self, conn: Conn) -> Conn {
+                    let ($(ref $name,)*) = *self;
+                    reverse_before_send!(conn, $($name)+);
+                    conn
+                }
+
+                #[allow(non_snake_case)]
+                fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+                    let ($(ref $name,)*) = *self;
+                    $(if ($name).has_upgrade(upgrade) { return true })*
+                    false
+                }
+
+                #[allow(non_snake_case)]
+                async fn upgrade(&self, upgrade: Upgrade) {
+                    let ($(ref $name,)*) = *self;
+                    $(if ($name).has_upgrade(&upgrade) {
+                        return ($name).upgrade(upgrade).await;
+                    })*
+                }
+            }
+        );
+    }
+
+impl_handler_tuple! { A }
+impl_handler_tuple! { A B }
+impl_handler_tuple! { A B C }
+impl_handler_tuple! { A B C D }
+impl_handler_tuple! { A B C D E }
+impl_handler_tuple! { A B C D E F }
+impl_handler_tuple! { A B C D E F G }
+impl_handler_tuple! { A B C D E F G H }
+impl_handler_tuple! { A B C D E F G H I }
+impl_handler_tuple! { A B C D E F G H I J }
+impl_handler_tuple! { A B C D E F G H I J K }
+impl_handler_tuple! { A B C D E F G H I J K L }
+impl_handler_tuple! { A B C D E F G H I J K L M }
+impl_handler_tuple! { A B C D E F G H I J K L M N }
+impl_handler_tuple! { A B C D E F G H I J K L M N O }
