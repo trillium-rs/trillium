@@ -24,8 +24,8 @@ use stopper::Stopper;
 use trillium_http::{Conn, Result};
 
 let stopper = Stopper::new();
-let listener = TcpListener::bind(("localhost", 0)).await?;
-let port = listener.local_addr()?.port();
+let port = portpicker::pick_unused_port().unwrap();
+let listener = TcpListener::bind(("localhost", port)).await?;
 
 let server_stopper = stopper.clone();
 let server_handle = smol::spawn(async move {
