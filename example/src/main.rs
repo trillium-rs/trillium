@@ -19,10 +19,10 @@ struct HelloTemplate<'a> {
 fn main() {
     env_logger::init();
 
-    trillium_smol_server::run(sequence![
+    trillium_smol_server::run((
         DevLogger,
         Cookies,
-        Sessions::new(MemoryStore::new(), b"01234567890123456789012345678901123",),
+        Sessions::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {
             let count = conn.session().get::<usize>("count").unwrap_or_default();
             conn.with_header(("request-count", count.to_string()))
@@ -64,7 +64,7 @@ fn main() {
                         let output: String = input.chars().rev().collect();
                         ws.send_string(format!("{} | {}", &input, &output)).await;
                     }
-                })
+                }),
             ),
         Router::build(|mut r| {
             r.get(
@@ -76,6 +76,6 @@ fn main() {
                 "*",
                 StaticCompiled::new(include_dir!("./public/")).with_index_file("index.html"),
             );
-        })
-    ]);
+        }),
+    ));
 }
