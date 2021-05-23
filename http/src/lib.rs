@@ -18,15 +18,14 @@ usable interface on top of trillium_http, at very little cost.
 
 ```
 # fn main() -> trillium_http::Result<()> {    smol::block_on(async {
-# env_logger::init();
 use async_net::{TcpListener, TcpStream};
 use futures_lite::StreamExt;
 use stopper::Stopper;
 use trillium_http::{Conn, Result};
 
 let stopper = Stopper::new();
-let port = portpicker::pick_unused_port().unwrap();
-let listener = TcpListener::bind(("127.0.0.1", port)).await?;
+let listener = TcpListener::bind(("localhost", 0)).await?;
+let port = listener.local_addr()?.port();
 
 let server_stopper = stopper.clone();
 let server_handle = smol::spawn(async move {
@@ -47,7 +46,7 @@ let server_handle = smol::spawn(async move {
 // this example uses the trillium client
 // please note that this api is still especially unstable.
 // any other http client would work here too
-let url = format!("http://127.0.0.1:{}/", port);
+let url = format!("http://localhost:{}/", port);
 let mut client_conn = trillium_client::Conn::<TcpStream>::get(&*url)
     .execute()
     .await?;
