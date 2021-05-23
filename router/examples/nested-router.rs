@@ -1,4 +1,4 @@
-use trillium::{sequence, Conn, Handler};
+use trillium::{Conn, Handler};
 use trillium_router::{Router, RouterConnExt};
 
 struct User {
@@ -15,7 +15,7 @@ async fn load_user(conn: Conn) -> Conn {
 }
 
 fn nested_app() -> impl Handler {
-    sequence![
+    (
         load_user,
         Router::new()
             .get("/greeting", |mut conn: Conn| async move {
@@ -24,8 +24,8 @@ fn nested_app() -> impl Handler {
             })
             .get("/some/other/route", |conn: Conn| async move {
                 conn.ok("this is an uninspired example")
-            })
-    ]
+            }),
+    )
 }
 
 pub fn main() {

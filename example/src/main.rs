@@ -1,6 +1,6 @@
 use askama::Template;
 use futures_lite::prelude::*;
-use trillium::{sequence, Conn};
+use trillium::Conn;
 use trillium_askama::AskamaConnExt;
 use trillium_cookies::Cookies;
 use trillium_logger::DevLogger;

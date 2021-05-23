@@ -11,7 +11,7 @@ State is a handler that puts a clone of any `Clone + Send + Sync +
 
 ```
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
-use trillium::{Conn, sequence, State};
+use trillium::{Conn, State};
 
 #[derive(Clone, Default)] // Clone is mandatory
 struct MyFeatureFlag(Arc<AtomicBool>);
@@ -22,7 +22,7 @@ impl MyFeatureFlag {
     }
 }
 
-trillium_testing::server::run(sequence![
+trillium_testing::server::run((
     State::new(MyFeatureFlag::default()),
     |conn: Conn| async move {
       if conn.state::<MyFeatureFlag>().unwrap().is_enabled() {
@@ -31,7 +31,7 @@ trillium_testing::server::run(sequence![
           conn.ok("path b")
       }
     }
-]);
+));
 ```
 
 Please note that as with the above contrived example, if your state

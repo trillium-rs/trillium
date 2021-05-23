@@ -1,5 +1,5 @@
 use askama::Template;
-use trillium::{sequence, Conn};
+use trillium::Conn;
 use trillium_askama::AskamaConnExt;
 use trillium_aws_lambda::LambdaConnExt;
 use trillium_cookies::Cookies;
@@ -15,10 +15,10 @@ struct HelloTemplate<'a> {
 
 fn main() {
     env_logger::init();
-    trillium_aws_lambda::run(sequence![
+    trillium_aws_lambda::run((
         DevLogger,
         Cookies,
-        Sessions::new(CookieStore::new(), b"01234567890123456789012345678901123",),
+        Sessions::new(CookieStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {
             let count = conn.session().get::<usize>("count").unwrap_or_default();
             let request_id = conn.lambda_context().request_id.clone();
@@ -48,5 +48,5 @@ fn main() {
                     conn
                 }
             }),
-    ])
+    ))
 }
