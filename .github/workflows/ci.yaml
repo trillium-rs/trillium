@@ -8,6 +8,8 @@ on:
 
 # env:
 #   RUSTFLAGS: -Dwarnings
+env:
+  RUST_LOG: trace
 
 jobs:
   test:

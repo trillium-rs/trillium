@@ -18,6 +18,7 @@ usable interface on top of trillium_http, at very little cost.
 
 ```
 # fn main() -> trillium_http::Result<()> {    smol::block_on(async {
+# env_logger::init();
 use async_net::{TcpListener, TcpStream};
 use futures_lite::StreamExt;
 use stopper::Stopper;
