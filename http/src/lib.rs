@@ -18,50 +18,48 @@ usable interface on top of trillium_http, at very little cost.
 
 ```
 # fn main() -> trillium_http::Result<()> {    smol::block_on(async {
-    use async_net::{TcpListener, TcpStream};
-    use futures_lite::StreamExt;
-    use stopper::Stopper;
-    use trillium_http::{Conn, Result};
-    let stopper = Stopper::new();
-    let listener = TcpListener::bind(("localhost", 0)).await?;
-    let port = listener.local_addr()?.port();
+use async_net::{TcpListener, TcpStream};
+use futures_lite::StreamExt;
+use stopper::Stopper;
+use trillium_http::{Conn, Result};
 
-    let server_stopper = stopper.clone();
-    let server = smol::spawn(async move {
-        let mut incoming = server_stopper.stop_stream(listener.incoming());
+let stopper = Stopper::new();
+let listener = TcpListener::bind(("localhost", 0)).await?;
+let port = listener.local_addr()?.port();
 
-        while let Some(Ok(stream)) = incoming.next().await {
-            let stopper = server_stopper.clone();
-            smol::spawn(async move {
-                Conn::map(stream, stopper, |mut conn: Conn<TcpStream>| async move {
-                    conn.set_response_body("hello world");
-                    conn.set_status(200);
-                    conn
-                })
-                .await
-            })
-            .detach()
-        }
+let server_stopper = stopper.clone();
+let server_handle = smol::spawn(async move {
+    let mut incoming = server_stopper.stop_stream(listener.incoming());
 
-        Result::Ok(())
-    });
+    while let Some(Ok(stream)) = incoming.next().await {
+        let stopper = server_stopper.clone();
+        smol::spawn(Conn::map(stream, stopper, |mut conn: Conn<TcpStream>| async move {
+            conn.set_response_body("hello world");
+            conn.set_status(200);
+            conn
+         })).detach()
+    }
 
-    // this example uses the trillium client
-    // please note that this api is still especially unstable.
-    // any other http client would work here too
-    let url = format!("http://localhost:{}/", port);
-    let mut client_conn = trillium_client::Conn::<TcpStream>::get(&*url)
-        .execute()
-        .await?;
+    Result::Ok(())
+});
 
-    assert_eq!(client_conn.status().unwrap(), 200);
-    assert_eq!(
-        client_conn.response_body().read_string().await?,
-        "hello world"
-    );
+// this example uses the trillium client
+// please note that this api is still especially unstable.
+// any other http client would work here too
+let url = format!("http://localhost:{}/", port);
+let mut client_conn = trillium_client::Conn::<TcpStream>::get(&*url)
+    .execute()
+    .await?;
 
-    stopper.stop(); // stop the server after one request
-    server.await?; // wait for the server to shut down
+assert_eq!(client_conn.status().unwrap(), 200);
+assert_eq!(client_conn.response_headers()["content-length"], "11");
+assert_eq!(
+    client_conn.response_body().read_string().await?,
+    "hello world"
+);
+
+stopper.stop(); // stop the server after one request
+server_handle.await?; // wait for the server to shut down
 #        Result::Ok(()) }) }
 ```
 */
