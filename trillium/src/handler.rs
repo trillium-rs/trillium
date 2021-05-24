@@ -223,6 +223,7 @@ impl<G: Handler> Handler for Arc<G> {
 impl<G: Handler> Handler for Vec<G> {
     async fn run(&self, mut conn: Conn) -> Conn {
         for handler in self {
+            log::debug!("running {}", handler.name());
             conn = handler.run(conn).await;
             if conn.is_halted() {
                 break;
@@ -311,18 +312,12 @@ macro_rules! impl_handler_tuple {
                 async fn run(&self, conn: Conn) -> Conn {
                     let ($(ref $name,)*) = *self;
                     $(
+                        log::debug!("running {}", ($name).name());
                         let conn = ($name).run(conn).await;
                         if conn.is_halted() { return conn }
                     )*
                     conn
                 }
-
-                #[allow(non_snake_case)]
-                fn name(&self) -> Cow<'static, str> {
-                    let ($(ref $name,)*) = *self;
-                    format!("({})", [$(($name).name(),)*].join(", ")).into()
-                }
-
 
                 #[allow(non_snake_case)]
                 async fn init(&mut self) {

@@ -1,6 +1,7 @@
 use routefinder::{Captures, Match};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::Arc;
 use trillium::{async_trait, http_types::Method, Conn, Handler};
 
 pub trait RouterConnExt {
@@ -19,9 +20,7 @@ impl RouterConnExt for Conn {
 }
 
 #[derive(Default, Debug)]
-pub struct Router {
-    method_map: HashMap<Method, routefinder::Router<Box<dyn Handler>>>,
-}
+pub struct Router(HashMap<Method, routefinder::Router<Box<dyn Handler>>>);
 
 #[async_trait]
 impl Handler for Router {
@@ -29,6 +28,7 @@ impl Handler for Router {
         if let Some(m) = self.best_match(conn.method(), conn.path()) {
             let captures = m.captures().into_owned();
             struct HasPath;
+            log::debug!("running {}: {}", m.route(), m.name());
             let mut new_conn = m
                 .handler()
                 .run({
@@ -45,7 +45,7 @@ impl Handler for Router {
             }
             new_conn
         } else {
-            log::trace!("{} did not match any route", conn.path());
+            log::debug!("{} did not match any route", conn.path());
             conn
         }
     }
@@ -73,10 +73,6 @@ impl Handler for Router {
             .upgrade(upgrade)
             .await
     }
-
-    fn name(&self) -> Cow<'static, str> {
-        format!("{:#?}", &self).into()
-    }
 }
 
 macro_rules! method_ref {
@@ -94,6 +90,10 @@ impl RouterRef<'_> {
     method_ref!(put, Put);
     method_ref!(delete, Delete);
     method_ref!(patch, Patch);
+
+    pub fn any(&mut self, path: &'static str, handler: impl Handler) {
+        self.0.register_any(path, handler)
+    }
 }
 
 macro_rules! method {
@@ -107,9 +107,7 @@ macro_rules! method {
 
 impl Router {
     pub fn new() -> Self {
-        Router {
-            method_map: HashMap::default(),
-        }
+        Self::default()
     }
 
     pub fn build(b: impl Fn(RouterRef)) -> Router {
@@ -123,15 +121,28 @@ impl Router {
         method: &Method,
         path: &'b str,
     ) -> Option<Match<'a, 'b, Box<dyn Handler>>> {
-        self.method_map.get(method).and_then(|r| r.best_match(path))
+        self.0.get(method).and_then(|r| r.best_match(path))
     }
 
     pub fn add(&mut self, path: &'static str, method: Method, handler: impl Handler) {
-        self.method_map
+        self.0
             .entry(method)
             .or_insert_with(routefinder::Router::new)
             .add(path, Box::new(handler))
-            .unwrap()
+            .expect("could not add route")
+    }
+
+    pub fn register_any(&mut self, path: &'static str, handler: impl Handler) {
+        use Method::*;
+        let handler = Arc::new(handler);
+        for method in [Get, Post, Put, Delete, Patch] {
+            self.add(path, method, handler.clone())
+        }
+    }
+
+    pub fn any(mut self, path: &'static str, handler: impl Handler) -> Self {
+        self.register_any(path, handler);
+        self
     }
 
     method!(get, Get);

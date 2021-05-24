@@ -1,38 +1,50 @@
-use trillium::{Conn, Handler};
+use trillium::{conn_try, conn_unwrap, Conn, Handler};
+use trillium_logger::DevLogger;
 use trillium_router::{Router, RouterConnExt};
 
 struct User {
     id: usize,
 }
 
-async fn load_user(conn: Conn) -> Conn {
-    if let Ok(id) = conn.param("user_id").unwrap().parse() {
+mod nested_app {
+    use super::*;
+    async fn load_user(conn: Conn) -> Conn {
+        let id = conn_try!(conn, conn.param("user_id").unwrap().parse());
         let user = User { id }; // imagine we were loading a user from a database here
         conn.with_state(user)
-    } else {
-        conn.with_status(404).halt()
+    }
+
+    async fn greeting(mut conn: Conn) -> Conn {
+        let user = conn_unwrap!(conn, conn.take_state::<User>());
+        conn.ok(format!("hello user {}", user.id))
+    }
+
+    async fn post(mut conn: Conn) -> Conn {
+        let user = conn_unwrap!(conn, conn.take_state::<User>());
+        let body = conn_try!(conn, conn.request_body().await.read_string().await);
+        conn.ok(format!("hello user {}, {}", user.id, body))
+    }
+
+    async fn some_other_route(conn: Conn) -> Conn {
+        conn.ok("this is an uninspired example")
+    }
+
+    pub fn handler() -> impl Handler {
+        (
+            load_user,
+            Router::new()
+                .get("/greeting", greeting)
+                .get("/some/other/route", some_other_route)
+                .post("/post", post),
+        )
     }
 }
-
-fn nested_app() -> impl Handler {
-    (
-        load_user,
-        Router::new()
-            .get("/greeting", |mut conn: Conn| async move {
-                let user = conn.take_state::<User>().unwrap();
-                conn.ok(format!("hello user {}", user.id))
-            })
-            .get("/some/other/route", |conn: Conn| async move {
-                conn.ok("this is an uninspired example")
-            }),
-    )
-}
-
 pub fn main() {
     env_logger::init();
-    trillium_smol_server::run(
+    trillium_smol_server::run((
+        DevLogger,
         Router::new()
             .get("/", |conn: Conn| async move { conn.ok("hello everyone") })
-            .get("/users/:user_id/*", nested_app()),
-    );
+            .any("/users/:user_id/*", nested_app::handler()),
+    ));
 }
