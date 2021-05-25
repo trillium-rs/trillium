@@ -62,10 +62,11 @@ impl<'r> RouterRef<'r> {
 
     /**
     Appends the handler to all (get, post, put, delete, and patch) methods.
+
     ```
     # use trillium::Conn;
     # use trillium_router::Router;
-    let router = Router::build(|mut router|
+    let router = Router::build(|mut router| {
         router.any("/any", |conn: Conn| async move {
             let response = format!("you made a {} request to /any", conn.method());
             conn.ok(response)
