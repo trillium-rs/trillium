@@ -18,7 +18,7 @@ trillium-rustls = { path = "../rustls/" }
 trillium-smol-server = { path = "../smol-server" }
 trillium-static = { path = "../static" }
 structopt = "0.3.21"
-serde = "1.0.125"
+serde = "1.0.126"
 serde_json = "1.0.64"
 trillium-html-rewriter = { path = "../html-rewriter/" }
 trillium-websockets = { path = "../websockets/", features = ["json"] }
@@ -29,7 +29,7 @@ async-channel = "1.6.1"
 broadcaster = "1.0.0"
 ansi-to-html = "0.1.0"
 trillium-client = { path = "../client" }
-bat = { version = "0.18.0", default-features = false, features = [
+bat = { version = "0.18.1", default-features = false, features = [
   "atty",
   "clap",
   "dirs-next",
@@ -47,4 +47,4 @@ async-fs = "1.5.0"
 signal-hook = "0.3.8"
 libc = "0.2.94"
 nix = "0.20.0"
-notify = "4.0.16"
+notify = "4.0.17"

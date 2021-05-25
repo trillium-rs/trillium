@@ -11,12 +11,12 @@ json = ["serde_json"]
 async-dup = "1.2.2"
 async-tungstenite = "0.13.1"
 base64 = "0.13.0"
-futures-util = "0.3.14"
+futures-util = "0.3.15"
 trillium = { path = "../trillium" }
 pin-project = "1.0.7"
-serde = "1.0.125"
+serde = "1.0.126"
 serde_json = { version = "1.0.64", optional = true }
-sha-1 = "0.9.5"
+sha-1 = "0.9.6"
 log = "0.4.14"
 stopper = "0.2.0"
 trillium-http = { path = "../http" }

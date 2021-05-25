@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 trillium = { path = "../trillium" }
-url = "2.2.1"
+url = "2.2.2"
 log = "0.4.14"
 trillium-http = { path = "../http" }
 trillium-client = { path = "../client" }
