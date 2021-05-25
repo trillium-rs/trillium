@@ -1,5 +1,4 @@
 use routefinder::{Captures, Match};
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use trillium::{async_trait, http_types::Method, Conn, Handler};
