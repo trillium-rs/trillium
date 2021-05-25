@@ -103,9 +103,16 @@ where
             register_signals: self.register_signals,
         }
     }
+
+    /// use the specific [`Stopper`] provided
+    pub fn with_stopper(mut self, stopper: Stopper) -> Self {
+        self.stopper = stopper;
+        self
+    }
 }
 
 impl<ServerType> Config<ServerType, ()> {
+    /// build a new config with default acceptor
     pub fn new() -> Self {
         Self::default()
     }

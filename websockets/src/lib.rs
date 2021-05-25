@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![warn(
+#![deny(
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
@@ -7,29 +7,75 @@
     nonstandard_style,
     unused_qualifications
 )]
+
+/*!
+# A websocket trillium handler
+
+```
+# async_global_executor::block_on(async {
+# let stopper = trillium_http::Stopper::new();
+let port = portpicker::pick_unused_port().unwrap();
+use trillium_websockets::{Message, WebSocket};
+
+# let server = async_global_executor::spawn(
+trillium_smol_server::config()
+    .with_port(port)
+    .run_async(WebSocket::new(|mut websocket| async move {
+        let path = websocket.path().to_owned();
+        while let Some(Ok(Message::Text(input))) = websocket.next().await {
+            websocket
+                .send_string(format!("received your message: {} at path {}", &input, path))
+                .await;
+        }
+    }))
+# );
+# use futures_util::{SinkExt, StreamExt};
+# use async_net::TcpStream;
+
+// the client part of this example is a bit awkward but actually
+// exercises the trillium server
+let socket = TcpStream::connect(("localhost", port)).await?;
+let (mut client, _) = async_tungstenite::client_async("ws://localhost/some/route", socket).await?;
+
+client.send(Message::text("hello")).await?;
+let received_message = client.next().await.unwrap()?.into_text()?;
+assert_eq!("received your message: hello at path /some/route", received_message);
+
+client.send(Message::text("hey")).await?;
+let received_message = client.next().await.unwrap()?.into_text()?;
+assert_eq!("received your message: hey at path /some/route", received_message);
+
+# server.detach();
+# Result::<_, Box<dyn std::error::Error>>::Ok(()) }).unwrap();
+```
+*/
+
 mod websocket_connection;
 use async_dup::Arc;
 use sha1::{Digest, Sha1};
-use std::future::Future;
-use std::marker::Send;
-use trillium::Upgrade;
+use std::{future::Future, marker::Send};
 use trillium::{
     async_trait,
     http_types::{
         headers::{CONNECTION, UPGRADE},
         StatusCode,
     },
-    Conn, Handler,
+    Conn, Handler, Upgrade,
 };
 
 pub use async_tungstenite;
 pub use async_tungstenite::tungstenite;
 pub use tungstenite::{Error, Message};
-pub use websocket_connection::WebSocketConnection;
+pub use websocket_connection::WebSocketConn;
 
 const WEBSOCKET_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+/// a Result type for websocket messages
 pub type Result = std::result::Result<Message, Error>;
 
+/**
+The trillium handler.
+See crate-level docs for example usage.
+*/
 #[derive(Debug)]
 pub struct WebSocket<Handler> {
     handler: Arc<Handler>,
@@ -38,10 +84,11 @@ pub struct WebSocket<Handler> {
 
 impl<Handler, Fut> WebSocket<Handler>
 where
-    Handler: Fn(WebSocketConnection) -> Fut + Sync + Send + 'static,
+    Handler: Fn(WebSocketConn) -> Fut + Sync + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    /// Build a new WebSocket with a handler function that
+    /// Build a new WebSocket with an async handler function that
+    /// receives a [`WebSocketConn`]
     pub fn new(handler: Handler) -> Self {
         Self {
             handler: Arc::new(handler),
@@ -65,7 +112,7 @@ struct IsWebsocket;
 #[async_trait]
 impl<H, Fut> Handler for WebSocket<H>
 where
-    H: Fn(WebSocketConnection) -> Fut + Sync + Send + 'static,
+    H: Fn(WebSocketConn) -> Fut + Sync + Send + 'static,
     Fut: Future<Output = ()> + Send + Sync + 'static,
 {
     async fn run(&self, mut conn: Conn) -> Conn {
@@ -126,6 +173,6 @@ where
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        (self.handler)(WebSocketConnection::new(upgrade).await).await
+        (self.handler)(WebSocketConn::new(upgrade).await).await
     }
 }

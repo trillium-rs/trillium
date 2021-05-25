@@ -19,7 +19,7 @@ the trillium ecosystem.
 
 To get started with this crate, first take a look at [the
 guide](https://trillium.rs), then browse the docs for
-[`trillium::Conn`].
+[`trillium::Conn`](crate::Conn).
 
 */
 mod handler;

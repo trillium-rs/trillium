@@ -23,8 +23,12 @@ macro_rules! trace {
     )
 }
 
-/** This type represents a body that will be read from the underlying
-transport, which it may either borrow from a [`Conn`] or own.
+/** A received http body
+
+This type represents a body that will be read from the underlying
+transport, which it may either borrow from a [`Conn`](crate::Conn) or
+own.
+
 ```rust
 # futures_lite::future::block_on(async {
 # use trillium_http::{http_types::Method, Conn};
@@ -112,7 +116,7 @@ where
     }
 
     /**
-    Similar to [`read_string`], but returns the raw bytes. This is
+    Similar to [`ReceivedBody::read_string`], but returns the raw bytes. This is
     useful for bodies that are not text.
 
     You can use this in conjunction with `encoding` if you need
