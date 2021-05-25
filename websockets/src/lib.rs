@@ -17,7 +17,7 @@
 let port = portpicker::pick_unused_port().unwrap();
 use trillium_websockets::{Message, WebSocket};
 
-# let server = async_global_executor::spawn(
+# let server = async_global_executor::spawn(async move {
 trillium_smol_server::config()
     .with_port(port)
     .run_async(WebSocket::new(|mut websocket| async move {
@@ -27,8 +27,8 @@ trillium_smol_server::config()
                 .send_string(format!("received your message: {} at path {}", &input, path))
                 .await;
         }
-    }))
-# );
+    })).await
+# });
 # use futures_util::{SinkExt, StreamExt};
 # use async_net::TcpStream;
 

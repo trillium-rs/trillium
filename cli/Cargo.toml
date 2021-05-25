@@ -21,7 +21,7 @@ structopt = "0.3.21"
 serde = "1.0.125"
 serde_json = "1.0.64"
 trillium-html-rewriter = { path = "../html-rewriter/" }
-trillium-websockets = { path = "../websockets/" }
+trillium-websockets = { path = "../websockets/", features = ["json"] }
 trillium-router = { path = "../router" }
 futures-lite = "1.11.3"
 async-io = "1.4.1"
