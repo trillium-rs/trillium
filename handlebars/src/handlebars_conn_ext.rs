@@ -10,10 +10,8 @@ Extension trait that provides handlebar rendering capabilities to
 */
 pub trait HandlebarsConnExt {
     /**
-    registers an "assigns" value on this Conn for use in a template.
-    ```
-    todo!()
-    ```
+    Registers an "assigns" value on this Conn for use in a template.
+    See example usage at [`Handlebars::new`](crate::Handlebars::new)
     */
     fn assign(self, key: impl Into<Cow<'static, str>> + Sized, data: impl Serialize) -> Self;
 
@@ -23,28 +21,37 @@ pub trait HandlebarsConnExt {
     [`HandlebarsConnExt::assign`]
 
     ```
-    todo!()
+    use trillium_handlebars::{Handlebars, handlebars, HandlebarsConnExt};
+    # fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+    #[derive(serde::Serialize)]
+    struct User { name: &'static str };
+
+    let mut handlebars = handlebars::Handlebars::new();
+    handlebars.register_template_string("greet-user", "Hello {{name}}")?;
+    let handler = (
+        Handlebars::new(handlebars),
+        |mut conn: trillium::Conn| async move {
+            conn.render_with("greet-user", &User { name: "handlebars" })
+        }
+    );
+
+    use trillium_testing::{TestHandler, assert_ok};
+    let test_handler = TestHandler::new(handler);
+    assert_ok!(test_handler.get("/"), "Hello handlebars");
+    # Ok(()) }
     ```
     */
     fn render_with(self, template: &str, data: &impl Serialize) -> Self;
 
     /**
     renders a registered template, passing any accumulated assigns to
-    the template
-
-    ```
-    todo!()
-    ```
+    the template. See example at [`Handlebars::new`](crate::Handlebars::new)
      */
     fn render(self, template: &str) -> Self;
 
-    /**
-    retrieves a reference to any accumulated assigns on this conn
+    /// retrieves a reference to any accumulated assigns on this conn
 
-    ```
-    todo!()
-    ```
-     */
     fn assigns(&self) -> Option<&Assigns>;
 
     /**

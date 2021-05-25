@@ -8,6 +8,12 @@
     unused_qualifications
 )]
 
+/*!
+Handlebars templating handler for trillium based on [the handlebars
+crate](https://docs.rs/crate/handlebars). See example usage at
+[`Handlebars::new`](crate::Handlebars::new)
+*/
+
 pub use handlebars;
 
 mod assigns;

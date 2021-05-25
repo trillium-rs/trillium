@@ -16,12 +16,41 @@ impl Handlebars {
     /// [`handlebars::Handlebars<'static>`](handlebars::Handlebars)
     /// instance
     ///
+    /// ## From a glob
     /// ```
-    /// trillium_handlebars::Handlebars::new(trillium_handlebars::handlebars::Handlebars::default());
+    /// use trillium_handlebars::{Handlebars, HandlebarsConnExt};
+    /// let handler = (
+    ///     Handlebars::new("**/*.hbs"),
+    ///     |mut conn: trillium::Conn| async move {
+    ///         conn.assign("name", "handlebars")
+    ///             .render("examples/templates/hello.hbs")
+    ///     }
+    /// );
+    ///
+    /// use trillium_testing::{TestHandler, assert_ok};
+    /// let test_handler = TestHandler::new(handler);
+    /// assert_ok!(test_handler.get("/"), "hello handlebars!");
     /// ```
+    /// ## From a [`handlebars::Handlebars`]
     ///
     /// ```
-    /// trillium_handlebars::Handlebars::new("**/*.hbs");
+    /// use trillium_handlebars::{Handlebars, handlebars, HandlebarsConnExt};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// // building a handlebars::Handlebars directly
+    /// let mut handlebars = handlebars::Handlebars::new();
+    /// handlebars.register_template_string("greet-user", "Hello {{name}}")?;
+    /// let handler = (
+    ///     Handlebars::new(handlebars),
+    ///     |mut conn: trillium::Conn| async move {
+    ///         conn.assign("name", "handlebars")
+    ///             .render("greet-user")
+    ///     }
+    /// );
+    ///
+    /// use trillium_testing::{TestHandler, assert_ok};
+    /// let test_handler = TestHandler::new(handler);
+    /// assert_ok!(test_handler.get("/"), "Hello handlebars");
+    /// # Ok(()) }
     /// ```
     pub fn new(source: impl Into<Self>) -> Self {
         source.into()

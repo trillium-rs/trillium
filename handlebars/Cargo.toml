@@ -18,3 +18,4 @@ features = ["dir_source"]
 [dev-dependencies]
 trillium-smol-server = { path = "../smol-server" }
 env_logger = "0.8.3"
+trillium-testing = { path = "../testing" }
