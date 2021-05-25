@@ -135,8 +135,8 @@ impl Router {
     pub fn register_any(&mut self, path: &'static str, handler: impl Handler) {
         use Method::*;
         let handler = Arc::new(handler);
-        for method in [Get, Post, Put, Delete, Patch] {
-            self.add(path, method, handler.clone())
+        for method in &[Get, Post, Put, Delete, Patch] {
+            self.add(path, *method, handler.clone())
         }
     }
 
