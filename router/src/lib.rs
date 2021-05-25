@@ -1,156 +1,86 @@
-use routefinder::{Captures, Match};
-use std::collections::HashMap;
-use std::sync::Arc;
-use trillium::{async_trait, http_types::Method, Conn, Handler};
+#![forbid(unsafe_code)]
+#![warn(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
 
-pub trait RouterConnExt {
-    fn param<'a>(&'a self, param: &str) -> Option<&'a str>;
-    fn wildcard(&self) -> Option<&str>;
-}
+/*!
+# Welcome to the trillium router crate!
 
-impl RouterConnExt for Conn {
-    fn param<'a>(&'a self, param: &str) -> Option<&'a str> {
-        self.state::<Captures>().and_then(|p| p.get(param))
+This router is built on top of
+[routefinder](https://github.com/jbr/routefinder), and the details of
+route resolution and definition are documented on that repository.
+
+```
+use trillium::{conn_unwrap, Conn};
+use trillium_router::{Router, RouterConnExt};
+
+let router = Router::new()
+    .get("/", |conn: Conn| async move { conn.ok("you have reached the index") })
+    .get("/pages/:page_name", |conn: Conn| async move {
+        let page_name = conn_unwrap!(conn, conn.param("page_name"));
+        let content = format!("you have reached the page named {}", page_name);
+        conn.ok(content)
+    });
+
+use trillium_testing::{TestHandler, assert_ok};
+let test_handler = TestHandler::new(router);
+assert_ok!(test_handler.get("/"), "you have reached the index");
+assert_ok!(test_handler.get("/pages/trillium"), "you have reached the page named trillium");
+assert!(test_handler.get("/unknown/route").status().is_none());
+```
+
+Although this is currently the only trillium router, it is an
+important aspect of trillium's architecture that the router uses only
+public apis and is interoperable with other router implementations. If
+you have different ideas of how a router might work, please publish a
+crate! It should be possible to nest different types of routers (and
+different versions of router crates) within each other as long as they
+all depend on the same version of the `trillium` crate.
+
+*/
+
+mod router;
+pub use router::Router;
+
+mod router_ref;
+pub use router_ref::RouterRef;
+
+mod router_conn_ext;
+pub use router_conn_ext::RouterConnExt;
+
+/**
+The routes macro represents an experimental macro for defining
+routers.
+
+**stability note:** this may be removed entirely if it is not widely
+used. please open an issue if you like it, or if you have ideas to
+improve it.
+
+```
+use trillium::{conn_unwrap, Conn};
+use trillium_router::{routes, RouterConnExt};
+
+let router = routes!(
+    get "/" |conn: Conn| async move { conn.ok("you have reached the index") },
+    get "/pages/:page_name" |conn: Conn| async move {
+        let page_name = conn_unwrap!(conn, conn.param("page_name"));
+        let content = format!("you have reached the page named {}", page_name);
+        conn.ok(content)
     }
+);
 
-    fn wildcard(&self) -> Option<&str> {
-        self.state::<Captures>().and_then(|p| p.wildcard())
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct Router(HashMap<Method, routefinder::Router<Box<dyn Handler>>>);
-
-#[async_trait]
-impl Handler for Router {
-    async fn run(&self, conn: Conn) -> Conn {
-        if let Some(m) = self.best_match(conn.method(), conn.path()) {
-            let captures = m.captures().into_owned();
-            struct HasPath;
-            log::debug!("running {}: {}", m.route(), m.name());
-            let mut new_conn = m
-                .handler()
-                .run({
-                    let mut conn = conn;
-                    if let Some(wildcard) = captures.wildcard() {
-                        conn.push_path(String::from(wildcard));
-                        conn.set_state(HasPath);
-                    }
-                    conn.with_state(captures)
-                })
-                .await;
-            if new_conn.take_state::<HasPath>().is_some() {
-                new_conn.pop_path();
-            }
-            new_conn
-        } else {
-            log::debug!("{} did not match any route", conn.path());
-            conn
-        }
-    }
-
-    async fn before_send(&self, conn: Conn) -> Conn {
-        if let Some(m) = self.best_match(conn.method(), conn.path()) {
-            m.handler().before_send(conn).await
-        } else {
-            conn
-        }
-    }
-
-    fn has_upgrade(&self, upgrade: &trillium::Upgrade) -> bool {
-        if let Some(m) = self.best_match(upgrade.method(), upgrade.path()) {
-            m.handler().has_upgrade(upgrade)
-        } else {
-            false
-        }
-    }
-
-    async fn upgrade(&self, upgrade: trillium::Upgrade) {
-        self.best_match(upgrade.method(), upgrade.path())
-            .unwrap()
-            .handler()
-            .upgrade(upgrade)
-            .await
-    }
-}
-
-macro_rules! method_ref {
-    ($fn_name:ident, $method:ident) => {
-        pub fn $fn_name(&mut self, path: &'static str, handler: impl Handler) {
-            self.0.add(path, Method::$method, handler);
-        }
-    };
-}
-
-pub struct RouterRef<'r>(&'r mut Router);
-impl RouterRef<'_> {
-    method_ref!(get, Get);
-    method_ref!(post, Post);
-    method_ref!(put, Put);
-    method_ref!(delete, Delete);
-    method_ref!(patch, Patch);
-
-    pub fn any(&mut self, path: &'static str, handler: impl Handler) {
-        self.0.register_any(path, handler)
-    }
-}
-
-macro_rules! method {
-    ($fn_name:ident, $method:ident) => {
-        pub fn $fn_name(mut self, path: &'static str, handler: impl Handler) -> Self {
-            self.add(path, Method::$method, handler);
-            self
-        }
-    };
-}
-
-impl Router {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn build(b: impl Fn(RouterRef)) -> Router {
-        let mut router = Router::new();
-        b(RouterRef(&mut router));
-        router
-    }
-
-    pub fn best_match<'a, 'b>(
-        &'a self,
-        method: &Method,
-        path: &'b str,
-    ) -> Option<Match<'a, 'b, Box<dyn Handler>>> {
-        self.0.get(method).and_then(|r| r.best_match(path))
-    }
-
-    pub fn add(&mut self, path: &'static str, method: Method, handler: impl Handler) {
-        self.0
-            .entry(method)
-            .or_insert_with(routefinder::Router::new)
-            .add(path, Box::new(handler))
-            .expect("could not add route")
-    }
-
-    pub fn register_any(&mut self, path: &'static str, handler: impl Handler) {
-        use Method::*;
-        let handler = Arc::new(handler);
-        for method in &[Get, Post, Put, Delete, Patch] {
-            self.add(path, *method, handler.clone())
-        }
-    }
-
-    pub fn any(mut self, path: &'static str, handler: impl Handler) -> Self {
-        self.register_any(path, handler);
-        self
-    }
-
-    method!(get, Get);
-    method!(post, Post);
-    method!(put, Put);
-    method!(delete, Delete);
-    method!(patch, Patch);
-}
-
+use trillium_testing::{TestHandler, assert_ok};
+let test_handler = TestHandler::new(router);
+assert_ok!(test_handler.get("/"), "you have reached the index");
+assert_ok!(test_handler.get("/pages/trillium"), "you have reached the page named trillium");
+assert!(test_handler.get("/unknown/route").status().is_none());
+```
+*/
 #[macro_export]
 macro_rules! routes {
     ($($method:ident $path:literal $(-> )?$handler:expr),+ $(,)?) => {

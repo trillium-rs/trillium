@@ -8,15 +8,20 @@
     unused_qualifications
 )]
 
-//! Welcome to trillium!
-//!
-//! This crate is the primary and minimum dependency for building a
-//! trillium app or library. It contains a handful of core types and
-//! reexports a few others that you will necessarily need, but
-//! otherwise tries to stay small and focused. This crate will
-//! hopefully be the most stable within the trillium ecosystem.
-//!
-//!
+/*!
+Welcome to the core trillium crate!
+
+This crate is the primary dependency for building a trillium app or
+library. It contains a handful of core types and reexports a few
+others that you will necessarily need, but otherwise tries to stay
+small and focused. This crate will hopefully be the most stable within
+the trillium ecosystem.
+
+To get started with this crate, first take a look at [the
+guide](https://trillium.rs), then browse the docs for
+[`trillium::Conn`].
+
+*/
 mod handler;
 pub use handler::Handler;
 
