@@ -40,6 +40,17 @@ macro_rules! assert_response {
 }
 
 #[macro_export]
+macro_rules! assert_header {
+    ($conn:expr, $header_name:expr, $header_value:expr) => {{
+        let headers = $conn.inner_mut().response_headers();
+        assert_eq!(
+            headers.get($header_name).map(|h| h.as_str()),
+            Some($header_value)
+        );
+    }};
+}
+
+#[macro_export]
 macro_rules! assert_ok {
     ($conn:expr) => {
         $crate::assert_response!($conn, 200);
