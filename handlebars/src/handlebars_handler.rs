@@ -20,16 +20,12 @@ impl HandlebarsHandler {
     /// instance
     ///
     /// ## From a glob
-    ///
-    /// this example uses a pathbuf in order to work
-    /// cross-platform. if your code is not run cross-platform, you
-    /// can use a &str
     /// ```
+    /// # if !cfg!(unix) {
     /// # use std::path::PathBuf;
     /// use trillium_handlebars::{HandlebarsHandler, HandlebarsConnExt};
-    /// let path: PathBuf = ["**", "*.hbs"].iter().collect();
     /// let handler = (
-    ///     HandlebarsHandler::new(path),
+    ///     HandlebarsHandler::new("**/*.hbs"),
     ///     |mut conn: trillium::Conn| async move {
     ///         conn.assign("name", "handlebars")
     ///             .render("examples/templates/hello.hbs")
@@ -39,6 +35,7 @@ impl HandlebarsHandler {
     /// use trillium_testing::{TestHandler, assert_ok};
     /// let test_handler = TestHandler::new(handler);
     /// assert_ok!(test_handler.get("/"), "hello handlebars!");
+    /// # }
     /// ```
     /// ## From a [`handlebars::Handlebars`]
     ///

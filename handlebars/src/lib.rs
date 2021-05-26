@@ -11,11 +11,11 @@
 //! Handlebars templating handler for trillium based on [the handlebars
 //! crate](https://docs.rs/crate/handlebars).
 //! ```
+//! # if cfg!(unix) {
 //! # use std::path::PathBuf;
 //! use trillium_handlebars::{HandlebarsHandler, HandlebarsConnExt};
-//! let path: PathBuf = ["**", "*.hbs"].iter().collect();
 //! let handler = (
-//!     HandlebarsHandler::new(path),
+//!     HandlebarsHandler::new("**/*.hbs"),
 //!     |mut conn: trillium::Conn| async move {
 //!         conn.assign("name", "handlebars")
 //!             .render("examples/templates/hello.hbs")
@@ -25,6 +25,7 @@
 //! use trillium_testing::{TestHandler, assert_ok};
 //! let test_handler = TestHandler::new(handler);
 //! assert_ok!(test_handler.get("/"), "hello handlebars!");
+//! # }
 //! ```
 
 pub use handlebars;
