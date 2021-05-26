@@ -94,7 +94,7 @@ store types that you define in state.
 
 > 🌊 Comparison with Tide: Tide has three different types of state:
 > Server state, request state, and response state. In Trillium, server
-> state is achieved using the `trillium::State` handler, which holds any
+> state is achieved using the [`trillium::State`](https://docs.trillium.rs/trillium/struct.state) handler, which holds any
 > type that is Clone and puts a clone of it into the state of each
 > Conn that passes through the handler.
 
@@ -150,19 +150,44 @@ Native tls:
 {{#include ../../native-tls/examples/native-tls.rs}}
 ```
 
-## Sequences and Tuples
+## Tuples and Sequences
 
 Earlier, we discussed that we can use state to send data between
 handlers and that handlers can always pass along the conn
 unchanged. In order to use this, we need to introduce the notion of
-Sequences. A Sequence is a `Vec` of handlers, each of which is run on
-the connection until one of the handlers halts the conn.
+Sequences. A Sequence is a `Vec` of boxed dyn handlers, each of which
+is run on the connection until one of the handlers halts the conn. A
+tuple handler is the generic stack-allocated fixed-length
+equivalent. If you're unsure which to use, start with a tuple.
 
 > 🔌 Readers familiar with elixir plug will recognize this notion as
 > identical to pipelines, and that the term halt [is ~~stolen from~~
 > inspired by plug](https://hexdocs.pm/plug/Plug.Conn.html#halt/1)
 
+### Tuple handlers
+
+For sequences of up to 15 handlers with types that are known at
+compile-time, tuples can and should be used. This avoids
+heap-allocating handlers.
+
+```rust
+env_logger::init();
+run((
+    trillium_logger::DevLogger,
+    |conn: Conn| async move { conn.ok("sequence!") }
+));
+```
+
+This snippet adds a http logger to our application, so that if we
+execute our application with `RUST_LOG=info cargo run` and make a
+request to localhost:8000, we'll see something like `GET / 200
+390.706µs 9bytes` on stdout.
+
+
 ### Building a Sequence
+
+For more information on sequences, see
+[trillium::Sequence](https://docs.trillium.rs/trillium/struct.sequence)
 
 ```rust
 env_logger::init();
@@ -170,11 +195,6 @@ run(trillium::Sequence::new()
     .and(trillium_logger::DevLogger)
     .and(|conn: Conn| async move { conn.ok("sequence!") }));
 ```
-
-This snippet adds a http logger to our application, so that if we
-execute our application with `RUST_LOG=info cargo run` and make a
-request to localhost:8000, we'll see something like `GET / 200
-390.706µs 9bytes` on stdout.
 
 ### Macros, if you want them
 
@@ -195,15 +215,3 @@ Sequence is itself a handler, and as a result can be used in any place
 another handler could be used.  If you need to, you can nest sequences
 inside of each other.
 
-### Tuples, too!
-
-For sequences of up to 15 handlers that are known at compile-time,
-tuples can and should be used. This avoids heap-allocating handlers.
-
-```rust
-env_logger::init();
-run((
-    trillium_logger::DevLogger,
-    |conn: Conn| async move { conn.ok("sequence!") }
-));
-```

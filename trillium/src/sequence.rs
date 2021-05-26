@@ -52,6 +52,19 @@ trillium_testing::server::run(sequence![
 ]);
 ```
 
+# Tuples are preferred
+
+For fixed-length sequences that are known at compile time, it is
+preferable to use a tuple. The following code is identical in behavior
+to the above examples:
+
+```
+trillium_testing::server::run((
+    trillium_logger::DevLogger,
+    |conn: trillium::Conn| async move { conn.ok("okeydokey") }
+));
+```
+
 
 */
 #[derive(Default)]
