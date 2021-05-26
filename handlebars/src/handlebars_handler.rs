@@ -21,7 +21,7 @@ impl HandlebarsHandler {
     ///
     /// ## From a glob
     /// ```
-    /// # if !cfg!(unix) {
+    /// # if cfg!(unix) {
     /// # use std::path::PathBuf;
     /// use trillium_handlebars::{HandlebarsHandler, HandlebarsConnExt};
     /// let handler = (
