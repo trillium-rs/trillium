@@ -56,8 +56,8 @@ with that request-response cycle.
 > `TcpStream` that represents the connection with the http client, and
 > dropping a `Conn` will also disconnect the client as a result.
 
-🚧 TODO: Fill in rustdocs link 🚧
-The rustdocs for Conn contain the full details for all of the things you can do with a conn.
+The [rustdocs for Conn](https://docs.trillium.rs/trillium/struct.conn)
+contain the full details for all of the things you can do with a conn.
 
 ### Returning Conn
 In general, because you'll be returning `Conn` from handlers, it
