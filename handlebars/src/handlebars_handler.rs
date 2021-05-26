@@ -27,8 +27,9 @@ impl HandlebarsHandler {
     /// ```
     /// # use std::path::PathBuf;
     /// use trillium_handlebars::{HandlebarsHandler, HandlebarsConnExt};
+    /// let path: PathBuf = ["**", "*.hbs"].iter().collect();
     /// let handler = (
-    ///     HandlebarsHandler::new(PathBuf::from("**/*.hbs")),
+    ///     HandlebarsHandler::new(path),
     ///     |mut conn: trillium::Conn| async move {
     ///         conn.assign("name", "handlebars")
     ///             .render("examples/templates/hello.hbs")
