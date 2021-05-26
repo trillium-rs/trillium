@@ -1,4 +1,4 @@
-use crate::{Assigns, Handlebars};
+use crate::{Assigns, HandlebarsHandler};
 use serde::Serialize;
 use serde_json::json;
 use std::borrow::Cow;
@@ -21,16 +21,17 @@ pub trait HandlebarsConnExt {
     [`HandlebarsConnExt::assign`]
 
     ```
-    use trillium_handlebars::{Handlebars, handlebars, HandlebarsConnExt};
+    use trillium_handlebars::{HandlebarsHandler, Handlebars, HandlebarsConnExt};
     # fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[derive(serde::Serialize)]
     struct User { name: &'static str };
 
-    let mut handlebars = handlebars::Handlebars::new();
+    let mut handlebars = Handlebars::new();
     handlebars.register_template_string("greet-user", "Hello {{name}}")?;
+
     let handler = (
-        Handlebars::new(handlebars),
+        HandlebarsHandler::new(handlebars),
         |mut conn: trillium::Conn| async move {
             conn.render_with("greet-user", &User { name: "handlebars" })
         }
@@ -62,7 +63,7 @@ pub trait HandlebarsConnExt {
 
 impl HandlebarsConnExt for Conn {
     fn render_with(self, template: &str, data: &impl Serialize) -> Self {
-        let handlebars: &Handlebars = self
+        let handlebars: &HandlebarsHandler = self
             .state()
             .expect("HandlebarsConnExt::render called without running the handler first");
 
@@ -81,7 +82,7 @@ impl HandlebarsConnExt for Conn {
     }
 
     fn render(self, template: &str) -> Self {
-        let handlebars: &Handlebars = self
+        let handlebars: &HandlebarsHandler = self
             .state()
             .expect("HandlebarsConnExt::render called without running the handler first");
 

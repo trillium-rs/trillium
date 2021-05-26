@@ -1,6 +1,9 @@
-use handlebars::{Handlebars as ActualHandlebars, RenderError};
+use handlebars::{Handlebars, RenderError};
 use serde::Serialize;
-use std::sync::{Arc, RwLock};
+use std::{
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 use trillium::{async_trait, Conn, Handler};
 /**
 A trillium handler that provides registered templates to
@@ -8,19 +11,24 @@ downsequence handlers
 */
 
 #[derive(Default, Clone, Debug)]
-pub struct Handlebars(Arc<RwLock<ActualHandlebars<'static>>>);
+pub struct HandlebarsHandler(Arc<RwLock<Handlebars<'static>>>);
 
-impl Handlebars {
+impl HandlebarsHandler {
     /// Builds a new trillium Handlebars handler from either a directory
-    /// glob string or a
+    /// glob string or [`PathBuf`] or a
     /// [`handlebars::Handlebars<'static>`](handlebars::Handlebars)
     /// instance
     ///
     /// ## From a glob
+    ///
+    /// this example uses a pathbuf in order to work
+    /// cross-platform. if your code is not run cross-platform, you
+    /// can use a &str
     /// ```
-    /// use trillium_handlebars::{Handlebars, HandlebarsConnExt};
+    /// # use std::path::PathBuf;
+    /// use trillium_handlebars::{HandlebarsHandler, HandlebarsConnExt};
     /// let handler = (
-    ///     Handlebars::new("**/*.hbs"),
+    ///     HandlebarsHandler::new(PathBuf::from("**/*.hbs")),
     ///     |mut conn: trillium::Conn| async move {
     ///         conn.assign("name", "handlebars")
     ///             .render("examples/templates/hello.hbs")
@@ -34,13 +42,13 @@ impl Handlebars {
     /// ## From a [`handlebars::Handlebars`]
     ///
     /// ```
-    /// use trillium_handlebars::{Handlebars, handlebars, HandlebarsConnExt};
+    /// use trillium_handlebars::{HandlebarsHandler, Handlebars, HandlebarsConnExt};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// // building a handlebars::Handlebars directly
-    /// let mut handlebars = handlebars::Handlebars::new();
+    /// // building a Handlebars directly
+    /// let mut handlebars = Handlebars::new();
     /// handlebars.register_template_string("greet-user", "Hello {{name}}")?;
     /// let handler = (
-    ///     Handlebars::new(handlebars),
+    ///     HandlebarsHandler::new(handlebars),
     ///     |mut conn: trillium::Conn| async move {
     ///         conn.assign("name", "handlebars")
     ///             .render("greet-user")
@@ -79,20 +87,26 @@ impl Handlebars {
     }
 }
 
-impl From<&'static str> for Handlebars {
-    fn from(pattern: &'static str) -> Self {
+impl From<&str> for HandlebarsHandler {
+    fn from(pattern: &str) -> Self {
         Self::default().glob(pattern)
     }
 }
 
-impl From<ActualHandlebars<'static>> for Handlebars {
-    fn from(ah: ActualHandlebars<'static>) -> Self {
+impl From<Handlebars<'static>> for HandlebarsHandler {
+    fn from(ah: Handlebars<'static>) -> Self {
         Self(Arc::new(RwLock::new(ah)))
     }
 }
 
+impl From<PathBuf> for HandlebarsHandler {
+    fn from(path: PathBuf) -> Self {
+        path.to_str().unwrap().into()
+    }
+}
+
 #[async_trait]
-impl Handler for Handlebars {
+impl Handler for HandlebarsHandler {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone())
     }
