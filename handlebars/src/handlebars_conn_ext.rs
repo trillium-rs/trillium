@@ -51,7 +51,6 @@ pub trait HandlebarsConnExt {
     fn render(self, template: &str) -> Self;
 
     /// retrieves a reference to any accumulated assigns on this conn
-
     fn assigns(&self) -> Option<&Assigns>;
 
     /**

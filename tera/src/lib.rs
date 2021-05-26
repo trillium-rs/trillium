@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![warn(
+#![deny(
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
@@ -7,79 +7,41 @@
     nonstandard_style,
     unused_qualifications
 )]
-use serde::Serialize;
-use std::path::PathBuf;
-use std::sync::Arc;
+
+/*!
+
+# this crate provides the tera templating language for trillium
+
+See [the tera site](https://tera.netlify.app/) for more information on
+the tera template language.
+
+```
+# fn main() -> tera::Result<()> {
+use trillium::Conn;
+use trillium_tera::{TeraHandler, Tera, TeraConnExt};
+
+let mut tera = Tera::default();
+tera.add_raw_template("hello.html", "hello {{name}} from {{render_engine}}")?;
+
+let handler = (
+    TeraHandler::new(tera),
+    |conn: Conn| async move { conn.assign("render_engine", "tera") },
+    |conn: Conn| async move {
+        conn.assign("name", "trillium").render("hello.html")
+    }
+);
+
+use trillium_testing::{TestHandler, assert_ok};
+let test_handler = TestHandler::new(handler);
+assert_ok!(test_handler.get("/"), "hello trillium from tera");
+# Ok(()) }
+```
+*/
+
+mod tera_handler;
+pub use tera_handler::TeraHandler;
+
+mod tera_conn_ext;
+pub use tera_conn_ext::TeraConnExt;
+
 pub use tera::{Context, Tera};
-use trillium::http_types::Body;
-use trillium::{async_trait, Conn, Handler};
-
-#[derive(Clone)]
-pub struct TeraHandler(Arc<Tera>);
-
-impl TeraHandler {
-    pub fn new(dir: &str) -> Self {
-        TeraHandler(Arc::new(Tera::new(dir).unwrap()))
-    }
-
-    pub fn tera(&self) -> &Tera {
-        &*self.0
-    }
-}
-
-#[async_trait]
-impl Handler for TeraHandler {
-    async fn run(&self, conn: Conn) -> Conn {
-        conn.with_state(self.clone()).with_state(Context::new())
-    }
-}
-
-pub trait TeraConnExt {
-    fn assign(self, key: &str, value: impl Serialize) -> Self;
-    fn tera(&self) -> &Tera;
-    fn context_mut(&mut self) -> &mut Context;
-    fn context(&self) -> &Context;
-    fn render(self, template: &str) -> Self;
-}
-
-impl TeraConnExt for Conn {
-    fn assign(mut self, key: &str, value: impl Serialize) -> Self {
-        self.context_mut().insert(key, &value);
-        self
-    }
-
-    fn tera(&self) -> &Tera {
-        self.state::<TeraHandler>()
-            .expect("tera must be run after the tera handler")
-            .tera()
-    }
-
-    fn context_mut(&mut self) -> &mut Context {
-        self.state_mut()
-            .expect("context_mut must be run after the tera handler")
-    }
-
-    fn context(&self) -> &Context {
-        self.state()
-            .expect("context must be run after the tera handler")
-    }
-
-    fn render(self, template_name: &str) -> Self {
-        let context = self.context();
-        match self.tera().render(template_name, context) {
-            Ok(string) => {
-                let mut body = Body::from_string(string);
-
-                if let Some(extension) = PathBuf::from(template_name).extension() {
-                    if let Some(mime) = mime_db::lookup(extension.to_string_lossy()) {
-                        body.set_mime(mime)
-                    }
-                }
-
-                self.ok(body)
-            }
-
-            Err(e) => self.with_status(500).with_body(e.to_string()),
-        }
-    }
-}
