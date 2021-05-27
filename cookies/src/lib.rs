@@ -7,62 +7,48 @@
     nonstandard_style,
     unused_qualifications
 )]
-pub use cookie::*;
-use trillium::http_types::headers::{COOKIE, SET_COOKIE};
-use trillium::{async_trait, Conn, Handler};
 
-pub struct Cookies;
+/*!
 
-#[async_trait]
-impl Handler for Cookies {
-    async fn run(&self, conn: Conn) -> Conn {
-        let mut jar = CookieJar::new();
+# the trillium cookie handler
 
-        if let Some(cookies) = conn.headers().get(COOKIE) {
-            for cookie in cookies {
-                for pair in cookie.as_str().split(';') {
-                    if let Ok(cookie) = Cookie::parse_encoded(String::from(pair)) {
-                        jar.add_original(cookie);
-                    }
-                }
-            }
-        }
+## example
+```
+use trillium::Conn;
+use trillium_cookies::{cookie::Cookie, CookiesConnExt, CookiesHandler};
+async fn handler_that_uses_cookies(conn: Conn) -> Conn {
+    let content = if let Some(cookie_value) = conn.cookies().get("some_cookie") {
+        format!("current cookie value: {}", cookie_value.value())
+    } else {
+        String::from("no cookie value set")
+    };
 
-        conn.with_state(jar)
-    }
-
-    async fn before_send(&self, mut conn: Conn) -> Conn {
-        if let Some(jar) = conn.take_state::<CookieJar>() {
-            let headers = conn.headers_mut();
-
-            for cookie in jar.delta() {
-                headers.append(SET_COOKIE, cookie.encoded().to_string());
-            }
-        }
-
-        conn
-    }
+    let cookie = Cookie::build("some_cookie", "some-cookie-value").path("/").finish();
+    conn.with_cookie(cookie).ok(content)
 }
 
-pub trait CookiesConnExt {
-    fn cookies(&self) -> &CookieJar;
-    fn with_cookie(self, cookie: Cookie<'_>) -> Self;
-    fn cookies_mut(&mut self) -> &mut CookieJar;
-}
+let handler = (CookiesHandler, handler_that_uses_cookies);
 
-impl CookiesConnExt for Conn {
-    fn cookies(&self) -> &CookieJar {
-        self.state()
-            .expect("Cookies handler must be executed before calling CookiesExt::cookies")
-    }
+use trillium_testing::{TestConn, assert_ok};
 
-    fn with_cookie(mut self, cookie: Cookie<'_>) -> Self {
-        self.cookies_mut().add(cookie.into_owned());
-        self
-    }
+assert_ok!(
+    TestConn::get("/").run(&handler),
+    "no cookie value set",
+    "set-cookie" => "some_cookie=some-cookie-value; Path=/"
+);
 
-    fn cookies_mut(&mut self) -> &mut CookieJar {
-        self.state_mut()
-            .expect("Cookies handler must be executed before calling CookiesExt::cookies_mut")
-    }
-}
+assert_ok!(
+    TestConn::get("/").with_header(("cookie", "some_cookie=trillium")).run(&handler),
+    "current cookie value: trillium",
+    "set-cookie" => "some_cookie=some-cookie-value; Path=/"
+);
+
+```
+*/
+mod cookies_handler;
+pub use cookies_handler::CookiesHandler;
+
+mod cookies_conn_ext;
+pub use cookies_conn_ext::CookiesConnExt;
+
+pub use cookie;

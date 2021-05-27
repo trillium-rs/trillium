@@ -2,7 +2,7 @@ use askama::Template;
 use trillium::Conn;
 use trillium_askama::AskamaConnExt;
 use trillium_aws_lambda::LambdaConnExt;
-use trillium_cookies::Cookies;
+use trillium_cookies::CookiesHandler;
 use trillium_logger::DevLogger;
 use trillium_router::{Router, RouterConnExt};
 use trillium_sessions::{CookieStore, SessionConnExt, Sessions};
@@ -17,7 +17,7 @@ fn main() {
     env_logger::init();
     trillium_aws_lambda::run((
         DevLogger,
-        Cookies,
+        CookiesHandler,
         Sessions::new(CookieStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {
             let count = conn.session().get::<usize>("count").unwrap_or_default();

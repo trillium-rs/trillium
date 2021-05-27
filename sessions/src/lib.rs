@@ -20,7 +20,10 @@ use async_session::{
 
 use std::time::{Duration, SystemTime};
 use trillium::{async_trait, Conn, Handler};
-use trillium_cookies::{Cookie, CookiesConnExt, Key, SameSite};
+use trillium_cookies::{
+    cookie::{Cookie, Key, SameSite},
+    CookiesConnExt,
+};
 
 const BASE64_DIGEST_LEN: usize = 44;
 

@@ -2,12 +2,12 @@ use askama::Template;
 use futures_lite::prelude::*;
 use trillium::Conn;
 use trillium_askama::AskamaConnExt;
-use trillium_cookies::Cookies;
+use trillium_cookies::CookiesHandler;
 use trillium_logger::DevLogger;
 use trillium_proxy::{Proxy, Rustls, TcpStream};
 use trillium_router::{routes, Router, RouterConnExt};
 use trillium_sessions::{MemoryStore, SessionConnExt, Sessions};
-use trillium_static_compiled::{include_dir, StaticCompiled};
+use trillium_static_compiled::{include_dir, StaticCompiledHandler};
 use trillium_websockets::{Message, WebSocket};
 
 #[derive(Template)]
@@ -21,7 +21,7 @@ fn main() {
 
     trillium_smol_server::run((
         DevLogger,
-        Cookies,
+        CookiesHandler,
         Sessions::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {
             let count = conn.session().get::<usize>("count").unwrap_or_default();
@@ -74,7 +74,7 @@ fn main() {
 
             r.get(
                 "*",
-                StaticCompiled::new(include_dir!("./public/")).with_index_file("index.html"),
+                StaticCompiledHandler::new(include_dir!("./public/")).with_index_file("index.html"),
             );
         }),
     ));

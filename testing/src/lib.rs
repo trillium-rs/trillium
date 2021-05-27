@@ -72,6 +72,12 @@ impl TestConn {
         self.0.into_inner()
     }
 
+    pub fn with_header(self, header: impl trillium::http_types::headers::Header) -> Self {
+        let mut inner = self.0.into_inner();
+        inner.request_headers_mut().apply(header);
+        Self(inner.into())
+    }
+
     pub fn run(self, handler: &impl Handler) -> Self {
         let conn = future::block_on(async move {
             let conn = handler.run(self.0.into()).await;

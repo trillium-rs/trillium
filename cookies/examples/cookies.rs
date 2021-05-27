@@ -1,18 +1,19 @@
 use trillium::Conn;
-use trillium_cookies::{Cookie, Cookies, CookiesConnExt};
+use trillium_cookies::{cookie::Cookie, CookiesConnExt, CookiesHandler};
 
 pub fn main() {
     env_logger::init();
 
-    trillium_smol_server::run((Cookies, |conn: Conn| async move {
+    trillium_smol_server::run((CookiesHandler, |conn: Conn| async move {
         if let Some(cookie_value) = conn.cookies().get("some_cookie") {
             println!("current cookie value: {}", cookie_value.value());
         }
 
-        conn.ok("ok!").with_cookie(
+        conn.with_cookie(
             Cookie::build("some_cookie", "some-cookie-value")
                 .path("/")
                 .finish(),
         )
+        .ok("ok!")
     }));
 }
