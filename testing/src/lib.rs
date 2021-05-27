@@ -10,7 +10,10 @@
 
 pub use futures_lite;
 use futures_lite::future;
-use std::{convert::TryInto, ops::Deref};
+use std::{
+    convert::TryInto,
+    ops::{Deref, DerefMut},
+};
 use trillium::{http_types::Body, Conn, Handler};
 pub use trillium_http::http_types::Method;
 use trillium_http::Synthetic;
@@ -37,7 +40,7 @@ pub fn run(handler: &impl Handler, conn: Conn) -> Conn {
     })
 }
 
-pub struct TestConn(trillium_http::Conn<Synthetic>);
+pub struct TestConn(Conn);
 
 macro_rules! test_conn_method {
     ($fn_name:ident, $method:ident) => {
@@ -53,11 +56,10 @@ impl TestConn {
         M: TryInto<Method>,
         <M as TryInto<Method>>::Error: std::fmt::Debug,
     {
-        Self(trillium_http::Conn::new_synthetic(
-            method.try_into().unwrap(),
-            path.into(),
-            body,
-        ))
+        Self(
+            trillium_http::Conn::new_synthetic(method.try_into().unwrap(), path.into(), body)
+                .into(),
+        )
     }
 
     test_conn_method!(get, Get);
@@ -67,15 +69,7 @@ impl TestConn {
     test_conn_method!(patch, Patch);
 
     pub fn into_inner(self) -> trillium_http::Conn<Synthetic> {
-        self.0
-    }
-
-    pub fn inner_mut(&mut self) -> &mut trillium_http::Conn<Synthetic> {
-        &mut self.0
-    }
-
-    pub fn inner(&self) -> &trillium_http::Conn<Synthetic> {
-        &self.0
+        self.0.into_inner()
     }
 
     pub fn run(self, handler: &impl Handler) -> Self {
@@ -83,15 +77,21 @@ impl TestConn {
             let conn = handler.run(self.0.into()).await;
             handler.before_send(conn).await
         });
-        Self(conn.into_inner())
+        Self(conn)
     }
 }
 
 impl Deref for TestConn {
-    type Target = trillium_http::Conn<Synthetic>;
+    type Target = Conn;
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for TestConn {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

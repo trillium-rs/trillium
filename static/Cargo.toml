@@ -13,3 +13,4 @@ log = "0.4.14"
 
 [dev-dependencies]
 trillium-smol-server = { path = "../smol-server" }
+trillium-testing = { path = "../testing" }

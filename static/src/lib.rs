@@ -7,14 +7,33 @@
     nonstandard_style,
     unused_qualifications
 )]
+
+/*!
+Serves static file assets from the file system.
+
+**stability note**
+
+Please note that this crate is fairly incomplete, while functional. It
+does not include any notion of range requests or cache headers. It
+serves all files from disk every time, with no in-memory caching.
+
+It's also worth noting that this currently uses `async_fs`. Adding
+support for other async fs libraries (tokio fs, async-std fs) is in future plans.
+*/
 use async_fs::File;
 use futures_lite::io::BufReader;
 use std::path::{Path, PathBuf};
-use trillium::http_types::content::ContentType;
-use trillium::{async_trait, conn_unwrap, http_types::Body, Conn, Handler};
+use trillium::{
+    async_trait, conn_unwrap,
+    http_types::{content::ContentType, Body},
+    Conn, Handler,
+};
 
+/**
+trillium handler to serve static files from the filesystem
+*/
 #[derive(Debug)]
-pub struct Static {
+pub struct StaticFileHandler {
     fs_root: PathBuf,
     index_file: Option<String>,
 }
@@ -25,7 +44,7 @@ enum Record {
     Dir(PathBuf),
 }
 
-impl Static {
+impl StaticFileHandler {
     async fn resolve_fs_path(&self, url_path: &str) -> Option<PathBuf> {
         let mut file_path = self.fs_root.clone();
         for segment in Path::new(url_path) {
@@ -64,11 +83,31 @@ impl Static {
         }
     }
 
-    pub fn with_index_file(mut self, file: &str) -> Self {
-        self.index_file = Some(file.to_string());
-        self
+    fn serve_file(mut conn: Conn, path: PathBuf, file: File, len: u64) -> Conn {
+        if let Some(mime) = path.to_str().and_then(mime_db::lookup) {
+            conn.headers_mut().apply(ContentType::new(mime));
+        }
+
+        conn.ok(Body::from_reader(BufReader::new(file), Some(len)))
     }
 
+    /**
+    builds a new StaticFileHandler
+
+    ```
+    use trillium_static::{StaticFileHandler, crate_relative_path};
+    let handler = StaticFileHandler::new(crate_relative_path!("examples"));
+
+    use trillium_testing::{TestHandler, assert_not_handled, assert_ok, assert_header};
+    let test_handler = TestHandler::new(handler);
+
+    assert_not_handled!(test_handler.get("/")); // no index file configured
+
+    let mut index = test_handler.get("/index.html");
+    assert_ok!(&mut index, "<h1>hello world</h1>\n");
+    assert_header!(&mut index, "content-type", "text/html");
+    ```
+    */
     pub fn new(fs_root: impl Into<PathBuf>) -> Self {
         let fs_root = fs_root.into().canonicalize().unwrap();
         log::info!("serving {:?}", &fs_root);
@@ -78,17 +117,29 @@ impl Static {
         }
     }
 
-    fn serve_file(mut conn: Conn, path: PathBuf, file: File, len: u64) -> Conn {
-        if let Some(mime) = path.to_str().and_then(mime_db::lookup) {
-            conn.headers_mut().apply(ContentType::new(mime));
-        }
+    /**
+    sets the index file on this StaticFileHandler
+    ```
+    use trillium_static::{StaticFileHandler, crate_relative_path};
 
-        conn.ok(Body::from_reader(BufReader::new(file), Some(len)))
+    let handler = StaticFileHandler::new(crate_relative_path!("examples"))
+        .with_index_file("index.html")
+
+    use trillium_testing::{TestHandler, assert_not_handled, assert_ok, assert_header};
+    let test_handler = TestHandler::new(handler);
+    let mut index = test_handler.get("/");
+    assert_ok!(&mut index, "<h1>hello world</h1>\n");
+    assert_header!(&mut index, "content-type", "text/html");
+    ```
+    */
+    pub fn with_index_file(mut self, file: &str) -> Self {
+        self.index_file = Some(file.to_string());
+        self
     }
 }
 
 #[async_trait]
-impl Handler for Static {
+impl Handler for StaticFileHandler {
     async fn run(&self, conn: Conn) -> Conn {
         match self.resolve(conn.path()).await {
             Some(Record::File(path, file, len)) => Self::serve_file(conn, path, file, len),
@@ -106,9 +157,18 @@ impl Handler for Static {
     }
 }
 
+/// a convenient helper macro to build a str relative to the crate root
 #[macro_export]
-macro_rules! relative_path {
+macro_rules! crate_relative_path {
     ($path:literal) => {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/", $path)
+        if cfg!(unix) {
+            crate_relative_path!($path, "/")
+        } else {
+            crate_relative_path!($path, "\\")
+        }
+    };
+
+    ($path:literal, $divider:literal) => {
+        concat!(env!("CARGO_MANIFEST_DIR"), $divider, $path)
     };
 }

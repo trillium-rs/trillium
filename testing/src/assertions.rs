@@ -13,6 +13,16 @@ macro_rules! assert_status {
 }
 
 #[macro_export]
+macro_rules! assert_not_handled {
+    ($conn:expr) => {{
+        let conn = $conn;
+        assert_eq!(conn.status(), None);
+        assert!(conn.inner().response_body().is_none());
+        assert!(!conn.is_halted());
+    }};
+}
+
+#[macro_export]
 macro_rules! assert_body {
     ($conn:expr, $body:expr) => {{
         if let Some(mut body) = $conn.inner_mut().take_response_body() {
