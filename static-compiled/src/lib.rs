@@ -7,24 +7,105 @@
     nonstandard_style,
     unused_qualifications
 )]
+
+/*!
+Serves static file assets from the file system.
+
+## stability note
+
+Please note that this crate is fairly incomplete, while functional. It
+does not include any notion of range requests or cache headers. It
+serves all files from disk every time, with no in-memory caching.
+
+This may also merge with the [static file handler](https://docs.trillium.rs/trillium_static/)
+
+```
+use trillium_static_compiled::{include_dir, StaticCompiledHandler};
+
+let handler = StaticCompiledHandler::new(include_dir!("examples/files"))
+    .with_index_file("index.html");
+
+// given the following directory layout
+//
+// examples/files
+// ├── index.html
+// ├── subdir
+// │  └── index.html
+// └── subdir_with_no_index
+//    └── plaintext.txt
+//
+
+use trillium_testing::{TestHandler, assert_not_handled, assert_ok, assert_header};
+let test_handler = TestHandler::new(handler);
+
+assert_ok!(
+    test_handler.get("/"),
+    "<h1>hello world</h1>\n",
+    "content-type" => "text/html"
+);
+assert_not_handled!(test_handler.get("/file_that_does_not_exist.txt"));
+assert_ok!(test_handler.get("/index.html"));
+assert_ok!(test_handler.get("/subdir/index.html"), "subdir index.html\n");
+assert_ok!(test_handler.get("/subdir"), "subdir index.html\n");
+assert_not_handled!(test_handler.get("/subdir_with_no_index"));
+assert_ok!(
+    test_handler.get("/subdir_with_no_index/plaintext.txt"),
+    "plaintext file\n",
+    "content-type" => "text/plain"
+);
+
+
+// with a different index file
+let plaintext_index = StaticCompiledHandler::new(include_dir!("examples/files"))
+    .with_index_file("plaintext.txt");
+let test_handler = TestHandler::new(plaintext_index);
+
+assert_not_handled!(test_handler.get("/"));
+assert_not_handled!(test_handler.get("/subdir"));
+assert_ok!(
+    test_handler.get("/subdir_with_no_index"),
+    "plaintext file\n",
+    "content-type" => "text/plain"
+);
+
+// with no index file
+let no_index = StaticCompiledHandler::new(include_dir!("examples/files"));
+let test_handler = TestHandler::new(no_index);
+
+assert_not_handled!(test_handler.get("/"));
+assert_not_handled!(test_handler.get("/subdir"));
+assert_not_handled!(test_handler.get("/subdir_with_no_index"));
+
+```
+*/
 pub use include_dir::include_dir;
 use include_dir::{Dir, DirEntry, File};
 use trillium::http_types::content::ContentType;
 use trillium::{async_trait, Conn, Handler};
+/**
+The static compiled handler which contains the compile-time loaded
+assets
 
-pub struct StaticCompiled {
+*/
+#[derive(Debug, Clone, Copy)]
+pub struct StaticCompiledHandler {
     dir: Dir<'static>,
     index_file: Option<&'static str>,
 }
 
-impl StaticCompiled {
+impl StaticCompiledHandler {
+    /// Constructs a new StaticCompiledHandler. This must be used in
+    /// conjunction with [`include_dir!`]. See crate-level docs for
+    /// example usage.
     pub fn new(dir: Dir<'static>) -> Self {
         Self {
             dir,
             index_file: None,
         }
     }
-
+    /// Configures the optional index file for this
+    /// StaticCompiledHandler. See the crate-level docs for example
+    /// usage.
     pub fn with_index_file(mut self, file: &'static str) -> Self {
         self.index_file = Some(file);
         self
@@ -50,17 +131,17 @@ impl StaticCompiled {
 }
 
 #[async_trait]
-impl Handler for StaticCompiled {
+impl Handler for StaticCompiledHandler {
     async fn run(&self, conn: Conn) -> Conn {
-        match (
+        match dbg!((
             self.get_item(conn.path().trim_start_matches('/')),
             self.index_file,
-        ) {
+        )) {
             (None, _) => conn,
             (Some(DirEntry::File(file)), _) => self.serve_file(conn, file),
             (Some(DirEntry::Dir(_)), None) => conn,
             (Some(DirEntry::Dir(dir)), Some(index_file)) => {
-                if let Some(file) = dir.get_file(index_file) {
+                if let Some(file) = dir.get_file(dir.path().join(index_file)) {
                     self.serve_file(conn, file)
                 } else {
                     conn

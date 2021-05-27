@@ -25,11 +25,11 @@
   * static
     > serves static assets from the file system
     * [example](https://github.com/trillium-rs/trillium/blob/main/static/examples/static.rs)
-    * [ ] <span style="color:red">rustdocs (main)</span>
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_static/index.html)
   * static-compiled
     > includes assets in the compiled binary
     * [example](https://github.com/trillium-rs/trillium/blob/main/static-compiled/examples/static-compiled.rs) 
-    * [ ] <span style="color:red">rustdocs (main)</span>
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_static_compiled/index.html)
 * templating
   * askama
     * [rustdocs (main)](https://docs.trillium.rs/trillium_askama/index.html)

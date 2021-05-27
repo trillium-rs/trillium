@@ -11,14 +11,67 @@
 /*!
 Serves static file assets from the file system.
 
-**stability note**
+```
+use trillium_static::{StaticFileHandler, crate_relative_path};
+
+let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
+    .with_index_file("index.html");
+
+// given the following directory layout
+//
+// examples/files
+// ├── index.html
+// ├── subdir
+// │  └── index.html
+// └── subdir_with_no_index
+//    └── plaintext.txt
+//
+
+use trillium_testing::{TestHandler, assert_not_handled, assert_ok, assert_header};
+let test_handler = TestHandler::new(handler);
+
+assert_ok!(
+    test_handler.get("/"),
+    "<h1>hello world</h1>\n",
+    "content-type" => "text/html"
+);
+assert_not_handled!(test_handler.get("/file_that_does_not_exist.txt"));
+assert_ok!(test_handler.get("/index.html"));
+assert_ok!(test_handler.get("/subdir/index.html"), "subdir index.html\n");
+assert_ok!(test_handler.get("/subdir"), "subdir index.html\n");
+assert_not_handled!(test_handler.get("/subdir_with_no_index"));
+assert_ok!(
+    test_handler.get("/subdir_with_no_index/plaintext.txt"),
+    "plaintext file\n",
+    "content-type" => "text/plain"
+);
+
+
+// with a different index file
+let plaintext_index = StaticFileHandler::new(crate_relative_path!("examples/files"))
+    .with_index_file("plaintext.txt");
+let test_handler = TestHandler::new(plaintext_index);
+
+assert_not_handled!(test_handler.get("/"));
+assert_not_handled!(test_handler.get("/subdir"));
+assert_ok!(
+    test_handler.get("/subdir_with_no_index"),
+    "plaintext file\n",
+    "content-type" => "text/plain"
+);
+
+```
+
+## stability note
 
 Please note that this crate is fairly incomplete, while functional. It
 does not include any notion of range requests or cache headers. It
 serves all files from disk every time, with no in-memory caching.
 
 It's also worth noting that this currently uses `async_fs`. Adding
-support for other async fs libraries (tokio fs, async-std fs) is in future plans.
+support for other async fs libraries (tokio fs, async-std fs) is in
+future plans.
+
 */
 use async_fs::File;
 use futures_lite::io::BufReader;
@@ -96,16 +149,18 @@ impl StaticFileHandler {
 
     ```
     use trillium_static::{StaticFileHandler, crate_relative_path};
-    let handler = StaticFileHandler::new(crate_relative_path!("examples"));
+    let handler = StaticFileHandler::new(crate_relative_path!("examples/files"));
 
     use trillium_testing::{TestHandler, assert_not_handled, assert_ok, assert_header};
     let test_handler = TestHandler::new(handler);
 
     assert_not_handled!(test_handler.get("/")); // no index file configured
 
-    let mut index = test_handler.get("/index.html");
-    assert_ok!(&mut index, "<h1>hello world</h1>\n");
-    assert_header!(&mut index, "content-type", "text/html");
+    assert_ok!(
+        test_handler.get("/index.html"),
+        "<h1>hello world</h1>\n",
+        "content-type" => "text/html"
+    );
     ```
     */
     pub fn new(fs_root: impl Into<PathBuf>) -> Self {
@@ -122,8 +177,8 @@ impl StaticFileHandler {
     ```
     use trillium_static::{StaticFileHandler, crate_relative_path};
 
-    let handler = StaticFileHandler::new(crate_relative_path!("examples"))
-        .with_index_file("index.html")
+    let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
+        .with_index_file("index.html");
 
     use trillium_testing::{TestHandler, assert_not_handled, assert_ok, assert_header};
     let test_handler = TestHandler::new(handler);
