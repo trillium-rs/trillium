@@ -7,9 +7,18 @@
 
 # Just show me some code!
 
-[here's a kitchen-sink example app](https://github.com/trillium-rs/trillium/blob/main/example/src/main.rs). It makes use of the smol-based server, the router, cookies, sessions, websockets, the devlogger, and the static file server, but it doesn't really make any cohesive sense yet
+[here's a kitchen-sink example
+app](https://github.com/trillium-rs/trillium/blob/main/example/src/main.rs). It
+makes use of the smol-based server, the router, cookies, sessions,
+websockets, the devlogger, and the static file server, but it doesn't
+really make any cohesive sense yet
 
-[here's a similar example that can be deployed as an aws lambda](https://github.com/trillium-rs/trillium/blob/main/aws-lambda-example/src/main.rs). The actual content is very similar to the kitchen-sink example app, and that's the point. With few exceptions, a trillium app that runs directly will also run in aws lambda.
+[here's a similar example that can be deployed as an aws
+lambda](https://github.com/trillium-rs/trillium/blob/main/aws-lambda-example/src/main.rs). The
+actual content is very similar to the kitchen-sink example app, and
+that's the point. With few exceptions (websockets, local asset
+deployment), a trillium app that runs directly will also run in aws
+lambda.
 
 
 ## Other examples and links:
@@ -48,14 +57,14 @@
   * [rustdocs (main)](https://docs.trillium.rs/trillium_websockets/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/websockets/examples/websockets.rs)
 * cookies
-  * [ ] <span style="color:red">rustdocs (main)</span>
+  * [rustdocs (main)](https://docs.trillium.rs/trillium_cookies/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/cookies/examples/cookies.rs)
 * reverse proxy
   > this reverse proxy still has some work to go before being used in production but already supports things like forwarding arbitrary http protocol upgrades such as websockets
   * [ ] <span style="color:red">rustdocs (main)</span>
   * [example](https://github.com/trillium-rs/trillium/blob/main/proxy/examples/proxy.rs)
 * sessions
-  * [ ] <span style="color:red">rustdocs (main)</span>
+  * [ ] [rustdocs (main)](https://docs.trillium.rs/trillium_sessions/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/sessions/examples/sessions.rs)
 * logger
   * [ ] <span style="color:red">rustdocs (main)</span>
