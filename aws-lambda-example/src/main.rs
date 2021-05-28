@@ -5,7 +5,7 @@ use trillium_aws_lambda::LambdaConnExt;
 use trillium_cookies::CookiesHandler;
 use trillium_logger::DevLogger;
 use trillium_router::{Router, RouterConnExt};
-use trillium_sessions::{CookieStore, SessionConnExt, Sessions};
+use trillium_sessions::{CookieStore, SessionConnExt, SessionHandler};
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -18,7 +18,7 @@ fn main() {
     trillium_aws_lambda::run((
         DevLogger,
         CookiesHandler,
-        Sessions::new(CookieStore::new(), b"01234567890123456789012345678901123"),
+        SessionHandler::new(CookieStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {
             let count = conn.session().get::<usize>("count").unwrap_or_default();
             let request_id = conn.lambda_context().request_id.clone();

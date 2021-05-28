@@ -182,7 +182,7 @@ impl StaticCli {
             server.push(Proxy::<Rustls<TcpStream>>::new(forward));
         }
 
-        let mut s = trillium_static::Static::new(path);
+        let mut s = trillium_static::StaticFileHandler::new(path);
         if let Some(index) = self.index() {
             s = s.with_index_file(index);
         }

@@ -13,3 +13,4 @@ log = "0.4.14"
 [dev-dependencies]
 env_logger = "0.8.3"
 trillium-smol-server = { path = "../smol-server" }
+trillium-testing = { path = "../testing" }

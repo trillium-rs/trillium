@@ -108,6 +108,22 @@ impl<H> Handler for TestHandler<H>
 where
     H: Handler,
 {
+    async fn init(&mut self) {
+        self.0.init().await
+    }
+
+    async fn before_send(&self, conn: Conn) -> Conn {
+        self.0.before_send(conn).await
+    }
+
+    async fn upgrade(&self, upgrade: trillium::Upgrade) {
+        self.0.upgrade(upgrade).await
+    }
+
+    fn has_upgrade(&self, upgrade: &trillium::Upgrade) -> bool {
+        self.0.has_upgrade(upgrade)
+    }
+
     async fn run(&self, conn: Conn) -> Conn {
         self.0.run(conn).await
     }

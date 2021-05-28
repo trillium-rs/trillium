@@ -6,7 +6,7 @@ use trillium_cookies::CookiesHandler;
 use trillium_logger::DevLogger;
 use trillium_proxy::{Proxy, Rustls, TcpStream};
 use trillium_router::{routes, Router, RouterConnExt};
-use trillium_sessions::{MemoryStore, SessionConnExt, Sessions};
+use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
 use trillium_static_compiled::{include_dir, StaticCompiledHandler};
 use trillium_websockets::{Message, WebSocket};
 
@@ -22,7 +22,7 @@ fn main() {
     trillium_smol_server::run((
         DevLogger,
         CookiesHandler,
-        Sessions::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
+        SessionHandler::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {
             let count = conn.session().get::<usize>("count").unwrap_or_default();
             conn.with_header(("request-count", count.to_string()))
