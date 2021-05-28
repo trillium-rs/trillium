@@ -40,17 +40,17 @@ let test_handler = TestHandler::new(handler);
 
 assert_ok!(
     test_handler.get("/"),
-    "<h1>hello world</h1>\n",
+    "<h1>hello world</h1>",
     "content-type" => "text/html"
 );
 assert_not_handled!(test_handler.get("/file_that_does_not_exist.txt"));
 assert_ok!(test_handler.get("/index.html"));
-assert_ok!(test_handler.get("/subdir/index.html"), "subdir index.html\n");
-assert_ok!(test_handler.get("/subdir"), "subdir index.html\n");
+assert_ok!(test_handler.get("/subdir/index.html"), "subdir index.html");
+assert_ok!(test_handler.get("/subdir"), "subdir index.html");
 assert_not_handled!(test_handler.get("/subdir_with_no_index"));
 assert_ok!(
     test_handler.get("/subdir_with_no_index/plaintext.txt"),
-    "plaintext file\n",
+    "plaintext file",
     "content-type" => "text/plain"
 );
 
@@ -64,7 +64,7 @@ assert_not_handled!(test_handler.get("/"));
 assert_not_handled!(test_handler.get("/subdir"));
 assert_ok!(
     test_handler.get("/subdir_with_no_index"),
-    "plaintext file\n",
+    "plaintext file",
     "content-type" => "text/plain"
 );
 

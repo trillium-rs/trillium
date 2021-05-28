@@ -32,17 +32,17 @@ let test_handler = TestHandler::new(handler);
 
 assert_ok!(
     test_handler.get("/"),
-    "<h1>hello world</h1>\n",
+    "<h1>hello world</h1>",
     "content-type" => "text/html"
 );
 assert_not_handled!(test_handler.get("/file_that_does_not_exist.txt"));
 assert_ok!(test_handler.get("/index.html"));
-assert_ok!(test_handler.get("/subdir/index.html"), "subdir index.html\n");
-assert_ok!(test_handler.get("/subdir"), "subdir index.html\n");
+assert_ok!(test_handler.get("/subdir/index.html"), "subdir index.html");
+assert_ok!(test_handler.get("/subdir"), "subdir index.html");
 assert_not_handled!(test_handler.get("/subdir_with_no_index"));
 assert_ok!(
     test_handler.get("/subdir_with_no_index/plaintext.txt"),
-    "plaintext file\n",
+    "plaintext file",
     "content-type" => "text/plain"
 );
 
@@ -56,7 +56,7 @@ assert_not_handled!(test_handler.get("/"));
 assert_not_handled!(test_handler.get("/subdir"));
 assert_ok!(
     test_handler.get("/subdir_with_no_index"),
-    "plaintext file\n",
+    "plaintext file",
     "content-type" => "text/plain"
 );
 
@@ -75,6 +75,7 @@ future plans.
 */
 use async_fs::File;
 use futures_lite::io::BufReader;
+pub use relative_path;
 use std::path::{Path, PathBuf};
 use trillium::{
     async_trait, conn_unwrap,
@@ -158,7 +159,7 @@ impl StaticFileHandler {
 
     assert_ok!(
         test_handler.get("/index.html"),
-        "<h1>hello world</h1>\n",
+        "<h1>hello world</h1>",
         "content-type" => "text/html"
     );
     ```
@@ -183,7 +184,7 @@ impl StaticFileHandler {
     use trillium_testing::{TestHandler, assert_not_handled, assert_ok, assert_header};
     let test_handler = TestHandler::new(handler);
     let mut index = test_handler.get("/");
-    assert_ok!(&mut index, "<h1>hello world</h1>\n");
+    assert_ok!(&mut index, "<h1>hello world</h1>");
     assert_header!(&mut index, "content-type", "text/html");
     ```
     */
@@ -216,14 +217,6 @@ impl Handler for StaticFileHandler {
 #[macro_export]
 macro_rules! crate_relative_path {
     ($path:literal) => {
-        if cfg!(unix) {
-            crate_relative_path!($path, "/")
-        } else {
-            crate_relative_path!($path, "\\")
-        }
-    };
-
-    ($path:literal, $divider:literal) => {
-        concat!(env!("CARGO_MANIFEST_DIR"), $divider, $path)
+        $crate::relative_path::RelativePath::new($path).to_logical_path(env!("CARGO_MANIFEST_DIR"))
     };
 }

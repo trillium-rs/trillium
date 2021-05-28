@@ -1,5 +1,8 @@
-use trillium_static::StaticFileHandler;
+use trillium_static::{crate_relative_path, StaticFileHandler};
 
 pub fn main() {
-    trillium_smol_server::run(StaticFileHandler::new("examples").with_index_file("index.html"))
+    trillium_smol_server::run(
+        StaticFileHandler::new(crate_relative_path!("examples/files"))
+            .with_index_file("index.html"),
+    )
 }
