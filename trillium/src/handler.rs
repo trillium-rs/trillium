@@ -299,6 +299,7 @@ impl<H: Handler> Handler for Option<H> {
         let handler = crate::conn_unwrap!(conn, self);
         handler.run(conn).await
     }
+
     async fn init(&mut self) {
         if let Some(handler) = self {
             handler.init().await
