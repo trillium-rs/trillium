@@ -21,6 +21,7 @@ impl Start {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct DevLogger;
 
 #[async_trait]

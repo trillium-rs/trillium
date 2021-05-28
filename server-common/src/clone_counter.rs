@@ -5,13 +5,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct CloneCounterInner {
     count: AtomicUsize,
     waker: AtomicWaker,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct CloneCounter(Arc<CloneCounterInner>);
 
 /// # an atomic counter that increments on clone & decrements on drop

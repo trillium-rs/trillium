@@ -131,7 +131,7 @@ impl<V> Pool<V> {
         } else {
             let pool_set = PoolSet::default();
             pool_set.insert(entry);
-            std::mem::drop(lock);
+            drop(lock);
             self.0.write().unwrap().insert(k, pool_set);
         }
     }

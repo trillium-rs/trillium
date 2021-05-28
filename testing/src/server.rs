@@ -1,6 +1,8 @@
 use trillium::{async_trait, Handler};
 use trillium_server_common::{Acceptor, Server};
+#[derive(Debug, Copy, Clone)]
 pub struct TestingServer;
+
 pub type Config<A> = trillium_server_common::Config<TestingServer, A>;
 
 #[async_trait]

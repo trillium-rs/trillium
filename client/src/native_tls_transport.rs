@@ -9,6 +9,7 @@ use url::Url;
 
 use crate::ClientTransport;
 
+#[derive(Debug)]
 pub enum NativeTls<T> {
     Tcp(T),
     Tls(async_native_tls::TlsStream<T>),
@@ -54,7 +55,7 @@ impl<T: ClientTransport> AsyncWrite for NativeTls<T> {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Copy)]
 pub struct NativeTlsConfig<Config> {
     pub tcp_config: Config,
 }

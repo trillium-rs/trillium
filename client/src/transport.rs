@@ -14,7 +14,7 @@ pub trait ClientTransport: Sized + AsyncRead + AsyncWrite + Unpin + Send + Sync 
     async fn connect(url: &Url, config: &Self::Config) -> Result<Self>;
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Copy)]
 pub struct TcpConfig {
     pub nodelay: Option<bool>,
     pub ttl: Option<u32>,

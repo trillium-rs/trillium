@@ -36,6 +36,7 @@ async fn handle_signals(stop: trillium_server_common::Stopper) {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct SmolServer;
 
 #[async_trait]

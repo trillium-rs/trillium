@@ -19,6 +19,11 @@ use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
 
 #[derive(Clone)]
 pub struct RustTls(TlsAcceptor);
+impl std::fmt::Debug for RustTls {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("RustTls").field(&"<<TlsAcceptor>>").finish()
+    }
+}
 impl RustTls {
     pub fn new(t: impl Into<Self>) -> Self {
         t.into()

@@ -14,6 +14,7 @@ use url::Url;
 
 use crate::ClientTransport;
 
+#[derive(Debug)]
 pub enum Rustls<T> {
     Tcp(T),
     Tls(TlsStream<T>),

@@ -14,7 +14,7 @@ use std::{
     convert::TryInto,
     ops::{Deref, DerefMut},
 };
-use trillium::{http_types::Body, Conn, Handler};
+use trillium::{Conn, Handler};
 pub use trillium_http::http_types::Method;
 use trillium_http::Synthetic;
 
@@ -40,6 +40,7 @@ pub fn run(handler: &impl Handler, conn: Conn) -> Conn {
     })
 }
 
+#[derive(Debug)]
 pub struct TestConn(Conn);
 
 macro_rules! test_conn_method {
@@ -101,6 +102,7 @@ impl DerefMut for TestConn {
     }
 }
 
+#[derive(Debug)]
 pub struct TestHandler<H>(H);
 
 #[trillium::async_trait]

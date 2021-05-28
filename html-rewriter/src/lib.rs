@@ -22,6 +22,12 @@ pub struct HtmlRewriter {
     settings: Box<dyn Fn() -> Settings<'static, 'static> + Send + Sync + 'static>,
 }
 
+impl std::fmt::Debug for HtmlRewriter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HtmlRewriter").finish()
+    }
+}
+
 #[async_trait]
 impl Handler for HtmlRewriter {
     async fn run(&self, mut conn: Conn) -> Conn {

@@ -24,6 +24,7 @@ use response::{AlbMultiHeadersResponse, AlbResponse, LambdaResponse};
 
 pub use context::LambdaConnExt;
 
+#[derive(Debug)]
 struct HandlerWrapper<G>(Arc<G>);
 
 impl<G: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<G> {

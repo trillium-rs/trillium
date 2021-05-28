@@ -20,6 +20,8 @@ use trillium_tls_common::Acceptor;
 /// ```
 /// In order to use this to _implement_ a trillium server, see
 /// [`trillium_server_common::ConfigExt`]
+
+#[derive(Debug)]
 pub struct Config<ServerType, AcceptorType> {
     pub(crate) acceptor: AcceptorType,
     pub(crate) port: Option<u16>,

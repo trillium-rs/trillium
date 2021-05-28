@@ -13,7 +13,7 @@ pub use native_tls;
 pub use native_tls::Identity;
 use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NativeTls(TlsAcceptor);
 impl NativeTls {
     pub fn new(t: impl Into<Self>) -> Self {
@@ -27,8 +27,8 @@ impl NativeTls {
     }
 }
 
-impl From<native_tls::Identity> for NativeTls {
-    fn from(i: native_tls::Identity) -> Self {
+impl From<Identity> for NativeTls {
+    fn from(i: Identity) -> Self {
         native_tls::TlsAcceptor::new(i).unwrap().into()
     }
 }
@@ -39,8 +39,8 @@ impl From<native_tls::TlsAcceptor> for NativeTls {
     }
 }
 
-impl From<async_native_tls::TlsAcceptor> for NativeTls {
-    fn from(i: async_native_tls::TlsAcceptor) -> Self {
+impl From<TlsAcceptor> for NativeTls {
+    fn from(i: TlsAcceptor) -> Self {
         Self(i)
     }
 }
