@@ -1,0 +1,11 @@
+[package]
+name = "trillium-controllers"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+trillium = { path = "../trillium" }
+log = "0.4.14"
+
+[dev-dependencies]
+trillium-testing = { path = "../testing" }

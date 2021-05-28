@@ -28,5 +28,6 @@ members = [
   "websockets",
   "proxy",
   "client",
-  "html-rewriter"
+  "html-rewriter",
 ]
+exclude = ["controllers"]
