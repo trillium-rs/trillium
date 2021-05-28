@@ -28,11 +28,12 @@ async fn handler(conn: Conn) -> Conn {
     conn.render(HelloTemplate { name: "trillium" })
 }
 
-use trillium_testing::{TestHandler, assert_ok, assert_header};
-let test_handler = TestHandler::new(handler);
-let mut conn = test_handler.get("/");
-assert_ok!(&mut conn, "Hello, trillium!");
-assert_header!(&mut conn, "content-type", "text/html");
+use trillium_testing::{TestConn, assert_ok};
+assert_ok!(
+    TestConn::get("/").run(&handler),
+    "Hello, trillium!",
+    "content-type" => "text/html"
+);
 ```
 */
 

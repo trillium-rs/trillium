@@ -31,9 +31,12 @@ let handler = (
     }
 );
 
-use trillium_testing::{TestHandler, assert_ok};
-let test_handler = TestHandler::new(handler);
-assert_ok!(test_handler.get("/"), "hello trillium from tera");
+use trillium_testing::{TestConn, assert_ok};
+assert_ok!(
+    TestConn::get("/").run(&handler),
+    "hello trillium from tera",
+    "content-type" => "text/html"
+);
 # Ok(()) }
 ```
 */
