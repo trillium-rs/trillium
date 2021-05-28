@@ -293,6 +293,44 @@ impl Handler for &'static str {
     }
 }
 
+#[async_trait]
+impl<H: Handler> Handler for Option<H> {
+    async fn run(&self, conn: Conn) -> Conn {
+        let handler = crate::conn_unwrap!(conn, self);
+        handler.run(conn).await
+    }
+    async fn init(&mut self) {
+        if let Some(handler) = self {
+            handler.init().await
+        }
+    }
+
+    async fn before_send(&self, conn: Conn) -> Conn {
+        let handler = crate::conn_unwrap!(conn, self);
+        handler.before_send(conn).await
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        match self {
+            Some(h) => h.name(),
+            None => "-".into(),
+        }
+    }
+
+    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+        match self {
+            Some(h) => h.has_upgrade(upgrade),
+            None => false,
+        }
+    }
+
+    async fn upgrade(&self, upgrade: Upgrade) {
+        if let Some(handler) = self {
+            handler.upgrade(upgrade).await;
+        }
+    }
+}
+
 macro_rules! reverse_before_send {
     ($conn:ident, $name:ident) => (
         let $conn = ($name).before_send($conn).await;
