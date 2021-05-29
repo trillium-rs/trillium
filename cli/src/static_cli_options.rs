@@ -174,9 +174,9 @@ impl StaticCli {
     pub fn run(self) {
         env_logger::Builder::new()
             .filter_level(match self.verbose {
-                0 => log::LevelFilter::Info,
-                1 => log::LevelFilter::Debug,
-                _ => log::LevelFilter::Trace,
+                0 => LevelFilter::Info,
+                1 => LevelFilter::Debug,
+                _ => LevelFilter::Trace,
             })
             .format(|buf, record| writeln!(buf, "{}", record.args()))
             .init();
