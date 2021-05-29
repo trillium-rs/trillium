@@ -15,6 +15,13 @@ use trillium_cookies::{
     CookiesConnExt,
 };
 
+/**
+# Handler to enable sessions.
+
+See crate-level docs for an overview of this crate's approach to
+sessions and security.
+*/
+
 pub struct SessionHandler<Store> {
     store: Store,
     cookie_path: String,
@@ -42,6 +49,52 @@ impl<Store: SessionStore> Debug for SessionHandler<Store> {
 }
 
 impl<Store: SessionStore> SessionHandler<Store> {
+    /**
+    Constructs a SessionHandler from the given
+    [`async_session::SessionStore`] and secret. The `secret` MUST be
+    at least 32 bytes long, and MUST be cryptographically random to be
+    secure. It is recommended to retrieve this at runtime from the
+    environment instead of compiling it into your application.
+
+    # Panics
+
+    SessionHandler::new will panic if the secret is fewer than
+    32 bytes.
+
+    # Defaults
+
+    The defaults for SessionHandler are:
+    * cookie path: "/"
+    * cookie name: "trillium.sid"
+    * session ttl: one day
+    * same site: strict
+    * save unchanged: enabled
+
+    # Customization
+
+    Although the above defaults are appropriate for most applications,
+    they can be overridden. Please be careful changing these settings,
+    as they can weaken your application's security:
+
+    ```rust
+    # use std::time::Duration;
+    # use trillium_sessions::{SessionHandler, MemoryStore};
+    # use trillium_cookies::{CookiesHandler, cookie::SameSite};
+    # std::env::set_var("TRILLIUM_SESSION_SECRET", "this is just for testing and you should not do this");
+    let session_secret = std::env::var("TRILLIUM_SESSION_SECRET").unwrap();
+    let handler = (
+        CookiesHandler::new(),
+        SessionHandler::new(MemoryStore::new(), session_secret.as_bytes())
+            .with_cookie_name("custom.cookie.name")
+            .with_cookie_path("/some/path")
+            .with_cookie_domain("trillium.rs")
+            .with_same_site_policy(SameSite::Strict)
+            .with_session_ttl(Some(Duration::from_secs(1)))
+            .without_save_unchanged()
+    );
+
+    ```
+    */
     pub fn new(store: Store, secret: &[u8]) -> Self {
         Self {
             store,

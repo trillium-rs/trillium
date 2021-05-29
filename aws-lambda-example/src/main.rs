@@ -17,7 +17,7 @@ fn main() {
     env_logger::init();
     trillium_aws_lambda::run((
         DevLogger,
-        CookiesHandler,
+        CookiesHandler::new(),
         SessionHandler::new(CookieStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {
             let count = conn.session().get::<usize>("count").unwrap_or_default();

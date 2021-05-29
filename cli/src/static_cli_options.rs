@@ -1,5 +1,4 @@
 use crate::RootPath;
-use env_logger::Builder;
 use log::LevelFilter;
 use std::{fmt::Debug, fs, io::Write, path::PathBuf};
 use structopt::StructOpt;
@@ -70,6 +69,11 @@ pub struct StaticCli {
 
     #[structopt(short, long, env)]
     index: Option<String>,
+
+    /// set the log level. add more flags for more verbosity
+    ///
+    #[structopt(short, long, parse(from_occurrences))]
+    verbose: u8,
 }
 
 impl StaticCli {
@@ -168,9 +172,12 @@ impl StaticCli {
     }
 
     pub fn run(self) {
-        Builder::new()
-            .filter_module("trillium_smol_server", LevelFilter::Info)
-            .filter_module("trillium_logger", LevelFilter::Info)
+        env_logger::Builder::new()
+            .filter_level(match self.verbose {
+                0 => log::LevelFilter::Info,
+                1 => log::LevelFilter::Debug,
+                _ => log::LevelFilter::Trace,
+            })
             .format(|buf, record| writeln!(buf, "{}", record.args()))
             .init();
 
