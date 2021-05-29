@@ -1,4 +1,4 @@
-# Two core concepts: Conn and Handlers
+# Two core concepts: Handlers and Conn
 
 The two most important concepts in trillium are the `Conn` type and the
 `Handler` trait. Each `Conn` represents a single http request/response
@@ -150,31 +150,25 @@ Native tls:
 {{#include ../../native-tls/examples/native-tls.rs}}
 ```
 
-## Tuples and Sequences
+## Tuple Handlers
 
 Earlier, we discussed that we can use state to send data between
 handlers and that handlers can always pass along the conn
 unchanged. In order to use this, we need to introduce the notion of
-Sequences. A Sequence is a `Vec` of boxed dyn handlers, each of which
-is run on the connection until one of the handlers halts the conn. A
-tuple handler is the generic stack-allocated fixed-length
-equivalent. If you're unsure which to use, start with a tuple.
+tuple handlers.
+
+Each handler in a tuple handler is called from left to right until the
+conn is halted.
 
 > 🔌 Readers familiar with elixir plug will recognize this notion as
 > identical to pipelines, and that the term halt [is ~~stolen from~~
 > inspired by plug](https://hexdocs.pm/plug/Plug.Conn.html#halt/1)
 
-### Tuple handlers
-
-For sequences of up to 15 handlers with types that are known at
-compile-time, tuples can and should be used. This avoids
-heap-allocating handlers.
-
 ```rust
 env_logger::init();
 run((
     trillium_logger::DevLogger,
-    |conn: Conn| async move { conn.ok("sequence!") }
+    |conn: Conn| async move { conn.ok("tuple!") }
 ));
 ```
 
@@ -182,36 +176,3 @@ This snippet adds a http logger to our application, so that if we
 execute our application with `RUST_LOG=info cargo run` and make a
 request to localhost:8000, we'll see something like `GET / 200
 390.706µs 9bytes` on stdout.
-
-
-### Building a Sequence
-
-For more information on sequences, see
-[trillium::Sequence](https://docs.trillium.rs/trillium/struct.sequence)
-
-```rust
-env_logger::init();
-run(trillium::Sequence::new()
-    .and(trillium_logger::DevLogger)
-    .and(|conn: Conn| async move { conn.ok("sequence!") }));
-```
-
-### Macros, if you want them
-
-Because sequences are quite common in trillium, we also have a macro that
-makes them even easier to build. Instead of writing
-`Sequence::new().and(a).and(b).and(c)` we can write
-`trillium::sequence![a, b, c]`, which makes our above example:
-
-```rust
-env_logger::init();
-run(trillium::sequence![
-    trillium_logger::DevLogger,
-    |conn: Conn| async move { conn.ok("sequence!") }
-]);
-```
-
-Sequence is itself a handler, and as a result can be used in any place
-another handler could be used.  If you need to, you can nest sequences
-inside of each other.
-

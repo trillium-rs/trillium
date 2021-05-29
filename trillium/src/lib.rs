@@ -43,6 +43,3 @@ This exists to erase the generic transport for convenience using a [BoxedTranspo
 pub type Upgrade = trillium_http::Upgrade<trillium_http::transport::BoxedTransport>;
 
 mod macros;
-
-mod sequence;
-pub use sequence::Sequence;

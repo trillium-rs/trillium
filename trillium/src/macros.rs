@@ -1,21 +1,4 @@
 /**
-# Builds a new Sequence.
-
-See [`trillium::Sequence`](crate::Sequence) for more information.
-
-```
-let macro_sequence = trillium::sequence![trillium_logger::DevLogger, "hello"];
-let literal_sequence = trillium::Sequence::new().then(trillium_logger::DevLogger).then("hello");
-assert_eq!(format!("{:?}", macro_sequence), format!("{:?}", literal_sequence));
-```
-*/
-
-#[macro_export]
-macro_rules! sequence {
-    ($($x:expr),+ $(,)?) => { $crate::Sequence::new()$(.then($x))+ }
-}
-
-/**
 # Unwraps an Result::Ok or returns the conn with a 500 status.
 
 ```
