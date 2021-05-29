@@ -19,7 +19,7 @@ use trillium_tls_common::Acceptor;
 ///     .run(|conn: trillium::Conn| async move { conn.ok("hello") });
 /// ```
 /// In order to use this to _implement_ a trillium server, see
-/// [`trillium_server_common::ConfigExt`]
+/// [`trillium_server_common::ConfigExt`](crate::ConfigExt)
 
 #[derive(Debug)]
 pub struct Config<ServerType, AcceptorType> {

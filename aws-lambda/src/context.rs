@@ -1,11 +1,13 @@
 use lamedh_runtime::Context;
 use std::ops::Deref;
-pub struct LambdaContext(Context);
+
+pub(crate) struct LambdaContext(Context);
 impl LambdaContext {
     pub fn new(context: Context) -> Self {
         Self(context)
     }
 }
+
 impl Deref for LambdaContext {
     type Target = Context;
 
@@ -14,7 +16,14 @@ impl Deref for LambdaContext {
     }
 }
 
+/**
+Provides access to the aws lambda context for [`trillium::Conn`].
+
+See [`lamedh_runtime::Context`] for more details on the data available
+on this struct.
+*/
 pub trait LambdaConnExt {
+    /// returns the [`lamedh_runtime::Context`] for this conn
     fn lambda_context(&self) -> &Context;
 }
 

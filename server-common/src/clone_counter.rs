@@ -11,35 +11,36 @@ pub struct CloneCounterInner {
     waker: AtomicWaker,
 }
 
+/**
+# an atomic counter that increments on clone & decrements on drop
+
+```rust
+# async_io::block_on(async {
+# use trillium_server_common::CloneCounter;
+use futures_lite::future::poll_once;
+let counter = CloneCounter::new();
+assert_eq!(counter.current(), 0);
+counter.await; // ready immediately
+
+let counter = CloneCounter::new();
+assert_eq!(counter.current(), 0);
+let clone = counter.clone();
+assert_eq!(counter.current(), 1);
+let clone2 = counter.clone();
+assert_eq!(counter.current(), 2);
+assert_eq!(poll_once(clone2).await, None); // pending
+assert_eq!(counter.current(), 1);
+std::mem::drop(clone);
+
+assert_eq!(counter.current(), 0);
+counter.await; // ready
+
+# });
+```
+*/
+
 #[derive(Default, Debug)]
 pub struct CloneCounter(Arc<CloneCounterInner>);
-
-/// # an atomic counter that increments on clone & decrements on drop
-///
-/// ```rust
-/// # async_io::block_on(async {
-/// # use trillium_server_common::CloneCounter;
-/// use futures_lite::future::poll_once;
-/// let counter = CloneCounter::new();
-/// assert_eq!(counter.current(), 0);
-/// counter.await; // ready immediately
-///
-/// let counter = CloneCounter::new();
-/// assert_eq!(counter.current(), 0);
-/// let clone = counter.clone();
-/// assert_eq!(counter.current(), 1);
-/// let clone2 = counter.clone();
-/// assert_eq!(counter.current(), 2);
-/// assert_eq!(poll_once(clone2).await, None); // pending
-
-/// assert_eq!(counter.current(), 1);
-/// std::mem::drop(clone);
-///
-/// assert_eq!(counter.current(), 0);
-/// counter.await; // ready
-///
-/// # });
-/// ```
 
 impl CloneCounter {
     /// Constructs a new CloneCounter. Identical to CloneCounter::default()

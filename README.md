@@ -28,8 +28,8 @@ lambda.
 * trillium-http
   > a lower abstraction than trillium itself, but potentially usable directly for some use cases
   * [rustdocs (main)](https://docs.trillium.rs/trillium_http/index.html)
-  * [example](https://github.com/trillium-rs/trillium/blob/main/http/examples/http.rs) example
-  * [tokio example](https://github.com/trillium-rs/trillium/blob/main/http/examples/tokio-http.rs) example using trillium-http on tokio
+  * [example](https://github.com/trillium-rs/trillium/blob/main/http/examples/http.rs)
+  * [tokio example](https://github.com/trillium-rs/trillium/blob/main/http/examples/tokio-http.rs)
 * file serving
   * static
     > serves static assets from the file system
@@ -64,7 +64,7 @@ lambda.
   * [ ] <span style="color:red">rustdocs (main)</span>
   * [example](https://github.com/trillium-rs/trillium/blob/main/proxy/examples/proxy.rs)
 * sessions
-  * [ ] [rustdocs (main)](https://docs.trillium.rs/trillium_sessions/index.html)
+  * [rustdocs (main)](https://docs.trillium.rs/trillium_sessions/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/sessions/examples/sessions.rs)
 * logger
   * [ ] <span style="color:red">rustdocs (main)</span>
@@ -81,19 +81,19 @@ lambda.
   * native-tls
     * [ ] <span style="color:red">rustdocs (main)</span>
     * [example](https://github.com/trillium-rs/trillium/blob/main/native-tls/examples/native-tls.rs)
-* servers -- these examples are quite boring, but are the entrypoint to all trillium apps
+* servers
   * smol-server
-    * [ ] <span style="color:red">rustdocs (main)</span>
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_smol_server/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/smol-server/examples/smol-server.rs)
     * [example-with-config](https://github.com/trillium-rs/trillium/blob/main/smol-server/examples/smol-server-with-config.rs)
   * aws-lambda
-    * [ ] <span style="color:red">rustdocs (main)</span>
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_aws_lambda/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/aws-lambda-server/examples/aws-lambda.rs)
   * tokio
-    * [ ] <span style="color:red">rustdocs (main)</span>
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_tokio_server/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/tokio-server/examples/tokio.rs)
   * async-std
-    * [ ] <span style="color:red">rustdocs (main)</span>
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_async_std_server/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/async-std-server/examples/async-std-server.rs)
 * html-rewriter based on cloudflare's lol-html
   * [ ] <span style="color:red">rustdocs (main)</span>

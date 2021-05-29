@@ -7,17 +7,41 @@
     nonstandard_style,
     unused_qualifications
 )]
-use async_std::net::{TcpListener, TcpStream};
-use async_std::{prelude::*, task};
+
+/*!
+# Trillium server adapter for async-std
+
+```rust,no_run
+fn main() {
+    trillium_async_std_server::run(|conn: trillium::Conn| async move {
+        conn.ok("hello async-std")
+    });
+}
+```
+
+```rust,no_run
+#[async_std::main]
+async fn main() {
+    trillium_async_std_server::run_async(|conn: trillium::Conn| async move {
+        conn.ok("hello async-std")
+    }).await;
+}
+```
+*/
+
+use async_std::{
+    net::{TcpListener, TcpStream},
+    prelude::*,
+    task,
+};
 use std::sync::Arc;
 use trillium::{async_trait, Handler};
-use trillium_server_common::{Acceptor, ConfigExt};
+use trillium_server_common::{Acceptor, ConfigExt, Server};
 
-pub use trillium_server_common::Server;
-pub type Config<A> = trillium_server_common::Config<AsyncStdServer, A>;
+pub use trillium_server_common::Stopper;
 
 #[cfg(unix)]
-async fn handle_signals(stop: trillium_server_common::Stopper) {
+async fn handle_signals(stop: Stopper) {
     use signal_hook::consts::signal::*;
     use signal_hook_async_std::Signals;
 
@@ -34,9 +58,13 @@ async fn handle_signals(stop: trillium_server_common::Stopper) {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct AsyncStdServer;
+mod server {
 
+    #[derive(Debug, Clone, Copy)]
+    pub struct AsyncStdServer;
+    pub type Config<A> = trillium_server_common::Config<AsyncStdServer, A>;
+}
+use server::*;
 #[async_trait]
 impl Server for AsyncStdServer {
     type Transport = TcpStream;
@@ -70,14 +98,67 @@ impl Server for AsyncStdServer {
     }
 }
 
+/**
+# Runs a trillium handler in a sync context with default config
+
+Runs a trillium handler on the async-std runtime with default
+configuration. See [`crate::config`] for what the defaults are and how
+to override them
+
+
+This function will block the current thread until the server shuts
+down
+*/
+
 pub fn run(handler: impl Handler) {
     config().run(handler)
 }
 
+/**
+# Runs a trillium handler in an async context with default config
+
+Run the provided trillium handler on an already-running async-std
+runtime with default settings. the defaults are the same as
+[`crate::run`]. To customize these settings, see [`crate::config`].
+
+This function will poll pending until the server shuts down.
+*/
 pub async fn run_async(handler: impl Handler) {
     config().run_async(handler).await
 }
+/**
+# Configures a server before running it
 
+## Defaults
+
+The default configuration is as follows:
+
+* port: the contents of the `PORT` env var or else 8080
+* host: the contents of the `HOST` env var or else "localhost"
+* signals handling and graceful shutdown: enabled on cfg(unix) systems
+* tcp nodelay: disabled
+* tls acceptor: none
+
+## Usage
+
+```rust
+let stopper = trillium_async_std_server::Stopper::new();
+# stopper.stop(); // stoppping the server immediately for the test
+trillium_async_std_server::config()
+    .with_port(8082)
+    .with_host("0.0.0.0")
+    .without_signals()
+    .with_nodelay()
+    .with_acceptor(()) // see [`trillium_rustls`] and [`trillium_native_tls`]
+    .with_stopper(stopper)
+    .run(|conn: trillium::Conn| async move {
+        conn.ok("hello async-std")
+    });
+```
+
+See [`trillium_server_common::Config`] for more details
+
+*/
 pub fn config() -> Config<()> {
     Config::new()
 }

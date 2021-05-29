@@ -36,13 +36,6 @@ If you need to set a property on the conn without moving it,
 `set_{attribute}` associated functions will be your huckleberry, as is
 conventional in other rust projects.
 
-## Halting
-`trillium::Conn` provides a notion of being `halted`
-that is specifically designed for
-[`trillium::Sequence`][crate::Sequence]s. This may eventually be
-removed from Conn and instead be put into a SequenceConnExt for
-consistency with other Handler types.
-
 ## State
 
 Every trillium Conn contains a state type which is a set that contains
@@ -51,7 +44,7 @@ not insert any type into the state set that you have not
 authored. Library authors, this means that you should always offer a
 ConnExt trait that provides an interface for setting and getting
 state. State is also the primary way that handlers attach data to a
-conn as it passes through a [`trillium::Sequence`][crate::Sequence].
+conn as it passes through a tuple handler.
 
 ## In relation to [`trillium_http::Conn`]
 
@@ -309,7 +302,7 @@ impl Conn {
 
     /**
     sets the `halted` attribute of this conn, preventing later
-    processing in a given [`trillium::Sequence`](crate::Sequence). returns
+    processing in a given tuple handler. returns
     the conn for fluent chaining
 
     ```

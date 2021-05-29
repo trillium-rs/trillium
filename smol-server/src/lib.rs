@@ -7,19 +7,35 @@
     nonstandard_style,
     unused_qualifications
 )]
+
+/*!
+# Trillium server adapter using smol and async-global-executor
+
+```rust,no_run
+trillium_smol_server::run(|conn: trillium::Conn| async move {
+    conn.ok("hello smol")
+});
+```
+*/
+
 use async_global_executor::{block_on, spawn};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
 use std::sync::Arc;
 use trillium::{async_trait, Handler};
-use trillium_server_common::{Acceptor, ConfigExt};
+use trillium_server_common::{Acceptor, ConfigExt, Server};
 
-pub use trillium_server_common::Server;
+pub use trillium_server_common::Stopper;
 
-pub type Config<A> = trillium_server_common::Config<SmolServer, A>;
+mod server {
+    #[derive(Debug, Clone, Copy)]
+    pub struct SmolServer;
+    pub type Config<A> = trillium_server_common::Config<SmolServer, A>;
+}
+use server::*;
 
 #[cfg(unix)]
-async fn handle_signals(stop: trillium_server_common::Stopper) {
+async fn handle_signals(stop: Stopper) {
     use signal_hook::consts::signal::*;
     use signal_hook_async_std::Signals;
 
@@ -35,9 +51,6 @@ async fn handle_signals(stop: trillium_server_common::Stopper) {
         }
     }
 }
-
-#[derive(Debug, Clone, Copy)]
-pub struct SmolServer;
 
 #[async_trait]
 impl Server for SmolServer {
@@ -72,14 +85,68 @@ impl Server for SmolServer {
     }
 }
 
+/**
+# Runs a trillium handler in a sync context with default config
+
+Runs a trillium handler on the async-global-executor runtime with
+default configuration. See [`crate::config`] for what the defaults are
+and how to override them
+
+
+This function will block the current thread until the server shuts
+down
+*/
 pub fn run(handler: impl Handler) {
     config().run(handler)
 }
 
+/**
+# Runs a trillium handler in an async context with default config
+
+Run the provided trillium handler on an already-running async-executor
+with default settings. The defaults are the same as [`crate::run`]. To
+customize these settings, see [`crate::config`].
+
+This function will poll pending until the server shuts down.
+
+*/
 pub async fn run_async(handler: impl Handler) {
     config().run_async(handler).await
 }
 
+/**
+# Configures a server before running it
+
+## Defaults
+
+The default configuration is as follows:
+
+* port: the contents of the `PORT` env var or else 8080
+* host: the contents of the `HOST` env var or else "localhost"
+* signals handling and graceful shutdown: enabled on cfg(unix) systems
+* tcp nodelay: disabled
+* tls acceptor: none
+
+## Usage
+
+```rust
+let stopper = trillium_smol_server::Stopper::new();
+# stopper.stop(); // stoppping the server immediately for the test
+trillium_smol_server::config()
+    .with_port(8082)
+    .with_host("0.0.0.0")
+    .without_signals()
+    .with_nodelay()
+    .with_acceptor(()) // see [`trillium_rustls`] and [`trillium_native_tls`]
+    .with_stopper(stopper)
+    .run(|conn: trillium::Conn| async move {
+        conn.ok("hello smol")
+    });
+```
+
+See [`trillium_server_common::Config`] for more details
+
+*/
 pub fn config() -> Config<()> {
     Config::new()
 }

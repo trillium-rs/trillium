@@ -7,6 +7,21 @@
     unused_qualifications
 )]
 
+/*!
+# Utilities for building trillium server adapters
+
+Trillium applications should never need to depend directly on this
+library. Server adapters should reexport any types from this crate
+that an application author would need to use.
+
+The parts of this crate that are not application facing should be
+expected to change more frequently than the parts that are application
+facing.
+
+If you are depending on this crate for private code that cannot be
+discovered through docs.rs' reverse dependencies, please open an
+issue.
+*/
 pub use trillium_http::Stopper;
 pub use trillium_tls_common::Acceptor;
 

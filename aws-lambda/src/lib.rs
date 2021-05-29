@@ -7,22 +7,32 @@
     nonstandard_style,
     unused_qualifications
 )]
+
+/*!
+# Trillium server adapter for aws lambda
+
+```rust,no_run
+trillium_aws_lambda::run(|conn: trillium::Conn| async move {
+    conn.ok("hello lambda")
+});
+```
+*/
+
 use lamedh_runtime::{Context, Handler as AwsHandler};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
+use tokio::runtime;
 use trillium::{Conn, Handler};
 use trillium_http::{Conn as HttpConn, Synthetic};
 
 mod context;
-mod request;
-mod response;
-
-use context::LambdaContext;
-use request::LambdaRequest;
-use response::{AlbMultiHeadersResponse, AlbResponse, LambdaResponse};
-
 pub use context::LambdaConnExt;
+use context::LambdaContext;
+
+mod request;
+use request::LambdaRequest;
+
+mod response;
+use response::{AlbMultiHeadersResponse, AlbResponse, LambdaResponse};
 
 #[derive(Debug)]
 struct HandlerWrapper<G>(Arc<G>);
@@ -64,17 +74,31 @@ async fn handler_fn(
         }
     }
 }
+/**
+# Runs a trillium handler on an already-running tokio runtime
 
-pub async fn run_async(g: impl Handler) {
-    lamedh_runtime::run(HandlerWrapper(Arc::new(g)))
+This function will poll pending until the server shuts down.
+*/
+pub async fn run_async(handler: impl Handler) {
+    lamedh_runtime::run(HandlerWrapper(Arc::new(handler)))
         .await
         .unwrap()
 }
 
-pub fn run(g: impl Handler) {
-    tokio::runtime::Builder::new_current_thread()
+/**
+# Runs a trillium handler in a sync context
+
+This function creates a new tokio runtime and executes the handler on
+it for aws lambda.
+
+This function will block the current thread until the server shuts
+down
+*/
+
+pub fn run(handler: impl Handler) {
+    runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(run_async(g));
+        .block_on(run_async(handler));
 }
