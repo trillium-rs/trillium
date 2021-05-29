@@ -1,11 +1,13 @@
 use crate::RootPath;
 use env_logger::Builder;
 use log::LevelFilter;
-use std::io::Write;
-use std::{fmt::Debug, path::PathBuf};
+use std::{fmt::Debug, fs, io::Write, path::PathBuf};
 use structopt::StructOpt;
-use trillium::sequence;
+use trillium_logger::DevLogger;
+use trillium_native_tls::NativeTls;
 use trillium_proxy::{Proxy, Rustls, TcpStream};
+use trillium_rustls::RustTls;
+use trillium_static::StaticFileHandler;
 
 #[derive(StructOpt, Debug)]
 #[structopt(
@@ -91,7 +93,7 @@ impl StaticCli {
         self.port
     }
 
-    pub fn rustls_acceptor(&self) -> Option<trillium_rustls::RustTls> {
+    pub fn rustls_acceptor(&self) -> Option<RustTls> {
         match &self {
             StaticCli {
                 rustls_cert: Some(_),
@@ -111,9 +113,9 @@ impl StaticCli {
                 rustls_key: Some(y),
                 native_tls_identity: None,
                 ..
-            } => Some(trillium_rustls::RustTls::from_pkcs8(
-                &std::fs::read(x).unwrap(),
-                &std::fs::read(y).unwrap(),
+            } => Some(RustTls::from_pkcs8(
+                &fs::read(x).unwrap(),
+                &fs::read(y).unwrap(),
             )),
 
             StaticCli {
@@ -129,7 +131,7 @@ impl StaticCli {
         }
     }
 
-    pub fn native_tls_acceptor(&self) -> Option<trillium_native_tls::NativeTls> {
+    pub fn native_tls_acceptor(&self) -> Option<NativeTls> {
         match &self {
             StaticCli {
                 native_tls_identity: Some(_),
@@ -150,10 +152,7 @@ impl StaticCli {
                 native_tls_identity: Some(x),
                 native_tls_password: Some(y),
                 ..
-            } => Some(trillium_native_tls::NativeTls::from_pkcs12(
-                &std::fs::read(x).unwrap(),
-                y,
-            )),
+            } => Some(NativeTls::from_pkcs12(&fs::read(x).unwrap(), y)),
 
             StaticCli {
                 rustls_cert: Some(_),
@@ -176,18 +175,17 @@ impl StaticCli {
             .init();
 
         let path = self.root().clone();
-        let mut server = sequence![trillium_logger::DevLogger];
-
-        if let Some(forward) = self.forward() {
-            server.push(Proxy::<Rustls<TcpStream>>::new(forward));
-        }
-
-        let mut s = trillium_static::StaticFileHandler::new(path);
+        let mut static_file_handler = StaticFileHandler::new(path);
         if let Some(index) = self.index() {
-            s = s.with_index_file(index);
+            static_file_handler = static_file_handler.with_index_file(index);
         }
 
-        server.push(s);
+        let server = (
+            DevLogger,
+            self.forward()
+                .map(|forward| Proxy::<Rustls<TcpStream>>::new(forward)),
+            static_file_handler,
+        );
 
         let config = trillium_smol_server::config()
             .with_port(self.port())

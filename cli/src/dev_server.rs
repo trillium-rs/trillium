@@ -1,10 +1,27 @@
+use broadcaster::BroadcastChannel;
+use log::LevelFilter;
+use nix::{
+    sys::signal::{self, Signal},
+    unistd::Pid,
+};
+use notify::{RawEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
-use std::convert::TryInto;
-use std::io::Write;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use signal_hook::{
+    consts::signal::{SIGHUP, SIGUSR1},
+    iterator::Signals,
+};
+use std::{
+    convert::TryInto,
+    env,
+    io::{self, Write},
+    path::PathBuf,
+    process::Command,
+    sync::{mpsc, Arc, Mutex},
+    thread,
+    time::Duration,
+};
 use structopt::StructOpt;
+
 #[derive(StructOpt, Debug)]
 pub struct DevServer {
     // /// Local host or ip to listen on
@@ -32,16 +49,6 @@ pub struct DevServer {
     #[structopt(short, long, default_value = "SIGTERM")]
     signal: Signal,
 }
-
-use signal_hook::consts::signal::{SIGHUP, SIGUSR1};
-use signal_hook::iterator::Signals;
-
-use nix::sys::signal::{self, Signal};
-use nix::unistd::Pid;
-
-use std::process::Command;
-
-use notify::{RawEvent, RecommendedWatcher, RecursiveMode, Watcher};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -92,12 +99,12 @@ impl DevServer {
 
     pub fn run(mut self) {
         env_logger::Builder::new()
-            .filter_level(log::LevelFilter::Debug)
+            .filter_level(LevelFilter::Debug)
             .init();
 
         let cwd = self
             .cwd
-            .get_or_insert_with(|| std::env::current_dir().unwrap())
+            .get_or_insert_with(|| env::current_dir().unwrap())
             .clone();
 
         let bin = self.determine_bin();
@@ -127,12 +134,12 @@ impl DevServer {
         let mut child = run.spawn().unwrap();
         let child_id = Arc::new(Mutex::new(child.id()));
 
-        let (tx, rx) = std::sync::mpsc::channel();
-        let broadcaster = broadcaster::BroadcastChannel::new();
+        let (tx, rx) = mpsc::channel();
+        let broadcaster = BroadcastChannel::new();
 
         {
             let tx = tx.clone();
-            std::thread::spawn(move || {
+            thread::spawn(move || {
                 let mut signals = Signals::new(&[SIGHUP, SIGUSR1]).unwrap();
 
                 loop {
@@ -145,8 +152,8 @@ impl DevServer {
             });
         }
 
-        std::thread::spawn(move || {
-            let (t, r) = std::sync::mpsc::channel::<RawEvent>();
+        thread::spawn(move || {
+            let (t, r) = mpsc::channel::<RawEvent>();
             let mut watcher = RecommendedWatcher::new_raw(t).unwrap();
 
             if let Some(watches) = self.watch {
@@ -182,18 +189,18 @@ impl DevServer {
         {
             let child_id = child_id.clone();
             let broadcaster = broadcaster.clone();
-            std::thread::spawn(move || loop {
+            thread::spawn(move || loop {
                 child.wait().unwrap();
                 log::info!("shut down, restarting");
                 child = run.spawn().unwrap();
                 *child_id.lock().unwrap() = child.id();
-                std::thread::sleep(Duration::from_millis(500));
+                thread::sleep(Duration::from_millis(500));
                 async_io::block_on(broadcaster.send(&Event::Restarted)).ok();
             });
         }
         {
             let broadcaster = broadcaster.clone();
-            std::thread::spawn(move || loop {
+            thread::spawn(move || loop {
                 let event = rx.recv().unwrap();
                 async_io::block_on(broadcaster.send(&event)).unwrap();
                 match event {
@@ -214,7 +221,7 @@ impl DevServer {
                                     log::debug!("{}", String::from_utf8_lossy(&ok.stdout[..]));
                                     async_io::block_on(broadcaster.send(&Event::BuildSuccess)).ok();
                                 } else {
-                                    std::io::stderr().write_all(&ok.stderr).unwrap();
+                                    io::stderr().write_all(&ok.stderr).unwrap();
                                     async_io::block_on(
                                         broadcaster.send(&Event::CompileError {
                                             error: ansi_to_html::convert_escaped(
@@ -244,29 +251,27 @@ mod proxy_app {
     use super::Event;
     use broadcaster::BroadcastChannel;
     use futures_lite::StreamExt;
-    use trillium::{sequence, Conn};
+    use trillium::{Conn, State};
     use trillium_client::Client;
     use trillium_html_rewriter::{
         html::{element, html_content::ContentType, Settings},
         HtmlRewriter,
     };
-    use trillium_proxy::{Proxy, TcpStream};
+    use trillium_proxy::{Proxy, TcpConfig, TcpStream};
     use trillium_router::Router;
     use trillium_websockets::WebSocket;
 
     pub fn run(proxy: String, rx: BroadcastChannel<Event>) {
         static PORT: u16 = 8082;
-        let client = Client::new()
-            .with_default_pool()
-            .with_config(trillium_proxy::TcpConfig {
-                nodelay: Some(true),
-                ..Default::default()
-            });
+        let client = Client::new().with_default_pool().with_config(TcpConfig {
+            nodelay: Some(true),
+            ..Default::default()
+        });
 
         trillium_smol_server::config()
             .without_signals()
             .with_port(PORT)
-            .run(sequence![
+            .run((
                 Router::new()
                     .get("/_dev_server.js", |conn: Conn| async move {
                         conn.with_header(("content-type", "application/javascript"))
@@ -274,8 +279,8 @@ mod proxy_app {
                     })
                     .get(
                         "/_dev_server.ws",
-                        sequence![
-                            trillium::State::new(rx),
+                        (
+                            State::new(rx),
                             WebSocket::new(|mut wsc| async move {
                                 let mut rx = wsc.take_state::<BroadcastChannel<Event>>().unwrap();
                                 while let Some(message) = rx.next().await {
@@ -284,8 +289,8 @@ mod proxy_app {
                                         return;
                                     }
                                 }
-                            })
-                        ]
+                            }),
+                        ),
                     ),
                 Proxy::<TcpStream>::new(&*proxy).with_client(client),
                 HtmlRewriter::new(|| Settings {
@@ -298,7 +303,7 @@ mod proxy_app {
                     })],
 
                     ..Settings::default()
-                })
-            ]);
+                }),
+            ));
     }
 }
