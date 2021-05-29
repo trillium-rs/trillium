@@ -62,7 +62,8 @@ impl ClientCli {
         }
 
         if let Some(path) = &self.file {
-            let metadata = std::fs::metadata(path)
+            let metadata = async_fs::metadata(path)
+                .await
                 .unwrap_or_else(|e| panic!("could not read file {:?} ({})", path, e));
 
             let file = async_fs::File::open(path)
@@ -74,7 +75,7 @@ impl ClientCli {
                 Some(metadata.len()),
             ))
         } else if let Some(body) = &self.body {
-            conn.with_request_body(body.to_owned())
+            conn.with_request_body(&**body)
         } else if atty::isnt(atty::Stream::Stdin) {
             conn.with_request_body(Body::from_reader(
                 BufReader::new(Unblock::new(std::io::stdin())),
@@ -86,7 +87,7 @@ impl ClientCli {
     }
 
     fn run_with_transport<T: ClientTransport>(self) {
-        async_global_executor::block_on(async move {
+        futures_lite::future::block_on(async move {
             env_logger::Builder::new()
                 .filter_level(match self.verbose {
                     0 => log::LevelFilter::Info,
