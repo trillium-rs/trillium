@@ -34,5 +34,5 @@ trillium-client = { path = "../client" }
 trillium-testing = { path = "../testing" }
 
 [dev-dependencies.tokio]
-version = "1.6.0"
+version = "1.6.1"
 features = ["rt", "net", "rt-multi-thread", "macros"]

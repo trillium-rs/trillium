@@ -45,6 +45,6 @@ async-fs = "1.5.0"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3.8"
-libc = "0.2.94"
+libc = "0.2.95"
 nix = "0.20.0"
 notify = "4.0.17"
