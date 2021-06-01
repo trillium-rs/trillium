@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 trillium-cookies = { path = "../cookies" }
 trillium = { path = "../trillium" }
-async-session = "2.0.1"
+async-session = "3.0.0"
 log = "0.4.14"
 
 [dev-dependencies]
