@@ -23,7 +23,7 @@ discovered through docs.rs' reverse dependencies, please open an
 issue.
 */
 pub use trillium_http::Stopper;
-pub use trillium_tls_common::Acceptor;
+pub use trillium_tls_common::*;
 
 mod clone_counter;
 pub use clone_counter::CloneCounter;

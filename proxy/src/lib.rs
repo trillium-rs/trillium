@@ -9,13 +9,11 @@ use url::Url;
 use StatusCode::{NotFound, SwitchingProtocols};
 
 pub use async_net::TcpStream;
-pub use trillium_client::{
-    ClientTransport, NativeTls, NativeTlsConfig, Rustls, RustlsConfig, TcpConfig,
-};
+pub use trillium_client::Connector;
 
-pub struct Proxy<Transport: ClientTransport> {
+pub struct Proxy<C: Connector> {
     target: Url,
-    client: Client<Transport>,
+    client: Client<C>,
     pass_through_not_found: bool,
     halt: bool,
 }
@@ -23,7 +21,7 @@ pub struct Proxy<Transport: ClientTransport> {
 struct UpstreamUpgrade<T>(Upgrade<T>);
 
 #[async_trait]
-impl<Transport: ClientTransport> Handler for Proxy<Transport> {
+impl<C: Connector> Handler for Proxy<C> {
     async fn run(&self, mut conn: Conn) -> Conn {
         let request_url = conn_try!(conn, self.target.clone().join(conn.path()));
 
@@ -101,13 +99,16 @@ impl<Transport: ClientTransport> Handler for Proxy<Transport> {
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade<BoxedTransport>) -> bool {
-        upgrade.state.get::<UpstreamUpgrade<Transport>>().is_some()
+        upgrade
+            .state
+            .get::<UpstreamUpgrade<C::Transport>>()
+            .is_some()
     }
 
     async fn upgrade(&self, mut upgrade: trillium::Upgrade) {
         let upstream = upgrade
             .state
-            .remove::<UpstreamUpgrade<Transport>>()
+            .remove::<UpstreamUpgrade<C::Transport>>()
             .unwrap()
             .0;
         let downstream = upgrade;
@@ -122,13 +123,13 @@ fn bytes(bytes: u64) -> String {
     Size::to_string(&Size::Bytes(bytes), Base::Base10, Style::Smart)
 }
 
-impl<Transport: ClientTransport> Proxy<Transport> {
-    pub fn with_config(mut self, config: Transport::Config) -> Self {
+impl<C: Connector> Proxy<C> {
+    pub fn with_config(mut self, config: C::Config) -> Self {
         self.client = self.client.with_config(config);
         self
     }
 
-    pub fn with_client(mut self, client: Client<Transport>) -> Self {
+    pub fn with_client(mut self, client: Client<C>) -> Self {
         self.client = client;
         self
     }

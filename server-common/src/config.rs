@@ -10,7 +10,7 @@ use trillium_tls_common::Acceptor;
 ///
 /// ## Example
 /// ```rust
-/// // in reality, you'd use trillium_smol_server, trillium_async_std_server, trillium_tokio_server, etc
+/// // in reality, you'd use trillium_smol, trillium_async_std, trillium_tokio, etc
 /// trillium_testing::server::config()
 ///     .with_port(8080) // the default
 ///     .with_host("localhost") // the default

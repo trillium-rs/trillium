@@ -1,0 +1,20 @@
+[package]
+name = "trillium-async-std"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+
+[dependencies]
+log = "0.4.14"
+trillium = { path = "../trillium" }
+async-std = "1.9.0"
+trillium-http = { path = "../http" }
+trillium-server-common = { path = "../server-common" }
+
+[target.'cfg(unix)'.dependencies]
+signal-hook-async-std = "0.2.1"
+signal-hook = "0.3.8"
+
+[dev-dependencies]
+env_logger = "0.8.3"
+async-std = { version = "1.9.0", features = ["attributes"] }

@@ -1,13 +1,16 @@
 use async_io::Timer;
-use async_net::TcpStream;
 use std::time::Duration;
-use trillium_client::{Client, Rustls};
+use trillium_client::Client;
+use trillium_rustls::RustlsConnector;
+use trillium_smol::TcpConnector;
+
+type HttpClient = Client<RustlsConnector<TcpConnector>>;
 
 pub fn main() {
     async_global_executor::block_on(async {
         env_logger::init();
 
-        let client = Client::<Rustls<TcpStream>>::new().with_default_pool();
+        let client = HttpClient::new().with_default_pool();
 
         for _ in 0..5 {
             let client = client.clone();

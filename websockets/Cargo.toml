@@ -22,7 +22,7 @@ stopper = "0.2.0"
 trillium-http = { path = "../http" }
 
 [dev-dependencies]
-trillium-smol-server = { path = "../smol-server/" }
+trillium-smol = { path = "../smol/" }
 env_logger = "0.8.3"
 trillium-testing = { path = "../testing" }
 async-global-executor = "2.0.2"

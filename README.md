@@ -82,19 +82,19 @@ lambda.
     * [ ] <span style="color:red">rustdocs (main)</span>
     * [example](https://github.com/trillium-rs/trillium/blob/main/native-tls/examples/native-tls.rs)
 * servers
-  * smol-server
-    * [rustdocs (main)](https://docs.trillium.rs/trillium_smol_server/index.html)
-    * [example](https://github.com/trillium-rs/trillium/blob/main/smol-server/examples/smol-server.rs)
-    * [example-with-config](https://github.com/trillium-rs/trillium/blob/main/smol-server/examples/smol-server-with-config.rs)
+  * smol
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_smol/index.html)
+    * [example](https://github.com/trillium-rs/trillium/blob/main/smol/examples/smol.rs)
+    * [example-with-config](https://github.com/trillium-rs/trillium/blob/main/smol/examples/smol-with-config.rs)
   * aws-lambda
     * [rustdocs (main)](https://docs.trillium.rs/trillium_aws_lambda/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/aws-lambda-server/examples/aws-lambda.rs)
   * tokio
-    * [rustdocs (main)](https://docs.trillium.rs/trillium_tokio_server/index.html)
-    * [example](https://github.com/trillium-rs/trillium/blob/main/tokio-server/examples/tokio.rs)
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_tokio/index.html)
+    * [example](https://github.com/trillium-rs/trillium/blob/main/tokio/examples/tokio.rs)
   * async-std
-    * [rustdocs (main)](https://docs.trillium.rs/trillium_async_std_server/index.html)
-    * [example](https://github.com/trillium-rs/trillium/blob/main/async-std-server/examples/async-std-server.rs)
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_async_std/index.html)
+    * [example](https://github.com/trillium-rs/trillium/blob/main/async-std/examples/async-std.rs)
 * html-rewriter based on cloudflare's lol-html
   * [ ] <span style="color:red">rustdocs (main)</span>
   * [html-rewriter](https://github.com/trillium-rs/trillium/blob/main/html-rewriter/examples/html-rewriter.rs) example

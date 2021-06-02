@@ -8,7 +8,7 @@ struct HelloTemplate<'a> {
 }
 
 fn main() {
-    trillium_smol_server::run(
+    trillium_smol::run(
         |conn: Conn| async move { conn.render(HelloTemplate { name: "world" }) },
     );
 }

@@ -5,7 +5,7 @@ use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
 pub fn main() {
     env_logger::init();
 
-    trillium_smol_server::run((
+    trillium_smol::run((
         CookiesHandler::new(),
         SessionHandler::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {

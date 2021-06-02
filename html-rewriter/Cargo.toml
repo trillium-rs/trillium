@@ -11,6 +11,6 @@ async-global-executor = "2.0.2"
 lol-async = "0.1.1"
 
 [dev-dependencies]
-trillium-smol-server = { path = "../smol-server" }
+trillium-smol = { path = "../smol" }
 trillium-proxy = { path = "../proxy" }
 env_logger = "0.8.3"

@@ -4,7 +4,10 @@ use futures_lite::io::BufReader;
 use std::{borrow::Cow, io::ErrorKind, path::PathBuf, str::FromStr};
 use structopt::StructOpt;
 use trillium::http_types::{url, Body, Method, Url};
-use trillium_client::{ClientTransport, Conn, Error, NativeTls, Rustls, TcpStream};
+use trillium_client::{Conn, Connector, Error};
+use trillium_native_tls::NativeTlsConnector;
+use trillium_rustls::RustlsConnector;
+use trillium_smol::TcpConnector;
 
 #[derive(StructOpt, Debug)]
 pub struct ClientCli {
@@ -55,7 +58,7 @@ pub struct ClientCli {
 }
 
 impl ClientCli {
-    async fn build<T: ClientTransport>(&self) -> Conn<'_, T> {
+    async fn build<T: Connector>(&self) -> Conn<'_, T> {
         let mut conn = Conn::<T>::new(self.method, self.url.clone());
         for (name, value) in &self.headers {
             conn.request_headers().append(&name[..], &value[..]);
@@ -86,7 +89,7 @@ impl ClientCli {
         }
     }
 
-    fn run_with_transport<T: ClientTransport>(self) {
+    fn run_with_connector<T: Connector>(self) {
         futures_lite::future::block_on(async move {
             env_logger::Builder::new()
                 .filter_level(match self.verbose {
@@ -162,13 +165,15 @@ impl ClientCli {
     pub fn run(self) {
         match self.tls {
             TlsType::None => {
-                self.run_with_transport::<TcpStream>();
+                self.run_with_connector::<TcpConnector>();
             }
+
             TlsType::Rustls => {
-                self.run_with_transport::<Rustls<TcpStream>>();
+                self.run_with_connector::<RustlsConnector<TcpConnector>>();
             }
+
             TlsType::NativeTls => {
-                self.run_with_transport::<NativeTls<TcpStream>>();
+                self.run_with_connector::<NativeTlsConnector<TcpConnector>>();
             }
         }
     }

@@ -15,7 +15,7 @@ trillium-logger = { path = "../logger" }
 trillium-native-tls = { path = "../native-tls/" }
 trillium-proxy = { path = "../proxy" }
 trillium-rustls = { path = "../rustls/" }
-trillium-smol-server = { path = "../smol-server" }
+trillium-smol = { path = "../smol" }
 trillium-static = { path = "../static" }
 structopt = "0.3.21"
 serde = "1.0.126"

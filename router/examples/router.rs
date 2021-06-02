@@ -3,7 +3,7 @@ use trillium_router::{Router, RouterConnExt};
 
 pub fn main() {
     env_logger::init();
-    trillium_smol_server::run(
+    trillium_smol::run(
         Router::new()
             .get("/", |conn: Conn| async move { conn.ok("hello everyone") })
             .get("/hello/:planet", |conn: Conn| async move {

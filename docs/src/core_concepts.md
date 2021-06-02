@@ -24,7 +24,7 @@ here.
 
 ```rust
 pub fn main() {
-    trillium_smol_server::run(hello_world);
+    trillium_smol::run(hello_world);
 }
 ```
 
@@ -32,7 +32,7 @@ We can also define this as a closure:
 
 ```rust
 pub fn main() {
-    trillium_smol_server::run(|conn: trillium::Conn| async move {
+    trillium_smol::run(|conn: trillium::Conn| async move {
         conn.ok("hello world")
     });
 }
@@ -112,15 +112,15 @@ accessing that state, and will export a `[Something]ConnExt` trait.
 
 ## Servers
 
-Let's talk a little more about that `trillium_smol_server::run` line we've
+Let's talk a little more about that `trillium_smol::run` line we've
 been writing. Trillium itself is built on `futures` (`futures-lite`,
 specifically). In order to run it, it needs an adapter to an async
 runtime. These adapters are called servers, and there are four of them
 currently:
 
-* `trillium_async_std_server`
-* `trillium_smol_server`
-* `trillium_tokio_server`
+* `trillium_async_std`
+* `trillium_smol`
+* `trillium_tokio`
 * `trillium_aws_lambda_server`
 
 Although we've been using the smol server in these docs thus far, you
@@ -131,7 +131,7 @@ server for that runtime.
 To run trillium on a different host or port, either provide a `HOST` and/or `PORT` environment variables, or compile the specific values into the server as follows:
 
 ```rust
-{{#include ../../smol-server/examples/smol-server-with-config.rs}}
+{{#include ../../smol/examples/smol-with-config.rs}}
 ```
 
 ### TLS / HTTPS

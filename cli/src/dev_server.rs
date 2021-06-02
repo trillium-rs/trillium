@@ -257,18 +257,22 @@ mod proxy_app {
         html::{element, html_content::ContentType, Settings},
         HtmlRewriter,
     };
-    use trillium_proxy::{Proxy, TcpConfig, TcpStream};
+    use trillium_proxy::Proxy;
     use trillium_router::Router;
+    use trillium_smol::{ClientConfig, TcpConnector};
     use trillium_websockets::WebSocket;
+    type HttpClient = Client<TcpConnector>;
 
     pub fn run(proxy: String, rx: BroadcastChannel<Event>) {
         static PORT: u16 = 8082;
-        let client = Client::new().with_default_pool().with_config(TcpConfig {
-            nodelay: Some(true),
-            ..Default::default()
-        });
+        let client = HttpClient::new()
+            .with_default_pool()
+            .with_config(ClientConfig {
+                nodelay: Some(true),
+                ..Default::default()
+            });
 
-        trillium_smol_server::config()
+        trillium_smol::config()
             .without_signals()
             .with_port(PORT)
             .run((
@@ -292,7 +296,7 @@ mod proxy_app {
                             }),
                         ),
                     ),
-                Proxy::<TcpStream>::new(&*proxy).with_client(client),
+                Proxy::new(&*proxy).with_client(client),
                 HtmlRewriter::new(|| Settings {
                     element_content_handlers: vec![element!("body", |el| {
                         el.append(

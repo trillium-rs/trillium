@@ -3,7 +3,7 @@
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
-    missing_docs,
+//    missing_docs,
     nonstandard_style,
     unused_qualifications
 )]
@@ -13,7 +13,8 @@
 
 pub use async_trait::async_trait;
 pub use futures_lite::{AsyncRead, AsyncWrite};
-use std::convert::Infallible;
+use std::{convert::Infallible, fmt::Debug};
+pub use url::Url;
 
 /**
 This trait provides the common interface for server-side tls
@@ -47,7 +48,7 @@ where
     type Output: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static;
 
     /// An error type that [`Acceptor::accept`] may return
-    type Error: std::fmt::Debug + Send + Sync;
+    type Error: Debug + Send + Sync;
 
     /**
     Transform an Input (`AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static`) into Self::Output
@@ -70,4 +71,12 @@ where
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
         Ok(input)
     }
+}
+
+#[async_trait]
+pub trait Connector: Clone + Send + Sync + 'static {
+    type Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static;
+    type Config: Debug + Default + Send + Sync + Clone;
+    fn peer_addr(transport: &Self::Transport) -> std::io::Result<std::net::SocketAddr>;
+    async fn connect(url: &Url, config: &Self::Config) -> std::io::Result<Self::Transport>;
 }

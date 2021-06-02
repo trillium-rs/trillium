@@ -5,7 +5,7 @@ use trillium_proxy::Proxy;
 
 pub fn main() {
     env_logger::init();
-    trillium_smol_server::run((
+    trillium_smol::run((
         DevLogger,
         Proxy::<Rustls<TcpStream>>::new("https://httpbin.org/"),
     ));

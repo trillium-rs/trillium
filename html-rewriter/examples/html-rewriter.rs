@@ -6,7 +6,7 @@ use trillium_proxy::{Proxy, Rustls, TcpStream};
 
 pub fn main() {
     env_logger::init();
-    trillium_smol_server::run((
+    trillium_smol::run((
         Proxy::<Rustls<TcpStream>>::new("http://neverssl.com"),
         HtmlRewriter::new(|| Settings {
             element_content_handlers: vec![element!("body", |el| {

@@ -4,9 +4,10 @@ use trillium::Conn;
 use trillium_askama::AskamaConnExt;
 use trillium_cookies::CookiesHandler;
 use trillium_logger::DevLogger;
-use trillium_proxy::{Proxy, Rustls, TcpStream};
 use trillium_router::{routes, Router, RouterConnExt};
+use trillium_rustls::RustlsConnector;
 use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
+use trillium_smol::TcpConnector;
 use trillium_static_compiled::{include_dir, StaticCompiledHandler};
 use trillium_websockets::{Message, WebSocket};
 
@@ -16,10 +17,12 @@ struct HelloTemplate<'a> {
     name: &'a str,
 }
 
+type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
+
 fn main() {
     env_logger::init();
 
-    trillium_smol_server::run((
+    trillium_smol::run((
         DevLogger,
         CookiesHandler::new(),
         SessionHandler::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
@@ -67,10 +70,7 @@ fn main() {
                 }),
             ),
         Router::build(|mut r| {
-            r.get(
-                "/httpbin/*",
-                Proxy::<Rustls<TcpStream>>::new("https://httpbin.org"),
-            );
+            r.get("/httpbin/*", Proxy::new("https://httpbin.org"));
 
             r.get(
                 "*",

@@ -1,15 +1,18 @@
 [package]
-name = "trillium-async-std-server"
+name = "trillium-smol"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-log = "0.4.14"
+async-net = "1.6.0"
 trillium = { path = "../trillium" }
-async-std = "1.9.0"
 trillium-http = { path = "../http" }
+log = "0.4.14"
 trillium-server-common = { path = "../server-common" }
+async-io = "1.4.1"
+futures-lite = "1.11.3"
+async-global-executor = "2.0.2"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook-async-std = "0.2.1"
@@ -17,4 +20,3 @@ signal-hook = "0.3.8"
 
 [dev-dependencies]
 env_logger = "0.8.3"
-async-std = { version = "1.9.0", features = ["attributes"] }

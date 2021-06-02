@@ -13,6 +13,6 @@ log = "0.4.14"
 handlebars = { version = "4.0.0", features = ["dir_source"] }
 
 [dev-dependencies]
-trillium-smol-server = { path = "../smol-server" }
+trillium-smol = { path = "../smol" }
 env_logger = "0.8.3"
 trillium-testing = { path = "../testing" }

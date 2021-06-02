@@ -16,25 +16,23 @@ use trillium_http::{Error, Result, Stopper};
 
 use url::Url;
 
-use crate::pool::PoolEntry;
-use crate::ClientTransport;
-use crate::Pool;
+use crate::{pool::PoolEntry, Connector, Pool};
 
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 8 * 1024;
 
-pub struct Conn<'config, Transport: ClientTransport> {
+pub struct Conn<'config, C: Connector> {
     url: Url,
     method: Method,
     request_headers: Headers,
     response_headers: Headers,
-    transport: Option<Transport>,
+    transport: Option<C::Transport>,
     status: Option<StatusCode>,
     request_body: Option<Body>,
-    pool: Option<Pool<Transport>>,
+    pool: Option<Pool<C::Transport>>,
     buffer: Option<Vec<u8>>,
     response_body_state: ReceivedBodyState,
-    config: Option<Cow<'config, Transport::Config>>,
+    config: Option<Cow<'config, C::Config>>,
 }
 
 macro_rules! method {
@@ -51,7 +49,7 @@ macro_rules! method {
 
 const USER_AGENT: &str = concat!("trillium-client/", env!("CARGO_PKG_VERSION"));
 
-impl<Transport: ClientTransport> Debug for Conn<'_, Transport> {
+impl<C: Connector> Debug for Conn<'_, C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Conn")
             .field("url", &self.url)
@@ -71,21 +69,18 @@ impl<Transport: ClientTransport> Debug for Conn<'_, Transport> {
     }
 }
 
-impl<'config, Transport: ClientTransport> Conn<'config, Transport> {
-    pub fn set_config<'c2: 'config>(&mut self, config: &'c2 Transport::Config) {
+impl<'config, C: Connector> Conn<'config, C> {
+    pub fn set_config<'c2: 'config>(&mut self, config: &'c2 C::Config) {
         self.config = Some(Cow::Borrowed(config));
     }
 
-    pub fn with_config<'c2: 'config>(
-        mut self,
-        config: &'c2 Transport::Config,
-    ) -> Conn<'config, Transport> {
+    pub fn with_config<'c2: 'config>(mut self, config: &'c2 C::Config) -> Conn<'config, C> {
         self.set_config(config);
         self
     }
 }
 
-impl<Transport: ClientTransport> Conn<'static, Transport> {
+impl<C: Connector> Conn<'static, C> {
     pub async fn execute(mut self) -> Result<Self> {
         self.finalize_headers();
         self.connect_and_send_head().await?;
@@ -94,7 +89,7 @@ impl<Transport: ClientTransport> Conn<'static, Transport> {
     }
 }
 
-impl<Transport: ClientTransport> Conn<'_, Transport> {
+impl<C: Connector> Conn<'_, C> {
     pub fn new<U>(method: Method, url: U) -> Self
     where
         <U as TryInto<Url>>::Error: Debug,
@@ -128,11 +123,11 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         &self.response_headers
     }
 
-    pub fn set_pool(&mut self, pool: Pool<Transport>) {
+    pub fn set_pool(&mut self, pool: Pool<C::Transport>) {
         self.pool = Some(pool);
     }
 
-    pub fn with_pool(mut self, pool: Pool<Transport>) -> Self {
+    pub fn with_pool(mut self, pool: Pool<C::Transport>) -> Self {
         self.set_pool(pool);
         self
     }
@@ -204,7 +199,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         &self,
         socket_addrs: &[std::net::SocketAddr],
         head: &[u8],
-    ) -> Option<Transport> {
+    ) -> Option<C::Transport> {
         let mut byte = [0];
         if let Some(pool) = &self.pool {
             for mut candidate in pool.candidates(&socket_addrs) {
@@ -228,7 +223,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
 
         let transport = match self.find_pool_candidate(&socket_addrs[..], &head).await {
             Some(transport) => {
-                log::debug!("reusing connection to {}", transport.peer_addr()?);
+                log::debug!("reusing connection to {}", C::peer_addr(&transport)?);
                 transport
             }
 
@@ -236,11 +231,11 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
                 let config = if let Some(config) = &self.config {
                     config.clone()
                 } else {
-                    Cow::Owned(Transport::Config::default())
+                    Cow::Owned(C::Config::default())
                 };
 
-                let mut transport = Transport::connect(&self.url, &*config).await?;
-                log::debug!("opened new connection to {}", transport.peer_addr()?);
+                let mut transport = C::connect(&self.url, &*config).await?;
+                log::debug!("opened new connection to {}", C::peer_addr(&transport)?);
                 transport.write_all(&head).await?;
                 transport
             }
@@ -290,7 +285,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         Ok(buf)
     }
 
-    fn transport(&mut self) -> &mut Transport {
+    fn transport(&mut self) -> &mut C::Transport {
         self.transport.as_mut().unwrap()
     }
 
@@ -411,7 +406,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         encoding(&self.response_headers)
     }
 
-    pub fn response_body(&mut self) -> ReceivedBody<'_, Transport> {
+    pub fn response_body(&mut self) -> ReceivedBody<'_, C::Transport> {
         ReceivedBody::new(
             self.response_content_length(),
             &mut self.buffer,
@@ -463,7 +458,7 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
         self.status
     }
 
-    pub fn into_inner(mut self) -> Transport {
+    pub fn into_inner(mut self) -> C::Transport {
         self.transport.take().unwrap()
     }
 
@@ -484,8 +479,8 @@ impl<Transport: ClientTransport> Conn<'_, Transport> {
     }
 }
 
-impl<Transport: ClientTransport> AsRef<Transport> for Conn<'_, Transport> {
-    fn as_ref(&self) -> &Transport {
+impl<C: Connector> AsRef<C::Transport> for Conn<'_, C> {
+    fn as_ref(&self) -> &C::Transport {
         self.transport.as_ref().unwrap()
     }
 }
@@ -496,7 +491,7 @@ fn bytes(bytes: u64) -> String {
     Size::to_string(&Size::Bytes(bytes), Base::Base10, Style::Smart)
 }
 
-impl<Transport: ClientTransport> Drop for Conn<'_, Transport> {
+impl<C: Connector> Drop for Conn<'_, C> {
     fn drop(&mut self) {
         if self.response_body_state == ReceivedBodyState::End
             && self.is_keep_alive()
@@ -506,22 +501,22 @@ impl<Transport: ClientTransport> Drop for Conn<'_, Transport> {
             let pool = self.pool.take().unwrap();
             let transport = self.transport.take().unwrap();
             pool.insert(
-                transport.peer_addr().unwrap(),
+                C::peer_addr(&transport).unwrap(),
                 PoolEntry::new(transport, None),
             );
         }
     }
 }
 
-impl<Transport: ClientTransport> From<Conn<'_, Transport>> for Body {
-    fn from(conn: Conn<'_, Transport>) -> Body {
+impl<C: Connector> From<Conn<'_, C>> for Body {
+    fn from(conn: Conn<'_, C>) -> Body {
         let received_body: ReceivedBody<'static, _> = conn.into();
         received_body.into()
     }
 }
 
-impl<Transport: ClientTransport> From<Conn<'_, Transport>> for ReceivedBody<'static, Transport> {
-    fn from(mut conn: Conn<'_, Transport>) -> Self {
+impl<C: Connector> From<Conn<'_, C>> for ReceivedBody<'static, C::Transport> {
+    fn from(mut conn: Conn<'_, C>) -> Self {
         conn.finalize_headers();
         ReceivedBody::new(
             conn.response_content_length(),
@@ -530,10 +525,10 @@ impl<Transport: ClientTransport> From<Conn<'_, Transport>> for ReceivedBody<'sta
             conn.response_body_state,
             conn.pool
                 .take()
-                .map(|pool| -> Box<dyn Fn(Transport) + Send + Sync> {
+                .map(|pool| -> Box<dyn Fn(C::Transport) + Send + Sync> {
                     Box::new(move |transport| {
                         pool.insert(
-                            transport.peer_addr().unwrap(),
+                            C::peer_addr(&transport).unwrap(),
                             PoolEntry::new(transport, None),
                         );
                     })
@@ -543,8 +538,8 @@ impl<Transport: ClientTransport> From<Conn<'_, Transport>> for ReceivedBody<'sta
     }
 }
 
-impl<Transport: ClientTransport> From<Conn<'_, Transport>> for Upgrade<Transport> {
-    fn from(mut conn: Conn<'_, Transport>) -> Self {
+impl<C: Connector> From<Conn<'_, C>> for Upgrade<C::Transport> {
+    fn from(mut conn: Conn<'_, C>) -> Self {
         Upgrade {
             request_headers: std::mem::replace(&mut conn.request_headers, Headers::new()),
             path: conn.url.path().to_string(),

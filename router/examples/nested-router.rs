@@ -41,7 +41,7 @@ mod nested_app {
 }
 pub fn main() {
     env_logger::init();
-    trillium_smol_server::run((
+    trillium_smol::run((
         DevLogger,
         Router::new()
             .get("/", |conn: Conn| async move { conn.ok("hello everyone") })

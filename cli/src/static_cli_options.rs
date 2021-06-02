@@ -3,10 +3,12 @@ use log::LevelFilter;
 use std::{fmt::Debug, fs, io::Write, path::PathBuf};
 use structopt::StructOpt;
 use trillium_logger::DevLogger;
-use trillium_native_tls::NativeTls;
-use trillium_proxy::{Proxy, Rustls, TcpStream};
-use trillium_rustls::RustTls;
+use trillium_native_tls::NativeTlsAcceptor;
+use trillium_rustls::{RustlsAcceptor, RustlsConnector};
+use trillium_smol::TcpConnector;
 use trillium_static::StaticFileHandler;
+
+type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
 #[derive(StructOpt, Debug)]
 #[structopt(
@@ -97,7 +99,7 @@ impl StaticCli {
         self.port
     }
 
-    pub fn rustls_acceptor(&self) -> Option<RustTls> {
+    pub fn rustls_acceptor(&self) -> Option<RustlsAcceptor> {
         match &self {
             StaticCli {
                 rustls_cert: Some(_),
@@ -117,7 +119,7 @@ impl StaticCli {
                 rustls_key: Some(y),
                 native_tls_identity: None,
                 ..
-            } => Some(RustTls::from_pkcs8(
+            } => Some(RustlsAcceptor::from_pkcs8(
                 &fs::read(x).unwrap(),
                 &fs::read(y).unwrap(),
             )),
@@ -135,7 +137,7 @@ impl StaticCli {
         }
     }
 
-    pub fn native_tls_acceptor(&self) -> Option<NativeTls> {
+    pub fn native_tls_acceptor(&self) -> Option<NativeTlsAcceptor> {
         match &self {
             StaticCli {
                 native_tls_identity: Some(_),
@@ -156,7 +158,7 @@ impl StaticCli {
                 native_tls_identity: Some(x),
                 native_tls_password: Some(y),
                 ..
-            } => Some(NativeTls::from_pkcs12(&fs::read(x).unwrap(), y)),
+            } => Some(NativeTlsAcceptor::from_pkcs12(&fs::read(x).unwrap(), y)),
 
             StaticCli {
                 rustls_cert: Some(_),
@@ -189,12 +191,11 @@ impl StaticCli {
 
         let server = (
             DevLogger,
-            self.forward()
-                .map(|forward| Proxy::<Rustls<TcpStream>>::new(forward)),
+            self.forward().map(Proxy::new),
             static_file_handler,
         );
 
-        let config = trillium_smol_server::config()
+        let config = trillium_smol::config()
             .with_port(self.port())
             .with_host(self.host());
 

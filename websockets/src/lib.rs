@@ -18,7 +18,7 @@ let port = portpicker::pick_unused_port().unwrap();
 use trillium_websockets::{Message, WebSocket};
 
 # let server = async_global_executor::spawn(async move {
-trillium_smol_server::config()
+trillium_smol::config()
     .with_port(port)
     .run_async(WebSocket::new(|mut websocket| async move {
         let path = websocket.path().to_owned();

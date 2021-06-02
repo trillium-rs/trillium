@@ -1,21 +1,22 @@
-use async_tls::client::TlsStream;
-use async_tls::TlsConnector;
-use futures_lite::{AsyncRead, AsyncWrite};
+use async_rustls::{client::TlsStream, webpki::DNSNameRef, TlsConnector};
 use rustls::{ClientConfig, RootCertStore};
-use std::fmt::{self, Debug, Formatter};
-use std::io::{Error, ErrorKind, Result};
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use trillium::async_trait;
+use std::{
+    fmt::{self, Debug, Formatter},
+    io::{Error, ErrorKind, Result},
+    marker::PhantomData,
+    net::SocketAddr,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
+use trillium_tls_common::{async_trait, AsyncRead, AsyncWrite, Connector, Url};
+use RustlsTransport::{Tcp, Tls};
 
-use url::Url;
-
-use crate::ClientTransport;
+#[derive(Debug, Clone, Copy)]
+pub struct RustlsConnector<C>(PhantomData<C>);
 
 #[derive(Debug)]
-pub enum Rustls<T> {
+pub enum RustlsTransport<T> {
     Tcp(T),
     Tls(TlsStream<T>),
 }
@@ -71,57 +72,67 @@ impl<Config: Debug> Debug for RustlsConfig<Config> {
     }
 }
 
-impl<T: ClientTransport> AsyncRead for Rustls<T> {
+impl<C> AsyncRead for RustlsTransport<C>
+where
+    C: AsyncRead + AsyncWrite + Unpin,
+{
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<Result<usize>> {
         match &mut *self {
-            Rustls::Tcp(t) => Pin::new(t).poll_read(cx, buf),
-            Rustls::Tls(t) => Pin::new(t).poll_read(cx, buf),
+            Tcp(c) => Pin::new(c).poll_read(cx, buf),
+            Tls(c) => Pin::new(c).poll_read(cx, buf),
         }
     }
 }
 
-impl<T: ClientTransport> AsyncWrite for Rustls<T> {
+impl<C> AsyncWrite for RustlsTransport<C>
+where
+    C: AsyncRead + AsyncWrite + Unpin,
+{
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize>> {
         match &mut *self {
-            Rustls::Tcp(t) => Pin::new(t).poll_write(cx, buf),
-            Rustls::Tls(t) => Pin::new(t).poll_write(cx, buf),
+            Tcp(c) => Pin::new(c).poll_write(cx, buf),
+            Tls(c) => Pin::new(c).poll_write(cx, buf),
         }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         match &mut *self {
-            Rustls::Tcp(t) => Pin::new(t).poll_flush(cx),
-            Rustls::Tls(t) => Pin::new(t).poll_flush(cx),
+            Tcp(c) => Pin::new(c).poll_flush(cx),
+            Tls(c) => Pin::new(c).poll_flush(cx),
         }
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         match &mut *self {
-            Rustls::Tcp(t) => Pin::new(t).poll_close(cx),
-            Rustls::Tls(t) => Pin::new(t).poll_close(cx),
+            Tcp(c) => Pin::new(c).poll_close(cx),
+            Tls(c) => Pin::new(c).poll_close(cx),
         }
     }
 }
 
 #[async_trait]
-impl<T: ClientTransport> ClientTransport for Rustls<T> {
-    type Config = RustlsConfig<T::Config>;
-    fn peer_addr(&self) -> Result<SocketAddr> {
-        match self {
-            Rustls::Tcp(t) => t.peer_addr(),
-            Rustls::Tls(t) => t.get_ref().peer_addr(),
+impl<C: Connector> Connector for RustlsConnector<C> {
+    type Config = RustlsConfig<C::Config>;
+    type Transport = RustlsTransport<C::Transport>;
+    fn peer_addr(transport: &Self::Transport) -> Result<SocketAddr> {
+        match transport {
+            Tcp(c) => C::peer_addr(c),
+            Tls(c) => {
+                let (x, _) = c.get_ref();
+                C::peer_addr(x)
+            }
         }
     }
 
-    async fn connect(url: &Url, config: &Self::Config) -> Result<Self> {
+    async fn connect(url: &Url, config: &Self::Config) -> Result<Self::Transport> {
         match url.scheme() {
             "https" => {
                 let mut http = url.clone();
@@ -129,19 +140,22 @@ impl<T: ClientTransport> ClientTransport for Rustls<T> {
                 http.set_port(url.port_or_known_default()).ok();
 
                 let connector: TlsConnector = Arc::clone(&config.rustls_config).into();
+                let domain = url
+                    .domain()
+                    .and_then(|dns_name| DNSNameRef::try_from_ascii_str(dns_name).ok())
+                    .ok_or_else(|| Error::new(ErrorKind::Other, "missing domain"))?;
 
-                Ok(Self::Tls(
+                Ok(Self::Transport::Tls(
                     connector
-                        .connect(
-                            url.domain()
-                                .ok_or_else(|| Error::new(ErrorKind::Other, "missing domain"))?,
-                            T::connect(&http, &config.tcp_config).await?,
-                        )
+                        .connect(domain, C::connect(&http, &config.tcp_config).await?)
                         .await
                         .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?,
                 ))
             }
-            "http" => Ok(Self::Tcp(T::connect(&url, &config.tcp_config).await?)),
+
+            "http" => Ok(Self::Transport::Tcp(
+                C::connect(&url, &config.tcp_config).await?,
+            )),
 
             unknown => Err(Error::new(
                 ErrorKind::InvalidInput,

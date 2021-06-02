@@ -1,12 +1,12 @@
-use crate::{ClientTransport, Conn, Pool};
+use crate::{Conn, Pool};
 use std::convert::TryInto;
 use std::fmt::{self, Debug, Formatter};
 use trillium::http_types::Method;
-use url::Url;
+use trillium_tls_common::{Connector, Url};
 
 macro_rules! method {
     ($fn_name:ident, $method:ident) => {
-        pub fn $fn_name<U>(&self, url: U) -> Conn<'_, Transport>
+        pub fn $fn_name<U>(&self, url: U) -> Conn<'_, C>
         where
             <U as TryInto<Url>>::Error: Debug,
             U: TryInto<Url>,
@@ -16,7 +16,7 @@ macro_rules! method {
     };
 }
 
-impl<Transport: ClientTransport> Client<Transport> {
+impl<C: Connector> Client<C> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -26,12 +26,12 @@ impl<Transport: ClientTransport> Client<Transport> {
         self
     }
 
-    pub fn with_config(mut self, config: Transport::Config) -> Self {
+    pub fn with_config(mut self, config: C::Config) -> Self {
         self.config = config;
         self
     }
 
-    pub fn conn<U>(&self, method: Method, url: U) -> Conn<'_, Transport>
+    pub fn conn<U>(&self, method: Method, url: U) -> Conn<'_, C>
     where
         <U as TryInto<Url>>::Error: Debug,
         U: TryInto<Url>,
@@ -50,12 +50,12 @@ impl<Transport: ClientTransport> Client<Transport> {
     method!(patch, Patch);
 }
 
-pub struct Client<Transport: ClientTransport> {
-    config: Transport::Config,
-    pool: Option<Pool<Transport>>,
+pub struct Client<C: Connector> {
+    config: C::Config,
+    pool: Option<Pool<C::Transport>>,
 }
 
-impl<Transport: ClientTransport> Clone for Client<Transport> {
+impl<C: Connector> Clone for Client<C> {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
@@ -64,16 +64,16 @@ impl<Transport: ClientTransport> Clone for Client<Transport> {
     }
 }
 
-impl<Transport: ClientTransport> Default for Client<Transport> {
+impl<C: Connector> Default for Client<C> {
     fn default() -> Self {
         Self {
-            config: Transport::Config::default(),
+            config: C::Config::default(),
             pool: None,
         }
     }
 }
 
-impl<Transport: ClientTransport> Debug for Client<Transport> {
+impl<Transport: Connector> Debug for Client<Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("config", &self.config)

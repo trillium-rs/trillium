@@ -1,0 +1,94 @@
+#![forbid(unsafe_code)]
+#![warn(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
+
+/*!
+# Trillium server adapter using smol and async-global-executor
+
+```rust,no_run
+trillium_smol::run(|conn: trillium::Conn| async move {
+    conn.ok("hello smol")
+});
+```
+*/
+
+use trillium::Handler;
+pub use trillium_server_common::Stopper;
+
+mod client;
+pub use client::{ClientConfig, TcpConnector};
+
+mod server;
+use server::Config;
+
+/**
+# Runs a trillium handler in a sync context with default config
+
+Runs a trillium handler on the async-global-executor runtime with
+default configuration. See [`crate::config`] for what the defaults are
+and how to override them
+
+
+This function will block the current thread until the server shuts
+down
+*/
+pub fn run(handler: impl Handler) {
+    config().run(handler)
+}
+
+/**
+# Runs a trillium handler in an async context with default config
+
+Run the provided trillium handler on an already-running async-executor
+with default settings. The defaults are the same as [`crate::run`]. To
+customize these settings, see [`crate::config`].
+
+This function will poll pending until the server shuts down.
+
+*/
+pub async fn run_async(handler: impl Handler) {
+    config().run_async(handler).await
+}
+
+/**
+# Configures a server before running it
+
+## Defaults
+
+The default configuration is as follows:
+
+* port: the contents of the `PORT` env var or else 8080
+* host: the contents of the `HOST` env var or else "localhost"
+* signals handling and graceful shutdown: enabled on cfg(unix) systems
+* tcp nodelay: disabled
+* tls acceptor: none
+
+## Usage
+
+```rust
+let stopper = trillium_smol::Stopper::new();
+# stopper.stop(); // stoppping the server immediately for the test
+trillium_smol::config()
+    .with_port(8082)
+    .with_host("0.0.0.0")
+    .without_signals()
+    .with_nodelay()
+    .with_acceptor(()) // see [`trillium_rustls`] and [`trillium_native_tls`]
+    .with_stopper(stopper)
+    .run(|conn: trillium::Conn| async move {
+        conn.ok("hello smol")
+    });
+```
+
+See [`trillium_server_common::Config`] for more details
+
+*/
+pub fn config() -> server::Config<()> {
+    Config::new()
+}
