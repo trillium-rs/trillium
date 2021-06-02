@@ -18,3 +18,4 @@ full-duplex-async-copy = "0.1.0"
 trillium-smol = { path = "../smol" }
 env_logger = "0.8.3"
 trillium-logger = { path = "../logger" }
+trillium-rustls = { path = "../rustls" }

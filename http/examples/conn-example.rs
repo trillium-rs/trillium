@@ -3,6 +3,9 @@ fn main() -> trillium_http::Result<()> {
     use futures_lite::StreamExt;
     use stopper::Stopper;
     use trillium_http::{Conn, Result};
+
+    type ClientConn<'a> = trillium_client::Conn<'a, trillium_smol::TcpConnector>;
+
     smol::block_on(async {
         let stopper = Stopper::new();
 
@@ -30,9 +33,7 @@ fn main() -> trillium_http::Result<()> {
         // this example uses the trillium client
         // please note that this api is still especially unstable.
         // any other http client would work here too
-        let mut client_conn = trillium_client::Conn::<TcpStream>::get("http://localhost:8001")
-            .execute()
-            .await?;
+        let mut client_conn = ClientConn::get("http://localhost:8001").execute().await?;
 
         assert_eq!(client_conn.status().unwrap(), 200);
         assert_eq!(

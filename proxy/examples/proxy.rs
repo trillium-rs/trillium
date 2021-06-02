@@ -1,12 +1,7 @@
-use async_net::TcpStream;
-use trillium_client::Rustls;
 use trillium_logger::DevLogger;
-use trillium_proxy::Proxy;
+type Proxy = trillium_proxy::Proxy<trillium_rustls::RustlsConnector<trillium_smol::TcpConnector>>;
 
 pub fn main() {
     env_logger::init();
-    trillium_smol::run((
-        DevLogger,
-        Proxy::<Rustls<TcpStream>>::new("https://httpbin.org/"),
-    ));
+    trillium_smol::run((DevLogger, Proxy::new("https://httpbin.org/")));
 }
