@@ -94,61 +94,10 @@ store types that you define in state.
 
 > 🌊 Comparison with Tide: Tide has three different types of state:
 > Server state, request state, and response state. In Trillium, server
-> state is achieved using the [`trillium::State`](https://docs.trillium.rs/trillium/struct.state) handler, which holds any
-> type that is Clone and puts a clone of it into the state of each
-> Conn that passes through the handler.
-
-### Extending Conn
-
-It is a very common pattern in trillium for libraries to extend Conn in
-order to provide additional functionality.  The Conn interface does
-not provide support for sessions, cookies, route params, or many other
-building blocks that other frameworks build into the core
-types. Instead, to use sessions as an example, `trillium_sessions`
-provides a `SessionConnExt` trait which provides associated functions
-for Conn that offer session support. In general, handlers that put
-data into conn state also will provide convenience functions for
-accessing that state, and will export a `[Something]ConnExt` trait.
-
-## Servers
-
-Let's talk a little more about that `trillium_smol::run` line we've
-been writing. Trillium itself is built on `futures` (`futures-lite`,
-specifically). In order to run it, it needs an adapter to an async
-runtime. These adapters are called servers, and there are four of them
-currently:
-
-* `trillium_async_std`
-* `trillium_smol`
-* `trillium_tokio`
-* `trillium_aws_lambda_server`
-
-Although we've been using the smol server in these docs thus far, you
-should use whichever runtime you prefer. If you expect to have a
-dependency on async-std or tokio anyway, you might as well use the
-server for that runtime.
-
-To run trillium on a different host or port, either provide a `HOST` and/or `PORT` environment variables, or compile the specific values into the server as follows:
-
-```rust
-{{#include ../../smol/examples/smol-with-config.rs}}
-```
-
-### TLS / HTTPS
-
-With the exception of aws lambda, which provides its own tls
-termination at the load balancer, each of the above servers can be
-combined with either rustls or native-tls.
-
-Rustls:
-```rust
-{{#include ../../rustls/examples/rustls.rs}}
-```
-
-Native tls:
-```rust
-{{#include ../../native-tls/examples/native-tls.rs}}
-```
+> state is achieved using the
+> [`trillium::State`](https://docs.trillium.rs/trillium/struct.state)
+> handler, which holds any type that is Clone and puts a clone of it
+> into the state of each Conn that passes through the handler.
 
 ## Tuple Handlers
 
@@ -176,3 +125,58 @@ This snippet adds a http logger to our application, so that if we
 execute our application with `RUST_LOG=info cargo run` and make a
 request to localhost:8000, we'll see something like `GET / 200
 390.706µs 9bytes` on stdout.
+
+### Extending Conn
+
+It is a very common pattern in trillium for libraries to extend Conn in
+order to provide additional functionality.  The Conn interface does
+not provide support for sessions, cookies, route params, or many other
+building blocks that other frameworks build into the core
+types. Instead, to use sessions as an example, `trillium_sessions`
+provides a `SessionConnExt` trait which provides associated functions
+for Conn that offer session support. In general, handlers that put
+data into conn state also will provide convenience functions for
+accessing that state, and will export a `[Something]ConnExt` trait.
+
+## Servers
+
+Let's talk a little more about that `trillium_smol::run` line we've
+been writing. Trillium itself is built on `futures` (`futures-lite`,
+specifically). In order to run it, it needs an adapter to an async
+runtime. These adapters are called servers, and there are four of them
+currently:
+
+* `trillium_async_std`
+* `trillium_smol`
+* `trillium_tokio`
+* `trillium_aws_lambda`
+
+Although we've been using the smol server in these docs thus far, you
+should use whichever runtime you prefer. If you expect to have a
+dependency on async-std or tokio anyway, you might as well use the
+server for that runtime.
+
+To run trillium on a different host or port, either provide a `HOST`
+and/or `PORT` environment variables, or compile the specific values
+into the server as follows:
+
+```rust
+{{#include ../../smol/examples/smol-with-config.rs}}
+```
+
+### TLS / HTTPS
+
+With the exception of aws lambda, which provides its own tls
+termination at the load balancer, each of the above servers can be
+combined with either rustls or native-tls.
+
+Rustls:
+```rust
+{{#include ../../rustls/examples/rustls.rs}}
+```
+
+Native tls:
+```rust
+{{#include ../../native-tls/examples/native-tls.rs}}
+```
+
