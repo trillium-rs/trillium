@@ -27,11 +27,10 @@ let router = Router::new()
         conn.ok(content)
     });
 
-use trillium_testing::{TestHandler, assert_ok};
-let test_handler = TestHandler::new(router);
-assert_ok!(test_handler.get("/"), "you have reached the index");
-assert_ok!(test_handler.get("/pages/trillium"), "you have reached the page named trillium");
-assert!(test_handler.get("/unknown/route").status().is_none());
+use trillium_testing::{methods::get, assert_ok};
+assert_ok!(get(&router, "/"), "you have reached the index");
+assert_ok!(get(&router, "/pages/trillium"), "you have reached the page named trillium");
+assert!(get(&router, "/unknown/route").status().is_none());
 ```
 
 Although this is currently the only trillium router, it is an
@@ -74,11 +73,10 @@ let router = routes!(
     }
 );
 
-use trillium_testing::{TestHandler, assert_ok};
-let test_handler = TestHandler::new(router);
-assert_ok!(test_handler.get("/"), "you have reached the index");
-assert_ok!(test_handler.get("/pages/trillium"), "you have reached the page named trillium");
-assert!(test_handler.get("/unknown/route").status().is_none());
+use trillium_testing::{methods::get, assert_ok};
+assert_ok!(get(&router, "/"), "you have reached the index");
+assert_ok!(get(&router, "/pages/trillium"), "you have reached the page named trillium");
+assert!(get(&router, "/unknown/route").status().is_none());
 ```
 */
 #[macro_export]

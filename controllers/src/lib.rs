@@ -34,11 +34,10 @@ impl Controller for UserController {
 }
 
 let handler = ControllerHandler::new(UserController);
-use trillium_testing::{TestHandler, assert_ok, assert_response, assert_not_handled};
-let test_handler = TestHandler::new(handler);
-assert_ok!(test_handler.get("/"), "ok");
-assert_not_handled!(test_handler.post("/"));
-assert_response!(test_handler.delete("/"), 500);
+use trillium_testing::{HandlerTesting, assert_ok, assert_response, assert_not_handled};
+assert_ok!(handler.get("/"), "ok");
+assert_not_handled!(handler.post("/"));
+assert_response!(handler.delete("/"), 500);
 ```
 */
 

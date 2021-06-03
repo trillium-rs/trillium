@@ -22,9 +22,8 @@ pub trait RouterConnExt {
         conn.ok(content)
     });
 
-    use trillium_testing::{TestHandler, assert_ok};
-    let test_handler = TestHandler::new(router);
-    assert_ok!(test_handler.get("/pages/trillium"), "you have reached the page named trillium");
+    use trillium_testing::{methods::get, assert_ok};
+    assert_ok!(get(&router, "/pages/trillium"), "you have reached the page named trillium");
     ```
     */
 
@@ -44,10 +43,9 @@ pub trait RouterConnExt {
     ///     conn.ok(content)
     /// });
     ///
-    /// use trillium_testing::{TestHandler, assert_ok};
-    /// let test_handler = TestHandler::new(router);
+    /// use trillium_testing::{methods::get, assert_ok};
     /// assert_ok!(
-    ///     test_handler.get("/pages/this/is/a/wildcard/match"),
+    ///     get(&router, "/pages/this/is/a/wildcard/match"),
     ///     "the wildcard matched this/is/a/wildcard/match"
     /// );
     /// ```
@@ -75,10 +73,9 @@ impl RouterConnExt for Conn {
 //     conn.ok(content)
 // });
 
-// use trillium_testing::{TestHandler, assert_ok};
-// let test_handler = TestHandler::new(router);
+// use trillium_testing::{HandlerTesting, assert_ok};
 // assert_ok!(
-//     test_handler.get("/pages/this/is/a/wildcard/match"),
+//     router.get("/pages/this/is/a/wildcard/match"),
 //     "the wildcard matched this/is/a/wildcard/match"
 // );
 // ```

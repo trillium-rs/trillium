@@ -94,9 +94,8 @@ let handler = (
     },
 );
 
-use trillium_testing::{TestHandler, TestConn, assert_ok};
-let test_handler = TestHandler::new(handler);
-let mut conn = test_handler.get("/");
+use trillium_testing::{HandlerTesting, TestConn, assert_ok};
+let mut conn = handler.get("/");
 assert_ok!(&mut conn, "count: 0");
 
 let set_cookie_header = conn.headers_mut().get("set-cookie").unwrap().as_str();
@@ -104,7 +103,7 @@ let cookie = Cookie::parse_encoded(set_cookie_header).unwrap();
 
 let make_request = || TestConn::get("/")
     .with_header(("cookie", &*format!("{}={}", cookie.name(), cookie.value())))
-    .run(&test_handler);
+    .run(&handler);
 
 assert_ok!(make_request(), "count: 1");
 assert_ok!(make_request(), "count: 2");

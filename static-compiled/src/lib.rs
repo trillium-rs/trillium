@@ -35,21 +35,20 @@ let handler = StaticCompiledHandler::new(include_dir!("examples/files"))
 //    └── plaintext.txt
 //
 
-use trillium_testing::{TestHandler, assert_not_handled, assert_ok, assert_header};
-let test_handler = TestHandler::new(handler);
+use trillium_testing::{HandlerTesting, assert_not_handled, assert_ok, assert_header};
 
 assert_ok!(
-    test_handler.get("/"),
+    handler.get("/"),
     "<h1>hello world</h1>",
     "content-type" => "text/html"
 );
-assert_not_handled!(test_handler.get("/file_that_does_not_exist.txt"));
-assert_ok!(test_handler.get("/index.html"));
-assert_ok!(test_handler.get("/subdir/index.html"), "subdir index.html");
-assert_ok!(test_handler.get("/subdir"), "subdir index.html");
-assert_not_handled!(test_handler.get("/subdir_with_no_index"));
+assert_not_handled!(handler.get("/file_that_does_not_exist.txt"));
+assert_ok!(handler.get("/index.html"));
+assert_ok!(handler.get("/subdir/index.html"), "subdir index.html");
+assert_ok!(handler.get("/subdir"), "subdir index.html");
+assert_not_handled!(handler.get("/subdir_with_no_index"));
 assert_ok!(
-    test_handler.get("/subdir_with_no_index/plaintext.txt"),
+    handler.get("/subdir_with_no_index/plaintext.txt"),
     "plaintext file",
     "content-type" => "text/plain"
 );
@@ -58,23 +57,21 @@ assert_ok!(
 // with a different index file
 let plaintext_index = StaticCompiledHandler::new(include_dir!("examples/files"))
     .with_index_file("plaintext.txt");
-let test_handler = TestHandler::new(plaintext_index);
 
-assert_not_handled!(test_handler.get("/"));
-assert_not_handled!(test_handler.get("/subdir"));
+assert_not_handled!(plaintext_index.get("/"));
+assert_not_handled!(plaintext_index.get("/subdir"));
 assert_ok!(
-    test_handler.get("/subdir_with_no_index"),
+    plaintext_index.get("/subdir_with_no_index"),
     "plaintext file",
     "content-type" => "text/plain"
 );
 
 // with no index file
 let no_index = StaticCompiledHandler::new(include_dir!("examples/files"));
-let test_handler = TestHandler::new(no_index);
 
-assert_not_handled!(test_handler.get("/"));
-assert_not_handled!(test_handler.get("/subdir"));
-assert_not_handled!(test_handler.get("/subdir_with_no_index"));
+assert_not_handled!(no_index.get("/"));
+assert_not_handled!(no_index.get("/subdir"));
+assert_not_handled!(no_index.get("/subdir_with_no_index"));
 
 ```
 */

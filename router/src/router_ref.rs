@@ -23,14 +23,15 @@ let router = Router::build(|mut router| {
     });
 });
 
-use trillium_testing::{TestHandler, assert_ok};
-let test_handler = TestHandler::new(router);
-assert_ok!(test_handler.",
+use trillium_testing::{methods::",
                 stringify!($fn_name),
-                "(\"/some/route\"), \"success\");
-assert!(test_handler.",
+                ", assert_ok};
+assert_ok!(",
                 stringify!($fn_name),
-                "(\"/other/route\").status().is_none());
+                "(&router, \"/some/route\"), \"success\");
+assert!(",
+                stringify!($fn_name),
+                "(&router, \"/other/route\").status().is_none());
 ```
 "
             )
@@ -73,15 +74,14 @@ impl<'r> RouterRef<'r> {
         });
     });
 
-    use trillium_testing::{TestHandler, assert_ok};
-    let test_handler = TestHandler::new(router);
-    assert_ok!(test_handler.get("/any"), "you made a GET request to /any");
-    assert_ok!(test_handler.post("/any"), "you made a POST request to /any");
-    assert_ok!(test_handler.delete("/any"), "you made a DELETE request to /any");
-    assert_ok!(test_handler.patch("/any"), "you made a PATCH request to /any");
-    assert_ok!(test_handler.put("/any"), "you made a PUT request to /any");
+    use trillium_testing::{methods::*, assert_ok};
+    assert_ok!(get(&router, "/any"), "you made a GET request to /any");
+    assert_ok!(post(&router, "/any"), "you made a POST request to /any");
+    assert_ok!(delete(&router, "/any"), "you made a DELETE request to /any");
+    assert_ok!(patch(&router, "/any"), "you made a PATCH request to /any");
+    assert_ok!(put(&router, "/any"), "you made a PUT request to /any");
 
-    assert!(test_handler.get("/").status().is_none());
+    assert!(get(&router, "/").status().is_none());
     ```
 
     */

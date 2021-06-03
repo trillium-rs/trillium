@@ -1,12 +1,12 @@
 #![forbid(unsafe_code)]
-// #![warn(
-//     missing_copy_implementations,
-//     missing_crate_level_docs,
-//     missing_debug_implementations,
-//     missing_docs,
-//     nonstandard_style,
-//     unused_qualifications
-// )]
+#![warn(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
 
 pub use futures_lite;
 use futures_lite::future;
@@ -103,61 +103,54 @@ impl DerefMut for TestConn {
     }
 }
 
-#[derive(Debug)]
-pub struct TestHandler<H>(H);
-
-#[trillium::async_trait]
-impl<H> Handler for TestHandler<H>
-where
-    H: Handler,
-{
-    async fn init(&mut self) {
-        self.0.init().await
-    }
-
-    async fn before_send(&self, conn: Conn) -> Conn {
-        self.0.before_send(conn).await
-    }
-
-    async fn upgrade(&self, upgrade: trillium::Upgrade) {
-        self.0.upgrade(upgrade).await
-    }
-
-    fn has_upgrade(&self, upgrade: &trillium::Upgrade) -> bool {
-        self.0.has_upgrade(upgrade)
-    }
-
-    async fn run(&self, conn: Conn) -> Conn {
-        self.0.run(conn).await
-    }
-}
-
 macro_rules! test_handler_method {
     ($fn_name:ident, $method:ident) => {
-        pub fn $fn_name(&self, path: impl Into<String>) -> TestConn {
+        fn $fn_name(&self, path: impl Into<String>) -> TestConn {
             self.request(Method::$method, path)
         }
     };
 }
 
-impl<H: Handler> TestHandler<H> {
-    pub fn new(handler: H) -> Self {
-        Self(handler)
+pub mod methods {
+    use super::{Handler, Method, TestConn};
+    macro_rules! method {
+        ($fn_name:ident, $method:ident) => {
+            pub fn $fn_name(handler: &impl Handler, path: impl Into<String>) -> TestConn {
+                TestConn::build(Method::$method, path, ()).run(handler)
+            }
+        };
     }
+    method!(get, Get);
+    method!(post, Post);
+    method!(put, Put);
+    method!(delete, Delete);
+    method!(patch, Patch);
+}
 
-    pub fn request<M>(&self, method: M, path: impl Into<String>) -> TestConn
+pub trait HandlerTesting {
+    fn request<M>(&self, method: M, path: impl Into<String>) -> TestConn
     where
         M: TryInto<Method>,
-        <M as TryInto<Method>>::Error: std::fmt::Debug,
-    {
-        TestConn::build(method, path, ()).run(&self.0)
-    }
+        <M as TryInto<Method>>::Error: std::fmt::Debug;
 
     test_handler_method!(get, Get);
     test_handler_method!(post, Post);
     test_handler_method!(put, Put);
     test_handler_method!(delete, Delete);
     test_handler_method!(patch, Patch);
+}
+
+impl<H> HandlerTesting for H
+where
+    H: Handler,
+{
+    fn request<M>(&self, method: M, path: impl Into<String>) -> TestConn
+    where
+        M: TryInto<Method>,
+        <M as TryInto<Method>>::Error: std::fmt::Debug,
+    {
+        TestConn::build(method, path, ()).run(self)
+    }
 }
 
 pub fn build_conn<M>(method: M, path: impl Into<String>, body: impl Into<Synthetic>) -> Conn
