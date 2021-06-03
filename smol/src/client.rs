@@ -2,12 +2,21 @@ use async_net::TcpStream;
 use std::{io::Result, net::SocketAddr};
 use trillium_server_common::{async_trait, Connector, Url};
 
+/**
+configuration for the tcp Connector
+*/
 #[derive(Default, Debug, Clone, Copy)]
 pub struct ClientConfig {
+    /// disable [nagle's algorithm](https://en.wikipedia.org/wiki/Nagle%27s_algorithm)
     pub nodelay: Option<bool>,
+
+    /// set a time to live for the tcp protocol
     pub ttl: Option<u32>,
 }
 
+/**
+tcp connector for smol based on async_net::TcpStream
+*/
 #[derive(Clone, Debug, Copy)]
 pub struct TcpConnector;
 

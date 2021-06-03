@@ -8,6 +8,11 @@
     unused_qualifications
 )]
 
+/*!
+This crate provides rustls trait implementations for trillium
+client ([`RustlsConnector`]) and server ([`RustlsAcceptor`]).
+*/
+
 mod client;
 pub use client::{RustlsConfig, RustlsConnector};
 

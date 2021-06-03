@@ -7,6 +7,14 @@
     nonstandard_style,
     unused_qualifications
 )]
+
+/*!
+Development-mode logger for trillium
+
+stability note: this is basically just a proof of concept, and the
+interface will likely change quite a bit before stabilizing
+*/
+
 use colored::*;
 use size::{Base, Size, Style};
 use std::time::Instant;
@@ -21,11 +29,23 @@ impl Start {
     }
 }
 
+/**
+Development-mode logger for trillium
+
+stability note: this is basically just a proof of concept, and the
+interface will likely change quite a bit before stabilizing
+*/
 #[derive(Clone, Copy, Debug)]
-pub struct DevLogger;
+pub struct Logger(());
+impl Logger {
+    /// construct a new dev
+    pub fn new() -> Self {
+        Self(())
+    }
+}
 
 #[async_trait]
-impl Handler for DevLogger {
+impl Handler for Logger {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(Start::now())
     }

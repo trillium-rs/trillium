@@ -10,20 +10,38 @@ use std::{
     task::{Context, Poll},
 };
 use trillium_tls_common::{async_trait, AsyncRead, AsyncWrite, Connector, Url};
-use RustlsTransport::{Tcp, Tls};
+use RustlsTransportInner::{Tcp, Tls};
 
+/**
+this struct provides rustls a trillium client connector implementation
+*/
 #[derive(Debug, Clone, Copy)]
 pub struct RustlsConnector<C>(PhantomData<C>);
 
 #[derive(Debug)]
-pub enum RustlsTransport<T> {
+enum RustlsTransportInner<T> {
     Tcp(T),
     Tls(TlsStream<T>),
 }
 
+/**
+Transport for the rustls connector
+
+This may represent either an encrypted tls connection or a plaintext
+connection, depending on the request schema
+*/
+#[derive(Debug)]
+pub struct RustlsTransport<T>(RustlsTransportInner<T>);
+
+/**
+Client configuration for RustlsConnector
+*/
 #[derive(Clone)]
 pub struct RustlsConfig<Config> {
+    /// configuration for rustls itself
     pub rustls_config: Arc<ClientConfig>,
+
+    /// configuration for the inner transport
     pub tcp_config: Config,
 }
 
@@ -81,7 +99,7 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<Result<usize>> {
-        match &mut *self {
+        match &mut self.0 {
             Tcp(c) => Pin::new(c).poll_read(cx, buf),
             Tls(c) => Pin::new(c).poll_read(cx, buf),
         }
@@ -97,21 +115,21 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize>> {
-        match &mut *self {
+        match &mut self.0 {
             Tcp(c) => Pin::new(c).poll_write(cx, buf),
             Tls(c) => Pin::new(c).poll_write(cx, buf),
         }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        match &mut *self {
+        match &mut self.0 {
             Tcp(c) => Pin::new(c).poll_flush(cx),
             Tls(c) => Pin::new(c).poll_flush(cx),
         }
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        match &mut *self {
+        match &mut self.0 {
             Tcp(c) => Pin::new(c).poll_close(cx),
             Tls(c) => Pin::new(c).poll_close(cx),
         }
@@ -123,7 +141,7 @@ impl<C: Connector> Connector for RustlsConnector<C> {
     type Config = RustlsConfig<C::Config>;
     type Transport = RustlsTransport<C::Transport>;
     fn peer_addr(transport: &Self::Transport) -> Result<SocketAddr> {
-        match transport {
+        match &transport.0 {
             Tcp(c) => C::peer_addr(c),
             Tls(c) => {
                 let (x, _) = c.get_ref();
@@ -145,17 +163,17 @@ impl<C: Connector> Connector for RustlsConnector<C> {
                     .and_then(|dns_name| DNSNameRef::try_from_ascii_str(dns_name).ok())
                     .ok_or_else(|| Error::new(ErrorKind::Other, "missing domain"))?;
 
-                Ok(Self::Transport::Tls(
-                    connector
-                        .connect(domain, C::connect(&http, &config.tcp_config).await?)
-                        .await
-                        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?,
-                ))
+                Ok(RustlsTransport(Tls(connector
+                    .connect(domain, C::connect(&http, &config.tcp_config).await?)
+                    .await
+                    .map_err(|e| {
+                        Error::new(ErrorKind::Other, e.to_string())
+                    })?)))
             }
 
-            "http" => Ok(Self::Transport::Tcp(
-                C::connect(&url, &config.tcp_config).await?,
-            )),
+            "http" => Ok(RustlsTransport(Tcp(
+                C::connect(&url, &config.tcp_config).await?
+            ))),
 
             unknown => Err(Error::new(
                 ErrorKind::InvalidInput,

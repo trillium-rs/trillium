@@ -1,4 +1,4 @@
-use async_rustls::{server::TlsStream, TlsAcceptor, TlsConnector};
+use async_rustls::{server::TlsStream, TlsAcceptor};
 use rustls::{
     internal::pemfile::{certs, pkcs8_private_keys},
     NoClientAuth, ServerConfig,
@@ -10,6 +10,10 @@ use std::{
 };
 use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
 
+/**
+trillium [`Acceptor`] for Rustls
+*/
+
 #[derive(Clone)]
 pub struct RustlsAcceptor(TlsAcceptor);
 impl Debug for RustlsAcceptor {
@@ -19,10 +23,16 @@ impl Debug for RustlsAcceptor {
 }
 
 impl RustlsAcceptor {
+    /**
+    build a new RustlsAcceptor from a [`ServerConfig`] or a [`TlsAcceptor`]
+    */
     pub fn new(t: impl Into<Self>) -> Self {
         t.into()
     }
 
+    /**
+    build a new RustlsAcceptor from a pkcs8 cert and key
+    */
     pub fn from_pkcs8(cert: &[u8], key: &[u8]) -> Self {
         let mut config = ServerConfig::new(NoClientAuth::new());
 

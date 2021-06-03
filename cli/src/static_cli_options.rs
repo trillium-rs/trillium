@@ -2,7 +2,7 @@ use crate::RootPath;
 use log::LevelFilter;
 use std::{fmt::Debug, fs, io::Write, path::PathBuf};
 use structopt::StructOpt;
-use trillium_logger::DevLogger;
+use trillium_logger::Logger;
 use trillium_native_tls::NativeTlsAcceptor;
 use trillium_rustls::{RustlsAcceptor, RustlsConnector};
 use trillium_smol::TcpConnector;
@@ -190,7 +190,7 @@ impl StaticCli {
         }
 
         let server = (
-            DevLogger,
+            Logger::new(),
             self.forward().map(Proxy::new),
             static_file_handler,
         );

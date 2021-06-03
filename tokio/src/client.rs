@@ -3,12 +3,26 @@ use std::{io::Result, net::SocketAddr, time::Duration};
 use tokio::net::TcpStream;
 use trillium_server_common::{async_trait, Connector, Url};
 
+/**
+configuration for the tcp Connector
+*/
 #[derive(Default, Debug, Clone, Copy)]
 pub struct ClientConfig {
+    /// disable [nagle's algorithm](https://en.wikipedia.org/wiki/Nagle%27s_algorithm)
+    /// see [`TcpStream::set_nodelay`] for more info
     pub nodelay: Option<bool>,
+
+    /// time to live for the tcp protocol. set [`TcpStream::set_ttl`] for more info
     pub ttl: Option<u32>,
+
+    /// sets SO_LINGER. I don't really understand this, but see
+    /// [`TcpStream::set_linger`] for more info
     pub linger: Option<Duration>,
 }
+
+/**
+trillium client Connector for tokio
+*/
 
 #[derive(Clone, Debug, Copy)]
 pub struct TcpConnector;

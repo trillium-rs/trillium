@@ -1,7 +1,10 @@
-use trillium_logger::DevLogger;
-type Proxy = trillium_proxy::Proxy<trillium_rustls::RustlsConnector<trillium_smol::TcpConnector>>;
+use trillium_logger::Logger;
+use trillium_rustls::RustlsConnector;
+use trillium_smol::TcpConnector;
+
+type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
 pub fn main() {
     env_logger::init();
-    trillium_smol::run((DevLogger, Proxy::new("https://httpbin.org/")));
+    trillium_smol::run((Logger::new(), Proxy::new("https://httpbin.org/")));
 }

@@ -89,6 +89,6 @@ trillium_smol::config()
 See [`trillium_server_common::Config`] for more details
 
 */
-pub fn config() -> server::Config<()> {
+pub fn config() -> Config<()> {
     Config::new()
 }

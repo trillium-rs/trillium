@@ -3,7 +3,7 @@ use trillium::Conn;
 use trillium_askama::AskamaConnExt;
 use trillium_aws_lambda::LambdaConnExt;
 use trillium_cookies::CookiesHandler;
-use trillium_logger::DevLogger;
+use trillium_logger::Logger;
 use trillium_router::{Router, RouterConnExt};
 use trillium_sessions::{CookieStore, SessionConnExt, SessionHandler};
 
@@ -16,7 +16,7 @@ struct HelloTemplate<'a> {
 fn main() {
     env_logger::init();
     trillium_aws_lambda::run((
-        DevLogger,
+        Logger::new(),
         CookiesHandler::new(),
         SessionHandler::new(CookieStore::new(), b"01234567890123456789012345678901123"),
         |conn: Conn| async move {

@@ -1,5 +1,5 @@
 use trillium::{conn_try, conn_unwrap, Conn, Handler};
-use trillium_logger::DevLogger;
+use trillium_logger::Logger;
 use trillium_router::{Router, RouterConnExt};
 
 struct User {
@@ -42,7 +42,7 @@ mod nested_app {
 pub fn main() {
     env_logger::init();
     trillium_smol::run((
-        DevLogger,
+        Logger::new(),
         Router::new()
             .get("/", |conn: Conn| async move { conn.ok("hello everyone") })
             .any("/users/:user_id/*", nested_app::handler()),

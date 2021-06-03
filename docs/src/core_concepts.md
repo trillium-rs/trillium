@@ -116,7 +116,7 @@ conn is halted.
 ```rust
 env_logger::init();
 run((
-    trillium_logger::DevLogger,
+    trillium_logger::Logger,
     |conn: Conn| async move { conn.ok("tuple!") }
 ));
 ```
