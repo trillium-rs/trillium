@@ -4,11 +4,21 @@ version = "0.0.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
+[features]
+default = ["async-global-executor"]
+tokio = ["tokio_crate"]
+async-std = ["async_std_crate"]
+smol = ["async-global-executor"]
+
 [dependencies]
 trillium = { path = "../trillium" }
 futures-lite = "1.11.3"
-async-global-executor = "2.0.2"
+async-global-executor = { version = "2.0.2", optional = true }
 lol-async = "0.1.1"
+cfg-if = "1.0.0"
+tokio_crate = { version = "1.6.1", optional = true, package = "tokio" }
+async_std_crate = { version = "1.9.0", optional = true, package = "async-std" }
+trillium-testing = { path = "../testing" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

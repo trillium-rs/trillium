@@ -79,12 +79,13 @@ impl TestConn {
         Self(inner.into())
     }
 
+    pub async fn run_async(self, handler: &impl Handler) -> Self {
+        let conn = handler.run(self.0.into()).await;
+        Self(handler.before_send(conn).await)
+    }
+
     pub fn run(self, handler: &impl Handler) -> Self {
-        let conn = future::block_on(async move {
-            let conn = handler.run(self.0.into()).await;
-            handler.before_send(conn).await
-        });
-        Self(conn)
+        future::block_on(self.run_async(handler))
     }
 }
 
