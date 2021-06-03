@@ -1,25 +1,30 @@
 use crate::util::encoding;
-pub use async_net::TcpStream;
 use encoding_rs::Encoding;
-use futures_lite::future::poll_once;
-use futures_lite::{AsyncReadExt, AsyncWriteExt};
+use futures_lite::{future::poll_once, AsyncReadExt, AsyncWriteExt};
 use memmem::{Searcher, TwoWaySearcher};
-use std::borrow::Cow;
-use std::convert::TryInto;
-use std::fmt::{self, Debug, Formatter};
-use std::io::Write;
-use trillium::http_types::content::ContentLength;
-use trillium::http_types::headers::{Headers, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
-use trillium::http_types::{Body, Extensions, Method, StatusCode};
-use trillium_http::{BodyEncoder, ReceivedBody, ReceivedBodyState, Upgrade};
-use trillium_http::{Error, Result, Stopper};
-
-use url::Url;
+use std::{
+    borrow::Cow,
+    convert::TryInto,
+    fmt::{self, Debug, Formatter},
+    io::Write,
+};
+use trillium::http_types::{
+    content::ContentLength,
+    headers::{Headers, CONTENT_LENGTH, HOST, TRANSFER_ENCODING},
+    Body, Extensions, Method, StatusCode, Url,
+};
+use trillium_http::{
+    BodyEncoder, Error, ReceivedBody, ReceivedBodyState, Result, Stopper, Upgrade,
+};
 
 use crate::{pool::PoolEntry, Connector, Pool};
 
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 8 * 1024;
+
+/**
+a client connection, representing both an outbound http request and a http response
+*/
 
 pub struct Conn<'config, C: Connector> {
     url: Url,
@@ -37,6 +42,34 @@ pub struct Conn<'config, C: Connector> {
 
 macro_rules! method {
     ($fn_name:ident, $method:ident) => {
+        method!(
+            $fn_name,
+            $method,
+            concat!(
+                // yep, macro-generated doctests
+                "Builds a new client conn with the ",
+                stringify!($fn_name),
+                " http method and the provided url.
+
+```
+use trillium_client::{http_types::Method};
+type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
+
+let conn = Conn::",
+                stringify!($fn_name),
+                "(\"http://localhost:8080/some/route\");
+
+assert_eq!(conn.method(), Method::",
+                stringify!($method),
+                ");
+assert_eq!(conn.url().to_string(), \"http://localhost:8080/some/route\");
+```
+"
+            )
+        );
+    };
+    ($fn_name:ident, $method:ident, $doc_comment:expr) => {
+        #[doc = $doc_comment]
         pub fn $fn_name<U>(url: U) -> Self
         where
             <U as TryInto<Url>>::Error: Debug,
@@ -70,10 +103,40 @@ impl<C: Connector> Debug for Conn<'_, C> {
 }
 
 impl<'config, C: Connector> Conn<'config, C> {
+    /**
+    imperatively assign a given config reference to this Conn.
+
+    ```
+    use trillium_smol::{TcpConnector, ClientConfig};
+    type Conn<'config> = trillium_client::Conn<'config, TcpConnector>;
+
+    let config = ClientConfig {
+        ttl: Some(100),
+        ..Default::default()
+    };
+
+    let mut conn = Conn::get("http://localhost:8080/");
+    conn.set_config(&config);
+    ```
+     */
     pub fn set_config<'c2: 'config>(&mut self, config: &'c2 C::Config) {
         self.config = Some(Cow::Borrowed(config));
     }
 
+    /**
+    set a config reference on this conn and return the conn, allowing chaining
+    ```
+    use trillium_smol::{TcpConnector, ClientConfig};
+    type Conn<'config> = trillium_client::Conn<'config, TcpConnector>;
+
+    let config = ClientConfig {
+        nodelay: Some(true),
+        ..Default::default()
+    };
+
+    let conn = Conn::get("http://localhost:8080/").with_config(&config);
+    ```
+     */
     pub fn with_config<'c2: 'config>(mut self, config: &'c2 C::Config) -> Conn<'config, C> {
         self.set_config(config);
         self
@@ -245,7 +308,7 @@ impl<C: Connector> Conn<'_, C> {
         Ok(())
     }
 
-    pub async fn build_head(&mut self) -> Result<Vec<u8>> {
+    async fn build_head(&mut self) -> Result<Vec<u8>> {
         let mut buf = Vec::with_capacity(128);
         let url = &self.url;
         let method = self.method;
@@ -404,6 +467,14 @@ impl<C: Connector> Conn<'_, C> {
 
     pub fn response_encoding(&self) -> &'static Encoding {
         encoding(&self.response_headers)
+    }
+
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+
+    pub fn method(&self) -> Method {
+        self.method
     }
 
     pub fn response_body(&mut self) -> ReceivedBody<'_, C::Transport> {
