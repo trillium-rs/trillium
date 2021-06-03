@@ -115,7 +115,7 @@ impl StaticFileHandler {
         if file_path.starts_with(&self.fs_root) {
             async_fs::canonicalize(file_path).await.ok()
         } else {
-            return None;
+            None
         }
     }
 

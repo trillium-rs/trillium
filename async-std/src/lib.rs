@@ -12,6 +12,7 @@
 # Trillium server adapter for async-std
 
 ```rust,no_run
+# #[allow(clippy::needless_doctest_main)]
 fn main() {
     trillium_async_std::run(|conn: trillium::Conn| async move {
         conn.ok("hello async-std")
@@ -20,6 +21,7 @@ fn main() {
 ```
 
 ```rust,no_run
+# #[allow(clippy::needless_doctest_main)]
 #[async_std::main]
 async fn main() {
     trillium_async_std::run_async(|conn: trillium::Conn| async move {

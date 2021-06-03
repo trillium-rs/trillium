@@ -11,6 +11,7 @@
 # Trillium server adapter for tokio
 
 ```rust,no_run
+# #[allow(clippy::needless_doctest_main)]
 fn main() {
     trillium_tokio::run(|conn: trillium::Conn| async move {
         conn.ok("hello tokio")
@@ -19,6 +20,7 @@ fn main() {
 ```
 
 ```rust,no_run
+# #[allow(clippy::needless_doctest_main)]
 #[tokio::main]
 async fn main() {
     trillium_tokio::run_async(|conn: trillium::Conn| async move {

@@ -35,7 +35,7 @@ Development-mode logger for trillium
 stability note: this is basically just a proof of concept, and the
 interface will likely change quite a bit before stabilizing
 */
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Logger(());
 impl Logger {
     /// construct a new dev

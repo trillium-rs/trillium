@@ -80,7 +80,7 @@ impl TestConn {
     }
 
     pub async fn run_async(self, handler: &impl Handler) -> Self {
-        let conn = handler.run(self.0.into()).await;
+        let conn = handler.run(self.0).await;
         Self(handler.before_send(conn).await)
     }
 
