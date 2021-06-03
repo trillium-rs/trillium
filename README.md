@@ -25,6 +25,8 @@ lambda.
 
 * trillium
   * [rustdocs (main)](https://docs.trillium.rs/trillium/index.html)
+* testing
+  * ❗ [rustdocs (main)](https://docs.trillium.rs/trillium_testing/index.html)
 * trillium-http
   > a lower abstraction than trillium itself, but potentially usable directly for some use cases
   * [rustdocs (main)](https://docs.trillium.rs/trillium_http/index.html)
@@ -32,11 +34,9 @@ lambda.
   * [tokio example](https://github.com/trillium-rs/trillium/blob/main/http/examples/tokio-http.rs)
 * file serving
   * static
-    > serves static assets from the file system
     * [example](https://github.com/trillium-rs/trillium/blob/main/static/examples/static.rs)
     * [rustdocs (main)](https://docs.trillium.rs/trillium_static/index.html)
   * static-compiled
-    > includes assets in the compiled binary
     * [example](https://github.com/trillium-rs/trillium/blob/main/static-compiled/examples/static-compiled.rs) 
     * [rustdocs (main)](https://docs.trillium.rs/trillium_static_compiled/index.html)
 * templating
@@ -50,8 +50,7 @@ lambda.
     * [rustdocs (main)](https://docs.trillium.rs/trillium_handlebars/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/handlebars/examples/handlebars.rs)
 * http client
-  > yes, trillium has its own http client. this is primarily for the reverse proxy, but has connection pooling and other nice features that should make it fairly general-purpose.
-  * [ ] <span style="color:red">rustdocs (main)</span>
+  * ❗ [rustdocs (main)](https://docs.trillium.rs/trillium_client/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/client/examples/client.rs)
 * websockets
   * [rustdocs (main)](https://docs.trillium.rs/trillium_websockets/index.html)
@@ -60,14 +59,13 @@ lambda.
   * [rustdocs (main)](https://docs.trillium.rs/trillium_cookies/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/cookies/examples/cookies.rs)
 * reverse proxy
-  > this reverse proxy still has some work to go before being used in production but already supports things like forwarding arbitrary http protocol upgrades such as websockets
-  * [ ] <span style="color:red">rustdocs (main)</span>
+  * [rustdocs (main)](https://docs.trillium.rs/trillium_proxy/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/proxy/examples/proxy.rs)
 * sessions
   * [rustdocs (main)](https://docs.trillium.rs/trillium_sessions/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/sessions/examples/sessions.rs)
 * logger
-  * [ ] <span style="color:red">rustdocs (main)</span>
+  * [rustdocs (main)](https://docs.trillium.rs/trillium_logger/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/logger/examples/logger.rs)
 * Router
   * [rustdocs (main)](https://docs.trillium.rs/trillium_router/index.html)
@@ -76,12 +74,12 @@ lambda.
   * [router-with-macro example](https://github.com/trillium-rs/trillium/blob/main/router/examples/router-with-macro.rs)
 * tls
   * rustls
-    * [ ] <span style="color:red">rustdocs (main)</span>
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_rustls/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/rustls/examples/rustls.rs)
   * native-tls
-    * [ ] <span style="color:red">rustdocs (main)</span>
+    * [rustdocs (main)](https://docs.trillium.rs/trillium_native_tls/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/native-tls/examples/native-tls.rs)
-* servers
+* runtime support
   * smol
     * [rustdocs (main)](https://docs.trillium.rs/trillium_smol/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/smol/examples/smol.rs)
@@ -96,6 +94,5 @@ lambda.
     * [rustdocs (main)](https://docs.trillium.rs/trillium_async_std/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/async-std/examples/async-std.rs)
 * html-rewriter based on cloudflare's lol-html
-  * [ ] <span style="color:red">rustdocs (main)</span>
+  * [rustdocs (main)](https://docs.trillium.rs/trillium_html_rewriter/index.html)
   * [html-rewriter](https://github.com/trillium-rs/trillium/blob/main/html-rewriter/examples/html-rewriter.rs) example
-  > I'm not certain if I'm going to publish this as part of trillium, as it is !Send and that requires some more design for cross-runtime compat. It's fun that it works for reverse proxies, though.
