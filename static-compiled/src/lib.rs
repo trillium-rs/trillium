@@ -130,10 +130,10 @@ impl StaticCompiledHandler {
 #[async_trait]
 impl Handler for StaticCompiledHandler {
     async fn run(&self, conn: Conn) -> Conn {
-        match dbg!((
+        match (
             self.get_item(conn.path().trim_start_matches('/')),
             self.index_file,
-        )) {
+        ) {
             (None, _) => conn,
             (Some(DirEntry::File(file)), _) => self.serve_file(conn, file),
             (Some(DirEntry::Dir(_)), None) => conn,

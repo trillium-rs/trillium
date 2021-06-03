@@ -4,20 +4,19 @@ use trillium::Conn;
 use trillium_askama::AskamaConnExt;
 use trillium_cookies::CookiesHandler;
 use trillium_logger::Logger;
-use trillium_router::{routes, Router, RouterConnExt};
+use trillium_router::{Router, RouterConnExt};
 use trillium_rustls::RustlsConnector;
 use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
 use trillium_smol::TcpConnector;
 use trillium_static_compiled::{include_dir, StaticCompiledHandler};
 use trillium_websockets::{Message, WebSocket};
+type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
 #[derive(Template)]
 #[template(path = "hello.html")]
 struct HelloTemplate<'a> {
     name: &'a str,
 }
-
-type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
 fn main() {
     env_logger::init();
@@ -31,27 +30,19 @@ fn main() {
             conn.with_header(("request-count", count.to_string()))
                 .with_session("count", count + 1)
         },
-        // three different ways of defining a router. they
-        // fall through, but normally an app would only use one of these
-        // styles. they're all entirely equivalent
-        routes![
-            get "/hello" "hi",
-
-            post "/" |mut conn: Conn| async move {
+        Router::new()
+            .get("/hello", "hi")
+            .post("/", |mut conn: Conn| async move {
                 let body = conn.request_body().await.read_string().await.unwrap();
                 conn.ok(format!("request body: {}", body))
-            },
-
-            get "/template/:name" |conn: Conn| async move {
+            })
+            .get("/template/:name", |conn: Conn| async move {
                 if let Some(name) = conn.param("name").map(String::from) {
                     conn.render(HelloTemplate { name: &name })
                 } else {
                     conn
                 }
-            },
-
-        ],
-        Router::new()
+            })
             .get("/hello/:planet", |conn: Conn| async move {
                 if let Some(planet) = conn.param("planet") {
                     let response = format!("hello, {}", planet);
@@ -64,18 +55,13 @@ fn main() {
                 "/ws",
                 WebSocket::new(|mut ws| async move {
                     while let Some(Ok(Message::Text(input))) = ws.next().await {
+                        log::info!("received message {:?}", &input);
                         let output: String = input.chars().rev().collect();
                         ws.send_string(format!("{} | {}", &input, &output)).await;
                     }
                 }),
-            ),
-        Router::build(|mut r| {
-            r.get("/httpbin/*", Proxy::new("https://httpbin.org"));
-
-            r.get(
-                "*",
-                StaticCompiledHandler::new(include_dir!("./public/")).with_index_file("index.html"),
-            );
-        }),
+            )
+            .get("/httpbin/*", Proxy::new("https://httpbin.org")),
+        StaticCompiledHandler::new(include_dir!("./public")).with_index_file("index.html"),
     ));
 }
