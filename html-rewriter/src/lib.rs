@@ -75,12 +75,12 @@ impl std::fmt::Debug for HtmlRewriter {
 
 fn spawn_local(fut: impl Future + 'static) {
     cfg_if! {
-        if #[cfg(feature="async-std")] {
-            async_std::task::spawn_local(fut);
-        } else if #[cfg(feature="smol")] {
+        if #[cfg(feature = "async-std")] {
+            async_std_crate::task::spawn_local(fut);
+        } else if #[cfg(feature = "smol")] {
             async_global_executor::spawn_local(fut).detach();
-        } else if #[cfg(feature="tokio")] {
-            tokio::task::spawn_local(fut);
+        } else if #[cfg(feature = "tokio")] {
+            tokio_crate::task::spawn_local(fut);
         } else {
             dbg!("HERE");
             async_global_executor::spawn_local(fut).detach();
