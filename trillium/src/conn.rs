@@ -31,10 +31,10 @@ async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
         .with_status(418)
 }
 
-use trillium_testing::{HandlerTesting, assert_response, StatusCode};
+use trillium_testing::{methods::*, assert_response, StatusCode};
 
 assert_response!(
-    handler.get("/"),
+    get("/").on(&handler),
     StatusCode::ImATeapot,
     "hey there",
     "content-type" => "text/plain"

@@ -32,8 +32,8 @@ impl HandlebarsHandler {
     ///     }
     /// );
     ///
-    /// use trillium_testing::{HandlerTesting, assert_ok};
-    /// assert_ok!(handler.get("/"), "hello handlebars!");
+    /// use trillium_testing::{methods::*, assert_ok};
+    /// assert_ok!(get("/").on(&handler), "hello handlebars!");
     /// # }
     /// ```
     /// ## From a [`handlebars::Handlebars`]
@@ -52,8 +52,8 @@ impl HandlebarsHandler {
     ///     }
     /// );
     ///
-    /// use trillium_testing::{HandlerTesting, assert_ok};
-    /// assert_ok!(handler.get("/"), "Hello handlebars");
+    /// use trillium_testing::{methods::*, assert_ok};
+    /// assert_ok!(get("/").on(&handler), "Hello handlebars");
     /// # Ok(()) }
     /// ```
     pub fn new(source: impl Into<Self>) -> Self {

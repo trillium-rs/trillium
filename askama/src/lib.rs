@@ -28,9 +28,9 @@ async fn handler(conn: Conn) -> Conn {
     conn.render(HelloTemplate { name: "trillium" })
 }
 
-use trillium_testing::{TestConn, assert_ok};
+use trillium_testing::{methods::*, assert_ok};
 assert_ok!(
-    TestConn::get("/").run(&handler),
+    get("/").on(&handler),
     "Hello, trillium!",
     "content-type" => "text/html"
 );

@@ -37,10 +37,10 @@ let handler = (
 );
 
 # async_global_executor::block_on(async move {
-use trillium_testing::{TestConn, assert_ok};
+use trillium_testing::{methods::*, assert_ok};
 
 let conn = async_global_executor::spawn(async move {
-    TestConn::get("/").run_async(&handler).await
+    get("/").run_async(&handler).await
 }).await;
 
 assert_ok!(conn, "<html><body><h1>title</h1><p>body</p></body></html>");

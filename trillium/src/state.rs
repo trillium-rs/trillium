@@ -12,7 +12,7 @@ State is a handler that puts a clone of any `Clone + Send + Sync +
 ```
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 use trillium::{Conn, State};
-use trillium_testing::{HandlerTesting, assert_ok};
+use trillium_testing::{methods::*, assert_ok};
 
 
 #[derive(Clone, Default)] // Clone is mandatory
@@ -42,12 +42,12 @@ let handler = (
 );
 
 assert!(!feature_flag.is_enabled());
-assert_ok!(handler.get("/"), "not enabled");
-assert_ok!(handler.get("/"), "not enabled");
+assert_ok!(get("/").on(&handler), "not enabled");
+assert_ok!(get("/").on(&handler), "not enabled");
 feature_flag.toggle();
 assert!(feature_flag.is_enabled());
-assert_ok!(handler.get("/"), "feature enabled");
-assert_ok!(handler.get("/"), "feature enabled");
+assert_ok!(get("/").on(&handler), "feature enabled");
+assert_ok!(get("/").on(&handler), "feature enabled");
 
 ```
 

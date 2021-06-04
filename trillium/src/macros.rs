@@ -2,7 +2,7 @@
 # Unwraps an Result::Ok or returns the conn with a 500 status.
 
 ```
-use trillium_testing::{assert_body, assert_status, TestConn, HandlerTesting};
+use trillium_testing::{assert_body, assert_status, methods::*};
 
 let handler = |mut conn: trillium::Conn| async move {
   let mut request_body = conn.request_body().await;
@@ -12,12 +12,12 @@ let handler = |mut conn: trillium::Conn| async move {
 };
 
 assert_status!(
-    TestConn::build("POST", "/", "not u8").run(&handler),
+    post("/").with_request_body("not u8").on(&handler),
     500
 );
 
 assert_body!(
-    TestConn::build("POST", "/", "10").run(&handler),
+    post("/").with_request_body("10").on(&handler),
     "received u8 as body: 10"
 );
 
@@ -46,7 +46,7 @@ This is useful for gracefully exiting a Handler without
 returning an error.
 
 ```
-use trillium_testing::{HandlerTesting, assert_status};
+use trillium_testing::{methods::*, assert_not_handled};
 struct MyState(&'static str);
 let handler = |conn: trillium::Conn| async move {
   let important_state: &MyState = trillium::conn_unwrap!(conn, conn.state());
@@ -54,7 +54,7 @@ let handler = |conn: trillium::Conn| async move {
   conn.ok(ok_response)
 };
 
-assert!(handler.get("/").status().is_none()); // we never reached the conn.ok line.
+assert_not_handled!(get("/").on(&handler)); // we never reached the conn.ok line.
 ```
 */
 #[macro_export]

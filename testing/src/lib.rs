@@ -58,12 +58,6 @@ impl TestConn {
         )
     }
 
-    test_conn_method!(get, Get);
-    test_conn_method!(post, Post);
-    test_conn_method!(put, Put);
-    test_conn_method!(delete, Delete);
-    test_conn_method!(patch, Patch);
-
     pub fn into_inner(self) -> trillium_http::Conn<Synthetic> {
         self.0.into_inner()
     }
@@ -74,7 +68,7 @@ impl TestConn {
         Self(inner.into())
     }
 
-    pub fn with_request_body(mut self, body: impl Into<Synthetic>) -> Self {
+    pub fn with_request_body(self, body: impl Into<Synthetic>) -> Self {
         let mut inner = self.into_inner();
         inner.replace_body(body);
         Self(inner.into())
@@ -113,53 +107,6 @@ impl Deref for TestConn {
 impl DerefMut for TestConn {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-macro_rules! test_handler_method {
-    ($fn_name:ident, $method:ident) => {
-        fn $fn_name(&self, path: impl Into<String>) -> TestConn {
-            self.request(Method::$method, path)
-        }
-    };
-}
-
-pub trait HandlerTesting {
-    fn request<M>(&self, method: M, path: impl Into<String>) -> TestConn
-    where
-        M: TryInto<Method>,
-        <M as TryInto<Method>>::Error: std::fmt::Debug;
-
-    test_handler_method!(get, Get);
-    test_handler_method!(post, Post);
-    test_handler_method!(put, Put);
-    test_handler_method!(delete, Delete);
-    test_handler_method!(patch, Patch);
-
-    fn serve_once<Fun, Fut>(self, tests: Fun)
-    where
-        Fun: Fn(Url) -> Fut,
-        Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>;
-}
-
-impl<H> HandlerTesting for H
-where
-    H: Handler,
-{
-    fn request<M>(&self, method: M, path: impl Into<String>) -> TestConn
-    where
-        M: TryInto<Method>,
-        <M as TryInto<Method>>::Error: std::fmt::Debug,
-    {
-        TestConn::build(method, path, ()).run(self)
-    }
-
-    fn serve_once<Fun, Fut>(self, tests: Fun)
-    where
-        Fun: Fn(Url) -> Fut,
-        Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>,
-    {
-        serve_once(self, tests)
     }
 }
 

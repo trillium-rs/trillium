@@ -29,16 +29,16 @@ async fn handler_that_uses_cookies(conn: Conn) -> Conn {
 
 let handler = (CookiesHandler::new(), handler_that_uses_cookies);
 
-use trillium_testing::{TestConn, assert_ok};
+use trillium_testing::{methods::*, assert_ok};
 
 assert_ok!(
-    TestConn::get("/").run(&handler),
+    get("/").on(&handler),
     "no cookie value set",
     "set-cookie" => "some_cookie=some-cookie-value; Path=/"
 );
 
 assert_ok!(
-    TestConn::get("/").with_header(("cookie", "some_cookie=trillium")).run(&handler),
+    get("/").with_header(("cookie", "some_cookie=trillium")).on(&handler),
     "current cookie value: trillium",
     "set-cookie" => "some_cookie=some-cookie-value; Path=/"
 );

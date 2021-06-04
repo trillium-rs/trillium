@@ -22,8 +22,8 @@
 //!     }
 //! );
 //!
-//! use trillium_testing::{HandlerTesting, assert_ok};
-//! assert_ok!(handler.get("/"), "hello handlebars!");
+//! use trillium_testing::{methods::*, assert_ok};
+//! assert_ok!(get("/").on(&handler), "hello handlebars!");
 //! # }
 //! ```
 

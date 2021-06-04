@@ -28,8 +28,8 @@ blanket implementation for any such Fn.
 // as a closure
 let handler = |conn: trillium::Conn| async move { conn.ok("trillium!") };
 
-use trillium_testing::{HandlerTesting, assert_ok};
-assert_ok!(handler.get("/"), "trillium!");
+use trillium_testing::{methods::*, assert_ok};
+assert_ok!(get("/").on(&handler), "trillium!");
 ```
 
 ```
@@ -37,8 +37,8 @@ assert_ok!(handler.get("/"), "trillium!");
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     conn.ok("trillium!")
 }
-use trillium_testing::{HandlerTesting, assert_ok};
-assert_ok!(handler.get("/"), "trillium!");
+use trillium_testing::{methods::*, assert_ok};
+assert_ok!(get("/").on(&handler), "trillium!");
 ```
 
 The simplest implementation of Handler for a named type looks like this:
@@ -51,8 +51,8 @@ impl trillium::Handler for MyHandler {
     }
 }
 
-use trillium_testing::{HandlerTesting, assert_not_handled};
-assert_not_handled!(MyHandler.get("/")); // we did not halt or set a body status
+use trillium_testing::{methods::*, assert_not_handled};
+assert_not_handled!(get("/").on(&MyHandler)); // we did not halt or set a body status
 ```
 
 **temporary note:** until rust has true async traits, implementing

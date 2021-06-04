@@ -76,9 +76,9 @@ impl RouterConnExt for Conn {
 //     conn.ok(content)
 // });
 
-// use trillium_testing::{HandlerTesting, assert_ok};
+// use trillium_testing::{methods::*, assert_ok};
 // assert_ok!(
-//     router.get("/pages/this/is/a/wildcard/match"),
+//     get("/pages/this/is/a/wildcard/match").on(&router),
 //     "the wildcard matched this/is/a/wildcard/match"
 // );
 // ```

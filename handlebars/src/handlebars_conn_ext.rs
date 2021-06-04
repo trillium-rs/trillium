@@ -37,8 +37,8 @@ pub trait HandlebarsConnExt {
         }
     );
 
-    use trillium_testing::{HandlerTesting, assert_ok};
-    assert_ok!(handler.get("/"), "Hello handlebars");
+    use trillium_testing::{methods::*, assert_ok};
+    assert_ok!(get("/").on(&handler), "Hello handlebars");
     # Ok(()) }
     ```
     */

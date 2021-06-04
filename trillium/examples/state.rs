@@ -53,14 +53,14 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use trillium_testing::{assert_ok, HandlerTesting};
+    use trillium_testing::{assert_ok, methods::*};
 
     #[test]
     fn test_conn_counter() {
         let handler = super::handler();
-        assert_ok!(handler.get("/"), "conn number was 0");
-        assert_ok!(handler.get("/"), "conn number was 1");
-        assert_ok!(handler.get("/"), "conn number was 2");
-        assert_ok!(handler.get("/"), "conn number was 3");
+        assert_ok!(get("/").on(&handler), "conn number was 0");
+        assert_ok!(get("/").on(&handler), "conn number was 1");
+        assert_ok!(get("/").on(&handler), "conn number was 2");
+        assert_ok!(get("/").on(&handler), "conn number was 3");
     }
 }
