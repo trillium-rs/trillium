@@ -54,8 +54,8 @@ impl TestConn {
 
     /**
     chainable constructor to replace the request body. this is useful
-    when chaining with a [`trillium_testing::methods`] builder, as
-    they do not provide a way to specify the body.
+    when chaining with a [`trillium_testing::methods`](crate::methods)
+    builder, as they do not provide a way to specify the body.
 
     ```
     use trillium_testing::{methods::post, TestConn};
