@@ -50,7 +50,7 @@ lambda.
     * [rustdocs (main)](https://docs.trillium.rs/trillium_handlebars/index.html)
     * [example](https://github.com/trillium-rs/trillium/blob/main/handlebars/examples/handlebars.rs)
 * http client
-  * ❗ [rustdocs (main)](https://docs.trillium.rs/trillium_client/index.html)
+  * [rustdocs (main)](https://docs.trillium.rs/trillium_client/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/client/examples/client.rs)
 * websockets
   * [rustdocs (main)](https://docs.trillium.rs/trillium_websockets/index.html)
