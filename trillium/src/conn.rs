@@ -98,9 +98,11 @@ impl Conn {
     setting a body and a 200 status in one call. It is exactly
     identical to `conn.with_status(200).with_body(body).halt()`
     ```
-    let conn = trillium_testing::build_conn("GET", "/", ()).ok("hello");
-    assert_eq!(conn.response_len(), Some(5));
-    assert_eq!(conn.status().unwrap(), 200);
+    use trillium::Conn;
+    use trillium_testing::{methods::get, assert_ok, assert_status, assert_body};
+    let mut conn = get("/").on(&|conn: Conn| async move { conn.ok("hello") });
+    assert_body!(&mut conn, "hello");
+    assert_status!(&conn, 200);
     assert!(conn.is_halted());
     ```
      */
@@ -111,10 +113,11 @@ impl Conn {
     /**
     returns the response status for this conn, if it has been set.
     ```
-    let mut conn = trillium_testing::build_conn("GET", "/", ());
+    use trillium_testing::{methods::get, StatusCode};
+    let mut conn = get("/").on(&());
     assert!(conn.status().is_none());
     conn.set_status(200);
-    assert_eq!(conn.status().unwrap(), trillium::http_types::StatusCode::Ok);
+    assert_eq!(conn.status().unwrap(), StatusCode::Ok);
     ```
      */
     pub fn status(&self) -> Option<StatusCode> {
@@ -131,10 +134,14 @@ impl Conn {
     this does not set the halted status.
 
     ```
-    let conn = trillium_testing::build_conn("GET", "/", ()).with_status(200);
+    use trillium::Conn;
+    use trillium_testing::{methods::get, StatusCode};
+    let conn = get("/").on(&|conn: Conn| async move {
+        conn.with_status(418)
+    });
     let status = conn.status().unwrap();
-    assert_eq!(status, trillium::http_types::StatusCode::Ok);
-    assert_eq!(status, 200);
+    assert_eq!(status, StatusCode::ImATeapot);
+    assert_eq!(status, 418);
     assert!(!conn.is_halted());
     ```
      */
@@ -151,7 +158,11 @@ impl Conn {
     of those.
 
     ```
-    let conn = trillium_testing::build_conn("GET", "/", ()).with_body("hello");
+    use trillium_testing::methods::get;
+    use trillium::Conn;
+    let conn = get("/").on(&|conn: Conn| async move {
+        conn.with_body("hello")
+    });
     assert_eq!(conn.response_len(), Some(5));
     ```
     */
@@ -166,7 +177,8 @@ impl Conn {
     status or halted.
 
     ```
-    let mut conn = trillium_testing::build_conn("GET", "/", ());
+    use trillium_testing::methods::get;
+    let mut conn = get("/").on(&());
     conn.set_body("hello");
     assert_eq!(conn.response_len(), Some(5));
     ```
@@ -179,7 +191,9 @@ impl Conn {
     Removes the response body from the conn
 
     ```
-    let mut conn = trillium_testing::build_conn("GET", "/", ());
+    use trillium_testing::methods::get;
+    let mut conn = get("/").on(&());
+
     conn.set_body("hello");
     let mut body = conn.take_response_body().unwrap();
     assert_eq!(body.len(), Some(5));
@@ -194,11 +208,13 @@ impl Conn {
     Attempts to retrieve a &T from the state set
 
     ```
+    use trillium_testing::methods::get;
+
     struct Hello;
-    let mut test_conn = trillium_testing::build_conn("GET", "/", None);
-    assert!(test_conn.state::<Hello>().is_none());
-    test_conn.set_state(Hello);
-    assert!(test_conn.state::<Hello>().is_some());
+    let mut conn = get("/").on(&());
+    assert!(conn.state::<Hello>().is_none());
+    conn.set_state(Hello);
+    assert!(conn.state::<Hello>().is_some());
     ```
     */
     pub fn state<T: 'static>(&self) -> Option<&T> {
@@ -248,7 +264,9 @@ impl Conn {
     ReceivedBody provides an interface to read body content
     ```
     # futures_lite::future::block_on(async {
-    let mut conn = trillium_testing::build_conn("GET", "/", "request body");
+    use trillium_testing::methods::get;
+    let mut conn = get("/").with_request_body("request body").on(&());
+
     let request_body = conn.request_body().await;
     assert_eq!(request_body.content_length(), Some(12));
     assert_eq!(request_body.read_string().await.unwrap(), "request body");
@@ -264,9 +282,12 @@ impl Conn {
     fixed length, it is returned from this function
 
     ```
-    let conn = trillium_testing::build_conn("GET", "/", ()).with_body("hello");
-    assert_eq!(conn.response_len(), Some(5));
+    use trillium_testing::methods::get;
+    let mut conn = get("/").on(&|conn: trillium::Conn| async move {
+        conn.with_body("hello")
+    });
 
+    assert_eq!(conn.response_len(), Some(5));
     ```
     */
     pub fn response_len(&self) -> Option<u64> {
@@ -276,12 +297,14 @@ impl Conn {
     /**
     returns the request method for this conn.
     ```
-    let conn = trillium_testing::build_conn("GET", "/", ()).with_body("hello");
-    assert_eq!(conn.method(), &trillium::http_types::Method::Get);
+    use trillium_testing::{methods::get, Method};
+    let mut conn = get("/").on(&());
+
+    assert_eq!(conn.method(), Method::Get);
     ```
 
     */
-    pub fn method(&self) -> &Method {
+    pub fn method(&self) -> Method {
         self.inner.method()
     }
 
@@ -306,8 +329,10 @@ impl Conn {
     this likely willl become `conn.with_header(&str, &str)`
 
     ```
-    let conn = trillium_testing::build_conn("GET", "/", ())
-        .with_header(("content-type", "application/html"));
+    use trillium_testing::methods::get;
+    let mut conn = get("/").on(&|conn: trillium::Conn| async move {
+        conn.with_header(("content-type", "application/html"))
+    });
     ```
     */
     pub fn with_header(mut self, header: impl Header) -> Self {
@@ -331,7 +356,11 @@ impl Conn {
     the conn for fluent chaining
 
     ```
-    let conn = trillium_testing::build_conn("GET", "/", ()).halt();
+    use trillium_testing::methods::get;
+    let mut conn = get("/").on(&|conn: trillium::Conn| async move {
+        conn.halt()
+    });
+
     assert!(conn.is_halted());
     ```
     */
@@ -343,9 +372,9 @@ impl Conn {
     /**
     sets the `halted` attribute of this conn. see [`Conn::halt`].
 
-
     ```
-    let mut conn = trillium_testing::build_conn("GET", "/", ());
+    use trillium_testing::methods::get;
+    let mut conn = get("/").on(&());
     assert!(!conn.is_halted());
     conn.set_halted(true);
     assert!(conn.is_halted());

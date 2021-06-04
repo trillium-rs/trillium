@@ -100,7 +100,7 @@ where
     async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
         self.send_headers().await?;
 
-        if self.method() != &Method::Head {
+        if self.method() != Method::Head {
             if let Some(body) = self.response_body.take() {
                 io::copy(BodyEncoder::new(body), &mut self.transport).await?;
             }
@@ -247,11 +247,11 @@ where
     ```
     # use trillium_http::{Conn, http_types::{Method, Body}};
     let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
-    assert_eq!(conn.method(), &Method::Get);
+    assert_eq!(conn.method(), Method::Get);
     ```
      */
-    pub fn method(&self) -> &Method {
-        &self.method
+    pub fn method(&self) -> Method {
+        self.method
     }
 
     fn needs_100_continue(&self) -> bool {

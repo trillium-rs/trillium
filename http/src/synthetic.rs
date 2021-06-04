@@ -106,7 +106,7 @@ impl Conn<Synthetic> {
     ```rust
     # use trillium_http::{http_types::Method, Conn};
     let conn = Conn::new_synthetic(Method::Get, "/", "hello");
-    assert_eq!(conn.method(), &Method::Get);
+    assert_eq!(conn.method(), Method::Get);
     assert_eq!(conn.path(), "/");
     ```
     */

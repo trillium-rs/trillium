@@ -175,7 +175,7 @@ impl Router {
 #[async_trait]
 impl Handler for Router {
     async fn run(&self, conn: Conn) -> Conn {
-        if let Some(m) = self.best_match(conn.method(), conn.path()) {
+        if let Some(m) = self.best_match(&conn.method(), conn.path()) {
             let captures = m.captures().into_owned();
             struct HasPath;
             log::debug!("running {}: {}", m.route(), m.name());
@@ -201,7 +201,7 @@ impl Handler for Router {
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
-        if let Some(m) = self.best_match(conn.method(), conn.path()) {
+        if let Some(m) = self.best_match(&conn.method(), conn.path()) {
             m.handler().before_send(conn).await
         } else {
             conn
@@ -209,7 +209,7 @@ impl Handler for Router {
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        if let Some(m) = self.best_match(upgrade.method(), upgrade.path()) {
+        if let Some(m) = self.best_match(&upgrade.method(), upgrade.path()) {
             m.handler().has_upgrade(upgrade)
         } else {
             false
@@ -217,7 +217,7 @@ impl Handler for Router {
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        self.best_match(upgrade.method(), upgrade.path())
+        self.best_match(&upgrade.method(), upgrade.path())
             .unwrap()
             .handler()
             .upgrade(upgrade)

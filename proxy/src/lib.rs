@@ -178,7 +178,7 @@ impl<C: Connector> Handler for Proxy<C> {
     async fn run(&self, mut conn: Conn) -> Conn {
         let request_url = conn_try!(conn, self.target.clone().join(conn.path()));
 
-        let mut client_conn = self.client.build_conn(*conn.method(), request_url);
+        let mut client_conn = self.client.build_conn(conn.method(), request_url);
 
         for (name, value) in conn.headers() {
             for value in value {

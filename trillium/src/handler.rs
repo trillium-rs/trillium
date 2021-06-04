@@ -303,6 +303,13 @@ impl Handler for &'static str {
 }
 
 #[async_trait]
+impl Handler for () {
+    async fn run(&self, conn: Conn) -> Conn {
+        conn
+    }
+}
+
+#[async_trait]
 impl<H: Handler> Handler for Option<H> {
     async fn run(&self, conn: Conn) -> Conn {
         let handler = crate::conn_unwrap!(conn, self);
