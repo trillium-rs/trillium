@@ -53,7 +53,7 @@ impl Handler for Logger {
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if let Some(start) = conn.take_state::<Start>() {
             let method = conn.method();
-            let status = conn.status().unwrap_or(&StatusCode::NotFound);
+            let status = conn.status().unwrap_or(StatusCode::NotFound);
 
             let len = conn
                 .response_len()
@@ -67,7 +67,7 @@ impl Handler for Logger {
                 response_time = std::time::Instant::now() - start.0,
                 method = method,
                 url = conn.path(),
-                status = (*status as u16).to_string().color(match *status as u16 {
+                status = (status as u16).to_string().color(match status as u16 {
                     200..=299 => "green",
                     300..=399 => "cyan",
                     400..=499 => "yellow",

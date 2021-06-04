@@ -1,5 +1,5 @@
 use async_compat::Compat;
-use std::{io::Result, net::SocketAddr, time::Duration};
+use std::{future::Future, io::Result, net::SocketAddr, time::Duration};
 use tokio::net::TcpStream;
 use trillium_server_common::{async_trait, Connector, Url};
 
@@ -60,5 +60,13 @@ impl Connector for TcpConnector {
 
             Ok(Compat::new(tcp))
         }
+    }
+
+    fn spawn<Fut>(future: Fut)
+    where
+        Fut: Future + Send + 'static,
+        <Fut as Future>::Output: Send,
+    {
+        tokio::task::spawn(future);
     }
 }

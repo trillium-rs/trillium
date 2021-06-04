@@ -1,6 +1,6 @@
 use crate::util::encoding;
 use encoding_rs::Encoding;
-use futures_lite::{future::poll_once, AsyncReadExt, AsyncWriteExt};
+use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
 use memmem::{Searcher, TwoWaySearcher};
 use std::{
     borrow::Cow,
@@ -23,7 +23,8 @@ const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 8 * 1024;
 
 /**
-a client connection, representing both an outbound http request and a http response
+a client connection, representing both an outbound http request and a
+http response
 */
 
 pub struct Conn<'config, C: Connector> {
@@ -116,7 +117,7 @@ impl<'config, C: Connector> Conn<'config, C> {
     };
 
     let mut conn = Conn::get("http://localhost:8080/");
-    conn.set_config(&config);
+    conn.set_config(&config); // <-
     ```
      */
     pub fn set_config<'c2: 'config>(&mut self, config: &'c2 C::Config) {
@@ -134,7 +135,8 @@ impl<'config, C: Connector> Conn<'config, C> {
         ..Default::default()
     };
 
-    let conn = Conn::get("http://localhost:8080/").with_config(&config);
+    let conn = Conn::get("http://localhost:8080/")
+        .with_config(&config); //<-
     ```
      */
     pub fn with_config<'c2: 'config>(mut self, config: &'c2 C::Config) -> Conn<'config, C> {
@@ -144,6 +146,22 @@ impl<'config, C: Connector> Conn<'config, C> {
 }
 
 impl<C: Connector> Conn<'static, C> {
+    /**
+    Performs the http request, consuming and returning the conn. This
+    is suitable for chaining on conns with owned Config. For a
+    borrowed equivalent of this, see [`Conn::send`].
+    ```
+    use trillium_testing::HandlerTesting;
+    type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
+
+    "ok".serve_once(|url| async move {
+        let mut conn = Conn::get(url).execute().await?; //<-
+        assert_eq!(conn.status().unwrap(), 200);
+        assert_eq!(conn.response_body().read_string().await?, "ok");
+        Ok(())
+    });
+    ```
+     */
     pub async fn execute(mut self) -> Result<Self> {
         self.finalize_headers();
         self.connect_and_send_head().await?;
@@ -153,14 +171,33 @@ impl<C: Connector> Conn<'static, C> {
 }
 
 impl<C: Connector> Conn<'_, C> {
-    pub fn new<U>(method: Method, url: U) -> Self
+    /**
+    builds a new client Conn with the provided method and url
+    ```
+    type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
+    use trillium_testing::{Method, Url};
+
+    let conn = Conn::new("get", "http://trillium.rs"); //<-
+    assert_eq!(conn.method(), Method::Get);
+    assert_eq!(conn.url().to_string(), "http://trillium.rs/");
+
+    let url = Url::parse("http://trillium.rs").unwrap();
+    let conn = Conn::new(Method::Post, url); //<-
+    assert_eq!(conn.method(), Method::Post);
+    assert_eq!(conn.url().to_string(), "http://trillium.rs/");
+
+    ```
+    */
+    pub fn new<M, U>(method: M, url: U) -> Self
     where
-        <U as TryInto<Url>>::Error: Debug,
+        M: TryInto<Method>,
+        <M as TryInto<Method>>::Error: Debug,
         U: TryInto<Url>,
+        <U as TryInto<Url>>::Error: Debug,
     {
         Self {
-            url: url.try_into().unwrap(),
-            method,
+            url: url.try_into().expect("could not parse url"),
+            method: method.try_into().expect("did not recognize method"),
             request_headers: Headers::new(),
             response_headers: Headers::new(),
             transport: None,
@@ -179,20 +216,277 @@ impl<C: Connector> Conn<'_, C> {
     method!(delete, Delete);
     method!(patch, Patch);
 
+    /**
+    Performs the http request on a mutable borrow of the conn. This is
+    suitable for conns with borrowed Config. For an owned and
+    chainable equivalent of this, see [`Conn::execute`].
+
+    ```
+    use trillium_testing::HandlerTesting;
+    use trillium_smol::TcpConnector;
+    type Client = trillium_client::Client<TcpConnector>;
+    "ok".serve_once(|url| async move {
+        let client = Client::new();
+        let mut conn = client.get(url);
+
+        conn.send().await?; //<-
+
+        assert_eq!(conn.status().unwrap(), 200);
+        assert_eq!(conn.response_body().read_string().await?, "ok");
+        Ok(())
+    })
+    ```
+     */
+
+    pub async fn send(&mut self) -> Result<()> {
+        self.finalize_headers();
+        self.connect_and_send_head().await?;
+        self.send_body_and_parse_head().await?;
+
+        Ok(())
+    }
+
+    /**
+    Returns this conn to the connection pool if it is keepalive, and
+    closes it otherwise. This will happen asynchronously as a spawned
+    task when the conn is dropped, but calling it explicitly allows
+    you to block on it and control where it happens.
+    */
+    pub async fn recycle(mut self) {
+        if self.is_keep_alive() && self.transport.is_some() && self.pool.is_some() {
+            self.finish_reading_body().await;
+        }
+    }
+
+    /**
+    retrieves a mutable borrow of the request headers, suitable for
+    appending a header
+
+    ```
+    use trillium_smol::TcpConnector;
+    use trillium_testing::HandlerTesting;
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+
+    let handler = |conn: trillium::Conn| async move {
+        let header = conn.headers()["some-request-header"].as_str();
+        let response = format!("some-request-header was {}", header);
+        conn.ok(response)
+    };
+
+    handler.serve_once(|url| async move {
+        let mut conn = Conn::get(url);
+
+        conn.request_headers() //<-
+            .apply(("some-request-header", "header-value"));
+
+        conn.send().await?;
+        assert_eq!(
+            conn.response_body().read_string().await?,
+            "some-request-header was header-value"
+        );
+        Ok(())
+    })
+    ```
+    */
     pub fn request_headers(&mut self) -> &mut Headers {
         &mut self.request_headers
     }
+
+    /**
+    ```
+    use trillium_smol::TcpConnector;
+    use trillium_testing::HandlerTesting;
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+
+    let handler = |conn: trillium::Conn| async move {
+        conn.with_header(("some-header", "some-value"))
+            .with_status(200)
+    };
+
+    handler.serve_once(|url| async move {
+        let conn = Conn::get(url).execute().await?;
+
+        let headers = conn.response_headers(); //<-
+
+        assert_eq!(headers["some-header"], "some-value");
+        Ok(())
+    })
+    ```
+    */
     pub fn response_headers(&self) -> &Headers {
         &self.response_headers
     }
 
-    pub fn set_pool(&mut self, pool: Pool<C::Transport>) {
-        self.pool = Some(pool);
+    /**
+    ```
+    env_logger::init();
+    use trillium_smol::TcpConnector;
+    use trillium_testing::HandlerTesting;
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+
+    let handler = |mut conn: trillium::Conn| async move {
+        let body = conn.request_body().await.read_string().await.unwrap();
+        conn.ok(format!("request body was: {}", body))
+    };
+
+    handler.serve_once(|url| async move {
+        let mut conn = Conn::post(url);
+
+        conn.set_request_body("body"); //<-
+
+        conn.send().await?;
+
+        assert_eq!(conn.response_body().read_string().await?, "request body was: body");
+        Ok(())
+    });
+    ```
+     */
+    pub fn set_request_body(&mut self, body: impl Into<Body>) {
+        self.request_body = Some(body.into());
     }
 
-    pub fn with_pool(mut self, pool: Pool<C::Transport>) -> Self {
-        self.set_pool(pool);
+    /**
+    ```
+    env_logger::init();
+    use trillium_smol::TcpConnector;
+    use trillium_testing::HandlerTesting;
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+
+    let handler = |mut conn: trillium::Conn| async move {
+        let body = conn.request_body().await.read_string().await.unwrap();
+        conn.ok(format!("request body was: {}", body))
+    };
+
+    handler.serve_once(|url| async move {
+        let mut conn = Conn::post(url)
+            .with_request_body("body") //<-
+            .execute()
+            .await?;
+
+        assert_eq!(
+            conn.response_body().read_string().await?,
+            "request body was: body"
+        );
+        Ok(())
+    });
+    ```
+    */
+    pub fn with_request_body(mut self, body: impl Into<Body>) -> Self {
+        self.set_request_body(body);
         self
+    }
+
+    // pub(crate) fn request_encoding(&self) -> &'static Encoding {
+    //     encoding(&self.request_headers)
+    // }
+
+    pub(crate) fn response_encoding(&self) -> &'static Encoding {
+        encoding(&self.response_headers)
+    }
+
+    /**
+    retrieves the url for this conn.
+    ```
+    use trillium_smol::TcpConnector;
+    use trillium_client::Conn;
+
+    let conn = Conn::<TcpConnector>::get("http://localhost:9080");
+
+    let url = conn.url(); //<-
+
+    assert_eq!(url.host_str().unwrap(), "localhost");
+    ```
+     */
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+
+    /**
+    retrieves the url for this conn.
+    ```
+    use trillium_smol::TcpConnector;
+    use trillium_client::Conn;
+    let conn = Conn::<TcpConnector>::get("http://localhost:9080");
+
+    let method = conn.method(); //<-
+
+    assert_eq!(method, trillium_testing::Method::Get);
+    ```
+     */
+    pub fn method(&self) -> Method {
+        self.method
+    }
+
+    /**
+    returns a [`ReceivedBody`] that borrows the connection inside this conn.
+    ```
+    env_logger::init();
+    use trillium_smol::TcpConnector;
+    use trillium_testing::HandlerTesting;
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+
+    let handler = |mut conn: trillium::Conn| async move {
+        conn.ok("hello from trillium")
+    };
+
+    handler.serve_once(|url| async move {
+        let mut conn = Conn::get(url).execute().await?;
+
+        let response_body = conn.response_body(); //<-
+
+        assert_eq!(19, response_body.content_length().unwrap());
+        let string = response_body.read_string().await?;
+        assert_eq!("hello from trillium", string);
+        Ok(())
+    });
+    ```
+     */
+
+    pub fn response_body(&mut self) -> ReceivedBody<'_, C::Transport> {
+        ReceivedBody::new(
+            self.response_content_length(),
+            &mut self.buffer,
+            self.transport.as_mut().unwrap(),
+            &mut self.response_body_state,
+            None,
+            encoding(&self.response_headers),
+        )
+    }
+
+    pub(crate) fn response_content_length(&self) -> Option<u64> {
+        ContentLength::from_headers(&self.response_headers)
+            .ok()
+            .flatten()
+            .map(|cl| cl.len())
+    }
+
+    /**
+    returns the status code for this conn. if the conn has not yet
+    been sent, this will be None.
+
+    ```
+    use trillium_smol::TcpConnector;
+    use trillium_testing::{HandlerTesting, StatusCode};
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    async fn handler(conn: trillium::Conn) -> trillium::Conn {
+        conn.with_status(418)
+    }
+
+    handler.serve_once(|url| async move {
+        let conn = Conn::get(url).execute().await?;
+        assert_eq!(StatusCode::ImATeapot, conn.status().unwrap());
+        Ok(())
+    });
+    ```
+     */
+    pub fn status(&self) -> Option<StatusCode> {
+        self.status
+    }
+
+    // --- everything below here is private ---
+
+    pub(crate) fn set_pool(&mut self, pool: Pool<C::Transport>) {
+        self.pool = Some(pool);
     }
 
     fn finalize_headers(&mut self) {
@@ -228,12 +522,11 @@ impl<C: Connector> Conn<'_, C> {
             }
         }
 
-        if Some(0) != self.body_len() {
-            self.request_headers.insert("expect", "100-continue");
-        }
-
         if self.method != Method::Get {
             if let Some(len) = self.body_len() {
+                if len != 0 {
+                    self.request_headers.insert("expect", "100-continue");
+                }
                 self.request_headers.insert(CONTENT_LENGTH, len.to_string());
             } else {
                 self.request_headers.insert(TRANSFER_ENCODING, "chunked");
@@ -247,15 +540,6 @@ impl<C: Connector> Conn<'_, C> {
         } else {
             Some(0)
         }
-    }
-
-    pub fn set_request_body(&mut self, body: impl Into<Body>) {
-        self.request_body = Some(body.into());
-    }
-
-    pub fn with_request_body(mut self, body: impl Into<Body>) -> Self {
-        self.set_request_body(body);
-        self
     }
 
     async fn find_pool_candidate(
@@ -456,43 +740,9 @@ impl<C: Connector> Conn<'_, C> {
 
     async fn send_body(&mut self) -> Result<()> {
         if let Some(body) = self.request_body.take() {
-            futures_lite::io::copy(BodyEncoder::new(body), self.transport()).await?;
+            io::copy(BodyEncoder::new(body), self.transport()).await?;
         }
         Ok(())
-    }
-
-    pub fn request_encoding(&self) -> &'static Encoding {
-        encoding(&self.request_headers)
-    }
-
-    pub fn response_encoding(&self) -> &'static Encoding {
-        encoding(&self.response_headers)
-    }
-
-    pub fn url(&self) -> &Url {
-        &self.url
-    }
-
-    pub fn method(&self) -> Method {
-        self.method
-    }
-
-    pub fn response_body(&mut self) -> ReceivedBody<'_, C::Transport> {
-        ReceivedBody::new(
-            self.response_content_length(),
-            &mut self.buffer,
-            self.transport.as_mut().unwrap(),
-            &mut self.response_body_state,
-            None,
-            encoding(&self.response_headers),
-        )
-    }
-
-    pub fn response_content_length(&self) -> Option<u64> {
-        ContentLength::from_headers(&self.response_headers)
-            .ok()
-            .flatten()
-            .map(|cl| cl.len())
     }
 
     fn validate_response_headers(&self) -> Result<()> {
@@ -517,22 +767,6 @@ impl<C: Connector> Conn<'_, C> {
             .unwrap_or_default()
     }
 
-    pub async fn send(&mut self) -> Result<()> {
-        self.finalize_headers();
-        self.connect_and_send_head().await?;
-        self.send_body_and_parse_head().await?;
-
-        Ok(())
-    }
-
-    pub fn status(&self) -> Option<StatusCode> {
-        self.status
-    }
-
-    pub fn into_inner(mut self) -> C::Transport {
-        self.transport.take().unwrap()
-    }
-
     async fn finish_reading_body(&mut self) {
         if self.response_body_state != ReceivedBodyState::End {
             let body = self.response_body();
@@ -540,12 +774,6 @@ impl<C: Connector> Conn<'_, C> {
                 Ok(drain) => log::debug!("drained {}", bytes(drain)),
                 Err(e) => log::warn!("failed to drain body, {:?}", e),
             }
-        }
-    }
-
-    pub async fn recycle(mut self) {
-        if self.is_keep_alive() && self.transport.is_some() && self.pool.is_some() {
-            self.finish_reading_body().await;
         }
     }
 }
@@ -558,23 +786,51 @@ impl<C: Connector> AsRef<C::Transport> for Conn<'_, C> {
 
 fn bytes(bytes: u64) -> String {
     use size::{Base, Size, Style};
-
     Size::to_string(&Size::Bytes(bytes), Base::Base10, Style::Smart)
 }
 
 impl<C: Connector> Drop for Conn<'_, C> {
     fn drop(&mut self) {
-        if self.response_body_state == ReceivedBodyState::End
-            && self.is_keep_alive()
-            && self.transport.is_some()
-            && self.pool.is_some()
-        {
-            let pool = self.pool.take().unwrap();
-            let transport = self.transport.take().unwrap();
-            pool.insert(
-                C::peer_addr(&transport).unwrap(),
-                PoolEntry::new(transport, None),
-            );
+        if !self.is_keep_alive() || self.transport.is_none() || self.pool.is_none() {
+            return;
+        }
+
+        let transport = self.transport.take().unwrap();
+        let peer_addr = C::peer_addr(&transport).unwrap();
+        let pool = self.pool.take().unwrap();
+
+        if self.response_body_state == ReceivedBodyState::End {
+            log::trace!("response body has been read to completion, checking transport back into pool for {}", &peer_addr);
+            pool.insert(peer_addr, PoolEntry::new(transport, None));
+        } else {
+            let content_length = self.response_content_length();
+            let buffer = self.buffer.take();
+            let response_body_state = self.response_body_state;
+            let encoding = encoding(&self.response_headers);
+            C::spawn(async move {
+                let mut response_body = ReceivedBody::<C::Transport>::new(
+                    content_length,
+                    buffer,
+                    transport,
+                    response_body_state,
+                    None,
+                    encoding,
+                );
+
+                match io::copy(&mut response_body, io::sink()).await {
+                    Ok(bytes) => {
+                        let transport = response_body.take_transport().unwrap();
+                        log::trace!(
+                            "read {} bytes in order to recycle conn for {}",
+                            bytes,
+                            &peer_addr
+                        );
+                        pool.insert(peer_addr, PoolEntry::new(transport, None));
+                    }
+
+                    Err(ioerror) => log::error!("unable to recycle conn due to {}", ioerror),
+                }
+            });
         }
     }
 }

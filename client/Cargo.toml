@@ -25,3 +25,4 @@ async-io = "1.4.1"
 fastrand = "1.4.1"
 trillium-rustls = { path = "../rustls" }
 trillium-smol = { path = "../smol/" }
+trillium-testing = { path = "../testing" }

@@ -16,10 +16,12 @@ pub fn main() {
             let client = client.clone();
             async_global_executor::spawn(async move {
                 loop {
-                    let mut conn = client.get("http://localhost:8011");
+                    let mut conn = client
+                        .post("http://localhost:8011/")
+                        .with_request_body("body");
+
                     conn.send().await.unwrap();
                     println!("{:#?}", conn);
-                    conn.recycle().await;
                     Timer::after(Duration::from_millis(fastrand::u64(0..1000))).await;
                 }
             })

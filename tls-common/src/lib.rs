@@ -13,7 +13,7 @@
 
 pub use async_trait::async_trait;
 pub use futures_lite::{AsyncRead, AsyncWrite};
-use std::{convert::Infallible, fmt::Debug};
+use std::{convert::Infallible, fmt::Debug, future::Future};
 pub use url::Url;
 
 /**
@@ -79,4 +79,8 @@ pub trait Connector: Clone + Send + Sync + 'static {
     type Config: Debug + Default + Send + Sync + Clone;
     fn peer_addr(transport: &Self::Transport) -> std::io::Result<std::net::SocketAddr>;
     async fn connect(url: &Url, config: &Self::Config) -> std::io::Result<Self::Transport>;
+    fn spawn<Fut>(future: Fut)
+    where
+        Fut: Future + Send + 'static,
+        <Fut as Future>::Output: Send;
 }

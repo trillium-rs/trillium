@@ -16,7 +16,7 @@ pub(crate) struct AlbMultiHeadersResponse {
 impl AlbMultiHeadersResponse {
     pub async fn from_conn(conn: Conn) -> Self {
         let mut conn = conn.into_inner();
-        let status = *conn.status().unwrap_or(&StatusCode::NotFound);
+        let status = conn.status().unwrap_or(StatusCode::NotFound);
         let (body, is_base64_encoded) = response_body(&mut conn).await;
 
         let multi_value_headers =
@@ -64,7 +64,7 @@ async fn response_body(conn: &mut HttpConn<BoxedTransport>) -> (Option<String>, 
 impl AlbResponse {
     pub async fn from_conn(conn: Conn) -> Self {
         let mut conn = conn.into_inner();
-        let status = *conn.status().unwrap_or(&StatusCode::NotFound);
+        let status = conn.status().unwrap_or(StatusCode::NotFound);
         let (body, is_base64_encoded) = response_body(&mut conn).await;
         let headers = conn
             .response_headers()

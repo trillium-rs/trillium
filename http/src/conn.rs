@@ -151,10 +151,10 @@ where
     assert!(conn.status().is_none());
 
     conn.set_status(200); // a status can be set as a u16
-    assert_eq!(conn.status().unwrap(), &StatusCode::Ok);
+    assert_eq!(conn.status().unwrap(), StatusCode::Ok);
 
     conn.set_status(StatusCode::ImATeapot); // or as a StatusCode
-    assert_eq!(conn.status().unwrap(), &StatusCode::ImATeapot);
+    assert_eq!(conn.status().unwrap(), StatusCode::ImATeapot);
     ```
     */
     pub fn set_status(&mut self, status: impl TryInto<StatusCode>) {
@@ -166,8 +166,8 @@ where
 
     /// retrieves the current response status code for this conn, if
     /// it has been set. See [Conn::set_status] for example usage.
-    pub fn status(&self) -> Option<&StatusCode> {
-        self.status.as_ref()
+    pub fn status(&self) -> Option<StatusCode> {
+        self.status
     }
 
     /**
@@ -595,10 +595,10 @@ where
     }
 
     async fn send_headers(&mut self) -> Result<()> {
-        let status = self.status().unwrap_or(&StatusCode::NotFound);
+        let status = self.status().unwrap_or(StatusCode::NotFound);
         let first_line = format!(
             "HTTP/1.1 {} {}\r\n",
-            *status as u16,
+            status as u16,
             status.canonical_reason()
         );
         log::trace!("sending: {}", &first_line);

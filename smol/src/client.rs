@@ -1,4 +1,5 @@
 use async_net::TcpStream;
+use futures_lite::Future;
 use std::{io::Result, net::SocketAddr};
 use trillium_server_common::{async_trait, Connector, Url};
 
@@ -49,5 +50,13 @@ impl Connector for TcpConnector {
 
             Ok(tcp)
         }
+    }
+
+    fn spawn<Fut>(future: Fut)
+    where
+        Fut: Future + Send + 'static,
+        <Fut as Future>::Output: Send,
+    {
+        async_global_executor::spawn(future).detach();
     }
 }

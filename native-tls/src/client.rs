@@ -1,6 +1,7 @@
 use async_native_tls::{TlsConnector, TlsStream};
 use std::{
     fmt::Debug,
+    future::Future,
     io::{Error, ErrorKind, Result},
     marker::PhantomData,
     net::SocketAddr,
@@ -149,5 +150,13 @@ impl<T: Connector> Connector for NativeTlsConnector<T> {
                 format!("unknown scheme {}", unknown),
             )),
         }
+    }
+
+    fn spawn<Fut>(future: Fut)
+    where
+        Fut: Future + Send + 'static,
+        <Fut as Future>::Output: Send,
+    {
+        T::spawn(future);
     }
 }

@@ -163,6 +163,13 @@ where
     }
 }
 
+impl<T> ReceivedBody<'static, T> {
+    /// takes the static transport from this received body
+    pub fn take_transport(&mut self) -> Option<T> {
+        self.transport.take().map(|t| t.unwrap_owned())
+    }
+}
+
 fn read_raw<Transport>(
     opt_buffer: &mut Option<Vec<u8>>,
     transport: &mut Transport,

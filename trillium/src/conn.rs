@@ -91,7 +91,7 @@ impl Conn {
     ```
     let conn = trillium_testing::build_conn("GET", "/", ()).ok("hello");
     assert_eq!(conn.response_len(), Some(5));
-    assert_eq!(*conn.status().unwrap(), 200);
+    assert_eq!(conn.status().unwrap(), 200);
     assert!(conn.is_halted());
     ```
      */
@@ -105,10 +105,10 @@ impl Conn {
     let mut conn = trillium_testing::build_conn("GET", "/", ());
     assert!(conn.status().is_none());
     conn.set_status(200);
-    assert_eq!(conn.status().unwrap(), &trillium::http_types::StatusCode::Ok);
+    assert_eq!(conn.status().unwrap(), trillium::http_types::StatusCode::Ok);
     ```
      */
-    pub fn status(&self) -> Option<&StatusCode> {
+    pub fn status(&self) -> Option<StatusCode> {
         self.inner.status()
     }
 
@@ -123,8 +123,9 @@ impl Conn {
 
     ```
     let conn = trillium_testing::build_conn("GET", "/", ()).with_status(200);
-    assert_eq!(conn.status().unwrap(), &trillium::http_types::StatusCode::Ok);
-    assert_eq!(*conn.status().unwrap(), 200);
+    let status = conn.status().unwrap();
+    assert_eq!(status, trillium::http_types::StatusCode::Ok);
+    assert_eq!(status, 200);
     assert!(!conn.is_halted());
     ```
      */
@@ -163,6 +164,21 @@ impl Conn {
     */
     pub fn set_body(&mut self, body: impl Into<Body>) {
         self.inner.set_response_body(body);
+    }
+
+    /**
+    Removes the response body from the conn
+
+    ```
+    let mut conn = trillium_testing::build_conn("GET", "/", ());
+    conn.set_body("hello");
+    let mut body = conn.take_response_body().unwrap();
+    assert_eq!(body.len(), Some(5));
+    assert_eq!(conn.response_len(), None);
+    ```
+    */
+    pub fn take_response_body(&mut self) -> Option<Body> {
+        self.inner.take_response_body()
     }
 
     /**

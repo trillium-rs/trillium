@@ -12,7 +12,7 @@ mod conn;
 pub use conn::Conn;
 
 mod pool;
-pub use pool::Pool;
+pub(crate) use pool::Pool;
 
 mod client;
 pub use client::Client;

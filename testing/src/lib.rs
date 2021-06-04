@@ -8,14 +8,16 @@
     unused_qualifications
 )]
 
+use async_io::Timer;
 pub use futures_lite;
-use futures_lite::future;
+use futures_lite::{future, Future, FutureExt};
 use std::{
     convert::TryInto,
     ops::{Deref, DerefMut},
+    time::Duration,
 };
 use trillium::{Conn, Handler};
-pub use trillium_http::http_types::Method;
+pub use trillium_http::http_types::{Method, StatusCode, Url};
 use trillium_http::Synthetic;
 
 mod assertions;
@@ -138,6 +140,11 @@ pub trait HandlerTesting {
     test_handler_method!(put, Put);
     test_handler_method!(delete, Delete);
     test_handler_method!(patch, Patch);
+
+    fn serve_once<Fun, Fut>(self, tests: Fun)
+    where
+        Fun: Fn(Url) -> Fut,
+        Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>;
 }
 
 impl<H> HandlerTesting for H
@@ -151,6 +158,14 @@ where
     {
         TestConn::build(method, path, ()).run(self)
     }
+
+    fn serve_once<Fun, Fut>(self, tests: Fun)
+    where
+        Fun: Fn(Url) -> Fut,
+        Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>,
+    {
+        serve_once(self, tests)
+    }
 }
 
 pub fn build_conn<M>(method: M, path: impl Into<String>, body: impl Into<Synthetic>) -> Conn
@@ -159,4 +174,31 @@ where
     <M as TryInto<Method>>::Error: std::fmt::Debug,
 {
     trillium_http::Conn::new_synthetic(method.try_into().unwrap(), path, body).into()
+}
+
+pub fn serve_once<H, Fun, Fut>(handler: H, tests: Fun)
+where
+    H: Handler,
+    Fun: Fn(Url) -> Fut,
+    Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>,
+{
+    async_global_executor::block_on(async move {
+        let port = portpicker::pick_unused_port().expect("could not pick a port");
+        let url = format!("http://localhost:{}", port).parse().unwrap();
+        let stopper = trillium_smol::Stopper::new();
+
+        let server_future = async_global_executor::spawn(
+            trillium_smol::config()
+                .with_host("localhost")
+                .with_port(port)
+                .with_stopper(stopper.clone())
+                .run_async(handler),
+        );
+
+        Timer::after(Duration::from_millis(500)).await;
+        let result = tests(url).await;
+        stopper.stop();
+        server_future.await;
+        result.unwrap()
+    })
 }

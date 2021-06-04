@@ -2,6 +2,7 @@ use async_rustls::{client::TlsStream, webpki::DNSNameRef, TlsConnector};
 use rustls::{ClientConfig, RootCertStore};
 use std::{
     fmt::{self, Debug, Formatter},
+    future::Future,
     io::{Error, ErrorKind, Result},
     marker::PhantomData,
     net::SocketAddr,
@@ -180,5 +181,13 @@ impl<C: Connector> Connector for RustlsConnector<C> {
                 format!("unknown scheme {}", unknown),
             )),
         }
+    }
+
+    fn spawn<Fut>(future: Fut)
+    where
+        Fut: Future + Send + 'static,
+        <Fut as Future>::Output: Send,
+    {
+        C::spawn(future);
     }
 }

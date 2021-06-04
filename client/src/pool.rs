@@ -111,13 +111,9 @@ impl<V> Default for Pool<V> {
 }
 
 impl<V> Pool<V> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.read().unwrap().values().map(|v| v.len()).sum()
-    }
+    // pub fn len(&self) -> usize {
+    //     self.0.read().unwrap().values().map(|v| v.len()).sum()
+    // }
 
     pub fn is_empty(&self) -> bool {
         self.0.read().unwrap().values().all(|v| v.is_empty())
