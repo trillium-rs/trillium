@@ -12,6 +12,8 @@ State is a handler that puts a clone of any `Clone + Send + Sync +
 ```
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 use trillium::{Conn, State};
+use trillium_testing::{HandlerTesting, assert_ok};
+
 
 #[derive(Clone, Default)] // Clone is mandatory
 struct MyFeatureFlag(Arc<AtomicBool>);
@@ -20,18 +22,33 @@ impl MyFeatureFlag {
     pub fn is_enabled(&self) -> bool {
        self.0.load(Ordering::Relaxed)
     }
+
+    pub fn toggle(&self) {
+       self.0.fetch_xor(true, Ordering::Relaxed);
+    }
 }
 
-trillium_testing::server::run((
-    State::new(MyFeatureFlag::default()),
+let feature_flag = MyFeatureFlag::default();
+
+let handler = (
+    State::new(feature_flag.clone()),
     |conn: Conn| async move {
       if conn.state::<MyFeatureFlag>().unwrap().is_enabled() {
-          conn.ok("path a")
+          conn.ok("feature enabled")
       } else {
-          conn.ok("path b")
+          conn.ok("not enabled")
       }
     }
-));
+);
+
+assert!(!feature_flag.is_enabled());
+assert_ok!(handler.get("/"), "not enabled");
+assert_ok!(handler.get("/"), "not enabled");
+feature_flag.toggle();
+assert!(feature_flag.is_enabled());
+assert_ok!(handler.get("/"), "feature enabled");
+assert_ok!(handler.get("/"), "feature enabled");
+
 ```
 
 Please note that as with the above contrived example, if your state
