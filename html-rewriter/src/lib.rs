@@ -9,7 +9,8 @@
 )]
 
 /*!
-trillium handler that rewrites html using lol-html.
+trillium handler that rewrites html using lol-html and the
+[`lol_async`] library.
 
 this crate currently requires configuring the runtime,
 unfortunately. use one of the `"async-std"`, `"smol"`, or `"tokio"`
@@ -113,7 +114,7 @@ impl Handler for HtmlRewriter {
 impl HtmlRewriter {
     /**
     construct a new html rewriter from the provided `fn() ->
-    Settings`. See [`lol_html::Settings`] for more information.
+    Settings`. See [`lol_async::html::Settings`] for more information.
      */
     pub fn new(f: impl Fn() -> Settings<'static, 'static> + Send + Sync + 'static) -> Self {
         Self {

@@ -25,12 +25,12 @@ trillium::Conn and trillium_http::Conn.
 ## Connector
 
 [`Client`] and [`Conn`] are generic over an implementation of
-[`Connector`]. Each runtime crate ([`trillium_smol`],
+[`Connector`]. Each runtime crate ([`trillium_smol`](https://docs.trillium.rs/trillium_smol),
 [`trillium_tokio`](https://docs.trillium.rs/trillium_tokio),
 [`trillium_async_std`](https://docs.trillium.rs/trillium_tokio)) offers
 a Connector implementation, which can optionally be combined with a
-tls crate ([`trillium_rustls`] and
-[`trillium_native_tls`])(https://docs.trillium.rs/trillium_native_tls)
+tls crate ([`trillium_rustls`](https://docs.trillium.rs/trillium_rustls) and
+[`trillium_native_tls`](https://docs.trillium.rs/trillium_native_tls)
 each offer Connector wrappers.
 
 See the documentation for [`Client`] and [`Conn`] for further usage
