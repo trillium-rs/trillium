@@ -261,7 +261,7 @@ impl Conn {
     retains all data and holds the singular transport, but the
     ReceivedBody provides an interface to read body content
     ```
-    # futures_lite::future::block_on(async {
+    # trillium_testing::block_on(async {
     use trillium_testing::prelude::*;
     let mut conn = get("/").with_request_body("request body").on(&());
 
@@ -273,6 +273,22 @@ impl Conn {
     */
     pub async fn request_body(&mut self) -> ReceivedBody<'_, BoxedTransport> {
         self.inner.request_body().await
+    }
+
+    /**
+    Convenience function to read the content of a request body as a String.
+    ```
+    # trillium_testing::block_on(async {
+    use trillium_testing::prelude::*;
+    let mut conn = get("/").with_request_body("request body").on(&());
+
+    assert_eq!(conn.request_body_string().await, Ok("request body"));
+    # });
+    ```
+    */
+
+    pub async fn request_body_string(&mut self) -> trillium_http::Result<String> {
+        self.request_body().await.read_string().await
     }
 
     /**

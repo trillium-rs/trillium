@@ -15,9 +15,9 @@ this crate is intended to be used as a development dependency.
 
 ```
 use trillium_testing::prelude::*;
-
+use trillium::{Conn, conn_try};
 async fn handler(mut conn: Conn) -> Conn {
-    let request_body = conn.request_body().await.read_string().await.unwrap();
+    let request_body = conn_try!(conn.request_body_string().await);
     conn.with_body(format!("request body was: {}", request_body))
         .with_status(418)
         .with_header(("request-id", "special-request"))

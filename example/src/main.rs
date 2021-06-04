@@ -39,7 +39,7 @@ fn router() -> impl Handler {
     Router::new()
         .get("/hello", "hi")
         .post("/", |mut conn: Conn| async move {
-            let body = conn.request_body().await.read_string().await.unwrap();
+            let body = conn.request_body_string().await.unwrap();
             conn.ok(format!("request body: {}", body))
         })
         .get("/template/:name", |conn: Conn| async move {

@@ -5,8 +5,7 @@
 use trillium_testing::prelude::*;
 
 let handler = |mut conn: trillium::Conn| async move {
-  let mut request_body = conn.request_body().await;
-  let request_body_string = trillium::conn_try!(conn, request_body.read_string().await);
+  let request_body_string = trillium::conn_try!(conn, conn.request_body_string().await);
   let u8: u8 = trillium::conn_try!(conn, request_body_string.parse());
   conn.ok(format!("received u8 as body: {}", u8))
 };

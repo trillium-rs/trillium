@@ -21,7 +21,7 @@ mod nested_app {
 
     async fn post(mut conn: Conn) -> Conn {
         let user = conn_unwrap!(conn, conn.take_state::<User>());
-        let body = conn_try!(conn, conn.request_body().await.read_string().await);
+        let body = conn_try!(conn, conn.request_body_string().await);
         conn.ok(format!("hello user {}, {}", user.id, body))
     }
 

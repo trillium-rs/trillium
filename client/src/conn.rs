@@ -320,7 +320,7 @@ impl<C: Connector> Conn<'_, C> {
     type Conn = trillium_client::Conn<'static, TcpConnector>;
 
     let handler = |mut conn: trillium::Conn| async move {
-        let body = conn.request_body().await.read_string().await.unwrap();
+        let body = conn.request_body_string().await.unwrap();
         conn.ok(format!("request body was: {}", body))
     };
 
@@ -347,7 +347,7 @@ impl<C: Connector> Conn<'_, C> {
     type Conn = trillium_client::Conn<'static, TcpConnector>;
 
     let handler = |mut conn: trillium::Conn| async move {
-        let body = conn.request_body().await.read_string().await.unwrap();
+        let body = conn.request_body_string().await.unwrap();
         conn.ok(format!("request body was: {}", body))
     };
 

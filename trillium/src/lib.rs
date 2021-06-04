@@ -37,7 +37,8 @@ pub use trillium_http::http_types;
 /**
 # A HTTP protocol upgrade
 
-This exists to erase the generic transport for convenience using a [BoxedTransport](trillium_http::transport::BoxedTransport). See
+This exists to erase the generic transport for convenience using a
+[BoxedTransport](trillium_http::transport::BoxedTransport). See
 [`Upgrade`](trillium_http::Upgrade) for additional documentation
 */
 pub type Upgrade = trillium_http::Upgrade<trillium_http::transport::BoxedTransport>;
