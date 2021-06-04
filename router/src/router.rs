@@ -33,13 +33,13 @@ let router = Router::new().",
 
 use trillium_testing::{methods::",
                 stringify!($fn_name),
-                ", assert_ok};
+                ", assert_ok, assert_not_handled};
 assert_ok!(",
                 stringify!($fn_name),
-                "(&router, \"/some/route\"), \"success\");
-assert!(",
+                "(\"/some/route\").on(&router), \"success\");
+assert_not_handled!(",
                 stringify!($fn_name),
-                "(&router, \"/other/route\").status().is_none());
+                "(\"/other/route\").on(&router));
 ```
 "
             )
@@ -66,15 +66,15 @@ impl Router {
     # use trillium::Conn;
     # use trillium_router::Router;
 
-    let handler = Router::new()
+    let router = Router::new()
         .get("/", |conn: Conn| async move { conn.ok("you have reached the index") })
         .get("/some/:param", |conn: Conn| async move { conn.ok("you have reached /some/:param") })
         .post("/", |conn: Conn| async move { conn.ok("post!") });
 
     use trillium_testing::{methods::{get, post}, assert_ok};
-    assert_ok!(get(&handler, "/"), "you have reached the index");
-    assert_ok!(get(&handler, "/some/route"), "you have reached /some/:param");
-    assert_ok!(post(&handler, "/"), "post!");
+    assert_ok!(get("/").on(&router), "you have reached the index");
+    assert_ok!(get("/some/route").on(&router), "you have reached /some/:param");
+    assert_ok!(post("/").on(&router), "post!");
     ```
      */
     pub fn new() -> Self {
@@ -89,7 +89,7 @@ impl Router {
     ```
     # use trillium::Conn;
     # use trillium_router::Router;
-    let handler = Router::build(|mut router| {
+    let router = Router::build(|mut router| {
         router.get("/", |conn: Conn| async move {
             conn.ok("you have reached the index")
         });
@@ -105,10 +105,9 @@ impl Router {
 
 
     use trillium_testing::{methods::{get, post}, assert_ok};
-    assert_ok!(get(&handler, "/"), "you have reached the index");
-    assert_ok!(get(&handler, "/some/route"), "you have reached /some/:param");
-    assert_ok!(post(&handler, "/"), "post!");
-
+    assert_ok!(get("/").on(&router), "you have reached the index");
+    assert_ok!(get("/some/route").on(&router), "you have reached /some/:param");
+    assert_ok!(post("/").on(&router), "post!");
     ```
     */
     pub fn build(builder: impl Fn(RouterRef)) -> Router {
@@ -151,14 +150,14 @@ impl Router {
         conn.ok(response)
     });
 
-    use trillium_testing::{assert_ok, methods::*};
-    assert_ok!(get(&router, "/any"), "you made a GET request to /any");
-    assert_ok!(post(&router, "/any"), "you made a POST request to /any");
-    assert_ok!(delete(&router, "/any"), "you made a DELETE request to /any");
-    assert_ok!(patch(&router, "/any"), "you made a PATCH request to /any");
-    assert_ok!(put(&router, "/any"), "you made a PUT request to /any");
+    use trillium_testing::{assert_ok, methods::*, assert_not_handled};
+    assert_ok!(get("/any").on(&router), "you made a GET request to /any");
+    assert_ok!(post("/any").on(&router), "you made a POST request to /any");
+    assert_ok!(delete("/any").on(&router), "you made a DELETE request to /any");
+    assert_ok!(patch("/any").on(&router), "you made a PATCH request to /any");
+    assert_ok!(put("/any").on(&router), "you made a PUT request to /any");
 
-    assert!(get(&router, "/").status().is_none());
+    assert_not_handled!(get("/").on(&router));
     ```
     */
     pub fn any(mut self, path: &'static str, handler: impl Handler) -> Self {

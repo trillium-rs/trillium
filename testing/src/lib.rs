@@ -38,7 +38,7 @@ macro_rules! test_conn_method {
     };
 }
 
-pub mod fluent {
+pub mod methods {
     test_conn_method!(get, Get);
     test_conn_method!(post, Post);
     test_conn_method!(put, Put);
@@ -122,22 +122,6 @@ macro_rules! test_handler_method {
             self.request(Method::$method, path)
         }
     };
-}
-
-pub mod methods {
-    use super::{Handler, Method, TestConn};
-    macro_rules! method {
-        ($fn_name:ident, $method:ident) => {
-            pub fn $fn_name(handler: &impl Handler, path: impl Into<String>) -> TestConn {
-                TestConn::build(Method::$method, path, ()).run(handler)
-            }
-        };
-    }
-    method!(get, Get);
-    method!(post, Post);
-    method!(put, Put);
-    method!(delete, Delete);
-    method!(patch, Patch);
 }
 
 pub trait HandlerTesting {
