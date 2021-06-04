@@ -1,8 +1,7 @@
 use crate::Url;
 use async_io::Timer;
 use std::{future::Future, time::Duration};
-use trillium::{Conn, Handler};
-use trillium_http::Synthetic;
+use trillium::Handler;
 
 pub fn serve_once<H, Fun, Fut>(handler: H, tests: Fun)
 where

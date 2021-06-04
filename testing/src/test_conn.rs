@@ -35,7 +35,9 @@ impl TestConn {
 
     pub async fn run_async(self, handler: &impl Handler) -> Self {
         let conn = handler.run(self.into()).await;
-        Self(handler.before_send(conn).await)
+        let mut conn = handler.before_send(conn).await;
+        conn.inner_mut().finalize_headers();
+        Self(conn)
     }
 
     pub fn on(self, handler: &impl Handler) -> Self {

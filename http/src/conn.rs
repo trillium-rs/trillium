@@ -422,6 +422,39 @@ where
         self.secure
     }
 
+    /**
+    calculates any auto-generated headers for this conn prior to sending it
+    */
+    pub fn finalize_headers(&mut self) {
+        if let Some(len) = self.body_len() {
+            self.response_headers.apply(ContentLength::new(len));
+        }
+
+        if self.response_headers.get(CONTENT_LENGTH).is_none() {
+            self.response_headers.apply(TransferEncoding::new(Chunked));
+        } else {
+            self.response_headers.remove(TRANSFER_ENCODING);
+        }
+
+        if self.response_headers.get("server").is_none() {
+            self.response_headers.insert("server", SERVER);
+        }
+
+        if self.stopper.is_stopped() {
+            self.response_headers.insert("connection", "close");
+        } else if self.response_headers.get("connection").is_none()
+            && !self
+                .request_headers
+                .contains_ignore_ascii_case("connection", "close")
+        {
+            self.response_headers.insert("connection", "keep-alive");
+        }
+
+        if self.response_headers.get(DATE).is_none() {
+            Date::now().apply_header(&mut self.response_headers);
+        }
+    }
+
     async fn send_100_continue(&mut self) -> Result<()> {
         log::trace!("sending 100-continue");
         Ok(self
@@ -561,36 +594,6 @@ where
         match self.response_body {
             Some(ref body) => body.len(),
             None => Some(0),
-        }
-    }
-
-    fn finalize_headers(&mut self) {
-        if let Some(len) = self.body_len() {
-            self.response_headers.apply(ContentLength::new(len));
-        }
-
-        if self.response_headers.get(CONTENT_LENGTH).is_none() {
-            self.response_headers.apply(TransferEncoding::new(Chunked));
-        } else {
-            self.response_headers.remove(TRANSFER_ENCODING);
-        }
-
-        if self.response_headers.get("server").is_none() {
-            self.response_headers.insert("server", SERVER);
-        }
-
-        if self.stopper.is_stopped() {
-            self.response_headers.insert("connection", "close");
-        } else if self.response_headers.get("connection").is_none()
-            && !self
-                .request_headers
-                .contains_ignore_ascii_case("connection", "close")
-        {
-            self.response_headers.insert("connection", "keep-alive");
-        }
-
-        if self.response_headers.get(DATE).is_none() {
-            Date::now().apply_header(&mut self.response_headers);
         }
     }
 
