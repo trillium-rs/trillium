@@ -53,7 +53,7 @@ macro_rules! method {
                 " http method and the provided url.
 
 ```
-use trillium_client::{http_types::Method};
+use trillium_testing::Method;
 type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
 
 let conn = Conn::",

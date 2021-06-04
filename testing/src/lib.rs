@@ -9,10 +9,10 @@
 )]
 
 use async_io::Timer;
-pub use futures_lite;
-use futures_lite::{future, Future, FutureExt};
+use futures_lite::future::block_on;
 use std::{
     convert::TryInto,
+    future::Future,
     ops::{Deref, DerefMut},
     time::Duration,
 };
@@ -24,21 +24,6 @@ mod assertions;
 
 mod test_io;
 pub use test_io::{CloseableCursor, TestTransport};
-
-pub fn test_conn<T>(method: T, path: impl Into<String>, body: impl Into<Synthetic>) -> Conn
-where
-    T: TryInto<Method>,
-    <T as TryInto<Method>>::Error: std::fmt::Debug,
-{
-    trillium_http::Conn::new_synthetic(method.try_into().unwrap(), path.into(), body).into()
-}
-
-pub fn run(handler: &impl Handler, conn: Conn) -> Conn {
-    future::block_on(async move {
-        let conn = handler.run(conn).await;
-        handler.before_send(conn).await
-    })
-}
 
 #[derive(Debug)]
 pub struct TestConn(Conn);
@@ -85,7 +70,7 @@ impl TestConn {
     }
 
     pub fn run(self, handler: &impl Handler) -> Self {
-        future::block_on(self.run_async(handler))
+        block_on(self.run_async(handler))
     }
 }
 
