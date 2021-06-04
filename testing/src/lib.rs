@@ -8,16 +8,43 @@
     unused_qualifications
 )]
 
+/*!
+testing utilities for trillium applications.
+
+this crate is intended to be used as a development dependency.
+
+```
+use trillium_testing::prelude::*;
+
+async fn handler(mut conn: Conn) -> Conn {
+    let request_body = conn.request_body().await.read_string().await.unwrap();
+    conn.with_body(format!("request body was: {}", request_body))
+        .with_status(418)
+        .with_header(("request-id", "special-request"))
+}
+
+assert_response!(
+    post("/").with_request_body("hello trillium!").on(&handler),
+    StatusCode::ImATeapot,
+    "request body was: hello trillium!",
+    "request-id" => "special-request",
+    "content-length" => "33"
+);
+
+```
+
+*/
+
 mod assertions;
 
-mod test_io;
-pub use test_io::{CloseableCursor, TestTransport};
+mod test_transport;
+pub use test_transport::TestTransport;
 
 mod test_conn;
 pub use test_conn::TestConn;
 
-mod serve_once;
-pub use serve_once::serve_once;
+mod with_server;
+pub use with_server::with_server;
 
 pub mod methods;
 pub mod prelude {

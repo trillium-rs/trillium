@@ -8,11 +8,41 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-/// a Test IO
+/// a readable and writable transport for testing
 #[derive(Default, Clone, Debug)]
 pub struct TestTransport {
+    /// the read side of this transport
     pub read: Arc<CloseableCursor>,
+    /// the write side of this transport
     pub write: Arc<CloseableCursor>,
+}
+
+impl TestTransport {
+    /// constructs a new test transport pair, representing two ends of
+    /// a connection. either of them can be written to, and the
+    /// content will be readable from the other. either of them can
+    /// also be closed.
+    pub fn new() -> (TestTransport, TestTransport) {
+        let a = Arc::new(CloseableCursor::default());
+        let b = Arc::new(CloseableCursor::default());
+
+        (
+            TestTransport {
+                read: a.clone(),
+                write: b.clone(),
+            },
+            TestTransport { read: b, write: a },
+        )
+    }
+
+    // pub fn all_read(&self) -> bool {
+    //     self.write.current()
+    // }
+
+    /// close this transport, representing a disconnection
+    pub fn close(&mut self) {
+        self.write.close();
+    }
 }
 
 #[derive(Default)]
@@ -27,23 +57,38 @@ struct CloseableCursorInner {
 pub struct CloseableCursor(RwLock<CloseableCursorInner>);
 
 impl CloseableCursor {
+    /**
+    the length of the content
+    */
     pub fn len(&self) -> usize {
         self.0.read().unwrap().data.len()
     }
 
+    /**
+    the current read position
+    */
     pub fn cursor(&self) -> usize {
         self.0.read().unwrap().cursor
     }
 
+    /**
+    does what it says on the tin
+    */
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /**
+    have we read to the end of the available content
+    */
     pub fn current(&self) -> bool {
         let inner = self.0.read().unwrap();
         inner.data.len() == inner.cursor
     }
 
+    /**
+    close this cursor, waking any pending polls
+    */
     pub fn close(&self) {
         let mut inner = self.0.write().unwrap();
         inner.closed = true;
@@ -57,32 +102,6 @@ impl Display for CloseableCursor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.0.read().unwrap();
         write!(f, "{}", String::from_utf8_lossy(&inner.data))
-    }
-}
-
-impl TestTransport {
-    pub fn new() -> (TestTransport, TestTransport) {
-        let client = Arc::new(CloseableCursor::default());
-        let server = Arc::new(CloseableCursor::default());
-
-        (
-            TestTransport {
-                read: client.clone(),
-                write: server.clone(),
-            },
-            TestTransport {
-                read: server,
-                write: client,
-            },
-        )
-    }
-
-    pub fn all_read(&self) -> bool {
-        self.write.current()
-    }
-
-    pub fn close(&mut self) {
-        self.write.close();
     }
 }
 

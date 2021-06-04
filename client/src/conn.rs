@@ -153,7 +153,7 @@ impl<C: Connector> Conn<'static, C> {
     ```
     type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
 
-    trillium_testing::serve_once("ok", |url| async move {
+    trillium_testing::with_server("ok", |url| async move {
         let mut conn = Conn::get(url).execute().await?; //<-
         assert_eq!(conn.status().unwrap(), 200);
         assert_eq!(conn.response_body().read_string().await?, "ok");
@@ -223,7 +223,7 @@ impl<C: Connector> Conn<'_, C> {
     ```
     use trillium_smol::TcpConnector;
     type Client = trillium_client::Client<TcpConnector>;
-    trillium_testing::serve_once("ok", |url| async move {
+    trillium_testing::with_server("ok", |url| async move {
         let client = Client::new();
         let mut conn = client.get(url);
 
@@ -270,7 +270,7 @@ impl<C: Connector> Conn<'_, C> {
         conn.ok(response)
     };
 
-    trillium_testing::serve_once(handler, |url| async move {
+    trillium_testing::with_server(handler, |url| async move {
         let mut conn = Conn::get(url);
 
         conn.request_headers() //<-
@@ -299,7 +299,7 @@ impl<C: Connector> Conn<'_, C> {
             .with_status(200)
     };
 
-    trillium_testing::serve_once(handler, |url| async move {
+    trillium_testing::with_server(handler, |url| async move {
         let conn = Conn::get(url).execute().await?;
 
         let headers = conn.response_headers(); //<-
@@ -324,7 +324,7 @@ impl<C: Connector> Conn<'_, C> {
         conn.ok(format!("request body was: {}", body))
     };
 
-    trillium_testing::serve_once(handler, |url| async move {
+    trillium_testing::with_server(handler, |url| async move {
         let mut conn = Conn::post(url);
 
         conn.set_request_body("body"); //<-
@@ -351,7 +351,7 @@ impl<C: Connector> Conn<'_, C> {
         conn.ok(format!("request body was: {}", body))
     };
 
-    trillium_testing::serve_once(handler, |url| async move {
+    trillium_testing::with_server(handler, |url| async move {
         let mut conn = Conn::post(url)
             .with_request_body("body") //<-
             .execute()
@@ -422,7 +422,7 @@ impl<C: Connector> Conn<'_, C> {
         conn.ok("hello from trillium")
     };
 
-    trillium_testing::serve_once(handler, |url| async move {
+    trillium_testing::with_server(handler, |url| async move {
         let mut conn = Conn::get(url).execute().await?;
 
         let response_body = conn.response_body(); //<-
@@ -465,7 +465,7 @@ impl<C: Connector> Conn<'_, C> {
         conn.with_status(418)
     }
 
-    trillium_testing::serve_once(handler, |url| async move {
+    trillium_testing::with_server(handler, |url| async move {
         let conn = Conn::get(url).execute().await?;
         assert_eq!(StatusCode::ImATeapot, conn.status().unwrap());
         Ok(())
