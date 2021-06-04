@@ -282,7 +282,7 @@ impl Conn {
     use trillium_testing::prelude::*;
     let mut conn = get("/").with_request_body("request body").on(&());
 
-    assert_eq!(conn.request_body_string().await, Ok("request body"));
+    assert_eq!(conn.request_body_string().await.unwrap(), "request body");
     # });
     ```
     */

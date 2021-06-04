@@ -44,3 +44,5 @@ This exists to erase the generic transport for convenience using a
 pub type Upgrade = trillium_http::Upgrade<trillium_http::transport::BoxedTransport>;
 
 mod macros;
+
+pub use log;

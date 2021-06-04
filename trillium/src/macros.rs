@@ -31,7 +31,7 @@ macro_rules! conn_try {
         match $expr {
             Ok(value) => value,
             Err(error) => {
-                log::error!("{}:{} conn_try error: {}", file!(), line!(), error);
+                $crate::log::error!("{}:{} conn_try error: {}", file!(), line!(), error);
                 return $conn.with_status(500).halt();
             }
         }
@@ -77,13 +77,13 @@ error path, but you still want to record that it transpired
 macro_rules! log_error {
     ($expr:expr) => {
         if let Err(err) = $expr {
-            log::error!("{}:{} {:?}", file!(), line!(), err);
+            $crate::log::error!("{}:{} {:?}", file!(), line!(), err);
         }
     };
 
     ($expr:expr, $message:expr) => {
         if let Err(err) = $expr {
-            log::error!("{}:{} {} {:?}", file!(), line!(), $message, err);
+            $crate::log::error!("{}:{} {} {:?}", file!(), line!(), $message, err);
         }
     };
 }
