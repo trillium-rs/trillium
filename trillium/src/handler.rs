@@ -52,7 +52,7 @@ impl trillium::Handler for MyHandler {
 }
 
 use trillium_testing::{HandlerTesting, assert_not_handled};
-assert_not_handled!(handler.get("/")); // we did not halt or set a body status
+assert_not_handled!(MyHandler.get("/")); // we did not halt or set a body status
 ```
 
 **temporary note:** until rust has true async traits, implementing

@@ -14,4 +14,5 @@
   - [Proxy](./handlers/proxy.md)
   - [Static Files](./handlers/static.md)
   - [Websockets](./handlers/websockets.md)
+- [Patterns for library authors](./library_patterns.md)
 - [Contributing](./contributing.md)

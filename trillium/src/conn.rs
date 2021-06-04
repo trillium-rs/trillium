@@ -30,6 +30,15 @@ async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
         .with_body("hey there")
         .with_status(418)
 }
+
+use trillium_testing::{HandlerTesting, assert_response, StatusCode};
+
+assert_response!(
+    handler.get("/"),
+    StatusCode::ImATeapot,
+    "hey there",
+    "content-type" => "text/plain"
+);
 ```
 
 If you need to set a property on the conn without moving it,
@@ -39,12 +48,12 @@ conventional in other rust projects.
 ## State
 
 Every trillium Conn contains a state type which is a set that contains
-at most one element for each type. It is highly recommended that you
-not insert any type into the state set that you have not
-authored. Library authors, this means that you should always offer a
-ConnExt trait that provides an interface for setting and getting
-state. State is also the primary way that handlers attach data to a
-conn as it passes through a tuple handler.
+at most one element for each type. State is the primary way that
+handlers attach data to a conn as it passes through a tuple
+handler. In general, state access should generally be implemented by
+libraries using a private type and exposed with a ConnExt trait. See
+[library patterns](https://trillium.rs/library_patterns.html#state)
+for more elaboration and examples.
 
 ## In relation to [`trillium_http::Conn`]
 

@@ -47,6 +47,17 @@ macro_rules! assert_response {
     ($conn:expr, $status:expr) => {
         $crate::assert_status!($conn, $status);
     };
+
+    ($conn:expr, $status:expr, $body:expr, $($header_name:literal => $header_value:expr,)+) => {
+        assert_response!($conn, $status, $body, $($header_name => $header_value),+);
+    };
+
+    ($conn:expr, $status:expr, $body:expr, $($header_name:literal => $header_value:expr),*) => {
+        let mut conn = $conn;
+        $crate::assert_response!(&mut conn, $status, $body);
+        $crate::assert_headers!(&mut conn, $($header_name => $header_value),*);
+    };
+
 }
 
 #[macro_export]
@@ -96,8 +107,6 @@ macro_rules! assert_ok {
     };
 
     ($conn:expr, $body:expr, $($header_name:literal => $header_value:expr),*) => {
-        let mut conn = $conn;
-        $crate::assert_ok!(&mut conn, $body);
-        $crate::assert_headers!(&mut conn, $($header_name => $header_value),*);
+        $crate::assert_response!($conn, 200, $body, $($header_name => $header_value),*);
     };
 }

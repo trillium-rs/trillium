@@ -20,3 +20,4 @@ trillium-http = { path = "../http", version = "0.0.1" }
 trillium-logger = { path = "../logger" }
 trillium-testing = { path = "../testing" }
 async-net = "1.6.0"
+trillium-smol = { path = "../smol" }

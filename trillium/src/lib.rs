@@ -9,7 +9,7 @@
 )]
 
 /*!
-Welcome to the core trillium crate!
+# Welcome to the `trillium` crate!
 
 This crate is the primary dependency for building a trillium app or
 library. It contains a handful of core types and reexports a few
