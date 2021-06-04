@@ -9,7 +9,6 @@
 )]
 
 use async_io::Timer;
-use futures_lite::future::block_on;
 use std::{
     convert::TryInto,
     future::Future,
@@ -17,13 +16,16 @@ use std::{
     time::Duration,
 };
 use trillium::{Conn, Handler};
-pub use trillium_http::http_types::{Method, StatusCode, Url};
 use trillium_http::Synthetic;
 
 mod assertions;
 
 mod test_io;
 pub use test_io::{CloseableCursor, TestTransport};
+
+// these exports are used by macros
+pub use futures_lite::{future::block_on, AsyncRead, AsyncReadExt, AsyncWrite};
+pub use trillium_http::http_types::{Method, StatusCode, Url};
 
 #[derive(Debug)]
 pub struct TestConn(Conn);

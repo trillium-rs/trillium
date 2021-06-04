@@ -2,7 +2,7 @@
 macro_rules! assert_status {
     ($conn:expr, $status:expr) => {{
         use std::convert::TryInto;
-        let expected_status: trillium::http_types::StatusCode =
+        let expected_status: $crate::StatusCode =
             $status.try_into().expect("expected a status code");
 
         match $conn.status() {
@@ -26,9 +26,9 @@ macro_rules! assert_not_handled {
 macro_rules! assert_body {
     ($conn:expr, $body:expr) => {{
         if let Some(mut body) = $conn.take_response_body() {
-            use $crate::futures_lite::AsyncReadExt;
+            use $crate::AsyncReadExt;
             let mut s = String::new();
-            $crate::futures_lite::future::block_on(body.read_to_string(&mut s)).expect("read");
+            $crate::block_on(body.read_to_string(&mut s)).expect("read");
             assert_eq!(s.trim_end(), $body.trim_end());
         } else {
             panic!("response body did not exist");
