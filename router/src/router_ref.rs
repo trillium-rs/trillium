@@ -74,7 +74,7 @@ impl<'r> RouterRef<'r> {
         });
     });
 
-    use trillium_testing::{methods::*, assert_ok, assert_not_handled};
+    use trillium_testing::prelude::*;
     assert_ok!(get("/any").on(&router), "you made a GET request to /any");
     assert_ok!(post("/any").on(&router), "you made a POST request to /any");
     assert_ok!(delete("/any").on(&router), "you made a DELETE request to /any");

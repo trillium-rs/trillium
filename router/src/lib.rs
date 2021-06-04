@@ -27,7 +27,7 @@ let router = Router::new()
         conn.ok(content)
     });
 
-use trillium_testing::{methods::get, assert_ok, assert_not_handled};
+use trillium_testing::prelude::*;
 assert_ok!(get("/").on(&router), "you have reached the index");
 assert_ok!(get("/pages/trillium").on(&router), "you have reached the page named trillium");
 assert_not_handled!(get("/unknown/route").on(&router));
@@ -73,7 +73,7 @@ let router = routes!(
     }
 );
 
-use trillium_testing::{methods::get, assert_ok, assert_not_handled};
+use trillium_testing::prelude::*;
 assert_ok!(get("/").on(&router), "you have reached the index");
 assert_ok!(get("/pages/trillium").on(&router), "you have reached the page named trillium");
 assert_not_handled!(get("/unknown/route").on(&router));

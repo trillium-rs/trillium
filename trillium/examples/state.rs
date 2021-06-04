@@ -53,7 +53,7 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use trillium_testing::{assert_ok, methods::*};
+    use trillium_testing::prelude::*;
 
     #[test]
     fn test_conn_counter() {

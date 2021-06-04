@@ -53,7 +53,7 @@ macro_rules! method {
                 " http method and the provided url.
 
 ```
-use trillium_testing::Method;
+use trillium_testing::prelude::*;
 type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
 
 let conn = Conn::",
@@ -174,13 +174,13 @@ impl<C: Connector> Conn<'_, C> {
     builds a new client Conn with the provided method and url
     ```
     type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
-    use trillium_testing::{Method, Url};
+    use trillium_testing::prelude::*;
 
     let conn = Conn::new("get", "http://trillium.rs"); //<-
     assert_eq!(conn.method(), Method::Get);
     assert_eq!(conn.url().to_string(), "http://trillium.rs/");
 
-    let url = Url::parse("http://trillium.rs").unwrap();
+    let url = url::Url::parse("http://trillium.rs").unwrap();
     let conn = Conn::new(Method::Post, url); //<-
     assert_eq!(conn.method(), Method::Post);
     assert_eq!(conn.url().to_string(), "http://trillium.rs/");
@@ -459,7 +459,7 @@ impl<C: Connector> Conn<'_, C> {
 
     ```
     use trillium_smol::TcpConnector;
-    use trillium_testing::StatusCode;
+    use trillium_testing::prelude::*;
     type Conn = trillium_client::Conn<'static, TcpConnector>;
     async fn handler(conn: trillium::Conn) -> trillium::Conn {
         conn.with_status(418)

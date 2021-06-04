@@ -28,7 +28,7 @@ blanket implementation for any such Fn.
 // as a closure
 let handler = |conn: trillium::Conn| async move { conn.ok("trillium!") };
 
-use trillium_testing::{methods::*, assert_ok};
+use trillium_testing::prelude::*;
 assert_ok!(get("/").on(&handler), "trillium!");
 ```
 
@@ -37,7 +37,7 @@ assert_ok!(get("/").on(&handler), "trillium!");
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     conn.ok("trillium!")
 }
-use trillium_testing::{methods::*, assert_ok};
+use trillium_testing::prelude::*;
 assert_ok!(get("/").on(&handler), "trillium!");
 ```
 
@@ -51,7 +51,7 @@ impl trillium::Handler for MyHandler {
     }
 }
 
-use trillium_testing::{methods::*, assert_not_handled};
+use trillium_testing::prelude::*;
 assert_not_handled!(get("/").on(&MyHandler)); // we did not halt or set a body status
 ```
 

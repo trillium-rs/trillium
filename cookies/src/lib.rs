@@ -29,7 +29,7 @@ async fn handler_that_uses_cookies(conn: Conn) -> Conn {
 
 let handler = (CookiesHandler::new(), handler_that_uses_cookies);
 
-use trillium_testing::{methods::*, assert_ok};
+use trillium_testing::prelude::*;
 
 assert_ok!(
     get("/").on(&handler),

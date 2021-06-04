@@ -77,7 +77,7 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use trillium_testing::{assert_body_contains, assert_ok, methods::*};
+    use trillium_testing::prelude::*;
 
     use super::app;
 

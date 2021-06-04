@@ -71,7 +71,7 @@ impl Router {
         .get("/some/:param", |conn: Conn| async move { conn.ok("you have reached /some/:param") })
         .post("/", |conn: Conn| async move { conn.ok("post!") });
 
-    use trillium_testing::{methods::{get, post}, assert_ok};
+    use trillium_testing::prelude::*;
     assert_ok!(get("/").on(&router), "you have reached the index");
     assert_ok!(get("/some/route").on(&router), "you have reached /some/:param");
     assert_ok!(post("/").on(&router), "post!");
@@ -104,7 +104,7 @@ impl Router {
     });
 
 
-    use trillium_testing::{methods::{get, post}, assert_ok};
+    use trillium_testing::prelude::*;
     assert_ok!(get("/").on(&router), "you have reached the index");
     assert_ok!(get("/some/route").on(&router), "you have reached /some/:param");
     assert_ok!(post("/").on(&router), "post!");
@@ -150,7 +150,7 @@ impl Router {
         conn.ok(response)
     });
 
-    use trillium_testing::{assert_ok, methods::*, assert_not_handled};
+    use trillium_testing::prelude::*;
     assert_ok!(get("/any").on(&router), "you made a GET request to /any");
     assert_ok!(post("/any").on(&router), "you made a POST request to /any");
     assert_ok!(delete("/any").on(&router), "you made a DELETE request to /any");

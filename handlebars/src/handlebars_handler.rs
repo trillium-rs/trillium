@@ -32,7 +32,7 @@ impl HandlebarsHandler {
     ///     }
     /// );
     ///
-    /// use trillium_testing::{methods::*, assert_ok};
+    /// use trillium_testing::prelude::*;
     /// assert_ok!(get("/").on(&handler), "hello handlebars!");
     /// # }
     /// ```
@@ -52,7 +52,7 @@ impl HandlebarsHandler {
     ///     }
     /// );
     ///
-    /// use trillium_testing::{methods::*, assert_ok};
+    /// use trillium_testing::prelude::*;
     /// assert_ok!(get("/").on(&handler), "Hello handlebars");
     /// # Ok(()) }
     /// ```

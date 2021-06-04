@@ -37,7 +37,7 @@ let handler = (
 );
 
 # async_global_executor::block_on(async move {
-use trillium_testing::{methods::*, assert_ok};
+use trillium_testing::prelude::*;
 
 let conn = async_global_executor::spawn(async move {
     get("/").run_async(&handler).await

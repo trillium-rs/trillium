@@ -12,7 +12,7 @@ State is a handler that puts a clone of any `Clone + Send + Sync +
 ```
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 use trillium::{Conn, State};
-use trillium_testing::{methods::*, assert_ok};
+use trillium_testing::prelude::*;
 
 
 #[derive(Clone, Default)] // Clone is mandatory

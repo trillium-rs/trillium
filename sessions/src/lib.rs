@@ -94,7 +94,7 @@ let handler = (
     },
 );
 
-use trillium_testing::{methods::*, assert_ok};
+use trillium_testing::prelude::*;
 let mut conn = get("/").on(&handler);
 assert_ok!(&mut conn, "count: 0");
 

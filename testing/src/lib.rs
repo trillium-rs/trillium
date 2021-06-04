@@ -20,6 +20,17 @@ mod serve_once;
 pub use serve_once::serve_once;
 
 pub mod methods;
+pub mod prelude {
+    /*!
+    useful stuff for testing trillium apps
+    */
+    pub use crate::{
+        assert_body, assert_body_contains, assert_headers, assert_not_handled, assert_ok,
+        assert_response, assert_status, methods::*, Method, StatusCode,
+    };
+
+    pub use trillium::Conn;
+}
 
 // these exports are used by macros
 pub use futures_lite::{future::block_on, AsyncRead, AsyncReadExt, AsyncWrite};

@@ -35,7 +35,7 @@ let handler = StaticCompiledHandler::new(include_dir!("examples/files"))
 //    └── plaintext.txt
 //
 
-use trillium_testing::{methods::*, assert_not_handled, assert_ok};
+use trillium_testing::prelude::*;
 
 assert_ok!(
     get("/").on(&handler),

@@ -2,7 +2,7 @@
 assert that the status code of a conn is as specified.
 
 ```
-use trillium_testing::{methods::get, assert_status, StatusCode};
+use trillium_testing::prelude::*;
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     conn.with_status(418)
 }
@@ -18,7 +18,7 @@ assert_status!(conn, 418);
 
 
 ```rust,should_panic
-use trillium_testing::{methods::get, assert_status};
+use trillium_testing::prelude::*;
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     conn.ok("handled")
 }
@@ -48,7 +48,7 @@ assert that all of the following are true:
 * the conn was not halted
 
 ```
-use trillium_testing::{methods::get, assert_not_handled};
+use trillium_testing::prelude::*;
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     conn
 }
@@ -63,7 +63,7 @@ assert_not_handled!(conn);
 
 
 ```rust,should_panic
-use trillium_testing::{methods::get, assert_not_handled};
+use trillium_testing::prelude::*;
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     conn.ok("handled")
 }
@@ -86,7 +86,7 @@ macro_rules! assert_not_handled {
 assert that the response body is as specified. this assertion requires mutation of the conn.
 
 ```
-use trillium_testing::{methods::get, assert_body};
+use trillium_testing::prelude::*;
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     conn.ok("it's-a-me, trillium")
 }
@@ -103,12 +103,12 @@ assert_body!(conn, "it's-a-me, trillium");
 
 
 ```rust,should_panic
-use trillium_testing::{methods::get, assert_body};
+use trillium_testing::prelude::*;
 assert_body!(get("/").on(&()), "what body?");
 ```
 
 ```rust,should_panic
-use trillium_testing::{methods::get, assert_body};
+use trillium_testing::prelude::*;
 assert_body!(get("/").on(&"beach body"), "winter body");
 ```
 */
@@ -123,9 +123,9 @@ macro_rules! assert_body {
 
 /**
 
-asserts that the response body matches the specified pattern, using [`String::contains`]
+asserts that the response body matches the specified pattern, using [`str::contains`]
 ```
-use trillium_testing::{methods::get, assert_body_contains};
+use trillium_testing::prelude::*;
 let handler = "there's a needle in this haystack";
 assert_body_contains!(get("/").on(&handler), "needle");
 
@@ -137,12 +137,12 @@ assert!(body.contains("haystack"));
 
 
 ```rust,should_panic
-use trillium_testing::{methods::get, assert_body_contains};
+use trillium_testing::prelude::*;
 assert_body_contains!(get("/").on(&()), "what body?");
 ```
 
 ```rust,should_panic
-use trillium_testing::{methods::get, assert_body_contains};
+use trillium_testing::prelude::*;
 assert_body_contains!(get("/").on(&"just a haystack"), "needle");
 ```
 */
@@ -168,8 +168,7 @@ combines several other assertions. this assertion can be used to assert:
 * a status code, a response body, and any number of headers
 
 ```
-use trillium_testing::{methods::get, assert_response, StatusCode};
-use trillium::Conn;
+use trillium_testing::prelude::*;
 async fn handler(conn: Conn) -> Conn {
     conn.with_body("just tea stuff here")
         .with_status(418)
@@ -222,8 +221,7 @@ macro_rules! assert_response {
 asserts any number of response headers
 
 ```
-use trillium_testing::{methods::get, assert_headers};
-use trillium::Conn;
+use trillium_testing::prelude::*;
 async fn handler(conn: Conn) -> Conn {
     conn.ok("headers")
         .with_header(("server", "special-custom-server"))
@@ -268,8 +266,7 @@ it can be used to assert:
 * that the response was successful, a response body, and any number of headers
 
 ```
-use trillium_testing::{methods::get, assert_ok};
-use trillium::Conn;
+use trillium_testing::prelude::*;
 async fn handler(conn: Conn) -> Conn {
     conn.ok("body")
         .with_header(("server", "special-custom-server"))

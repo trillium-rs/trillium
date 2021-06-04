@@ -22,7 +22,7 @@ pub trait RouterConnExt {
         conn.ok(content)
     });
 
-    use trillium_testing::{methods::get, assert_ok};
+    use trillium_testing::prelude::*;
     assert_ok!(
         get("/pages/trillium").on(&router),
         "you have reached the page named trillium"
@@ -46,7 +46,7 @@ pub trait RouterConnExt {
     ///     conn.ok(content)
     /// });
     ///
-    /// use trillium_testing::{methods::get, assert_ok};
+    /// use trillium_testing::prelude::*;
     /// assert_ok!(
     ///     get("/pages/this/is/a/wildcard/match").on(&router),
     ///     "the wildcard matched this/is/a/wildcard/match"
@@ -76,7 +76,7 @@ impl RouterConnExt for Conn {
 //     conn.ok(content)
 // });
 
-// use trillium_testing::{methods::*, assert_ok};
+// use trillium_testing::prelude::*;
 // assert_ok!(
 //     get("/pages/this/is/a/wildcard/match").on(&router),
 //     "the wildcard matched this/is/a/wildcard/match"

@@ -28,7 +28,7 @@ macro_rules! method {
                 " http method and the provided url.
 
 ```
-# use trillium_testing::Method;
+# use trillium_testing::prelude::*;
 # use trillium_smol::TcpConnector;
 # use trillium_client::Client;
 let client = Client::<TcpConnector>::new();
