@@ -155,4 +155,17 @@ impl Conn<Synthetic> {
     pub fn request_headers_mut(&mut self) -> &mut Headers {
         &mut self.request_headers
     }
+
+    /**
+    Replaces the synthetic body. This is intended for testing use.
+     */
+    pub fn replace_body(&mut self, body: impl Into<Synthetic>) {
+        let transport = body.into();
+        self.request_headers_mut().insert(
+            CONTENT_LENGTH,
+            transport.len().unwrap_or_default().to_string(),
+        );
+        self.transport = transport;
+        self.request_body_state = Default::default();
+    }
 }

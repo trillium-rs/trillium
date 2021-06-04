@@ -25,14 +25,8 @@ macro_rules! assert_not_handled {
 #[macro_export]
 macro_rules! assert_body {
     ($conn:expr, $body:expr) => {{
-        if let Some(mut body) = $conn.take_response_body() {
-            use $crate::AsyncReadExt;
-            let mut s = String::new();
-            $crate::block_on(body.read_to_string(&mut s)).expect("read");
-            assert_eq!(s.trim_end(), $body.trim_end());
-        } else {
-            panic!("response body did not exist");
-        }
+        let body = $conn.take_body_string().expect("body should exist");
+        assert_eq!(body.trim_end(), $body.trim_end());
     }};
 }
 

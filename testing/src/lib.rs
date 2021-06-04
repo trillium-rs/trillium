@@ -32,10 +32,18 @@ pub struct TestConn(Conn);
 
 macro_rules! test_conn_method {
     ($fn_name:ident, $method:ident) => {
-        pub fn $fn_name(path: impl Into<String>) -> Self {
-            Self::build(Method::$method, path, ())
+        pub fn $fn_name(path: impl Into<String>) -> $crate::TestConn {
+            $crate::TestConn::build($crate::Method::$method, path, ())
         }
     };
+}
+
+pub mod fluent {
+    test_conn_method!(get, Get);
+    test_conn_method!(post, Post);
+    test_conn_method!(put, Put);
+    test_conn_method!(delete, Delete);
+    test_conn_method!(patch, Patch);
 }
 
 impl TestConn {
@@ -66,13 +74,31 @@ impl TestConn {
         Self(inner.into())
     }
 
+    pub fn with_request_body(mut self, body: impl Into<Synthetic>) -> Self {
+        let mut inner = self.into_inner();
+        inner.replace_body(body);
+        Self(inner.into())
+    }
+
     pub async fn run_async(self, handler: &impl Handler) -> Self {
         let conn = handler.run(self.0).await;
         Self(handler.before_send(conn).await)
     }
 
+    pub fn on(self, handler: &impl Handler) -> Self {
+        self.run(handler)
+    }
+
     pub fn run(self, handler: &impl Handler) -> Self {
         block_on(self.run_async(handler))
+    }
+
+    pub fn take_body_string(&mut self) -> Option<String> {
+        self.take_response_body().map(|mut body| {
+            let mut s = String::new();
+            block_on(body.read_to_string(&mut s)).expect("read");
+            s
+        })
     }
 }
 

@@ -1,6 +1,6 @@
 use askama::Template;
 use futures_lite::prelude::*;
-use trillium::Conn;
+use trillium::{Conn, Handler};
 use trillium_askama::AskamaConnExt;
 use trillium_cookies::CookiesHandler;
 use trillium_logger::Logger;
@@ -18,10 +18,8 @@ struct HelloTemplate<'a> {
     name: &'a str,
 }
 
-fn main() {
-    env_logger::init();
-
-    trillium_smol::run((
+fn handler() -> impl Handler {
+    (
         Logger::new(),
         CookiesHandler::new(),
         SessionHandler::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
@@ -63,5 +61,39 @@ fn main() {
             )
             .get("/httpbin/*", Proxy::new("https://httpbin.org")),
         StaticCompiledHandler::new(include_dir!("./public")).with_index_file("index.html"),
-    ));
+    )
+}
+
+fn main() {
+    env_logger::init();
+    trillium_smol::run(handler());
+}
+
+#[cfg(test)]
+mod test {
+    use trillium_testing::{assert_ok, fluent::*};
+
+    #[test]
+    fn test_index() {
+        let handler = super::handler();
+        let mut conn = get("/").on(&handler);
+        assert_ok!(&mut conn);
+        let body = conn.take_body_string().unwrap();
+        assert!(body.contains("<h1>Welcome to trillium!</h1>"));
+    }
+
+    #[test]
+    fn test_hello_hi() {
+        let handler = super::handler();
+        assert_ok!(get("/hello").on(&handler), "hi");
+    }
+
+    #[test]
+    fn test_post_index() {
+        let handler = super::handler();
+        assert_ok!(
+            post("/").with_request_body("hey").on(&handler),
+            "request body: hey"
+        );
+    }
 }
