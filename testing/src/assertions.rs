@@ -31,6 +31,19 @@ macro_rules! assert_body {
 }
 
 #[macro_export]
+macro_rules! assert_body_contains {
+    ($conn:expr, $pattern:expr) => {{
+        let body = $conn.take_body_string().expect("body should exist");
+        assert!(
+            body.contains($pattern),
+            "\nexpected \n`{}`\n to contain `{}`\n but it did not",
+            &body,
+            $pattern
+        );
+    }};
+}
+
+#[macro_export]
 macro_rules! assert_response {
     ($conn:expr, $status:expr, $body:expr) => {{
         let mut conn = $conn;

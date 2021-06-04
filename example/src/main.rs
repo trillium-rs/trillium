@@ -71,29 +71,44 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use trillium_testing::{assert_ok, fluent::*};
+    use trillium_testing::{assert_body_contains, assert_ok, fluent::*};
+
+    use super::handler;
 
     #[test]
     fn test_index() {
-        let handler = super::handler();
+        let handler = handler();
         let mut conn = get("/").on(&handler);
         assert_ok!(&mut conn);
-        let body = conn.take_body_string().unwrap();
-        assert!(body.contains("<h1>Welcome to trillium!</h1>"));
+        assert_body_contains!(&mut conn, "<h1>Welcome to trillium!</h1>");
     }
 
     #[test]
     fn test_hello_hi() {
-        let handler = super::handler();
+        let handler = handler();
         assert_ok!(get("/hello").on(&handler), "hi");
     }
 
     #[test]
     fn test_post_index() {
-        let handler = super::handler();
+        let handler = handler();
         assert_ok!(
             post("/").with_request_body("hey").on(&handler),
             "request body: hey"
+        );
+    }
+
+    #[test]
+    fn test_askama_templating() {
+        let handler = handler();
+        assert_body_contains!(
+            get("/template/trillium").on(&handler),
+            "<h1>hi there, trillium</h1>"
+        );
+
+        assert_body_contains!(
+            get("/template/dear-reader").on(&handler),
+            "<h1>hi there, dear-reader</h1>"
         );
     }
 }
