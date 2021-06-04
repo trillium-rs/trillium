@@ -27,7 +27,7 @@ let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
 //    └── plaintext.txt
 //
 
-use trillium_testing::{methods::*, assert_not_handled, assert_ok, assert_header};
+use trillium_testing::{methods::*, assert_not_handled, assert_ok};
 
 assert_ok!(
     get("/").on(&handler),
@@ -150,7 +150,7 @@ impl StaticFileHandler {
     use trillium_static::{StaticFileHandler, crate_relative_path};
     let handler = StaticFileHandler::new(crate_relative_path!("examples/files"));
 
-    use trillium_testing::{methods::*, assert_not_handled, assert_ok, assert_header};
+    use trillium_testing::{methods::*, assert_not_handled, assert_ok};
 
     assert_not_handled!(get("/").on(&handler)); // no index file configured
 
@@ -178,10 +178,8 @@ impl StaticFileHandler {
     let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
         .with_index_file("index.html");
 
-    use trillium_testing::{methods::*, assert_not_handled, assert_ok, assert_header};
-    let mut index = get("/").on(&handler);
-    assert_ok!(&mut index, "<h1>hello world</h1>");
-    assert_header!(&mut index, "content-type", "text/html");
+    use trillium_testing::{methods::*, assert_not_handled, assert_ok};
+    assert_ok!(get("/").on(&handler), "<h1>hello world</h1>", "content-type" => "text/html");
     ```
     */
     pub fn with_index_file(mut self, file: &str) -> Self {
