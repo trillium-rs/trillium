@@ -9,9 +9,8 @@ use trillium_tls_common::Acceptor;
 /// The associated methods on this struct are intended to be chained.
 ///
 /// ## Example
-/// ```rust
-/// // in reality, you'd use trillium_smol, trillium_async_std, trillium_tokio, etc
-/// trillium_testing::server::config()
+/// ```rust,no_run
+/// trillium_smol::config() // or trillium_async_std, trillium_tokio
 ///     .with_port(8080) // the default
 ///     .with_host("localhost") // the default
 ///     .with_nodelay()

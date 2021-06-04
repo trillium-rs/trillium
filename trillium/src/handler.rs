@@ -26,7 +26,10 @@ blanket implementation for any such Fn.
 
 ```
 // as a closure
-trillium_testing::server::run(|conn: trillium::Conn| async move { conn.ok("trillium!") });
+let handler = |conn: trillium::Conn| async move { conn.ok("trillium!") };
+
+use trillium_testing::{HandlerTesting, assert_ok};
+assert_ok!(handler.get("/"), "trillium!");
 ```
 
 ```
@@ -34,7 +37,8 @@ trillium_testing::server::run(|conn: trillium::Conn| async move { conn.ok("trill
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     conn.ok("trillium!")
 }
-trillium_testing::server::run(handler);
+use trillium_testing::{HandlerTesting, assert_ok};
+assert_ok!(handler.get("/"), "trillium!");
 ```
 
 The simplest implementation of Handler for a named type looks like this:
@@ -47,17 +51,20 @@ impl trillium::Handler for MyHandler {
     }
 }
 
-trillium_testing::server::run(MyHandler);
+use trillium_testing::{HandlerTesting, assert_not_handled};
+assert_not_handled!(handler.get("/")); // we did not halt or set a body status
 ```
 
 **temporary note:** until rust has true async traits, implementing
 handler requires the use of the async_trait macro, which is reexported
 as `trillium::async_trait`.
 
+## Full trait specification
 
-## Advanced usage
-Unfortunately, async_trait results in ugly documentation above, so
-here is how the trait is actually defined in trillium code:
+Unfortunately, the async_trait macro results in the difficult-to-read
+documentation at the top of the page, so here is how the trait is
+actually defined in trillium code:
+
 ```
 # use trillium::{Conn, Upgrade};
 # use std::borrow::Cow;
@@ -75,7 +82,9 @@ See each of the function definitions below for advance implementation.
 
 For most application code and even trillium-packaged framework code,
 `run` is the only trait function that needs to be implemented.
+
 */
+
 #[async_trait]
 pub trait Handler: Send + Sync + 'static {
     /// Executes this handler, performing any modifications to the

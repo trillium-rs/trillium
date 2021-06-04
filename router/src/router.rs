@@ -65,12 +65,16 @@ impl Router {
     ```
     # use trillium::Conn;
     # use trillium_router::Router;
-    trillium_testing::server::run(
-        Router::new()
-            .get("/", |conn: Conn| async move { conn.ok("you have reached the index") })
-            .get("/some/route", |conn: Conn| async move { conn.ok("you have reached /some/route") })
-            .post("/", |conn: Conn| async move { conn.ok("post!") })
-    );
+
+    let handler = Router::new()
+        .get("/", |conn: Conn| async move { conn.ok("you have reached the index") })
+        .get("/some/:param", |conn: Conn| async move { conn.ok("you have reached /some/:param") })
+        .post("/", |conn: Conn| async move { conn.ok("post!") });
+
+    use trillium_testing::{methods::{get, post}, assert_ok};
+    assert_ok!(get(&handler, "/"), "you have reached the index");
+    assert_ok!(get(&handler, "/some/route"), "you have reached /some/:param");
+    assert_ok!(post(&handler, "/"), "post!");
     ```
      */
     pub fn new() -> Self {
@@ -85,22 +89,26 @@ impl Router {
     ```
     # use trillium::Conn;
     # use trillium_router::Router;
+    let handler = Router::build(|mut router| {
+        router.get("/", |conn: Conn| async move {
+            conn.ok("you have reached the index")
+        });
 
-    trillium_testing::server::run(
-        Router::build(|mut router| {
-            router.get("/", |conn: Conn| async move {
-                conn.ok("you have reached the index")
-            });
+        router.get("/some/:paramroute", |conn: Conn| async move {
+            conn.ok("you have reached /some/:param")
+        });
 
-            router.get("/some/route", |conn: Conn| async move {
-                conn.ok("you have reached /some/route")
-            });
+        router.post("/", |conn: Conn| async move {
+            conn.ok("post!")
+        });
+    });
 
-            router.post("/", |conn: Conn| async move {
-                conn.ok("post!")
-            });
-        })
-    );
+
+    use trillium_testing::{methods::{get, post}, assert_ok};
+    assert_ok!(get(&handler, "/"), "you have reached the index");
+    assert_ok!(get(&handler, "/some/route"), "you have reached /some/:param");
+    assert_ok!(post(&handler, "/"), "post!");
+
     ```
     */
     pub fn build(builder: impl Fn(RouterRef)) -> Router {

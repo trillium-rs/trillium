@@ -25,8 +25,6 @@ mod assertions;
 mod test_io;
 pub use test_io::{CloseableCursor, TestTransport};
 
-pub mod server;
-
 pub fn test_conn<T>(method: T, path: impl Into<String>, body: impl Into<Synthetic>) -> Conn
 where
     T: TryInto<Method>,
