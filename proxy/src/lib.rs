@@ -1,21 +1,174 @@
+#![forbid(unsafe_code)]
+#![warn(
+    missing_copy_implementations,
+    missing_crate_level_docs,
+    missing_debug_implementations,
+    missing_docs,
+    nonstandard_style,
+    unused_qualifications
+)]
+
+/*!
+http reverse proxy trillium handler
+
+
+
+*/
+
 use full_duplex_async_copy::full_duplex_copy;
 use size::{Base, Size, Style};
 use std::convert::TryInto;
-use trillium::http_types::StatusCode;
-use trillium::{async_trait, conn_try, Conn, Handler};
-use trillium_client::Client;
+use trillium::{
+    async_trait, conn_try,
+    http_types::{StatusCode, Url},
+    Conn, Handler,
+};
 use trillium_http::{transport::BoxedTransport, Upgrade};
-use url::Url;
 use StatusCode::{NotFound, SwitchingProtocols};
 
-pub use async_net::TcpStream;
-pub use trillium_client::Connector;
+pub use trillium_client::{Client, Connector};
 
+/**
+the proxy handler
+*/
+#[derive(Debug)]
 pub struct Proxy<C: Connector> {
     target: Url,
     client: Client<C>,
     pass_through_not_found: bool,
     halt: bool,
+}
+
+impl<C: Connector> Proxy<C> {
+    /**
+    construct a new proxy handler that sends all requests to the url
+    provided.  if the url contains a path, the inbound request path
+    will be joined onto the end.
+
+    ```
+    use trillium_smol::{TcpConnector, ClientConfig};
+    use trillium_proxy::Proxy;
+
+    let proxy = Proxy::<TcpConnector>::new("http://docs.trillium.rs/trillium_proxy");
+    ```
+
+     */
+    pub fn new(target: impl TryInto<Url>) -> Self {
+        let url = match target.try_into() {
+            Ok(url) => url,
+            Err(_) => panic!("could not convert proxy target into a url"),
+        };
+
+        if url.cannot_be_a_base() {
+            panic!("{} cannot be a base", url);
+        }
+
+        Self {
+            target: url,
+            client: Client::new().with_default_pool(),
+            pass_through_not_found: true,
+            halt: true,
+        }
+    }
+
+    /**
+    chainable constructor to specify the client Connector
+    configuration
+
+    ```
+    use trillium_smol::{TcpConnector, ClientConfig};
+    use trillium_proxy::Proxy;
+    let proxy = Proxy::<TcpConnector>::new("http://trillium.rs")
+        .with_config(ClientConfig { //<-
+            nodelay: Some(true),
+            ..Default::default()
+        });
+    ```
+    */
+    pub fn with_config(mut self, config: C::Config) -> Self {
+        self.client = self.client.with_config(config);
+        self
+    }
+
+    /**
+    chainable constructor to specfiy a [`Client`] to use. This is
+    useful if the application already is using trillium_client for
+    other requests, as it will reuse the same connection pool and
+    connector config.
+
+    note that this clears out any changes made with
+    [`Proxy::with_config`]. configure the client directly if you are
+    providing one
+
+    ```
+    use trillium_smol::{TcpConnector, ClientConfig};
+    use trillium_proxy::{Proxy, Client};
+
+    let client = Client::new().with_default_pool();
+    let proxy = Proxy::<TcpConnector>::new("http://trillium.rs")
+        .with_client(client); //<-
+    ```
+
+    ```
+    // sharing a client with other trillium handlers
+    # use trillium_smol::{TcpConnector, ClientConfig};
+    # use trillium_proxy::{Proxy, Client};
+    use trillium::State;
+
+    let client = Client::new().with_default_pool();
+    let handler = (
+        State::new(client.clone()),
+        Proxy::<TcpConnector>::new("http://trillium.rs").with_client(client)
+    );
+    ```
+     */
+    pub fn with_client(mut self, client: Client<C>) -> Self {
+        self.client = client;
+        self
+    }
+
+    /**
+    chainable constructor to set the 404 Not Found handling
+    behavior. By default, this proxy will pass through the trillium
+    Conn unmodified if the proxy response is a 404 not found, allowing
+    it to be chained in a tuple handler. To modify this behavior, call
+    proxy_not_found, and the full 404 response will be forwarded. The
+    Conn will be halted unless [`Proxy::without_halting`] was
+    configured
+
+    ```
+    # use trillium_smol::TcpConnector;
+    # use trillium_proxy::Proxy;
+    let proxy = Proxy::<TcpConnector>::new("http://trillium.rs")
+        .proxy_not_found();
+    ```
+    */
+    pub fn proxy_not_found(mut self) -> Self {
+        self.pass_through_not_found = false;
+        self
+    }
+
+    /**
+    The default behavior for this handler is to halt the conn on any
+    response other than a 404. If [`Proxy::proxy_not_found`] has been
+    configured, the default behavior for all response statuses is to
+    halt the trillium conn. To change this behavior, call
+    without_halting when constructing the proxy, and it will not halt
+    the conn. This is useful when passing the proxy reply through
+    [`trillium_html_rewriter`](https://docs.trillium.rs/trillium_html_rewriter).
+
+    ```
+    # use trillium_smol::TcpConnector;
+    # use trillium_proxy::Proxy;
+    let proxy = Proxy::<TcpConnector>::new("http://trillium.rs")
+        .without_halting();
+    ```
+    */
+
+    pub fn without_halting(mut self) -> Self {
+        self.halt = false;
+        self
+    }
 }
 
 struct UpstreamUpgrade<T>(Upgrade<T>);
@@ -25,7 +178,7 @@ impl<C: Connector> Handler for Proxy<C> {
     async fn run(&self, mut conn: Conn) -> Conn {
         let request_url = conn_try!(conn, self.target.clone().join(conn.path()));
 
-        let mut client_conn = self.client.conn(*conn.method(), request_url);
+        let mut client_conn = self.client.build_conn(*conn.method(), request_url);
 
         for (name, value) in conn.headers() {
             for value in value {
@@ -88,6 +241,7 @@ impl<C: Connector> Handler for Proxy<C> {
 
                 conn.with_body(client_conn).with_status(status)
             }
+
             _ => unreachable!(),
         };
 
@@ -121,34 +275,4 @@ impl<C: Connector> Handler for Proxy<C> {
 
 fn bytes(bytes: u64) -> String {
     Size::to_string(&Size::Bytes(bytes), Base::Base10, Style::Smart)
-}
-
-impl<C: Connector> Proxy<C> {
-    pub fn with_config(mut self, config: C::Config) -> Self {
-        self.client = self.client.with_config(config);
-        self
-    }
-
-    pub fn with_client(mut self, client: Client<C>) -> Self {
-        self.client = client;
-        self
-    }
-
-    pub fn new(target: impl TryInto<Url>) -> Self {
-        let url = match target.try_into() {
-            Ok(url) => url,
-            Err(_) => panic!("could not convert proxy target into a url"),
-        };
-
-        if url.cannot_be_a_base() {
-            panic!("{} cannot be a base", url);
-        }
-
-        Self {
-            target: url,
-            client: Client::new().with_default_pool(),
-            pass_through_not_found: true,
-            halt: false,
-        }
-    }
 }

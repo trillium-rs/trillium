@@ -1,9 +1,10 @@
-use std::collections::HashMap;
-use std::collections::VecDeque;
-use std::fmt::{self, Debug, Formatter};
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::Instant;
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::{self, Debug, Formatter},
+    net::{SocketAddr, ToSocketAddrs},
+    sync::{Arc, Mutex, RwLock},
+    time::Instant,
+};
 
 pub struct PoolEntry<V> {
     item: V,
