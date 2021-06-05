@@ -115,8 +115,9 @@ conn is halted.
 
 ```rust
 env_logger::init();
+use trillium_logger::Logger;
 run((
-    trillium_logger::Logger,
+    Logger::new(),
     |conn: Conn| async move { conn.ok("tuple!") }
 ));
 ```
@@ -136,14 +137,16 @@ types. Instead, to use sessions as an example, `trillium_sessions`
 provides a `SessionConnExt` trait which provides associated functions
 for Conn that offer session support. In general, handlers that put
 data into conn state also will provide convenience functions for
-accessing that state, and will export a `[Something]ConnExt` trait.
+accessing that state, and will export a `[Something]ConnExt` trait. [^1]
 
-## Servers
+[^1] 🧑‍🎓 see [library_patterns](library_patterns.html) for an example of authoring one of these
+
+## Runtime Adapters
 
 Let's talk a little more about that `trillium_smol::run` line we've
 been writing. Trillium itself is built on `futures` (`futures-lite`,
 specifically). In order to run it, it needs an adapter to an async
-runtime. These adapters are called servers, and there are four of them
+runtime. There there are four of these
 currently:
 
 * `trillium_async_std`
@@ -154,7 +157,8 @@ currently:
 Although we've been using the smol server in these docs thus far, you
 should use whichever runtime you prefer. If you expect to have a
 dependency on async-std or tokio anyway, you might as well use the
-server for that runtime.
+server for that runtime. If you're new to async rust or don't have an
+opinion, I recommend starting with trillium_smol. It is easy to switch trillium between runtimes at any point.
 
 To run trillium on a different host or port, either provide a `HOST`
 and/or `PORT` environment variables, or compile the specific values
