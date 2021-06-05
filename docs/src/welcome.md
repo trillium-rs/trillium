@@ -1,20 +1,27 @@
 # Welcome
 
-Hi! Welcome to the documentation for trillium, a modular toolkit for
+Hi! Welcome to the documentation for Trillium, a modular toolkit for
 building async rust web applications.
 
-## Who is this document for?
+Trillium runs on stable rust, is fully async, and can run on tokio,
+async-std, or smol. Using Trillium starts with code as simple as this:
 
-This document expects some familiarity with async rust. We intend to
-offer a beginner level document at some point, but for now we
-recommend looking at [the rust book](https://doc.rust-lang.org/book/)
-and [the async book](https://rust-lang.github.io/async-book/).
+```rust
+fn main() {
+    trillium_smol::run(|conn: trillium::Conn| async move {
+        conn.ok("hello from trillium!")
+    });
+}
+```
 
-We also assume familiarity with web development in general, including
-concepts and patterns in http servers and frameworks.
+However, Trillium is also built to scale up to complex applications
+with a full middleware stack comparable to Rails or
+Phoenix. Currently, opt-in features include a router, cookies,
+sessions, websockets, serving static files from disk or memory, a
+reverse proxy, and integrations for three template engine
+options. Trillium is just getting started, though, and there's a lot
+more to build.
 
-In particular, we offer comparisons to rust's
-[tide](https://github.com/http-rs/tide) and elixir's
-[phoenix](https://www.phoenixframework.org/) /
-[plug](https://hexdocs.pm/plug/readme.html), as they serve as the
-primary inspirations for trillium.
+Perhaps most importantly, Trillium intends to be a production-quality
+http framework for async rust, with robust support options available
+for commercial users.
