@@ -25,7 +25,7 @@ and/or `PORT` environment variables, or compile the specific values
 into the application as follows:
 
 ```rust
-{{#include ../../smol/examples/smol-with-config.rs}}
+{{#include ../../../smol/examples/smol-with-config.rs}}
 ```
 
 ## TLS / HTTPS
@@ -38,13 +38,13 @@ combined with either rustls or native-tls.
 [rustdocs (main)](https://docs.trillium.rs/trillium_rustls/index.html)
 
 ```rust
-{{#include ../../rustls/examples/rustls.rs}}
+{{#include ../../../rustls/examples/rustls.rs}}
 ```
 
 ### Native tls:
 [rustdocs (main)](https://docs.trillium.rs/trillium_native_tls/index.html)
 
 ```rust
-{{#include ../../native-tls/examples/native-tls.rs}}
+{{#include ../../../native-tls/examples/native-tls.rs}}
 ```
 
