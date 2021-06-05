@@ -18,6 +18,8 @@ Given the following file in `(cargo root)/templates/examples/hello.html`,
 {{#include ../../../askama/examples/askama.rs}}
 ```
 
+[rustdocs (main)](https://docs.trillium.rs/trillium_askama/index.html)
+
 ### Tera
 
 Tera offers runtime templating. Trillium's tera integration provides an interface very similar to `phoenix` or `rails`, with the notion of `assigns` being set on the conn prior to render.
@@ -32,6 +34,8 @@ Given the following file in the same directory as main.rs (examples in this case
 {{#include ../../../tera/examples/tera.rs}}
 ```
 
+[rustdocs (main)](https://docs.trillium.rs/trillium_tera/index.html)
+
 ### Handlebars
 
 Handlebars also offers runtime templating. Given the following file in `examples/templates/hello.hbs`,
@@ -44,4 +48,4 @@ Handlebars also offers runtime templating. Given the following file in `examples
 {{#include ../../../handlebars/examples/handlebars.rs}}
 ```
 
-
+[rustdocs (main)](https://docs.trillium.rs/trillium_handlebars/index.html)

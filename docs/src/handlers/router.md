@@ -1,4 +1,6 @@
-## Router
+# Router
+
+[rustdocs (main)](https://docs.trillium.rs/trillium_router/index.html)
 
 The trillium router is based on
 [routefinder](https://github.com/jbr/routefinder). This router
@@ -20,4 +22,19 @@ http://localhost:8000 with "hello everyone"
 
 ```rust
 {{#include ../../../router/examples/router.rs}}
+```
+
+
+## Nesting
+
+Trillium also supports nesting routers, making it possible to express
+complex sub-applications, vaguely along the lines of a [rails
+engine](https://guides.rubyonrails.org/engines.html). When there are
+additional types of routers, it will be possible for an application
+built with one type of router to be published as a crate and nested
+inside of another router as long as they depend on a compatible
+version of the `trillium` crate.
+
+```rust
+{{#include ../../../router/examples/nested-router.rs}}
 ```

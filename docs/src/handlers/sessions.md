@@ -1,5 +1,7 @@
 ## Sessions
 
+[rustdocs (main)](https://docs.trillium.rs/trillium_sessions/index.html)
+
 Sessions are a common convention in web frameworks, allowing for a
 safe and secure way to associate server-side data with a given http
 client (browser). Trillium's session storage is built on the
