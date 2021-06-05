@@ -14,3 +14,6 @@ portpicker = "0.1.0"
 async-global-executor = "2.0.2"
 trillium-smol = { path = "../smol" }
 async-io = "1.4.1"
+
+[dev-dependencies]
+trillium-logger = { path = "../logger" }

@@ -1,12 +1,12 @@
 # A tour of some of the handlers that exist today
 
-In order for trillium to be a usable web framework, we offer a number of
-core utilities. However, it is our hope that alternative
+In order for trillium to be a usable web framework, we offer a number
+of core utilities. However, it is my hope that alternative
 implementations for at least some of these will exist in order to
 explore the design space and accommodate different design constraints
 and tradeoffs. Because not every application will need this
-functionality, they are each released as distinct crates from the
-core of trillium.
+functionality, they are each released as distinct crates from the core
+of trillium.
 
 - [Logger](./handlers/logger.md)
 - [Cookies](./handlers/cookies.md)
