@@ -4,21 +4,48 @@ use trillium::Handler;
 use trillium_http::Stopper;
 use trillium_tls_common::Acceptor;
 
-/// # Primary entrypoint for configuring and running a trillium server
-///
-/// The associated methods on this struct are intended to be chained.
-///
-/// ## Example
-/// ```rust,no_run
-/// trillium_smol::config() // or trillium_async_std, trillium_tokio
-///     .with_port(8080) // the default
-///     .with_host("localhost") // the default
-///     .with_nodelay()
-///     .without_signals()
-///     .run(|conn: trillium::Conn| async move { conn.ok("hello") });
-/// ```
-/// In order to use this to _implement_ a trillium server, see
-/// [`trillium_server_common::ConfigExt`](crate::ConfigExt)
+/**
+# Primary entrypoint for configuring and running a trillium server
+
+The associated methods on this struct are intended to be chained.
+
+## Example
+```rust,no_run
+trillium_smol::config() // or trillium_async_std, trillium_tokio
+    .with_port(8080) // the default
+    .with_host("localhost") // the default
+    .with_nodelay()
+    .without_signals()
+    .run(|conn: trillium::Conn| async move { conn.ok("hello") });
+```
+
+# Socket binding
+
+The socket binding logic is as follows:
+
+* If a LISTEN_FD environment variable is available on `cfg(unix)`
+  systems, that will be used, overriding host and port settings
+* Otherwise:
+  * Host will be selected from explicit configuration using
+    [`Config::with_host`] or else the `HOST` environment variable,
+    or else a default of "localhost".
+  * Port will be selected from explicit configuration using
+    [`Config::with_port`] or else the `PORT` environment variable,
+    or else a default of 8080.
+
+## Signals
+
+On `cfg(unix)` systems, `SIGTERM`, `SIGINT`, and `SIGQUIT` are all
+registered to perform a graceful shutdown on the first signal and an
+immediate shutdown on a subsequent signal. This behavior may change as
+trillium matures. To disable this behavior, use
+[`Config::without_signals`].
+
+## For runtime adapter authors
+
+In order to use this to _implement_ a trillium server, see
+[`trillium_server_common::ConfigExt`](crate::ConfigExt)
+*/
 
 #[derive(Debug)]
 pub struct Config<ServerType, AcceptorType> {

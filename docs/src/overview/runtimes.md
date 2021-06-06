@@ -20,6 +20,10 @@ adapter for that runtime. If you're new to async rust or don't have an
 opinion, I recommend starting with trillium_smol. It is easy to switch
 trillium between runtimes at any point.
 
+# 12-Factor by default, but overridable
+
+Trillium seeks to abide by a [12 factor](https://12factor.net/config) approach to configuration, accepting configuration from the environment wherever possible. The number of configuration points that can be customized through environment variables will likely increase over time.
+
 To run trillium on a different host or port, either provide a `HOST`
 and/or `PORT` environment variables, or compile the specific values
 into the application as follows:
@@ -27,6 +31,12 @@ into the application as follows:
 ```rust,noplaypen
 {{#include ../../../smol/examples/smol-with-config.rs}}
 ```
+
+In addition to accepting the `HOST` and `PORT` configuration from the environment, on cfg(unix) systems, trillium will also pick up a `LISTEN_FD` environment variable for use with [catflap](https://crates.io/crates/catflap)/[systemfd](https://github.com/mitsuhiko/systemfd)
+
+For more documentation on the default values and what configuration can be chained onto config(), see [trillium_server_common::Config](https://docs.trillium.rs/trillium_server_common/struct.config).
+
+###
 
 ## TLS / HTTPS
 
