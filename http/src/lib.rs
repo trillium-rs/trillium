@@ -8,11 +8,17 @@
     unused_qualifications
 )]
 /*!
-This crate provides the http 1.x implementation for trillium.
+This crate provides the http 1.x implementation for Trillium.
 
-# Example
+## Stability
 
-This is an elaborate example that demonstrates some of trillium_http's
+As this is primarily intended for internal use by the [Trillium
+crate](https://docs.trillium.rs/trillium), the api is likely to be
+less stable than that of the higher level abstractions in Trillium.
+
+## Example
+
+This is an elaborate example that demonstrates some of `trillium_http`'s
 capabilities.  Please note that trillium itself provides a much more
 usable interface on top of trillium_http, at very little cost.
 
