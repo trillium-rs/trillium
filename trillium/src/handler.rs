@@ -16,7 +16,7 @@ stack.
 
 Because a Trillium Conn represents both a request and response, there
 is no distinction between middleware and endpoints, as all of these
-can be thought of as `Fn(Conn) -> Future<Output = Conn>`.
+can be modeled as `Fn(Conn) -> Future<Output = Conn>`.
 
 ## Implementing Handler
 
@@ -55,9 +55,9 @@ use trillium_testing::prelude::*;
 assert_not_handled!(get("/").on(&MyHandler)); // we did not halt or set a body status
 ```
 
-**temporary note:** until rust has true async traits, implementing
+**Temporary Note:** Until rust has true async traits, implementing
 handler requires the use of the async_trait macro, which is reexported
-as `trillium::async_trait`.
+as [`trillium::async_trait`](crate::async_trait).
 
 ## Full trait specification
 
@@ -78,7 +78,7 @@ pub trait Handler: Send + Sync + 'static {
     fn name(&self) -> Cow<'static, str>; // optional
 }
 ```
-See each of the function definitions below for advance implementation.
+See each of the function definitions below for advanced implementation.
 
 For most application code and even trillium-packaged framework code,
 `run` is the only trait function that needs to be implemented.

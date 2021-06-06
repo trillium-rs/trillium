@@ -3,10 +3,11 @@
 
 ```
 use trillium_testing::prelude::*;
+use trillium::{Conn, conn_try};
 
-let handler = |mut conn: trillium::Conn| async move {
-  let request_body_string = trillium::conn_try!(conn, conn.request_body_string().await);
-  let u8: u8 = trillium::conn_try!(conn, request_body_string.parse());
+let handler = |mut conn: Conn| async move {
+  let request_body_string = conn_try!(conn, conn.request_body_string().await);
+  let u8: u8 = conn_try!(conn, request_body_string.parse());
   conn.ok(format!("received u8 as body: {}", u8))
 };
 
@@ -46,14 +47,21 @@ returning an error.
 
 ```
 use trillium_testing::prelude::*;
+use trillium::{Conn, conn_unwrap, State};
+
+#[derive(Copy, Clone)]
 struct MyState(&'static str);
 let handler = |conn: trillium::Conn| async move {
-  let important_state: &MyState = trillium::conn_unwrap!(conn, conn.state());
-  let ok_response = String::from(important_state.0);
-  conn.ok(ok_response)
+  let important_state: MyState = *conn_unwrap!(conn, conn.state());
+  conn.ok(important_state.0)
 };
 
 assert_not_handled!(get("/").on(&handler)); // we never reached the conn.ok line.
+
+assert_ok!(
+    get("/").on(&(State::new(MyState("hi")), handler)),
+    "hi"
+);
 ```
 */
 #[macro_export]
@@ -69,8 +77,7 @@ macro_rules! conn_unwrap {
 /**
 # A convenience macro for logging the contents of error variants.
 
-This
-is useful when there is no further action required to process the
+This is useful when there is no further action required to process the
 error path, but you still want to record that it transpired
 */
 #[macro_export]
