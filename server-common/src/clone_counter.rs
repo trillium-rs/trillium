@@ -15,7 +15,7 @@ pub struct CloneCounterInner {
 # an atomic counter that increments on clone & decrements on drop
 
 ```rust
-# async_io::block_on(async {
+# futures_lite::future::block_on(async {
 # use trillium_server_common::CloneCounter;
 use futures_lite::future::poll_once;
 let counter = CloneCounter::new();

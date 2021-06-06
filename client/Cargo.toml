@@ -20,7 +20,6 @@ trillium-tls-common = { path = "../tls-common" }
 [dev-dependencies]
 async-global-executor = "2.0.2"
 env_logger = "0.8.3"
-futures-util = "0.3.15"
 async-io = "1.4.1"
 fastrand = "1.4.1"
 trillium-rustls = { path = "../rustls" }

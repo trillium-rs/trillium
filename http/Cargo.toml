@@ -6,7 +6,7 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 description = "the http implementation for the trillium toolkit"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
-readme = "README.md"
+readme = "../README.md"
 keywords = ["trillium", "http", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
@@ -14,25 +14,25 @@ categories = ["web-programming::http-server", "web-programming"]
 unstable = []
 
 [dependencies]
+encoding_rs = "0.8.28"
+futures-lite = "1.12.0"
+http-types = { version = "0.0.1", default-features = false, package = "trillium-http-types" }
 httparse = "1.4.1"
 log = "0.4.14"
-pin-project = "1.0.7"
-thiserror = "1.0.25"
-futures-lite = "1.12.0"
 memmem = "0.1.1"
+pin-project = "1.0.7"
 stopper = "0.2.0"
-encoding_rs = "0.8.28"
-http-types = { version = "0.0.1", default-features = false, package = "trillium-http-types" }
+thiserror = "1.0.25"
 
 [dev-dependencies]
+async-compat = "0.2.1"
+async-io = "1.4.1"
 async-net = "1.6.0"
 env_logger = "0.8.3"
 smol = "1.2.5"
-async-compat = "0.2.1"
-async-io = "1.4.1"
 trillium-client = { path = "../client" }
-trillium-testing = { path = "../testing" }
 trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
 
 [dev-dependencies.tokio]
 version = "1.6.1"

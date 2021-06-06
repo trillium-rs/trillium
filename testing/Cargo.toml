@@ -5,15 +5,15 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
+async-dup = "1.2.2"
+async-global-executor = "2.0.2"
+async-io = "1.4.1"
+futures-lite = "1.12.0"
+portpicker = "0.1.0"
 trillium = { path = "../trillium" }
 trillium-http = { path = "../http" }
-futures-lite = "1.12.0"
 trillium-server-common = { path = "../server-common" }
-async-dup = "1.2.2"
-portpicker = "0.1.0"
-async-global-executor = "2.0.2"
 trillium-smol = { path = "../smol" }
-async-io = "1.4.1"
 
 [dev-dependencies]
 trillium-logger = { path = "../logger" }
