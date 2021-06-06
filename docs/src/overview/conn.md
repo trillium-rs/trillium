@@ -19,7 +19,7 @@ contain the full details for all of the things you can do with a conn.
 In general, because you'll be returning `Conn` from handlers, it
 supports a chainable (fluent) interface for setting properties, like:
 
-```rust
+```rust,noplaypen
 conn.with_status(202)
     .with_header(("content-type", "application/something-custom"))
     .with_body("this is my custom body")

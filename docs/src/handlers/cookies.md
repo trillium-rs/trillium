@@ -2,6 +2,6 @@
 
 [rustdocs (main)](https://docs.trillium.rs/trillium_cookies/index.html)
 
-```rust
+```rust,noplaypen
 {{#include ../../../cookies/examples/cookies.rs}}
 ```

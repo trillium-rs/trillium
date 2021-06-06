@@ -20,7 +20,7 @@ like http://localhost:8000/greet/earth with "hello earth" and
 http://localhost:8000/greet/mars with "hello mars" and responds to
 http://localhost:8000 with "hello everyone"
 
-```rust
+```rust,noplaypen
 {{#include ../../../router/examples/router.rs}}
 ```
 
@@ -35,6 +35,6 @@ built with one type of router to be published as a crate and nested
 inside of another router as long as they depend on a compatible
 version of the `trillium` crate.
 
-```rust
+```rust,noplaypen
 {{#include ../../../router/examples/nested-router.rs}}
 ```

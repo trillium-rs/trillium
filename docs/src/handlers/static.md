@@ -8,7 +8,7 @@ This handler loads content from disk at request, and does not yet do any in-memo
 [rustdocs (main)](https://docs.trillium.rs/trillium_static/index.html)
 
 
-```rust
+```rust,noplaypen
 {{#include ../../../static/examples/static.rs}}
 ```
 
@@ -17,6 +17,6 @@ This handler includes all of the static content in the compiled binary, allowing
 
 [rustdocs (main)](https://docs.trillium.rs/trillium_static_compiled/index.html)
 
-```rust
+```rust,noplaypen
 {{#include ../../../static-compiled/examples/static-compiled.rs}}
 ```

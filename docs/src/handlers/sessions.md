@@ -26,7 +26,7 @@ tide. Currently, these session stores exist:
 > fact that regardless of which session store is used, sessions use a
 > secure cookie as a unique identifier.
 
-```rust
+```rust,noplaypen
 {{#include ../../../sessions/examples/sessions.rs}}
 ```
 

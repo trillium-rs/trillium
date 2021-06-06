@@ -24,7 +24,7 @@ To run trillium on a different host or port, either provide a `HOST`
 and/or `PORT` environment variables, or compile the specific values
 into the application as follows:
 
-```rust
+```rust,noplaypen
 {{#include ../../../smol/examples/smol-with-config.rs}}
 ```
 
@@ -37,14 +37,14 @@ combined with either rustls or native-tls.
 ### Rustls:
 [rustdocs (main)](https://docs.trillium.rs/trillium_rustls/index.html)
 
-```rust
+```rust,noplaypen
 {{#include ../../../rustls/examples/rustls.rs}}
 ```
 
 ### Native tls:
 [rustdocs (main)](https://docs.trillium.rs/trillium_native_tls/index.html)
 
-```rust
+```rust,noplaypen
 {{#include ../../../native-tls/examples/native-tls.rs}}
 ```
 

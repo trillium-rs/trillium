@@ -8,7 +8,7 @@ all applications, middleware, and endpoints implement.
 Let's start with an overview of a simple trillium application and then
 dig into each of those concepts a little more.
 
-```rust
+```rust,noplaypen
 fn main() {
     trillium_smol::run(|conn: trillium::Conn| async move {
         conn.ok("hello from trillium!")

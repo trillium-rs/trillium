@@ -3,7 +3,7 @@
 [rustdocs (main)](https://docs.trillium.rs/trillium_websockets/index.html)
 
 
-```rust
+```rust,noplaypen
 {{#include ../../../websockets/examples/websockets.rs}}
 ```
 

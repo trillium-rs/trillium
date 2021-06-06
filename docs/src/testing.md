@@ -7,13 +7,13 @@ applications.
 [rustdocs (main)](https://docs.trillium.rs/trillium_testing)
 
 Given a totally-contrived application like this:
-```rust
+```rust,noplaypen
 {{#include ../../testing/examples/testing.rs:1:21}}
 ```
 
 Here's what some simple tests would look like:
 
-```rust
+```rust,noplaypen
 {{#include ../../testing/examples/testing.rs:23:}}
 ```
 

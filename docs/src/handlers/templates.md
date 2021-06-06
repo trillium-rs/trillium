@@ -14,7 +14,7 @@ Given the following file in `(cargo root)/templates/examples/hello.html`,
 {{#include ../../../askama/templates/examples/hello.html}}
 ```
 
-```rust
+```rust,noplaypen
 {{#include ../../../askama/examples/askama.rs}}
 ```
 
@@ -30,7 +30,7 @@ Given the following file in the same directory as main.rs (examples in this case
 {{#include ../../../tera/examples/hello.html}}
 ```
 
-```rust
+```rust,noplaypen
 {{#include ../../../tera/examples/tera.rs}}
 ```
 
@@ -44,7 +44,7 @@ Handlebars also offers runtime templating. Given the following file in `examples
 {{#include ../../../handlebars/examples/templates/hello.hbs}}
 ```
 
-```rust
+```rust,noplaypen
 {{#include ../../../handlebars/examples/handlebars.rs}}
 ```
 

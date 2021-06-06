@@ -4,7 +4,7 @@ The simplest form of a handler is any async function that takes a
 `Conn` and returns that `Conn`. This example sets a `200 Ok` status
 and sets a string body.
 
-```rust
+```rust,noplaypen
 use trillium::Conn;
 async fn hello_world(conn: Conn) -> Conn {
     conn.ok("hello world!")
@@ -16,7 +16,7 @@ server and it will respond to http requests for us. We're using the
 [`smol`](https://github.com/smol-rs/smol)-runtime based server adapter
 here.
 
-```rust
+```rust,noplaypen
 pub fn main() {
     trillium_smol::run(hello_world);
 }
@@ -24,7 +24,7 @@ pub fn main() {
 
 We can also define this as a closure:
 
-```rust
+```rust,noplaypen
 pub fn main() {
     trillium_smol::run(|conn: trillium::Conn| async move {
         conn.ok("hello world")
@@ -58,7 +58,7 @@ conn is halted.
 > identical to pipelines, and that the term halt [is ~~stolen from~~
 > inspired by plug](https://hexdocs.pm/plug/Plug.Conn.html#halt/1)
 
-```rust
+```rust,noplaypen
 env_logger::init();
 use trillium_logger::Logger;
 run((

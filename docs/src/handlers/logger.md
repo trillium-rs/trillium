@@ -9,7 +9,7 @@ but any `log` backend will work equally well. Trillium crates will
 never emit at an `info` level other than in a logger crate other than
 when starting up or shutting down.
 
-```rust
+```rust,noplaypen
 {{#include ../../../logger/examples/logger.rs}}
 ```
 
