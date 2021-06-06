@@ -5,7 +5,7 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-trillium-http = { path = "../http", features = ["unstable"], version = "0.0.1" }
+trillium-http = { path = "../http", features = ["unstable"], version = "^0.1.0"}
 trillium = { path = "../trillium" }
 log = "0.4.14"
 async-net = "1.6.0"
