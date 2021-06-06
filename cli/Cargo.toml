@@ -8,28 +8,36 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 
 [dependencies]
+ansi-to-html = "0.1.0"
+async-channel = "1.6.1"
+async-fs = "1.5.0"
+async-global-executor = "2.0.2"
+async-io = "1.4.1"
+atty = "0.2.14"
+blocking = "1.0.2"
+broadcaster = "1.0.0"
 env_logger = "0.8.3"
+futures-lite = "1.12.0"
 log = "0.4.14"
-trillium = { path = "../trillium" }
-trillium-logger = { path = "../logger" }
-trillium-native-tls = { path = "../native-tls/" }
-trillium-proxy = { path = "../proxy" }
-trillium-rustls = { path = "../rustls/" }
-trillium-smol = { path = "../smol" }
-trillium-static = { path = "../static" }
-structopt = "0.3.21"
 serde = "1.0.126"
 serde_json = "1.0.64"
-trillium-html-rewriter = { path = "../html-rewriter/" }
-trillium-websockets = { path = "../websockets/", features = ["json"] }
-trillium-router = { path = "../router" }
-futures-lite = "1.12.0"
-async-io = "1.4.1"
-async-channel = "1.6.1"
-broadcaster = "1.0.0"
-ansi-to-html = "0.1.0"
+structopt = "0.3.21"
+trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-client = { path = "../client" }
-bat = { version = "0.18.1", default-features = false, features = [
+trillium-html-rewriter = { path = "../html-rewriter" }
+trillium-logger = { path = "../logger", version = "^0.1.0" }
+trillium-native-tls = { path = "../native-tls/" }
+trillium-proxy = { path = "../proxy" }
+trillium-router = { path = "../router", version = "^0.1.0" }
+trillium-rustls = { path = "../rustls" }
+trillium-smol = { path = "../smol", version = "^0.1.0" }
+trillium-static = { path = "../static" }
+trillium-websockets = { path = "../websockets/", features = ["json"] }
+
+[dependencies.bat]
+version = "0.18.1"
+default-features = false
+features = [
   "atty",
   "clap",
   "dirs-next",
@@ -37,11 +45,7 @@ bat = { version = "0.18.1", default-features = false, features = [
   "paging",
   "wild",
   "regex-onig",
-] }
-atty = "0.2.14"
-async-global-executor = "2.0.2"
-blocking = "1.0.2"
-async-fs = "1.5.0"
+]
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3.9"
