@@ -8,7 +8,7 @@ edition = "2018"
 trillium = { path = "../trillium" }
 trillium-http = { path = "../http" }
 log = "0.4.14"
-futures-lite = "1.11.3"
+futures-lite = "1.12.0"
 trillium-tls-common = { path = "../tls-common/" }
 async-channel = "1.6.1"
 pin-project-lite = "0.2.6"

@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 trillium = { path = "../trillium" }
-mime-db = "1.3.0"
+mime-db = "1.4.0"
 tera = "1.10.0"
 serde = "1.0.126"
 log = "0.4.14"

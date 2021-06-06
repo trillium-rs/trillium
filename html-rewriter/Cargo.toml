@@ -12,7 +12,7 @@ smol = ["async-global-executor"]
 
 [dependencies]
 trillium = { path = "../trillium" }
-futures-lite = "1.11.3"
+futures-lite = "1.12.0"
 async-global-executor = { version = "2.0.2", optional = true }
 lol-async = "0.1.1"
 cfg-if = "1.0.0"

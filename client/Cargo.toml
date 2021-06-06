@@ -10,7 +10,7 @@ trillium = { path = "../trillium" }
 log = "0.4.14"
 async-net = "1.6.0"
 url = "2.2.2"
-futures-lite = "1.11.3"
+futures-lite = "1.12.0"
 httparse = "1.4.1"
 memmem = "0.1.1"
 size = "0.1.2"
