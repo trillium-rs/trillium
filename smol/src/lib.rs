@@ -9,13 +9,53 @@
 )]
 
 /*!
-# Trillium server adapter using smol and async-global-executor
+# Trillium adapter using smol and async-global-executor
+
+## Default / 12-factor applications
 
 ```rust,no_run
 trillium_smol::run(|conn: trillium::Conn| async move {
     conn.ok("hello smol")
 });
 ```
+
+## Server configuration
+
+For more details, see [trillium_smol::config](crate::config).
+
+```rust
+let stopper = trillium_smol::Stopper::new();
+# stopper.stop(); // stoppping the server immediately for the test
+trillium_smol::config()
+    .with_port(8082)
+    .with_host("0.0.0.0")
+    .without_signals()
+    .with_nodelay()
+    .with_acceptor(()) // see [`trillium_rustls`] and [`trillium_native_tls`]
+    .with_stopper(stopper)
+    .run(|conn: trillium::Conn| async move {
+        conn.ok("hello smol")
+    });
+```
+
+## Client
+
+```rust
+trillium_testing::with_server("ok", |url| async move {
+    use trillium_smol::TcpConnector;
+    use trillium_client::{Conn, Client};
+    let mut conn = Conn::<TcpConnector>::get(url.clone()).execute().await?;
+    assert_eq!(conn.response_body().read_string().await?, "ok");
+
+    let client = Client::<TcpConnector>::new().with_default_pool();
+    let mut conn = client.get(url);
+    conn.send().await?;
+    assert_eq!(conn.response_body().read_string().await?, "ok");
+    Ok(())
+});
+```
+
+
 */
 
 use trillium::Handler;
