@@ -3,13 +3,16 @@
     missing_copy_implementations,
     missing_crate_level_docs,
     missing_debug_implementations,
-//    missing_docs,
+    missing_docs,
     nonstandard_style,
     unused_qualifications
 )]
 
-//! This crate provides the common interface for server-side tls
-//! acceptors, abstracting over various implementations
+/*!
+This crate provides the common interface for server-side tls
+[`Acceptor`]s and client-side [`Connector`]s, abstracting over various
+implementations.
+*/
 
 pub use async_trait::async_trait;
 pub use futures_lite::{AsyncRead, AsyncWrite};
@@ -73,12 +76,41 @@ where
     }
 }
 
+/**
+Interface for runtime and tls adapters for the trillium client
+
+See
+[`trillium_client`](https://docs.trillium.rs/trillium_client) for more
+information on usage.
+*/
 #[async_trait]
 pub trait Connector: Clone + Send + Sync + 'static {
+    /// The async read + write type for this connector, often a TcpStream or TlSStream
     type Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static;
+
+    /// A type that can be used to configure this Connector. It will be passed into [`Connector::connect`].
     type Config: Debug + Default + Send + Sync + Clone;
+
+    /// A SocketAddr representation of the other side of this connection
     fn peer_addr(transport: &Self::Transport) -> std::io::Result<std::net::SocketAddr>;
+
+    /**
+    Initiate a connection to the provided url, using the configuration.
+
+    Async trait signature:
+    ```rust,ignore
     async fn connect(url: &Url, config: &Self::Config) -> std::io::Result<Self::Transport>;
+    ```
+     */
+    async fn connect(url: &Url, config: &Self::Config) -> std::io::Result<Self::Transport>;
+
+    /**
+    Spawn and detach a task on the runtime. Although this may seem
+    unrelated to the purpose of a tcp connector, it is required as a
+    workaround for the absence of async drop in order to enable
+    keepalive connection pooling. TLS implementations that wrap a
+    runtime implementation should call through to the inner spawn.
+    */
     fn spawn<Fut>(future: Fut)
     where
         Fut: Future + Send + 'static,
