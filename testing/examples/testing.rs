@@ -27,6 +27,7 @@ mod tests {
 
     #[test]
     fn handler_sends_correct_headers_and_is_a_teapot() {
+        let application = application();
         assert_response!(
             post("/").with_request_body("hello trillium!").on(&application),
             StatusCode::ImATeapot,
@@ -47,6 +48,7 @@ mod tests {
 
     #[test]
     fn application_is_lemongrab_when_body_is_empty() {
+        let application = application();
         assert_response!(
             post("/").on(&application),
             StatusCode::NotAcceptable,
