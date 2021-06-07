@@ -15,9 +15,9 @@ async-compat = "0.2.1"
 log = "0.4.14"
 tokio = { version = "1.6.1", features = ["rt", "net", "rt-multi-thread"] }
 tokio-stream = { version = "0.1.6", features = ["net"] }
-trillium = { path = "../trillium" }
-trillium-http = { path = "../http" }
-trillium-server-common = { path = "../server-common" }
+trillium = { path = "../trillium", version = "^0.1.0" }
+trillium-http = { path = "../http", version = "^0.1.0" }
+trillium-server-common = { path = "../server-common", version = "^0.1.0" }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3.9"
