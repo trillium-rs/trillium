@@ -3,6 +3,12 @@ name = "trillium-websockets"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
+description = "websocket support for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
 
 [features]
 json = ["serde_json"]
@@ -12,19 +18,17 @@ async-dup = "1.2.2"
 async-tungstenite = "0.13.1"
 base64 = "0.13.0"
 futures-util = "0.3.15"
-trillium = { path = "../trillium" }
+log = "0.4.14"
 pin-project = "1.0.7"
 serde = "1.0.126"
 serde_json = { version = "1.0.64", optional = true }
 sha-1 = "0.9.6"
-log = "0.4.14"
 stopper = "0.2.0"
+trillium = { path = "../trillium" }
 trillium-http = { path = "../http" }
 
 [dev-dependencies]
-trillium-smol = { path = "../smol/" }
-env_logger = "0.8.3"
-trillium-testing = { path = "../testing" }
-async-global-executor = "2.0.2"
-portpicker = "0.1.0"
 async-net = "1.6.0"
+env_logger = "0.8.3"
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }

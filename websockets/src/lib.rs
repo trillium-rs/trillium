@@ -12,41 +12,33 @@
 # A websocket trillium handler
 
 ```
-# async_global_executor::block_on(async {
-# let stopper = trillium_http::Stopper::new();
-let port = portpicker::pick_unused_port().unwrap();
 use trillium_websockets::{Message, WebSocket};
-
-# let server = async_global_executor::spawn(async move {
-trillium_smol::config()
-    .with_port(port)
-    .run_async(WebSocket::new(|mut websocket| async move {
-        let path = websocket.path().to_owned();
-        while let Some(Ok(Message::Text(input))) = websocket.next().await {
-            websocket
-                .send_string(format!("received your message: {} at path {}", &input, path))
-                .await;
-        }
-    })).await
-# });
 # use futures_util::{SinkExt, StreamExt};
 # use async_net::TcpStream;
 
-// the client part of this example is a bit awkward but actually
-// exercises the trillium server
-let socket = TcpStream::connect(("localhost", port)).await?;
-let (mut client, _) = async_tungstenite::client_async("ws://localhost/some/route", socket).await?;
+let handler = WebSocket::new(|mut websocket| async move {
+    let path = websocket.path().to_owned();
+    while let Some(Ok(Message::Text(input))) = websocket.next().await {
+        websocket
+            .send_string(format!("received your message: {} at path {}", &input, path))
+            .await;
+    }
+});
 
-client.send(Message::text("hello")).await?;
-let received_message = client.next().await.unwrap()?.into_text()?;
-assert_eq!("received your message: hello at path /some/route", received_message);
+trillium_testing::with_server(handler, |url| async move {
+    let socket = TcpStream::connect(&url.socket_addrs(|| None)?[..]).await?;
+    let (mut client, _) = async_tungstenite::client_async("ws://localhost/some/route", socket).await?;
 
-client.send(Message::text("hey")).await?;
-let received_message = client.next().await.unwrap()?.into_text()?;
-assert_eq!("received your message: hey at path /some/route", received_message);
+    client.send(Message::text("hello")).await?;
+    let received_message = client.next().await.unwrap()?.into_text()?;
+    assert_eq!("received your message: hello at path /some/route", received_message);
 
-# server.detach();
-# Result::<_, Box<dyn std::error::Error>>::Ok(()) }).unwrap();
+    client.send(Message::text("hey")).await?;
+    let received_message = client.next().await.unwrap()?.into_text()?;
+    assert_eq!("received your message: hey at path /some/route", received_message);
+
+    Ok(())
+});
 ```
 */
 
