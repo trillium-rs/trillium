@@ -1,6 +1,6 @@
 [package]
 name = "trillium-html-rewriter"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "streaming html rewriter for trillium.rs"
