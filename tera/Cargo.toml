@@ -3,13 +3,19 @@ name = "trillium-tera"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
+description = "tera template handler for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-trillium = { path = "../trillium" }
-mime-db = "1.4.0"
-tera = "1.10.0"
-serde = "1.0.126"
 log = "0.4.14"
+mime-db = "1.4.0"
+serde = "1.0.126"
+tera = "1.10.0"
+trillium = { path = "../trillium", version = "^0.1.0" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

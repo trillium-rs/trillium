@@ -1,11 +1,10 @@
 use async_compat::Compat;
-use futures::stream::StreamExt;
 use std::sync::Arc;
 use tokio::{
     net::{TcpListener, TcpStream},
     runtime::Runtime,
 };
-use tokio_stream::wrappers::TcpListenerStream;
+use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 use trillium::{async_trait, Handler};
 use trillium_server_common::{Acceptor, ConfigExt, Server};
 
