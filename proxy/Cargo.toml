@@ -3,19 +3,25 @@ name = "trillium-proxy"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
+description = "reverse proxy for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-trillium = { path = "../trillium" }
-url = "2.2.2"
-log = "0.4.14"
-trillium-http = { path = "../http" }
-trillium-client = { path = "../client" }
 async-net = "1.6.0"
-size = "0.1.2"
 full-duplex-async-copy = "0.1.0"
+log = "0.4.14"
+size = "0.1.2"
+trillium = { path = "../trillium", version = "^0.1.0" }
+trillium-client = { path = "../client", version = "^0.1.0" }
+trillium-http = { path = "../http", version = "^0.1.0" }
+url = "2.2.2"
 
 [dev-dependencies]
-trillium-smol = { path = "../smol" }
 env_logger = "0.8.3"
 trillium-logger = { path = "../logger" }
 trillium-rustls = { path = "../rustls" }
+trillium-smol = { path = "../smol" }

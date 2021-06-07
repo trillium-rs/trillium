@@ -3,19 +3,25 @@ name = "trillium-html-rewriter"
 version = "0.0.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
+description = "streaming html rewriter for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
 
 [features]
-default = ["async-global-executor"]
-tokio = ["tokio_crate"]
 async-std = ["async_std_crate"]
+default = ["async-global-executor"]
 smol = ["async-global-executor"]
+tokio = ["tokio_crate"]
 
 [dependencies]
-trillium = { path = "../trillium" }
-futures-lite = "1.12.0"
 async-global-executor = { version = "2.0.2", optional = true }
-lol-async = "0.1.1"
 cfg-if = "1.0.0"
+futures-lite = "1.12.0"
+lol-async = "0.1.1"
+trillium = { path = "../trillium", version = "^0.1.0" }
 
 [dependencies.tokio_crate]
 version = "1.6.1"
@@ -30,7 +36,7 @@ package = "async-std"
 features = ["unstable"]
 
 [dev-dependencies]
-trillium-smol = { path = "../smol" }
-trillium-proxy = { path = "../proxy" }
 env_logger = "0.8.3"
+trillium-proxy = { path = "../proxy" }
+trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
