@@ -8,6 +8,10 @@ title = "trillium"
 [rust]
 edition = "2018"
 
+[output.html]
+git-repository-url = "https://github.com/trillium-rs/trillium"
+edit-url-template = "https://github.com/trillium-rs/trillium/edit/main/docs/{path}"
+
 [output.html.playground]
 editable = false
 copy-js = true

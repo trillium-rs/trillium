@@ -14,7 +14,7 @@ fn main() {
 }
 ```
 
-However, Trillium is also built to scale up to complex applications
+Trillium is also built to scale up to complex applications
 with a full middleware stack comparable to Rails or
 Phoenix. Currently, opt-in features include a router, cookies,
 sessions, websockets, serving static files from disk or memory, a
@@ -23,5 +23,9 @@ options. Trillium is just getting started, though, and there's a lot
 more to build.
 
 Perhaps most importantly, Trillium intends to be a production-quality
-http framework for async rust, with robust support options available
+open source http framework for async rust, with support options available
 for commercial users.
+
+Trillium's code is at
+[github](https://github.com/trillium-rs/trillium) and rustdocs are
+available at [docs.trillium.rs](https://docs.trillium.rs).
