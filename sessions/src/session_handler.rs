@@ -7,6 +7,7 @@ use async_session::{
 };
 use std::{
     fmt::{self, Debug, Formatter},
+    iter,
     time::{Duration, SystemTime},
 };
 use trillium::{async_trait, Conn, Handler};
@@ -31,6 +32,7 @@ pub struct SessionHandler<Store> {
     save_unchanged: bool,
     same_site_policy: SameSite,
     key: Key,
+    older_keys: Vec<Key>,
 }
 
 impl<Store: SessionStore> Debug for SessionHandler<Store> {
@@ -44,6 +46,7 @@ impl<Store: SessionStore> Debug for SessionHandler<Store> {
             .field("save_unchanged", &self.save_unchanged)
             .field("same_site_policy", &self.same_site_policy)
             .field("key", &"<<secret>>")
+            .field("older_keys", &"<<secret>>")
             .finish()
     }
 }
@@ -69,6 +72,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
     * session ttl: one day
     * same site: strict
     * save unchanged: enabled
+    * older secrets: none
 
     # Customization
 
@@ -80,22 +84,26 @@ impl<Store: SessionStore> SessionHandler<Store> {
     # use std::time::Duration;
     # use trillium_sessions::{SessionHandler, MemoryStore};
     # use trillium_cookies::{CookiesHandler, cookie::SameSite};
-    # std::env::set_var("TRILLIUM_SESSION_SECRET", "this is just for testing and you should not do this");
-    let session_secret = std::env::var("TRILLIUM_SESSION_SECRET").unwrap();
+    # std::env::set_var("TRILLIUM_SESSION_SECRETS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    // this logic will be unique to your deployment
+    let secrets_var = std::env::var("TRILLIUM_SESSION_SECRETS").unwrap();
+    let session_secrets = secrets_var.split(' ').collect::<Vec<_>>();
+
     let handler = (
         CookiesHandler::new(),
-        SessionHandler::new(MemoryStore::new(), session_secret.as_bytes())
+        SessionHandler::new(MemoryStore::new(), session_secrets[0])
             .with_cookie_name("custom.cookie.name")
             .with_cookie_path("/some/path")
             .with_cookie_domain("trillium.rs")
             .with_same_site_policy(SameSite::Strict)
             .with_session_ttl(Some(Duration::from_secs(1)))
+            .with_older_secrets(&session_secrets[1..])
             .without_save_unchanged()
     );
 
     ```
     */
-    pub fn new(store: Store, secret: &[u8]) -> Self {
+    pub fn new(store: Store, secret: impl AsRef<[u8]>) -> Self {
         Self {
             store,
             save_unchanged: true,
@@ -104,7 +112,8 @@ impl<Store: SessionStore> SessionHandler<Store> {
             cookie_domain: None,
             same_site_policy: SameSite::Lax,
             session_ttl: Some(Duration::from_secs(24 * 60 * 60)),
-            key: Key::derive_from(secret),
+            key: Key::derive_from(secret.as_ref()),
+            older_keys: vec![],
         }
     }
 
@@ -162,11 +171,28 @@ impl<Store: SessionStore> SessionHandler<Store> {
         self
     }
 
+    /// Sets optional older signing keys that will not be used to sign
+    /// cookies, but can be used to validate previously signed
+    /// cookies.
+    pub fn with_older_secrets(mut self, secrets: &[impl AsRef<[u8]>]) -> Self {
+        self.older_keys = secrets
+            .iter()
+            .map(AsRef::as_ref)
+            .map(Key::derive_from)
+            .collect();
+        self
+    }
+
     //--- methods below here are private ---
 
-    async fn load_or_create(&self, cookie_value: Option<String>) -> Session {
+    async fn load_or_create(&self, cookie_value: Option<&str>) -> Session {
         let session = match cookie_value {
-            Some(cookie_value) => self.store.load_session(cookie_value).await.ok().flatten(),
+            Some(cookie_value) => self
+                .store
+                .load_session(String::from(cookie_value))
+                .await
+                .ok()
+                .flatten(),
             None => None,
         };
 
@@ -214,21 +240,30 @@ impl<Store: SessionStore> SessionHandler<Store> {
     /// Given a signed value `str` where the signature is prepended to `value`,
     /// verifies the signed value and returns it. If there's a problem, returns
     /// an `Err` with a string describing the issue.
-    fn verify_signature(&self, cookie_value: &str) -> Result<String, &'static str> {
+    fn verify_signature<'a>(&self, cookie_value: &'a str) -> Option<&'a str> {
         if cookie_value.len() < BASE64_DIGEST_LEN {
-            return Err("length of value is <= BASE64_DIGEST_LEN");
+            log::trace!("length of value is <= BASE64_DIGEST_LEN");
+            return None;
         }
 
         // Split [MAC | original-value] into its two parts.
         let (digest_str, value) = cookie_value.split_at(BASE64_DIGEST_LEN);
-        let digest = base64::decode(digest_str).map_err(|_| "bad base64 digest")?;
+        let digest = match base64::decode(digest_str) {
+            Ok(digest) => digest,
+            Err(_) => {
+                log::trace!("bad base64 digest");
+                return None;
+            }
+        };
 
-        // Perform the verification.
-        let mut mac = Hmac::<Sha256>::new_from_slice(&self.key.signing()).expect("good key");
-        mac.update(value.as_bytes());
-        mac.verify(&digest)
-            .map(|_| value.to_string())
-            .map_err(|_| "value did not verify")
+        iter::once(&self.key)
+            .chain(self.older_keys.iter())
+            .find_map(|key| {
+                let mut mac = Hmac::<Sha256>::new_from_slice(key.signing()).expect("good key");
+                mac.update(value.as_bytes());
+                mac.verify(&digest).ok()
+            })
+            .map(|_| value)
     }
 }
 
@@ -238,7 +273,7 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
         let cookie_value = conn
             .cookies()
             .get(&self.cookie_name)
-            .and_then(|cookie| self.verify_signature(cookie.value()).ok());
+            .and_then(|cookie| self.verify_signature(cookie.value()));
 
         let mut session = self.load_or_create(cookie_value).await;
 
