@@ -1,0 +1,19 @@
+[package]
+name = "trillium-errors"
+version = "0.1.1"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+description = "a modular toolkit for building async web apps"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[dependencies]
+trillium = { path = "../trillium", version = "^0.1.0" }
+
+[dev-dependencies]
+trillium-router = { path = "../router" }
+trillium-logger = { path = "../logger" }
+trillium-smol = { path = "../smol" }

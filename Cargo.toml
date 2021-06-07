@@ -28,5 +28,6 @@ members = [
   "tokio",
   "trillium",
   "websockets",
+  "errors"
 ]
 exclude = ["controllers", "basic-auth"]
