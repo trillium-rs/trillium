@@ -24,5 +24,5 @@ run with only the following dependencies:
 ```toml
 [dependencies]
 trillium = "0.1"
-trillium_smol = "0.1"
+trillium-smol = "0.1"
 ```
