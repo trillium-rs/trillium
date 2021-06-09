@@ -26,3 +26,9 @@ run with only the following dependencies:
 trillium = "0.1"
 trillium-smol = "0.1"
 ```
+
+If we `cargo run` this example, we can then visit
+http://localhost:8080 in a browser or make a curl request against that
+url and see "hello from trillium!" as the response body. Note that we
+won't see any output in the terminal because trillium is silent by
+default.
