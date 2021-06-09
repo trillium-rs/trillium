@@ -1,6 +1,6 @@
 use encoding_rs::Encoding;
 use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE, UPGRADE};
+use http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE};
 use http_types::transfer::Encoding::Chunked;
 use http_types::{
     content::ContentLength,
@@ -426,6 +426,18 @@ where
     calculates any auto-generated headers for this conn prior to sending it
     */
     pub fn finalize_headers(&mut self) {
+        if self.response_headers.get(DATE).is_none() {
+            Date::now().apply_header(&mut self.response_headers);
+        }
+
+        if self.response_headers.get("server").is_none() {
+            self.response_headers.insert("server", SERVER);
+        }
+
+        if self.status == Some(StatusCode::SwitchingProtocols) {
+            return;
+        }
+
         if let Some(len) = self.body_len() {
             self.response_headers.apply(ContentLength::new(len));
         }
@@ -436,10 +448,6 @@ where
             self.response_headers.remove(TRANSFER_ENCODING);
         }
 
-        if self.response_headers.get("server").is_none() {
-            self.response_headers.insert("server", SERVER);
-        }
-
         if self.stopper.is_stopped() {
             self.response_headers.insert("connection", "close");
         } else if self.response_headers.get("connection").is_none()
@@ -448,10 +456,6 @@ where
                 .contains_ignore_ascii_case("connection", "close")
         {
             self.response_headers.insert("connection", "keep-alive");
-        }
-
-        if self.response_headers.get(DATE).is_none() {
-            Date::now().apply_header(&mut self.response_headers);
         }
     }
 
@@ -542,17 +546,7 @@ where
     }
 
     fn should_upgrade(&self) -> bool {
-        let has_upgrade_header = self.request_headers.get(UPGRADE).is_some();
-        let connection_upgrade = match self.request_headers.get("connection") {
-            Some(h) => h
-                .as_str()
-                .split(',')
-                .any(|h| h.eq_ignore_ascii_case("upgrade")),
-            None => false,
-        };
-        let response_is_switching_protocols = self.status == Some(StatusCode::SwitchingProtocols);
-
-        has_upgrade_header && connection_upgrade && response_is_switching_protocols
+        self.status == Some(StatusCode::SwitchingProtocols)
     }
 
     async fn finish(self) -> Result<ConnectionStatus<Transport>> {
