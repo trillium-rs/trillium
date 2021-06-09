@@ -121,6 +121,9 @@ mod tests {
     #[test]
     fn test_connection_is_upgrade() {
         let mut headers = Headers::new();
+
+        assert!(!connection_is_upgrade(&headers));
+
         headers.insert("connection", "keep-alive, Upgrade");
         assert!(connection_is_upgrade(&headers));
 
