@@ -1,6 +1,6 @@
 [package]
 name = "trillium-websockets"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "websocket support for trillium.rs"
