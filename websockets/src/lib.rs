@@ -49,7 +49,7 @@ use std::{future::Future, marker::Send};
 use trillium::{
     async_trait,
     http_types::{
-        headers::{CONNECTION, UPGRADE},
+        headers::{Headers, CONNECTION, UPGRADE},
         StatusCode,
     },
     Conn, Handler, Upgrade,
@@ -101,6 +101,43 @@ where
 
 struct IsWebsocket;
 
+fn connection_is_upgrade(headers: &Headers) -> bool {
+    headers
+        .get(CONNECTION)
+        .map(|connection| {
+            connection
+                .as_str()
+                .split(',')
+                .any(|c| c.trim().eq_ignore_ascii_case("upgrade"))
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::connection_is_upgrade;
+    use trillium::http_types::headers::Headers;
+
+    #[test]
+    fn test_connection_is_upgrade() {
+        let mut headers = Headers::new();
+        headers.insert("connection", "keep-alive, Upgrade");
+        assert!(connection_is_upgrade(&headers));
+
+        headers.insert("connection", "upgrade");
+        assert!(connection_is_upgrade(&headers));
+
+        headers.insert("connection", "UPgrAde");
+        assert!(connection_is_upgrade(&headers));
+
+        headers.insert("connection", "UPgrAde, keep-alive");
+        assert!(connection_is_upgrade(&headers));
+
+        headers.insert("connection", "keep-alive");
+        assert!(!connection_is_upgrade(&headers));
+    }
+}
+
 #[async_trait]
 impl<H, Fut> Handler for WebSocket<H>
 where
@@ -108,19 +145,11 @@ where
     Fut: Future<Output = ()> + Send + Sync + 'static,
 {
     async fn run(&self, mut conn: Conn) -> Conn {
-        let connection_upgrade = conn
-            .headers()
-            .contains_ignore_ascii_case(CONNECTION, "upgrade");
+        let connection_upgrade = connection_is_upgrade(conn.headers());
         let upgrade_to_websocket = conn
             .headers()
             .contains_ignore_ascii_case(UPGRADE, "websocket");
         let upgrade_requested = connection_upgrade && upgrade_to_websocket;
-        log::trace!(
-            "{:?} {:?} {:?}",
-            connection_upgrade,
-            upgrade_to_websocket,
-            upgrade_requested
-        );
 
         if !upgrade_requested {
             return conn;
