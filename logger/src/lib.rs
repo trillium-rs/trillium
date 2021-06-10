@@ -18,7 +18,7 @@ interface will likely change quite a bit before stabilizing
 use colored::*;
 use size::{Base, Size, Style};
 use std::time::Instant;
-use trillium::{async_trait, http_types::StatusCode, Conn, Handler};
+use trillium::{async_trait, http_types::StatusCode, Conn, Handler, Info};
 
 #[derive(Debug)]
 struct Start(Instant);
@@ -46,6 +46,10 @@ impl Logger {
 
 #[async_trait]
 impl Handler for Logger {
+    async fn init(&mut self, info: &mut Info) {
+        log::info!("listening on {}", info);
+    }
+
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(Start::now())
     }

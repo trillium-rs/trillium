@@ -79,7 +79,9 @@ async fn handler_fn(
 
 This function will poll pending until the server shuts down.
 */
-pub async fn run_async(handler: impl Handler) {
+pub async fn run_async(mut handler: impl Handler) {
+    let mut info = "aws lambda".into();
+    handler.init(&mut info).await;
     lamedh_runtime::run(HandlerWrapper(Arc::new(handler)))
         .await
         .unwrap()
