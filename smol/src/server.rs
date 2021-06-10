@@ -48,7 +48,8 @@ impl Server for Smol {
 
         let listener = config.build_listener::<TcpListener>();
         let mut incoming = config.stopper().stop_stream(listener.incoming());
-        handler.init().await;
+        let mut info = listener.local_addr().unwrap().into();
+        handler.init(&mut info).await;
         let handler = Arc::new(handler);
 
         while let Some(Ok(stream)) = incoming.next().await {

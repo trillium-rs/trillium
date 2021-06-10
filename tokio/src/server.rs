@@ -54,7 +54,9 @@ impl Server for TokioServer {
         }
 
         let listener = config.build_listener::<TcpListener>();
-        handler.init().await;
+
+        let mut info = listener.local_addr().unwrap().into();
+        handler.init(&mut info).await;
         let handler = Arc::new(handler);
 
         let mut stream = config

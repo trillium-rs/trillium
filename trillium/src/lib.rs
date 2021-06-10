@@ -50,3 +50,9 @@ pub type Upgrade = trillium_http::Upgrade<trillium_http::transport::BoxedTranspo
 mod macros;
 
 pub use log;
+
+mod info;
+pub use info::Info;
+
+mod init;
+pub use init::Init;

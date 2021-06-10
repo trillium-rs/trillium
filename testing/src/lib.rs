@@ -53,10 +53,16 @@ pub mod prelude {
     */
     pub use crate::{
         assert_body, assert_body_contains, assert_headers, assert_not_handled, assert_ok,
-        assert_response, assert_status, methods::*, Method, StatusCode,
+        assert_response, assert_status, init, methods::*, Method, StatusCode,
     };
 
     pub use trillium::Conn;
+}
+
+/// initialize a handler
+pub fn init(handler: &mut impl trillium::Handler) {
+    let mut info = "testing".into();
+    block_on(handler.init(&mut info))
 }
 
 // these exports are used by macros

@@ -1,4 +1,4 @@
-use crate::{async_trait, Conn, Upgrade};
+use crate::{async_trait, Conn, Info, Upgrade};
 use std::borrow::Cow;
 use std::future::Future;
 use std::sync::Arc;
@@ -66,12 +66,12 @@ documentation at the top of the page, so here is how the trait is
 actually defined in trillium code:
 
 ```
-# use trillium::{Conn, Upgrade};
+# use trillium::{Conn, Upgrade, Info};
 # use std::borrow::Cow;
 #[trillium::async_trait]
 pub trait Handler: Send + Sync + 'static {
     async fn run(&self, conn: Conn) -> Conn;
-    async fn init(&mut self); // optional
+    async fn init(&mut self, info: &mut Info); // optional
     async fn before_send(&self, conn: Conn); // optional
     fn has_upgrade(&self, _upgrade: &Upgrade) -> bool; // optional
     async fn upgrade(&self, _upgrade: Upgrade); // mandatory only if has_upgrade returns true
@@ -92,17 +92,20 @@ pub trait Handler: Send + Sync + 'static {
     async fn run(&self, conn: Conn) -> Conn;
 
     /**
-    Performes one-time async set up on a mutable borrow of the
+    Performs one-time async set up on a mutable borrow of the
     Handler before the server starts accepting requests. This
     allows a Handler to be defined in synchronous code but perform
     async setup such as establishing a database connection or
     fetching some state from an external source. This is optional,
     and chances are high that you do not need this.
 
+    It also receives a mutable borrow of the [`Info`] that represents
+    the current connection.
+
     **stability note:** This may go away at some point. Please open an
     **issue if you have a use case which requires it.
     */
-    async fn init(&mut self) {}
+    async fn init(&mut self, _info: &mut Info) {}
 
     /**
     Performs any final modifications to this conn after all handlers
@@ -171,8 +174,9 @@ impl Handler for Box<dyn Handler> {
     async fn run(&self, conn: Conn) -> Conn {
         self.as_ref().run(conn).await
     }
-    async fn init(&mut self) {
-        self.as_mut().init().await
+
+    async fn init(&mut self, info: &mut Info) {
+        self.as_mut().init(info).await
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
@@ -204,10 +208,10 @@ impl<G: Handler> Handler for Arc<G> {
         self.as_ref().run(conn).await
     }
 
-    async fn init(&mut self) {
+    async fn init(&mut self, info: &mut Info) {
         Arc::<G>::get_mut(self)
             .expect("cannot call init when there are already clones of an Arc<Handler>")
-            .init()
+            .init(info)
             .await
     }
 
@@ -241,9 +245,9 @@ impl<G: Handler> Handler for Vec<G> {
         conn
     }
 
-    async fn init(&mut self) {
+    async fn init(&mut self, info: &mut Info) {
         for handler in self {
-            handler.init().await;
+            handler.init(info).await;
         }
     }
 
@@ -316,9 +320,9 @@ impl<H: Handler> Handler for Option<H> {
         handler.run(conn).await
     }
 
-    async fn init(&mut self) {
+    async fn init(&mut self, info: &mut Info) {
         if let Some(handler) = self {
-            handler.init().await
+            handler.init(info).await
         }
     }
 
@@ -375,9 +379,12 @@ macro_rules! impl_handler_tuple {
                 }
 
                 #[allow(non_snake_case)]
-                async fn init(&mut self) {
+                async fn init(&mut self, info: &mut Info) {
                     let ($(ref mut $name,)*) = *self;
-                    $(($name).init().await;)*
+                    $(
+                        log::trace!("initializing {}", ($name).name());
+                        ($name).init(info).await;
+                    )*
                 }
 
                 #[allow(non_snake_case)]

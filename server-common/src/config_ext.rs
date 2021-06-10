@@ -206,7 +206,6 @@ where
         #[cfg(not(unix))]
         let listener = TcpListener::bind((self.host(), self.port())).unwrap();
 
-        log::info!("listening on {:?}", listener.local_addr().unwrap());
         listener.set_nonblocking(true).unwrap();
         listener.try_into().unwrap()
     }
