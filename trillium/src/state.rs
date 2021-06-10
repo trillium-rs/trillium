@@ -65,9 +65,9 @@ briefly as possible so as to minimize impact on other conns.
 ## Async initializer
 
 If your state type needs to be initialized asynchronously, State also
-provides a convenience utility `State::init`, which takes a future
-that returns the type that will then be cloned and placed in each
-conn's State set.
+provides a convenience utility `State::init`, which takes an async
+function that returns the type that will then be cloned and placed in
+each conn's State set.
 
 ```
 use trillium::{Conn, State, Handler};
@@ -87,7 +87,7 @@ impl MyDatabaseConnection {
 }
 
 let mut handler = (
-    State::init(async {
+    State::init(|| async {
         let database_url = std::env::var("DATABASE_URL").unwrap();
         MyDatabaseConnection::connect(database_url).await.unwrap()
     }),
@@ -117,7 +117,7 @@ simplicity.
 pub struct State<T>(Inner<T>);
 
 enum Inner<T> {
-    New(Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>),
+    New(Box<dyn Fn() -> Pin<Box<dyn Future<Output = T> + Send + 'static>> + Send + Sync + 'static>),
     Initializing,
     Initialized(T),
 }
@@ -168,13 +168,14 @@ where
         Self(Inner::Initialized(t))
     }
 
-    /// Constructs a new State handler from a future that returns the
-    /// state type that will be cloned into every Conn's state set.
-    pub fn init<Fut>(f: Fut) -> Self
+    /// Constructs a new State handler with an async function that returns the
+    /// type which will be cloned into every Conn's state set.
+    pub fn init<F, Fut>(f: F) -> Self
     where
-        Fut: Future<Output = T> + Send + Sync + 'static,
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = T> + Send + 'static,
     {
-        Self(Inner::New(Box::pin(f)))
+        Self(Inner::New(Box::new(move || Box::pin(f()))))
     }
 }
 
@@ -182,7 +183,7 @@ where
 impl<T: Clone + Send + Sync + 'static> Handler for State<T> {
     async fn init(&mut self) {
         if let Inner::New(f) = mem::replace(&mut self.0, Inner::Initializing) {
-            self.0 = Inner::Initialized(f.await);
+            self.0 = Inner::Initialized(f().await);
         }
     }
 
