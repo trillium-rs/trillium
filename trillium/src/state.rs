@@ -1,6 +1,10 @@
-use std::fmt::{self, Debug};
-
-use fmt::Formatter;
+use std::{
+    fmt::{self, Debug, Formatter},
+    future::Future,
+    mem,
+    ops::Deref,
+    pin::Pin,
+};
 
 use crate::{async_trait, Conn, Handler};
 /**
@@ -15,7 +19,7 @@ use trillium::{Conn, State};
 use trillium_testing::prelude::*;
 
 
-#[derive(Clone, Default)] // Clone is mandatory
+#[derive(Clone, Default, Debug)] // Clone is mandatory
 struct MyFeatureFlag(Arc<AtomicBool>);
 
 impl MyFeatureFlag {
@@ -58,12 +62,86 @@ for your application. There will be one clones of the contained T type
 in memory for each http connection, and any locks should be held as
 briefly as possible so as to minimize impact on other conns.
 
-**Stability note:** This is a common enough pattern that it currently
+## Async initializer
+
+If your state type needs to be initialized asynchronously, State also
+provides a convenience utility `State::init`, which takes a future
+that returns the type that will then be cloned and placed in each
+conn's State set.
+
+```
+use trillium::{Conn, State, Handler};
+use trillium_testing::prelude::*;
+
+#[derive(Clone, Debug)]
+struct MyDatabaseConnection;
+
+impl MyDatabaseConnection {
+    async fn connect(_uri: String) -> std::io::Result<Self> {
+        Ok(Self)
+    }
+
+    async fn query(&mut self, query: &str) -> String {
+        format!("you queried: `{}`", query)
+    }
+}
+
+let mut handler = (
+    State::init(async {
+        let database_url = std::env::var("DATABASE_URL").unwrap();
+        MyDatabaseConnection::connect(database_url).await.unwrap()
+    }),
+    |mut conn: Conn| async move {
+      let mut db = conn.state_mut::<MyDatabaseConnection>().unwrap();
+      let response = db.query("select * from users where name = 'bobby'").await;
+      conn.ok(response)
+    }
+);
+
+
+std::env::set_var("DATABASE_URL", "this is just for demonstration purposes");
+
+// this normally performed by the runtime adapter when not in test mode
+trillium_testing::block_on(handler.init());
+
+assert_ok!(get("/").on(&handler), "you queried: `select * from users where name = 'bobby'`");
+```
+
+# Stability note
+
+This is a common enough pattern that it currently
 exists in the public api, but may be removed at some point for
 simplicity.
 */
 
-pub struct State<T>(T);
+pub struct State<T>(Inner<T>);
+
+enum Inner<T> {
+    New(Pin<Box<dyn Future<Output = T> + Send + Sync + 'static>>),
+    Initializing,
+    Initialized(T),
+}
+
+impl<T> Deref for Inner<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Inner::Initialized(t) => t,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<T: Debug> Debug for Inner<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Initialized(ref t) => f.debug_tuple("Initialized").field(&t).finish(),
+            Self::New(_) => f.debug_tuple("New").finish(),
+            Self::Initializing => f.debug_tuple("Initializing").finish(),
+        }
+    }
+}
 
 impl<T: Debug> Debug for State<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -87,12 +165,27 @@ where
     /// Constructs a new State handler from any Clone + Send + Sync +
     /// 'static
     pub fn new(t: T) -> Self {
-        Self(t)
+        Self(Inner::Initialized(t))
+    }
+
+    /// Constructs a new State handler from a future that returns the
+    /// state type that will be cloned into every Conn's state set.
+    pub fn init<Fut>(f: Fut) -> Self
+    where
+        Fut: Future<Output = T> + Send + Sync + 'static,
+    {
+        Self(Inner::New(Box::pin(f)))
     }
 }
 
 #[async_trait]
 impl<T: Clone + Send + Sync + 'static> Handler for State<T> {
+    async fn init(&mut self) {
+        if let Inner::New(f) = mem::replace(&mut self.0, Inner::Initializing) {
+            self.0 = Inner::Initialized(f.await);
+        }
+    }
+
     async fn run(&self, mut conn: Conn) -> Conn {
         conn.set_state(self.0.clone());
         conn

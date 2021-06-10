@@ -377,7 +377,10 @@ macro_rules! impl_handler_tuple {
                 #[allow(non_snake_case)]
                 async fn init(&mut self) {
                     let ($(ref mut $name,)*) = *self;
-                    $(($name).init().await;)*
+                    $(
+                        log::trace!("initializing {}", ($name).name());
+                        ($name).init().await;
+                    )*
                 }
 
                 #[allow(non_snake_case)]
