@@ -35,9 +35,9 @@ mod response;
 use response::{AlbMultiHeadersResponse, AlbResponse, LambdaResponse};
 
 #[derive(Debug)]
-struct HandlerWrapper<G>(Arc<G>);
+struct HandlerWrapper<H>(Arc<H>);
 
-impl<G: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<G> {
+impl<H: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<H> {
     type Error = std::io::Error;
     type Fut = Pin<Box<dyn Future<Output = Result<LambdaResponse, Self::Error>> + Send + 'static>>;
 

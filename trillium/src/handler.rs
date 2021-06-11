@@ -203,13 +203,13 @@ impl std::fmt::Debug for Box<dyn Handler> {
 }
 
 #[async_trait]
-impl<G: Handler> Handler for Arc<G> {
+impl<H: Handler> Handler for Arc<H> {
     async fn run(&self, conn: Conn) -> Conn {
         self.as_ref().run(conn).await
     }
 
     async fn init(&mut self, info: &mut Info) {
-        Arc::<G>::get_mut(self)
+        Arc::<H>::get_mut(self)
             .expect("cannot call init when there are already clones of an Arc<Handler>")
             .init(info)
             .await
@@ -233,7 +233,7 @@ impl<G: Handler> Handler for Arc<G> {
 }
 
 #[async_trait]
-impl<G: Handler> Handler for Vec<G> {
+impl<H: Handler> Handler for Vec<H> {
     async fn run(&self, mut conn: Conn) -> Conn {
         for handler in self {
             log::debug!("running {}", handler.name());
