@@ -277,7 +277,7 @@ impl<G: Handler> Handler for Vec<G> {
 impl<Fun, Fut> Handler for Fun
 where
     Fun: Fn(Conn) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Conn> + Send + Sync + 'static,
+    Fut: Future<Output = Conn> + Send + 'static,
 {
     async fn run(&self, conn: Conn) -> Conn {
         (self)(conn).await
