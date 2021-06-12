@@ -85,7 +85,7 @@ mod test {
     fn test_index() {
         let app = app();
         let mut conn = get("/").on(&app);
-        assert_ok!(&mut conn);
+        assert_ok!(&conn);
         assert_body_contains!(&mut conn, "<h1>Welcome to trillium!</h1>");
     }
 

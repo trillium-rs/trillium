@@ -68,15 +68,11 @@ assert_ok!(get("/").on(&handler), "ok!");
 */
 pub struct Init<T>(Inner<T>);
 
+type Initializer<T> =
+    Box<dyn Fn(Info) -> Pin<Box<dyn Future<Output = T> + Send + 'static>> + Send + Sync + 'static>;
+
 enum Inner<T> {
-    New(
-        Box<
-            dyn Fn(Info) -> Pin<Box<dyn Future<Output = T> + Send + 'static>>
-                + Send
-                + Sync
-                + 'static,
-        >,
-    ),
+    New(Initializer<T>),
     Initializing,
     Initialized(T),
 }

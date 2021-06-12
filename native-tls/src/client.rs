@@ -142,7 +142,7 @@ impl<T: Connector> Connector for NativeTlsConnector<T> {
             }
 
             "http" => Ok(NativeTlsTransport(Tcp(
-                T::connect(&url, config.as_ref()).await?
+                T::connect(url, config.as_ref()).await?
             ))),
 
             unknown => Err(Error::new(

@@ -226,7 +226,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
     /// Signs the cookie's value providing integrity and authenticity.
     fn sign_cookie(&self, cookie: &mut Cookie<'_>) {
         // Compute HMAC-SHA256 of the cookie's value.
-        let mut mac = Hmac::<Sha256>::new_from_slice(&self.key.signing()).expect("good key");
+        let mut mac = Hmac::<Sha256>::new_from_slice(self.key.signing()).expect("good key");
         mac.update(cookie.value().as_bytes());
 
         // Cookie's new value is [MAC | original-value].

@@ -209,7 +209,7 @@ impl Handler for Router {
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        if let Some(m) = self.best_match(&upgrade.method(), upgrade.path()) {
+        if let Some(m) = self.best_match(upgrade.method(), upgrade.path()) {
             m.handler().has_upgrade(upgrade)
         } else {
             false
@@ -217,7 +217,7 @@ impl Handler for Router {
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        self.best_match(&upgrade.method(), upgrade.path())
+        self.best_match(upgrade.method(), upgrade.path())
             .unwrap()
             .handler()
             .upgrade(upgrade)

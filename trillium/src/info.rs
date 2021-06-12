@@ -92,7 +92,6 @@ impl From<SocketAddr> for Info {
             server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
             listener_description: socket_addr.to_string(),
             tcp_socket_addr: Some(socket_addr),
-            ..Default::default()
         }
     }
 }

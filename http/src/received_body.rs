@@ -194,7 +194,7 @@ where
                 Ready(Ok(buf.len()))
             } else {
                 trace!("have {} bytes of pending data, using all of it", len);
-                buf[..len].copy_from_slice(&buffer);
+                buf[..len].copy_from_slice(buffer);
                 *opt_buffer = None;
                 match Pin::new(transport).poll_read(cx, &mut buf[len..]) {
                     Ready(Ok(e)) => Ready(Ok(e + len)),
@@ -546,7 +546,7 @@ mod chunk_decode {
                 total: 0,
             },
             None,
-            &UTF_8,
+            UTF_8,
         );
 
         let output = async_io::block_on(read_with_buffers_of_size(&mut rb, poll_size))?;

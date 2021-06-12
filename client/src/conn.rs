@@ -544,7 +544,7 @@ impl<C: Connector> Conn<'_, C> {
         if let Some(pool) = &self.pool {
             for mut candidate in pool.candidates(&socket_addrs) {
                 if poll_once(candidate.read(&mut byte)).await.is_none()
-                    && candidate.write_all(&head).await.is_ok()
+                    && candidate.write_all(head).await.is_ok()
                 {
                     return Some(candidate);
                 }

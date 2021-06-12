@@ -173,7 +173,7 @@ impl<C: Connector> Connector for RustlsConnector<C> {
             }
 
             "http" => Ok(RustlsTransport(Tcp(
-                C::connect(&url, &config.tcp_config).await?
+                C::connect(url, &config.tcp_config).await?
             ))),
 
             unknown => Err(Error::new(
