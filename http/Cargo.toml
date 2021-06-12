@@ -28,7 +28,7 @@ thiserror = "1.0.25"
 async-compat = "0.2.1"
 async-io = "1.4.1"
 async-net = "1.6.0"
-env_logger = "0.8.3"
+env_logger = "0.8.4"
 smol = "1.2.5"
 trillium-client = { path = "../client" }
 trillium-smol = { path = "../smol" }

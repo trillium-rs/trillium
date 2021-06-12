@@ -17,6 +17,6 @@ async-session = "3.0.0"
 log = "0.4.14"
 
 [dev-dependencies]
-env_logger = "0.8.3"
+env_logger = "0.8.4"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
