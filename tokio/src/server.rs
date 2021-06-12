@@ -5,10 +5,16 @@ use tokio::{
     runtime::Runtime,
 };
 use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
-use trillium::{async_trait, Handler};
-use trillium_server_common::{Acceptor, ConfigExt, Server};
+use trillium::{async_trait, Handler, Info};
+use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
 
-use trillium_server_common::Stopper;
+const SERVER_DESCRIPTION: &str = concat!(
+    " (",
+    env!("CARGO_PKG_NAME"),
+    " v",
+    env!("CARGO_PKG_VERSION"),
+    ")"
+);
 
 #[cfg(unix)]
 async fn handle_signals(stop: Stopper) {
@@ -55,7 +61,11 @@ impl Server for TokioServer {
 
         let listener = config.build_listener::<TcpListener>();
 
-        let mut info = listener.local_addr().unwrap().into();
+        let local_addr = listener.local_addr().unwrap();
+        let mut info = Info::from(local_addr);
+        *info.listener_description_mut() = format!("http://{}:{}", config.host(), config.port());
+        info.server_description_mut().push_str(SERVER_DESCRIPTION);
+
         handler.init(&mut info).await;
         let handler = Arc::new(handler);
 

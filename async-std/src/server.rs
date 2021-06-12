@@ -4,8 +4,16 @@ use async_std::{
     task,
 };
 use std::sync::Arc;
-use trillium::{async_trait, Handler};
+use trillium::{async_trait, Handler, Info};
 use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
+
+const SERVER_DESCRIPTION: &str = concat!(
+    " (",
+    env!("CARGO_PKG_NAME"),
+    " v",
+    env!("CARGO_PKG_VERSION"),
+    ")"
+);
 
 #[cfg(unix)]
 async fn handle_signals(stop: Stopper) {
@@ -49,13 +57,15 @@ impl Server for AsyncStdServer {
         }
 
         let listener = config.build_listener::<TcpListener>();
+        let local_addr = listener.local_addr().unwrap();
+        let mut info = Info::from(local_addr);
+        *info.listener_description_mut() = format!("http://{}:{}", config.host(), config.port());
+        info.server_description_mut().push_str(SERVER_DESCRIPTION);
 
-        let mut info = listener.local_addr().unwrap().into();
         handler.init(&mut info).await;
-
-        let mut incoming = config.stopper().stop_stream(listener.incoming());
         let handler = Arc::new(handler);
 
+        let mut incoming = config.stopper().stop_stream(listener.incoming());
         while let Some(Ok(stream)) = incoming.next().await {
             trillium::log_error!(stream.set_nodelay(config.nodelay()));
             task::spawn(config.clone().handle_stream(stream, handler.clone()));

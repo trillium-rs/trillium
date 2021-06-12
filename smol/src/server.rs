@@ -2,8 +2,16 @@ use async_global_executor::{block_on, spawn};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
 use std::sync::Arc;
-use trillium::{async_trait, Handler};
+use trillium::{async_trait, Handler, Info};
 use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
+
+const SERVER_DESCRIPTION: &str = concat!(
+    " (",
+    env!("CARGO_PKG_NAME"),
+    " v",
+    env!("CARGO_PKG_VERSION"),
+    ")"
+);
 
 #[derive(Debug, Clone, Copy)]
 pub struct Smol;
@@ -18,10 +26,10 @@ async fn handle_signals(stop: Stopper) {
     let mut signals = signals.fuse();
     while signals.next().await.is_some() {
         if stop.is_stopped() {
-            println!("second interrupt, shutting down harshly");
+            println!("\nSecond interrupt, shutting down harshly");
             std::process::exit(1);
         } else {
-            println!("shutting down gracefully");
+            println!("\nShutting down gracefully.\nControl-C again to force.");
             stop.stop();
         }
     }
@@ -48,7 +56,12 @@ impl Server for Smol {
 
         let listener = config.build_listener::<TcpListener>();
         let mut incoming = config.stopper().stop_stream(listener.incoming());
-        let mut info = listener.local_addr().unwrap().into();
+
+        let local_addr = listener.local_addr().unwrap();
+        let mut info = Info::from(local_addr);
+        *info.listener_description_mut() = format!("http://{}:{}", config.host(), config.port());
+        info.server_description_mut().push_str(SERVER_DESCRIPTION);
+
         handler.init(&mut info).await;
         let handler = Arc::new(handler);
 

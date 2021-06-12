@@ -38,7 +38,7 @@ interface will likely change quite a bit before stabilizing
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Logger(());
 impl Logger {
-    /// construct a new dev
+    /// construct a new logger
     pub fn new() -> Self {
         Self(())
     }
@@ -47,7 +47,18 @@ impl Logger {
 #[async_trait]
 impl Handler for Logger {
     async fn init(&mut self, info: &mut Info) {
-        log::info!("listening on {}", info);
+        log::info!(
+            "
+🌱 {} started
+Listening at {}{}
+
+Control-C to quit",
+            info.server_description(),
+            info.listener_description(),
+            info.tcp_socket_addr()
+                .map(|s| format!(" (bound as tcp://{})", s))
+                .unwrap_or_default()
+        );
     }
 
     async fn run(&self, conn: Conn) -> Conn {
