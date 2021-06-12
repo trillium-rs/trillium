@@ -49,7 +49,7 @@ impl Handler for Logger {
     async fn init(&mut self, info: &mut Info) {
         log::info!(
             "
-🌱 {} started
+🌱🦀🌱 {} started
 Listening at {}{}
 
 Control-C to quit",
