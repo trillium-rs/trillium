@@ -1,4 +1,4 @@
-use routefinder::{Match, Router as Routefinder};
+use routefinder::{Match, Route, Router as Routefinder};
 use std::{collections::HashMap, sync::Arc};
 use trillium::{async_trait, http_types::Method, Conn, Handler, Upgrade};
 
@@ -8,7 +8,7 @@ use crate::RouterRef;
 
 
 */
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct Router(HashMap<Method, Routefinder<Box<dyn Handler>>>);
 
 macro_rules! method {
@@ -222,5 +222,36 @@ impl Handler for Router {
             .handler()
             .upgrade(upgrade)
             .await
+    }
+
+    fn name(&self) -> std::borrow::Cow<'static, str> {
+        format!("{:#?}", &self).into()
+    }
+}
+
+struct RouteForDisplay<'a, H>(&'a Method, &'a Route<H>);
+impl<'a, H: Handler> std::fmt::Debug for RouteForDisplay<'a, H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{} {} -> {}",
+            &self.0,
+            &self.1.definition(),
+            &self.1.handler().name()
+        ))
+    }
+}
+
+impl std::fmt::Debug for Router {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Router ")?;
+        let mut set = f.debug_set();
+
+        for (method, router) in &self.0 {
+            for route in router {
+                set.entry(&RouteForDisplay(method, route));
+            }
+        }
+
+        set.finish()
     }
 }

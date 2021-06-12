@@ -302,7 +302,7 @@ impl Handler for &'static str {
     }
 
     fn name(&self) -> Cow<'static, str> {
-        Cow::Borrowed(self)
+        format!("conn.ok({:?})", &self).into()
     }
 }
 
@@ -407,6 +407,14 @@ macro_rules! impl_handler_tuple {
                     $(if ($name).has_upgrade(&upgrade) {
                         return ($name).upgrade(upgrade).await;
                     })*
+                }
+
+                #[allow(non_snake_case)]
+                fn name(&self) -> Cow<'static, str> {
+                    let ($(ref $name,)*) = *self;
+                    format!(concat!("(\n", $(
+                        concat!("  {",stringify!($name) ,":},\n")
+                    ),*, ")"), $($name = ($name).name()),*).into()
                 }
             }
         );
