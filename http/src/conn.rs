@@ -1,21 +1,21 @@
 use encoding_rs::Encoding;
 use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use http_types::headers::{CONTENT_LENGTH, CONTENT_TYPE};
-use http_types::transfer::Encoding::Chunked;
 use http_types::{
     content::ContentLength,
-    headers::{Header, Headers, DATE, EXPECT, TRANSFER_ENCODING},
+    headers::{Header, Headers, CONTENT_LENGTH, CONTENT_TYPE, DATE, EXPECT, TRANSFER_ENCODING},
     other::Date,
-    transfer::TransferEncoding,
+    transfer::{Encoding::Chunked, TransferEncoding},
     Body, Extensions, Method, StatusCode, Version,
 };
 use httparse::{Request, EMPTY_HEADER};
 use memmem::{Searcher, TwoWaySearcher};
-use std::future::Future;
-use std::iter;
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
+    future::Future,
+    iter,
+    ops::Deref,
+    time::Instant,
 };
 
 use crate::{
@@ -26,6 +26,33 @@ use crate::{
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 8 * 1024;
 const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum SendStatus {
+    Success,
+    Failure,
+}
+
+impl SendStatus {
+    pub fn is_success(&self) -> bool {
+        &SendStatus::Success == self
+    }
+}
+
+pub(crate) struct AfterSend(Box<dyn Fn(SendStatus) + Send + Sync + 'static>);
+impl Deref for AfterSend {
+    type Target = dyn Fn(SendStatus) + Send + Sync + 'static;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl Drop for AfterSend {
+    fn drop(&mut self) {
+        self(SendStatus::Failure);
+    }
+}
 
 /** A http connection
 
@@ -47,6 +74,8 @@ pub struct Conn<Transport> {
     pub(crate) request_body_state: ReceivedBodyState,
     pub(crate) secure: bool,
     pub(crate) stopper: Stopper,
+    pub(crate) after_send: Option<AfterSend>,
+    pub(crate) start_time: Instant,
 }
 
 impl<Transport> Debug for Conn<Transport> {
@@ -59,6 +88,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("status", &self.status)
             .field("version", &self.version)
             .field("request_body_state", &self.request_body_state)
+            .field("start_time", &self.start_time)
             .finish()
     }
 }
@@ -106,7 +136,18 @@ where
             }
         }
 
-        self.finish().await
+        let after_send = self.after_send.take();
+        let result = self.finish().await;
+        if let Some(after_send) = after_send {
+            after_send(if result.is_ok() {
+                SendStatus::Success
+            } else {
+                SendStatus::Failure
+            });
+
+            std::mem::forget(after_send);
+        }
+        result
     }
 
     /// returns a read-only reference to the [state
@@ -356,7 +397,8 @@ where
         bytes: Option<Vec<u8>>,
         stopper: Stopper,
     ) -> Result<Self> {
-        let (transport, buf, extra_bytes) = Self::head(transport, bytes, &stopper).await?;
+        let (transport, buf, extra_bytes, start_time) =
+            Self::head(transport, bytes, &stopper).await?;
         let buffer = if extra_bytes.is_empty() {
             None
         } else {
@@ -409,6 +451,8 @@ where
             request_body_state: ReceivedBodyState::Start,
             secure: false,
             stopper,
+            after_send: None,
+            start_time,
         })
     }
 
@@ -459,6 +503,35 @@ where
         }
     }
 
+    /**
+    Registers a function to call after the http response has been
+    completely transferred. Please note that this is a sync function
+    and should be computationally lightweight. If your _application_
+    needs additional async processing, use your runtime's task spawn
+    within this hook.  If your _library_ needs additional async
+    processing in an after_send hook, please open an issue. This hook
+    is currently designed for simple instrumentation and logging, and
+    should be thought of as equivalent to a Drop hook.
+    */
+    pub fn after_send<F>(&mut self, after_send: F)
+    where
+        F: Fn(SendStatus) + Send + Sync + 'static,
+    {
+        self.after_send = Some(match self.after_send.take() {
+            Some(existing_after_send) => AfterSend(Box::new(move |ss| {
+                existing_after_send(ss);
+                after_send(ss);
+            })),
+            None => AfterSend(Box::new(after_send)),
+        })
+    }
+
+    /// The [`Instant`] that the first header bytes for this conn were
+    /// received, before any processing or parsing has been performed.
+    pub fn start_time(&self) -> Instant {
+        self.start_time
+    }
+
     async fn send_100_continue(&mut self) -> Result<()> {
         log::trace!("sending 100-continue");
         Ok(self
@@ -471,10 +544,10 @@ where
         mut transport: Transport,
         bytes: Option<Vec<u8>>,
         stopper: &Stopper,
-    ) -> Result<(Transport, Vec<u8>, Vec<u8>)> {
+    ) -> Result<(Transport, Vec<u8>, Vec<u8>, Instant)> {
         let mut buf = bytes.unwrap_or_default();
         let mut len = 0;
-
+        let mut instant = None;
         let searcher = TwoWaySearcher::new(b"\r\n\r\n");
         loop {
             buf.extend(iter::repeat(0).take(100));
@@ -486,6 +559,10 @@ where
             } else {
                 transport.read(&mut buf[len..]).await?
             };
+
+            if instant.is_none() {
+                instant = Some(Instant::now());
+            }
 
             let search_start = len.max(3) - 3;
             let search = searcher.search_in(&buf[search_start..]);
@@ -503,7 +580,7 @@ where
                         String::from_utf8_lossy(&body)
                     );
                 }
-                return Ok((transport, buf, body));
+                return Ok((transport, buf, body, instant.unwrap()));
             }
 
             len += bytes;
@@ -525,10 +602,6 @@ where
             }
         }
     }
-
-    // fn inner_mut(&mut self) -> &mut Transport {
-    //     &mut self.transport
-    // }
 
     async fn next(mut self) -> Result<Self> {
         if !self.needs_100_continue() || self.request_body_state != ReceivedBodyState::Start {
@@ -642,6 +715,8 @@ where
             method,
             response_body,
             stopper,
+            after_send,
+            start_time,
         } = self;
 
         Conn {
@@ -658,6 +733,8 @@ where
             request_body_state,
             secure,
             stopper,
+            after_send,
+            start_time,
         }
     }
 }
