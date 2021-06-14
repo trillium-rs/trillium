@@ -20,15 +20,6 @@ use size::{Base, Size, Style};
 use std::time::Instant;
 use trillium::{async_trait, http_types::StatusCode, Conn, Handler, Info};
 
-#[derive(Debug)]
-struct Start(Instant);
-
-impl Start {
-    pub fn now() -> Self {
-        Self(Instant::now())
-    }
-}
-
 /**
 Development-mode logger for trillium
 
@@ -44,8 +35,14 @@ impl Logger {
     }
 }
 
+struct LoggerRan;
+
 #[async_trait]
 impl Handler for Logger {
+    async fn run(&self, conn: Conn) -> Conn {
+        conn.with_state(LoggerRan)
+    }
+
     async fn init(&mut self, info: &mut Info) {
         log::info!(
             "
@@ -61,15 +58,11 @@ Control-C to quit",
         );
     }
 
-    async fn run(&self, conn: Conn) -> Conn {
-        conn.with_state(Start::now())
-    }
-
     async fn before_send(&self, mut conn: Conn) -> Conn {
-        if let Some(start) = conn.take_state::<Start>() {
+        if conn.take_state::<LoggerRan>().is_some() {
+            let start_time = conn.inner().start_time();
             let method = conn.method();
             let status = conn.status().unwrap_or(StatusCode::NotFound);
-
             let len = conn
                 .response_len()
                 .map(|l| {
@@ -77,20 +70,26 @@ Control-C to quit",
                 })
                 .unwrap_or_else(|| String::from("-"));
 
-            log::info!(
-                r#"{method} {url} {status} {response_time:?} {len}"#,
-                response_time = std::time::Instant::now() - start.0,
-                method = method,
-                url = conn.path(),
-                status = (status as u16).to_string().color(match status as u16 {
-                    200..=299 => "green",
-                    300..=399 => "cyan",
-                    400..=499 => "yellow",
-                    500..=599 => "red",
-                    _ => "white",
-                }),
-                len = len,
-            );
+            let url = String::from(conn.path());
+
+            let status_string = (status as u16).to_string().color(match status as u16 {
+                200..=299 => "green",
+                300..=399 => "cyan",
+                400..=499 => "yellow",
+                500..=599 => "red",
+                _ => "white",
+            });
+
+            conn.inner_mut().after_send(move |_| {
+                log::info!(
+                    r#"{method} {url} {status} {response_time:?} {len}"#,
+                    response_time = Instant::now() - start_time,
+                    method = method,
+                    url = url,
+                    status = status_string,
+                    len = len,
+                );
+            });
         }
         conn
     }

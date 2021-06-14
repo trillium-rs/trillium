@@ -6,6 +6,7 @@ use http_types::{
 use std::{
     pin::Pin,
     task::{Context, Poll},
+    time::Instant,
 };
 
 use crate::{received_body::ReceivedBodyState, Conn, Stopper};
@@ -136,6 +137,8 @@ impl Conn<Synthetic> {
             request_body_state: ReceivedBodyState::Start,
             secure: false,
             stopper: Stopper::new(),
+            after_send: None,
+            start_time: Instant::now(),
         }
     }
 
