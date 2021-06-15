@@ -354,14 +354,32 @@ impl Conn {
         self
     }
 
-    /// returns the path for this request. note that this may not
-    /// represent the entire http request path if running nested
-    /// routers.
+    /**
+    returns the path for this request. note that this may not
+    represent the entire http request path if running nested
+    routers.
+    */
     pub fn path(&self) -> &str {
         self.path
             .last()
             .map(|p| &**p)
             .unwrap_or_else(|| self.inner.path())
+    }
+
+    /**
+    returns query part of the request path
+
+    ```
+    use trillium_testing::prelude::*;
+    let conn = get("/a/b?c&d=e").on(&());
+    assert_eq!(conn.querystring(), "c&d=e");
+
+    let conn = get("/a/b").on(&());
+    assert_eq!(conn.querystring(), "");
+    ```
+    */
+    pub fn querystring(&self) -> &str {
+        self.inner.querystring()
     }
 
     /**
