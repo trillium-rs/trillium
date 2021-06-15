@@ -182,6 +182,25 @@ where
         self.path.split('?').next().unwrap()
     }
 
+    /**
+    retrieves the query component of the path
+    ```
+    # use trillium_http::{Conn, http_types::Method};
+    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
+    assert_eq!(conn.querystring(), "and&a=query");
+
+    let mut conn = Conn::new_synthetic(Method::Get, "/some/path", ());
+    assert_eq!(conn.querystring(), "");
+
+    ```
+    */
+    pub fn querystring(&self) -> &str {
+        match self.path.split_once('?') {
+            Some((_, query)) => query,
+            None => "",
+        }
+    }
+
     // pub fn url(&self) -> Result<Url> {
     //     let path = self.path();
     //     let host = self.host().unwrap_or_else(|| String::from("_"));
