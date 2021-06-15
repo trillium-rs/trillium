@@ -1,6 +1,5 @@
-use std::{convert::TryInto, fmt::Debug};
-
 use crate::Router;
+use std::{convert::TryInto, fmt::Debug};
 use trillium::{http_types::Method, Handler};
 
 macro_rules! method_ref {
@@ -70,7 +69,7 @@ impl<'r> RouterRef<'r> {
     # use trillium::Conn;
     # use trillium_router::Router;
     let router = Router::build(|mut router| {
-        router.any("/any", |conn: Conn| async move {
+        router.all("/any", |conn: Conn| async move {
             let response = format!("you made a {} request to /any", conn.method());
             conn.ok(response)
         });
@@ -87,8 +86,47 @@ impl<'r> RouterRef<'r> {
     ```
 
     */
-    pub fn any(&mut self, path: &'static str, handler: impl Handler) {
-        self.0.add_any(path, handler)
+    pub fn all(&mut self, path: &'static str, handler: impl Handler) {
+        self.0.add_all(path, handler)
+    }
+
+    /**
+    Appends the handler to each of the provided http methods.
+    ```
+    # use trillium::Conn;
+    # use trillium_router::Router;
+    let router = Router::build(|mut router|{
+        router.any(&["get", "post"], "/get_or_post", |conn: Conn| async move {
+            let response = format!("you made a {} request to /get_or_post", conn.method());
+            conn.ok(response)
+        });
+    });
+
+    use trillium_testing::prelude::*;
+    assert_ok!(get("/get_or_post").on(&router), "you made a GET request to /get_or_post");
+    assert_ok!(post("/get_or_post").on(&router), "you made a POST request to /get_or_post");
+    assert_not_handled!(delete("/any").on(&router));
+    assert_not_handled!(patch("/any").on(&router));
+    assert_not_handled!(put("/any").on(&router));
+    assert_not_handled!(get("/").on(&router));
+    ```
+    */
+    pub fn any<IntoMethod>(
+        &mut self,
+        methods: &[IntoMethod],
+        path: &'static str,
+        handler: impl Handler,
+    ) where
+        IntoMethod: TryInto<Method> + Clone,
+        <IntoMethod as TryInto<Method>>::Error: Debug,
+    {
+        let methods = methods
+            .to_vec()
+            .into_iter()
+            .map(|m| m.try_into().unwrap())
+            .collect::<Vec<_>>();
+
+        self.0.add_any(&methods, path, handler);
     }
 
     pub(crate) fn new(router: &'r mut Router) -> Self {

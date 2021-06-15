@@ -45,6 +45,6 @@ pub fn main() {
         Logger::new(),
         Router::new()
             .get("/", |conn: Conn| async move { conn.ok("hello everyone") })
-            .any("/users/:user_id/*", nested_app::handler()),
+            .any(&["get", "post"], "/users/:user_id/*", nested_app::handler()),
     ));
 }
