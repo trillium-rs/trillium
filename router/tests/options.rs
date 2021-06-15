@@ -44,10 +44,10 @@ fn options_specific_route_with_no_matching_routes() {
 
 #[test]
 fn options_any() {
-    let router = Router::new().any("/some-route", "ok");
+    let router = Router::new().any(&["delete", "get", "patch"], "/some-route", "ok");
     let mut conn = TestConn::build("options", "*", ()).on(&router);
     assert_status!(&conn, 200);
-    assert_headers!(&mut conn, "allow" => "DELETE, GET, PATCH, POST, PUT");
+    assert_headers!(&mut conn, "allow" => "DELETE, GET, PATCH");
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn when_options_are_disabled() {
 
 #[test]
 fn nested_router() {
-    let router = Router::new().any(
+    let router = Router::new().all(
         "/nested/*",
         Router::new().get("/here", "ok").post("*", "ok"),
     );

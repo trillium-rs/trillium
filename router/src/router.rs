@@ -3,7 +3,7 @@ use routefinder::{Match, Route, Router as Routefinder};
 use std::{
     collections::{BTreeSet, HashMap},
     convert::TryInto,
-    fmt::Debug,
+    fmt::{self, Debug, Formatter},
     sync::Arc,
 };
 use trillium::{async_trait, http_types::Method, Conn, Handler, Upgrade};
@@ -191,12 +191,21 @@ impl Router {
             .expect("could not add route")
     }
 
-    pub(crate) fn add_any(&mut self, path: &'static str, handler: impl Handler) {
-        use Method::*;
+    pub(crate) fn add_any(
+        &mut self,
+        methods: &[Method],
+        path: &'static str,
+        handler: impl Handler,
+    ) {
         let handler = Arc::new(handler);
-        for method in &[Get, Post, Put, Delete, Patch, Options] {
+        for method in methods {
             self.add(path, *method, handler.clone())
         }
+    }
+
+    pub(crate) fn add_all(&mut self, path: &'static str, handler: impl Handler) {
+        use Method::*;
+        self.add_any(&[Get, Post, Put, Delete, Patch, Options], path, handler)
     }
 
     /**
@@ -204,7 +213,7 @@ impl Router {
     ```
     # use trillium::Conn;
     # use trillium_router::Router;
-    let router = Router::new().any("/any", |conn: Conn| async move {
+    let router = Router::new().all("/any", |conn: Conn| async move {
         let response = format!("you made a {} request to /any", conn.method());
         conn.ok(response)
     });
@@ -219,8 +228,46 @@ impl Router {
     assert_not_handled!(get("/").on(&router));
     ```
     */
-    pub fn any(mut self, path: &'static str, handler: impl Handler) -> Self {
-        self.add_any(path, handler);
+    pub fn all(mut self, path: &'static str, handler: impl Handler) -> Self {
+        self.add_all(path, handler);
+        self
+    }
+
+    /**
+    Appends the handler to each of the provided http methods.
+    ```
+    # use trillium::Conn;
+    # use trillium_router::Router;
+    let router = Router::new().any(&["get", "post"], "/get_or_post", |conn: Conn| async move {
+        let response = format!("you made a {} request to /get_or_post", conn.method());
+        conn.ok(response)
+    });
+
+    use trillium_testing::prelude::*;
+    assert_ok!(get("/get_or_post").on(&router), "you made a GET request to /get_or_post");
+    assert_ok!(post("/get_or_post").on(&router), "you made a POST request to /get_or_post");
+    assert_not_handled!(delete("/any").on(&router));
+    assert_not_handled!(patch("/any").on(&router));
+    assert_not_handled!(put("/any").on(&router));
+    assert_not_handled!(get("/").on(&router));
+    ```
+    */
+    pub fn any<IntoMethod>(
+        mut self,
+        methods: &[IntoMethod],
+        path: &'static str,
+        handler: impl Handler,
+    ) -> Self
+    where
+        IntoMethod: TryInto<Method> + Clone,
+        <IntoMethod as TryInto<Method>>::Error: Debug,
+    {
+        let methods = methods
+            .to_vec()
+            .into_iter()
+            .map(|m| m.try_into().unwrap())
+            .collect::<Vec<_>>();
+        self.add_any(&methods, path, handler);
         self
     }
 
@@ -312,7 +359,7 @@ impl Handler for Router {
 
 struct RouteForDisplay<'a, H>(&'a Method, &'a Route<H>);
 impl<'a, H: Handler> Debug for RouteForDisplay<'a, H> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!(
             "{} {} -> {}",
             &self.0,
@@ -323,7 +370,7 @@ impl<'a, H: Handler> Debug for RouteForDisplay<'a, H> {
 }
 
 impl Debug for Router {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str("Router ")?;
         let mut set = f.debug_set();
 
