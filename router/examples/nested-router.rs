@@ -9,19 +9,19 @@ struct User {
 mod nested_app {
     use super::*;
     async fn load_user(conn: Conn) -> Conn {
-        let id = conn_try!(conn, conn.param("user_id").unwrap().parse());
+        let id = conn_try!(conn.param("user_id").unwrap().parse(), conn);
         let user = User { id }; // imagine we were loading a user from a database here
         conn.with_state(user)
     }
 
     async fn greeting(mut conn: Conn) -> Conn {
-        let user = conn_unwrap!(conn, conn.take_state::<User>());
+        let user = conn_unwrap!(conn.take_state::<User>(), conn);
         conn.ok(format!("hello user {}", user.id))
     }
 
     async fn post(mut conn: Conn) -> Conn {
-        let user = conn_unwrap!(conn, conn.take_state::<User>());
-        let body = conn_try!(conn, conn.request_body_string().await);
+        let user = conn_unwrap!(conn.take_state::<User>(), conn);
+        let body = conn_try!(conn.request_body_string().await, conn);
         conn.ok(format!("hello user {}, {}", user.id, body))
     }
 

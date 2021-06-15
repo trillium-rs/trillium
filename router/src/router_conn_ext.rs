@@ -17,7 +17,7 @@ pub trait RouterConnExt {
     use trillium_router::{Router, RouterConnExt};
 
     let router = Router::new().get("/pages/:page_name", |conn: Conn| async move {
-        let page_name = conn_unwrap!(conn, conn.param("page_name"));
+        let page_name = conn_unwrap!(conn.param("page_name"), conn);
         let content = format!("you have reached the page named {}", page_name);
         conn.ok(content)
     });
@@ -41,7 +41,7 @@ pub trait RouterConnExt {
     /// use trillium_router::{Router, RouterConnExt};
     ///
     /// let router = Router::new().get("/pages/*", |conn: Conn| async move {
-    ///     let wildcard = conn_unwrap!(conn, conn.wildcard());
+    ///     let wildcard = conn_unwrap!(conn.wildcard(), conn);
     ///     let content = format!("the wildcard matched {}", wildcard);
     ///     conn.ok(content)
     /// });
@@ -71,7 +71,7 @@ impl RouterConnExt for Conn {
 // use trillium_router::{Router, RouterConnExt};
 
 // let router = Router::new().get("/pages/*", |conn: Conn| async move {
-//     let wildcard = conn_unwrap!(conn, conn.wildcard());
+//     let wildcard = conn_unwrap!(conn.wildcard(), conn);
 //     let content = format!("the wildcard matched {}", wildcard);
 //     conn.ok(content)
 // });

@@ -2,7 +2,7 @@ use trillium::{conn_try, Conn, Handler};
 use trillium_logger::Logger;
 
 async fn teapot(mut conn: Conn) -> Conn {
-    let request_body = conn_try!(conn, conn.request_body_string().await);
+    let request_body = conn_try!(conn.request_body_string().await, conn);
     if request_body.is_empty() {
         conn.with_status(406).with_body("unacceptable!").halt()
     } else {

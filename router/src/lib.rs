@@ -22,7 +22,7 @@ use trillium_router::{Router, RouterConnExt};
 let router = Router::new()
     .get("/", |conn: Conn| async move { conn.ok("you have reached the index") })
     .get("/pages/:page_name", |conn: Conn| async move {
-        let page_name = conn_unwrap!(conn, conn.param("page_name"));
+        let page_name = conn_unwrap!(conn.param("page_name"), conn);
         let content = format!("you have reached the page named {}", page_name);
         conn.ok(content)
     });
@@ -67,7 +67,7 @@ use trillium_router::{routes, RouterConnExt};
 let router = routes!(
     get "/" |conn: Conn| async move { conn.ok("you have reached the index") },
     get "/pages/:page_name" |conn: Conn| async move {
-        let page_name = conn_unwrap!(conn, conn.param("page_name"));
+        let page_name = conn_unwrap!(conn.param("page_name"), conn);
         let content = format!("you have reached the page named {}", page_name);
         conn.ok(content)
     }
