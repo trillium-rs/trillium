@@ -87,7 +87,7 @@ impl<C: Controller> Handler for ControllerHandler<C> {
             _ => Ok(()),
         };
 
-        conn_try!(conn, result);
+        conn_try!(result, conn);
 
         conn
     }

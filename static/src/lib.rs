@@ -260,10 +260,10 @@ impl Handler for StaticFileHandler {
             Some(Record::File(path, file, len)) => Self::serve_file(conn, path, file, len),
 
             Some(Record::Dir(path)) => {
-                let index = conn_unwrap!(conn, self.index_file.as_ref());
+                let index = conn_unwrap!(self.index_file.as_ref(), conn);
                 let path = path.join(index);
-                let metadata = conn_unwrap!(conn, fs::metadata(&path).await.ok());
-                let file = conn_unwrap!(conn, File::open(path.to_str().unwrap()).await.ok());
+                let metadata = conn_unwrap!(fs::metadata(&path).await.ok(), conn);
+                let file = conn_unwrap!(File::open(path.to_str().unwrap()).await.ok(), conn);
                 Self::serve_file(conn, path, file, metadata.len())
             }
 

@@ -6,8 +6,8 @@ use trillium_testing::prelude::*;
 use trillium::{Conn, conn_try};
 
 let handler = |mut conn: Conn| async move {
-  let request_body_string = conn_try!(conn, conn.request_body_string().await);
-  let u8: u8 = conn_try!(conn, request_body_string.parse());
+  let request_body_string = conn_try!(conn.request_body_string().await, conn);
+  let u8: u8 = conn_try!(request_body_string.parse(), conn);
   conn.ok(format!("received u8 as body: {}", u8))
 };
 
@@ -28,7 +28,7 @@ assert_body!(
 */
 #[macro_export]
 macro_rules! conn_try {
-    ($conn:expr, $expr:expr) => {
+    ($expr:expr, $conn:expr) => {
         match $expr {
             Ok(value) => value,
             Err(error) => {
@@ -52,7 +52,7 @@ use trillium::{Conn, conn_unwrap, State};
 #[derive(Copy, Clone)]
 struct MyState(&'static str);
 let handler = |conn: trillium::Conn| async move {
-  let important_state: MyState = *conn_unwrap!(conn, conn.state());
+  let important_state: MyState = *conn_unwrap!(conn.state(), conn);
   conn.ok(important_state.0)
 };
 
@@ -66,7 +66,7 @@ assert_ok!(
 */
 #[macro_export]
 macro_rules! conn_unwrap {
-    ($conn:expr, $option:expr) => {
+    ($option:expr, $conn:expr) => {
         match $option {
             Some(value) => value,
             None => return $conn,
