@@ -316,7 +316,7 @@ impl Handler for () {
 #[async_trait]
 impl<H: Handler> Handler for Option<H> {
     async fn run(&self, conn: Conn) -> Conn {
-        let handler = crate::conn_unwrap!(conn, self);
+        let handler = crate::conn_unwrap!(self, conn);
         handler.run(conn).await
     }
 
@@ -327,7 +327,7 @@ impl<H: Handler> Handler for Option<H> {
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
-        let handler = crate::conn_unwrap!(conn, self);
+        let handler = crate::conn_unwrap!(self, conn);
         handler.before_send(conn).await
     }
 

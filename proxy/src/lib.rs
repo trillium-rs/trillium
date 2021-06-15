@@ -177,7 +177,7 @@ struct UpstreamUpgrade<T>(Upgrade<T>);
 #[async_trait]
 impl<C: Connector> Handler for Proxy<C> {
     async fn run(&self, mut conn: Conn) -> Conn {
-        let request_url = conn_try!(conn, self.target.clone().join(conn.path()));
+        let request_url = conn_try!(self.target.clone().join(conn.path()), conn);
 
         let mut client_conn = self.client.build_conn(conn.method(), request_url);
 
@@ -214,7 +214,7 @@ impl<C: Connector> Handler for Proxy<C> {
                 .insert("connection", "keep-alive");
         }
 
-        trillium::conn_try!(conn, client_conn.send().await);
+        trillium::conn_try!(client_conn.send().await, conn);
 
         let conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
