@@ -1,4 +1,5 @@
 use crate::Config;
+use std::net::IpAddr;
 use trillium::{async_trait, Handler};
 use trillium_http::transport::Transport;
 use trillium_tls_common::Acceptor;
@@ -13,6 +14,13 @@ pub trait Server: Sized {
     is often something like a TcpStream.
     */
     type Transport: Transport;
+
+    /**
+    Determine the remote ip/port for the Transport.
+    */
+    fn peer_ip(_transport: &Self::Transport) -> Option<IpAddr> {
+        None
+    }
 
     /**
     entrypoint to run a handler with a given config. if this function

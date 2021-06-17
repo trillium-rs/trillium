@@ -3,7 +3,7 @@ use async_std::{
     prelude::*,
     task,
 };
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 use trillium::{async_trait, Handler, Info};
 use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
 
@@ -40,6 +40,13 @@ pub type Config<A> = trillium_server_common::Config<AsyncStdServer, A>;
 #[async_trait]
 impl Server for AsyncStdServer {
     type Transport = TcpStream;
+
+    fn peer_ip(transport: &Self::Transport) -> Option<IpAddr> {
+        transport
+            .peer_addr()
+            .ok()
+            .map(|socket_addr| socket_addr.ip())
+    }
 
     fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
         task::block_on(async move { Self::run_async(config, handler).await })

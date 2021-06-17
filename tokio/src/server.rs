@@ -1,5 +1,5 @@
 use async_compat::Compat;
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 use tokio::{
     net::{TcpListener, TcpStream},
     runtime::Runtime,
@@ -41,6 +41,14 @@ pub type Config<A> = trillium_server_common::Config<TokioServer, A>;
 #[async_trait]
 impl Server for TokioServer {
     type Transport = Compat<TcpStream>;
+
+    fn peer_ip(transport: &Self::Transport) -> Option<IpAddr> {
+        transport
+            .get_ref()
+            .peer_addr()
+            .ok()
+            .map(|socket_addr| socket_addr.ip())
+    }
 
     fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
         Runtime::new()
