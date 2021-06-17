@@ -142,6 +142,7 @@ where
     }
 
     async fn handle_stream(self, stream: ServerType::Transport, handler: impl Handler) {
+        let peer_ip = ServerType::peer_ip(&stream);
         let stream = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
             Err(e) => {
@@ -150,7 +151,8 @@ where
             }
         };
 
-        let result = HttpConn::map(stream, self.stopper.clone(), |conn| async {
+        let result = HttpConn::map(stream, self.stopper.clone(), |mut conn| async {
+            conn.set_peer_ip(peer_ip);
             let conn = handler.run(conn.into()).await;
             let conn = handler.before_send(conn).await;
 

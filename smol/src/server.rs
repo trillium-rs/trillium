@@ -1,7 +1,7 @@
 use async_global_executor::{block_on, spawn};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 use trillium::{async_trait, Handler, Info};
 use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
 
@@ -38,6 +38,13 @@ async fn handle_signals(stop: Stopper) {
 #[async_trait]
 impl Server for Smol {
     type Transport = TcpStream;
+
+    fn peer_ip(transport: &Self::Transport) -> Option<IpAddr> {
+        transport
+            .peer_addr()
+            .ok()
+            .map(|socket_addr| socket_addr.ip())
+    }
 
     fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
         block_on(Self::run_async(config, handler))

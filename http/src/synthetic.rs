@@ -139,6 +139,7 @@ impl Conn<Synthetic> {
             stopper: Stopper::new(),
             after_send: AfterSend::default(),
             start_time: Instant::now(),
+            peer_ip: None,
         }
     }
 

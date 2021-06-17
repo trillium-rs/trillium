@@ -14,6 +14,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
     iter,
+    net::IpAddr,
     time::Instant,
 };
 
@@ -99,6 +100,7 @@ pub struct Conn<Transport> {
     pub(crate) stopper: Stopper,
     pub(crate) after_send: AfterSend,
     pub(crate) start_time: Instant,
+    pub(crate) peer_ip: Option<IpAddr>,
 }
 
 impl<Transport> Debug for Conn<Transport> {
@@ -112,6 +114,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("version", &self.version)
             .field("request_body_state", &self.request_body_state)
             .field("start_time", &self.start_time)
+            .field("peer_ip", &self.peer_ip)
             .finish()
     }
 }
@@ -496,6 +499,7 @@ where
             stopper,
             after_send: AfterSend::default(),
             start_time,
+            peer_ip: None,
         })
     }
 
@@ -754,6 +758,7 @@ where
             stopper,
             after_send,
             start_time,
+            peer_ip,
         } = self;
 
         Conn {
@@ -772,6 +777,17 @@ where
             stopper,
             after_send,
             start_time,
+            peer_ip,
         }
+    }
+
+    /// sets the remote ip address for this conn, if available.
+    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) {
+        self.peer_ip = peer_ip;
+    }
+
+    /// retrieves the remote ip address for this conn, if available.
+    pub fn peer_ip(&self) -> Option<IpAddr> {
+        self.peer_ip
     }
 }

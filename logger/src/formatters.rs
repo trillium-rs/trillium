@@ -34,8 +34,11 @@ pub fn dev_formatter(conn: &Conn, color: bool) -> impl Display + Send + 'static 
     (method, " ", url, " ", response_time, " ", status).format(conn, color)
 }
 
-pub fn ip(_conn: &Conn, _color: bool) -> &'static str {
-    "-"
+pub fn ip(conn: &Conn, _color: bool) -> Cow<'static, str> {
+    match conn.inner().peer_ip() {
+        Some(peer) => format!("{:?}", peer).into(),
+        None => "-".into(),
+    }
 }
 
 #[derive(Copy, Clone)]
