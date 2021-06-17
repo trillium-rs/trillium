@@ -14,7 +14,6 @@ use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
     iter,
-    ops::Deref,
     time::Instant,
 };
 
@@ -32,6 +31,15 @@ pub enum SendStatus {
     Success,
     Failure,
 }
+impl From<bool> for SendStatus {
+    fn from(success: bool) -> Self {
+        if success {
+            Self::Success
+        } else {
+            Self::Failure
+        }
+    }
+}
 
 impl SendStatus {
     pub fn is_success(&self) -> bool {
@@ -39,18 +47,33 @@ impl SendStatus {
     }
 }
 
-pub(crate) struct AfterSend(Box<dyn Fn(SendStatus) + Send + Sync + 'static>);
-impl Deref for AfterSend {
-    type Target = dyn Fn(SendStatus) + Send + Sync + 'static;
+#[derive(Default)]
+pub(crate) struct AfterSend(Option<Box<dyn FnOnce(SendStatus) + Send + Sync + 'static>>);
 
-    fn deref(&self) -> &Self::Target {
-        &*self.0
+impl AfterSend {
+    pub(crate) fn call(&mut self, send_status: SendStatus) {
+        if let Some(after_send) = self.0.take() {
+            after_send(send_status);
+        }
+    }
+
+    pub(crate) fn append<F>(&mut self, after_send: F)
+    where
+        F: FnOnce(SendStatus) + Send + Sync + 'static,
+    {
+        self.0 = Some(match self.0.take() {
+            Some(existing_after_send) => Box::new(move |ss| {
+                existing_after_send(ss);
+                after_send(ss);
+            }),
+            None => Box::new(after_send),
+        });
     }
 }
 
 impl Drop for AfterSend {
     fn drop(&mut self) {
-        self(SendStatus::Failure);
+        self.call(SendStatus::Failure)
     }
 }
 
@@ -74,7 +97,7 @@ pub struct Conn<Transport> {
     pub(crate) request_body_state: ReceivedBodyState,
     pub(crate) secure: bool,
     pub(crate) stopper: Stopper,
-    pub(crate) after_send: Option<AfterSend>,
+    pub(crate) after_send: AfterSend,
     pub(crate) start_time: Instant,
 }
 
@@ -136,17 +159,11 @@ where
             }
         }
 
-        let after_send = self.after_send.take();
+        let mut after_send = std::mem::take(&mut self.after_send);
         let result = self.finish().await;
-        if let Some(after_send) = after_send {
-            after_send(if result.is_ok() {
-                SendStatus::Success
-            } else {
-                SendStatus::Failure
-            });
+        after_send.call(result.is_ok().into());
+        std::mem::forget(after_send);
 
-            std::mem::forget(after_send);
-        }
         result
     }
 
@@ -314,6 +331,13 @@ where
         self.method
     }
 
+    /**
+    returns the http version for this conn.
+    */
+    pub fn http_version(&self) -> Version {
+        self.version
+    }
+
     fn needs_100_continue(&self) -> bool {
         self.request_body_state == ReceivedBodyState::Start
             && self
@@ -470,7 +494,7 @@ where
             request_body_state: ReceivedBodyState::Start,
             secure: false,
             stopper,
-            after_send: None,
+            after_send: AfterSend::default(),
             start_time,
         })
     }
@@ -534,15 +558,9 @@ where
     */
     pub fn after_send<F>(&mut self, after_send: F)
     where
-        F: Fn(SendStatus) + Send + Sync + 'static,
+        F: FnOnce(SendStatus) + Send + Sync + 'static,
     {
-        self.after_send = Some(match self.after_send.take() {
-            Some(existing_after_send) => AfterSend(Box::new(move |ss| {
-                existing_after_send(ss);
-                after_send(ss);
-            })),
-            None => AfterSend(Box::new(after_send)),
-        })
+        self.after_send.append(after_send);
     }
 
     /// The [`Instant`] that the first header bytes for this conn were
