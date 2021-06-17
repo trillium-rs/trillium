@@ -9,7 +9,7 @@ use std::{
     time::Instant,
 };
 
-use crate::{received_body::ReceivedBodyState, Conn, Stopper};
+use crate::{conn::AfterSend, received_body::ReceivedBodyState, Conn, Stopper};
 
 /**
 Synthetic represents a simple transport that contains fixed
@@ -137,7 +137,7 @@ impl Conn<Synthetic> {
             request_body_state: ReceivedBodyState::Start,
             secure: false,
             stopper: Stopper::new(),
-            after_send: None,
+            after_send: AfterSend::default(),
             start_time: Instant::now(),
         }
     }
