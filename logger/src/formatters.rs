@@ -1,9 +1,9 @@
 use crate::LogFormatter;
 use colored::{ColoredString, Colorize};
 use size::{Base, Size, Style};
-use std::{borrow::Cow, fmt::Display, time::Instant};
+use std::{borrow::Cow, fmt::Display, sync::Arc, time::Instant};
 use trillium::{
-    http_types::{Method, StatusCode},
+    http_types::{Method, StatusCode, Version},
     Conn,
 };
 
@@ -108,11 +108,11 @@ where
     move |conn: &Conn, color: bool| formatter.format(conn, color)
 }
 
-pub fn bytes(conn: &trillium::Conn, _color: bool) -> u64 {
+pub fn bytes(conn: &Conn, _color: bool) -> u64 {
     conn.response_len().unwrap_or_default()
 }
 
-pub fn url(conn: &trillium::Conn, _color: bool) -> String {
+pub fn url(conn: &Conn, _color: bool) -> String {
     match conn.querystring() {
         "" => conn.path().into(),
         query => format!("{}?{}", conn.path(), query),
@@ -126,11 +126,11 @@ impl Display for ResponseTimeOutput {
     }
 }
 
-pub fn response_time(conn: &trillium::Conn, _color: bool) -> ResponseTimeOutput {
+pub fn response_time(conn: &Conn, _color: bool) -> ResponseTimeOutput {
     ResponseTimeOutput(conn.inner().start_time())
 }
 
-pub fn version(conn: &trillium::Conn, _color: bool) -> trillium::http_types::Version {
+pub fn version(conn: &Conn, _color: bool) -> Version {
     conn.inner().http_version()
 }
 
@@ -138,6 +138,13 @@ impl LogFormatter for &'static str {
     type Output = Self;
     fn format(&self, _conn: &Conn, _color: bool) -> Self::Output {
         self
+    }
+}
+
+impl LogFormatter for Arc<str> {
+    type Output = Self;
+    fn format(&self, _conn: &Conn, _color: bool) -> Self::Output {
+        Arc::clone(self)
     }
 }
 
@@ -163,6 +170,15 @@ where
     }
 }
 
+/**
+Represents the output of the tuple implementation for
+[`LogFormatter`]. the Display type of each tuple element is contained
+in this type, and it implements [`Display`] for 2-26 arity contained
+tuples.
+
+Please open an issue if you find yourself needing to do something with
+this other than [`Display`] it.
+*/
 pub struct TupleOutput<O>(O);
 macro_rules! impl_formatter_tuple {
     ($($name:ident)+) => (
