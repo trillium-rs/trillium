@@ -52,3 +52,10 @@ signal-hook = "0.3.9"
 libc = "0.2.97"
 nix = "0.21.0"
 notify = "4.0.17"
+
+[lib]
+doc = false
+
+[[bin]]
+name = "trillium"
+doc = false
