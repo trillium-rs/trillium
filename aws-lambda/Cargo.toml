@@ -18,7 +18,7 @@ log = "0.4.14"
 serde = "1.0.126"
 serde_derive = "1.0.126"
 serde_json = "1.0.64"
-tokio = { version = "1.6.1", features = ["rt", "net", "rt-multi-thread"] }
+tokio = { version = "1.7.1", features = ["rt", "net", "rt-multi-thread"], package = "tokio" }
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-http = { path = "../http", version = "^0.1.0" }
 
