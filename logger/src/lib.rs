@@ -154,7 +154,7 @@ fn user(conn: &Conn, color: bool) -> Cow<'static, str> {
 let handler = Logger::new().with_formatter((dev_formatter, " ", user));
 ```
 */
-pub trait LogFormatter: Send + Sync {
+pub trait LogFormatter: Send + Sync + 'static {
     /**
     The display type for this formatter
 
@@ -259,7 +259,7 @@ struct LoggerWasRun;
 #[async_trait]
 impl<F> Handler for Logger<F>
 where
-    F: LogFormatter + 'static,
+    F: LogFormatter,
 {
     async fn init(&mut self, info: &mut Info) {
         self.target.write(&format!(
