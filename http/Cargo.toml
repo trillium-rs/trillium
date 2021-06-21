@@ -1,6 +1,6 @@
 [package]
 name = "trillium-http"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2018"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 description = "the http implementation for the trillium toolkit"
