@@ -20,7 +20,7 @@ tokio = ["tokio_crate", "async-compat"]
 async-compat = { version = "0.2.1", optional = true }
 async-fs = { version = "1.5.0", optional = true }
 cfg-if = "1.0.0"
-futures-lite = "*"
+futures-lite = "1.12.0"
 log = "0.4.14"
 mime-db = "1.4.0"
 relative-path = "1.4.0"
@@ -38,7 +38,7 @@ package = "tokio"
 version = "1.6.1"
 
 [dev-dependencies]
-env_logger = "*"
+env_logger = "0.8.4"
 trillium-static = { path = ".", features = ["smol"] }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
