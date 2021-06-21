@@ -60,18 +60,73 @@ assert_ok!(
 
 ```
 
+
+## ❗IMPORTANT❗
+
+this crate has three features currently: `smol`, `async-std`, and
+`tokio`.
+
+You **must** enable one of these in order to use the crate. This
+is intended to be a temporary situation, and eventually you will not
+need to specify the runtime through feature flags.
+
 ## stability note
 
 Please note that this crate is fairly incomplete, while functional. It
 does not include any notion of range requests or cache headers. It
 serves all files from disk every time, with no in-memory caching.
-
-It's also worth noting that this currently uses `async_fs`. Adding
-support for other async fs libraries (tokio fs, async-std fs) is in
-future plans.
-
 */
-use async_fs::File;
+
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "smol")] {
+        use async_fs::{self as fs, File};
+    } else if #[cfg(feature = "tokio")] {
+        use async_compat::Compat;
+        use tokio_crate::fs;
+        struct File(Compat<fs::File>);
+
+        impl std::fmt::Debug for File {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Debug::fmt(self.0.get_ref(), f)
+            }
+        }
+
+        impl File {
+            pub async fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
+                fs::File::open(path).await.map(|f| Self(Compat::new(f)))
+            }
+        }
+
+        impl futures_lite::AsyncRead for File {
+            fn poll_read(
+                mut self: std::pin::Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+                buf: &mut [u8],
+            ) -> std::task::Poll<std::io::Result<usize>> {
+                std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+            }
+        }
+    } else if #[cfg(feature = "async-std")] {
+        use async_std_crate::fs::{self, File};
+    } else {
+        compile_error!("trillium-static:
+You must enable one of the three runtime feature flags
+to use this crate:
+
+* tokio
+* async-std
+* smol
+
+This is a temporary constraint, and hopefully soon this
+will not require the use of cargo feature flags."
+);
+    }
+}
+
+cfg_if! { if #[cfg(any(feature= "smol", feature = "tokio", feature = "async-std"))] {
+
 use futures_lite::io::BufReader;
 pub use relative_path;
 use std::path::{Path, PathBuf};
@@ -113,7 +168,7 @@ impl StaticFileHandler {
         }
 
         if file_path.starts_with(&self.fs_root) {
-            async_fs::canonicalize(file_path).await.ok()
+            fs::canonicalize(file_path).await.ok().map(Into::into)
         } else {
             None
         }
@@ -121,7 +176,7 @@ impl StaticFileHandler {
 
     async fn resolve(&self, url_path: &str) -> Option<Record> {
         let fs_path = self.resolve_fs_path(url_path).await?;
-        let metadata = async_fs::metadata(&fs_path).await.ok()?;
+        let metadata = fs::metadata(&fs_path).await.ok()?;
         if metadata.is_dir() {
             Some(Record::Dir(fs_path))
         } else if metadata.is_file() {
@@ -197,7 +252,7 @@ impl Handler for StaticFileHandler {
             Some(Record::Dir(path)) => {
                 let index = conn_unwrap!(conn, self.index_file.as_ref());
                 let path = path.join(index);
-                let metadata = conn_unwrap!(conn, async_fs::metadata(&path).await.ok());
+                let metadata = conn_unwrap!(conn, fs::metadata(&path).await.ok());
                 let file = conn_unwrap!(conn, File::open(path.to_str().unwrap()).await.ok());
                 Self::serve_file(conn, path, file, metadata.len())
             }
@@ -214,3 +269,5 @@ macro_rules! crate_relative_path {
         $crate::relative_path::RelativePath::new($path).to_logical_path(env!("CARGO_MANIFEST_DIR"))
     };
 }
+
+}}

@@ -10,14 +10,35 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[features]
+async-std = ["async_std_crate"]
+default = []
+smol = ["async-fs"]
+tokio = ["tokio_crate", "async-compat"]
+
 [dependencies]
-async-fs = "1.5.0"
-futures-lite = "1.12.0"
+async-compat = { version = "0.2.1", optional = true }
+async-fs = { version = "1.5.0", optional = true }
+cfg-if = "1.0.0"
+futures-lite = "*"
 log = "0.4.14"
 mime-db = "1.4.0"
 relative-path = "1.4.0"
 trillium = { path = "../trillium", version = "^0.1.0" }
 
+[dependencies.async_std_crate]
+optional = true
+package = "async-std"
+version = "1.9.0"
+
+[dependencies.tokio_crate]
+features = ["fs"]
+optional = true
+package = "tokio"
+version = "1.6.1"
+
 [dev-dependencies]
+env_logger = "*"
+trillium-static = { path = ".", features = ["smol"] }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
