@@ -47,15 +47,13 @@ pub fn apache_combined(
     request_id: impl LogFormatter,
     user_id: impl LogFormatter,
 ) -> impl LogFormatter {
-    let formatter = (
+    (
         apache_common(request_id, user_id),
         " ",
         header("referrer"),
         " ",
         header("user-agent"),
-    );
-
-    move |conn: &Conn, color: bool| formatter.format(conn, color)
+    )
 }
 
 /**
@@ -243,12 +241,10 @@ pub fn apache_common(
     request_id: impl LogFormatter,
     user_id: impl LogFormatter,
 ) -> impl LogFormatter {
-    let formatter = (
+    (
         ip, " ", request_id, " ", user_id, " [", timestamp, "] \"", method, " ", url, " ", version,
         "\" ", status, " ", bytes,
-    );
-
-    move |conn: &Conn, color: bool| formatter.format(conn, color)
+    )
 }
 
 /**

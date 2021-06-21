@@ -10,13 +10,15 @@ impl User {
     }
 }
 
+fn user_id(conn: &Conn, _color: bool) -> &'static str {
+    conn.state::<User>().map(User::name).unwrap_or("-")
+}
+
 pub fn main() {
     trillium_smol::run((
         State::new(User("jacob")),
         Logger::new()
-            .with_formatter(apache_combined("-", |conn: &Conn, _color| {
-                conn.state::<User>().map(User::name).unwrap_or("-")
-            }))
+            .with_formatter(apache_combined("-", user_id))
             .with_target(Target::Stdout),
         "ok",
     ));
