@@ -31,7 +31,7 @@ trillium-proxy = { path = "../proxy" }
 trillium-router = { path = "../router", version = "^0.1.0" }
 trillium-rustls = { path = "../rustls" }
 trillium-smol = { path = "../smol", version = "^0.1.0" }
-trillium-static = { path = "../static" }
+trillium-static = { path = "../static", features = ["smol"] }
 trillium-websockets = { path = "../websockets/", features = ["json"] }
 
 [dependencies.bat]

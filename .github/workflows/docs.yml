@@ -21,9 +21,8 @@ jobs:
         RUSTDOCFLAGS="-Z unstable-options --enable-index-page"
         cargo +nightly doc
         --no-deps
-        --lib
         --all
-        --exclude trillium-cli
+        --features smol
 
     - name: Deploy Docs
       uses: peaceiris/actions-gh-pages@364c31d33bb99327c77b3a5438a83a357a6729ad
