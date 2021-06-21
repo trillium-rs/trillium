@@ -22,8 +22,8 @@ where `request_id` and `user_id` are mandatory formatters provided at time of us
 
 ## usage with empty `request_id` and `user_id`
 ```
-# use trillium_logger::{Logger, apache_common};
-Logger::new().with_format(apache_combined("-", "-"));
+# use trillium_logger::{Logger, apache_combined};
+Logger::new().with_formatter(apache_combined("-", "-"));
 ```
 
 ## usage with an app-specific `user_id`
@@ -40,7 +40,7 @@ fn user(conn: &Conn, color: bool) -> Cow<'static, str> {
     }
 }
 
-Logger::new().with_format(apache_combined("-", user));
+Logger::new().with_formatter(apache_combined("-", user));
 ```
 */
 pub fn apache_combined(
@@ -150,6 +150,7 @@ quotes. `""` if the header is not present
 usage:
 
 ```rust
+# use trillium_logger::{Logger, formatters::header};
 Logger::new().with_formatter(("user-agent: ", header("user-agent")));
 ```
 
@@ -219,7 +220,7 @@ where `request_id` and `user_id` are mandatory formatters provided at time of us
 ## usage without `request_id` or `user_id`
 ```
 # use trillium_logger::{Logger, apache_common};
-Logger::new().with_format(apache_common("-", "-"));
+Logger::new().with_formatter(apache_common("-", "-"));
 ```
 
 ## usage with app-specific `user_id`
@@ -235,7 +236,7 @@ fn user(conn: &Conn, color: bool) -> Cow<'static, str> {
     }
 }
 
-Logger::new().with_format(apache_common("-", user));
+Logger::new().with_formatter(apache_common("-", user));
 ```
 */
 pub fn apache_common(
