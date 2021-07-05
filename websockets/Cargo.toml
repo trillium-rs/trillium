@@ -15,7 +15,7 @@ json = ["serde_json"]
 
 [dependencies]
 async-dup = "1.2.2"
-async-tungstenite = "0.13.1"
+async-tungstenite = "0.14.0"
 base64 = "0.13.0"
 futures-util = "0.3.15"
 log = "0.4.14"
