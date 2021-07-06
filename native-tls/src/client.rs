@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_tls_common::{async_trait, AsyncRead, AsyncWrite, Connector, Url};
+use trillium_tls_common::{async_trait, AsConnector, AsyncRead, AsyncWrite, Connector, Url};
 use NativeTlsTransportInner::{Tcp, Tls};
 
 /**
@@ -113,6 +113,13 @@ trillium client connector for native tls
 */
 #[derive(Clone, Copy, Debug)]
 pub struct NativeTlsConnector<T>(PhantomData<T>);
+
+impl<C> AsConnector<C> for NativeTlsConnector<C>
+where
+    C: Connector,
+{
+    type Connector = Self;
+}
 
 #[async_trait]
 impl<T: Connector> Connector for NativeTlsConnector<T> {

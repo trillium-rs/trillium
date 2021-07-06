@@ -60,98 +60,44 @@ assert_ok!(
 
 ```
 
-
-## ❗IMPORTANT❗
-
-this crate has three features currently: `smol`, `async-std`, and
-`tokio`.
-
-You **must** enable one of these in order to use the crate. This
-is intended to be a temporary situation, and eventually you will not
-need to specify the runtime through feature flags.
-
 ## stability note
 
 Please note that this crate is fairly incomplete, while functional. It
 does not include any notion of range requests or cache headers. It
 serves all files from disk every time, with no in-memory caching.
 */
-
-use cfg_if::cfg_if;
-
-cfg_if! {
-    if #[cfg(feature = "smol")] {
-        use async_fs::{self as fs, File};
-    } else if #[cfg(feature = "tokio")] {
-        use async_compat::Compat;
-        use tokio_crate::fs;
-        struct File(Compat<fs::File>);
-
-        impl std::fmt::Debug for File {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                std::fmt::Debug::fmt(self.0.get_ref(), f)
-            }
-        }
-
-        impl File {
-            pub async fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
-                fs::File::open(path).await.map(|f| Self(Compat::new(f)))
-            }
-        }
-
-        impl futures_lite::AsyncRead for File {
-            fn poll_read(
-                mut self: std::pin::Pin<&mut Self>,
-                cx: &mut std::task::Context<'_>,
-                buf: &mut [u8],
-            ) -> std::task::Poll<std::io::Result<usize>> {
-                std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
-            }
-        }
-    } else if #[cfg(feature = "async-std")] {
-        use async_std_crate::fs::{self, File};
-    } else {
-        compile_error!("trillium-static:
-You must enable one of the three runtime feature flags
-to use this crate:
-
-* tokio
-* async-std
-* smol
-
-This is a temporary constraint, and hopefully soon this
-will not require the use of cargo feature flags."
-);
-    }
-}
-
-cfg_if! { if #[cfg(any(feature= "smol", feature = "tokio", feature = "async-std"))] {
-
 use futures_lite::io::BufReader;
 pub use relative_path;
-use std::path::{Path, PathBuf};
+use std::{
+    marker::PhantomData,
+    path::{Path, PathBuf},
+};
 use trillium::{
     async_trait, conn_unwrap,
     http_types::{content::ContentType, Body},
-    Conn, Handler,
+    Conn, FileSystem, Handler,
 };
 
 /**
 trillium handler to serve static files from the filesystem
 */
 #[derive(Debug)]
-pub struct StaticFileHandler {
+pub struct StaticFileHandler<R> {
     fs_root: PathBuf,
     index_file: Option<String>,
+    runtime: PhantomData<R>,
 }
 
 #[derive(Debug)]
-enum Record {
+enum Record<File> {
     File(PathBuf, File, u64),
     Dir(PathBuf),
 }
 
-impl StaticFileHandler {
+impl<R> StaticFileHandler<R>
+where
+    R: FileSystem,
+{
     async fn resolve_fs_path(&self, url_path: &str) -> Option<PathBuf> {
         let mut file_path = self.fs_root.clone();
         for segment in Path::new(url_path) {
@@ -168,20 +114,20 @@ impl StaticFileHandler {
         }
 
         if file_path.starts_with(&self.fs_root) {
-            fs::canonicalize(file_path).await.ok().map(Into::into)
+            R::canonicalize(file_path).await.ok()
         } else {
             None
         }
     }
 
-    async fn resolve(&self, url_path: &str) -> Option<Record> {
+    async fn resolve(&self, url_path: &str) -> Option<Record<R::File>> {
         let fs_path = self.resolve_fs_path(url_path).await?;
-        let metadata = fs::metadata(&fs_path).await.ok()?;
+        let metadata = R::metadata(&fs_path).await.ok()?;
         if metadata.is_dir() {
             Some(Record::Dir(fs_path))
         } else if metadata.is_file() {
             let len = metadata.len();
-            File::open(&fs_path)
+            R::open(&fs_path)
                 .await
                 .ok()
                 .map(|file| Record::File(fs_path, file, len))
@@ -190,7 +136,7 @@ impl StaticFileHandler {
         }
     }
 
-    fn serve_file(mut conn: Conn, path: PathBuf, file: File, len: u64) -> Conn {
+    fn serve_file(mut conn: Conn, path: PathBuf, file: R::File, len: u64) -> Conn {
         if let Some(mime) = path.to_str().and_then(mime_db::lookup) {
             conn.headers_mut().apply(ContentType::new(mime));
         }
@@ -222,6 +168,7 @@ impl StaticFileHandler {
         Self {
             fs_root,
             index_file: None,
+            runtime: PhantomData,
         }
     }
 
@@ -244,7 +191,10 @@ impl StaticFileHandler {
 }
 
 #[async_trait]
-impl Handler for StaticFileHandler {
+impl<R> Handler<R> for StaticFileHandler<R>
+where
+    R: FileSystem + Send + Sync + 'static,
+{
     async fn run(&self, conn: Conn) -> Conn {
         match self.resolve(conn.path()).await {
             Some(Record::File(path, file, len)) => Self::serve_file(conn, path, file, len),
@@ -252,8 +202,9 @@ impl Handler for StaticFileHandler {
             Some(Record::Dir(path)) => {
                 let index = conn_unwrap!(self.index_file.as_ref(), conn);
                 let path = path.join(index);
-                let metadata = conn_unwrap!(fs::metadata(&path).await.ok(), conn);
-                let file = conn_unwrap!(File::open(path.to_str().unwrap()).await.ok(), conn);
+                let metadata = conn_unwrap!(R::metadata(&path).await.ok(), conn);
+                let file = conn_unwrap!(R::open(&path).await.ok(), conn);
+
                 Self::serve_file(conn, path, file, metadata.len())
             }
 
@@ -269,5 +220,3 @@ macro_rules! crate_relative_path {
         $crate::relative_path::RelativePath::new($path).to_logical_path(env!("CARGO_MANIFEST_DIR"))
     };
 }
-
-}}

@@ -37,7 +37,7 @@ mod client;
 pub use client::{ClientConfig, TcpConnector};
 
 mod server;
-use server::Config;
+pub use server::TokioServer;
 
 /**
 # Runs a trillium handler in a sync context with default config
@@ -50,7 +50,7 @@ and how to override them
 This function will block the current thread until the server shuts
 down
 */
-pub fn run(handler: impl Handler) {
+pub fn run(handler: impl Handler<TokioServer<()>>) {
     config().run(handler)
 }
 
@@ -64,7 +64,7 @@ customize these settings, see [`crate::config`].
 This function will poll pending until the server shuts down.
 
 */
-pub async fn run_async(handler: impl Handler) {
+pub async fn run_async(handler: impl Handler<TokioServer<()>>) {
     config().run_async(handler).await
 }
 
@@ -101,6 +101,6 @@ trillium_tokio::config()
 See [`trillium_server_common::Config`] for more details
 
 */
-pub fn config() -> Config<()> {
-    Config::new()
+pub fn config() -> TokioServer<()> {
+    TokioServer::new()
 }

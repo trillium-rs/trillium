@@ -40,7 +40,7 @@ assert_not_handled!(",
 
     ($fn_name:ident, $method:ident, $doc_comment:expr) => {
         #[doc = $doc_comment]
-        pub fn $fn_name(&mut self, path: &'static str, handler: impl Handler) {
+        pub fn $fn_name(&mut self, path: &'static str, handler: impl Handler<R>) {
             self.0.add(path, Method::$method, handler);
         }
     };
@@ -53,8 +53,8 @@ A wrapper around a `&mut Router` that supports imperative route
 registration. See [`Router::build`] for further documentation.
 */
 #[derive(Debug)]
-pub struct RouterRef<'r>(&'r mut Router);
-impl<'r> RouterRef<'r> {
+pub struct RouterRef<'r, R: 'static>(&'r mut Router<R>);
+impl<'r, R> RouterRef<'r, R> {
     method_ref!(get, Get);
     method_ref!(post, Post);
     method_ref!(put, Put);
@@ -85,11 +85,11 @@ impl<'r> RouterRef<'r> {
     ```
 
     */
-    pub fn any(&mut self, path: &'static str, handler: impl Handler) {
+    pub fn any(&mut self, path: &'static str, handler: impl Handler<R>) {
         self.0.add_any(path, handler)
     }
 
-    pub(crate) fn new(router: &'r mut Router) -> Self {
+    pub(crate) fn new(router: &'r mut Router<R>) -> Self {
         Self(router)
     }
 }

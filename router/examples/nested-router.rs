@@ -29,7 +29,7 @@ mod nested_app {
         conn.ok("this is an uninspired example")
     }
 
-    pub fn handler() -> impl Handler {
+    pub fn handler<R: 'static>() -> impl Handler<R> {
         (
             load_user,
             Router::new()

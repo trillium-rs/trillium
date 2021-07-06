@@ -102,7 +102,7 @@ impl From<PathBuf> for HandlebarsHandler {
 }
 
 #[async_trait]
-impl Handler for HandlebarsHandler {
+impl<R> Handler<R> for HandlebarsHandler {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone())
     }

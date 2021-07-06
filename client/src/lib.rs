@@ -52,4 +52,4 @@ pub use trillium_http::{http_types, Error, Result};
 
 mod util;
 
-pub use trillium_tls_common::Connector;
+pub use trillium_tls_common::{AsConnector, Connector};

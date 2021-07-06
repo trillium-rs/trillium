@@ -26,30 +26,29 @@ use trillium::{
 use trillium_http::{transport::BoxedTransport, Upgrade};
 use StatusCode::{NotFound, SwitchingProtocols};
 
-pub use trillium_client::{Client, Connector};
+pub use trillium_client::{AsConnector, Client, Connector};
 
 /**
 the proxy handler
 */
 #[derive(Debug)]
-pub struct Proxy<C: Connector> {
+pub struct Proxy<R: Connector, C: AsConnector<R> = ()> {
     target: Url,
-    client: Client<C>,
+    client: Client<<C as AsConnector<R>>::Connector>,
     pass_through_not_found: bool,
     halt: bool,
 }
 
-impl<C: Connector> Proxy<C> {
+impl<R: Connector> Proxy<R, ()> {
     /**
     construct a new proxy handler that sends all requests to the url
     provided.  if the url contains a path, the inbound request path
     will be joined onto the end.
 
     ```
-    use trillium_smol::{TcpConnector, ClientConfig};
-    use trillium_proxy::Proxy;
+    let handler = trillium_proxy::Proxy::new("http://docs.trillium.rs/trillium_proxy");
+    # drop(trillium_smol::run_async(handler)); // to infer the connector
 
-    let proxy = Proxy::<TcpConnector>::new("http://docs.trillium.rs/trillium_proxy");
     ```
 
      */
@@ -63,31 +62,97 @@ impl<C: Connector> Proxy<C> {
             panic!("{} cannot be a base", url);
         }
 
-        Self {
+        Proxy {
             target: url,
             client: Client::new().with_default_pool(),
             pass_through_not_found: true,
             halt: true,
         }
     }
+}
 
+impl<R: Connector, C: AsConnector<R>> Proxy<R, C> {
     /**
     chainable constructor to specify the client Connector
     configuration
 
     ```
-    use trillium_smol::{TcpConnector, ClientConfig};
+    use trillium_smol::ClientConfig;
     use trillium_proxy::Proxy;
-    let proxy = Proxy::<TcpConnector>::new("http://trillium.rs")
+
+    let proxy = Proxy::new("http://trillium.rs")
         .with_config(ClientConfig { //<-
             nodelay: Some(true),
             ..Default::default()
         });
+
+    # drop(trillium_smol::run_async(proxy)); // in order to infer the connector
     ```
     */
-    pub fn with_config(mut self, config: C::Config) -> Self {
-        self.client = self.client.with_config(config);
+    pub fn with_config(
+        mut self,
+        config: impl Into<<<C as AsConnector<R>>::Connector as Connector>::Config>,
+    ) -> Self {
+        self.client = self.client.with_config(config.into());
         self
+    }
+
+    /**
+    use an additional connector that can be layered on top of the
+    base connector.
+
+    in practice, this currently means using
+    [`trillium_native_tls::NativeTlsConnector::new`] or
+    [`trillium_rustls::RustlsConnector::new`].
+
+    **Note:** if your trillium application uses a tls acceptor to
+    _serve_ tls, Proxy will detect that and use that tls
+    implementation for outbound requests.
+
+    ## examples
+
+    ```
+    use trillium_proxy::Proxy;
+    use trillium_rustls::{RustlsConnector, rustls::ClientConfig};
+
+    let handler = Proxy::new("https://www.google.com")
+        .with_connector(RustlsConnector::new())
+        .with_config(ClientConfig::new());
+
+    # drop(trillium_smol::run_async(handler));
+    ```
+
+
+    ```
+    use trillium_proxy::Proxy;
+    use trillium_rustls::{RustlsConnector, RustlsConfig};
+    use trillium_smol::ClientConfig;
+
+    let handler = Proxy::new("https://www.google.com")
+        .with_connector(RustlsConnector::new())
+        .with_config(RustlsConfig {
+            tcp_config: ClientConfig {
+               nodelay: Some(true),
+               ..Default::default()
+            },
+            ..Default::default()
+        });
+
+    # drop(trillium_smol::run_async(handler));
+    ```
+    */
+
+    pub fn with_connector<NewConnector: AsConnector<R>>(
+        self,
+        connector: NewConnector,
+    ) -> Proxy<R, NewConnector> {
+        drop(connector);
+        Proxy {
+            target: self.target,
+            client: Client::new().with_default_pool(),
+            pass_through_not_found: self.pass_through_not_found,
+            halt: self.halt,
+        }
     }
 
     /**
@@ -122,7 +187,7 @@ impl<C: Connector> Proxy<C> {
     );
     ```
      */
-    pub fn with_client(mut self, client: Client<C>) -> Self {
+    pub fn with_client(mut self, client: Client<<C as AsConnector<R>>::Connector>) -> Self {
         self.client = client;
         self
     }
@@ -174,7 +239,7 @@ impl<C: Connector> Proxy<C> {
 struct UpstreamUpgrade<T>(Upgrade<T>);
 
 #[async_trait]
-impl<C: Connector> Handler for Proxy<C> {
+impl<R: Connector, C: AsConnector<R>> Handler<R> for Proxy<R, C> {
     async fn run(&self, mut conn: Conn) -> Conn {
         let request_url = conn_try!(self.target.clone().join(conn.path()), conn);
 
@@ -199,7 +264,9 @@ impl<C: Connector> Handler for Proxy<C> {
         // situations where request bodies are large. there is no
         // reason that we couldn't have another lifetime on client
         // conn here, though
-        if let Ok(client_body_content) = conn.request_body().await.read_bytes().await {
+        let request_body = conn.request_body().await;
+
+        if let Ok(client_body_content) = request_body.read_bytes().await {
             client_conn.set_request_body(client_body_content);
         }
 
@@ -255,14 +322,14 @@ impl<C: Connector> Handler for Proxy<C> {
     fn has_upgrade(&self, upgrade: &Upgrade<BoxedTransport>) -> bool {
         upgrade
             .state
-            .get::<UpstreamUpgrade<C::Transport>>()
+            .get::<UpstreamUpgrade<R::Transport>>()
             .is_some()
     }
 
     async fn upgrade(&self, mut upgrade: trillium::Upgrade) {
         let upstream = upgrade
             .state
-            .remove::<UpstreamUpgrade<C::Transport>>()
+            .remove::<UpstreamUpgrade<R::Transport>>()
             .unwrap()
             .0;
         let downstream = upgrade;

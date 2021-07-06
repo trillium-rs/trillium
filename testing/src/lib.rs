@@ -44,6 +44,7 @@ mod test_conn;
 pub use test_conn::TestConn;
 
 mod with_server;
+use trillium_smol::Smol;
 pub use with_server::with_server;
 
 pub mod methods;
@@ -60,7 +61,7 @@ pub mod prelude {
 }
 
 /// initialize a handler
-pub fn init(handler: &mut impl trillium::Handler) {
+pub fn init(handler: &mut impl trillium::Handler<Smol<()>>) {
     let mut info = "testing".into();
     block_on(handler.init(&mut info))
 }

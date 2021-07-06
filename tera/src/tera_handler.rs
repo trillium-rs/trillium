@@ -78,7 +78,7 @@ impl TeraHandler {
 }
 
 #[async_trait]
-impl Handler for TeraHandler {
+impl<R> Handler<R> for TeraHandler {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone()).with_state(Context::new())
     }

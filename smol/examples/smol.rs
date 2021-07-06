@@ -1,4 +1,6 @@
 pub fn main() {
-    env_logger::init();
-    trillium_smol::run(|conn: trillium::Conn| async move { conn.ok("hello") });
+    trillium_smol::run((
+        trillium_logger::Logger::new(),
+        |conn: trillium::Conn| async move { conn.ok("hello world") },
+    ))
 }

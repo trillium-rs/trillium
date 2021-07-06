@@ -1,11 +1,18 @@
 use async_std::{
     net::{TcpListener, TcpStream},
     prelude::*,
-    task,
+    task::block_on,
 };
-use std::{net::IpAddr, sync::Arc};
-use trillium::{async_trait, Handler, Info};
-use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
+use std::{
+    fs::Metadata,
+    io::Result,
+    net::IpAddr,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::Arc,
+};
+use trillium::{async_trait, FileSystem, Handler, Info, Runtime};
+use trillium_server_common::{Acceptor, Config, Server, Stopper};
 
 const SERVER_DESCRIPTION: &str = concat!(
     " (",
@@ -33,51 +40,89 @@ async fn handle_signals(stop: Stopper) {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct AsyncStdServer;
-pub type Config<A> = trillium_server_common::Config<AsyncStdServer, A>;
+#[derive(Debug, Clone)]
+pub struct AsyncStdServer<A> {
+    acceptor: A,
+    config: Config,
+}
+
+impl AsyncStdServer<()> {
+    /// constructs a new AsyncStdServer with a default noop [`Acceptor`] and default [`Config`]
+    pub fn new() -> Self {
+        Self {
+            config: Config::default(),
+            acceptor: (),
+        }
+    }
+}
+
+trillium_server_common::standard_server!(
+    AsyncStdServer,
+    transport: TcpStream,
+    listener: TcpListener
+);
+
+impl<A: Acceptor<TcpStream>> Server for AsyncStdServer<A> {
+    fn run_async(self, handler: impl Handler<Self>) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(AsyncStdServer::run_async(self, handler))
+    }
+
+    #[cfg(unix)]
+    fn handle_signals(&self) {
+        Self::spawn(handle_signals(self.config.stopper().clone()));
+    }
+}
+
+impl<A> Runtime for AsyncStdServer<A>
+where
+    A: Send + Sync + 'static,
+{
+    fn block_on<F>(future: F) -> F::Output
+    where
+        F: Future,
+    {
+        block_on(future)
+    }
+
+    fn spawn<F>(future: F)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        async_std::task::spawn(future);
+    }
+
+    fn spawn_with_handle<F>(future: F) -> Pin<Box<dyn Future<Output = F::Output>>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        Box::pin(async_std::task::spawn(future))
+    }
+
+    fn spawn_local<F>(future: F)
+    where
+        F: Future + 'static,
+    {
+        async_std::task::spawn_local(future);
+    }
+}
 
 #[async_trait]
-impl Server for AsyncStdServer {
-    type Transport = TcpStream;
+impl<A> FileSystem for AsyncStdServer<A> {
+    type File = async_std::fs::File;
 
-    fn peer_ip(transport: &Self::Transport) -> Option<IpAddr> {
-        transport
-            .peer_addr()
-            .ok()
-            .map(|socket_addr| socket_addr.ip())
+    async fn canonicalize<P: AsRef<Path> + Send + Sync>(path: P) -> Result<PathBuf> {
+        async_std::fs::canonicalize(path.as_ref())
+            .await
+            .map(Into::into)
     }
 
-    fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
-        task::block_on(async move { Self::run_async(config, handler).await })
+    async fn metadata<P: AsRef<Path> + Send + Sync>(path: P) -> Result<Metadata> {
+        async_std::fs::metadata(path.as_ref()).await
     }
 
-    async fn run_async<A: Acceptor<Self::Transport>, H: Handler>(
-        config: Config<A>,
-        mut handler: H,
-    ) {
-        if config.should_register_signals() {
-            #[cfg(unix)]
-            task::spawn(handle_signals(config.stopper()));
-            #[cfg(not(unix))]
-            panic!("signals handling not supported on windows yet");
-        }
-
-        let listener = config.build_listener::<TcpListener>();
-        let local_addr = listener.local_addr().unwrap();
-        let mut info = Info::from(local_addr);
-        *info.listener_description_mut() = format!("http://{}:{}", config.host(), config.port());
-        info.server_description_mut().push_str(SERVER_DESCRIPTION);
-
-        handler.init(&mut info).await;
-        let handler = Arc::new(handler);
-
-        let mut incoming = config.stopper().stop_stream(listener.incoming());
-        while let Some(Ok(stream)) = incoming.next().await {
-            trillium::log_error!(stream.set_nodelay(config.nodelay()));
-            task::spawn(config.clone().handle_stream(stream, handler.clone()));
-        }
-
-        config.graceful_shutdown().await;
+    async fn open<P: AsRef<Path> + Send + Sync>(path: P) -> Result<Self::File> {
+        Self::File::open(path.as_ref()).await
     }
 }

@@ -1,5 +1,5 @@
 use routefinder::{Match, Route, Router as Routefinder};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use trillium::{async_trait, http_types::Method, Conn, Handler, Upgrade};
 
 use crate::RouterRef;
@@ -9,7 +9,7 @@ use crate::RouterRef;
 
 */
 #[derive(Default)]
-pub struct Router(HashMap<Method, Routefinder<Box<dyn Handler>>>);
+pub struct Router<R>(HashMap<Method, Routefinder<Box<dyn Handler<R>>>>);
 
 macro_rules! method {
     ($fn_name:ident, $method:ident) => {
@@ -47,14 +47,14 @@ assert_not_handled!(",
     };
     ($fn_name:ident, $method:ident, $doc_comment:expr) => {
         #[doc = $doc_comment]
-        pub fn $fn_name(mut self, path: &'static str, handler: impl Handler) -> Self {
+        pub fn $fn_name(mut self, path: &'static str, handler: impl Handler<R>) -> Self {
             self.add(path, Method::$method, handler);
             self
         }
     };
 }
 
-impl Router {
+impl<R: 'static> Router<R> {
     /**
     Constructs a new Router. This is often used with [`Router::get`],
     [`Router::post`], [`Router::put`], [`Router::delete`], and
@@ -78,7 +78,7 @@ impl Router {
     ```
      */
     pub fn new() -> Self {
-        Self::default()
+        Self(Default::default())
     }
 
     /**
@@ -110,7 +110,7 @@ impl Router {
     assert_ok!(post("/").on(&router), "post!");
     ```
     */
-    pub fn build(builder: impl Fn(RouterRef)) -> Router {
+    pub fn build(builder: impl Fn(RouterRef<R>)) -> Router<R> {
         let mut router = Router::new();
         builder(RouterRef::new(&mut router));
         router
@@ -120,11 +120,11 @@ impl Router {
         &'a self,
         method: &Method,
         path: &'b str,
-    ) -> Option<Match<'a, 'b, Box<dyn Handler>>> {
+    ) -> Option<Match<'a, 'b, Box<dyn Handler<R>>>> {
         self.0.get(method).and_then(|r| r.best_match(path))
     }
 
-    pub(crate) fn add(&mut self, path: &'static str, method: Method, handler: impl Handler) {
+    pub(crate) fn add(&mut self, path: &'static str, method: Method, handler: impl Handler<R>) {
         self.0
             .entry(method)
             .or_insert_with(routefinder::Router::new)
@@ -132,7 +132,7 @@ impl Router {
             .expect("could not add route")
     }
 
-    pub(crate) fn add_any(&mut self, path: &'static str, handler: impl Handler) {
+    pub(crate) fn add_any(&mut self, path: &'static str, handler: impl Handler<R>) {
         use Method::*;
         let handler = Arc::new(handler);
         for method in &[Get, Post, Put, Delete, Patch] {
@@ -160,7 +160,7 @@ impl Router {
     assert_not_handled!(get("/").on(&router));
     ```
     */
-    pub fn any(mut self, path: &'static str, handler: impl Handler) -> Self {
+    pub fn any(mut self, path: &'static str, handler: impl Handler<R>) -> Self {
         self.add_any(path, handler);
         self
     }
@@ -173,7 +173,7 @@ impl Router {
 }
 
 #[async_trait]
-impl Handler for Router {
+impl<R: 'static> Handler<R> for Router<R> {
     async fn run(&self, conn: Conn) -> Conn {
         if let Some(m) = self.best_match(&conn.method(), conn.path()) {
             let captures = m.captures().into_owned();
@@ -229,8 +229,8 @@ impl Handler for Router {
     }
 }
 
-struct RouteForDisplay<'a, H>(&'a Method, &'a Route<H>);
-impl<'a, H: Handler> std::fmt::Debug for RouteForDisplay<'a, H> {
+struct RouteForDisplay<'a, H, R>(&'a Method, &'a Route<H>, PhantomData<R>);
+impl<'a, H: Handler<R>, R: 'static> std::fmt::Debug for RouteForDisplay<'a, H, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "{} {} -> {}",
@@ -241,14 +241,14 @@ impl<'a, H: Handler> std::fmt::Debug for RouteForDisplay<'a, H> {
     }
 }
 
-impl std::fmt::Debug for Router {
+impl<R: 'static> std::fmt::Debug for Router<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Router ")?;
         let mut set = f.debug_set();
 
         for (method, router) in &self.0 {
             for route in router {
-                set.entry(&RouteForDisplay(method, route));
+                set.entry(&RouteForDisplay(method, route, PhantomData));
             }
         }
 

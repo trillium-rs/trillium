@@ -15,7 +15,7 @@ use trillium::{
 
 This is defined as follows:
 
-[`apache_combined`](`request_id`, `user_id`) [`header`]`("referrer")` [`header`]`("user-agent")`
+[`apache_combined`](`request_id`, `user_id`) [`request_header`]`("referrer")` [`request_header`]`("user-agent")`
 
 where `request_id` and `user_id` are mandatory formatters provided at time of usage.
 
@@ -50,19 +50,36 @@ pub fn apache_combined(
     (
         apache_common(request_id, user_id),
         " ",
-        header("referrer"),
+        request_header("referrer"),
         " ",
-        header("user-agent"),
+        request_header("user-agent"),
     )
 }
 
-/**
-formatter for the conn's http method that delegates to [`Method`]'s
-[`Display`] implementation
-*/
-pub fn method(conn: &Conn, _color: bool) -> Method {
-    conn.method()
+mod method_mod {
+    use super::*;
+
+    pub struct MethodOutput(Method, bool);
+    impl Display for MethodOutput {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let MethodOutput(method, color) = *self;
+            if color {
+                f.write_fmt(format_args!("{}", method.to_string().bold()))
+            } else {
+                f.write_fmt(format_args!("{}", method))
+            }
+        }
+    }
+
+    /**
+    formatter for the conn's http method that delegates to [`Method`]'s
+    [`Display`] implementation
+    */
+    pub fn method(conn: &Conn, color: bool) -> MethodOutput {
+        MethodOutput(conn.method(), color)
+    }
 }
+pub use method_mod::method;
 
 /**
 simple development-mode formatter
@@ -142,24 +159,51 @@ mod status_mod {
 pub use status_mod::status;
 
 /**
-formatter-builder for a particular header, formatted wrapped in
+formatter-builder for a particular request header, formatted wrapped in
 quotes. `""` if the header is not present
 
 usage:
 
 ```rust
-# use trillium_logger::{Logger, formatters::header};
-Logger::new().with_formatter(("user-agent: ", header("user-agent")));
+# use trillium_logger::{Logger, formatters::request_header};
+Logger::new().with_formatter(("user-agent: ", request_header("user-agent")));
 ```
 
 **note**: this is not a formatter itself, but returns a formatter when
 called with a header name
 */
-pub fn header(header_name: &'static str) -> impl LogFormatter {
+pub fn request_header(header_name: &'static str) -> impl LogFormatter {
     move |conn: &Conn, _color: bool| {
         format!(
             "{:?}",
             conn.headers()
+                .get(header_name)
+                .map(|h| h.as_str())
+                .unwrap_or("")
+        )
+    }
+}
+
+/**
+formatter-builder for a particular response header, formatted wrapped in
+quotes. `""` if the header is not present
+
+usage:
+
+```rust
+# use trillium_logger::{Logger, formatters::response_header};
+Logger::new().with_formatter(("content-type: ", response_header("content-type")));
+```
+
+**note**: this is not a formatter itself, but returns a formatter when
+called with a header name
+*/
+pub fn response_header(header_name: &'static str) -> impl LogFormatter {
+    move |conn: &Conn, _color: bool| {
+        format!(
+            "{:?}",
+            conn.inner()
+                .response_headers()
                 .get(header_name)
                 .map(|h| h.as_str())
                 .unwrap_or("")
@@ -271,10 +315,15 @@ mod response_time_mod {
     /**
     display output type for the [`response_time`] formatter
     */
-    pub struct ResponseTimeOutput(Instant);
+    pub struct ResponseTimeOutput(Instant, bool);
     impl Display for ResponseTimeOutput {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_fmt(format_args!("{:?}", Instant::now() - self.0))
+            let time = Instant::now() - self.0;
+            if self.1 {
+                f.write_fmt(format_args!("{}", format!("{:?}", time).italic()))
+            } else {
+                f.write_fmt(format_args!("{:?}", time))
+            }
         }
     }
 
@@ -283,8 +332,8 @@ mod response_time_mod {
     request-response cycle took, from the first bytes read to the
     completion of the response.
     */
-    pub fn response_time(conn: &Conn, _color: bool) -> ResponseTimeOutput {
-        ResponseTimeOutput(conn.inner().start_time())
+    pub fn response_time(conn: &Conn, color: bool) -> ResponseTimeOutput {
+        ResponseTimeOutput(conn.inner().start_time(), color)
     }
 }
 

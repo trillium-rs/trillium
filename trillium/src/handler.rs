@@ -45,7 +45,7 @@ The simplest implementation of Handler for a named type looks like this:
 ```
 pub struct MyHandler;
 #[trillium::async_trait]
-impl trillium::Handler for MyHandler {
+impl<R> trillium::Handler<R> for MyHandler {
     async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
         conn
     }
@@ -86,7 +86,7 @@ For most application code and even trillium-packaged framework code,
 */
 
 #[async_trait]
-pub trait Handler: Send + Sync + 'static {
+pub trait Handler<R>: Send + Sync + 'static {
     /// Executes this handler, performing any modifications to the
     /// Conn that are desired.
     async fn run(&self, conn: Conn) -> Conn;
@@ -170,7 +170,7 @@ pub trait Handler: Send + Sync + 'static {
 }
 
 #[async_trait]
-impl Handler for Box<dyn Handler> {
+impl<R: 'static> Handler<R> for Box<dyn Handler<R>> {
     async fn run(&self, conn: Conn) -> Conn {
         self.as_ref().run(conn).await
     }
@@ -196,14 +196,8 @@ impl Handler for Box<dyn Handler> {
     }
 }
 
-impl std::fmt::Debug for Box<dyn Handler> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.name().as_ref())
-    }
-}
-
 #[async_trait]
-impl<H: Handler> Handler for Arc<H> {
+impl<H: Handler<R>, R> Handler<R> for Arc<H> {
     async fn run(&self, conn: Conn) -> Conn {
         self.as_ref().run(conn).await
     }
@@ -233,7 +227,7 @@ impl<H: Handler> Handler for Arc<H> {
 }
 
 #[async_trait]
-impl<H: Handler> Handler for Vec<H> {
+impl<H: Handler<R>, R> Handler<R> for Vec<H> {
     async fn run(&self, mut conn: Conn) -> Conn {
         for handler in self {
             log::debug!("running {}", handler.name());
@@ -278,7 +272,7 @@ impl<H: Handler> Handler for Vec<H> {
 }
 
 #[async_trait]
-impl<Fun, Fut> Handler for Fun
+impl<Fun, Fut, R> Handler<R> for Fun
 where
     Fun: Fn(Conn) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Conn> + Send + 'static,
@@ -289,14 +283,14 @@ where
 }
 
 #[async_trait]
-impl Handler for String {
+impl<R> Handler<R> for String {
     async fn run(&self, conn: Conn) -> Conn {
         conn.ok(&self[..])
     }
 }
 
 #[async_trait]
-impl Handler for &'static str {
+impl<R> Handler<R> for &'static str {
     async fn run(&self, conn: Conn) -> Conn {
         conn.ok(*self)
     }
@@ -307,14 +301,14 @@ impl Handler for &'static str {
 }
 
 #[async_trait]
-impl Handler for () {
+impl<R> Handler<R> for () {
     async fn run(&self, conn: Conn) -> Conn {
         conn
     }
 }
 
 #[async_trait]
-impl<H: Handler> Handler for Option<H> {
+impl<H: Handler<R>, R> Handler<R> for Option<H> {
     async fn run(&self, conn: Conn) -> Conn {
         let handler = crate::conn_unwrap!(self, conn);
         handler.run(conn).await
@@ -366,7 +360,9 @@ macro_rules! reverse_before_send {
 macro_rules! impl_handler_tuple {
         ($($name:ident)+) => (
             #[async_trait]
-            impl<$($name),*> Handler for ($($name,)*) where $($name: Handler),* {
+            impl<R, $($name),*> Handler<R> for ($($name,)*)
+            where
+                $($name: Handler<R>),* {
                 #[allow(non_snake_case)]
                 async fn run(&self, conn: Conn) -> Conn {
                     let ($(ref $name,)*) = *self;

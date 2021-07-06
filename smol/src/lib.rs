@@ -1,4 +1,5 @@
-#![forbid(unsafe_code)]
+//#![forbid(unsafe_code)]
+
 #![deny(
     missing_copy_implementations,
     rustdoc::missing_crate_level_docs,
@@ -41,7 +42,7 @@ trillium_smol::config()
 ## Client
 
 ```rust
-trillium_testing::with_server("ok", |url| async move {
+trillium_testing::with_server(trillium_smol::Smol::new(), "ok", |url| async move {
     use trillium_smol::TcpConnector;
     use trillium_client::{Conn, Client};
     let mut conn = Conn::<TcpConnector>::get(url.clone()).execute().await?;
@@ -65,7 +66,7 @@ mod client;
 pub use client::{ClientConfig, TcpConnector};
 
 mod server;
-use server::Config;
+pub use server::Smol;
 
 /**
 # Runs a trillium handler in a sync context with default config
@@ -78,21 +79,21 @@ and how to override them
 This function will block the current thread until the server shuts
 down
 */
-pub fn run(handler: impl Handler) {
+pub fn run(handler: impl Handler<Smol<()>>) {
     config().run(handler)
 }
 
 /**
 # Runs a trillium handler in an async context with default config
 
-Run the provided trillium handler on an already-running async-executor
+bRun the provided trillium handler on an already-running async-executor
 with default settings. The defaults are the same as [`crate::run`]. To
 customize these settings, see [`crate::config`].
 
 This function will poll pending until the server shuts down.
 
 */
-pub async fn run_async(handler: impl Handler) {
+pub async fn run_async(handler: impl Handler<Smol<()>>) {
     config().run_async(handler).await
 }
 
@@ -129,6 +130,6 @@ trillium_smol::config()
 See [`trillium_server_common::Config`] for more details
 
 */
-pub fn config() -> Config<()> {
-    Config::new()
+pub fn config() -> Smol<()> {
+    Smol::new()
 }

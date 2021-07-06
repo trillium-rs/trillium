@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_tls_common::{async_trait, AsyncRead, AsyncWrite, Connector, Url};
+use trillium_tls_common::{async_trait, AsConnector, AsyncRead, AsyncWrite, Connector, Url};
 use RustlsTransportInner::{Tcp, Tls};
 
 /**
@@ -18,6 +18,20 @@ this struct provides rustls a trillium client connector implementation
 */
 #[derive(Debug, Clone, Copy)]
 pub struct RustlsConnector<C>(PhantomData<C>);
+
+impl<C> RustlsConnector<C> {
+    /// constructs a new RustlsConnector
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<C> AsConnector<C> for RustlsConnector<C>
+where
+    C: Connector,
+{
+    type Connector = Self;
+}
 
 #[derive(Debug)]
 enum RustlsTransportInner<T> {

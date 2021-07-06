@@ -2,13 +2,14 @@ use crate::RootPath;
 use log::LevelFilter;
 use std::{fmt::Debug, fs, io::Write, path::PathBuf};
 use structopt::StructOpt;
+use trillium::{FileSystem, Handler};
+use trillium_client::Connector;
 use trillium_logger::Logger;
 use trillium_native_tls::NativeTlsAcceptor;
-use trillium_rustls::{RustlsAcceptor, RustlsConnector};
-use trillium_smol::TcpConnector;
-use trillium_static::StaticFileHandler;
+use trillium_proxy::Proxy;
+use trillium_rustls::RustlsAcceptor;
 
-type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
+use trillium_static::StaticFileHandler;
 
 #[derive(StructOpt, Debug)]
 #[structopt(
@@ -183,28 +184,33 @@ impl StaticCli {
             .format(|buf, record| writeln!(buf, "{}", record.args()))
             .init();
 
+        let config = trillium_smol::config()
+            .with_port(self.port())
+            .with_host(self.host());
+
+        if let Some(x) = self.native_tls_acceptor() {
+            config.with_acceptor(x).run(self.handler());
+        } else if let Some(x) = self.rustls_acceptor() {
+            config.with_acceptor(x).run(self.handler());
+        } else {
+            config.run(self.handler());
+        }
+    }
+
+    fn handler<T>(&self) -> impl Handler<T>
+    where
+        T: Connector + FileSystem,
+    {
         let path = self.root().clone();
         let mut static_file_handler = StaticFileHandler::new(path);
         if let Some(index) = self.index() {
             static_file_handler = static_file_handler.with_index_file(index);
         }
 
-        let server = (
+        (
             Logger::new(),
             self.forward().map(Proxy::new),
             static_file_handler,
-        );
-
-        let config = trillium_smol::config()
-            .with_port(self.port())
-            .with_host(self.host());
-
-        if let Some(acceptor) = self.rustls_acceptor() {
-            config.with_acceptor(acceptor).run(server);
-        } else if let Some(acceptor) = self.native_tls_acceptor() {
-            config.with_acceptor(acceptor).run(server);
-        } else {
-            config.run(server);
-        }
+        )
     }
 }

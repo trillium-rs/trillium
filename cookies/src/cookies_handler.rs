@@ -22,7 +22,7 @@ impl CookiesHandler {
 }
 
 #[async_trait]
-impl Handler for CookiesHandler {
+impl<R> Handler<R> for CookiesHandler {
     async fn run(&self, conn: Conn) -> Conn {
         let mut jar = CookieJar::new();
 

@@ -6,6 +6,7 @@ use std::{
 };
 use trillium::{http_types::headers::Header, Conn, Handler};
 use trillium_http::{Conn as HttpConn, Synthetic};
+use trillium_smol::Smol;
 
 type SyntheticConn = HttpConn<Synthetic>;
 
@@ -94,7 +95,7 @@ impl TestConn {
     ```
     */
 
-    pub async fn run_async(self, handler: &impl Handler) -> Self {
+    pub async fn run_async(self, handler: &impl Handler<Smol<()>>) -> Self {
         let conn = handler.run(self.into()).await;
         let mut conn = handler.before_send(conn).await;
         conn.inner_mut().finalize_headers();
@@ -118,7 +119,7 @@ impl TestConn {
     assert_ok!(conn, "hello trillium", "content-length" => "14");
     ```
     */
-    pub fn run(self, handler: &impl Handler) -> Self {
+    pub fn run(self, handler: &impl Handler<Smol<()>>) -> Self {
         block_on(self.run_async(handler))
     }
 
@@ -140,7 +141,7 @@ impl TestConn {
     ```
     */
 
-    pub fn on(self, handler: &impl Handler) -> Self {
+    pub fn on(self, handler: &impl Handler<Smol<()>>) -> Self {
         self.run(handler)
     }
 

@@ -12,7 +12,7 @@ async fn teapot(mut conn: Conn) -> Conn {
     }
 }
 
-fn application() -> impl Handler {
+fn application<R>() -> impl Handler<R> {
     (Logger::new(), teapot)
 }
 

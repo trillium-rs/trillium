@@ -1,6 +1,6 @@
-use crate::Identity;
+use crate::{Identity, NativeTlsConnector};
 use async_native_tls::{Error, TlsAcceptor, TlsStream};
-use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
+use trillium_tls_common::{async_trait, Acceptor, AsConnector, AsyncRead, AsyncWrite, Connector};
 
 /**
 trillium [`Acceptor`] for native-tls
@@ -50,6 +50,13 @@ impl From<(&[u8], &str)> for NativeTlsAcceptor {
     fn from(i: (&[u8], &str)) -> Self {
         Self::from_pkcs12(i.0, i.1)
     }
+}
+
+impl<C> AsConnector<C> for NativeTlsAcceptor
+where
+    C: Connector,
+{
+    type Connector = NativeTlsConnector<C>;
 }
 
 #[async_trait]

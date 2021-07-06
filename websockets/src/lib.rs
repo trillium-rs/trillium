@@ -15,6 +15,7 @@
 use trillium_websockets::{Message, WebSocket};
 # use futures_util::{SinkExt, StreamExt};
 # use async_net::TcpStream;
+# use trillium_smol::Smol;
 
 let handler = WebSocket::new(|mut websocket| async move {
     let path = websocket.path().to_owned();
@@ -25,7 +26,7 @@ let handler = WebSocket::new(|mut websocket| async move {
     }
 });
 
-trillium_testing::with_server(handler, |url| async move {
+trillium_testing::with_server(Smol::new(), handler, |url| async move {
     let socket = TcpStream::connect(&url.socket_addrs(|| None)?[..]).await?;
     let (mut client, _) = async_tungstenite::client_async("ws://localhost/some/route", socket).await?;
 
@@ -52,7 +53,7 @@ use trillium::{
         headers::{Headers, CONNECTION, UPGRADE},
         StatusCode,
     },
-    Conn, Handler, Upgrade,
+    Conn, Handler, Runtime, Upgrade,
 };
 
 pub use async_tungstenite;
@@ -142,10 +143,11 @@ mod tests {
 }
 
 #[async_trait]
-impl<H, Fut> Handler for WebSocket<H>
+impl<H, Fut, R> Handler<R> for WebSocket<H>
 where
+    R: Runtime,
     H: Fn(WebSocketConn) -> Fut + Sync + Send + 'static,
-    Fut: Future<Output = ()> + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
 {
     async fn run(&self, mut conn: Conn) -> Conn {
         let connection_upgrade = connection_is_upgrade(conn.headers());
@@ -197,6 +199,8 @@ where
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        (self.handler)(WebSocketConn::new(upgrade).await).await
+        let wsc = WebSocketConn::new(upgrade, R::spawn).await;
+
+        (self.handler)(wsc).await;
     }
 }

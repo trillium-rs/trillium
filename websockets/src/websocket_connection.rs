@@ -5,6 +5,8 @@ use async_tungstenite::{
 };
 use futures_util::{stream::Stream, SinkExt};
 use std::{
+    fmt::Debug,
+    future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -14,6 +16,8 @@ use trillium::{
     Upgrade,
 };
 use trillium_http::transport::BoxedTransport;
+
+type WSS = StreamStopper<WebSocketStream<BoxedTransport>>;
 
 /**
 A struct that represents an specific websocket connection.
@@ -26,25 +30,48 @@ The WebSocketConn implements `Stream<Item=Result<Message, Error>>`,
 and can be polled with `StreamExt::next`
 */
 
-#[derive(Debug)]
 pub struct WebSocketConn {
     request_headers: Headers,
     path: String,
     method: Method,
     state: Extensions,
     stopper: Stopper,
-    wss: StreamStopper<WebSocketStream<BoxedTransport>>,
+    wss: Option<WSS>,
+    spawn: Box<dyn Fn(Pin<Box<dyn Future<Output = ()> + Send>>) + Send>,
+}
+
+impl Debug for WebSocketConn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebSocketConn")
+            .field("request_headers", &self.request_headers)
+            .field("path", &self.path)
+            .field("method", &self.method)
+            .field("state", &self.state)
+            .field("stopper", &self.stopper)
+            .field("wss", &self.wss)
+            .finish()
+    }
+}
+
+impl Drop for WebSocketConn {
+    fn drop(&mut self) {
+        if let Some(mut wss) = self.wss.take() {
+            (self.spawn)(Box::pin(async move {
+                trillium::log_error!(wss.close(None).await);
+            }));
+        }
+    }
 }
 
 impl WebSocketConn {
     /// send a [`Message::Text`] variant
     pub async fn send_string(&mut self, string: impl Into<String>) {
-        self.wss.send(Message::text(string)).await.ok();
+        self.wss().send(Message::text(string)).await.ok();
     }
 
     /// send a [`Message::Binary`] variant
     pub async fn send_bytes(&mut self, bin: impl Into<Vec<u8>>) {
-        self.wss.send(Message::binary(bin)).await.ok();
+        self.wss().send(Message::binary(bin)).await.ok();
     }
 
     #[cfg(feature = "json")]
@@ -55,7 +82,10 @@ impl WebSocketConn {
         Ok(())
     }
 
-    pub(crate) async fn new(upgrade: Upgrade) -> Self {
+    pub(crate) async fn new<F>(upgrade: Upgrade, spawn: F) -> Self
+    where
+        F: Fn(Pin<Box<dyn Future<Output = ()> + Send + 'static>>) + Send + 'static,
+    {
         let Upgrade {
             request_headers,
             path,
@@ -77,8 +107,9 @@ impl WebSocketConn {
             path,
             method,
             state,
-            wss: stopper.stop_stream(wss),
+            wss: Some(stopper.stop_stream(wss)),
             stopper,
+            spawn: Box::new(spawn),
         }
     }
 
@@ -89,7 +120,11 @@ impl WebSocketConn {
 
     /// close the websocket connection gracefully
     pub async fn close(&mut self) {
-        self.wss.close(None).await.ok();
+        self.wss().close(None).await.ok();
+    }
+
+    fn wss(&mut self) -> &mut WebSocketStream<BoxedTransport> {
+        self.wss.as_mut().unwrap()
     }
 
     /// retrieve the request headers for this conn
@@ -132,6 +167,10 @@ impl Stream for WebSocketConn {
     type Item = Result;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.wss).poll_next(cx)
+        if let Some(wss) = &mut self.wss {
+            Pin::new(wss).poll_next(cx)
+        } else {
+            Poll::Ready(None)
+        }
     }
 }

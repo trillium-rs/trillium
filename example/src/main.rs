@@ -1,16 +1,15 @@
 use askama::Template;
 use futures_lite::prelude::*;
-use trillium::{Conn, Handler};
+use trillium::{Conn, FileSystem, Handler, Runtime};
 use trillium_askama::AskamaConnExt;
 use trillium_cookies::CookiesHandler;
-use trillium_logger::Logger;
+use trillium_logger::{dev_formatter, Logger};
+use trillium_proxy::{Connector, Proxy};
 use trillium_router::{Router, RouterConnExt};
 use trillium_rustls::RustlsConnector;
 use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
-use trillium_smol::TcpConnector;
 use trillium_static_compiled::{include_dir, StaticCompiledHandler};
 use trillium_websockets::{Message, WebSocket};
-type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -24,18 +23,14 @@ async fn request_count(conn: Conn) -> Conn {
         .with_session("count", count + 1)
 }
 
-fn app() -> impl Handler {
-    (
-        Logger::new(),
-        CookiesHandler::new(),
-        SessionHandler::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
-        request_count,
-        router(),
-        StaticCompiledHandler::new(include_dir!("./public")).with_index_file("index.html"),
-    )
+fn request_count_formatter(conn: &Conn, _color: bool) -> String {
+    conn.session().get_raw("count").unwrap_or_default().clone()
 }
 
-fn router() -> impl Handler {
+fn router<R>() -> impl Handler<R>
+where
+    R: Runtime + FileSystem + Connector,
+{
     Router::new()
         .get("/hello", "hi")
         .post("/", |mut conn: Conn| async move {
@@ -67,11 +62,27 @@ fn router() -> impl Handler {
                 }
             }),
         )
-        .get("/httpbin/*", Proxy::new("https://httpbin.org"))
+        .any(
+            "/httpbin/*",
+            Proxy::new("https://httpbin.org").with_connector(RustlsConnector::new()),
+        )
+}
+
+fn app<R>() -> impl Handler<R>
+where
+    R: Runtime + FileSystem + Connector,
+{
+    (
+        Logger::new().with_formatter((dev_formatter, " count=", request_count_formatter)),
+        CookiesHandler::new(),
+        SessionHandler::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
+        request_count,
+        router(),
+        StaticCompiledHandler::new(include_dir!("./public")).with_index_file("index.html"),
+    )
 }
 
 fn main() {
-    env_logger::init();
     trillium_smol::run(app());
 }
 

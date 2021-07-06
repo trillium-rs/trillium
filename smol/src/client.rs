@@ -1,7 +1,7 @@
 use async_net::TcpStream;
 use futures_lite::Future;
 use std::{io::Result, net::SocketAddr};
-use trillium_server_common::{async_trait, Connector, Url};
+use trillium_server_common::{async_trait, AsConnector, Connector, Url};
 
 /**
 configuration for the tcp Connector
@@ -50,6 +50,31 @@ impl Connector for TcpConnector {
 
             Ok(tcp)
         }
+    }
+
+    fn spawn<Fut>(future: Fut)
+    where
+        Fut: Future + Send + 'static,
+        <Fut as Future>::Output: Send,
+    {
+        async_global_executor::spawn(future).detach();
+    }
+}
+
+#[async_trait]
+impl<A> Connector for crate::server::Smol<A>
+where
+    A: AsConnector<TcpConnector> + Clone + Send + Sync + 'static,
+{
+    type Config = <<A as AsConnector<TcpConnector>>::Connector as Connector>::Config;
+    type Transport = <<A as AsConnector<TcpConnector>>::Connector as Connector>::Transport;
+
+    fn peer_addr(transport: &Self::Transport) -> Result<SocketAddr> {
+        A::Connector::peer_addr(transport)
+    }
+
+    async fn connect(url: &Url, config: &Self::Config) -> Result<Self::Transport> {
+        A::Connector::connect(url, config).await
     }
 
     fn spawn<Fut>(future: Fut)

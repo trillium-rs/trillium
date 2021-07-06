@@ -105,6 +105,23 @@ impl Future for CloneCounter {
     }
 }
 
+impl Future for &CloneCounter {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if 0 == self.current() {
+            Poll::Ready(())
+        } else {
+            self.register(cx);
+            if 0 == self.current() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        }
+    }
+}
+
 impl Clone for CloneCounter {
     fn clone(&self) -> Self {
         self.increment();

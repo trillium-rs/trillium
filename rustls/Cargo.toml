@@ -21,4 +21,5 @@ webpki-roots = "0.21"
 [dev-dependencies]
 env_logger = "0.8.4"
 trillium = { path = "../trillium" }
+trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }

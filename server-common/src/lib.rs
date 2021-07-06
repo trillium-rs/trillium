@@ -31,8 +31,10 @@ pub use clone_counter::CloneCounter;
 mod config;
 pub use config::Config;
 
-mod config_ext;
-pub use config_ext::ConfigExt;
+//mod config_ext;
+//pub use config_ext::ConfigExt;
 
 mod server;
 pub use server::Server;
+
+pub use futures_lite::{Stream, StreamExt};

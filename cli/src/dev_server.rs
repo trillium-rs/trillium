@@ -21,6 +21,9 @@ use std::{
     time::Duration,
 };
 use structopt::StructOpt;
+use trillium::Runtime;
+
+type R = trillium_smol::Smol<()>;
 
 #[derive(StructOpt, Debug)]
 pub struct DevServer {
@@ -195,14 +198,14 @@ impl DevServer {
                 child = run.spawn().unwrap();
                 *child_id.lock().unwrap() = child.id();
                 thread::sleep(Duration::from_millis(500));
-                async_io::block_on(broadcaster.send(&Event::Restarted)).ok();
+                R::block_on(broadcaster.send(&Event::Restarted)).ok();
             });
         }
         {
             let broadcaster = broadcaster.clone();
             thread::spawn(move || loop {
                 let event = rx.recv().unwrap();
-                async_io::block_on(broadcaster.send(&event)).unwrap();
+                R::block_on(broadcaster.send(&event)).unwrap();
                 match event {
                     Event::BinaryChanged => {
                         log::info!("attempting to send {}", &signal);
@@ -219,10 +222,10 @@ impl DevServer {
                             Ok(ok) => {
                                 if ok.status.success() {
                                     log::debug!("{}", String::from_utf8_lossy(&ok.stdout[..]));
-                                    async_io::block_on(broadcaster.send(&Event::BuildSuccess)).ok();
+                                    R::block_on(broadcaster.send(&Event::BuildSuccess)).ok();
                                 } else {
                                     io::stderr().write_all(&ok.stderr).unwrap();
-                                    async_io::block_on(
+                                    R::block_on(
                                         broadcaster.send(&Event::CompileError {
                                             error: ansi_to_html::convert_escaped(
                                                 &String::from_utf8_lossy(&ok.stderr),
@@ -252,25 +255,16 @@ mod proxy_app {
     use broadcaster::BroadcastChannel;
     use futures_lite::StreamExt;
     use trillium::{Conn, State};
-    use trillium_client::Client;
     use trillium_html_rewriter::{
         html::{element, html_content::ContentType, Settings},
         HtmlRewriter,
     };
     use trillium_proxy::Proxy;
     use trillium_router::Router;
-    use trillium_smol::{ClientConfig, TcpConnector};
     use trillium_websockets::WebSocket;
-    type HttpClient = Client<TcpConnector>;
 
     pub fn run(proxy: String, rx: BroadcastChannel<Event>) {
         static PORT: u16 = 8082;
-        let client = HttpClient::new()
-            .with_default_pool()
-            .with_config(ClientConfig {
-                nodelay: Some(true),
-                ..Default::default()
-            });
 
         trillium_smol::config()
             .without_signals()
@@ -296,7 +290,7 @@ mod proxy_app {
                             }),
                         ),
                     ),
-                Proxy::new(&*proxy).with_client(client),
+                Proxy::new(&*proxy),
                 HtmlRewriter::new(|| Settings {
                     element_content_handlers: vec![element!("body", |el| {
                         el.append(

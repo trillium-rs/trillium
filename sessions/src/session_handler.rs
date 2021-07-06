@@ -268,7 +268,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
 }
 
 #[async_trait]
-impl<Store: SessionStore> Handler for SessionHandler<Store> {
+impl<Store: SessionStore, R> Handler<R> for SessionHandler<Store> {
     async fn run(&self, conn: Conn) -> Conn {
         let cookie_value = conn
             .cookies()
@@ -286,6 +286,8 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if let Some(session) = conn.take_state::<Session>() {
+            conn.set_state(session.clone());
+
             let secure = conn.is_secure();
             if session.is_destroyed() {
                 self.store.destroy_session(session).await.ok();

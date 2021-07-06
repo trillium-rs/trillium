@@ -32,6 +32,9 @@ pub trait RouterConnExt {
 
     fn param<'a>(&'a self, param: &str) -> Option<&'a str>;
 
+    // ** DO NOT CHANGE THIS TO A BLOCK COMMENT**
+    // https://github.com/rust-lang/rust/issues/86914
+    //
     /// Retrieves the wildcard match from the conn. Note that this will
     /// only be Some if the matched route contains a wildcard, as
     /// expressed by a "*" in the routefinder route spec.
@@ -52,7 +55,6 @@ pub trait RouterConnExt {
     ///     "the wildcard matched this/is/a/wildcard/match"
     /// );
     /// ```
-
     fn wildcard(&self) -> Option<&str>;
 }
 
@@ -65,20 +67,3 @@ impl RouterConnExt for Conn {
         self.state::<Captures>().and_then(|p| p.wildcard())
     }
 }
-
-// ```
-// use trillium::{conn_unwrap, Conn};
-// use trillium_router::{Router, RouterConnExt};
-
-// let router = Router::new().get("/pages/*", |conn: Conn| async move {
-//     let wildcard = conn_unwrap!(conn.wildcard(), conn);
-//     let content = format!("the wildcard matched {}", wildcard);
-//     conn.ok(content)
-// });
-
-// use trillium_testing::prelude::*;
-// assert_ok!(
-//     get("/pages/this/is/a/wildcard/match").on(&router),
-//     "the wildcard matched this/is/a/wildcard/match"
-// );
-// ```

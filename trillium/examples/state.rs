@@ -17,7 +17,7 @@ mod conn_counter {
     }
 
     #[async_trait]
-    impl Handler for ConnCounterHandler {
+    impl<R> Handler<R> for ConnCounterHandler {
         async fn run(&self, conn: Conn) -> Conn {
             let number = self.0.fetch_add(1, Ordering::SeqCst);
             conn.with_state(ConnNumber(number))
@@ -40,7 +40,7 @@ mod conn_counter {
 use conn_counter::{ConnCounterConnExt, ConnCounterHandler};
 use trillium::{Conn, Handler};
 
-fn handler() -> impl Handler {
+fn handler<R: Send + Sync + 'static>() -> impl Handler<R> {
     (ConnCounterHandler::new(), |conn: Conn| async move {
         let conn_number = conn.conn_number();
         conn.ok(format!("conn number was {}", conn_number))

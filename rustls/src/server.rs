@@ -8,7 +8,9 @@ use std::{
     io::{BufReader, Error, Result},
     sync::Arc,
 };
-use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
+use trillium_tls_common::{async_trait, Acceptor, AsConnector, AsyncRead, AsyncWrite, Connector};
+
+use crate::client::RustlsConnector;
 
 /**
 trillium [`Acceptor`] for Rustls
@@ -20,6 +22,10 @@ impl Debug for RustlsAcceptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("RustTls").field(&"<<TlsAcceptor>>").finish()
     }
+}
+
+impl<C: Connector> AsConnector<C> for RustlsAcceptor {
+    type Connector = RustlsConnector<C>;
 }
 
 impl RustlsAcceptor {

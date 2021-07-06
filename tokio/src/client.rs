@@ -1,7 +1,9 @@
 use async_compat::Compat;
 use std::{future::Future, io::Result, net::SocketAddr, time::Duration};
 use tokio::net::TcpStream;
-use trillium_server_common::{async_trait, Connector, Url};
+use trillium_server_common::{async_trait, AsConnector, Connector, Url};
+
+use crate::server::TokioServer;
 
 /**
 configuration for the tcp Connector
@@ -60,6 +62,31 @@ impl Connector for TcpConnector {
 
             Ok(Compat::new(tcp))
         }
+    }
+
+    fn spawn<Fut>(future: Fut)
+    where
+        Fut: Future + Send + 'static,
+        <Fut as Future>::Output: Send,
+    {
+        tokio::task::spawn(future);
+    }
+}
+
+#[async_trait]
+impl<A> Connector for TokioServer<A>
+where
+    A: AsConnector<TcpConnector> + Clone + Send + Sync + 'static,
+{
+    type Config = <<A as AsConnector<TcpConnector>>::Connector as Connector>::Config;
+    type Transport = <<A as AsConnector<TcpConnector>>::Connector as Connector>::Transport;
+
+    fn peer_addr(transport: &Self::Transport) -> Result<SocketAddr> {
+        A::Connector::peer_addr(transport)
+    }
+
+    async fn connect(url: &Url, config: &Self::Config) -> Result<Self::Transport> {
+        A::Connector::connect(url, config).await
     }
 
     fn spawn<Fut>(future: Fut)

@@ -38,7 +38,7 @@ mod client;
 pub use client::{ClientConfig, TcpConnector};
 
 mod server;
-use server::Config;
+use server::AsyncStdServer;
 
 /**
 # Runs a trillium handler in a sync context with default config
@@ -52,7 +52,7 @@ This function will block the current thread until the server shuts
 down
 */
 
-pub fn run(handler: impl Handler) {
+pub fn run(handler: impl Handler<AsyncStdServer<()>>) {
     config().run(handler)
 }
 
@@ -65,7 +65,7 @@ runtime with default settings. the defaults are the same as
 
 This function will poll pending until the server shuts down.
 */
-pub async fn run_async(handler: impl Handler) {
+pub async fn run_async(handler: impl Handler<AsyncStdServer<()>>) {
     config().run_async(handler).await
 }
 /**
@@ -101,6 +101,6 @@ trillium_async_std::config()
 See [`trillium_server_common::Config`] for more details
 
 */
-pub fn config() -> Config<()> {
-    Config::new()
+pub fn config() -> AsyncStdServer<()> {
+    AsyncStdServer::new()
 }

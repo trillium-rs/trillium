@@ -1,9 +1,17 @@
-use async_global_executor::{block_on, spawn};
+use async_global_executor::{block_on, spawn, spawn_local};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
-use std::{net::IpAddr, sync::Arc};
-use trillium::{async_trait, Handler, Info};
-use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
+use std::{
+    fs::Metadata,
+    future::Future,
+    io::Result,
+    net::IpAddr,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::Arc,
+};
+use trillium::{Handler, Info, Runtime};
+use trillium_server_common::{standard_server, Acceptor, Config, Server, Stopper};
 
 const SERVER_DESCRIPTION: &str = concat!(
     " (",
@@ -13,9 +21,83 @@ const SERVER_DESCRIPTION: &str = concat!(
     ")"
 );
 
-#[derive(Debug, Clone, Copy)]
-pub struct Smol;
-pub type Config<A> = trillium_server_common::Config<Smol, A>;
+impl Smol<()> {
+    /// constructs a new Smol server with default config and acceptor
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+/// The runtime adapter type for smol
+#[derive(Debug, Clone)]
+pub struct Smol<A> {
+    config: Config,
+    acceptor: A,
+}
+
+impl Default for Smol<()> {
+    fn default() -> Self {
+        Self {
+            config: Config::default(),
+            acceptor: (),
+        }
+    }
+}
+
+impl<A> Smol<A> where A: Acceptor<TcpStream> {}
+
+standard_server!(Smol, transport: TcpStream, listener: TcpListener);
+
+impl<A> Runtime for Smol<A>
+where
+    A: Send + Sync + 'static,
+{
+    fn block_on<F>(future: F) -> F::Output
+    where
+        F: Future,
+    {
+        block_on(future)
+    }
+
+    fn spawn<F>(future: F)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        spawn(future).detach()
+    }
+
+    fn spawn_with_handle<F>(future: F) -> Pin<Box<dyn Future<Output = F::Output>>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        spawn(future).boxed()
+    }
+
+    fn spawn_local<F>(future: F)
+    where
+        F: Future + 'static,
+    {
+        spawn_local(future).detach()
+    }
+}
+
+#[trillium::async_trait]
+impl<A> trillium::FileSystem for Smol<A> {
+    type File = async_fs::File;
+    async fn canonicalize<P: AsRef<Path> + Send>(path: P) -> Result<PathBuf> {
+        async_fs::canonicalize(path).await
+    }
+
+    async fn metadata<P: AsRef<Path> + Send>(path: P) -> Result<Metadata> {
+        async_fs::metadata(path).await
+    }
+
+    async fn open<P: AsRef<Path> + Send>(path: P) -> Result<Self::File> {
+        Self::File::open(path).await
+    }
+}
 
 #[cfg(unix)]
 async fn handle_signals(stop: Stopper) {
@@ -35,48 +117,22 @@ async fn handle_signals(stop: Stopper) {
     }
 }
 
-#[async_trait]
-impl Server for Smol {
-    type Transport = TcpStream;
-
-    fn peer_ip(transport: &Self::Transport) -> Option<IpAddr> {
-        transport
-            .peer_addr()
-            .ok()
-            .map(|socket_addr| socket_addr.ip())
+impl<A: Acceptor<TcpStream>> Server for Smol<A> {
+    fn run_async(self, handler: impl Handler<Self>) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(Smol::run_async(self, handler))
     }
 
-    fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
-        block_on(Self::run_async(config, handler))
+    #[cfg(unix)]
+    fn handle_signals(&self) {
+        Self::spawn(handle_signals(self.config.stopper().clone()));
     }
+}
 
-    async fn run_async<A: Acceptor<Self::Transport>, H: Handler>(
-        config: Config<A>,
-        mut handler: H,
-    ) {
-        if config.should_register_signals() {
-            #[cfg(unix)]
-            spawn(handle_signals(config.stopper())).detach();
-            #[cfg(not(unix))]
-            panic!("signals handling not supported on windows yet");
+impl From<Config> for Smol<()> {
+    fn from(config: Config) -> Self {
+        Self {
+            config,
+            acceptor: (),
         }
-
-        let listener = config.build_listener::<TcpListener>();
-        let mut incoming = config.stopper().stop_stream(listener.incoming());
-
-        let local_addr = listener.local_addr().unwrap();
-        let mut info = Info::from(local_addr);
-        *info.listener_description_mut() = format!("http://{}:{}", config.host(), config.port());
-        info.server_description_mut().push_str(SERVER_DESCRIPTION);
-
-        handler.init(&mut info).await;
-        let handler = Arc::new(handler);
-
-        while let Some(Ok(stream)) = incoming.next().await {
-            trillium::log_error!(stream.set_nodelay(config.nodelay()));
-            spawn(config.clone().handle_stream(stream, handler.clone())).detach();
-        }
-
-        config.graceful_shutdown().await;
     }
 }

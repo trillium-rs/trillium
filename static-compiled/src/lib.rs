@@ -128,7 +128,7 @@ impl StaticCompiledHandler {
 }
 
 #[async_trait]
-impl Handler for StaticCompiledHandler {
+impl<R> Handler<R> for StaticCompiledHandler {
     async fn run(&self, conn: Conn) -> Conn {
         match (
             self.get_item(conn.path().trim_start_matches('/')),

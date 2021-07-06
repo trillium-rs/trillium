@@ -18,7 +18,7 @@ futures-lite = "1.12.0"
 portpicker = "0.1.1"
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-http = { path = "../http", version = "^0.1.0" }
-trillium-server-common = { path = "../server-common", version = "^0.1.0" }
+trillium-server-common = { path = "../server-common/" }
 trillium-smol = { path = "../smol", version = "^0.1.0" }
 
 [dev-dependencies]

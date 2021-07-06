@@ -333,7 +333,7 @@ impl Conn {
     ///
     /// stability note: this may become `response_headers` at some point
     pub fn headers_mut(&mut self) -> &mut Headers {
-        self.inner.response_headers()
+        self.inner.response_headers_mut()
     }
 
     /**

@@ -92,7 +92,10 @@ where
 }
 
 #[async_trait]
-impl<T: Clone + Send + Sync + 'static> Handler for State<T> {
+impl<T, R> Handler<R> for State<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
     async fn run(&self, mut conn: Conn) -> Conn {
         conn.set_state(self.0.clone());
         conn

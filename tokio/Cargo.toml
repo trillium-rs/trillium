@@ -13,7 +13,12 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 async-compat = "0.2.1"
 log = "0.4.14"
-tokio = { version = "1.7.1", features = ["rt", "net", "rt-multi-thread"], package = "tokio" }
+tokio = { version = "1.7.1", features = [
+  "rt",
+  "fs",
+  "net",
+  "rt-multi-thread"
+], package = "tokio" }
 tokio-stream = { version = "0.1.6", features = ["net"] }
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-http = { path = "../http", version = "^0.1.0" }

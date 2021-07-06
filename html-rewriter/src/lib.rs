@@ -48,17 +48,15 @@ assert_ok!(conn, "<html><body><h1>title</h1><p>body</p></body></html>");
 # });
 */
 
-use cfg_if::cfg_if;
 use futures_lite::io::BufReader;
 pub use lol_async::html;
 use lol_async::{html::Settings, rewrite};
-use std::future::Future;
 use std::str::FromStr;
-use trillium::async_trait;
 use trillium::http_types::{
     headers::{CONTENT_LENGTH, CONTENT_TYPE},
     mime::Mime,
 };
+use trillium::{async_trait, Runtime};
 use trillium::{http_types::Body, Conn, Handler};
 
 /**
@@ -74,23 +72,11 @@ impl std::fmt::Debug for HtmlRewriter {
     }
 }
 
-fn spawn_local(fut: impl Future + 'static) {
-    cfg_if! {
-        if #[cfg(feature = "async-std")] {
-            async_std_crate::task::spawn_local(fut);
-        } else if #[cfg(feature = "smol")] {
-            async_global_executor::spawn_local(fut).detach();
-        } else if #[cfg(feature = "tokio")] {
-            tokio_crate::task::spawn_local(fut);
-        } else {
-            dbg!("HERE");
-            async_global_executor::spawn_local(fut).detach();
-        }
-    }
-}
-
 #[async_trait]
-impl Handler for HtmlRewriter {
+impl<R> Handler<R> for HtmlRewriter
+where
+    R: Runtime,
+{
     async fn run(&self, mut conn: Conn) -> Conn {
         let html = conn
             .headers_mut()
@@ -101,9 +87,15 @@ impl Handler for HtmlRewriter {
 
         if html && conn.inner().response_body().is_some() {
             let body = conn.inner_mut().take_response_body().unwrap();
-            let (fut, reader) = rewrite(body, (self.settings)());
-            spawn_local(fut);
+
+            let reader = {
+                let (fut, reader) = rewrite(body, (self.settings)());
+                R::spawn_local(fut);
+                reader
+            };
+
             conn.headers_mut().remove(CONTENT_LENGTH); // we no longer know the content length, if we ever did
+
             conn.with_body(Body::from_reader(BufReader::new(reader), None))
         } else {
             conn

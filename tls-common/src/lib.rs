@@ -77,6 +77,20 @@ where
 }
 
 /**
+A trait to allow [`Acceptor`] types to specify an
+implementation-associated [`Connector`] for a given underlying
+Connector
+*/
+pub trait AsConnector<C: Connector>: Send + Sync + 'static {
+    /// The [`Connector`] type
+    type Connector: Connector;
+}
+
+impl<C: Connector> AsConnector<C> for () {
+    type Connector = C;
+}
+
+/**
 Interface for runtime and tls adapters for the trillium client
 
 See

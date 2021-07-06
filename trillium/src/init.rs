@@ -77,23 +77,23 @@ enum Inner<T> {
     Initialized(T),
 }
 
-impl<T: Handler> Deref for Inner<T> {
+impl<T> Deref for Inner<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
         match self {
             Inner::Initialized(t) => t,
             _ => {
-                panic!("attempted to dereference uninitialized handler {:?}", &self);
+                panic!("attempted to dereference uninitialized handler");
             }
         }
     }
 }
 
-impl<T: Handler> Debug for Inner<T> {
+impl<T: Debug> Debug for Inner<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Initialized(ref t) => f.debug_tuple("Initialized").field(&t.name()).finish(),
+            Self::Initialized(ref t) => f.debug_tuple("Initialized").field(t).finish(),
 
             Self::New(_) => f
                 .debug_tuple("New")
@@ -108,13 +108,13 @@ impl<T: Handler> Debug for Inner<T> {
     }
 }
 
-impl<T: Handler> Debug for Init<T> {
+impl<T: Debug> Debug for Init<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Init").field(&self.0).finish()
     }
 }
 
-impl<T: Handler> Init<T> {
+impl<T> Init<T> {
     /**
     Constructs a new Init handler with an async function that
     returns the handler post-initialization. The async function
@@ -130,7 +130,11 @@ impl<T: Handler> Init<T> {
 }
 
 #[async_trait]
-impl<T: Handler> Handler for Init<T> {
+impl<T, R> Handler<R> for Init<T>
+where
+    R: Send + Sync + 'static,
+    T: Handler<R>,
+{
     async fn run(&self, conn: Conn) -> Conn {
         self.0.run(conn).await
     }

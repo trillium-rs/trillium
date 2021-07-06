@@ -41,4 +41,6 @@ version = "1.7.1"
 env_logger = "0.8.4"
 trillium-static = { path = ".", features = ["smol"] }
 trillium-smol = { path = "../smol" }
+# trillium-testing = { path = "../testing" }
+trillium-logger = { path = "../logger" }
 trillium-testing = { path = "../testing" }

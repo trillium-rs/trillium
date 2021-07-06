@@ -59,8 +59,7 @@ impl Default for ColorMode {
 /**
 Specifies where the logger output should be sent
 
-The default is currently [`Target::Logger`] with [`log::Level::Info`],
-but the next minor release will switch it to be Stdout.
+The default is currently [`Target::Stdout`].
 */
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
@@ -93,7 +92,7 @@ impl Target {
 
 impl Default for Target {
     fn default() -> Self {
-        Self::Logger(log::Level::Info)
+        Self::Stdout
     }
 }
 
@@ -186,13 +185,13 @@ impl Logger<()> {
 
     * formatter: [`dev_formatter`]
     * color mode: [`ColorMode::Auto`]
-    * target: [`Target::Logger`] with [`log::Level::Info`]
+    * target: [`Target::Stdout`]
     */
     pub fn new() -> Logger<impl LogFormatter> {
         Logger {
             format: dev_formatter,
             color_mode: ColorMode::Auto,
-            target: Target::Logger(log::Level::Info),
+            target: Target::Stdout,
         }
     }
 }
@@ -257,7 +256,7 @@ impl<F: LogFormatter> Logger<F> {
 struct LoggerWasRun;
 
 #[async_trait]
-impl<F> Handler for Logger<F>
+impl<F, R> Handler<R> for Logger<F>
 where
     F: LogFormatter,
 {
@@ -283,7 +282,9 @@ Control-C to quit",
         if conn.state::<LoggerWasRun>().is_some() {
             let target = self.target;
             let output = self.format.format(&conn, self.color_mode.is_enabled());
-            conn.inner_mut().after_send(move |_| target.write(output));
+            conn.inner_mut().after_send(move |_| {
+                target.write(output);
+            });
         }
 
         conn

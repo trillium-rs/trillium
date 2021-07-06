@@ -21,7 +21,7 @@ trillium_aws_lambda::run(|conn: trillium::Conn| async move {
 use lamedh_runtime::{Context, Handler as AwsHandler};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::runtime;
-use trillium::{Conn, Handler};
+use trillium::{Conn, Handler, Runtime};
 use trillium_http::{Conn as HttpConn, Synthetic};
 
 mod context;
@@ -37,7 +37,7 @@ use response::{AlbMultiHeadersResponse, AlbResponse, LambdaResponse};
 #[derive(Debug)]
 struct HandlerWrapper<H>(Arc<H>);
 
-impl<H: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<H> {
+impl<H: Handler<AwsLambdaServer>> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<H> {
     type Error = std::io::Error;
     type Fut = Pin<Box<dyn Future<Output = Result<LambdaResponse, Self::Error>> + Send + 'static>>;
 
@@ -46,7 +46,10 @@ impl<H: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<H>
     }
 }
 
-async fn run_handler(conn: HttpConn<Synthetic>, handler: Arc<impl Handler>) -> Conn {
+async fn run_handler(
+    conn: HttpConn<Synthetic>,
+    handler: Arc<impl Handler<AwsLambdaServer>>,
+) -> Conn {
     let conn = handler.run(conn.into()).await;
     handler.before_send(conn).await
 }
@@ -54,7 +57,7 @@ async fn run_handler(conn: HttpConn<Synthetic>, handler: Arc<impl Handler>) -> C
 async fn handler_fn(
     request: LambdaRequest,
     context: Context,
-    handler: Arc<impl Handler>,
+    handler: Arc<impl Handler<AwsLambdaServer>>,
 ) -> std::io::Result<LambdaResponse> {
     match request {
         LambdaRequest::Alb(request) => {
@@ -79,12 +82,48 @@ async fn handler_fn(
 
 This function will poll pending until the server shuts down.
 */
-pub async fn run_async(mut handler: impl Handler) {
+pub async fn run_async(mut handler: impl Handler<AwsLambdaServer>) {
     let mut info = "aws lambda".into();
     handler.init(&mut info).await;
     lamedh_runtime::run(HandlerWrapper(Arc::new(handler)))
         .await
         .unwrap()
+}
+
+/// The runtime struct for this crate
+#[derive(Clone, Copy, Debug)]
+pub struct AwsLambdaServer;
+
+impl Runtime for AwsLambdaServer {
+    fn block_on<F>(future: F) -> F::Output
+    where
+        F: Future,
+    {
+        tokio::runtime::Runtime::new().unwrap().block_on(future)
+    }
+
+    fn spawn<F>(future: F)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        tokio::task::spawn(future);
+    }
+
+    fn spawn_with_handle<F>(future: F) -> Pin<Box<dyn Future<Output = F::Output>>>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        Box::pin(async { tokio::task::spawn(future).await.unwrap() })
+    }
+
+    fn spawn_local<F>(future: F)
+    where
+        F: Future + 'static,
+    {
+        tokio::task::spawn_local(future);
+    }
 }
 
 /**
@@ -97,7 +136,7 @@ This function will block the current thread until the server shuts
 down
 */
 
-pub fn run(handler: impl Handler) {
+pub fn run(handler: impl Handler<AwsLambdaServer>) {
     runtime::Builder::new_current_thread()
         .enable_all()
         .build()
