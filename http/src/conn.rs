@@ -163,10 +163,9 @@ where
         }
 
         let mut after_send = std::mem::take(&mut self.after_send);
-        let result = self.finish().await;
-        after_send.call(result.is_ok().into());
+        after_send.call(true.into());
         std::mem::forget(after_send);
-
+        let result = self.finish().await;
         result
     }
 
