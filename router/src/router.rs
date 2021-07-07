@@ -213,7 +213,7 @@ impl Handler for Router {
 
         if method == Method::Options && self.handle_options {
             let methods_set = if path == "*" {
-                self.method_map.keys().map(|m| *m).collect::<BTreeSet<_>>()
+                self.method_map.keys().copied().collect::<BTreeSet<_>>()
             } else {
                 self.method_map
                     .iter()
