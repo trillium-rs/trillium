@@ -690,10 +690,8 @@ where
             .map(|cl| cl.len())
         {
             Ok(Some(cl))
-        } else if self.method == Method::Get {
-            Ok(Some(0))
         } else {
-            Err(Error::HeaderMissing("content-length or transfer-encoding"))
+            Ok(Some(0))
         }
     }
 
