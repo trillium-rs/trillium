@@ -92,4 +92,16 @@ impl<'r> RouterRef<'r> {
     pub(crate) fn new(router: &'r mut Router) -> Self {
         Self(router)
     }
+
+    /**
+    enable or disable the router's behavior of responding to OPTIONS
+    requests with the supported methods at given path.
+
+    default: enabled
+
+    see crate-level docs for further explanation of the default behavior.
+     */
+    pub fn set_options_handling(&mut self, options_enabled: bool) {
+        self.0.set_options_handling(options_enabled);
+    }
 }
