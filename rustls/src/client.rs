@@ -16,7 +16,7 @@ use RustlsTransportInner::{Tcp, Tls};
 /**
 this struct provides rustls a trillium client connector implementation
 */
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct RustlsConnector<C>(PhantomData<C>);
 
 impl<C> RustlsConnector<C> {

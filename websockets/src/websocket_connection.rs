@@ -17,7 +17,8 @@ use trillium::{
 };
 use trillium_http::transport::BoxedTransport;
 
-type WSS = StreamStopper<WebSocketStream<BoxedTransport>>;
+type Wss = StreamStopper<WebSocketStream<BoxedTransport>>;
+type SpawnFn = Box<dyn Fn(Pin<Box<dyn Future<Output = ()> + Send>>) + Send>;
 
 /**
 A struct that represents an specific websocket connection.
@@ -36,8 +37,8 @@ pub struct WebSocketConn {
     method: Method,
     state: Extensions,
     stopper: Stopper,
-    wss: Option<WSS>,
-    spawn: Box<dyn Fn(Pin<Box<dyn Future<Output = ()> + Send>>) + Send>,
+    wss: Option<Wss>,
+    spawn: SpawnFn,
 }
 
 impl Debug for WebSocketConn {

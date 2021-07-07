@@ -56,6 +56,12 @@ impl AsyncStdServer<()> {
     }
 }
 
+impl Default for AsyncStdServer<()> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 trillium_server_common::standard_server!(
     AsyncStdServer,
     transport: TcpStream,

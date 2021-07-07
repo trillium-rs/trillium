@@ -24,7 +24,7 @@ async fn request_count(conn: Conn) -> Conn {
 }
 
 fn request_count_formatter(conn: &Conn, _color: bool) -> String {
-    conn.session().get_raw("count").unwrap_or_default().clone()
+    conn.session().get_raw("count").unwrap_or_default()
 }
 
 fn router<R>() -> impl Handler<R>
