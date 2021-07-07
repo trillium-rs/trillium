@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![warn(
-    missing_crate_level_docs,
+    rustdoc::missing_crate_level_docs,
     missing_docs,
     nonstandard_style,
     unused_qualifications
