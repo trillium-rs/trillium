@@ -195,17 +195,24 @@ where
         &mut self.state
     }
 
-    /// returns an immutable reference to the request headers. it is
-    /// not currently possible to mutate request headers for a conn
-    /// that has been read from a transport. For synthetic conns, use
-    /// [Conn<Synthetic>::request_headers_mut](Conn<trillium_http::Synthetic>::request_headers_mut)
+    /// returns a reference to the request headers
     pub fn request_headers(&self) -> &Headers {
         &self.request_headers
     }
 
     /// returns a mutable reference to the response [headers](Headers)
-    pub fn response_headers(&mut self) -> &mut Headers {
+    pub fn request_headers_mut(&mut self) -> &mut Headers {
+        &mut self.request_headers
+    }
+
+    /// returns a mutable reference to the response [headers](Headers)
+    pub fn response_headers_mut(&mut self) -> &mut Headers {
         &mut self.response_headers
+    }
+
+    /// returns a reference to the response [headers](Headers)
+    pub fn response_headers(&self) -> &Headers {
+        &self.response_headers
     }
 
     /** sets the http status code from any `TryInto<StatusCode>`.
@@ -405,7 +412,7 @@ where
     # use trillium_http::{Conn, http_types::{Method, Body}};
     let mut conn = Conn::new_synthetic(Method::Get, "/", ());
     assert_eq!(conn.response_encoding(), encoding_rs::WINDOWS_1252); // the default
-    conn.response_headers().insert("content-type", "text/plain;charset=utf-16");
+    conn.response_headers_mut().insert("content-type", "text/plain;charset=utf-16");
     assert_eq!(conn.response_encoding(), encoding_rs::UTF_16LE);
     ```
     */
