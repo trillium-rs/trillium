@@ -1,3 +1,5 @@
+use std::{convert::TryInto, fmt::Debug};
+
 use crate::Router;
 use trillium::{http_types::Method, Handler};
 
@@ -91,6 +93,33 @@ impl<'r> RouterRef<'r> {
 
     pub(crate) fn new(router: &'r mut Router) -> Self {
         Self(router)
+    }
+    /**
+    Registers a handler for a method other than get, put, post, patch, or delete.
+    ```
+    # use trillium::{Conn, http_types::Method};
+    # use trillium_router::Router;
+    let router = Router::build(|mut router| {
+        router.add_route("OPTIONS", "/some/route", |conn: Conn| async move {
+            conn.ok("directly handling options")
+        });
+
+        router.add_route(Method::Checkin, "/some/route", |conn: Conn| async move {
+            conn.ok("checkin??")
+        });
+    });
+
+    use trillium_testing::{prelude::*, TestConn};
+    assert_ok!(TestConn::build(Method::Options, "/some/route", ()).on(&router), "directly handling options");
+    assert_ok!(TestConn::build("checkin", "/some/route", ()).on(&router), "checkin??");
+    ```
+    */
+    pub fn add_route<M>(&mut self, method: M, path: &'static str, handler: impl Handler)
+    where
+        M: TryInto<Method>,
+        <M as TryInto<Method>>::Error: Debug,
+    {
+        self.0.add(path, method.try_into().unwrap(), handler);
     }
 
     /**

@@ -52,6 +52,16 @@ fn options_any() {
 
 #[test]
 fn when_options_are_disabled() {
-    let router = Router::new().without_options_handling().any("*", "ok");
-    assert_not_handled!(TestConn::build("options", "/", ()));
+    let router = Router::new().without_options_handling().get("*", "ok");
+    assert_not_handled!(TestConn::build("options", "/", ()).on(&router));
+}
+
+#[test]
+fn nested_router() {
+    let router = Router::new().any(
+        "/nested/*",
+        Router::new().get("/here", "ok").post("*", "ok"),
+    );
+    assert_headers!(TestConn::build("options", "/nested/here", ()).on(&router), "allow" => "GET, POST");
+    assert_headers!(TestConn::build("options", "*", ()).on(&router), "allow" => "DELETE, GET, PATCH, POST, PUT");
 }
