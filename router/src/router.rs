@@ -1,15 +1,30 @@
+use crate::RouterRef;
 use routefinder::{Match, Route, Router as Routefinder};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+};
 use trillium::{async_trait, http_types::Method, Conn, Handler, Upgrade};
 
-use crate::RouterRef;
 /**
 # The Router handler
 
+See crate level docs for more, as this is the primary type in this crate.
 
 */
-#[derive(Default)]
-pub struct Router(HashMap<Method, Routefinder<Box<dyn Handler>>>);
+pub struct Router {
+    method_map: HashMap<Method, Routefinder<Box<dyn Handler>>>,
+    handle_options: bool,
+}
+
+impl Default for Router {
+    fn default() -> Self {
+        Self {
+            method_map: Default::default(),
+            handle_options: true,
+        }
+    }
+}
 
 macro_rules! method {
     ($fn_name:ident, $method:ident) => {
@@ -82,6 +97,24 @@ impl Router {
     }
 
     /**
+    Disable the default behavior of responding to OPTIONS requests
+    with the supported methods at a given path
+    */
+    pub fn without_options_handling(mut self) -> Self {
+        self.set_options_handling(false);
+        self
+    }
+
+    /**
+    enable or disable the router's behavior of responding to OPTIONS requests with the supported methods at given path.
+
+    default: enabled
+     */
+    pub(crate) fn set_options_handling(&mut self, options_enabled: bool) {
+        self.handle_options = options_enabled;
+    }
+
+    /**
     Another way to build a router, if you don't like the chainable
     interface described in [`Router::new`]. Note that the argument to
     the closure is a [`RouterRef`].
@@ -121,11 +154,11 @@ impl Router {
         method: &Method,
         path: &'b str,
     ) -> Option<Match<'a, 'b, Box<dyn Handler>>> {
-        self.0.get(method).and_then(|r| r.best_match(path))
+        self.method_map.get(method).and_then(|r| r.best_match(path))
     }
 
     pub(crate) fn add(&mut self, path: &'static str, method: Method, handler: impl Handler) {
-        self.0
+        self.method_map
             .entry(method)
             .or_insert_with(routefinder::Router::new)
             .add(path, Box::new(handler))
@@ -175,6 +208,28 @@ impl Router {
 #[async_trait]
 impl Handler for Router {
     async fn run(&self, conn: Conn) -> Conn {
+        let method = conn.method();
+        let path = conn.path();
+
+        if method == Method::Options && self.handle_options {
+            let methods_set = if path == "*" {
+                self.method_map.keys().map(|m| *m).collect::<BTreeSet<_>>()
+            } else {
+                self.method_map
+                    .iter()
+                    .filter_map(|(m, router)| router.best_match(path).map(|_| *m))
+                    .collect::<BTreeSet<_>>()
+            };
+
+            let allow = methods_set
+                .iter()
+                .map(|m| m.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            return conn.with_header(("Allow", allow)).with_status(200).halt();
+        }
+
         if let Some(m) = self.best_match(&conn.method(), conn.path()) {
             let captures = m.captures().into_owned();
             struct HasPath;
@@ -246,7 +301,7 @@ impl std::fmt::Debug for Router {
         f.write_str("Router ")?;
         let mut set = f.debug_set();
 
-        for (method, router) in &self.0 {
+        for (method, router) in &self.method_map {
             for route in router {
                 set.entry(&RouteForDisplay(method, route));
             }

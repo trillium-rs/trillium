@@ -41,6 +41,20 @@ crate! It should be possible to nest different types of routers (and
 different versions of router crates) within each other as long as they
 all depend on the same version of the `trillium` crate.
 
+## Options handling
+
+By default, the trillium router will reply to an OPTIONS request with
+the list of supported http methods at the given route. If the OPTIONS
+request is sent for `*`, it responds with the full set of http methods
+supported by this router.
+
+**Note:** This does not currently recurse into nested routers. Please
+open an issue if this is of concern for your application. It is
+intended to be a best-effort response to the OPTIONS method
+
+To disable the default OPTIONS behavior, use
+[`Router::without_options_handling`] or
+[`RouterRef::set_options_handling`]
 */
 
 mod router;
