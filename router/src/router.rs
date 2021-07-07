@@ -2,6 +2,8 @@ use crate::RouterRef;
 use routefinder::{Match, Route, Router as Routefinder};
 use std::{
     collections::{BTreeSet, HashMap},
+    convert::TryInto,
+    fmt::Debug,
     sync::Arc,
 };
 use trillium::{async_trait, http_types::Method, Conn, Handler, Upgrade};
@@ -157,6 +159,30 @@ impl Router {
         self.method_map.get(method).and_then(|r| r.best_match(path))
     }
 
+    /**
+    Registers a handler for a method other than get, put, post, patch, or delete.
+
+    ```
+    # use trillium::{Conn, http_types::Method};
+    # use trillium_router::Router;
+    let router = Router::new()
+        .with_route("OPTIONS", "/some/route", |conn: Conn| async move { conn.ok("directly handling options") })
+        .with_route(Method::Checkin, "/some/route", |conn: Conn| async move { conn.ok("checkin??") });
+    dbg!(&router);
+    use trillium_testing::{prelude::*, TestConn};
+    assert_ok!(TestConn::build(Method::Options, "/some/route", ()).on(&router), "directly handling options");
+    assert_ok!(TestConn::build("checkin", "/some/route", ()).on(&router), "checkin??");
+    ```
+    */
+    pub fn with_route<M>(mut self, method: M, path: &'static str, handler: impl Handler) -> Self
+    where
+        M: TryInto<Method>,
+        <M as TryInto<Method>>::Error: Debug,
+    {
+        self.add(path, method.try_into().unwrap(), handler);
+        self
+    }
+
     pub(crate) fn add(&mut self, path: &'static str, method: Method, handler: impl Handler) {
         self.method_map
             .entry(method)
@@ -168,7 +194,7 @@ impl Router {
     pub(crate) fn add_any(&mut self, path: &'static str, handler: impl Handler) {
         use Method::*;
         let handler = Arc::new(handler);
-        for method in &[Get, Post, Put, Delete, Patch] {
+        for method in &[Get, Post, Put, Delete, Patch, Options] {
             self.add(path, *method, handler.clone())
         }
     }
@@ -211,25 +237,6 @@ impl Handler for Router {
         let method = conn.method();
         let path = conn.path();
 
-        if method == Method::Options && self.handle_options {
-            let methods_set = if path == "*" {
-                self.method_map.keys().copied().collect::<BTreeSet<_>>()
-            } else {
-                self.method_map
-                    .iter()
-                    .filter_map(|(m, router)| router.best_match(path).map(|_| *m))
-                    .collect::<BTreeSet<_>>()
-            };
-
-            let allow = methods_set
-                .iter()
-                .map(|m| m.to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            return conn.with_header(("Allow", allow)).with_status(200).halt();
-        }
-
         if let Some(m) = self.best_match(&conn.method(), conn.path()) {
             let captures = m.captures().into_owned();
             struct HasPath;
@@ -249,6 +256,25 @@ impl Handler for Router {
                 new_conn.pop_path();
             }
             new_conn
+        } else if method == Method::Options && self.handle_options {
+            let mut methods_set = if path == "*" {
+                self.method_map.keys().copied().collect::<BTreeSet<_>>()
+            } else {
+                self.method_map
+                    .iter()
+                    .filter_map(|(m, router)| router.best_match(path).map(|_| *m))
+                    .collect::<BTreeSet<_>>()
+            };
+
+            methods_set.remove(&Method::Options);
+
+            let allow = methods_set
+                .iter()
+                .map(|m| m.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            return conn.with_header(("Allow", allow)).with_status(200).halt();
         } else {
             log::debug!("{} did not match any route", conn.path());
             conn
@@ -285,7 +311,7 @@ impl Handler for Router {
 }
 
 struct RouteForDisplay<'a, H>(&'a Method, &'a Route<H>);
-impl<'a, H: Handler> std::fmt::Debug for RouteForDisplay<'a, H> {
+impl<'a, H: Handler> Debug for RouteForDisplay<'a, H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "{} {} -> {}",
@@ -296,7 +322,7 @@ impl<'a, H: Handler> std::fmt::Debug for RouteForDisplay<'a, H> {
     }
 }
 
-impl std::fmt::Debug for Router {
+impl Debug for Router {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Router ")?;
         let mut set = f.debug_set();

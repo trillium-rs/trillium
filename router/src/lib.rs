@@ -48,9 +48,8 @@ the list of supported http methods at the given route. If the OPTIONS
 request is sent for `*`, it responds with the full set of http methods
 supported by this router.
 
-**Note:** This does not currently recurse into nested routers. Please
-open an issue if this is of concern for your application. It is
-intended to be a best-effort response to the OPTIONS method
+**Note:** This behavior is superceded by an explicit OPTIONS handler
+or an `any` handler.
 
 To disable the default OPTIONS behavior, use
 [`Router::without_options_handling`] or
