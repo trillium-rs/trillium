@@ -144,23 +144,6 @@ impl Conn<Synthetic> {
     }
 
     /**
-    A Conn<Synthetic> provides the ability to mutate request headers
-    with `request_headers_mut`. This is only provided on synthetic
-    requests for now, since it doesn't generally make sense to mutate
-    headers for a request that is read from an io transport.
-
-    ```rust
-    # use trillium_http::{http_types::Method, Conn};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
-    conn.request_headers_mut().insert("content-type", "application/json");
-    assert_eq!(conn.request_headers()["content-type"], "application/json");
-    ```
-    */
-    pub fn request_headers_mut(&mut self) -> &mut Headers {
-        &mut self.request_headers
-    }
-
-    /**
     Replaces the synthetic body. This is intended for testing use.
      */
     pub fn replace_body(&mut self, body: impl Into<Synthetic>) {

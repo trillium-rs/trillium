@@ -212,7 +212,7 @@ macro_rules! assert_response {
     ($conn:expr, $status:expr, $body:expr, $($header_name:literal => $header_value:expr),*) => {
         let mut conn = $conn;
         $crate::assert_response!(&mut conn, $status, $body);
-        $crate::assert_headers!(&mut conn, $($header_name => $header_value),*);
+        $crate::assert_headers!(&conn, $($header_name => $header_value),*);
     };
 
 }
@@ -245,8 +245,8 @@ macro_rules! assert_headers {
     };
 
     ($conn:expr, $($header_name:literal => $header_value:expr),*) => {
-        let mut conn = $conn;
-        let headers = conn.inner_mut().response_headers();
+        let conn = $conn;
+        let headers = conn.inner().response_headers();
         $(
             assert_eq!(
                 headers.get($header_name).map(|h| h.as_str()),
