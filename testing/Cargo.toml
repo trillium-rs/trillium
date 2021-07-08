@@ -10,16 +10,35 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "testing"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[features]
+tokio = ["trillium-tokio"]
+smol = ["trillium-smol"]
+async-std = ["trillium-async-std"]
+default = ["smol"]
+
 [dependencies]
 async-dup = "1.2.2"
-async-global-executor = "2.0.2"
-async-io = "1.6.0"
 futures-lite = "1.12.0"
 portpicker = "0.1.1"
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-http = { path = "../http", version = "^0.1.0" }
 trillium-server-common = { path = "../server-common", version = "^0.1.0" }
-trillium-smol = { path = "../smol", version = "^0.1.0" }
+cfg-if = "1.0.0"
+
+[dependencies.trillium-smol]
+path = "../smol"
+version = "^0.1.0"
+optional = true
+
+[dependencies.trillium-tokio]
+path = "../tokio"
+version = "^0.1.0"
+optional = true
+
+[dependencies.trillium-async-std]
+path = "../async-std"
+version = "^0.1.0"
+optional = true
 
 [dev-dependencies]
 trillium-logger = { path = "../logger" }

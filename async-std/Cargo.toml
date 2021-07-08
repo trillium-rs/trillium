@@ -22,5 +22,15 @@ signal-hook = "0.3.9"
 signal-hook-async-std = "0.2.1"
 
 [dev-dependencies]
-async-std = { version = "1.9.0", features = ["attributes"], package = "async-std" }
 env_logger = "0.8.4"
+
+[dev-dependencies.async-std]
+version = "1.9.0"
+features = ["attributes"]
+package = "async-std"
+
+[dev-dependencies.trillium-testing]
+version = "0.1.1"
+default-features = false
+features = ["async-std"]
+path = "../testing"

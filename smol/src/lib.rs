@@ -68,6 +68,9 @@ pub use client::{ClientConfig, TcpConnector};
 mod server;
 use server::Config;
 
+pub use async_global_executor;
+pub use async_io;
+
 /**
 # Runs a trillium handler in a sync context with default config
 
