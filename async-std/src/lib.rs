@@ -41,6 +41,8 @@ pub use client::{ClientConfig, TcpConnector};
 mod server;
 use server::Config;
 
+pub use async_std;
+
 /**
 # Runs a trillium handler in a sync context with default config
 

@@ -31,6 +31,8 @@ async fn main() {
 ```
 */
 
+use std::future::Future;
+
 use trillium::Handler;
 pub use trillium_server_common::Stopper;
 
@@ -39,6 +41,8 @@ pub use client::{ClientConfig, TcpConnector};
 
 mod server;
 use server::Config;
+pub use tokio;
+pub use tokio_stream;
 
 /**
 # Runs a trillium handler in a sync context with default config
@@ -104,4 +108,11 @@ See [`trillium_server_common::Config`] for more details
 */
 pub fn config() -> Config<()> {
     Config::new()
+}
+
+/**
+reexport tokio runtime block_on
+*/
+pub fn block_on<Fut: Future<Output = T>, T>(future: Fut) -> T {
+    tokio::runtime::Runtime::new().unwrap().block_on(future)
 }

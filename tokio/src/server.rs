@@ -1,9 +1,6 @@
 use async_compat::Compat;
 use std::{net::IpAddr, sync::Arc};
-use tokio::{
-    net::{TcpListener, TcpStream},
-    runtime::Runtime,
-};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 use trillium::{async_trait, Handler, Info};
 use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
@@ -51,9 +48,7 @@ impl Server for TokioServer {
     }
 
     fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
-        Runtime::new()
-            .unwrap()
-            .block_on(async move { Self::run_async(config, handler).await });
+        crate::block_on(async move { Self::run_async(config, handler).await });
     }
 
     async fn run_async<A: Acceptor<Self::Transport>, H: Handler>(
