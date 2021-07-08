@@ -20,6 +20,7 @@ trillium-static-compiled = { path = "../static-compiled/" }
 trillium-proxy = { path = "../proxy" }
 trillium-rustls = { path = "../rustls" }
 log = "0.4.14"
+trillium-head = { path = "../head" }
 
 [dev-dependencies]
 trillium-testing = { path = "../testing" }
