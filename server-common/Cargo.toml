@@ -15,7 +15,7 @@ async-channel = "1.6.1"
 atomic-waker = "1.0.0"
 futures-lite = "1.12.0"
 log = "0.4.14"
-pin-project-lite = "0.2.6"
+pin-project-lite = "0.2.7"
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-http = { path = "../http", version = "^0.1.0" }
 trillium-tls-common = { path = "../tls-common/", version = "^0.1.0" }

@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-net = "1.6.0"
+async-net = "1.6.1"
 full-duplex-async-copy = "0.1.0"
 log = "0.4.14"
 size = "0.1.2"
