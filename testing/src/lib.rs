@@ -39,7 +39,7 @@ assert_response!(
 The default runtime for trillium_testing is smol. To test a
 trillium_tokio or trillium_async_std application:
 
-## Tokio:
+### Tokio:
 
 ```toml
 [dev-dependencies.trillium-testing]
@@ -54,7 +54,7 @@ features = ["tokio"]
 trillium_testing = { version = "0.1", default-features = false, features = ["tokio"] }
 ```
 
-## Async-std:
+### Async-std:
 ```toml
 [dev-dependencies.trillium-testing]
 version = "0.1"
