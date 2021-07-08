@@ -1,6 +1,20 @@
 /*!
 # Trillium method override handler
 
+This allows http clients that are unable to generate http methods
+other than `GET` and `POST` to use `POST` requests that are
+interpreted as other methods such as `PUT`, `PATCH`, or `DELETE`.
+
+This is currently supported with a querystring parameter of
+`_method`. To change the querystring parameter's name, use
+[`MethodOverride::with_param_name`]
+
+By default, the only methods allowed are `PUT`, `PATCH`, and
+`DELETE`. To override this, use
+[`MethodOverride::with_allowed_methods`]
+
+Subsequent handlers see the requested method on the conn instead of
+POST.
 */
 #![forbid(unsafe_code)]
 #![deny(
