@@ -28,7 +28,7 @@ trillium-html-rewriter = { path = "../html-rewriter" }
 trillium-logger = { path = "../logger", version = "^0.1.0" }
 trillium-native-tls = { path = "../native-tls/" }
 trillium-proxy = { path = "../proxy" }
-trillium-router = { path = "../router", version = "^0.1.0" }
+trillium-router = { path = "../router", version = "^0.2.0"}
 trillium-rustls = { path = "../rustls" }
 trillium-smol = { path = "../smol", version = "^0.1.0" }
 trillium-static = { path = "../static", features = ["smol"] }
