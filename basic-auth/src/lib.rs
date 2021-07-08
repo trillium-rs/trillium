@@ -31,7 +31,7 @@ impl BasicAuth {
         }
     }
 
-    pub fn deny(&self, conn: Conn) -> Conn {
+    pub fn deny(clippy::dbg_macro,&self, conn: Conn) -> Conn {
         conn.with_status(StatusCode::Unauthorized)
             .with_header(("www-authenticate", &*self.www_authenticate()))
             .halt()
@@ -44,7 +44,7 @@ impl Handler for BasicAuth {
         if self.is_allowed(&conn) {
             conn
         } else {
-            self.deny(conn)
+            self.deny(clippy::dbg_macro,conn)
         }
     }
 }

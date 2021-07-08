@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(
+    clippy::dbg_macro,
     missing_debug_implementations,
     nonstandard_style,
     missing_copy_implementations,

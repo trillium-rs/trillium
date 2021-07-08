@@ -168,7 +168,7 @@ impl Router {
     let router = Router::new()
         .with_route("OPTIONS", "/some/route", |conn: Conn| async move { conn.ok("directly handling options") })
         .with_route(Method::Checkin, "/some/route", |conn: Conn| async move { conn.ok("checkin??") });
-    dbg!(&router);
+
     use trillium_testing::{prelude::*, TestConn};
     assert_ok!(TestConn::build(Method::Options, "/some/route", ()).on(&router), "directly handling options");
     assert_ok!(TestConn::build("checkin", "/some/route", ()).on(&router), "checkin??");

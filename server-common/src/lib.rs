@@ -1,4 +1,5 @@
 #![deny(
+    clippy::dbg_macro,
     missing_copy_implementations,
     rustdoc::missing_crate_level_docs,
     missing_debug_implementations,
