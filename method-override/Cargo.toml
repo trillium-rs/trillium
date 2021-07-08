@@ -1,9 +1,9 @@
 [package]
-name = "trillium-head"
+name = "trillium-method-override"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
-description = "http head handler for trillium.rs"
+description = "http method override for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
 readme = "../README.md"
@@ -12,6 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 trillium = { path = "../trillium", version = "^0.1.0" }
+querystrong = "0.1.1"
 
 [dev-dependencies]
 trillium-testing = { path = "../testing" }
