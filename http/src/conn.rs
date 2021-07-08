@@ -334,6 +334,13 @@ where
     }
 
     /**
+    overrides the http method for this conn
+     */
+    pub fn set_method(&mut self, method: Method) {
+        self.method = method;
+    }
+
+    /**
     returns the http version for this conn.
     */
     pub fn http_version(&self) -> Version {
