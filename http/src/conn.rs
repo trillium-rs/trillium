@@ -535,8 +535,10 @@ where
             return;
         }
 
-        if let Some(len) = self.body_len() {
-            self.response_headers.apply(ContentLength::new(len));
+        if self.response_headers.get(CONTENT_LENGTH).is_none() {
+            if let Some(len) = self.body_len() {
+                self.response_headers.apply(ContentLength::new(len));
+            }
         }
 
         if self.response_headers.get(CONTENT_LENGTH).is_none() {
