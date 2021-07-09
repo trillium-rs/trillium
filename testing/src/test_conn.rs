@@ -78,7 +78,8 @@ impl TestConn {
     runs this conn against a handler and finalizes response headers,
     asynchronously. Since most tests are performed in a sync context,
     most of the time it is preferable to use [`TestConn::run`], also
-    aliased as [`TestConn::on`]
+    aliased as [`TestConn::on`]. This function is aliased as
+    [`TestConn::async_on`].
 
     ```
     use trillium_testing::prelude::*;
@@ -145,6 +146,31 @@ impl TestConn {
     }
 
     /**
+    runs this conn against a handler and finalizes response headers,
+    asynchronously. Since most tests are performed in a sync context,
+    most of the time it is preferable to use [`TestConn::run`], also
+    aliased as [`TestConn::on`]. This function is an alias of
+    [`TestConn::run_async`].
+
+    ```
+    use trillium_testing::prelude::*;
+
+    trillium_testing::block_on(async {
+        async fn handler(conn: Conn) -> Conn {
+            conn.ok("hello trillium")
+        }
+
+        let conn = get("/").async_on(&handler).await;
+        assert_ok!(conn, "hello trillium", "content-length" => "14");
+    });
+    ```
+    */
+
+    pub async fn async_on(self, handler: &impl Handler) -> Self {
+        self.run_async(handler).await
+    }
+
+    /**
     Reads the response body to string and returns it, if set. This is
     used internally to [`assert_body`] which is the preferred
     interface
@@ -152,7 +178,7 @@ impl TestConn {
     pub fn take_body_string(&mut self) -> Option<String> {
         self.take_response_body().map(|mut body| {
             let mut s = String::new();
-            block_on(body.read_to_string(&mut s)).expect("read");
+            futures_lite::future::block_on(body.read_to_string(&mut s)).expect("read");
             s
         })
     }
@@ -169,7 +195,9 @@ impl TestConn {
     Reads the request body to string and returns it
     */
     pub fn take_request_body_string(&mut self) -> String {
-        block_on(async { self.request_body().await.read_string().await.unwrap() })
+        futures_lite::future::block_on(async {
+            self.request_body().await.read_string().await.unwrap()
+        })
     }
 }
 

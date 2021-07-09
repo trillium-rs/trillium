@@ -33,6 +33,4 @@ env_logger = "0.8.4"
 
 [dev-dependencies.trillium-testing]
 version = "0.1.1"
-default-features = false
-features = ["tokio"]
 path = "../testing"

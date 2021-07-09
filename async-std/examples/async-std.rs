@@ -15,13 +15,3 @@ pub fn main() {
     env_logger::init();
     trillium_async_std::run(app());
 }
-
-#[cfg(test)]
-mod tests {
-    use trillium_testing::prelude::*;
-    #[test]
-    fn test() {
-        let app = super::app();
-        assert_ok!(get("/").on(&app), "successfully spawned a task");
-    }
-}

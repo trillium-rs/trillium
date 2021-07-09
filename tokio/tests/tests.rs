@@ -1,4 +1,6 @@
-pub fn app() -> impl trillium::Handler {
+use trillium_testing::prelude::*;
+
+fn app() -> impl trillium::Handler {
     |conn: trillium::Conn| async move {
         let response = tokio::task::spawn(async {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -9,7 +11,10 @@ pub fn app() -> impl trillium::Handler {
         conn.ok(response)
     }
 }
-pub fn main() {
-    env_logger::init();
-    trillium_tokio::run(app());
+
+#[cfg(feature = "tokio")]
+#[test]
+fn smoke() {
+    let app = app();
+    assert_ok!(get("/").on(&app), "successfully spawned a task");
 }
