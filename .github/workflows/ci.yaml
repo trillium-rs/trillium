@@ -17,7 +17,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest] # [macOS-latest, ubuntu-latest, windows-latest]
         rust: [nightly, stable]
-        runtime: [tokio, async-std, smol]
     steps:
     - uses: actions/checkout@master
     - name: Install ${{ matrix.rust }}
@@ -35,11 +34,23 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
-    - name: Tests
+    - name: Async-std tests
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --all --examples --features ${{ matrix.runtime }}
+        args: --all --examples --features async-std
+
+    - name: Tokio tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --all --examples --features tokio
+
+    - name: Smol tests
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --all --examples --features smol
 
   check_fmt_and_docs:
     name: Lints and Docs
