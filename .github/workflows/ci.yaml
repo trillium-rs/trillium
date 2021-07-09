@@ -15,9 +15,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest] # [macOS-latest, ubuntu-latest, windows-latest]
-        rust: [stable] # [nightly, stable]
-
+        os: [ubuntu-latest, macOS-latest] # [macOS-latest, ubuntu-latest, windows-latest]
+        rust: [nightly, stable]
+        runtime: [tokio, async-std, smol]
     steps:
     - uses: actions/checkout@master
     - name: Install ${{ matrix.rust }}
@@ -37,9 +37,6 @@ jobs:
 
     - name: Tests
       uses: actions-rs/cargo@v1
-      strategy:
-        matrix:
-          runtime: [tokio, async-std, smol]
       with:
         command: test
         args: --all --examples --features ${{ matrix.runtime }}
