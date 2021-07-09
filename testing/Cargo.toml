@@ -14,7 +14,7 @@ categories = ["web-programming::http-server", "web-programming"]
 tokio = ["trillium-tokio"]
 smol = ["trillium-smol"]
 async-std = ["trillium-async-std"]
-default = ["smol"]
+default = []
 
 [dependencies]
 async-dup = "1.2.2"
