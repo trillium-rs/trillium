@@ -127,6 +127,6 @@ cfg_if::cfg_if! {
             })
         }
     } else {
-        compiler_error!("must enable smol, async-std, or tokio feature");
+        compile_error!("must enable smol, async-std, or tokio feature");
     }
 }

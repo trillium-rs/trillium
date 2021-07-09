@@ -106,13 +106,13 @@ pub use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite};
 pub use trillium_http::http_types::{Method, StatusCode, Url};
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "smol")] {
-        pub use trillium_smol::async_global_executor::block_on;
+    if #[cfg(feature = "tokio")] {
+        pub use trillium_tokio::block_on;
     } else if #[cfg(feature = "async-std")] {
         pub use trillium_async_std::async_std::task::block_on;
-    } else if #[cfg(feature = "tokio")] {
-        pub use trillium_tokio::block_on;
+    } else if #[cfg(feature = "smol")] {
+        pub use trillium_smol::async_global_executor::block_on;
     } else {
-        compiler_error!("must enable smol, async-std, or tokio feature for now");
+        compile_error!("must enable smol, async-std, or tokio feature");
     }
 }

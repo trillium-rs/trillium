@@ -261,10 +261,10 @@ impl Conn {
     retains all data and holds the singular transport, but the
     ReceivedBody provides an interface to read body content
     ```
-    # trillium_testing::block_on(async {
     use trillium_testing::prelude::*;
     let mut conn = get("/").with_request_body("request body").on(&());
 
+    # trillium_testing::block_on(async {
     let request_body = conn.request_body().await;
     assert_eq!(request_body.content_length(), Some(12));
     assert_eq!(request_body.read_string().await.unwrap(), "request body");
@@ -278,10 +278,10 @@ impl Conn {
     /**
     Convenience function to read the content of a request body as a String.
     ```
-    # trillium_testing::block_on(async {
     use trillium_testing::prelude::*;
     let mut conn = get("/").with_request_body("request body").on(&());
 
+    # trillium_testing::block_on(async {
     assert_eq!(conn.request_body_string().await.unwrap(), "request body");
     # });
     ```

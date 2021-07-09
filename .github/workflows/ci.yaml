@@ -37,9 +37,12 @@ jobs:
 
     - name: Tests
       uses: actions-rs/cargo@v1
+      strategy:
+        matrix:
+          runtime: [tokio, async-std, smol]
       with:
         command: test
-        args: --all --examples
+        args: --all --examples --features ${{ matrix.runtime }}
 
   check_fmt_and_docs:
     name: Lints and Docs

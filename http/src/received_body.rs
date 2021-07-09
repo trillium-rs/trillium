@@ -30,7 +30,7 @@ transport, which it may either borrow from a [`Conn`](crate::Conn) or
 own.
 
 ```rust
-# futures_lite::future::block_on(async {
+# trillium_testing::block_on(async {
 # use trillium_http::{http_types::Method, Conn};
 let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
 let body = conn.request_body().await;
@@ -79,7 +79,7 @@ where
     transfer-encoding chunked, this will be None.
 
     ```rust
-    # futures_lite::future::block_on(async {
+    # trillium_testing::block_on(async {
     # use trillium_http::{http_types::Method, Conn};
     let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
     let body = conn.request_body().await;
@@ -549,7 +549,7 @@ mod chunk_decode {
             UTF_8,
         );
 
-        let output = async_io::block_on(read_with_buffers_of_size(&mut rb, poll_size))?;
+        let output = trillium_testing::block_on(read_with_buffers_of_size(&mut rb, poll_size))?;
         Ok((output, rb))
     }
 
