@@ -36,36 +36,27 @@ assert_response!(
 
 ## Features
 
-The default runtime for trillium_testing is smol. To test a
-trillium_tokio or trillium_async_std application:
+**You must enable a runtime feature for trillium testing**
 
 ### Tokio:
-
 ```toml
-[dev-dependencies.trillium-testing]
-version = "0.1"
-default-features = false
-features = ["tokio"]
-
-# or:
-
 [dev-dependencies]
 # ...
-trillium_testing = { version = "0.1", default-features = false, features = ["tokio"] }
+trillium_testing = { version = "0.2", , features = ["tokio"] }
 ```
 
 ### Async-std:
 ```toml
-[dev-dependencies.trillium-testing]
-version = "0.1"
-default-features = false
-features = ["async-std"]
-
-# or:
-
 [dev-dependencies]
 # ...
-trillium_testing = { version = "0.1", default-features = false, features = ["async-std"] }
+trillium_testing = { version = "0.2", , features = ["async-std"] }
+```
+
+### Smol:
+```toml
+[dev-dependencies]
+# ...
+trillium_testing = { version = "0.2", , features = ["smol"] }
 ```
 
 
@@ -114,5 +105,6 @@ cfg_if::cfg_if! {
         pub use trillium_smol::async_global_executor::block_on;
     } else {
         compile_error!("must enable smol, async-std, or tokio feature");
+        pub fn block_on<Fut: std::future::Future<Output = T>, T>(_: Fut) -> T { unreachable!()}
     }
 }

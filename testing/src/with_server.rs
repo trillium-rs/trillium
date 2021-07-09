@@ -127,6 +127,16 @@ cfg_if::cfg_if! {
             })
         }
     } else {
+        pub fn with_server<H, Fun, Fut>(_handler: H, _tests: Fun)
+        where
+            H: Handler,
+            Fun: Fn(Url) -> Fut,
+            Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>,
+        {
+            block_on(async {});
+            let duration = Duration::ZERO;
+            let stopper = Stopper::new();
+        }
         compile_error!("must enable smol, async-std, or tokio feature");
     }
 }
