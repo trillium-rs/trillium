@@ -50,7 +50,7 @@ features = [
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3.9"
 libc = "0.2.98"
-nix = "0.21.0"
+nix = "0.22.0"
 notify = "4.0.17"
 
 [lib]
