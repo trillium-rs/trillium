@@ -175,12 +175,14 @@ impl TestConn {
     used internally to [`assert_body`] which is the preferred
     interface
     */
-    pub fn take_body_string(&mut self) -> Option<String> {
-        self.take_response_body().map(|mut body| {
+    pub async fn take_response_body_string(&mut self) -> Option<String> {
+        if let Some(mut body) = self.take_response_body() {
             let mut s = String::new();
-            futures_lite::future::block_on(body.read_to_string(&mut s)).expect("read");
-            s
-        })
+            body.read_to_string(&mut s).await.expect("read");
+            Some(s)
+        } else {
+            None
+        }
     }
 
     // pub fn take_body_bytes(&mut self) -> Option<Vec<u8>> {

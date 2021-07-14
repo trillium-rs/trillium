@@ -93,6 +93,7 @@ pub fn init(handler: &mut impl trillium::Handler) {
 }
 
 // these exports are used by macros
+pub use futures_lite;
 pub use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite};
 pub use trillium_http::http_types::{Method, StatusCode, Url};
 
