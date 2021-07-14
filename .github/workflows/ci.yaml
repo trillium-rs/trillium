@@ -15,8 +15,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macOS-latest] # [macOS-latest, ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, macOS-latest]
         rust: [nightly, stable]
+        runtime: [smol, tokio, async-std]
     steps:
     - uses: actions/checkout@master
     - name: Install ${{ matrix.rust }}
@@ -24,36 +25,15 @@ jobs:
       with:
         toolchain: ${{ matrix.rust }}
         override: true
-    # - uses: actions/cache@v2
-    #   with:
-    #     path: |
-    #       ~/.cargo/bin/
-    #       ~/.cargo/registry/index/
-    #       ~/.cargo/registry/cache/
-    #       ~/.cargo/git/db/
-    #       target/
-    #     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
     - name: Rust Cache
       uses: Swatinem/rust-cache@v1.3.0
 
-    - name: Async-std tests
+    - name: Run tests
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --workspace --features async-std --no-fail-fast
-
-    - name: Tokio tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --workspace --features tokio --no-fail-fast
-
-    - name: Smol tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --workspace --features smol --no-fail-fast
+        args: --workspace --features ${{ matrix.runtime }} --no-fail-fast
 
   check_fmt_and_docs:
     name: Lints and Docs
