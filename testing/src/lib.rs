@@ -42,21 +42,21 @@ assert_response!(
 ```toml
 [dev-dependencies]
 # ...
-trillium_testing = { version = "0.2", , features = ["tokio"] }
+trillium-testing = { version = "0.2", , features = ["tokio"] }
 ```
 
 ### Async-std:
 ```toml
 [dev-dependencies]
 # ...
-trillium_testing = { version = "0.2", , features = ["async-std"] }
+trillium-testing = { version = "0.2", , features = ["async-std"] }
 ```
 
 ### Smol:
 ```toml
 [dev-dependencies]
 # ...
-trillium_testing = { version = "0.2", , features = ["smol"] }
+trillium-testing = { version = "0.2", , features = ["smol"] }
 ```
 
 
