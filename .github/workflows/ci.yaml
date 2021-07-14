@@ -41,19 +41,19 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --all --examples --features async-std
+        args: --workspace --all --examples --features async-std
 
     - name: Tokio tests
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --all --examples --features tokio
+        args: --workspace --all --examples --features tokio
 
     - name: Smol tests
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --all --examples --features smol
+        args: --workspace --all --examples --features smol
 
   check_fmt_and_docs:
     name: Lints and Docs
