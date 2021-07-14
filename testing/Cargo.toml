@@ -43,3 +43,7 @@ optional = true
 [dev-dependencies]
 trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }
+
+[[example]]
+name = "testing"
+test = true

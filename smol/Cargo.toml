@@ -28,3 +28,7 @@ signal-hook-async-std = "0.2.1"
 env_logger = "0.8.4"
 trillium-client = { path = "../client" }
 trillium-testing = { path = "../testing" }
+
+[[example]]
+name = "smol"
+test = true
