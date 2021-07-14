@@ -24,15 +24,18 @@ jobs:
       with:
         toolchain: ${{ matrix.rust }}
         override: true
-    - uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+    # - uses: actions/cache@v2
+    #   with:
+    #     path: |
+    #       ~/.cargo/bin/
+    #       ~/.cargo/registry/index/
+    #       ~/.cargo/registry/cache/
+    #       ~/.cargo/git/db/
+    #       target/
+    #     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+
+    - name: Rust Cache
+      uses: Swatinem/rust-cache@v1.3.0
 
     - name: Async-std tests
       uses: actions-rs/cargo@v1
