@@ -30,6 +30,6 @@ features = ["attributes"]
 package = "async-std"
 
 [dev-dependencies.trillium-testing]
-version = "0.1.2"
+version = "0.1.1"
 features = ["async-std"]
 path = "../testing"
