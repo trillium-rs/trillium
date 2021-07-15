@@ -1,23 +1,21 @@
 [package]
-name = "trillium-logger"
-version = "0.1.3"
+name = "trillium-forwarding"
+version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
-description = "logger for trillium.rs"
+description = "handler for trillium.rs that rewrites host/scheme from forwarded/x-forwarded headers"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
 readme = "../README.md"
-keywords = ["trillium", "framework", "async", "logging"]
+keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-atty = "0.2.14"
-chrono = "0.4.19"
-colored = "2.0.0"
+cidr = "0.1.1"
 log = "0.4.14"
-size = "0.1.2"
 trillium = { path = "../trillium", version = "^0.1.0" }
 
 [dev-dependencies]
-env_logger = "0.8.4"
+trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }

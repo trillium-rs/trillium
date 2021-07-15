@@ -261,6 +261,16 @@ where
         }
     }
 
+    /// get the host for this conn, if it exists
+    pub fn host(&self) -> Option<&str> {
+        self.request_headers.get("host").map(|h| h.as_str())
+    }
+
+    /// set the host for this conn
+    pub fn set_host(&mut self, host: &str) {
+        self.request_headers.insert("host", host);
+    }
+
     // pub fn url(&self) -> Result<Url> {
     //     let path = self.path();
     //     let host = self.host().unwrap_or_else(|| String::from("_"));
@@ -517,6 +527,15 @@ where
     /// this.
     pub fn is_secure(&self) -> bool {
         self.secure
+    }
+
+    /// set whether the connection should be considered secure. note
+    /// that this does not necessarily indicate that the transport
+    /// itself is secure, as it may indicate that trillium_http is
+    /// behind a trusted reverse proxy that has terminated tls and
+    /// provided appropriate headers to indicate this.
+    pub fn set_secure(&mut self, secure: bool) {
+        self.secure = secure;
     }
 
     /**

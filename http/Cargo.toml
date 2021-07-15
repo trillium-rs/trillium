@@ -1,6 +1,6 @@
 [package]
 name = "trillium-http"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2018"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 description = "the http implementation for the trillium toolkit"
@@ -16,7 +16,7 @@ unstable = []
 [dependencies]
 encoding_rs = "0.8.28"
 futures-lite = "1.12.0"
-http-types = { version = "0.0.2", default-features = false, package = "trillium-http-types" }
+http-types = { version = "0.0.3", default-features = false, package = "trillium-http-types" }
 httparse = "1.4.1"
 log = "0.4.14"
 memmem = "0.1.1"

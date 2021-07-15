@@ -257,6 +257,18 @@ pub fn bytes(conn: &Conn, _color: bool) -> u64 {
 }
 
 /**
+formatter that prints an emoji if the request is secure as determined
+by [`Conn::is_secure`]
+*/
+pub fn secure(conn: &Conn, _: bool) -> &'static str {
+    if conn.is_secure() {
+        "🔒"
+    } else {
+        "  "
+    }
+}
+
+/**
 formatter for the current url or path of the request, including query
 */
 pub fn url(conn: &Conn, _color: bool) -> String {
