@@ -19,6 +19,6 @@ trillium-tls-common = { path = "../tls-common", version = "^0.1.0" }
 webpki-roots = "0.21"
 
 [dev-dependencies]
-env_logger = "0.8.4"
+env_logger = "0.9.0"
 trillium = { path = "../trillium" }
 trillium-smol = { path = "../smol" }
