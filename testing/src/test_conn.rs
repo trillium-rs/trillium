@@ -2,6 +2,7 @@ use crate::{block_on, AsyncReadExt, Method};
 use std::{
     convert::TryInto,
     fmt::Debug,
+    net::IpAddr,
     ops::{Deref, DerefMut},
 };
 use trillium::{http_types::headers::Header, Conn, Handler};
@@ -72,6 +73,12 @@ impl TestConn {
         let mut inner: SyntheticConn = self.into();
         inner.replace_body(body);
         Self(inner.into())
+    }
+
+    /// sets the peer ip for this test conn
+    pub fn with_peer_ip(mut self, ip: IpAddr) -> Self {
+        self.inner_mut().set_peer_ip(Some(ip));
+        self
     }
 
     /**
