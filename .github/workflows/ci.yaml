@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macOS-latest]
-        rust: [nightly, stable]
+        rust: [nightly-2021-07-05, stable]
         runtime: [smol, tokio, async-std]
     steps:
     - uses: actions/checkout@master
