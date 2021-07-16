@@ -1,0 +1,20 @@
+[package]
+name = "trillium-conn-id"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+description = "conn ids for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[dependencies]
+extension-trait = "1.0.0"
+fastrand = "1.4.1"
+trillium = { path = "../trillium", version = "^0.1.0" }
+
+[dev-dependencies]
+trillium-testing = { path = "../testing" }
+uuid = { version = "0.8.2", features = ["v4"] }

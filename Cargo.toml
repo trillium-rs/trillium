@@ -6,6 +6,7 @@ members = [
   "aws-lambda",
   "aws-lambda-example",
   "client",
+  "conn-id",
   "cookies",
   "example",
   "forwarding",
