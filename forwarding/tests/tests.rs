@@ -1,7 +1,6 @@
 use std::net::IpAddr;
-use trillium::http_types::Method;
 use trillium_forwarding::*;
-use trillium_testing::{prelude::*, TestConn};
+use trillium_testing::prelude::*;
 
 fn app(forwarding: Forwarding) -> impl trillium::Handler {
     (forwarding, |conn: Conn| async move {
