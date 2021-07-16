@@ -2,9 +2,11 @@ use askama::Template;
 use futures_lite::prelude::*;
 use trillium::{Conn, Handler};
 use trillium_askama::AskamaConnExt;
+use trillium_conn_id::{log_formatter::conn_id, ConnId};
 use trillium_cookies::CookiesHandler;
 use trillium_head::Head;
-use trillium_logger::{Logger, Target};
+use trillium_logger::{apache_common, Logger, Target};
+use trillium_method_override::MethodOverride;
 use trillium_router::{Router, RouterConnExt};
 use trillium_rustls::RustlsConnector;
 use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
@@ -27,7 +29,11 @@ async fn request_count(conn: Conn) -> Conn {
 
 fn app() -> impl Handler {
     (
-        Logger::new().with_target(Target::Stdout),
+        Logger::new()
+            .with_formatter(apache_common(conn_id, "-"))
+            .with_target(Target::Stdout),
+        ConnId::new(),
+        MethodOverride::new(),
         Head::new(),
         CookiesHandler::new(),
         SessionHandler::new(MemoryStore::new(), b"01234567890123456789012345678901123"),

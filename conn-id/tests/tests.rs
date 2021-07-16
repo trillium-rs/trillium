@@ -17,10 +17,10 @@ fn test_defaults() {
 
     let conn = get("/").on(&app);
     assert_eq!(conn.id(), "diPTBAoTAe");
-    assert_eq!(log_formatter::id(&conn, true), "diPTBAoTAe");
+    assert_eq!(log_formatter::conn_id(&conn, true), "diPTBAoTAe");
 
     let conn = TestConn::build("get", "/", ());
-    assert_eq!(log_formatter::id(&conn, true), "-");
+    assert_eq!(log_formatter::conn_id(&conn, true), "-");
 }
 
 #[test]
@@ -37,7 +37,7 @@ fn test_settings() {
 
     assert!(Uuid::parse_str(conn.headers_mut()["x-something-else"].as_str()).is_ok());
     assert!(Uuid::parse_str(conn.id()).is_ok());
-    assert!(Uuid::parse_str(log_formatter::id(&conn, true)).is_ok());
+    assert!(Uuid::parse_str(log_formatter::conn_id(&conn, true)).is_ok());
 
     assert_ok!(
         get("/").with_request_header(("x-custom-id", "inbound-id")).on(&app),
