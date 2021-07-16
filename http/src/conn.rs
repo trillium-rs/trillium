@@ -158,7 +158,13 @@ where
 
         if self.method() != Method::Head {
             if let Some(body) = self.response_body.take() {
-                io::copy(BodyEncoder::new(body), &mut self.transport).await?;
+                let encoder = match self.version {
+                    Version::Http1_0 => BodyEncoder::Fixed(body),
+                    Version::Http1_1 => BodyEncoder::new(body),
+                    _ => unreachable!(),
+                };
+
+                io::copy(encoder, &mut self.transport).await?;
             }
         }
 
@@ -481,6 +487,7 @@ where
             .map_err(|_| Error::UnrecognizedMethod(httparse_req.method.unwrap().to_string()))?;
 
         let version = match httparse_req.version {
+            Some(0) => Version::Http1_0,
             Some(1) => Version::Http1_1,
             Some(version) => return Err(Error::UnsupportedVersion(version)),
             None => return Err(Error::MissingVersion),
@@ -560,7 +567,7 @@ where
             }
         }
 
-        if self.response_headers.get(CONTENT_LENGTH).is_none() {
+        if self.response_headers.get(CONTENT_LENGTH).is_none() && self.version == Version::Http1_1 {
             self.response_headers.apply(TransferEncoding::new(Chunked));
         } else {
             self.response_headers.remove(TRANSFER_ENCODING);
@@ -572,6 +579,7 @@ where
             && !self
                 .request_headers
                 .contains_ignore_ascii_case("connection", "close")
+            && self.version == Version::Http1_1
         {
             self.response_headers.insert("connection", "keep-alive");
         }
@@ -679,11 +687,25 @@ where
     }
 
     fn should_close(&self) -> bool {
-        self.request_headers
+        if self
+            .request_headers
+            .contains_ignore_ascii_case("connection", "keep-alive")
+            && self
+                .response_headers
+                .contains_ignore_ascii_case("connection", "keep-alive")
+        {
+            false
+        } else if self
+            .request_headers
             .contains_ignore_ascii_case("connection", "close")
             || self
                 .response_headers
                 .contains_ignore_ascii_case("connection", "close")
+        {
+            true
+        } else {
+            self.version == Version::Http1_0
+        }
     }
 
     fn should_upgrade(&self) -> bool {
@@ -733,7 +755,8 @@ where
     async fn send_headers(&mut self) -> Result<()> {
         let status = self.status().unwrap_or(StatusCode::NotFound);
         let first_line = format!(
-            "HTTP/1.1 {} {}\r\n",
+            "{} {} {}\r\n",
+            self.version,
             status as u16,
             status.canonical_reason()
         );
