@@ -1,5 +1,4 @@
 use std::net::IpAddr;
-
 use trillium::http_types::Method;
 use trillium_forwarding::*;
 use trillium_testing::{prelude::*, TestConn};
