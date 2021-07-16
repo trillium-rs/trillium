@@ -74,7 +74,7 @@ impl TrustProxy {
 }
 
 /**
-Trillium handler for HEAD requests
+Trillium handler for `forwarded`/`x-forwarded-*` headers
 
 See crate-level docs for an explanation
 */
