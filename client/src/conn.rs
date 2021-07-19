@@ -447,10 +447,16 @@ impl<C: Connector> Conn<'_, C> {
     }
 
     pub(crate) fn response_content_length(&self) -> Option<u64> {
-        ContentLength::from_headers(&self.response_headers)
-            .ok()
-            .flatten()
-            .map(|cl| cl.len())
+        if self.method == Method::Head {
+            Some(0)
+        } else if let Some(StatusCode::NoContent | StatusCode::NotModified) = self.status {
+            Some(0)
+        } else {
+            ContentLength::from_headers(&self.response_headers)
+                .ok()
+                .flatten()
+                .map(|cl| cl.len())
+        }
     }
 
     /**
