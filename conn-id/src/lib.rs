@@ -75,14 +75,10 @@ impl ConnId {
     ```
     # use trillium_testing::prelude::*;
     # use trillium_conn_id::ConnId;
-    fastrand::seed(1000); // for testing, so our id is predictable
 
     let app = (ConnId::new(), "ok");
-    assert_ok!(
-        get("/").on(&app),
-        "ok",
-        "x-request-id" => "CBd9yySM2L"
-    );
+
+    assert_eq!(get("/").on(&app).headers_mut()["x-request-id"].as_str().len(), 10);
 
     assert_headers!(
         get("/")
@@ -132,18 +128,17 @@ impl ConnId {
 
     ```
     # use trillium_testing::prelude::*;
-    # use trillium_conn_id::ConnId;
-    fastrand::seed(1000); // for testing, so our id is predictable
+    # use trillium_conn_id::{ConnId, ConnIdExt};
 
     let app = (
         ConnId::new().with_response_header(Some("x-custom-header")),
         "ok"
     );
 
-    assert_headers!(
-        get("/").on(&app),
-        "x-custom-header" => "CBd9yySM2L"
-    );
+    let mut conn = get("/").on(&app);
+    let id = String::from(conn.id());
+
+    assert_headers!(&mut conn, "x-custom-header" => &*id);
     ```
     */
     pub fn with_response_header(mut self, response_header: Option<&'static str>) -> Self {
