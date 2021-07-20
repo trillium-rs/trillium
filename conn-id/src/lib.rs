@@ -3,7 +3,9 @@ Trillium crate to add identifiers to conns.
 
 This crate provides the following utilities:
 * [`ConnId`] a handler which must be called for the rest of this crate to function
-* [`log_formatter::conn_id`] a formatter to use with trillium_logger (note that this does not depend on the trillium_logger crate and is very lightweight if you do not use that crate)
+* [`log_formatter::conn_id`] a formatter to use with trillium_logger
+  (note that this does not depend on the trillium_logger crate and is very lightweight
+  if you do not use that crate)
 * [`ConnIdExt`] an extension trait for retrieving the id from a conn
 
 */
