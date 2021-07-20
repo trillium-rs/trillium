@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 extension-trait = "1.0.0"
-fastrand = "1.4.1"
+fastrand = "1.5.0"
 trillium = { path = "../trillium", version = "^0.1.0" }
 
 [dev-dependencies]

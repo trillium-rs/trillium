@@ -35,6 +35,6 @@ trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
 [dev-dependencies.tokio]
-version = "1.8.1"
+version = "1.8.2"
 features = ["rt", "net", "rt-multi-thread", "macros"]
 package = "tokio"

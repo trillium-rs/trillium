@@ -22,7 +22,7 @@ log = "0.4.14"
 pin-project = "1.0.7"
 serde = "1.0.126"
 serde_json = { version = "1.0.64", optional = true }
-sha-1 = "0.9.6"
+sha-1 = "0.9.7"
 stopper = "0.2.0"
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-http = { path = "../http", version = "^0.1.0" }
