@@ -4,12 +4,11 @@ use uuid::Uuid;
 
 #[test]
 fn test_defaults() {
+    fastrand::seed(1000);
     let app = (ConnId::new(), "ok");
-    let mut conn = get("/").on(&app);
-    let id = String::from(conn.id());
-    assert_eq!(id, conn.headers_mut()["x-request-id"].as_str());
-    assert_eq!(conn.id().len(), 10);
 
+    assert_ok!(get("/").on(&app), "ok", "x-request-id" => "U14baHj9ho");
+    assert_ok!(get("/").on(&app), "ok", "x-request-id" => "AawiNNFjGW");
     assert_ok!(
         get("/").with_request_header(("x-request-id", "inbound-id")).on(&app),
         "ok",
@@ -17,7 +16,8 @@ fn test_defaults() {
     );
 
     let conn = get("/").on(&app);
-    assert_eq!(log_formatter::conn_id(&conn, true), conn.id());
+    assert_eq!(conn.id(), "iHxXDjwzU5");
+    assert_eq!(log_formatter::conn_id(&conn, true), "iHxXDjwzU5");
 
     let conn = TestConn::build("get", "/", ());
     assert_eq!(log_formatter::conn_id(&conn, true), "-");
@@ -48,9 +48,10 @@ fn test_settings() {
 
 #[test]
 fn test_no_headers() {
+    fastrand::seed(1000);
+
     let app = (
         ConnId::new()
-            .with_id_generator(|| "test".into())
             .with_request_header(None)
             .with_response_header(None),
         "ok",
@@ -58,11 +59,11 @@ fn test_no_headers() {
 
     let mut conn = get("/").on(&app);
     assert!(conn.headers_mut().get("x-request-id").is_none());
-    assert_eq!(conn.id(), "test");
+    assert_eq!(conn.id(), "U14baHj9ho");
 
     let mut conn = get("/")
         .with_request_header(("x-request-id", "ignored"))
         .on(&app);
-    assert_eq!(conn.id(), "test");
+    assert_eq!(conn.id(), "AawiNNFjGW");
     assert!(conn.headers_mut().get("x-request-id").is_none());
 }
