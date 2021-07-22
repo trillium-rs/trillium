@@ -67,8 +67,8 @@ impl TrustProxy {
         match self {
             TrustProxy::Always => true,
             TrustProxy::Never => false,
-            TrustProxy::Cidr(cidrs) => cidrs.iter().any(|c| c.contains(&ip)),
-            TrustProxy::Function(trust_predicate) => trust_predicate(&ip),
+            TrustProxy::Cidr(cidrs) => cidrs.iter().any(|c| c.contains(ip)),
+            TrustProxy::Function(trust_predicate) => trust_predicate(ip),
         }
     }
 }

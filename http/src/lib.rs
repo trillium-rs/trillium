@@ -111,3 +111,10 @@ mod util;
 /// Types to represent the bidirectional data stream over which the
 /// HTTP protocol is communicated
 pub mod transport;
+
+/// A pre-rendered http response to send when the server is at capacity.
+pub const SERVICE_UNAVAILABLE: &[u8] = b"HTTP/1.1 503 Service Unavailable\r
+Connection: close\r
+Content-Length: 0\r
+Retry-After: 60\r
+\r\n";

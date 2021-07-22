@@ -2,7 +2,7 @@ use async_global_executor::{block_on, spawn};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
 use std::{net::IpAddr, sync::Arc};
-use trillium::{async_trait, Handler, Info};
+use trillium::{async_trait, log_error, Handler, Info};
 use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
 
 const SERVER_DESCRIPTION: &str = concat!(
@@ -26,7 +26,7 @@ async fn handle_signals(stop: Stopper) {
     let mut signals = signals.fuse();
     while signals.next().await.is_some() {
         if stop.is_stopped() {
-            println!("\nSecond interrupt, shutting down harshly");
+            eprintln!("\nSecond interrupt, shutting down harshly");
             std::process::exit(1);
         } else {
             println!("\nShutting down gracefully.\nControl-C again to force.");
@@ -46,6 +46,10 @@ impl Server for Smol {
             .map(|socket_addr| socket_addr.ip())
     }
 
+    fn set_nodelay(transport: &mut Self::Transport, nodelay: bool) {
+        log_error!(transport.set_nodelay(nodelay));
+    }
+
     fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
         block_on(Self::run_async(config, handler))
     }
@@ -62,7 +66,9 @@ impl Server for Smol {
         }
 
         let listener = config.build_listener::<TcpListener>();
-        let mut incoming = config.stopper().stop_stream(listener.incoming());
+
+        let stream = listener.incoming();
+        let mut stream = config.stopper().stop_stream(stream);
 
         let local_addr = listener.local_addr().unwrap();
         let mut info = Info::from(local_addr);
@@ -71,12 +77,12 @@ impl Server for Smol {
 
         handler.init(&mut info).await;
         let handler = Arc::new(handler);
-
-        while let Some(Ok(stream)) = incoming.next().await {
-            trillium::log_error!(stream.set_nodelay(config.nodelay()));
-            spawn(config.clone().handle_stream(stream, handler.clone())).detach();
+        while let Some(stream) = stream.next().await {
+            match stream {
+                Ok(stream) => spawn(config.clone().handle_stream(stream, handler.clone())).detach(),
+                Err(e) => log::error!("tcp error: {}", e),
+            }
         }
-
         config.graceful_shutdown().await;
     }
 }

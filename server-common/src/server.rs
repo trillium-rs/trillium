@@ -16,11 +16,17 @@ pub trait Server: Sized {
     type Transport: Transport;
 
     /**
-    Determine the remote ip/port for the Transport.
-    */
-    fn peer_ip(_transport: &Self::Transport) -> Option<IpAddr> {
+    Determine the remote ip/port for the Transport, if applicable.
+     */
+    #[allow(unused_variables)]
+    fn peer_ip(transport: &Self::Transport) -> Option<IpAddr> {
         None
     }
+    /**
+    Set tcp_nodelay on the transport, if applicable.
+     */
+    #[allow(unused_variables)]
+    fn set_nodelay(transport: &mut Self::Transport, nodelay: bool) {}
 
     /**
     entrypoint to run a handler with a given config. if this function

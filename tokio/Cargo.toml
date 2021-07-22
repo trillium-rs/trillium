@@ -1,6 +1,6 @@
 [package]
 name = "trillium-tokio"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "tokio runtime adapter for trillium.rs"

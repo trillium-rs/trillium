@@ -1,7 +1,7 @@
 use async_std::{
     net::{TcpListener, TcpStream},
     prelude::*,
-    task,
+    task::{block_on, spawn},
 };
 use std::{net::IpAddr, sync::Arc};
 use trillium::{async_trait, Handler, Info};
@@ -49,7 +49,7 @@ impl Server for AsyncStdServer {
     }
 
     fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
-        task::block_on(async move { Self::run_async(config, handler).await })
+        block_on(async move { Self::run_async(config, handler).await })
     }
 
     async fn run_async<A: Acceptor<Self::Transport>, H: Handler>(
@@ -58,7 +58,7 @@ impl Server for AsyncStdServer {
     ) {
         if config.should_register_signals() {
             #[cfg(unix)]
-            task::spawn(handle_signals(config.stopper()));
+            spawn(handle_signals(config.stopper()));
             #[cfg(not(unix))]
             panic!("signals handling not supported on windows yet");
         }
@@ -69,15 +69,25 @@ impl Server for AsyncStdServer {
         *info.listener_description_mut() = format!("http://{}:{}", config.host(), config.port());
         info.server_description_mut().push_str(SERVER_DESCRIPTION);
 
+        let mut stream = config.stopper().stop_stream(listener.incoming());
+
         handler.init(&mut info).await;
         let handler = Arc::new(handler);
+        while let Some(stream) = stream.next().await {
+            match stream {
+                Ok(stream) => {
+                    let config = config.clone();
+                    let handler = handler.clone();
+                    spawn(config.handle_stream(stream, handler));
+                }
 
-        let mut incoming = config.stopper().stop_stream(listener.incoming());
-        while let Some(Ok(stream)) = incoming.next().await {
-            trillium::log_error!(stream.set_nodelay(config.nodelay()));
-            task::spawn(config.clone().handle_stream(stream, handler.clone()));
+                Err(e) => log::error!("tcp error: {}", e),
+            }
         }
-
         config.graceful_shutdown().await;
+    }
+
+    fn set_nodelay(transport: &mut Self::Transport, nodelay: bool) {
+        trillium::log_error!(transport.set_nodelay(nodelay));
     }
 }
