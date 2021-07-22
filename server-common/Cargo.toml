@@ -1,6 +1,6 @@
 [package]
 name = "trillium-server-common"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "server utilities for trillium.rs"
@@ -19,6 +19,9 @@ pin-project-lite = "0.2.7"
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-http = { path = "../http", version = "^0.1.0" }
 trillium-tls-common = { path = "../tls-common/", version = "^0.1.0" }
+
+[target.'cfg(unix)'.dependencies]
+rlimit = "0.6.2"
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

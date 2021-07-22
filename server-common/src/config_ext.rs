@@ -1,11 +1,15 @@
 use crate::{CloneCounter, Config, Server};
+
+use futures_lite::prelude::*;
 use std::{
     convert::{TryFrom, TryInto},
     io::ErrorKind,
     net::{SocketAddr, TcpListener, ToSocketAddrs},
 };
 use trillium::Handler;
-use trillium_http::{transport::BoxedTransport, Conn as HttpConn, Error, Stopper};
+use trillium_http::{
+    transport::BoxedTransport, Conn as HttpConn, Error, Stopper, SERVICE_UNAVAILABLE,
+};
 use trillium_tls_common::Acceptor;
 /// # Server-implementer interfaces to Config
 ///
@@ -78,6 +82,11 @@ where
     where
         Listener: TryFrom<TcpListener>,
         <Listener as TryFrom<TcpListener>>::Error: std::fmt::Debug;
+
+    /// determines if the server is currently responding to more than
+    /// the maximum number of connections set by
+    /// `Config::with_max_connections`.
+    fn over_capacity(&self) -> bool;
 }
 
 #[trillium::async_trait]
@@ -141,8 +150,18 @@ where
         }
     }
 
-    async fn handle_stream(self, stream: ServerType::Transport, handler: impl Handler) {
+    async fn handle_stream(self, mut stream: ServerType::Transport, handler: impl Handler) {
+        if self.over_capacity() {
+            let mut byte = [0u8]; // wait for the client to start requesting
+            trillium::log_error!(stream.read(&mut byte).await);
+            trillium::log_error!(stream.write_all(SERVICE_UNAVAILABLE).await);
+            return;
+        }
+
+        ServerType::set_nodelay(&mut stream, self.nodelay);
+
         let peer_ip = ServerType::peer_ip(&stream);
+
         let stream = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
             Err(e) => {
@@ -175,7 +194,9 @@ where
                 log::debug!("closing connection");
             }
 
-            Err(Error::Io(e)) if e.kind() == ErrorKind::ConnectionReset => {
+            Err(Error::Io(e))
+                if e.kind() == ErrorKind::ConnectionReset || e.kind() == ErrorKind::BrokenPipe =>
+            {
                 log::debug!("closing connection");
             }
 
@@ -210,5 +231,11 @@ where
 
         listener.set_nonblocking(true).unwrap();
         listener.try_into().unwrap()
+    }
+
+    fn over_capacity(&self) -> bool {
+        self.max_connections
+            .map(|m| self.counter.current() >= m)
+            .unwrap_or(false)
     }
 }

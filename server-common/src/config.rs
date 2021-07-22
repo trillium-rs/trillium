@@ -1,5 +1,6 @@
 use crate::{CloneCounter, Server};
-use std::marker::PhantomData;
+use rlimit::Resource;
+use std::{convert::TryInto, marker::PhantomData};
 use trillium::Handler;
 use trillium_http::Stopper;
 use trillium_tls_common::Acceptor;
@@ -15,6 +16,7 @@ trillium_smol::config() // or trillium_async_std, trillium_tokio
     .with_port(8080) // the default
     .with_host("localhost") // the default
     .with_nodelay()
+    .with_max_connections(Some(10000))
     .without_signals()
     .run(|conn: trillium::Conn| async move { conn.ok("hello") });
 ```
@@ -56,6 +58,7 @@ pub struct Config<ServerType, AcceptorType> {
     pub(crate) stopper: Stopper,
     pub(crate) counter: CloneCounter,
     pub(crate) register_signals: bool,
+    pub(crate) max_connections: Option<usize>,
     server: PhantomData<ServerType>,
 }
 
@@ -129,12 +132,23 @@ where
             stopper: self.stopper,
             counter: self.counter,
             register_signals: self.register_signals,
+            max_connections: self.max_connections,
         }
     }
 
     /// use the specific [`Stopper`] provided
     pub fn with_stopper(mut self, stopper: Stopper) -> Self {
         self.stopper = stopper;
+        self
+    }
+
+    /**
+    Configures the maximum number of connections to accept. The
+    default is 75% of the soft rlimit_nofile (`ulimit -n`) on unix
+    systems, and None on other sytems.
+    */
+    pub fn with_max_connections(mut self, max_connections: Option<usize>) -> Self {
+        self.max_connections = max_connections;
         self
     }
 }
@@ -157,12 +171,24 @@ impl<ServerType, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType>
             stopper: self.stopper.clone(),
             counter: self.counter.clone(),
             register_signals: self.register_signals,
+            max_connections: self.max_connections,
         }
     }
 }
 
 impl<ServerType> Default for Config<ServerType, ()> {
     fn default() -> Self {
+        #[cfg(unix)]
+        let max_connections = rlimit::getrlimit(Resource::NOFILE)
+            .ok()
+            .and_then(|(soft, _hard)| soft.try_into().ok())
+            .map(|limit: usize| 3 * limit / 4);
+
+        log::debug!("using max connections of {:?}", max_connections);
+
+        #[cfg(not(unix))]
+        let max_connections = None;
+
         Self {
             acceptor: (),
             port: None,
@@ -172,6 +198,7 @@ impl<ServerType> Default for Config<ServerType, ()> {
             stopper: Stopper::new(),
             counter: CloneCounter::new(),
             register_signals: cfg!(unix),
+            max_connections,
         }
     }
 }

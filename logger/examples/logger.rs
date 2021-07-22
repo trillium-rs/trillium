@@ -6,7 +6,7 @@ struct User(&'static str);
 
 impl User {
     pub fn name(&self) -> &'static str {
-        &self.0
+        self.0
     }
 }
 

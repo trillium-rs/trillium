@@ -1,6 +1,6 @@
 [package]
 name = "trillium-async-std"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "async-std runtime adapter for trillium.rs"

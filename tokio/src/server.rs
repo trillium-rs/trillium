@@ -1,6 +1,9 @@
 use async_compat::Compat;
 use std::{net::IpAddr, sync::Arc};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    spawn,
+};
 use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 use trillium::{async_trait, Handler, Info};
 use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
@@ -47,6 +50,10 @@ impl Server for TokioServer {
             .map(|socket_addr| socket_addr.ip())
     }
 
+    fn set_nodelay(transport: &mut Self::Transport, nodelay: bool) {
+        trillium::log_error!(transport.get_ref().set_nodelay(nodelay));
+    }
+
     fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
         crate::block_on(async move { Self::run_async(config, handler).await });
     }
@@ -57,7 +64,7 @@ impl Server for TokioServer {
     ) {
         if config.should_register_signals() {
             #[cfg(unix)]
-            tokio::spawn(handle_signals(config.stopper()));
+            spawn(handle_signals(config.stopper()));
             #[cfg(not(unix))]
             panic!("signals handling not supported on windows yet");
         }
@@ -69,22 +76,24 @@ impl Server for TokioServer {
         *info.listener_description_mut() = format!("http://{}:{}", config.host(), config.port());
         info.server_description_mut().push_str(SERVER_DESCRIPTION);
 
-        handler.init(&mut info).await;
-        let handler = Arc::new(handler);
-
         let mut stream = config
             .stopper()
             .stop_stream(TcpListenerStream::new(listener));
 
-        while let Some(Ok(stream)) = stream.next().await {
-            trillium::log_error!(stream.set_nodelay(config.nodelay()));
-            tokio::spawn(
-                config
-                    .clone()
-                    .handle_stream(Compat::new(stream), handler.clone()),
-            );
-        }
+        handler.init(&mut info).await;
+        let handler = Arc::new(handler);
+        while let Some(stream) = stream.next().await {
+            match stream {
+                Ok(stream) => {
+                    let config = config.clone();
+                    let handler = handler.clone();
+                    let stream = Compat::new(stream);
+                    spawn(config.handle_stream(stream, handler));
+                }
 
+                Err(e) => log::error!("tcp error: {}", e),
+            }
+        }
         config.graceful_shutdown().await;
     }
 }
