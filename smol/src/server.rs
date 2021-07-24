@@ -1,43 +1,134 @@
 use async_global_executor::{block_on, spawn};
+#[cfg(unix)]
+use async_net::unix::{UnixListener, UnixStream};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
-use std::{net::IpAddr, sync::Arc};
-use trillium::{async_trait, log_error, Handler, Info};
-use trillium_server_common::{Acceptor, ConfigExt, Server, Stopper};
-
-const SERVER_DESCRIPTION: &str = concat!(
-    " (",
-    env!("CARGO_PKG_NAME"),
-    " v",
-    env!("CARGO_PKG_VERSION"),
-    ")"
-);
+use std::{convert::TryInto, env, io::Result, net::IpAddr, pin::Pin};
+use trillium::{log_error, Info};
+use trillium_server_common::Server;
+#[cfg(unix)]
+use trillium_server_common::{
+    Binding::{self, *},
+    Stopper,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Smol;
 pub type Config<A> = trillium_server_common::Config<Smol, A>;
 
 #[cfg(unix)]
-async fn handle_signals(stop: Stopper) {
-    use signal_hook::consts::signal::*;
-    use signal_hook_async_std::Signals;
+impl Server for Smol {
+    type Listener = Binding<TcpListener, UnixListener>;
+    type Transport = Binding<TcpStream, UnixStream>;
+    const DESCRIPTION: &'static str = concat!(
+        " (",
+        env!("CARGO_PKG_NAME"),
+        " v",
+        env!("CARGO_PKG_VERSION"),
+        ")"
+    );
 
-    let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
-    let mut signals = signals.fuse();
-    while signals.next().await.is_some() {
-        if stop.is_stopped() {
-            eprintln!("\nSecond interrupt, shutting down harshly");
-            std::process::exit(1);
-        } else {
-            println!("\nShutting down gracefully.\nControl-C again to force.");
-            stop.stop();
+    fn handle_signals(stop: Stopper) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        Box::pin(async move {
+            use signal_hook::consts::signal::*;
+            use signal_hook_async_std::Signals;
+
+            let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
+            let mut signals = signals.fuse();
+            while signals.next().await.is_some() {
+                if stop.is_stopped() {
+                    eprintln!("\nSecond interrupt, shutting down harshly");
+                    std::process::exit(1);
+                } else {
+                    println!("\nShutting down gracefully.\nControl-C again to force.");
+                    stop.stop();
+                }
+            }
+        })
+    }
+
+    fn accept(
+        listener: &mut Self::Listener,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>> {
+        Box::pin(async move {
+            match listener {
+                Tcp(t) => t.accept().await.map(|(t, _)| Tcp(t)),
+                Unix(u) => u.accept().await.map(|(u, _)| Unix(u)),
+            }
+        })
+    }
+
+    fn peer_ip(transport: &Self::Transport) -> Option<IpAddr> {
+        match transport {
+            Tcp(transport) => transport
+                .peer_addr()
+                .ok()
+                .map(|socket_addr| socket_addr.ip()),
+
+            Unix(_) => None,
         }
+    }
+
+    fn listener_from_tcp(tcp: std::net::TcpListener) -> Self::Listener {
+        Tcp(tcp.try_into().unwrap())
+    }
+
+    fn listener_from_unix(tcp: std::os::unix::net::UnixListener) -> Self::Listener {
+        Unix(tcp.try_into().unwrap())
+    }
+
+    fn info(listener: &Self::Listener) -> Info {
+        match listener {
+            Tcp(t) => t.local_addr().unwrap().into(),
+            Unix(u) => u.local_addr().unwrap().into(),
+        }
+    }
+
+    fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
+        spawn(fut).detach();
+    }
+
+    fn block_on(fut: impl Future<Output = ()> + 'static) {
+        block_on(fut)
+    }
+
+    fn set_nodelay(transport: &mut Self::Transport, nodelay: bool) {
+        if let Tcp(transport) = transport {
+            log_error!(transport.set_nodelay(nodelay));
+        }
+    }
+
+    fn clean_up(listener: Self::Listener) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        Box::pin(async move {
+            if let Unix(u) = &listener {
+                if let Ok(local) = u.local_addr() {
+                    if let Some(path) = local.as_pathname() {
+                        log::info!("deleting {:?}", &path);
+                        log_error!(std::fs::remove_file(path));
+                    }
+                }
+            }
+        })
     }
 }
 
-#[async_trait]
+#[cfg(not(unix))]
 impl Server for Smol {
+    type Listener = TcpListener;
     type Transport = TcpStream;
+    const DESCRIPTION: &'static str = concat!(
+        " (",
+        env!("CARGO_PKG_NAME"),
+        " v",
+        env!("CARGO_PKG_VERSION"),
+        ")"
+    );
+
+    fn accept(
+        listener: &mut Self::Listener,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>> {
+        Box::pin(async move { listener.accept().await.map(|(t, _)| t) })
+    }
 
     fn peer_ip(transport: &Self::Transport) -> Option<IpAddr> {
         transport
@@ -46,43 +137,23 @@ impl Server for Smol {
             .map(|socket_addr| socket_addr.ip())
     }
 
+    fn listener_from_tcp(tcp: std::net::TcpListener) -> Self::Listener {
+        tcp.try_into().unwrap()
+    }
+
+    fn info(listener: &Self::Listener) -> Info {
+        listener.local_addr().unwrap().into()
+    }
+
+    fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
+        spawn(fut).detach();
+    }
+
+    fn block_on(fut: impl Future<Output = ()> + 'static) {
+        block_on(fut)
+    }
+
     fn set_nodelay(transport: &mut Self::Transport, nodelay: bool) {
         log_error!(transport.set_nodelay(nodelay));
-    }
-
-    fn run<A: Acceptor<Self::Transport>, H: Handler>(config: Config<A>, handler: H) {
-        block_on(Self::run_async(config, handler))
-    }
-
-    async fn run_async<A: Acceptor<Self::Transport>, H: Handler>(
-        config: Config<A>,
-        mut handler: H,
-    ) {
-        if config.should_register_signals() {
-            #[cfg(unix)]
-            spawn(handle_signals(config.stopper())).detach();
-            #[cfg(not(unix))]
-            panic!("signals handling not supported on windows yet");
-        }
-
-        let listener = config.build_listener::<TcpListener>();
-
-        let stream = listener.incoming();
-        let mut stream = config.stopper().stop_stream(stream);
-
-        let local_addr = listener.local_addr().unwrap();
-        let mut info = Info::from(local_addr);
-        *info.listener_description_mut() = format!("http://{}:{}", config.host(), config.port());
-        info.server_description_mut().push_str(SERVER_DESCRIPTION);
-
-        handler.init(&mut info).await;
-        let handler = Arc::new(handler);
-        while let Some(stream) = stream.next().await {
-            match stream {
-                Ok(stream) => spawn(config.clone().handle_stream(stream, handler.clone())).detach(),
-                Err(e) => log::error!("tcp error: {}", e),
-            }
-        }
-        config.graceful_shutdown().await;
     }
 }

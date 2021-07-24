@@ -13,6 +13,8 @@
 Serves static file assets from the file system.
 
 ```
+# #[cfg(not(unix))] fn main() {}
+# #[cfg(unix)] fn main() {
 use trillium_static::{StaticFileHandler, crate_relative_path};
 
 let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
@@ -58,7 +60,7 @@ assert_ok!(
     "plaintext file",
     "content-type" => "text/plain"
 );
-
+# }
 ```
 
 
@@ -203,6 +205,8 @@ impl StaticFileHandler {
     builds a new StaticFileHandler
 
     ```
+    # #[cfg(not(unix))] fn main() {}
+    # #[cfg(unix)] fn main() {
     use trillium_static::{StaticFileHandler, crate_relative_path};
     let handler = StaticFileHandler::new(crate_relative_path!("examples/files"));
 
@@ -215,6 +219,7 @@ impl StaticFileHandler {
         "<h1>hello world</h1>",
         "content-type" => "text/html"
     );
+    # }
     ```
     */
     pub fn new(fs_root: impl Into<PathBuf>) -> Self {
@@ -229,6 +234,9 @@ impl StaticFileHandler {
     /**
     sets the index file on this StaticFileHandler
     ```
+    # #[cfg(not(unix))] fn main() {}
+    # #[cfg(unix)] fn main() {
+
     use trillium_static::{StaticFileHandler, crate_relative_path};
 
     let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
@@ -236,6 +244,7 @@ impl StaticFileHandler {
 
     use trillium_testing::prelude::*;
     assert_ok!(get("/").on(&handler), "<h1>hello world</h1>", "content-type" => "text/html");
+    # }
     ```
     */
     pub fn with_index_file(mut self, file: &str) -> Self {

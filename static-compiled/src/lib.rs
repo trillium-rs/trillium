@@ -21,6 +21,8 @@ serves all files from disk every time, with no in-memory caching.
 This may also merge with the [static file handler](https://docs.trillium.rs/trillium_static/)
 
 ```
+# #[cfg(not(unix))] fn main() {}
+# #[cfg(unix)] fn main() {
 use trillium_static_compiled::{include_dir, StaticCompiledHandler};
 
 let handler = StaticCompiledHandler::new(include_dir!("examples/files"))
@@ -73,7 +75,7 @@ let no_index = StaticCompiledHandler::new(include_dir!("examples/files"));
 assert_not_handled!(get("/").on(&no_index));
 assert_not_handled!(get("/subdir").on(&no_index));
 assert_not_handled!(get("/subdir_with_no_index").on(&no_index));
-
+# }
 ```
 */
 pub use include_dir::include_dir;

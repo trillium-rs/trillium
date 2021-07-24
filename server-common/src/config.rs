@@ -1,6 +1,5 @@
 use crate::{CloneCounter, Server};
-use rlimit::Resource;
-use std::{convert::TryInto, marker::PhantomData};
+use std::marker::PhantomData;
 use trillium::Handler;
 use trillium_http::Stopper;
 use trillium_tls_common::Acceptor;
@@ -31,6 +30,11 @@ The socket binding logic is as follows:
   * Host will be selected from explicit configuration using
     [`Config::with_host`] or else the `HOST` environment variable,
     or else a default of "localhost".
+    * On `cfg(unix)` systems only: If the host string (as set by env var
+      or direct config) begins with `.`, `/`, or `~`, it is
+      interpreted to be a path, and trillium will bind to it as a unix
+      domain socket. Port will be ignored. The socket will be deleted
+      on clean shutdown.
   * Port will be selected from explicit configuration using
     [`Config::with_port`] or else the `PORT` environment variable,
     or else a default of 8080.
@@ -50,7 +54,7 @@ In order to use this to _implement_ a trillium server, see
 */
 
 #[derive(Debug)]
-pub struct Config<ServerType, AcceptorType> {
+pub struct Config<ServerType: ?Sized, AcceptorType> {
     pub(crate) acceptor: AcceptorType,
     pub(crate) port: Option<u16>,
     pub(crate) host: Option<String>,
@@ -64,7 +68,7 @@ pub struct Config<ServerType, AcceptorType> {
 
 impl<ServerType, AcceptorType> Config<ServerType, AcceptorType>
 where
-    ServerType: Server,
+    ServerType: Server + ?Sized,
     AcceptorType: Acceptor<ServerType::Transport>,
 {
     /// Starts an async runtime and runs the provided handler with
@@ -160,7 +164,7 @@ impl<ServerType> Config<ServerType, ()> {
     }
 }
 
-impl<ServerType, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType> {
+impl<ServerType: ?Sized, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType> {
     fn clone(&self) -> Self {
         Self {
             acceptor: self.acceptor.clone(),
@@ -179,15 +183,18 @@ impl<ServerType, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType>
 impl<ServerType> Default for Config<ServerType, ()> {
     fn default() -> Self {
         #[cfg(unix)]
-        let max_connections = rlimit::getrlimit(Resource::NOFILE)
-            .ok()
-            .and_then(|(soft, _hard)| soft.try_into().ok())
-            .map(|limit: usize| 3 * limit / 4);
-
-        log::debug!("using max connections of {:?}", max_connections);
+        let max_connections = {
+            use std::convert::TryInto;
+            rlimit::getrlimit(rlimit::Resource::NOFILE)
+                .ok()
+                .and_then(|(soft, _hard)| soft.try_into().ok())
+                .map(|limit: usize| 3 * limit / 4)
+        };
 
         #[cfg(not(unix))]
         let max_connections = None;
+
+        log::debug!("using max connections of {:?}", max_connections);
 
         Self {
             acceptor: (),

@@ -76,8 +76,8 @@ impl Info {
     }
 }
 
-impl From<&'static str> for Info {
-    fn from(description: &'static str) -> Self {
+impl From<&str> for Info {
+    fn from(description: &str) -> Self {
         Self {
             server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
             listener_description: String::from(description),
@@ -92,6 +92,17 @@ impl From<SocketAddr> for Info {
             server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
             listener_description: socket_addr.to_string(),
             tcp_socket_addr: Some(socket_addr),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl From<std::os::unix::net::SocketAddr> for Info {
+    fn from(s: std::os::unix::net::SocketAddr) -> Self {
+        Self {
+            server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
+            listener_description: format!("{:?}", s),
+            tcp_socket_addr: None,
         }
     }
 }

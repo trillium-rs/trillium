@@ -16,7 +16,7 @@ log = "0.4.14"
 tokio-stream = { version = "0.1.7", features = ["net"] }
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-http = { path = "../http", version = "^0.1.0" }
-trillium-server-common = { path = "../server-common", version = "^0.1.0" }
+trillium-server-common = { path = "../server-common", version = "^0.2.0" }
 
 [dependencies.tokio]
 version = "1.8.2"

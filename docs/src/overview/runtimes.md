@@ -32,7 +32,7 @@ into the application as follows:
 {{#include ../../../smol/examples/smol-with-config.rs}}
 ```
 
-In addition to accepting the `HOST` and `PORT` configuration from the environment, on cfg(unix) systems, trillium will also pick up a `LISTEN_FD` environment variable for use with [catflap](https://crates.io/crates/catflap)/[systemfd](https://github.com/mitsuhiko/systemfd)
+In addition to accepting the `HOST` and `PORT` configuration from the environment, on cfg(unix) systems, trillium will also pick up a `LISTEN_FD` environment variable for use with [catflap](https://crates.io/crates/catflap)/[systemfd](https://github.com/mitsuhiko/systemfd). On `cfg(unix)` systems, if the `HOST` begins with `.`, `/`, or `~`, it is interpreted as a path and bound as a unix domain socket.
 
 For more documentation on the default values and what configuration can be chained onto config(), see [trillium_server_common::Config](https://docs.trillium.rs/trillium_server_common/struct.config).
 
