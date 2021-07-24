@@ -1,14 +1,17 @@
 use trillium_smol::{async_global_executor, async_io::Timer};
 pub fn app() -> impl trillium::Handler {
-    |conn: trillium::Conn| async move {
-        let response = async_global_executor::spawn(async {
-            Timer::after(std::time::Duration::from_millis(10)).await;
-            "successfully spawned a task"
-        })
-        .await;
+    (
+        trillium_logger::Logger::new().with_target(trillium_logger::Target::Stdout),
+        |conn: trillium::Conn| async move {
+            let response = async_global_executor::spawn(async {
+                Timer::after(std::time::Duration::from_millis(10)).await;
+                "successfully spawned a task"
+            })
+            .await;
 
-        conn.ok(response)
-    }
+            conn.ok(response)
+        },
+    )
 }
 pub fn main() {
     env_logger::init();

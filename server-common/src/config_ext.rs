@@ -21,7 +21,7 @@ use trillium_tls_common::Acceptor;
 #[trillium::async_trait]
 pub trait ConfigExt<ServerType, AcceptorType>
 where
-    ServerType: Server,
+    ServerType: Server + ?Sized,
 {
     /// resolve a port for this application, either directly
     /// configured, from the environmental variable `PORT`, or a default
@@ -93,7 +93,7 @@ where
 impl<ServerType, AcceptorType> ConfigExt<ServerType, AcceptorType>
     for Config<ServerType, AcceptorType>
 where
-    ServerType: Server + Send,
+    ServerType: Server + Send + ?Sized,
     AcceptorType: Acceptor<<ServerType as Server>::Transport>,
 {
     fn port(&self) -> u16 {

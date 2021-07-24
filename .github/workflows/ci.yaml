@@ -15,8 +15,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macOS-latest]
-        rust: [nightly-2021-07-05, stable]
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+        rust: [stable]
         runtime: [smol, tokio, async-std]
     steps:
     - uses: actions/checkout@master

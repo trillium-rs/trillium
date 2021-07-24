@@ -1,4 +1,3 @@
-#![forbid(unsafe_code)]
 #![deny(
     clippy::dbg_macro,
     missing_copy_implementations,
