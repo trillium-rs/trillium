@@ -97,14 +97,28 @@ impl WebSocketConn {
         &self.request_headers
     }
 
-    /// retrieve the request path for this conn
+    /**
+    retrieves the path part of the request url, up to and excluding
+    any query component
+     */
     pub fn path(&self) -> &str {
-        &self.path
+        self.path.split('?').next().unwrap()
+    }
+
+    /**
+    Retrieves the query component of the path, excluding `?`. Returns
+    an empty string if there is no query component.
+    */
+    pub fn querystring(&self) -> &str {
+        match self.path.split_once('?') {
+            Some((_, query)) => query,
+            None => "",
+        }
     }
 
     /// retrieve the request method for this conn
-    pub fn method(&self) -> &Method {
-        &self.method
+    pub fn method(&self) -> Method {
+        self.method
     }
 
     /**
