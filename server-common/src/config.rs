@@ -100,8 +100,8 @@ where
     /// Configures the server to listen on this host or ip
     /// address. The default is the HOST environment variable or
     /// "localhost"
-    pub fn with_host(mut self, host: &str) -> Self {
-        self.host = Some(host.into());
+    pub fn with_host(mut self, host: impl ToString) -> Self {
+        self.host = Some(host.to_string());
         self
     }
 
