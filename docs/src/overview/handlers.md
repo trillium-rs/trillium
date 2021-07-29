@@ -41,7 +41,7 @@ will always send a `200 Ok` http status with the specified body of
 Trillium offers only one handler in the main `trillium` crate: The
 State handler, which places a clone of any type you provide into the
 state set of each conn that passes through it. See the
-[https://docs.trillium.rs/trillium/struct.state](rustdocs for State)
+[rustdocs for State](https://docs.trillium.rs/trillium/struct.state)
 for example usage.
 
 ## Tuple Handlers
