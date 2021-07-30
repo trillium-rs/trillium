@@ -12,5 +12,5 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 futures-lite = "1.12.0"
-async-trait = "0.1.50"
+async-trait = "0.1.51"
 url = "2.2.2"
