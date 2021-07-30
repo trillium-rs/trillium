@@ -34,5 +34,5 @@ members = [
 exclude = ["controllers", "basic-auth"]
 
 [patch.crates-io.trillium-http-types]
-git = "https://github.com/trillim-rs/trillium-http-types"
+git = "https://github.com/trillium-rs/trillium-http-types"
 branch = "trillium"
