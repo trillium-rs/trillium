@@ -40,7 +40,7 @@ impl AlbRequest {
         let body = standardize_body(body, is_base64_encoded);
         let mut conn = HttpConn::new_synthetic(http_method, path, body);
         for (key, value) in headers {
-            conn.request_headers_mut().append(&*key, &*value);
+            conn.request_headers_mut().append(key, value);
         }
         conn
     }
@@ -81,10 +81,8 @@ impl AlbMultiHeadersRequest {
         } = self;
         let body = standardize_body(body, is_base64_encoded);
         let mut conn = HttpConn::new_synthetic(http_method, path, body);
-        for (key, values) in multi_value_headers {
-            for value in values {
-                conn.request_headers_mut().append(&*key, value);
-            }
+        for (name, values) in multi_value_headers {
+            conn.request_headers_mut().append(name, values);
         }
         conn
     }

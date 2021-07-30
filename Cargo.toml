@@ -32,3 +32,6 @@ members = [
   "websockets",
 ]
 exclude = ["controllers", "basic-auth"]
+
+[patch.crates-io]
+trillium-http-types = { git = "https://github.com/jbr/http-types", branch = "trillium" }

@@ -186,7 +186,7 @@ impl<C: Connector> Handler for Proxy<C> {
                 if name != "host" {
                     client_conn
                         .request_headers()
-                        .insert(name.as_str(), value.as_str());
+                        .insert(name.clone(), value.clone());
                 }
             }
         }
@@ -220,7 +220,7 @@ impl<C: Connector> Handler for Proxy<C> {
             Some(SwitchingProtocols) => {
                 for (name, value) in client_conn.response_headers() {
                     for value in value {
-                        conn.headers_mut().append(name.as_str(), value.as_str());
+                        conn.headers_mut().append(name.clone(), value.clone());
                     }
                 }
 
@@ -236,7 +236,7 @@ impl<C: Connector> Handler for Proxy<C> {
             Some(status) => {
                 for (name, value) in client_conn.response_headers() {
                     for value in value {
-                        conn.headers_mut().append(name.as_str(), value.as_str());
+                        conn.headers_mut().append(name.clone(), value.clone());
                     }
                 }
 

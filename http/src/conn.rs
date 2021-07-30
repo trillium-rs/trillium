@@ -274,7 +274,7 @@ where
 
     /// set the host for this conn
     pub fn set_host(&mut self, host: &str) {
-        self.request_headers.insert("host", host);
+        self.request_headers.insert("host", String::from(host));
     }
 
     // pub fn url(&self) -> Result<Url> {
@@ -494,8 +494,9 @@ where
         };
 
         let mut request_headers = Headers::new();
-        for header in httparse_req.headers.iter() {
-            request_headers.insert(header.name, std::str::from_utf8(header.value)?);
+        for header in httparse_req.headers {
+            let utf8 = std::str::from_utf8(header.value)?;
+            request_headers.append(String::from(header.name), String::from(utf8));
         }
 
         Self::validate_headers(&request_headers)?;

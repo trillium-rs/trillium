@@ -61,7 +61,7 @@ impl TeraConnExt for Conn {
         let context = self.context();
         match self.tera().render(template_name, context) {
             Ok(string) => {
-                let mut body = Body::from_string(string);
+                let mut body = Body::from(string);
 
                 if let Some(extension) = PathBuf::from(template_name).extension() {
                     if let Some(mime) = mime_db::lookup(extension.to_string_lossy()) {

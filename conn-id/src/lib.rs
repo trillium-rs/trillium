@@ -218,7 +218,8 @@ impl Handler for ConnId {
             .unwrap_or_else(|| self.generate_id());
 
         if let Some(response_header) = self.response_header {
-            conn.headers_mut().insert(response_header, &*id);
+            conn.headers_mut()
+                .insert(response_header, String::from(&*id));
         }
 
         conn.with_state(id)

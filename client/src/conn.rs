@@ -706,8 +706,10 @@ impl<C: Connector> Conn<'_, C> {
 
         self.status = httparse_res.code.map(|code| code.try_into().unwrap());
         for header in httparse_res.headers {
-            self.response_headers
-                .insert(header.name, std::str::from_utf8(header.value)?);
+            self.response_headers.append(
+                String::from(header.name),
+                String::from(std::str::from_utf8(header.value)?),
+            );
         }
 
         self.validate_response_headers()?;

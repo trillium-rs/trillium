@@ -110,39 +110,40 @@ impl StaticCompiledHandler {
         self.index_file = Some(file);
         self
     }
+}
 
-    fn serve_file(&self, mut conn: Conn, file: File) -> Conn {
-        if let Some(mime) = mime_db::lookup(file.path().to_string_lossy().as_ref()) {
-            conn.headers_mut().apply(ContentType::new(mime));
-        }
-        conn.ok(file.contents())
+fn get_item(dir: Dir<'static>, path: &str) -> Option<DirEntry<'static>> {
+    if path.is_empty() {
+        Some(DirEntry::Dir(dir))
+    } else {
+        dir.get_dir(path)
+            .map(DirEntry::Dir)
+            .or_else(|| dir.get_file(path).map(DirEntry::File))
+    }
+}
+
+fn serve_file(mut conn: Conn, file: File<'static>) -> Conn {
+    if let Some(mime) = mime_db::lookup(file.path().to_string_lossy().as_ref()) {
+        conn.headers_mut().apply(ContentType::new(mime));
     }
 
-    fn get_item(&self, path: &str) -> Option<DirEntry> {
-        if path.is_empty() {
-            Some(DirEntry::Dir(self.dir))
-        } else {
-            self.dir
-                .get_dir(path)
-                .map(DirEntry::Dir)
-                .or_else(|| self.dir.get_file(path).map(DirEntry::File))
-        }
-    }
+    conn.ok(file.contents())
 }
 
 #[async_trait]
 impl Handler for StaticCompiledHandler {
     async fn run(&self, conn: Conn) -> Conn {
+        let dir = self.dir;
         match (
-            self.get_item(conn.path().trim_start_matches('/')),
+            get_item(dir, conn.path().trim_start_matches('/')),
             self.index_file,
         ) {
             (None, _) => conn,
-            (Some(DirEntry::File(file)), _) => self.serve_file(conn, file),
+            (Some(DirEntry::File(file)), _) => serve_file(conn, file),
             (Some(DirEntry::Dir(_)), None) => conn,
             (Some(DirEntry::Dir(dir)), Some(index_file)) => {
                 if let Some(file) = dir.get_file(dir.path().join(index_file)) {
-                    self.serve_file(conn, file)
+                    serve_file(conn, file)
                 } else {
                     conn
                 }

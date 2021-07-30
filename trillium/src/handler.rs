@@ -291,7 +291,7 @@ where
 #[async_trait]
 impl Handler for String {
     async fn run(&self, conn: Conn) -> Conn {
-        conn.ok(&self[..])
+        conn.ok(self.clone())
     }
 }
 
