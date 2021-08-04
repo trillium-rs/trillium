@@ -9,10 +9,7 @@ use std::{
     task::{Context, Poll},
 };
 use stopper::{Stopper, StreamStopper};
-use trillium::{
-    http_types::{headers::Headers, Extensions, Method},
-    Upgrade,
-};
+use trillium::{Headers, Method, StateSet, Upgrade};
 use trillium_http::transport::BoxedTransport;
 
 /**
@@ -31,7 +28,7 @@ pub struct WebSocketConn {
     request_headers: Headers,
     path: String,
     method: Method,
-    state: Extensions,
+    state: StateSet,
     stopper: Stopper,
     wss: StreamStopper<WebSocketStream<BoxedTransport>>,
 }
@@ -138,7 +135,7 @@ impl WebSocketConn {
     for more information
     */
     pub fn take_state<T: 'static>(&mut self) -> Option<T> {
-        self.state.remove()
+        self.state.take()
     }
 }
 

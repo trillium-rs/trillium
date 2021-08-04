@@ -1,4 +1,4 @@
-use crate::util::encoding;
+use crate::{pool::PoolEntry, util::encoding, Connector, Pool};
 use encoding_rs::Encoding;
 use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
 use memmem::{Searcher, TwoWaySearcher};
@@ -7,20 +7,19 @@ use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
     io::Write,
-};
-use trillium::http_types::{
-    content::ContentLength,
-    headers::{Headers, CONTENT_LENGTH, HOST, TRANSFER_ENCODING},
-    Body, Extensions, Method, StatusCode, Url,
+    str::FromStr,
 };
 use trillium_http::{
-    BodyEncoder, Error, ReceivedBody, ReceivedBodyState, Result, Stopper, Upgrade,
+    Body, Error, HeaderName, HeaderValue, Headers,
+    KnownHeaderName::{
+        Connection, ContentLength, Expect, Host, ProxyConnection, TransferEncoding, UserAgent,
+    },
+    Method, ReceivedBody, ReceivedBodyState, Result, StateSet, Status, Stopper, Upgrade,
 };
-
-use crate::{pool::PoolEntry, Connector, Pool};
+use url::Url;
 
 const MAX_HEADERS: usize = 128;
-const MAX_HEAD_LENGTH: usize = 8 * 1024;
+const MAX_HEAD_LENGTH: usize = 2 * 1024;
 
 /**
 a client connection, representing both an outbound http request and a
@@ -33,7 +32,7 @@ pub struct Conn<'config, C: Connector> {
     request_headers: Headers,
     response_headers: Headers,
     transport: Option<C::Transport>,
-    status: Option<StatusCode>,
+    status: Option<Status>,
     request_body: Option<Body>,
     pool: Option<Pool<C::Transport>>,
     buffer: Option<Vec<u8>>,
@@ -265,7 +264,7 @@ impl<C: Connector> Conn<'_, C> {
     type Conn = trillium_client::Conn<'static, TcpConnector>;
 
     let handler = |conn: trillium::Conn| async move {
-        let header = conn.headers()["some-request-header"].as_str();
+        let header = conn.headers().get_str("some-request-header").unwrap_or_default();
         let response = format!("some-request-header was {}", header);
         conn.ok(response)
     };
@@ -274,7 +273,7 @@ impl<C: Connector> Conn<'_, C> {
         let mut conn = Conn::get(url);
 
         conn.request_headers() //<-
-            .apply(("some-request-header", "header-value"));
+            .insert("some-request-header", "header-value");
 
         conn.send().await?;
         assert_eq!(
@@ -295,7 +294,7 @@ impl<C: Connector> Conn<'_, C> {
     type Conn = trillium_client::Conn<'static, TcpConnector>;
 
     let handler = |conn: trillium::Conn| async move {
-        conn.with_header(("some-header", "some-value"))
+        conn.with_header("some-header", "some-value")
             .with_status(200)
     };
 
@@ -304,13 +303,18 @@ impl<C: Connector> Conn<'_, C> {
 
         let headers = conn.response_headers(); //<-
 
-        assert_eq!(headers["some-header"], "some-value");
+        assert_eq!(headers.get_str("some-header"), Some("some-value"));
         Ok(())
     })
     ```
     */
     pub fn response_headers(&self) -> &Headers {
         &self.response_headers
+    }
+
+    /// get a mutable borrow of the response headers
+    pub fn response_headers_mut(&mut self) -> &mut Headers {
+        &mut self.response_headers
     }
 
     /**
@@ -400,11 +404,12 @@ impl<C: Connector> Conn<'_, C> {
     ```
     use trillium_smol::TcpConnector;
     use trillium_client::Conn;
+    use trillium_testing::prelude::*;
     let conn = Conn::<TcpConnector>::get("http://localhost:9080");
 
     let method = conn.method(); //<-
 
-    assert_eq!(method, trillium_testing::Method::Get);
+    assert_eq!(method, Method::Get);
     ```
      */
     pub fn method(&self) -> Method {
@@ -449,13 +454,12 @@ impl<C: Connector> Conn<'_, C> {
     pub(crate) fn response_content_length(&self) -> Option<u64> {
         if self.method == Method::Head {
             Some(0)
-        } else if let Some(StatusCode::NoContent | StatusCode::NotModified) = self.status {
+        } else if let Some(Status::NoContent | Status::NotModified) = self.status {
             Some(0)
         } else {
-            ContentLength::from_headers(&self.response_headers)
-                .ok()
-                .flatten()
-                .map(|cl| cl.len())
+            self.response_headers
+                .get_str(ContentLength)
+                .and_then(|c| c.parse().ok())
         }
     }
 
@@ -473,12 +477,12 @@ impl<C: Connector> Conn<'_, C> {
 
     trillium_testing::with_server(handler, |url| async move {
         let conn = Conn::get(url).execute().await?;
-        assert_eq!(StatusCode::ImATeapot, conn.status().unwrap());
+        assert_eq!(Status::ImATeapot, conn.status().unwrap());
         Ok(())
     });
     ```
      */
-    pub fn status(&self) -> Option<StatusCode> {
+    pub fn status(&self) -> Option<Status> {
         self.status
     }
 
@@ -489,46 +493,42 @@ impl<C: Connector> Conn<'_, C> {
     }
 
     fn finalize_headers(&mut self) {
-        if self.request_headers.get(HOST).is_none() {
+        if self.request_headers.get(Host).is_none() {
             let url = &self.url;
             let host = url.host_str().unwrap().to_owned();
 
             if let Some(port) = url.port() {
                 self.request_headers
-                    .insert(HOST, format!("{}:{}", host, port));
+                    .insert(Host, format!("{}:{}", host, port));
             } else {
-                self.request_headers.insert(HOST, host);
+                self.request_headers.insert(Host, host);
             };
         }
 
-        if self.request_headers.get("user-agent").is_none() {
-            self.request_headers.insert("user-agent", USER_AGENT);
-        }
+        self.request_headers.try_insert(UserAgent, USER_AGENT);
 
         if self.method == Method::Connect {
-            self.request_headers
-                .insert("proxy-connection", "keep-alive");
+            self.request_headers.insert(ProxyConnection, "keep-alive");
         }
 
         match self.pool {
             Some(_) => {
-                self.request_headers.insert("connection", "keep-alive");
+                self.request_headers.insert(Connection, "keep-alive");
             }
+
             None => {
-                if self.request_headers.get("connection").is_none() {
-                    self.request_headers.insert("connection", "close");
-                }
+                self.request_headers.try_insert(Connection, "close");
             }
         }
 
         if self.method != Method::Get {
             if let Some(len) = self.body_len() {
                 if len != 0 {
-                    self.request_headers.insert("expect", "100-continue");
+                    self.request_headers.insert(Expect, "100-continue");
                 }
-                self.request_headers.insert(CONTENT_LENGTH, len.to_string());
+                self.request_headers.insert(ContentLength, len.to_string());
             } else {
-                self.request_headers.insert(TRANSFER_ENCODING, "chunked");
+                self.request_headers.insert(TransferEncoding, "chunked");
             }
         }
     }
@@ -614,9 +614,7 @@ impl<C: Connector> Conn<'_, C> {
 
         write!(buf, " HTTP/1.1\r\n")?;
 
-        let mut headers = self.request_headers.iter().collect::<Vec<_>>();
-        headers.sort_unstable_by_key(|(h, _)| if **h == HOST { "0" } else { h.as_str() });
-        for (header, values) in headers {
+        for (header, values) in self.request_headers.iter() {
             for value in values.iter() {
                 write!(buf, "{}: {}\r\n", header, value)?;
             }
@@ -705,9 +703,12 @@ impl<C: Connector> Conn<'_, C> {
         }
 
         self.status = httparse_res.code.map(|code| code.try_into().unwrap());
+
+        self.response_headers.reserve(httparse_res.headers.len());
         for header in httparse_res.headers {
-            self.response_headers
-                .insert(header.name, std::str::from_utf8(header.value)?);
+            let header_name = HeaderName::from_str(header.name)?;
+            let header_value = HeaderValue::from(header.value.to_owned());
+            self.response_headers.append(header_name, header_value);
         }
 
         self.validate_response_headers()?;
@@ -721,7 +722,7 @@ impl<C: Connector> Conn<'_, C> {
         {
             log::trace!("Expecting 100-continue");
             self.parse_head().await?;
-            if self.status == Some(StatusCode::Continue) {
+            if self.status == Some(Status::Continue) {
                 log::trace!("Received 100-continue, sending request body");
             } else {
                 log::trace!(
@@ -738,21 +739,20 @@ impl<C: Connector> Conn<'_, C> {
     }
 
     async fn send_body(&mut self) -> Result<()> {
-        if let Some(body) = self.request_body.take() {
-            io::copy(BodyEncoder::new(body), self.transport()).await?;
+        if let Some(mut body) = self.request_body.take() {
+            io::copy(&mut body, self.transport()).await?;
         }
         Ok(())
     }
 
     fn validate_response_headers(&self) -> Result<()> {
-        let content_length = ContentLength::from_headers(&self.response_headers)
-            .map_err(|_| Error::MalformedHeader("content-length"))?;
+        let content_length = self.response_headers.has_header(ContentLength);
 
         let transfer_encoding_chunked = self
             .response_headers
-            .contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked");
+            .eq_ignore_ascii_case(TransferEncoding, "chunked");
 
-        if content_length.is_some() && transfer_encoding_chunked {
+        if content_length && transfer_encoding_chunked {
             Err(Error::UnexpectedHeader("content-length"))
         } else {
             Ok(())
@@ -761,9 +761,7 @@ impl<C: Connector> Conn<'_, C> {
 
     fn is_keep_alive(&self) -> bool {
         self.response_headers
-            .get("connection")
-            .map(|value| value.as_str().to_lowercase().contains("keep-alive"))
-            .unwrap_or_default()
+            .eq_ignore_ascii_case(Connection, "keep-alive")
     }
 
     async fn finish_reading_body(&mut self) {
@@ -870,7 +868,7 @@ impl<C: Connector> From<Conn<'_, C>> for Upgrade<C::Transport> {
             request_headers: std::mem::replace(&mut conn.request_headers, Headers::new()),
             path: conn.url.path().to_string(),
             method: conn.method,
-            state: Extensions::new(),
+            state: StateSet::new(),
             transport: conn.transport.take().unwrap(),
             buffer: conn.buffer.take(),
             stopper: Stopper::new(),

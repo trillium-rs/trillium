@@ -41,12 +41,9 @@ each of which declares its own dependencies.
 
 ### Relation to tide, http-types, and async-h1
 
-Currently, trillium uses http-types for several core types, like headers,
-status codes, response bodies, and the conn state type map. Trillium
-sessions also shares the same session store backends as
-tide. Currently, trillium reuses several types from async-h1, but does not
-depend on the crate in order to avoid pulling in unnecessary
-dependencies.
+As of trillium-v0.2.0, trillium no longer depends on http-types.
+
+Trillium shares the same session store backends as tide.
 
 
 ### Relation to Elixir Plug and Phoenix

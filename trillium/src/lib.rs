@@ -37,7 +37,11 @@ mod state;
 pub use state::State;
 
 pub use async_trait::async_trait;
-pub use trillium_http::http_types;
+
+pub use trillium_http::{
+    Body, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, Method, StateSet,
+    Status, Version,
+};
 
 /**
 # A HTTP protocol upgrade

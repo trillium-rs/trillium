@@ -289,13 +289,6 @@ where
 }
 
 #[async_trait]
-impl Handler for String {
-    async fn run(&self, conn: Conn) -> Conn {
-        conn.ok(&self[..])
-    }
-}
-
-#[async_trait]
 impl Handler for &'static str {
     async fn run(&self, conn: Conn) -> Conn {
         conn.ok(*self)

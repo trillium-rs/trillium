@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
-#![deny(clippy::dbg_macro,
+#![deny(
+    clippy::dbg_macro,
     missing_copy_implementations,
     rustdoc::missing_crate_level_docs,
     missing_debug_implementations,
@@ -42,7 +43,7 @@ assert_response!(delete("/").on(&handler), 500);
 
 */
 
-use trillium::{async_trait, conn_try, http_types::Method, Conn, Handler};
+use trillium::{async_trait, conn_try, Conn, Handler, Method};
 
 #[async_trait]
 pub trait Controller: Send + Sync + 'static {

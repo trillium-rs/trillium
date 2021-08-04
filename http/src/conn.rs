@@ -1,12 +1,12 @@
+use crate::{
+    received_body::ReceivedBodyState,
+    util::encoding,
+    Body, ConnectionStatus, Error, Headers,
+    KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
+    Method, ReceivedBody, Result, StateSet, Status, Stopper, Upgrade, Version,
+};
 use encoding_rs::Encoding;
 use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use http_types::{
-    content::ContentLength,
-    headers::{Header, Headers, CONTENT_LENGTH, CONTENT_TYPE, DATE, EXPECT, TRANSFER_ENCODING},
-    other::Date,
-    transfer::{Encoding::Chunked, TransferEncoding},
-    Body, Extensions, Method, StatusCode, Version,
-};
 use httparse::{Request, EMPTY_HEADER};
 use memmem::{Searcher, TwoWaySearcher};
 use std::{
@@ -15,16 +15,12 @@ use std::{
     future::Future,
     iter,
     net::IpAddr,
-    time::Instant,
-};
-
-use crate::{
-    body_encoder::BodyEncoder, received_body::ReceivedBodyState, util::encoding, ConnectionStatus,
-    Error, ReceivedBody, Result, Stopper, Upgrade,
+    str::FromStr,
+    time::{Instant, SystemTime},
 };
 
 const MAX_HEADERS: usize = 128;
-const MAX_HEAD_LENGTH: usize = 8 * 1024;
+const MAX_HEAD_LENGTH: usize = 2 * 1024;
 const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -89,9 +85,9 @@ pub struct Conn<Transport> {
     pub(crate) response_headers: Headers,
     pub(crate) path: String,
     pub(crate) method: Method,
-    pub(crate) status: Option<StatusCode>,
+    pub(crate) status: Option<Status>,
     pub(crate) version: Version,
-    pub(crate) state: Extensions,
+    pub(crate) state: StateSet,
     pub(crate) response_body: Option<Body>,
     pub(crate) transport: Transport,
     pub(crate) buffer: Option<Vec<u8>>,
@@ -158,13 +154,7 @@ where
 
         if self.method() != Method::Head {
             if let Some(body) = self.response_body.take() {
-                let encoder = match self.version {
-                    Version::Http1_0 => BodyEncoder::Fixed(body),
-                    Version::Http1_1 => BodyEncoder::new(body),
-                    _ => unreachable!(),
-                };
-
-                io::copy(encoder, &mut self.transport).await?;
+                io::copy(body, &mut self.transport).await?;
             }
         }
 
@@ -176,22 +166,22 @@ where
     }
 
     /// returns a read-only reference to the [state
-    /// typemap](Extensions) for this conn
+    /// typemap](StateSet) for this conn
     ///
     /// stability note: this is not unlikely to be removed at some
     /// point, as this may end up being more of a trillium concern
     /// than a trillium_http concern
-    pub fn state(&self) -> &Extensions {
+    pub fn state(&self) -> &StateSet {
         &self.state
     }
 
     /// returns a mutable reference to the [state
-    /// typemap](Extensions) for this conn
+    /// typemap](StateSet) for this conn
     ///
     /// stability note: this is not unlikely to be removed at some
     /// point, as this may end up being more of a trillium concern
     /// than a trillium_http concern
-    pub fn state_mut(&mut self) -> &mut Extensions {
+    pub fn state_mut(&mut self) -> &mut StateSet {
         &mut self.state
     }
 
@@ -215,38 +205,37 @@ where
         &self.response_headers
     }
 
-    /** sets the http status code from any `TryInto<StatusCode>`.
+    /** sets the http status code from any `TryInto<Status>`.
 
-    Note: This currently will set the s
     ```
-    # use trillium_http::{Conn, http_types::{Method, StatusCode}};
+    # use trillium_http::{Conn, Method, Status};
     # let mut conn = Conn::new_synthetic(Method::Get, "/", ());
     assert!(conn.status().is_none());
 
     conn.set_status(200); // a status can be set as a u16
-    assert_eq!(conn.status().unwrap(), StatusCode::Ok);
+    assert_eq!(conn.status().unwrap(), Status::Ok);
 
-    conn.set_status(StatusCode::ImATeapot); // or as a StatusCode
-    assert_eq!(conn.status().unwrap(), StatusCode::ImATeapot);
+    conn.set_status(Status::ImATeapot); // or as a Status
+    assert_eq!(conn.status().unwrap(), Status::ImATeapot);
     ```
     */
-    pub fn set_status(&mut self, status: impl TryInto<StatusCode>) {
+    pub fn set_status(&mut self, status: impl TryInto<Status>) {
         self.status = Some(status.try_into().unwrap_or_else(|_| {
             log::error!("attempted to set an invalid status code");
-            StatusCode::InternalServerError
+            Status::InternalServerError
         }));
     }
 
     /// retrieves the current response status code for this conn, if
     /// it has been set. See [Conn::set_status] for example usage.
-    pub fn status(&self) -> Option<StatusCode> {
+    pub fn status(&self) -> Option<Status> {
         self.status
     }
 
     /**
     retrieves the path part of the request url, up to and excluding any query component
     ```
-    # use trillium_http::{Conn, http_types::Method};
+    # use trillium_http::{Conn, Method};
     let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
     assert_eq!(conn.path(), "/some/path");
     ```
@@ -258,7 +247,7 @@ where
     /**
     retrieves the query component of the path
     ```
-    # use trillium_http::{Conn, http_types::Method};
+    # use trillium_http::{Conn, Method};
     let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
     assert_eq!(conn.querystring(), "and&a=query");
 
@@ -276,12 +265,12 @@ where
 
     /// get the host for this conn, if it exists
     pub fn host(&self) -> Option<&str> {
-        self.request_headers.get("host").map(|h| h.as_str())
+        self.request_headers.get_str(Host)
     }
 
     /// set the host for this conn
-    pub fn set_host(&mut self, host: &str) {
-        self.request_headers.insert("host", host);
+    pub fn set_host(&mut self, host: String) {
+        self.request_headers.insert(Host, host);
     }
 
     // pub fn url(&self) -> Result<Url> {
@@ -303,7 +292,7 @@ where
     Sets the response body to anything that is [`impl Into<Body>`][Body].
 
     ```
-    # use trillium_http::{Conn, http_types::{Method, Body}};
+    # use trillium_http::{Conn, Method, Body};
     # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
     conn.set_response_body("hello");
     conn.set_response_body(String::from("hello"));
@@ -311,14 +300,7 @@ where
     ```
     */
     pub fn set_response_body(&mut self, body: impl Into<Body>) {
-        let body = body.into();
-
-        if self.response_headers.get(CONTENT_TYPE).is_none() {
-            self.response_headers
-                .insert(CONTENT_TYPE, body.mime().clone());
-        }
-
-        self.response_body = Some(body);
+        self.response_body = Some(body.into());
     }
 
     /// returns a reference to the current response body, if it has been set
@@ -330,7 +312,7 @@ where
     remove the response body from this conn and return it
 
     ```
-    # use trillium_http::{Conn, http_types::{Method, Body}};
+    # use trillium_http::{Conn, Method};
     # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
     assert!(conn.response_body().is_none());
     conn.set_response_body("hello");
@@ -347,7 +329,7 @@ where
     /**
     returns the http method for this conn's request.
     ```
-    # use trillium_http::{Conn, http_types::{Method, Body}};
+    # use trillium_http::{Conn, Method};
     let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
     assert_eq!(conn.method(), Method::Get);
     ```
@@ -374,7 +356,7 @@ where
         self.request_body_state == ReceivedBodyState::Start
             && self
                 .request_headers
-                .contains_ignore_ascii_case(EXPECT, "100-continue")
+                .eq_ignore_ascii_case(Expect, "100-continue")
     }
 
     fn build_request_body(&mut self) -> ReceivedBody<'_, Transport> {
@@ -393,7 +375,7 @@ where
     determined from the mime-type charset, if available
 
     ```
-    # use trillium_http::{Conn, http_types::{Method, Body}};
+    # use trillium_http::{Conn, Method};
     let mut conn = Conn::new_synthetic(Method::Get, "/", ());
     assert_eq!(conn.request_encoding(), encoding_rs::WINDOWS_1252); // the default
     conn.request_headers_mut().insert("content-type", "text/plain;charset=utf-16");
@@ -409,7 +391,7 @@ where
     determined from the mime-type charset, if available
 
     ```
-    # use trillium_http::{Conn, http_types::{Method, Body}};
+    # use trillium_http::{Conn, Method};
     let mut conn = Conn::new_synthetic(Method::Get, "/", ());
     assert_eq!(conn.response_encoding(), encoding_rs::WINDOWS_1252); // the default
     conn.response_headers_mut().insert("content-type", "text/plain;charset=utf-16");
@@ -426,7 +408,7 @@ where
     ReceivedBody provides an interface to read body content
     ```
     # async_io::block_on(async {
-    # use trillium_http::{Conn, http_types::{Method, Body}};
+    # use trillium_http::{Conn, Method};
     let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
     let request_body = conn.request_body().await;
     assert_eq!(request_body.content_length(), Some(5));
@@ -450,13 +432,11 @@ where
     }
 
     fn validate_headers(request_headers: &Headers) -> Result<()> {
-        let content_length = ContentLength::from_headers(request_headers)
-            .map_err(|_| Error::MalformedHeader("content-length"))?;
-
+        let content_length = request_headers.has_header(ContentLength);
         let transfer_encoding_chunked =
-            request_headers.contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked");
+            request_headers.eq_ignore_ascii_case(TransferEncoding, "chunked");
 
-        if content_length.is_some() && transfer_encoding_chunked {
+        if content_length && transfer_encoding_chunked {
             Err(Error::UnexpectedHeader("content-length"))
         } else {
             Ok(())
@@ -500,14 +480,17 @@ where
             None => return Err(Error::MissingVersion),
         };
 
-        let mut request_headers = Headers::new();
-        for header in httparse_req.headers.iter() {
-            request_headers.insert(header.name, std::str::from_utf8(header.value)?);
+        let mut request_headers = Headers::with_capacity(httparse_req.headers.len());
+        for header in httparse_req.headers {
+            let header_name = crate::HeaderName::from_str(header.name)?;
+            let header_value = crate::HeaderValue::from(header.value.to_owned());
+            request_headers.append(header_name, header_value);
         }
 
         Self::validate_headers(&request_headers)?;
 
         log::trace!("parsed headers: {:#?}", &request_headers);
+
         let path = httparse_req
             .path
             .ok_or(Error::RequestPathMissing)?
@@ -522,7 +505,7 @@ where
             buffer,
             response_headers: Headers::new(),
             status: None,
-            state: Extensions::new(),
+            state: StateSet::new(),
             response_body: None,
             request_body_state: ReceivedBodyState::Start,
             secure: false,
@@ -556,39 +539,34 @@ where
     calculates any auto-generated headers for this conn prior to sending it
     */
     pub fn finalize_headers(&mut self) {
-        if self.response_headers.get(DATE).is_none() {
-            Date::now().apply_header(&mut self.response_headers);
-        }
+        self.response_headers
+            .try_insert(Date, httpdate::fmt_http_date(SystemTime::now()));
 
-        if self.response_headers.get("server").is_none() {
-            self.response_headers.insert("server", SERVER);
-        }
+        self.response_headers.try_insert(Server, SERVER);
 
-        if self.status == Some(StatusCode::SwitchingProtocols) {
+        if self.status == Some(Status::SwitchingProtocols) {
             return;
         }
 
-        if self.response_headers.get(CONTENT_LENGTH).is_none() {
-            if let Some(len) = self.body_len() {
-                self.response_headers.apply(ContentLength::new(len));
-            }
+        if let Some(len) = self.body_len() {
+            self.response_headers
+                .try_insert(ContentLength, len.to_string());
         }
 
-        if self.response_headers.get(CONTENT_LENGTH).is_none() && self.version == Version::Http1_1 {
-            self.response_headers.apply(TransferEncoding::new(Chunked));
+        if !self.response_headers.has_header(ContentLength) && self.version == Version::Http1_1 {
+            self.response_headers.insert(TransferEncoding, "chunked");
         } else {
-            self.response_headers.remove(TRANSFER_ENCODING);
+            self.response_headers.remove(TransferEncoding);
         }
 
         if self.stopper.is_stopped() {
-            self.response_headers.insert("connection", "close");
-        } else if self.response_headers.get("connection").is_none()
-            && !self
-                .request_headers
-                .contains_ignore_ascii_case("connection", "close")
+            self.response_headers.insert(Connection, "close");
+        } else if !self
+            .request_headers
+            .eq_ignore_ascii_case(Connection, "close")
             && self.version == Version::Http1_1
         {
-            self.response_headers.insert("connection", "keep-alive");
+            self.response_headers.try_insert(Connection, "keep-alive");
         }
     }
 
@@ -694,29 +672,21 @@ where
     }
 
     fn should_close(&self) -> bool {
-        if self
-            .request_headers
-            .contains_ignore_ascii_case("connection", "keep-alive")
-            && self
-                .response_headers
-                .contains_ignore_ascii_case("connection", "keep-alive")
-        {
-            false
-        } else if self
-            .request_headers
-            .contains_ignore_ascii_case("connection", "close")
-            || self
-                .response_headers
-                .contains_ignore_ascii_case("connection", "close")
-        {
-            true
-        } else {
-            self.version == Version::Http1_0
+        let request_connection = self.request_headers.get_lower(Connection);
+        let response_connection = self.request_headers.get_lower(Connection);
+
+        match (
+            request_connection.as_deref(),
+            response_connection.as_deref(),
+        ) {
+            (Some("keep-alive"), Some("keep-alive")) => false,
+            (Some("close"), _) | (_, Some("close")) => true,
+            _ => self.version == Version::Http1_0,
         }
     }
 
     fn should_upgrade(&self) -> bool {
-        self.status == Some(StatusCode::SwitchingProtocols)
+        self.status == Some(Status::SwitchingProtocols)
     }
 
     async fn finish(self) -> Result<ConnectionStatus<Transport>> {
@@ -739,14 +709,13 @@ where
     fn request_content_length(&self) -> Result<Option<u64>> {
         if self
             .request_headers
-            .contains_ignore_ascii_case(TRANSFER_ENCODING, "chunked")
+            .eq_ignore_ascii_case(TransferEncoding, "chunked")
         {
             Ok(None)
-        } else if let Some(cl) = ContentLength::from_headers(&self.request_headers)
-            .map_err(|_| Error::MalformedHeader("content-length"))?
-            .map(|cl| cl.len())
-        {
-            Ok(Some(cl))
+        } else if let Some(cl) = self.request_headers.get_str(ContentLength) {
+            cl.parse()
+                .map(Some)
+                .map_err(|_| Error::MalformedHeader("content-length".into()))
         } else {
             Ok(Some(0))
         }
@@ -760,7 +729,7 @@ where
     }
 
     async fn send_headers(&mut self) -> Result<()> {
-        let status = self.status().unwrap_or(StatusCode::NotFound);
+        let status = self.status().unwrap_or(Status::NotFound);
         let first_line = format!(
             "{} {} {}\r\n",
             self.version,
@@ -771,11 +740,11 @@ where
         self.transport.write_all(first_line.as_bytes()).await?;
 
         self.finalize_headers();
-        let mut headers = self.response_headers.iter().collect::<Vec<_>>();
-        headers.sort_unstable_by_key(|(h, _)| h.as_str());
 
-        for (header, values) in headers {
-            for value in values.iter() {
+        log::trace!("response headers:\n{:#?}", &self.response_headers);
+
+        for (header, values) in self.response_headers.iter() {
+            for value in &**values {
                 log::trace!("sending: {}: {}", &header, &value);
 
                 self.transport

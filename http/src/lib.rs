@@ -4,10 +4,10 @@
     missing_copy_implementations,
     rustdoc::missing_crate_level_docs,
     missing_debug_implementations,
-    missing_docs,
     nonstandard_style,
     unused_qualifications
 )]
+#![warn(missing_docs)]
 /*!
 This crate provides the http 1.x implementation for Trillium.
 
@@ -58,7 +58,7 @@ type ClientConn<'a> = trillium_client::Conn<'a, trillium_smol::TcpConnector>;
 let mut client_conn = ClientConn::get(&*url).execute().await?;
 
 assert_eq!(client_conn.status().unwrap(), 200);
-assert_eq!(client_conn.response_headers()["content-length"], "11");
+assert_eq!(client_conn.response_headers().get_str("content-length"), Some("11"));
 assert_eq!(
     client_conn.response_body().read_string().await?,
     "hello world"
@@ -69,14 +69,6 @@ server_handle.await?; // wait for the server to shut down
 #        Result::Ok(()) }) }
 ```
 */
-
-mod body_encoder;
-#[cfg(feature = "unstable")]
-pub use body_encoder::BodyEncoder;
-
-mod chunked_encoder;
-#[cfg(feature = "unstable")]
-pub use chunked_encoder::ChunkedEncoder;
 
 mod received_body;
 pub use received_body::ReceivedBody;
@@ -99,14 +91,39 @@ pub use synthetic::Synthetic;
 mod upgrade;
 pub use upgrade::Upgrade;
 
-pub use http_types;
-
 pub use stopper::Stopper;
 
 mod mut_cow;
 pub(crate) use mut_cow::MutCow;
 
 mod util;
+
+mod body;
+pub use body::Body;
+
+mod state;
+pub use state::StateSet;
+
+mod headers;
+pub use headers::Headers;
+
+mod header_name;
+pub use header_name::{HeaderName, KnownHeaderName};
+
+mod header_values;
+pub use header_values::HeaderValues;
+
+mod header_value;
+pub use header_value::HeaderValue;
+
+mod status;
+pub use status::Status;
+
+mod method;
+pub use method::Method;
+
+mod version;
+pub use version::Version;
 
 /// Types to represent the bidirectional data stream over which the
 /// HTTP protocol is communicated

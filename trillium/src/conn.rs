@@ -1,12 +1,10 @@
-use crate::http_types::{
-    headers::{Header, Headers},
-    Body, Method, StatusCode,
+use std::{
+    convert::TryInto,
+    fmt::{self, Debug, Formatter},
 };
-use std::convert::TryInto;
-use std::fmt::{self, Debug, Formatter};
 use trillium_http::{
     transport::{BoxedTransport, Transport},
-    ReceivedBody,
+    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status,
 };
 
 /**
@@ -25,7 +23,7 @@ the attribute and return the conn, enabling chained calls like:
 ```
 struct MyState(&'static str);
 async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
-    conn.with_header(("content-type", "text/plain"))
+    conn.with_header("content-type", "text/plain")
         .with_state(MyState("hello"))
         .with_body("hey there")
         .with_status(418)
@@ -35,7 +33,7 @@ use trillium_testing::prelude::*;
 
 assert_response!(
     get("/").on(&handler),
-    StatusCode::ImATeapot,
+    Status::ImATeapot,
     "hey there",
     "content-type" => "text/plain"
 );
@@ -117,15 +115,15 @@ impl Conn {
     let mut conn = get("/").on(&());
     assert!(conn.status().is_none());
     conn.set_status(200);
-    assert_eq!(conn.status().unwrap(), StatusCode::Ok);
+    assert_eq!(conn.status().unwrap(), Status::Ok);
     ```
      */
-    pub fn status(&self) -> Option<StatusCode> {
+    pub fn status(&self) -> Option<Status> {
         self.inner.status()
     }
 
     /// assigns a status to this response. see [`Conn::status`] for example usage
-    pub fn set_status(&mut self, status: impl TryInto<StatusCode>) {
+    pub fn set_status(&mut self, status: impl TryInto<Status>) {
         self.inner.set_status(status);
     }
 
@@ -139,13 +137,13 @@ impl Conn {
         conn.with_status(418)
     });
     let status = conn.status().unwrap();
-    assert_eq!(status, StatusCode::ImATeapot);
+    assert_eq!(status, Status::ImATeapot);
     assert_eq!(status, 418);
     assert!(!conn.is_halted());
     ```
      */
 
-    pub fn with_status(mut self, status: impl TryInto<StatusCode>) -> Self {
+    pub fn with_status(mut self, status: impl TryInto<Status>) -> Self {
         self.set_status(status);
         self
     }
@@ -240,7 +238,7 @@ impl Conn {
 
     /// Removes a type from the state set and returns it, if present
     pub fn take_state<T: Send + Sync + 'static>(&mut self) -> Option<T> {
-        self.inner.state_mut().remove()
+        self.inner.state_mut().take()
     }
 
     /**
@@ -337,20 +335,24 @@ impl Conn {
     }
 
     /**
-    apply a [`Header`] to the response headers and return the conn
-
-    stability note: If trillium drops the dependence on http-types,
-    this likely willl become `conn.with_header(&str, &str)`
+    insert a header name and value/values into the response headers
+    and return the conn. for a slight performance improvement, use a
+    [`trillium::KnownHeaderName`] as the first argument instead of a
+    str.
 
     ```
     use trillium_testing::prelude::*;
     let mut conn = get("/").on(&|conn: trillium::Conn| async move {
-        conn.with_header(("content-type", "application/html"))
+        conn.with_header("content-type", "application/html")
     });
     ```
     */
-    pub fn with_header(mut self, header: impl Header) -> Self {
-        self.headers_mut().apply(header);
+    pub fn with_header(
+        mut self,
+        header_name: impl Into<HeaderName<'static>>,
+        header_value: impl Into<HeaderValues>,
+    ) -> Self {
+        self.headers_mut().insert(header_name, header_value);
         self
     }
 

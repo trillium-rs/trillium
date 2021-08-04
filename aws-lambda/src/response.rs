@@ -1,7 +1,6 @@
 use std::collections::HashMap;
-use trillium::http_types::StatusCode;
 use trillium::Conn;
-use trillium_http::{transport::BoxedTransport, Conn as HttpConn};
+use trillium_http::{transport::BoxedTransport, Conn as HttpConn, Status};
 
 #[derive(serde::Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -16,17 +15,14 @@ pub(crate) struct AlbMultiHeadersResponse {
 impl AlbMultiHeadersResponse {
     pub async fn from_conn(conn: Conn) -> Self {
         let mut conn = conn.into_inner();
-        let status = conn.status().unwrap_or(StatusCode::NotFound);
+        let status = conn.status().unwrap_or(Status::NotFound);
         let (body, is_base64_encoded) = response_body(&mut conn).await;
 
-        let multi_value_headers =
-            conn.response_headers()
-                .iter()
-                .fold(HashMap::new(), |mut h, (n, v)| {
-                    let v: Vec<_> = v.iter().map(|h| h.to_string()).collect();
-                    h.insert(n.to_string(), v);
-                    h
-                });
+        let multi_value_headers = conn
+            .response_headers()
+            .iter()
+            .map(|(n, v)| (n.to_string(), v.iter().map(|v| v.to_string()).collect()))
+            .collect();
 
         Self {
             is_base64_encoded,
@@ -52,7 +48,7 @@ async fn response_body(conn: &mut HttpConn<BoxedTransport>) -> (Option<String>, 
     match conn.take_response_body() {
         Some(body) => {
             let bytes = body.into_bytes().await.unwrap();
-            match String::from_utf8(bytes) {
+            match String::from_utf8(bytes.to_vec()) {
                 Ok(string) => (Some(string), false),
                 Err(e) => (Some(base64::encode(e.into_bytes())), true),
             }
@@ -64,7 +60,7 @@ async fn response_body(conn: &mut HttpConn<BoxedTransport>) -> (Option<String>, 
 impl AlbResponse {
     pub async fn from_conn(conn: Conn) -> Self {
         let mut conn = conn.into_inner();
-        let status = conn.status().unwrap_or(StatusCode::NotFound);
+        let status = conn.status().unwrap_or(Status::NotFound);
         let (body, is_base64_encoded) = response_body(&mut conn).await;
         let headers = conn
             .response_headers()

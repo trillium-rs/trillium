@@ -1,6 +1,6 @@
-use http_types::Method;
-use std::collections::HashMap;
-use trillium_http::{Conn as HttpConn, Synthetic};
+use serde::{Deserialize, Deserializer};
+use std::{collections::HashMap, str::FromStr};
+use trillium_http::{Conn as HttpConn, Method, Synthetic};
 
 #[cfg(test)]
 mod test {
@@ -17,6 +17,7 @@ mod test {
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AlbRequest {
+    #[serde(deserialize_with = "deserialize_method")]
     pub http_method: Method,
     pub path: String,
     pub query_string_parameters: HashMap<String, String>,
@@ -25,6 +26,17 @@ pub(crate) struct AlbRequest {
     pub is_base64_encoded: bool,
     pub body: Option<String>,
 }
+
+fn deserialize_method<'de, D>(deserializer: D) -> Result<Method, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let buf = String::deserialize(deserializer)?;
+    Method::from_str(&buf).map_err(serde::de::Error::custom)
+}
+
+// fn deserialize_cron_schedule<'de, D>(deserializer: D) -> Result<cron::Schedule, D::Error>
+// where D: Deserializer<'de> {
 impl AlbRequest {
     pub async fn into_conn(self) -> HttpConn<Synthetic> {
         let Self {
@@ -39,9 +51,7 @@ impl AlbRequest {
         } = self;
         let body = standardize_body(body, is_base64_encoded);
         let mut conn = HttpConn::new_synthetic(http_method, path, body);
-        for (key, value) in headers {
-            conn.request_headers_mut().append(&*key, &*value);
-        }
+        conn.request_headers_mut().extend(headers);
         conn
     }
 }
@@ -59,6 +69,7 @@ fn standardize_body(body: Option<String>, is_base64_encoded: bool) -> Option<Vec
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AlbMultiHeadersRequest {
+    #[serde(deserialize_with = "deserialize_method")]
     pub http_method: Method,
     pub path: String,
     pub multi_value_query_string_parameters: HashMap<String, Vec<String>>,
@@ -67,6 +78,7 @@ pub(crate) struct AlbMultiHeadersRequest {
     pub is_base64_encoded: bool,
     pub body: Option<String>,
 }
+
 impl AlbMultiHeadersRequest {
     pub async fn into_conn(self) -> HttpConn<Synthetic> {
         let Self {
@@ -81,11 +93,8 @@ impl AlbMultiHeadersRequest {
         } = self;
         let body = standardize_body(body, is_base64_encoded);
         let mut conn = HttpConn::new_synthetic(http_method, path, body);
-        for (key, values) in multi_value_headers {
-            for value in values {
-                conn.request_headers_mut().append(&*key, value);
-            }
-        }
+        conn.request_headers_mut().extend(multi_value_headers);
+
         conn
     }
 }

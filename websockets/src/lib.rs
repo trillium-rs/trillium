@@ -48,12 +48,12 @@ use async_dup::Arc;
 use sha1::{Digest, Sha1};
 use std::{future::Future, marker::Send};
 use trillium::{
-    async_trait,
-    http_types::{
-        headers::{Headers, CONNECTION, UPGRADE},
-        StatusCode,
+    async_trait, Conn, Handler, Headers,
+    KnownHeaderName::{
+        Connection, SecWebsocketAccept, SecWebsocketKey, SecWebsocketProtocol, SecWebsocketVersion,
+        Upgrade as UpgradeHeader,
     },
-    Conn, Handler, Upgrade,
+    Status, Upgrade,
 };
 
 pub use async_tungstenite;
@@ -104,10 +104,9 @@ struct IsWebsocket;
 
 fn connection_is_upgrade(headers: &Headers) -> bool {
     headers
-        .get(CONNECTION)
+        .get_str(Connection)
         .map(|connection| {
             connection
-                .as_str()
                 .split(',')
                 .any(|c| c.trim().eq_ignore_ascii_case("upgrade"))
         })
@@ -117,7 +116,7 @@ fn connection_is_upgrade(headers: &Headers) -> bool {
 #[cfg(test)]
 mod tests {
     use super::connection_is_upgrade;
-    use trillium::http_types::headers::Headers;
+    use trillium::Headers;
 
     #[test]
     fn test_connection_is_upgrade() {
@@ -152,24 +151,23 @@ where
         let connection_upgrade = connection_is_upgrade(conn.headers());
         let upgrade_to_websocket = conn
             .headers()
-            .contains_ignore_ascii_case(UPGRADE, "websocket");
+            .eq_ignore_ascii_case(UpgradeHeader, "websocket");
         let upgrade_requested = connection_upgrade && upgrade_to_websocket;
 
         if !upgrade_requested {
             return conn;
         }
 
-        let header = match conn.headers().get("Sec-Websocket-Key") {
-            Some(h) => h.as_str(),
-            None => return conn.with_status(StatusCode::BadRequest),
+        let header = match conn.headers().get_str(SecWebsocketKey) {
+            Some(h) => h,
+            None => return conn.with_status(Status::BadRequest),
         };
 
         let protocol = conn
             .headers()
-            .get("Sec-Websocket-Protocol")
+            .get_str(SecWebsocketProtocol)
             .and_then(|value| {
                 value
-                    .as_str()
                     .split(',')
                     .map(str::trim)
                     .find(|req_p| self.protocols.iter().any(|p| p == req_p))
@@ -179,18 +177,18 @@ where
         let hash = Sha1::new().chain(header).chain(WEBSOCKET_GUID).finalize();
 
         let headers = conn.headers_mut();
-        headers.insert(UPGRADE, "websocket");
-        headers.insert(CONNECTION, "Upgrade");
-        headers.insert("Sec-Websocket-Accept", base64::encode(&hash[..]));
-        headers.insert("Sec-Websocket-Version", "13");
+        headers.insert(UpgradeHeader, "websocket");
+        headers.insert(Connection, "Upgrade");
+        headers.insert(SecWebsocketAccept, base64::encode(&hash[..]));
+        headers.insert(SecWebsocketVersion, "13");
 
         if let Some(protocol) = protocol {
-            headers.insert("Sec-Websocket-Protocol", protocol);
+            headers.insert(SecWebsocketProtocol, protocol);
         }
 
         conn.halt()
             .with_state(IsWebsocket)
-            .with_status(StatusCode::SwitchingProtocols)
+            .with_status(Status::SwitchingProtocols)
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {

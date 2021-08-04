@@ -6,7 +6,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     sync::Arc,
 };
-use trillium::{async_trait, http_types::Method, Conn, Handler, Upgrade};
+use trillium::{async_trait, Conn, Handler, KnownHeaderName, Method, Upgrade};
 
 /**
 # The Router handler
@@ -163,7 +163,7 @@ impl Router {
     Registers a handler for a method other than get, put, post, patch, or delete.
 
     ```
-    # use trillium::{Conn, http_types::Method};
+    # use trillium::{Conn, Method};
     # use trillium_router::Router;
     let router = Router::new()
         .with_route("OPTIONS", "/some/route", |conn: Conn| async move { conn.ok("directly handling options") })
@@ -321,7 +321,10 @@ impl Handler for Router {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            return conn.with_header(("Allow", allow)).with_status(200).halt();
+            return conn
+                .with_header(KnownHeaderName::Allow, allow)
+                .with_status(200)
+                .halt();
         } else {
             log::debug!("{} did not match any route", conn.path());
             conn

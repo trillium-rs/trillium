@@ -3,10 +3,7 @@ use chrono::Local;
 use colored::{ColoredString, Colorize};
 use size::{Base, Size, Style};
 use std::{borrow::Cow, fmt::Display, sync::Arc, time::Instant};
-use trillium::{
-    http_types::{Method, StatusCode, Version},
-    Conn,
-};
+use trillium::{Conn, Method, Status, Version};
 
 /**
 [apache combined log format][apache]
@@ -98,7 +95,7 @@ mod status_mod {
     The display type for [`status`]
     */
     #[derive(Copy, Clone)]
-    pub struct StatusOutput(StatusCode, bool);
+    pub struct StatusOutput(Status, bool);
     impl Display for StatusOutput {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let StatusOutput(status, color) = *self;
@@ -135,7 +132,7 @@ mod status_mod {
     | ???  | white  |
     */
     pub fn status(conn: &Conn, color: bool) -> StatusOutput {
-        StatusOutput(conn.status().unwrap_or(StatusCode::NotFound), color)
+        StatusOutput(conn.status().unwrap_or(Status::NotFound), color)
     }
 }
 
@@ -157,13 +154,7 @@ called with a header name
 */
 pub fn header(header_name: &'static str) -> impl LogFormatter {
     move |conn: &Conn, _color: bool| {
-        format!(
-            "{:?}",
-            conn.headers()
-                .get(header_name)
-                .map(|h| h.as_str())
-                .unwrap_or("")
-        )
+        format!("{:?}", conn.headers().get_str(header_name).unwrap_or(""))
     }
 }
 
