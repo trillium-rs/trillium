@@ -1,18 +1,18 @@
+use crate::{Headers, KnownHeaderName};
 use encoding_rs::Encoding;
-use http_types::headers::{Headers, CONTENT_TYPE};
-use http_types::mime::Mime;
+use mime::Mime;
 use std::str::FromStr;
 
 /// a utility function for extracting a character encoding from a set
-/// of [`Headers`][http_types::headers::Headers]
+/// of [`Headers`][trillium::Headers]
 pub fn encoding(headers: &Headers) -> &'static Encoding {
-    let mime = headers
-        .get(CONTENT_TYPE)
-        .and_then(|c| Mime::from_str(c.as_str()).ok());
-
-    mime.and_then(|m| {
-        m.param("charset")
-            .and_then(|v| Encoding::for_label(v.as_str().as_bytes()))
-    })
-    .unwrap_or(encoding_rs::WINDOWS_1252)
+    headers
+        .get_str(KnownHeaderName::ContentType)
+        .and_then(|c| Mime::from_str(c).ok())
+        .and_then(|m| {
+            m.params()
+                .find(|(name, _)| name.as_str() == "charset")
+                .and_then(|(_, v)| Encoding::for_label(v.as_str().as_bytes()))
+        })
+        .unwrap_or(encoding_rs::WINDOWS_1252)
 }

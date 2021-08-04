@@ -21,9 +21,3 @@ serde_json = "1.0.64"
 tokio = { version = "1.8.2", features = ["rt", "net", "rt-multi-thread"], package = "tokio" }
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-http = { path = "../http", version = "^0.1.0" }
-
-[dependencies.http-types]
-version = "0.0.3"
-default-features = false
-features = ["serde"]
-package = "trillium-http-types"

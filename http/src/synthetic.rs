@@ -1,15 +1,13 @@
-use futures_lite::io::{AsyncRead, AsyncWrite, Result};
-use http_types::{
-    headers::{Headers, CONTENT_LENGTH},
-    Extensions, Method, Version,
+use crate::{
+    conn::AfterSend, received_body::ReceivedBodyState, Conn, Headers, KnownHeaderName, Method,
+    StateSet, Stopper, Version,
 };
+use futures_lite::io::{AsyncRead, AsyncWrite, Result};
 use std::{
     pin::Pin,
     task::{Context, Poll},
     time::Instant,
 };
-
-use crate::{conn::AfterSend, received_body::ReceivedBodyState, Conn, Stopper};
 
 /**
 Synthetic represents a simple transport that contains fixed
@@ -105,7 +103,7 @@ impl Conn<Synthetic> {
     /**
     Construct a new synthetic conn with provided method, path, and body.
     ```rust
-    # use trillium_http::{http_types::Method, Conn};
+    # use trillium_http::{Method, Conn};
     let conn = Conn::new_synthetic(Method::Get, "/", "hello");
     assert_eq!(conn.method(), Method::Get);
     assert_eq!(conn.path(), "/");
@@ -119,7 +117,7 @@ impl Conn<Synthetic> {
         let transport = body.into();
         let mut request_headers = Headers::new();
         request_headers.insert(
-            CONTENT_LENGTH,
+            KnownHeaderName::ContentLength,
             transport.len().unwrap_or_default().to_string(),
         );
 
@@ -131,7 +129,7 @@ impl Conn<Synthetic> {
             method,
             status: None,
             version: Version::Http1_1,
-            state: Extensions::new(),
+            state: StateSet::new(),
             response_body: None,
             buffer: None,
             request_body_state: ReceivedBodyState::Start,
@@ -149,7 +147,7 @@ impl Conn<Synthetic> {
     pub fn replace_body(&mut self, body: impl Into<Synthetic>) {
         let transport = body.into();
         self.request_headers_mut().insert(
-            CONTENT_LENGTH,
+            KnownHeaderName::ContentLength,
             transport.len().unwrap_or_default().to_string(),
         );
         self.transport = transport;

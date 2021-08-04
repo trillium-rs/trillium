@@ -39,7 +39,7 @@ assert_ok!(
 );
 
 assert_ok!(
-    get("/").with_request_header(("cookie", "some_cookie=trillium")).on(&handler),
+    get("/").with_request_header("cookie", "some_cookie=trillium").on(&handler),
     "current cookie value: trillium",
     "set-cookie" => "some_cookie=some-cookie-value; Path=/"
 );

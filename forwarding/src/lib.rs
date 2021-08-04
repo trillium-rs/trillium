@@ -26,9 +26,13 @@ a request with forwarded headers that we mistakenly trust.
     nonstandard_style,
     unused_qualifications
 )]
+mod forwarded;
+pub use forwarded::Forwarded;
+
+mod parse_utils;
 
 use std::{fmt::Debug, net::IpAddr, ops::Deref};
-use trillium::{async_trait, conn_unwrap, http_types::proxies::Forwarded, Conn, Handler};
+use trillium::{async_trait, conn_unwrap, Conn, Handler};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -146,20 +150,20 @@ impl Default for TrustProxy {
 #[async_trait]
 impl Handler for Forwarding {
     async fn run(&self, mut conn: Conn) -> Conn {
-        let ip = conn_unwrap!(conn, conn.inner().peer_ip());
+        let ip = conn_unwrap!(conn.inner().peer_ip(), conn);
         if !self.0.is_trusted(&ip) {
             return conn;
         }
 
         let forwarded =
-            conn_unwrap!(conn, Forwarded::from_headers(conn.headers()).ok().flatten()).into_owned();
+            conn_unwrap!(Forwarded::from_headers(conn.headers()).ok().flatten(), conn).into_owned();
 
         log::debug!("received trusted forwarded {:?}", &forwarded);
 
         let inner_mut = conn.inner_mut();
 
         if let Some(host) = forwarded.host() {
-            inner_mut.set_host(host);
+            inner_mut.set_host(String::from(host));
         }
 
         if let Some(proto) = forwarded.proto() {
@@ -171,6 +175,7 @@ impl Handler for Forwarding {
                 inner_mut.set_peer_ip(Some(ip_addr));
             }
         }
-        conn
+
+        conn.with_state(forwarded)
     }
 }

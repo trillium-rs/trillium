@@ -9,7 +9,7 @@ async fn handler(conn: trillium::Conn) -> trillium::Conn {
 
 
 assert_status!(get("/").on(&handler), 418);
-assert_status!(get("/").on(&handler), StatusCode::ImATeapot);
+assert_status!(get("/").on(&handler), Status::ImATeapot);
 
 let conn = get("/").on(&handler);
 assert_status!(&conn, 418);
@@ -31,7 +31,7 @@ assert_status!(get("/").on(&handler), 418);
 macro_rules! assert_status {
     ($conn:expr, $status:expr) => {{
         use std::convert::TryInto;
-        let expected_status: $crate::StatusCode =
+        let expected_status: $crate::prelude::Status =
             $status.try_into().expect("expected a status code");
 
         match $conn.status() {
@@ -174,17 +174,17 @@ use trillium_testing::prelude::*;
 async fn handler(conn: Conn) -> Conn {
     conn.with_body("just tea stuff here")
         .with_status(418)
-        .with_header(("server", "zojirushi"))
+        .with_header("server", "zojirushi")
 }
 
 assert_response!(get("/").on(&handler), 418);
-assert_response!(get("/").on(&handler), StatusCode::ImATeapot);
+assert_response!(get("/").on(&handler), Status::ImATeapot);
 assert_response!(get("/").on(&handler), 418, "just tea stuff here");
-assert_response!(get("/").on(&handler), StatusCode::ImATeapot, "just tea stuff here");
+assert_response!(get("/").on(&handler), Status::ImATeapot, "just tea stuff here");
 
 assert_response!(
     get("/").on(&handler),
-    StatusCode::ImATeapot,
+    Status::ImATeapot,
     "just tea stuff here",
     "server" => "zojirushi",
     "content-length" => "19"
@@ -226,8 +226,8 @@ asserts any number of response headers
 use trillium_testing::prelude::*;
 async fn handler(conn: Conn) -> Conn {
     conn.ok("headers")
-        .with_header(("server", "special-custom-server"))
-        .with_header(("request-id", "10"))
+        .with_header("server", "special-custom-server")
+        .with_header("request-id", "10")
 }
 
 assert_headers!(get("/").on(&handler), "server" => "special-custom-server");
@@ -251,7 +251,7 @@ macro_rules! assert_headers {
         let headers = conn.inner().response_headers();
         $(
             assert_eq!(
-                headers.get($header_name).map(|h| h.as_str()),
+                headers.get_str($header_name),
                 Some($header_value),
                 concat!("for header ", $header_name)
             );
@@ -271,8 +271,8 @@ it can be used to assert:
 use trillium_testing::prelude::*;
 async fn handler(conn: Conn) -> Conn {
     conn.ok("body")
-        .with_header(("server", "special-custom-server"))
-        .with_header(("request-id", "10"))
+        .with_header("server", "special-custom-server")
+        .with_header("request-id", "10")
 }
 
 assert_ok!(get("/").on(&handler));

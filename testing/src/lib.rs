@@ -21,12 +21,12 @@ async fn handler(mut conn: Conn) -> Conn {
     let request_body = conn_try!(conn.request_body_string().await, conn);
     conn.with_body(format!("request body was: {}", request_body))
         .with_status(418)
-        .with_header(("request-id", "special-request"))
+        .with_header("request-id", "special-request")
 }
 
 assert_response!(
     post("/").with_request_body("hello trillium!").on(&handler),
-    StatusCode::ImATeapot,
+    Status::ImATeapot,
     "request body was: hello trillium!",
     "request-id" => "special-request",
     "content-length" => "33"
@@ -80,11 +80,15 @@ pub mod prelude {
     */
     pub use crate::{
         assert_body, assert_body_contains, assert_headers, assert_not_handled, assert_ok,
-        assert_response, assert_status, init, methods::*, Method, StatusCode,
+        assert_response, assert_status, init, methods::*,
     };
 
-    pub use trillium::Conn;
+    pub use trillium::{Conn, Method, Status};
 }
+
+pub use trillium::{Method, Status};
+
+pub use url::Url;
 
 /// initialize a handler
 pub fn init(handler: &mut impl trillium::Handler) {
@@ -95,7 +99,6 @@ pub fn init(handler: &mut impl trillium::Handler) {
 // these exports are used by macros
 pub use futures_lite;
 pub use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite};
-pub use trillium_http::http_types::{Method, StatusCode, Url};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "tokio")] {

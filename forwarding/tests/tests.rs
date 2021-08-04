@@ -20,7 +20,7 @@ fn test_always() {
 
     assert_ok!(
         get("/")
-            .with_request_header(("forwarded", "for=192.0.2.60;proto=https;by=203.0.113.43"))
+            .with_request_header("forwarded", "for=192.0.2.60;proto=https;by=203.0.113.43")
             .with_peer_ip("203.0.113.43".parse().unwrap())
             .on(&app),
         "true Some(192.0.2.60) None"
@@ -28,9 +28,9 @@ fn test_always() {
 
     assert_ok!(
         get("/")
-            .with_request_header(("x-forwarded-for", "192.0.2.60"))
-            .with_request_header(("x-forwarded-proto", "https"))
-            .with_request_header(("x-forwarded-host", "example.com"))
+            .with_request_header("x-forwarded-for", "192.0.2.60")
+            .with_request_header("x-forwarded-proto", "https")
+            .with_request_header("x-forwarded-host", "example.com")
             .with_peer_ip("203.0.113.43".parse().unwrap())
             .on(&app),
         "true Some(192.0.2.60) Some(\"example.com\")"
@@ -45,10 +45,10 @@ fn test_loopback() {
 
     assert_ok!(
         get("/")
-            .with_request_header((
+            .with_request_header(
                 "forwarded",
                 "for=192.0.2.60;proto=https;host=example.com;by=127.0.0.1"
-            ))
+            )
             .with_peer_ip("127.0.0.1".parse().unwrap())
             .on(&app),
         "true Some(192.0.2.60) Some(\"example.com\")"
@@ -56,7 +56,7 @@ fn test_loopback() {
 
     assert_ok!(
         get("/")
-            .with_request_header(("forwarded", "for=192.0.2.60;proto=https"))
+            .with_request_header("forwarded", "for=192.0.2.60;proto=https")
             .with_peer_ip("::1".parse().unwrap())
             .on(&app),
         "true Some(192.0.2.60) None"
@@ -64,7 +64,7 @@ fn test_loopback() {
 
     assert_ok!(
         get("/")
-            .with_request_header(("forwarded", "for=192.0.2.60;proto=https"))
+            .with_request_header("forwarded", "for=192.0.2.60;proto=https")
             .with_peer_ip("10.1.10.1".parse().unwrap())
             .on(&app),
         "false Some(10.1.10.1) None"
@@ -77,7 +77,7 @@ fn test_ipranges() {
 
     assert_ok!(
         get("/")
-            .with_request_header(("forwarded", "for=192.0.2.60;proto=https;host=example.com"))
+            .with_request_header("forwarded", "for=192.0.2.60;proto=https;host=example.com")
             .with_peer_ip("10.10.10.10".parse().unwrap())
             .on(&app),
         "true Some(192.0.2.60) Some(\"example.com\")"
@@ -85,7 +85,7 @@ fn test_ipranges() {
 
     assert_ok!(
         get("/")
-            .with_request_header(("forwarded", "for=192.0.2.60;proto=https;host=example.com"))
+            .with_request_header("forwarded", "for=192.0.2.60;proto=https;host=example.com")
             .with_peer_ip("192.168.1.1".parse().unwrap())
             .on(&app),
         "true Some(192.0.2.60) Some(\"example.com\")"
@@ -93,7 +93,7 @@ fn test_ipranges() {
 
     assert_ok!(
         get("/")
-            .with_request_header(("forwarded", "for=192.0.2.60;proto=https"))
+            .with_request_header("forwarded", "for=192.0.2.60;proto=https")
             .with_peer_ip("10.10.10.1".parse().unwrap())
             .on(&app),
         "false Some(10.10.10.1) None"
@@ -101,7 +101,7 @@ fn test_ipranges() {
 
     assert_ok!(
         get("/")
-            .with_request_header(("forwarded", "for=192.0.2.60;proto=https"))
+            .with_request_header("forwarded", "for=192.0.2.60;proto=https")
             .with_peer_ip("192.169.1.1".parse().unwrap())
             .on(&app),
         "false Some(192.169.1.1) None"

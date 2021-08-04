@@ -1,6 +1,5 @@
-use crate::{Conn, Stopper};
+use crate::{Conn, Headers, Method, StateSet, Stopper};
 use futures_lite::{AsyncRead, AsyncWrite};
-use http_types::{headers::Headers, Extensions, Method};
 use std::{
     fmt::{self, Debug, Formatter},
     io,
@@ -28,7 +27,7 @@ pub struct Upgrade<Transport> {
     /// The http request method
     pub method: Method,
     /// Any state that has been accumulated on the Conn before negotiating the upgrade
-    pub state: Extensions,
+    pub state: StateSet,
     /// The underlying io (often a TcpStream or similar)
     pub transport: Transport,
     /// Any bytes that have been read from the underlying tcpstream
@@ -59,7 +58,7 @@ impl<Transport> Upgrade<Transport> {
 
     /// any state that has been accumulated on the Conn before
     /// negotiating the upgrade.
-    pub fn state(&self) -> &Extensions {
+    pub fn state(&self) -> &StateSet {
         &self.state
     }
 

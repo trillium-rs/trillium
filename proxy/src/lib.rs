@@ -20,12 +20,11 @@ use full_duplex_async_copy::full_duplex_copy;
 use size::{Base, Size, Style};
 use std::convert::TryInto;
 use trillium::{
-    async_trait, conn_try,
-    http_types::{StatusCode, Url},
-    Conn, Handler,
+    async_trait, conn_try, Conn, Handler, KnownHeaderName,
+    Status::{NotFound, SwitchingProtocols},
 };
 use trillium_http::{transport::BoxedTransport, Upgrade};
-use StatusCode::{NotFound, SwitchingProtocols};
+use url::Url;
 
 pub use trillium_client::{Client, Connector};
 
@@ -180,16 +179,12 @@ impl<C: Connector> Handler for Proxy<C> {
         let request_url = conn_try!(self.target.clone().join(conn.path()), conn);
 
         let mut client_conn = self.client.build_conn(conn.method(), request_url);
-
-        for (name, value) in conn.headers() {
-            for value in value {
-                if name != "host" {
-                    client_conn
-                        .request_headers()
-                        .insert(name.as_str(), value.as_str());
-                }
-            }
-        }
+        client_conn.request_headers().extend(
+            conn.headers()
+                .clone()
+                .into_iter()
+                .filter(|(name, _)| name != KnownHeaderName::Host),
+        );
 
         // need a better solution for streaming request bodies through
         // the proxy, but http-types::Body needs to be 'static. Fixing
@@ -204,25 +199,16 @@ impl<C: Connector> Handler for Proxy<C> {
             client_conn.set_request_body(client_body_content);
         }
 
-        if client_conn
+        client_conn
             .request_headers()
-            .contains_ignore_ascii_case("connection", "close")
-            || client_conn.request_headers().get("connection").is_none()
-        {
-            client_conn
-                .request_headers()
-                .insert("connection", "keep-alive");
-        }
+            .insert(KnownHeaderName::Connection, "keep-alive");
 
         trillium::conn_try!(client_conn.send().await, conn);
 
         let conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
-                for (name, value) in client_conn.response_headers() {
-                    for value in value {
-                        conn.headers_mut().append(name.as_str(), value.as_str());
-                    }
-                }
+                conn.headers_mut()
+                    .extend(std::mem::take(client_conn.response_headers_mut()).into_iter());
 
                 conn.with_state(UpstreamUpgrade(client_conn.into()))
                     .with_status(SwitchingProtocols)
@@ -234,12 +220,8 @@ impl<C: Connector> Handler for Proxy<C> {
             }
 
             Some(status) => {
-                for (name, value) in client_conn.response_headers() {
-                    for value in value {
-                        conn.headers_mut().append(name.as_str(), value.as_str());
-                    }
-                }
-
+                conn.headers_mut()
+                    .extend(std::mem::take(client_conn.response_headers_mut()).into_iter());
                 conn.with_body(client_conn).with_status(status)
             }
 
@@ -263,7 +245,7 @@ impl<C: Connector> Handler for Proxy<C> {
     async fn upgrade(&self, mut upgrade: trillium::Upgrade) {
         let upstream = upgrade
             .state
-            .remove::<UpstreamUpgrade<C::Transport>>()
+            .take::<UpstreamUpgrade<C::Transport>>()
             .unwrap()
             .0;
         let downstream = upgrade;

@@ -1,7 +1,7 @@
+use std::borrow::Cow;
 use std::num::TryFromIntError;
 use std::str::Utf8Error;
 
-use crate::http_types::url;
 use thiserror::Error;
 
 /// Concrete errors that occur within trillium's http implementation
@@ -11,10 +11,6 @@ pub enum Error {
     /// [`std::io::Error`]
     #[error(transparent)]
     Io(#[from] std::io::Error),
-
-    /// [`url::ParseError`]
-    #[error(transparent)]
-    Url(#[from] url::ParseError),
 
     /// this error describes a malformed request with a path that does
     /// not start with / or http:// or https://
@@ -48,7 +44,7 @@ pub enum Error {
 
     /// we were unable to parse a header
     #[error("malformed http header {0}")]
-    MalformedHeader(&'static str),
+    MalformedHeader(Cow<'static, str>),
 
     /// async-h1 doesn't speak this http version
     /// this error is deprecated

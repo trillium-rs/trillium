@@ -49,7 +49,7 @@ pub(crate) use pool::Pool;
 mod client;
 pub use client::Client;
 
-pub use trillium_http::{http_types, Error, Result};
+pub use trillium_http::{Error, Result};
 
 mod util;
 

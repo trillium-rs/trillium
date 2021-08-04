@@ -16,11 +16,7 @@ request.
     unused_qualifications
 )]
 
-use trillium::{
-    async_trait, conn_unwrap,
-    http_types::{content::ContentLength, Method},
-    Conn, Handler,
-};
+use trillium::{async_trait, conn_unwrap, Conn, Handler, KnownHeaderName::ContentLength, Method};
 
 /**
 Trillium handler for HEAD requests
@@ -54,14 +50,14 @@ impl Handler for Head {
     }
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
-        conn_unwrap!(conn, conn.state::<RequestWasHead>());
+        conn_unwrap!(conn.state::<RequestWasHead>(), conn);
         conn.inner_mut().set_method(Method::Head);
         let len = conn_unwrap!(
-            conn,
             conn.inner_mut()
                 .take_response_body()
-                .and_then(|body| body.len())
+                .and_then(|body| body.len()),
+            conn
         );
-        conn.with_header(ContentLength::new(len))
+        conn.with_header(ContentLength, len.to_string())
     }
 }

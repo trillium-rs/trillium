@@ -2,7 +2,7 @@ use crate::TeraHandler;
 use serde::Serialize;
 use std::path::PathBuf;
 use tera::{Context, Tera};
-use trillium::{http_types::Body, Conn};
+use trillium::{Conn, KnownHeaderName};
 
 /**
 Extends trillium::Conn with tera template-rendering functionality.
@@ -57,19 +57,18 @@ impl TeraConnExt for Conn {
             .expect("context must be run after the tera handler")
     }
 
-    fn render(self, template_name: &str) -> Self {
+    fn render(mut self, template_name: &str) -> Self {
         let context = self.context();
         match self.tera().render(template_name, context) {
             Ok(string) => {
-                let mut body = Body::from_string(string);
-
                 if let Some(extension) = PathBuf::from(template_name).extension() {
                     if let Some(mime) = mime_db::lookup(extension.to_string_lossy()) {
-                        body.set_mime(mime)
+                        self.headers_mut()
+                            .insert(KnownHeaderName::ContentType, mime);
                     }
                 }
 
-                self.ok(body)
+                self.ok(string)
             }
 
             Err(e) => {

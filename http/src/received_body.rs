@@ -1,9 +1,6 @@
-use crate::{http_types::Body, MutCow};
+use crate::{Body, MutCow};
 use encoding_rs::Encoding;
-use futures_lite::{
-    io::{self, BufReader},
-    ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream,
-};
+use futures_lite::{io, ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
 use httparse::Status;
 use std::{
     convert::TryInto,
@@ -31,7 +28,7 @@ own.
 
 ```rust
 # trillium_testing::block_on(async {
-# use trillium_http::{http_types::Method, Conn};
+# use trillium_http::{Method, Conn};
 let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
 let body = conn.request_body().await;
 assert_eq!(body.read_string().await?, "hello");
@@ -80,7 +77,7 @@ where
 
     ```rust
     # trillium_testing::block_on(async {
-    # use trillium_http::{http_types::Method, Conn};
+    # use trillium_http::{Method, Conn};
     let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
     let body = conn.request_body().await;
     assert_eq!(body.content_length(), Some(5));
@@ -458,7 +455,7 @@ where
 {
     fn from(rb: ReceivedBody<'static, Transport>) -> Self {
         let len = rb.content_length.map(|cl| cl as u64);
-        Body::from_reader(BufReader::new(rb), len)
+        Body::new_streaming(rb, len)
     }
 }
 

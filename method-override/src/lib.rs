@@ -28,7 +28,7 @@ POST.
 
 use querystrong::QueryStrong;
 use std::{collections::HashSet, convert::TryInto, fmt::Debug, iter::FromIterator};
-use trillium::{async_trait, conn_unwrap, http_types::Method, Conn, Handler};
+use trillium::{async_trait, conn_unwrap, Conn, Handler, Method};
 
 /**
 Trillium method override handler
@@ -97,9 +97,9 @@ impl Handler for MethodOverride {
         if conn.method() != Method::Post {
             return conn;
         }
-        let qs = conn_unwrap!(conn, QueryStrong::parse(conn.querystring()).ok());
-        let method_str = conn_unwrap!(conn, qs.get_str(self.param));
-        let method: Method = conn_unwrap!(conn, method_str.try_into().ok());
+        let qs = conn_unwrap!(QueryStrong::parse(conn.querystring()).ok(), conn);
+        let method_str = conn_unwrap!(qs.get_str(self.param), conn);
+        let method: Method = conn_unwrap!(method_str.try_into().ok(), conn);
         if self.allowed_methods.contains(&method) {
             conn.inner_mut().set_method(method);
         }

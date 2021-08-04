@@ -21,6 +21,7 @@ size = "0.1.2"
 trillium = { path = "../trillium", version = "^0.1.0" }
 trillium-tls-common = { path = "../tls-common", version = "^0.1.0" }
 url = "2.2.2"
+mime = "0.3.16"
 
 [dependencies.trillium-http]
 path = "../http"
