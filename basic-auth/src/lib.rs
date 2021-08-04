@@ -1,5 +1,4 @@
-use trillium::http_types::{auth::BasicAuth as AuthHeader, StatusCode};
-use trillium::{async_trait, Conn, Handler};
+use trillium::{async_trait, Conn, Handler, Status};
 
 pub struct BasicAuth {
     username: String,
@@ -32,7 +31,7 @@ impl BasicAuth {
     }
 
     pub fn deny(clippy::dbg_macro,&self, conn: Conn) -> Conn {
-        conn.with_status(StatusCode::Unauthorized)
+        conn.with_status(Status::Unauthorized)
             .with_header(("www-authenticate", &*self.www_authenticate()))
             .halt()
     }

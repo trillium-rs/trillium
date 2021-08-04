@@ -1,6 +1,5 @@
 use cookie::{Cookie, CookieJar};
-use trillium::http_types::headers::{COOKIE, SET_COOKIE};
-use trillium::{async_trait, Conn, Handler};
+use trillium::{async_trait, Conn, Handler, HeaderValue, HeaderValues, KnownHeaderName};
 
 /**
 The trillium cookie handler. See crate level docs for an example. This
@@ -26,9 +25,9 @@ impl Handler for CookiesHandler {
     async fn run(&self, conn: Conn) -> Conn {
         let mut jar = CookieJar::new();
 
-        if let Some(cookies) = conn.headers().get(COOKIE) {
-            for cookie in cookies {
-                for pair in cookie.as_str().split(';') {
+        if let Some(cookies) = conn.headers().get_values(KnownHeaderName::Cookie) {
+            for cookie in cookies.iter().filter_map(HeaderValue::as_str) {
+                for pair in cookie.split(';') {
                     if let Ok(cookie) = Cookie::parse_encoded(String::from(pair)) {
                         jar.add_original(cookie);
                     }
@@ -41,11 +40,12 @@ impl Handler for CookiesHandler {
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if let Some(jar) = conn.take_state::<CookieJar>() {
-            let headers = conn.headers_mut();
-
-            for cookie in jar.delta() {
-                headers.append(SET_COOKIE, cookie.encoded().to_string());
-            }
+            conn.headers_mut().append(
+                KnownHeaderName::SetCookie,
+                jar.delta()
+                    .map(|cookie| cookie.encoded().to_string())
+                    .collect::<HeaderValues>(),
+            );
         }
 
         conn

@@ -130,12 +130,12 @@ will not require the use of cargo feature flags."
 
 cfg_if! { if #[cfg(any(feature= "smol", feature = "tokio", feature = "async-std"))] {
 
-use futures_lite::io::BufReader;
 pub use relative_path;
 use std::path::{Path, PathBuf};
 use trillium::{
     async_trait, conn_unwrap,
-    http_types::{content::ContentType, Body},
+    Body,
+    KnownHeaderName::ContentType,
     Conn, Handler,
 };
 
@@ -195,10 +195,10 @@ impl StaticFileHandler {
 
     fn serve_file(mut conn: Conn, path: PathBuf, file: File, len: u64) -> Conn {
         if let Some(mime) = path.to_str().and_then(mime_db::lookup) {
-            conn.headers_mut().apply(ContentType::new(mime));
+            conn.headers_mut().insert(ContentType, mime);
         }
 
-        conn.ok(Body::from_reader(BufReader::new(file), Some(len)))
+        conn.ok(Body::new_streaming(file, Some(len)))
     }
 
     /**

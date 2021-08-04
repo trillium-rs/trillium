@@ -3,7 +3,7 @@ use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
 };
-use trillium::http_types::Method;
+use trillium_http::Method;
 use trillium_tls_common::{Connector, Url};
 
 /**
@@ -114,11 +114,12 @@ impl<C: Connector> Client<C> {
     ```
     use trillium_smol::{TcpConnector, ClientConfig};
     use trillium_client::Client;
+    use trillium_testing::prelude::*;
     let client = Client::<TcpConnector>::new();
 
     let conn = client.build_conn("get", "http://trillium.rs"); //<-
 
-    assert_eq!(conn.method(), trillium_testing::Method::Get);
+    assert_eq!(conn.method(), Method::Get);
     assert_eq!(conn.url().host_str().unwrap(), "trillium.rs");
     ```
     */

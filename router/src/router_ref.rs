@@ -1,6 +1,6 @@
 use crate::Router;
 use std::{convert::TryInto, fmt::Debug};
-use trillium::{http_types::Method, Handler};
+use trillium::{Handler, Method};
 
 macro_rules! method_ref {
     ($fn_name:ident, $method:ident) => {
@@ -135,7 +135,7 @@ impl<'r> RouterRef<'r> {
     /**
     Registers a handler for a method other than get, put, post, patch, or delete.
     ```
-    # use trillium::{Conn, http_types::Method};
+    # use trillium::{Conn, Method};
     # use trillium_router::Router;
     let router = Router::build(|mut router| {
         router.add_route("OPTIONS", "/some/route", |conn: Conn| async move {

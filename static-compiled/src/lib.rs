@@ -80,8 +80,7 @@ assert_not_handled!(get("/subdir_with_no_index").on(&no_index));
 */
 pub use include_dir::include_dir;
 use include_dir::{Dir, DirEntry, File};
-use trillium::http_types::content::ContentType;
-use trillium::{async_trait, Conn, Handler};
+use trillium::{async_trait, Conn, Handler, KnownHeaderName::ContentType};
 /**
 The static compiled handler which contains the compile-time loaded
 assets
@@ -111,14 +110,14 @@ impl StaticCompiledHandler {
         self
     }
 
-    fn serve_file(&self, mut conn: Conn, file: File) -> Conn {
+    fn serve_file(&self, mut conn: Conn, file: File<'static>) -> Conn {
         if let Some(mime) = mime_db::lookup(file.path().to_string_lossy().as_ref()) {
-            conn.headers_mut().apply(ContentType::new(mime));
+            conn.headers_mut().try_insert(ContentType, mime);
         }
         conn.ok(file.contents())
     }
 
-    fn get_item(&self, path: &str) -> Option<DirEntry> {
+    fn get_item(&self, path: &str) -> Option<DirEntry<'static>> {
         if path.is_empty() {
             Some(DirEntry::Dir(self.dir))
         } else {

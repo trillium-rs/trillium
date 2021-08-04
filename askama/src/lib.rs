@@ -40,7 +40,7 @@ assert_ok!(
 
 pub use askama;
 pub use askama::Template;
-use trillium::http_types::Body;
+use trillium::KnownHeaderName::ContentType;
 
 /// extends trillium conns with the ability to render askama templates
 pub trait AskamaConnExt {
@@ -51,15 +51,14 @@ pub trait AskamaConnExt {
 }
 
 impl AskamaConnExt for trillium::Conn {
-    fn render(self, template: impl Template) -> Self {
+    fn render(mut self, template: impl Template) -> Self {
         let text = template.render().unwrap();
-        let mut body = Body::from_string(text);
         if let Some(extension) = template.extension() {
             if let Some(mime) = mime_db::lookup(extension) {
-                body.set_mime(mime);
+                self.headers_mut().insert(ContentType, mime);
             }
         }
 
-        self.ok(body)
+        self.ok(text)
     }
 }

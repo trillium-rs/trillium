@@ -1,11 +1,11 @@
-use crate::{block_on, AsyncReadExt, Method};
+use crate::block_on;
 use std::{
     convert::TryInto,
     fmt::Debug,
     net::IpAddr,
     ops::{Deref, DerefMut},
 };
-use trillium::{http_types::headers::Header, Conn, Handler};
+use trillium::{Conn, Handler, HeaderName, HeaderValues, Method};
 use trillium_http::{Conn as HttpConn, Synthetic};
 
 type SyntheticConn = HttpConn<Synthetic>;
@@ -22,7 +22,7 @@ impl TestConn {
     /**
     constructs a new TestConn with the provided method, path, and body.
     ```
-    use trillium_testing::{TestConn, Method};
+    use trillium_testing::{prelude::*, TestConn};
     let mut conn = TestConn::build("get", "/", "body");
     assert_eq!(conn.method(), Method::Get);
     assert_eq!(conn.path(), "/");
@@ -42,14 +42,20 @@ impl TestConn {
     ```
     use trillium_testing::TestConn;
     let conn = TestConn::build("get", "/", "body")
-        .with_request_header(("some-header", "value"));
-    assert_eq!(conn.headers()["some-header"], "value");
+        .with_request_header("some-header", "value");
+    assert_eq!(conn.headers().get_str("some-header"), Some("value"));
     ```
     */
 
-    pub fn with_request_header(self, header: impl Header) -> Self {
+    pub fn with_request_header(
+        self,
+        header_name: impl Into<HeaderName<'static>>,
+        header_value: impl Into<HeaderValues>,
+    ) -> Self {
         let mut inner: SyntheticConn = self.into();
-        inner.request_headers_mut().apply(header);
+        inner
+            .request_headers_mut()
+            .append(header_name, header_value);
         Self(inner.into())
     }
 
@@ -183,10 +189,8 @@ impl TestConn {
     interface
     */
     pub async fn take_response_body_string(&mut self) -> Option<String> {
-        if let Some(mut body) = self.take_response_body() {
-            let mut s = String::new();
-            body.read_to_string(&mut s).await.expect("read");
-            Some(s)
+        if let Some(body) = self.take_response_body() {
+            String::from_utf8(body.into_bytes().await.unwrap().to_vec()).ok()
         } else {
             None
         }

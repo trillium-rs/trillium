@@ -25,7 +25,7 @@ use std::{
     iter::repeat_with,
     ops::Deref,
 };
-use trillium::{async_trait, Conn, Handler};
+use trillium::{async_trait, Conn, Handler, HeaderName, KnownHeaderName};
 
 /**
 Trillium handler to set a identifier for every Conn.
@@ -37,8 +37,8 @@ behavior can be customized with [`ConnId::with_request_header`],
 [`ConnId::with_response_header`] and [`ConnId::with_id_generator`]
 */
 pub struct ConnId {
-    request_header: Option<&'static str>,
-    response_header: Option<&'static str>,
+    request_header: Option<HeaderName<'static>>,
+    response_header: Option<HeaderName<'static>>,
     id_generator: Option<Box<dyn Fn() -> String + Send + Sync + 'static>>,
 }
 
@@ -62,8 +62,8 @@ impl Debug for ConnId {
 impl Default for ConnId {
     fn default() -> Self {
         Self {
-            request_header: Some("x-request-id"),
-            response_header: Some("x-request-id"),
+            request_header: Some(KnownHeaderName::XrequestId.into()),
+            response_header: Some(KnownHeaderName::XrequestId.into()),
             id_generator: None,
         }
     }
@@ -86,7 +86,7 @@ impl ConnId {
 
     assert_headers!(
         get("/")
-            .with_request_header(("x-request-id", "inbound"))
+            .with_request_header("x-request-id", "inbound")
             .on(&app),
         "x-request-id" => "inbound"
     );
@@ -97,38 +97,46 @@ impl ConnId {
     }
 
     /**
-    Specifies a request header to use. If this header is provided
-    on the inbound request, the id will be used unmodified. If
-    None is provided, a new id will always be generated
+    Specifies a request header to use. If this header is provided on
+    the inbound request, the id will be used unmodified. To disable
+    this behavior, see [`ConnId::without_request_header`]
 
     ```
     # use trillium_testing::prelude::*;
     # use trillium_conn_id::ConnId;
 
     let app = (
-        ConnId::new().with_request_header(Some("x-custom-id")),
+        ConnId::new().with_request_header("x-custom-id"),
         "ok"
     );
 
     assert_headers!(
         get("/")
-            .with_request_header(("x-custom-id", "inbound"))
+            .with_request_header("x-custom-id", "inbound")
             .on(&app),
         "x-request-id" => "inbound"
     );
     ```
 
     */
-    pub fn with_request_header(mut self, request_header: Option<&'static str>) -> Self {
-        self.request_header = request_header;
+    pub fn with_request_header(mut self, request_header: impl Into<HeaderName<'static>>) -> Self {
+        self.request_header = Some(request_header.into());
         self
     }
 
     /**
-    Specifies a response header to set. If None is provided, a
-    request id will be available within the application through
-    use of [`ConnIdExt`] but will not be sent as part of the
-    response.
+    disables the default behavior of reusing an inbound header for
+    the request id. If a ConnId is configured
+    `without_request_header`, a new id will always be generated
+    */
+    pub fn without_request_header(mut self) -> Self {
+        self.request_header = None;
+        self
+    }
+
+    /**
+    Specifies a response header to set. To disable this behavior, see
+    [`ConnId::without_response_header`]
 
     ```
     # use trillium_testing::prelude::*;
@@ -136,7 +144,7 @@ impl ConnId {
     fastrand::seed(1000); // for testing, so our id is predictable
 
     let app = (
-        ConnId::new().with_response_header(Some("x-custom-header")),
+        ConnId::new().with_response_header("x-custom-header"),
         "ok"
     );
 
@@ -146,8 +154,19 @@ impl ConnId {
     );
     ```
     */
-    pub fn with_response_header(mut self, response_header: Option<&'static str>) -> Self {
-        self.response_header = response_header;
+    pub fn with_response_header(mut self, response_header: impl Into<HeaderName<'static>>) -> Self {
+        self.response_header = Some(response_header.into());
+        self
+    }
+
+    /**
+    Disables the default behavior of sending the conn id as a response
+    header. A request id will be available within the application
+    through use of [`ConnIdExt`] but will not be sent as part of the
+    response.
+    */
+    pub fn without_response_header(mut self) -> Self {
+        self.response_header = None;
         self
     }
 
@@ -165,7 +184,7 @@ impl ConnId {
     );
 
     // assert that the id is a valid uuid, even if we can't assert a specific value
-    assert!(Uuid::parse_str(get("/").on(&app).headers_mut()["x-request-id"].as_str()).is_ok());
+    assert!(Uuid::parse_str(get("/").on(&app).headers_mut().get_str("x-request-id").unwrap()).is_ok());
     ```
     */
     pub fn with_id_generator<F>(mut self, id_generator: F) -> Self
@@ -213,12 +232,14 @@ impl Handler for ConnId {
     async fn run(&self, mut conn: Conn) -> Conn {
         let id = self
             .request_header
-            .and_then(|request_header| conn.headers().get(request_header))
-            .map(|request_header| Id(request_header.as_str().to_string()))
+            .as_ref()
+            .and_then(|request_header| conn.headers().get_str(request_header.clone()))
+            .map(|request_header| Id(request_header.to_string()))
             .unwrap_or_else(|| self.generate_id());
 
-        if let Some(response_header) = self.response_header {
-            conn.headers_mut().insert(response_header, &*id);
+        if let Some(ref response_header) = self.response_header {
+            conn.headers_mut()
+                .insert(response_header.clone(), id.to_string());
         }
 
         conn.with_state(id)

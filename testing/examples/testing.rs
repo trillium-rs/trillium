@@ -1,4 +1,4 @@
-use trillium::{conn_try, Conn, Handler};
+use trillium::{conn_try, Conn, Handler, KnownHeaderName};
 use trillium_logger::Logger;
 
 async fn teapot(mut conn: Conn) -> Conn {
@@ -8,7 +8,7 @@ async fn teapot(mut conn: Conn) -> Conn {
     } else {
         conn.with_body(format!("request body was: {}", request_body))
             .with_status(418)
-            .with_header(("server", "zojirushi"))
+            .with_header(KnownHeaderName::Server, "zojirushi")
     }
 }
 
@@ -30,7 +30,7 @@ mod tests {
         let application = application();
         assert_response!(
             post("/").with_request_body("hello trillium!").on(&application),
-            StatusCode::ImATeapot,
+            Status::ImATeapot,
             "request body was: hello trillium!",
             "server" => "zojirushi",
             "content-length" => "33"
@@ -51,7 +51,7 @@ mod tests {
         let application = application();
         assert_response!(
             post("/").on(&application),
-            StatusCode::NotAcceptable,
+            Status::NotAcceptable,
             "unacceptable!"
         );
     }
