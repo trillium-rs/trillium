@@ -1,6 +1,6 @@
 use crate::HeaderValue;
-use cervine::Cow;
 use smallvec::{smallvec, SmallVec};
+use smartcow::SmartCow;
 use smartstring::alias::String as SmartString;
 use std::{
     fmt::{Debug, Display},
@@ -68,7 +68,7 @@ impl HeaderValues {
         self.one().as_str()
     }
 
-    pub fn as_lower(&self) -> Option<Cow<'_, SmartString, str>> {
+    pub fn as_lower(&self) -> Option<SmartCow<'_>> {
         self.one().as_lower()
     }
 

@@ -1,27 +1,19 @@
 #![allow(nonstandard_style)]
-
-use cervine::Cow;
+use smartcow::SmartCow;
 use smartstring::alias::String as SmartString;
 use std::{fmt::Display, hash::Hash, str::FromStr};
 
 #[derive(Clone, Debug)]
 pub enum HeaderName<'a> {
     KnownHeader(KnownHeaderName),
-    UnknownHeader(Cow<'a, SmartString, str>),
+    UnknownHeader(SmartCow<'a>),
 }
 
 impl<'a> HeaderName<'a> {
     fn to_owned(&self) -> HeaderName<'static> {
         match self {
             HeaderName::KnownHeader(known) => HeaderName::KnownHeader(*known),
-
-            HeaderName::UnknownHeader(Cow::Owned(o)) => {
-                HeaderName::UnknownHeader(Cow::Owned(o.clone()))
-            }
-
-            HeaderName::UnknownHeader(Cow::Borrowed(b)) => {
-                HeaderName::UnknownHeader(Cow::Owned(SmartString::from(*b)))
-            }
+            HeaderName::UnknownHeader(smartcow) => HeaderName::UnknownHeader(smartcow.to_owned()),
         }
     }
 }
@@ -84,7 +76,7 @@ impl From<String> for HeaderName<'static> {
     fn from(s: String) -> Self {
         match s.parse::<KnownHeaderName>() {
             Ok(khn) => Self::KnownHeader(khn),
-            Err(()) => Self::UnknownHeader(Cow::Owned(s.into())),
+            Err(()) => Self::UnknownHeader(SmartCow::Owned(s.into())),
         }
     }
 }
@@ -93,7 +85,7 @@ impl<'a> From<&'a str> for HeaderName<'a> {
     fn from(s: &'a str) -> Self {
         match s.parse::<KnownHeaderName>() {
             Ok(khn) => Self::KnownHeader(khn),
-            Err(_e) => Self::UnknownHeader(Cow::Borrowed(s)),
+            Err(_e) => Self::UnknownHeader(SmartCow::Borrowed(s)),
         }
     }
 }
@@ -111,7 +103,7 @@ impl FromStr for HeaderName<'static> {
         if s.is_ascii() {
             match s.parse::<KnownHeaderName>() {
                 Ok(known) => Ok(Self::KnownHeader(known)),
-                Err(_) => Ok(Self::UnknownHeader(Cow::Owned(SmartString::from(s)))),
+                Err(_) => Ok(Self::UnknownHeader(SmartCow::Owned(SmartString::from(s)))),
             }
         } else {
             Err(crate::Error::MalformedHeader(s.to_string().into()))

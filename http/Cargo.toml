@@ -14,7 +14,6 @@ categories = ["web-programming::http-server", "web-programming"]
 unstable = []
 
 [dependencies]
-cervine = "0.0.6"
 encoding_rs = "0.8.28"
 futures-lite = "1.12.0"
 hashbrown = "0.11.2"
@@ -25,10 +24,10 @@ memmem = "0.1.1"
 mime = "0.3.16"
 pin-project = "1.0.7"
 smallvec = "1.6.1"
+smartcow = { path = "../../smartcow" }
 smartstring = "0.2.9"
 stopper = "0.2.0"
 thiserror = "1.0.26"
-typemap = "0.3.3"
 
 [dev-dependencies]
 async-compat = "0.2.1"

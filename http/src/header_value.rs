@@ -1,11 +1,11 @@
-use cervine::Cow;
 use smallvec::SmallVec;
+use smartcow::SmartCow;
 use smartstring::alias::String as SmartString;
 use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Eq, PartialEq, Clone)]
 pub enum HeaderValue {
-    Utf8(Cow<'static, SmartString, str>),
+    Utf8(SmartCow<'static>),
     Bytes(SmallVec<[u8; 32]>),
 }
 
@@ -26,12 +26,12 @@ impl HeaderValue {
         }
     }
 
-    pub fn as_lower(&self) -> Option<Cow<'_, SmartString, str>> {
+    pub fn as_lower(&self) -> Option<SmartCow<'_>> {
         self.as_str().map(|s| {
             if s.is_ascii() {
-                Cow::Borrowed(s)
+                SmartCow::Borrowed(s)
             } else {
-                Cow::Owned(s.to_ascii_lowercase().into())
+                SmartCow::Owned(s.to_ascii_lowercase().into())
             }
         })
     }
@@ -49,7 +49,7 @@ impl AsRef<[u8]> for HeaderValue {
 impl From<Vec<u8>> for HeaderValue {
     fn from(v: Vec<u8>) -> Self {
         match String::from_utf8(v) {
-            Ok(s) => Self::Utf8(Cow::Owned(s.into())),
+            Ok(s) => Self::Utf8(SmartCow::Owned(s.into())),
             Err(e) => Self::Bytes(e.into_bytes().into()),
         }
     }
@@ -66,13 +66,13 @@ impl Display for HeaderValue {
 
 impl From<String> for HeaderValue {
     fn from(s: String) -> Self {
-        Self::Utf8(Cow::Owned(s.into()))
+        Self::Utf8(SmartCow::Owned(s.into()))
     }
 }
 
 impl From<&'static str> for HeaderValue {
     fn from(s: &'static str) -> Self {
-        Self::Utf8(Cow::Borrowed(s))
+        Self::Utf8(SmartCow::Borrowed(s))
     }
 }
 

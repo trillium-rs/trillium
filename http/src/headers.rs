@@ -1,6 +1,6 @@
 use crate::{HeaderName, HeaderValue, HeaderValues, KnownHeaderName};
-use cervine::Cow;
 use hashbrown::HashMap;
+use smartcow::SmartCow;
 use smartstring::alias::String;
 use std::{
     fmt::Debug,
@@ -11,7 +11,7 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct Headers {
     known: HashMap<KnownHeaderName, HeaderValues, BuildHasherDefault<DirectHasher>>,
-    unknown: HashMap<Cow<'static, String, str>, HeaderValues>,
+    unknown: HashMap<SmartCow<'static>, HeaderValues>,
 }
 
 #[derive(Default)]
@@ -62,7 +62,7 @@ impl Headers {
             .chain(
                 self.unknown
                     .iter()
-                    .map(|(k, v)| (HeaderName::UnknownHeader(Cow::Borrowed(&*k)), v)),
+                    .map(|(k, v)| (HeaderName::UnknownHeader(SmartCow::Borrowed(&*k)), v)),
             )
     }
 
@@ -127,10 +127,7 @@ impl Headers {
         self.get_values(name).and_then(HeaderValues::as_str)
     }
 
-    pub fn get_lower<'a>(
-        &'a self,
-        name: impl Into<HeaderName<'a>>,
-    ) -> Option<Cow<'_, String, str>> {
+    pub fn get_lower<'a>(&'a self, name: impl Into<HeaderName<'a>>) -> Option<SmartCow<'_>> {
         self.get_values(name).and_then(HeaderValues::as_lower)
     }
 
