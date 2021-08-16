@@ -66,7 +66,9 @@ impl AlbResponse {
             .response_headers()
             .iter()
             .fold(HashMap::new(), |mut h, (n, v)| {
-                h.insert(n.to_string(), v.to_string());
+                if let Some(one) = v.one() {
+                    h.insert(n.to_string(), one.to_string());
+                }
                 h
             });
 

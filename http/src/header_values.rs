@@ -1,13 +1,15 @@
 use crate::HeaderValue;
 use smallvec::{smallvec, SmallVec};
 use smartcow::SmartCow;
-use smartstring::alias::String as SmartString;
 use std::{
-    fmt::{Debug, Display},
+    fmt::{Debug, Formatter, Result},
     iter::FromIterator,
     ops::{Deref, DerefMut},
 };
 
+/// A header value is a collection of one or more [`HeaderValue`]. It
+/// has been optimized for the "one [`HeaderValue`]" case, but can
+/// accomodate more than one value.
 #[derive(Clone, Eq, PartialEq)]
 pub struct HeaderValues(SmallVec<[HeaderValue; 1]>);
 impl Deref for HeaderValues {
@@ -31,11 +33,10 @@ impl DerefMut for HeaderValues {
 }
 
 impl Debug for HeaderValues {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0.len() == 1 {
-            Debug::fmt(self.one(), f)
-        } else {
-            f.debug_list().entries(&self.0).finish()
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self.one() {
+            Some(one) => Debug::fmt(one, f),
+            None => f.debug_list().entries(&self.0).finish(),
         }
     }
 }
@@ -60,43 +61,53 @@ where
 }
 
 impl HeaderValues {
+    /// Builds an empty HeaderValues. This is not generally necessary
+    /// in application code. Using a From implementation is preferable.
     pub fn new() -> Self {
         Self(SmallVec::with_capacity(1))
     }
 
+    /// If there is only a single value, returns that header as a
+    /// borrowed string slice if it is utf8. If there are more than
+    /// one header value, or if the singular header value is not utf8,
+    /// as_str returns None.
     pub fn as_str(&self) -> Option<&str> {
-        self.one().as_str()
+        self.one().and_then(HeaderValue::as_str)
     }
 
-    pub fn as_lower(&self) -> Option<SmartCow<'_>> {
-        self.one().as_lower()
+    pub(crate) fn as_lower(&self) -> Option<SmartCow<'_>> {
+        self.one().and_then(HeaderValue::as_lower)
     }
 
-    pub fn one(&self) -> &HeaderValue {
-        self.0.last().unwrap()
+    /// If there is only a single HeaderValue inside this
+    /// HeaderValues, `one` returns a reference to that value. If
+    /// there are more than one header value inside this headervalues,
+    /// `one` returns None.
+    pub fn one(&self) -> Option<&HeaderValue> {
+        if self.len() == 1 {
+            self.0.first()
+        } else {
+            None
+        }
     }
 
+    /// Add another header value to this HeaderValues.
     pub fn append(&mut self, value: impl Into<HeaderValue>) {
         self.0.push(value.into());
     }
 
+    /// Adds any number of other header values to this header values.
     pub fn extend(&mut self, values: impl Into<HeaderValues>) {
         let values = values.into();
         self.0.extend(values);
     }
 }
 
-impl AsRef<[u8]> for HeaderValues {
-    fn as_ref(&self) -> &[u8] {
-        self.one().as_ref()
-    }
-}
-
-impl Display for HeaderValues {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(self.one(), f)
-    }
-}
+// impl AsRef<[u8]> for HeaderValues {
+//     fn as_ref(&self) -> &[u8] {
+//         self.one().as_ref()
+//     }
+// }
 
 impl From<Vec<u8>> for HeaderValues {
     fn from(v: Vec<u8>) -> Self {

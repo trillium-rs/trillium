@@ -3,15 +3,21 @@ use std::{
     borrow::Cow,
     convert::TryInto,
     fmt::Debug,
-    io::Result,
+    io::{Error, ErrorKind, Result},
     pin::Pin,
     task::{Context, Poll},
 };
 
+/// The trillium representation of a http body. This can contain
+/// either `&'static [u8]` content, `Vec<u8>` content, or a boxed
+/// `AsyncRead` type.
 #[derive(Debug, Default)]
 pub struct Body(BodyType);
 
 impl Body {
+    /// Construct a new body from a streaming (AsyncRead) source. If
+    /// you have the body content in memory already, prefer
+    /// [`Body::new_static`] or one of the From conversions.
     pub fn new_streaming(
         async_read: impl AsyncRead + Send + Sync + 'static,
         len: Option<u64>,
@@ -23,16 +29,33 @@ impl Body {
         })
     }
 
-    pub fn new_static(content: Vec<u8>) -> Self {
+    /// Construct a fixed-length Body from a `Vec<u8>` or `&'static
+    /// [u8]`.
+    pub fn new_static(content: impl Into<Cow<'static, [u8]>>) -> Self {
         Self(BodyType::Static {
-            content: Cow::Owned(content),
+            content: content.into(),
             cursor: 0,
         })
     }
 
+    /// Retrieve a borrow of the static content in this body. If this
+    /// body is a streaming body, this will return None.
+    pub fn static_bytes(&self) -> Option<&[u8]> {
+        match &self.0 {
+            BodyType::Static { content, .. } => Some(content.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Consume this body and return the full body. If the body was
+    /// constructed with `[Body::new_streaming`], this will read the
+    /// entire streaming body into memory, awaiting the streaming
+    /// source's completion. This function will return an error if a
+    /// streaming body has already been read to completion.
     pub async fn into_bytes(self) -> Result<Cow<'static, [u8]>> {
         match self.0 {
-            BodyType::Static { content, cursor: 0 } => Ok(content),
+            BodyType::Static { content, .. } => Ok(content),
+
             BodyType::Streaming {
                 mut async_read,
                 len,
@@ -47,10 +70,18 @@ impl Body {
 
                 Ok(Cow::Owned(buf))
             }
-            _ => Ok(Cow::Owned(vec![])),
+
+            BodyType::Empty => Ok(Cow::Borrowed(b"")),
+
+            _ => Err(Error::new(
+                ErrorKind::Other,
+                "body already read to completion",
+            )),
         }
     }
 
+    /// returns the content length of this body, if known and
+    /// available.
     pub fn len(&self) -> Option<u64> {
         self.0.len()
     }
@@ -85,8 +116,6 @@ impl AsyncRead for Body {
                 if length == *cursor {
                     return Poll::Ready(Ok(0));
                 }
-                // Compute `min` using u64, then truncate back to usize. Since
-                // buf.len() is a usize, this can never overflow.
                 let bytes = (length - *cursor).min(buf.len()) as usize;
                 buf[0..bytes].copy_from_slice(&content[*cursor..bytes]);
                 *cursor += bytes;
@@ -126,6 +155,7 @@ impl AsyncRead for Body {
 
 enum BodyType {
     Empty,
+
     Static {
         content: Cow<'static, [u8]>,
         cursor: usize,
@@ -187,19 +217,13 @@ impl From<&'static str> for Body {
 
 impl From<&'static [u8]> for Body {
     fn from(s: &'static [u8]) -> Self {
-        Body(BodyType::Static {
-            content: Cow::Borrowed(s),
-            cursor: 0,
-        })
+        Self::new_static(s)
     }
 }
 
 impl From<Vec<u8>> for Body {
     fn from(s: Vec<u8>) -> Self {
-        Body(BodyType::Static {
-            content: Cow::Owned(s),
-            cursor: 0,
-        })
+        Self::new_static(s)
     }
 }
 

@@ -748,8 +748,10 @@ where
                 log::trace!("sending: {}: {}", &header, &value);
 
                 self.transport
-                    .write_all(format!("{}: {}\r\n", header, value).as_bytes())
+                    .write_all(format!("{}: ", header).as_bytes())
                     .await?;
+                self.transport.write_all(value.as_ref()).await?;
+                self.transport.write_all(b"\r\n").await?;
             }
         }
 

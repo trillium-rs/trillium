@@ -488,7 +488,7 @@ impl Status {
             Status::MovedPermanently => "Moved Permanently",
             Status::Found => "Found",
             Status::SeeOther => "See Other",
-            Status::NotModified => "Modified",
+            Status::NotModified => "Not Modified",
             Status::TemporaryRedirect => "Temporary Redirect",
             Status::PermanentRedirect => "Permanent Redirect",
             Status::BadRequest => "Bad Request",
