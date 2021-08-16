@@ -85,6 +85,15 @@ impl Body {
     pub fn len(&self) -> Option<u64> {
         self.0.len()
     }
+
+    /// determine if the this body represents no data
+    pub fn is_empty(&self) -> bool {
+        match self.0 {
+            BodyType::Empty => true,
+            BodyType::Static { content, .. } => content.is_empty(),
+            BodyType::Streaming { len, .. } => len == Some(0),
+        }
+    }
 }
 
 fn max_bytes_to_read(buf_len: usize) -> usize {
