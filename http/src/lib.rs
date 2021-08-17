@@ -101,8 +101,8 @@ mod util;
 mod body;
 pub use body::Body;
 
-mod state;
-pub use state::StateSet;
+mod state_set;
+pub use state_set::StateSet;
 
 mod headers;
 pub use headers::Headers;

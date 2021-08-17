@@ -1,18 +1,19 @@
+// Originally from https://github.com/http-rs/http-types/blob/main/src/extensions.rs
+//
 // Implementation is based on
 // - https://github.com/hyperium/http/blob/master/src/extensions.rs
 // - https://github.com/kardeiz/type-map/blob/master/src/lib.rs
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    fmt,
+    hash::{BuildHasherDefault, Hasher},
+};
 
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
-use std::fmt;
-use std::hash::{BuildHasherDefault, Hasher};
-
-/// A type to store extra data inside `Request` and `Response`.
-///
 /// Store and retrieve values by
-/// [`TypeId`](https://doc.rust-lang.org/std/any/struct.TypeId.html). This allows
-/// storing arbitrary data that implements `Sync + Send + 'static`. This is
-/// useful when for example implementing middleware that needs to send values.
+/// [`TypeId`](https://doc.rust-lang.org/std/any/struct.TypeId.html). This
+/// allows storing arbitrary data that implements `Sync + Send +
+/// 'static`.
 #[derive(Default)]
 pub struct StateSet(HashMap<TypeId, Box<dyn Any + Send + Sync>, BuildHasherDefault<IdHasher>>);
 
@@ -59,7 +60,7 @@ impl StateSet {
             .and_then(|boxed| (boxed as Box<dyn Any>).downcast().ok().map(|boxed| *boxed))
     }
 
-    /// Gets a value from this typemap or populates it with the provided default function.
+    /// Gets a value from this StateSet or populates it with the provided default function.
     pub fn get_or_insert_with<F, T>(&mut self, default: F) -> &mut T
     where
         F: FnOnce() -> T,

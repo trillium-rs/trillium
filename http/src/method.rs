@@ -1,5 +1,8 @@
-use std::fmt::{self, Display};
-use std::str::FromStr;
+// originally from https://github.com/http-rs/http-types/blob/main/src/method.rs
+use std::{
+    fmt::{self, Display},
+    str::FromStr,
+};
 
 /// HTTP request methods.
 ///
@@ -356,56 +359,9 @@ impl Method {
     }
 }
 
-#[cfg(feature = "serde")]
-mod serde {
-    use super::Method;
-    use serde_crate::de::{Error as DeError, Unexpected, Visitor};
-    use serde_crate::{Deserialize, Deserializer, Serialize, Serializer};
-    use std::fmt;
-    use std::str::FromStr;
-
-    struct MethodVisitor;
-
-    impl<'de> Visitor<'de> for MethodVisitor {
-        type Value = Method;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            write!(formatter, "a HTTP method &str")
-        }
-
-        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-        where
-            E: DeError,
-        {
-            match Method::from_str(v) {
-                Ok(method) => Ok(method),
-                Err(_) => Err(DeError::invalid_value(Unexpected::Str(v), &self)),
-            }
-        }
-    }
-
-    impl<'de> Deserialize<'de> for Method {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserializer.deserialize_str(MethodVisitor)
-        }
-    }
-
-    impl Serialize for Method {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serializer.serialize_str(&self.to_string())
-        }
-    }
-}
-
 impl Display for Method {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(AsRef::<str>::as_ref(self))
+        f.write_str(self.as_ref())
     }
 }
 
@@ -516,23 +472,8 @@ impl AsRef<str> for Method {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
-
     use super::Method;
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn serde() -> Result<(), serde_json::Error> {
-        assert_eq!(Method::Get, serde_json::from_str("\"GET\"")?);
-        assert_eq!(Some("PATCH"), serde_json::to_value(Method::Patch)?.as_str());
-        Ok(())
-    }
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn serde_fail() {
-        serde_json::from_str::<Method>("\"ABC\"").expect_err("Did deserialize from invalid string");
-    }
+    use std::collections::HashSet;
 
     #[test]
     fn names() -> Result<(), crate::Error> {

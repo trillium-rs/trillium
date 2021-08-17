@@ -90,7 +90,7 @@ impl Body {
     pub fn is_empty(&self) -> bool {
         match self.0 {
             BodyType::Empty => true,
-            BodyType::Static { content, .. } => content.is_empty(),
+            BodyType::Static { ref content, .. } => content.is_empty(),
             BodyType::Streaming { len, .. } => len == Some(0),
         }
     }
