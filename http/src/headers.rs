@@ -42,7 +42,7 @@ impl Headers {
     /// Return an iterator over borrowed header names and header
     /// values. First yields the known headers and then the unknown
     /// headers, if any.
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (HeaderName<'a>, &'a HeaderValues)> {
+    pub fn iter(&self) -> impl Iterator<Item = (HeaderName<'_>, &'_ HeaderValues)> {
         self.known
             .iter()
             .map(|(k, v)| (HeaderName(HeaderNameInner::KnownHeader(*k)), v))
