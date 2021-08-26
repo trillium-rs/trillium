@@ -1,6 +1,6 @@
 [package]
 name = "trillium"
-version = "0.1.5"
+version = "0.2.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "a modular toolkit for building async web apps"
@@ -14,8 +14,11 @@ categories = ["web-programming::http-server", "web-programming"]
 async-trait = "0.1.50"
 futures-lite = "1.12.0"
 log = "0.4.14"
-trillium-http = { path = "../http", version = "^0.1.5" }
+trillium-http = { path = "../http", version = "^0.2.0" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]

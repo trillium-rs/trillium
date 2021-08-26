@@ -1,6 +1,6 @@
 [package]
 name = "trillium-async-std"
-version = "0.1.4"
+version = "0.2.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "async-std runtime adapter for trillium.rs"
@@ -13,9 +13,9 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 async-std = { version = "1.9.0", package = "async-std" }
 log = "0.4.14"
-trillium = { path = "../trillium", version = "^0.1.0" }
-trillium-http = { path = "../http", version = "^0.1.0" }
-trillium-server-common = { path = "../server-common", version = "^0.2.0" }
+trillium = { path = "../trillium", version = "^0.2.0"}
+trillium-http = { path = "../http", version = "^0.2.0" }
+trillium-server-common = { path = "../server-common", version = "^0.3.0"}
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3.9"
@@ -32,3 +32,6 @@ package = "async-std"
 [dev-dependencies.trillium-testing]
 features = ["async-std"]
 path = "../testing"
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]

@@ -1,5 +1,5 @@
 [package]
-version = "0.1.0"
+version = "0.2.0"
 name = "trillium-cookies"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 log = "0.4.14"
-trillium = { path = "../trillium", version = "^0.1.0" }
+trillium = { path = "../trillium", version = "^0.2.0"}
 
 [dependencies.cookie]
 version = "0.15.1"
@@ -22,3 +22,6 @@ features = ["percent-encode", "secure"]
 env_logger = "0.9.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]

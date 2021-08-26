@@ -1,6 +1,6 @@
 [package]
 name = "trillium-handlebars"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "handlebars templates for trillium.rs"
@@ -16,9 +16,12 @@ handlebars = { version = "4.1.0", features = ["dir_source"] }
 log = "0.4.14"
 serde = { version = "1.0.126", features = ["derive"] }
 serde_json = "1.0.64"
-trillium = { path = "../trillium", version = "^0.1.0" }
+trillium = { path = "../trillium", version = "^0.2.0"}
 
 [dev-dependencies]
 env_logger = "0.9.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]

@@ -1,6 +1,6 @@
 [package]
 name = "trillium-tokio"
-version = "0.1.4"
+version = "0.2.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "tokio runtime adapter for trillium.rs"
@@ -14,9 +14,9 @@ categories = ["web-programming::http-server", "web-programming"]
 async-compat = "0.2.1"
 log = "0.4.14"
 tokio-stream = { version = "0.1.7", features = ["net"] }
-trillium = { path = "../trillium", version = "^0.1.0" }
-trillium-http = { path = "../http", version = "^0.1.0" }
-trillium-server-common = { path = "../server-common", version = "^0.2.0" }
+trillium = { path = "../trillium", version = "^0.2.0"}
+trillium-http = { path = "../http", version = "^0.2.0" }
+trillium-server-common = { path = "../server-common", version = "^0.3.0"}
 
 [dependencies.tokio]
 version = "1.8.2"
@@ -31,3 +31,6 @@ signal-hook-tokio = { version = "0.3.0", features = ["futures-v0_3"] }
 env_logger = "0.9.0"
 tokio = { version = "1.8.2", features = ["full"], package = "tokio" }
 trillium-testing = { path = "../testing" }
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]

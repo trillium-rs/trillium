@@ -1,6 +1,6 @@
 [package]
 name = "trillium-websockets"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "websocket support for trillium.rs"
@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [features]
-json = ["serde_json"]
+json = ["serde_json", "serde"]
 
 [dependencies]
 async-dup = "1.2.2"
@@ -20,15 +20,18 @@ base64 = "0.13.0"
 futures-util = "0.3.15"
 log = "0.4.14"
 pin-project = "1.0.7"
-serde = "1.0.126"
+serde = { version = "1.0.126", optional = true }
 serde_json = { version = "1.0.64", optional = true }
 sha-1 = "0.9.7"
 stopper = "0.2.0"
-trillium = { path = "../trillium", version = "^0.1.0" }
-trillium-http = { path = "../http", version = "^0.1.0" }
+trillium = { path = "../trillium", version = "^0.2.0"}
+trillium-http = { path = "../http", version = "^0.2.0" }
 
 [dev-dependencies]
 async-net = "1.6.1"
 env_logger = "0.9.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]
