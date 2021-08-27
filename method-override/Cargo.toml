@@ -15,4 +15,5 @@ trillium = { path = "../trillium", version = "^0.2.0"}
 querystrong = "0.1.1"
 
 [dev-dependencies]
+trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }

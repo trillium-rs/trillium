@@ -20,12 +20,21 @@ of trillium.
   * [rustdocs (main)](https://docs.trillium.rs/trillium_client/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/client/examples/client.rs)
 - reverse proxy
+  * use trillium as a reverse proxy for another server
   * [rustdocs (main)](https://docs.trillium.rs/trillium_proxy/index.html)
   * [example](https://github.com/trillium-rs/trillium/blob/main/proxy/examples/proxy.rs)
-- html-rewriter based on cloudflare's lol-html
-  * [rustdocs (main)](https://docs.trillium.rs/trillium_html_rewriter/index.html)
-  * [html-rewriter](https://github.com/trillium-rs/trillium/blob/main/html-rewriter/examples/html-rewriter.rs) example
-- trillium-http
-  * [rustdocs (main)](https://docs.trillium.rs/trillium_http/index.html)
-  * [example](https://github.com/trillium-rs/trillium/blob/main/http/examples/http.rs)
-  * [tokio example](https://github.com/trillium-rs/trillium/blob/main/http/examples/tokio-http.rs)
+- method override
+  * the trillium-method-override crate adds support for using post
+    requests with a query param as a substitute for other http methods
+  * [rustdocs (main)](https://docs.trillium.rs/trillium_method_override/index.html)
+  * [example](https://github.com/trillium-rs/trillium/blob/main/method-override/examples/method-override.rs)
+- head
+  * the trillium-head crate supports responding to head requests
+  * [rustdocs (main)](https://docs.trillium.rs/trillium_head/index.html)
+  * [example](https://github.com/trillium-rs/trillium/blob/main/head/examples/head.rs)
+- forwarding
+  * the trillium-forwarding crate supports setting remote ip and
+    protocol from forwarded/x-forwarded-* headers sent by trusted
+    reverse proxies
+  * [rustdocs (main)](https://docs.trillium.rs/trillium_forwarding/index.html)
+  * [example](https://github.com/trillium-rs/trillium/blob/main/forwarding/examples/forwarding.rs)

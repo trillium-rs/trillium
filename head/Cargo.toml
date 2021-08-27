@@ -14,4 +14,5 @@ categories = ["web-programming::http-server", "web-programming"]
 trillium = { path = "../trillium", version = "^0.2.0"}
 
 [dev-dependencies]
+trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
