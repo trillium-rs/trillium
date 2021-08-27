@@ -17,12 +17,12 @@ unstable = []
 encoding_rs = "0.8.28"
 futures-lite = "1.12.0"
 hashbrown = "0.11.2"
-httparse = "1.4.1"
+httparse = "1.5.1"
 httpdate = "1.0.1"
 log = "0.4.14"
 memmem = "0.1.1"
 mime = "0.3.16"
-pin-project = "1.0.7"
+pin-project = "1.0.8"
 smallvec = "1.6.1"
 smartcow = "0.1.0"
 smartstring = "0.2.9"
@@ -40,6 +40,6 @@ trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
 [dev-dependencies.tokio]
-version = "1.8.2"
+version = "1.10.1"
 features = ["rt", "net", "rt-multi-thread", "macros"]
 package = "tokio"

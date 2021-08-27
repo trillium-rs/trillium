@@ -1,7 +1,5 @@
 use crate::{async_trait, Conn, Info, Upgrade};
-use std::borrow::Cow;
-use std::future::Future;
-use std::sync::Arc;
+use std::{borrow::Cow, future::Future, sync::Arc};
 
 /**
 # The building block for Trillium applications.
