@@ -23,8 +23,8 @@ run with only the following dependencies:
 
 ```toml
 [dependencies]
-trillium = "0.1"
-trillium-smol = "0.1"
+trillium = "0.2"
+trillium-smol = "0.2"
 ```
 
 If we `cargo run` this example, we can then visit
