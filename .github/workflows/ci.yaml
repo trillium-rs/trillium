@@ -55,10 +55,10 @@ jobs:
       run: cargo fmt --all -- --check
 
     - name: Run cargo-udeps
-        uses: aig787/cargo-udeps-action@v1
-        with:
-          version: 'latest'
-          args: '--all-targets'
+      uses: aig787/cargo-udeps-action@v1
+      with:
+        version: 'latest'
+        args: '--all-targets'
 
     - name: Docs
       run: cargo doc --no-deps --features smol
