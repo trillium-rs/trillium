@@ -452,9 +452,10 @@ impl<C: Connector> Conn<'_, C> {
     }
 
     pub(crate) fn response_content_length(&self) -> Option<u64> {
-        if self.method == Method::Head {
-            Some(0)
-        } else if let Some(Status::NoContent | Status::NotModified) = self.status {
+        if self.status == Some(Status::NoContent)
+            || self.status == Some(Status::NotModified)
+            || self.method == Method::Head
+        {
             Some(0)
         } else {
             self.response_headers
