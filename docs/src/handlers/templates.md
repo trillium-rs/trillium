@@ -49,3 +49,11 @@ Handlebars also offers runtime templating. Given the following file in `examples
 ```
 
 [rustdocs (main)](https://docs.trillium.rs/trillium_handlebars/index.html)
+
+### Ructe
+
+Community-contributed crate with an unconventional approach to error handling
+
+* crate: https://crates.io/crates/trillium-ructe
+* repository: https://github.com/prabirshrestha/trillium-ructe
+* docs: https://docs.rs/trillium-ructe/0.1.1/trillium_ructe/
