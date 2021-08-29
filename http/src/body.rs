@@ -126,7 +126,7 @@ impl AsyncRead for Body {
                     return Poll::Ready(Ok(0));
                 }
                 let bytes = (length - *cursor).min(buf.len()) as usize;
-                buf[0..bytes].copy_from_slice(&content[*cursor..bytes]);
+                buf[0..bytes].copy_from_slice(&content[*cursor..*cursor + bytes]);
                 *cursor += bytes;
                 Poll::Ready(Ok(bytes))
             }
