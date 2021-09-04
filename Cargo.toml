@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "api",
   "askama",
   "async-std",
   "aws-lambda",
