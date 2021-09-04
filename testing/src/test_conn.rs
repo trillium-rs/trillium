@@ -87,6 +87,12 @@ impl TestConn {
         self
     }
 
+    /// set the test conn to be secure
+    pub fn secure(mut self) -> Self {
+        self.inner_mut().set_secure(true);
+        self
+    }
+
     /**
     runs this conn against a handler and finalizes response headers,
     asynchronously. Since most tests are performed in a sync context,
