@@ -1,7 +1,7 @@
 use trillium_smol::{async_global_executor, async_io::Timer};
 pub fn app() -> impl trillium::Handler {
     (
-        trillium_logger::Logger::new().with_target(trillium_logger::Target::Stdout),
+        trillium_logger::Logger::new(),
         |conn: trillium::Conn| async move {
             let response = async_global_executor::spawn(async {
                 Timer::after(std::time::Duration::from_millis(10)).await;

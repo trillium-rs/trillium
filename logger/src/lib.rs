@@ -93,7 +93,7 @@ impl Target {
 
 impl Default for Target {
     fn default() -> Self {
-        Self::Logger(log::Level::Info)
+        Self::Stdout
     }
 }
 
@@ -186,13 +186,13 @@ impl Logger<()> {
 
     * formatter: [`dev_formatter`]
     * color mode: [`ColorMode::Auto`]
-    * target: [`Target::Logger`] with [`log::Level::Info`]
+    * target: [`Target::Stdout`]
     */
     pub fn new() -> Logger<impl LogFormatter> {
         Logger {
             format: dev_formatter,
             color_mode: ColorMode::Auto,
-            target: Target::Logger(log::Level::Info),
+            target: Target::Stdout,
         }
     }
 }
@@ -245,7 +245,7 @@ impl<F: LogFormatter> Logger<F> {
 
     ```
     use trillium_logger::{Logger, Target};
-    Logger::new().with_target(Target::Stdout);
+    Logger::new().with_target(Target::Logger(log::Level::Info));
     ```
     */
     pub fn with_target(mut self, target: Target) -> Self {

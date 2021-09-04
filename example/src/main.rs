@@ -29,9 +29,7 @@ async fn request_count(conn: Conn) -> Conn {
 
 fn app() -> impl Handler {
     (
-        Logger::new()
-            .with_formatter(apache_common(conn_id, "-"))
-            .with_target(Target::Stdout),
+        Logger::new().with_formatter(apache_common(conn_id, "-")),
         ConnId::new(),
         MethodOverride::new(),
         Head::new(),
