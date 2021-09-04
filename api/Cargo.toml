@@ -1,0 +1,28 @@
+[package]
+name = "trillium-api"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2018"
+description = "an api handler for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[features]
+default = ["forms"]
+forms = ["serde_urlencoded"]
+
+[dependencies]
+mime = "0.3.16"
+serde = "1.0.130"
+serde_json = "1.0.67"
+serde_urlencoded = { version = "0.7.0", optional = true }
+trillium = { path = "../trillium", version = "^0.2.0" }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+trillium-logger = { path = "../logger" }
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
