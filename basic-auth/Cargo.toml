@@ -5,4 +5,9 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 
 [dependencies]
-trillium = { path = "../trillium" }
+base64 = "0.13.0"
+trillium = { path = "../trillium", version = "0.2" }
+
+[dev-dependencies]
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }

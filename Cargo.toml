@@ -5,6 +5,7 @@ members = [
   "async-std",
   "aws-lambda",
   "aws-lambda-example",
+  "basic-auth",
   "client",
   "conn-id",
   "cookies",
@@ -31,4 +32,4 @@ members = [
   "trillium",
   "websockets",
 ]
-exclude = ["controllers", "basic-auth"]
+exclude = ["controllers"]
