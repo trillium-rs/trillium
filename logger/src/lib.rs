@@ -289,3 +289,8 @@ Control-C to quit",
         conn
     }
 }
+
+/// Convenience alias for [`Logger::new`]
+pub fn logger() -> Logger<impl LogFormatter> {
+    Logger::new()
+}
