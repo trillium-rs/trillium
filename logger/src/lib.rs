@@ -59,8 +59,7 @@ impl Default for ColorMode {
 /**
 Specifies where the logger output should be sent
 
-The default is currently [`Target::Logger`] with [`log::Level::Info`],
-but the next minor release will switch it to be Stdout.
+The default is [`Target::Stdout`].
 */
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
