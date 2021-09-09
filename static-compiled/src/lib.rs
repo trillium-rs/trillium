@@ -42,7 +42,7 @@ use trillium_testing::prelude::*;
 
 assert_ok!(
     get("/").on(&handler),
-    "<h1>hello world</h1>",
+    "<html>\n  <head>\n    <script src=\"/js.js\"></script>\n  </head>\n  <body>\n    <h1>hello world</h1>\n  </body>\n</html>",
     "content-type" => "text/html"
 );
 assert_not_handled!(get("/file_that_does_not_exist.txt").on(&handler));
@@ -53,7 +53,7 @@ assert_not_handled!(get("/subdir_with_no_index").on(&handler));
 assert_ok!(
     get("/subdir_with_no_index/plaintext.txt").on(&handler),
     "plaintext file",
-    "content-type" => "text/plain"
+    "content-type" => "text/plain; charset=utf-8"
 );
 
 
@@ -66,7 +66,7 @@ assert_not_handled!(get("/subdir").on(&plaintext_index));
 assert_ok!(
     get("/subdir_with_no_index").on(&plaintext_index),
     "plaintext file",
-    "content-type" => "text/plain"
+    "content-type" => "text/plain; charset=utf-8"
 );
 
 // with no index file
@@ -112,7 +112,14 @@ impl StaticCompiledHandler {
 
     fn serve_file(&self, mut conn: Conn, file: File<'static>) -> Conn {
         if let Some(mime) = mime_db::lookup(file.path().to_string_lossy().as_ref()) {
-            conn.headers_mut().try_insert(ContentType, mime);
+            conn.headers_mut().try_insert(
+                ContentType,
+                if mime == "application/javascript" || mime == "text/plain" {
+                    format!("{}; charset=utf-8", mime)
+                } else {
+                    String::from(mime)
+                },
+            );
         }
         conn.ok(file.contents())
     }
