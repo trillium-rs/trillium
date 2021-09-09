@@ -47,13 +47,17 @@ assert_ok!(
 );
 assert_not_handled!(get("/file_that_does_not_exist.txt").on(&handler));
 assert_ok!(get("/index.html").on(&handler));
-assert_ok!(get("/subdir/index.html").on(&handler), "subdir index.html");
-assert_ok!(get("/subdir").on(&handler), "subdir index.html");
+assert_ok!(
+    get("/subdir/index.html").on(&handler),
+    "subdir index.html 🎈",
+    "content-type" => "text/html; charset=utf-8"
+);
+assert_ok!(get("/subdir").on(&handler), "subdir index.html 🎈");
 assert_not_handled!(get("/subdir_with_no_index").on(&handler));
 assert_ok!(
     get("/subdir_with_no_index/plaintext.txt").on(&handler),
     "plaintext file",
-    "content-type" => "text/plain; charset=utf-8"
+    "content-type" => "text/plain"
 );
 
 
@@ -66,7 +70,7 @@ assert_not_handled!(get("/subdir").on(&plaintext_index));
 assert_ok!(
     get("/subdir_with_no_index").on(&plaintext_index),
     "plaintext file",
-    "content-type" => "text/plain; charset=utf-8"
+    "content-type" => "text/plain"
 );
 
 // with no index file
@@ -113,9 +117,17 @@ impl StaticCompiledHandler {
     fn serve_file(&self, mut conn: Conn, file: File<'static>) -> Conn {
         let mime = mime_guess::from_path(file.path()).first_or_text_plain();
 
+        let is_ascii = file.contents().is_ascii();
+        let is_text = match (mime.type_(), mime.subtype()) {
+            (mime::APPLICATION, mime::JAVASCRIPT) => true,
+            (mime::TEXT, _) => true,
+            (_, mime::HTML) => true,
+            _ => false,
+        };
+
         conn.headers_mut().try_insert(
             ContentType,
-            if mime == "application/javascript" || mime == "text/plain" {
+            if is_text && !is_ascii {
                 format!("{}; charset=utf-8", mime)
             } else {
                 mime.to_string()
