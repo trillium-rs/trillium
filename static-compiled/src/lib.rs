@@ -111,16 +111,17 @@ impl StaticCompiledHandler {
     }
 
     fn serve_file(&self, mut conn: Conn, file: File<'static>) -> Conn {
-        if let Some(mime) = mime_db::lookup(file.path().to_string_lossy().as_ref()) {
-            conn.headers_mut().try_insert(
-                ContentType,
-                if mime == "application/javascript" || mime == "text/plain" {
-                    format!("{}; charset=utf-8", mime)
-                } else {
-                    String::from(mime)
-                },
-            );
-        }
+        let mime = mime_guess::from_path(file.path()).first_or_text_plain();
+
+        conn.headers_mut().try_insert(
+            ContentType,
+            if mime == "application/javascript" || mime == "text/plain" {
+                format!("{}; charset=utf-8", mime)
+            } else {
+                mime.to_string()
+            },
+        );
+
         conn.ok(file.contents())
     }
 

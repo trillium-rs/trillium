@@ -1,6 +1,6 @@
 [package]
 name = "trillium-static-compiled"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "compile-time static assets for trillium.rs"
@@ -13,8 +13,8 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 include_dir = "0.6.1"
 log = "0.4.14"
-mime-db = "1.4.0"
-trillium = { path = "../trillium", version = "^0.2.0"}
+mime_guess = "2.0.3"
+trillium = { path = "../trillium", version = "^0.2.0" }
 
 [dev-dependencies]
 trillium-logger = { path = "../logger" }
