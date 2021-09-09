@@ -1,6 +1,6 @@
 [package]
 name = "trillium-logger"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2018"
 description = "logger for trillium.rs"
