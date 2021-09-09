@@ -22,9 +22,10 @@ async-fs = { version = "1.5.0", optional = true }
 cfg-if = "1.0.0"
 futures-lite = "1.12.0"
 log = "0.4.14"
-mime-db = "1.4.0"
 relative-path = "1.5.0"
 trillium = { path = "../trillium", version = "^0.2.0"}
+mime_guess = "2.0.3"
+mime = "0.3.16"
 
 [dependencies.async_std_crate]
 optional = true

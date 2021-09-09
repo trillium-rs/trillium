@@ -35,7 +35,7 @@ use trillium_testing::prelude::*;
 assert_ok!(
     get("/").on(&handler),
     "<h1>hello world</h1>",
-    "content-type" => "text/html"
+    "content-type" => "text/html; charset=utf-8"
 );
 assert_not_handled!(get("/file_that_does_not_exist.txt").on(&handler));
 assert_ok!(get("/index.html").on(&handler));
@@ -45,7 +45,7 @@ assert_not_handled!(get("/subdir_with_no_index").on(&handler));
 assert_ok!(
     get("/subdir_with_no_index/plaintext.txt").on(&handler),
     "plaintext file",
-    "content-type" => "text/plain"
+    "content-type" => "text/plain; charset=utf-8"
 );
 
 
@@ -58,7 +58,7 @@ assert_not_handled!(get("/subdir").on(&plaintext_index));
 assert_ok!(
     get("/subdir_with_no_index").on(&plaintext_index),
     "plaintext file",
-    "content-type" => "text/plain"
+    "content-type" => "text/plain; charset=utf-8"
 );
 # }
 ```
@@ -194,8 +194,22 @@ impl StaticFileHandler {
     }
 
     fn serve_file(mut conn: Conn, path: PathBuf, file: File, len: u64) -> Conn {
-        if let Some(mime) = path.to_str().and_then(mime_db::lookup) {
-            conn.headers_mut().insert(ContentType, mime);
+        if let Some(mime) = mime_guess::from_path(path).first() {
+            let is_text = match (mime.type_(), mime.subtype()) {
+                (mime::APPLICATION, mime::JAVASCRIPT) => true,
+                (mime::TEXT, _) => true,
+                (_, mime::HTML) => true,
+                _ => false,
+            };
+
+            conn.headers_mut().try_insert(
+                ContentType,
+                if is_text {
+                    format!("{}; charset=utf-8", mime)
+                } else {
+                    mime.to_string()
+                },
+            );
         }
 
         conn.ok(Body::new_streaming(file, Some(len)))
@@ -217,7 +231,7 @@ impl StaticFileHandler {
     assert_ok!(
         get("/index.html").on(&handler),
         "<h1>hello world</h1>",
-        "content-type" => "text/html"
+        "content-type" => "text/html; charset=utf-8"
     );
     # }
     ```
@@ -243,7 +257,7 @@ impl StaticFileHandler {
         .with_index_file("index.html");
 
     use trillium_testing::prelude::*;
-    assert_ok!(get("/").on(&handler), "<h1>hello world</h1>", "content-type" => "text/html");
+    assert_ok!(get("/").on(&handler), "<h1>hello world</h1>", "content-type" => "text/html; charset=utf-8");
     # }
     ```
     */
