@@ -26,8 +26,7 @@ let handler = WebSocket::new(|mut websocket| async move {
     }
 });
 
-trillium_testing::with_server(handler, |url| async move {
-    let socket = TcpStream::connect(&url.socket_addrs(|| None)?[..]).await?;
+trillium_testing::with_socket(handler, |socket| async move {
     let (mut client, _) = async_tungstenite::client_async("ws://localhost/some/route", socket).await?;
 
     client.send(Message::text("hello")).await?;

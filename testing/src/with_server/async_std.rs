@@ -17,7 +17,7 @@ for usage examples.
 pub fn with_server<H, Fun, Fut>(handler: H, tests: Fun)
 where
     H: Handler,
-    Fun: Fn(Url) -> Fut,
+    Fun: FnOnce(Url) -> Fut,
     Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>,
 {
     block_on(async move {
@@ -45,4 +45,13 @@ where
         server_future.await;
         result.unwrap()
     })
+}
+
+pub(crate) async fn tcp_connect(
+    url: &Url,
+) -> std::io::Result<trillium_http::transport::BoxedTransport> {
+    Ok(trillium_http::transport::BoxedTransport::new(
+        trillium_async_std::async_std::net::TcpStream::connect(&url.socket_addrs(|| None)?[..])
+            .await?,
+    ))
 }

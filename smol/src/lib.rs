@@ -69,6 +69,7 @@ use server::Config;
 
 pub use async_global_executor;
 pub use async_io;
+pub use async_net;
 
 /**
 # Runs a trillium handler in a sync context with default config

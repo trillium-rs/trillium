@@ -41,6 +41,8 @@ pub use client::{ClientConfig, TcpConnector};
 
 mod server;
 use server::Config;
+
+pub use async_compat;
 pub use tokio;
 pub use tokio_stream;
 

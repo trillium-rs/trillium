@@ -71,7 +71,7 @@ mod test_conn;
 pub use test_conn::TestConn;
 
 mod with_server;
-pub use with_server::with_server;
+pub use with_server::{with_server, with_socket};
 
 pub mod methods;
 pub mod prelude {
