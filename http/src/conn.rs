@@ -1,7 +1,7 @@
 use crate::{
     received_body::ReceivedBodyState,
     util::encoding,
-    Body, ConnectionStatus, Error, Headers,
+    Body, ConnectionStatus, Error, HeaderValues, Headers,
     KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
     Method, ReceivedBody, Result, StateSet, Status, Stopper, Upgrade, Version,
 };
@@ -496,6 +496,8 @@ where
             .ok_or(Error::RequestPathMissing)?
             .to_owned();
 
+        let response_headers = Self::build_response_headers();
+
         Ok(Self {
             transport,
             request_headers,
@@ -503,7 +505,7 @@ where
             version,
             path,
             buffer,
-            response_headers: Headers::new(),
+            response_headers,
             status: None,
             state: StateSet::new(),
             response_body: None,
@@ -514,6 +516,17 @@ where
             start_time,
             peer_ip: None,
         })
+    }
+
+    fn build_response_headers() -> Headers {
+        std::array::IntoIter::new([
+            (
+                Date,
+                HeaderValues::from(httpdate::fmt_http_date(SystemTime::now())),
+            ),
+            (Server, HeaderValues::from(SERVER)),
+        ])
+        .collect()
     }
 
     /// predicate function to indicate whether the connection is
@@ -539,11 +552,6 @@ where
     calculates any auto-generated headers for this conn prior to sending it
     */
     pub fn finalize_headers(&mut self) {
-        self.response_headers
-            .try_insert(Date, httpdate::fmt_http_date(SystemTime::now()));
-
-        self.response_headers.try_insert(Server, SERVER);
-
         if self.status == Some(Status::SwitchingProtocols) {
             return;
         }
