@@ -19,17 +19,17 @@ trillium-http = { path = "../http", version = "^0.2.0" }
 trillium-server-common = { path = "../server-common", version = "^0.3.0"}
 
 [dependencies.tokio]
-version = "1.10.1"
+version = "1.11.0"
 features = ["rt", "net", "rt-multi-thread", "time"]
 package = "tokio"
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.3.9"
+signal-hook = "0.3.10"
 signal-hook-tokio = { version = "0.3.0", features = ["futures-v0_3"] }
 
 [dev-dependencies]
 env_logger = "0.9.0"
-tokio = { version = "1.10.1", features = ["full"], package = "tokio" }
+tokio = { version = "1.11.0", features = ["full"], package = "tokio" }
 trillium-testing = { path = "../testing" }
 
 [package.metadata.cargo-udeps.ignore]
