@@ -5,7 +5,7 @@ use trillium_askama::AskamaConnExt;
 use trillium_conn_id::{log_formatter::conn_id, ConnId};
 use trillium_cookies::CookiesHandler;
 use trillium_head::Head;
-use trillium_logger::{apache_common, Logger, Target};
+use trillium_logger::{apache_common, Logger};
 use trillium_method_override::MethodOverride;
 use trillium_router::{Router, RouterConnExt};
 use trillium_rustls::RustlsConnector;
