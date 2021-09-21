@@ -7,6 +7,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use BodyType::*;
 
 /// The trillium representation of a http body. This can contain
 /// either `&'static [u8]` content, `Vec<u8>` content, or a boxed
@@ -22,27 +23,29 @@ impl Body {
         async_read: impl AsyncRead + Send + Sync + 'static,
         len: Option<u64>,
     ) -> Self {
-        Self(BodyType::Streaming {
+        Self(Streaming {
             async_read: Box::pin(async_read),
             len,
             done: false,
+            progress: 0,
         })
     }
 
     /// Construct a fixed-length Body from a `Vec<u8>` or `&'static
     /// [u8]`.
     pub fn new_static(content: impl Into<Cow<'static, [u8]>>) -> Self {
-        Self(BodyType::Static {
+        Self(Static {
             content: content.into(),
             cursor: 0,
         })
     }
 
     /// Retrieve a borrow of the static content in this body. If this
-    /// body is a streaming body, this will return None.
+    /// body is a streaming body or an empty body, this will return
+    /// None.
     pub fn static_bytes(&self) -> Option<&[u8]> {
         match &self.0 {
-            BodyType::Static { content, .. } => Some(content.as_ref()),
+            Static { content, .. } => Some(content.as_ref()),
             _ => None,
         }
     }
@@ -54,11 +57,12 @@ impl Body {
     /// streaming body has already been read to completion.
     pub async fn into_bytes(self) -> Result<Cow<'static, [u8]>> {
         match self.0 {
-            BodyType::Static { content, .. } => Ok(content),
+            Static { content, .. } => Ok(content),
 
-            BodyType::Streaming {
+            Streaming {
                 mut async_read,
                 len,
+                progress: 0,
                 done: false,
             } => {
                 let mut buf = len
@@ -71,13 +75,19 @@ impl Body {
                 Ok(Cow::Owned(buf))
             }
 
-            BodyType::Empty => Ok(Cow::Borrowed(b"")),
+            Empty => Ok(Cow::Borrowed(b"")),
 
             _ => Err(Error::new(
                 ErrorKind::Other,
                 "body already read to completion",
             )),
         }
+    }
+
+    /// Retrieve the number of bytes that have been read from this
+    /// body
+    pub fn bytes_read(&self) -> u64 {
+        self.0.bytes_read()
     }
 
     /// returns the content length of this body, if known and
@@ -88,11 +98,7 @@ impl Body {
 
     /// determine if the this body represents no data
     pub fn is_empty(&self) -> bool {
-        match self.0 {
-            BodyType::Empty => true,
-            BodyType::Static { ref content, .. } => content.is_empty(),
-            BodyType::Streaming { len, .. } => len == Some(0),
-        }
+        self.0.is_empty()
     }
 }
 
@@ -101,7 +107,11 @@ fn max_bytes_to_read(buf_len: usize) -> usize {
         // the minimum read size is of 6 represents one byte of
         // content from the body. the other five bytes are 1\r\n_\r\n
         // where _ is the actual content in question
-        panic!("buffers of length {} are too small for this implementation. if this is a problem for you, please open an issue", buf_len);
+        panic!(
+            "buffers of length {} are too small for this implementation.
+            if this is a problem for you, please open an issue",
+            buf_len
+        );
     }
 
     let bytes_remaining_after_two_cr_lns = (buf_len - 4) as f64;
@@ -119,8 +129,8 @@ impl AsyncRead for Body {
         buf: &mut [u8],
     ) -> Poll<Result<usize>> {
         match &mut self.0 {
-            BodyType::Empty => Poll::Ready(Ok(0)),
-            BodyType::Static { content, cursor } => {
+            Empty => Poll::Ready(Ok(0)),
+            Static { content, cursor } => {
                 let length = content.len();
                 if length == *cursor {
                     return Poll::Ready(Ok(0));
@@ -131,10 +141,39 @@ impl AsyncRead for Body {
                 Poll::Ready(Ok(bytes))
             }
 
-            BodyType::Streaming {
+            Streaming {
                 async_read,
-                len: _,
+                len: Some(len),
                 done,
+                progress,
+            } => {
+                if *done {
+                    return Poll::Ready(Ok(0));
+                }
+
+                let max_bytes_to_read = (*len - *progress)
+                    .try_into()
+                    .unwrap_or(buf.len())
+                    .min(buf.len());
+
+                let bytes = ready!(async_read
+                    .as_mut()
+                    .poll_read(cx, &mut buf[..max_bytes_to_read]))?;
+
+                if bytes == 0 {
+                    *done = true;
+                } else {
+                    *progress += bytes as u64;
+                }
+
+                Poll::Ready(Ok(bytes))
+            }
+
+            Streaming {
+                async_read,
+                len: None,
+                done,
+                progress,
             } => {
                 if *done {
                     return Poll::Ready(Ok(0));
@@ -148,6 +187,8 @@ impl AsyncRead for Body {
 
                 if bytes == 0 {
                     *done = true;
+                } else {
+                    *progress += bytes as u64;
                 }
 
                 let start = format!("{:X}\r\n", bytes);
@@ -172,6 +213,7 @@ enum BodyType {
 
     Streaming {
         async_read: Pin<Box<dyn AsyncRead + Send + Sync + 'static>>,
+        progress: u64,
         len: Option<u64>,
         done: bool,
     },
@@ -180,17 +222,23 @@ enum BodyType {
 impl Debug for BodyType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BodyType::Empty => f.debug_tuple("BodyType::Empty").finish(),
-            BodyType::Static { content, cursor } => f
+            Empty => f.debug_tuple("BodyType::Empty").finish(),
+            Static { content, cursor } => f
                 .debug_struct("BodyType::Static")
                 .field("content", &String::from_utf8_lossy(&*content))
                 .field("cursor", cursor)
                 .finish(),
-            BodyType::Streaming { len, done, .. } => f
+            Streaming {
+                len,
+                done,
+                progress,
+                ..
+            } => f
                 .debug_struct("BodyType::Streaming")
                 .field("async_read", &"..")
                 .field("len", &len)
                 .field("done", &done)
+                .field("progress", &progress)
                 .finish(),
         }
     }
@@ -198,16 +246,32 @@ impl Debug for BodyType {
 
 impl Default for BodyType {
     fn default() -> Self {
-        BodyType::Empty
+        Empty
     }
 }
 
 impl BodyType {
+    fn is_empty(&self) -> bool {
+        match *self {
+            Empty => true,
+            Static { ref content, .. } => content.is_empty(),
+            Streaming { len, .. } => len == Some(0),
+        }
+    }
+
     fn len(&self) -> Option<u64> {
         match *self {
-            Self::Empty => Some(0),
-            Self::Static { ref content, .. } => Some(content.len() as u64),
-            Self::Streaming { len, .. } => len,
+            Empty => Some(0),
+            Static { ref content, .. } => Some(content.len() as u64),
+            Streaming { len, .. } => len,
+        }
+    }
+
+    fn bytes_read(&self) -> u64 {
+        match *self {
+            Empty => 0,
+            Static { cursor, .. } => cursor as u64,
+            Streaming { progress, .. } => progress,
         }
     }
 }
@@ -225,14 +289,14 @@ impl From<&'static str> for Body {
 }
 
 impl From<&'static [u8]> for Body {
-    fn from(s: &'static [u8]) -> Self {
-        Self::new_static(s)
+    fn from(content: &'static [u8]) -> Self {
+        Self::new_static(content)
     }
 }
 
 impl From<Vec<u8>> for Body {
-    fn from(s: Vec<u8>) -> Self {
-        Self::new_static(s)
+    fn from(content: Vec<u8>) -> Self {
+        Self::new_static(content)
     }
 }
 
