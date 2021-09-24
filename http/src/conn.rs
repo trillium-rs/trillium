@@ -152,7 +152,9 @@ where
     async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
         self.send_headers().await?;
 
-        if self.method() != Method::Head {
+        if self.method() != Method::Head
+            && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
+        {
             if let Some(body) = self.response_body.take() {
                 io::copy(body, &mut self.transport).await?;
             }
@@ -556,15 +558,18 @@ where
             return;
         }
 
-        if let Some(len) = self.body_len() {
-            self.response_headers
-                .try_insert(ContentLength, len.to_string());
-        }
+        if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
+            if let Some(len) = self.body_len() {
+                self.response_headers
+                    .try_insert(ContentLength, len.to_string());
+            }
 
-        if !self.response_headers.has_header(ContentLength) && self.version == Version::Http1_1 {
-            self.response_headers.insert(TransferEncoding, "chunked");
-        } else {
-            self.response_headers.remove(TransferEncoding);
+            if !self.response_headers.has_header(ContentLength) && self.version == Version::Http1_1
+            {
+                self.response_headers.insert(TransferEncoding, "chunked");
+            } else {
+                self.response_headers.remove(TransferEncoding);
+            }
         }
 
         if self.stopper.is_stopped() {
