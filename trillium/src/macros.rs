@@ -94,3 +94,65 @@ macro_rules! log_error {
         }
     };
 }
+
+/**
+# Macro for implementing Handler for simple newtypes that contain another handler.
+
+```
+use trillium::{delegate_handler, State, Conn, conn_unwrap};
+#[derive(Clone, Copy)]
+struct MyState(usize);
+struct MyHandler(State<MyState>);
+delegate_handler!(MyHandler);
+impl MyHandler {
+    fn new(n: usize) -> Self {
+        MyHandler(State::new(MyState(n)))
+    }
+}
+
+# use trillium_testing::prelude::*;
+
+let handler = (MyHandler::new(5), |conn: Conn| async move {
+    let MyState(n) = *conn_unwrap!(conn.state(), conn);
+    conn.ok(n.to_string())
+});
+assert_ok!(get("/").on(&handler), "5");
+```
+*/
+#[macro_export]
+macro_rules! delegate_handler {
+    ($struct_name:ty) => {
+        #[$crate::async_trait]
+        impl $crate::Handler for $struct_name {
+            async fn run(&self, conn: $crate::Conn) -> $crate::Conn {
+                use $crate::Handler;
+                self.0.run(conn).await
+            }
+
+            async fn init(&mut self, info: &mut $crate::Info) {
+                use $crate::Handler;
+                self.0.init(info).await;
+            }
+
+            async fn before_send(&self, conn: $crate::Conn) -> $crate::Conn {
+                use $crate::Handler;
+                self.0.before_send(conn).await
+            }
+
+            fn name(&self) -> std::borrow::Cow<'static, str> {
+                use $crate::Handler;
+                self.0.name()
+            }
+
+            fn has_upgrade(&self, upgrade: &$crate::Upgrade) -> bool {
+                use $crate::Handler;
+                self.0.has_upgrade(upgrade)
+            }
+
+            async fn upgrade(&self, upgrade: $crate::Upgrade) {
+                use $crate::Handler;
+                self.0.upgrade(upgrade).await;
+            }
+        }
+    };
+}

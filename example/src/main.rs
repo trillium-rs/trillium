@@ -1,17 +1,19 @@
 use askama::Template;
 use futures_lite::prelude::*;
+use std::time::Duration;
 use trillium::{Conn, Handler};
 use trillium_askama::AskamaConnExt;
-use trillium_conn_id::{log_formatter::conn_id, ConnId};
-use trillium_cookies::CookiesHandler;
-use trillium_head::Head;
-use trillium_logger::{apache_common, Logger};
-use trillium_method_override::MethodOverride;
+use trillium_caching_headers::{
+    CacheControlDirective::{Immutable, MaxAge},
+    CachingHeadersExt,
+};
+use trillium_conn_id::log_formatter::conn_id;
+use trillium_logger::apache_common;
 use trillium_router::{Router, RouterConnExt};
 use trillium_rustls::RustlsConnector;
-use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
+use trillium_sessions::{MemoryStore, SessionConnExt};
 use trillium_smol::TcpConnector;
-use trillium_static_compiled::{include_dir, StaticCompiledHandler};
+use trillium_static_compiled::include_dir;
 use trillium_websockets::{Message, WebSocket};
 type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
@@ -27,17 +29,24 @@ async fn request_count(conn: Conn) -> Conn {
         .with_session("count", count + 1)
 }
 
+async fn with_cache_control(conn: Conn) -> Conn {
+    conn.with_cache_control([MaxAge(Duration::from_secs(604800)), Immutable])
+        .with_vary([trillium::KnownHeaderName::UserAgent])
+}
+
 fn app() -> impl Handler {
     (
-        Logger::new().with_formatter(apache_common(conn_id, "-")),
-        ConnId::new(),
-        MethodOverride::new(),
-        Head::new(),
-        CookiesHandler::new(),
-        SessionHandler::new(MemoryStore::new(), b"01234567890123456789012345678901123"),
+        with_cache_control,
+        trillium_logger::logger().with_formatter(apache_common(conn_id, "-")),
+        trillium_conn_id::conn_id(),
+        trillium_method_override::method_override(),
+        trillium_head::head(),
+        trillium_caching_headers::caching_headers(),
+        trillium_cookies::cookies(),
+        trillium_sessions::sessions(MemoryStore::new(), b"01234567890123456789012345678901123"),
         request_count,
         router(),
-        StaticCompiledHandler::new(include_dir!("./public")).with_index_file("index.html"),
+        trillium_static_compiled::files(include_dir!("./public")).with_index_file("index.html"),
     )
 }
 

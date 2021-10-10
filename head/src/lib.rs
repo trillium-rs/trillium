@@ -61,3 +61,8 @@ impl Handler for Head {
         conn.with_header(ContentLength, len.to_string())
     }
 }
+
+/// Alias for [`Head::new`]
+pub fn head() -> Head {
+    Head::new()
+}

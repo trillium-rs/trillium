@@ -169,3 +169,8 @@ impl Handler for StaticCompiledHandler {
         }
     }
 }
+
+/// Alias for [`StaticCompiledHandler::new`]
+pub fn files(dir: Dir<'static>) -> StaticCompiledHandler {
+    StaticCompiledHandler::new(dir)
+}

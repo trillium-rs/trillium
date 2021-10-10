@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use serde::{Deserialize, Deserializer};
 use std::{collections::HashMap, str::FromStr};
 use trillium_http::{Conn as HttpConn, Method, Synthetic};
@@ -9,8 +10,7 @@ mod test {
 
     #[test]
     fn test() {
-        let t: serde_json::Result<super::LambdaRequest> = serde_json::from_str(JSON);
-        dbg!(t.unwrap());
+        let _t: serde_json::Result<super::LambdaRequest> = serde_json::from_str(JSON);
     }
 }
 

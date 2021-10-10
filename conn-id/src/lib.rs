@@ -271,3 +271,8 @@ pub mod log_formatter {
             .unwrap_or_else(|| Cow::Borrowed("-"))
     }
 }
+
+/// Alias for ConnId::new()
+pub fn conn_id() -> ConnId {
+    ConnId::new()
+}

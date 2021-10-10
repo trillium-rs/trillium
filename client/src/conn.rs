@@ -6,7 +6,7 @@ use std::{
     borrow::Cow,
     convert::TryInto,
     fmt::{self, Debug, Formatter},
-    io::Write,
+    io::{ErrorKind, Write},
     str::FromStr,
 };
 use trillium_http::{
@@ -562,7 +562,10 @@ impl<C: Connector> Conn<'_, C> {
 
     async fn connect_and_send_head(&mut self) -> Result<()> {
         if self.transport.is_some() {
-            panic!("cannot connect a second time");
+            return Err(Error::Io(std::io::Error::new(
+                ErrorKind::AlreadyExists,
+                "conn already connected",
+            )));
         }
 
         let head = self.build_head().await?;

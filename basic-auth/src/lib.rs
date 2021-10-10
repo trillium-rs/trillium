@@ -13,12 +13,10 @@ Basic authentication for trillium.rs
 
 ```rust,no_run
 use trillium_basic_auth::BasicAuth;
-fn main() {
-    trillium_smol::run((
-        BasicAuth::new("trillium", "7r1ll1um").with_realm("rust"),
-        |conn: trillium::Conn| async move { conn.ok("authenticated") },
-    ));
-}
+trillium_smol::run((
+    BasicAuth::new("trillium", "7r1ll1um").with_realm("rust"),
+    |conn: trillium::Conn| async move { conn.ok("authenticated") },
+));
 ```
 */
 use trillium::{
@@ -122,7 +120,7 @@ impl BasicAuth {
 impl Handler for BasicAuth {
     async fn run(&self, conn: Conn) -> Conn {
         if self.is_allowed(&conn) {
-            conn
+            conn.with_state(self.credentials.clone())
         } else {
             self.deny(conn)
         }
