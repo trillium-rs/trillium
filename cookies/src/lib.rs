@@ -47,7 +47,7 @@ assert_ok!(
 ```
 */
 mod cookies_handler;
-pub use cookies_handler::CookiesHandler;
+pub use cookies_handler::{cookies, CookiesHandler};
 
 mod cookies_conn_ext;
 pub use cookies_conn_ext::CookiesConnExt;

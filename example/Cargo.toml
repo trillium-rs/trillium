@@ -23,6 +23,7 @@ log = "0.4.14"
 trillium-head = { path = "../head" }
 trillium-method-override = { path = "../method-override" }
 trillium-conn-id = { path = "../conn-id" }
+trillium-caching-headers = { path = "../caching-headers" }
 
 [dev-dependencies]
 trillium-testing = { path = "../testing" }

@@ -22,7 +22,7 @@ pub struct Synthetic(Option<Vec<u8>>, usize);
 impl Synthetic {
     /// the length of this synthetic transport's body
     pub fn len(&self) -> Option<usize> {
-        self.0.as_ref().map(|v| Vec::len(v))
+        self.0.as_ref().map(Vec::len)
     }
 
     /// predicate to determine if this synthetic contains no content

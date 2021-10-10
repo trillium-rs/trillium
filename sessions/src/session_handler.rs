@@ -302,3 +302,11 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
         conn
     }
 }
+
+/// Alias for [`SessionHandler::new`]
+pub fn sessions<Store>(store: Store, secret: impl AsRef<[u8]>) -> SessionHandler<Store>
+where
+    Store: SessionStore,
+{
+    SessionHandler::new(store, secret)
+}

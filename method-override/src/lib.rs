@@ -106,3 +106,8 @@ impl Handler for MethodOverride {
         conn
     }
 }
+
+/// Alias for MethodOverride::new()
+pub fn method_override() -> MethodOverride {
+    MethodOverride::new()
+}

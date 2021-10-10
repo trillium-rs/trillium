@@ -51,3 +51,8 @@ impl Handler for CookiesHandler {
         conn
     }
 }
+
+/// Alias for CookiesHandler::new()
+pub fn cookies() -> CookiesHandler {
+    CookiesHandler::new()
+}

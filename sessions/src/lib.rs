@@ -117,6 +117,6 @@ mod session_conn_ext;
 pub use session_conn_ext::SessionConnExt;
 
 mod session_handler;
-pub use session_handler::SessionHandler;
+pub use session_handler::{sessions, SessionHandler};
 
 pub use async_session::{CookieStore, MemoryStore, Session};

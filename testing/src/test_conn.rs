@@ -94,38 +94,8 @@ impl TestConn {
     }
 
     /**
-    runs this conn against a handler and finalizes response headers,
-    asynchronously. Since most tests are performed in a sync context,
-    most of the time it is preferable to use [`TestConn::run`], also
-    aliased as [`TestConn::on`]. This function is aliased as
-    [`TestConn::async_on`].
-
-    ```
-    use trillium_testing::prelude::*;
-
-    trillium_testing::block_on(async {
-        async fn handler(conn: Conn) -> Conn {
-            conn.ok("hello trillium")
-        }
-
-        let conn = get("/").run_async(&handler).await;
-        assert_ok!(conn, "hello trillium", "content-length" => "14");
-    });
-    ```
-    */
-
-    pub async fn run_async(self, handler: &impl Handler) -> Self {
-        let conn = handler.run(self.into()).await;
-        let mut conn = handler.before_send(conn).await;
-        conn.inner_mut().finalize_headers();
-        Self(conn)
-    }
-
-    /**
     blocks on running this conn against a handler and finalizes
-    response headers. also aliased as [`TestConn::on`]. use
-    [`TestConn::run_async`] for the rare circumstances in which
-    testing in an async context is necessary.
+    response headers. also aliased as [`TestConn::on`]
 
     ```
     use trillium_testing::prelude::*;
@@ -142,11 +112,16 @@ impl TestConn {
         block_on(self.run_async(handler))
     }
 
+    async fn run_async(self, handler: &impl Handler) -> Self {
+        let conn = handler.run(self.into()).await;
+        let mut conn = handler.before_send(conn).await;
+        conn.inner_mut().finalize_headers();
+        Self(conn)
+    }
+
     /**
     blocks on running this conn against a handler and finalizes
-    response headers. also aliased as [`TestConn::run`]. use
-    [`TestConn::run_async`] for the rare circumstances in which
-    testing in an async context is necessary.
+    response headers. also aliased as [`TestConn::run`].
 
     ```
     use trillium_testing::prelude::*;
@@ -162,31 +137,6 @@ impl TestConn {
 
     pub fn on(self, handler: &impl Handler) -> Self {
         self.run(handler)
-    }
-
-    /**
-    runs this conn against a handler and finalizes response headers,
-    asynchronously. Since most tests are performed in a sync context,
-    most of the time it is preferable to use [`TestConn::run`], also
-    aliased as [`TestConn::on`]. This function is an alias of
-    [`TestConn::run_async`].
-
-    ```
-    use trillium_testing::prelude::*;
-
-    trillium_testing::block_on(async {
-        async fn handler(conn: Conn) -> Conn {
-            conn.ok("hello trillium")
-        }
-
-        let conn = get("/").async_on(&handler).await;
-        assert_ok!(conn, "hello trillium", "content-length" => "14");
-    });
-    ```
-    */
-
-    pub async fn async_on(self, handler: &impl Handler) -> Self {
-        self.run_async(handler).await
     }
 
     /**
@@ -214,9 +164,7 @@ impl TestConn {
     Reads the request body to string and returns it
     */
     pub fn take_request_body_string(&mut self) -> String {
-        futures_lite::future::block_on(async {
-            self.request_body().await.read_string().await.unwrap()
-        })
+        block_on(async { self.request_body().await.read_string().await.unwrap() })
     }
 }
 

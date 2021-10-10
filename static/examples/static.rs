@@ -1,10 +1,11 @@
-use trillium_static::{crate_relative_path, StaticFileHandler};
-
+#[cfg(unix)]
 pub fn main() {
-    env_logger::init();
-    #[cfg(unix)]
-    trillium_smol::run(
-        StaticFileHandler::new(crate_relative_path!("examples/files"))
-            .with_index_file("index.html"),
-    )
+    use trillium_static::{crate_relative_path, files};
+    trillium_smol::run((
+        trillium_logger::logger(),
+        files(crate_relative_path!("examples/files")).with_index_file("index.html"),
+    ))
 }
+
+#[cfg(not(unix))]
+pub fn main() {}

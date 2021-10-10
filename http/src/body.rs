@@ -103,16 +103,12 @@ impl Body {
 }
 
 fn max_bytes_to_read(buf_len: usize) -> usize {
-    if buf_len < 6 {
-        // the minimum read size is of 6 represents one byte of
-        // content from the body. the other five bytes are 1\r\n_\r\n
-        // where _ is the actual content in question
-        panic!(
-            "buffers of length {} are too small for this implementation.
+    assert!(
+        buf_len >= 6,
+        "buffers of length {} are too small for this implementation.
             if this is a problem for you, please open an issue",
-            buf_len
-        );
-    }
+        buf_len
+    );
 
     let bytes_remaining_after_two_cr_lns = (buf_len - 4) as f64;
 
