@@ -18,6 +18,5 @@ trillium = { path = "../trillium", version = "^0.2.0" }
 [dev-dependencies]
 trillium-smol = { path = "../smol" }
 trillium-static = { path = "../static" }
-trillium-testing = { path = "../testing" }
 
 [features]
