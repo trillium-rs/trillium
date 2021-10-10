@@ -337,7 +337,7 @@ impl Conn {
     /**
     insert a header name and value/values into the response headers
     and return the conn. for a slight performance improvement, use a
-    [`trillium::KnownHeaderName`] as the first argument instead of a
+    [`KnownHeaderName`](crate::KnownHeaderName) as the first argument instead of a
     str.
 
     ```
