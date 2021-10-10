@@ -58,7 +58,7 @@ jobs:
       uses: aig787/cargo-udeps-action@v1
       with:
         version: 'latest'
-        args: '--all-targets'
+        args: '--all-targets --features smol'
 
     - name: Docs
       run: cargo doc --no-deps --features smol
