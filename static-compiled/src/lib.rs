@@ -118,12 +118,10 @@ impl StaticCompiledHandler {
         let mime = mime_guess::from_path(file.path()).first_or_text_plain();
 
         let is_ascii = file.contents().is_ascii();
-        let is_text = match (mime.type_(), mime.subtype()) {
-            (mime::APPLICATION, mime::JAVASCRIPT) => true,
-            (mime::TEXT, _) => true,
-            (_, mime::HTML) => true,
-            _ => false,
-        };
+        let is_text = matches!(
+            (mime.type_(), mime.subtype()),
+            (mime::APPLICATION, mime::JAVASCRIPT) | (mime::TEXT, _) | (_, mime::HTML)
+        );
 
         conn.headers_mut().try_insert(
             ContentType,
