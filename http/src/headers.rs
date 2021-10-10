@@ -54,22 +54,6 @@ impl Headers {
             }))
     }
 
-    /// Returns an iterator over owned header names and header values,
-    /// consuming self. Yields first the known headers and then the
-    /// unknown headers, if any.
-    pub fn into_iter(self) -> impl Iterator<Item = (HeaderName<'static>, HeaderValues)> {
-        let Self { known, unknown } = self;
-
-        known
-            .into_iter()
-            .map(|(k, v)| (HeaderName(HeaderNameInner::KnownHeader(k)), v))
-            .chain(
-                unknown
-                    .into_iter()
-                    .map(|(k, v)| (HeaderName(HeaderNameInner::UnknownHeader(k)), v)),
-            )
-    }
-
     /// add the header value or header values into this header map. If
     /// there is already a header with the same name, the new values
     /// will be added to the existing ones. To replace any existing
@@ -275,5 +259,26 @@ impl Hasher for DirectHasher {
     #[inline]
     fn finish(&self) -> u64 {
         self.0 as u64
+    }
+}
+
+impl IntoIterator for Headers {
+    type Item = (HeaderName<'static>, HeaderValues);
+
+    type IntoIter = Box<dyn Iterator<Item = Self::Item>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let Self { known, unknown } = self;
+
+        Box::new(
+            known
+                .into_iter()
+                .map(|(k, v)| (HeaderName(HeaderNameInner::KnownHeader(k)), v))
+                .chain(
+                    unknown
+                        .into_iter()
+                        .map(|(k, v)| (HeaderName(HeaderNameInner::UnknownHeader(k)), v)),
+                ),
+        )
     }
 }
