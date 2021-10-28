@@ -14,8 +14,8 @@ categories = ["web-programming::http-server", "web-programming"]
 log = "0.4.14"
 mime-db = "1.5.0"
 serde = "1.0.130"
-tera = "1.12.1"
-trillium = { path = "../trillium", version = "^0.2.0"}
+tera = "1.12.*"
+trillium = { path = "../trillium", version = "^0.2.0" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }
