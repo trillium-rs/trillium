@@ -82,9 +82,12 @@ assert_not_handled!(get("/subdir_with_no_index").on(&no_index));
 # }
 ```
 */
-pub use include_dir::include_dir;
-use include_dir::{Dir, DirEntry, File};
-use trillium::{async_trait, Conn, Handler, KnownHeaderName::ContentType};
+use trillium::{
+    async_trait, Conn, Handler,
+    KnownHeaderName::{ContentType, LastModified},
+};
+pub use trillium_include_dir::{include_dir, try_include_dir};
+use trillium_include_dir::{Dir, DirEntry, File};
 /**
 The static compiled handler which contains the compile-time loaded
 assets
@@ -132,6 +135,11 @@ impl StaticCompiledHandler {
             },
         );
 
+        if let Some(modified) = file.modified() {
+            conn.headers_mut()
+                .try_insert(LastModified, httpdate::fmt_http_date(modified));
+        }
+
         conn.ok(file.contents())
     }
 
@@ -171,4 +179,21 @@ impl Handler for StaticCompiledHandler {
 /// Alias for [`StaticCompiledHandler::new`]
 pub fn files(dir: Dir<'static>) -> StaticCompiledHandler {
     StaticCompiledHandler::new(dir)
+}
+
+/**
+The preferred interface to build a StaticCompiledHandler
+
+Macro interface to build a
+[`StaticCompiledHandler`]. `static_compiled!("assets")` is
+identical to
+`StaticCompiledHandler::new(include_dir!("assets"))`.
+
+*/
+
+#[macro_export]
+macro_rules! static_compiled {
+    ($path:literal) => {
+        $crate::StaticCompiledHandler::new($crate::include_dir!($path))
+    };
 }
