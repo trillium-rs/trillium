@@ -184,7 +184,6 @@ impl<ServerType> Default for Config<ServerType, ()> {
     fn default() -> Self {
         #[cfg(unix)]
         let max_connections = {
-            use std::convert::TryInto;
             rlimit::getrlimit(rlimit::Resource::NOFILE)
                 .ok()
                 .and_then(|(soft, _hard)| soft.try_into().ok())
