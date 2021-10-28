@@ -418,7 +418,7 @@ impl FromStr for Method {
     }
 }
 
-impl<'a> std::convert::TryFrom<&'a str> for Method {
+impl<'a> TryFrom<&'a str> for Method {
     type Error = crate::Error;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {

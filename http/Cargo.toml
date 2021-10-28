@@ -1,7 +1,7 @@
 [package]
 name = "trillium-http"
 version = "0.2.3"
-edition = "2018"
+edition = "2021"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 description = "the http implementation for the trillium toolkit"
 license = "MIT OR Apache-2.0"

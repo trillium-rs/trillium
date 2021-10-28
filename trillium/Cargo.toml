@@ -2,7 +2,7 @@
 name = "trillium"
 version = "0.2.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
-edition = "2018"
+edition = "2021"
 description = "a modular toolkit for building async web apps"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
