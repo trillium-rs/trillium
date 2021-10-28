@@ -48,22 +48,22 @@ pub struct RustlsConfig<Config> {
 
 impl<Config: Default> Default for RustlsConfig<Config> {
     fn default() -> Self {
-        let root_store = match rustls_native_certs::load_native_certs() {
-            Ok(certs) => certs,
-
-            Err((Some(best_effort), e)) => {
-                log::warn!("rustls native certs soft error, using best effort: {:?}", e);
-                best_effort
+        let mut root_store = RootCertStore::empty();
+        match rustls_native_certs::load_native_certs() {
+            Ok(certs) => {
+                for cert in certs {
+                    if let Err(e) = root_store.add(&rustls::Certificate(cert.0)) {
+                        log::debug!("unable to add certificate {:?}, skipping", e);
+                    }
+                }
             }
 
-            Err((_, e)) => {
+            Err(e) => {
                 log::warn!(
                     "rustls native certs hard error, falling back to webpki roots: {:?}",
                     e
                 );
-                let mut root_store = RootCertStore::empty();
                 root_store.add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
-                root_store
             }
         };
 
