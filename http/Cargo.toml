@@ -14,7 +14,7 @@ categories = ["web-programming::http-server", "web-programming"]
 unstable = []
 
 [dependencies]
-encoding_rs = "0.8.28"
+encoding_rs = "0.8.29"
 futures-lite = "1.12.0"
 hashbrown = "0.11.2"
 httparse = "1.5.1"
@@ -23,11 +23,11 @@ log = "0.4.14"
 memmem = "0.1.1"
 mime = "0.3.16"
 pin-project = "1.0.8"
-smallvec = "1.6.1"
+smallvec = "1.7.0"
 smartcow = "0.1.0"
 smartstring = "0.2.9"
 stopper = "0.2.0"
-thiserror = "1.0.29"
+thiserror = "1.0.30"
 
 [dev-dependencies]
 async-compat = "0.2.1"
@@ -40,6 +40,6 @@ trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
 [dev-dependencies.tokio]
-version = "1.11.0"
+version = "1.12.0"
 features = ["rt", "net", "rt-multi-thread", "macros"]
 package = "tokio"
