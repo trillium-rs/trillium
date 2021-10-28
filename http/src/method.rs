@@ -369,6 +369,7 @@ impl FromStr for Method {
     type Err = crate::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        #[allow(match_str_case_mismatch)] // https://github.com/rust-lang/rust-clippy/issues/7882
         match &*s.to_ascii_uppercase() {
             "ACL" => Ok(Self::Acl),
             "BASELINE-CONTROL" => Ok(Self::BaselineControl),
