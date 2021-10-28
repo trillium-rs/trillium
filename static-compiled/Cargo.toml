@@ -11,13 +11,15 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-include_dir = "0.6.2"
+trillium-include-dir = "0.1.0"
 log = "0.4.14"
 mime = "0.3.16"
 mime_guess = "2.0.3"
 trillium = { path = "../trillium", version = "^0.2.0" }
+httpdate = "1.0.1"
 
 [dev-dependencies]
+trillium-caching-headers = { path = "../caching-headers" }
 trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }

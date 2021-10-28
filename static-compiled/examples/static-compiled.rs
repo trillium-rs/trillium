@@ -1,10 +1,11 @@
 #[cfg(unix)]
 pub fn main() {
-    use trillium_static_compiled::{include_dir, StaticCompiledHandler};
+    use trillium_static_compiled::static_compiled;
 
     trillium_smol::run((
         trillium_logger::Logger::new(),
-        StaticCompiledHandler::new(include_dir!("./examples/files")).with_index_file("index.html"),
+        trillium_caching_headers::CachingHeaders::new(),
+        static_compiled!("examples/files").with_index_file("index.html"),
     ));
 }
 
