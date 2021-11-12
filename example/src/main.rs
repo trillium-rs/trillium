@@ -14,7 +14,7 @@ use trillium_rustls::RustlsConnector;
 use trillium_sessions::{MemoryStore, SessionConnExt};
 use trillium_smol::TcpConnector;
 use trillium_static_compiled::include_dir;
-use trillium_websockets::{Message, WebSocket};
+use trillium_websockets::{Message, WebSocket, WebSocketConn};
 type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
 #[derive(Template)]
@@ -74,7 +74,7 @@ fn router() -> impl Handler {
         })
         .get(
             "/ws",
-            WebSocket::new(|mut ws| async move {
+            WebSocket::new(|mut ws: WebSocketConn| async move {
                 while let Some(Ok(Message::Text(input))) = ws.next().await {
                     log::info!("received message {:?}", &input);
                     let output: String = input.chars().rev().collect();
