@@ -3,7 +3,10 @@ use async_tungstenite::{
     tungstenite::{protocol::Role, Message},
     WebSocketStream,
 };
-use futures_util::{stream::Stream, SinkExt};
+use futures_util::{
+    stream::{SplitSink, SplitStream, Stream},
+    SinkExt, StreamExt,
+};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -21,7 +24,7 @@ associated functions.
 
 The WebSocketConn implements `Stream<Item=Result<Message, Error>>`,
 and can be polled with `StreamExt::next`
-*/
+ */
 
 #[derive(Debug)]
 pub struct WebSocketConn {
@@ -30,26 +33,34 @@ pub struct WebSocketConn {
     method: Method,
     state: StateSet,
     stopper: Stopper,
-    wss: StreamStopper<WebSocketStream<BoxedTransport>>,
+    sink: SplitSink<Wss, Message>,
+    stream: Option<WStream>,
 }
+
+type Wss = WebSocketStream<BoxedTransport>;
 
 impl WebSocketConn {
     /// send a [`Message::Text`] variant
-    pub async fn send_string(&mut self, string: impl Into<String>) {
-        self.wss.send(Message::text(string)).await.ok();
+    pub async fn send_string(&mut self, string: String) {
+        self.send(Message::Text(string)).await.ok();
     }
 
     /// send a [`Message::Binary`] variant
-    pub async fn send_bytes(&mut self, bin: impl Into<Vec<u8>>) {
-        self.wss.send(Message::binary(bin)).await.ok();
+    pub async fn send_bytes(&mut self, bin: Vec<u8>) {
+        self.send(Message::Binary(bin)).await.ok();
     }
 
     #[cfg(feature = "json")]
     /// send a [`Message::Text`] that contains json
-    /// note that json messages are not actually part of the websocket specification.
+    /// note that json messages are not actually part of the websocket specification
     pub async fn send_json(&mut self, json: &impl serde::Serialize) -> serde_json::Result<()> {
         self.send_string(serde_json::to_string(json)?).await;
         Ok(())
+    }
+
+    /// Sends a [`Message`] to the client
+    pub async fn send(&mut self, message: Message) -> async_tungstenite::tungstenite::Result<()> {
+        self.sink.send(message).await
     }
 
     pub(crate) async fn new(upgrade: Upgrade) -> Self {
@@ -69,12 +80,18 @@ impl WebSocketConn {
             WebSocketStream::from_raw_socket(transport, Role::Server, None).await
         };
 
+        let (sink, stream) = wss.split();
+        let stream = Some(WStream {
+            stream: stopper.stop_stream(stream),
+        });
+
         Self {
             request_headers,
             path,
             method,
             state,
-            wss: stopper.stop_stream(wss),
+            sink,
+            stream,
             stopper,
         }
     }
@@ -85,8 +102,8 @@ impl WebSocketConn {
     }
 
     /// close the websocket connection gracefully
-    pub async fn close(&mut self) {
-        self.wss.close(None).await.ok();
+    pub async fn close(&mut self) -> async_tungstenite::tungstenite::Result<()> {
+        self.send(Message::Close(None)).await
     }
 
     /// retrieve the request headers for this conn
@@ -105,7 +122,7 @@ impl WebSocketConn {
     /**
     Retrieves the query component of the path, excluding `?`. Returns
     an empty string if there is no query component.
-    */
+     */
     pub fn querystring(&self) -> &str {
         match self.path.split_once('?') {
             Some((_, query)) => query,
@@ -123,9 +140,23 @@ impl WebSocketConn {
     trillium handlers run on the [`trillium::Conn`] before it
     became a websocket. see [`trillium::Conn::state`] for more
     information
-    */
+     */
     pub fn state<T: 'static>(&self) -> Option<&T> {
         self.state.get()
+    }
+
+    /**
+    retrieve a mutable borrow of the state from the state set
+     */
+    pub fn state_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        self.state.get_mut()
+    }
+
+    /**
+    set state on this connection
+    */
+    pub fn set_state<T: Send + Sync + 'static>(&mut self, val: T) {
+        self.state.insert(val);
     }
 
     /**
@@ -133,9 +164,44 @@ impl WebSocketConn {
     accumulated by trillium handlers run on the [`trillium::Conn`]
     before it became a websocket. see [`trillium::Conn::take_state`]
     for more information
-    */
+     */
     pub fn take_state<T: 'static>(&mut self) -> Option<T> {
         self.state.take()
+    }
+
+    /// take the inbound Message stream from this conn
+    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = Result>> {
+        self.stream.take()
+    }
+
+    /// borrow the inbound Message stream from this conn
+    pub fn inbound_stream(&mut self) -> Option<impl Stream<Item = Result> + '_> {
+        self.stream.as_mut()
+    }
+}
+
+#[derive(Debug)]
+pub struct WStream {
+    stream: StreamStopper<SplitStream<Wss>>,
+}
+
+impl Stream for WStream {
+    type Item = Result;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.stream.poll_next_unpin(cx)
+    }
+}
+
+impl AsMut<StateSet> for WebSocketConn {
+    fn as_mut(&mut self) -> &mut StateSet {
+        &mut self.state
+    }
+}
+
+impl AsRef<StateSet> for WebSocketConn {
+    fn as_ref(&self) -> &StateSet {
+        &self.state
     }
 }
 
@@ -143,6 +209,9 @@ impl Stream for WebSocketConn {
     type Item = Result;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.wss).poll_next(cx)
+        match self.stream.as_mut() {
+            Some(stream) => stream.poll_next_unpin(cx),
+            None => Poll::Ready(None),
+        }
     }
 }

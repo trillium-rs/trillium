@@ -8,6 +8,7 @@ members = [
   "aws-lambda-example",
   "basic-auth",
   "caching-headers",
+  "channels",
   "client",
   "conn-id",
   "cookies",
