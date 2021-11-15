@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-native-tls = "0.3.3"
+async-native-tls = "0.4.0"
 native-tls = "0.2.8"
 trillium-tls-common = { path = "../tls-common", version = "^0.1.0" }
 
