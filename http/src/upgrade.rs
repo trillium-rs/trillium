@@ -50,6 +50,15 @@ impl<Transport> Upgrade<Transport> {
     pub fn path(&self) -> &str {
         self.path.split('?').next().unwrap()
     }
+
+    /**
+        retrieves the query component of the path
+    */
+    pub fn querystring(&self) -> &str {
+        match self.path.split_once('?') {
+            Some((_, query)) => query,
+            None => "",
+        }
     }
 
     /// the http method
