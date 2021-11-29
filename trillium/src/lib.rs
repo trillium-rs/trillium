@@ -34,7 +34,7 @@ mod conn;
 pub use conn::Conn;
 
 mod state;
-pub use state::State;
+pub use state::{state, State};
 
 pub use async_trait::async_trait;
 
