@@ -171,7 +171,7 @@ impl Handler for Forwarding {
         }
 
         if let Some(ip) = forwarded.forwarded_for().first() {
-            if let Ok(ip_addr) = ip.parse() {
+            if let Ok(ip_addr) = ip.trim_start_matches('[').trim_end_matches(']').parse() {
                 inner_mut.set_peer_ip(Some(ip_addr));
             }
         }
