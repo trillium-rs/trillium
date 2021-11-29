@@ -46,9 +46,10 @@ impl<Transport> Upgrade<Transport> {
         &self.request_headers
     }
 
-    /// the http request path
+    /// the http request path up to but excluding any query component
     pub fn path(&self) -> &str {
-        &self.path
+        self.path.split('?').next().unwrap()
+    }
     }
 
     /// the http method
