@@ -8,6 +8,7 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use std::{
+    net::IpAddr,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -35,6 +36,7 @@ pub struct WebSocketConn {
     stopper: Stopper,
     sink: SplitSink<Wss, Message>,
     stream: Option<WStream>,
+    peer_ip: Option<IpAddr>,
 }
 
 type Wss = WebSocketStream<BoxedTransport>;
@@ -72,6 +74,7 @@ impl WebSocketConn {
             buffer,
             transport,
             stopper,
+            peer_ip,
         } = upgrade;
 
         let wss = if let Some(vec) = buffer {
@@ -93,6 +96,7 @@ impl WebSocketConn {
             sink,
             stream,
             stopper,
+            peer_ip,
         }
     }
 
@@ -177,6 +181,11 @@ impl WebSocketConn {
     /// borrow the inbound Message stream from this conn
     pub fn inbound_stream(&mut self) -> Option<impl Stream<Item = Result> + '_> {
         self.stream.as_mut()
+    }
+
+    /// return the peer ip for this websocket addr, if available
+    pub fn peer_ip(&self) -> Option<IpAddr> {
+        self.peer_ip
     }
 }
 
