@@ -22,7 +22,7 @@ trillium = { path = "../trillium", version = "^0.2.0" }
 
 [dependencies.trillium-websockets]
 path = "../websockets"
-version = "0.3.0"
+version = "^0.4.0"
 features = ["json"]
 
 [dev-dependencies]
