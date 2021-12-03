@@ -1,6 +1,6 @@
 [package]
 name = "trillium-static-compiled"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "compile-time static assets for trillium.rs"
