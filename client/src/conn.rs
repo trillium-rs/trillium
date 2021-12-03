@@ -876,6 +876,7 @@ impl<C: Connector> From<Conn<'_, C>> for Upgrade<C::Transport> {
             transport: conn.transport.take().unwrap(),
             buffer: conn.buffer.take(),
             stopper: Stopper::new(),
+            peer_ip: None,
         }
     }
 }

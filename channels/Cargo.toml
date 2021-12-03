@@ -1,0 +1,39 @@
+[package]
+name = "trillium-channels"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2021"
+description = "websocket channels for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[dependencies]
+async-broadcast = "0.3.4"
+async-channel = "1.6.1"
+futures-lite = "1.12.0"
+futures-util = "0.3.17"
+log = "0.4.14"
+serde = { version = "1.0.130", features = ["derive"] }
+serde_json = "1.0.68"
+trillium = { path = "../trillium", version = "^0.2.0" }
+
+[dependencies.trillium-websockets]
+path = "../websockets"
+version = "0.3.0"
+features = ["json"]
+
+[dev-dependencies]
+trillium-api = { path = "../api" }
+trillium-caching-headers = { path = "../caching-headers" }
+trillium-conn-id = { path = "../conn-id" }
+trillium-logger = { path = "../logger" }
+trillium-router = { path = "../router" }
+trillium-smol = { path = "../smol" }
+trillium-static-compiled = { path = "../static-compiled" }
+trillium-testing = { path = "../testing" }
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]

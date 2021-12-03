@@ -3,6 +3,7 @@ use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
     fmt::{self, Debug, Formatter},
     io,
+    net::IpAddr,
     pin::Pin,
     str,
     task::{Context, Poll},
@@ -38,6 +39,10 @@ pub struct Upgrade<Transport> {
     /// down any long running streams or futures associated with this
     /// upgrade
     pub stopper: Stopper,
+    /// The peer ip associated with this tcp connection, if
+    /// available. Note that this may be modified by the application
+    /// prior to upgrade.
+    pub peer_ip: Option<IpAddr>,
 }
 
 impl<Transport> Upgrade<Transport> {
@@ -46,9 +51,19 @@ impl<Transport> Upgrade<Transport> {
         &self.request_headers
     }
 
-    /// the http request path
+    /// the http request path up to but excluding any query component
     pub fn path(&self) -> &str {
-        &self.path
+        self.path.split('?').next().unwrap()
+    }
+
+    /**
+        retrieves the query component of the path
+    */
+    pub fn querystring(&self) -> &str {
+        match self.path.split_once('?') {
+            Some((_, query)) => query,
+            None => "",
+        }
     }
 
     /// the http method
@@ -76,6 +91,7 @@ impl<Transport> Upgrade<Transport> {
             buffer: self.buffer,
             request_headers: self.request_headers,
             stopper: self.stopper,
+            peer_ip: self.peer_ip,
         }
     }
 }
@@ -90,6 +106,7 @@ impl<Transport> Debug for Upgrade<Transport> {
                 "buffer",
                 &self.buffer.as_deref().map(String::from_utf8_lossy),
             )
+            .field("peer_ip", &self.peer_ip)
             .finish()
     }
 }
@@ -104,6 +121,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             transport,
             buffer,
             stopper,
+            peer_ip,
             ..
         } = conn;
 
@@ -115,6 +133,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             transport,
             buffer,
             stopper,
+            peer_ip,
         }
     }
 }

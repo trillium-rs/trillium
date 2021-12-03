@@ -4,7 +4,7 @@ use std::{
 };
 use trillium_http::{
     transport::{BoxedTransport, Transport},
-    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status,
+    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, StateSet, Status,
 };
 
 /**
@@ -476,5 +476,17 @@ impl Conn {
     /// for router implementations. removes a route segment onto the path
     pub fn pop_path(&mut self) {
         self.path.pop();
+    }
+}
+
+impl AsMut<StateSet> for Conn {
+    fn as_mut(&mut self) -> &mut StateSet {
+        self.inner.state_mut()
+    }
+}
+
+impl AsRef<StateSet> for Conn {
+    fn as_ref(&self) -> &StateSet {
+        self.inner.state()
     }
 }

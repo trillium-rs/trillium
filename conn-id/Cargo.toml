@@ -11,9 +11,8 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-extension-trait = "1.0.0"
 fastrand = "1.5.0"
-trillium = { path = "../trillium", version = "^0.2.0"}
+trillium = { path = "../trillium", version = "^0.2.0" }
 
 [dev-dependencies]
 trillium-testing = { path = "../testing" }

@@ -91,6 +91,12 @@ where
     }
 }
 
+/// Constructs a new [`State`] handler from any Clone + Send + Sync +
+/// 'static. Alias for [`State::new`]
+pub fn state<T: Clone + Send + Sync + 'static>(t: T) -> State<T> {
+    State::new(t)
+}
+
 #[async_trait]
 impl<T: Clone + Send + Sync + 'static> Handler for State<T> {
     async fn run(&self, mut conn: Conn) -> Conn {

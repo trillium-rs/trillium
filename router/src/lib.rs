@@ -101,3 +101,8 @@ macro_rules! routes {
         )+;
     };
 }
+
+/// Builds a new [`Router`]. Alias for [`Router::new`].
+pub fn router() -> Router {
+    Router::new()
+}

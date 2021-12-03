@@ -86,8 +86,8 @@ use trillium::{
     async_trait, Conn, Handler,
     KnownHeaderName::{ContentType, LastModified},
 };
-pub use trillium_include_dir::{include_dir, try_include_dir};
-use trillium_include_dir::{Dir, DirEntry, File};
+use trillium_include_dir::DirEntry;
+pub use trillium_include_dir::{include_dir, try_include_dir, Dir, File};
 /**
 The static compiled handler which contains the compile-time loaded
 assets
