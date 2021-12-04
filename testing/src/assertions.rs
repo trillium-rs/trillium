@@ -240,21 +240,33 @@ assert_headers!(
 */
 #[macro_export]
 macro_rules! assert_headers {
-    ($conn:expr, $($header_name:literal => $header_value:expr,)+) => {
-        assert_headers!($conn, $($key => $value),+);
+    (@pair, $conn:expr, $header_name:tt, None) => {
+        match $conn.inner().response_headers().get_str($header_name) {
+            actual => {
+                assert_eq!(actual, None, concat!("for header ", stringify!($header_name)));
+            }
+        };
     };
 
-    ($conn:expr, $($header_name:literal => $header_value:expr),*) => {
-        let conn = $conn;
-        let headers = conn.inner().response_headers();
-        $(
-            assert_eq!(
-                headers.get_str($header_name),
-                Some($header_value),
-                concat!("for header ", $header_name)
-            );
-        )*
+    (@pair, $conn:expr, $header_name:tt, $header_value:expr) => {
+        match ($conn.inner().response_headers().get_str($header_name), $header_value) {
+            (actual, expected) => {
+                assert_eq!(actual, Some(expected), concat!("for header ", stringify!($header_name)));
+            }
+        };
     };
+
+    ($conn:expr, $($header_name:tt => $header_value:tt,)+) => {
+        assert_headers!($conn, $($header_name => $header_value),+);
+    };
+
+    ($conn:expr, $($header_name:tt => $header_value:tt),*) => {
+        match $conn {
+            conn => {
+                $(assert_headers!(@pair, conn, $header_name, $header_value);)*
+            }
+        };
+    }
 }
 
 /**
