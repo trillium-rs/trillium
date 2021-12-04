@@ -24,6 +24,7 @@ trillium-head = { path = "../head" }
 trillium-method-override = { path = "../method-override" }
 trillium-conn-id = { path = "../conn-id" }
 trillium-caching-headers = { path = "../caching-headers" }
+trillium-compression = { path = "../compression" }
 
 [dev-dependencies]
 trillium-testing = { path = "../testing" }

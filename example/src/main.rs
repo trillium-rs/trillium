@@ -4,7 +4,7 @@ use std::time::Duration;
 use trillium::{Conn, Handler};
 use trillium_askama::AskamaConnExt;
 use trillium_caching_headers::{
-    CacheControlDirective::{Immutable, MaxAge},
+    CacheControlDirective::{MaxAge, Public},
     CachingHeadersExt,
 };
 use trillium_conn_id::log_formatter::conn_id;
@@ -30,7 +30,7 @@ async fn request_count(conn: Conn) -> Conn {
 }
 
 async fn with_cache_control(conn: Conn) -> Conn {
-    conn.with_cache_control([MaxAge(Duration::from_secs(604800)), Immutable])
+    conn.with_cache_control([MaxAge(Duration::from_secs(604800)), Public])
         .with_vary([trillium::KnownHeaderName::UserAgent])
 }
 
@@ -38,6 +38,7 @@ fn app() -> impl Handler {
     (
         with_cache_control,
         trillium_logger::logger().with_formatter(apache_common(conn_id, "-")),
+        trillium_compression::compression(),
         trillium_conn_id::conn_id(),
         trillium_method_override::method_override(),
         trillium_head::head(),
