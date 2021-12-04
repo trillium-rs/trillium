@@ -1,0 +1,31 @@
+[package]
+name = "trillium-compression"
+version = "0.2.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2021"
+description = "compression handler for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[dependencies]
+futures-lite = "1.12.0"
+trillium = { path = "../trillium", version = "^0.2.0" }
+log = "0.4.14"
+
+[dependencies.async-compression]
+version = "0.3.8"
+features = ["brotli", "gzip", "futures-io"]
+
+[dev-dependencies]
+env_logger = "0.9.0"
+trillium-logger = { path = "../logger" }
+trillium-router = { path = "../router" }
+trillium-smol = { path = "../smol" }
+trillium-static = { path = "../static", features = ["smol"] }
+trillium-static-compiled = { path = "../static-compiled" }
+trillium-testing = { path = "../testing" }
+
+[features]

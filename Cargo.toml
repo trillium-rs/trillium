@@ -10,6 +10,7 @@ members = [
   "caching-headers",
   "channels",
   "client",
+  "compression",
   "conn-id",
   "cookies",
   "example",
