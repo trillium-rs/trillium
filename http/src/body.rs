@@ -1,4 +1,4 @@
-use futures_lite::{ready, AsyncRead, AsyncReadExt};
+use futures_lite::{io::Cursor, ready, AsyncRead, AsyncReadExt};
 use std::{
     borrow::Cow,
     convert::TryInto,
@@ -50,7 +50,19 @@ impl Body {
         }
     }
 
-    /// Consume this body and return the full body. If the body was
+    /// Transform this Body into a dyn AsyncRead. This will wrap
+    /// static content in a Cursor. Note that this is different from
+    /// reading directly from the Body, which includes chunked
+    /// encoding.
+    pub fn into_reader(self) -> Pin<Box<dyn AsyncRead + Send + Sync>> {
+        match self.0 {
+            Streaming { async_read, .. } => async_read,
+            Static { content, .. } => Box::pin(Cursor::new(content)),
+            Empty => Box::pin(Cursor::new("")),
+        }
+    }
+
+    /// Consume this body and return the full content. If the body was
     /// constructed with `[Body::new_streaming`], this will read the
     /// entire streaming body into memory, awaiting the streaming
     /// source's completion. This function will return an error if a
@@ -99,6 +111,16 @@ impl Body {
     /// determine if the this body represents no data
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// determine if the this body represents static content
+    pub fn is_static(&self) -> bool {
+        matches!(self.0, Static { .. })
+    }
+
+    /// determine if the this body represents streaming content
+    pub fn is_streaming(&self) -> bool {
+        matches!(self.0, Streaming { .. })
     }
 }
 
