@@ -1,0 +1,23 @@
+[package]
+name = "trillium-sse"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2021"
+description = "server sent events for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[dependencies]
+futures-lite = "1.12.0"
+trillium = { path = "../trillium", version = "^0.2.0" }
+
+[dev-dependencies]
+broadcaster = "1.0.0"
+trillium-logger = { path = "../logger" }
+trillium-smol = { path = "../smol" }
+trillium-static-compiled = { path = "../static-compiled" }
+
+[features]
