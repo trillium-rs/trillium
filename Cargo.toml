@@ -27,6 +27,7 @@ members = [
   "server-common",
   "sessions",
   "smol",
+  "sse",
   "static",
   "static-compiled",
   "tera",
