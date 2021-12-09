@@ -61,7 +61,10 @@ impl ChannelEvent {
         ChannelEvent {
             topic: self.topic.clone(),
             event: event.into(),
-            payload: serde_json::to_value(payload).unwrap(),
+            payload: match serde_json::to_value(payload).unwrap() {
+                Value::Null => Value::Object(Default::default()),
+                other => other,
+            },
             reference: self.reference.clone(),
         }
     }
@@ -110,7 +113,10 @@ impl ChannelEvent {
         Self {
             topic: topic.into(),
             event: event.into(),
-            payload: serde_json::to_value(&payload).unwrap(),
+            payload: match serde_json::to_value(payload).unwrap() {
+                Value::Null => Value::Object(Default::default()),
+                other => other,
+            },
             reference: None,
         }
     }
