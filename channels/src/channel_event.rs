@@ -17,7 +17,7 @@ use serde_json::{json, Value, to_string};
 let event: ChannelEvent = ("topic", "event").into();
 assert_eq!(event.topic(), "topic");
 assert_eq!(event.event(), "event");
-assert_eq!(event.payload(), &Value::Null);
+assert_eq!(event.payload(), &json!({}));
 
 let event: ChannelEvent = ("topic", "event", &json!({"some": "payload"})).into();
 assert_eq!(event.topic(), "topic");

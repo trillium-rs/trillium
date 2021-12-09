@@ -143,7 +143,7 @@ inline json payload.
 let event = trillium_channels::event!("some:topic", "some:event");
 assert_eq!(event.topic(), "some:topic");
 assert_eq!(event.event(), "some:event");
-assert_eq!(serde_json::to_string(event.payload()).unwrap(), "null");
+assert_eq!(serde_json::to_string(event.payload()).unwrap(), "{}");
 
 
 let event = trillium_channels::event!("some:topic", "some:event", { "payload": ["any", "json"] });
