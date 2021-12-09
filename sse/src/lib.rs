@@ -141,7 +141,7 @@ where
                 let writable_len = data.len().min(buf.len());
                 buf[0..writable_len].copy_from_slice(&data[0..writable_len]);
                 if writable_len < data.len() {
-                    buffer.extend(data[writable_len..].into_iter());
+                    buffer.extend_from_slice(&data[writable_len..]);
                 }
                 Poll::Ready(Ok(writable_len))
             }
@@ -218,11 +218,11 @@ pub trait Eventable: Unpin + Send + Sync + 'static {
 
 impl Eventable for Event {
     fn data(&self) -> &str {
-        Event::data(&self)
+        Event::data(self)
     }
 
     fn event_type(&self) -> Option<&str> {
-        Event::event_type(&self)
+        Event::event_type(self)
     }
 }
 
@@ -234,7 +234,7 @@ impl Eventable for &'static str {
 
 impl Eventable for String {
     fn data(&self) -> &str {
-        &self
+        self
     }
 }
 
