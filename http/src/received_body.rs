@@ -122,7 +122,7 @@ where
     */
     pub async fn read_bytes(mut self) -> crate::Result<Vec<u8>> {
         let mut vec = if let Some(len) = self.content_length {
-            Vec::with_capacity(len.try_into().unwrap_or_else(|_| usize::max_value()))
+            Vec::with_capacity(len.try_into().unwrap_or(usize::max_value()))
         } else {
             Vec::new()
         };

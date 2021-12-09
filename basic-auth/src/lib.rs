@@ -100,7 +100,7 @@ impl BasicAuth {
 
     /// provide a realm for the www-authenticate response sent by this handler
     pub fn with_realm(mut self, realm: &str) -> Self {
-        self.www_authenticate = format!("Basic realm=\"{}\"", realm.replace("\"", "\\\""));
+        self.www_authenticate = format!("Basic realm=\"{}\"", realm.replace('\"', "\\\""));
         self.realm = Some(String::from(realm));
         self
     }

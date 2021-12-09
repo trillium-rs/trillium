@@ -111,7 +111,7 @@ impl Compression {
     }
 
     fn set_algorithms(&mut self, algos: &[CompressionAlgorithm]) {
-        self.algorithms = algos.into_iter().copied().collect();
+        self.algorithms = algos.iter().copied().collect();
     }
 
     /**
