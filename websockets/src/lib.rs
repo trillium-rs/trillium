@@ -272,8 +272,8 @@ fn websocket_accept_hash(conn: &Conn) -> Option<String> {
     let websocket_key = conn.headers().get_str(SecWebsocketKey)?;
 
     let hash = Sha1::new()
-        .chain(websocket_key)
-        .chain(WEBSOCKET_GUID)
+        .chain_update(websocket_key)
+        .chain_update(WEBSOCKET_GUID)
         .finalize();
 
     Some(base64::encode(&hash[..]))

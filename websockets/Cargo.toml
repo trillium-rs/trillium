@@ -26,7 +26,7 @@ futures-util = "0.3.17"
 log = "0.4.14"
 serde = { version = "1.0.130", optional = true }
 serde_json = { version = "1.0.68", optional = true }
-sha-1 = "0.9.8"
+sha-1 = "0.10.0"
 stopper = "0.2.0"
 trillium = { path = "../trillium", version = "^0.2.0" }
 trillium-http = { path = "../http", version = "^0.2.0" }
