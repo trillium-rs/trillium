@@ -21,7 +21,7 @@ supports a chainable (fluent) interface for setting properties, like:
 
 ```rust,noplaypen
 conn.with_status(202)
-    .with_header(("content-type", "application/something-custom"))
+    .with_header("content-type", "application/something-custom")
     .with_body("this is my custom body")
 ```
 
