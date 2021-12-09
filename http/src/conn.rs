@@ -521,13 +521,14 @@ where
     }
 
     fn build_response_headers() -> Headers {
-        std::array::IntoIter::new([
+        [
             (
                 Date,
                 HeaderValues::from(httpdate::fmt_http_date(SystemTime::now())),
             ),
             (Server, HeaderValues::from(SERVER)),
-        ])
+        ]
+        .into_iter()
         .collect()
     }
 
