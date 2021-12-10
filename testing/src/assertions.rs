@@ -115,10 +115,13 @@ assert_body!(get("/").on(&"beach body"), "winter body");
 
 #[macro_export]
 macro_rules! assert_body {
-    ($conn:expr, $body:expr) => {{
-        let body = $crate::block_on($conn.take_response_body_string()).unwrap_or_default();
-        assert_eq!(body.trim_end(), $body.trim_end());
-    }};
+    ($conn:expr, $body:expr) => {
+        match $conn.take_response_body_string().unwrap_or_default() {
+            body => {
+                assert_eq!(body.trim_end(), $body.trim_end());
+            }
+        }
+    };
 }
 
 /**
@@ -149,16 +152,20 @@ assert_body_contains!(get("/").on(&"just a haystack"), "needle");
 
 #[macro_export]
 macro_rules! assert_body_contains {
-    ($conn:expr, $pattern:expr) => {{
-        let body = $crate::block_on($conn.take_response_body_string()).unwrap_or_default();
-        assert!(
-            body.contains($pattern),
-            "\nexpected \n`{}`\n to contain `{}`\n but it did not",
-            &body,
-            $pattern
-        );
-        body
-    }};
+    ($conn:expr, $pattern:expr) => {
+        match $conn.take_response_body_string().unwrap_or_default() {
+            body => {
+                assert!(
+                    body.contains($pattern),
+                    "\nexpected \n`{}`\n to contain `{}`\n but it did not",
+                    &body,
+                    $pattern
+                );
+
+                body
+            }
+        }
+    };
 }
 
 /**
