@@ -144,21 +144,13 @@ impl TestConn {
     used internally to [`assert_body`] which is the preferred
     interface
     */
-    pub async fn take_response_body_string(&mut self) -> Option<String> {
+    pub fn take_response_body_string(&mut self) -> Option<String> {
         if let Some(body) = self.take_response_body() {
-            String::from_utf8(body.into_bytes().await.unwrap().to_vec()).ok()
+            String::from_utf8(block_on(body.into_bytes()).unwrap().to_vec()).ok()
         } else {
             None
         }
     }
-
-    // pub fn take_body_bytes(&mut self) -> Option<Vec<u8>> {
-    //     self.take_response_body().map(|mut body| {
-    //         let mut v = Vec::new();
-    //         block_on(body.read_to_end(&mut v)).expect("read");
-    //         v
-    //     })
-    // }
 
     /**
     Reads the request body to string and returns it
