@@ -1,5 +1,5 @@
 use crate::{async_trait, Conn, Info, Status, Upgrade};
-use std::{borrow::Cow, future::Future, sync::Arc};
+use std::{borrow::Cow, future::Future, pin::Pin, sync::Arc};
 
 /**
 # The building block for Trillium applications.
@@ -64,16 +64,17 @@ documentation at the top of the page, so here is how the trait is
 actually defined in trillium code:
 
 ```
+# use std::{future::Future, pin::Pin};
 # use trillium::{Conn, Upgrade, Info};
 # use std::borrow::Cow;
 #[trillium::async_trait]
 pub trait Handler: Send + Sync + 'static {
     async fn run(&self, conn: Conn) -> Conn;
-    async fn init(&mut self, info: &mut Info); // optional
     async fn before_send(&self, conn: Conn); // optional
     fn has_upgrade(&self, _upgrade: &Upgrade) -> bool; // optional
     async fn upgrade(&self, _upgrade: Upgrade); // mandatory only if has_upgrade returns true
     fn name(&self) -> Cow<'static, str>; // optional
+    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + 'a>>; //optional
 }
 ```
 See each of the function definitions below for advanced implementation.
@@ -97,13 +98,18 @@ pub trait Handler: Send + Sync + 'static {
     fetching some state from an external source. This is optional,
     and chances are high that you do not need this.
 
+    This trait interface does not use async_trait, in order to allow
+    !Send initialization steps.
+
     It also receives a mutable borrow of the [`Info`] that represents
     the current connection.
 
     **stability note:** This may go away at some point. Please open an
     **issue if you have a use case which requires it.
     */
-    async fn init(&mut self, _info: &mut Info) {}
+    fn init<'a>(&'a mut self, _info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
+        Box::pin(async {})
+    }
 
     /**
     Performs any final modifications to this conn after all handlers
@@ -173,8 +179,8 @@ impl Handler for Box<dyn Handler> {
         self.as_ref().run(conn).await
     }
 
-    async fn init(&mut self, info: &mut Info) {
-        self.as_mut().init(info).await
+    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
+        self.as_mut().init(info)
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
@@ -213,11 +219,10 @@ impl<H: Handler> Handler for Arc<H> {
         self.as_ref().run(conn).await
     }
 
-    async fn init(&mut self, info: &mut Info) {
+    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
         Arc::<H>::get_mut(self)
             .expect("cannot call init when there are already clones of an Arc<Handler>")
             .init(info)
-            .await
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
@@ -250,10 +255,12 @@ impl<H: Handler> Handler for Vec<H> {
         conn
     }
 
-    async fn init(&mut self, info: &mut Info) {
-        for handler in self {
-            handler.init(info).await;
-        }
+    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
+        Box::pin(async move {
+            for handler in self {
+                handler.init(info).await;
+            }
+        })
     }
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
@@ -318,10 +325,12 @@ impl<H: Handler> Handler for Option<H> {
         handler.run(conn).await
     }
 
-    async fn init(&mut self, info: &mut Info) {
-        if let Some(handler) = self {
-            handler.init(info).await
-        }
+    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
+        Box::pin(async move {
+            if let Some(handler) = self {
+                handler.init(info).await
+            }
+        })
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
@@ -377,12 +386,14 @@ macro_rules! impl_handler_tuple {
                 }
 
                 #[allow(non_snake_case)]
-                async fn init(&mut self, info: &mut Info) {
-                    let ($(ref mut $name,)*) = *self;
-                    $(
-                        log::trace!("initializing {}", ($name).name());
-                        ($name).init(info).await;
-                    )*
+                fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
+                    Box::pin(async move {
+                        let ($(ref mut $name,)*) = *self;
+                        $(
+                            log::trace!("initializing {}", ($name).name());
+                            ($name).init(info).await;
+                        )*
+                    })
                 }
 
                 #[allow(non_snake_case)]

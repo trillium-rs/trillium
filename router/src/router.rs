@@ -4,7 +4,8 @@ use std::{
     collections::BTreeSet,
     convert::TryInto,
     fmt::{self, Debug, Display, Formatter},
-    mem,
+    future::Future,
+    pin::Pin,
 };
 use trillium::{async_trait, Conn, Handler, Info, KnownHeaderName, Method, Upgrade};
 
@@ -463,30 +464,12 @@ impl Handler for Router {
     fn name(&self) -> std::borrow::Cow<'static, str> {
         format!("{:#?}", &self).into()
     }
-
-    async fn init(&mut self, info: &mut Info) {
-        // This code is not what a reader would expect, so here's a
-        // brief explanation:
-        //
-        // Currently, the init trait interface must return a Send
-        // future because that's the default for async-trait. We don't
-        // actually need it to be Send, but changing that would be a
-        // semver-minor trillium release.
-        //
-        // Mutable map iterators are not Send, and because we need to
-        // hold that data across await boundaries, we cannot mutate in
-        // place.
-        //
-        // However, because this is only called once at app boot, and
-        // because we have &mut self, it is safe to move the router
-        // contents into this future and then replace it, and the
-        // performance impacts of doing so are unimportant as it is
-        // part of app boot.
-        let routefinder = mem::take(&mut self.routefinder);
-        for (route, (methods, mut handler)) in routefinder.0 {
-            handler.init(info).await;
-            self.routefinder.add(methods, route, handler);
-        }
+    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+        Box::pin(async move {
+            for (_, (_, handler)) in &mut self.routefinder.0 {
+                handler.init(info).await;
+            }
+        })
     }
 }
 
