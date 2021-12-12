@@ -4,16 +4,16 @@ use trillium::{async_trait, Conn, Handler, Upgrade};
 use trillium_websockets::{JsonHandler, WebSocket};
 
 /**
-Trillium handler containing a [`ChannelHandler`]
+Trillium handler for Channels, containing a ChannelHandler.
 
-This is constructed from a [`ChannelHandler`] using [`Channel::new`]
+This is constructed from a [`ChannelHandler`] using [`Channels::new`]
 and dereferences to that type.
 */
 #[derive(Debug)]
-pub struct Channel<CH>(WebSocket<JsonHandler<ChannelCentral<CH>>>);
+pub struct Channels<CH>(WebSocket<JsonHandler<ChannelCentral<CH>>>);
 
 #[async_trait]
-impl<CH> Handler for Channel<CH>
+impl<CH> Handler for Channels<CH>
 where
     CH: ChannelHandler,
 {
@@ -38,9 +38,9 @@ where
     }
 }
 
-impl<CH: ChannelHandler> Channel<CH> {
+impl<CH: ChannelHandler> Channels<CH> {
     /**
-    Constructs a new trillium Channel handler from the provided
+    Constructs a new trillium Channels handler from the provided
     [`ChannelHandler`] implementation
      */
     pub fn new(channel_handler: CH) -> Self {
@@ -48,10 +48,10 @@ impl<CH: ChannelHandler> Channel<CH> {
     }
 
     /**
-    Retrieve a ChannelBroadcaster that can be moved elsewhere or cloned
-    in order to trigger channel events and listen for global events.
+    Retrieve a Broadcast sender that can be moved elsewhere or cloned
+    in order to trigger channel events.
      */
-    pub fn broadcaster(&self) -> ChannelBroadcaster {
+    pub fn channel_broadcaster(&self) -> ChannelBroadcaster {
         self.0.channel_broadcaster()
     }
 
@@ -63,7 +63,7 @@ impl<CH: ChannelHandler> Channel<CH> {
     }
 }
 
-impl<CH> Deref for Channel<CH> {
+impl<CH> Deref for Channels<CH> {
     type Target = CH;
 
     fn deref(&self) -> &Self::Target {
@@ -71,7 +71,7 @@ impl<CH> Deref for Channel<CH> {
     }
 }
 
-impl<CH> DerefMut for Channel<CH> {
+impl<CH> DerefMut for Channels<CH> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

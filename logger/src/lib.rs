@@ -9,7 +9,7 @@
 Welcome to the trillium logger!
 */
 pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
-use std::{fmt::Display, future::Future, pin::Pin};
+use std::fmt::Display;
 use trillium::{async_trait, Conn, Handler, Info};
 /**
 Components with which common log formats can be constructed
@@ -260,23 +260,20 @@ impl<F> Handler for Logger<F>
 where
     F: LogFormatter,
 {
-    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + '_>> {
-        Box::pin(async move {
-            self.target.write(&format!(
-                "
+    async fn init(&mut self, info: &mut Info) {
+        self.target.write(&format!(
+            "
 🌱🦀🌱 {} started
 Listening at {}{}
 
 Control-C to quit",
-                info.server_description(),
-                info.listener_description(),
-                info.tcp_socket_addr()
-                    .map(|s| format!(" (bound as tcp://{})", s))
-                    .unwrap_or_default(),
-            ));
-        })
+            info.server_description(),
+            info.listener_description(),
+            info.tcp_socket_addr()
+                .map(|s| format!(" (bound as tcp://{})", s))
+                .unwrap_or_default(),
+        ));
     }
-
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(LoggerWasRun)
     }

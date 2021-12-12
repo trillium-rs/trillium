@@ -129,12 +129,9 @@ macro_rules! delegate_handler {
                 self.0.run(conn).await
             }
 
-            fn init<'a>(
-                &'a mut self,
-                info: &'a mut $crate::Info,
-            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'a>> {
+            async fn init(&mut self, info: &mut $crate::Info) {
                 use $crate::Handler;
-                self.0.init(info)
+                self.0.init(info).await;
             }
 
             async fn before_send(&self, conn: $crate::Conn) -> $crate::Conn {

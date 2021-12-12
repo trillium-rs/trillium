@@ -2,7 +2,7 @@ use crate::{block_on, Url};
 use std::future::Future;
 use trillium::Handler;
 use trillium_server_common::Stopper;
-use trillium_smol::async_global_executor::spawn_local;
+use trillium_smol::async_global_executor::spawn;
 
 /**
 Starts a trillium handler bound to a random available port on
@@ -36,7 +36,7 @@ where
             }
         });
 
-        let server_future = spawn_local(
+        let server_future = spawn(
             trillium_smol::config()
                 .with_host("localhost")
                 .with_port(port)

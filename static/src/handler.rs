@@ -3,11 +3,7 @@ use crate::{
     options::StaticOptions,
     StaticConnExt,
 };
-use std::{
-    future::Future,
-    path::{Path, PathBuf},
-    pin::Pin,
-};
+use std::path::{Path, PathBuf};
 use trillium::{async_trait, conn_unwrap, Conn, Handler};
 
 /**
@@ -135,31 +131,26 @@ impl StaticFileHandler {
 
 #[async_trait]
 impl Handler for StaticFileHandler {
-    fn init<'a>(
-        &'a mut self,
-        _info: &'a mut trillium::Info,
-    ) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
-        Box::pin(async move {
-            self.root_is_file = match self.resolve("/").await {
-                Some(Record::File(path, _)) => {
-                    log::info!("serving {:?} for all paths", path);
-                    true
-                }
+    async fn init(&mut self, _info: &mut trillium::Info) {
+        self.root_is_file = match self.resolve("/").await {
+            Some(Record::File(path, _)) => {
+                log::info!("serving {:?} for all paths", path);
+                true
+            }
 
-                Some(Record::Dir(dir)) => {
-                    log::info!("serving files within {:?}", dir);
-                    false
-                }
+            Some(Record::Dir(dir)) => {
+                log::info!("serving files within {:?}", dir);
+                false
+            }
 
-                None => {
-                    log::error!(
-                        "could not find {:?} on init, continuing anyway",
-                        self.fs_root
-                    );
-                    false
-                }
-            };
-        })
+            None => {
+                log::error!(
+                    "could not find {:?} on init, continuing anyway",
+                    self.fs_root
+                );
+                false
+            }
+        };
     }
 
     async fn run(&self, conn: Conn) -> Conn {
