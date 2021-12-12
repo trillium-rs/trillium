@@ -1,12 +1,14 @@
 use crate::RouterRef;
-use routefinder::{Match, Route, Router as Routefinder};
+use routefinder::{Match, RouteSpec, Router as Routefinder};
 use std::{
     collections::{BTreeSet, HashMap},
     convert::TryInto,
     fmt::{self, Debug, Formatter},
+    future::Future,
+    pin::Pin,
     sync::Arc,
 };
-use trillium::{async_trait, Conn, Handler, KnownHeaderName, Method, Upgrade};
+use trillium::{async_trait, Conn, Handler, Info, KnownHeaderName, Method, Upgrade};
 
 /**
 # The Router handler
@@ -358,16 +360,27 @@ impl Handler for Router {
     fn name(&self) -> std::borrow::Cow<'static, str> {
         format!("{:#?}", &self).into()
     }
+
+    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+        Box::pin(async move {
+            for router in self.method_map.values_mut() {
+                let handlers_mut = router.handlers_mut();
+                for handler in handlers_mut {
+                    handler.init(info).await;
+                }
+            }
+        })
+    }
 }
 
-struct RouteForDisplay<'a, H>(&'a Method, &'a Route<H>);
+struct RouteForDisplay<'a, H>(&'a Method, &'a RouteSpec, &'a H);
 impl<'a, H: Handler> Debug for RouteForDisplay<'a, H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!(
             "{} {} -> {}",
             &self.0,
-            &self.1.definition(),
-            &self.1.handler().name()
+            &self.1,
+            &self.2.name()
         ))
     }
 }
@@ -378,8 +391,8 @@ impl Debug for Router {
         let mut set = f.debug_set();
 
         for (method, router) in &self.method_map {
-            for route in router {
-                set.entry(&RouteForDisplay(method, route));
+            for (route, handler) in router {
+                set.entry(&RouteForDisplay(method, route, handler));
             }
         }
 

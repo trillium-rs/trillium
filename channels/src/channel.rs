@@ -1,6 +1,10 @@
 use crate::{ChannelBroadcaster, ChannelCentral, ChannelEvent, ChannelHandler};
-use std::ops::{Deref, DerefMut};
-use trillium::{async_trait, Conn, Handler, Upgrade};
+use std::{
+    future::Future,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+};
+use trillium::{async_trait, Conn, Handler, Info, Upgrade};
 use trillium_websockets::{JsonHandler, WebSocket};
 
 /**
@@ -21,8 +25,8 @@ where
         self.0.run(conn).await
     }
 
-    async fn init(&mut self, info: &mut trillium::Info) {
-        self.0.init(info).await;
+    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
+        self.0.init(info)
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {

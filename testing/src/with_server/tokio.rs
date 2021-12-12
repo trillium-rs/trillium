@@ -2,7 +2,7 @@ use crate::{block_on, Url};
 use std::future::Future;
 use trillium::Handler;
 use trillium_server_common::Stopper;
-use trillium_tokio::tokio::task::spawn;
+use trillium_tokio::tokio::task::spawn_local;
 
 /**
 Starts a trillium handler bound to a random available port on
@@ -32,7 +32,7 @@ where
             }
         });
 
-        let server_future = spawn(
+        let server_future = spawn_local(
             trillium_tokio::config()
                 .with_host("localhost")
                 .with_port(port)
