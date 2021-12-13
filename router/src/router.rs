@@ -1,13 +1,21 @@
 use crate::RouterRef;
-use routefinder::{Match, Route, Router as Routefinder};
+use routefinder::{Match, RouteSpec, Router as Routefinder};
 use std::{
     collections::{BTreeSet, HashMap},
     convert::TryInto,
     fmt::{self, Debug, Formatter},
+    mem,
     sync::Arc,
 };
-use trillium::{async_trait, Conn, Handler, KnownHeaderName, Method, Upgrade};
+use trillium::{async_trait, Conn, Handler, Info, KnownHeaderName, Method, Upgrade};
 
+const ALL_METHODS: [Method; 5] = [
+    Method::Delete,
+    Method::Get,
+    Method::Patch,
+    Method::Post,
+    Method::Put,
+];
 /**
 # The Router handler
 
@@ -15,6 +23,7 @@ See crate level docs for more, as this is the primary type in this crate.
 
 */
 pub struct Router {
+    all_methods: Routefinder<Box<dyn Handler>>,
     method_map: HashMap<Method, Routefinder<Box<dyn Handler>>>,
     handle_options: bool,
 }
@@ -22,6 +31,7 @@ pub struct Router {
 impl Default for Router {
     fn default() -> Self {
         Self {
+            all_methods: Routefinder::default(),
             method_map: Default::default(),
             handle_options: true,
         }
@@ -156,7 +166,20 @@ impl Router {
         method: &Method,
         path: &'b str,
     ) -> Option<Match<'a, 'b, Box<dyn Handler>>> {
-        self.method_map.get(method).and_then(|r| r.best_match(path))
+        let from_method_map = self.method_map.get(method).and_then(|r| r.best_match(path));
+        let from_all_methods = self.all_methods.best_match(path);
+        match (from_method_map, from_all_methods) {
+            (None, None) => None,
+            (None, Some(x)) => Some(x),
+            (Some(x), None) => Some(x),
+            (Some(x), Some(y)) => {
+                if x.route() < y.route() {
+                    Some(x)
+                } else {
+                    Some(y)
+                }
+            }
+        }
     }
 
     /**
@@ -204,8 +227,9 @@ impl Router {
     }
 
     pub(crate) fn add_all(&mut self, path: &'static str, handler: impl Handler) {
-        use Method::*;
-        self.add_any(&[Get, Post, Put, Delete, Patch, Options], path, handler)
+        self.all_methods
+            .add(path, Box::new(handler))
+            .expect("could not add route");
     }
 
     /**
@@ -304,13 +328,19 @@ impl Handler for Router {
             }
             new_conn
         } else if method == Method::Options && self.handle_options {
-            let mut methods_set = if path == "*" {
-                self.method_map.keys().copied().collect::<BTreeSet<_>>()
+            let mut methods_set: BTreeSet<Method> = if path == "*" {
+                if self.all_methods.is_empty() {
+                    self.method_map.keys().copied().collect()
+                } else {
+                    ALL_METHODS.into_iter().collect()
+                }
+            } else if self.all_methods.best_match(path).is_some() {
+                ALL_METHODS.into_iter().collect()
             } else {
                 self.method_map
                     .iter()
                     .filter_map(|(m, router)| router.best_match(path).map(|_| *m))
-                    .collect::<BTreeSet<_>>()
+                    .collect()
             };
 
             methods_set.remove(&Method::Options);
@@ -358,17 +388,55 @@ impl Handler for Router {
     fn name(&self) -> std::borrow::Cow<'static, str> {
         format!("{:#?}", &self).into()
     }
+
+    async fn init(&mut self, info: &mut Info) {
+        // This code is not what a reader would expect, so here's a
+        // brief explanation:
+        //
+        // Currently, the init trait interface must return a Send
+        // future because that's the default for async-trait. We don't
+        // actually need it to be Send, but changing that would be a
+        // semver-minor trillium release.
+        //
+        // Mutable map iterators are not Send, and because we need to
+        // hold that data across await boundaries, we cannot mutate in
+        // place.
+        //
+        // However, because this is only called once at app boot, and
+        // because we have &mut self, it is safe to move the router
+        // contents into this future and then replace it, and the
+        // performance impacts of doing so are unimportant as it is
+        // part of app boot.
+        let all_methods = mem::take(&mut self.all_methods);
+        for (route, mut handler) in all_methods {
+            handler.init(info).await;
+            self.all_methods.add(route, handler).unwrap();
+        }
+
+        let method_map = mem::take(&mut self.method_map);
+        for (method, router) in method_map {
+            let mut new_router = Routefinder::new();
+            for (route, mut handler) in router {
+                handler.init(info).await;
+                new_router.add(route, handler).unwrap();
+            }
+
+            self.method_map.insert(method, new_router);
+        }
+    }
 }
 
-struct RouteForDisplay<'a, H>(&'a Method, &'a Route<H>);
+struct RouteForDisplay<'a, H>(Option<&'a Method>, &'a RouteSpec, &'a H);
 impl<'a, H: Handler> Debug for RouteForDisplay<'a, H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!(
-            "{} {} -> {}",
-            &self.0,
-            &self.1.definition(),
-            &self.1.handler().name()
-        ))
+        match self {
+            RouteForDisplay(Some(method), route, handler) => {
+                f.write_fmt(format_args!("{} {} -> {}", method, route, handler.name()))
+            }
+            RouteForDisplay(None, route, handler) => {
+                f.write_fmt(format_args!("* {} -> {}", route, handler.name()))
+            }
+        }
     }
 }
 
@@ -377,9 +445,13 @@ impl Debug for Router {
         f.write_str("Router ")?;
         let mut set = f.debug_set();
 
+        for (route, handler) in &self.all_methods {
+            set.entry(&RouteForDisplay(None, route, handler));
+        }
+
         for (method, router) in &self.method_map {
-            for route in router {
-                set.entry(&RouteForDisplay(method, route));
+            for (route, handler) in router {
+                set.entry(&RouteForDisplay(Some(method), route, handler));
             }
         }
 
