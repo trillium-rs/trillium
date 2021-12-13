@@ -41,6 +41,7 @@ trillium_smol::config()
 ## Client
 
 ```rust
+# #[cfg(feature = "smol")]
 trillium_testing::with_server("ok", |url| async move {
     use trillium_smol::TcpConnector;
     use trillium_client::{Conn, Client};
