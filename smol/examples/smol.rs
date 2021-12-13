@@ -18,7 +18,7 @@ pub fn main() {
     trillium_smol::run(app());
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "smol"))]
 mod tests {
     use trillium_testing::prelude::*;
     #[test]
