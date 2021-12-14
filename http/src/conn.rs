@@ -108,7 +108,17 @@ impl<Transport> Debug for Conn<Transport> {
             .field("method", &self.method)
             .field("status", &self.status)
             .field("version", &self.version)
+            .field("state", &self.state)
+            .field("response_body", &self.response_body)
+            .field("transport", &"..")
+            .field(
+                "buffer",
+                &self.buffer.as_deref().map(String::from_utf8_lossy),
+            )
             .field("request_body_state", &self.request_body_state)
+            .field("secure", &self.secure)
+            .field("stopper", &self.stopper)
+            .field("after_send", &"..")
             .field("start_time", &self.start_time)
             .field("peer_ip", &self.peer_ip)
             .finish()
@@ -164,6 +174,7 @@ where
         after_send.call(true.into());
         std::mem::forget(after_send);
         let result = self.finish().await;
+
         result
     }
 
@@ -456,13 +467,16 @@ where
     ) -> Result<Self> {
         let (transport, buf, extra_bytes, start_time) =
             Self::head(transport, bytes, &stopper).await?;
+
         let buffer = if extra_bytes.is_empty() {
             None
         } else {
             Some(extra_bytes)
         };
+
         let mut headers = [EMPTY_HEADER; MAX_HEADERS];
         let mut httparse_req = Request::new(&mut headers);
+
         let status = httparse_req.parse(&buf[..])?;
         if status.is_partial() {
             log::debug!("partial head content: {}", String::from_utf8_lossy(&buf));
@@ -622,17 +636,23 @@ where
     ) -> Result<(Transport, Vec<u8>, Vec<u8>, Instant)> {
         let mut buf = bytes.unwrap_or_default();
         let mut len = 0;
+        let mut start_with_read = buf.is_empty();
         let mut instant = None;
         let searcher = TwoWaySearcher::new(b"\r\n\r\n");
         loop {
-            buf.extend(iter::repeat(0).take(100));
-            let bytes = if len == 0 {
-                stopper
-                    .stop_future(transport.read(&mut buf[len..]))
-                    .await
-                    .ok_or(Error::Closed)??
+            let bytes = if start_with_read {
+                buf.extend(iter::repeat(0).take(1024));
+                if len == 0 {
+                    stopper
+                        .stop_future(transport.read(&mut buf[..]))
+                        .await
+                        .ok_or(Error::Closed)??
+                } else {
+                    transport.read(&mut buf[len..]).await?
+                }
             } else {
-                transport.read(&mut buf[len..]).await?
+                start_with_read = true;
+                buf.len()
             };
 
             if instant.is_none() {
