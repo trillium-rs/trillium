@@ -22,7 +22,7 @@ cfg_if::cfg_if! {
         }
 
         pub(crate) async fn tcp_connect(
-            url: &Url,
+            url: &crate::Url,
         ) -> std::io::Result<trillium_http::transport::BoxedTransport> {
             unimplemented!()
         }

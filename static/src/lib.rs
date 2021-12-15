@@ -84,24 +84,40 @@ does not include any notion of range requests or cache headers. It
 serves all files from disk every time, with no in-memory caching.
 */
 
-mod fs_shims;
-mod handler;
-mod options;
-mod static_conn_ext;
+cfg_if::cfg_if! {
+   if #[cfg(any(feature = "smol", feature = "tokio", feature = "async-std"))] {
+       mod fs_shims;
+       mod handler;
+       mod options;
+       mod static_conn_ext;
 
-pub use handler::StaticFileHandler;
-pub use relative_path;
-pub use static_conn_ext::StaticConnExt;
+       pub use handler::StaticFileHandler;
+       pub use relative_path;
+       pub use static_conn_ext::StaticConnExt;
 
-/// a convenient helper macro to build a str relative to the crate root
-#[macro_export]
-macro_rules! crate_relative_path {
-    ($path:literal) => {
-        $crate::relative_path::RelativePath::new($path).to_logical_path(env!("CARGO_MANIFEST_DIR"))
-    };
-}
+       /// a convenient helper macro to build a str relative to the crate root
+       #[macro_export]
+       macro_rules! crate_relative_path {
+           ($path:literal) => {
+               $crate::relative_path::RelativePath::new($path).to_logical_path(env!("CARGO_MANIFEST_DIR"))
+           };
+       }
 
-/// convenience alias for [`StaticFileHandler::new`]
-pub fn files(fs_root: impl AsRef<std::path::Path>) -> StaticFileHandler {
-    StaticFileHandler::new(fs_root)
+       /// convenience alias for [`StaticFileHandler::new`]
+       pub fn files(fs_root: impl AsRef<std::path::Path>) -> StaticFileHandler {
+           StaticFileHandler::new(fs_root)
+       }
+   } else {
+        compile_error!("trillium-static:
+You must enable one of the three runtime feature flags
+to use this crate:
+
+* tokio
+* async-std
+* smol
+
+This is a temporary constraint, and hopefully soon this
+will not require the use of cargo feature flags."
+);
+   }
 }
