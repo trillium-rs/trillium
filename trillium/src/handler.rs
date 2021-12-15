@@ -1,4 +1,4 @@
-use crate::{async_trait, Conn, Info, Upgrade};
+use crate::{async_trait, Conn, Info, Status, Upgrade};
 use std::{borrow::Cow, future::Future, sync::Arc};
 
 /**
