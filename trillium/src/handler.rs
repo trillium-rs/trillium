@@ -194,6 +194,13 @@ impl Handler for Box<dyn Handler> {
     }
 }
 
+#[async_trait]
+impl Handler for Status {
+    async fn run(&self, conn: Conn) -> Conn {
+        conn.with_status(*self)
+    }
+}
+
 impl std::fmt::Debug for Box<dyn Handler> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.name().as_ref())
