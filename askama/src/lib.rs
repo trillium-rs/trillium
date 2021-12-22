@@ -52,6 +52,7 @@ pub trait AskamaConnExt {
 
 impl AskamaConnExt for trillium::Conn {
     fn render(mut self, template: impl Template) -> Self {
+        use askama::DynTemplate;
         let text = template.render().unwrap();
         if let Some(extension) = template.extension() {
             if let Some(mime) = mime_db::lookup(extension) {
