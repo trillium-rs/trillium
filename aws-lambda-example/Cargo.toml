@@ -16,4 +16,4 @@ trillium-cookies = { path = "../cookies" }
 trillium-sessions = { path = "../sessions" }
 trillium-askama = { path = "../askama" }
 futures-lite = "1.12.0"
-askama = "0.10.5"
+askama = "0.11.0"
