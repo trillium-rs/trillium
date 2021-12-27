@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use crate::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -33,7 +34,7 @@ assert_eq!(to_string(event.payload()).unwrap(), r#"{"payload":"anything"}"#);
 
 */
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ChannelEvent {
     pub(crate) topic: Cow<'static, str>,
     pub(crate) event: Cow<'static, str>,
@@ -41,6 +42,9 @@ pub struct ChannelEvent {
 
     #[serde(rename = "ref")]
     pub(crate) reference: Option<Cow<'static, str>>,
+
+    #[serde(rename = "join_ref")]
+    pub(crate) join_reference: Option<Cow<'static, str>>,
 }
 
 impl ChannelEvent {
@@ -66,6 +70,43 @@ impl ChannelEvent {
                 other => other,
             },
             reference: self.reference.clone(),
+            join_reference: self.join_reference.clone(),
+        }
+    }
+
+    pub(crate) fn serialize(&self, version: Version) -> serde_json::Result<String> {
+        match version {
+            Version::V1 => serde_json::to_string(&self),
+
+            Version::V2 => serde_json::to_string(&(
+                &self.join_reference,
+                &self.reference,
+                &self.topic,
+                &self.event,
+                &self.payload,
+            )),
+        }
+    }
+
+    pub(crate) fn deserialize(string: &str, version: Version) -> serde_json::Result<Self> {
+        match version {
+            Version::V1 => serde_json::from_str(string),
+            Version::V2 => {
+                let (join_reference, reference, topic, event, payload): (
+                    Option<String>,
+                    Option<String>,
+                    String,
+                    String,
+                    Value,
+                ) = serde_json::from_str(string)?;
+                Ok(Self {
+                    join_reference: join_reference.map(Into::into),
+                    reference: reference.map(Into::into),
+                    topic: topic.into(),
+                    event: event.into(),
+                    payload,
+                })
+            }
         }
     }
 
@@ -118,7 +159,17 @@ impl ChannelEvent {
                 other => other,
             },
             reference: None,
+            join_reference: None,
         }
+    }
+
+    /**
+    returns true if this ChannelEvent is used by the phoenix-channels compatability layer
+
+    currently that means the topic is `"phoenix"` or the event is `"phx_join"` or `"phx_leave"`
+    */
+    pub(crate) fn is_system_event(&self) -> bool {
+        self.topic == "phoenix" || self.event == "phx_join" || self.event == "phx_leave"
     }
 }
 

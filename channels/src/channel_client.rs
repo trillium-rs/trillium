@@ -1,8 +1,9 @@
-use crate::{client_receiver::ClientReceiver, subscriptions::Subscriptions, ChannelEvent};
+use crate::{client_receiver::ClientReceiver, subscriptions::Subscriptions, ChannelEvent, Version};
 use async_broadcast::{Receiver, Sender as BroadcastSender};
 use async_channel::Sender;
 use serde::Serialize;
 use trillium::log_error;
+use trillium_websockets::Message;
 
 /**
 # Communicate with the connected client.
@@ -17,12 +18,14 @@ pub struct ChannelClient {
     subscriptions: Subscriptions,
     sender: Sender<ChannelEvent>,
     broadcast_sender: BroadcastSender<ChannelEvent>,
+    version: Version,
 }
 
 impl ChannelClient {
     pub(crate) fn new(
         broadcast_sender: BroadcastSender<ChannelEvent>,
         broadcast_receiver: Receiver<ChannelEvent>,
+        version: Version,
     ) -> (Self, ClientReceiver) {
         let (sender, individual) = async_channel::unbounded();
         let subscriptions = Subscriptions::default();
@@ -31,14 +34,17 @@ impl ChannelClient {
                 subscriptions: subscriptions.clone(),
                 sender,
                 broadcast_sender,
+                version,
             },
-            ClientReceiver::new(individual, broadcast_receiver, subscriptions),
+            ClientReceiver::new(individual, broadcast_receiver, subscriptions, version),
         )
     }
 
-    /// Send a [`ChannelEvent`] to all connected clients. Note that
-    /// these messages will only reach clients that subscribe to the
-    /// event's topic.
+    /**
+    Send a [`ChannelEvent`] to all connected clients. Note that
+    these messages will only reach clients that subscribe to the
+    event's topic.
+    */
     pub fn broadcast(&self, event: impl Into<ChannelEvent>) {
         let mut event = event.into();
         event.reference = None;
@@ -136,5 +142,10 @@ impl ChannelClient {
      */
     pub fn subscriptions(&self) -> &Subscriptions {
         &self.subscriptions
+    }
+
+    pub(crate) fn deserialize(&self, message: Message) -> Option<ChannelEvent> {
+        let string = message.to_text().ok()?;
+        ChannelEvent::deserialize(string, self.version).ok()
     }
 }

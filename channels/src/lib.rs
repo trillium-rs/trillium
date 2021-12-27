@@ -133,6 +133,9 @@ pub(crate) mod subscriptions;
 mod channel_conn;
 pub use channel_conn::ChannelConn;
 
+mod version;
+pub use version::Version;
+
 /**
 This macro provides a convenient constructor for a
 [`ChannelEvent`]. It is called with a topic, an event, and an optional

@@ -1,7 +1,7 @@
 use crate::{ChannelBroadcaster, ChannelCentral, ChannelEvent, ChannelHandler};
 use std::ops::{Deref, DerefMut};
 use trillium::{async_trait, Conn, Handler, Upgrade};
-use trillium_websockets::{JsonHandler, WebSocket};
+use trillium_websockets::WebSocket;
 
 /**
 Trillium handler containing a [`ChannelHandler`]
@@ -10,7 +10,7 @@ This is constructed from a [`ChannelHandler`] using [`Channel::new`]
 and dereferences to that type.
 */
 #[derive(Debug)]
-pub struct Channel<CH>(WebSocket<JsonHandler<ChannelCentral<CH>>>);
+pub struct Channel<CH>(WebSocket<ChannelCentral<CH>>);
 
 #[async_trait]
 impl<CH> Handler for Channel<CH>
@@ -44,7 +44,7 @@ impl<CH: ChannelHandler> Channel<CH> {
     [`ChannelHandler`] implementation
      */
     pub fn new(channel_handler: CH) -> Self {
-        Self(WebSocket::new_json(ChannelCentral::new(channel_handler)))
+        Self(WebSocket::new(ChannelCentral::new(channel_handler)))
     }
 
     /**
