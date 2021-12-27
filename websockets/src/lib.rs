@@ -232,7 +232,9 @@ where
             }
         }
 
-        log_error!(conn.close().await);
+        if let Some(err) = conn.close().await.err() {
+            log::warn!("websocket close error: {:?}", err);
+        };
     }
 }
 
