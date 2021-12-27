@@ -88,7 +88,9 @@ impl ChannelBroadcaster {
     Send this ChannelEvent to all subscribed channel clients
     */
     pub fn broadcast(&self, event: impl Into<ChannelEvent>) {
-        trillium::log_error!(self.sender.try_broadcast(event.into()));
+        // we don't care about whether there are any connected clients
+        // here, so we ignore error results.
+        self.sender.try_broadcast(event.into()).ok();
     }
 
     /**

@@ -1,11 +1,12 @@
 use crate::{
     client_receiver::ClientReceiver, ChannelBroadcaster, ChannelClient, ChannelConn, ChannelEvent,
-    ChannelHandler,
+    ChannelHandler, Version,
 };
 use async_broadcast::{InactiveReceiver, Sender};
+use querystrong::QueryStrong;
 use std::ops::{Deref, DerefMut};
 use trillium::async_trait;
-use trillium_websockets::{tungstenite::protocol::CloseFrame, JsonWebSocketHandler, WebSocketConn};
+use trillium_websockets::{tungstenite::protocol::CloseFrame, WebSocketConn, WebSocketHandler};
 
 const CHANNEL_CAP: usize = 10;
 
@@ -42,36 +43,67 @@ where
         trillium::log_error!(self.broadcast_sender.try_broadcast(event.into()));
     }
 
-    fn build_client(&self) -> (ChannelClient, ClientReceiver) {
+    fn build_client(&self, version: Version) -> (ChannelClient, ClientReceiver) {
         ChannelClient::new(
             self.broadcast_sender.clone(),
             self.broadcast_receiver.activate_cloned(),
+            version,
         )
     }
 }
 
+macro_rules! unwrap_or_return {
+    ($option:expr) => {
+        unwrap_or_return!($option, ())
+    };
+
+    ($option:expr, $value:expr) => {
+        match $option {
+            Some(value) => value,
+            None => return $value,
+        }
+    };
+}
+
 #[async_trait]
-impl<CH> JsonWebSocketHandler for ChannelCentral<CH>
+impl<CH> WebSocketHandler for ChannelCentral<CH>
 where
     CH: ChannelHandler,
 {
-    type OutboundMessage = ChannelEvent;
-    type InboundMessage = ChannelEvent;
-    type StreamType = ClientReceiver;
+    type OutboundStream = ClientReceiver;
 
-    async fn connect(&self, conn: &mut WebSocketConn) -> Self::StreamType {
-        let (client, receiver) = self.build_client();
+    async fn connect(
+        &self,
+        mut conn: WebSocketConn,
+    ) -> Option<(WebSocketConn, Self::OutboundStream)> {
+        let vsn = match QueryStrong::parse(conn.querystring())
+            .unwrap_or_default()
+            .get_str("vsn")
+        {
+            Some(version) => version.into(),
+            _ => Version::V1,
+        };
+
+        let (client, receiver) = self.build_client(vsn);
+
         conn.set_state(client);
 
         // this is always ok because we just set the client in state
-        self.handler.connect(ChannelConn { conn }).await;
-        receiver
+        self.handler.connect(ChannelConn { conn: &mut conn }).await;
+        Some((conn, receiver))
     }
 
-    async fn receive_message(&self, event: Self::InboundMessage, conn: &mut WebSocketConn) {
+    async fn inbound(&self, message: trillium_websockets::Message, conn: &mut WebSocketConn) {
+        let client = unwrap_or_return!(conn.state::<ChannelClient>());
+
+        log::trace!("received message as {:?}", &message);
+        let event = unwrap_or_return!(client.deserialize(message));
+
+        log::trace!("deserialized message as {:?}", &event);
         match (&*event.topic, &*event.event) {
             ("phoenix", "heartbeat") => {
                 log::trace!("heartbeat");
+                client.reply_ok(&event, &()).await;
             }
 
             (_, "phx_join") => {

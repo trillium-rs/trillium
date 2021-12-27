@@ -34,8 +34,6 @@ impl Subscriptions {
     match).
      */
     pub fn subscribes(&self, event: &ChannelEvent) -> bool {
-        event.event() == "phx_join"
-            || event.event() == "phx_leave"
-            || self.0.read().unwrap().contains(event.topic())
+        event.is_system_event() || self.0.read().unwrap().contains(event.topic())
     }
 }
