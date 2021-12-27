@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming", "web-programming::http-client"]
 
 [dependencies]
-encoding_rs = "0.8.29"
+encoding_rs = "0.8.30"
 futures-lite = "1.12.0"
 httparse = "1.5.1"
 log = "0.4.14"
@@ -30,7 +30,7 @@ version = "^0.2.0"
 async-global-executor = "2.0.2"
 async-io = "1.6.0"
 env_logger = "0.9.0"
-fastrand = "1.5.0"
+fastrand = "1.6.0"
 trillium = { path = "../trillium" }
 trillium-rustls = { path = "../rustls" }
 trillium-smol = { path = "../smol/" }

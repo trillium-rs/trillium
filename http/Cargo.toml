@@ -14,11 +14,11 @@ categories = ["web-programming::http-server", "web-programming"]
 unstable = []
 
 [dependencies]
-encoding_rs = "0.8.29"
+encoding_rs = "0.8.30"
 futures-lite = "1.12.0"
 hashbrown = "0.11.2"
 httparse = "1.5.1"
-httpdate = "1.0.1"
+httpdate = "1.0.2"
 log = "0.4.14"
 memmem = "0.1.1"
 mime = "0.3.16"
@@ -39,6 +39,6 @@ trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
 [dev-dependencies.tokio]
-version = "1.12.0"
+version = "1.15.0"
 features = ["rt", "net", "rt-multi-thread", "macros"]
 package = "tokio"
