@@ -60,6 +60,15 @@ impl StateSet {
             .and_then(|boxed| (boxed as Box<dyn Any>).downcast().ok().map(|boxed| *boxed))
     }
 
+    /// Gets a value from this StateSet or populates it with the provided default.
+    pub fn get_or_insert<T: Send + Sync + 'static>(&mut self, default: T) -> &mut T {
+        self.0
+            .entry(TypeId::of::<T>())
+            .or_insert(Box::new(default))
+            .downcast_mut()
+            .unwrap()
+    }
+
     /// Gets a value from this StateSet or populates it with the provided default function.
     pub fn get_or_insert_with<F, T>(&mut self, default: F) -> &mut T
     where
