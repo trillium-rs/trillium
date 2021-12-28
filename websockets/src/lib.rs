@@ -62,7 +62,7 @@ use futures_lite::stream::StreamExt;
 use sha1::{Digest, Sha1};
 use std::ops::{Deref, DerefMut};
 use trillium::{
-    async_trait, conn_unwrap, log_error, Conn, Handler,
+    async_trait, conn_unwrap, Conn, Handler,
     KnownHeaderName::{
         Connection, SecWebsocketAccept, SecWebsocketKey, SecWebsocketProtocol, SecWebsocketVersion,
         Upgrade as UpgradeHeader,
