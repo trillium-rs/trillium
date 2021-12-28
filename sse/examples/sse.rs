@@ -9,7 +9,7 @@ fn main() {
     let broadcast = Channel::new();
     trillium_smol::run((
         logger(),
-        static_compiled!("examples/static").with_index_file("index.html"),
+        static_compiled!("$CARGO_MANIFEST_DIR/examples/static").with_index_file("index.html"),
         State::new(broadcast),
         |conn: Conn| async move {
             match (conn.method(), conn.path()) {

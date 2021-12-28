@@ -23,9 +23,9 @@ This may also merge with the [static file handler](https://docs.trillium.rs/tril
 ```
 # #[cfg(not(unix))] fn main() {}
 # #[cfg(unix)] fn main() {
-use trillium_static_compiled::{include_dir, StaticCompiledHandler};
+use trillium_static_compiled::static_compiled;
 
-let handler = StaticCompiledHandler::new(include_dir!("examples/files"))
+let handler = static_compiled!("$CARGO_MANIFEST_DIR/examples/files")
     .with_index_file("index.html");
 
 // given the following directory layout
@@ -62,7 +62,7 @@ assert_ok!(
 
 
 // with a different index file
-let plaintext_index = StaticCompiledHandler::new(include_dir!("examples/files"))
+let plaintext_index = static_compiled!("$CARGO_MANIFEST_DIR/examples/files")
     .with_index_file("plaintext.txt");
 
 assert_not_handled!(get("/").on(&plaintext_index));
@@ -74,7 +74,7 @@ assert_ok!(
 );
 
 // with no index file
-let no_index = StaticCompiledHandler::new(include_dir!("examples/files"));
+let no_index = static_compiled!("$CARGO_MANIFEST_DIR/examples/files");
 
 assert_not_handled!(get("/").on(&no_index));
 assert_not_handled!(get("/subdir").on(&no_index));
@@ -82,12 +82,24 @@ assert_not_handled!(get("/subdir_with_no_index").on(&no_index));
 # }
 ```
 */
+
 use trillium::{
     async_trait, Conn, Handler,
     KnownHeaderName::{ContentType, LastModified},
 };
-use trillium_include_dir::DirEntry;
-pub use trillium_include_dir::{include_dir, try_include_dir, Dir, File};
+
+mod dir;
+mod dir_entry;
+mod file;
+mod metadata;
+pub use dir::Dir;
+pub use dir_entry::DirEntry;
+pub use file::File;
+pub use metadata::Metadata;
+
+#[doc(hidden)]
+pub use trillium_static_compiled_macros as proc_macros;
+
 /**
 The static compiled handler which contains the compile-time loaded
 assets
@@ -95,7 +107,7 @@ assets
 */
 #[derive(Debug, Clone, Copy)]
 pub struct StaticCompiledHandler {
-    dir: Dir<'static>,
+    root: DirEntry,
     index_file: Option<&'static str>,
 }
 
@@ -103,9 +115,9 @@ impl StaticCompiledHandler {
     /// Constructs a new StaticCompiledHandler. This must be used in
     /// conjunction with [`include_dir!`]. See crate-level docs for
     /// example usage.
-    pub fn new(dir: Dir<'static>) -> Self {
+    pub fn new(root: DirEntry) -> Self {
         Self {
-            dir,
+            root,
             index_file: None,
         }
     }
@@ -113,11 +125,17 @@ impl StaticCompiledHandler {
     /// StaticCompiledHandler. See the crate-level docs for example
     /// usage.
     pub fn with_index_file(mut self, file: &'static str) -> Self {
+        if let Some(file) = self.root.as_file() {
+            panic!(
+                "root is a file ({:?}), with_index_file is not meaningful.",
+                file.path()
+            );
+        }
         self.index_file = Some(file);
         self
     }
 
-    fn serve_file(&self, mut conn: Conn, file: File<'static>) -> Conn {
+    fn serve_file(&self, mut conn: Conn, file: File) -> Conn {
         let mime = mime_guess::from_path(file.path()).first_or_text_plain();
 
         let is_ascii = file.contents().is_ascii();
@@ -135,22 +153,24 @@ impl StaticCompiledHandler {
             },
         );
 
-        if let Some(modified) = file.modified() {
+        if let Some(metadata) = file.metadata() {
             conn.headers_mut()
-                .try_insert(LastModified, httpdate::fmt_http_date(modified));
+                .try_insert(LastModified, httpdate::fmt_http_date(metadata.modified()));
         }
 
         conn.ok(file.contents())
     }
 
-    fn get_item(&self, path: &str) -> Option<DirEntry<'static>> {
-        if path.is_empty() {
-            Some(DirEntry::Dir(self.dir))
+    fn get_item(&self, path: &str) -> Option<DirEntry> {
+        if path.is_empty() || self.root.is_file() {
+            Some(self.root)
         } else {
-            self.dir
-                .get_dir(path)
-                .map(DirEntry::Dir)
-                .or_else(|| self.dir.get_file(path).map(DirEntry::File))
+            self.root.as_dir().and_then(|dir| {
+                dir.get_dir(path)
+                    .copied()
+                    .map(DirEntry::Dir)
+                    .or_else(|| dir.get_file(path).copied().map(DirEntry::File))
+            })
         }
     }
 }
@@ -163,22 +183,17 @@ impl Handler for StaticCompiledHandler {
             self.index_file,
         ) {
             (None, _) => conn,
-            (Some(DirEntry::File(file)), _) => self.serve_file(conn, file),
+            (Some(DirEntry::File(file)), _) => self.serve_file(conn, file.clone()),
             (Some(DirEntry::Dir(_)), None) => conn,
             (Some(DirEntry::Dir(dir)), Some(index_file)) => {
                 if let Some(file) = dir.get_file(dir.path().join(index_file)) {
-                    self.serve_file(conn, file)
+                    self.serve_file(conn, *file)
                 } else {
                     conn
                 }
             }
         }
     }
-}
-
-/// Alias for [`StaticCompiledHandler::new`]
-pub fn files(dir: Dir<'static>) -> StaticCompiledHandler {
-    StaticCompiledHandler::new(dir)
 }
 
 /**
@@ -193,7 +208,19 @@ identical to
 
 #[macro_export]
 macro_rules! static_compiled {
-    ($path:literal) => {
-        $crate::StaticCompiledHandler::new($crate::include_dir!($path))
+    ($path:tt) => {
+        $crate::StaticCompiledHandler::new($crate::root!($path))
     };
+}
+
+/**
+include the dir as root
+*/
+#[macro_export]
+macro_rules! root {
+    ($path:tt) => {{
+        use $crate::{Dir, DirEntry, File, Metadata};
+        const ENTRY: DirEntry = $crate::proc_macros::include_entry!($path);
+        ENTRY
+    }};
 }
