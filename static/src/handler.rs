@@ -26,6 +26,11 @@ enum Record {
 impl StaticFileHandler {
     async fn resolve_fs_path(&self, url_path: &str) -> Option<PathBuf> {
         let mut file_path = self.fs_root.clone();
+        log::trace!(
+            "attempting to resolve {} relative to {}",
+            url_path,
+            file_path.to_str().unwrap()
+        );
         for segment in Path::new(url_path) {
             match segment.to_str() {
                 Some("/") => {}
@@ -50,6 +55,7 @@ impl StaticFileHandler {
         let fs_path = self.resolve_fs_path(url_path).await?;
         let metadata = fs::metadata(&fs_path).await.ok()?;
         if metadata.is_dir() {
+            log::trace!("resolved {} as dir {}", url_path, fs_path.to_str().unwrap());
             Some(Record::Dir(fs_path))
         } else if metadata.is_file() {
             File::open(&fs_path)
