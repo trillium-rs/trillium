@@ -52,7 +52,7 @@ fn main() {
         conn_id(),
         logger().with_formatter(apache_common(log_formatter::conn_id, "-")),
         caching_headers(),
-        static_compiled!("examples/files").with_index_file("index.html"),
+        static_compiled!("$CARGO_MANIFEST_DIR/examples/files").with_index_file("index.html"),
         router().get("/socket/websocket", channels).put(
             "/broadcast",
             (

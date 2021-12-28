@@ -13,7 +13,7 @@ use trillium_router::{Router, RouterConnExt};
 use trillium_rustls::RustlsConnector;
 use trillium_sessions::{MemoryStore, SessionConnExt};
 use trillium_smol::TcpConnector;
-use trillium_static_compiled::include_dir;
+use trillium_static_compiled::static_compiled;
 use trillium_websockets::{Message, WebSocket, WebSocketConn};
 type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
@@ -47,7 +47,7 @@ fn app() -> impl Handler {
         trillium_sessions::sessions(MemoryStore::new(), b"01234567890123456789012345678901123"),
         request_count,
         router(),
-        trillium_static_compiled::files(include_dir!("./public")).with_index_file("index.html"),
+        static_compiled!("$CARGO_MANIFEST_DIR/public").with_index_file("index.html"),
     )
 }
 

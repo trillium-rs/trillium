@@ -10,7 +10,7 @@ fn main() {
         logger(),
         compression(),
         router()
-            .get("static/*", static_compiled!("."))
+            .get("static/*", static_compiled!("$CARGO_MANIFEST_DIR"))
             .get("streaming/*", files(crate_relative_path!("."))),
     ))
 }
