@@ -1,15 +1,18 @@
 /*!
 Internal-use fork of
 [`include_dir_macros`](https://docs.rs/include_dir_macros/) for
-[`trillium.rs`](https://trillium.rs). It is not intended for
-general use.
+[`trillium.rs`](https://trillium.rs). It is not intended for general
+use. Credit for the bulk of the code goes to the authors of the
+upstream crate.
 
 Differences from upstream:
 
 * include_entry was added, which returns a DirEntry instead of a Dir,
   making direct inclusion of files possible
 * Metadata is always enabled
-* by default, relative paths are resolved from a root of CARGO_MANIFEST_DIR
+* relative paths are resolved from a root of CARGO_MANIFEST_DIR
+* hygiene is maintained by using a macro_rules macro to import
+  relevant structs
 */
 
 use proc_macro::{TokenStream, TokenTree};

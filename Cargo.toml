@@ -30,6 +30,7 @@ members = [
   "sse",
   "static",
   "static-compiled",
+  "static-compiled-macros",
   "tera",
   "testing",
   "tls-common",
