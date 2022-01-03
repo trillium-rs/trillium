@@ -35,7 +35,10 @@ pub fn include_dir(input: TokenStream) -> TokenStream {
         _ => panic!("This macro only accepts a single, non-empty string argument"),
     };
 
-    let path = resolve_path(&path, get_env).unwrap();
+    let path = resolve_path(&path, get_env)
+        .unwrap()
+        .canonicalize()
+        .unwrap();
 
     expand_dir(&path, &path).into()
 }
@@ -50,7 +53,10 @@ pub fn include_entry(input: TokenStream) -> TokenStream {
         _ => panic!("This macro only accepts a single, non-empty string argument"),
     };
 
-    let path = resolve_path(&path, get_env).unwrap();
+    let path = resolve_path(&path, get_env)
+        .unwrap()
+        .canonicalize()
+        .unwrap();
 
     expand_entry(&path, &path).into()
 }
@@ -190,8 +196,7 @@ fn resolve_path(
                 variable: "CARGO_MANIFEST_DIR".to_string(),
             })?,
         )
-        .join(path)
-        .canonicalize()?)
+        .join(path))
     } else {
         Ok(path)
     }
@@ -270,22 +275,33 @@ mod tests {
     fn resolve_path_with_no_environment_variables() {
         let path = "./file.txt";
 
-        let resolved = resolve_path(path, |_| unreachable!()).unwrap();
+        let resolved = resolve_path(path, |name| {
+            assert_eq!(name, "CARGO_MANIFEST_DIR");
+            Some("/files/cargo_manifest_dir".to_string())
+        })
+        .unwrap();
 
-        assert_eq!(resolved.to_str().unwrap(), path);
+        assert_eq!(
+            resolved.to_str().unwrap(),
+            "/files/cargo_manifest_dir/./file.txt"
+        );
     }
 
     #[test]
     fn simple_environment_variable() {
-        let path = "./$VAR";
+        let path = "../$VAR";
 
-        let resolved = resolve_path(path, |name| {
-            assert_eq!(name, "VAR");
-            Some("file.txt".to_string())
+        let resolved = resolve_path(path, |name| match name {
+            "VAR" => Some("file.txt".to_string()),
+            "CARGO_MANIFEST_DIR" => Some("/files/cargo_manifest_dir".to_string()),
+            _ => unreachable!(),
         })
         .unwrap();
 
-        assert_eq!(resolved.to_str().unwrap(), "./file.txt");
+        assert_eq!(
+            resolved.to_str().unwrap(),
+            "/files/cargo_manifest_dir/../file.txt"
+        );
     }
 
     #[test]
@@ -294,12 +310,16 @@ mod tests {
 
         let resolved = resolve_path(path, |name| match name {
             "TOP_LEVEL" => Some("$NESTED".to_string()),
+            "CARGO_MANIFEST_DIR" => Some("/files/cargo_manifest_dir".to_string()),
             "$NESTED" => unreachable!("Shouln't resolve recursively"),
             _ => unreachable!(),
         })
         .unwrap();
 
-        assert_eq!(resolved.to_str().unwrap(), "./$NESTED.txt");
+        assert_eq!(
+            resolved.to_str().unwrap(),
+            "/files/cargo_manifest_dir/./$NESTED.txt"
+        );
     }
 
     #[test]
