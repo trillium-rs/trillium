@@ -16,13 +16,13 @@ forms = ["serde_urlencoded"]
 
 [dependencies]
 mime = "0.3.16"
-serde = "1.0.132"
-serde_json = "1.0.73"
+serde = "1.0.133"
+serde_json = "1.0.74"
 serde_urlencoded = { version = "0.7.0", optional = true }
 trillium = { path = "../trillium", version = "^0.2.0" }
 
 [dev-dependencies]
-serde = { version = "1.0.132", features = ["derive"] }
+serde = { version = "1.0.133", features = ["derive"] }
 trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }

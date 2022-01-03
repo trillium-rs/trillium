@@ -17,8 +17,8 @@ futures-lite = "1.12.0"
 futures-util = "0.3.19"
 log = "0.4.14"
 querystrong = "0.1.1"
-serde = { version = "1.0.132", features = ["derive"] }
-serde_json = "1.0.73"
+serde = { version = "1.0.133", features = ["derive"] }
+serde_json = "1.0.74"
 trillium = { path = "../trillium", version = "^0.2.0" }
 trillium-websockets = { path = "../websockets", version = "^0.4.0" }
 
