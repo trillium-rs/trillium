@@ -9,6 +9,7 @@ Differences from upstream:
 * include_entry was added, which returns a DirEntry instead of a Dir,
   making direct inclusion of files possible
 * Metadata is always enabled
+* by default, relative paths are resolved from a root of CARGO_MANIFEST_DIR
 */
 
 use proc_macro::{TokenStream, TokenTree};
@@ -179,7 +180,18 @@ fn resolve_path(
     }
     resolved.push_str(unprocessed);
 
-    Ok(PathBuf::from(resolved))
+    let path = PathBuf::from(resolved);
+    if path.is_relative() {
+        Ok(PathBuf::from(
+            get_env("CARGO_MANIFEST_DIR").ok_or_else(|| MissingVariable {
+                variable: "CARGO_MANIFEST_DIR".to_string(),
+            })?,
+        )
+        .join(path)
+        .canonicalize()?)
+    } else {
+        Ok(path)
+    }
 }
 
 #[derive(Debug, PartialEq)]

@@ -10,22 +10,28 @@
 )]
 
 /*!
-Serves static file assets from the file system.
+Serves static file assets from memory, as included in the binary at
+compile time. Because this includes file system content at compile
+time, it requires a macro interface, [`static_compiled`](crate::static_compiled).
 
-## stability note
+If the root is a directory, it will recursively serve any files
+relative to the path that this handler is mounted at, or an index file
+if one is configured with
+[`with_index_file`](crate::StaticCompiledHandler::with_index_file).
 
-Please note that this crate is fairly incomplete, while functional. It
-does not include any notion of range requests or cache headers. It
-serves all files from disk every time, with no in-memory caching.
+If the root is a file, it will serve that file at all request paths.
 
-This may also merge with the [static file handler](https://docs.trillium.rs/trillium_static/)
+This crate contains code from [`include_dir`][include_dir], but with
+several tweaks to make it more suitable for this specific use case.
+
+[include_dir]:https://docs.rs/include_dir/latest/include_dir/
 
 ```
 # #[cfg(not(unix))] fn main() {}
 # #[cfg(unix)] fn main() {
 use trillium_static_compiled::static_compiled;
 
-let handler = static_compiled!("$CARGO_MANIFEST_DIR/examples/files")
+let handler = static_compiled!("./examples/files")
     .with_index_file("index.html");
 
 // given the following directory layout
@@ -62,7 +68,7 @@ assert_ok!(
 
 
 // with a different index file
-let plaintext_index = static_compiled!("$CARGO_MANIFEST_DIR/examples/files")
+let plaintext_index = static_compiled!("./examples/files")
     .with_index_file("plaintext.txt");
 
 assert_not_handled!(get("/").on(&plaintext_index));
@@ -74,7 +80,7 @@ assert_ok!(
 );
 
 // with no index file
-let no_index = static_compiled!("$CARGO_MANIFEST_DIR/examples/files");
+let no_index = static_compiled!("./examples/files");
 
 assert_not_handled!(get("/").on(&no_index));
 assert_not_handled!(get("/subdir").on(&no_index));
@@ -92,13 +98,17 @@ mod dir;
 mod dir_entry;
 mod file;
 mod metadata;
-pub use dir::Dir;
-pub use dir_entry::DirEntry;
-pub use file::File;
-pub use metadata::Metadata;
+
+pub(crate) use crate::dir::Dir;
+pub(crate) use crate::dir_entry::DirEntry;
+pub(crate) use crate::file::File;
+pub(crate) use crate::metadata::Metadata;
 
 #[doc(hidden)]
-pub use trillium_static_compiled_macros as proc_macros;
+pub mod __macro_internals {
+    pub use crate::{dir::Dir, dir_entry::DirEntry, file::File, metadata::Metadata};
+    pub use trillium_static_compiled_macros::{include_dir, include_entry};
+}
 
 /**
 The static compiled handler which contains the compile-time loaded
@@ -113,7 +123,7 @@ pub struct StaticCompiledHandler {
 
 impl StaticCompiledHandler {
     /// Constructs a new StaticCompiledHandler. This must be used in
-    /// conjunction with [`include_dir!`]. See crate-level docs for
+    /// conjunction with [`root!`](crate::root). See crate-level docs for
     /// example usage.
     pub fn new(root: DirEntry) -> Self {
         Self {
@@ -202,8 +212,29 @@ The preferred interface to build a StaticCompiledHandler
 Macro interface to build a
 [`StaticCompiledHandler`]. `static_compiled!("assets")` is
 identical to
-`StaticCompiledHandler::new(include_dir!("assets"))`.
+`StaticCompiledHandler::new(root!("assets"))`.
 
+This takes one argument, which must be a string literal.
+
+## Relative paths
+
+Relative paths are expanded and canonicalized relative to
+`$CARGO_MANIFEST_DIR`, which is usually the directory that contains
+your Cargo.toml. If compiled within a workspace, this will be the
+subcrate's Cargo.toml.
+
+## Environment variable expansion
+
+If the argument to `static_compiled` contains substrings that are
+formatted like an environment variable, beginning with a $, they will
+be interpreted in the compile time environment.
+
+For example "$OUT_DIR/some_directory" will expand to the directory
+`some_directory` within the env variable `$OUT_DIR` set by cargo. See
+[this link][env_vars] for further documentation on the environment
+variables set by cargo.
+
+[env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
 */
 
 #[macro_export]
@@ -214,13 +245,36 @@ macro_rules! static_compiled {
 }
 
 /**
-include the dir as root
+Include the path as root. To be passed into [`StaticCompiledHandler::new`].
+
+This takes one argument, which must be a string literal.
+
+## Relative paths
+
+Relative paths are expanded and canonicalized relative to
+`$CARGO_MANIFEST_DIR`, which is usually the directory that contains
+your Cargo.toml. If compiled within a workspace, this will be the
+subcrate's Cargo.toml.
+
+## Environment variable expansion
+
+If the argument to `static_compiled` contains substrings that are
+formatted like an environment variable, beginning with a $, they will
+be interpreted in the compile time environment.
+
+For example "$OUT_DIR/some_directory" will expand to the directory
+`some_directory` within the env variable `$OUT_DIR` set by cargo. See
+[this link][env_vars] for further documentation on the environment
+variables set by cargo.
+
+[env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
+
 */
 #[macro_export]
 macro_rules! root {
     ($path:tt) => {{
-        use $crate::{Dir, DirEntry, File, Metadata};
-        const ENTRY: DirEntry = $crate::proc_macros::include_entry!($path);
+        use $crate::__macro_internals::{include_entry, Dir, DirEntry, File, Metadata};
+        const ENTRY: DirEntry = include_entry!($path);
         ENTRY
     }};
 }

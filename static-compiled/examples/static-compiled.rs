@@ -5,7 +5,7 @@ pub fn main() {
     trillium_smol::run((
         trillium_logger::Logger::new(),
         trillium_caching_headers::CachingHeaders::new(),
-        static_compiled!("$CARGO_MANIFEST_DIR/examples/files").with_index_file("index.html"),
+        static_compiled!("./examples/files").with_index_file("index.html"),
     ));
 }
 
