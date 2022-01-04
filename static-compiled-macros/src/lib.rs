@@ -283,7 +283,10 @@ mod tests {
 
         assert_eq!(
             resolved.to_str().unwrap(),
-            "/files/cargo_manifest_dir/./file.txt"
+            PathBuf::from("/files/cargo_manifest_dir")
+                .join("./file.txt")
+                .to_str()
+                .unwrap()
         );
     }
 
@@ -300,7 +303,10 @@ mod tests {
 
         assert_eq!(
             resolved.to_str().unwrap(),
-            "/files/cargo_manifest_dir/../file.txt"
+            PathBuf::from("/files/cargo_manifest_dir")
+                .join("../file.txt")
+                .to_str()
+                .unwrap()
         );
     }
 
@@ -318,7 +324,10 @@ mod tests {
 
         assert_eq!(
             resolved.to_str().unwrap(),
-            "/files/cargo_manifest_dir/./$NESTED.txt"
+            PathBuf::from("/files/cargo_manifest_dir")
+                .join("./$NESTED.txt")
+                .to_str()
+                .unwrap()
         );
     }
 
