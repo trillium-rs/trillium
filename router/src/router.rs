@@ -420,7 +420,7 @@ impl Handler for Router {
                 .routefinder
                 .methods_matching(&path)
                 .iter()
-                .map(|m| m.to_string())
+                .map(|m| m.as_ref())
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -435,9 +435,9 @@ impl Handler for Router {
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
-        let path = conn.path().to_string();
-        if let Some((_, m)) = self.best_match(conn.method(), &path).as_deref() {
-            m.before_send(conn).await
+        let path = conn.path();
+        if let Some(m) = self.best_match(conn.method(), path) {
+            m.handler().1.before_send(conn).await
         } else {
             conn
         }
