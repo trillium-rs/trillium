@@ -1,6 +1,6 @@
 [package]
 name = "trillium-router"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "router for trillium.rs"
