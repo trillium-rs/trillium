@@ -1,11 +1,10 @@
 use crate::RouterRef;
 use routefinder::{Match, RouteSpec, Router as Routefinder};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::BTreeSet,
     convert::TryInto,
-    fmt::{self, Debug, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     mem,
-    sync::Arc,
 };
 use trillium::{async_trait, Conn, Handler, Info, KnownHeaderName, Method, Upgrade};
 
@@ -16,6 +15,116 @@ const ALL_METHODS: [Method; 5] = [
     Method::Post,
     Method::Put,
 ];
+
+#[derive(Debug)]
+enum MethodSelection {
+    Just(Method),
+    All,
+    Any(Vec<Method>),
+}
+
+impl Display for MethodSelection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            MethodSelection::Just(m) => Display::fmt(m, f),
+            MethodSelection::All => f.write_str("*"),
+            MethodSelection::Any(v) => {
+                f.write_str(&v.iter().map(|m| m.as_ref()).collect::<Vec<_>>().join(", "))
+            }
+        }
+    }
+}
+
+impl PartialEq<Method> for MethodSelection {
+    fn eq(&self, other: &Method) -> bool {
+        match self {
+            MethodSelection::Just(m) => m == other,
+            MethodSelection::All => true,
+            MethodSelection::Any(v) => v.contains(other),
+        }
+    }
+}
+
+impl From<()> for MethodSelection {
+    fn from(_: ()) -> MethodSelection {
+        Self::All
+    }
+}
+
+impl From<Method> for MethodSelection {
+    fn from(method: Method) -> Self {
+        Self::Just(method)
+    }
+}
+
+impl From<&[Method]> for MethodSelection {
+    fn from(methods: &[Method]) -> Self {
+        Self::Any(methods.to_vec())
+    }
+}
+impl From<Vec<Method>> for MethodSelection {
+    fn from(methods: Vec<Method>) -> Self {
+        Self::Any(methods)
+    }
+}
+
+#[derive(Debug, Default)]
+struct MethodRoutefinder(Routefinder<(MethodSelection, Box<dyn Handler>)>);
+impl MethodRoutefinder {
+    fn add<R>(
+        &mut self,
+        method_selection: impl Into<MethodSelection>,
+        path: R,
+        handler: impl Handler,
+    ) where
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
+    {
+        self.0
+            .add(path, (method_selection.into(), Box::new(handler)))
+            .expect("could not add route")
+    }
+
+    fn methods_matching(&self, path: &str) -> BTreeSet<Method> {
+        let mut set = BTreeSet::new();
+
+        fn extend(ms: &MethodSelection, set: &mut BTreeSet<Method>) {
+            match ms {
+                MethodSelection::All => {
+                    set.extend(ALL_METHODS);
+                }
+                MethodSelection::Just(method) => {
+                    set.insert(*method);
+                }
+                MethodSelection::Any(methods) => {
+                    set.extend(methods);
+                }
+            }
+        }
+
+        if path == "*" {
+            for ms in self.0.iter().map(|(_, (m, _))| m) {
+                extend(ms, &mut set);
+            }
+        } else {
+            for m in self.0.match_iter(path) {
+                extend(&m.0, &mut set);
+            }
+        };
+
+        set.remove(&Method::Options);
+        set
+    }
+
+    fn best_match<'a, 'b>(
+        &'a self,
+        method: Method,
+        path: &'b str,
+    ) -> Option<Match<'a, 'b, (MethodSelection, Box<dyn Handler>)>> {
+        self.0.match_iter(path).filter(|m| m.0 == method).next()
+    }
+}
+
 /**
 # The Router handler
 
@@ -23,16 +132,14 @@ See crate level docs for more, as this is the primary type in this crate.
 
 */
 pub struct Router {
-    all_methods: Routefinder<Box<dyn Handler>>,
-    method_map: HashMap<Method, Routefinder<Box<dyn Handler>>>,
+    routefinder: MethodRoutefinder,
     handle_options: bool,
 }
 
 impl Default for Router {
     fn default() -> Self {
         Self {
-            all_methods: Routefinder::default(),
-            method_map: Default::default(),
+            routefinder: MethodRoutefinder::default(),
             handle_options: true,
         }
     }
@@ -163,23 +270,10 @@ impl Router {
 
     fn best_match<'a, 'b>(
         &'a self,
-        method: &Method,
+        method: Method,
         path: &'b str,
-    ) -> Option<Match<'a, 'b, Box<dyn Handler>>> {
-        let from_method_map = self.method_map.get(method).and_then(|r| r.best_match(path));
-        let from_all_methods = self.all_methods.best_match(path);
-        match (from_method_map, from_all_methods) {
-            (None, None) => None,
-            (None, Some(x)) => Some(x),
-            (Some(x), None) => Some(x),
-            (Some(x), Some(y)) => {
-                if x.route() < y.route() {
-                    Some(x)
-                } else {
-                    Some(y)
-                }
-            }
-        }
+    ) -> Option<Match<'a, 'b, (MethodSelection, Box<dyn Handler>)>> {
+        self.routefinder.best_match(method, path)
     }
 
     /**
@@ -207,11 +301,7 @@ impl Router {
     }
 
     pub(crate) fn add(&mut self, path: &'static str, method: Method, handler: impl Handler) {
-        self.method_map
-            .entry(method)
-            .or_insert_with(routefinder::Router::new)
-            .add(path, Box::new(handler))
-            .expect("could not add route")
+        self.routefinder.add(method, path, handler);
     }
 
     pub(crate) fn add_any(
@@ -220,16 +310,11 @@ impl Router {
         path: &'static str,
         handler: impl Handler,
     ) {
-        let handler = Arc::new(handler);
-        for method in methods {
-            self.add(path, *method, handler.clone())
-        }
+        self.routefinder.add(methods, path, handler)
     }
 
     pub(crate) fn add_all(&mut self, path: &'static str, handler: impl Handler) {
-        self.all_methods
-            .add(path, Box::new(handler))
-            .expect("could not add route");
+        self.routefinder.add((), path, handler);
     }
 
     /**
@@ -308,12 +393,13 @@ impl Handler for Router {
         let method = conn.method();
         let path = conn.path();
 
-        if let Some(m) = self.best_match(&conn.method(), conn.path()) {
+        if let Some(m) = self.best_match(conn.method(), path) {
             let captures = m.captures().into_owned();
             struct HasPath;
-            log::debug!("running {}: {}", m.route(), m.name());
+            log::debug!("running {}: {}", m.route(), m.1.name());
             let mut new_conn = m
                 .handler()
+                .1
                 .run({
                     let mut conn = conn;
                     if let Some(wildcard) = captures.wildcard() {
@@ -323,29 +409,16 @@ impl Handler for Router {
                     conn.with_state(captures)
                 })
                 .await;
+
             if new_conn.take_state::<HasPath>().is_some() {
                 new_conn.pop_path();
             }
+
             new_conn
         } else if method == Method::Options && self.handle_options {
-            let mut methods_set: BTreeSet<Method> = if path == "*" {
-                if self.all_methods.is_empty() {
-                    self.method_map.keys().copied().collect()
-                } else {
-                    ALL_METHODS.into_iter().collect()
-                }
-            } else if self.all_methods.best_match(path).is_some() {
-                ALL_METHODS.into_iter().collect()
-            } else {
-                self.method_map
-                    .iter()
-                    .filter_map(|(m, router)| router.best_match(path).map(|_| *m))
-                    .collect()
-            };
-
-            methods_set.remove(&Method::Options);
-
-            let allow = methods_set
+            let allow = self
+                .routefinder
+                .methods_matching(&path)
                 .iter()
                 .map(|m| m.to_string())
                 .collect::<Vec<_>>()
@@ -362,25 +435,27 @@ impl Handler for Router {
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
-        if let Some(m) = self.best_match(&conn.method(), conn.path()) {
-            m.handler().before_send(conn).await
+        let path = conn.path().to_string();
+        if let Some((_, m)) = self.best_match(conn.method(), &path).as_deref() {
+            m.before_send(conn).await
         } else {
             conn
         }
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        if let Some(m) = self.best_match(upgrade.method(), upgrade.path()) {
-            m.handler().has_upgrade(upgrade)
+        if let Some(m) = self.best_match(*upgrade.method(), upgrade.path()) {
+            m.1.has_upgrade(upgrade)
         } else {
             false
         }
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        self.best_match(upgrade.method(), upgrade.path())
+        self.best_match(*upgrade.method(), upgrade.path())
             .unwrap()
             .handler()
+            .1
             .upgrade(upgrade)
             .await
     }
@@ -407,35 +482,10 @@ impl Handler for Router {
         // contents into this future and then replace it, and the
         // performance impacts of doing so are unimportant as it is
         // part of app boot.
-        let all_methods = mem::take(&mut self.all_methods);
-        for (route, mut handler) in all_methods {
+        let routefinder = mem::take(&mut self.routefinder);
+        for (route, (methods, mut handler)) in routefinder.0 {
             handler.init(info).await;
-            self.all_methods.add(route, handler).unwrap();
-        }
-
-        let method_map = mem::take(&mut self.method_map);
-        for (method, router) in method_map {
-            let mut new_router = Routefinder::new();
-            for (route, mut handler) in router {
-                handler.init(info).await;
-                new_router.add(route, handler).unwrap();
-            }
-
-            self.method_map.insert(method, new_router);
-        }
-    }
-}
-
-struct RouteForDisplay<'a, H>(Option<&'a Method>, &'a RouteSpec, &'a H);
-impl<'a, H: Handler> Debug for RouteForDisplay<'a, H> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            RouteForDisplay(Some(method), route, handler) => {
-                f.write_fmt(format_args!("{} {} -> {}", method, route, handler.name()))
-            }
-            RouteForDisplay(None, route, handler) => {
-                f.write_fmt(format_args!("* {} -> {}", route, handler.name()))
-            }
+            self.routefinder.add(methods, route, handler);
         }
     }
 }
@@ -445,16 +495,9 @@ impl Debug for Router {
         f.write_str("Router ")?;
         let mut set = f.debug_set();
 
-        for (route, handler) in &self.all_methods {
-            set.entry(&RouteForDisplay(None, route, handler));
+        for (route, (methods, handler)) in &self.routefinder.0 {
+            set.entry(&format_args!("{} {} -> {}", methods, route, handler.name()));
         }
-
-        for (method, router) in &self.method_map {
-            for (route, handler) in router {
-                set.entry(&RouteForDisplay(Some(method), route, handler));
-            }
-        }
-
         set.finish()
     }
 }

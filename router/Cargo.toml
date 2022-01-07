@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 log = "0.4.14"
-routefinder = "0.5.0"
+routefinder = "0.5.1"
 trillium = { path = "../trillium", version = "^0.2.0" }
 
 [dev-dependencies]
