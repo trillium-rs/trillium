@@ -16,7 +16,7 @@ unstable = []
 [dependencies]
 encoding_rs = "0.8.30"
 futures-lite = "1.12.0"
-hashbrown = "0.11.2"
+hashbrown = "0.12.0"
 httparse = "1.5.1"
 httpdate = "1.0.2"
 log = "0.4.14"
