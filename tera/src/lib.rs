@@ -48,4 +48,4 @@ pub use tera_handler::TeraHandler;
 mod tera_conn_ext;
 pub use tera_conn_ext::TeraConnExt;
 
-pub use tera::{Context, Tera};
+pub use tera::{Context, Filter, Function, Tera, Test};
