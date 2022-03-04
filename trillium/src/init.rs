@@ -69,7 +69,7 @@ assert_ok!(get("/").on(&handler), "ok!");
 pub struct Init<T>(Inner<T>);
 
 type Initializer<T> =
-    Box<dyn Fn(Info) -> Pin<Box<dyn Future<Output = T> + Send + 'static>> + Send + Sync + 'static>;
+    Box<dyn Fn(Info) -> Pin<Box<dyn Future<Output = T> + 'static>> + Send + Sync + 'static>;
 
 enum Inner<T> {
     New(Initializer<T>),
@@ -123,7 +123,7 @@ impl<T: Handler> Init<T> {
     pub fn new<F, Fut>(init: F) -> Self
     where
         F: Fn(Info) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = T> + Send + 'static,
+        Fut: Future<Output = T> + 'static,
     {
         Self(Inner::New(Box::new(move |info| Box::pin(init(info)))))
     }
@@ -135,11 +135,13 @@ impl<T: Handler> Handler for Init<T> {
         self.0.run(conn).await
     }
 
-    async fn init(&mut self, info: &mut Info) {
-        self.0 = match mem::replace(&mut self.0, Inner::Initializing) {
-            Inner::New(init) => Inner::Initialized(init(info.clone()).await),
-            other => other,
-        }
+    fn init<'a>(&'a mut self, info: &'a mut Info) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
+        Box::pin(async move {
+            self.0 = match mem::replace(&mut self.0, Inner::Initializing) {
+                Inner::New(init) => Inner::Initialized(init(info.clone()).await),
+                other => other,
+            };
+        })
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {

@@ -149,7 +149,7 @@ pub trait Server: Send + 'static {
     fn run_async<A, H>(
         config: Config<Self, A>,
         mut handler: H,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>
+    ) -> Pin<Box<dyn Future<Output = ()> + 'static>>
     where
         A: Acceptor<Self::Transport>,
         H: Handler,

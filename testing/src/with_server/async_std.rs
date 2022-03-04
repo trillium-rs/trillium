@@ -1,7 +1,7 @@
 use crate::{block_on, Url};
 use std::future::Future;
 use trillium::Handler;
-use trillium_async_std::async_std::task::spawn;
+use trillium_async_std::async_std::task::spawn_local;
 use trillium_server_common::Stopper;
 
 /**
@@ -32,7 +32,7 @@ where
             }
         });
 
-        let server_future = spawn(
+        let server_future = spawn_local(
             trillium_async_std::config()
                 .with_host("localhost")
                 .with_port(port)

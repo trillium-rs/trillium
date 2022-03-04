@@ -1,8 +1,8 @@
-use crate::{block_on, Url};
+use crate::Url;
 use std::future::Future;
 use trillium::Handler;
 use trillium_server_common::Stopper;
-use trillium_tokio::tokio::task::spawn;
+use trillium_tokio::tokio::task;
 
 /**
 Starts a trillium handler bound to a random available port on
@@ -20,7 +20,11 @@ where
     Fun: FnOnce(Url) -> Fut,
     Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>,
 {
-    block_on(async move {
+    let rt = trillium_tokio::tokio::runtime::Runtime::new().unwrap();
+    let local = task::LocalSet::new();
+
+    // Run the local task set.
+    local.block_on(&rt, async move {
         let port = portpicker::pick_unused_port().expect("could not pick a port");
         let url = format!("http://localhost:{}", port).parse().unwrap();
         let stopper = Stopper::new();
@@ -32,7 +36,7 @@ where
             }
         });
 
-        let server_future = spawn(
+        let server_future = task::spawn_local(
             trillium_tokio::config()
                 .with_host("localhost")
                 .with_port(port)
