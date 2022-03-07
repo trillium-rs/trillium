@@ -217,10 +217,7 @@ where
     [`JsonWebSocketHandler`]
      */
     pub fn new_json(handler: T) -> Self {
-        Self {
-            handler: JsonHandler::new(handler),
-            protocols: Default::default(),
-        }
+        Self::new(JsonHandler::new(handler))
     }
 }
 
