@@ -1,6 +1,6 @@
-use crate::Result;
+use crate::{Result, WebSocketConfig};
 use async_tungstenite::{
-    tungstenite::{protocol::Role, Message},
+    tungstenite::{self, protocol::Role, Message},
     WebSocketStream,
 };
 use futures_util::{
@@ -59,11 +59,11 @@ impl WebSocketConn {
     }
 
     /// Sends a [`Message`] to the client
-    pub async fn send(&mut self, message: Message) -> async_tungstenite::tungstenite::Result<()> {
+    pub async fn send(&mut self, message: Message) -> tungstenite::Result<()> {
         self.sink.send(message).await
     }
 
-    pub(crate) async fn new(upgrade: Upgrade) -> Self {
+    pub(crate) async fn new(upgrade: Upgrade, config: Option<WebSocketConfig>) -> Self {
         let Upgrade {
             request_headers,
             path,
@@ -75,9 +75,9 @@ impl WebSocketConn {
         } = upgrade;
 
         let wss = if let Some(vec) = buffer {
-            WebSocketStream::from_partially_read(transport, vec, Role::Server, None).await
+            WebSocketStream::from_partially_read(transport, vec, Role::Server, config).await
         } else {
-            WebSocketStream::from_raw_socket(transport, Role::Server, None).await
+            WebSocketStream::from_raw_socket(transport, Role::Server, config).await
         };
 
         let (sink, stream) = wss.split();
@@ -102,7 +102,7 @@ impl WebSocketConn {
     }
 
     /// close the websocket connection gracefully
-    pub async fn close(&mut self) -> async_tungstenite::tungstenite::Result<()> {
+    pub async fn close(&mut self) -> tungstenite::Result<()> {
         self.send(Message::Close(None)).await
     }
 

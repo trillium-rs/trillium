@@ -72,7 +72,7 @@ use trillium::{
 
 pub use async_tungstenite::{
     self,
-    tungstenite::{self, Error, Message},
+    tungstenite::{self, protocol::WebSocketConfig, Error, Message},
 };
 pub use websocket_connection::WebSocketConn;
 pub use websocket_handler::WebSocketHandler;
@@ -96,6 +96,7 @@ See crate-level docs for example usage.
 pub struct WebSocket<H> {
     handler: H,
     protocols: Vec<String>,
+    config: Option<WebSocketConfig>,
 }
 
 impl<H> Deref for WebSocket<H> {
@@ -133,6 +134,7 @@ where
         Self {
             handler,
             protocols: Default::default(),
+            config: None,
         }
     }
 
@@ -142,6 +144,14 @@ where
     pub fn with_protocols(self, protocols: &[&str]) -> Self {
         Self {
             protocols: protocols.iter().map(ToString::to_string).collect(),
+            ..self
+        }
+    }
+
+    /// configure the websocket protocol
+    pub fn with_protocol_config(self, config: WebSocketConfig) -> Self {
+        Self {
+            config: Some(config),
             ..self
         }
     }
@@ -202,7 +212,7 @@ where
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        let conn = WebSocketConn::new(upgrade).await;
+        let conn = WebSocketConn::new(upgrade, self.config).await;
         let (mut conn, outbound) = unwrap_or_return!(self.handler.connect(conn).await);
         let inbound = conn.take_inbound_stream();
 
