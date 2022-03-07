@@ -64,7 +64,7 @@ impl StateSet {
     pub fn get_or_insert<T: Send + Sync + 'static>(&mut self, default: T) -> &mut T {
         self.0
             .entry(TypeId::of::<T>())
-            .or_insert(Box::new(default))
+            .or_insert_with(|| Box::new(default))
             .downcast_mut()
             .unwrap()
     }
