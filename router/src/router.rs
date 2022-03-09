@@ -121,7 +121,7 @@ impl MethodRoutefinder {
         method: Method,
         path: &'b str,
     ) -> Option<Match<'a, 'b, (MethodSelection, Box<dyn Handler>)>> {
-        self.0.match_iter(path).filter(|m| m.0 == method).next()
+        self.0.match_iter(path).find(|m| m.0 == method)
     }
 }
 
@@ -372,8 +372,8 @@ impl Router {
         <IntoMethod as TryInto<Method>>::Error: Debug,
     {
         let methods = methods
-            .to_vec()
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|m| m.try_into().unwrap())
             .collect::<Vec<_>>();
         self.add_any(&methods, path, handler);
@@ -418,7 +418,7 @@ impl Handler for Router {
         } else if method == Method::Options && self.handle_options {
             let allow = self
                 .routefinder
-                .methods_matching(&path)
+                .methods_matching(path)
                 .iter()
                 .map(|m| m.as_ref())
                 .collect::<Vec<_>>()
