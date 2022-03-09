@@ -10,7 +10,7 @@ use std::{
     str::FromStr,
 };
 use trillium_http::{
-    Body, Error, HeaderName, HeaderValue, Headers,
+    Body, Error, HeaderName, HeaderValue, HeaderValues, Headers,
     KnownHeaderName::{
         Connection, ContentLength, Expect, Host, ProxyConnection, TransferEncoding, UserAgent,
     },
@@ -286,6 +286,42 @@ impl<C: Connector> Conn<'_, C> {
     */
     pub fn request_headers(&mut self) -> &mut Headers {
         &mut self.request_headers
+    }
+
+    /**
+    chainable setter for [`inserting`](Headers::insert) a request header
+
+    ```
+    use trillium_smol::TcpConnector;
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+
+    let handler = |conn: trillium::Conn| async move {
+        let header = conn.headers().get_str("some-request-header").unwrap_or_default();
+        let response = format!("some-request-header was {}", header);
+        conn.ok(response)
+    };
+
+    trillium_testing::with_server(handler, |url| async move {
+        let mut conn = Conn::get(url)
+            .with_header("some-request-header", "header-value") // <--
+            .execute()
+            .await?;
+        assert_eq!(
+            conn.response_body().read_string().await?,
+            "some-request-header was header-value"
+        );
+        Ok(())
+    })
+    ```
+    */
+
+    pub fn with_header(
+        mut self,
+        name: impl Into<HeaderName<'static>>,
+        value: impl Into<HeaderValues>,
+    ) -> Self {
+        self.request_headers.insert(name, value);
+        self
     }
 
     /**
