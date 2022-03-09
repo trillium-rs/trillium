@@ -75,10 +75,10 @@ fn unwrap_string_literal(lit: &proc_macro::Literal) -> String {
 
 fn expand_entry(root: &Path, child: &Path) -> proc_macro2::TokenStream {
     if child.is_dir() {
-        let tokens = expand_dir(root, &child);
+        let tokens = expand_dir(root, child);
         quote!(DirEntry::Dir(#tokens))
     } else if child.is_file() {
-        let tokens = expand_file(root, &child);
+        let tokens = expand_file(root, child);
         quote!(DirEntry::File(#tokens))
     } else {
         panic!("\"{}\" is neither a file nor a directory", child.display());

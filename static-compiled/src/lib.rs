@@ -193,7 +193,7 @@ impl Handler for StaticCompiledHandler {
             self.index_file,
         ) {
             (None, _) => conn,
-            (Some(DirEntry::File(file)), _) => self.serve_file(conn, file.clone()),
+            (Some(DirEntry::File(file)), _) => self.serve_file(conn, file),
             (Some(DirEntry::Dir(_)), None) => conn,
             (Some(DirEntry::Dir(dir)), Some(index_file)) => {
                 if let Some(file) = dir.get_file(dir.path().join(index_file)) {

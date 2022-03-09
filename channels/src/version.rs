@@ -23,7 +23,7 @@ impl FromStr for Version {
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.chars().nth(0) {
+        match s.chars().next() {
             Some('2') => Ok(Self::V2),
             _ => Ok(Self::V1),
         }

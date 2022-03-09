@@ -121,8 +121,8 @@ impl<'r> RouterRef<'r> {
         <IntoMethod as TryInto<Method>>::Error: Debug,
     {
         let methods = methods
-            .to_vec()
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|m| m.try_into().unwrap())
             .collect::<Vec<_>>();
 
