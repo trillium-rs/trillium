@@ -10,6 +10,9 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming", "web-programming::http-client"]
 
+[features]
+json = ["serde_json", "serde", "thiserror"]
+
 [dependencies]
 encoding_rs = "0.8.30"
 futures-lite = "1.12.0"
@@ -20,6 +23,9 @@ size = "0.1.2"
 trillium-tls-common = { path = "../tls-common", version = "^0.1.0" }
 url = "2.2.2"
 mime = "0.3.16"
+serde_json = { version = "1.0.79", optional = true }
+serde = { version = "1.0.136", optional = true }
+thiserror = { version = "1.0.30", optional = true }
 
 [dependencies.trillium-http]
 path = "../http"

@@ -16,9 +16,7 @@ pub fn main() {
             let client = client.clone();
             async_global_executor::spawn(async move {
                 loop {
-                    let mut conn = client
-                        .post("http://localhost:8011/")
-                        .with_request_body("body");
+                    let mut conn = client.post("http://localhost:8011/").with_body("body");
 
                     conn.send().await.unwrap();
                     println!("{:#?}", conn);
