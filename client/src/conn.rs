@@ -22,6 +22,21 @@ const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 2 * 1024;
 
 /**
+A wrapper error for [`trillium_http::Error`] or
+[`serde_json::Error`]. Only available when the `json` crate feature is
+enabled.
+*/
+#[cfg(feature = "json")]
+#[derive(thiserror::Error, Debug)]
+pub enum ClientSerdeError {
+    #[error(transparent)]
+    HttpError(#[from] Error),
+
+    #[error(transparent)]
+    JsonError(#[from] serde_json::Error),
+}
+
+/**
 a client connection, representing both an outbound http request and a
 http response
 */
@@ -381,6 +396,11 @@ impl<C: Connector> Conn<'_, C> {
     }
 
     /**
+    chainable setter to assign the request body. deprecated in
+    preference to the renamed [`Conn::with_body`] since it wouldn't
+    make sense to set a response body on a client conn.
+
+
     ```
     env_logger::init();
     use trillium_smol::TcpConnector;
@@ -405,14 +425,54 @@ impl<C: Connector> Conn<'_, C> {
     });
     ```
     */
+    #[deprecated = "renamed as with_body. will be removed at the next minor release"]
     pub fn with_request_body(mut self, body: impl Into<Body>) -> Self {
         self.set_request_body(body);
         self
     }
 
-    // pub(crate) fn request_encoding(&self) -> &'static Encoding {
-    //     encoding(&self.request_headers)
-    // }
+    /**
+    chainable setter for the request body
+
+    ```
+    env_logger::init();
+    use trillium_smol::TcpConnector;
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+
+    let handler = |mut conn: trillium::Conn| async move {
+        let body = conn.request_body_string().await.unwrap();
+        conn.ok(format!("request body was: {}", body))
+    };
+
+    trillium_testing::with_server(handler, |url| async move {
+        let mut conn = Conn::post(url)
+            .with_body("body") //<-
+            .execute()
+            .await?;
+
+        assert_eq!(
+            conn.response_body().read_string().await?,
+            "request body was: body"
+        );
+        Ok(())
+    });
+    ```
+     */
+    pub fn with_body(mut self, body: impl Into<Body>) -> Self {
+        self.set_request_body(body);
+        self
+    }
+
+    /**
+    chainable setter for json body. this requires the `json` crate feature to be enabled.
+     */
+    #[cfg(feature = "json")]
+    pub fn with_json_body(self, body: &impl serde::Serialize) -> serde_json::Result<Self> {
+        Ok(self.with_body(serde_json::to_string(body)?).with_header(
+            trillium_http::KnownHeaderName::ContentType,
+            "application/json",
+        ))
+    }
 
     pub(crate) fn response_encoding(&self) -> &'static Encoding {
         encoding(&self.response_headers)
@@ -485,6 +545,18 @@ impl<C: Connector> Conn<'_, C> {
             None,
             encoding(&self.response_headers),
         )
+    }
+
+    /**
+    Attempt to deserialize the response body. Note that this consumes the body content.
+     */
+    #[cfg(feature = "json")]
+    pub async fn response_json<T>(&mut self) -> std::result::Result<T, ClientSerdeError>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let body = self.response_body().read_string().await?;
+        Ok(serde_json::from_str(&body)?)
     }
 
     pub(crate) fn response_content_length(&self) -> Option<u64> {
