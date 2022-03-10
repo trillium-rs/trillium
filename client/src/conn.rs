@@ -29,9 +29,11 @@ enabled.
 #[cfg(feature = "json")]
 #[derive(thiserror::Error, Debug)]
 pub enum ClientSerdeError {
+    /// A [`trillium_http::Error`]
     #[error(transparent)]
     HttpError(#[from] Error),
 
+    /// A [`serde_json::Error`]
     #[error(transparent)]
     JsonError(#[from] serde_json::Error),
 }
