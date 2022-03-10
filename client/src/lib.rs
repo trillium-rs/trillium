@@ -42,6 +42,9 @@ examples.
 mod conn;
 pub use conn::Conn;
 
+#[cfg(feature = "json")]
+pub use conn::ClientSerdeError;
+
 mod pool;
 // open an issue if you have a reason for pool to be public
 pub(crate) use pool::Pool;
