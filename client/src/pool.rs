@@ -1,8 +1,10 @@
+use hashbrown::HashMap;
+use parking_lot::{Mutex, RwLock};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     fmt::{self, Debug, Formatter},
     net::{SocketAddr, ToSocketAddrs},
-    sync::{Arc, Mutex, RwLock},
+    sync::Arc,
     time::Instant,
 };
 
@@ -62,15 +64,15 @@ impl<V> Clone for PoolSet<V> {
 
 impl<V> PoolSet<V> {
     pub fn insert(&self, entry: PoolEntry<V>) {
-        self.0.lock().unwrap().push_front(entry);
+        self.0.lock().push_front(entry);
     }
 
     pub fn len(&self) -> usize {
-        self.0.lock().unwrap().len()
+        self.0.lock().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.lock().unwrap().is_empty()
+        self.0.lock().is_empty()
     }
 }
 
@@ -78,7 +80,7 @@ impl<V> Iterator for PoolSet<V> {
     type Item = PoolEntry<V>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.lock().unwrap().pop_back()
+        self.0.lock().pop_back()
     }
 }
 
@@ -92,7 +94,7 @@ impl<V> Debug for Pool<V> {
             "Pool"
         });
 
-        for (k, v) in &*self.0.read().unwrap() {
+        for (k, v) in &*self.0.read() {
             s.field(&k.to_string(), &v.len());
         }
         s.finish()
@@ -117,26 +119,25 @@ impl<V> Pool<V> {
     // }
 
     pub fn is_empty(&self) -> bool {
-        self.0.read().unwrap().values().all(|v| v.is_empty())
+        self.0.read().values().all(|v| v.is_empty())
     }
 
     pub fn insert(&self, k: SocketAddr, entry: PoolEntry<V>) {
-        let lock = self.0.read().unwrap();
+        let lock = self.0.read();
         log::debug!("saving connection to {:?}", &k);
         if lock.contains_key(&k) {
-            lock.get(&k).unwrap().insert(entry)
+            lock.get(&k).unwrap().insert(entry);
         } else {
             let pool_set = PoolSet::default();
             pool_set.insert(entry);
             drop(lock);
-            self.0.write().unwrap().insert(k, pool_set);
+            self.0.write().insert(k, pool_set);
         }
     }
 
     fn stream_for_socket_addr(&self, addr: SocketAddr) -> Option<impl Iterator<Item = V>> {
         self.0
             .read()
-            .unwrap()
             .get(&addr)
             .map(|x| x.clone().filter_map(|v| v.take()))
     }
