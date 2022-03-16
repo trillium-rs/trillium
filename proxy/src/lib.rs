@@ -174,7 +174,12 @@ struct UpstreamUpgrade<T>(Upgrade<T>);
 #[async_trait]
 impl<C: Connector> Handler for Proxy<C> {
     async fn run(&self, mut conn: Conn) -> Conn {
-        let request_url = conn_try!(self.target.clone().join(conn.path()), conn);
+        let mut request_url = conn_try!(self.target.clone().join(conn.path()), conn);
+        let querystring = conn.querystring();
+        if !querystring.is_empty() {
+            request_url.set_query(Some(conn.querystring()));
+        }
+        log::debug!("proxying to {}", request_url);
 
         let mut client_conn = self.client.build_conn(conn.method(), request_url);
         client_conn.request_headers().extend(
