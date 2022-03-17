@@ -39,8 +39,8 @@ impl From<bool> for SendStatus {
 }
 
 impl SendStatus {
-    pub fn is_success(&self) -> bool {
-        &SendStatus::Success == self
+    pub fn is_success(self) -> bool {
+        SendStatus::Success == self
     }
 }
 
@@ -70,7 +70,7 @@ impl AfterSend {
 
 impl Drop for AfterSend {
     fn drop(&mut self) {
-        self.call(SendStatus::Failure)
+        self.call(SendStatus::Failure);
     }
 }
 
@@ -137,8 +137,22 @@ where
     represents an upgrade.
 
     See the documentation for [`Conn`] for a full example.
+
+    # Errors
+
+    This will return an error variant if:
+
+    * there is an io error when reading from the underlying transport
+    * headers are too long
+    * we are unable to parse some aspect of the request
+    * the request is an unsupported http version
+    * we cannot make sense of the headers, such as if there is a
+        `content-length` header as well as a `transfer-encoding: chunked`
+        header.
+
     */
 
+    #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn map<F, Fut>(
         transport: Transport,
         stopper: Stopper,
@@ -183,7 +197,7 @@ where
     ///
     /// stability note: this is not unlikely to be removed at some
     /// point, as this may end up being more of a trillium concern
-    /// than a trillium_http concern
+    /// than a `trillium_http` concern
     pub fn state(&self) -> &StateSet {
         &self.state
     }
@@ -193,7 +207,7 @@ where
     ///
     /// stability note: this is not unlikely to be removed at some
     /// point, as this may end up being more of a trillium concern
-    /// than a trillium_http concern
+    /// than a `trillium_http` concern
     pub fn state_mut(&mut self) -> &mut StateSet {
         &mut self.state
     }
@@ -240,7 +254,7 @@ where
     }
 
     /// retrieves the current response status code for this conn, if
-    /// it has been set. See [Conn::set_status] for example usage.
+    /// it has been set. See [`Conn::set_status`] for example usage.
     pub fn status(&self) -> Option<Status> {
         self.status
     }
@@ -254,7 +268,10 @@ where
     ```
     */
     pub fn path(&self) -> &str {
-        self.path.split('?').next().unwrap()
+        match self.path.split_once('?') {
+            Some((path, _)) => path,
+            None => &self.path,
+        }
     }
 
     /**
@@ -456,10 +473,26 @@ where
         }
     }
 
-    /// Create a new Conn from the provided transport, as well as any
-    /// bytes that have already been read from the transport, and a
-    /// Stopper instance that will be used to signal graceful
-    /// shutdown.
+    /**
+    Create a new `Conn` from the provided [`Transport`][crate::transport::Transport], as well as
+    any bytes that have already been read from the transport, and a
+    [`Stopper`] instance that will be used to signal graceful
+    shutdown.
+
+    # Errors
+
+    This will return an error variant if:
+
+    * there is an io error when reading from the underlying transport
+    * headers are too long
+    * we are unable to parse some aspect of the request
+    * the request is an unsupported http version
+    * we cannot make sense of the headers, such as if there is a
+        `content-length` header as well as a `transfer-encoding: chunked`
+        header.
+
+    */
+    #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn new(
         transport: Transport,
         bytes: Option<Vec<u8>>,
@@ -483,11 +516,13 @@ where
             return Err(Error::PartialHead);
         }
 
-        let method = httparse_req
-            .method
-            .ok_or(Error::MissingMethod)?
-            .parse()
-            .map_err(|_| Error::UnrecognizedMethod(httparse_req.method.unwrap().to_string()))?;
+        let method = match httparse_req.method {
+            Some(method) => match method.parse() {
+                Ok(method) => method,
+                Err(_) => return Err(Error::UnrecognizedMethod(method.to_string())),
+            },
+            None => return Err(Error::MissingMethod),
+        };
 
         let version = match httparse_req.version {
             Some(0) => Version::Http1_0,
@@ -549,7 +584,7 @@ where
     /// predicate function to indicate whether the connection is
     /// secure. note that this does not necessarily indicate that the
     /// transport itself is secure, as it may indicate that
-    /// trillium_http is behind a trusted reverse proxy that has
+    /// `trillium_http` is behind a trusted reverse proxy that has
     /// terminated tls and provided appropriate headers to indicate
     /// this.
     pub fn is_secure(&self) -> bool {
@@ -558,7 +593,7 @@ where
 
     /// set whether the connection should be considered secure. note
     /// that this does not necessarily indicate that the transport
-    /// itself is secure, as it may indicate that trillium_http is
+    /// itself is secure, as it may indicate that `trillium_http` is
     /// behind a trusted reverse proxy that has terminated tls and
     /// provided appropriate headers to indicate this.
     pub fn set_secure(&mut self, secure: bool) {
@@ -681,15 +716,15 @@ where
             len += bytes;
 
             if bytes == 0 {
-                if len == 0 {
-                    return Err(Error::Closed);
+                return if len == 0 {
+                    Err(Error::Closed)
                 } else {
                     log::debug!(
                         "disconnect? partial head content: \n{:?}",
                         String::from_utf8_lossy(&buf[..])
                     );
-                    return Err(Error::PartialHead);
-                }
+                    Err(Error::PartialHead)
+                };
             }
 
             if len >= MAX_HEAD_LENGTH {

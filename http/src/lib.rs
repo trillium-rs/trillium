@@ -7,7 +7,8 @@
     nonstandard_style,
     unused_qualifications
 )]
-#![warn(missing_docs)]
+#![warn(missing_docs, clippy::pedantic, clippy::perf, clippy::cargo)]
+#![allow(clippy::must_use_candidate, clippy::module_name_repetitions)]
 /*!
 This crate provides the http 1.x implementation for Trillium.
 
@@ -21,7 +22,7 @@ less stable than that of the higher level abstractions in Trillium.
 
 This is an elaborate example that demonstrates some of `trillium_http`'s
 capabilities.  Please note that trillium itself provides a much more
-usable interface on top of trillium_http, at very little cost.
+usable interface on top of `trillium_http`, at very little cost.
 
 ```
 # fn main() -> trillium_http::Result<()> {    smol::block_on(async {

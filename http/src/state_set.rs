@@ -3,9 +3,9 @@
 // Implementation is based on
 // - https://github.com/hyperium/http/blob/master/src/extensions.rs
 // - https://github.com/kardeiz/type-map/blob/master/src/lib.rs
+use hashbrown::HashMap;
 use std::{
     any::{Any, TypeId},
-    collections::HashMap,
     fmt,
     hash::{BuildHasherDefault, Hasher},
 };
@@ -60,16 +60,18 @@ impl StateSet {
             .and_then(|boxed| (boxed as Box<dyn Any>).downcast().ok().map(|boxed| *boxed))
     }
 
-    /// Gets a value from this StateSet or populates it with the provided default.
+    /// Gets a value from this `StateSet` or populates it with the
+    /// provided default.
     pub fn get_or_insert<T: Send + Sync + 'static>(&mut self, default: T) -> &mut T {
         self.0
             .entry(TypeId::of::<T>())
             .or_insert_with(|| Box::new(default))
             .downcast_mut()
-            .unwrap()
+            .expect("StateSet maintains the invariant the value associated with a given TypeId is always the type associated with that TypeId.")
     }
 
-    /// Gets a value from this StateSet or populates it with the provided default function.
+    /// Gets a value from this `StateSet` or populates it with the
+    /// provided default function.
     pub fn get_or_insert_with<F, T>(&mut self, default: F) -> &mut T
     where
         F: FnOnce() -> T,
@@ -79,7 +81,7 @@ impl StateSet {
             .entry(TypeId::of::<T>())
             .or_insert_with(|| Box::new(default()))
             .downcast_mut()
-            .unwrap()
+            .expect("StateSet maintains the invariant the value associated with a given TypeId is always the type associated with that TypeId.")
     }
 }
 

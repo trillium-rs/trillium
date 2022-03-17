@@ -3,6 +3,12 @@ name = "trillium-basic-auth"
 version = "0.1.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
+description = "basic auth for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 base64 = "0.13.0"

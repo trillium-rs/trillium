@@ -258,7 +258,7 @@ impl Hasher for DirectHasher {
 
     #[inline]
     fn finish(&self) -> u64 {
-        self.0 as u64
+        u64::from(self.0)
     }
 }
 

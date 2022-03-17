@@ -1,5 +1,5 @@
 /**
-# Unwraps an Result::Ok or returns the conn with a 500 status.
+# Unwraps an `Result::Ok` or returns the `Conn` with a 500 status.
 
 ```
 use trillium_testing::prelude::*;
@@ -40,9 +40,9 @@ macro_rules! conn_try {
 }
 
 /**
-# Unwraps an Option::Some or returns the conn.
+# Unwraps an `Option::Some` or returns the `Conn`.
 
-This is useful for gracefully exiting a Handler without
+This is useful for gracefully exiting a `Handler` without
 returning an error.
 
 ```

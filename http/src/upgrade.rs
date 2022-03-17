@@ -16,8 +16,8 @@ transport.
 Important implementation note: When reading directly from the
 transport, ensure that you read from `buffer` first if there are bytes
 in it. Alternatively, read directly from the Upgrade, as that
-AsyncRead implementation will drain the buffer first before reading
-from the transport.
+[`AsyncRead`] implementation will drain the buffer first before
+reading from the transport.
 */
 pub struct Upgrade<Transport> {
     /// The http request headers
@@ -48,7 +48,10 @@ impl<Transport> Upgrade<Transport> {
 
     /// the http request path up to but excluding any query component
     pub fn path(&self) -> &str {
-        self.path.split('?').next().unwrap()
+        match self.path.split_once('?') {
+            Some((path, _)) => path,
+            None => &self.path,
+        }
     }
 
     /**
@@ -155,7 +158,7 @@ impl<Transport: AsyncRead + Unpin> AsyncRead for Upgrade<Transport> {
                     match Pin::new(&mut self.transport).poll_read(cx, &mut buf[len..]) {
                         Poll::Ready(Ok(e)) => Poll::Ready(Ok(e + len)),
                         Poll::Pending => Poll::Ready(Ok(len)),
-                        other => other,
+                        Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
                     }
                 }
             }

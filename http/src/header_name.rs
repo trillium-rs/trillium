@@ -18,24 +18,26 @@ pub(crate) enum HeaderNameInner<'a> {
     KnownHeader(KnownHeaderName),
     UnknownHeader(SmartCow<'a>),
 }
+use crate::Error;
+use HeaderNameInner::{KnownHeader, UnknownHeader};
 
 impl<'a> HeaderName<'a> {
     /// Convert a potentially-borrowed headername to a static
     /// headername _by value_.
+    #[must_use]
     pub fn into_owned(self) -> HeaderName<'static> {
         HeaderName(match self.0 {
-            HeaderNameInner::KnownHeader(known) => HeaderNameInner::KnownHeader(known),
-            HeaderNameInner::UnknownHeader(smartcow) => {
-                HeaderNameInner::UnknownHeader(smartcow.into_owned())
-            }
+            KnownHeader(known) => KnownHeader(known),
+            UnknownHeader(smartcow) => UnknownHeader(smartcow.into_owned()),
         })
     }
 
     /// Convert a potentially-borrowed headername to a static
     /// headername _by cloning if needed from a borrow_. If you have
     /// ownership of a headername with a non-static lifetime, it is
-    /// preferable to use into_owned. This is the equivalent of
+    /// preferable to use `into_owned`. This is the equivalent of
     /// `self.clone().into_owned()`.
+    #[must_use]
     pub fn to_owned(&self) -> HeaderName<'static> {
         self.clone().into_owned()
     }
@@ -44,10 +46,8 @@ impl<'a> HeaderName<'a> {
 impl PartialEq for HeaderName<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
-            (HeaderNameInner::KnownHeader(kh1), HeaderNameInner::KnownHeader(kh2)) => *kh1 == *kh2,
-            (HeaderNameInner::UnknownHeader(u1), HeaderNameInner::UnknownHeader(u2)) => {
-                u1.eq_ignore_ascii_case(&*u2)
-            }
+            (KnownHeader(kh1), KnownHeader(kh2)) => *kh1 == *kh2,
+            (UnknownHeader(u1), UnknownHeader(u2)) => u1.eq_ignore_ascii_case(&*u2),
             _ => false,
         }
     }
@@ -56,8 +56,8 @@ impl PartialEq for HeaderName<'_> {
 impl PartialEq<KnownHeaderName> for HeaderName<'_> {
     fn eq(&self, other: &KnownHeaderName) -> bool {
         match &self.0 {
-            HeaderNameInner::KnownHeader(k) => other == k,
-            _ => false,
+            KnownHeader(k) => other == k,
+            UnknownHeader(_) => false,
         }
     }
 }
@@ -65,8 +65,8 @@ impl PartialEq<KnownHeaderName> for HeaderName<'_> {
 impl PartialEq<KnownHeaderName> for &HeaderName<'_> {
     fn eq(&self, other: &KnownHeaderName) -> bool {
         match &self.0 {
-            HeaderNameInner::KnownHeader(k) => other == k,
-            _ => false,
+            KnownHeader(k) => other == k,
+            UnknownHeader(_) => false,
         }
     }
 }
@@ -74,8 +74,8 @@ impl PartialEq<KnownHeaderName> for &HeaderName<'_> {
 impl PartialEq<HeaderName<'_>> for KnownHeaderName {
     fn eq(&self, other: &HeaderName) -> bool {
         match &other.0 {
-            HeaderNameInner::KnownHeader(k) => self == k,
-            _ => false,
+            KnownHeader(k) => self == k,
+            UnknownHeader(_) => false,
         }
     }
 }
@@ -83,8 +83,8 @@ impl PartialEq<HeaderName<'_>> for KnownHeaderName {
 impl Hash for HeaderName<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match &self.0 {
-            HeaderNameInner::KnownHeader(k) => k.hash(state),
-            HeaderNameInner::UnknownHeader(u) => {
+            KnownHeader(k) => k.hash(state),
+            UnknownHeader(u) => {
                 for byte in u.bytes().map(|b| b.to_ascii_lowercase()) {
                     state.write_u8(byte);
                 }
@@ -98,8 +98,8 @@ impl Eq for HeaderName<'_> {}
 impl From<String> for HeaderName<'static> {
     fn from(s: String) -> Self {
         Self(match s.parse::<KnownHeaderName>() {
-            Ok(khn) => HeaderNameInner::KnownHeader(khn),
-            Err(()) => HeaderNameInner::UnknownHeader(SmartCow::Owned(s.into())),
+            Ok(khn) => KnownHeader(khn),
+            Err(()) => UnknownHeader(SmartCow::Owned(s.into())),
         })
     }
 }
@@ -107,29 +107,29 @@ impl From<String> for HeaderName<'static> {
 impl<'a> From<&'a str> for HeaderName<'a> {
     fn from(s: &'a str) -> Self {
         Self(match s.parse::<KnownHeaderName>() {
-            Ok(khn) => HeaderNameInner::KnownHeader(khn),
-            Err(_e) => HeaderNameInner::UnknownHeader(SmartCow::Borrowed(s)),
+            Ok(khn) => KnownHeader(khn),
+            Err(_e) => UnknownHeader(SmartCow::Borrowed(s)),
         })
     }
 }
 
 impl From<KnownHeaderName> for HeaderName<'_> {
     fn from(khn: KnownHeaderName) -> Self {
-        Self(HeaderNameInner::KnownHeader(khn))
+        Self(KnownHeader(khn))
     }
 }
 
 impl FromStr for HeaderName<'static> {
-    type Err = crate::Error;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.is_ascii() {
             Ok(Self(match s.parse::<KnownHeaderName>() {
-                Ok(known) => HeaderNameInner::KnownHeader(known),
-                Err(_) => HeaderNameInner::UnknownHeader(SmartCow::Owned(SmartString::from(s))),
+                Ok(known) => KnownHeader(known),
+                Err(_) => UnknownHeader(SmartCow::Owned(SmartString::from(s))),
             }))
         } else {
-            Err(crate::Error::MalformedHeader(s.to_string().into()))
+            Err(Error::MalformedHeader(s.to_string().into()))
         }
     }
 }
@@ -137,8 +137,8 @@ impl FromStr for HeaderName<'static> {
 impl AsRef<str> for HeaderName<'_> {
     fn as_ref(&self) -> &str {
         match &self.0 {
-            HeaderNameInner::KnownHeader(khn) => khn.as_ref(),
-            HeaderNameInner::UnknownHeader(u) => u.as_ref(),
+            KnownHeader(khn) => khn.as_ref(),
+            UnknownHeader(u) => u.as_ref(),
         }
     }
 }
@@ -163,7 +163,7 @@ macro_rules! known_headers {
     ) => {
 
         /// A short nonehaustive enum of headers that trillium can
-        /// represent as a u8. Use a KnownHeaderName variant instead
+        /// represent as a u8. Use a `KnownHeaderName` variant instead
         /// of a &'static str anywhere possible, as it allows trillium
         /// to skip parsing the header entirely.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

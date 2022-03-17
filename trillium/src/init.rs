@@ -151,7 +151,7 @@ impl<T: Handler> Handler for Init<T> {
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        self.0.upgrade(upgrade).await
+        self.0.upgrade(upgrade).await;
     }
 
     fn name(&self) -> Cow<'static, str> {

@@ -4,10 +4,11 @@
     missing_copy_implementations,
     rustdoc::missing_crate_level_docs,
     missing_debug_implementations,
-    missing_docs,
     nonstandard_style,
     unused_qualifications
 )]
+#![warn(missing_docs, clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![allow(clippy::must_use_candidate, clippy::module_name_repetitions)]
 
 /*!
 # Welcome to the `trillium` crate!
@@ -47,7 +48,7 @@ pub use trillium_http::{
 # A HTTP protocol upgrade
 
 This exists to erase the generic transport for convenience using a
-[BoxedTransport](trillium_http::transport::BoxedTransport). See
+[`BoxedTransport`](trillium_http::transport::BoxedTransport). See
 [`Upgrade`](trillium_http::Upgrade) for additional documentation
 */
 pub type Upgrade = trillium_http::Upgrade<trillium_http::transport::BoxedTransport>;

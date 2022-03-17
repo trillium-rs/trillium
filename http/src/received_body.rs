@@ -97,7 +97,14 @@ where
     Note that this can only be performed once per Conn, as the
     underlying data is not cached anywhere. This is the only copy of
     the body contents.
+
+    # Errors
+
+    This will return an error if there is an IO error on the
+    underlying transport such as a disconnect
+
      */
+    #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn read_string(self) -> crate::Result<String> {
         let encoding = self.encoding();
         let bytes = self.read_bytes().await?;
@@ -108,7 +115,7 @@ where
     fn owns_transport(&self) -> bool {
         self.transport
             .as_ref()
-            .map(|transport| transport.is_owned())
+            .map(MutCow::is_owned)
             .unwrap_or_default()
     }
 
@@ -119,7 +126,13 @@ where
     You can use this in conjunction with `encoding` if you need
     different handling of malformed character encoding than the lossy
     conversion provided by `read_string`.
+
+    # Errors
+
+    This will return an error if there is an IO error on the
+    underlying transport such as a disconnect
     */
+    #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn read_bytes(mut self) -> crate::Result<Vec<u8>> {
         let mut vec = if let Some(len) = self.content_length {
             Vec::with_capacity(len.try_into().unwrap_or(usize::max_value()))
@@ -154,7 +167,13 @@ where
     important for http1.1 keepalive, but most of the time you do not
     need to directly call this. It returns the number of bytes
     consumed.
+
+    # Errors
+
+    This will return an [`std::io::Result::Err`] if there is an io
+    error on the underlying transport, such as a disconnect
     */
+    #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn drain(self) -> io::Result<u64> {
         io::copy(self, io::sink()).await
     }
@@ -163,7 +182,7 @@ where
 impl<T> ReceivedBody<'static, T> {
     /// takes the static transport from this received body
     pub fn take_transport(&mut self) -> Option<T> {
-        self.transport.take().map(|t| t.unwrap_owned())
+        self.transport.take().map(MutCow::unwrap_owned)
     }
 }
 
@@ -196,7 +215,7 @@ where
                 match Pin::new(transport).poll_read(cx, &mut buf[len..]) {
                     Ready(Ok(e)) => Ready(Ok(e + len)),
                     Pending => Ready(Ok(len)),
-                    other => other,
+                    other @ Ready(_) => other,
                 }
             }
         }
@@ -205,6 +224,12 @@ where
     }
 }
 
+#[allow(
+    // the clippy::only_used_in_recursion seems like a false positive,
+    // it thinks `total` is unused
+    clippy::only_used_in_recursion,
+    clippy::cast_possible_truncation
+)]
 fn chunk_decode(
     remaining: usize,
     mut total: usize,
@@ -235,6 +260,12 @@ fn chunk_decode(
         match httparse::parse_chunk_size(&buf[chunk_start..]) {
             Ok(Status::Complete((framing_bytes, chunk_size))) => {
                 chunk_start += framing_bytes;
+                // the #[allow(clippy::cast_possible_truncation)]
+                // applied to this function is for the following
+                // line. This may in fact be a bug, and we do not
+                // handle chunks that are longer than a usize. There
+                // is no reason 32bit platforms should not be able
+                // to stream chunks longer than u32::MAX.
                 chunk_end = 2 + chunk_start + chunk_size as usize;
 
                 if chunk_size == 0 {
@@ -274,7 +305,7 @@ fn chunk_decode(
 
     let mut bytes = 0;
 
-    for range_to_keep in ranges_to_keep.drain(..) {
+    for range_to_keep in ranges_to_keep {
         let new_bytes = bytes + range_to_keep.end - range_to_keep.start;
         buf.copy_within(range_to_keep, bytes);
         bytes = new_bytes;
@@ -306,7 +337,10 @@ where
                     bytes += new_bytes;
                     vec.extend(iter::repeat(0).take(bytes + STREAM_READ_BUF_LENGTH - vec.len()));
                 }
-                _ => panic!(),
+                Ready(Err(error)) => {
+                    log::error!("got {error:?} in ReceivedBody stream");
+                    return Ready(None);
+                }
             }
         }
     }
@@ -316,6 +350,7 @@ impl<'conn, Transport> AsyncRead for ReceivedBody<'conn, Transport>
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
+    #[allow(clippy::cast_possible_truncation)]
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -351,6 +386,13 @@ where
                 total_length,
             } => {
                 let len = buf.len();
+                // the #[allow(clippy::cast_possible_truncation)] on
+                // this function is for this line. this is ok because
+                // we are taking the min(remaining bytes, buffer
+                // length) and the buffer length will always be
+                // usize. As a result, if we truncate when we cast,
+                // the result of the min function will always be the
+                // same
                 let remaining = (total_length - current_index) as usize;
                 let buf = &mut buf[..len.min(remaining)];
                 let bytes = ready!(self.read_raw(cx, buf)?);

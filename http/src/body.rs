@@ -7,7 +7,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use BodyType::*;
+use BodyType::{Empty, Static, Streaming};
 
 /// The trillium representation of a http body. This can contain
 /// either `&'static [u8]` content, `Vec<u8>` content, or a boxed
@@ -16,7 +16,7 @@ use BodyType::*;
 pub struct Body(BodyType);
 
 impl Body {
-    /// Construct a new body from a streaming (AsyncRead) source. If
+    /// Construct a new body from a streaming [`AsyncRead`] source. If
     /// you have the body content in memory already, prefer
     /// [`Body::new_static`] or one of the From conversions.
     pub fn new_streaming(
@@ -50,9 +50,9 @@ impl Body {
         }
     }
 
-    /// Transform this Body into a dyn AsyncRead. This will wrap
-    /// static content in a Cursor. Note that this is different from
-    /// reading directly from the Body, which includes chunked
+    /// Transform this Body into a dyn `AsyncRead`. This will wrap
+    /// static content in a [`Cursor`]. Note that this is different
+    /// from reading directly from the Body, which includes chunked
     /// encoding.
     pub fn into_reader(self) -> Pin<Box<dyn AsyncRead + Send + Sync>> {
         match self.0 {
@@ -62,11 +62,22 @@ impl Body {
         }
     }
 
-    /// Consume this body and return the full content. If the body was
-    /// constructed with `[Body::new_streaming`], this will read the
-    /// entire streaming body into memory, awaiting the streaming
-    /// source's completion. This function will return an error if a
-    /// streaming body has already been read to completion.
+    /**
+    Consume this body and return the full content. If the body was
+    constructed with `[Body::new_streaming`], this will read the
+    entire streaming body into memory, awaiting the streaming
+    source's completion. This function will return an error if a
+    streaming body has already been read to completion.
+
+    # Errors
+
+    This returns an error variant if either of the following conditions are met:
+
+    * there is an io error when reading from the underlying transport such as a disconnect
+    * the body has already been read to completion
+
+    */
+    #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn into_bytes(self) -> Result<Cow<'static, [u8]>> {
         match self.0 {
             Static { content, .. } => Ok(content),
@@ -89,7 +100,7 @@ impl Body {
 
             Empty => Ok(Cow::Borrowed(b"")),
 
-            _ => Err(Error::new(
+            Streaming { .. } => Err(Error::new(
                 ErrorKind::Other,
                 "body already read to completion",
             )),
@@ -124,6 +135,11 @@ impl Body {
     }
 }
 
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss
+)]
 fn max_bytes_to_read(buf_len: usize) -> usize {
     assert!(
         buf_len >= 6,
@@ -132,11 +148,24 @@ fn max_bytes_to_read(buf_len: usize) -> usize {
         buf_len
     );
 
+    // #[allow(clippy::cast_precision_loss)] applied to the function
+    // is for this line. We do not expect our buffers to be on the
+    // order of petabytes, so we will not fall outside of the range of
+    // integers that can be represented by f64
     let bytes_remaining_after_two_cr_lns = (buf_len - 4) as f64;
 
+    // #[allow(clippy::cast_sign_loss)] applied to the function is for
+    // this line. This is ok because we know buf_len is already a
+    // usize and we are just converting it to an f64 in order to do
+    // float log2(x)/4
+    //
     // the maximum number of bytes that the hex representation of remaining bytes might take
-    let max_bytes_of_hex_framing = bytes_remaining_after_two_cr_lns.log2() / 4f64;
+    let max_bytes_of_hex_framing = (bytes_remaining_after_two_cr_lns).log2() / 4f64;
 
+    // #[allow(clippy::cast_sign_loss)] applied to the function is for
+    // this line.  This is ok because max_bytes_of_hex_framing will
+    // always be smaller than bytes_remaining_after_two_cr_lns, and so
+    // there is no risk of sign loss
     (bytes_remaining_after_two_cr_lns - max_bytes_of_hex_framing.ceil()) as usize
 }
 

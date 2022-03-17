@@ -48,10 +48,10 @@ conventional in other rust projects.
 Every trillium Conn contains a state type which is a set that contains
 at most one element for each type. State is the primary way that
 handlers attach data to a conn as it passes through a tuple
-handler. In general, state access should generally be implemented by
-libraries using a private type and exposed with a ConnExt trait. See
-[library patterns](https://trillium.rs/library_patterns.html#state)
-for more elaboration and examples.
+handler. State access should generally be implemented by libraries
+using a private type and exposed with a `ConnExt` trait. See [library
+patterns](https://trillium.rs/library_patterns.html#state) for more
+elaboration and examples.
 
 ## In relation to [`trillium_http::Conn`]
 
@@ -92,7 +92,7 @@ impl<T: Transport + 'static> From<trillium_http::Conn<T>> for Conn {
 
 impl Conn {
     /**
-    Conn::ok is a convenience function for the common pattern of
+    `Conn::ok` is a convenience function for the common pattern of
     setting a body and a 200 status in one call. It is exactly
     identical to `conn.with_status(200).with_body(body).halt()`
     ```
@@ -104,12 +104,13 @@ impl Conn {
     assert!(conn.is_halted());
     ```
      */
-    pub fn ok(self, body: impl Into<Body>) -> Conn {
+    #[must_use]
+    pub fn ok(self, body: impl Into<Body>) -> Self {
         self.with_status(200).with_body(body).halt()
     }
 
     /**
-    returns the response status for this conn, if it has been set.
+    returns the response status for this `Conn`, if it has been set.
     ```
     use trillium_testing::prelude::*;
     let mut conn = get("/").on(&());
@@ -128,7 +129,7 @@ impl Conn {
     }
 
     /**
-    sets the response status for this conn and returns it. note that
+    sets the response status for this `Conn` and returns it. note that
     this does not set the halted status.
 
     ```
@@ -143,6 +144,7 @@ impl Conn {
     ```
      */
 
+    #[must_use]
     pub fn with_status(mut self, status: impl TryInto<Status>) -> Self {
         self.set_status(status);
         self
@@ -150,7 +152,7 @@ impl Conn {
 
     /**
     Sets the response body from any `impl Into<Body>` and returns the
-    conn for fluent chaining. Note that this does not set the response
+    `Conn` for fluent chaining. Note that this does not set the response
     status or halted. See [`Conn::ok`] for a function that does both
     of those.
 
@@ -163,6 +165,7 @@ impl Conn {
     ```
     */
 
+    #[must_use]
     pub fn with_body(mut self, body: impl Into<Body>) -> Self {
         self.set_body(body);
         self
@@ -184,7 +187,7 @@ impl Conn {
     }
 
     /**
-    Removes the response body from the conn
+    Removes the response body from the `Conn`
 
     ```
     use trillium_testing::prelude::*;
@@ -230,7 +233,8 @@ impl Conn {
     }
 
     /// Puts a new type into the state set and returns the
-    /// conn. this is useful for fluent chaining
+    /// `Conn`. this is useful for fluent chaining
+    #[must_use]
     pub fn with_state<T: Send + Sync + 'static>(mut self, val: T) -> Self {
         self.set_state(val);
         self
@@ -255,9 +259,16 @@ impl Conn {
     }
 
     /**
-    returns a [ReceivedBody] that references this conn. the conn
+    Returns a [ReceivedBody] that references this `Conn`. The `Conn`
     retains all data and holds the singular transport, but the
-    ReceivedBody provides an interface to read body content
+    [`ReceivedBody`] provides an interface to read body content.
+
+    See also: [`Conn::request_body_string`] for a convenience function
+    when the content is expected to be utf8.
+
+
+    # Examples
+
     ```
     use trillium_testing::prelude::*;
     let mut conn = get("/").with_request_body("request body").on(&());
@@ -274,7 +285,17 @@ impl Conn {
     }
 
     /**
-    Convenience function to read the content of a request body as a String.
+
+    Convenience function to read the content of a request body as a `String`.
+
+    # Errors
+
+    This will return an error variant if either there is an IO failure
+    on the underlying transport or if the body content is not a utf8
+    string.
+
+    # Examples
+
     ```
     use trillium_testing::prelude::*;
     let mut conn = get("/").with_request_body("request body").on(&());
@@ -284,7 +305,7 @@ impl Conn {
     # });
     ```
     */
-
+    #[allow(clippy::missing_errors_doc)] // this is a false positive
     pub async fn request_body_string(&mut self) -> trillium_http::Result<String> {
         self.request_body().await.read_string().await
     }
@@ -303,7 +324,7 @@ impl Conn {
     ```
     */
     pub fn response_len(&self) -> Option<u64> {
-        self.inner.response_body().and_then(|b| b.len())
+        self.inner.response_body().and_then(Body::len)
     }
 
     /**
@@ -347,6 +368,7 @@ impl Conn {
     });
     ```
     */
+    #[must_use]
     pub fn with_header(
         mut self,
         header_name: impl Into<HeaderName<'static>>,
@@ -362,10 +384,7 @@ impl Conn {
     routers.
     */
     pub fn path(&self) -> &str {
-        self.path
-            .last()
-            .map(|p| &**p)
-            .unwrap_or_else(|| self.inner.path())
+        self.path.last().map_or_else(|| self.inner.path(), |p| &**p)
     }
 
     /**
@@ -398,6 +417,7 @@ impl Conn {
     assert!(conn.is_halted());
     ```
     */
+    #[must_use]
     pub fn halt(mut self) -> Self {
         self.set_halted(true);
         self
@@ -419,14 +439,14 @@ impl Conn {
     }
 
     /// retrieves the halted state of this conn.  see [`Conn::halt`].
-    pub fn is_halted(&self) -> bool {
+    pub const fn is_halted(&self) -> bool {
         self.halted
     }
 
     /// predicate function to indicate whether the connection is
     /// secure. note that this does not necessarily indicate that the
     /// transport itself is secure, as it may indicate that
-    /// trillium_http is behind a trusted reverse proxy that has
+    /// `trillium_http` is behind a trusted reverse proxy that has
     /// terminated tls and provided appropriate headers to indicate
     /// this.
     pub fn is_secure(&self) -> bool {
@@ -437,10 +457,10 @@ impl Conn {
     /// [`trillium_http::Conn`]. please open an issue if you need to do
     /// this in application code.
     ///
-    /// stability note: hopefully this can go away at some point,
-    /// but for now is an escape hatch in case trillium_http::Conn
-    /// presents interface that cannot be reached otherwise.
-    pub fn inner(&self) -> &trillium_http::Conn<BoxedTransport> {
+    /// stability note: hopefully this can go away at some point, but
+    /// for now is an escape hatch in case `trillium_http::Conn`
+    /// presents interfaces that cannot be reached otherwise.
+    pub const fn inner(&self) -> &trillium_http::Conn<BoxedTransport> {
         &self.inner
     }
 
@@ -448,14 +468,14 @@ impl Conn {
     /// [`trillium_http::Conn`]. please open an issue if you need to
     /// do this in application code.
     ///
-    /// stability note: hopefully this can go away at some point,
-    /// but for now is an escape hatch in case trillium_http::Conn
-    /// presents interface that cannot be reached otherwise.
+    /// stability note: hopefully this can go away at some point, but
+    /// for now is an escape hatch in case `trillium_http::Conn`
+    /// presents interfaces that cannot be reached otherwise.
     pub fn inner_mut(&mut self) -> &mut trillium_http::Conn<BoxedTransport> {
         &mut self.inner
     }
 
-    /// transforms this trillium::Conn into a `trillium_http::Conn`
+    /// transforms this `trillium::Conn` into a `trillium_http::Conn`
     /// with the specified transport type. Please note that this will
     /// panic if you attempt to downcast from trillium's boxed
     /// transport into the wrong transport type. Also note that this
