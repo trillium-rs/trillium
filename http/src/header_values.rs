@@ -61,8 +61,9 @@ where
 }
 
 impl HeaderValues {
-    /// Builds an empty HeaderValues. This is not generally necessary
-    /// in application code. Using a From implementation is preferable.
+    /// Builds an empty `HeaderValues`. This is not generally necessary
+    /// in application code. Using a `From` implementation is preferable.
+    #[must_use]
     pub fn new() -> Self {
         Self(SmallVec::with_capacity(1))
     }
@@ -70,7 +71,7 @@ impl HeaderValues {
     /// If there is only a single value, returns that header as a
     /// borrowed string slice if it is utf8. If there are more than
     /// one header value, or if the singular header value is not utf8,
-    /// as_str returns None.
+    /// `as_str` returns None.
     pub fn as_str(&self) -> Option<&str> {
         self.one().and_then(HeaderValue::as_str)
     }
@@ -79,10 +80,10 @@ impl HeaderValues {
         self.one().and_then(HeaderValue::as_lower)
     }
 
-    /// If there is only a single HeaderValue inside this
-    /// HeaderValues, `one` returns a reference to that value. If
-    /// there are more than one header value inside this headervalues,
-    /// `one` returns None.
+    /// If there is only a single `HeaderValue` inside this
+    /// `HeaderValues`, `one` returns a reference to that value. If
+    /// there are more than one header value inside this
+    /// `HeaderValues`, `one` returns None.
     pub fn one(&self) -> Option<&HeaderValue> {
         if self.len() == 1 {
             self.0.first()
@@ -91,12 +92,12 @@ impl HeaderValues {
         }
     }
 
-    /// Add another header value to this HeaderValues.
+    /// Add another header value to this `HeaderValues`.
     pub fn append(&mut self, value: impl Into<HeaderValue>) {
         self.0.push(value.into());
     }
 
-    /// Adds any number of other header values to this header values.
+    /// Adds any number of other header values to this `HeaderValues`.
     pub fn extend(&mut self, values: impl Into<HeaderValues>) {
         let values = values.into();
         self.0.extend(values);
@@ -138,6 +139,6 @@ where
     HV: Into<HeaderValue>,
 {
     fn from(v: Vec<HV>) -> Self {
-        Self(v.into_iter().map(|hv| hv.into()).collect())
+        Self(v.into_iter().map(Into::into).collect())
     }
 }

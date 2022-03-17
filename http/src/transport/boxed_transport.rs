@@ -13,7 +13,7 @@ use std::{
 /**
 # A type for dyn [`Transport`][crate::transport::Transport] trait objects
 
-BoxedTransport represents a `Box<dyn Transport>` that supports
+`BoxedTransport` represents a `Box<dyn Transport>` that supports
 downcasting to the original Transport. This is used in trillium to
 erase the generic on Conn, in order to avoid writing `Conn<TcpStream>`
 throughout an application.
@@ -65,8 +65,9 @@ impl BoxedTransport {
     T. This will only succeed if T is the type that was originally
     passed to [`BoxedTransport::new`], and will return None otherwise
 
-    see [BoxedTransport::new] for example usage
+    see [`BoxedTransport::new`] for example usage
     */
+    #[must_use = "downcasting takes the inner transport, so you should use it"]
     pub fn downcast<T: 'static>(self) -> Option<Box<T>> {
         let inner: Box<dyn Any> = self.0.as_box_any();
         inner.downcast().ok()

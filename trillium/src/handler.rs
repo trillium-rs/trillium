@@ -174,7 +174,7 @@ impl Handler for Box<dyn Handler> {
     }
 
     async fn init(&mut self, info: &mut Info) {
-        self.as_mut().init(info).await
+        self.as_mut().init(info).await;
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
@@ -190,7 +190,7 @@ impl Handler for Box<dyn Handler> {
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        self.as_ref().upgrade(upgrade).await
+        self.as_ref().upgrade(upgrade).await;
     }
 }
 
@@ -214,10 +214,10 @@ impl<H: Handler> Handler for Arc<H> {
     }
 
     async fn init(&mut self, info: &mut Info) {
-        Arc::<H>::get_mut(self)
+        Self::get_mut(self)
             .expect("cannot call init when there are already clones of an Arc<Handler>")
             .init(info)
-            .await
+            .await;
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
@@ -233,7 +233,7 @@ impl<H: Handler> Handler for Arc<H> {
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        self.as_ref().upgrade(upgrade).await
+        self.as_ref().upgrade(upgrade).await;
     }
 }
 
@@ -258,14 +258,14 @@ impl<H: Handler> Handler for Vec<H> {
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
         for handler in self.iter().rev() {
-            conn = handler.before_send(conn).await
+            conn = handler.before_send(conn).await;
         }
         conn
     }
 
     fn name(&self) -> Cow<'static, str> {
         self.iter()
-            .map(|v| v.name())
+            .map(Handler::name)
             .collect::<Vec<_>>()
             .join(",")
             .into()
@@ -277,7 +277,7 @@ impl<H: Handler> Handler for Vec<H> {
 
     async fn upgrade(&self, upgrade: Upgrade) {
         if let Some(handler) = self.iter().find(|g| g.has_upgrade(&upgrade)) {
-            handler.upgrade(upgrade).await
+            handler.upgrade(upgrade).await;
         }
     }
 }
@@ -320,7 +320,7 @@ impl<H: Handler> Handler for Option<H> {
 
     async fn init(&mut self, info: &mut Info) {
         if let Some(handler) = self {
-            handler.init(info).await
+            handler.init(info).await;
         }
     }
 

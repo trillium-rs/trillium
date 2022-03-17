@@ -84,8 +84,9 @@ impl<T> State<T>
 where
     T: Clone + Send + Sync + 'static,
 {
-    /// Constructs a new State handler from any Clone + Send + Sync +
-    /// 'static
+    /// Constructs a new State handler from any `Clone` + `Send` + `Sync` +
+    /// `'static`
+    #[allow(clippy::missing_const_for_fn)] // until const_fn stabilized
     pub fn new(t: T) -> Self {
         Self(t)
     }
@@ -93,6 +94,7 @@ where
 
 /// Constructs a new [`State`] handler from any Clone + Send + Sync +
 /// 'static. Alias for [`State::new`]
+#[allow(clippy::missing_const_for_fn)] // until const_fn stabilized
 pub fn state<T: Clone + Send + Sync + 'static>(t: T) -> State<T> {
     State::new(t)
 }

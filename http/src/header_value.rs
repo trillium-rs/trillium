@@ -3,7 +3,8 @@ use smartcow::SmartCow;
 
 use std::fmt::{Debug, Display, Formatter};
 
-/// A HeaderValue represents
+/// A `HeaderValue` represents the right hand side of a single `name:
+/// value` pair.
 #[derive(Eq, PartialEq, Clone)]
 pub struct HeaderValue(HeaderValueInner);
 
@@ -25,7 +26,7 @@ impl Debug for HeaderValue {
 impl HeaderValue {
     /// Returns this header value as a &str if it is utf8, None
     /// otherwise. If you need to convert non-utf8 bytes to a string
-    /// somehow, match directly on the HeaderValue as an enum and
+    /// somehow, match directly on the `HeaderValue` as an enum and
     /// handle that case. If you need a byte slice regardless of
     /// whether it's utf8, use the `AsRef<[u8]>` impl
     pub fn as_str(&self) -> Option<&str> {

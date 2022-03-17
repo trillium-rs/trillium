@@ -57,9 +57,9 @@ impl Info {
         &self.listener_description
     }
 
-    /// Returns the local_addr of a bound tcp listener, if such a
+    /// Returns the `local_addr` of a bound tcp listener, if such a
     /// thing exists for this server
-    pub fn tcp_socket_addr(&self) -> Option<&SocketAddr> {
+    pub const fn tcp_socket_addr(&self) -> Option<&SocketAddr> {
         self.tcp_socket_addr.as_ref()
     }
 
@@ -81,7 +81,7 @@ impl From<&str> for Info {
         Self {
             server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
             listener_description: String::from(description),
-            ..Default::default()
+            ..Self::default()
         }
     }
 }

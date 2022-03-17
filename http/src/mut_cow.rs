@@ -23,7 +23,7 @@ impl<'a, T> MutCow<'a, T> {
     pub(crate) fn unwrap_owned(self) -> T {
         match self {
             MutCow::Owned(t) => t,
-            _ => panic!("attempted to unwrap a borrow"),
+            MutCow::Borrowed(_) => panic!("attempted to unwrap a borrow"),
         }
     }
 }

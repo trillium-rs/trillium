@@ -27,7 +27,7 @@ impl Synthetic {
 
     /// predicate to determine if this synthetic contains no content
     pub fn is_empty(&self) -> bool {
-        self.0.as_ref().map(|v| v.is_empty()).unwrap_or(true)
+        self.0.as_ref().map_or(true, Vec::is_empty)
     }
 }
 
@@ -151,6 +151,6 @@ impl Conn<Synthetic> {
             transport.len().unwrap_or_default().to_string(),
         );
         self.transport = transport;
-        self.request_body_state = Default::default();
+        self.request_body_state = ReceivedBodyState::default();
     }
 }
