@@ -1,22 +1,19 @@
-use std::{
-    collections::BTreeSet,
-    sync::{Arc, RwLock},
-};
-
 use crate::ChannelEvent;
+use dashmap::DashSet;
+use std::sync::Arc;
 
 /**
 A data structure that tracks what topics a given client is subscribed to.
 */
 #[derive(Clone, Default, Debug)]
-pub struct Subscriptions(Arc<RwLock<BTreeSet<String>>>);
+pub struct Subscriptions(Arc<DashSet<String>>);
 impl Subscriptions {
     /**
     adds the provided topic to the set of subscriptions. please note
     that this is case sensitive .
      */
     pub fn join(&self, topic: String) {
-        self.0.write().unwrap().insert(topic);
+        self.0.insert(topic);
     }
 
     /**
@@ -24,7 +21,7 @@ impl Subscriptions {
     previously subscribed. please note that this is case sensitive
      */
     pub fn leave(&self, topic: &str) {
-        self.0.write().unwrap().remove(topic);
+        self.0.remove(topic);
     }
 
     /**
@@ -34,6 +31,6 @@ impl Subscriptions {
     match).
      */
     pub fn subscribes(&self, event: &ChannelEvent) -> bool {
-        event.is_system_event() || self.0.read().unwrap().contains(event.topic())
+        event.is_system_event() || self.0.contains(event.topic())
     }
 }
