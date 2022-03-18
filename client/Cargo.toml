@@ -26,8 +26,8 @@ mime = "0.3.16"
 serde_json = { version = "1.0.79", optional = true }
 serde = { version = "1.0.136", optional = true }
 thiserror = { version = "1.0.30", optional = true }
-hashbrown = "0.12.0"
 parking_lot = "0.12.0"
+dashmap = "5.2.0"
 
 [dependencies.trillium-http]
 path = "../http"
