@@ -61,4 +61,4 @@ mod info;
 pub use info::Info;
 
 mod init;
-pub use init::Init;
+pub use init::{init, Init};

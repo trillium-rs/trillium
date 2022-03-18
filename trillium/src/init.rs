@@ -164,3 +164,13 @@ impl<T: Handler> Handler for Init<T> {
         }
     }
 }
+
+/// alias for [`Init::new`]
+pub fn init<T, F, Fut>(init: F) -> Init<T>
+where
+    F: Fn(Info) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = T> + Send + 'static,
+    T: Handler,
+{
+    Init::new(init)
+}
