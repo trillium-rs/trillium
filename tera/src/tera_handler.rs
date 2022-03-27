@@ -75,6 +75,12 @@ impl TeraHandler {
     pub(crate) fn tera(&self) -> &Tera {
         &*self.0
     }
+
+    /// Attempts to obtain a mutable reference to the Tera instance
+    /// See [`Arc::get_mut`] for more information.
+    pub fn tera_mut(&mut self) -> Option<&mut Tera> {
+        Arc::get_mut(&mut self.0)
+    }
 }
 
 #[async_trait]
