@@ -742,7 +742,7 @@ where
 
     fn should_close(&self) -> bool {
         let request_connection = self.request_headers.get_lower(Connection);
-        let response_connection = self.request_headers.get_lower(Connection);
+        let response_connection = self.response_headers.get_lower(Connection);
 
         match (
             request_connection.as_deref(),
