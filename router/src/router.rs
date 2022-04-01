@@ -179,9 +179,14 @@ assert_not_handled!(",
             )
         );
     };
+
     ($fn_name:ident, $method:ident, $doc_comment:expr) => {
         #[doc = $doc_comment]
-        pub fn $fn_name(mut self, path: &'static str, handler: impl Handler) -> Self {
+        pub fn $fn_name<R>(mut self, path: R, handler: impl Handler) -> Self
+        where
+            R: TryInto<RouteSpec>,
+            R::Error: Debug,
+        {
             self.add(path, Method::$method, handler);
             self
         }
@@ -291,29 +296,38 @@ impl Router {
     assert_ok!(TestConn::build("checkin", "/some/route", ()).on(&router), "checkin??");
     ```
     */
-    pub fn with_route<M>(mut self, method: M, path: &'static str, handler: impl Handler) -> Self
+    pub fn with_route<M, R>(mut self, method: M, path: R, handler: impl Handler) -> Self
     where
         M: TryInto<Method>,
         <M as TryInto<Method>>::Error: Debug,
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
     {
         self.add(path, method.try_into().unwrap(), handler);
         self
     }
 
-    pub(crate) fn add(&mut self, path: &'static str, method: Method, handler: impl Handler) {
+    pub(crate) fn add<R>(&mut self, path: R, method: Method, handler: impl Handler)
+    where
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
+    {
         self.routefinder.add(method, path, handler);
     }
 
-    pub(crate) fn add_any(
-        &mut self,
-        methods: &[Method],
-        path: &'static str,
-        handler: impl Handler,
-    ) {
+    pub(crate) fn add_any<R>(&mut self, methods: &[Method], path: R, handler: impl Handler)
+    where
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
+    {
         self.routefinder.add(methods, path, handler)
     }
 
-    pub(crate) fn add_all(&mut self, path: &'static str, handler: impl Handler) {
+    pub(crate) fn add_all<R>(&mut self, path: R, handler: impl Handler)
+    where
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
+    {
         self.routefinder.add((), path, handler);
     }
 
@@ -337,7 +351,11 @@ impl Router {
     assert_not_handled!(get("/").on(&router));
     ```
     */
-    pub fn all(mut self, path: &'static str, handler: impl Handler) -> Self {
+    pub fn all<R>(mut self, path: R, handler: impl Handler) -> Self
+    where
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
+    {
         self.add_all(path, handler);
         self
     }
@@ -361,15 +379,17 @@ impl Router {
     assert_not_handled!(get("/").on(&router));
     ```
     */
-    pub fn any<IntoMethod>(
+    pub fn any<IntoMethod, R>(
         mut self,
         methods: &[IntoMethod],
-        path: &'static str,
+        path: R,
         handler: impl Handler,
     ) -> Self
     where
         IntoMethod: TryInto<Method> + Clone,
         <IntoMethod as TryInto<Method>>::Error: Debug,
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
     {
         let methods = methods
             .iter()
