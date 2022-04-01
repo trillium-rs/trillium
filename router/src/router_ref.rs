@@ -1,4 +1,5 @@
 use crate::Router;
+use routefinder::RouteSpec;
 use std::{convert::TryInto, fmt::Debug};
 use trillium::{Handler, Method};
 
@@ -41,7 +42,11 @@ assert_not_handled!(",
 
     ($fn_name:ident, $method:ident, $doc_comment:expr) => {
         #[doc = $doc_comment]
-        pub fn $fn_name(&mut self, path: &'static str, handler: impl Handler) {
+        pub fn $fn_name<R>(&mut self, path: R, handler: impl Handler)
+        where
+            R: TryInto<RouteSpec>,
+            R::Error: Debug,
+        {
             self.0.add(path, Method::$method, handler);
         }
     };
@@ -86,7 +91,11 @@ impl<'r> RouterRef<'r> {
     ```
 
     */
-    pub fn all(&mut self, path: &'static str, handler: impl Handler) {
+    pub fn all<R>(&mut self, path: R, handler: impl Handler)
+    where
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
+    {
         self.0.add_all(path, handler)
     }
 
@@ -111,12 +120,10 @@ impl<'r> RouterRef<'r> {
     assert_not_handled!(get("/").on(&router));
     ```
     */
-    pub fn any<IntoMethod>(
-        &mut self,
-        methods: &[IntoMethod],
-        path: &'static str,
-        handler: impl Handler,
-    ) where
+    pub fn any<IntoMethod, R>(&mut self, methods: &[IntoMethod], path: R, handler: impl Handler)
+    where
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
         IntoMethod: TryInto<Method> + Clone,
         <IntoMethod as TryInto<Method>>::Error: Debug,
     {
@@ -152,10 +159,12 @@ impl<'r> RouterRef<'r> {
     assert_ok!(TestConn::build("checkin", "/some/route", ()).on(&router), "checkin??");
     ```
     */
-    pub fn add_route<M>(&mut self, method: M, path: &'static str, handler: impl Handler)
+    pub fn add_route<M, R>(&mut self, method: M, path: R, handler: impl Handler)
     where
         M: TryInto<Method>,
         <M as TryInto<Method>>::Error: Debug,
+        R: TryInto<RouteSpec>,
+        R::Error: Debug,
     {
         self.0.add(path, method.try_into().unwrap(), handler);
     }
