@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use trillium::Conn;
-use trillium_http::{transport::BoxedTransport, Conn as HttpConn, Status};
+use trillium_http::Status;
 
 #[derive(serde::Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -13,12 +13,12 @@ pub(crate) struct AlbMultiHeadersResponse {
 }
 
 impl AlbMultiHeadersResponse {
-    pub async fn from_conn(conn: Conn) -> Self {
-        let mut conn = conn.into_inner();
+    pub async fn from_conn(mut conn: Conn) -> Self {
         let status = conn.status().unwrap_or(Status::NotFound);
         let (body, is_base64_encoded) = response_body(&mut conn).await;
 
         let multi_value_headers = conn
+            .inner()
             .response_headers()
             .iter()
             .map(|(n, v)| (n.to_string(), v.iter().map(|v| v.to_string()).collect()))
@@ -44,8 +44,8 @@ pub(crate) struct AlbResponse {
     pub body: Option<String>,
 }
 
-async fn response_body(conn: &mut HttpConn<BoxedTransport>) -> (Option<String>, bool) {
-    match conn.take_response_body() {
+async fn response_body(conn: &mut Conn) -> (Option<String>, bool) {
+    match conn.inner_mut().take_response_body() {
         Some(body) => {
             let bytes = body.into_bytes().await.unwrap();
             match String::from_utf8(bytes.to_vec()) {
@@ -58,19 +58,19 @@ async fn response_body(conn: &mut HttpConn<BoxedTransport>) -> (Option<String>, 
 }
 
 impl AlbResponse {
-    pub async fn from_conn(conn: Conn) -> Self {
-        let mut conn = conn.into_inner();
+    pub async fn from_conn(mut conn: Conn) -> Self {
         let status = conn.status().unwrap_or(Status::NotFound);
         let (body, is_base64_encoded) = response_body(&mut conn).await;
-        let headers = conn
-            .response_headers()
-            .iter()
-            .fold(HashMap::new(), |mut h, (n, v)| {
-                if let Some(one) = v.one() {
-                    h.insert(n.to_string(), one.to_string());
-                }
-                h
-            });
+        let headers =
+            conn.inner()
+                .response_headers()
+                .iter()
+                .fold(HashMap::new(), |mut h, (n, v)| {
+                    if let Some(one) = v.one() {
+                        h.insert(n.to_string(), one.to_string());
+                    }
+                    h
+                });
 
         Self {
             is_base64_encoded,
