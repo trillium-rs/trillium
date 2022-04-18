@@ -10,6 +10,9 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "testing"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[package.metadata.docs.rs]
+features = ["smol"]
+
 [features]
 tokio = ["trillium-tokio"]
 smol = ["trillium-smol"]
