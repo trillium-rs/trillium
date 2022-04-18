@@ -1,4 +1,4 @@
 cargo build  --release --target x86_64-unknown-linux-musl && \
- ln -sF ../target/x86_64-unknown-linux-musl/release/trillium-aws-lambda-example ./bootstrap && \
+ ln -sfF ../target/x86_64-unknown-linux-musl/release/trillium-aws-lambda-example ./bootstrap && \
  zip lambda.zip bootstrap && \
  aws lambda update-function-code --function-name rustTest --zip-file fileb://lambda.zip --no-paginate
