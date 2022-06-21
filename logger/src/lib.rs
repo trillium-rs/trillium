@@ -8,13 +8,21 @@
 /*!
 Welcome to the trillium logger!
 */
-pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
+pub use crate::formatters::{apache_combined, apache_common, dev_formatter, response_time};
+pub use crate::tracing_handler::TracingHandler;
+
 use std::fmt::Display;
+use tracing_log::log;
 use trillium::{async_trait, Conn, Handler, Info};
 /**
 Components with which common log formats can be constructed
 */
 pub mod formatters;
+
+/**
+Handler for tracing
+ */
+pub mod tracing_handler;
 
 /**
 A configuration option that determines if format will be colorful.
@@ -84,6 +92,7 @@ impl Target {
             }
 
             Target::Stdout => {
+                log::trace!("{}", data);
                 println!("{}", data);
             }
         }
