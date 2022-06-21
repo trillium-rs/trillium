@@ -1,13 +1,23 @@
-use std::time::Duration;
+use trillium::{Conn, State};
+use trillium_logger::{apache_combined, Logger};
 
-use smol::Timer;
-use trillium::Conn;
-use trillium_logger::TracingHandler;
+#[derive(Clone, Copy)]
+struct User(&'static str);
+
+impl User {
+    pub fn name(&self) -> &'static str {
+        self.0
+    }
+}
+
+fn user_id(conn: &Conn, _color: bool) -> &'static str {
+    conn.state::<User>().map(User::name).unwrap_or("-")
+}
 
 pub fn main() {
-    tracing_subscriber::fmt::init();
-    trillium_smol::run((TracingHandler::new(), |conn: Conn| async move {
-        Timer::after(Duration::from_secs(1)).await;
-        conn.ok("ok")
-    }));
+    trillium_smol::run((
+        State::new(User("jacob")),
+        Logger::new().with_formatter(apache_combined("-", user_id)),
+        "ok",
+    ));
 }
