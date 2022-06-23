@@ -1,7 +1,7 @@
 use crate::LogFormatter;
 use chrono::Local;
 use colored::{ColoredString, Colorize};
-use size::{Base, Size, Style};
+use size::{Base, Size};
 use std::{borrow::Cow, fmt::Display, sync::Arc, time::Instant};
 use trillium::{Conn, Method, Status, Version};
 
@@ -191,7 +191,8 @@ is no response body. see [`bytes`] for the raw number of bytes
 */
 pub fn body_len_human(conn: &Conn, _color: bool) -> Cow<'static, str> {
     conn.response_len()
-        .map(|l| Size::to_string(&Size::Bytes(l), Base::Base10, Style::Smart).into())
+        .map(|l| Size::from_bytes(l).format()
+            .with_base(Base::Base10).to_string().into())
         .unwrap_or_else(|| Cow::from("-"))
 }
 

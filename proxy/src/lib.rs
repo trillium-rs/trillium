@@ -17,7 +17,7 @@ http reverse proxy trillium handler
 */
 
 use full_duplex_async_copy::full_duplex_copy;
-use size::{Base, Size, Style};
+use size::{Base, Size};
 use std::convert::TryInto;
 use trillium::{
     async_trait, conn_try, Conn, Handler, KnownHeaderName,
@@ -260,5 +260,7 @@ impl<C: Connector> Handler for Proxy<C> {
 }
 
 fn bytes(bytes: u64) -> String {
-    Size::to_string(&Size::Bytes(bytes), Base::Base10, Style::Smart)
+    Size::from_bytes(bytes).format()
+        .with_base(Base::Base10)
+        .to_string()
 }
