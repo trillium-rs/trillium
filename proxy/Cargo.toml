@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 full-duplex-async-copy = "0.1.0"
 log = "0.4.14"
-size = "0.3.0"
+size = "0.4.0"
 trillium = { path = "../trillium", version = "^0.2.0"}
 trillium-client = { path = "../client", version = "^0.2.0"}
 trillium-http = { path = "../http", version = "^0.2.0" }

@@ -896,8 +896,10 @@ impl<C: Connector> AsRef<C::Transport> for Conn<'_, C> {
 }
 
 fn bytes(bytes: u64) -> String {
-    use size::{Base, Size, Style};
-    Size::to_string(&Size::Bytes(bytes), Base::Base10, Style::Smart)
+    use size::{Base, Size};
+    Size::from_bytes(bytes).format()
+        .with_base(Base::Base10)
+        .to_string()
 }
 
 impl<C: Connector> Drop for Conn<'_, C> {
