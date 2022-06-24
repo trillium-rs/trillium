@@ -191,8 +191,13 @@ is no response body. see [`bytes`] for the raw number of bytes
 */
 pub fn body_len_human(conn: &Conn, _color: bool) -> Cow<'static, str> {
     conn.response_len()
-        .map(|l| Size::from_bytes(l).format()
-            .with_base(Base::Base10).to_string().into())
+        .map(|l| {
+            Size::from_bytes(l)
+                .format()
+                .with_base(Base::Base10)
+                .to_string()
+                .into()
+        })
         .unwrap_or_else(|| Cow::from("-"))
 }
 
