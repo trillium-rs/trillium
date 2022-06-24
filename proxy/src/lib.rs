@@ -260,7 +260,8 @@ impl<C: Connector> Handler for Proxy<C> {
 }
 
 fn bytes(bytes: u64) -> String {
-    Size::from_bytes(bytes).format()
+    Size::from_bytes(bytes)
+        .format()
         .with_base(Base::Base10)
         .to_string()
 }
