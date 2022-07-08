@@ -1,4 +1,4 @@
-use crate::{Result, WebSocketConfig};
+use crate::{Result, WebSocketConfig, WebsocketPeerIp};
 use async_tungstenite::{
     tungstenite::{self, protocol::Role, Message},
     WebSocketStream,
@@ -8,6 +8,7 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use std::{
+    net::IpAddr,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -109,6 +110,11 @@ impl WebSocketConn {
     /// retrieve the request headers for this conn
     pub fn headers(&self) -> &Headers {
         &self.request_headers
+    }
+
+    /// retrieves the peer ip for this conn, if available
+    pub fn peer_ip(&self) -> Option<IpAddr> {
+        self.state.get::<WebsocketPeerIp>().and_then(|i| i.0)
     }
 
     /**
