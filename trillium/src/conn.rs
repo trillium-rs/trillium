@@ -1,6 +1,7 @@
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
+    net::IpAddr,
 };
 use trillium_http::{
     transport::{BoxedTransport, Transport},
@@ -486,6 +487,16 @@ impl Conn {
             *t.downcast()
                 .expect("attempted to downcast to the wrong transport type")
         })
+    }
+
+    /// retrieves the remote ip address for this conn, if available.
+    pub fn peer_ip(&self) -> Option<IpAddr> {
+        self.inner().peer_ip()
+    }
+
+    /// sets the remote ip address for this conn.
+    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) {
+        self.inner_mut().set_peer_ip(peer_ip);
     }
 
     /// for router implementations. pushes a route segment onto the path
