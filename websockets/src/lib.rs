@@ -60,7 +60,10 @@ mod websocket_handler;
 use bidirectional_stream::{BidirectionalStream, Direction};
 use futures_lite::stream::StreamExt;
 use sha1::{Digest, Sha1};
-use std::ops::{Deref, DerefMut};
+use std::{
+    net::IpAddr,
+    ops::{Deref, DerefMut},
+};
 use trillium::{
     async_trait, conn_unwrap, Conn, Handler,
     KnownHeaderName::{
@@ -171,6 +174,11 @@ macro_rules! unwrap_or_return {
     };
 }
 
+// this is a workaround for the fact that Upgrade is a public struct,
+// so adding peer_ip to that struct would be a breaking change. We
+// stash a copy in state for now.
+pub(crate) struct WebsocketPeerIp(Option<IpAddr>);
+
 #[async_trait]
 impl<H> Handler for WebSocket<H>
 where
@@ -180,6 +188,8 @@ where
         if !upgrade_requested(&conn) {
             return conn;
         }
+
+        let websocket_peer_ip = WebsocketPeerIp(conn.peer_ip());
 
         let sec_websocket_accept = conn_unwrap!(
             websocket_accept_hash(&conn),
@@ -203,6 +213,7 @@ where
         }
 
         conn.halt()
+            .with_state(websocket_peer_ip)
             .with_state(IsWebsocket)
             .with_status(Status::SwitchingProtocols)
     }
