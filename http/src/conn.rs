@@ -187,9 +187,8 @@ where
         let mut after_send = std::mem::take(&mut self.after_send);
         after_send.call(true.into());
         std::mem::forget(after_send);
-        let result = self.finish().await;
 
-        result
+        self.finish().await
     }
 
     /// returns a read-only reference to the [state

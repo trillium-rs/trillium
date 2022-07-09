@@ -82,7 +82,7 @@ impl<T: Handler> Deref for Inner<T> {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            Inner::Initialized(t) => t,
+            Self::Initialized(t) => t,
             _ => {
                 panic!("attempted to dereference uninitialized handler {:?}", &self);
             }

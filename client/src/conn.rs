@@ -694,7 +694,7 @@ impl<C: Connector> Conn<'_, C> {
                     Cow::Owned(C::Config::default())
                 };
 
-                let mut transport = C::connect(&self.url, &*config).await?;
+                let mut transport = C::connect(&self.url, &config).await?;
                 log::debug!("opened new connection to {}", C::peer_addr(&transport)?);
                 transport.write_all(&head).await?;
                 transport

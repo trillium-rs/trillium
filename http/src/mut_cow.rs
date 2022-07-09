@@ -34,7 +34,7 @@ impl<'a, T> Deref for MutCow<'a, T> {
     fn deref(&self) -> &Self::Target {
         match self {
             MutCow::Owned(t) => t,
-            MutCow::Borrowed(t) => &**t,
+            MutCow::Borrowed(t) => t,
         }
     }
 }
@@ -43,7 +43,7 @@ impl<'a, T> DerefMut for MutCow<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             MutCow::Owned(t) => t,
-            MutCow::Borrowed(t) => *t,
+            MutCow::Borrowed(t) => t,
         }
     }
 }

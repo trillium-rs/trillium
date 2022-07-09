@@ -47,7 +47,7 @@ impl PartialEq for HeaderName<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
             (KnownHeader(kh1), KnownHeader(kh2)) => *kh1 == *kh2,
-            (UnknownHeader(u1), UnknownHeader(u2)) => u1.eq_ignore_ascii_case(&*u2),
+            (UnknownHeader(u1), UnknownHeader(u2)) => u1.eq_ignore_ascii_case(u2),
             _ => false,
         }
     }

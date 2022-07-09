@@ -40,7 +40,7 @@ impl ChannelConn<'_> {
     Borrow the websocket conn
     */
     pub fn conn(&self) -> &WebSocketConn {
-        &*self
+        self
     }
 
     /**
@@ -112,7 +112,7 @@ impl Deref for ChannelConn<'_> {
     }
 }
 
-impl<'a> DerefMut for ChannelConn<'_> {
+impl DerefMut for ChannelConn<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.conn
     }

@@ -75,7 +75,7 @@ impl Server for TokioServer {
     fn info(listener: &Self::Listener) -> Info {
         match listener {
             Tcp(t) => t.local_addr().unwrap().into(),
-            Unix(u) => (&*format!("{:?}", u.local_addr().unwrap())).into(),
+            Unix(u) => (*format!("{:?}", u.local_addr().unwrap())).into(),
         }
     }
 

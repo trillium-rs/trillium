@@ -22,13 +22,13 @@ impl From<&str> for TeraHandler {
 
 impl From<&String> for TeraHandler {
     fn from(dir: &String) -> Self {
-        (&**dir).into()
+        (**dir).into()
     }
 }
 
 impl From<String> for TeraHandler {
     fn from(dir: String) -> Self {
-        (&dir).into()
+        dir.into()
     }
 }
 
@@ -73,7 +73,7 @@ impl TeraHandler {
     }
 
     pub(crate) fn tera(&self) -> &Tera {
-        &*self.0
+        &self.0
     }
 }
 

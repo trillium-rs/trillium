@@ -31,7 +31,7 @@ impl HeaderValue {
     /// whether it's utf8, use the `AsRef<[u8]>` impl
     pub fn as_str(&self) -> Option<&str> {
         match &self.0 {
-            HeaderValueInner::Utf8(utf8) => Some(&*utf8),
+            HeaderValueInner::Utf8(utf8) => Some(utf8),
             HeaderValueInner::Bytes(_) => None,
         }
     }
@@ -50,8 +50,8 @@ impl HeaderValue {
 impl Display for HeaderValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
-            HeaderValueInner::Utf8(s) => f.write_str(&*s),
-            HeaderValueInner::Bytes(b) => f.write_str(&String::from_utf8_lossy(&*b)),
+            HeaderValueInner::Utf8(s) => f.write_str(s),
+            HeaderValueInner::Bytes(b) => f.write_str(&String::from_utf8_lossy(b)),
         }
     }
 }
@@ -90,7 +90,7 @@ impl AsRef<[u8]> for HeaderValue {
     fn as_ref(&self) -> &[u8] {
         match &self.0 {
             HeaderValueInner::Utf8(utf8) => utf8.as_bytes(),
-            HeaderValueInner::Bytes(b) => &*b,
+            HeaderValueInner::Bytes(b) => b,
         }
     }
 }
@@ -121,7 +121,7 @@ impl PartialEq<str> for HeaderValue {
 
 impl PartialEq<String> for HeaderValue {
     fn eq(&self, other: &String) -> bool {
-        self.as_str() == Some(&*other)
+        self.as_str() == Some(other)
     }
 }
 
@@ -145,6 +145,6 @@ impl PartialEq<str> for &HeaderValue {
 
 impl PartialEq<String> for &HeaderValue {
     fn eq(&self, other: &String) -> bool {
-        self.as_str() == Some(&*other)
+        self.as_str() == Some(other)
     }
 }

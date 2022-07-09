@@ -327,7 +327,7 @@ impl LogFormatter for ColoredString {
         if color {
             self.to_string()
         } else {
-            (&**self).to_string()
+            (**self).to_string()
         }
     }
 }

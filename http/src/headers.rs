@@ -48,7 +48,7 @@ impl Headers {
             .map(|(k, v)| (HeaderName(HeaderNameInner::KnownHeader(*k)), v))
             .chain(self.unknown.iter().map(|(k, v)| {
                 (
-                    HeaderName(HeaderNameInner::UnknownHeader(SmartCow::Borrowed(&*k))),
+                    HeaderName(HeaderNameInner::UnknownHeader(SmartCow::Borrowed(k))),
                     v,
                 )
             }))

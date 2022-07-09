@@ -50,7 +50,7 @@ mod test {
 
     #[test]
     fn ord() {
-        use Version::*;
+        use Version::{Http0_9, Http1_0, Http1_1, Http2_0, Http3_0};
         assert!(Http3_0 > Http2_0);
         assert!(Http2_0 > Http1_1);
         assert!(Http1_1 > Http1_0);

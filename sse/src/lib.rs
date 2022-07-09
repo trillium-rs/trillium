@@ -68,6 +68,7 @@ fn main() {
 use futures_lite::{stream::Stream, AsyncRead};
 use std::{
     borrow::Cow,
+    fmt::Write,
     io,
     marker::PhantomData,
     pin::Pin,
@@ -98,20 +99,19 @@ where
 fn encode(event: impl Eventable) -> String {
     let mut output = String::new();
     if let Some(event_type) = event.event_type() {
-        output.push_str(&format!("event: {}\n", event_type));
+        writeln!(&mut output, "event: {}", event_type).unwrap();
     }
 
     if let Some(id) = event.id() {
-        output.push_str(&format!("id: {}\n", id));
+        writeln!(&mut output, "id: {}", id).unwrap();
     }
 
     for part in event.data().lines() {
-        output.push_str("data: ");
-        output.push_str(part);
-        output.push('\n');
+        writeln!(&mut output, "data: {}", part).unwrap();
     }
 
-    output.push('\n');
+    writeln!(output).unwrap();
+
     output
 }
 
@@ -309,7 +309,7 @@ impl Event {
 
     /// returns this Event's data as a &str
     pub fn data(&self) -> &str {
-        &*self.data
+        &self.data
     }
 
     /// returns this Event's type as a str, if set
