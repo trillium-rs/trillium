@@ -272,7 +272,7 @@ impl Debug for BodyType {
             Empty => f.debug_tuple("BodyType::Empty").finish(),
             Static { content, cursor } => f
                 .debug_struct("BodyType::Static")
-                .field("content", &String::from_utf8_lossy(&*content))
+                .field("content", &String::from_utf8_lossy(content))
                 .field("cursor", cursor)
                 .finish(),
             Streaming {

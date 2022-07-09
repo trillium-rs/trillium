@@ -155,7 +155,7 @@ where
 
     fn read_raw(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         if let Some(transport) = self.transport.as_mut() {
-            read_raw(&mut *self.buffer, &mut **transport, cx, buf)
+            read_raw(&mut self.buffer, &mut **transport, cx, buf)
         } else {
             Ready(Err(ErrorKind::NotConnected.into()))
         }

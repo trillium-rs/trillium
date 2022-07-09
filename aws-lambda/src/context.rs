@@ -29,8 +29,7 @@ pub trait LambdaConnExt {
 
 impl LambdaConnExt for trillium::Conn {
     fn lambda_context(&self) -> &Context {
-        &*self
-            .state::<LambdaContext>()
+        self.state::<LambdaContext>()
             .expect("lambda context should always be set inside of a lambda server")
     }
 }

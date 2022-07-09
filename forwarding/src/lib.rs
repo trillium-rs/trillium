@@ -62,7 +62,7 @@ impl Deref for TrustFn {
     type Target = dyn Fn(&IpAddr) -> bool + Send + Sync + 'static;
 
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        &self.0
     }
 }
 

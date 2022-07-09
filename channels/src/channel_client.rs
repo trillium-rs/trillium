@@ -133,7 +133,7 @@ impl ChannelClient {
             );
             return;
         }
-        self.subscriptions.leave(&*event.topic);
+        self.subscriptions.leave(&event.topic);
         self.reply_ok(event, payload).await;
     }
 

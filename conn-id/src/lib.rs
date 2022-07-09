@@ -210,13 +210,13 @@ impl Deref for Id {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        &self.0
     }
 }
 
 impl std::fmt::Display for Id {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        f.write_str(&*self)
+        f.write_str(self)
     }
 }
 
@@ -257,8 +257,7 @@ where
     ConnLike: AsRef<StateSet>,
 {
     fn id(&self) -> &str {
-        &*self
-            .as_ref()
+        self.as_ref()
             .get::<Id>()
             .expect("ConnId handler must be run before calling IdConnExt::id")
     }

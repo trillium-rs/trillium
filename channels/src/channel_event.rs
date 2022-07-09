@@ -114,14 +114,14 @@ impl ChannelEvent {
     Returns this ChannelEvent's topic
     */
     pub fn topic(&self) -> &str {
-        &*self.topic
+        &self.topic
     }
 
     /**
     Returns this ChannelEvent's event
     */
     pub fn event(&self) -> &str {
-        &*self.event
+        &self.event
     }
 
     /**
