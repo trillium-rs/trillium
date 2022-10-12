@@ -277,6 +277,36 @@ pub trait ApiConnExt {
     async fn deserialize<T>(&mut self) -> Result<T, Value>
     where
         T: DeserializeOwned;
+
+    /**
+    Checks whether the request is a json request.
+
+    ## Examples
+
+    ```
+    use trillium_api::{json, ApiConnExt};
+    async fn handler(conn: trillium::Conn) -> trillium::Conn {
+        if conn.is_json_request() {
+            conn.with_status(200).halt()
+        } else {
+            conn.with_status(400).halt()
+        }
+    }
+
+    # use trillium_testing::prelude::*;
+    assert_response!(
+        get("/").with_request_header("content-type", "application/json").on(&handler),
+        "status" => 200
+    );
+
+    assert_response!(
+        get("/").on(&handler),
+        "status" => 400
+    );
+    ```
+
+    */
+    fn is_json_request(&self) -> bool;
 }
 
 #[trillium::async_trait]
@@ -318,6 +348,19 @@ impl ApiConnExt for Conn {
             _ => Err(json!({
                 "errorType": format!("unknown content type {}", content_type)
             })),
+        }
+    }
+
+    fn is_json_request(&self) -> bool {
+        let content_type = self
+            .headers()
+            .get_str(ContentType)
+            .and_then(|c| c.parse().ok())
+            .unwrap_or(mime::TEXT_HTML_UTF_8);
+
+        match content_type.subtype().as_str() {
+            "json" => true,
+            _ => false,
         }
     }
 }
