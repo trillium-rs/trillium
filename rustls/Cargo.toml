@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 async-rustls = "0.2.0"
 log = "0.4.14"
-rustls = "0.19.1"
+rustls = "0.20.7"
 rustls-native-certs = "0.6.0"
 trillium-tls-common = { path = "../tls-common", version = "^0.1.0" }
 webpki-roots = "0.21"
