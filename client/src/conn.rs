@@ -538,6 +538,7 @@ impl<C: Connector> Conn<'_, C> {
     ```
      */
 
+    #[allow(clippy::needless_borrow)]
     pub fn response_body(&mut self) -> ReceivedBody<'_, C::Transport> {
         ReceivedBody::new(
             self.response_content_length(),

@@ -19,6 +19,7 @@ this struct provides rustls a trillium client connector implementation
 #[derive(Debug, Clone, Copy)]
 pub struct RustlsConnector<C>(PhantomData<C>);
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum RustlsTransportInner<T> {
     Tcp(T),

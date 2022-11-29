@@ -261,7 +261,7 @@ where
     F: LogFormatter,
 {
     async fn init(&mut self, info: &mut Info) {
-        self.target.write(&format!(
+        self.target.write(format!(
             "
 🌱🦀🌱 {} started
 Listening at {}{}

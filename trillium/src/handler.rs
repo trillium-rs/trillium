@@ -330,17 +330,11 @@ impl<H: Handler> Handler for Option<H> {
     }
 
     fn name(&self) -> Cow<'static, str> {
-        match self {
-            Some(h) => h.name(),
-            None => "-".into(),
-        }
+        self.as_ref().map_or_else(|| "-".into(), Handler::name)
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        match self {
-            Some(h) => h.has_upgrade(upgrade),
-            None => false,
-        }
+        self.as_ref().map_or(false, |h| h.has_upgrade(upgrade))
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
