@@ -11,15 +11,15 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-broadcast = "0.4.0"
-async-channel = "1.6.1"
-dashmap = "5.2.0"
+async-broadcast = "0.4.1"
+async-channel = "1.8.0"
+dashmap = "5.4.0"
 futures-lite = "1.12.0"
-futures-util = "0.3.19"
-log = "0.4.14"
+futures-util = "0.3.25"
+log = "0.4.17"
 querystrong = "0.1.1"
-serde = { version = "1.0.133", features = ["derive"] }
-serde_json = "1.0.74"
+serde = { version = "1.0.148", features = ["derive"] }
+serde_json = "1.0.89"
 trillium = { path = "../trillium", version = "^0.2.0" }
 trillium-websockets = { path = "../websockets", version = "^0.5.0" }
 

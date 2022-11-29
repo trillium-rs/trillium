@@ -14,20 +14,20 @@ categories = ["web-programming", "web-programming::http-client"]
 json = ["serde_json", "serde", "thiserror"]
 
 [dependencies]
-encoding_rs = "0.8.30"
+encoding_rs = "0.8.31"
 futures-lite = "1.12.0"
-httparse = "1.5.1"
-log = "0.4.14"
+httparse = "1.8.0"
+log = "0.4.17"
 memmem = "0.1.1"
-size = "0.4.0"
+size = "0.4.1"
 trillium-tls-common = { path = "../tls-common", version = "^0.1.0" }
-url = "2.2.2"
+url = "2.3.1"
 mime = "0.3.16"
-serde_json = { version = "1.0.79", optional = true }
-serde = { version = "1.0.136", optional = true }
-thiserror = { version = "1.0.30", optional = true }
-parking_lot = "0.12.0"
-dashmap = "5.2.0"
+serde_json = { version = "1.0.89", optional = true }
+serde = { version = "1.0.148", optional = true }
+thiserror = { version = "1.0.37", optional = true }
+parking_lot = "0.12.1"
+dashmap = "5.4.0"
 
 [dependencies.trillium-http]
 path = "../http"
@@ -35,10 +35,10 @@ features = ["unstable"]
 version = "^0.2.0"
 
 [dev-dependencies]
-async-global-executor = "2.0.2"
-async-io = "1.6.0"
+async-global-executor = "2.3.1"
+async-io = "1.12.0"
 env_logger = "0.10.0"
-fastrand = "1.6.0"
+fastrand = "1.8.0"
 trillium = { path = "../trillium" }
 trillium-rustls = { path = "../rustls" }
 trillium-smol = { path = "../smol/" }
