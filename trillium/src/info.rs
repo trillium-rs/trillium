@@ -23,7 +23,7 @@ impl Default for Info {
     fn default() -> Self {
         Self {
             server_description: DEFAULT_SERVER_DESCRIPTION.into(),
-            listener_description: "".into(),
+            listener_description: String::new(),
             tcp_socket_addr: None,
         }
     }
@@ -101,7 +101,7 @@ impl From<std::os::unix::net::SocketAddr> for Info {
     fn from(s: std::os::unix::net::SocketAddr) -> Self {
         Self {
             server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
-            listener_description: format!("{:?}", s),
+            listener_description: format!("{s:?}"),
             tcp_socket_addr: None,
         }
     }

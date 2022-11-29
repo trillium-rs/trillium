@@ -388,6 +388,7 @@ where
                 .eq_ignore_ascii_case(Expect, "100-continue")
     }
 
+    #[allow(clippy::needless_borrow)]
     fn build_request_body(&mut self) -> ReceivedBody<'_, Transport> {
         ReceivedBody::new(
             self.request_content_length().ok().flatten(),
@@ -813,10 +814,10 @@ where
 
         for (header, values) in self.response_headers.iter() {
             for value in &**values {
-                log::trace!("sending: {}: {}", &header, &value);
+                log::trace!("sending: {header}: {value}");
 
                 self.transport
-                    .write_all(format!("{}: ", header).as_bytes())
+                    .write_all(format!("{header}: ").as_bytes())
                     .await?;
                 self.transport.write_all(value.as_ref()).await?;
                 self.transport.write_all(b"\r\n").await?;

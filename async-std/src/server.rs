@@ -35,7 +35,7 @@ impl Server for AsyncStdServer {
             use signal_hook::consts::signal::*;
             use signal_hook_async_std::Signals;
 
-            let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT]).unwrap();
+            let signals = Signals::new([SIGINT, SIGTERM, SIGQUIT]).unwrap();
             let mut signals = signals.fuse();
             while signals.next().await.is_some() {
                 if stop.is_stopped() {

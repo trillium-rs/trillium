@@ -496,7 +496,7 @@ where
     Transport: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
 {
     fn from(rb: ReceivedBody<'static, Transport>) -> Self {
-        let len = rb.content_length.map(|cl| cl as u64);
+        let len = rb.content_length;
         Body::new_streaming(rb, len)
     }
 }

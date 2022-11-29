@@ -230,7 +230,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
         mac.update(cookie.value().as_bytes());
 
         // Cookie's new value is [MAC | original-value].
-        let mut new_value = base64::encode(&mac.finalize().into_bytes());
+        let mut new_value = base64::encode(mac.finalize().into_bytes());
         new_value.push_str(cookie.value());
         cookie.set_value(new_value);
     }
