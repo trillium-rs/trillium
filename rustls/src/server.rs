@@ -1,8 +1,6 @@
 use async_rustls::{server::TlsStream, TlsAcceptor};
-use rustls::{
-    internal::pemfile::{certs, pkcs8_private_keys},
-    NoClientAuth, ServerConfig,
-};
+use rustls::{Certificate, PrivateKey, ServerConfig};
+use rustls_pemfile::certs;
 use std::{
     fmt::{Debug, Formatter},
     io::{BufReader, Error, Result},
@@ -31,21 +29,51 @@ impl RustlsAcceptor {
     }
 
     /**
-    build a new RustlsAcceptor from a pkcs8 cert and key
+    build a new RustlsAcceptor from a cert chain and key. See
+    [`ConfigBuilder::with_single_cert`][`crate::rustls::ConfigBuilder::with_single_cert`]
+    for accepted formats. If you need to customize the
+    [`ServerConfig`], use ServerConfig's Into RustlsAcceptor, eg
+
+    ```rust,ignore
+    use trillium_rustls::{rustls::ServerConfig, RustlsAcceptor};
+    let rustls_acceptor: RustlsAcceptor = ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(certs, private_key)
+        .expect("could not build rustls ServerConfig")
+        .into();
+    ```
+
+    # Example
+
+    ```rust,no_run
+    use trillium_rustls::RustlsAcceptor;
+    const KEY: &[u8] = include_bytes!("../examples/key.pem");
+    const CERT: &[u8] = include_bytes!("../examples/cert.pem");
+    let rustls_acceptor = RustlsAcceptor::from_single_cert(CERT, KEY);
+    ```
     */
-    pub fn from_pkcs8(cert: &[u8], key: &[u8]) -> Self {
-        let mut config = ServerConfig::new(NoClientAuth::new());
+    pub fn from_single_cert(cert: &[u8], key: &[u8]) -> Self {
+        let mut br = BufReader::new(cert);
+        let certs = certs(&mut br)
+            .expect("could not read cert pemfile")
+            .into_iter()
+            .map(Certificate)
+            .collect();
 
-        config
-            .set_single_cert(
-                certs(&mut BufReader::new(cert)).unwrap(),
-                pkcs8_private_keys(&mut BufReader::new(key))
-                    .unwrap()
-                    .remove(0),
-            )
-            .expect("could not create a rustls ServerConfig from the supplied cert and key");
+        let mut br = BufReader::new(key);
+        let key = rustls_pemfile::pkcs8_private_keys(&mut br)
+            .expect("could not read key pemfile")
+            .first()
+            .expect("no pkcs8 private key found in `key`")
+            .to_owned();
 
-        config.into()
+        ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(certs, PrivateKey(key))
+            .expect("could not create a rustls ServerConfig from the supplied cert and key")
+            .into()
     }
 }
 

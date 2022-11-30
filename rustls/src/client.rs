@@ -1,5 +1,5 @@
-use async_rustls::{client::TlsStream, webpki::DNSNameRef, TlsConnector};
-use rustls::{ClientConfig, RootCertStore};
+use async_rustls::{client::TlsStream, TlsConnector};
+use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName};
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
@@ -64,20 +64,36 @@ impl<Config: Default> Default for RustlsConfig<Config> {
                     "rustls native certs hard error, falling back to webpki roots: {:?}",
                     e
                 );
-                root_store.add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
+                root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
+                    |c: &async_rustls::webpki::TrustAnchor| {
+                        OwnedTrustAnchor::from_subject_spki_name_constraints(
+                            c.subject,
+                            c.spki,
+                            c.name_constraints,
+                        )
+                    },
+                ));
             }
         };
 
-        let mut config = ClientConfig::new();
-        config.root_store = root_store;
-        config.into()
+        ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
+            .into()
     }
 }
 
 impl<Config: Default> From<ClientConfig> for RustlsConfig<Config> {
     fn from(rustls_config: ClientConfig) -> Self {
+        Arc::new(rustls_config).into()
+    }
+}
+
+impl<Config: Default> From<Arc<ClientConfig>> for RustlsConfig<Config> {
+    fn from(rustls_config: Arc<ClientConfig>) -> Self {
         Self {
-            rustls_config: Arc::new(rustls_config),
+            rustls_config,
             tcp_config: Config::default(),
         }
     }
@@ -162,7 +178,7 @@ impl<C: Connector> Connector for RustlsConnector<C> {
                 let connector: TlsConnector = Arc::clone(&config.rustls_config).into();
                 let domain = url
                     .domain()
-                    .and_then(|dns_name| DNSNameRef::try_from_ascii_str(dns_name).ok())
+                    .and_then(|dns_name| ServerName::try_from(dns_name).ok())
                     .ok_or_else(|| Error::new(ErrorKind::Other, "missing domain"))?;
 
                 Ok(RustlsTransport(Tls(connector
