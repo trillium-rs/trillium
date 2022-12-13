@@ -1,9 +1,9 @@
 const BASE64_DIGEST_LEN: usize = 44;
 use async_session::{
     base64,
-    hmac::{Hmac, Mac, NewMac},
-    sha2::Sha256,
-    Session, SessionStore,
+    hmac::{Hmac, Mac},
+    sha2::{digest::generic_array::GenericArray, Sha256},
+    Session,
 };
 use std::{
     fmt::{self, Debug, Formatter},
@@ -34,6 +34,9 @@ pub struct SessionHandler<Store> {
     key: Key,
     older_keys: Vec<Key>,
 }
+
+pub trait SessionStore: async_session::SessionStore + Send + Sync + Debug + 'static {}
+impl<T> SessionStore for T where T: async_session::SessionStore + Send + Sync + Debug + 'static {}
 
 impl<Store: SessionStore> Debug for SessionHandler<Store> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -261,7 +264,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
             .find_map(|key| {
                 let mut mac = Hmac::<Sha256>::new_from_slice(key.signing()).expect("good key");
                 mac.update(value.as_bytes());
-                mac.verify(&digest).ok()
+                mac.verify(GenericArray::from_slice(&digest)).ok()
             })
             .map(|_| value)
     }
