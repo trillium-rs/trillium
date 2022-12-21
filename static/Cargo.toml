@@ -29,7 +29,7 @@ relative-path = "1.7.2"
 trillium = { path = "../trillium", version = "^0.2.0" }
 mime_guess = "2.0.4"
 httpdate = "1.0.2"
-etag = { version = "3.0.0", features = ["std"] }
+etag = { version = "4.0.0", features = ["std"] }
 
 [dependencies.async_std_crate]
 optional = true
