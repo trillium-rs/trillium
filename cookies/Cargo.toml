@@ -15,7 +15,7 @@ log = "0.4.17"
 trillium = { path = "../trillium", version = "^0.2.0"}
 
 [dependencies.cookie]
-version = "0.16.1"
+version = "0.17.0"
 features = ["percent-encode", "secure"]
 
 [dev-dependencies]
