@@ -43,7 +43,7 @@ use trillium::{Conn, Handler};
 fn handler() -> impl Handler {
     (ConnCounterHandler::new(), |conn: Conn| async move {
         let conn_number = conn.conn_number();
-        conn.ok(format!("conn number was {}", conn_number))
+        conn.ok(format!("conn number was {conn_number}"))
     })
 }
 

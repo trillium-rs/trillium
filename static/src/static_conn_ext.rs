@@ -95,7 +95,7 @@ impl StaticConnExt for Conn {
             self.with_header(
                 ContentType,
                 if is_text {
-                    format!("{}; charset=utf-8", mime)
+                    format!("{mime}; charset=utf-8")
                 } else {
                     mime.to_string()
                 },

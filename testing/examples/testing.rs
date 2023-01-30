@@ -6,7 +6,7 @@ async fn teapot(mut conn: Conn) -> Conn {
     if request_body.is_empty() {
         conn.with_status(406).with_body("unacceptable!").halt()
     } else {
-        conn.with_body(format!("request body was: {}", request_body))
+        conn.with_body(format!("request body was: {request_body}"))
             .with_status(418)
             .with_header(KnownHeaderName::Server, "zojirushi")
     }

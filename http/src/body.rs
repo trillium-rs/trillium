@@ -143,9 +143,8 @@ impl Body {
 fn max_bytes_to_read(buf_len: usize) -> usize {
     assert!(
         buf_len >= 6,
-        "buffers of length {} are too small for this implementation.
-            if this is a problem for you, please open an issue",
-        buf_len
+        "buffers of length {buf_len} are too small for this implementation.
+            if this is a problem for you, please open an issue"
     );
 
     // #[allow(clippy::cast_precision_loss)] applied to the function
@@ -250,7 +249,9 @@ impl AsyncRead for Body {
     }
 }
 
+#[derive(Default)]
 enum BodyType {
+    #[default]
     Empty,
 
     Static {
@@ -288,12 +289,6 @@ impl Debug for BodyType {
                 .field("progress", &progress)
                 .finish(),
         }
-    }
-}
-
-impl Default for BodyType {
-    fn default() -> Self {
-        Empty
     }
 }
 
@@ -381,12 +376,11 @@ mod test_bytes_to_read {
             let actual = super::max_bytes_to_read(input);
             assert_eq!(
                 actual, expected,
-                "\n\nexpected max_bytes_to_read({}) to be {}, but it was {}",
-                input, expected, actual
+                "\n\nexpected max_bytes_to_read({input}) to be {expected}, but it was {actual}"
             );
 
             // testing the test:
-            let used_bytes = expected + 4 + format!("{:X}", expected).len();
+            let used_bytes = expected + 4 + format!("{expected:X}").len();
             assert!(
                 used_bytes == input || used_bytes == input - 1,
                 "\n\nfor an input of {}, expected used bytes to be {} or {}, but was {}",

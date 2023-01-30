@@ -82,7 +82,7 @@ impl FromStr for CompressionAlgorithm {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_str_exact(s)
             .or_else(|| Self::from_str_exact(&s.to_ascii_lowercase()))
-            .ok_or_else(|| format!("unrecognized coding {}", s))
+            .ok_or_else(|| format!("unrecognized coding {s}"))
     }
 }
 
@@ -230,7 +230,7 @@ impl Handler for Compression {
                 let vary = conn
                     .headers_mut()
                     .get_str(Vary)
-                    .map(|vary| HeaderValues::from(format!("{}, Accept-Encoding", vary)))
+                    .map(|vary| HeaderValues::from(format!("{vary}, Accept-Encoding")))
                     .unwrap_or_else(|| HeaderValues::from("Accept-Encoding"));
 
                 conn.headers_mut().extend([

@@ -195,7 +195,7 @@ impl<C: Connector> Connector for RustlsConnector<C> {
 
             unknown => Err(Error::new(
                 ErrorKind::InvalidInput,
-                format!("unknown scheme {}", unknown),
+                format!("unknown scheme {unknown}"),
             )),
         }
     }

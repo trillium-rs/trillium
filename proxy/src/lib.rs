@@ -59,7 +59,7 @@ impl<C: Connector> Proxy<C> {
             Err(_) => panic!("could not convert proxy target into a url"),
         };
 
-        assert!(!url.cannot_be_a_base(), "{} cannot be a base", url);
+        assert!(!url.cannot_be_a_base(), "{url} cannot be a base");
 
         Self {
             target: url,

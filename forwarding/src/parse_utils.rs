@@ -140,8 +140,8 @@ mod test {
             let s = c.to_string();
             assert_eq!(parse_token(&s), (None, &*s));
 
-            let s = format!("match{}rest", s);
-            assert_eq!(parse_token(&s), (Some("match"), &*format!("{}rest", c)));
+            let s = format!("match{s}rest");
+            assert_eq!(parse_token(&s), (Some("match"), &*format!("{c}rest")));
         }
     }
 

@@ -261,7 +261,7 @@ impl Display for CacheControlHeader {
                 SMaxage(d) => write!(f, "s-maxage={}", d.as_secs()),
                 StaleIfError(d) => write!(f, "stale-if-error={}", d.as_secs()),
                 StaleWhileRevalidate(d) => write!(f, "stale-while-revalidate={}", d.as_secs()),
-                UnknownDirective(directive) => write!(f, "{}", directive),
+                UnknownDirective(directive) => write!(f, "{directive}"),
             }?;
         }
 

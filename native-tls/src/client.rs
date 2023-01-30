@@ -147,7 +147,7 @@ impl<T: Connector> Connector for NativeTlsConnector<T> {
 
             unknown => Err(Error::new(
                 ErrorKind::InvalidInput,
-                format!("unknown scheme {}", unknown),
+                format!("unknown scheme {unknown}"),
             )),
         }
     }

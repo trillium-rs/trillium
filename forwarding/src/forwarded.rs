@@ -152,7 +152,7 @@ impl<'a> Forwarded<'a> {
                     .map(|v| {
                         let v = v.trim();
                         match v.parse::<IpAddr>().ok() {
-                            Some(IpAddr::V6(v6)) => Cow::Owned(format!(r#"[{}]"#, v6)),
+                            Some(IpAddr::V6(v6)) => Cow::Owned(format!(r#"[{v6}]"#)),
                             _ => Cow::Borrowed(v),
                         }
                     })
@@ -365,7 +365,7 @@ impl std::fmt::Display for Forwarded<'_> {
         let mut needs_semi = false;
         if let Some(by) = self.by() {
             needs_semi = true;
-            write!(f, "by={}", by).unwrap();
+            write!(f, "by={by}").unwrap();
         }
 
         if !self.forwarded_for.is_empty() {
@@ -388,14 +388,14 @@ impl std::fmt::Display for Forwarded<'_> {
                 f.write_char(';')?;
             }
             needs_semi = true;
-            write!(f, "host={}", host)?
+            write!(f, "host={host}")?
         }
 
         if let Some(proto) = self.proto() {
             if needs_semi {
                 f.write_char(';')?;
             }
-            write!(f, "proto={}", proto)?
+            write!(f, "proto={proto}")?
         }
 
         Ok(())

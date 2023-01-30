@@ -26,7 +26,7 @@ where
 {
     block_on(async move {
         let port = portpicker::pick_unused_port().expect("could not pick a port");
-        let url = format!("http://localhost:{}", port).parse().unwrap();
+        let url = format!("http://localhost:{port}").parse().unwrap();
         let stopper = Stopper::new();
         let (s, r) = async_channel::bounded(1);
         let init = trillium::Init::new(move |_| {

@@ -454,8 +454,10 @@ impl<'conn, Transport> fmt::Debug for ReceivedBody<'conn, Transport> {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 /// the current read state of this body
+#[derive(Default)]
 pub enum ReceivedBodyState {
     /// initial state
+    #[default]
     Start,
 
     /// read state for a chunked-encoded body. the number of bytes that have been read from the
@@ -483,12 +485,6 @@ pub enum ReceivedBodyState {
 
     /// the terminal read state
     End,
-}
-
-impl Default for ReceivedBodyState {
-    fn default() -> Self {
-        Start
-    }
 }
 
 impl<Transport> From<ReceivedBody<'static, Transport>> for Body
@@ -549,7 +545,7 @@ mod chunk_decode {
                 match output_state {
                     ReceivedBodyState::Chunked { remaining, .. } => Some(remaining),
                     ReceivedBodyState::End => None,
-                    _ => panic!("unexpected output state {:?}", output_state),
+                    _ => panic!("unexpected output state {output_state:?}"),
                 },
                 &*String::from_utf8_lossy(&buf[0..bytes]),
                 unused.as_deref().map(String::from_utf8_lossy).as_deref()
@@ -599,11 +595,11 @@ mod chunk_decode {
         for size in 3..50 {
             let input = "5\r\n12345\r\n1\r\na\r\n2\r\nbc\r\n3\r\ndef\r\n0\r\n";
             let (output, _) = full_decode_with_size(input, size).unwrap();
-            assert_eq!(output, "12345abcdef", "size: {}", size);
+            assert_eq!(output, "12345abcdef", "size: {size}");
 
             let input = "7\r\nMozilla\r\n9\r\nDeveloper\r\n7\r\nNetwork\r\n0\r\n\r\n";
             let (output, _) = full_decode_with_size(input, size).unwrap();
-            assert_eq!(output, "MozillaDeveloperNetwork", "size: {}", size);
+            assert_eq!(output, "MozillaDeveloperNetwork", "size: {size}");
         }
     }
 
