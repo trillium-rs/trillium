@@ -84,7 +84,7 @@ information
 */
 pub fn ip(conn: &Conn, _color: bool) -> Cow<'static, str> {
     match conn.inner().peer_ip() {
-        Some(peer) => format!("{:?}", peer).into(),
+        Some(peer) => format!("{peer:?}").into(),
         None => "-".into(),
     }
 }

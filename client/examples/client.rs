@@ -19,7 +19,7 @@ pub fn main() {
                     let mut conn = client.post("http://localhost:8011/").with_body("body");
 
                     conn.send().await.unwrap();
-                    println!("{:#?}", conn);
+                    println!("{conn:#?}");
                     Timer::after(Duration::from_millis(fastrand::u64(0..1000))).await;
                 }
             })

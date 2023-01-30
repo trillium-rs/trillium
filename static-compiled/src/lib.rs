@@ -157,7 +157,7 @@ impl StaticCompiledHandler {
         conn.headers_mut().try_insert(
             ContentType,
             if is_text && !is_ascii {
-                format!("{}; charset=utf-8", mime)
+                format!("{mime}; charset=utf-8")
             } else {
                 mime.to_string()
             },

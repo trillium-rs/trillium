@@ -99,15 +99,15 @@ where
 fn encode(event: impl Eventable) -> String {
     let mut output = String::new();
     if let Some(event_type) = event.event_type() {
-        writeln!(&mut output, "event: {}", event_type).unwrap();
+        writeln!(&mut output, "event: {event_type}").unwrap();
     }
 
     if let Some(id) = event.id() {
-        writeln!(&mut output, "id: {}", id).unwrap();
+        writeln!(&mut output, "id: {id}").unwrap();
     }
 
     for part in event.data().lines() {
-        writeln!(&mut output, "data: {}", part).unwrap();
+        writeln!(&mut output, "data: {part}").unwrap();
     }
 
     writeln!(output).unwrap();

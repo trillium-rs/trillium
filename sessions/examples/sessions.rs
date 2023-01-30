@@ -11,7 +11,7 @@ pub fn main() {
         |conn: Conn| async move {
             let count: usize = conn.session().get("count").unwrap_or_default();
             conn.with_session("count", count + 1)
-                .ok(format!("count: {}", count))
+                .ok(format!("count: {count}"))
         },
     ));
 }

@@ -610,8 +610,7 @@ impl<C: Connector> Conn<'_, C> {
             let host = url.host_str().unwrap().to_owned();
 
             if let Some(port) = url.port() {
-                self.request_headers
-                    .insert(Host, format!("{}:{}", host, port));
+                self.request_headers.insert(Host, format!("{host}:{port}"));
             } else {
                 self.request_headers.insert(Host, host);
             };
@@ -710,7 +709,7 @@ impl<C: Connector> Conn<'_, C> {
         let mut buf = Vec::with_capacity(128);
         let url = &self.url;
         let method = self.method;
-        write!(buf, "{} ", method)?;
+        write!(buf, "{method} ")?;
 
         if method == Method::Connect {
             let host = url.host_str().ok_or(Error::UnexpectedUriFormat)?;
@@ -719,11 +718,11 @@ impl<C: Connector> Conn<'_, C> {
                 .port_or_known_default()
                 .ok_or(Error::UnexpectedUriFormat)?;
 
-            write!(buf, "{}:{}", host, port)?;
+            write!(buf, "{host}:{port}")?;
         } else {
             write!(buf, "{}", url.path())?;
             if let Some(query) = url.query() {
-                write!(buf, "?{}", query)?;
+                write!(buf, "?{query}")?;
             }
         }
 
@@ -731,7 +730,7 @@ impl<C: Connector> Conn<'_, C> {
 
         for (header, values) in self.request_headers.iter() {
             for value in values.iter() {
-                write!(buf, "{}: {}\r\n", header, value)?;
+                write!(buf, "{header}: {value}\r\n")?;
             }
         }
 

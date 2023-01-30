@@ -84,7 +84,7 @@ impl Target {
             }
 
             Target::Stdout => {
-                println!("{}", data);
+                println!("{data}");
             }
         }
     }
@@ -270,7 +270,7 @@ Control-C to quit",
             info.server_description(),
             info.listener_description(),
             info.tcp_socket_addr()
-                .map(|s| format!(" (bound as tcp://{})", s))
+                .map(|s| format!(" (bound as tcp://{s})"))
                 .unwrap_or_default(),
         ));
     }

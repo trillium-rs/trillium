@@ -8,7 +8,7 @@ pub fn main() {
 
         get "/hello/:planet" |conn: Conn| async move {
             let planet = conn.param("planet").unwrap();
-            let response_body = format!("hello {}", planet);
+            let response_body = format!("hello {planet}");
             conn.ok(response_body)
         }
     ]);

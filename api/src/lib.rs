@@ -316,7 +316,7 @@ impl ApiConnExt for Conn {
                 .map_err(|e| json!({ "input": body, "message": e.to_string() })),
 
             _ => Err(json!({
-                "errorType": format!("unknown content type {}", content_type)
+                "errorType": format!("unknown content type {content_type}")
             })),
         }
     }

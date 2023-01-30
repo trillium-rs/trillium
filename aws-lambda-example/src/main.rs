@@ -30,7 +30,7 @@ fn main() {
             .get("/always-hi", "hi")
             .post("/", |mut conn: Conn| async move {
                 let body = conn.request_body_string().await.unwrap();
-                conn.ok(format!("request body: {}", body))
+                conn.ok(format!("request body: {body}"))
             })
             .get("/template/:name", |conn: Conn| async move {
                 if let Some(name) = conn.param("name").map(String::from) {
@@ -42,7 +42,7 @@ fn main() {
             .get("/", |conn: Conn| async move { conn.ok("hello world") })
             .get("/hello/:planet", |conn: Conn| async move {
                 if let Some(planet) = conn.param("planet") {
-                    let response = format!("hello, {}", planet);
+                    let response = format!("hello, {planet}");
                     conn.ok(response)
                 } else {
                     conn
