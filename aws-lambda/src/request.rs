@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Deserializer};
 use std::{collections::HashMap, str::FromStr};
 use trillium_http::{Conn as HttpConn, Method, Synthetic};
@@ -59,7 +60,7 @@ impl AlbRequest {
 fn standardize_body(body: Option<String>, is_base64_encoded: bool) -> Option<Vec<u8>> {
     body.map(|s| {
         if is_base64_encoded {
-            base64::decode(s).unwrap()
+            BASE64.decode(s).unwrap()
         } else {
             s.into_bytes()
         }

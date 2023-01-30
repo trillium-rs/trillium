@@ -57,6 +57,7 @@ mod bidirectional_stream;
 mod websocket_connection;
 mod websocket_handler;
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use bidirectional_stream::{BidirectionalStream, Direction};
 use futures_lite::stream::StreamExt;
 use sha1::{Digest, Sha1};
@@ -299,5 +300,5 @@ fn websocket_accept_hash(conn: &Conn) -> Option<String> {
         .chain_update(WEBSOCKET_GUID)
         .finalize();
 
-    Some(base64::encode(&hash[..]))
+    Some(BASE64.encode(&hash[..]))
 }
