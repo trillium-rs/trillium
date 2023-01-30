@@ -8,7 +8,7 @@ use std::{
 };
 
 /// Trillium's header map type
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Headers {
     known: HashMap<KnownHeaderName, HeaderValues, BuildHasherDefault<DirectHasher>>,
     unknown: HashMap<SmartCow<'static>, HeaderValues>,

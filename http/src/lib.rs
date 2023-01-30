@@ -136,3 +136,6 @@ Connection: close\r
 Content-Length: 0\r
 Retry-After: 60\r
 \r\n";
+
+#[cfg(feature = "http-compat")]
+mod http_compat;
