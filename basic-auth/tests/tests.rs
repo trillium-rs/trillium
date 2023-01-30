@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use trillium_basic_auth::*;
 use trillium_testing::prelude::*;
 
@@ -8,7 +9,7 @@ fn correct_auth() {
         get("/")
             .with_request_header(
                 "Authorization",
-                format!("Basic {}", base64::encode("jacob:7r1ll1um"))
+                format!("Basic {}", BASE64.encode("jacob:7r1ll1um"))
             )
             .on(&handler),
         "ok"
@@ -22,7 +23,7 @@ fn incorrect_auth() {
         get("/")
             .with_request_header(
                 "Authorization",
-                format!("Basic {}", base64::encode("jacob:31337"))
+                format!("Basic {}", BASE64.encode("jacob:31337"))
             )
             .on(&handler),
         401, "", "www-authenticate" => "Basic"
@@ -39,7 +40,7 @@ fn incorrect_auth_with_realm() {
         get("/")
             .with_request_header(
                 "Authorization",
-                format!("Basic {}", base64::encode("orgalorg:31337"))
+                format!("Basic {}", BASE64.encode("orgalorg:31337"))
             )
             .on(&handler),
         401, "", "www-authenticate" => "Basic realm=\"kingdom of ooo\""
@@ -56,7 +57,7 @@ fn incorrect_auth_with_realm_that_includes_a_quote() {
         get("/")
             .with_request_header(
                 "Authorization",
-                format!("Basic {}", base64::encode("orgalorg:31337"))
+                format!("Basic {}", BASE64.encode("orgalorg:31337"))
             )
             .on(&handler),
         401, "", "www-authenticate" => r#"Basic realm="kingdom of \"ooo\"""#
@@ -70,7 +71,7 @@ fn edge_cases() {
         get("/")
             .with_request_header(
                 "Authorization",
-                format!("Basic {}", base64::encode("jacob:"))
+                format!("Basic {}", BASE64.encode("jacob:"))
             )
             .on(&handler),
         401
@@ -80,7 +81,7 @@ fn edge_cases() {
         get("/")
             .with_request_header(
                 "Authorization",
-                format!("Basic {}", base64::encode(":7r1ll1um"))
+                format!("Basic {}", BASE64.encode(":7r1ll1um"))
             )
             .on(&handler),
         401
@@ -88,7 +89,7 @@ fn edge_cases() {
 
     assert_status!(
         get("/")
-            .with_request_header("Authorization", format!("Basic {}", base64::encode(":")))
+            .with_request_header("Authorization", format!("Basic {}", BASE64.encode(":")))
             .on(&handler),
         401
     );

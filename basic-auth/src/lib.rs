@@ -19,6 +19,7 @@ trillium_smol::run((
 ));
 ```
 */
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use trillium::{
     async_trait, Conn, Handler,
     KnownHeaderName::{Authorization, WwwAuthenticate},
@@ -54,7 +55,7 @@ impl Credentials {
     fn expected_header(&self) -> String {
         format!(
             "Basic {}",
-            base64::encode(format!("{}:{}", self.username, self.password))
+            BASE64.encode(format!("{}:{}", self.username, self.password))
         )
     }
 
@@ -69,7 +70,7 @@ impl Credentials {
     //                 None
     //             }
     //         })
-    //         .and_then(|base64_credentials| base64::decode(base64_credentials).ok())
+    //         .and_then(|base64_credentials| BASE64.decode(base64_credentials).ok())
     //         .and_then(|credential_bytes| String::from_utf8(credential_bytes).ok())
     //         .and_then(|mut credential_string| {
     //             credential_string.find(":").map(|colon| {

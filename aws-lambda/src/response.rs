@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use std::collections::HashMap;
 use trillium::Conn;
 use trillium_http::Status;
@@ -50,7 +51,7 @@ async fn response_body(conn: &mut Conn) -> (Option<String>, bool) {
             let bytes = body.into_bytes().await.unwrap();
             match String::from_utf8(bytes.to_vec()) {
                 Ok(string) => (Some(string), false),
-                Err(e) => (Some(base64::encode(e.into_bytes())), true),
+                Err(e) => (Some(BASE64.encode(e.into_bytes())), true),
             }
         }
         None => (None, false),
