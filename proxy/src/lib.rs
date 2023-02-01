@@ -206,7 +206,7 @@ impl<C: Connector> Handler for Proxy<C> {
             .request_headers()
             .insert(KnownHeaderName::Connection, "keep-alive");
 
-        trillium::conn_try!(client_conn.send().await, conn);
+        trillium::conn_try!((&mut client_conn).await, conn);
 
         let conn = match client_conn.status() {
             Some(SwitchingProtocols) => {

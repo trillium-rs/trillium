@@ -88,23 +88,21 @@ where
         self.content_length
     }
 
-    /**
-    Reads the entire body to string, using the encoding determined by
-    the content-type (mime) charset. If an encoding problem is
-    encountered, the String returned by read_string will contain utf8
-    replacement characters.
-
-    Note that this can only be performed once per Conn, as the
-    underlying data is not cached anywhere. This is the only copy of
-    the body contents.
-
-    # Errors
-
-    This will return an error if there is an IO error on the
-    underlying transport such as a disconnect
-
-     */
-    #[allow(clippy::missing_errors_doc)] // false positive
+    /// # Reads entire body to String.
+    ///
+    /// This uses the encoding determined by the content-type (mime)
+    /// charset. If an encoding problem is encountered, the String
+    /// returned by [`read_string`] will contain utf8 replacement
+    /// characters.
+    ///
+    /// Note that this can only be performed once per Conn, as the
+    /// underlying data is not cached anywhere. This is the only copy of
+    /// the body contents.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if there is an IO error on the
+    /// underlying transport such as a disconnect
     pub async fn read_string(self) -> crate::Result<String> {
         let encoding = self.encoding();
         let bytes = self.read_bytes().await?;
@@ -119,20 +117,17 @@ where
             .unwrap_or_default()
     }
 
-    /**
-    Similar to [`ReceivedBody::read_string`], but returns the raw bytes. This is
-    useful for bodies that are not text.
-
-    You can use this in conjunction with `encoding` if you need
-    different handling of malformed character encoding than the lossy
-    conversion provided by `read_string`.
-
-    # Errors
-
-    This will return an error if there is an IO error on the
-    underlying transport such as a disconnect
-    */
-    #[allow(clippy::missing_errors_doc)] // false positive
+    /// Similar to [`ReceivedBody::read_string`], but returns the raw
+    /// bytes. This is useful for bodies that are not text.
+    ///
+    /// You can use this in conjunction with `encoding` if you need
+    /// different handling of malformed character encoding than the lossy
+    /// conversion provided by [`read_string`].
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if there is an IO error on the
+    /// underlying transport such as a disconnect
     pub async fn read_bytes(mut self) -> crate::Result<Vec<u8>> {
         let mut vec = if let Some(len) = self.content_length {
             Vec::with_capacity(len.try_into().unwrap_or(usize::max_value()))

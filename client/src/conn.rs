@@ -6,7 +6,9 @@ use std::{
     borrow::Cow,
     convert::TryInto,
     fmt::{self, Debug, Formatter},
+    future::{Future, IntoFuture},
     io::{ErrorKind, Write},
+    pin::Pin,
     str::FromStr,
 };
 use trillium_http::{
@@ -161,30 +163,6 @@ impl<'config, C: Connector> Conn<'config, C> {
     }
 }
 
-impl<C: Connector> Conn<'static, C> {
-    /**
-    Performs the http request, consuming and returning the conn. This
-    is suitable for chaining on conns with owned Config. For a
-    borrowed equivalent of this, see [`Conn::send`].
-    ```
-    type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
-
-    trillium_testing::with_server("ok", |url| async move {
-        let mut conn = Conn::get(url).execute().await?; //<-
-        assert_eq!(conn.status().unwrap(), 200);
-        assert_eq!(conn.response_body().read_string().await?, "ok");
-        Ok(())
-    });
-    ```
-     */
-    pub async fn execute(mut self) -> Result<Self> {
-        self.finalize_headers();
-        self.connect_and_send_head().await?;
-        self.send_body_and_parse_head().await?;
-        Ok(self)
-    }
-}
-
 impl<C: Connector> Conn<'_, C> {
     /**
     builds a new client Conn with the provided method and url
@@ -232,35 +210,6 @@ impl<C: Connector> Conn<'_, C> {
     method!(patch, Patch);
 
     /**
-    Performs the http request on a mutable borrow of the conn. This is
-    suitable for conns with borrowed Config. For an owned and
-    chainable equivalent of this, see [`Conn::execute`].
-
-    ```
-    use trillium_smol::TcpConnector;
-    type Client = trillium_client::Client<TcpConnector>;
-    trillium_testing::with_server("ok", |url| async move {
-        let client = Client::new();
-        let mut conn = client.get(url);
-
-        conn.send().await?; //<-
-
-        assert_eq!(conn.status().unwrap(), 200);
-        assert_eq!(conn.response_body().read_string().await?, "ok");
-        Ok(())
-    })
-    ```
-     */
-
-    pub async fn send(&mut self) -> Result<()> {
-        self.finalize_headers();
-        self.connect_and_send_head().await?;
-        self.send_body_and_parse_head().await?;
-
-        Ok(())
-    }
-
-    /**
     Returns this conn to the connection pool if it is keepalive, and
     closes it otherwise. This will happen asynchronously as a spawned
     task when the conn is dropped, but calling it explicitly allows
@@ -274,7 +223,8 @@ impl<C: Connector> Conn<'_, C> {
 
     /**
     retrieves a mutable borrow of the request headers, suitable for
-    appending a header
+    appending a header. generally, prefer using chainable methods on
+    Conn
 
     ```
     use trillium_smol::TcpConnector;
@@ -292,7 +242,8 @@ impl<C: Connector> Conn<'_, C> {
         conn.request_headers() //<-
             .insert("some-request-header", "header-value");
 
-        conn.send().await?;
+        (&mut conn).await?;
+
         assert_eq!(
             conn.response_body().read_string().await?,
             "some-request-header was header-value"
@@ -321,7 +272,6 @@ impl<C: Connector> Conn<'_, C> {
     trillium_testing::with_server(handler, |url| async move {
         let mut conn = Conn::get(url)
             .with_header("some-request-header", "header-value") // <--
-            .execute()
             .await?;
         assert_eq!(
             conn.response_body().read_string().await?,
@@ -352,7 +302,7 @@ impl<C: Connector> Conn<'_, C> {
     };
 
     trillium_testing::with_server(handler, |url| async move {
-        let conn = Conn::get(url).execute().await?;
+        let conn = Conn::get(url).await?;
 
         let headers = conn.response_headers(); //<-
 
@@ -371,6 +321,9 @@ impl<C: Connector> Conn<'_, C> {
     }
 
     /**
+    sets the request body on a mutable reference. prefer the chainable
+    [`Conn::with_body`] wherever possible
+
     ```
     env_logger::init();
     use trillium_smol::TcpConnector;
@@ -386,7 +339,7 @@ impl<C: Connector> Conn<'_, C> {
 
         conn.set_request_body("body"); //<-
 
-        conn.send().await?;
+        (&mut conn).await?;
 
         assert_eq!(conn.response_body().read_string().await?, "request body was: body");
         Ok(())
@@ -395,42 +348,6 @@ impl<C: Connector> Conn<'_, C> {
      */
     pub fn set_request_body(&mut self, body: impl Into<Body>) {
         self.request_body = Some(body.into());
-    }
-
-    /**
-    chainable setter to assign the request body. deprecated in
-    preference to the renamed [`Conn::with_body`] since it wouldn't
-    make sense to set a response body on a client conn.
-
-
-    ```
-    env_logger::init();
-    use trillium_smol::TcpConnector;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
-
-    let handler = |mut conn: trillium::Conn| async move {
-        let body = conn.request_body_string().await.unwrap();
-        conn.ok(format!("request body was: {}", body))
-    };
-
-    trillium_testing::with_server(handler, |url| async move {
-        let mut conn = Conn::post(url)
-            .with_request_body("body") //<-
-            .execute()
-            .await?;
-
-        assert_eq!(
-            conn.response_body().read_string().await?,
-            "request body was: body"
-        );
-        Ok(())
-    });
-    ```
-    */
-    #[deprecated = "renamed as with_body. will be removed at the next minor release"]
-    pub fn with_request_body(mut self, body: impl Into<Body>) -> Self {
-        self.set_request_body(body);
-        self
     }
 
     /**
@@ -449,7 +366,6 @@ impl<C: Connector> Conn<'_, C> {
     trillium_testing::with_server(handler, |url| async move {
         let mut conn = Conn::post(url)
             .with_body("body") //<-
-            .execute()
             .await?;
 
         assert_eq!(
@@ -526,7 +442,7 @@ impl<C: Connector> Conn<'_, C> {
     };
 
     trillium_testing::with_server(handler, |url| async move {
-        let mut conn = Conn::get(url).execute().await?;
+        let mut conn = Conn::get(url).await?;
 
         let response_body = conn.response_body(); //<-
 
@@ -588,7 +504,7 @@ impl<C: Connector> Conn<'_, C> {
     }
 
     trillium_testing::with_server(handler, |url| async move {
-        let conn = Conn::get(url).execute().await?;
+        let conn = Conn::get(url).await?;
         assert_eq!(Status::ImATeapot, conn.status().unwrap());
         Ok(())
     });
@@ -990,5 +906,35 @@ impl<C: Connector> From<Conn<'_, C>> for Upgrade<C::Transport> {
             buffer: conn.buffer.take(),
             stopper: Stopper::new(),
         }
+    }
+}
+
+impl<'a, C: Connector> IntoFuture for Conn<'a, C> {
+    type Output = Result<Conn<'a, C>>;
+
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+
+    fn into_future(mut self) -> Self::IntoFuture {
+        Box::pin(async move {
+            self.finalize_headers();
+            self.connect_and_send_head().await?;
+            self.send_body_and_parse_head().await?;
+            Ok(self)
+        })
+    }
+}
+
+impl<'a: 'b, 'b, C: Connector> IntoFuture for &'b mut Conn<'a, C> {
+    type Output = Result<()>;
+
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'b>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            self.finalize_headers();
+            self.connect_and_send_head().await?;
+            self.send_body_and_parse_head().await?;
+            Ok(())
+        })
     }
 }

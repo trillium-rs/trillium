@@ -33,7 +33,7 @@ fn main() -> trillium_http::Result<()> {
         // this example uses the trillium client
         // please note that this api is still especially unstable.
         // any other http client would work here too
-        let mut client_conn = ClientConn::get("http://localhost:8001").execute().await?;
+        let mut client_conn = ClientConn::get("http://localhost:8001").await?;
 
         assert_eq!(client_conn.status().unwrap(), 200);
         assert_eq!(
