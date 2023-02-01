@@ -129,30 +129,26 @@ impl<Transport> Conn<Transport>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
-    /**
-    read any number of new `Conn`s from the transport and call the
-    provided handler function until either the connection is closed or
-    an upgrade is requested. A return value of Ok(None) indicates a
-    closed connection, while a return value of Ok(Some(upgrade))
-    represents an upgrade.
+    /// read any number of new `Conn`s from the transport and call the
+    /// provided handler function until either the connection is closed or
+    /// an upgrade is requested. A return value of Ok(None) indicates a
+    /// closed connection, while a return value of Ok(Some(upgrade))
+    /// represents an upgrade.
+    ///
+    /// See the documentation for [`Conn`] for a full example.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error variant if:
+    ///
+    /// * there is an io error when reading from the underlying transport
+    /// * headers are too long
+    /// * we are unable to parse some aspect of the request
+    /// * the request is an unsupported http version
+    /// * we cannot make sense of the headers, such as if there is a
+    /// `content-length` header as well as a `transfer-encoding: chunked`
+    /// header.
 
-    See the documentation for [`Conn`] for a full example.
-
-    # Errors
-
-    This will return an error variant if:
-
-    * there is an io error when reading from the underlying transport
-    * headers are too long
-    * we are unable to parse some aspect of the request
-    * the request is an unsupported http version
-    * we cannot make sense of the headers, such as if there is a
-        `content-length` header as well as a `transfer-encoding: chunked`
-        header.
-
-    */
-
-    #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn map<F, Fut>(
         transport: Transport,
         stopper: Stopper,
@@ -473,26 +469,25 @@ where
         }
     }
 
-    /**
-    Create a new `Conn` from the provided [`Transport`][crate::transport::Transport], as well as
-    any bytes that have already been read from the transport, and a
-    [`Stopper`] instance that will be used to signal graceful
-    shutdown.
-
-    # Errors
-
-    This will return an error variant if:
-
-    * there is an io error when reading from the underlying transport
-    * headers are too long
-    * we are unable to parse some aspect of the request
-    * the request is an unsupported http version
-    * we cannot make sense of the headers, such as if there is a
-        `content-length` header as well as a `transfer-encoding: chunked`
-        header.
-
-    */
-    #[allow(clippy::missing_errors_doc)] // false positive
+    /// # Create a new `Conn`
+    ///
+    /// This function creates a new conn from the provided
+    /// [`Transport`][crate::transport::Transport], as well as any
+    /// bytes that have already been read from the transport, and a
+    /// [`Stopper`] instance that will be used to signal graceful
+    /// shutdown.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error variant if:
+    ///
+    /// * there is an io error when reading from the underlying transport
+    /// * headers are too long
+    /// * we are unable to parse some aspect of the request
+    /// * the request is an unsupported http version
+    /// * we cannot make sense of the headers, such as if there is a
+    /// `content-length` header as well as a `transfer-encoding: chunked`
+    /// header.
     pub async fn new(
         transport: Transport,
         bytes: Option<Vec<u8>>,

@@ -56,7 +56,7 @@ let server_handle = smol::spawn(async move {
 // any other http client would work here too
 let url = format!("http://localhost:{}/", port);
 type ClientConn<'a> = trillium_client::Conn<'a, trillium_smol::TcpConnector>;
-let mut client_conn = ClientConn::get(&*url).execute().await?;
+let mut client_conn = ClientConn::get(&*url).await?;
 
 assert_eq!(client_conn.status().unwrap(), 200);
 assert_eq!(client_conn.response_headers().get_str("content-length"), Some("11"));
