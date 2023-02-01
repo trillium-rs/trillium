@@ -44,7 +44,7 @@ pub enum ClientSerdeError {
 a client connection, representing both an outbound http request and a
 http response
 */
-
+#[must_use]
 pub struct Conn<'config, C: Connector> {
     url: Url,
     method: Method,
@@ -288,6 +288,45 @@ impl<C: Connector> Conn<'_, C> {
         value: impl Into<HeaderValues>,
     ) -> Self {
         self.request_headers.insert(name, value);
+        self
+    }
+
+    /**
+    chainable setter for `extending` request headers
+
+    ```
+    use trillium_smol::TcpConnector;
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+
+    let handler = |conn: trillium::Conn| async move {
+        let header = conn.headers().get_str("some-request-header").unwrap_or_default();
+        let response = format!("some-request-header was {}", header);
+        conn.ok(response)
+    };
+
+    trillium_testing::with_server(handler, |url| async move {
+        let mut conn = Conn::get(url)
+            .with_headers([ // <--
+                ("some-request-header", "header-value"),
+                ("some-other-req-header", "other-header-value")
+            ])
+            .await?;
+        assert_eq!(
+            conn.response_body().read_string().await?,
+            "some-request-header was header-value"
+        );
+        Ok(())
+    })
+    ```
+    */
+
+    pub fn with_headers<HN, HV, I>(mut self, headers: I) -> Self
+    where
+        I: IntoIterator<Item = (HN, HV)> + Send,
+        HN: Into<HeaderName<'static>>,
+        HV: Into<HeaderValues>,
+    {
+        self.request_headers.extend(headers);
         self
     }
 

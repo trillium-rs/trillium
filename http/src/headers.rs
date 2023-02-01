@@ -9,6 +9,7 @@ use std::{
 
 /// Trillium's header map type
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct Headers {
     known: HashMap<KnownHeaderName, HeaderValues, BuildHasherDefault<DirectHasher>>,
     unknown: HashMap<SmartCow<'static>, HeaderValues>,
@@ -202,6 +203,32 @@ impl Headers {
                 }
             })
             .unwrap_or_default()
+    }
+
+    /// Chainable method to insert a header
+    pub fn with_inserted_header(
+        mut self,
+        name: impl Into<HeaderName<'static>>,
+        values: impl Into<HeaderValues>,
+    ) -> Self {
+        self.insert(name, values);
+        self
+    }
+
+    /// Chainable method to append a header
+    pub fn with_appended_header(
+        mut self,
+        name: impl Into<HeaderName<'static>>,
+        values: impl Into<HeaderValues>,
+    ) -> Self {
+        self.append(name, values);
+        self
+    }
+
+    /// Chainable method to remove a header
+    pub fn without_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
+        self.remove(name);
+        self
     }
 }
 
