@@ -20,7 +20,8 @@ use full_duplex_async_copy::full_duplex_copy;
 use size::{Base, Size};
 use std::convert::TryInto;
 use trillium::{
-    async_trait, conn_try, Conn, Handler, KnownHeaderName,
+    async_trait, conn_try, Conn, Handler,
+    KnownHeaderName::{Connection, Host},
     Status::{NotFound, SwitchingProtocols},
 };
 use trillium_http::{transport::BoxedTransport, Upgrade};
@@ -181,14 +182,6 @@ impl<C: Connector> Handler for Proxy<C> {
         }
         log::debug!("proxying to {}", request_url);
 
-        let mut client_conn = self.client.build_conn(conn.method(), request_url);
-        client_conn.request_headers().extend(
-            conn.headers()
-                .clone()
-                .into_iter()
-                .filter(|(name, _)| name != KnownHeaderName::Host),
-        );
-
         // need a better solution for streaming request bodies through
         // the proxy, but http-types::Body needs to be 'static. Fixing
         // this probably will entail moving away from http-types::Body
@@ -198,15 +191,22 @@ impl<C: Connector> Handler for Proxy<C> {
         // situations where request bodies are large. there is no
         // reason that we couldn't have another lifetime on client
         // conn here, though
-        if let Ok(client_body_content) = conn.request_body().await.read_bytes().await {
-            client_conn.set_request_body(client_body_content);
-        }
+        let client_body_content = conn_try!(conn.request_body().await.read_bytes().await, conn);
 
-        client_conn
-            .request_headers()
-            .insert(KnownHeaderName::Connection, "keep-alive");
+        let headers = conn
+            .headers()
+            .clone()
+            .without_header(Host)
+            .with_inserted_header(Connection, "keep-alive");
 
-        trillium::conn_try!((&mut client_conn).await, conn);
+        let mut client_conn = conn_try!(
+            self.client
+                .build_conn(conn.method(), request_url)
+                .with_headers(headers)
+                .with_body(client_body_content)
+                .await,
+            conn
+        );
 
         let conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
@@ -224,7 +224,7 @@ impl<C: Connector> Handler for Proxy<C> {
 
             Some(status) => {
                 conn.headers_mut()
-                    .extend(std::mem::take(client_conn.response_headers_mut()).into_iter());
+                    .extend(std::mem::take(client_conn.response_headers_mut()));
                 conn.with_body(client_conn).with_status(status)
             }
 
