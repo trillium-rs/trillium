@@ -15,7 +15,7 @@ full-duplex-async-copy = "0.1.0"
 log = "0.4.17"
 size = "0.4.1"
 trillium = { path = "../trillium", version = "^0.2.0"}
-trillium-client = { path = "../client", version = "^0.2.0"}
+trillium-client = { path = "../client", version = "^0.3.0" }
 trillium-http = { path = "../http", version = "^0.2.0" }
 url = "2.3.1"
 
