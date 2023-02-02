@@ -14,7 +14,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 trillium-aws-lambda = { path = "../aws-lambda" }
 lamedh_runtime = "0.3.0"
-serde_json = "1.0.89"
+serde_json = "1.0.91"
 env_logger = "0.10.0"
 trillium = { path = "../trillium" }
 trillium-router = { path = "../router" }
