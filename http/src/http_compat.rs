@@ -1,4 +1,6 @@
+//! # Conversion between [`http`] and `trillium-http` types
 use std::str::FromStr;
+use thiserror::Error;
 
 impl TryFrom<http::Method> for crate::Method {
     type Error = <crate::Method as FromStr>::Err;
@@ -66,17 +68,27 @@ impl From<http::HeaderMap> for crate::Headers {
 
 /// An error enum that represents failures to convert [`Headers`] into
 /// a [`http::HeaderMap`]
-#[derive(Debug, thiserror::Error)]
-pub enum InvalidHeaderError {
+#[derive(Debug, Error)]
+pub enum HeaderConversionError {
+    /// A header that was valid in trillium was not valid as a
+    /// [`http::header::HeaderName`].
+    ///
+    /// Please consider filing an issue with trillium, as there are
+    /// not currently known examples of this.
     #[error(transparent)]
     InvalidHeaderName(#[from] http::header::InvalidHeaderName),
 
+    /// A header that was valid in trillium was not valid as a
+    /// [`http::header::HeaderValue`].
+    ///
+    /// Please consider filing an issue with trillium, as there are
+    /// not currently known examples of this.
     #[error(transparent)]
     InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
 }
 
 impl TryFrom<crate::Headers> for http::HeaderMap {
-    type Error = InvalidHeaderError;
+    type Error = HeaderConversionError;
     fn try_from(trillium_headers: crate::Headers) -> Result<Self, Self::Error> {
         let mut http_header_map = http::HeaderMap::default();
         for (trillium_header_name, trillium_header_values) in trillium_headers {
