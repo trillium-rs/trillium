@@ -138,4 +138,4 @@ Retry-After: 60\r
 \r\n";
 
 #[cfg(feature = "http-compat")]
-mod http_compat;
+pub mod http_compat;
