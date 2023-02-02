@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 log = "0.4.17"
 mime-db = "1.6.0"
-serde = "1.0.148"
+serde = "1.0.152"
 tera = "1.17.1"
 trillium = { path = "../trillium", version = "^0.2.0" }
 
