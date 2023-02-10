@@ -295,6 +295,7 @@ known_headers! {
     ("Save-Data", SaveData),
     ("Sec-CH-UA", SecChUa),
     ("Sec-CH-UA-Mobile", SecChUAMobile),
+    ("Sec-CH-UA-Platform", SecChUAPlatform),
     ("Sec-Fetch-Dest", SecFetchDest),
     ("Sec-Fetch-Mode", SecFetchMode),
     ("Sec-Fetch-Site", SecFetchSite),
