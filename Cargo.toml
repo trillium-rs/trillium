@@ -22,6 +22,7 @@ members = [
   "method-override",
   "native-tls",
   "proxy",
+  "redirect",
   "router",
   "rustls",
   "server-common",
