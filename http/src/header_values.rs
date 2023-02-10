@@ -2,6 +2,7 @@ use crate::HeaderValue;
 use smallvec::{smallvec, SmallVec};
 use smartcow::SmartCow;
 use std::{
+    borrow::Cow,
     fmt::{Debug, Formatter, Result},
     iter::FromIterator,
     ops::{Deref, DerefMut},
@@ -110,21 +111,33 @@ impl HeaderValues {
 //     }
 // }
 
+impl From<&'static [u8]> for HeaderValues {
+    fn from(value: &'static [u8]) -> Self {
+        HeaderValue::from(value).into()
+    }
+}
+
 impl From<Vec<u8>> for HeaderValues {
-    fn from(v: Vec<u8>) -> Self {
-        Self(smallvec![v.into()])
+    fn from(value: Vec<u8>) -> Self {
+        HeaderValue::from(value).into()
     }
 }
 
 impl From<String> for HeaderValues {
-    fn from(s: String) -> Self {
-        Self(smallvec![s.into()])
+    fn from(value: String) -> Self {
+        HeaderValue::from(value).into()
     }
 }
 
 impl From<&'static str> for HeaderValues {
-    fn from(s: &'static str) -> Self {
-        Self(smallvec![s.into()])
+    fn from(value: &'static str) -> Self {
+        HeaderValue::from(value).into()
+    }
+}
+
+impl From<Cow<'static, str>> for HeaderValues {
+    fn from(value: Cow<'static, str>) -> Self {
+        HeaderValue::from(value).into()
     }
 }
 
