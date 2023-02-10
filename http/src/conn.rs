@@ -20,7 +20,7 @@ use std::{
 };
 
 const MAX_HEADERS: usize = 128;
-const MAX_HEAD_LENGTH: usize = 2 * 1024;
+const MAX_HEAD_LENGTH: usize = 8 * 1024;
 const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -723,6 +723,7 @@ where
             }
 
             if len >= MAX_HEAD_LENGTH {
+                log::error!("headers were {len}, greater than {MAX_HEAD_LENGTH}");
                 return Err(Error::HeadersTooLong);
             }
         }
