@@ -35,6 +35,10 @@ jobs:
         command: test
         args: --workspace --features ${{ matrix.runtime }} --no-fail-fast
 
+  all_tests_pass:
+    name: All Tests Pass
+    needs: test
+
   check_fmt_and_docs:
     name: Lints and Docs
     runs-on: ubuntu-latest
