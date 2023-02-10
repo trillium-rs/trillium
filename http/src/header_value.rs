@@ -1,7 +1,10 @@
 use smallvec::SmallVec;
 use smartcow::SmartCow;
 
-use std::fmt::{Debug, Display, Formatter};
+use std::{
+    borrow::Cow,
+    fmt::{Debug, Display, Formatter},
+};
 
 /// A `HeaderValue` represents the right hand side of a single `name:
 /// value` pair.
@@ -62,6 +65,12 @@ impl From<Vec<u8>> for HeaderValue {
             Ok(s) => Self(HeaderValueInner::Utf8(SmartCow::Owned(s.into()))),
             Err(e) => Self(HeaderValueInner::Bytes(e.into_bytes().into())),
         }
+    }
+}
+
+impl From<Cow<'static, str>> for HeaderValue {
+    fn from(c: Cow<'static, str>) -> Self {
+        Self(HeaderValueInner::Utf8(SmartCow::from(c)))
     }
 }
 
