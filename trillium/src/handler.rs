@@ -344,6 +344,55 @@ impl<H: Handler> Handler for Option<H> {
     }
 }
 
+#[async_trait]
+impl<T, E> Handler for Result<T, E>
+where
+    T: Handler,
+    E: Handler,
+{
+    async fn run(&self, conn: Conn) -> Conn {
+        match self {
+            Ok(t) => t.run(conn).await,
+            Err(e) => e.run(conn).await,
+        }
+    }
+
+    async fn init(&mut self, info: &mut Info) {
+        match self {
+            Ok(t) => t.init(info).await,
+            Err(e) => e.init(info).await,
+        }
+    }
+
+    async fn before_send(&self, conn: Conn) -> Conn {
+        match self {
+            Ok(t) => t.before_send(conn).await,
+            Err(e) => e.before_send(conn).await,
+        }
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        match self {
+            Ok(t) => format!("Ok({})", t.name()).into(),
+            Err(e) => format!("Err({})", e.name()).into(),
+        }
+    }
+
+    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+        match self {
+            Ok(t) => t.has_upgrade(upgrade),
+            Err(e) => e.has_upgrade(upgrade),
+        }
+    }
+
+    async fn upgrade(&self, upgrade: Upgrade) {
+        match self {
+            Ok(t) => t.upgrade(upgrade).await,
+            Err(e) => e.upgrade(upgrade).await,
+        }
+    }
+}
+
 macro_rules! reverse_before_send {
     ($conn:ident, $name:ident) => (
         let $conn = ($name).before_send($conn).await;
