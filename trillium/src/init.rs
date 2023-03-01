@@ -137,7 +137,11 @@ impl<T: Handler> Handler for Init<T> {
 
     async fn init(&mut self, info: &mut Info) {
         self.0 = match mem::replace(&mut self.0, Inner::Initializing) {
-            Inner::New(init) => Inner::Initialized(init(info.clone()).await),
+            Inner::New(init) => {
+                let mut initialized = init(info.clone()).await;
+                initialized.init(info).await;
+                Inner::Initialized(initialized)
+            }
             other => other,
         }
     }
