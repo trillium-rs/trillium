@@ -305,6 +305,17 @@ impl Handler for &'static str {
 }
 
 #[async_trait]
+impl Handler for String {
+    async fn run(&self, conn: Conn) -> Conn {
+        conn.ok(self.clone())
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        format!("conn.ok({:?})", &self).into()
+    }
+}
+
+#[async_trait]
 impl Handler for () {
     async fn run(&self, conn: Conn) -> Conn {
         conn
