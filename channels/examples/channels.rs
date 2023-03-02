@@ -57,7 +57,7 @@ fn main() {
             "/broadcast",
             (
                 state(broadcast),
-                trillium_api::api(broadcast_from_elsewhere),
+                trillium_api::api_with_body(broadcast_from_elsewhere),
             ),
         ),
     ))
@@ -69,9 +69,8 @@ struct ChatMessage {
     user: Option<String>,
 }
 
-async fn broadcast_from_elsewhere(conn: Conn, message: ChatMessage) -> Conn {
+async fn broadcast_from_elsewhere(conn: &mut Conn, message: ChatMessage) -> String {
     let sender = conn.state::<ChannelBroadcaster>().unwrap();
     sender.broadcast(("rooms:lobby", "new:msg", message));
-    let response = format!("ok, clients: {}", sender.connected_clients());
-    conn.ok(response)
+    format!("ok, clients: {}", sender.connected_clients())
 }

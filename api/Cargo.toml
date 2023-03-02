@@ -12,17 +12,24 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [features]
 default = ["forms"]
-forms = ["serde_urlencoded"]
+forms = ["serde_urlencoded", "form_urlencoded"]
 
 [dependencies]
+form_urlencoded = { version = "1.1.0", optional = true }
 mime = "0.3.16"
-serde = "1.0.152"
+serde = { version = "1.0.153", features = ["derive"] }
 serde_json = "1.0.94"
+serde_path_to_error = "0.1.10"
 serde_urlencoded = { version = "0.7.1", optional = true }
+thiserror = "1.0.39"
 trillium = { path = "../trillium", version = "^0.2.0" }
+trillium-http = { path = "../http", version = "^0.2" }
+
 
 [dev-dependencies]
-serde = { version = "1.0.152", features = ["derive"] }
+env_logger = "0.10.0"
+serde = { version = "1.0.153", features = ["derive"] }
 trillium-logger = { path = "../logger" }
+trillium-router = { path = "../router" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
