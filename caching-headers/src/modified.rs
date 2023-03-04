@@ -26,7 +26,7 @@ impl Handler for Modified {
             (Some(if_modified_since), Some(last_modified))
                 if last_modified <= if_modified_since =>
             {
-                conn.with_status(Status::NotModified).halt()
+                conn.with_status(Status::NotModified)
             }
 
             _ => conn,
