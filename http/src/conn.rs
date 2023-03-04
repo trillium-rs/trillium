@@ -507,7 +507,7 @@ where
 
         let status = httparse_req.parse(&buf[..])?;
         if status.is_partial() {
-            log::debug!("partial head content: {}", String::from_utf8_lossy(&buf));
+            log::trace!("partial head content: {}", String::from_utf8_lossy(&buf));
             return Err(Error::PartialHead);
         }
 
@@ -535,12 +535,11 @@ where
 
         Self::validate_headers(&request_headers)?;
 
-        log::trace!("parsed headers: {:#?}", &request_headers);
-
         let path = httparse_req
             .path
             .ok_or(Error::RequestPathMissing)?
             .to_owned();
+        log::debug!("received:\n{method} {path} {version}\n{request_headers}");
 
         let response_headers = Self::build_response_headers();
 
@@ -695,7 +694,7 @@ where
             if let Some(index) = search {
                 buf.truncate(len + bytes);
                 log::trace!(
-                    "in head, finished headers:\n {}",
+                    "received head:\n{}",
                     String::from_utf8_lossy(&buf[..search_start + index])
                 );
                 let body = buf.split_off(search_start + index + 4);
@@ -801,12 +800,11 @@ where
             status as u16,
             status.canonical_reason()
         );
-        log::trace!("sending: {}", &first_line);
         self.transport.write_all(first_line.as_bytes()).await?;
 
         self.finalize_headers();
 
-        log::trace!("response headers:\n{:#?}", &self.response_headers);
+        log::debug!("response:\n{first_line}\n{}", &self.response_headers);
 
         for (header, values) in self.response_headers.iter() {
             for value in &**values {
