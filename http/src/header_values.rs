@@ -52,6 +52,16 @@ impl IntoIterator for HeaderValues {
     }
 }
 
+impl<'a> IntoIterator for &'a HeaderValues {
+    type Item = &'a HeaderValue;
+
+    type IntoIter = std::slice::Iter<'a, HeaderValue>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
 impl<I> FromIterator<I> for HeaderValues
 where
     I: Into<HeaderValue>,
