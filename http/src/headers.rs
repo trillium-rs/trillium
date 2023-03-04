@@ -88,6 +88,33 @@ impl Headers {
         }
     }
 
+    /// A slightly more efficient way to combine two [`Header`]s than
+    /// using [`Extend`]
+    pub fn append_all(&mut self, other: Headers) {
+        self.known.reserve(other.known.len());
+        for (name, value) in other.known {
+            match self.known.entry(name) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().extend(value);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(value);
+                }
+            }
+        }
+
+        for (name, value) in other.unknown {
+            match self.unknown.entry(name) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().extend(value);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(value);
+                }
+            }
+        }
+    }
+
     /// Add a header value or header values into this header map. If a
     /// header already exists with the same name, it will be
     /// replaced. To combine, see [`Headers::append`]

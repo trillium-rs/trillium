@@ -1,4 +1,4 @@
-use crate::{async_trait, Conn, Info, Status, Upgrade};
+use crate::{async_trait, Conn, Headers, Info, Status, Upgrade};
 use std::{borrow::Cow, future::Future, sync::Arc};
 
 /**
@@ -341,6 +341,14 @@ impl<H: Handler> Handler for Option<H> {
         if let Some(handler) = self {
             handler.upgrade(upgrade).await;
         }
+    }
+}
+
+#[async_trait]
+impl Handler for Headers {
+    async fn run(&self, mut conn: Conn) -> Conn {
+        conn.headers_mut().append_all(self.clone());
+        conn
     }
 }
 
