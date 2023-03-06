@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
     time::Duration,
 };
-use trillium::HeaderValues;
+use trillium::{async_trait, Conn, Handler, HeaderValues, KnownHeaderName};
 use CacheControlDirective::*;
 /**
 An enum representation of the
@@ -62,6 +62,20 @@ pub enum CacheControlDirective {
 
     /// an enum variant that will contain any unrecognized directives
     UnknownDirective(String),
+}
+
+#[async_trait]
+impl Handler for CacheControlDirective {
+    async fn run(&self, conn: Conn) -> Conn {
+        conn.with_header(KnownHeaderName::CacheControl, self.clone())
+    }
+}
+
+#[async_trait]
+impl Handler for CacheControlHeader {
+    async fn run(&self, conn: Conn) -> Conn {
+        conn.with_header(KnownHeaderName::CacheControl, self.clone())
+    }
 }
 
 /**
