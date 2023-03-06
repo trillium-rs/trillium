@@ -1,8 +1,11 @@
 use crate::{header_name::HeaderNameInner, HeaderName, HeaderValue, HeaderValues, KnownHeaderName};
-use hashbrown::{hash_map::Entry, HashMap};
+use hashbrown::{
+    hash_map::{self, Entry},
+    HashMap,
+};
 use smartcow::SmartCow;
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     hash::{BuildHasherDefault, Hasher},
     iter::FromIterator,
 };
@@ -18,6 +21,17 @@ pub struct Headers {
 impl Default for Headers {
     fn default() -> Self {
         Self::with_capacity(15)
+    }
+}
+
+impl Display for Headers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (n, v) in self {
+            for v in v {
+                f.write_fmt(format_args!("{n}: {v}\r\n"))?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -43,16 +57,8 @@ impl Headers {
     /// Return an iterator over borrowed header names and header
     /// values. First yields the known headers and then the unknown
     /// headers, if any.
-    pub fn iter(&self) -> impl Iterator<Item = (HeaderName<'_>, &'_ HeaderValues)> {
-        self.known
-            .iter()
-            .map(|(k, v)| (HeaderName(HeaderNameInner::KnownHeader(*k)), v))
-            .chain(self.unknown.iter().map(|(k, v)| {
-                (
-                    HeaderName(HeaderNameInner::UnknownHeader(SmartCow::Borrowed(k))),
-                    v,
-                )
-            }))
+    pub fn iter(&self) -> Iter<'_> {
+        self.into()
     }
 
     /// add the header value or header values into this header map. If
@@ -79,6 +85,33 @@ impl Headers {
                     v.insert(value);
                 }
             },
+        }
+    }
+
+    /// A slightly more efficient way to combine two [`Header`]s than
+    /// using [`Extend`]
+    pub fn append_all(&mut self, other: Headers) {
+        self.known.reserve(other.known.len());
+        for (name, value) in other.known {
+            match self.known.entry(name) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().extend(value);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(value);
+                }
+            }
+        }
+
+        for (name, value) in other.unknown {
+            match self.unknown.entry(name) {
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().extend(value);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(value);
+                }
+            }
         }
     }
 
@@ -289,23 +322,79 @@ impl Hasher for DirectHasher {
     }
 }
 
+impl<'a> IntoIterator for &'a Headers {
+    type Item = (HeaderName<'a>, &'a HeaderValues);
+
+    type IntoIter = Iter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.into()
+    }
+}
+
+#[derive(Debug)]
+pub struct IntoIter {
+    known: hash_map::IntoIter<KnownHeaderName, HeaderValues>,
+    unknown: hash_map::IntoIter<SmartCow<'static>, HeaderValues>,
+}
+
+impl Iterator for IntoIter {
+    type Item = (HeaderName<'static>, HeaderValues);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let IntoIter { known, unknown } = self;
+        known
+            .next()
+            .map(|(k, v)| (HeaderName::from(k), v))
+            .or_else(|| {
+                unknown
+                    .next()
+                    .map(|(k, v)| (HeaderName(HeaderNameInner::UnknownHeader(k)), v))
+            })
+    }
+}
+impl From<Headers> for IntoIter {
+    fn from(value: Headers) -> Self {
+        Self {
+            known: value.known.into_iter(),
+            unknown: value.unknown.into_iter(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Iter<'a> {
+    known: hash_map::Iter<'a, KnownHeaderName, HeaderValues>,
+    unknown: hash_map::Iter<'a, SmartCow<'static>, HeaderValues>,
+}
+
+impl<'a> From<&'a Headers> for Iter<'a> {
+    fn from(value: &'a Headers) -> Self {
+        Iter {
+            known: value.known.iter(),
+            unknown: value.unknown.iter(),
+        }
+    }
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = (HeaderName<'a>, &'a HeaderValues);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let Iter { known, unknown } = self;
+        known
+            .next()
+            .map(|(k, v)| (HeaderName::from(*k), v))
+            .or_else(|| unknown.next().map(|(k, v)| (HeaderName::from(&**k), v)))
+    }
+}
+
 impl IntoIterator for Headers {
     type Item = (HeaderName<'static>, HeaderValues);
 
-    type IntoIter = Box<dyn Iterator<Item = Self::Item>>;
+    type IntoIter = IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        let Self { known, unknown } = self;
-
-        Box::new(
-            known
-                .into_iter()
-                .map(|(k, v)| (HeaderName(HeaderNameInner::KnownHeader(k)), v))
-                .chain(
-                    unknown
-                        .into_iter()
-                        .map(|(k, v)| (HeaderName(HeaderNameInner::UnknownHeader(k)), v)),
-                ),
-        )
+        self.into()
     }
 }
