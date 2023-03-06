@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-trait = "0.1.64"
+async-trait = "0.1.66"
 futures-lite = "1.12.0"
 log = "0.4.17"
 trillium-http = { path = "../http", version = "^0.2.0" }

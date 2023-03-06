@@ -21,7 +21,7 @@ trillium-http = { path = "../http", version = "^0.2.0" }
 trillium-server-common = { path = "../server-common", version = "^0.3.0" }
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.3.14"
+signal-hook = "0.3.15"
 signal-hook-async-std = "0.2.2"
 
 [dev-dependencies]
