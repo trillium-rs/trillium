@@ -21,7 +21,7 @@ trillium-websockets = { path = "../websockets" }
 trillium-smol = { path = "../smol" }
 trillium-askama = { path = "../askama" }
 futures-lite = "1.12.0"
-askama = "0.11.1"
+askama = "0.12.0"
 trillium-static-compiled = { path = "../static-compiled/" }
 trillium-proxy = { path = "../proxy" }
 trillium-rustls = { path = "../rustls" }
