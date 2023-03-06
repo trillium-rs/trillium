@@ -15,7 +15,7 @@ glob = "0.3.1"
 handlebars = { version = "4.3.6", features = ["dir_source"] }
 log = "0.4.17"
 serde = { version = "1.0.152", features = ["derive"] }
-serde_json = "1.0.91"
+serde_json = "1.0.94"
 trillium = { path = "../trillium", version = "^0.2.0"}
 
 [dev-dependencies]
