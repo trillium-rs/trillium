@@ -47,7 +47,7 @@ where
 #[async_trait]
 impl<T> Extract for Json<T>
 where
-    T: std::fmt::Debug + DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     async fn extract(conn: &mut Conn) -> Option<Self> {
         match extract_json(conn).await {

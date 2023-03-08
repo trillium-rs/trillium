@@ -23,7 +23,7 @@ impl<T> DerefMut for State<T> {
 #[async_trait]
 impl<T> Extract for State<T>
 where
-    T: std::fmt::Debug + Send + Sync + 'static,
+    T: Send + Sync + 'static,
 {
     async fn extract(conn: &mut Conn) -> Option<Self> {
         conn.take_state::<T>().map(Self)
