@@ -88,7 +88,7 @@ where
             let output_handler = self.0.call(&mut conn, extracted).await;
             output_handler.run(conn).await
         } else {
-            conn
+            conn.halt()
         }
     }
 
