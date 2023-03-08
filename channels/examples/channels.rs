@@ -1,6 +1,7 @@
 use futures_lite::StreamExt;
 use serde::{Deserialize, Serialize};
 use trillium::{async_trait, state, Conn};
+use trillium_api::{api, Json, State};
 use trillium_caching_headers::caching_headers;
 use trillium_channels::{channel, ChannelBroadcaster, ChannelConn, ChannelEvent, ChannelHandler};
 use trillium_conn_id::{conn_id, log_formatter};
@@ -55,10 +56,7 @@ fn main() {
         static_compiled!("$CARGO_MANIFEST_DIR/examples/files").with_index_file("index.html"),
         router().get("/socket/websocket", channels).put(
             "/broadcast",
-            (
-                state(broadcast),
-                trillium_api::api_with_body(broadcast_from_elsewhere),
-            ),
+            (state(broadcast), api(broadcast_from_elsewhere)),
         ),
     ))
 }
@@ -69,8 +67,10 @@ struct ChatMessage {
     user: Option<String>,
 }
 
-async fn broadcast_from_elsewhere(conn: &mut Conn, message: ChatMessage) -> String {
-    let sender = conn.state::<ChannelBroadcaster>().unwrap();
+async fn broadcast_from_elsewhere(
+    _conn: &mut Conn,
+    (sender, Json(message)): (State<ChannelBroadcaster>, Json<ChatMessage>),
+) -> String {
     sender.broadcast(("rooms:lobby", "new:msg", message));
     format!("ok, clients: {}", sender.connected_clients())
 }
