@@ -1,5 +1,5 @@
 use crate::RouterRef;
-use routefinder::{Match, RouteSpec, Router as Routefinder};
+use routefinder::{Captures, Match, RouteSpec, Router as Routefinder};
 use std::{
     collections::BTreeSet,
     convert::TryInto,
@@ -409,13 +409,20 @@ impl Router {
 
 #[async_trait]
 impl Handler for Router {
-    async fn run(&self, conn: Conn) -> Conn {
+    async fn run(&self, mut conn: Conn) -> Conn {
         let method = conn.method();
+        let original_captures = conn.take_state::<Captures>();
         let path = conn.path();
 
         if let Some(m) = self.best_match(conn.method(), path) {
-            let captures = m.captures().into_owned();
             struct HasPath;
+            let mut captures = m.captures().into_owned();
+
+            if let Some(mut original_captures) = original_captures {
+                original_captures.append(captures);
+                captures = original_captures;
+            }
+
             log::debug!("running {}: {}", m.route(), m.1.name());
             let mut new_conn = m
                 .handler()
