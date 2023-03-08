@@ -413,9 +413,9 @@ impl Handler for Router {
         let method = conn.method();
         let original_captures = conn.take_state::<Captures>();
         let path = conn.path();
+        let mut has_path = false;
 
         if let Some(m) = self.best_match(conn.method(), path) {
-            struct HasPath;
             let mut captures = m.captures().into_owned();
 
             if let Some(mut original_captures) = original_captures {
@@ -428,16 +428,16 @@ impl Handler for Router {
                 .handler()
                 .1
                 .run({
-                    let mut conn = conn;
                     if let Some(wildcard) = captures.wildcard() {
                         conn.push_path(String::from(wildcard));
-                        conn.set_state(HasPath);
+                        has_path = true;
                     }
+
                     conn.with_state(captures)
                 })
                 .await;
 
-            if new_conn.take_state::<HasPath>().is_some() {
+            if has_path {
                 new_conn.pop_path();
             }
 
