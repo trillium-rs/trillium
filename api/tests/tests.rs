@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use trillium::{Conn, Handler};
 use trillium_api::*;
 use trillium_testing::prelude::*;
 
@@ -13,12 +14,12 @@ struct ApiResponse {
     s: Struct,
 }
 
-fn app_with_body() -> impl trillium::Handler {
-    api_with_body(|_conn: &mut trillium::Conn, mut s: Struct| async move {
+fn app_with_body() -> impl Handler {
+    api(|__: &mut Conn, Body(mut s): Body<Struct>| async move {
         if let Some(numbers) = &mut s.numbers {
             numbers.push(100);
         }
-        Json(ApiResponse { s })
+        Body(ApiResponse { s })
     })
 }
 
@@ -56,8 +57,8 @@ fn malformed_json_request() {
     );
 }
 
-fn app_without_body() -> impl trillium::Handler {
-    api(|_conn: &mut Conn| async { Json(json!({"health": "ok" })) })
+fn app_without_body() -> impl Handler {
+    api(|_: &mut Conn, _: ()| async { Json(json!({"health": "ok" })) })
 }
 
 #[test]
