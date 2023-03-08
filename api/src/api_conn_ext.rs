@@ -1,6 +1,10 @@
 use mime::Mime;
 use serde::{de::DeserializeOwned, Serialize};
-use trillium::{Conn, KnownHeaderName::ContentType, Status};
+use trillium::{
+    Conn,
+    KnownHeaderName::{Accept, ContentType},
+    Status,
+};
 
 use crate::Error;
 
@@ -144,6 +148,21 @@ pub trait ApiConnExt {
     async fn deserialize<T>(&mut self) -> Result<T, Error>
     where
         T: DeserializeOwned;
+
+    /// Deserializes json without any Accepts header content negotiation
+    async fn deserialize_json<T>(&mut self) -> Result<T, Error>
+    where
+        T: DeserializeOwned;
+
+    /// Serializes the provided body using Accepts header content negotiation
+    async fn serialize<T>(&mut self, body: &T) -> Result<(), Error>
+    where
+        T: Serialize + Sync;
+
+    /// Store any error variant on this conn and return the Ok variant
+    fn store_error<T, E>(&mut self, result: Result<T, E>) -> Option<T>
+    where
+        E: Send + Sync + 'static;
 }
 
 #[trillium::async_trait]
@@ -200,5 +219,76 @@ impl ApiConnExt for Conn {
                 mime_type: content_type.to_string(),
             }),
         }
+    }
+
+    async fn deserialize_json<T>(&mut self) -> Result<T, Error>
+    where
+        T: DeserializeOwned,
+    {
+        log::debug!("extracting json");
+        let body = self.request_body_string().await?;
+        let json_deserializer = &mut serde_json::Deserializer::from_str(&body);
+        Ok(serde_path_to_error::deserialize::<_, T>(json_deserializer)?)
+    }
+
+    fn store_error<T, E>(&mut self, result: Result<T, E>) -> Option<T>
+    where
+        E: Send + Sync + 'static,
+    {
+        match result {
+            Ok(t) => Some(t),
+            Err(e) => {
+                self.set_state(e);
+                None
+            }
+        }
+    }
+
+    async fn serialize<T>(&mut self, body: &T) -> Result<(), Error>
+    where
+        T: Serialize + Sync,
+    {
+        let accept = self
+            .headers()
+            .get_str(Accept)
+            .unwrap_or("*/*")
+            .split(',')
+            .map(|s| s.trim())
+            .find_map(acceptable_mime_type);
+
+        match accept {
+            Some(AcceptableMime::Json) => {
+                self.set_body(serde_json::to_string(body)?);
+                self.headers_mut().insert(ContentType, "application/json");
+                Ok(())
+            }
+
+            #[cfg(feature = "forms")]
+            Some(AcceptableMime::Form) => {
+                self.set_body(serde_urlencoded::to_string(body)?);
+                self.headers_mut()
+                    .insert(ContentType, "application/x-www-form-urlencoded");
+                Ok(())
+            }
+
+            None => Err(Error::FailureToNegotiateContent),
+        }
+    }
+}
+
+enum AcceptableMime {
+    Json,
+    #[cfg(feature = "forms")]
+    Form,
+}
+
+fn acceptable_mime_type(mime: &str) -> Option<AcceptableMime> {
+    match mime {
+        "*/*" | "application/json" => Some(AcceptableMime::Json),
+
+        #[cfg(feature = "forms")]
+        "application/x-www-form-urlencoded" => Some(AcceptableMime::Form),
+
+        _ => None,
     }
 }

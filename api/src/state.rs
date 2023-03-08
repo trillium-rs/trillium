@@ -1,10 +1,28 @@
-use crate::Extract;
+use crate::FromConn;
 use std::ops::{Deref, DerefMut};
 use trillium::{async_trait, Conn, Handler};
 
 /// State extractor
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct State<T>(pub T);
+
+impl<T> State<T> {
+    /// construct a new State
+    pub fn new(t: T) -> Self {
+        Self(t)
+    }
+
+    /// Unwrap this State
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> From<T> for State<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
 
 impl<T> Deref for State<T> {
     type Target = T;
@@ -21,11 +39,11 @@ impl<T> DerefMut for State<T> {
 }
 
 #[async_trait]
-impl<T> Extract for State<T>
+impl<T> FromConn for State<T>
 where
     T: Send + Sync + 'static,
 {
-    async fn extract(conn: &mut Conn) -> Option<Self> {
+    async fn from_conn(conn: &mut Conn) -> Option<Self> {
         conn.take_state::<T>().map(Self)
     }
 }
