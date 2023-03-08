@@ -488,7 +488,7 @@ impl Handler for Router {
     }
 
     fn name(&self) -> std::borrow::Cow<'static, str> {
-        format!("{:#?}", &self).into()
+        "Router".into()
     }
 
     async fn init(&mut self, info: &mut Info) {
