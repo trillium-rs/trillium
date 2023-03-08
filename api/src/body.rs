@@ -24,7 +24,7 @@ impl<T> DerefMut for Body<T> {
 #[async_trait]
 impl<T> Extract for Body<T>
 where
-    T: std::fmt::Debug + DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     async fn extract(conn: &mut Conn) -> Option<Self> {
         match conn.deserialize::<T>().await {

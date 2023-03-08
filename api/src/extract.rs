@@ -15,6 +15,20 @@ impl Extract for () {
 }
 
 #[async_trait]
+impl Extract for String {
+    async fn extract(conn: &mut Conn) -> Option<Self> {
+        conn.request_body_string().await.ok()
+    }
+}
+
+#[async_trait]
+impl Extract for Vec<u8> {
+    async fn extract(conn: &mut Conn) -> Option<Self> {
+        conn.request_body().await.read_bytes().await.ok()
+    }
+}
+
+#[async_trait]
 impl<E: Extract> Extract for Option<E> {
     async fn extract(conn: &mut Conn) -> Option<Self> {
         Some(E::extract(conn).await)
