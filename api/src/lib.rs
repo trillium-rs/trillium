@@ -41,15 +41,23 @@ conn's state. A default error handler is provided.
 mod api_conn_ext;
 mod api_handler;
 mod api_with_body_handler;
+mod body;
 mod default_error_handler;
 mod error;
+mod extract;
+mod extract_handler;
 mod json_handler;
+mod state;
 mod state_handler;
 
 pub use api_conn_ext::ApiConnExt;
 pub use api_handler::{api, ApiHandler};
 pub use api_with_body_handler::{api_with_body, ApiBodyHandler};
+pub use body::Body;
 pub use error::Error;
+pub use extract::Extract;
+pub use extract_handler::{extract_handler, ApiExtractHandler};
 pub use json_handler::Json;
 pub use serde_json::{json, Value};
+pub use state::State;
 pub use state_handler::{state_handler, ApiStateHandler};

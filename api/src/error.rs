@@ -42,6 +42,12 @@ pub enum Error {
         /// A stringified error
         message: String,
     },
+
+    #[error("No negotiated mime type")]
+    /// we were unable to find a content type that matches the Accept
+    /// header. Please open an issue if you'd like an additional
+    /// format to be supported
+    FailureToNegotiateContent,
 }
 
 impl From<serde_json::Error> for Error {
@@ -77,6 +83,24 @@ impl<E: Display> From<serde_path_to_error::Error<E>> for Error {
     }
 }
 
+#[cfg(feature = "forms")]
+impl From<serde_urlencoded::ser::Error> for Error {
+    fn from(value: serde_urlencoded::ser::Error) -> Self {
+        Error::Other {
+            message: value.to_string(),
+        }
+    }
+}
+#[cfg(feature = "forms")]
+impl From<serde_urlencoded::de::Error> for Error {
+    fn from(value: serde_urlencoded::de::Error) -> Self {
+        Error::ParseError {
+            path: "".into(),
+            message: value.to_string(),
+        }
+    }
+}
+
 #[async_trait]
 impl Handler for Error {
     async fn run(&self, conn: Conn) -> Conn {
@@ -88,7 +112,8 @@ impl From<&Error> for Status {
     fn from(value: &Error) -> Self {
         match value {
             Error::ParseError { .. } => Status::UnprocessableEntity,
-            Error::UnsupportedMimeType { .. } => Status::NotAcceptable,
+            Error::UnsupportedMimeType { .. } => Status::UnsupportedMediaType,
+            Error::FailureToNegotiateContent => Status::NotAcceptable,
             _ => Status::InternalServerError,
         }
     }
