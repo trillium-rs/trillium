@@ -1,9 +1,11 @@
 use trillium::{async_trait, Conn};
 
-///
+/// A trait to extract content from [`Conn`]s to be used as the second
+/// argument to an api handler. Implement this for your types.
 #[async_trait]
 pub trait FromConn: Send + Sync + Sized + 'static {
-    ///
+    /// returning None from this will not call the api handler, but
+    /// will halt the conn.
     async fn from_conn(conn: &mut Conn) -> Option<Self>;
 }
 
