@@ -270,8 +270,8 @@ formatter for the current url or path of the request, including query
 */
 pub fn url(conn: &Conn, _color: bool) -> String {
     match conn.querystring() {
-        "" => conn.path().into(),
-        query => format!("{}?{}", conn.path(), query),
+        "" => conn.inner().path().into(),
+        query => format!("{}?{}", conn.inner().path(), query),
     }
 }
 
