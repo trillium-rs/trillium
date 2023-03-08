@@ -45,29 +45,28 @@ impl From<&[&str]> for TeraHandler {
 }
 
 impl TeraHandler {
-    /**
-    Construct a new TeraHandler from either a `&str` or PathBuf that represents
-    a directory glob containing templates, or from a
-    [`tera::Tera`] instance
-    ```
-    # fn main() -> tera::Result<()> {
-    use std::path::PathBuf;
-    use trillium_tera::TeraHandler;
-
-    let handler = TeraHandler::new(["examples", "**", "*.html"].iter().collect::<std::path::PathBuf>());
-
-    // or
-
-    let handler = TeraHandler::new("*.html");
-
-    // or
-
-    let mut tera = trillium_tera::Tera::default();
-    tera.add_raw_template("hello.html", "hello {{name}}")?;
-    let handler = TeraHandler::new(tera);
-    # Ok(()) }
-    ```
-    */
+    /// Construct a new TeraHandler from either a `&str` or PathBuf that represents
+    /// a directory glob containing templates, or from a
+    /// [`tera::Tera`] instance
+    /// ```
+    /// # fn main() -> tera::Result<()> {
+    /// use std::path::PathBuf;
+    /// use trillium_tera::TeraHandler;
+    /// use std::iter::FromIterator;
+    ///
+    /// let handler = TeraHandler::new(PathBuf::from_iter([".", "examples", "**", "*.html"]));
+    ///
+    /// // or
+    ///
+    /// let handler = TeraHandler::new("examples/*.html");
+    ///
+    /// // or
+    ///
+    /// let mut tera = trillium_tera::Tera::default();
+    /// tera.add_raw_template("hello.html", "hello {{name}}")?;
+    /// let handler = TeraHandler::new(tera);
+    /// # Ok(()) }
+    /// ```
     pub fn new(tera: impl Into<Self>) -> Self {
         tera.into()
     }
