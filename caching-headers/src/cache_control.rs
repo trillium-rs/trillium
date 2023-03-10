@@ -86,6 +86,11 @@ header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheControlHeader(Vec<CacheControlDirective>);
 
+/// Construct a CacheControlHeader. Alias for [`CacheControlHeader::new`]
+pub fn cache_control(into: impl Into<CacheControlHeader>) -> CacheControlHeader {
+    into.into()
+}
+
 impl<T> From<T> for CacheControlHeader
 where
     T: IntoIterator<Item = CacheControlDirective>,
@@ -121,6 +126,11 @@ impl From<CacheControlHeader> for HeaderValues {
 }
 
 impl CacheControlHeader {
+    /// construct a new cache control header. alias for [`CacheControlHeader::from`]
+    pub fn new(into: impl Into<Self>) -> Self {
+        into.into()
+    }
+
     /// returns true if one of the directives is `immutable`
     pub fn is_immutable(&self) -> bool {
         self.contains(&Immutable)
