@@ -44,6 +44,7 @@ mod body;
 mod default_error_handler;
 mod error;
 mod from_conn;
+mod halt;
 mod json;
 mod state;
 
@@ -52,6 +53,7 @@ pub use api_handler::{api, ApiHandler};
 pub use body::Body;
 pub use error::Error;
 pub use from_conn::FromConn;
+pub use halt::Halt;
 pub use json::Json;
 pub use serde_json::{json, Value};
 pub use state::State;
