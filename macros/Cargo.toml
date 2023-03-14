@@ -1,0 +1,23 @@
+[package]
+name = "trillium-macros"
+version = "0.0.1"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2021"
+description = "proc-macros for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.51"
+quote = "1.0.23"
+syn = "1.0.109"
+
+[dev-dependencies]
+trillium = "0.2.6"
+trillium-testing = { version = "0.4.0", features = ["smol"] }

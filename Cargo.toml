@@ -19,6 +19,7 @@ members = [
   "head",
   "http",
   "logger",
+  "macros",
   "method-override",
   "native-tls",
   "proxy",
