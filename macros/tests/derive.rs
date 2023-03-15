@@ -31,14 +31,14 @@ fn full_lifecycle() {
     #[derive(Handler)]
     struct OuterHandler(InnerHandler);
 
-    trillium_testing::block_on(async {
+    block_on(async {
         let mut info = Info::default();
         let mut handler = OuterHandler(InnerHandler { init: false });
 
         handler.init(&mut info).await;
         assert_eq!(info.server_description(), "inner handler took over");
         assert!(handler.0.init);
-        assert_ok!(get("/").on(&handler), "run", "before-send" => "before-send");
+        assert_ok!(get("/").run_async(&handler).await, "run", "before-send" => "before-send");
         assert_eq!(handler.name(), "OuterHandler (inner handler)");
     });
 }
