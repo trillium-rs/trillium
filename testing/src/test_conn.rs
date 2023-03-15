@@ -1,4 +1,3 @@
-use crate::block_on;
 use std::{
     convert::TryInto,
     fmt::Debug,
@@ -109,7 +108,7 @@ impl TestConn {
     ```
     */
     pub fn run(self, handler: &impl Handler) -> Self {
-        block_on(self.run_async(handler))
+        crate::block_on(self.run_async(handler))
     }
 
     /**
@@ -163,7 +162,12 @@ impl TestConn {
     */
     pub fn take_response_body_string(&mut self) -> Option<String> {
         if let Some(body) = self.take_response_body() {
-            String::from_utf8(block_on(body.into_bytes()).unwrap().to_vec()).ok()
+            String::from_utf8(
+                futures_lite::future::block_on(body.into_bytes())
+                    .unwrap()
+                    .to_vec(),
+            )
+            .ok()
         } else {
             None
         }
@@ -173,7 +177,9 @@ impl TestConn {
     Reads the request body to string and returns it
     */
     pub fn take_request_body_string(&mut self) -> String {
-        block_on(async { self.request_body().await.read_string().await.unwrap() })
+        futures_lite::future::block_on(async {
+            self.request_body().await.read_string().await.unwrap()
+        })
     }
 }
 
