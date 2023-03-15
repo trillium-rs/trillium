@@ -112,7 +112,24 @@ impl TestConn {
         block_on(self.run_async(handler))
     }
 
-    async fn run_async(self, handler: &impl Handler) -> Self {
+    /**
+    runs this conn against a handler and finalizes
+    response headers.
+
+    ```
+    use trillium_testing::prelude::*;
+
+    async fn handler(conn: Conn) -> Conn {
+        conn.ok("hello trillium")
+    }
+
+    block_on(async move {
+        let conn = get("/").run_async(&handler).await;
+        assert_ok!(conn, "hello trillium", "content-length" => "14");
+    });
+    ```
+    */
+    pub async fn run_async(self, handler: &impl Handler) -> Self {
         let conn = handler.run(self.into()).await;
         let mut conn = handler.before_send(conn).await;
         conn.inner_mut().finalize_headers();

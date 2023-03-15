@@ -12,17 +12,18 @@ cfg_if::cfg_if! {
         use tokio::tcp_connect;
         pub use tokio::with_server;
    } else {
+        ///
         pub fn with_server<H, Fun, Fut>(_handler: H, _tests: Fun)
         where
             H: trillium::Handler,
             Fun: FnOnce(crate::Url) -> Fut,
             Fut: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>,
         {
-            panic!()
+            panic!("with_server requires a runtime to be selected")
         }
 
         pub(crate) async fn tcp_connect(
-            url: &crate::Url,
+            _url: &crate::Url,
         ) -> std::io::Result<trillium_http::transport::BoxedTransport> {
             unimplemented!()
         }
