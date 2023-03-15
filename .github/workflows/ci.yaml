@@ -34,7 +34,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --workspace --features ${{ matrix.runtime }} --no-fail-fast
+        args: --workspace --features ${{ matrix.runtime }},trillium-testing/${{ matrix.runtime }}
 
   check_fmt_and_docs:
     name: Lints and Docs
@@ -62,4 +62,4 @@ jobs:
     #     args: '--all-targets --features smol'
 
     - name: Docs
-      run: cargo doc --no-deps --features smol
+      run: cargo doc --no-deps --features smol,trillium-testing/smol
