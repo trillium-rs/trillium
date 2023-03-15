@@ -7,7 +7,7 @@
     nonstandard_style,
     unused_qualifications
 )]
-#![warn(missing_docs, clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![warn(missing_docs, clippy::nursery, clippy::cargo)]
 #![allow(clippy::must_use_candidate, clippy::module_name_repetitions)]
 
 /*!
@@ -88,8 +88,7 @@ pub fn derive_handler(input: TokenStream) -> TokenStream {
                     .next()
                     .expect("len == 1 should have only one element")
                     .ident
-                    .map(|field| quote!(self.#field))
-                    .unwrap_or_else(|| quote!(self.0))
+                    .map_or_else(|| quote!(self.0), |field| quote!(self.#field))
             } else {
                 ds
                     .fields
@@ -97,10 +96,10 @@ pub fn derive_handler(input: TokenStream) -> TokenStream {
                     .enumerate()
                     .find_map(|(n, f)| {
                         if f.attrs.iter().any(|attr| attr.path.is_ident("handler")) {
-                            Some(f.ident.map(|ident| quote!(self.#ident)).unwrap_or_else(|| {
+                            Some(f.ident.map_or_else(|| {
                                 let n = Index::from(n);
                                 quote!(self.#n)
-                            }))
+                            }, |ident| quote!(self.#ident)))
                         } else {
                             None
                         }
