@@ -80,7 +80,7 @@ pub mod prelude {
     */
     pub use crate::{
         assert_body, assert_body_contains, assert_headers, assert_not_handled, assert_ok,
-        assert_response, assert_status, init, methods::*,
+        assert_response, assert_status, block_on, init, methods::*,
     };
 
     pub use trillium::{Conn, Method, Status};
@@ -108,7 +108,6 @@ cfg_if::cfg_if! {
     } else if #[cfg(feature = "smol")] {
         pub use trillium_smol::async_global_executor::block_on;
     } else {
-        compile_error!("must enable smol, async-std, or tokio feature");
-        pub fn block_on<Fut: std::future::Future<Output = T>, T>(_: Fut) -> T { unreachable!()}
+        pub use futures_lite::future::block_on;
     }
 }
