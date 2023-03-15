@@ -19,5 +19,5 @@ quote = "1.0.23"
 syn = "1.0.109"
 
 [dev-dependencies]
-trillium = { version = "0.2.6", path = "../trillium" }
-trillium-testing = { version = "0.4.0", path = "../testing" }
+trillium = { path = "../trillium" }
+trillium-testing = { path = "../testing" }
