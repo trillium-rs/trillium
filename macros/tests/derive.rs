@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use trillium::{Handler, Info, Status::Ok};
 use trillium_macros::Handler;
 use trillium_testing::prelude::*;
@@ -30,7 +32,7 @@ fn full_lifecycle() {
     }
 
     #[derive(Handler)]
-    struct OuterHandler(InnerHandler);
+    struct OuterHandler<X>(X);
 
     block_on(async {
         let mut info = Info::default();
@@ -92,9 +94,6 @@ fn named_2() {
         not_handler: (),
     };
 
-    // just for dead code
-    let _ = handler.not_handler;
-
     assert_ok!(get("/").on(&handler), "hi");
 }
 
@@ -140,6 +139,7 @@ fn named_generic() {
         #[handler]
         y_and_z: (Y, Z),
     }
+
     assert_handler(Hard {
         x: "hello",
         y_and_z: (Ok, "world"),
