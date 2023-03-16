@@ -104,7 +104,7 @@ fn is_required_generic_for_type(ty: &Type, generic: &Ident) -> bool {
 
     path_visitor.visit_type(ty);
 
-    return path_visitor.generic_is_required;
+    path_visitor.generic_is_required
 }
 
 /// see crate docs
