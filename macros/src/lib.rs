@@ -68,25 +68,82 @@ assert_handler(Generic(trillium::Status::Ok));
 
 ```
 */
+use std::collections::HashSet;
+
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Index};
+use syn::{
+    parse_macro_input, parse_quote,
+    punctuated::Punctuated,
+    token::{Comma, Where},
+    visit::{visit_type_path, Visit},
+    Data, DeriveInput, Field, Ident, Index, Type, TypePath, WhereClause,
+};
+fn is_required_generic_for_type(ty: &Type, generic: &Ident) -> bool {
+    struct PathVisitor<'g> {
+        generic: &'g Ident,
+        generic_is_required: bool,
+    }
+    impl<'g, 'ast> Visit<'ast> for PathVisitor<'g> {
+        fn visit_type_path(&mut self, node: &'ast TypePath) {
+            if node.qself.is_none() {
+                if let Some(first_segment) = node.path.segments.first() {
+                    if first_segment.ident == *self.generic {
+                        self.generic_is_required = true;
+                    }
+                }
+            }
+            visit_type_path(self, node);
+        }
+    }
+
+    let mut path_visitor = PathVisitor {
+        generic,
+        generic_is_required: false,
+    };
+
+    path_visitor.visit_type(ty);
+
+    return path_visitor.generic_is_required;
+}
 
 /// see crate docs
 #[proc_macro_derive(Handler, attributes(handler))]
 pub fn derive_handler(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let name = input.ident;
 
+    let mut generics = HashSet::new();
+
+    let mut save_generics = |field: &Field| {
+        generics = input
+            .generics
+            .type_params()
+            .filter_map(|g| {
+                if is_required_generic_for_type(&field.ty, &g.ident) {
+                    Some(g.ident.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<HashSet<_>>();
+    };
+
     let handler = match input.data {
         Data::Struct(ds) => {
             if ds.fields.len() == 1 {
-                ds.fields
+                let field = ds
+                    .fields
                     .into_iter()
                     .next()
-                    .expect("len == 1 should have only one element")
+                    .expect("len == 1 should have only one element");
+
+                save_generics(&field);
+
+                field
                     .ident
                     .map_or_else(|| quote!(self.0), |field| quote!(self.#field))
             } else {
@@ -96,6 +153,7 @@ pub fn derive_handler(input: TokenStream) -> TokenStream {
                     .enumerate()
                     .find_map(|(n, f)| {
                         if f.attrs.iter().any(|attr| attr.path.is_ident("handler")) {
+                            save_generics(&f);
                             Some(f.ident.map_or_else(|| {
                                 let n = Index::from(n);
                                 quote!(self.#n)
@@ -111,6 +169,25 @@ pub fn derive_handler(input: TokenStream) -> TokenStream {
     };
 
     let name_string = name.to_string();
+
+    let mut where_clause = where_clause.map_or_else(
+        || WhereClause {
+            where_token: Where::default(),
+            predicates: Punctuated::new(),
+        },
+        |where_clause| where_clause.to_owned(),
+    );
+
+    for generic in generics {
+        where_clause
+            .predicates
+            .push_value(parse_quote! { #generic: trillium::Handler });
+        where_clause.predicates.push_punct(Comma::default());
+    }
+
+    where_clause
+        .predicates
+        .push_value(parse_quote! { Self: Send + Sync + 'static });
 
     quote! {
         #[trillium::async_trait]
