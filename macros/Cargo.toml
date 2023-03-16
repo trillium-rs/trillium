@@ -14,10 +14,11 @@ categories = ["web-programming::http-server", "web-programming"]
 proc-macro = true
 
 [dependencies]
-proc-macro2 = "1.0.51"
-quote = "1.0.23"
-syn = "1.0.109"
+proc-macro2 = "1.0.52"
+quote = "1.0.26"
+syn = {version = "1.0.109", features= ["visit", "parsing"]}
 
 [dev-dependencies]
 trillium = { path = "../trillium" }
 trillium-testing = { path = "../testing" }
+syn = { version = "1.0.109", features = ["extra-traits"] }
