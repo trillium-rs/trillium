@@ -23,6 +23,11 @@ field, `#[derive(Handler)]` is all that's required. If there is more
 than one field in the struct, annotate exactly one of them with
 #[handler].
 
+As of v0.0.2, deriving Handler makes an effort at adding Handler
+bounds to generics contained within the `#[handler]` type. It may be
+overzealous in adding those bounds, in which case you'll need to
+implement Handler yourself.
+
 
 ```rust
 
@@ -61,10 +66,18 @@ assert_handler(NamedMultiField {
 });
 
 #[derive(Handler)]
-struct Generic<G: trillium::Handler>(G);
+struct Generic<G>(G);
 assert_handler(Generic("hi"));
 assert_handler(Generic(trillium::Status::Ok));
 
+
+#[derive(Handler)]
+struct ContainsHandler<A, B> {
+    the_handler: (A, B)
+}
+assert_handler(ContainsHandler {
+    the_handler: ("hi", trillium::Status::Ok)
+});
 
 ```
 */
