@@ -1,123 +1,246 @@
 //! # Conversion between [`http`] and `trillium-http` types
-use std::str::FromStr;
-use thiserror::Error;
 
-impl TryFrom<http::Method> for crate::Method {
-    type Error = <crate::Method as FromStr>::Err;
-    fn try_from(http_method: http::Method) -> Result<Self, Self::Error> {
-        http_method.as_str().parse()
-    }
-}
+pub use headers::HeaderConversionError; // for semver
 
-impl TryFrom<crate::Method> for http::Method {
-    type Error = <http::Method as FromStr>::Err;
-
-    fn try_from(trillium_method: crate::Method) -> Result<Self, Self::Error> {
-        trillium_method.as_ref().parse()
-    }
-}
-
-impl TryFrom<http::StatusCode> for crate::Status {
-    type Error = <crate::Status as TryFrom<u16>>::Error;
-
-    fn try_from(http_status_code: http::StatusCode) -> Result<Self, Self::Error> {
-        http_status_code.as_u16().try_into()
-    }
-}
-
-impl TryFrom<crate::Status> for http::StatusCode {
-    type Error = http::status::InvalidStatusCode;
-
-    fn try_from(trillium_status: crate::Status) -> Result<Self, Self::Error> {
-        http::StatusCode::from_u16(trillium_status as u16)
-    }
-}
-
-impl From<http::header::HeaderName> for crate::HeaderName<'static> {
-    fn from(http_header_name: http::header::HeaderName) -> Self {
-        http_header_name.as_str().to_owned().into()
-    }
-}
-
-impl TryFrom<crate::HeaderName<'_>> for http::header::HeaderName {
-    type Error = http::header::InvalidHeaderName;
-
-    fn try_from(trillium_header_name: crate::HeaderName) -> Result<Self, Self::Error> {
-        http::header::HeaderName::from_bytes(trillium_header_name.as_ref().as_bytes())
-    }
-}
-
-impl From<http::HeaderMap> for crate::Headers {
-    fn from(http_header_map: http::HeaderMap) -> Self {
-        let mut trillium_headers = crate::Headers::default();
-        let mut current_header_name = None;
-        for (http_header_name, http_header_value) in http_header_map {
-            current_header_name = http_header_name.or(current_header_name);
-
-            if let Some(http_header_name) = current_header_name.as_ref() {
-                trillium_headers.append(
-                    http_header_name.clone(),
-                    crate::HeaderValue::from(http_header_value),
-                );
+mod version {
+    impl TryFrom<http::Version> for crate::Version {
+        type Error = String;
+        fn try_from(version: http::Version) -> Result<Self, Self::Error> {
+            match version {
+                http::Version::HTTP_09 => Ok(crate::Version::Http0_9),
+                http::Version::HTTP_10 => Ok(crate::Version::Http1_0),
+                http::Version::HTTP_11 => Ok(crate::Version::Http1_1),
+                http::Version::HTTP_2 => Ok(crate::Version::Http2_0),
+                http::Version::HTTP_3 => Ok(crate::Version::Http3_0),
+                other => Err(format!("unsupported version {other:?}")),
             }
         }
-
-        trillium_headers
     }
-}
 
-/// An error enum that represents failures to convert [`Headers`] into
-/// a [`http::HeaderMap`]
-#[derive(Debug, Error)]
-pub enum HeaderConversionError {
-    /// A header that was valid in trillium was not valid as a
-    /// [`http::header::HeaderName`].
-    ///
-    /// Please consider filing an issue with trillium, as there are
-    /// not currently known examples of this.
-    #[error(transparent)]
-    InvalidHeaderName(#[from] http::header::InvalidHeaderName),
-
-    /// A header that was valid in trillium was not valid as a
-    /// [`http::header::HeaderValue`].
-    ///
-    /// Please consider filing an issue with trillium, as there are
-    /// not currently known examples of this.
-    #[error(transparent)]
-    InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
-}
-
-impl TryFrom<crate::Headers> for http::HeaderMap {
-    type Error = HeaderConversionError;
-    fn try_from(trillium_headers: crate::Headers) -> Result<Self, Self::Error> {
-        let mut http_header_map = http::HeaderMap::default();
-        for (trillium_header_name, trillium_header_values) in trillium_headers {
-            let http_header_name = http::header::HeaderName::try_from(trillium_header_name)?;
-            for trillium_header_value in trillium_header_values {
-                let http_header_value = http::header::HeaderValue::try_from(trillium_header_value)?;
-                http_header_map.append(http_header_name.clone(), http_header_value);
+    impl From<crate::Version> for http::Version {
+        fn from(version: crate::Version) -> Self {
+            match version {
+                crate::Version::Http0_9 => http::Version::HTTP_09,
+                crate::Version::Http1_0 => http::Version::HTTP_10,
+                crate::Version::Http1_1 => http::Version::HTTP_11,
+                crate::Version::Http2_0 => http::Version::HTTP_2,
+                crate::Version::Http3_0 => http::Version::HTTP_3,
             }
         }
-        Ok(http_header_map)
+    }
+
+    impl PartialEq<crate::Version> for http::Version {
+        fn eq(&self, other: &crate::Version) -> bool {
+            match TryInto::<crate::Version>::try_into(*self) {
+                Ok(v) => v.eq(other),
+                Err(_) => false,
+            }
+        }
+    }
+
+    impl PartialEq<http::Version> for crate::Version {
+        fn eq(&self, other: &http::Version) -> bool {
+            Into::<http::Version>::into(*self).eq(other)
+        }
     }
 }
 
-impl From<http::HeaderValue> for crate::HeaderValue {
-    fn from(http_header_value: http::HeaderValue) -> Self {
-        http_header_value.as_bytes().to_owned().into()
+mod method {
+    use std::str::FromStr;
+
+    impl TryFrom<http::Method> for crate::Method {
+        type Error = <crate::Method as FromStr>::Err;
+        fn try_from(http_method: http::Method) -> Result<Self, Self::Error> {
+            http_method.as_str().parse()
+        }
+    }
+
+    impl TryFrom<&http::Method> for crate::Method {
+        type Error = <crate::Method as FromStr>::Err;
+        fn try_from(http_method: &http::Method) -> Result<Self, Self::Error> {
+            http_method.as_str().parse()
+        }
+    }
+
+    impl TryFrom<crate::Method> for http::Method {
+        type Error = <http::Method as FromStr>::Err;
+
+        fn try_from(trillium_method: crate::Method) -> Result<Self, Self::Error> {
+            trillium_method.as_ref().parse()
+        }
+    }
+
+    impl PartialEq<crate::Method> for http::Method {
+        fn eq(&self, other: &crate::Method) -> bool {
+            TryInto::<crate::Method>::try_into(self).map_or(false, |m| m.eq(other))
+        }
+    }
+
+    impl PartialEq<http::Method> for crate::Method {
+        fn eq(&self, other: &http::Method) -> bool {
+            TryInto::<http::Method>::try_into(*self).map_or(false, |m| m.eq(other))
+        }
     }
 }
 
-impl TryFrom<crate::HeaderValue> for http::HeaderValue {
-    type Error = http::header::InvalidHeaderValue;
+mod status {
+    impl TryFrom<http::StatusCode> for crate::Status {
+        type Error = <crate::Status as TryFrom<u16>>::Error;
 
-    fn try_from(trillium_header_value: crate::HeaderValue) -> Result<Self, Self::Error> {
-        http::HeaderValue::from_bytes(trillium_header_value.as_ref())
+        fn try_from(http_status_code: http::StatusCode) -> Result<Self, Self::Error> {
+            http_status_code.as_u16().try_into()
+        }
+    }
+
+    impl TryFrom<crate::Status> for http::StatusCode {
+        type Error = http::status::InvalidStatusCode;
+
+        fn try_from(trillium_status: crate::Status) -> Result<Self, Self::Error> {
+            http::StatusCode::from_u16(trillium_status as u16)
+        }
+    }
+
+    impl PartialEq<crate::Status> for http::StatusCode {
+        fn eq(&self, other: &crate::Status) -> bool {
+            self.as_u16() == (*other as u16)
+        }
+    }
+
+    impl PartialEq<http::StatusCode> for crate::Status {
+        fn eq(&self, other: &http::StatusCode) -> bool {
+            (*self as u16) == other.as_u16()
+        }
+    }
+}
+
+mod header_name {
+    impl From<http::HeaderName> for crate::HeaderName<'static> {
+        fn from(http_header_name: http::header::HeaderName) -> Self {
+            http_header_name.as_str().to_owned().into()
+        }
+    }
+
+    impl TryFrom<crate::HeaderName<'_>> for http::HeaderName {
+        type Error = http::header::InvalidHeaderName;
+
+        fn try_from(trillium_header_name: crate::HeaderName) -> Result<Self, Self::Error> {
+            http::header::HeaderName::from_bytes(trillium_header_name.as_ref().as_bytes())
+        }
+    }
+
+    impl PartialEq<http::HeaderName> for crate::HeaderName<'_> {
+        fn eq(&self, other: &http::HeaderName) -> bool {
+            AsRef::<str>::as_ref(self) == AsRef::<str>::as_ref(other)
+        }
+    }
+
+    impl PartialEq<crate::HeaderName<'_>> for http::HeaderName {
+        fn eq(&self, other: &crate::HeaderName<'_>) -> bool {
+            AsRef::<str>::as_ref(other) == AsRef::<str>::as_ref(self)
+        }
+    }
+}
+
+mod headers {
+    use thiserror::Error;
+
+    impl From<http::HeaderMap> for crate::Headers {
+        fn from(http_header_map: http::HeaderMap) -> Self {
+            let mut trillium_headers = crate::Headers::default();
+            let mut current_header_name = None;
+            for (http_header_name, http_header_value) in http_header_map {
+                current_header_name = http_header_name.or(current_header_name);
+
+                if let Some(http_header_name) = current_header_name.as_ref() {
+                    trillium_headers.append(
+                        http_header_name.clone(),
+                        crate::HeaderValue::from(http_header_value),
+                    );
+                }
+            }
+
+            trillium_headers
+        }
+    }
+
+    /// An error enum that represents failures to convert [`Headers`] into
+    /// a [`http::HeaderMap`]
+    #[derive(Debug, Error)]
+    pub enum HeaderConversionError {
+        /// A header that was valid in trillium was not valid as a
+        /// [`http::header::HeaderName`].
+        ///
+        /// Please consider filing an issue with trillium, as there are
+        /// not currently known examples of this.
+        #[error(transparent)]
+        InvalidHeaderName(#[from] http::header::InvalidHeaderName),
+
+        /// A header that was valid in trillium was not valid as a
+        /// [`http::header::HeaderValue`].
+        ///
+        /// Please consider filing an issue with trillium, as there are
+        /// not currently known examples of this.
+        #[error(transparent)]
+        InvalidHeaderValue(#[from] http::header::InvalidHeaderValue),
+    }
+
+    impl TryFrom<crate::Headers> for http::HeaderMap {
+        type Error = HeaderConversionError;
+        fn try_from(trillium_headers: crate::Headers) -> Result<Self, Self::Error> {
+            let mut http_header_map = http::HeaderMap::default();
+            for (trillium_header_name, trillium_header_values) in trillium_headers {
+                let http_header_name = http::header::HeaderName::try_from(trillium_header_name)?;
+                for trillium_header_value in trillium_header_values {
+                    let http_header_value =
+                        http::header::HeaderValue::try_from(trillium_header_value)?;
+                    http_header_map.append(http_header_name.clone(), http_header_value);
+                }
+            }
+            Ok(http_header_map)
+        }
+    }
+}
+
+mod header_values {
+    impl From<http::HeaderValue> for crate::HeaderValue {
+        fn from(http_header_value: http::HeaderValue) -> Self {
+            http_header_value.as_bytes().to_owned().into()
+        }
+    }
+
+    impl TryFrom<crate::HeaderValue> for http::HeaderValue {
+        type Error = http::header::InvalidHeaderValue;
+
+        fn try_from(trillium_header_value: crate::HeaderValue) -> Result<Self, Self::Error> {
+            http::HeaderValue::from_bytes(trillium_header_value.as_ref())
+        }
+    }
+
+    impl PartialEq<crate::HeaderValue> for http::HeaderValue {
+        fn eq(&self, other: &crate::HeaderValue) -> bool {
+            other.as_ref() == self.as_ref()
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn versions() {
+        assert_eq!(
+            http::Version::try_from(crate::Version::Http2_0).unwrap(),
+            http::Version::HTTP_2
+        );
+        assert_eq!(
+            crate::Version::from(http::Version::HTTP_09),
+            crate::Version::Http0_9
+        );
+
+        assert_eq!(crate::Version::Http1_1, http::Version::HTTP_11);
+        assert_eq!(http::Version::HTTP_3, crate::Version::Http3_0);
+    }
+
     #[test]
     fn method_round_trip() {
         assert_eq!(
@@ -128,11 +251,13 @@ mod tests {
             crate::Method::try_from(http::Method::DELETE).unwrap(),
             crate::Method::Delete
         );
-
         assert_eq!(
             http::Method::try_from(crate::Method::BaselineControl).unwrap(),
             "BASELINE-CONTROL"
         );
+
+        assert_eq!(crate::Method::Post, http::Method::POST);
+        assert_eq!(http::Method::PATCH, crate::Method::Patch);
     }
 
     #[test]
@@ -150,6 +275,9 @@ mod tests {
             http::StatusCode::try_from(crate::Status::ImATeapot).unwrap(),
             418
         );
+
+        assert_eq!(crate::Status::Ok, http::StatusCode::OK);
+        assert_eq!(http::StatusCode::CONFLICT, crate::Status::Conflict);
     }
 
     #[test]
