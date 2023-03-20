@@ -34,7 +34,7 @@ fn test_apache_combined() {
     let Ok(LogEntry::CombinedLog(log)) = parse(LogType::CombinedLog, &s) else { panic!() };
     let RequestResult::Valid(request) = log.request else { panic!() };
     assert_eq!(log.ip, ip);
-    assert!(OffsetDateTime::now_local().unwrap().unix_timestamp() - log.timestamp.timestamp() < 2);
+    assert!(OffsetDateTime::now_utc().unix_timestamp() - log.timestamp.timestamp() < 2);
     assert_eq!(request.uri(), "/some/path?query");
     assert_eq!(request.method(), "GET");
     assert_eq!(log.status_code, Status::ImATeapot);
@@ -66,7 +66,7 @@ fn test_apache_common() {
     let s = s.lock().unwrap();
     let Ok(LogEntry::CommonLog(log)) = parse(LogType::CommonLog, &s) else { panic!() };
     let RequestResult::Valid(request) = log.request else { panic!() };
-    assert!(OffsetDateTime::now_local().unwrap().unix_timestamp() - log.timestamp.timestamp() < 2);
+    assert!(OffsetDateTime::now_utc().unix_timestamp() - log.timestamp.timestamp() < 2);
     assert_eq!(log.ip, ip);
     assert_eq!(request.uri(), "/some/path?query");
     assert_eq!(request.method(), "GET");
