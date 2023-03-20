@@ -1,4 +1,4 @@
-use routefinder::Captures;
+use routefinder::{Captures, RouteSpec};
 use trillium::Conn;
 
 /**
@@ -54,6 +54,24 @@ pub trait RouterConnExt {
     /// ```
 
     fn wildcard(&self) -> Option<&str>;
+
+    /// Retrieves the matched route specification
+    /// ```
+    /// use trillium::{conn_unwrap, Conn};
+    /// use trillium_router::{Router, RouterConnExt};
+    ///
+    /// let router = Router::new().get("/pages/:page_id", |conn: Conn| async move {
+    ///     let route = conn_unwrap!(conn.route(), conn).to_string();
+    ///     conn.ok(format!("route was {route}"))
+    /// });
+    ///
+    /// use trillium_testing::prelude::*;
+    /// assert_ok!(
+    ///     get("/pages/12345").on(&router),
+    ///     "route was /pages/:page_id"
+    /// );
+    /// ```
+    fn route(&self) -> Option<&RouteSpec>;
 }
 
 impl RouterConnExt for Conn {
@@ -63,6 +81,10 @@ impl RouterConnExt for Conn {
 
     fn wildcard(&self) -> Option<&str> {
         self.state::<Captures>().and_then(|p| p.wildcard())
+    }
+
+    fn route(&self) -> Option<&RouteSpec> {
+        self.state()
     }
 }
 
