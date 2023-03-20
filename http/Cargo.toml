@@ -39,8 +39,10 @@ smol = "1.3.0"
 trillium-client = { path = "../client" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
+trillium-http = { path = ".", features = ["http-compat"] }
 
 [dev-dependencies.tokio]
 version = "1.26.0"
 features = ["rt", "net", "rt-multi-thread", "macros"]
 package = "tokio"
+

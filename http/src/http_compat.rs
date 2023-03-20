@@ -233,7 +233,7 @@ mod tests {
             http::Version::HTTP_2
         );
         assert_eq!(
-            crate::Version::from(http::Version::HTTP_09),
+            crate::Version::try_from(http::Version::HTTP_09).unwrap(),
             crate::Version::Http0_9
         );
 
