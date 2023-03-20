@@ -9,7 +9,7 @@
 Welcome to the trillium logger!
 */
 pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 use trillium::{async_trait, Conn, Handler, Info};
 /**
 Components with which common log formats can be constructed
@@ -76,8 +76,15 @@ pub enum Target {
     Stdout,
 }
 
-impl Target {
-    pub(crate) fn write(&self, data: impl Display) {
+/// A trait for log targets. Implemented for [`Target`] and for all
+/// `Fn(String) + Send + Sync + 'static`.
+pub trait Targetable: Send + Sync + 'static {
+    /// write a log line
+    fn write(&self, data: String);
+}
+
+impl Targetable for Target {
+    fn write(&self, data: String) {
         match self {
             Target::Logger(level) => {
                 log::log!(*level, "{}", data);
@@ -87,6 +94,15 @@ impl Target {
                 println!("{data}");
             }
         }
+    }
+}
+
+impl<F> Targetable for F
+where
+    F: Fn(String) + Send + Sync + 'static,
+{
+    fn write(&self, data: String) {
+        self(data);
     }
 }
 
@@ -174,7 +190,7 @@ The trillium handler for this crate, and the core type
 pub struct Logger<F> {
     format: F,
     color_mode: ColorMode,
-    target: Target,
+    target: Arc<dyn Targetable>,
 }
 
 impl Logger<()> {
@@ -191,7 +207,7 @@ impl Logger<()> {
         Logger {
             format: dev_formatter,
             color_mode: ColorMode::Auto,
-            target: Target::Stdout,
+            target: Arc::new(Target::Stdout),
         }
     }
 }
@@ -247,8 +263,8 @@ impl<F: LogFormatter> Logger<F> {
     Logger::new().with_target(Target::Logger(log::Level::Info));
     ```
     */
-    pub fn with_target(mut self, target: Target) -> Self {
-        self.target = target;
+    pub fn with_target(mut self, target: impl Targetable) -> Self {
+        self.target = Arc::new(target);
         self
     }
 }
@@ -280,9 +296,10 @@ Control-C to quit",
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if conn.state::<LoggerWasRun>().is_some() {
-            let target = self.target;
+            let target = self.target.clone();
             let output = self.format.format(&conn, self.color_mode.is_enabled());
-            conn.inner_mut().after_send(move |_| target.write(output));
+            conn.inner_mut()
+                .after_send(move |_| target.write(output.to_string()));
         }
 
         conn

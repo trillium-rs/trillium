@@ -1,9 +1,8 @@
 use crate::LogFormatter;
-use chrono::Local;
 use colored::{ColoredString, Colorize};
 use size::{Base, Size};
 use std::{borrow::Cow, fmt::Display, sync::Arc, time::Instant};
-use trillium::{Conn, Method, Status, Version};
+use trillium::{Conn, HeaderName, KnownHeaderName, Method, Status, Version};
 
 /**
 [apache combined log format][apache]
@@ -12,7 +11,7 @@ use trillium::{Conn, Method, Status, Version};
 
 This is defined as follows:
 
-[`apache_combined`](`request_id`, `user_id`) [`header`]`("referrer")` [`header`]`("user-agent")`
+[`apache_combined`](`request_id`, `user_id`) [`request_header`]`("referrer")` [`request_header`]`("user-agent")`
 
 where `request_id` and `user_id` are mandatory formatters provided at time of usage.
 
@@ -47,9 +46,9 @@ pub fn apache_combined(
     (
         apache_common(request_id, user_id),
         " ",
-        header("referrer"),
+        request_header(KnownHeaderName::Referer),
         " ",
-        header("user-agent"),
+        request_header(KnownHeaderName::UserAgent),
     )
 }
 
@@ -139,26 +138,75 @@ mod status_mod {
 pub use status_mod::status;
 
 /**
-formatter-builder for a particular header, formatted wrapped in
-quotes. `""` if the header is not present
+formatter-builder for a particular request header, formatted wrapped
+in quotes. `""` if the header is not present
 
 usage:
 
 ```rust
-# use trillium_logger::{Logger, formatters::header};
-Logger::new().with_formatter(("user-agent: ", header("user-agent")));
+# use trillium_logger::{Logger, formatters::request_header};
+Logger::new().with_formatter(("user-agent: ", request_header("user-agent")));
+
+// or
+
+Logger::new().with_formatter(("user-agent: ", request_header(trillium::KnownHeaderName::UserAgent)));
+
 ```
 
 **note**: this is not a formatter itself, but returns a formatter when
 called with a header name
 */
-pub fn header(header_name: &'static str) -> impl LogFormatter {
+pub fn request_header(header_name: impl Into<HeaderName<'static>>) -> impl LogFormatter {
+    let header_name = header_name.into();
     move |conn: &Conn, _color: bool| {
-        format!("{:?}", conn.headers().get_str(header_name).unwrap_or(""))
+        format!(
+            "{:?}",
+            conn.headers().get_str(header_name.clone()).unwrap_or("")
+        )
+    }
+}
+
+/**
+please use [`request_header`] instead. it was a mistake to name this
+[`header`] as it is not apparent whether it's inbound or outbound.
+*/
+#[deprecated = "use trillium_logger::formatters::request_header"]
+pub fn header(header_name: impl Into<HeaderName<'static>>) -> impl LogFormatter {
+    request_header(header_name)
+}
+
+/**
+formatter-builder for a particular response header, formatted wrapped
+in quotes. `""` if the header is not present
+
+usage:
+
+```rust
+# use trillium_logger::{Logger, formatters::response_header};
+Logger::new().with_formatter(("location: ", response_header(trillium::KnownHeaderName::Location)));
+// or
+Logger::new().with_formatter(("location: ", response_header("Location")));
+```
+
+**note**: this is not a formatter itself, but returns a formatter when
+called with a header name
+*/
+pub fn response_header(header_name: impl Into<HeaderName<'static>>) -> impl LogFormatter {
+    let header_name = header_name.into();
+    move |conn: &Conn, _color: bool| {
+        format!(
+            "{:?}",
+            conn.inner()
+                .response_headers()
+                .get_str(header_name.clone())
+                .unwrap_or("")
+        )
     }
 }
 
 mod timestamp_mod {
+    use time::{macros::format_description, OffsetDateTime};
+
     use super::*;
     /**
     Display output for [`timestamp`]
@@ -173,12 +221,12 @@ mod timestamp_mod {
         Now
     }
 
+    // apache time format is 10/Oct/2000:13:55:36 -0700
     impl Display for Now {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_fmt(format_args!(
-                "{}",
-                Local::now().format("%d/%b/%Y:%H:%M:%S %z")
-            ))
+            let now = OffsetDateTime::now_local().unwrap()
+                .format(format_description!(version = 2, "[day]/[month repr:short]/[year repr:full]:[hour repr:24]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]")).unwrap();
+            f.write_str(&now)
         }
     }
 }
