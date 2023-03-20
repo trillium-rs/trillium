@@ -165,7 +165,7 @@ pub fn derive_handler(input: TokenStream) -> TokenStream {
                     .into_iter()
                     .enumerate()
                     .find_map(|(n, f)| {
-                        if f.attrs.iter().any(|attr| attr.path.is_ident("handler")) {
+                        if f.attrs.iter().any(|attr| attr.path().is_ident("handler")) {
                             save_generics(&f);
                             Some(f.ident.map_or_else(|| {
                                 let n = Index::from(n);
