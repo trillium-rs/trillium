@@ -418,6 +418,8 @@ impl Handler for Router {
         if let Some(m) = self.best_match(conn.method(), path) {
             let mut captures = m.captures().into_owned();
 
+            let route = m.route().clone();
+
             if let Some(mut original_captures) = original_captures {
                 original_captures.append(captures);
                 captures = original_captures;
@@ -433,14 +435,13 @@ impl Handler for Router {
                         has_path = true;
                     }
 
-                    conn.with_state(captures)
+                    conn.with_state(captures).with_state(route)
                 })
                 .await;
 
             if has_path {
                 new_conn.pop_path();
             }
-
             new_conn
         } else if method == Method::Options && self.handle_options {
             let allow = self
