@@ -12,14 +12,17 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 atty = "0.2.14"
-chrono = "0.4.24"
 colored = "2.0.0"
 log = "0.4.17"
 size = "0.4.1"
+time = { version = "0.3.20", features = ["local-offset", "formatting", "macros"] }
 trillium = { path = "../trillium", version = "^0.2.0" }
 
 [dev-dependencies]
+access_log_parser = "0.8.0"
 trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
+trillium-http = { path = "../http", features = ["http-compat"] }
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]
