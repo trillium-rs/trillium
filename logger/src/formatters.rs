@@ -224,7 +224,7 @@ mod timestamp_mod {
     // apache time format is 10/Oct/2000:13:55:36 -0700
     impl Display for Now {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let now = OffsetDateTime::now_local().unwrap()
+            let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc())
                 .format(format_description!(version = 2, "[day]/[month repr:short]/[year repr:full]:[hour repr:24]:[minute]:[second] [offset_hour sign:mandatory][offset_minute]")).unwrap();
             f.write_str(&now)
         }
