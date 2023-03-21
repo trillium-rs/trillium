@@ -18,6 +18,7 @@ members = [
   "handlebars",
   "head",
   "http",
+  "opentelemetry-metrics",
   "logger",
   "macros",
   "method-override",
