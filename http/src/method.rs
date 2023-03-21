@@ -341,10 +341,15 @@ pub enum Method {
 }
 
 impl Method {
-    /// Whether a method is considered "safe", meaning the request is essentially read-only.
+    /// Predicate that returns whether the method is "safe."
     ///
-    /// See [the spec](https://tools.ietf.org/html/rfc7231#section-4.2.1) for more details.
-    pub fn is_safe(&self) -> bool {
+    /// > Request methods are considered "safe" if their defined semantics are
+    /// > essentially read-only; i.e., the client does not request, and does
+    /// > not expect, any state change on the origin server as a result of
+    /// > applying a safe method to a target resource.
+    ///
+    /// -- [rfc7231§4.2.1](https://tools.ietf.org/html/rfc7231#section-4.2.1)
+    pub const fn is_safe(&self) -> bool {
         matches!(
             self,
             Method::Get
@@ -356,6 +361,62 @@ impl Method {
                 | Method::Search
                 | Method::Trace
         )
+    }
+
+    /// predicate that returns whether this method is considered "idempotent".
+    ///
+    /// > A request method is considered "idempotent" if the intended effect on
+    /// > the server of multiple identical requests with that method is the
+    /// > same as the effect for a single such request.
+    ///
+    /// -- [rfc7231§4.2.2](https://tools.ietf.org/html/rfc7231#section-4.2.2)
+    pub const fn is_idempotent(&self) -> bool {
+        self.is_safe() || matches!(self, Method::Put | Method::Delete)
+    }
+
+    /// returns the static str representation of this method
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Acl => "ACL",
+            Self::BaselineControl => "BASELINE-CONTROL",
+            Self::Bind => "BIND",
+            Self::Checkin => "CHECKIN",
+            Self::Checkout => "CHECKOUT",
+            Self::Connect => "CONNECT",
+            Self::Copy => "COPY",
+            Self::Delete => "DELETE",
+            Self::Get => "GET",
+            Self::Head => "HEAD",
+            Self::Label => "LABEL",
+            Self::Link => "LINK",
+            Self::Lock => "LOCK",
+            Self::Merge => "MERGE",
+            Self::MkActivity => "MKACTIVITY",
+            Self::MkCalendar => "MKCALENDAR",
+            Self::MkCol => "MKCOL",
+            Self::MkRedirectRef => "MKREDIRECTREF",
+            Self::MkWorkspace => "MKWORKSPACE",
+            Self::Move => "MOVE",
+            Self::Options => "OPTIONS",
+            Self::OrderPatch => "ORDERPATCH",
+            Self::Patch => "PATCH",
+            Self::Post => "POST",
+            Self::Pri => "PRI",
+            Self::PropFind => "PROPFIND",
+            Self::PropPatch => "PROPPATCH",
+            Self::Put => "PUT",
+            Self::Rebind => "REBIND",
+            Self::Report => "REPORT",
+            Self::Search => "SEARCH",
+            Self::Trace => "TRACE",
+            Self::Unbind => "UNBIND",
+            Self::Uncheckout => "UNCHECKOUT",
+            Self::Unlink => "UNLINK",
+            Self::Unlock => "UNLOCK",
+            Self::Update => "UPDATE",
+            Self::UpdateRedirectRef => "UPDATEREDIRECTREF",
+            Self::VersionControl => "VERSION-CONTROL",
+        }
     }
 }
 
@@ -369,8 +430,6 @@ impl FromStr for Method {
     type Err = crate::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        #[allow(clippy::match_str_case_mismatch)]
-        // https://github.com/rust-lang/rust-clippy/issues/7882
         match &*s.to_ascii_uppercase() {
             "ACL" => Ok(Self::Acl),
             "BASELINE-CONTROL" => Ok(Self::BaselineControl),
@@ -428,47 +487,7 @@ impl<'a> TryFrom<&'a str> for Method {
 
 impl AsRef<str> for Method {
     fn as_ref(&self) -> &str {
-        match self {
-            Self::Acl => "ACL",
-            Self::BaselineControl => "BASELINE-CONTROL",
-            Self::Bind => "BIND",
-            Self::Checkin => "CHECKIN",
-            Self::Checkout => "CHECKOUT",
-            Self::Connect => "CONNECT",
-            Self::Copy => "COPY",
-            Self::Delete => "DELETE",
-            Self::Get => "GET",
-            Self::Head => "HEAD",
-            Self::Label => "LABEL",
-            Self::Link => "LINK",
-            Self::Lock => "LOCK",
-            Self::Merge => "MERGE",
-            Self::MkActivity => "MKACTIVITY",
-            Self::MkCalendar => "MKCALENDAR",
-            Self::MkCol => "MKCOL",
-            Self::MkRedirectRef => "MKREDIRECTREF",
-            Self::MkWorkspace => "MKWORKSPACE",
-            Self::Move => "MOVE",
-            Self::Options => "OPTIONS",
-            Self::OrderPatch => "ORDERPATCH",
-            Self::Patch => "PATCH",
-            Self::Post => "POST",
-            Self::Pri => "PRI",
-            Self::PropFind => "PROPFIND",
-            Self::PropPatch => "PROPPATCH",
-            Self::Put => "PUT",
-            Self::Rebind => "REBIND",
-            Self::Report => "REPORT",
-            Self::Search => "SEARCH",
-            Self::Trace => "TRACE",
-            Self::Unbind => "UNBIND",
-            Self::Uncheckout => "UNCHECKOUT",
-            Self::Unlink => "UNLINK",
-            Self::Unlock => "UNLOCK",
-            Self::Update => "UPDATE",
-            Self::UpdateRedirectRef => "UPDATEREDIRECTREF",
-            Self::VersionControl => "VERSION-CONTROL",
-        }
+        self.as_str()
     }
 }
 
