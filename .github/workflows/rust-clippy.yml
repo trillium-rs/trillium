@@ -26,6 +26,10 @@ jobs:
       contents: read
       security-events: write
     steps:
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Checkout code
         uses: actions/checkout@v3
 

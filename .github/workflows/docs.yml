@@ -9,6 +9,10 @@ jobs:
     name: build rustdocs and put them on github pages
     runs-on: ubuntu-latest
     steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@master
     - uses: actions-rs/toolchain@v1
       with:
