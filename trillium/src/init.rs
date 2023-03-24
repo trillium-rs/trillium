@@ -68,8 +68,9 @@ assert_ok!(get("/").on(&handler), "ok!");
 */
 pub struct Init<T>(Inner<T>);
 
-type Initializer<T> =
-    Box<dyn Fn(Info) -> Pin<Box<dyn Future<Output = T> + Send + 'static>> + Send + Sync + 'static>;
+type Initializer<T> = Box<
+    dyn FnOnce(Info) -> Pin<Box<dyn Future<Output = T> + Send + 'static>> + Send + Sync + 'static,
+>;
 
 enum Inner<T> {
     New(Initializer<T>),
@@ -122,7 +123,7 @@ impl<T: Handler> Init<T> {
     */
     pub fn new<F, Fut>(init: F) -> Self
     where
-        F: Fn(Info) -> Fut + Send + Sync + 'static,
+        F: FnOnce(Info) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
         Self(Inner::New(Box::new(move |info| Box::pin(init(info)))))
@@ -172,7 +173,7 @@ impl<T: Handler> Handler for Init<T> {
 /// alias for [`Init::new`]
 pub fn init<T, F, Fut>(init: F) -> Init<T>
 where
-    F: Fn(Info) -> Fut + Send + Sync + 'static,
+    F: FnOnce(Info) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = T> + Send + 'static,
     T: Handler,
 {
