@@ -137,6 +137,18 @@ impl<C: Connector> Client<C> {
         conn
     }
 
+    /**
+    The pool implementation currently accumulates a small memory
+    footprint for each new host. If your application is reusing a pool
+    against a large number of unique hosts, call this method
+    intermittently.
+    */
+    pub fn clean_up_pool(&self) {
+        if let Some(pool) = &self.pool {
+            pool.cleanup();
+        }
+    }
+
     method!(get, Get);
     method!(post, Post);
     method!(put, Put);

@@ -8,6 +8,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},
     io::{ErrorKind, Write},
+    net::SocketAddr,
     pin::Pin,
     str::FromStr,
 };
@@ -609,7 +610,7 @@ impl<C: Connector> Conn<'_, C> {
 
     async fn find_pool_candidate(
         &self,
-        socket_addrs: &[std::net::SocketAddr],
+        socket_addrs: &[SocketAddr],
         head: &[u8],
     ) -> Option<C::Transport> {
         let mut byte = [0];
