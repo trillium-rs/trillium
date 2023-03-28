@@ -26,8 +26,8 @@ mime = "0.3.16"
 serde_json = { version = "1.0.94", optional = true }
 serde = { version = "1.0.156", optional = true }
 thiserror = { version = "1.0.39", optional = true }
-parking_lot = "0.12.1"
 dashmap = "5.4.0"
+crossbeam-queue = "0.3.8"
 
 [dependencies.trillium-http]
 path = "../http"
