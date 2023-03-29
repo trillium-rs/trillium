@@ -92,6 +92,15 @@ impl TestConn {
         self
     }
 
+    /// set state on the test conn
+    pub fn with_state<S>(mut self, state: S) -> Self
+    where
+        S: Send + Sync + 'static,
+    {
+        self.0.set_state(state);
+        self
+    }
+
     /**
     blocks on running this conn against a handler and finalizes
     response headers. also aliased as [`TestConn::on`]
