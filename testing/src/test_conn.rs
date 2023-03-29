@@ -183,6 +183,12 @@ impl TestConn {
     }
 }
 
+impl From<Conn> for TestConn {
+    fn from(conn: Conn) -> Self {
+        Self(conn)
+    }
+}
+
 impl From<TestConn> for Conn {
     fn from(tc: TestConn) -> Self {
         tc.0
