@@ -25,11 +25,8 @@ where
         let url = format!("http://localhost:{}", port).parse().unwrap();
         let stopper = Stopper::new();
         let (s, r) = async_channel::bounded(1);
-        let init = trillium::Init::new(move |_| {
-            let s = s.clone();
-            async move {
-                s.send(()).await.unwrap();
-            }
+        let init = trillium::Init::new(move |_| async move {
+            s.send(()).await.unwrap();
         });
 
         let server_future = spawn(
