@@ -342,18 +342,40 @@ impl Conn {
         self.inner.method()
     }
 
-    /// returns the request headers
+    /// borrows the request headers
     ///
-    /// stability note: this may become `request_headers` at some point
+    /// this is aliased as [`Conn::request_headers`]
     pub fn headers(&self) -> &Headers {
         self.inner.request_headers()
     }
 
-    /// returns the mutable response headers
+    /// mutably borrows response headers
     ///
-    /// stability note: this may become `response_headers` at some point
+    /// this is aliased as [`Conn::response_headers_mut`]
     pub fn headers_mut(&mut self) -> &mut Headers {
         self.inner.response_headers_mut()
+    }
+
+    /// borrow the response headers
+    pub fn response_headers(&self) -> &Headers {
+        self.inner.response_headers()
+    }
+
+    /// mutably borrow the response headers
+    ///
+    /// this is aliased as [`Conn::headers_mut`]
+    pub fn response_headers_mut(&mut self) -> &mut Headers {
+        self.inner.response_headers_mut()
+    }
+
+    /// borrow the request headers
+    pub fn request_headers(&self) -> &Headers {
+        self.inner.request_headers()
+    }
+
+    /// mutably borrow request headers
+    pub fn request_headers_mut(&mut self) -> &mut Headers {
+        self.inner.request_headers_mut()
     }
 
     /**
