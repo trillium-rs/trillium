@@ -269,13 +269,18 @@ impl<Store: SessionStore> SessionHandler<Store> {
 
 #[async_trait]
 impl<Store: SessionStore> Handler for SessionHandler<Store> {
-    async fn run(&self, conn: Conn) -> Conn {
+    async fn run(&self, mut conn: Conn) -> Conn {
+        let session = conn.take_state::<Session>();
+
         let cookie_value = conn
             .cookies()
             .get(&self.cookie_name)
             .and_then(|cookie| self.verify_signature(cookie.value()));
 
-        let mut session = self.load_or_create(cookie_value).await;
+        let mut session = match session {
+            Some(session) => session,
+            None => self.load_or_create(cookie_value).await,
+        };
 
         if let Some(ttl) = self.session_ttl {
             session.expire_in(ttl);
