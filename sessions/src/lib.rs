@@ -81,7 +81,9 @@ store if it requires it
 ```
 use trillium::Conn;
 use trillium_cookies::{CookiesHandler, cookie::Cookie};
-use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
+use trillium_sessions::{SessionConnExt, SessionHandler};
+use async_session_memory_store::MemoryStore;
+
 # std::env::set_var("TRILLIUM_SESSION_SECRET", "this is just for testing and you should not do this");
 let session_secret = std::env::var("TRILLIUM_SESSION_SECRET").unwrap();
 
@@ -119,4 +121,4 @@ pub use session_conn_ext::SessionConnExt;
 mod session_handler;
 pub use session_handler::{sessions, SessionHandler};
 
-pub use async_session::{CookieStore, MemoryStore, Session};
+pub use async_session::Session;

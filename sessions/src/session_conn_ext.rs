@@ -1,4 +1,5 @@
-use async_session::{serde::Serialize, Session};
+use async_session::Session;
+use serde::Serialize;
 use trillium::Conn;
 
 /**

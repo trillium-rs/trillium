@@ -1,6 +1,7 @@
+use async_session_memory_store::MemoryStore;
 use trillium::Conn;
 use trillium_cookies::CookiesHandler;
-use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
+use trillium_sessions::{SessionConnExt, SessionHandler};
 
 pub fn main() {
     env_logger::init();
