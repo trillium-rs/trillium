@@ -11,10 +11,11 @@ use trillium_conn_id::log_formatter::conn_id;
 use trillium_logger::apache_common;
 use trillium_router::{Router, RouterConnExt};
 use trillium_rustls::RustlsConnector;
-use trillium_sessions::{MemoryStore, SessionConnExt};
+use trillium_sessions::SessionConnExt;
 use trillium_smol::TcpConnector;
 use trillium_static_compiled::static_compiled;
 use trillium_websockets::{Message, WebSocket, WebSocketConn};
+use async_session_memory_store::MemoryStore;
 type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
 #[derive(Template)]

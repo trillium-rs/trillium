@@ -5,7 +5,8 @@ use trillium_aws_lambda::LambdaConnExt;
 use trillium_cookies::CookiesHandler;
 use trillium_logger::Logger;
 use trillium_router::{Router, RouterConnExt};
-use trillium_sessions::{CookieStore, SessionConnExt, SessionHandler};
+use trillium_sessions::{SessionConnExt, SessionHandler};
+use async_session_cookie_store::CookieStore;
 
 #[derive(Template)]
 #[template(path = "hello.html")]
