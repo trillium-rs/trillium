@@ -291,6 +291,7 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if let Some(session) = conn.take_state::<Session>() {
+            let session_to_keep = session.clone();
             let secure = conn.is_secure();
             if session.is_destroyed() {
                 self.store.destroy_session(session).await.ok();
@@ -302,9 +303,10 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
                         .add(self.build_cookie(secure, cookie_value));
                 }
             }
+            conn.with_state(session_to_keep)
+        } else {
+            conn
         }
-
-        conn
     }
 }
 
