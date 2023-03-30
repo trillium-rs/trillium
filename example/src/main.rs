@@ -1,4 +1,5 @@
 use askama::Template;
+use async_session_memory_store::MemoryStore;
 use futures_lite::prelude::*;
 use std::time::Duration;
 use trillium::{Conn, Handler};
@@ -15,7 +16,6 @@ use trillium_sessions::SessionConnExt;
 use trillium_smol::TcpConnector;
 use trillium_static_compiled::static_compiled;
 use trillium_websockets::{Message, WebSocket, WebSocketConn};
-use async_session_memory_store::MemoryStore;
 type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
 #[derive(Template)]

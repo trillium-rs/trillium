@@ -1,4 +1,5 @@
 use askama::Template;
+use async_session_cookie_store::CookieStore;
 use trillium::Conn;
 use trillium_askama::AskamaConnExt;
 use trillium_aws_lambda::LambdaConnExt;
@@ -6,7 +7,6 @@ use trillium_cookies::CookiesHandler;
 use trillium_logger::Logger;
 use trillium_router::{Router, RouterConnExt};
 use trillium_sessions::{SessionConnExt, SessionHandler};
-use async_session_cookie_store::CookieStore;
 
 #[derive(Template)]
 #[template(path = "hello.html")]
