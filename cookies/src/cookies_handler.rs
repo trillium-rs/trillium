@@ -46,9 +46,10 @@ impl Handler for CookiesHandler {
                     .map(|cookie| cookie.encoded().to_string())
                     .collect::<HeaderValues>(),
             );
+            conn.with_state(jar)
+        } else {
+            conn
         }
-
-        conn
     }
 }
 
