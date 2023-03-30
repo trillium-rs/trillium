@@ -4,7 +4,7 @@ use std::{
     net::IpAddr,
     ops::{Deref, DerefMut},
 };
-use trillium::{Conn, Handler, HeaderName, HeaderValues, Method};
+use trillium::{Conn, Handler, HeaderName, HeaderValues, Method, Status};
 use trillium_http::{Conn as HttpConn, Synthetic};
 
 type SyntheticConn = HttpConn<Synthetic>;
@@ -141,6 +141,9 @@ impl TestConn {
         let conn = handler.run(self.into()).await;
         let mut conn = handler.before_send(conn).await;
         conn.inner_mut().finalize_headers();
+        if conn.status().is_none() {
+            conn.set_status(Status::NotFound);
+        }
         Self(conn)
     }
 
