@@ -1,5 +1,5 @@
 use crate::{CloneCounter, Server};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, net::SocketAddr};
 use trillium::Handler;
 use trillium_http::Stopper;
 use trillium_tls_common::Acceptor;
@@ -120,6 +120,14 @@ where
     pub fn with_nodelay(mut self) -> Self {
         self.nodelay = true;
         self
+    }
+
+    /// Configures the server to listen on the ip and port specified
+    /// by the provided socketaddr. This is identical to
+    /// `self.with_host(&socketaddr.ip().to_string()).with_port(socketaddr.port())`
+    pub fn with_socketaddr(self, socketaddr: SocketAddr) -> Self {
+        self.with_host(&socketaddr.ip().to_string())
+            .with_port(socketaddr.port())
     }
 
     /// Configures the tls acceptor for this server
