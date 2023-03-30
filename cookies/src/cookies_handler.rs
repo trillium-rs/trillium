@@ -22,8 +22,8 @@ impl CookiesHandler {
 
 #[async_trait]
 impl Handler for CookiesHandler {
-    async fn run(&self, conn: Conn) -> Conn {
-        let mut jar = CookieJar::new();
+    async fn run(&self, mut conn: Conn) -> Conn {
+        let mut jar: CookieJar = conn.take_state().unwrap_or_default();
 
         if let Some(cookies) = conn.headers().get_values(KnownHeaderName::Cookie) {
             for cookie in cookies.iter().filter_map(HeaderValue::as_str) {
