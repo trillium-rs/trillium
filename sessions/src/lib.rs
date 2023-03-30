@@ -121,4 +121,4 @@ pub use session_conn_ext::SessionConnExt;
 mod session_handler;
 pub use session_handler::{sessions, SessionHandler};
 
-pub use async_session::Session;
+pub use async_session::{Session, SessionStore};
