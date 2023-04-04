@@ -6,7 +6,7 @@ edition = "2021"
 description = "proc-macros for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
-readme = "../README.md"
+readme = "README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
