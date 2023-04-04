@@ -83,7 +83,7 @@ use trillium_macros::Handler;
 
 #[derive(Handler)]
 struct CustomName {
-    #[handler(overrride = name)]
+    #[handler(except = name)]
     inner: &'static str
 }
 
@@ -102,7 +102,7 @@ assert_handler(handler);
 
 Annotate the handler with any number of
 [`trillium::Handler`](https://docs.rs/trillium/latest/trillium/trait.Handler.html)
-function names `#[handler(overrride = [run, before_send, name, has_upgrade,
+function names `#[handler(except = [run, before_send, name, has_upgrade,
 upgrade])]` and implement the trillium Handler signature of that name
 on Self.
 
@@ -113,7 +113,7 @@ use trillium::Handler;
 
 #[derive(Handler)]
 struct CustomName {
-    #[handler(overrride = [run, before_send])]
+    #[handler(except = [run, before_send])]
     inner: &'static str
 }
 

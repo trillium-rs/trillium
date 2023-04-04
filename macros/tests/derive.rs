@@ -153,7 +153,7 @@ fn named_generic() {
 fn overriding_name() {
     #[derive(Handler)]
     struct CustomName {
-        #[handler(overrides = name)]
+        #[handler(except = name)]
         inner: &'static str,
     }
 
@@ -172,7 +172,7 @@ fn overriding_name() {
 fn overriding_run_and_before_send() {
     #[derive(Handler)]
     struct Counter {
-        #[handler(overrides = [run, before_send])]
+        #[handler(except = [run, before_send])]
         inner: &'static str,
         count: AtomicUsize,
     }

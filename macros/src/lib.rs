@@ -111,7 +111,7 @@ fn parse_attribute(attr: &Attribute) -> syn::Result<Option<Vec<Override>>> {
                 let ExprAssign { left, right, .. } = syn::parse(tokens.into())?;
                 match (*left, *right) {
                     (Expr::Path(ExprPath { path: left, .. }), right @ Expr::Path(_))
-                        if left.is_ident("overrides") =>
+                        if left.is_ident("except") =>
                     {
                         Ok(Some(overrides(once(&right))?))
                     }
@@ -119,7 +119,7 @@ fn parse_attribute(attr: &Attribute) -> syn::Result<Option<Vec<Override>>> {
                     (
                         Expr::Path(ExprPath { path: left, .. }),
                         Expr::Array(ExprArray { elems: right, .. }),
-                    ) if left.is_ident("overrides") => Ok(Some(overrides(right.iter())?)),
+                    ) if left.is_ident("except") => Ok(Some(overrides(right.iter())?)),
 
                     (_x, _y) => Err(Error::new(
                         metalist.span(),
