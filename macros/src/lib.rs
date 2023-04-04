@@ -13,9 +13,9 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use std::collections::HashSet;
+use std::{collections::HashSet, iter::once};
 use syn::{
-    parse::Parse,
+    parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
     punctuated::Punctuated,
     spanned::Spanned,
@@ -110,7 +110,7 @@ fn parse_attribute(attr: &Attribute) -> syn::Result<Option<Vec<Skippable>>> {
                     (Expr::Path(ExprPath { path: left, .. }), right @ Expr::Path(_))
                         if left.is_ident("skip") =>
                     {
-                        Ok(Some(skips(std::iter::once(&right))?))
+                        Ok(Some(skips(once(&right))?))
                     }
 
                     (
@@ -120,14 +120,11 @@ fn parse_attribute(attr: &Attribute) -> syn::Result<Option<Vec<Skippable>>> {
 
                     (_x, _y) => Err(Error::new(
                         metalist.span(),
-                        format!("unrecognized #[handler] attributes"),
+                        "unrecognized #[handler] attributes",
                     )),
                 }
             }
-            Meta::NameValue(nv) => Err(Error::new(
-                nv.span(),
-                format!("unrecognized #[handler] attributes"),
-            )),
+            Meta::NameValue(nv) => Err(Error::new(nv.span(), "unrecognized #[handler] attributes")),
         }
     } else {
         Ok(None)
@@ -151,15 +148,15 @@ fn generics(field: &Field, input: &DeriveInput) -> Vec<Ident> {
 }
 
 impl Parse for DeriveOptions {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let input = DeriveInput::parse(input)?;
         let Data::Struct(ds) = &input.data else { return Err(Error::new(input.span(), "second erro")) };
 
         for (field_index, field) in ds.fields.iter().enumerate() {
             for attr in &field.attrs {
-                if let Some(skips) = parse_attribute(&attr)? {
+                if let Some(skips) = parse_attribute(attr)? {
                     let field = field.clone();
-                    return Ok(DeriveOptions {
+                    return Ok(Self {
                         skips,
                         input,
                         field,
@@ -176,7 +173,7 @@ impl Parse for DeriveOptions {
                 .next()
                 .expect("len == 1 should have one element")
                 .clone();
-            Ok(DeriveOptions {
+            Ok(Self {
                 skips: vec![],
                 input,
                 field,
