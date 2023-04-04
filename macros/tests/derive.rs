@@ -1,10 +1,13 @@
 #![allow(dead_code)]
 
-use trillium::{Handler, Info, Status::Ok};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use trillium::{Conn, Handler, Info, Status::Ok};
 use trillium_macros::Handler;
 use trillium_testing::prelude::*;
 
 fn assert_handler(_: impl Handler) {}
+
 #[test]
 fn full_lifecycle() {
     struct InnerHandler {
@@ -144,4 +147,56 @@ fn named_generic() {
         x: "hello",
         y_and_z: (Ok, "world"),
     });
+}
+
+#[test]
+fn overriding_name() {
+    #[derive(Handler)]
+    struct CustomName {
+        #[handler(skip = name)]
+        inner: &'static str,
+    }
+
+    impl CustomName {
+        fn name(&self) -> std::borrow::Cow<'static, str> {
+            format!("custom name ({})", &self.inner).into()
+        }
+    }
+
+    let handler = CustomName { inner: "handler" };
+    assert_eq!(trillium::Handler::name(&handler), "custom name (handler)");
+    assert_handler(handler);
+}
+
+#[test]
+fn overriding_run_and_before_send() {
+    #[derive(Handler)]
+    struct Counter {
+        #[handler(skip = [run, before_send])]
+        inner: &'static str,
+        count: AtomicUsize,
+    }
+
+    impl Counter {
+        async fn run(&self, conn: Conn) -> Conn {
+            self.count.fetch_add(1, Ordering::Relaxed);
+            let conn = self.inner.run(conn).await;
+            self.count.fetch_sub(1, Ordering::Relaxed);
+            conn
+        }
+
+        async fn before_send(&self, conn: Conn) -> Conn {
+            self.count.fetch_add(1, Ordering::Relaxed);
+            let conn = self.inner.before_send(conn).await;
+            self.count.fetch_sub(1, Ordering::Relaxed);
+            conn
+        }
+    }
+
+    let handler = Counter {
+        inner: "handler",
+        count: Default::default(),
+    };
+
+    assert_handler(handler);
 }
