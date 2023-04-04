@@ -54,7 +54,7 @@ fn is_required_generic_for_type(ty: &Type, generic: &Ident) -> bool {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Skippable {
+enum Override {
     Run,
     Init,
     BeforeSend,
@@ -63,7 +63,7 @@ enum Skippable {
     Name,
 }
 
-impl TryFrom<&Path> for Skippable {
+impl TryFrom<&Path> for Override {
     type Error = Error;
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
         if path.is_ident("run") {
@@ -79,27 +79,30 @@ impl TryFrom<&Path> for Skippable {
         } else if path.is_ident("name") {
             Ok(Self::Name)
         } else {
-            Err(Error::new(path.span(), "unrecognized skip"))
+            Err(Error::new(
+                path.span(),
+                "unrecognized trillium::Handler function name",
+            ))
         }
     }
 }
 
 struct DeriveOptions {
-    skips: Vec<Skippable>,
+    overrides: Vec<Override>,
     input: DeriveInput,
     field: Field,
     field_index: usize,
 }
 
-fn skips<'a, I: Iterator<Item = &'a Expr>>(iter: I) -> syn::Result<Vec<Skippable>> {
+fn overrides<'a, I: Iterator<Item = &'a Expr>>(iter: I) -> syn::Result<Vec<Override>> {
     iter.map(|expr| match expr {
         Expr::Path(ExprPath { path, .. }) => path.try_into(),
-        _ => Err(Error::new(expr.span(), "unrecognized skip. valid options are run, init, before_send, name, has_upgrade, and upgrade")),
+        _ => Err(Error::new(expr.span(), "unrecognized override. valid options are run, init, before_send, name, has_upgrade, and upgrade")),
     })
     .collect()
 }
 
-fn parse_attribute(attr: &Attribute) -> syn::Result<Option<Vec<Skippable>>> {
+fn parse_attribute(attr: &Attribute) -> syn::Result<Option<Vec<Override>>> {
     if attr.path().is_ident("handler") {
         match &attr.meta {
             Meta::Path(_) => Ok(Some(vec![])),
@@ -108,15 +111,15 @@ fn parse_attribute(attr: &Attribute) -> syn::Result<Option<Vec<Skippable>>> {
                 let ExprAssign { left, right, .. } = syn::parse(tokens.into())?;
                 match (*left, *right) {
                     (Expr::Path(ExprPath { path: left, .. }), right @ Expr::Path(_))
-                        if left.is_ident("skip") =>
+                        if left.is_ident("override") =>
                     {
-                        Ok(Some(skips(once(&right))?))
+                        Ok(Some(overrides(once(&right))?))
                     }
 
                     (
                         Expr::Path(ExprPath { path: left, .. }),
                         Expr::Array(ExprArray { elems: right, .. }),
-                    ) if left.is_ident("skip") => Ok(Some(skips(right.iter())?)),
+                    ) if left.is_ident("override") => Ok(Some(overrides(right.iter())?)),
 
                     (_x, _y) => Err(Error::new(
                         metalist.span(),
@@ -154,10 +157,10 @@ impl Parse for DeriveOptions {
 
         for (field_index, field) in ds.fields.iter().enumerate() {
             for attr in &field.attrs {
-                if let Some(skips) = parse_attribute(attr)? {
+                if let Some(overrides) = parse_attribute(attr)? {
                     let field = field.clone();
                     return Ok(Self {
-                        skips,
+                        overrides,
                         input,
                         field,
                         field_index,
@@ -174,7 +177,7 @@ impl Parse for DeriveOptions {
                 .expect("len == 1 should have one element")
                 .clone();
             Ok(Self {
-                skips: vec![],
+                overrides: vec![],
                 input,
                 field,
                 field_index: 0,
@@ -192,7 +195,7 @@ impl Parse for DeriveOptions {
 #[proc_macro_derive(Handler, attributes(handler))]
 pub fn derive_handler(input: TokenStream) -> TokenStream {
     let DeriveOptions {
-        skips,
+        overrides,
         field,
         input,
         field_index,
@@ -229,38 +232,38 @@ pub fn derive_handler(input: TokenStream) -> TokenStream {
 
     let handler = quote!(self.#handler);
 
-    let run = if skips.contains(&Skippable::Run) {
+    let run = if overrides.contains(&Override::Run) {
         quote!(Self::run(&self, conn))
     } else {
         quote!(trillium::Handler::run(&#handler, conn))
     };
 
-    let init = if skips.contains(&Skippable::Init) {
+    let init = if overrides.contains(&Override::Init) {
         quote!(Self::init(&mut self, info))
     } else {
         quote!(trillium::Handler::init(&mut #handler, info))
     };
 
-    let before_send = if skips.contains(&Skippable::BeforeSend) {
+    let before_send = if overrides.contains(&Override::BeforeSend) {
         quote!(Self::before_send(&self, conn))
     } else {
         quote!(trillium::Handler::before_send(&#handler, conn))
     };
 
-    let name = if skips.contains(&Skippable::Name) {
+    let name = if overrides.contains(&Override::Name) {
         quote!(Self::name(&self))
     } else {
         let name_string = struct_name.to_string();
         quote!(format!("{} ({})", #name_string, trillium::Handler::name(&#handler)).into())
     };
 
-    let has_upgrade = if skips.contains(&Skippable::HasUpgrade) {
+    let has_upgrade = if overrides.contains(&Override::HasUpgrade) {
         quote!(Self::has_upgrade(&self, upgrade))
     } else {
         quote!(trillium::Handler::has_upgrade(&#handler, upgrade))
     };
 
-    let upgrade = if skips.contains(&Skippable::Upgrade) {
+    let upgrade = if overrides.contains(&Override::Upgrade) {
         quote!(Self::upgrade(&self, upgrade))
     } else {
         quote!(trillium::Handler::upgrade(&#handler, upgrade))

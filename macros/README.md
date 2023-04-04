@@ -71,7 +71,7 @@ assert_handler(ContainsHandler {
 
 Annotate the handler with a
 [`trillium::Handler`](https://docs.rs/trillium/latest/trillium/trait.Handler.html)
-function name `#[handler(skip = SKIPPABLE)]` where SKIPPABLE is one of
+function name `#[handler(overrride = FN_NAME)]` where FN_NAME is one of
 `run`, `before_send`, `name`, `has_upgrade`, or `upgrade`, and
 implement the same signature on Self. The rest of the Handler
 interface will be delegated to the inner Handler, but your custom
@@ -83,7 +83,7 @@ use trillium_macros::Handler;
 
 #[derive(Handler)]
 struct CustomName {
-    #[handler(skip = name)]
+    #[handler(overrride = name)]
     inner: &'static str
 }
 
@@ -102,7 +102,7 @@ assert_handler(handler);
 
 Annotate the handler with any number of
 [`trillium::Handler`](https://docs.rs/trillium/latest/trillium/trait.Handler.html)
-function names `#[handler(skip = [run, before_send, name, has_upgrade,
+function names `#[handler(overrride = [run, before_send, name, has_upgrade,
 upgrade])]` and implement the trillium Handler signature of that name
 on Self.
 
@@ -113,7 +113,7 @@ use trillium::Handler;
 
 #[derive(Handler)]
 struct CustomName {
-    #[handler(skip = [run, before_send])]
+    #[handler(overrride = [run, before_send])]
     inner: &'static str
 }
 
