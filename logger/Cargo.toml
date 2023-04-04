@@ -11,8 +11,8 @@ keywords = ["trillium", "framework", "async", "logging"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-atty = "0.2.14"
 colored = "2.0.0"
+is-terminal = "0.4.6"
 log = "0.4.17"
 size = "0.4.1"
 time = { version = "0.3.20", features = ["local-offset", "formatting", "macros"] }

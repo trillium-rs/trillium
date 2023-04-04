@@ -5,10 +5,12 @@
     nonstandard_style,
     unused_qualifications
 )]
+
 /*!
 Welcome to the trillium logger!
 */
 pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
+use is_terminal::IsTerminal;
 use std::{fmt::Display, sync::Arc};
 use trillium::{async_trait, Conn, Handler, Info};
 /**
@@ -43,7 +45,7 @@ pub enum ColorMode {
 impl ColorMode {
     pub(crate) fn is_enabled(&self) -> bool {
         match self {
-            ColorMode::Auto => atty::is(atty::Stream::Stdout),
+            ColorMode::Auto => std::io::stdout().is_terminal(),
             ColorMode::On => true,
             ColorMode::Off => false,
         }
