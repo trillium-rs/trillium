@@ -1,6 +1,6 @@
 [package]
 name = "trillium-macros"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "proc-macros for trillium.rs"
