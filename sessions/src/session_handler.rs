@@ -1,10 +1,8 @@
 const BASE64_DIGEST_LEN: usize = 44;
-use async_session::{
-    base64,
-    hmac::{Hmac, Mac, NewMac},
-    sha2::Sha256,
-    Session, SessionStore,
-};
+use async_session::{Session, SessionStore};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use hmac::{digest::generic_array::GenericArray, Hmac, Mac};
+use sha2::Sha256;
 use std::{
     fmt::{self, Debug, Formatter},
     iter,
@@ -35,7 +33,10 @@ pub struct SessionHandler<Store> {
     older_keys: Vec<Key>,
 }
 
-impl<Store: SessionStore> Debug for SessionHandler<Store> {
+impl<Store> Debug for SessionHandler<Store>
+where
+    Store: Debug,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("SessionHandler")
             .field("store", &self.store)
@@ -51,7 +52,10 @@ impl<Store: SessionStore> Debug for SessionHandler<Store> {
     }
 }
 
-impl<Store: SessionStore> SessionHandler<Store> {
+impl<Store> SessionHandler<Store>
+where
+    Store: SessionStore + Send + Sync + 'static,
+{
     /**
     Constructs a SessionHandler from the given
     [`async_session::SessionStore`] and secret. The `secret` MUST be
@@ -82,7 +86,8 @@ impl<Store: SessionStore> SessionHandler<Store> {
 
     ```rust
     # use std::time::Duration;
-    # use trillium_sessions::{SessionHandler, MemoryStore};
+    # use trillium_sessions::SessionHandler;
+    # use async_session_memory_store::MemoryStore;
     # use trillium_cookies::{CookiesHandler, cookie::SameSite};
     # std::env::set_var("TRILLIUM_SESSION_SECRETS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     // this logic will be unique to your deployment
@@ -187,12 +192,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
 
     async fn load_or_create(&self, cookie_value: Option<&str>) -> Session {
         let session = match cookie_value {
-            Some(cookie_value) => self
-                .store
-                .load_session(String::from(cookie_value))
-                .await
-                .ok()
-                .flatten(),
+            Some(cookie_value) => self.store.load_session(cookie_value).await.ok().flatten(),
             None => None,
         };
 
@@ -230,7 +230,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
         mac.update(cookie.value().as_bytes());
 
         // Cookie's new value is [MAC | original-value].
-        let mut new_value = base64::encode(mac.finalize().into_bytes());
+        let mut new_value = BASE64.encode(mac.finalize().into_bytes());
         new_value.push_str(cookie.value());
         cookie.set_value(new_value);
     }
@@ -248,7 +248,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
 
         // Split [MAC | original-value] into its two parts.
         let (digest_str, value) = cookie_value.split_at(BASE64_DIGEST_LEN);
-        let digest = match base64::decode(digest_str) {
+        let digest = match BASE64.decode(digest_str) {
             Ok(digest) => digest,
             Err(_) => {
                 log::trace!("bad base64 digest");
@@ -261,14 +261,17 @@ impl<Store: SessionStore> SessionHandler<Store> {
             .find_map(|key| {
                 let mut mac = Hmac::<Sha256>::new_from_slice(key.signing()).expect("good key");
                 mac.update(value.as_bytes());
-                mac.verify(&digest).ok()
+                mac.verify(GenericArray::from_slice(&digest)).ok()
             })
             .map(|_| value)
     }
 }
 
 #[async_trait]
-impl<Store: SessionStore> Handler for SessionHandler<Store> {
+impl<Store> Handler for SessionHandler<Store>
+where
+    Store: SessionStore + Send + Sync + 'static,
+{
     async fn run(&self, mut conn: Conn) -> Conn {
         let session = conn.take_state::<Session>();
 
@@ -290,20 +293,19 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
     }
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
-        if let Some(session) = conn.take_state::<Session>() {
-            let session_to_keep = session.clone();
+        if let Some(mut session) = conn.take_state::<Session>() {
             let secure = conn.is_secure();
             if session.is_destroyed() {
-                self.store.destroy_session(session).await.ok();
+                self.store.destroy_session(&mut session).await.ok();
                 conn.cookies_mut()
                     .remove(Cookie::named(self.cookie_name.clone()));
             } else if self.save_unchanged || session.data_changed() {
-                if let Ok(Some(cookie_value)) = self.store.store_session(session).await {
+                if let Ok(Some(cookie_value)) = self.store.store_session(&mut session).await {
                     conn.cookies_mut()
                         .add(self.build_cookie(secure, cookie_value));
                 }
             }
-            conn.with_state(session_to_keep)
+            conn.with_state(session)
         } else {
             conn
         }
@@ -313,7 +315,7 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
 /// Alias for [`SessionHandler::new`]
 pub fn sessions<Store>(store: Store, secret: impl AsRef<[u8]>) -> SessionHandler<Store>
 where
-    Store: SessionStore,
+    Store: SessionStore + Send + Sync + 'static,
 {
     SessionHandler::new(store, secret)
 }

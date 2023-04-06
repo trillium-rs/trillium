@@ -31,6 +31,7 @@ trillium-method-override = { path = "../method-override" }
 trillium-conn-id = { path = "../conn-id" }
 trillium-caching-headers = { path = "../caching-headers" }
 trillium-compression = { path = "../compression" }
+async-session-memory-store = { git = "https://github.com/http-rs/async-session", branch = "overhaul-session-and-session-store" }
 
 [dev-dependencies]
 trillium-testing = { path = "../testing" }

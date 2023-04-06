@@ -1,4 +1,5 @@
 use askama::Template;
+use async_session_memory_store::MemoryStore;
 use futures_lite::prelude::*;
 use std::time::Duration;
 use trillium::{Conn, Handler};
@@ -11,7 +12,7 @@ use trillium_conn_id::log_formatter::conn_id;
 use trillium_logger::apache_common;
 use trillium_router::{Router, RouterConnExt};
 use trillium_rustls::RustlsConnector;
-use trillium_sessions::{MemoryStore, SessionConnExt};
+use trillium_sessions::SessionConnExt;
 use trillium_smol::TcpConnector;
 use trillium_static_compiled::static_compiled;
 use trillium_websockets::{Message, WebSocket, WebSocketConn};
