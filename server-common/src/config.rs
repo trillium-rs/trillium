@@ -2,7 +2,11 @@ use crate::{
     server_handle::CompletionFuture, Acceptor, CloneCounterObserver, Server, ServerHandle, Stopper,
 };
 use async_cell::sync::AsyncCell;
-use std::{marker::PhantomData, net::SocketAddr, sync::Arc};
+use std::{
+    marker::PhantomData,
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+};
 use trillium::{Handler, Info};
 
 /**
@@ -66,7 +70,8 @@ pub struct Config<ServerType, AcceptorType> {
     pub(crate) max_connections: Option<usize>,
     pub(crate) info: Arc<AsyncCell<Info>>,
     pub(crate) completion_future: CompletionFuture,
-    server: PhantomData<ServerType>,
+    pub(crate) binding: RwLock<Option<ServerType>>,
+    pub(crate) server: PhantomData<ServerType>,
 }
 
 impl<ServerType, AcceptorType> Config<ServerType, AcceptorType>
@@ -119,6 +124,9 @@ where
     /// Configures the server to listen on this port. The default is
     /// the PORT environment variable or 8080
     pub fn with_port(mut self, port: u16) -> Self {
+        if self.has_binding() {
+            eprintln!("constructing a config with both a port and a pre-bound listener will ignore the port. this may be a panic in the future");
+        }
         self.port = Some(port);
         self
     }
@@ -127,6 +135,9 @@ where
     /// address. The default is the HOST environment variable or
     /// "localhost"
     pub fn with_host(mut self, host: &str) -> Self {
+        if self.has_binding() {
+            eprintln!("constructing a config with both a host and a pre-bound listener will ignore the host. this may be a panic in the future");
+        }
         self.host = Some(host.into());
         self
     }
@@ -144,6 +155,10 @@ where
     /// <https://en.wikipedia.org/wiki/Nagle%27s_algorithm> for more
     /// information on this setting.
     pub fn with_nodelay(mut self) -> Self {
+        if self.has_binding() {
+            eprintln!("constructing a config with both nodelay and a pre-bound listener will ignore the nodelay setting. this may be a panic in the future");
+        }
+
         self.nodelay = true;
         self
     }
@@ -173,6 +188,7 @@ where
             max_connections: self.max_connections,
             info: self.info,
             completion_future: self.completion_future,
+            binding: self.binding,
         }
     }
 
@@ -198,17 +214,62 @@ where
         self.max_connections = max_connections;
         self
     }
+
+    /// Use a pre-bound transport stream as server.
+    ///
+    /// The argument to this varies for different servers, but usually
+    /// accepts the runtime's TcpListener and, on unix platforms, the UnixListener.
+    ///
+    /// ## Note well
+    ///
+    /// Many of the other options on this config will be ignored if
+    /// you provide a listener. In particular, `host`, `port`, and
+    /// `nodelay` will be ignored. All of the other options will be
+    /// used.
+    ///
+    /// Additionally, cloning this config will not clone the listener.
+    pub fn with_prebound_server(mut self, server: impl Into<ServerType>) -> Self {
+        if self.host.is_some() {
+            eprintln!("constructing a config with both a host and a pre-bound listener will ignore the host. this may be a panic in the future");
+        }
+
+        if self.port.is_some() {
+            eprintln!("constructing a config with both a port and a pre-bound listener will ignore the port. this may be a panic in the future");
+        }
+
+        if self.nodelay {
+            eprintln!("constructing a config with nodelay and a pre-bound listener will ignore nodelay. this may be a panic in the future");
+        }
+
+        self.binding = RwLock::new(Some(server.into()));
+        self
+    }
+
+    fn has_binding(&self) -> bool {
+        self.binding
+            .read()
+            .as_deref()
+            .map_or(false, Option::is_some)
+    }
 }
 
-impl<ServerType> Config<ServerType, ()> {
+impl<ServerType: Server> Config<ServerType, ()> {
     /// build a new config with default acceptor
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl<ServerType, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType> {
+impl<ServerType, AcceptorType> Clone for Config<ServerType, AcceptorType>
+where
+    ServerType: Server,
+    AcceptorType: Acceptor<ServerType::Transport> + Clone,
+{
     fn clone(&self) -> Self {
+        if self.has_binding() {
+            eprintln!("cloning a Config with a pre-bound listener will not clone the listener. this may be a panic in the future.");
+        }
+
         Self {
             acceptor: self.acceptor.clone(),
             port: self.port,
@@ -221,11 +282,12 @@ impl<ServerType, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType>
             max_connections: self.max_connections,
             info: AsyncCell::shared(),
             completion_future: CompletionFuture::new(),
+            binding: RwLock::new(None),
         }
     }
 }
 
-impl<ServerType> Default for Config<ServerType, ()> {
+impl<ServerType: Server> Default for Config<ServerType, ()> {
     fn default() -> Self {
         #[cfg(unix)]
         let max_connections = {
@@ -252,6 +314,7 @@ impl<ServerType> Default for Config<ServerType, ()> {
             max_connections,
             info: AsyncCell::shared(),
             completion_future: CompletionFuture::new(),
+            binding: RwLock::new(None),
         }
     }
 }

@@ -15,6 +15,27 @@ use trillium_server_common::{
 /// Tcp/Unix Trillium server adapter for Async-Std
 #[derive(Debug)]
 pub struct AsyncStdServer(Binding<TcpListener, UnixListener>);
+impl From<TcpListener> for AsyncStdServer {
+    fn from(value: TcpListener) -> Self {
+        Self(Tcp(value))
+    }
+}
+
+impl From<UnixListener> for AsyncStdServer {
+    fn from(value: UnixListener) -> Self {
+        Self(Unix(value))
+    }
+}
+impl From<std::net::TcpListener> for AsyncStdServer {
+    fn from(value: std::net::TcpListener) -> Self {
+        TcpListener::from(value).into()
+    }
+}
+impl From<std::os::unix::net::UnixListener> for AsyncStdServer {
+    fn from(value: std::os::unix::net::UnixListener) -> Self {
+        UnixListener::from(value).into()
+    }
+}
 
 #[cfg(unix)]
 impl Server for AsyncStdServer {
