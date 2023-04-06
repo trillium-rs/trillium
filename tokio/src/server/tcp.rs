@@ -12,6 +12,12 @@ use trillium_server_common::Server;
 #[derive(Debug)]
 pub struct TokioServer(TcpListener);
 
+impl From<TcpListener> for TokioServer {
+    fn from(value: TcpListener) -> Self {
+        Self(value)
+    }
+}
+
 impl Server for TokioServer {
     type Transport = TokioTransport<Compat<TcpStream>>;
     const DESCRIPTION: &'static str = concat!(

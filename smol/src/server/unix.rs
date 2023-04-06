@@ -14,6 +14,16 @@ use trillium_server_common::{
 
 #[derive(Debug, Clone)]
 pub struct SmolServer(Binding<TcpListener, UnixListener>);
+impl From<TcpListener> for SmolServer {
+    fn from(value: TcpListener) -> Self {
+        Self(Tcp(value))
+    }
+}
+impl From<UnixListener> for SmolServer {
+    fn from(value: UnixListener) -> Self {
+        Self(Unix(value))
+    }
+}
 
 #[cfg(unix)]
 impl Server for SmolServer {

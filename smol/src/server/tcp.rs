@@ -8,6 +8,11 @@ use trillium_server_common::Server;
 
 #[derive(Debug)]
 pub struct SmolServer(TcpListener);
+impl From<TcpListener> for SmolServer {
+    fn from(value: TcpListener) -> Self {
+        Self(value)
+    }
+}
 
 impl Server for SmolServer {
     type Transport = SmolTransport<TcpStream>;

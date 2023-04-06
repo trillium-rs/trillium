@@ -44,6 +44,11 @@ pub trait Server: Sized + Send + Sync + 'static {
     where
         A: Acceptor<Self::Transport>,
     {
+        if let Some(listener) = config.binding.write().unwrap().take() {
+            log::debug!("taking prebound listener");
+            return listener;
+        }
+
         use std::os::unix::prelude::FromRawFd;
         let host = config.host();
         if host.starts_with(|c| c == '/' || c == '.' || c == '~') {
@@ -73,6 +78,11 @@ pub trait Server: Sized + Send + Sync + 'static {
     where
         A: Acceptor<Self::Transport>,
     {
+        if let Some(listener) = config.binding.write().unwrap().take() {
+            log::debug!("taking prebound listener");
+            return listener;
+        }
+
         let tcp_listener = std::net::TcpListener::bind((config.host(), config.port())).unwrap();
         tcp_listener.set_nonblocking(true).unwrap();
         Self::listener_from_tcp(tcp_listener)

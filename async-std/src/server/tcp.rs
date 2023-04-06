@@ -8,6 +8,16 @@ use trillium_server_common::Server;
 /// Tcp-only Trillium server for Async-std
 #[derive(Debug)]
 pub struct AsyncStdServer(TcpListener);
+impl From<TcpListener> for AsyncStdServer {
+    fn from(value: TcpListener) -> Self {
+        Self(value)
+    }
+}
+impl From<std::net::TcpListener> for AsyncStdServer {
+    fn from(value: std::net::TcpListener) -> Self {
+        TcpListener::from(value).into()
+    }
+}
 
 impl Server for AsyncStdServer {
     type Transport = AsyncStdTransport<TcpStream>;

@@ -15,6 +15,18 @@ use trillium_server_common::{
 #[derive(Debug)]
 pub struct TokioServer(Binding<TcpListener, UnixListener>);
 
+impl From<TcpListener> for TokioServer {
+    fn from(value: TcpListener) -> Self {
+        Self(Tcp(value))
+    }
+}
+
+impl From<UnixListener> for TokioServer {
+    fn from(value: UnixListener) -> Self {
+        Self(Unix(value))
+    }
+}
+
 impl Server for TokioServer {
     type Transport = Binding<TokioTransport<Compat<TcpStream>>, TokioTransport<Compat<UnixStream>>>;
     const DESCRIPTION: &'static str = concat!(
