@@ -1,11 +1,24 @@
-use crate::{header_name::HeaderNameInner, HeaderName, HeaderValue, HeaderValues, KnownHeaderName};
+mod header_name;
+mod header_value;
+mod header_values;
+mod known_header_name;
+mod unknown_header_name;
+
+pub use header_name::HeaderName;
+pub use header_value::HeaderValue;
+pub use header_values::HeaderValues;
+pub use known_header_name::KnownHeaderName;
+
+use header_name::HeaderNameInner;
+use unknown_header_name::UnknownHeaderName;
+
 use hashbrown::{
     hash_map::{self, Entry},
     HashMap,
 };
 use smartcow::SmartCow;
 use std::{
-    fmt::{Debug, Display},
+    fmt::{self, Debug, Display, Formatter},
     hash::{BuildHasherDefault, Hasher},
     iter::FromIterator,
 };
@@ -15,7 +28,7 @@ use std::{
 #[must_use]
 pub struct Headers {
     known: HashMap<KnownHeaderName, HeaderValues, BuildHasherDefault<DirectHasher>>,
-    unknown: HashMap<SmartCow<'static>, HeaderValues>,
+    unknown: HashMap<UnknownHeaderName<'static>, HeaderValues>,
 }
 
 impl Default for Headers {
@@ -25,7 +38,7 @@ impl Default for Headers {
 }
 
 impl Display for Headers {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for (n, v) in self {
             for v in v {
                 f.write_fmt(format_args!("{n}: {v}\r\n"))?;
@@ -59,6 +72,17 @@ impl Headers {
     /// headers, if any.
     pub fn iter(&self) -> Iter<'_> {
         self.into()
+    }
+
+    /// Are there zero headers?
+    pub fn is_empty(&self) -> bool {
+        self.known.is_empty() && self.unknown.is_empty()
+    }
+
+    /// How many unique [`HeaderName`] have been added to these [`Headers`]?
+    /// Note that each header name may have more than one [`HeaderValue`].
+    pub fn len(&self) -> usize {
+        self.known.len() + self.unknown.len()
     }
 
     /// add the header value or header values into this header map. If
@@ -155,38 +179,38 @@ impl Headers {
     /// the same name, this follows the behavior defined at
     /// [`HeaderValues::one`]. Returns None if there is no header with
     /// the provided header name.
-    pub fn get_str<'a>(&'a self, name: impl Into<HeaderName<'a>>) -> Option<&str> {
+    pub fn get_str<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<&str> {
         self.get_values(name).and_then(HeaderValues::as_str)
     }
 
-    pub(crate) fn get_lower<'a>(&'a self, name: impl Into<HeaderName<'a>>) -> Option<SmartCow<'_>> {
+    pub(crate) fn get_lower<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<SmartCow<'_>> {
         self.get_values(name).and_then(HeaderValues::as_lower)
     }
 
     /// Retrieves a singular header value from this header map. If
     /// there are several headers with the same name, this follows the
     /// behavior defined at [`HeaderValues::one`]. Returns None if there is no header with the provided header name
-    pub fn get<'a>(&'a self, name: impl Into<HeaderName<'a>>) -> Option<&HeaderValue> {
+    pub fn get<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<&HeaderValue> {
         self.get_values(name).and_then(HeaderValues::one)
     }
 
     /// Takes all headers with the provided header name out of this
     /// header map and returns them. Returns None if the header did
     /// not have an entry in this map.
-    pub fn remove(&mut self, name: impl Into<HeaderName<'static>>) -> Option<HeaderValues> {
+    pub fn remove<'a>(&mut self, name: impl Into<HeaderName<'a>>) -> Option<HeaderValues> {
         match name.into().0 {
             HeaderNameInner::KnownHeader(known) => self.known.remove(&known),
-            HeaderNameInner::UnknownHeader(unknown) => self.unknown.remove(&unknown),
+            HeaderNameInner::UnknownHeader(unknown) => self.unknown.remove(&&unknown),
         }
     }
 
     /// Retrieves a reference to all header values with the provided
     /// header name. If you expect there to be only one value, use
     /// [`Headers::get`].
-    pub fn get_values<'a>(&'a self, name: impl Into<HeaderName<'a>>) -> Option<&HeaderValues> {
+    pub fn get_values<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<&HeaderValues> {
         match name.into().0 {
             HeaderNameInner::KnownHeader(known) => self.known.get(&known),
-            HeaderNameInner::UnknownHeader(unknown) => self.unknown.get(&unknown),
+            HeaderNameInner::UnknownHeader(unknown) => self.unknown.get(&&unknown),
         }
     }
 
@@ -194,7 +218,7 @@ impl Headers {
     /// the provided header name. If you are using this to
     /// conditionally insert a value, consider using
     /// [`Headers::try_insert`] instead.
-    pub fn has_header<'a>(&'a self, name: impl Into<HeaderName<'a>>) -> bool {
+    pub fn has_header<'a>(&self, name: impl Into<HeaderName<'a>>) -> bool {
         match name.into().0 {
             HeaderNameInner::KnownHeader(known) => self.known.contains_key(&known),
             HeaderNameInner::UnknownHeader(unknown) => self.unknown.contains_key(&unknown),
@@ -217,7 +241,7 @@ impl Headers {
     /// this header map for the provided name. Prefer testing against
     /// a lower case string, as the implementation currently has to allocate if .
     pub fn contains_ignore_ascii_case<'a>(
-        &'a self,
+        &self,
         name: impl Into<HeaderName<'a>>,
         needle: &str,
     ) -> bool {
@@ -335,7 +359,7 @@ impl<'a> IntoIterator for &'a Headers {
 #[derive(Debug)]
 pub struct IntoIter {
     known: hash_map::IntoIter<KnownHeaderName, HeaderValues>,
-    unknown: hash_map::IntoIter<SmartCow<'static>, HeaderValues>,
+    unknown: hash_map::IntoIter<UnknownHeaderName<'static>, HeaderValues>,
 }
 
 impl Iterator for IntoIter {
@@ -346,11 +370,7 @@ impl Iterator for IntoIter {
         known
             .next()
             .map(|(k, v)| (HeaderName::from(k), v))
-            .or_else(|| {
-                unknown
-                    .next()
-                    .map(|(k, v)| (HeaderName(HeaderNameInner::UnknownHeader(k)), v))
-            })
+            .or_else(|| unknown.next().map(|(k, v)| (HeaderName::from(k), v)))
     }
 }
 impl From<Headers> for IntoIter {
@@ -365,7 +385,7 @@ impl From<Headers> for IntoIter {
 #[derive(Debug)]
 pub struct Iter<'a> {
     known: hash_map::Iter<'a, KnownHeaderName, HeaderValues>,
-    unknown: hash_map::Iter<'a, SmartCow<'static>, HeaderValues>,
+    unknown: hash_map::Iter<'a, UnknownHeaderName<'static>, HeaderValues>,
 }
 
 impl<'a> From<&'a Headers> for Iter<'a> {
@@ -396,5 +416,37 @@ impl IntoIterator for Headers {
 
     fn into_iter(self) -> Self::IntoIter {
         self.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Headers;
+    #[test]
+    fn header_names_are_case_insensitive_for_access_but_retain_initial_case_in_headers() {
+        let mut headers = Headers::new();
+        headers.insert("my-Header-name", "initial-value");
+        headers.insert("my-Header-NAME", "my-header-value");
+
+        assert_eq!(headers.len(), 1);
+
+        assert_eq!(
+            headers.get_str("My-Header-Name").unwrap(),
+            "my-header-value"
+        );
+
+        headers.append("mY-hEaDer-NaMe", "second-value");
+        assert_eq!(
+            &*headers.get_values("my-header-name").unwrap(),
+            ["my-header-value", "second-value"].as_slice()
+        );
+
+        assert_eq!(
+            headers.iter().next().unwrap().0.to_string(),
+            "my-Header-name"
+        );
+
+        assert!(headers.remove("my-HEADER-name").is_some());
+        assert!(headers.is_empty());
     }
 }

@@ -42,6 +42,12 @@ impl Debug for HeaderValues {
     }
 }
 
+impl PartialEq<[&str]> for HeaderValues {
+    fn eq(&self, other: &[&str]) -> bool {
+        &**self == other
+    }
+}
+
 impl IntoIterator for HeaderValues {
     type Item = HeaderValue;
 
