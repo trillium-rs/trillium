@@ -106,16 +106,7 @@ mod state_set;
 pub use state_set::StateSet;
 
 mod headers;
-pub use headers::Headers;
-
-mod header_name;
-pub use header_name::{HeaderName, KnownHeaderName};
-
-mod header_values;
-pub use header_values::HeaderValues;
-
-mod header_value;
-pub use header_value::HeaderValue;
+pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName};
 
 mod status;
 pub use status::Status;
