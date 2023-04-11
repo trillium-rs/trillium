@@ -1012,16 +1012,16 @@ impl<'a: 'b, 'b, C: Connector> IntoFuture for &'b mut Conn<'a, C> {
 /// into the conn with [`From::from`]/[`Into::into`].
 ///
 /// Currently only returned by [`Conn::success`]
-pub struct UnexpectedStatusError<'a, C: Connector>(Conn<'a, C>);
+pub struct UnexpectedStatusError<'a, C: Connector>(Box<Conn<'a, C>>);
 impl<'a, C: Connector> From<Conn<'a, C>> for UnexpectedStatusError<'a, C> {
     fn from(value: Conn<'a, C>) -> Self {
-        Self(value)
+        Self(Box::new(value))
     }
 }
 
 impl<'a, C: Connector> From<UnexpectedStatusError<'a, C>> for Conn<'a, C> {
     fn from(value: UnexpectedStatusError<'a, C>) -> Self {
-        value.0
+        *value.0
     }
 }
 
