@@ -5,10 +5,11 @@ use memmem::{Searcher, TwoWaySearcher};
 use std::{
     borrow::Cow,
     convert::TryInto,
-    fmt::{self, Debug, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     future::{Future, IntoFuture},
     io::{ErrorKind, Write},
     net::SocketAddr,
+    ops::{Deref, DerefMut},
     pin::Pin,
     str::FromStr,
 };
@@ -161,6 +162,34 @@ impl<'config, C: Connector> Conn<'config, C> {
     pub fn with_config<'c2: 'config>(mut self, config: &'c2 C::Config) -> Conn<'config, C> {
         self.set_config(config);
         self
+    }
+
+    /**
+    Returns the conn or an [`UnexpectedStatusError`] that contains the conn
+
+    ```
+    use trillium_smol::TcpConnector;
+    type Conn = trillium_client::Conn<'static, TcpConnector>;
+
+    trillium_testing::with_server(trillium::Status::NotFound, |url| async move {
+        assert_eq!(
+            Conn::get(url).await?.success().unwrap_err().to_string(),
+            "expected a success (2xx) status code, but got 404 Not Found"
+        );
+        Ok(())
+    });
+
+    trillium_testing::with_server(trillium::Status::Ok, |url| async move {
+        assert!(Conn::get(url).await?.success().is_ok());
+        Ok(())
+    });
+    ```
+     */
+    pub fn success(self) -> std::result::Result<Self, UnexpectedStatusError<'config, C>> {
+        match self.status() {
+            Some(status) if status.is_success() => Ok(self),
+            _ => Err(self.into()),
+        }
     }
 }
 
@@ -976,5 +1005,53 @@ impl<'a: 'b, 'b, C: Connector> IntoFuture for &'b mut Conn<'a, C> {
             self.send_body_and_parse_head().await?;
             Ok(())
         })
+    }
+}
+
+/// An unexpected http status code was received. Transform this back
+/// into the conn with [`From::from`]/[`Into::into`].
+///
+/// Currently only returned by [`Conn::success`]
+pub struct UnexpectedStatusError<'a, C: Connector>(Conn<'a, C>);
+impl<'a, C: Connector> From<Conn<'a, C>> for UnexpectedStatusError<'a, C> {
+    fn from(value: Conn<'a, C>) -> Self {
+        Self(value)
+    }
+}
+
+impl<'a, C: Connector> From<UnexpectedStatusError<'a, C>> for Conn<'a, C> {
+    fn from(value: UnexpectedStatusError<'a, C>) -> Self {
+        value.0
+    }
+}
+
+impl<'a, C: Connector> Deref for UnexpectedStatusError<'a, C> {
+    type Target = Conn<'a, C>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<'a, C: Connector> DerefMut for UnexpectedStatusError<'a, C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl<'a, C: Connector> Debug for UnexpectedStatusError<'a, C> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("UnexpectedStatusError")
+            .field(&self.0)
+            .finish()
+    }
+}
+impl<C: Connector> std::error::Error for UnexpectedStatusError<'_, C> {}
+impl<C: Connector> Display for UnexpectedStatusError<'_, C> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self.status() {
+            Some(status) => f.write_fmt(format_args!(
+                "expected a success (2xx) status code, but got {status}"
+            )),
+            None => f.write_str("expected a status code to be set, but none was"),
+        }
     }
 }
