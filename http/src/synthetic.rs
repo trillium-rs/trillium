@@ -1,6 +1,6 @@
 use crate::{
-    conn::AfterSend, received_body::ReceivedBodyState, Conn, Headers, KnownHeaderName, Method,
-    StateSet, Stopper, Version,
+    conn::AfterSend, received_body::ReceivedBodyState, transport::Transport, Conn, Headers,
+    KnownHeaderName, Method, StateSet, Stopper, Version,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Result};
 use std::{
@@ -30,6 +30,8 @@ impl Synthetic {
         self.0.as_ref().map_or(true, Vec::is_empty)
     }
 }
+
+impl Transport for Synthetic {}
 
 impl AsyncWrite for Synthetic {
     fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, _buf: &[u8]) -> Poll<Result<usize>> {

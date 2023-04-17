@@ -1,9 +1,8 @@
-use crate::{pool::PoolEntry, util::encoding, Connector, Pool};
+use crate::{pool::PoolEntry, util::encoding, Pool};
 use encoding_rs::Encoding;
 use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
 use memmem::{Searcher, TwoWaySearcher};
 use std::{
-    borrow::Cow,
     convert::TryInto,
     fmt::{self, Debug, Display, Formatter},
     future::{Future, IntoFuture},
@@ -20,6 +19,7 @@ use trillium_http::{
     },
     Method, ReceivedBody, ReceivedBodyState, Result, StateSet, Status, Stopper, Upgrade,
 };
+use trillium_server_common::{Connector, Transport};
 use url::Url;
 
 const MAX_HEADERS: usize = 128;
@@ -47,7 +47,7 @@ a client connection, representing both an outbound http request and a
 http response
 */
 #[must_use]
-pub struct Conn<'config, C: Connector> {
+pub struct Conn<C: Connector> {
     url: Url,
     method: Method,
     request_headers: Headers,
@@ -58,7 +58,7 @@ pub struct Conn<'config, C: Connector> {
     pool: Option<Pool<C::Transport>>,
     buffer: Option<Vec<u8>>,
     response_body_state: ReceivedBodyState,
-    config: Option<Cow<'config, C::Config>>,
+    config: C,
 }
 
 macro_rules! method {
@@ -103,7 +103,7 @@ assert_eq!(conn.url().to_string(), \"http://localhost:8080/some/route\");
 
 const USER_AGENT: &str = concat!("trillium-client/", env!("CARGO_PKG_VERSION"));
 
-impl<C: Connector> Debug for Conn<'_, C> {
+impl<C: Connector + Debug> Debug for Conn<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Conn")
             .field("url", &self.url)
@@ -123,47 +123,7 @@ impl<C: Connector> Debug for Conn<'_, C> {
     }
 }
 
-impl<'config, C: Connector> Conn<'config, C> {
-    /**
-    imperatively assign a given config reference to this Conn.
-
-    ```
-    use trillium_smol::{TcpConnector, ClientConfig};
-    type Conn<'config> = trillium_client::Conn<'config, TcpConnector>;
-
-    let config = ClientConfig {
-        ttl: Some(100),
-        ..Default::default()
-    };
-
-    let mut conn = Conn::get("http://localhost:8080/");
-    conn.set_config(&config); // <-
-    ```
-     */
-    pub fn set_config<'c2: 'config>(&mut self, config: &'c2 C::Config) {
-        self.config = Some(Cow::Borrowed(config));
-    }
-
-    /**
-    set a config reference on this conn and return the conn, allowing chaining
-    ```
-    use trillium_smol::{TcpConnector, ClientConfig};
-    type Conn<'config> = trillium_client::Conn<'config, TcpConnector>;
-
-    let config = ClientConfig {
-        nodelay: Some(true),
-        ..Default::default()
-    };
-
-    let conn = Conn::get("http://localhost:8080/")
-        .with_config(&config); //<-
-    ```
-     */
-    pub fn with_config<'c2: 'config>(mut self, config: &'c2 C::Config) -> Conn<'config, C> {
-        self.set_config(config);
-        self
-    }
-
+impl<C: Connector> Conn<C> {
     /**
     Returns the conn or an [`UnexpectedStatusError`] that contains the conn
 
@@ -185,7 +145,7 @@ impl<'config, C: Connector> Conn<'config, C> {
     });
     ```
      */
-    pub fn success(self) -> std::result::Result<Self, UnexpectedStatusError<'config, C>> {
+    pub fn success(self) -> std::result::Result<Self, UnexpectedStatusError<C>> {
         match self.status() {
             Some(status) if status.is_success() => Ok(self),
             _ => Err(self.into()),
@@ -193,7 +153,7 @@ impl<'config, C: Connector> Conn<'config, C> {
     }
 }
 
-impl<C: Connector> Conn<'_, C> {
+impl<C: Connector + Default> Conn<C> {
     /**
     builds a new client Conn with the provided method and url
     ```
@@ -229,7 +189,7 @@ impl<C: Connector> Conn<'_, C> {
             pool: None,
             buffer: None,
             response_body_state: ReceivedBodyState::Start,
-            config: None,
+            config: C::default(),
         }
     }
 
@@ -238,6 +198,24 @@ impl<C: Connector> Conn<'_, C> {
     method!(put, Put);
     method!(delete, Delete);
     method!(patch, Patch);
+}
+
+impl<C: Connector> Conn<C> {
+    pub(crate) fn new_with_config(config: C, method: Method, url: Url) -> Self {
+        Self {
+            url,
+            method,
+            request_headers: Headers::new(),
+            response_headers: Headers::new(),
+            transport: None,
+            status: None,
+            request_body: None,
+            pool: None,
+            buffer: None,
+            response_body_state: ReceivedBodyState::Start,
+            config,
+        }
+    }
 
     /**
     Returns this conn to the connection pool if it is keepalive, and
@@ -668,19 +646,13 @@ impl<C: Connector> Conn<'_, C> {
 
         let transport = match self.find_pool_candidate(&socket_addrs[..], &head).await {
             Some(transport) => {
-                log::debug!("reusing connection to {}", C::peer_addr(&transport)?);
+                log::debug!("reusing connection to {:?}", transport.peer_addr()?);
                 transport
             }
 
             None => {
-                let config = if let Some(config) = &self.config {
-                    config.clone()
-                } else {
-                    Cow::Owned(C::Config::default())
-                };
-
-                let mut transport = C::connect(&self.url, &config).await?;
-                log::debug!("opened new connection to {}", C::peer_addr(&transport)?);
+                let mut transport = self.config.connect(&self.url).await?;
+                log::debug!("opened new connection to {:?}", transport.peer_addr()?);
                 transport.write_all(&head).await?;
                 transport
             }
@@ -874,7 +846,7 @@ impl<C: Connector> Conn<'_, C> {
     }
 }
 
-impl<C: Connector> AsRef<C::Transport> for Conn<'_, C> {
+impl<C: Connector> AsRef<C::Transport> for Conn<C> {
     fn as_ref(&self) -> &C::Transport {
         self.transport.as_ref().unwrap()
     }
@@ -888,15 +860,15 @@ fn bytes(bytes: u64) -> String {
         .to_string()
 }
 
-impl<C: Connector> Drop for Conn<'_, C> {
+impl<C: Connector> Drop for Conn<C> {
     fn drop(&mut self) {
-        if !self.is_keep_alive() || self.transport.is_none() || self.pool.is_none() {
+        if !self.is_keep_alive() {
             return;
         }
 
-        let transport = self.transport.take().unwrap();
-        let peer_addr = C::peer_addr(&transport).unwrap();
-        let pool = self.pool.take().unwrap();
+        let Some(transport) = self.transport.take() else { return };
+        let Ok(Some(peer_addr)) = transport.peer_addr() else { return };
+        let Some(pool) = self.pool.take() else { return };
 
         if self.response_body_state == ReceivedBodyState::End {
             log::trace!("response body has been read to completion, checking transport back into pool for {}", &peer_addr);
@@ -906,7 +878,7 @@ impl<C: Connector> Drop for Conn<'_, C> {
             let buffer = self.buffer.take();
             let response_body_state = self.response_body_state;
             let encoding = encoding(&self.response_headers);
-            C::spawn(async move {
+            self.config.spawn(async move {
                 let mut response_body = ReceivedBody::<C::Transport>::new(
                     content_length,
                     buffer,
@@ -934,15 +906,15 @@ impl<C: Connector> Drop for Conn<'_, C> {
     }
 }
 
-impl<C: Connector> From<Conn<'_, C>> for Body {
-    fn from(conn: Conn<'_, C>) -> Body {
+impl<C: Connector> From<Conn<C>> for Body {
+    fn from(conn: Conn<C>) -> Body {
         let received_body: ReceivedBody<'static, _> = conn.into();
         received_body.into()
     }
 }
 
-impl<C: Connector> From<Conn<'_, C>> for ReceivedBody<'static, C::Transport> {
-    fn from(mut conn: Conn<'_, C>) -> Self {
+impl<C: Connector> From<Conn<C>> for ReceivedBody<'static, C::Transport> {
+    fn from(mut conn: Conn<C>) -> Self {
         conn.finalize_headers();
         ReceivedBody::new(
             conn.response_content_length(),
@@ -953,10 +925,9 @@ impl<C: Connector> From<Conn<'_, C>> for ReceivedBody<'static, C::Transport> {
                 .take()
                 .map(|pool| -> Box<dyn Fn(C::Transport) + Send + Sync> {
                     Box::new(move |transport| {
-                        pool.insert(
-                            C::peer_addr(&transport).unwrap(),
-                            PoolEntry::new(transport, None),
-                        );
+                        if let Ok(Some(peer_addr)) = transport.peer_addr() {
+                            pool.insert(peer_addr, PoolEntry::new(transport, None));
+                        }
                     })
                 }),
             conn.response_encoding(),
@@ -964,8 +935,8 @@ impl<C: Connector> From<Conn<'_, C>> for ReceivedBody<'static, C::Transport> {
     }
 }
 
-impl<C: Connector> From<Conn<'_, C>> for Upgrade<C::Transport> {
-    fn from(mut conn: Conn<'_, C>) -> Self {
+impl<C: Connector> From<Conn<C>> for Upgrade<C::Transport> {
+    fn from(mut conn: Conn<C>) -> Self {
         Upgrade {
             request_headers: std::mem::replace(&mut conn.request_headers, Headers::new()),
             path: conn.url.path().to_string(),
@@ -978,10 +949,10 @@ impl<C: Connector> From<Conn<'_, C>> for Upgrade<C::Transport> {
     }
 }
 
-impl<'a, C: Connector> IntoFuture for Conn<'a, C> {
-    type Output = Result<Conn<'a, C>>;
+impl<C: Connector> IntoFuture for Conn<C> {
+    type Output = Result<Conn<C>>;
 
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(mut self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -993,7 +964,7 @@ impl<'a, C: Connector> IntoFuture for Conn<'a, C> {
     }
 }
 
-impl<'a: 'b, 'b, C: Connector> IntoFuture for &'b mut Conn<'a, C> {
+impl<'b, C: Connector> IntoFuture for &'b mut Conn<C> {
     type Output = Result<()>;
 
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'b>>;
@@ -1012,40 +983,40 @@ impl<'a: 'b, 'b, C: Connector> IntoFuture for &'b mut Conn<'a, C> {
 /// into the conn with [`From::from`]/[`Into::into`].
 ///
 /// Currently only returned by [`Conn::success`]
-pub struct UnexpectedStatusError<'a, C: Connector>(Box<Conn<'a, C>>);
-impl<'a, C: Connector> From<Conn<'a, C>> for UnexpectedStatusError<'a, C> {
-    fn from(value: Conn<'a, C>) -> Self {
+pub struct UnexpectedStatusError<C: Connector>(Box<Conn<C>>);
+impl<C: Connector> From<Conn<C>> for UnexpectedStatusError<C> {
+    fn from(value: Conn<C>) -> Self {
         Self(Box::new(value))
     }
 }
 
-impl<'a, C: Connector> From<UnexpectedStatusError<'a, C>> for Conn<'a, C> {
-    fn from(value: UnexpectedStatusError<'a, C>) -> Self {
+impl<C: Connector> From<UnexpectedStatusError<C>> for Conn<C> {
+    fn from(value: UnexpectedStatusError<C>) -> Self {
         *value.0
     }
 }
 
-impl<'a, C: Connector> Deref for UnexpectedStatusError<'a, C> {
-    type Target = Conn<'a, C>;
+impl<C: Connector> Deref for UnexpectedStatusError<C> {
+    type Target = Conn<C>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<'a, C: Connector> DerefMut for UnexpectedStatusError<'a, C> {
+impl<C: Connector> DerefMut for UnexpectedStatusError<C> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
-impl<'a, C: Connector> Debug for UnexpectedStatusError<'a, C> {
+impl<C: Connector + Debug> Debug for UnexpectedStatusError<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("UnexpectedStatusError")
             .field(&self.0)
             .finish()
     }
 }
-impl<C: Connector> std::error::Error for UnexpectedStatusError<'_, C> {}
-impl<C: Connector> Display for UnexpectedStatusError<'_, C> {
+impl<C: Connector + Debug> std::error::Error for UnexpectedStatusError<C> {}
+impl<C: Connector + Debug> Display for UnexpectedStatusError<C> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.status() {
             Some(status) => f.write_fmt(format_args!(

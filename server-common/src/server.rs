@@ -1,63 +1,35 @@
-use crate::{Config, ConfigExt};
-use futures_lite::{AsyncRead, AsyncWrite};
+use crate::{Acceptor, Config, ConfigExt, Stopper, Transport};
 use std::{
     future::{ready, Future},
     io::Result,
-    net::IpAddr,
     pin::Pin,
     sync::Arc,
 };
 use trillium::{Handler, Info};
-use trillium_http::Stopper;
-use trillium_tls_common::Acceptor;
 
 /**
 The server trait, for standard network-based server implementations.
 */
-pub trait Server: Send + 'static {
-    /// an async type like TcpListener or UnixListener. This trait
-    /// imposes minimal constraints on the type.
-    type Listener: Send + Sync + 'static;
-
-    /// the individual byte stream (AsyncRead+AsyncWrite) that http
+pub trait Server: Sized + Send + Sync + 'static {
+    /// the individual byte stream that http
     /// will be communicated over. This is often an async "stream"
-    /// like TcpStream or UnixStream.
-    type Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static;
+    /// like TcpStream or UnixStream. See [`ServerTransport`]
+    type Transport: Transport;
 
     /// The description of this server, to be appended to the Info and potentially logged.
     const DESCRIPTION: &'static str;
 
     /// Asynchronously return a single `Self::Transport` from a
     /// `Self::Listener`. Must be implemented.
-    fn accept(
-        listener: &mut Self::Listener,
-    ) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>>;
-
-    /// Optional method to return a peer ip address from a
-    /// `Self::Transport`, if applicable. The default implementation
-    /// returns None.
-    #[allow(unused_variables)]
-    fn peer_ip(transport: &Self::Transport) -> Option<IpAddr> {
-        None
-    }
-
-    /// Optional method to set tcp nodelay to the provided value on
-    /// the Self::Transport
-    #[allow(unused_variables)]
-    fn set_nodelay(transport: &mut Self::Transport, nodelay: bool) {}
-
-    /// Optional method to set ip ttl to the provided value on
-    /// the Self::Transport
-    #[allow(unused_variables)]
-    fn set_ip_ttl(transport: &mut Self::Transport, ttl: u32) {}
+    fn accept(&mut self) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>>;
 
     /// Build an [`Info`] from the Self::Listener type. See [`Info`]
     /// for more details.
-    fn info(listener: &Self::Listener) -> Info;
+    fn info(&self) -> Info;
 
     /// After the server has shut down, perform any housekeeping, eg
     /// unlinking a unix socket.
-    fn clean_up(_listener: Self::Listener) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+    fn clean_up(self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         Box::pin(ready(()))
     }
 
@@ -68,7 +40,7 @@ pub trait Server: Send + 'static {
     /// [`Server::listener_from_tcp`] and
     /// [`Server::listener_from_unix`].
     #[cfg(unix)]
-    fn build_listener<A>(config: &Config<Self, A>) -> Self::Listener
+    fn build_listener<A>(config: &Config<Self, A>) -> Self
     where
         A: Acceptor<Self::Transport>,
     {
@@ -97,7 +69,7 @@ pub trait Server: Send + 'static {
     /// implementations could potentially implement this directly.  To
     /// use this default logic, implement [`Server::listener_from_tcp`]
     #[cfg(not(unix))]
-    fn build_listener<A>(config: &Config<Self, A>) -> Self::Listener
+    fn build_listener<A>(config: &Config<Self, A>) -> Self
     where
         A: Acceptor<Self::Transport>,
     {
@@ -109,7 +81,7 @@ pub trait Server: Send + 'static {
     /// Build a Self::Listener from a tcp listener. This is called by
     /// the [`Server::build_listener`] default implementation, and
     /// is mandatory if the default implementation is used.
-    fn listener_from_tcp(_tcp: std::net::TcpListener) -> Self::Listener {
+    fn listener_from_tcp(_tcp: std::net::TcpListener) -> Self {
         unimplemented!()
     }
 
@@ -117,7 +89,7 @@ pub trait Server: Send + 'static {
     /// the [`Server::build_listener`] default implementation. You
     /// will want to tag an implementation of this with #[cfg(unix)].
     #[cfg(unix)]
-    fn listener_from_unix(_tcp: std::os::unix::net::UnixListener) -> Self::Listener {
+    fn listener_from_unix(_tcp: std::os::unix::net::UnixListener) -> Self {
         unimplemented!()
     }
 

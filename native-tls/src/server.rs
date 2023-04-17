@@ -1,6 +1,6 @@
-use crate::Identity;
-use async_native_tls::{Error, TlsAcceptor, TlsStream};
-use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
+use crate::{Identity, NativeTlsTransport};
+use async_native_tls::{Error, TlsAcceptor};
+use trillium_server_common::{async_trait, Acceptor, Transport};
 
 /**
 trillium [`Acceptor`] for native-tls
@@ -55,11 +55,11 @@ impl From<(&[u8], &str)> for NativeTlsAcceptor {
 #[async_trait]
 impl<Input> Acceptor<Input> for NativeTlsAcceptor
 where
-    Input: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    Input: Transport,
 {
-    type Output = TlsStream<Input>;
+    type Output = NativeTlsTransport<Input>;
     type Error = Error;
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
-        self.0.accept(input).await
+        self.0.accept(input).await.map(NativeTlsTransport::from)
     }
 }

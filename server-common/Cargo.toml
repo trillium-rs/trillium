@@ -11,12 +11,13 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
+async-trait = "0.1.68"
 atomic-waker = "1.1.0"
-futures-lite = "1.12.0"
+futures-lite = "1.13.0"
 log = "0.4.17"
-trillium = { path = "../trillium", version = "^0.2.0"}
+trillium = { path = "../trillium", version = "^0.2.0" }
 trillium-http = { path = "../http", version = "^0.2.0" }
-trillium-tls-common = { path = "../tls-common/", version = "^0.1.0" }
+url = "2.3.1"
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.9.1"

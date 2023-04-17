@@ -1,3 +1,4 @@
+use crate::Transport;
 use futures_lite::{AsyncRead, AsyncWrite, Stream};
 use std::{
     convert::{TryFrom, TryInto},
@@ -10,13 +11,53 @@ use std::{
 /// like TryFrom, Stream, AsyncRead, and AsyncWrite. This can contain
 /// listeners (like TcpListener), Streams (like Incoming), or
 /// bytestreams (like TcpStream).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Binding<T, U> {
     /// a tcp type (listener or incoming or stream)
     Tcp(T),
 
     /// a unix type (listener or incoming or stream)
     Unix(U),
+}
+
+use Binding::{Tcp, Unix};
+
+impl<T, U> Binding<T, U> {
+    /// borrows the tcp stream or listener, if this is a tcp variant
+    pub fn get_tcp(&self) -> Option<&T> {
+        if let Tcp(t) = self {
+            Some(t)
+        } else {
+            None
+        }
+    }
+
+    /// borrows the unix stream or listener, if this is unix variant
+    pub fn get_unix(&self) -> Option<&U> {
+        if let Unix(u) = self {
+            Some(u)
+        } else {
+            None
+        }
+    }
+
+    /// mutably borrows the tcp stream or listener, if this is tcp variant
+    pub fn get_tcp_mut(&mut self) -> Option<&mut T> {
+        if let Tcp(t) = self {
+            Some(t)
+        } else {
+            None
+        }
+    }
+
+    /// mutably borrows the unix stream or listener, if this is unix variant
+    pub fn get_unix_mut(&mut self) -> Option<&mut U> {
+        if let Unix(u) = self {
+            Some(u)
+        } else {
+            None
+        }
+    }
 }
 
 impl<T: TryFrom<std::net::TcpListener>, U> TryFrom<std::net::TcpListener> for Binding<T, U> {
@@ -47,15 +88,43 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match &mut *self {
-            Binding::Tcp(t) => Pin::new(t)
-                .poll_next(cx)
-                .map(|i| i.map(|x| x.map(Binding::Tcp))),
-
-            Binding::Unix(u) => Pin::new(u)
-                .poll_next(cx)
-                .map(|i| i.map(|x| x.map(Binding::Unix))),
+            Tcp(t) => Pin::new(t).poll_next(cx).map(|i| i.map(|x| x.map(Tcp))),
+            Unix(u) => Pin::new(u).poll_next(cx).map(|i| i.map(|x| x.map(Unix))),
         }
     }
+}
+
+impl<T, U> Binding<T, U>
+where
+    T: AsyncRead + Unpin,
+    U: AsyncRead + Unpin,
+{
+    fn as_async_read(&mut self) -> Pin<&mut (dyn AsyncRead + Unpin)> {
+        Pin::new(match self {
+            Tcp(t) => t as &mut (dyn AsyncRead + Unpin),
+            Unix(u) => u as &mut (dyn AsyncRead + Unpin),
+        })
+    }
+}
+
+impl<T, U> Binding<T, U>
+where
+    T: AsyncWrite + Unpin,
+    U: AsyncWrite + Unpin,
+{
+    fn as_async_write(&mut self) -> Pin<&mut (dyn AsyncWrite + Unpin)> {
+        Pin::new(match self {
+            Tcp(t) => t as &mut (dyn AsyncWrite + Unpin),
+            Unix(u) => u as &mut (dyn AsyncWrite + Unpin),
+        })
+    }
+}
+
+impl<T, U> Binding<T, U>
+where
+    T: AsyncWrite + Unpin,
+    U: AsyncWrite + Unpin,
+{
 }
 
 impl<T, U> AsyncRead for Binding<T, U>
@@ -68,10 +137,7 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<Result<usize>> {
-        match &mut *self {
-            Binding::Tcp(t) => Pin::new(t).poll_read(cx, buf),
-            Binding::Unix(u) => Pin::new(u).poll_read(cx, buf),
-        }
+        self.as_async_read().poll_read(cx, buf)
     }
 }
 
@@ -85,23 +151,55 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize>> {
-        match &mut *self {
-            Binding::Tcp(t) => Pin::new(t).poll_write(cx, buf),
-            Binding::Unix(u) => Pin::new(u).poll_write(cx, buf),
-        }
+        self.as_async_write().poll_write(cx, buf)
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        match &mut *self {
-            Binding::Tcp(t) => Pin::new(t).poll_flush(cx),
-            Binding::Unix(u) => Pin::new(u).poll_flush(cx),
-        }
+        self.as_async_write().poll_flush(cx)
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        match &mut *self {
-            Binding::Tcp(t) => Pin::new(t).poll_close(cx),
-            Binding::Unix(u) => Pin::new(u).poll_close(cx),
+        self.as_async_write().poll_close(cx)
+    }
+}
+
+impl<T, U> Binding<T, U>
+where
+    T: Transport,
+    U: Transport,
+{
+    fn as_server_transport_mut(&mut self) -> &mut dyn Transport {
+        match self {
+            Tcp(t) => t as &mut dyn Transport,
+            Unix(u) => u as &mut dyn Transport,
         }
+    }
+    fn as_server_transport(&self) -> &dyn Transport {
+        match self {
+            Tcp(t) => t as &dyn Transport,
+            Unix(u) => u as &dyn Transport,
+        }
+    }
+}
+
+impl<T, U> Transport for Binding<T, U>
+where
+    T: Transport,
+    U: Transport,
+{
+    fn set_linger(&mut self, linger: Option<std::time::Duration>) -> Result<()> {
+        self.as_server_transport_mut().set_linger(linger)
+    }
+
+    fn set_nodelay(&mut self, nodelay: bool) -> Result<()> {
+        self.as_server_transport_mut().set_nodelay(nodelay)
+    }
+
+    fn set_ip_ttl(&mut self, ttl: u32) -> Result<()> {
+        self.as_server_transport_mut().set_ip_ttl(ttl)
+    }
+
+    fn peer_addr(&self) -> Result<Option<std::net::SocketAddr>> {
+        self.as_server_transport().peer_addr()
     }
 }
