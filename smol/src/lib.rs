@@ -63,10 +63,13 @@ use trillium::Handler;
 pub use trillium_server_common::Stopper;
 
 mod client;
-pub use client::{ClientConfig, TcpConnector};
+pub use client::ClientConfig;
 
 mod server;
 use server::Config;
+
+mod transport;
+pub use transport::SmolTransport;
 
 pub use async_global_executor;
 pub use async_io;

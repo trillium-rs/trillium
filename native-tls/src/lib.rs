@@ -22,4 +22,7 @@ mod server;
 pub use server::NativeTlsAcceptor;
 
 mod client;
-pub use client::{NativeTlsConfig, NativeTlsConnector};
+pub use client::NativeTlsConfig;
+
+mod transport;
+pub use transport::NativeTlsTransport;

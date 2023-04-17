@@ -36,12 +36,15 @@ use trillium::Handler;
 pub use trillium_server_common::Stopper;
 
 mod client;
-pub use client::{ClientConfig, TcpConnector};
+pub use client::ClientConfig;
 
 mod server;
 use server::Config;
 
 pub use async_std;
+
+mod transport;
+pub use transport::AsyncStdTransport;
 
 /**
 # Runs a trillium handler in a sync context with default config

@@ -1,8 +1,6 @@
-use crate::{CloneCounter, Server};
+use crate::{Acceptor, CloneCounter, Server, Stopper};
 use std::{marker::PhantomData, net::SocketAddr};
 use trillium::Handler;
-use trillium_http::Stopper;
-use trillium_tls_common::Acceptor;
 
 /**
 # Primary entrypoint for configuring and running a trillium server
@@ -54,7 +52,7 @@ In order to use this to _implement_ a trillium server, see
 */
 
 #[derive(Debug)]
-pub struct Config<ServerType: ?Sized, AcceptorType> {
+pub struct Config<ServerType, AcceptorType> {
     pub(crate) acceptor: AcceptorType,
     pub(crate) port: Option<u16>,
     pub(crate) host: Option<String>,
@@ -68,7 +66,7 @@ pub struct Config<ServerType: ?Sized, AcceptorType> {
 
 impl<ServerType, AcceptorType> Config<ServerType, AcceptorType>
 where
-    ServerType: Server + ?Sized,
+    ServerType: Server,
     AcceptorType: Acceptor<ServerType::Transport>,
 {
     /// Starts an async runtime and runs the provided handler with
@@ -172,7 +170,7 @@ impl<ServerType> Config<ServerType, ()> {
     }
 }
 
-impl<ServerType: ?Sized, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType> {
+impl<ServerType, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType> {
     fn clone(&self) -> Self {
         Self {
             acceptor: self.acceptor.clone(),

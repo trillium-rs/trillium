@@ -1,10 +1,13 @@
 use trillium_logger::Logger;
-use trillium_rustls::RustlsConnector;
-use trillium_smol::TcpConnector;
-
-type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
+use trillium_proxy::Proxy;
+use trillium_rustls::RustlsConfig;
+use trillium_smol::ClientConfig;
 
 pub fn main() {
     env_logger::init();
-    trillium_smol::run((Logger::new(), Proxy::new("https://httpbin.org/")));
+    let client_config = RustlsConfig::default().with_tcp_config(ClientConfig::default());
+    trillium_smol::run((
+        Logger::new(),
+        Proxy::new(client_config, "https://httpbin.org/"),
+    ));
 }

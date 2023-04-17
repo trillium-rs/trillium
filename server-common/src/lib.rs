@@ -9,7 +9,7 @@
 )]
 
 /*!
-# Utilities for building trillium server adapters
+# Utilities and traits for building trillium runtime adapters
 
 Trillium applications should never need to depend directly on this
 library. Server adapters should reexport any types from this crate
@@ -23,8 +23,10 @@ If you are depending on this crate for private code that cannot be
 discovered through docs.rs' reverse dependencies, please open an
 issue.
 */
-pub use trillium_http::Stopper;
-pub use trillium_tls_common::*;
+pub use async_trait::async_trait;
+pub use futures_lite::{AsyncRead, AsyncWrite};
+pub use trillium_http::{transport::Transport, Stopper};
+pub use url::Url;
 
 mod clone_counter;
 pub use clone_counter::CloneCounter;
@@ -40,3 +42,9 @@ pub use server::Server;
 
 mod binding;
 pub use binding::Binding;
+
+mod client;
+pub use client::{Connector, ObjectSafeConnector};
+
+mod acceptor;
+pub use acceptor::Acceptor;

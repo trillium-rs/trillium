@@ -48,8 +48,6 @@ pub(crate) async fn tcp_connect(
     url: &Url,
 ) -> std::io::Result<trillium_http::transport::BoxedTransport> {
     Ok(trillium_http::transport::BoxedTransport::new(
-        trillium_tokio::async_compat::Compat::new(
-            trillium_tokio::tokio::net::TcpStream::connect(&url.socket_addrs(|| None)?[..]).await?,
-        ),
+        trillium_tokio::TokioTransport::connect(&url.socket_addrs(|| None)?[..]).await?,
     ))
 }

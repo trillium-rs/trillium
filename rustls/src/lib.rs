@@ -15,10 +15,13 @@ client ([`RustlsConnector`]) and server ([`RustlsAcceptor`]).
 */
 
 mod client;
-pub use client::{RustlsConfig, RustlsConnector};
+pub use client::RustlsConfig;
 
 mod server;
 pub use server::RustlsAcceptor;
 
 pub use async_rustls;
 pub use rustls;
+
+mod transport;
+pub use transport::RustlsTransport;

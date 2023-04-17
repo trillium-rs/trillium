@@ -1,12 +1,13 @@
-use async_rustls::{server::TlsStream, TlsAcceptor};
+use crate::RustlsTransport;
+use async_rustls::TlsAcceptor;
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::certs;
 use std::{
     fmt::{Debug, Formatter},
-    io::{BufReader, Error, Result},
+    io::{self, BufReader},
     sync::Arc,
 };
-use trillium_tls_common::{async_trait, Acceptor, AsyncRead, AsyncWrite};
+use trillium_server_common::{async_trait, Acceptor, Transport};
 
 /**
 trillium [`Acceptor`] for Rustls
@@ -92,11 +93,11 @@ impl From<TlsAcceptor> for RustlsAcceptor {
 #[async_trait]
 impl<Input> Acceptor<Input> for RustlsAcceptor
 where
-    Input: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
+    Input: Transport,
 {
-    type Output = TlsStream<Input>;
-    type Error = Error;
-    async fn accept(&self, input: Input) -> Result<Self::Output> {
-        self.0.accept(input).await
+    type Output = RustlsTransport<Input>;
+    type Error = io::Error;
+    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
+        self.0.accept(input).await.map(RustlsTransport::from)
     }
 }
