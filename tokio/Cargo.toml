@@ -20,7 +20,7 @@ trillium-server-common = { path = "../server-common", version = "^0.3.0" }
 
 [dependencies.tokio]
 version = "1.26.0"
-features = ["rt", "net", "rt-multi-thread", "time"]
+features = ["rt", "net", "fs", "rt-multi-thread", "time"]
 package = "tokio"
 
 [target.'cfg(unix)'.dependencies]

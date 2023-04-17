@@ -4,7 +4,7 @@ fn main() -> trillium_http::Result<()> {
     use stopper::Stopper;
     use trillium_http::{Conn, Result};
 
-    type ClientConn<'a> = trillium_client::Conn<'a, trillium_smol::TcpConnector>;
+    type ClientConn = trillium_client::Conn<trillium_smol::ClientConfig>;
 
     smol::block_on(async {
         let stopper = Stopper::new();

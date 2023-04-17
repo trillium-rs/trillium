@@ -1,5 +1,6 @@
+use crate::AsyncStdTransport;
 use async_std::net::TcpStream;
-use std::{future::Future, io::Result, net::SocketAddr};
+use std::{future::Future, io::Result};
 use trillium_server_common::{async_trait, Connector, Url};
 
 /**
@@ -14,48 +15,34 @@ pub struct ClientConfig {
     pub ttl: Option<u32>,
 }
 
-/**
-trillium client tcp connector for async-std
-*/
-#[derive(Clone, Debug, Copy)]
-pub struct TcpConnector;
-
 #[async_trait]
-impl Connector for TcpConnector {
-    type Config = ClientConfig;
-    type Transport = TcpStream;
+impl Connector for ClientConfig {
+    type Transport = AsyncStdTransport<TcpStream>;
 
-    fn peer_addr(transport: &Self::Transport) -> Result<SocketAddr> {
-        transport.peer_addr()
-    }
-
-    async fn connect(url: &Url, config: &Self::Config) -> Result<Self::Transport> {
+    async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         let socket_addrs = url.socket_addrs(|| None)?;
+
         if url.scheme() != "http" {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("unknown scheme {}", url.scheme()),
             ))
         } else {
-            let tcp = Self::Transport::connect(&socket_addrs[..]).await?;
+            let tcp = TcpStream::connect(&socket_addrs[..]).await?;
 
-            if let Some(nodelay) = config.nodelay {
+            if let Some(nodelay) = self.nodelay {
                 tcp.set_nodelay(nodelay)?;
             }
 
-            if let Some(ttl) = config.ttl {
+            if let Some(ttl) = self.ttl {
                 tcp.set_ttl(ttl)?;
             }
 
-            Ok(tcp)
+            Ok(AsyncStdTransport::from(tcp))
         }
     }
 
-    fn spawn<Fut>(future: Fut)
-    where
-        Fut: Future + Send + 'static,
-        <Fut as Future>::Output: Send,
-    {
-        async_std::task::spawn(future);
+    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
+        async_std::task::spawn(fut);
     }
 }

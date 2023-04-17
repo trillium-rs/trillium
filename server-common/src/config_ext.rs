@@ -1,4 +1,4 @@
-use crate::{CloneCounter, Config, Server};
+use crate::{Acceptor, CloneCounter, Config, Server, Stopper, Transport};
 
 use futures_lite::prelude::*;
 use std::{
@@ -7,10 +7,7 @@ use std::{
     net::{SocketAddr, TcpListener, ToSocketAddrs},
 };
 use trillium::Handler;
-use trillium_http::{
-    transport::BoxedTransport, Conn as HttpConn, Error, Stopper, SERVICE_UNAVAILABLE,
-};
-use trillium_tls_common::Acceptor;
+use trillium_http::{transport::BoxedTransport, Conn as HttpConn, Error, SERVICE_UNAVAILABLE};
 /// # Server-implementer interfaces to Config
 ///
 /// These functions are intended for use by authors of trillium servers,
@@ -21,7 +18,7 @@ use trillium_tls_common::Acceptor;
 #[trillium::async_trait]
 pub trait ConfigExt<ServerType, AcceptorType>
 where
-    ServerType: Server + ?Sized,
+    ServerType: Server,
 {
     /// resolve a port for this application, either directly
     /// configured, from the environmental variable `PORT`, or a default
@@ -158,9 +155,9 @@ where
             return;
         }
 
-        ServerType::set_nodelay(&mut stream, self.nodelay);
+        trillium::log_error!(stream.set_nodelay(self.nodelay));
 
-        let peer_ip = ServerType::peer_ip(&stream);
+        let peer_ip = stream.peer_addr().ok().flatten().map(|addr| addr.ip());
 
         let stream = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
@@ -235,7 +232,6 @@ where
 
     fn over_capacity(&self) -> bool {
         self.max_connections
-            .map(|m| self.counter.current() >= m)
-            .unwrap_or(false)
+            .map_or(false, |m| self.counter.current() >= m)
     }
 }

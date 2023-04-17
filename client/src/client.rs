@@ -2,9 +2,10 @@ use crate::{Conn, Pool};
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
+    sync::Arc,
 };
 use trillium_http::Method;
-use trillium_tls_common::{Connector, Url};
+use trillium_server_common::{Connector, ObjectSafeConnector, Url};
 
 /**
 A client contains a Config and an optional connection pool and builds
@@ -12,7 +13,7 @@ conns.
 
 */
 pub struct Client<C: Connector> {
-    config: C::Config,
+    config: C,
     pool: Option<Pool<C::Transport>>,
 }
 
@@ -48,7 +49,7 @@ assert_eq!(conn.url().to_string(), \"http://localhost:8080/some/route\");
 
     ($fn_name:ident, $method:ident, $doc_comment:expr) => {
         #[doc = $doc_comment]
-        pub fn $fn_name<U>(&self, url: U) -> Conn<'_, C>
+        pub fn $fn_name<U>(&self, url: U) -> Conn<C>
         where
             <U as TryInto<Url>>::Error: Debug,
             U: TryInto<Url>,
@@ -58,13 +59,20 @@ assert_eq!(conn.url().to_string(), \"http://localhost:8080/some/route\");
     };
 }
 
-impl<C: Connector> Client<C> {
-    /**
-    Constructs a new Client without a connection pool and with default
-    configuration.
-    */
-    pub fn new() -> Self {
-        Self::default()
+pub type BoxedClient = Client<Arc<dyn ObjectSafeConnector>>;
+
+impl<C: Connector + Clone> Client<C> {
+    ///
+    pub fn new(connector: C) -> Self {
+        Self {
+            config: connector,
+            pool: None,
+        }
+    }
+
+    ///
+    pub fn new_boxed(connector: C) -> BoxedClient {
+        Client::new(connector.arced())
     }
 
     /**
@@ -100,7 +108,7 @@ impl<C: Connector> Client<C> {
         });
     ```
     */
-    pub fn with_config(mut self, config: C::Config) -> Self {
+    pub fn with_config(mut self, config: C) -> Self {
         self.config = config;
         self
     }
@@ -123,14 +131,19 @@ impl<C: Connector> Client<C> {
     assert_eq!(conn.url().host_str().unwrap(), "trillium.rs");
     ```
     */
-    pub fn build_conn<M, U>(&self, method: M, url: U) -> Conn<'_, C>
+    pub fn build_conn<M, U>(&self, method: M, url: U) -> Conn<C>
     where
         M: TryInto<Method>,
         <M as TryInto<Method>>::Error: Debug,
         U: TryInto<Url>,
         <U as TryInto<Url>>::Error: Debug,
     {
-        let mut conn = Conn::new(method, url).with_config(&self.config);
+        let mut conn = Conn::new_with_config(
+            self.config.clone(),
+            method.try_into().unwrap(),
+            url.try_into().unwrap(),
+        );
+
         if let Some(pool) = &self.pool {
             conn.set_pool(pool.clone());
         }
@@ -156,7 +169,7 @@ impl<C: Connector> Client<C> {
     method!(patch, Patch);
 }
 
-impl<C: Connector> Clone for Client<C> {
+impl<C: Connector + Clone> Clone for Client<C> {
     fn clone(&self) -> Self {
         Self {
             config: self.config.clone(),
@@ -165,16 +178,16 @@ impl<C: Connector> Clone for Client<C> {
     }
 }
 
-impl<C: Connector> Default for Client<C> {
+impl<C: Connector + Default> Default for Client<C> {
     fn default() -> Self {
         Self {
-            config: C::Config::default(),
+            config: C::default(),
             pool: None,
         }
     }
 }
 
-impl<Transport: Connector> Debug for Client<Transport> {
+impl<Transport: Connector + Debug> Debug for Client<Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("config", &self.config)

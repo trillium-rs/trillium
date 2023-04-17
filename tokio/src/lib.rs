@@ -37,7 +37,7 @@ use trillium::Handler;
 pub use trillium_server_common::Stopper;
 
 mod client;
-pub use client::{ClientConfig, TcpConnector};
+pub use client::ClientConfig;
 
 mod server;
 use server::Config;
@@ -45,6 +45,9 @@ use server::Config;
 pub use async_compat;
 pub use tokio;
 pub use tokio_stream;
+
+mod transport;
+pub use transport::TokioTransport;
 
 /**
 # Runs a trillium handler in a sync context with default config

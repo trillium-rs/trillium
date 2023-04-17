@@ -1,37 +1,19 @@
-use async_io::Timer;
-use std::time::Duration;
 use trillium_client::Client;
-use trillium_rustls::RustlsConnector;
-use trillium_smol::TcpConnector;
+use trillium_smol::ClientConfig;
 
-type HttpClient = Client<RustlsConnector<TcpConnector>>;
-
-pub fn main() {
+pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     async_global_executor::block_on(async {
         env_logger::init();
+        let client = Client::new_boxed(ClientConfig::default()).with_default_pool();
+        let response_body = client
+            .get("http://neverssl.com/")
+            .await?
+            .success()
+            .map_err(|e| e.to_string())?
+            .response_body()
+            .await?;
 
-        let client = HttpClient::new().with_default_pool();
-
-        for _ in 0..5 {
-            let client = client.clone();
-            async_global_executor::spawn(async move {
-                loop {
-                    let conn = client
-                        .post("http://localhost:8011/")
-                        .with_body("body")
-                        .await
-                        .unwrap();
-
-                    println!("{conn:#?}");
-                    Timer::after(Duration::from_millis(fastrand::u64(0..1000))).await;
-                }
-            })
-            .detach();
-        }
-
-        loop {
-            Timer::after(Duration::from_secs(10)).await;
-            dbg!(&client);
-        }
-    });
+        println!("{response_body}");
+        Ok(())
+    })
 }

@@ -40,21 +40,21 @@ pub struct Proxy<C: Connector> {
     halt: bool,
 }
 
-impl<C: Connector> Proxy<C> {
+impl<C: Connector + Clone> Proxy<C> {
     /**
     construct a new proxy handler that sends all requests to the url
     provided.  if the url contains a path, the inbound request path
     will be joined onto the end.
 
     ```
-    use trillium_smol::{TcpConnector, ClientConfig};
+    use trillium_smol::ClientConfig;
     use trillium_proxy::Proxy;
 
     let proxy = Proxy::<TcpConnector>::new("http://docs.trillium.rs/trillium_proxy");
     ```
 
      */
-    pub fn new(target: impl TryInto<Url>) -> Self {
+    pub fn new(config: C, target: impl TryInto<Url>) -> Self {
         let url = match target.try_into() {
             Ok(url) => url,
             Err(_) => panic!("could not convert proxy target into a url"),
@@ -64,29 +64,10 @@ impl<C: Connector> Proxy<C> {
 
         Self {
             target: url,
-            client: Client::new().with_default_pool(),
+            client: Client::new(config).with_default_pool(),
             pass_through_not_found: true,
             halt: true,
         }
-    }
-
-    /**
-    chainable constructor to specify the client Connector
-    configuration
-
-    ```
-    use trillium_smol::{TcpConnector, ClientConfig};
-    use trillium_proxy::Proxy;
-    let proxy = Proxy::<TcpConnector>::new("http://trillium.rs")
-        .with_config(ClientConfig { //<-
-            nodelay: Some(true),
-            ..Default::default()
-        });
-    ```
-    */
-    pub fn with_config(mut self, config: C::Config) -> Self {
-        self.client = self.client.with_config(config);
-        self
     }
 
     /**
@@ -173,7 +154,7 @@ impl<C: Connector> Proxy<C> {
 struct UpstreamUpgrade<T>(Upgrade<T>);
 
 #[async_trait]
-impl<C: Connector> Handler for Proxy<C> {
+impl<C: Connector + Clone> Handler for Proxy<C> {
     async fn run(&self, mut conn: Conn) -> Conn {
         let mut request_url = conn_try!(self.target.clone().join(conn.path()), conn);
         let querystring = conn.querystring();

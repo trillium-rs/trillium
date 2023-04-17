@@ -1,19 +1,38 @@
 use crate::transport::Transport;
 use futures_lite::io::{AsyncRead, AsyncWrite};
-use std::any::Any;
-use std::fmt::Debug;
-use std::ops::Deref;
 use std::{
-    fmt,
+    any::Any,
+    fmt::{self, Debug},
     io::Result,
+    net::SocketAddr,
+    ops::Deref,
     pin::Pin,
     task::{Context, Poll},
 };
 
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub(crate) trait AnyTransport: Transport + Any {
+    fn as_box_any(self: Box<Self>) -> Box<dyn Any>;
+    fn as_box_transport(self: Box<Self>) -> Box<dyn Transport>;
+    fn as_transport(&self) -> &dyn Transport;
+}
+impl<T: Transport + Any> AnyTransport for T {
+    fn as_box_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+    fn as_box_transport(self: Box<Self>) -> Box<dyn Transport> {
+        self
+    }
+    fn as_transport(&self) -> &dyn Transport {
+        self
+    }
+}
+
 /**
 # A type for dyn [`Transport`][crate::transport::Transport] trait objects
 
-`BoxedTransport` represents a `Box<dyn Transport>` that supports
+`BoxedTransport` represents a `Box<dyn Transport + Any>` that supports
 downcasting to the original Transport. This is used in trillium to
 erase the generic on Conn, in order to avoid writing `Conn<TcpStream>`
 throughout an application.
@@ -22,15 +41,12 @@ throughout an application.
 replaced by a type alias exported from a
 `trillium_server_common::Server` crate.
 */
-pub struct BoxedTransport(Box<dyn Transport + Send + Sync + 'static>);
+pub struct BoxedTransport(Box<dyn AnyTransport>);
 
 impl Debug for BoxedTransport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BoxedTransport")
-            .field(
-                "inner",
-                &"Box<dyn AsyncRead + AsyncWrite + Send + Sync + Unpin>",
-            )
+            .field("inner", &"Box<dyn Transport>")
             .finish()
     }
 }
@@ -56,7 +72,7 @@ impl BoxedTransport {
     ```
     */
 
-    pub fn new(t: impl Transport + 'static) -> Self {
+    pub fn new<T: Transport + Any>(t: T) -> Self {
         Self(Box::new(t))
     }
 
@@ -69,16 +85,15 @@ impl BoxedTransport {
     */
     #[must_use = "downcasting takes the inner transport, so you should use it"]
     pub fn downcast<T: 'static>(self) -> Option<Box<T>> {
-        let inner: Box<dyn Any> = self.0.as_box_any();
-        inner.downcast().ok()
+        self.0.as_box_any().downcast().ok()
     }
 }
 
 impl Deref for BoxedTransport {
-    type Target = Box<dyn Transport + Send + Sync + 'static>;
+    type Target = dyn Transport;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0.as_transport()
     }
 }
 
@@ -107,5 +122,23 @@ impl AsyncWrite for BoxedTransport {
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         Pin::new(&mut self.0).poll_close(cx)
+    }
+}
+
+impl Transport for BoxedTransport {
+    fn set_linger(&mut self, linger: Option<std::time::Duration>) -> Result<()> {
+        self.0.set_linger(linger)
+    }
+
+    fn set_nodelay(&mut self, nodelay: bool) -> Result<()> {
+        self.0.set_nodelay(nodelay)
+    }
+
+    fn set_ip_ttl(&mut self, ttl: u32) -> Result<()> {
+        self.0.set_ip_ttl(ttl)
+    }
+
+    fn peer_addr(&self) -> Result<Option<SocketAddr>> {
+        self.0.peer_addr()
     }
 }

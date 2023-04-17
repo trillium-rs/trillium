@@ -5,6 +5,7 @@ use httparse::Status;
 use std::{
     convert::TryInto,
     fmt::{self, Formatter},
+    future::IntoFuture,
     io::ErrorKind,
     iter,
     pin::Pin,
@@ -174,6 +175,19 @@ where
     }
 }
 
+impl<'a, Transport> IntoFuture for ReceivedBody<'a, Transport>
+where
+    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+{
+    type Output = crate::Result<String>;
+
+    type IntoFuture = Pin<Box<dyn std::future::Future<Output = Self::Output> + Send + 'a>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move { self.read_string().await })
+    }
+}
+
 impl<T> ReceivedBody<'static, T> {
     /// takes the static transport from this received body
     pub fn take_transport(&mut self) -> Option<T> {
@@ -290,6 +304,10 @@ fn chunk_decode(
             }
 
             Err(httparse::InvalidChunkSize) => {
+                log::error!(
+                    "invalid chunk size in buffer:\n\n {}",
+                    String::from_utf8_lossy(&buf[chunk_start..])
+                );
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "invalid chunk size",

@@ -9,13 +9,13 @@ use trillium_caching_headers::{
 };
 use trillium_conn_id::log_formatter::conn_id;
 use trillium_logger::apache_common;
+use trillium_proxy::Proxy;
 use trillium_router::{Router, RouterConnExt};
-use trillium_rustls::RustlsConnector;
+use trillium_rustls::RustlsConfig;
 use trillium_sessions::{MemoryStore, SessionConnExt};
-use trillium_smol::TcpConnector;
+use trillium_smol::ClientConfig;
 use trillium_static_compiled::static_compiled;
 use trillium_websockets::{Message, WebSocket, WebSocketConn};
-type Proxy = trillium_proxy::Proxy<RustlsConnector<TcpConnector>>;
 
 #[derive(Template)]
 #[template(path = "hello.html")]
@@ -83,7 +83,13 @@ fn router() -> impl Handler {
                 }
             }),
         )
-        .get("/httpbin/*", Proxy::new("https://httpbin.org"))
+        .get(
+            "/httpbin/*",
+            Proxy::new(
+                RustlsConfig::default().with_tcp_config(ClientConfig::default()),
+                "https://httpbin.org",
+            ),
+        )
 }
 
 fn main() {
