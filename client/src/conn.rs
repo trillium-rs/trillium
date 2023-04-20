@@ -74,7 +74,7 @@ macro_rules! method {
 
 ```
 use trillium_testing::prelude::*;
-type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
+type Conn = trillium_client::Conn<trillium_smol::ClientConfig>;
 
 let conn = Conn::",
                 stringify!($fn_name),
@@ -128,8 +128,8 @@ impl<C: Connector> Conn<C> {
     Returns the conn or an [`UnexpectedStatusError`] that contains the conn
 
     ```
-    use trillium_smol::TcpConnector;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    use trillium_smol::ClientConfig;
+    type Conn = trillium_client::Conn<ClientConfig>;
 
     trillium_testing::with_server(trillium::Status::NotFound, |url| async move {
         assert_eq!(
@@ -157,7 +157,7 @@ impl<C: Connector + Default> Conn<C> {
     /**
     builds a new client Conn with the provided method and url
     ```
-    type Conn = trillium_client::Conn<'static, trillium_smol::TcpConnector>;
+    type Conn = trillium_client::Conn<trillium_smol::ClientConfig>;
     use trillium_testing::prelude::*;
 
     let conn = Conn::new("get", "http://trillium.rs"); //<-
@@ -235,8 +235,8 @@ impl<C: Connector> Conn<C> {
     Conn
 
     ```
-    use trillium_smol::TcpConnector;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    use trillium_smol::ClientConfig;
+    type Conn = trillium_client::Conn<ClientConfig>;
 
     let handler = |conn: trillium::Conn| async move {
         let header = conn.headers().get_str("some-request-header").unwrap_or_default();
@@ -268,8 +268,8 @@ impl<C: Connector> Conn<C> {
     chainable setter for [`inserting`](Headers::insert) a request header
 
     ```
-    use trillium_smol::TcpConnector;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    use trillium_smol::ClientConfig;
+    type Conn = trillium_client::Conn<ClientConfig>;
 
     let handler = |conn: trillium::Conn| async move {
         let header = conn.headers().get_str("some-request-header").unwrap_or_default();
@@ -303,8 +303,8 @@ impl<C: Connector> Conn<C> {
     chainable setter for `extending` request headers
 
     ```
-    use trillium_smol::TcpConnector;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    use trillium_smol::ClientConfig;
+    type Conn = trillium_client::Conn<ClientConfig>;
 
     let handler = |conn: trillium::Conn| async move {
         let header = conn.headers().get_str("some-request-header").unwrap_or_default();
@@ -340,8 +340,8 @@ impl<C: Connector> Conn<C> {
 
     /**
     ```
-    use trillium_smol::TcpConnector;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    use trillium_smol::ClientConfig;
+    type Conn = trillium_client::Conn<ClientConfig>;
 
     let handler = |conn: trillium::Conn| async move {
         conn.with_header("some-header", "some-value")
@@ -373,8 +373,8 @@ impl<C: Connector> Conn<C> {
 
     ```
     env_logger::init();
-    use trillium_smol::TcpConnector;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    use trillium_smol::ClientConfig;
+    type Conn = trillium_client::Conn<ClientConfig>;
 
     let handler = |mut conn: trillium::Conn| async move {
         let body = conn.request_body_string().await.unwrap();
@@ -402,8 +402,8 @@ impl<C: Connector> Conn<C> {
 
     ```
     env_logger::init();
-    use trillium_smol::TcpConnector;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    use trillium_smol::ClientConfig;
+    type Conn = trillium_client::Conn<ClientConfig>;
 
     let handler = |mut conn: trillium::Conn| async move {
         let body = conn.request_body_string().await.unwrap();
@@ -446,10 +446,10 @@ impl<C: Connector> Conn<C> {
     /**
     retrieves the url for this conn.
     ```
-    use trillium_smol::TcpConnector;
+    use trillium_smol::ClientConfig;
     use trillium_client::Conn;
 
-    let conn = Conn::<TcpConnector>::get("http://localhost:9080");
+    let conn = Conn::<ClientConfig>::get("http://localhost:9080");
 
     let url = conn.url(); //<-
 
@@ -463,10 +463,10 @@ impl<C: Connector> Conn<C> {
     /**
     retrieves the url for this conn.
     ```
-    use trillium_smol::TcpConnector;
+    use trillium_smol::ClientConfig;
     use trillium_client::Conn;
     use trillium_testing::prelude::*;
-    let conn = Conn::<TcpConnector>::get("http://localhost:9080");
+    let conn = Conn::<ClientConfig>::get("http://localhost:9080");
 
     let method = conn.method(); //<-
 
@@ -481,8 +481,8 @@ impl<C: Connector> Conn<C> {
     returns a [`ReceivedBody`] that borrows the connection inside this conn.
     ```
     env_logger::init();
-    use trillium_smol::TcpConnector;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    use trillium_smol::ClientConfig;
+    type Conn = trillium_client::Conn<ClientConfig>;
 
     let handler = |mut conn: trillium::Conn| async move {
         conn.ok("hello from trillium")
@@ -543,9 +543,9 @@ impl<C: Connector> Conn<C> {
     been sent, this will be None.
 
     ```
-    use trillium_smol::TcpConnector;
+    use trillium_smol::ClientConfig;
     use trillium_testing::prelude::*;
-    type Conn = trillium_client::Conn<'static, TcpConnector>;
+    type Conn = trillium_client::Conn<ClientConfig>;
     async fn handler(conn: trillium::Conn) -> trillium::Conn {
         conn.with_status(418)
     }

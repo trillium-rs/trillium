@@ -30,9 +30,9 @@ macro_rules! method {
 
 ```
 # use trillium_testing::prelude::*;
-# use trillium_smol::TcpConnector;
+# use trillium_smol::ClientConfig;
 # use trillium_client::Client;
-let client = Client::<TcpConnector>::new();
+let client = Client::new(ClientConfig::default());
 let conn = client.",
                 stringify!($fn_name),
                 "(\"http://localhost:8080/some/route\"); //<-
@@ -81,10 +81,10 @@ impl<C: Connector + Clone> Client<C> {
 
 
     ```
-    use trillium_smol::TcpConnector;
+    use trillium_smol::ClientConfig;
     use trillium_client::Client;
 
-    let client = Client::<TcpConnector>::new()
+    let client = Client::<ClientConfig>::default()
         .with_default_pool(); //<-
     ```
     */
@@ -98,10 +98,10 @@ impl<C: Connector + Clone> Client<C> {
     can be combined with [`Client::with_default_pool`]
 
     ```
-    use trillium_smol::{TcpConnector, ClientConfig};
+    use trillium_smol::ClientConfig;
     use trillium_client::Client;
 
-    let client = Client::<TcpConnector>::new()
+    let client = Client::default()
         .with_config(ClientConfig { //<-
             nodelay: Some(true),
             ..Default::default()
@@ -120,10 +120,10 @@ impl<C: Connector + Clone> Client<C> {
     that when it is sent.
 
     ```
-    use trillium_smol::{TcpConnector, ClientConfig};
+    use trillium_smol::ClientConfig;
     use trillium_client::Client;
     use trillium_testing::prelude::*;
-    let client = Client::<TcpConnector>::new();
+    let client = Client::new(ClientConfig::default());
 
     let conn = client.build_conn("get", "http://trillium.rs"); //<-
 
