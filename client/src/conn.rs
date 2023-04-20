@@ -11,15 +11,17 @@ use std::{
     ops::{Deref, DerefMut},
     pin::Pin,
     str::FromStr,
+    sync::Arc,
 };
 use trillium_http::{
+    transport::BoxedTransport,
     Body, Error, HeaderName, HeaderValue, HeaderValues, Headers,
     KnownHeaderName::{
         Connection, ContentLength, Expect, Host, ProxyConnection, TransferEncoding, UserAgent,
     },
     Method, ReceivedBody, ReceivedBodyState, Result, StateSet, Status, Stopper, Upgrade,
 };
-use trillium_server_common::{Connector, Transport};
+use trillium_server_common::{Connector, ObjectSafeConnector, Transport};
 use url::Url;
 
 const MAX_HEADERS: usize = 128;
@@ -47,63 +49,23 @@ a client connection, representing both an outbound http request and a
 http response
 */
 #[must_use]
-pub struct Conn<C: Connector> {
+pub struct Conn {
     url: Url,
     method: Method,
     request_headers: Headers,
     response_headers: Headers,
-    transport: Option<C::Transport>,
+    transport: Option<BoxedTransport>,
     status: Option<Status>,
     request_body: Option<Body>,
-    pool: Option<Pool<C::Transport>>,
+    pool: Option<Pool<BoxedTransport>>,
     buffer: Option<Vec<u8>>,
     response_body_state: ReceivedBodyState,
-    config: C,
-}
-
-macro_rules! method {
-    ($fn_name:ident, $method:ident) => {
-        method!(
-            $fn_name,
-            $method,
-            concat!(
-                // yep, macro-generated doctests
-                "Builds a new client conn with the ",
-                stringify!($fn_name),
-                " http method and the provided url.
-
-```
-use trillium_testing::prelude::*;
-type Conn = trillium_client::Conn<trillium_smol::ClientConfig>;
-
-let conn = Conn::",
-                stringify!($fn_name),
-                "(\"http://localhost:8080/some/route\");
-
-assert_eq!(conn.method(), Method::",
-                stringify!($method),
-                ");
-assert_eq!(conn.url().to_string(), \"http://localhost:8080/some/route\");
-```
-"
-            )
-        );
-    };
-    ($fn_name:ident, $method:ident, $doc_comment:expr) => {
-        #[doc = $doc_comment]
-        pub fn $fn_name<U>(url: U) -> Self
-        where
-            <U as TryInto<Url>>::Error: Debug,
-            U: TryInto<Url>,
-        {
-            Self::new(Method::$method, url)
-        }
-    };
+    config: Arc<dyn ObjectSafeConnector>,
 }
 
 const USER_AGENT: &str = concat!("trillium-client/", env!("CARGO_PKG_VERSION"));
 
-impl<C: Connector + Debug> Debug for Conn<C> {
+impl Debug for Conn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Conn")
             .field("url", &self.url)
@@ -123,85 +85,61 @@ impl<C: Connector + Debug> Debug for Conn<C> {
     }
 }
 
-impl<C: Connector> Conn<C> {
-    /**
-    Returns the conn or an [`UnexpectedStatusError`] that contains the conn
+impl Conn {
+    // * NOTICE TO READERS: *
+    //
+    // Conn::new is currently commented out in order to encourage
+    // people to use a Client.  Aside from a single Arc::clone,
+    // there is no performance advantage to directly constructing a
+    // Conn, and aside from tests, rarely does an application make a
+    // single standalone http request.
+    //
+    // Disadvantages of constructing a new Connector for each Conn
+    // 1. tls connectors are relatively expensive to construct, but
+    //    can be reused from within a Client
+    // 2. it becomes harder to take advantage of connection pooling
+    //    if at a later point you want to do so
+    //
+    // If this reasoning is not compelling to you, please open an
+    // issue or discussion -- this comment exists because I'm not
+    // certain.
+    //
+    // /**
+    // ```
+    // use trillium_smol::ClientConfig;
+    // use trillium_testing::prelude::*;
+    //
+    // let conn = Conn::new("get", "http://trillium.rs", ClientConfig::default()); //<-
+    // assert_eq!(conn.method(), Method::Get);
+    // assert_eq!(conn.url().to_string(), "http://trillium.rs/");
+    //
+    // let url = url::Url::parse("http://trillium.rs").unwrap();
+    // let conn = Conn::new(Method::Post, url, ClientConfig::default()); //<-
+    // assert_eq!(conn.method(), Method::Post);
+    // assert_eq!(conn.url().to_string(), "http://trillium.rs/");
+    //
+    // ```
+    // */
+    // pub fn new<M, U, C>(method: M, url: U, config: C) -> Self
+    // where
+    //     M: TryInto<Method>,
+    //     <M as TryInto<Method>>::Error: Debug,
+    //     U: TryInto<Url>,
+    //     <U as TryInto<Url>>::Error: Debug,
+    //     C: Connector,
+    // {
+    //     Self::new_with_config(
+    //         config.arced(),
+    //         method.try_into().unwrap(),
+    //         url.try_into().unwrap(),
+    //     )
+    // }
 
-    ```
-    use trillium_smol::ClientConfig;
-    type Conn = trillium_client::Conn<ClientConfig>;
-
-    trillium_testing::with_server(trillium::Status::NotFound, |url| async move {
-        assert_eq!(
-            Conn::get(url).await?.success().unwrap_err().to_string(),
-            "expected a success (2xx) status code, but got 404 Not Found"
-        );
-        Ok(())
-    });
-
-    trillium_testing::with_server(trillium::Status::Ok, |url| async move {
-        assert!(Conn::get(url).await?.success().is_ok());
-        Ok(())
-    });
-    ```
-     */
-    pub fn success(self) -> std::result::Result<Self, UnexpectedStatusError<C>> {
-        match self.status() {
-            Some(status) if status.is_success() => Ok(self),
-            _ => Err(self.into()),
-        }
-    }
-}
-
-impl<C: Connector + Default> Conn<C> {
-    /**
-    builds a new client Conn with the provided method and url
-    ```
-    type Conn = trillium_client::Conn<trillium_smol::ClientConfig>;
-    use trillium_testing::prelude::*;
-
-    let conn = Conn::new("get", "http://trillium.rs"); //<-
-    assert_eq!(conn.method(), Method::Get);
-    assert_eq!(conn.url().to_string(), "http://trillium.rs/");
-
-    let url = url::Url::parse("http://trillium.rs").unwrap();
-    let conn = Conn::new(Method::Post, url); //<-
-    assert_eq!(conn.method(), Method::Post);
-    assert_eq!(conn.url().to_string(), "http://trillium.rs/");
-
-    ```
-    */
-    pub fn new<M, U>(method: M, url: U) -> Self
-    where
-        M: TryInto<Method>,
-        <M as TryInto<Method>>::Error: Debug,
-        U: TryInto<Url>,
-        <U as TryInto<Url>>::Error: Debug,
-    {
-        Self {
-            url: url.try_into().expect("could not parse url"),
-            method: method.try_into().expect("did not recognize method"),
-            request_headers: Headers::new(),
-            response_headers: Headers::new(),
-            transport: None,
-            status: None,
-            request_body: None,
-            pool: None,
-            buffer: None,
-            response_body_state: ReceivedBodyState::Start,
-            config: C::default(),
-        }
-    }
-
-    method!(get, Get);
-    method!(post, Post);
-    method!(put, Put);
-    method!(delete, Delete);
-    method!(patch, Patch);
-}
-
-impl<C: Connector> Conn<C> {
-    pub(crate) fn new_with_config(config: C, method: Method, url: Url) -> Self {
+    pub(crate) fn new_with_config(
+        config: Arc<dyn ObjectSafeConnector>,
+        method: Method,
+        url: Url,
+    ) -> Self {
         Self {
             url,
             method,
@@ -236,7 +174,7 @@ impl<C: Connector> Conn<C> {
 
     ```
     use trillium_smol::ClientConfig;
-    type Conn = trillium_client::Conn<ClientConfig>;
+    use trillium_client::Client;
 
     let handler = |conn: trillium::Conn| async move {
         let header = conn.headers().get_str("some-request-header").unwrap_or_default();
@@ -244,8 +182,10 @@ impl<C: Connector> Conn<C> {
         conn.ok(response)
     };
 
-    trillium_testing::with_server(handler, |url| async move {
-        let mut conn = Conn::get(url);
+    let client = Client::new(ClientConfig::new());
+
+    trillium_testing::with_server(handler, move |url| async move {
+        let mut conn = client.get(url);
 
         conn.request_headers() //<-
             .insert("some-request-header", "header-value");
@@ -269,7 +209,7 @@ impl<C: Connector> Conn<C> {
 
     ```
     use trillium_smol::ClientConfig;
-    type Conn = trillium_client::Conn<ClientConfig>;
+
 
     let handler = |conn: trillium::Conn| async move {
         let header = conn.headers().get_str("some-request-header").unwrap_or_default();
@@ -277,8 +217,10 @@ impl<C: Connector> Conn<C> {
         conn.ok(response)
     };
 
+    let client = trillium_client::Client::new(ClientConfig::new());
+
     trillium_testing::with_server(handler, |url| async move {
-        let mut conn = Conn::get(url)
+        let mut conn = client.get(url)
             .with_header("some-request-header", "header-value") // <--
             .await?;
         assert_eq!(
@@ -303,17 +245,17 @@ impl<C: Connector> Conn<C> {
     chainable setter for `extending` request headers
 
     ```
-    use trillium_smol::ClientConfig;
-    type Conn = trillium_client::Conn<ClientConfig>;
-
     let handler = |conn: trillium::Conn| async move {
         let header = conn.headers().get_str("some-request-header").unwrap_or_default();
         let response = format!("some-request-header was {}", header);
         conn.ok(response)
     };
 
-    trillium_testing::with_server(handler, |url| async move {
-        let mut conn = Conn::get(url)
+    use trillium_smol::ClientConfig;
+    let client = trillium_client::client(ClientConfig::new());
+
+    trillium_testing::with_server(handler, move |url| async move {
+        let mut conn = client.get(url)
             .with_headers([ // <--
                 ("some-request-header", "header-value"),
                 ("some-other-req-header", "other-header-value")
@@ -340,16 +282,17 @@ impl<C: Connector> Conn<C> {
 
     /**
     ```
-    use trillium_smol::ClientConfig;
-    type Conn = trillium_client::Conn<ClientConfig>;
-
     let handler = |conn: trillium::Conn| async move {
         conn.with_header("some-header", "some-value")
             .with_status(200)
     };
 
-    trillium_testing::with_server(handler, |url| async move {
-        let conn = Conn::get(url).await?;
+    use trillium_client::Client;
+    use trillium_smol::ClientConfig;
+
+    trillium_testing::with_server(handler, move |url| async move {
+        let client = Client::new(ClientConfig::new());
+        let conn = client.get(url).await?;
 
         let headers = conn.response_headers(); //<-
 
@@ -373,16 +316,18 @@ impl<C: Connector> Conn<C> {
 
     ```
     env_logger::init();
+    use trillium_client::Client;
     use trillium_smol::ClientConfig;
-    type Conn = trillium_client::Conn<ClientConfig>;
+
 
     let handler = |mut conn: trillium::Conn| async move {
         let body = conn.request_body_string().await.unwrap();
         conn.ok(format!("request body was: {}", body))
     };
 
-    trillium_testing::with_server(handler, |url| async move {
-        let mut conn = Conn::post(url);
+    trillium_testing::with_server(handler, move |url| async move {
+        let client = Client::new(ClientConfig::new());
+        let mut conn = client.post(url);
 
         conn.set_request_body("body"); //<-
 
@@ -403,15 +348,17 @@ impl<C: Connector> Conn<C> {
     ```
     env_logger::init();
     use trillium_smol::ClientConfig;
-    type Conn = trillium_client::Conn<ClientConfig>;
+    use trillium_client::Client;
 
     let handler = |mut conn: trillium::Conn| async move {
         let body = conn.request_body_string().await.unwrap();
         conn.ok(format!("request body was: {}", body))
     };
 
+
     trillium_testing::with_server(handler, |url| async move {
-        let mut conn = Conn::post(url)
+        let client = Client::from(ClientConfig::default());
+        let mut conn = client.post(url)
             .with_body("body") //<-
             .await?;
 
@@ -447,9 +394,9 @@ impl<C: Connector> Conn<C> {
     retrieves the url for this conn.
     ```
     use trillium_smol::ClientConfig;
-    use trillium_client::Conn;
-
-    let conn = Conn::<ClientConfig>::get("http://localhost:9080");
+    use trillium_client::Client;
+    let client = Client::from(ClientConfig::new());
+    let conn = client.get("http://localhost:9080");
 
     let url = conn.url(); //<-
 
@@ -464,9 +411,12 @@ impl<C: Connector> Conn<C> {
     retrieves the url for this conn.
     ```
     use trillium_smol::ClientConfig;
-    use trillium_client::Conn;
+    use trillium_client::Client;
+
     use trillium_testing::prelude::*;
-    let conn = Conn::<ClientConfig>::get("http://localhost:9080");
+
+    let client = Client::from(ClientConfig::new());
+    let conn = client.get("http://localhost:9080");
 
     let method = conn.method(); //<-
 
@@ -482,14 +432,17 @@ impl<C: Connector> Conn<C> {
     ```
     env_logger::init();
     use trillium_smol::ClientConfig;
-    type Conn = trillium_client::Conn<ClientConfig>;
+    use trillium_client::Client;
+
+
 
     let handler = |mut conn: trillium::Conn| async move {
         conn.ok("hello from trillium")
     };
 
     trillium_testing::with_server(handler, |url| async move {
-        let mut conn = Conn::get(url).await?;
+        let client = Client::from(ClientConfig::new());
+        let mut conn = client.get(url).await?;
 
         let response_body = conn.response_body(); //<-
 
@@ -502,7 +455,7 @@ impl<C: Connector> Conn<C> {
      */
 
     #[allow(clippy::needless_borrow)]
-    pub fn response_body(&mut self) -> ReceivedBody<'_, C::Transport> {
+    pub fn response_body(&mut self) -> ReceivedBody<'_, BoxedTransport> {
         ReceivedBody::new(
             self.response_content_length(),
             &mut self.buffer,
@@ -544,14 +497,16 @@ impl<C: Connector> Conn<C> {
 
     ```
     use trillium_smol::ClientConfig;
+    use trillium_client::Client;
     use trillium_testing::prelude::*;
-    type Conn = trillium_client::Conn<ClientConfig>;
+
     async fn handler(conn: trillium::Conn) -> trillium::Conn {
         conn.with_status(418)
     }
 
     trillium_testing::with_server(handler, |url| async move {
-        let conn = Conn::get(url).await?;
+        let client = Client::new(ClientConfig::new());
+        let conn = client.get(url).await?;
         assert_eq!(Status::ImATeapot, conn.status().unwrap());
         Ok(())
     });
@@ -561,9 +516,38 @@ impl<C: Connector> Conn<C> {
         self.status
     }
 
+    /**
+    Returns the conn or an [`UnexpectedStatusError`] that contains the conn
+
+    ```
+    use trillium_smol::ClientConfig;
+
+    trillium_testing::with_server(trillium::Status::NotFound, |url| async move {
+        let client = trillium_client::Client::new(ClientConfig::new());
+        assert_eq!(
+            client.get(url).await?.success().unwrap_err().to_string(),
+            "expected a success (2xx) status code, but got 404 Not Found"
+        );
+        Ok(())
+    });
+
+    trillium_testing::with_server(trillium::Status::Ok, |url| async move {
+        let client = trillium_client::Client::new(ClientConfig::new());
+        assert!(client.get(url).await?.success().is_ok());
+        Ok(())
+    });
+    ```
+     */
+    pub fn success(self) -> std::result::Result<Self, UnexpectedStatusError> {
+        match self.status() {
+            Some(status) if status.is_success() => Ok(self),
+            _ => Err(self.into()),
+        }
+    }
+
     // --- everything below here is private ---
 
-    pub(crate) fn set_pool(&mut self, pool: Pool<C::Transport>) {
+    pub(crate) fn set_pool(&mut self, pool: Pool<BoxedTransport>) {
         self.pool = Some(pool);
     }
 
@@ -619,7 +603,7 @@ impl<C: Connector> Conn<C> {
         &self,
         socket_addrs: &[SocketAddr],
         head: &[u8],
-    ) -> Option<C::Transport> {
+    ) -> Option<BoxedTransport> {
         let mut byte = [0];
         if let Some(pool) = &self.pool {
             for mut candidate in pool.candidates(&socket_addrs) {
@@ -651,7 +635,7 @@ impl<C: Connector> Conn<C> {
             }
 
             None => {
-                let mut transport = self.config.connect(&self.url).await?;
+                let mut transport = Connector::connect(&self.config, &self.url).await?;
                 log::debug!("opened new connection to {:?}", transport.peer_addr()?);
                 transport.write_all(&head).await?;
                 transport
@@ -700,7 +684,7 @@ impl<C: Connector> Conn<C> {
         Ok(buf)
     }
 
-    fn transport(&mut self) -> &mut C::Transport {
+    fn transport(&mut self) -> &mut BoxedTransport {
         self.transport.as_mut().unwrap()
     }
 
@@ -846,12 +830,6 @@ impl<C: Connector> Conn<C> {
     }
 }
 
-impl<C: Connector> AsRef<C::Transport> for Conn<C> {
-    fn as_ref(&self) -> &C::Transport {
-        self.transport.as_ref().unwrap()
-    }
-}
-
 fn bytes(bytes: u64) -> String {
     use size::{Base, Size};
     Size::from_bytes(bytes)
@@ -860,7 +838,7 @@ fn bytes(bytes: u64) -> String {
         .to_string()
 }
 
-impl<C: Connector> Drop for Conn<C> {
+impl Drop for Conn {
     fn drop(&mut self) {
         if !self.is_keep_alive() {
             return;
@@ -878,8 +856,8 @@ impl<C: Connector> Drop for Conn<C> {
             let buffer = self.buffer.take();
             let response_body_state = self.response_body_state;
             let encoding = encoding(&self.response_headers);
-            self.config.spawn(async move {
-                let mut response_body = ReceivedBody::<C::Transport>::new(
+            Connector::spawn(&self.config, async move {
+                let mut response_body = ReceivedBody::new(
                     content_length,
                     buffer,
                     transport,
@@ -900,21 +878,21 @@ impl<C: Connector> Drop for Conn<C> {
                     }
 
                     Err(ioerror) => log::error!("unable to recycle conn due to {}", ioerror),
-                }
+                };
             });
         }
     }
 }
 
-impl<C: Connector> From<Conn<C>> for Body {
-    fn from(conn: Conn<C>) -> Body {
+impl From<Conn> for Body {
+    fn from(conn: Conn) -> Body {
         let received_body: ReceivedBody<'static, _> = conn.into();
         received_body.into()
     }
 }
 
-impl<C: Connector> From<Conn<C>> for ReceivedBody<'static, C::Transport> {
-    fn from(mut conn: Conn<C>) -> Self {
+impl From<Conn> for ReceivedBody<'static, BoxedTransport> {
+    fn from(mut conn: Conn) -> Self {
         conn.finalize_headers();
         ReceivedBody::new(
             conn.response_content_length(),
@@ -923,7 +901,7 @@ impl<C: Connector> From<Conn<C>> for ReceivedBody<'static, C::Transport> {
             conn.response_body_state,
             conn.pool
                 .take()
-                .map(|pool| -> Box<dyn Fn(C::Transport) + Send + Sync> {
+                .map(|pool| -> Box<dyn Fn(BoxedTransport) + Send + Sync> {
                     Box::new(move |transport| {
                         if let Ok(Some(peer_addr)) = transport.peer_addr() {
                             pool.insert(peer_addr, PoolEntry::new(transport, None));
@@ -935,8 +913,8 @@ impl<C: Connector> From<Conn<C>> for ReceivedBody<'static, C::Transport> {
     }
 }
 
-impl<C: Connector> From<Conn<C>> for Upgrade<C::Transport> {
-    fn from(mut conn: Conn<C>) -> Self {
+impl From<Conn> for Upgrade<BoxedTransport> {
+    fn from(mut conn: Conn) -> Self {
         Upgrade {
             request_headers: std::mem::replace(&mut conn.request_headers, Headers::new()),
             path: conn.url.path().to_string(),
@@ -949,31 +927,33 @@ impl<C: Connector> From<Conn<C>> for Upgrade<C::Transport> {
     }
 }
 
-impl<C: Connector> IntoFuture for Conn<C> {
-    type Output = Result<Conn<C>>;
+impl IntoFuture for Conn {
+    type Output = Result<Conn>;
 
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'static>>;
 
-    fn into_future(mut self) -> Self::IntoFuture {
+    fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            self.finalize_headers();
-            self.connect_and_send_head().await?;
-            self.send_body_and_parse_head().await?;
-            Ok(self)
+            let mut conn = self;
+            conn.finalize_headers();
+            conn.connect_and_send_head().await?;
+            conn.send_body_and_parse_head().await?;
+            Ok(conn)
         })
     }
 }
 
-impl<'b, C: Connector> IntoFuture for &'b mut Conn<C> {
+impl<'conn> IntoFuture for &'conn mut Conn {
     type Output = Result<()>;
 
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'b>>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'conn>>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            self.finalize_headers();
-            self.connect_and_send_head().await?;
-            self.send_body_and_parse_head().await?;
+            let conn = self;
+            conn.finalize_headers();
+            conn.connect_and_send_head().await?;
+            conn.send_body_and_parse_head().await?;
             Ok(())
         })
     }
@@ -983,40 +963,35 @@ impl<'b, C: Connector> IntoFuture for &'b mut Conn<C> {
 /// into the conn with [`From::from`]/[`Into::into`].
 ///
 /// Currently only returned by [`Conn::success`]
-pub struct UnexpectedStatusError<C: Connector>(Box<Conn<C>>);
-impl<C: Connector> From<Conn<C>> for UnexpectedStatusError<C> {
-    fn from(value: Conn<C>) -> Self {
-        Self(Box::new(value))
+#[derive(Debug)]
+pub struct UnexpectedStatusError(Conn);
+impl From<Conn> for UnexpectedStatusError {
+    fn from(value: Conn) -> Self {
+        Self(value)
     }
 }
 
-impl<C: Connector> From<UnexpectedStatusError<C>> for Conn<C> {
-    fn from(value: UnexpectedStatusError<C>) -> Self {
-        *value.0
+impl From<UnexpectedStatusError> for Conn {
+    fn from(value: UnexpectedStatusError) -> Self {
+        value.0
     }
 }
 
-impl<C: Connector> Deref for UnexpectedStatusError<C> {
-    type Target = Conn<C>;
+impl Deref for UnexpectedStatusError {
+    type Target = Conn;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<C: Connector> DerefMut for UnexpectedStatusError<C> {
+impl DerefMut for UnexpectedStatusError {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
-impl<C: Connector + Debug> Debug for UnexpectedStatusError<C> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("UnexpectedStatusError")
-            .field(&self.0)
-            .finish()
-    }
-}
-impl<C: Connector + Debug> std::error::Error for UnexpectedStatusError<C> {}
-impl<C: Connector + Debug> Display for UnexpectedStatusError<C> {
+
+impl std::error::Error for UnexpectedStatusError {}
+impl Display for UnexpectedStatusError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self.status() {
             Some(status) => f.write_fmt(format_args!(

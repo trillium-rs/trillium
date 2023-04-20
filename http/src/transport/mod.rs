@@ -1,7 +1,7 @@
 mod boxed_transport;
 pub use boxed_transport::BoxedTransport;
 use futures_lite::{AsyncRead, AsyncWrite};
-use std::{io::Result, net::SocketAddr, time::Duration};
+use std::{any::Any, io::Result, net::SocketAddr, time::Duration};
 
 /**
 # The interface that the http protocol is communicated over.
@@ -21,7 +21,7 @@ Hopefully this is a temporary
 situation.
 */
 #[allow(unused)]
-pub trait Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static {
+pub trait Transport: Any + AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static {
     /// # Sets the linger duration of this transport by setting the `SO_LINGER` option
     ///
     /// See [`std::net::TcpStream::set_linger`]
