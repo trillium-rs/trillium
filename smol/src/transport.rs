@@ -1,14 +1,10 @@
 use async_net::{AsyncToSocketAddrs, TcpStream};
-use std::{
-    io::Result,
-    net::SocketAddr,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::{io::Result, net::SocketAddr};
+use trillium_macros::{AsyncRead, AsyncWrite};
 use trillium_server_common::{AsyncRead, AsyncWrite, Transport};
 
 /// A transport newtype for smol
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, AsyncRead, AsyncWrite)]
 pub struct SmolTransport<T>(T);
 
 impl<T> SmolTransport<T> {
@@ -28,40 +24,6 @@ impl SmolTransport<TcpStream> {
 impl<T> From<T> for SmolTransport<T> {
     fn from(value: T) -> Self {
         Self(value)
-    }
-}
-
-impl<T> AsyncRead for SmolTransport<T>
-where
-    T: Unpin + AsyncRead,
-{
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize>> {
-        Pin::new(&mut self.0).poll_read(cx, buf)
-    }
-}
-
-impl<T> AsyncWrite for SmolTransport<T>
-where
-    T: Unpin + AsyncWrite,
-{
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize>> {
-        Pin::new(&mut self.0).poll_write(cx, buf)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        Pin::new(&mut self.0).poll_flush(cx)
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        Pin::new(&mut self.0).poll_close(cx)
     }
 }
 

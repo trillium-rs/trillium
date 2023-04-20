@@ -22,3 +22,4 @@ syn = { version = "2.0.3", features = ["full", "visit"] }
 trillium = { path = "../trillium" }
 trillium-testing = { path = "../testing" }
 syn = { version = "2.0.3", features = ["extra-traits"] }
+futures-lite = "1.13.0"

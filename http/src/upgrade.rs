@@ -7,6 +7,7 @@ use std::{
     str,
     task::{Context, Poll},
 };
+use trillium_macros::AsyncWrite;
 
 /**
 This open (pub fields) struct represents a http upgrade. It contains
@@ -19,6 +20,7 @@ in it. Alternatively, read directly from the Upgrade, as that
 [`AsyncRead`] implementation will drain the buffer first before
 reading from the transport.
 */
+#[derive(AsyncWrite)]
 pub struct Upgrade<Transport> {
     /// The http request headers
     pub request_headers: Headers,
@@ -29,6 +31,7 @@ pub struct Upgrade<Transport> {
     /// Any state that has been accumulated on the Conn before negotiating the upgrade
     pub state: StateSet,
     /// The underlying io (often a TcpStream or similar)
+    #[async_write]
     pub transport: Transport,
     /// Any bytes that have been read from the underlying tcpstream
     /// already. It is your responsibility to process these bytes
@@ -165,23 +168,5 @@ impl<Transport: AsyncRead + Unpin> AsyncRead for Upgrade<Transport> {
 
             _ => Pin::new(&mut self.transport).poll_read(cx, buf),
         }
-    }
-}
-
-impl<Transport: AsyncWrite + Unpin> AsyncWrite for Upgrade<Transport> {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.transport).poll_write(cx, buf)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.transport).poll_flush(cx)
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.transport).poll_close(cx)
     }
 }
