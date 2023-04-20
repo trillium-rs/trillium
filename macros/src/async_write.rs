@@ -100,7 +100,7 @@ impl Parse for DeriveOptions {
     }
 }
 
-pub(crate) fn derive_async_write(input: TokenStream) -> TokenStream {
+pub fn derive_async_write(input: TokenStream) -> TokenStream {
     let DeriveOptions {
         field,
         input,
