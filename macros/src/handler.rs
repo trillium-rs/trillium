@@ -178,7 +178,7 @@ impl Parse for DeriveOptions {
     }
 }
 
-pub(crate) fn derive_handler(input: TokenStream) -> TokenStream {
+pub fn derive_handler(input: TokenStream) -> TokenStream {
     let DeriveOptions {
         overrides,
         field,
