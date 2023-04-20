@@ -964,16 +964,16 @@ impl<'conn> IntoFuture for &'conn mut Conn {
 ///
 /// Currently only returned by [`Conn::success`]
 #[derive(Debug)]
-pub struct UnexpectedStatusError(Conn);
+pub struct UnexpectedStatusError(Box<Conn>);
 impl From<Conn> for UnexpectedStatusError {
     fn from(value: Conn) -> Self {
-        Self(value)
+        Self(Box::new(value))
     }
 }
 
 impl From<UnexpectedStatusError> for Conn {
     fn from(value: UnexpectedStatusError) -> Self {
-        value.0
+        *value.0
     }
 }
 
