@@ -7,15 +7,21 @@ use std::{
     sync::RwLock,
     task::{Context, Poll, Waker},
 };
+use trillium_macros::{AsyncRead, AsyncWrite};
 
 /// a readable and writable transport for testing
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, AsyncRead, AsyncWrite)]
 pub struct TestTransport {
     /// the read side of this transport
+    #[async_read]
     pub read: Arc<CloseableCursor>,
+
     /// the write side of this transport
+    #[async_write]
     pub write: Arc<CloseableCursor>,
 }
+
+impl trillium_http::transport::Transport for TestTransport {}
 
 impl TestTransport {
     /// constructs a new test transport pair, representing two ends of
@@ -176,34 +182,6 @@ impl AsyncWrite for &CloseableCursor {
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         self.close();
         Poll::Ready(Ok(()))
-    }
-}
-
-impl AsyncRead for TestTransport {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut &*self.read).poll_read(cx, buf)
-    }
-}
-
-impl AsyncWrite for TestTransport {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut &*self.write).poll_write(cx, buf)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut &*self.write).poll_flush(cx)
-    }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut &*self.write).poll_close(cx)
     }
 }
 
