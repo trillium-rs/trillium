@@ -1,10 +1,8 @@
-use std::fmt::Display;
-
+use crate::ApiConnExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::fmt::Display;
 use trillium::{async_trait, Conn, Handler, Status};
-
-use crate::ApiConnExt;
 
 /// A serde-serializable error
 #[derive(Serialize, Deserialize, Debug, Clone, thiserror::Error)]
@@ -59,10 +57,10 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-impl From<trillium_http::Error> for Error {
-    fn from(error: trillium_http::Error) -> Self {
+impl From<trillium::Error> for Error {
+    fn from(error: trillium::Error) -> Self {
         match error {
-            trillium_http::Error::Io(e) => Self::IoError {
+            trillium::Error::Io(e) => Self::IoError {
                 kind: e.kind().to_string(),
                 message: e.to_string(),
             },

@@ -40,7 +40,7 @@ pub use state::{state, State};
 pub use async_trait::async_trait;
 
 pub use trillium_http::{
-    Body, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, Method, StateSet,
+    Body, Error, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, Method, StateSet,
     Status, Version,
 };
 
