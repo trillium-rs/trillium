@@ -22,7 +22,36 @@ pub struct ClientConfig {
 
     /// sets SO_LINGER. I don't really understand this, but see
     /// [`TcpStream::set_linger`] for more info
-    pub linger: Option<Duration>,
+    pub linger: Option<Option<Duration>>,
+}
+
+impl ClientConfig {
+    /// constructs a default ClientConfig
+    pub const fn new() -> Self {
+        Self {
+            nodelay: None,
+            ttl: None,
+            linger: None,
+        }
+    }
+
+    /// chainable setter to set default nodelay
+    pub const fn with_nodelay(mut self, nodelay: bool) -> Self {
+        self.nodelay = Some(nodelay);
+        self
+    }
+
+    /// chainable setter for ip ttl
+    pub const fn with_ttl(mut self, ttl: u32) -> Self {
+        self.ttl = Some(ttl);
+        self
+    }
+
+    /// chainable setter for linger
+    pub const fn with_linger(mut self, linger: Option<Duration>) -> Self {
+        self.linger = Some(linger);
+        self
+    }
 }
 
 #[async_trait]
@@ -48,7 +77,7 @@ impl Connector for ClientConfig {
             }
 
             if let Some(dur) = self.linger {
-                tcp.set_linger(Some(dur))?;
+                tcp.set_linger(dur)?;
             }
 
             Ok(tcp)

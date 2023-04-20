@@ -18,6 +18,28 @@ pub struct ClientConfig {
     pub ttl: Option<u32>,
 }
 
+impl ClientConfig {
+    /// constructs a default ClientConfig
+    pub const fn new() -> Self {
+        Self {
+            nodelay: None,
+            ttl: None,
+        }
+    }
+
+    /// chainable setter to set default nodelay
+    pub const fn with_nodelay(mut self, nodelay: bool) -> Self {
+        self.nodelay = Some(nodelay);
+        self
+    }
+
+    /// chainable setter for ip ttl
+    pub const fn with_ttl(mut self, ttl: u32) -> Self {
+        self.ttl = Some(ttl);
+        self
+    }
+}
+
 #[async_trait]
 impl Connector for ClientConfig {
     type Transport = SmolTransport<TcpStream>;

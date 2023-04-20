@@ -2,7 +2,6 @@ use trillium_http::transport::BoxedTransport;
 
 use crate::{async_trait, Transport, Url};
 use std::{
-    any::Any,
     fmt::{self, Debug},
     future::Future,
     io::Result,
@@ -59,11 +58,7 @@ pub trait ObjectSafeConnector: Send + Sync + 'static {
 }
 
 #[async_trait]
-impl<T> ObjectSafeConnector for T
-where
-    T: Connector,
-    T::Transport: Any,
-{
+impl<T: Connector> ObjectSafeConnector for T {
     async fn connect(&self, url: &Url) -> Result<BoxedTransport> {
         T::connect(self, url).await.map(BoxedTransport::new)
     }

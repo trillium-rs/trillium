@@ -18,29 +18,27 @@ http reverse proxy trillium handler
 
 use full_duplex_async_copy::full_duplex_copy;
 use size::{Base, Size};
-use std::convert::TryInto;
 use trillium::{
     async_trait, conn_try, Conn, Handler,
     KnownHeaderName::{Connection, Host},
     Status::{NotFound, SwitchingProtocols},
+    Upgrade,
 };
-use trillium_http::{transport::BoxedTransport, Upgrade};
+pub use trillium_client::Client;
 use url::Url;
-
-pub use trillium_client::{Client, Connector};
 
 /**
 the proxy handler
 */
 #[derive(Debug)]
-pub struct Proxy<C: Connector> {
+pub struct Proxy {
     target: Url,
-    client: Client<C>,
+    client: Client,
     pass_through_not_found: bool,
     halt: bool,
 }
 
-impl<C: Connector + Clone> Proxy<C> {
+impl Proxy {
     /**
     construct a new proxy handler that sends all requests to the url
     provided.  if the url contains a path, the inbound request path
@@ -50,11 +48,11 @@ impl<C: Connector + Clone> Proxy<C> {
     use trillium_smol::ClientConfig;
     use trillium_proxy::Proxy;
 
-    let proxy = Proxy::<TcpConnector>::new("http://docs.trillium.rs/trillium_proxy");
+    let proxy = Proxy::new(ClientConfig::default(), "http://docs.trillium.rs/trillium_proxy");
     ```
 
      */
-    pub fn new(config: C, target: impl TryInto<Url>) -> Self {
+    pub fn new(client: impl Into<Client>, target: impl TryInto<Url>) -> Self {
         let url = match target.try_into() {
             Ok(url) => url,
             Err(_) => panic!("could not convert proxy target into a url"),
@@ -64,47 +62,10 @@ impl<C: Connector + Clone> Proxy<C> {
 
         Self {
             target: url,
-            client: Client::new(config).with_default_pool(),
+            client: client.into(),
             pass_through_not_found: true,
             halt: true,
         }
-    }
-
-    /**
-    chainable constructor to specfiy a [`Client`] to use. This is
-    useful if the application already is using trillium_client for
-    other requests, as it will reuse the same connection pool and
-    connector config.
-
-    note that this clears out any changes made with
-    [`Proxy::with_config`]. configure the client directly if you are
-    providing one
-
-    ```
-    use trillium_smol::{TcpConnector, ClientConfig};
-    use trillium_proxy::{Proxy, Client};
-
-    let client = Client::new().with_default_pool();
-    let proxy = Proxy::<TcpConnector>::new("http://trillium.rs")
-        .with_client(client); //<-
-    ```
-
-    ```
-    // sharing a client with other trillium handlers
-    # use trillium_smol::{TcpConnector, ClientConfig};
-    # use trillium_proxy::{Proxy, Client};
-    use trillium::State;
-
-    let client = Client::new().with_default_pool();
-    let handler = (
-        State::new(client.clone()),
-        Proxy::<TcpConnector>::new("http://trillium.rs").with_client(client)
-    );
-    ```
-     */
-    pub fn with_client(mut self, client: Client<C>) -> Self {
-        self.client = client;
-        self
     }
 
     /**
@@ -117,9 +78,9 @@ impl<C: Connector + Clone> Proxy<C> {
     configured
 
     ```
-    # use trillium_smol::TcpConnector;
+    # use trillium_smol::ClientConfig;
     # use trillium_proxy::Proxy;
-    let proxy = Proxy::<TcpConnector>::new("http://trillium.rs")
+    let proxy = Proxy::new(ClientConfig::default(), "http://trillium.rs")
         .proxy_not_found();
     ```
     */
@@ -138,9 +99,9 @@ impl<C: Connector + Clone> Proxy<C> {
     [`trillium_html_rewriter`](https://docs.trillium.rs/trillium_html_rewriter).
 
     ```
-    # use trillium_smol::TcpConnector;
+    # use trillium_smol::ClientConfig;
     # use trillium_proxy::Proxy;
-    let proxy = Proxy::<TcpConnector>::new("http://trillium.rs")
+    let proxy = Proxy::new(ClientConfig::default(), "http://trillium.rs")
         .without_halting();
     ```
     */
@@ -151,15 +112,15 @@ impl<C: Connector + Clone> Proxy<C> {
     }
 }
 
-struct UpstreamUpgrade<T>(Upgrade<T>);
+struct UpstreamUpgrade(Upgrade);
 
 #[async_trait]
-impl<C: Connector + Clone> Handler for Proxy<C> {
+impl Handler for Proxy {
     async fn run(&self, mut conn: Conn) -> Conn {
-        let mut request_url = conn_try!(self.target.clone().join(conn.path()), conn);
+        let mut request_url = conn_try!(self.target.join(conn.path()), conn);
         let querystring = conn.querystring();
         if !querystring.is_empty() {
-            request_url.set_query(Some(conn.querystring()));
+            request_url.set_query(Some(querystring));
         }
         log::debug!("proxying to {}", request_url);
 
@@ -180,14 +141,12 @@ impl<C: Connector + Clone> Handler for Proxy<C> {
             .without_header(Host)
             .with_inserted_header(Connection, "keep-alive");
 
-        let mut client_conn = conn_try!(
-            self.client
-                .build_conn(conn.method(), request_url)
-                .with_headers(headers)
-                .with_body(client_body_content)
-                .await,
-            conn
-        );
+        let Ok(mut client_conn) = self
+            .client
+            .build_conn(conn.method(), request_url)
+            .with_headers(headers)
+            .with_body(client_body_content).await
+        else { return conn.with_status(500).halt(); };
 
         let conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
@@ -219,19 +178,12 @@ impl<C: Connector + Clone> Handler for Proxy<C> {
         }
     }
 
-    fn has_upgrade(&self, upgrade: &Upgrade<BoxedTransport>) -> bool {
-        upgrade
-            .state
-            .get::<UpstreamUpgrade<C::Transport>>()
-            .is_some()
+    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+        upgrade.state.get::<UpstreamUpgrade>().is_some()
     }
 
-    async fn upgrade(&self, mut upgrade: trillium::Upgrade) {
-        let upstream = upgrade
-            .state
-            .take::<UpstreamUpgrade<C::Transport>>()
-            .unwrap()
-            .0;
+    async fn upgrade(&self, mut upgrade: Upgrade) {
+        let upstream = upgrade.state.take::<UpstreamUpgrade>().unwrap().0;
         let downstream = upgrade;
         match full_duplex_copy(upstream, downstream).await {
             Err(e) => log::error!("{}:{} {:?}", file!(), line!(), e),
