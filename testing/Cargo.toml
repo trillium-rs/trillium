@@ -29,7 +29,7 @@ trillium-server-common = { path = "../server-common", version = "^0.4.0" }
 cfg-if = "1.0.0"
 url = "2.3.1"
 async-channel = "1.8.0"
-trillium-macros = { version = "0.0.3", path = "../macros" }
+trillium-macros = { version = "0.0.4", path = "../macros" }
 
 [dependencies.trillium-smol]
 path = "../smol"

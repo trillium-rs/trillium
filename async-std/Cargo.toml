@@ -15,7 +15,7 @@ async-std = { version = "1.12.0", package = "async-std" }
 log = "0.4.17"
 trillium = { path = "../trillium", version = "^0.2.0" }
 trillium-http = { path = "../http", version = "^0.2.0" }
-trillium-macros = { version = "0.0.3", path = "../macros" }
+trillium-macros = { version = "0.0.4", path = "../macros" }
 trillium-server-common = { path = "../server-common", version = "^0.4.0" }
 
 [target.'cfg(unix)'.dependencies]

@@ -29,7 +29,7 @@ smartcow = "0.2.1"
 smartstring = "1.0.1"
 stopper = "0.2.0"
 thiserror = "1.0.39"
-trillium-macros = { version = "0.0.3", path = "../macros" }
+trillium-macros = { version = "0.0.4", path = "../macros" }
 
 [dev-dependencies]
 async-compat = "0.2.1"
