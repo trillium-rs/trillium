@@ -33,7 +33,7 @@ trillium-macros = { version = "0.0.4", path = "../macros" }
 
 [dependencies.trillium-smol]
 path = "../smol"
-version = "^0.2.0"
+version = "^0.3.0"
 optional = true
 
 [dependencies.trillium-tokio]
