@@ -20,7 +20,7 @@ httparse = "1.8.0"
 log = "0.4.17"
 memmem = "0.1.1"
 size = "0.4.1"
-trillium-server-common = { version = "0.3.1", path = "../server-common" }
+trillium-server-common = { version = "0.4.0", path = "../server-common" }
 url = "2.3.1"
 mime = "0.3.16"
 serde_json = { version = "1.0.94", optional = true }
