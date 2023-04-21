@@ -2,6 +2,7 @@ use crate::{ClientLike, Conn, Pool};
 use std::{convert::TryInto, fmt::Debug, sync::Arc};
 use trillium_http::{transport::BoxedTransport, Method};
 use trillium_server_common::{Connector, ObjectSafeConnector, Url};
+use url::Origin;
 
 /**
 A client contains a Config and an optional connection pool and builds
@@ -11,7 +12,7 @@ conns.
 #[derive(Clone, Debug)]
 pub struct Client {
     config: Arc<dyn ObjectSafeConnector>,
-    pool: Option<Pool<BoxedTransport>>,
+    pool: Option<Pool<Origin, BoxedTransport>>,
 }
 
 macro_rules! method {
