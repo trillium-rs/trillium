@@ -66,17 +66,20 @@ async fn send<Out: Serialize, In: DeserializeOwned>(
 
 #[test]
 fn test() {
-    trillium_testing::with_socket(WebSocket::new_json(SomeJsonChannel), |socket| async move {
-        let (mut client, _) = client_async("ws://localhost/", socket).await?;
+    trillium_testing::with_transport(
+        WebSocket::new_json(SomeJsonChannel),
+        |transport| async move {
+            let (mut client, _) = client_async("ws://localhost/", transport).await?;
 
-        let inbound_message = Inbound::new("hello");
-        let response: Response = send(&mut client, &inbound_message).await?;
-        assert_eq!(response, Response { inbound_message });
+            let inbound_message = Inbound::new("hello");
+            let response: Response = send(&mut client, &inbound_message).await?;
+            assert_eq!(response, Response { inbound_message });
 
-        let inbound_message = Inbound::new("hey");
-        let response: Response = send(&mut client, &inbound_message).await?;
-        assert_eq!(response, Response { inbound_message });
+            let inbound_message = Inbound::new("hey");
+            let response: Response = send(&mut client, &inbound_message).await?;
+            assert_eq!(response, Response { inbound_message });
 
-        Ok(())
-    });
+            Ok(())
+        },
+    );
 }

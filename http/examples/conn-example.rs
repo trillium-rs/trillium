@@ -4,8 +4,6 @@ fn main() -> trillium_http::Result<()> {
     use stopper::Stopper;
     use trillium_http::{Conn, Result};
 
-    type ClientConn = trillium_client::Conn<trillium_smol::ClientConfig>;
-
     smol::block_on(async {
         let stopper = Stopper::new();
 
@@ -33,7 +31,10 @@ fn main() -> trillium_http::Result<()> {
         // this example uses the trillium client
         // please note that this api is still especially unstable.
         // any other http client would work here too
-        let mut client_conn = ClientConn::get("http://localhost:8001").await?;
+        use trillium_client::Client;
+        use trillium_smol::ClientConfig;
+        let client = Client::new(ClientConfig::default());
+        let mut client_conn = client.get("http://localhost:8001").await?;
 
         assert_eq!(client_conn.status().unwrap(), 200);
         assert_eq!(

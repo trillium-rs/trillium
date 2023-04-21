@@ -121,3 +121,8 @@ reexport tokio runtime block_on
 pub fn block_on<Fut: Future<Output = T>, T>(future: Fut) -> T {
     tokio::runtime::Runtime::new().unwrap().block_on(future)
 }
+
+/// spawn and detach a Future that returns ()
+pub fn spawn<Fut: Future<Output = ()> + Send + 'static>(future: Fut) {
+    tokio::task::spawn(future);
+}
