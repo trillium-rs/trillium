@@ -75,6 +75,18 @@ mod test {
     }
 
     #[test]
+    fn test_no_dns() {
+        crate::block_on(async {
+            let client = Client::new(ServerConnector::new("test"));
+            let mut conn = client
+                .get("https://not.a.real.tld.example/test")
+                .await
+                .unwrap();
+            assert_eq!(conn.response_body().read_string().await.unwrap(), "test");
+        });
+    }
+
+    #[test]
     fn test_post() {
         crate::block_on(async {
             let client = Client::new(ServerConnector::new(

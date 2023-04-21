@@ -598,10 +598,9 @@ impl Conn {
     }
 
     async fn find_pool_candidate(&self, head: &[u8]) -> Result<Option<BoxedTransport>> {
-        let socket_addrs = self.url.socket_addrs(|| None)?;
-
         let mut byte = [0];
         if let Some(pool) = &self.pool {
+            let socket_addrs = self.url.socket_addrs(|| None)?;
             for mut candidate in pool.candidates(&socket_addrs[..]) {
                 if poll_once(candidate.read(&mut byte)).await.is_none()
                     && candidate.write_all(head).await.is_ok()
