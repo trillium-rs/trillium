@@ -38,7 +38,7 @@ optional = true
 
 [dependencies.trillium-tokio]
 path = "../tokio"
-version = "^0.2.0"
+version = "^0.3.0"
 optional = true
 
 [dependencies.trillium-async-std]
