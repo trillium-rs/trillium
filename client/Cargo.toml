@@ -32,7 +32,7 @@ crossbeam-queue = "0.3.8"
 [dependencies.trillium-http]
 path = "../http"
 features = ["unstable"]
-version = "^0.2.0"
+version = "^0.3.0"
 
 [dev-dependencies]
 async-global-executor = "2.3.1"
