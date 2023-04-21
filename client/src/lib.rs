@@ -40,7 +40,7 @@ examples.
 */
 
 mod conn;
-pub use conn::Conn;
+pub use conn::{Conn, UnexpectedStatusError};
 
 #[cfg(feature = "json")]
 pub use conn::ClientSerdeError;
