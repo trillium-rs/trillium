@@ -1,8 +1,10 @@
 use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use std::{
+    borrow::Borrow,
+    cmp::Eq,
     fmt::{self, Debug, Formatter},
-    net::{SocketAddr, ToSocketAddrs},
+    hash::Hash,
     sync::Arc,
     time::Instant,
 };
@@ -85,25 +87,31 @@ impl<V> Iterator for PoolSet<V> {
     }
 }
 
-pub struct Pool<V> {
+pub struct Pool<K, V> {
     pub(crate) max_set_size: usize,
-    connections: Arc<DashMap<SocketAddr, PoolSet<V>>>,
+    connections: Arc<DashMap<K, PoolSet<V>>>,
 }
 
-struct Connections<'a, V>(&'a DashMap<SocketAddr, PoolSet<V>>);
-impl<V> Debug for Connections<'_, V> {
+struct Connections<'a, K, V>(&'a DashMap<K, PoolSet<V>>);
+impl<K, V> Debug for Connections<'_, K, V>
+where
+    K: Hash + Debug + Eq,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut map = f.debug_map();
         for item in self.0 {
             let (k, v) = item.pair();
-            map.entry(&k.to_string(), &v.0.len());
+            map.entry(&k, &v.0.len());
         }
 
         map.finish()
     }
 }
 
-impl<V> Debug for Pool<V> {
+impl<K, V> Debug for Pool<K, V>
+where
+    K: Hash + Debug + Eq,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Pool")
             .field("max_set_size", &self.max_set_size)
@@ -112,7 +120,7 @@ impl<V> Debug for Pool<V> {
     }
 }
 
-impl<V> Clone for Pool<V> {
+impl<K, V> Clone for Pool<K, V> {
     fn clone(&self) -> Self {
         Self {
             connections: Arc::clone(&self.connections),
@@ -121,7 +129,10 @@ impl<V> Clone for Pool<V> {
     }
 }
 
-impl<V> Default for Pool<V> {
+impl<K, V> Default for Pool<K, V>
+where
+    K: Hash + Debug + Eq,
+{
     fn default() -> Self {
         Self {
             connections: Default::default(),
@@ -130,7 +141,10 @@ impl<V> Default for Pool<V> {
     }
 }
 
-impl<V> Pool<V> {
+impl<K, V> Pool<K, V>
+where
+    K: Hash + Debug + Eq + Clone + Debug,
+{
     #[allow(dead_code)]
     pub fn new(max_set_size: usize) -> Self {
         Self {
@@ -139,7 +153,7 @@ impl<V> Pool<V> {
         }
     }
 
-    pub fn insert(&self, k: SocketAddr, entry: PoolEntry<V>) {
+    pub fn insert(&self, k: K, entry: PoolEntry<V>) {
         log::debug!("saving connection to {:?}", &k);
         match self.connections.entry(k) {
             Entry::Occupied(o) => {
@@ -155,43 +169,38 @@ impl<V> Pool<V> {
     }
 
     #[allow(dead_code)]
-    pub fn keys(&self) -> impl Iterator<Item = SocketAddr> + '_ {
-        self.connections.iter().map(|k| *k.key())
+    pub fn keys(&self) -> impl Iterator<Item = K> + '_ {
+        self.connections.iter().map(|k| (*k.key()).clone())
     }
 
-    fn stream_for_socket_addr(&self, addr: SocketAddr) -> Option<impl Iterator<Item = V>> {
+    pub fn candidates<Q>(&self, key: &Q) -> impl Iterator<Item = V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.connections
-            .get(&addr)
+            .get(key)
             .map(|poolset| poolset.clone().filter_map(|v| v.take()))
+            .into_iter()
+            .flatten()
     }
 
     pub fn cleanup(&self) {
         self.connections.retain(|_k, v| !v.is_empty())
     }
-
-    pub fn candidates<'a, 'b: 'a>(
-        &'a self,
-        addrs: impl ToSocketAddrs + 'b,
-    ) -> impl Iterator<Item = V> + 'a {
-        addrs
-            .to_socket_addrs()
-            .ok()
-            .into_iter()
-            .flatten()
-            .filter_map(|addr| self.stream_for_socket_addr(addr))
-            .flatten()
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use trillium_server_common::Url;
+
     use super::*;
 
     #[test]
     fn basic_pool_functionality() {
         let pool = Pool::default();
         for n in 0..5 {
-            pool.insert("127.0.0.1:8080".parse().unwrap(), PoolEntry::new(n, None));
+            pool.insert(String::from("127.0.0.1:8080"), PoolEntry::new(n, None));
         }
 
         assert_eq!(pool.candidates("127.0.0.1:8080").next(), Some(0));
@@ -205,66 +214,38 @@ mod tests {
     fn eviction() {
         let pool = Pool::new(5);
         for n in 0..10 {
-            pool.insert("127.0.0.1:8080".parse().unwrap(), PoolEntry::new(n, None));
-        }
-
-        assert_eq!(
-            pool.candidates("127.0.0.1:8080").collect::<Vec<_>>(),
-            vec![5, 6, 7, 8, 9]
-        );
-    }
-
-    #[test]
-    fn candidates_for_multiple_to_socket_addrs() {
-        let pool = Pool::new(5);
-        for n in 0..10 {
-            pool.insert("127.0.0.1:8080".parse().unwrap(), PoolEntry::new(n, None));
-            pool.insert("[::1]:8080".parse().unwrap(), PoolEntry::new(n * 10, None));
             pool.insert(
-                "0.0.0.0:1234".parse().unwrap(),
-                PoolEntry::new(n * 100, None),
+                Url::parse("http://127.0.0.1:8080").unwrap().origin(),
+                PoolEntry::new(n, None),
             );
         }
 
-        let localhost_8080 = [
-            "[::1]:8080".parse().unwrap(),
-            "127.0.0.1:8080".parse().unwrap(),
-        ]; // so we don't depend on test environment supporting v6
-
         assert_eq!(
-            pool.candidates(localhost_8080.as_slice())
+            pool.candidates(&Url::parse("http://127.0.0.1:8080").unwrap().origin())
                 .collect::<Vec<_>>(),
-            vec![50, 60, 70, 80, 90, 5, 6, 7, 8, 9]
+            vec![5, 6, 7, 8, 9]
         );
-    }
-
-    #[test]
-    fn when_to_socket_addrs_fails() {
-        let pool = Pool::new(5);
-        for n in 0..10 {
-            pool.insert("127.0.0.1:8080".parse().unwrap(), PoolEntry::new(n, None));
-        }
-
-        assert!(pool
-            .candidates("not a socket addr")
-            .collect::<Vec<_>>()
-            .is_empty());
     }
 
     #[test]
     fn cleanup() {
         let pool = Pool::new(5);
         for n in 0..10 {
-            pool.insert("127.0.0.1:8080".parse().unwrap(), PoolEntry::new(n, None));
             pool.insert(
-                "0.0.0.0:1234".parse().unwrap(),
+                Url::parse("http://127.0.0.1:8080").unwrap().origin(),
+                PoolEntry::new(n, None),
+            );
+            pool.insert(
+                Url::parse("http://0.0.0.0:1234").unwrap().origin(),
                 PoolEntry::new(n * 100, None),
             );
         }
         assert_eq!(pool.keys().count(), 2);
         pool.cleanup(); // no change
         assert_eq!(pool.keys().count(), 2);
-        let _ = pool.candidates("0.0.0.0:1234").collect::<Vec<_>>();
+        let _ = pool
+            .candidates(&Url::parse("http://0.0.0.0:1234").unwrap().origin())
+            .collect::<Vec<_>>();
         assert_eq!(pool.keys().count(), 2); // haven't cleaned up
         pool.cleanup();
         assert_eq!(pool.keys().count(), 1);

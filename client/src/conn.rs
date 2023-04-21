@@ -21,7 +21,7 @@ use trillium_http::{
     Method, ReceivedBody, ReceivedBodyState, Result, StateSet, Status, Stopper, Upgrade,
 };
 use trillium_server_common::{Connector, ObjectSafeConnector, Transport};
-use url::Url;
+use url::{Origin, Url};
 
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 2 * 1024;
@@ -56,7 +56,7 @@ pub struct Conn {
     transport: Option<BoxedTransport>,
     status: Option<Status>,
     request_body: Option<Body>,
-    pool: Option<Pool<BoxedTransport>>,
+    pool: Option<Pool<Origin, BoxedTransport>>,
     buffer: Option<Vec<u8>>,
     response_body_state: ReceivedBodyState,
     config: Arc<dyn ObjectSafeConnector>,
@@ -545,7 +545,7 @@ impl Conn {
 
     // --- everything below here is private ---
 
-    pub(crate) fn set_pool(&mut self, pool: Pool<BoxedTransport>) {
+    pub(crate) fn set_pool(&mut self, pool: Pool<Origin, BoxedTransport>) {
         self.pool = Some(pool);
     }
 
@@ -600,8 +600,7 @@ impl Conn {
     async fn find_pool_candidate(&self, head: &[u8]) -> Result<Option<BoxedTransport>> {
         let mut byte = [0];
         if let Some(pool) = &self.pool {
-            let socket_addrs = self.url.socket_addrs(|| None)?;
-            for mut candidate in pool.candidates(&socket_addrs[..]) {
+            for mut candidate in pool.candidates(&self.url.origin()) {
                 if poll_once(candidate.read(&mut byte)).await.is_none()
                     && candidate.write_all(head).await.is_ok()
                 {
@@ -842,9 +841,11 @@ impl Drop for Conn {
         let Ok(Some(peer_addr)) = transport.peer_addr() else { return };
         let Some(pool) = self.pool.take() else { return };
 
+        let origin = self.url.origin();
+
         if self.response_body_state == ReceivedBodyState::End {
             log::trace!("response body has been read to completion, checking transport back into pool for {}", &peer_addr);
-            pool.insert(peer_addr, PoolEntry::new(transport, None));
+            pool.insert(origin, PoolEntry::new(transport, None));
         } else {
             let content_length = self.response_content_length();
             let buffer = self.buffer.take();
@@ -868,7 +869,7 @@ impl Drop for Conn {
                             bytes,
                             &peer_addr
                         );
-                        pool.insert(peer_addr, PoolEntry::new(transport, None));
+                        pool.insert(origin, PoolEntry::new(transport, None));
                     }
 
                     Err(ioerror) => log::error!("unable to recycle conn due to {}", ioerror),
@@ -888,20 +889,23 @@ impl From<Conn> for Body {
 impl From<Conn> for ReceivedBody<'static, BoxedTransport> {
     fn from(mut conn: Conn) -> Self {
         conn.finalize_headers();
+        let origin = conn.url.origin();
+
+        let on_completion =
+            conn.pool
+                .take()
+                .map(|pool| -> Box<dyn Fn(BoxedTransport) + Send + Sync> {
+                    Box::new(move |transport| {
+                        pool.insert(origin.clone(), PoolEntry::new(transport, None));
+                    })
+                });
+
         ReceivedBody::new(
             conn.response_content_length(),
             conn.buffer.take(),
             conn.transport.take().unwrap(),
             conn.response_body_state,
-            conn.pool
-                .take()
-                .map(|pool| -> Box<dyn Fn(BoxedTransport) + Send + Sync> {
-                    Box::new(move |transport| {
-                        if let Ok(Some(peer_addr)) = transport.peer_addr() {
-                            pool.insert(peer_addr, PoolEntry::new(transport, None));
-                        }
-                    })
-                }),
+            on_completion,
             conn.response_encoding(),
         )
     }
