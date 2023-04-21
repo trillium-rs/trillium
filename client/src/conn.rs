@@ -7,7 +7,6 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
     future::{Future, IntoFuture},
     io::{ErrorKind, Write},
-    net::SocketAddr,
     ops::{Deref, DerefMut},
     pin::Pin,
     str::FromStr,
@@ -598,22 +597,20 @@ impl Conn {
         }
     }
 
-    async fn find_pool_candidate(
-        &self,
-        socket_addrs: &[SocketAddr],
-        head: &[u8],
-    ) -> Option<BoxedTransport> {
+    async fn find_pool_candidate(&self, head: &[u8]) -> Result<Option<BoxedTransport>> {
+        let socket_addrs = self.url.socket_addrs(|| None)?;
+
         let mut byte = [0];
         if let Some(pool) = &self.pool {
-            for mut candidate in pool.candidates(&socket_addrs) {
+            for mut candidate in pool.candidates(&socket_addrs[..]) {
                 if poll_once(candidate.read(&mut byte)).await.is_none()
                     && candidate.write_all(head).await.is_ok()
                 {
-                    return Some(candidate);
+                    return Ok(Some(candidate));
                 }
             }
         }
-        None
+        Ok(None)
     }
 
     async fn connect_and_send_head(&mut self) -> Result<()> {
@@ -625,9 +622,8 @@ impl Conn {
         }
 
         let head = self.build_head().await?;
-        let socket_addrs = self.url.socket_addrs(|| None)?;
 
-        let transport = match self.find_pool_candidate(&socket_addrs[..], &head).await {
+        let transport = match self.find_pool_candidate(&head).await? {
             Some(transport) => {
                 log::debug!("reusing connection to {:?}", transport.peer_addr()?);
                 transport
