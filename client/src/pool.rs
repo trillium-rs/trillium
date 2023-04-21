@@ -245,10 +245,10 @@ mod tests {
             pool.insert("127.0.0.1:8080".parse().unwrap(), PoolEntry::new(n, None));
         }
 
-        assert_eq!(
-            pool.candidates("not a socket addr").collect::<Vec<_>>(),
-            vec![]
-        );
+        assert!(pool
+            .candidates("not a socket addr")
+            .collect::<Vec<_>>()
+            .is_empty());
     }
 
     #[test]

@@ -106,7 +106,6 @@ impl Conn {
     //
     // /**
     // ```
-    // use trillium_smol::ClientConfig;
     // use trillium_testing::prelude::*;
     //
     // let conn = Conn::new("get", "http://trillium.rs", ClientConfig::default()); //<-
@@ -173,7 +172,7 @@ impl Conn {
     Conn
 
     ```
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
     use trillium_client::Client;
 
     let handler = |conn: trillium::Conn| async move {
@@ -208,7 +207,7 @@ impl Conn {
     chainable setter for [`inserting`](Headers::insert) a request header
 
     ```
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
 
 
     let handler = |conn: trillium::Conn| async move {
@@ -251,7 +250,7 @@ impl Conn {
         conn.ok(response)
     };
 
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
     let client = trillium_client::client(ClientConfig::new());
 
     trillium_testing::with_server(handler, move |url| async move {
@@ -288,7 +287,7 @@ impl Conn {
     };
 
     use trillium_client::Client;
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
 
     trillium_testing::with_server(handler, move |url| async move {
         let client = Client::new(ClientConfig::new());
@@ -317,7 +316,7 @@ impl Conn {
     ```
     env_logger::init();
     use trillium_client::Client;
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
 
 
     let handler = |mut conn: trillium::Conn| async move {
@@ -347,7 +346,7 @@ impl Conn {
 
     ```
     env_logger::init();
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
     use trillium_client::Client;
 
     let handler = |mut conn: trillium::Conn| async move {
@@ -393,7 +392,7 @@ impl Conn {
     /**
     retrieves the url for this conn.
     ```
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
     use trillium_client::Client;
     let client = Client::from(ClientConfig::new());
     let conn = client.get("http://localhost:9080");
@@ -410,7 +409,7 @@ impl Conn {
     /**
     retrieves the url for this conn.
     ```
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
     use trillium_client::Client;
 
     use trillium_testing::prelude::*;
@@ -431,7 +430,7 @@ impl Conn {
     returns a [`ReceivedBody`] that borrows the connection inside this conn.
     ```
     env_logger::init();
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
     use trillium_client::Client;
 
 
@@ -496,7 +495,7 @@ impl Conn {
     been sent, this will be None.
 
     ```
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
     use trillium_client::Client;
     use trillium_testing::prelude::*;
 
@@ -520,7 +519,7 @@ impl Conn {
     Returns the conn or an [`UnexpectedStatusError`] that contains the conn
 
     ```
-    use trillium_smol::ClientConfig;
+    use trillium_testing::ClientConfig;
 
     trillium_testing::with_server(trillium::Status::NotFound, |url| async move {
         let client = trillium_client::Client::new(ClientConfig::new());

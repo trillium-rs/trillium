@@ -71,7 +71,7 @@ mod test_conn;
 pub use test_conn::TestConn;
 
 mod with_server;
-pub use with_server::{with_server, with_socket};
+pub use with_server::{with_server, with_transport};
 
 pub mod methods;
 pub mod prelude {
@@ -80,7 +80,7 @@ pub mod prelude {
     */
     pub use crate::{
         assert_body, assert_body_contains, assert_headers, assert_not_handled, assert_ok,
-        assert_response, assert_status, block_on, init, methods::*,
+        assert_response, assert_status, block_on, connector, init, methods::*,
     };
 
     pub use trillium::{Conn, Method, Status};
@@ -111,3 +111,37 @@ cfg_if::cfg_if! {
         pub use futures_lite::future::block_on;
     }
 }
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "tokio")] {
+        pub use trillium_tokio::ClientConfig;
+    } else if #[cfg(feature = "async-std")] {
+        pub use trillium_async_std::ClientConfig;
+    } else if #[cfg(feature = "smol")] {
+        pub use trillium_smol::ClientConfig;
+    } else {
+        ///
+        #[derive(Default, Clone, Copy, Debug)]
+        pub struct ClientConfig;
+    }
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "tokio")] {
+        pub use trillium_tokio::spawn;
+    } else if #[cfg(feature = "async-std")] {
+        pub use trillium_async_std::spawn;
+    } else if #[cfg(feature = "smol")] {
+        pub use trillium_smol::spawn;
+    } else {///spawn a task, the worst way
+        pub fn spawn<Fut: std::future::Future<Output = ()> + Send + 'static>(future: Fut) {
+            std::thread::spawn(move || {
+                block_on(future)
+            });
+        }
+    }
+}
+
+/// new approach
+mod server_connector;
+pub use server_connector::{connector, ServerConnector};

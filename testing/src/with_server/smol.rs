@@ -47,11 +47,3 @@ where
         result.unwrap()
     })
 }
-
-pub(crate) async fn tcp_connect(
-    url: &Url,
-) -> std::io::Result<trillium_http::transport::BoxedTransport> {
-    Ok(trillium_http::transport::BoxedTransport::new(
-        trillium_smol::SmolTransport::connect(&url.socket_addrs(|| None)?[..]).await?,
-    ))
-}

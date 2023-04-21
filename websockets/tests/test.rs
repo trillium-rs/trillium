@@ -133,9 +133,9 @@ fn with_trait_directly() {
 }
 
 fn test_handler(handler: impl Handler) {
-    trillium_testing::with_socket(handler, |socket| async move {
+    trillium_testing::with_transport(handler, |transport| async move {
         let (mut client, _) =
-            async_tungstenite::client_async("ws://localhost/some/route", socket).await?;
+            async_tungstenite::client_async("ws://localhost/some/route", transport).await?;
 
         client.send(Message::text("hello")).await?;
         let received_message = client.next().await.unwrap()?.into_text()?;

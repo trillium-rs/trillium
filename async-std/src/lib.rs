@@ -32,6 +32,8 @@ async fn main() {
 ```
 */
 
+use std::future::Future;
+
 use trillium::Handler;
 pub use trillium_server_common::Stopper;
 
@@ -109,4 +111,9 @@ See [`trillium_server_common::Config`] for more details
 */
 pub fn config() -> Config<()> {
     Config::new()
+}
+
+/// spawn and detach a Future that returns ()
+pub fn spawn<Fut: Future<Output = ()> + Send + 'static>(future: Fut) {
+    async_std::task::spawn(future);
 }
