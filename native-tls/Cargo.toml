@@ -1,6 +1,6 @@
 [package]
 name = "trillium-native-tls"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "native-tls adapter for trillium.rs"
