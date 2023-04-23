@@ -1,14 +1,36 @@
-use atomic_waker::AtomicWaker;
 use futures_lite::Future;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::{
+    fmt::{Debug, Formatter, Result},
+    future::IntoFuture,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    task::{Context, Poll},
+};
+use waker_set::WakerSet;
 
-#[derive(Default, Debug)]
 pub struct CloneCounterInner {
     count: AtomicUsize,
-    waker: AtomicWaker,
+    waker: WakerSet,
+}
+
+impl Default for CloneCounterInner {
+    fn default() -> Self {
+        Self {
+            count: Default::default(),
+            waker: WakerSet::new(),
+        }
+    }
+}
+
+impl Debug for CloneCounterInner {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("CloneCounterInner")
+            .field("count", &self.count)
+            .finish()
+    }
 }
 
 /**
@@ -53,7 +75,7 @@ impl CloneCounter {
     /// total number of CloneCounters in memory, or a one-indexed
     /// count of the number of non-original clones.
     pub fn current(&self) -> usize {
-        self.0.count.load(Ordering::SeqCst)
+        self.0.current()
     }
 
     /// Manually decrement the count. This is useful when taking a
@@ -63,7 +85,7 @@ impl CloneCounter {
     /// call directly
     pub fn decrement(&self) {
         let previously = self.0.count.fetch_sub(1, Ordering::SeqCst);
-        self.wake();
+        self.0.wake();
         if previously > 0 {
             log::trace!("decrementing from {} -> {}", previously, previously - 1);
         } else {
@@ -79,12 +101,10 @@ impl CloneCounter {
         log::trace!("incrementing from {} -> {}", previously, previously + 1);
     }
 
-    fn register(&self, cx: &Context<'_>) {
-        self.0.waker.register(cx.waker());
-    }
-
-    fn wake(&self) {
-        self.0.waker.wake();
+    /// Returns an observer that can be cloned any number of times
+    /// without modifying the clone counter
+    pub fn observer(&self) -> CloneCounterObserver {
+        CloneCounterObserver(Arc::clone(&self.0))
     }
 }
 
@@ -92,11 +112,11 @@ impl Future for CloneCounter {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if 0 == self.current() {
+        if 0 == self.0.current() {
             Poll::Ready(())
         } else {
-            self.register(cx);
-            if 0 == self.current() {
+            self.0.register(cx);
+            if 0 == self.0.current() {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -115,5 +135,59 @@ impl Clone for CloneCounter {
 impl Drop for CloneCounter {
     fn drop(&mut self) {
         self.decrement();
+    }
+}
+
+impl CloneCounterInner {
+    fn current(&self) -> usize {
+        self.count.load(Ordering::SeqCst)
+    }
+
+    fn register(&self, cx: &Context<'_>) {
+        self.waker.insert(cx);
+    }
+
+    fn wake(&self) {
+        self.waker.notify_all();
+    }
+}
+
+/// An observer that can be cloned without modifying the clone
+/// counter, but can be used to inspect its state and awaited
+#[derive(Clone, Debug)]
+pub struct CloneCounterObserver(Arc<CloneCounterInner>);
+impl CloneCounterObserver {
+    pub fn current(&self) -> usize {
+        self.0.current()
+    }
+}
+
+impl IntoFuture for CloneCounterObserver {
+    type Output = ();
+
+    type IntoFuture = CloneCounterFuture;
+
+    fn into_future(self) -> Self::IntoFuture {
+        CloneCounterFuture(self.0)
+    }
+}
+
+/// A future that waits for the clone counter to decrement to zero
+#[derive(Clone, Debug)]
+pub struct CloneCounterFuture(Arc<CloneCounterInner>);
+impl Future for CloneCounterFuture {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if 0 == self.0.current() {
+            Poll::Ready(())
+        } else {
+            self.0.register(cx);
+            if 0 == self.0.current() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        }
     }
 }

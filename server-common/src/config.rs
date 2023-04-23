@@ -1,6 +1,8 @@
-use crate::{Acceptor, CloneCounter, Server, Stopper};
-use std::{marker::PhantomData, net::SocketAddr};
-use trillium::Handler;
+use crate::{
+    server_handle::CompletionFuture, Acceptor, CloneCounter, Server, ServerHandle, Stopper,
+};
+use std::{marker::PhantomData, net::SocketAddr, sync::Arc};
+use trillium::{Handler, Info};
 
 /**
 # Primary entrypoint for configuring and running a trillium server
@@ -61,6 +63,8 @@ pub struct Config<ServerType, AcceptorType> {
     pub(crate) counter: CloneCounter,
     pub(crate) register_signals: bool,
     pub(crate) max_connections: Option<usize>,
+    pub(crate) info: Arc<async_cell::sync::AsyncCell<Info>>,
+    pub(crate) completion_future: CompletionFuture,
     server: PhantomData<ServerType>,
 }
 
@@ -85,7 +89,29 @@ where
     /// unrelated to the trillium application. If you do not need to spawn
     /// other tasks, [`Config::run`] is the preferred entrypoint
     pub async fn run_async(self, handler: impl Handler) {
-        ServerType::run_async(self, handler).await
+        let completion_future = self.completion_future.clone();
+        ServerType::run_async(self, handler).await;
+        completion_future.notify()
+    }
+
+    /// Spawns the server onto the async runtime, returning a
+    /// ServerHandle that can be awaited directly to return an
+    /// [`Info`] or used with [`ServerHandle::info`] and
+    /// [`ServerHandle::stop`]
+    pub fn spawn(self, handler: impl Handler) -> ServerHandle {
+        let server_handle = self.handle();
+        ServerType::spawn(self.run_async(handler));
+        server_handle
+    }
+
+    /// Returns a [`ServerHandle`] for this Config. This is useful
+    /// when spawning the server onto a runtime.
+    pub fn handle(&self) -> ServerHandle {
+        ServerHandle {
+            stopper: self.stopper.clone(),
+            info: self.info.clone(),
+            completion: self.completion_future.clone(),
+        }
     }
 
     /// Configures the server to listen on this port. The default is
@@ -143,6 +169,8 @@ where
             counter: self.counter,
             register_signals: self.register_signals,
             max_connections: self.max_connections,
+            info: self.info,
+            completion_future: self.completion_future,
         }
     }
 
@@ -182,6 +210,8 @@ impl<ServerType, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType>
             counter: self.counter.clone(),
             register_signals: self.register_signals,
             max_connections: self.max_connections,
+            info: async_cell::sync::AsyncCell::shared(),
+            completion_future: CompletionFuture::new(),
         }
     }
 }
@@ -211,6 +241,8 @@ impl<ServerType> Default for Config<ServerType, ()> {
             counter: CloneCounter::new(),
             register_signals: cfg!(unix),
             max_connections,
+            info: async_cell::sync::AsyncCell::shared(),
+            completion_future: CompletionFuture::new(),
         }
     }
 }
