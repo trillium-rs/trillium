@@ -29,7 +29,7 @@ pub use trillium_http::{transport::Transport, Stopper};
 pub use url::Url;
 
 mod clone_counter;
-pub use clone_counter::CloneCounter;
+pub use clone_counter::{CloneCounter, CloneCounterObserver};
 
 mod config;
 pub use config::Config;

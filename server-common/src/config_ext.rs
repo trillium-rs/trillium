@@ -1,4 +1,4 @@
-use crate::{Acceptor, CloneCounter, Config, Server, Stopper, Transport};
+use crate::{Acceptor, CloneCounterObserver, Config, Server, Stopper, Transport};
 
 use futures_lite::prelude::*;
 use std::{
@@ -52,10 +52,8 @@ where
     /// returns the tls acceptor for this server
     fn acceptor(&self) -> &AcceptorType;
 
-    /// returns the [`CloneCounter`] for this server. please note that
-    /// cloning this type has implications for graceful shutdown and
-    /// needs to be done with care.
-    fn counter(&self) -> &CloneCounter;
+    /// returns the [`CloneCounterObserver`] for this server
+    fn counter_observer(&self) -> &CloneCounterObserver;
 
     /// waits for the last clone of the [`CloneCounter`] in this
     /// config to drop, indicating that all outstanding requests are
@@ -130,19 +128,19 @@ where
         &self.acceptor
     }
 
-    fn counter(&self) -> &CloneCounter {
-        &self.counter
+    fn counter_observer(&self) -> &CloneCounterObserver {
+        &self.observer
     }
 
     async fn graceful_shutdown(self) {
-        let current = self.counter.current();
+        let current = self.observer.current();
         if current > 0 {
             log::info!(
                 "waiting for {} open connection{} to close",
                 current,
                 if current == 1 { "" } else { "s" }
             );
-            self.counter.await;
+            self.observer.await;
             log::info!("all done!")
         }
     }
@@ -154,6 +152,8 @@ where
             trillium::log_error!(stream.write_all(SERVICE_UNAVAILABLE).await);
             return;
         }
+
+        let counter = self.observer.counter();
 
         trillium::log_error!(stream.set_nodelay(self.nodelay));
 
@@ -167,6 +167,7 @@ where
             }
         };
 
+        let handler = &handler;
         let result = HttpConn::map(stream, self.stopper.clone(), |mut conn| async {
             conn.set_peer_ip(peer_ip);
             let conn = handler.run(conn.into()).await;
@@ -201,6 +202,8 @@ where
                 log::error!("http error: {:?}", e);
             }
         };
+
+        drop(counter);
     }
 
     fn build_listener<Listener>(&self) -> Listener
@@ -232,6 +235,6 @@ where
 
     fn over_capacity(&self) -> bool {
         self.max_connections
-            .map_or(false, |m| self.counter.current() >= m)
+            .map_or(false, |m| self.observer.current() >= m)
     }
 }
