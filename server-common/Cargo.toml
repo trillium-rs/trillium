@@ -24,6 +24,7 @@ waker-set = "0.2.0"
 rlimit = "0.9.1"
 
 [dev-dependencies]
+test-harness = "0.1.1"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
