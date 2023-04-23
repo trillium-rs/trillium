@@ -70,9 +70,6 @@ pub use test_transport::TestTransport;
 mod test_conn;
 pub use test_conn::TestConn;
 
-mod with_server;
-pub use with_server::{with_server, with_transport};
-
 pub mod methods;
 pub mod prelude {
     /*!
@@ -100,40 +97,57 @@ pub fn init(handler: &mut impl trillium::Handler) {
 pub use futures_lite;
 pub use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite};
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "tokio")] {
-        pub use trillium_tokio::block_on;
-    } else if #[cfg(feature = "async-std")] {
-        pub use trillium_async_std::async_std::task::block_on;
-    } else if #[cfg(feature = "smol")] {
-        pub use trillium_smol::async_global_executor::block_on;
-    } else {
-        pub use futures_lite::future::block_on;
-    }
-}
+mod server_connector;
+pub use server_connector::{connector, ServerConnector};
+
+use trillium_server_common::{Config, Connector, Server};
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "tokio")] {
-        pub use trillium_tokio::ClientConfig;
-    } else if #[cfg(feature = "async-std")] {
-        pub use trillium_async_std::ClientConfig;
-    } else if #[cfg(feature = "smol")] {
-        pub use trillium_smol::ClientConfig;
-    } else {
-        ///
-        #[derive(Default, Clone, Copy, Debug)]
-        pub struct ClientConfig;
-    }
-}
-
-cfg_if::cfg_if! {
-    if #[cfg(feature = "tokio")] {
-        pub use trillium_tokio::spawn;
-    } else if #[cfg(feature = "async-std")] {
-        pub use trillium_async_std::spawn;
-    } else if #[cfg(feature = "smol")] {
+    if #[cfg(feature = "smol")] {
+        /// runtime server config
+        pub fn config() -> Config<impl Server, ()> {
+            trillium_smol::config()
+        }
         pub use trillium_smol::spawn;
-    } else {///spawn a task, the worst way
+
+        /// runtime client config
+        pub fn client_config() -> impl Connector {
+            trillium_smol::ClientConfig::default()
+        }
+        pub use trillium_smol::async_global_executor::block_on;
+        pub use trillium_smol::ClientConfig;
+
+    } else if #[cfg(feature = "async-std")] {
+        /// runtime server config
+        pub fn config() -> Config<impl Server, ()> {
+            trillium_async_std::config()
+        }
+        pub use trillium_async_std::async_std::task::block_on;
+        pub use trillium_async_std::ClientConfig;
+        pub use trillium_async_std::spawn;
+        /// runtime client config
+        pub fn client_config() -> impl Connector {
+            trillium_async_std::ClientConfig::default()
+        }
+    } else if #[cfg(feature = "tokio")] {
+        /// runtime server config
+        pub fn config() -> Config<impl Server, ()> {
+            trillium_tokio::config()
+        }
+        pub use trillium_tokio::ClientConfig;
+        pub use trillium_tokio::block_on;
+        pub use trillium_tokio::spawn;
+        /// runtime client config
+        pub fn client_config() -> impl Connector {
+            trillium_tokio::ClientConfig::default()
+        }
+   } else {
+        /// runtime server config
+        pub fn config<S: Server>() -> trillium_server_common::Config<S, ()> {
+            trillium_server_common::Config::<S, ()>::new()
+        }
+        pub use futures_lite::future::block_on;
+        /// spawn a "task" without a runtime by blocking on a new thread
         pub fn spawn<Fut: std::future::Future<Output = ()> + Send + 'static>(future: Fut) {
             std::thread::spawn(move || {
                 block_on(future)
@@ -142,6 +156,5 @@ cfg_if::cfg_if! {
     }
 }
 
-/// new approach
-mod server_connector;
-pub use server_connector::{connector, ServerConnector};
+mod with_server;
+pub use with_server::{with_server, with_transport};
