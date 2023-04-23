@@ -2,28 +2,36 @@ use crate::{block_on, ServerConnector};
 use std::{error::Error, future::Future};
 use trillium::Handler;
 use trillium_http::transport::BoxedTransport;
+use trillium_server_common::{Config, Connector, Server};
+use url::Url;
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "smol")] {
-        mod smol;
-        pub use smol::with_server;
-    } else if #[cfg(feature = "async-std")] {
-        mod async_std;
-        pub use async_std::with_server;
-    } else if #[cfg(feature = "tokio")] {
-        mod tokio;
-        pub use tokio::with_server;
-   } else {
-        ///
-        pub fn with_server<H, Fun, Fut>(_handler: H, _tests: Fun)
-        where
-            H: Handler,
-            Fun: FnOnce(crate::Url) -> Fut,
-            Fut: Future<Output = Result<(), Box<dyn Error>>>,
-        {
-            panic!("with_server requires a runtime to be selected")
-        }
-    }
+/**
+Starts a trillium handler bound to a random available port on
+localhost, run the async tests provided as the second
+argument, and then shut down the server. useful for full
+integration tests that actually exercise the tcp layer.
+
+See
+[`trillium_client::Conn`](https://docs.trillium.rs/trillium_client/struct.conn)
+for usage examples.
+**/
+pub fn with_server<H, Fun, Fut>(handler: H, tests: Fun)
+where
+    H: Handler,
+    Fun: FnOnce(Url) -> Fut,
+    Fut: Future<Output = Result<(), Box<dyn Error>>>,
+{
+    block_on(async move {
+        let port = portpicker::pick_unused_port().expect("could not pick a port");
+        let url = format!("http://localhost:{port}").parse().unwrap();
+        let handle = crate::config()
+            .with_host("localhost")
+            .with_port(port)
+            .spawn(handler);
+        handle.info().await;
+        tests(url).await.unwrap();
+        handle.stop().await;
+    });
 }
 
 /// open an in-memory connection to this handler and call an async
