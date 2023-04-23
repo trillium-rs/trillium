@@ -9,67 +9,80 @@ use std::{
 };
 use trillium_server_common::{async_trait, Connector, Url};
 
+#[derive(Clone, Debug)]
+pub struct RustlsClientConfig(Arc<ClientConfig>);
+
 /**
 Client configuration for RustlsConnector
 */
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RustlsConfig<Config> {
     /// configuration for rustls itself
-    pub rustls_config: Arc<ClientConfig>,
+    pub rustls_config: RustlsClientConfig,
 
     /// configuration for the inner transport
     pub tcp_config: Config,
 }
 
-impl<Config: Default> Default for RustlsConfig<Config> {
+impl<C: Connector> RustlsConfig<C> {
+    /// build a new default rustls config with this tcp config
+    pub fn new(rustls_config: impl Into<RustlsClientConfig>, tcp_config: C) -> Self {
+        Self {
+            rustls_config: rustls_config.into(),
+            tcp_config,
+        }
+    }
+}
+
+impl Default for RustlsClientConfig {
     fn default() -> Self {
-        let mut root_store = RootCertStore::empty();
-        match rustls_native_certs::load_native_certs() {
-            Ok(certs) => {
-                for cert in certs {
-                    if let Err(e) = root_store.add(&rustls::Certificate(cert.0)) {
-                        log::debug!("unable to add certificate {:?}, skipping", e);
-                    }
+        Self(Arc::new(default_client_config()))
+    }
+}
+
+fn default_client_config() -> ClientConfig {
+    let mut root_store = RootCertStore::empty();
+    match rustls_native_certs::load_native_certs() {
+        Ok(certs) => {
+            for cert in certs {
+                if let Err(e) = root_store.add(&rustls::Certificate(cert.0)) {
+                    log::debug!("unable to add certificate {:?}, skipping", e);
                 }
             }
-
-            Err(e) => {
-                log::warn!(
-                    "rustls native certs hard error, falling back to webpki roots: {:?}",
-                    e
-                );
-                root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
-                    |c: &async_rustls::webpki::TrustAnchor| {
-                        OwnedTrustAnchor::from_subject_spki_name_constraints(
-                            c.subject,
-                            c.spki,
-                            c.name_constraints,
-                        )
-                    },
-                ));
-            }
-        };
-
-        ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(root_store)
-            .with_no_client_auth()
-            .into()
-    }
-}
-
-impl<Config: Default> From<ClientConfig> for RustlsConfig<Config> {
-    fn from(rustls_config: ClientConfig) -> Self {
-        Arc::new(rustls_config).into()
-    }
-}
-
-impl<Config: Default> From<Arc<ClientConfig>> for RustlsConfig<Config> {
-    fn from(rustls_config: Arc<ClientConfig>) -> Self {
-        Self {
-            rustls_config,
-            tcp_config: Config::default(),
         }
+
+        Err(e) => {
+            log::warn!(
+                "rustls native certs hard error, falling back to webpki roots: {:?}",
+                e
+            );
+            root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
+                |c: &webpki::TrustAnchor| {
+                    OwnedTrustAnchor::from_subject_spki_name_constraints(
+                        c.subject,
+                        c.spki,
+                        c.name_constraints,
+                    )
+                },
+            ));
+        }
+    };
+
+    ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_store)
+        .with_no_client_auth()
+}
+
+impl From<ClientConfig> for RustlsClientConfig {
+    fn from(rustls_config: ClientConfig) -> Self {
+        Self(Arc::new(rustls_config))
+    }
+}
+
+impl From<Arc<ClientConfig>> for RustlsClientConfig {
+    fn from(rustls_config: Arc<ClientConfig>) -> Self {
+        Self(rustls_config)
     }
 }
 
@@ -101,7 +114,7 @@ impl<C: Connector> Connector for RustlsConfig<C> {
                 http.set_scheme("http").ok();
                 http.set_port(url.port_or_known_default()).ok();
 
-                let connector: TlsConnector = Arc::clone(&self.rustls_config).into();
+                let connector: TlsConnector = Arc::clone(&self.rustls_config.0).into();
                 let domain = url
                     .domain()
                     .and_then(|dns_name| ServerName::try_from(dns_name).ok())

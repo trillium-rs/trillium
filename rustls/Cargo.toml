@@ -11,15 +11,21 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-rustls = "0.3.0"
+async-rustls = "0.4.0"
 log = "0.4.17"
-rustls = "0.20.8"
+rustls = "0.21.0"
 rustls-native-certs = "0.6.2"
 rustls-pemfile = "1.0.2"
+rustls-webpki = "0.100.1"
 trillium-server-common = { path = "../server-common", version = "^0.4.0" }
-webpki-roots = "0.22"
+webpki-roots = "0.23"
 
 [dev-dependencies]
 env_logger = "0.10.0"
+portpicker = "0.1.1"
+test-harness = "0.1.1"
 trillium = { path = "../trillium" }
+trillium-client = { path = "../client" }
+trillium-native-tls = { path = "../native-tls" }
 trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
