@@ -26,6 +26,23 @@ pub struct NativeTlsConfig<Config> {
     pub tls_connector: Arc<TlsConnector>,
 }
 
+impl<C: Connector> NativeTlsConfig<C> {
+    /// replace the tcp config
+    pub fn with_tcp_config(mut self, config: C) -> Self {
+        self.tcp_config = config;
+        self
+    }
+}
+
+impl<C: Connector> From<C> for NativeTlsConfig<C> {
+    fn from(tcp_config: C) -> Self {
+        Self {
+            tcp_config,
+            tls_connector: Arc::new(TlsConnector::default()),
+        }
+    }
+}
+
 impl<Config: Debug> Debug for NativeTlsConfig<Config> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NativeTlsConfig")
@@ -60,7 +77,7 @@ impl<T: Connector> Connector for NativeTlsConfig<T> {
                 let mut http = url.clone();
                 http.set_scheme("http").ok();
                 http.set_port(url.port_or_known_default()).ok();
-                let inner_stream = self.tcp_config.connect(url).await?;
+                let inner_stream = self.tcp_config.connect(&http).await?;
 
                 self.tls_connector
                     .connect(url, inner_stream)
