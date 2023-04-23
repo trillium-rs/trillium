@@ -17,5 +17,10 @@ trillium-server-common = { path = "../server-common", version = "^0.4.0" }
 
 [dev-dependencies]
 env_logger = "0.10.0"
+portpicker = "0.1.1"
+test-harness = "0.1.1"
 trillium = { path = "../trillium" }
+trillium-client = { path = "../client" }
+trillium-rustls = { path = "../rustls" }
 trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
