@@ -20,46 +20,49 @@ jobs:
         rust: [stable]
         runtime: [smol, tokio, async-std]
     steps:
-    - uses: actions/checkout@master
-    - name: Install ${{ matrix.rust }}
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: ${{ matrix.rust }}
-        override: true
+      - uses: actions/checkout@master
+      - name: Install mkcert (Linux)
+        run: curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64" && chmod +x mkcert-v*-linux-amd64 && sudo cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert && mkcert -install && mkcert localhost
+        if: matrix.os == 'ubuntu-latest'
+      - name: Install ${{ matrix.rust }}
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
 
-    - name: Rust Cache
-      uses: Swatinem/rust-cache@v2.2.1
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.2.1
 
-    - name: Run tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --workspace --features ${{ matrix.runtime }},trillium-testing/${{ matrix.runtime }}
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --workspace --features ${{ matrix.runtime }},trillium-testing/${{ matrix.runtime }}
 
   check_fmt_and_docs:
     name: Lints and Docs
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@master
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        components: rustfmt, clippy
-        override: true
+      - uses: actions/checkout@master
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt, clippy
+          override: true
 
-    - uses: actions-rs/clippy-check@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        args: --all-features
-        
-    - name: Format
-      run: cargo fmt --all -- --check
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
 
-    # - name: Run cargo-udeps
-    #   uses: aig787/cargo-udeps-action@v1
-    #   with:
-    #     version: 'latest'
-    #     args: '--all-targets --features smol'
+      - name: Format
+        run: cargo fmt --all -- --check
 
-    - name: Docs
-      run: cargo doc --no-deps --features smol,trillium-testing/smol
+      # - name: Run cargo-udeps
+      #   uses: aig787/cargo-udeps-action@v1
+      #   with:
+      #     version: 'latest'
+      #     args: '--all-targets --features smol'
+
+      - name: Docs
+        run: cargo doc --no-deps --features smol,trillium-testing/smol
