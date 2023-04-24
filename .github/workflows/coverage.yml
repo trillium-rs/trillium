@@ -15,8 +15,12 @@ jobs:
       image: xd009642/tarpaulin:develop-nightly
       options: --security-opt seccomp=unconfined
     steps:
+      - name: Install mkcert
+        run: curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64" && chmod +x mkcert-v*-linux-amd64 && cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert
       - name: Checkout repository
         uses: actions/checkout@v3
+      - name: generate a cert for tls testing
+        run: mkcert -install && mkcert localhost
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2.2.1
       - name: Generate code coverage
