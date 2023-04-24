@@ -2,7 +2,6 @@ use crate::{block_on, ServerConnector};
 use std::{error::Error, future::Future};
 use trillium::Handler;
 use trillium_http::transport::BoxedTransport;
-use trillium_server_common::{Config, Connector, Server};
 use url::Url;
 
 /**
