@@ -19,11 +19,22 @@ impl NativeTlsAcceptor {
     }
 
     /**
-    constructs a NativeTlsAcceptor from a pkcs12 key and password
+    constructs a NativeTlsAcceptor from a pkcs12 key and password. See
+    See [`Identity::from_pkcs8`]
     */
     pub fn from_pkcs12(der: &[u8], password: &str) -> Self {
         Identity::from_pkcs12(der, password)
             .expect("could not build Identity from provided pkcs12 key and password")
+            .into()
+    }
+
+    /**
+    constructs a NativeTlsAcceptor from a pkcs8 pem and private
+    key. See [`Identity::from_pkcs8`]
+    */
+    pub fn from_pkcs8(pem: &[u8], key: &[u8]) -> Self {
+        Identity::from_pkcs8(pem, key)
+            .expect("could not build Identity from provided pem and key")
             .into()
     }
 }
