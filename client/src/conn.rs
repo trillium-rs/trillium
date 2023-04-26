@@ -60,6 +60,7 @@ pub struct Conn {
     buffer: Option<Vec<u8>>,
     response_body_state: ReceivedBodyState,
     config: Arc<dyn ObjectSafeConnector>,
+    headers_finalized: bool,
 }
 
 const USER_AGENT: &str = concat!("trillium-client/", env!("CARGO_PKG_VERSION"));
@@ -150,6 +151,7 @@ impl Conn {
             buffer: None,
             response_body_state: ReceivedBodyState::Start,
             config,
+            headers_finalized: false,
         }
     }
 
@@ -550,6 +552,10 @@ impl Conn {
     }
 
     fn finalize_headers(&mut self) {
+        if self.headers_finalized {
+            return;
+        }
+
         if self.request_headers.get(Host).is_none() {
             let url = &self.url;
             let host = url.host_str().unwrap().to_owned();
@@ -587,6 +593,7 @@ impl Conn {
                 self.request_headers.insert(TransferEncoding, "chunked");
             }
         }
+        self.headers_finalized = true;
     }
 
     fn body_len(&self) -> Option<u64> {
@@ -821,6 +828,13 @@ impl Conn {
             }
         }
     }
+
+    async fn exec(&mut self) -> Result<()> {
+        self.finalize_headers();
+        self.connect_and_send_head().await?;
+        self.send_body_and_parse_head().await?;
+        Ok(())
+    }
 }
 
 fn bytes(bytes: u64) -> String {
@@ -930,13 +944,10 @@ impl IntoFuture for Conn {
 
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'static>>;
 
-    fn into_future(self) -> Self::IntoFuture {
+    fn into_future(mut self) -> Self::IntoFuture {
         Box::pin(async move {
-            let mut conn = self;
-            conn.finalize_headers();
-            conn.connect_and_send_head().await?;
-            conn.send_body_and_parse_head().await?;
-            Ok(conn)
+            self.exec().await?;
+            Ok(self)
         })
     }
 }
@@ -948,10 +959,7 @@ impl<'conn> IntoFuture for &'conn mut Conn {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let conn = self;
-            conn.finalize_headers();
-            conn.connect_and_send_head().await?;
-            conn.send_body_and_parse_head().await?;
+            self.exec().await?;
             Ok(())
         })
     }
