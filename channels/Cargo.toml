@@ -1,6 +1,6 @@
 [package]
 name = "trillium-channels"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "websocket channels for trillium.rs"
