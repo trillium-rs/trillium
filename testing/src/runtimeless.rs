@@ -11,8 +11,8 @@ use trillium::Info;
 use trillium_server_common::{Acceptor, Config, ConfigExt, Connector, Server};
 use url::Url;
 
-static SERVERS: Lazy<DashMap<(String, u16), (Sender<TestTransport>, Receiver<TestTransport>)>> =
-    Lazy::new(|| Default::default());
+type Servers = Lazy<DashMap<(String, u16), (Sender<TestTransport>, Receiver<TestTransport>)>>;
+static SERVERS: Servers = Lazy::new(|| Default::default());
 
 /// A [`Server`] for testing that does not depend on any runtime
 #[derive(Debug)]
@@ -51,7 +51,7 @@ impl Server for RuntimelessServer {
     }
 
     fn info(&self) -> Info {
-        Info::from(&*format!("test server :{}", self.port))
+        Info::from(&*format!("test server {}:{}", self.host, self.port))
     }
 
     fn block_on(fut: impl Future<Output = ()> + 'static) {
