@@ -164,7 +164,7 @@ impl Handler for Proxy {
 
             Some(status) => {
                 conn.headers_mut()
-                    .extend(std::mem::take(client_conn.response_headers_mut()));
+                    .append_all(client_conn.response_headers().clone());
                 conn.with_body(client_conn).with_status(status)
             }
 
