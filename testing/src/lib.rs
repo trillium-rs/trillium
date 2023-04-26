@@ -65,6 +65,8 @@ trillium-testing = { version = "0.2", features = ["smol"] }
 mod assertions;
 
 mod test_transport;
+use std::future::Future;
+
 pub use test_transport::TestTransport;
 
 mod test_conn;
@@ -143,12 +145,20 @@ cfg_if::cfg_if! {
         }
    } else {
         /// runtime server config
-        pub fn config<S: Server>() -> trillium_server_common::Config<S, ()> {
-            trillium_server_common::Config::<S, ()>::new()
+        pub fn config() -> Config<impl Server, ()> {
+            Config::<RuntimelessServer, ()>::new()
         }
+
+        pub use RuntimelessClientConfig as ClientConfig;
+
+        /// generic client config
+        pub fn client_config() -> impl Connector {
+            RuntimelessClientConfig::default()
+        }
+
         pub use futures_lite::future::block_on;
         /// spawn a "task" without a runtime by blocking on a new thread
-        pub fn spawn<Fut: std::future::Future<Output = ()> + Send + 'static>(future: Fut) {
+        pub fn spawn<Fut: Future<Output = ()> + Send + 'static>(future: Fut) {
             std::thread::spawn(move || {
                 block_on(future)
             });
@@ -158,3 +168,18 @@ cfg_if::cfg_if! {
 
 mod with_server;
 pub use with_server::{with_server, with_transport};
+
+mod runtimeless;
+pub use runtimeless::{RuntimelessClientConfig, RuntimelessServer};
+
+/// a sponge Result
+pub type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+/// a test harness for use with [`test_harness`]
+pub fn harness<F, Fut>(test: F)
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = TestResult>,
+{
+    block_on(test()).unwrap();
+}
