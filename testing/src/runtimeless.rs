@@ -12,7 +12,7 @@ use trillium_server_common::{Acceptor, Config, ConfigExt, Connector, Server};
 use url::Url;
 
 type Servers = Lazy<DashMap<(String, u16), (Sender<TestTransport>, Receiver<TestTransport>)>>;
-static SERVERS: Servers = Lazy::new(|| Default::default());
+static SERVERS: Servers = Lazy::new(Default::default);
 
 /// A [`Server`] for testing that does not depend on any runtime
 #[derive(Debug)]
@@ -40,7 +40,7 @@ impl Server for RuntimelessServer {
     {
         let entry = SERVERS
             .entry((config.host(), config.port()))
-            .or_insert_with(|| async_channel::unbounded());
+            .or_insert_with(async_channel::unbounded);
         let (_, channel) = entry.value();
 
         Self {
