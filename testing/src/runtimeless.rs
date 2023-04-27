@@ -111,11 +111,13 @@ mod test {
             .with_host("host.com")
             .with_port(80)
             .spawn("server 1");
+        handle1.info().await;
 
         let handle2 = Config::<RuntimelessServer, ()>::new()
             .with_host("other_host.com")
             .with_port(80)
             .spawn("server 2");
+        handle2.info().await;
 
         let client = trillium_client::Client::new(RuntimelessClientConfig::default());
         let mut conn = client.get("http://host.com").await?;
