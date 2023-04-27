@@ -18,7 +18,7 @@ default = []
 json = ["serde_json", "serde"]
 
 [dependencies]
-async-tungstenite = "0.21.0"
+async-tungstenite = "0.22.0"
 base64 = "0.21.0"
 fastrand = "1.9.0"
 futures-lite = "1.12.0"
