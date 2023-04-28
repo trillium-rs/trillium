@@ -11,6 +11,7 @@ use std::{
 /// [Read more](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status)
 #[repr(u16)]
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Status {
     /// 100 Continue
     ///

@@ -13,6 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [features]
 unstable = []
 http-compat = ["http"]
+serde = ["dep:serde"]
 
 [dependencies]
 encoding_rs = "0.8.32"
@@ -24,6 +25,7 @@ httpdate = "1.0.2"
 log = "0.4.17"
 memmem = "0.1.1"
 mime = "0.3.16"
+serde = { version = "1.0.160", features = ["derive"], optional = true }
 smallvec = "1.10.0"
 smartcow = "0.2.1"
 smartstring = "1.0.1"
@@ -46,4 +48,3 @@ trillium-http = { path = ".", features = ["http-compat"] }
 version = "1.26.0"
 features = ["rt", "net", "rt-multi-thread", "macros"]
 package = "tokio"
-
