@@ -14,6 +14,7 @@ use std::{
 /// [HTTP Method Registry]: https://www.iana.org/assignments/http-methods/http-methods.xhtml
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Method {
     /// The ACL method modifies the access control list (which can be read via the DAV:acl
     /// property) of a resource.
