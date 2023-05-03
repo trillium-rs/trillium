@@ -34,7 +34,7 @@ async fn main() {
 use std::future::Future;
 
 use trillium::Handler;
-pub use trillium_server_common::Stopper;
+pub use trillium_server_common::{CloneCounterObserver, Stopper};
 
 mod client;
 pub use client::ClientConfig;
