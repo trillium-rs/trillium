@@ -1,3 +1,5 @@
+use crate::CloneCounterObserver;
+use async_cell::sync::AsyncCell;
 use std::{
     fmt::{Debug, Formatter, Result},
     future::{Future, IntoFuture},
@@ -17,8 +19,9 @@ use trillium_http::Stopper;
 #[derive(Clone, Debug)]
 pub struct ServerHandle {
     pub(crate) stopper: Stopper,
-    pub(crate) info: Arc<async_cell::sync::AsyncCell<Info>>,
+    pub(crate) info: Arc<AsyncCell<Info>>,
     pub(crate) completion: CompletionFuture,
+    pub(crate) observer: CloneCounterObserver,
 }
 
 #[derive(Clone, Default)]
@@ -39,10 +42,12 @@ impl CompletionFuture {
         Self::default()
     }
 }
+
 pub struct CompletionFutureInner {
     complete: AtomicBool,
     waker_set: waker_set::WakerSet,
 }
+
 impl Default for CompletionFutureInner {
     fn default() -> Self {
         Self {
@@ -93,6 +98,13 @@ impl ServerHandle {
     /// retrieves a clone of the [`Stopper`] used by this server
     pub fn stopper(&self) -> Stopper {
         self.stopper.clone()
+    }
+
+    /// retrieves a [`CloneCounterObserver`] which can be used to
+    /// monitor or modify the number of outstanding connections for
+    /// the purposes of graceful shutdown.
+    pub fn observer(&self) -> CloneCounterObserver {
+        self.observer.clone()
     }
 
     /// checks whether this server has shut down. It's preferable to
