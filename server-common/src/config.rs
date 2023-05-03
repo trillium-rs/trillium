@@ -182,6 +182,13 @@ where
         self
     }
 
+    /// use the specified [`CloneCounterObserver`] to monitor or
+    /// modify the outstanding connection count for graceful shutdown
+    pub fn with_observer(mut self, observer: CloneCounterObserver) -> Self {
+        self.observer = observer;
+        self
+    }
+
     /**
     Configures the maximum number of connections to accept. The
     default is 75% of the soft rlimit_nofile (`ulimit -n`) on unix
