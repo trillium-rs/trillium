@@ -37,7 +37,7 @@ impl Debug for CloneCounterInner {
 # an atomic counter that increments on clone & decrements on drop
 
 One-indexed, because the first CloneCounter is included. If you don't
-want the original to count, construct a [``CloneCounterObserver`]
+want the original to count, construct a [`CloneCounterObserver`]
 instead and use [`CloneCounterObserver::counter`] to increment.
 
 Awaiting a [`CloneCounter`] will be pending until it is the only remaining
