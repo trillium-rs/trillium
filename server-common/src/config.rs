@@ -1,6 +1,7 @@
 use crate::{
     server_handle::CompletionFuture, Acceptor, CloneCounterObserver, Server, ServerHandle, Stopper,
 };
+use async_cell::sync::AsyncCell;
 use std::{marker::PhantomData, net::SocketAddr, sync::Arc};
 use trillium::{Handler, Info};
 
@@ -63,7 +64,7 @@ pub struct Config<ServerType, AcceptorType> {
     pub(crate) observer: CloneCounterObserver,
     pub(crate) register_signals: bool,
     pub(crate) max_connections: Option<usize>,
-    pub(crate) info: Arc<async_cell::sync::AsyncCell<Info>>,
+    pub(crate) info: Arc<AsyncCell<Info>>,
     pub(crate) completion_future: CompletionFuture,
     server: PhantomData<ServerType>,
 }
@@ -111,6 +112,7 @@ where
             stopper: self.stopper.clone(),
             info: self.info.clone(),
             completion: self.completion_future.clone(),
+            observer: self.observer.clone(),
         }
     }
 
@@ -210,7 +212,7 @@ impl<ServerType, AcceptorType: Clone> Clone for Config<ServerType, AcceptorType>
             observer: self.observer.clone(),
             register_signals: self.register_signals,
             max_connections: self.max_connections,
-            info: async_cell::sync::AsyncCell::shared(),
+            info: AsyncCell::shared(),
             completion_future: CompletionFuture::new(),
         }
     }
@@ -241,7 +243,7 @@ impl<ServerType> Default for Config<ServerType, ()> {
             observer: CloneCounterObserver::new(),
             register_signals: cfg!(unix),
             max_connections,
-            info: async_cell::sync::AsyncCell::shared(),
+            info: AsyncCell::shared(),
             completion_future: CompletionFuture::new(),
         }
     }
