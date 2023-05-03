@@ -93,8 +93,8 @@ where
     ///
     /// This uses the encoding determined by the content-type (mime)
     /// charset. If an encoding problem is encountered, the String
-    /// returned by [`read_string`] will contain utf8 replacement
-    /// characters.
+    /// returned by [`ReceivedBody::read_string`] will contain utf8
+    /// replacement characters.
     ///
     /// Note that this can only be performed once per Conn, as the
     /// underlying data is not cached anywhere. This is the only copy of
@@ -123,7 +123,7 @@ where
     ///
     /// You can use this in conjunction with `encoding` if you need
     /// different handling of malformed character encoding than the lossy
-    /// conversion provided by [`read_string`].
+    /// conversion provided by [`ReceivedBody::read_string`].
     ///
     /// # Errors
     ///

@@ -112,7 +112,7 @@ impl Headers {
         }
     }
 
-    /// A slightly more efficient way to combine two [`Header`]s than
+    /// A slightly more efficient way to combine two [`Headers`] than
     /// using [`Extend`]
     pub fn append_all(&mut self, other: Headers) {
         self.known.reserve(other.known.len());

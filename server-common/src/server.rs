@@ -13,7 +13,7 @@ The server trait, for standard network-based server implementations.
 pub trait Server: Sized + Send + Sync + 'static {
     /// the individual byte stream that http
     /// will be communicated over. This is often an async "stream"
-    /// like TcpStream or UnixStream. See [`ServerTransport`]
+    /// like TcpStream or UnixStream. See [`Transport`]
     type Transport: Transport;
 
     /// The description of this server, to be appended to the Info and potentially logged.

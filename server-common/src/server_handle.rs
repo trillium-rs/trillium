@@ -12,7 +12,8 @@ use trillium::Info;
 use trillium_http::Stopper;
 
 /// A handle for a spawned trillium server. Returned by
-/// [`Config::handle`] and [`Config::spawn`]
+/// [`Config::handle`][crate::Config::handle] and
+/// [`Config::spawn`][crate::Config::spawn]
 #[derive(Clone, Debug)]
 pub struct ServerHandle {
     pub(crate) stopper: Stopper,

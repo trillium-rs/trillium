@@ -55,7 +55,7 @@ where
     /// returns the [`CloneCounterObserver`] for this server
     fn counter_observer(&self) -> &CloneCounterObserver;
 
-    /// waits for the last clone of the [`CloneCounter`] in this
+    /// waits for the last clone of the [`CloneCounter`][crate::CloneCounter] in this
     /// config to drop, indicating that all outstanding requests are
     /// complete
     async fn graceful_shutdown(self);
