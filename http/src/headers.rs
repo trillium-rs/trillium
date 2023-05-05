@@ -139,6 +139,18 @@ impl Headers {
         }
     }
 
+    /// Combine two [`Headers`], replacing any existing header values
+    pub fn insert_all(&mut self, other: Headers) {
+        self.known.reserve(other.known.len());
+        for (name, value) in other.known {
+            self.known.insert(name, value);
+        }
+
+        for (name, value) in other.unknown {
+            self.unknown.insert(name, value);
+        }
+    }
+
     /// Add a header value or header values into this header map. If a
     /// header already exists with the same name, it will be
     /// replaced. To combine, see [`Headers::append`]
@@ -285,6 +297,18 @@ impl Headers {
     /// Chainable method to remove a header
     pub fn without_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
         self.remove(name);
+        self
+    }
+
+    /// Chainable method to remove multiple headers by name
+    pub fn without_headers<I, H>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = H>,
+        H: Into<HeaderName<'static>>,
+    {
+        for header in names {
+            self.remove(header.into());
+        }
         self
     }
 }
