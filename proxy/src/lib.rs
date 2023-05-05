@@ -19,12 +19,13 @@ http reverse proxy trillium handler
 use full_duplex_async_copy::full_duplex_copy;
 use size::{Base, Size};
 use trillium::{
-    async_trait, conn_try, Conn, Handler,
-    KnownHeaderName::{Connection, Host},
+    async_trait, conn_try, Conn, Handler, KnownHeaderName,
     Status::{NotFound, SwitchingProtocols},
     Upgrade,
 };
 pub use trillium_client::Client;
+use trillium_forwarding::Forwarded;
+use trillium_http::HeaderValue;
 use url::Url;
 
 /**
@@ -36,6 +37,7 @@ pub struct Proxy {
     client: Client,
     pass_through_not_found: bool,
     halt: bool,
+    via_pseudonym: Option<String>,
 }
 
 impl Proxy {
@@ -65,6 +67,7 @@ impl Proxy {
             client: client.into(),
             pass_through_not_found: true,
             halt: true,
+            via_pseudonym: None,
         }
     }
 
@@ -105,9 +108,17 @@ impl Proxy {
         .without_halting();
     ```
     */
-
     pub fn without_halting(mut self) -> Self {
         self.halt = false;
+        self
+    }
+
+    /// populate the pseudonym for a
+    /// [`Via`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Via)
+    /// header. If no pseudonym is provided, no via header will be
+    /// inserted.
+    pub fn with_via_pseudonym(mut self, via_pseudonym: String) -> Self {
+        self.via_pseudonym = Some(via_pseudonym);
         self
     }
 }
@@ -135,16 +146,57 @@ impl Handler for Proxy {
         // conn here, though
         let client_body_content = conn_try!(conn.request_body().await.read_bytes().await, conn);
 
-        let headers = conn
-            .headers()
+        let mut forwarded = Forwarded::from_headers(conn.request_headers())
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .into_owned();
+
+        if let Some(peer_ip) = conn.peer_ip() {
+            forwarded.add_for(peer_ip.to_string());
+        };
+
+        if let Some(host) = conn.inner().host() {
+            forwarded.set_host(host);
+        }
+
+        let mut request_headers = conn
+            .request_headers()
             .clone()
-            .without_header(Host)
-            .with_inserted_header(Connection, "keep-alive");
+            .without_headers([
+                KnownHeaderName::Host,
+                KnownHeaderName::XforwardedBy,
+                KnownHeaderName::XforwardedFor,
+                KnownHeaderName::XforwardedHost,
+                KnownHeaderName::XforwardedProto,
+                KnownHeaderName::XforwardedSsl,
+                KnownHeaderName::AcceptEncoding,
+            ])
+            .with_inserted_header(KnownHeaderName::Connection, "keep-alive")
+            .with_inserted_header(KnownHeaderName::Forwarded, forwarded.to_string());
+
+        if let Some(via) = &self.via_pseudonym {
+            let new_via = format!("{} {}", conn.inner().http_version(), via);
+            let via = match request_headers.get_values(KnownHeaderName::Via) {
+                Some(old_via) => format!(
+                    "{new_via}, {}",
+                    old_via
+                        .iter()
+                        .filter_map(HeaderValue::as_str)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ),
+
+                None => new_via,
+            };
+
+            request_headers.insert(KnownHeaderName::Via, via);
+        };
 
         let Ok(mut client_conn) = self
             .client
             .build_conn(conn.method(), request_url)
-            .with_headers(headers)
+            .with_headers(request_headers)
             .with_body(client_body_content).await
         else { return conn.with_status(500).halt(); };
 
