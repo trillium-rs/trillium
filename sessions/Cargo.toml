@@ -1,6 +1,6 @@
 [package]
 name = "trillium-sessions"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "session storage handler for trillium.rs"
