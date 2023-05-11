@@ -16,7 +16,7 @@ trillium = { path = "../trillium", version = "^0.2.0" }
 log = "0.4.17"
 
 [dependencies.async-compression]
-version = "0.3.15"
+version = "0.4.0"
 features = ["brotli", "gzip", "futures-io"]
 
 [dev-dependencies]
