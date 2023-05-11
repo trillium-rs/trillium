@@ -298,11 +298,20 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
                 conn.cookies_mut()
                     .remove(Cookie::named(self.cookie_name.clone()));
             } else if self.save_unchanged || session.data_changed() {
-                if let Ok(Some(cookie_value)) = self.store.store_session(session).await {
-                    conn.cookies_mut()
-                        .add(self.build_cookie(secure, cookie_value));
+                match self.store.store_session(session).await {
+                    Ok(Some(cookie_value)) => {
+                        conn.cookies_mut()
+                            .add(self.build_cookie(secure, cookie_value));
+                    }
+
+                    Ok(None) => {}
+
+                    Err(e) => {
+                        log::error!("could not store session:\n\n{e}")
+                    }
                 }
             }
+
             conn.with_state(session_to_keep)
         } else {
             conn
