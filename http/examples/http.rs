@@ -13,7 +13,12 @@ pub fn main() {
 
     smol::block_on(async move {
         let stopper = Stopper::new();
-        let listener = TcpListener::bind(("0.0.0.0", 8081)).await.unwrap();
+        let port = std::env::var("PORT")
+            .unwrap_or("8080".into())
+            .parse::<u16>()
+            .unwrap();
+
+        let listener = TcpListener::bind(("0.0.0.0", port)).await.unwrap();
         let mut incoming = stopper.stop_stream(listener.incoming());
         while let Some(Ok(stream)) = incoming.next().await {
             let stopper = stopper.clone();

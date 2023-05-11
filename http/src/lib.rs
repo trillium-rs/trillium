@@ -130,3 +130,6 @@ Retry-After: 60\r
 
 #[cfg(feature = "http-compat")]
 pub mod http_compat;
+
+mod copy;
+pub(crate) use copy::copy;
