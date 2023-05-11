@@ -1,4 +1,5 @@
 use crate::{
+    copy,
     received_body::ReceivedBodyState,
     util::encoding,
     Body, ConnectionStatus, Error, HeaderValues, Headers,
@@ -6,7 +7,7 @@ use crate::{
     Method, ReceivedBody, Result, StateSet, Status, Stopper, Upgrade, Version,
 };
 use encoding_rs::Encoding;
-use futures_lite::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use httparse::{Request, EMPTY_HEADER};
 use memmem::{Searcher, TwoWaySearcher};
 use std::{
@@ -176,7 +177,7 @@ where
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
         {
             if let Some(body) = self.response_body.take() {
-                io::copy(body, &mut self.transport).await?;
+                copy(body, &mut self.transport).await?;
             }
         }
 
