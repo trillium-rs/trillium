@@ -1,7 +1,6 @@
 # Summary
 
 - [Welcome](welcome.md)
-  - [Who is behind this](./who.md)
   - [About this document](./conventions.md)
 - [Architectural Overview](./architecture.md)
   - [Core Concepts](./overview/core_concepts.md)
