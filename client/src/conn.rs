@@ -156,18 +156,6 @@ impl Conn {
     }
 
     /**
-    Returns this conn to the connection pool if it is keepalive, and
-    closes it otherwise. This will happen asynchronously as a spawned
-    task when the conn is dropped, but calling it explicitly allows
-    you to block on it and control where it happens.
-    */
-    pub async fn recycle(mut self) {
-        if self.is_keep_alive() && self.transport.is_some() && self.pool.is_some() {
-            self.finish_reading_body().await;
-        }
-    }
-
-    /**
     retrieves a mutable borrow of the request headers, suitable for
     appending a header. generally, prefer using chainable methods on
     Conn
@@ -542,6 +530,18 @@ impl Conn {
         match self.status() {
             Some(status) if status.is_success() => Ok(self),
             _ => Err(self.into()),
+        }
+    }
+
+    /**
+    Returns this conn to the connection pool if it is keepalive, and
+    closes it otherwise. This will happen asynchronously as a spawned
+    task when the conn is dropped, but calling it explicitly allows
+    you to block on it and control where it happens.
+    */
+    pub async fn recycle(mut self) {
+        if self.is_keep_alive() && self.transport.is_some() && self.pool.is_some() {
+            self.finish_reading_body().await;
         }
     }
 

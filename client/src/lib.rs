@@ -11,28 +11,19 @@
 
 /*!
 trillium client is a http client that uses the same `conn` approach as
-trillium.
-
-this was primarily built for the
-[`trillium_proxy`](https://docs.trillium.rs/trillium_proxy/) crate,
-but might end up fitting well into trillium apps for other purposes.
-
-In order to use http keep-alive connection pooling, make requests from
-a [`trillium_client::Client`](Client). To make a one-off request,
-build a [`trillium_client::Conn`](Conn) directly. Please note that a
-trillium_client Conn, while conceptually similar, is different from
-trillium::Conn and trillium_http::Conn.
+[`trillium`](https://trillium.rs) but which can be used
+independently for any http client application.
 
 ## Connector
 
-[`Client`] and [`Conn`] are generic over an implementation of
-[`Connector`]. Each runtime crate ([`trillium_smol`](https://docs.trillium.rs/trillium_smol),
+[`trillium_client::Client`] is built with a Connector. Each runtime crate
+([`trillium_smol`](https://docs.trillium.rs/trillium_smol),
 [`trillium_tokio`](https://docs.trillium.rs/trillium_tokio),
 [`trillium_async_std`](https://docs.trillium.rs/trillium_tokio)) offers
 a Connector implementation, which can optionally be combined with a
-tls crate ([`trillium_rustls`](https://docs.trillium.rs/trillium_rustls) and
-[`trillium_native_tls`](https://docs.trillium.rs/trillium_native_tls)
-each offer Connector wrappers.
+tls crate such as
+[`trillium_rustls`](https://docs.trillium.rs/trillium_rustls) or
+[`trillium_native_tls`](https://docs.trillium.rs/trillium_native_tls).
 
 See the documentation for [`Client`] and [`Conn`] for further usage
 examples.
