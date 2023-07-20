@@ -21,7 +21,7 @@ url = "2.3.1"
 waker-set = "0.2.0"
 
 [target.'cfg(unix)'.dependencies]
-rlimit = "0.9.1"
+rlimit = "0.10.1"
 
 [dev-dependencies]
 test-harness = "0.1.1"
