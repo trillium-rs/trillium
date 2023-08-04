@@ -1,12 +1,13 @@
 pub fn app() -> impl trillium::Handler {
     |conn: trillium::Conn| async move {
-        let response = tokio::task::spawn(async {
+        tokio::task::spawn(async {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            "successfully spawned a task"
+            panic!()
         })
         .await
         .unwrap();
-        conn.ok(response)
+
+        conn.ok("")
     }
 }
 pub fn main() {

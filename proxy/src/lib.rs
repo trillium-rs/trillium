@@ -197,8 +197,11 @@ impl Handler for Proxy {
             .client
             .build_conn(conn.method(), request_url)
             .with_headers(request_headers)
-            .with_body(client_body_content).await
-        else { return conn.with_status(500).halt(); };
+            .with_body(client_body_content)
+            .await
+        else {
+            return conn.with_status(500).halt();
+        };
 
         let conn = match client_conn.status() {
             Some(SwitchingProtocols) => {

@@ -27,7 +27,7 @@ where
         let port = portpicker::pick_unused_port().expect("could not pick a port");
         let url = format!("https://localhost:{port}").parse().unwrap();
         let Some((pem, key)) = pem_and_key() else {
-            return
+            return;
         };
 
         let handle = config()
@@ -50,7 +50,7 @@ where
         let port = portpicker::pick_unused_port().expect("could not pick a port");
         let url = format!("https://localhost:{port}").parse().unwrap();
         let Some((pem, key)) = pem_and_key() else {
-            return
+            return;
         };
 
         let handle = config()
