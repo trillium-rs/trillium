@@ -851,8 +851,12 @@ impl Drop for Conn {
             return;
         }
 
-        let Some(transport) = self.transport.take() else { return };
-        let Ok(Some(peer_addr)) = transport.peer_addr() else { return };
+        let Some(transport) = self.transport.take() else {
+            return;
+        };
+        let Ok(Some(peer_addr)) = transport.peer_addr() else {
+            return;
+        };
         let Some(pool) = self.pool.take() else { return };
 
         let origin = self.url.origin();

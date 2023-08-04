@@ -140,7 +140,9 @@ fn generics(field: &Field, input: &DeriveInput) -> Vec<Ident> {
 impl Parse for DeriveOptions {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let input = DeriveInput::parse(input)?;
-        let Data::Struct(ds) = &input.data else { return Err(Error::new(input.span(), "second erro")) };
+        let Data::Struct(ds) = &input.data else {
+            return Err(Error::new(input.span(), "second erro"));
+        };
 
         for (field_index, field) in ds.fields.iter().enumerate() {
             for attr in &field.attrs {
