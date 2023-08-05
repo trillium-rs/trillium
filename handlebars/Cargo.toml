@@ -12,10 +12,10 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 glob = "0.3.1"
-handlebars = { version = "4.3.6", features = ["dir_source"] }
-log = "0.4.17"
-serde = { version = "1.0.156", features = ["derive"] }
-serde_json = "1.0.94"
+handlebars = { version = "4.3.7", features = ["dir_source"] }
+log = "0.4.19"
+serde = { version = "1.0.181", features = ["derive"] }
+serde_json = "1.0.104"
 trillium = { path = "../trillium", version = "^0.2.0"}
 
 [dev-dependencies]

@@ -56,7 +56,7 @@ fn default_client_config() -> ClientConfig {
                 "rustls native certs hard error, falling back to webpki roots: {:?}",
                 e
             );
-            root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
+            root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
                 |c: &webpki::TrustAnchor| {
                     OwnedTrustAnchor::from_subject_spki_name_constraints(
                         c.subject,

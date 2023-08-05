@@ -12,17 +12,17 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 async-global-executor = "2.3.1"
-async-io = "1.12.0"
+async-io = "1.13.0"
 async-net = "1.7.0"
-futures-lite = "1.12.0"
-log = "0.4.17"
+futures-lite = "1.13.0"
+log = "0.4.19"
 trillium = { path = "../trillium", version = "^0.2.0" }
 trillium-http = { path = "../http", version = "^0.3.0" }
 trillium-macros = { version = "0.0.4", path = "../macros" }
 trillium-server-common = { path = "../server-common", version = "^0.4.0" }
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.3.15"
+signal-hook = "0.3.17"
 signal-hook-async-std = "0.2.2"
 
 [dev-dependencies]
