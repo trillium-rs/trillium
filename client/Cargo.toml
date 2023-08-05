@@ -15,18 +15,18 @@ json = ["serde_json", "serde", "thiserror"]
 
 [dependencies]
 encoding_rs = "0.8.32"
-futures-lite = "1.12.0"
+futures-lite = "1.13.0"
 httparse = "1.8.0"
-log = "0.4.17"
+log = "0.4.19"
 memmem = "0.1.1"
 size = "0.4.1"
 trillium-server-common = { version = "0.4.0", path = "../server-common" }
-url = "2.3.1"
-mime = "0.3.16"
-serde_json = { version = "1.0.94", optional = true }
-serde = { version = "1.0.156", optional = true }
-thiserror = { version = "1.0.39", optional = true }
-dashmap = "5.4.0"
+url = "2.4.0"
+mime = "0.3.17"
+serde_json = { version = "1.0.104", optional = true }
+serde = { version = "1.0.181", optional = true }
+thiserror = { version = "1.0.44", optional = true }
+dashmap = "5.5.0"
 crossbeam-queue = "0.3.8"
 
 [dependencies.trillium-http]
@@ -36,9 +36,9 @@ version = "^0.3.0"
 
 [dev-dependencies]
 async-global-executor = "2.3.1"
-async-io = "1.12.0"
+async-io = "1.13.0"
 env_logger = "0.10.0"
-fastrand = "1.9.0"
+fastrand = "2.0.0"
 trillium = { path = "../trillium" }
 trillium-rustls = { path = "../rustls" }
 trillium-smol = { path = "../smol/" }

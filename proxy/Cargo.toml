@@ -12,13 +12,13 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 full-duplex-async-copy = "0.1.0"
-log = "0.4.17"
+log = "0.4.19"
 size = "0.4.1"
 trillium = { path = "../trillium", version = "^0.2.0"}
 trillium-client = { path = "../client", version = "^0.4.0" }
 trillium-forwarding = { version = "0.2.1", path = "../forwarding" }
 trillium-http = { path = "../http", version = "^0.3.0" }
-url = "2.3.1"
+url = "2.4.0"
 
 [dev-dependencies]
 env_logger = "0.10.0"

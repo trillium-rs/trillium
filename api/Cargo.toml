@@ -15,20 +15,20 @@ default = ["forms"]
 forms = ["serde_urlencoded", "form_urlencoded"]
 
 [dependencies]
-form_urlencoded = { version = "1.1.0", optional = true }
-log = "0.4.17"
-mime = "0.3.16"
-serde = { version = "1.0.156", features = ["derive"] }
-serde_json = "1.0.94"
-serde_path_to_error = "0.1.10"
+form_urlencoded = { version = "1.2.0", optional = true }
+log = "0.4.19"
+mime = "0.3.17"
+serde = { version = "1.0.181", features = ["derive"] }
+serde_json = "1.0.104"
+serde_path_to_error = "0.1.14"
 serde_urlencoded = { version = "0.7.1", optional = true }
-thiserror = "1.0.39"
+thiserror = "1.0.44"
 trillium = { path = "../trillium", version = "^0.2.0" }
 
 
 [dev-dependencies]
 env_logger = "0.10.0"
-serde = { version = "1.0.156", features = ["derive"] }
+serde = { version = "1.0.181", features = ["derive"] }
 trillium-logger = { path = "../logger" }
 trillium-router = { path = "../router" }
 trillium-smol = { path = "../smol" }

@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 async-rustls = "0.4.0"
-log = "0.4.17"
+log = "0.4.19"
 rustls = "0.21.0"
 rustls-native-certs = "0.6.2"
 rustls-pemfile = "1.0.2"
