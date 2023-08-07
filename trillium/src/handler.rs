@@ -283,6 +283,51 @@ impl<H: Handler> Handler for Vec<H> {
 }
 
 #[async_trait]
+impl<const L: usize, H: Handler> Handler for [H; L] {
+    async fn run(&self, mut conn: Conn) -> Conn {
+        for handler in self {
+            log::debug!("running {}", handler.name());
+            conn = handler.run(conn).await;
+            if conn.is_halted() {
+                break;
+            }
+        }
+        conn
+    }
+
+    async fn init(&mut self, info: &mut Info) {
+        for handler in self {
+            handler.init(info).await;
+        }
+    }
+
+    async fn before_send(&self, mut conn: Conn) -> Conn {
+        for handler in self.iter().rev() {
+            conn = handler.before_send(conn).await;
+        }
+        conn
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        self.iter()
+            .map(Handler::name)
+            .collect::<Vec<_>>()
+            .join(",")
+            .into()
+    }
+
+    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+        self.iter().any(|g| g.has_upgrade(upgrade))
+    }
+
+    async fn upgrade(&self, upgrade: Upgrade) {
+        if let Some(handler) = self.iter().find(|g| g.has_upgrade(&upgrade)) {
+            handler.upgrade(upgrade).await;
+        }
+    }
+}
+
+#[async_trait]
 impl<Fun, Fut> Handler for Fun
 where
     Fun: Fn(Conn) -> Fut + Send + Sync + 'static,
