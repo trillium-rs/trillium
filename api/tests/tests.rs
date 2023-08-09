@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use trillium::{Conn, Handler};
+use trillium::{Conn, Handler, Headers, KnownHeaderName};
 use trillium_api::*;
 use trillium_testing::prelude::*;
 
@@ -63,5 +63,21 @@ fn app_without_body() -> impl Handler {
 
 #[test]
 fn get_json_response() {
-    assert_ok!(get("/").on(&app_without_body()), r#"{"health":"ok"}"#);
+    assert_ok!(
+        get("/").on(&app_without_body()),
+        r#"{"health":"ok"}"#,
+        "Content-Type" => "application/json"
+    );
+}
+
+#[test]
+fn get_custom_content_type() {
+    assert_ok!(
+        get("/").on(&(
+            Headers::from_iter([(KnownHeaderName::ContentType, "application/custom+json")]),
+            Json(json!({"health": "ok"}))
+        )),
+        r#"{"health":"ok"}"#,
+        "Content-Type" => "application/custom+json"
+    );
 }

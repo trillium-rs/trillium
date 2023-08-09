@@ -174,8 +174,10 @@ impl ApiConnExt for Conn {
                     self.set_status(Status::Ok)
                 }
 
+                self.response_headers_mut()
+                    .try_insert(ContentType, "application/json");
+
                 self.with_body(body)
-                    .with_header(ContentType, "application/json")
             }
 
             Err(error) => self.with_state(Error::from(error)),
