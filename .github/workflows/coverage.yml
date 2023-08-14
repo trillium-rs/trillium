@@ -22,7 +22,7 @@ jobs:
       - name: generate a cert for tls testing
         run: mkcert -install && mkcert localhost
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.6.0
+        uses: Swatinem/rust-cache@v2.6.1
       - name: Generate code coverage
         run: cargo +nightly tarpaulin --verbose --features smol,trillium-testing/smol --workspace --timeout 120 --out Xml
       - name: Upload to codecov.io
