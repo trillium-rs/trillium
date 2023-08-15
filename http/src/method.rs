@@ -253,6 +253,17 @@ pub enum Method {
     /// [RFC7231, Section 4.3.4]: https://tools.ietf.org/html/rfc7231#section-4.3.4
     Put,
 
+    /// The QUERY method is used to initiate a server-side query. Unlike the HTTP GET method, which
+    /// requests that a server return a representation of the resource identified by the target URI,
+    /// the QUERY method is used to ask the server to perform a query operation (described by the
+    /// request payload) over some set of data scoped to the effective request URI.  See
+    /// [draft-ietf-httpbis-safe-method-w-body-03][]
+    ///
+    /// NOTE: As of January 2023, this draft has expired.
+    ///
+    /// [draft-ietf-httpbis-safe-method-w-body-03]: https://www.ietf.org/archive/id/draft-ietf-httpbis-safe-method-w-body-03.html
+    Query,
+
     /// The REBIND method removes a binding to a resource from a collection, and adds a binding to
     /// that resource into the collection identified by the Request-URI.
     ///
@@ -358,6 +369,7 @@ impl Method {
                 | Method::Options
                 | Method::Pri
                 | Method::PropFind
+                | Method::Query
                 | Method::Report
                 | Method::Search
                 | Method::Trace
@@ -406,6 +418,7 @@ impl Method {
             Self::PropFind => "PROPFIND",
             Self::PropPatch => "PROPPATCH",
             Self::Put => "PUT",
+            Self::Query => "QUERY",
             Self::Rebind => "REBIND",
             Self::Report => "REPORT",
             Self::Search => "SEARCH",
@@ -460,6 +473,7 @@ impl FromStr for Method {
             "PROPFIND" => Ok(Self::PropFind),
             "PROPPATCH" => Ok(Self::PropPatch),
             "PUT" => Ok(Self::Put),
+            "QUERY" => Ok(Self::Query),
             "REBIND" => Ok(Self::Rebind),
             "REPORT" => Ok(Self::Report),
             "SEARCH" => Ok(Self::Search),
@@ -528,6 +542,7 @@ mod test {
             "PROPFIND",
             "PROPPATCH",
             "PUT",
+            "QUERY",
             "REBIND",
             "REPORT",
             "SEARCH",
