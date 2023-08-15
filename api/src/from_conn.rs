@@ -1,3 +1,4 @@
+use crate::ApiConnExt;
 use trillium::{async_trait, Conn};
 
 /// A trait to extract content from [`Conn`]s to be used as the second
@@ -34,6 +35,22 @@ impl FromConn for Vec<u8> {
 impl<E: FromConn> FromConn for Option<E> {
     async fn from_conn(conn: &mut Conn) -> Option<Self> {
         Some(E::from_conn(conn).await)
+    }
+}
+
+#[async_trait]
+impl FromConn for serde_json::Value {
+    async fn from_conn(conn: &mut Conn) -> Option<Self> {
+        let res = conn.deserialize_json::<serde_json::Value>().await;
+        conn.store_error(res)
+    }
+}
+
+#[cfg(feature = "querystrong")]
+#[async_trait]
+impl FromConn for querystrong::QueryStrong {
+    async fn from_conn(conn: &mut Conn) -> Option<Self> {
+        Some(conn.querystring().parse().unwrap_or_default())
     }
 }
 
