@@ -19,9 +19,9 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
         rust: [stable]
         features:
-          - smol,trillium-testing/smol
-          - tokio,trillium-testing/tokio
-          - async-std,trillium-testing/async-std
+          - "--features smol,trillium-testing/smol"
+          - "--features tokio,trillium-testing/tokio"
+          - "--features async-std,trillium-testing/async-std"
           - ""
     steps:
       - uses: actions/checkout@master
@@ -41,7 +41,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --workspace --features ${{ matrix.features }}
+          args: --workspace ${{ matrix.features }}
 
   check_fmt_and_docs:
     name: Lints and Docs
