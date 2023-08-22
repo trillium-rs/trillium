@@ -25,7 +25,7 @@ capabilities.  Please note that trillium itself provides a much more
 usable interface on top of `trillium_http`, at very little cost.
 
 ```
-# fn main() -> trillium_http::Result<()> {    trillium_testing::block_on(async {
+# fn main() -> trillium_http::Result<()> { smol::block_on(async {
 use async_net::{TcpListener, TcpStream};
 use futures_lite::StreamExt;
 use stopper::Stopper;
@@ -52,10 +52,9 @@ let server_handle = smol::spawn(async move {
 });
 
 // this example uses the trillium client
-// please note that this api is still especially unstable.
 // any other http client would work here too
 let url = format!("http://localhost:{}/", port);
-let client = trillium_client::Client::new(trillium_testing::ClientConfig::default());
+let client = trillium_client::Client::new(trillium_smol::ClientConfig::default());
 let mut client_conn = client.get(&*url).await?;
 
 assert_eq!(client_conn.status().unwrap(), 200);
@@ -67,7 +66,7 @@ assert_eq!(
 
 stopper.stop(); // stop the server after one request
 server_handle.await?; // wait for the server to shut down
-#        Result::Ok(()) }) }
+# Result::Ok(()) }) }
 ```
 */
 
