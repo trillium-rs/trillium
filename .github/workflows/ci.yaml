@@ -18,7 +18,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
         rust: [stable]
-        runtime: [smol, tokio, async-std]
+        features:
+          - smol,trillium-testing/smol
+          - tokio,trillium-testing/tokio
+          - async-std,trillium-testing/async-std
+          - ""
     steps:
       - uses: actions/checkout@master
       - name: Install mkcert (Linux)
@@ -37,7 +41,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --workspace --features ${{ matrix.runtime }},trillium-testing/${{ matrix.runtime }}
+          args: --workspace --features ${{ matrix.features }}
 
   check_fmt_and_docs:
     name: Lints and Docs
@@ -58,11 +62,11 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
 
-      # - name: Run cargo-udeps
-      #   uses: aig787/cargo-udeps-action@v1
-      #   with:
-      #     version: 'latest'
-      #     args: '--all-targets --features smol'
+      - name: Run cargo-udeps
+        uses: aig787/cargo-udeps-action@v1
+        with:
+          version: latest
+          args: --all-targets
 
       - name: Docs
         run: cargo doc --no-deps --features smol,trillium-testing/smol
