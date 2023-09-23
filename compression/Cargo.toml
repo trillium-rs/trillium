@@ -17,7 +17,7 @@ log = "0.4.19"
 
 [dependencies.async-compression]
 version = "0.4.1"
-features = ["brotli", "gzip", "futures-io"]
+features = ["brotli", "gzip", "zstd", "futures-io"]
 
 [dev-dependencies]
 env_logger = "0.10.0"
