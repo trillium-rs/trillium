@@ -2,13 +2,10 @@
 Body compression for trillium.rs
 
 Currently, this crate only supports compressing outbound bodies with
-the brotli and gzip algorithms, although more algorithms may be added
-in the future. The correct algorithm will be selected based on the
-Accept-Encoding header sent by the client, if one exists.
-
-If both brotli and gzip are supported by a client, brotli will be used
-preferentially.
-
+the zstd, brotli, and gzip algorithms (in order of preference),
+although more algorithms may be added in the future. The correct
+algorithm will be selected based on the Accept-Encoding header sent by
+the client, if one exists.
 */
 #![forbid(unsafe_code)]
 #![deny(
@@ -20,7 +17,7 @@ preferentially.
 )]
 #![warn(missing_docs)]
 
-use async_compression::futures::bufread::{BrotliEncoder, GzipEncoder};
+use async_compression::futures::bufread::{BrotliEncoder, GzipEncoder, ZstdEncoder};
 use futures_lite::{
     io::{BufReader, Cursor},
     AsyncReadExt,
@@ -44,6 +41,9 @@ pub enum CompressionAlgorithm {
 
     /// Gzip algorithm
     Gzip,
+
+    /// Zstd algorithm
+    Zstd,
 }
 
 impl CompressionAlgorithm {
@@ -51,6 +51,7 @@ impl CompressionAlgorithm {
         match self {
             CompressionAlgorithm::Brotli => "br",
             CompressionAlgorithm::Gzip => "gzip",
+            CompressionAlgorithm::Zstd => "zstd",
         }
     }
 
@@ -59,6 +60,7 @@ impl CompressionAlgorithm {
             "br" => Some(CompressionAlgorithm::Brotli),
             "gzip" => Some(CompressionAlgorithm::Gzip),
             "x-gzip" => Some(CompressionAlgorithm::Gzip),
+            "zstd" => Some(CompressionAlgorithm::Zstd),
             _ => None,
         }
     }
@@ -96,10 +98,9 @@ pub struct Compression {
 
 impl Default for Compression {
     fn default() -> Self {
+        use CompressionAlgorithm::*;
         Self {
-            algorithms: [CompressionAlgorithm::Brotli, CompressionAlgorithm::Gzip]
-                .into_iter()
-                .collect(),
+            algorithms: [Zstd, Brotli, Gzip].into_iter().collect(),
         }
     }
 }
@@ -116,7 +117,7 @@ impl Compression {
 
     /**
     sets the compression algorithms that this handler will
-    use. the default of Brotli, Gzip is recommended. Note that the
+    use. the default of Zstd, Brotli, Gzip is recommended. Note that the
     order is ignored.
     */
     pub fn with_algorithms(mut self, algorithms: &[CompressionAlgorithm]) -> Self {
@@ -183,6 +184,18 @@ impl Handler for Compression {
 
             if body.is_static() {
                 match algo {
+                    CompressionAlgorithm::Zstd => {
+                        let bytes = body.static_bytes().unwrap();
+                        let mut data = vec![];
+                        let mut encoder = ZstdEncoder::new(Cursor::new(bytes));
+                        conn_try!(encoder.read_to_end(&mut data).await, conn);
+                        if data.len() < bytes.len() {
+                            log::trace!("zstd body from {} to {}", bytes.len(), data.len());
+                            compression_used = true;
+                            body = Body::new_static(data);
+                        }
+                    }
+
                     CompressionAlgorithm::Brotli => {
                         let bytes = body.static_bytes().unwrap();
                         let mut data = vec![];
@@ -210,6 +223,13 @@ impl Handler for Compression {
             } else if body.is_streaming() {
                 compression_used = true;
                 match algo {
+                    CompressionAlgorithm::Zstd => {
+                        body = Body::new_streaming(
+                            ZstdEncoder::new(BufReader::new(body.into_reader())),
+                            None,
+                        );
+                    }
+
                     CompressionAlgorithm::Brotli => {
                         body = Body::new_streaming(
                             BrotliEncoder::new(BufReader::new(body.into_reader())),
