@@ -2,7 +2,9 @@ use std::{env::var, error::Error, fs::read, future::Future};
 use test_harness::test;
 use trillium_client::Client;
 use trillium_native_tls::{NativeTlsAcceptor, NativeTlsConfig};
-use trillium_rustls::{RustlsAcceptor, RustlsConfig};
+use trillium_rustls::RustlsAcceptor;
+#[cfg(feature = "client")]
+use trillium_rustls::RustlsConfig;
 use trillium_server_common::Url;
 use trillium_testing::{block_on, client_config, config};
 
@@ -64,6 +66,7 @@ where
     });
 }
 
+#[cfg(feature = "client")]
 pub fn rustls_client() -> Client {
     Client::new(RustlsConfig {
         rustls_config: Default::default(),
@@ -78,12 +81,14 @@ pub fn native_tls_client() -> Client {
     })
 }
 
+#[cfg(feature = "client")]
 #[test(harness = with_native_tls_server)]
 async fn rustls_client_native_tls_server(url: Url) -> Result<(), Box<dyn Error>> {
     let _ = rustls_client().get(url).await?.success()?;
     Ok(())
 }
 
+#[cfg(feature = "client")]
 #[test(harness = with_rustls_server)]
 async fn rustls_client_rustls_server(url: Url) -> Result<(), Box<dyn Error>> {
     let _ = rustls_client().get(url).await?.success()?;
