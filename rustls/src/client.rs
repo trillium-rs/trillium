@@ -1,6 +1,6 @@
 use crate::RustlsTransport;
 use async_rustls::TlsConnector;
-use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName};
+use rustls::{Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName};
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
@@ -40,22 +40,33 @@ impl Default for RustlsClientConfig {
     }
 }
 
+#[cfg(feature = "native-roots")]
+fn get_rustls_native_roots() -> Result<impl Iterator<Item = Certificate>> {
+    let roots = rustls_native_certs::load_native_certs()
+        .map(|certs| certs.into_iter().map(|cert| Certificate(cert.0)));
+    if let Err(ref e) = roots {
+        log::warn!("rustls native certs hard error, falling back to webpki roots: {e:?}");
+    }
+    roots
+}
+
+#[cfg(not(feature = "native-roots"))]
+fn get_rustls_native_roots() -> Result<impl Iterator<Item = Certificate>> {
+    Err::<std::iter::Empty<_>, _>(Error::new(ErrorKind::Unsupported, "unimplemented"))
+}
+
 fn default_client_config() -> ClientConfig {
     let mut root_store = RootCertStore::empty();
-    match rustls_native_certs::load_native_certs() {
+    match get_rustls_native_roots() {
         Ok(certs) => {
             for cert in certs {
-                if let Err(e) = root_store.add(&rustls::Certificate(cert.0)) {
+                if let Err(e) = root_store.add(&cert) {
                     log::debug!("unable to add certificate {:?}, skipping", e);
                 }
             }
         }
 
-        Err(e) => {
-            log::warn!(
-                "rustls native certs hard error, falling back to webpki roots: {:?}",
-                e
-            );
+        Err(_) => {
             root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
                 |c: &webpki::TrustAnchor| {
                     OwnedTrustAnchor::from_subject_spki_name_constraints(
