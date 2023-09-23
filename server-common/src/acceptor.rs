@@ -29,7 +29,7 @@ pub trait Acceptor<Input>: Clone + Send + Sync + 'static
 where
     Input: Transport,
 {
-    /// The stream type. For example, TlsStream<Input>
+    /// The stream type. For example, `TlsStream<Input>`
     type Output: Transport;
 
     /// An error type that [`Acceptor::accept`] may return
