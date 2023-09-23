@@ -21,6 +21,15 @@ fn test() {
 
     assert_headers!(
         get("/")
+            .with_request_header(AcceptEncoding, "zstd")
+            .on(&handler),
+        ContentLength => "68",
+        Vary => "Accept-Encoding",
+        ContentEncoding => "zstd",
+    );
+
+    assert_headers!(
+        get("/")
             .with_request_header(AcceptEncoding, "br")
             .on(&handler),
         ContentLength => "51",
@@ -68,5 +77,13 @@ fn test() {
             .on(&handler),
         ContentLength => "51",
         ContentEncoding => "br"
+    );
+
+    assert_headers!(
+        get("/")
+            .with_request_header(AcceptEncoding, "deflate, gzip;q=0.75, zstd;q=0.95, br;q=0.85")
+            .on(&handler),
+        ContentLength => "68",
+        ContentEncoding => "zstd"
     );
 }
