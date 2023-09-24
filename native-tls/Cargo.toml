@@ -1,6 +1,6 @@
 [package]
 name = "trillium-native-tls"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "native-tls adapter for trillium.rs"
@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 async-native-tls = "0.5.0"
 native-tls = "0.2.11"
-trillium-server-common = { path = "../server-common", version = "^0.4.0" }
+trillium-server-common = { path = "../server-common", version = "^0.5.0" }
 
 [dev-dependencies]
 env_logger = "0.10.0"

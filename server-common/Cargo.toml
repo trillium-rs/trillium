@@ -1,6 +1,6 @@
 [package]
 name = "trillium-server-common"
-version = "0.4.4"
+version = "0.5.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "server utilities for trillium.rs"

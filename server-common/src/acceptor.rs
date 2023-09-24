@@ -18,8 +18,8 @@ where
 {
     type Output = my_tls_impl::TlsStream<Input>;
     type Error = my_tls_impl::Error;
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
-        self.accept(input).await
+    async fn accept(&self, input: Input) -> Result<Option<Self::Output>, Self::Error> {
+        self.accept(input).await.map(Some)
     }
 }
 ```
@@ -40,10 +40,10 @@ where
 
     Async trait signature:
     ```rust,ignore
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error>;
+    async fn accept(&self, input: Input) -> Result<Option<Self::Output>, Self::Error>;
     ```
     */
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error>;
+    async fn accept(&self, input: Input) -> Result<Option<Self::Output>, Self::Error>;
 }
 
 #[async_trait]
@@ -53,7 +53,7 @@ where
 {
     type Output = Input;
     type Error = Infallible;
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
-        Ok(input)
+    async fn accept(&self, input: Input) -> Result<Option<Self::Output>, Self::Error> {
+        Ok(Some(input))
     }
 }

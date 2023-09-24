@@ -70,7 +70,11 @@ where
 {
     type Output = NativeTlsTransport<Input>;
     type Error = Error;
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
-        self.0.accept(input).await.map(NativeTlsTransport::from)
+    async fn accept(&self, input: Input) -> Result<Option<Self::Output>, Self::Error> {
+        self.0
+            .accept(input)
+            .await
+            .map(NativeTlsTransport::from)
+            .map(Some)
     }
 }

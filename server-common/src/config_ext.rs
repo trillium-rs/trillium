@@ -160,7 +160,8 @@ where
         let peer_ip = stream.peer_addr().ok().flatten().map(|addr| addr.ip());
 
         let stream = match self.acceptor.accept(stream).await {
-            Ok(stream) => stream,
+            Ok(Some(stream)) => stream,
+            Ok(None) => return,
             Err(e) => {
                 log::error!("acceptor error: {:?}", e);
                 return;
