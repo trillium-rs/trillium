@@ -42,7 +42,9 @@ For more documentation on the default values and what configuration can be chain
 
 With the exception of aws lambda, which provides its own tls
 termination at the load balancer, each of the above servers can be
-combined with either rustls or native-tls.
+combined with either rustls or native-tls, or with `trillium-acme` to register
+a certificate automatically with an ACME certificate provider like Let's
+Encrypt.
 
 ### Rustls:
 [rustdocs (main)](https://docs.trillium.rs/trillium_rustls/index.html)
@@ -58,3 +60,5 @@ combined with either rustls or native-tls.
 {{#include ../../../native-tls/examples/native-tls.rs}}
 ```
 
+### Automatic HTTPS via Let's Encrypt:
+See the [`trillium-acme` documentation](https://docs.rs/trillium-acme/latest/trillium_acme/) for examples.
