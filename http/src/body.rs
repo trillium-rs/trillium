@@ -342,6 +342,21 @@ impl From<Vec<u8>> for Body {
     }
 }
 
+impl From<Cow<'static, [u8]>> for Body {
+    fn from(value: Cow<'static, [u8]>) -> Self {
+        Self::new_static(value)
+    }
+}
+
+impl From<Cow<'static, str>> for Body {
+    fn from(value: Cow<'static, str>) -> Self {
+        match value {
+            Cow::Borrowed(b) => b.into(),
+            Cow::Owned(o) => o.into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test_bytes_to_read {
     #[test]
