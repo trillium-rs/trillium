@@ -48,7 +48,7 @@ impl Version {
 }
 
 #[derive(Debug, Clone)]
-pub struct UnrecognizedVersion(String);
+pub struct UnrecognizedVersion(pub(crate) String);
 impl Display for UnrecognizedVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("unrecognized http version: {}", self.0))

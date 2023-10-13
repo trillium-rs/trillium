@@ -36,30 +36,40 @@ use trillium::{
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Ord, PartialOrd)]
 #[non_exhaustive]
 pub enum CompressionAlgorithm {
+#[cfg(feature = "zstd")]
+    /// Zstd algorithm
+    Zstd,
+
+#[cfg(feature = "brotli")]
     /// Brotli algorithm
     Brotli,
 
+#[cfg(feature = "gzip")]
     /// Gzip algorithm
     Gzip,
-
-    /// Zstd algorithm
-    Zstd,
 }
 
 impl CompressionAlgorithm {
     fn as_str(&self) -> &'static str {
         match self {
+            #[cfg(feature = "brotli")]
             CompressionAlgorithm::Brotli => "br",
+            #[cfg(feature = "gzip")]
             CompressionAlgorithm::Gzip => "gzip",
+            #[cfg(feature = "zstd")]
             CompressionAlgorithm::Zstd => "zstd",
         }
     }
 
     fn from_str_exact(s: &str) -> Option<Self> {
         match s {
+            #[cfg(feature = "brotli")]
             "br" => Some(CompressionAlgorithm::Brotli),
+            #[cfg(feature = "gzip")]
             "gzip" => Some(CompressionAlgorithm::Gzip),
+            #[cfg(feature = "gzip")]
             "x-gzip" => Some(CompressionAlgorithm::Gzip),
+            #[cfg(feature = "zstd")]
             "zstd" => Some(CompressionAlgorithm::Zstd),
             _ => None,
         }
@@ -93,7 +103,7 @@ Trillium handler for compression
 */
 #[derive(Clone, Debug)]
 pub struct Compression {
-    algorithms: BTreeSet<CompressionAlgorithm>,
+    algorithms: Vec<CompressionAlgorithm>,
 }
 
 impl Default for Compression {

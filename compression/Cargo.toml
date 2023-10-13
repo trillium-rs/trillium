@@ -10,6 +10,12 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[features]
+default = ["brotli", "gzip"]
+brotli = ["async-compression/brotli"]
+gzip = ["async-compression/gzip"]
+zstd = ["async-compression/zstd"]
+
 [dependencies]
 futures-lite = "1.13.0"
 trillium = { path = "../trillium", version = "^0.2.0" }
@@ -17,7 +23,7 @@ log = "0.4.19"
 
 [dependencies.async-compression]
 version = "0.4.1"
-features = ["brotli", "gzip", "zstd", "futures-io"]
+features = ["futures-io"]
 
 [dev-dependencies]
 env_logger = "0.10.0"
@@ -28,4 +34,3 @@ trillium-static = { path = "../static", features = ["smol"] }
 trillium-static-compiled = { path = "../static-compiled" }
 trillium-testing = { path = "../testing" }
 
-[features]

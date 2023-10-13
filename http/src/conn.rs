@@ -1,5 +1,6 @@
 use crate::{
     copy,
+    new_headers::NewHeaders,
     received_body::ReceivedBodyState,
     util::encoding,
     Body, ConnectionStatus, Error, HeaderValues, Headers,
@@ -9,7 +10,7 @@ use crate::{
 use encoding_rs::Encoding;
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use httparse::{Request, EMPTY_HEADER};
-use memmem::{Searcher, TwoWaySearcher};
+use memchr::memmem::Finder;
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
@@ -503,43 +504,30 @@ where
             Some(extra_bytes)
         };
 
-        let mut headers = [EMPTY_HEADER; MAX_HEADERS];
-        let mut httparse_req = Request::new(&mut headers);
+        let first_line_index = memchr::memmem::Finder::new(b"\r\n")
+            .find(&buf)
+            .ok_or(Error::PartialHead)?;
+        let mut first_line = buf.clone();
+        let headers = first_line.split_off(first_line_index + 2);
+        let (method, path, version) =
+            match &memchr::memchr_iter(b' ', &first_line[..]).collect::<Vec<usize>>()[..] {
+                [first, second] => {
+                    let (first, second) = (*first, *second);
+                    let method = Method::from_str(std::str::from_utf8(&first_line[0..first])?)?;
+                    let path = std::str::from_utf8(&first_line[first + 1..second])?.to_owned();
+                    let version = Version::from_str(std::str::from_utf8(
+                        &first_line[second + 1..first_line_index],
+                    )?)
+                    .map_err(|_e| Error::PartialHead)?;
 
-        let status = httparse_req.parse(&buf[..])?;
-        if status.is_partial() {
-            log::trace!("partial head content: {}", String::from_utf8_lossy(&buf));
-            return Err(Error::PartialHead);
-        }
-
-        let method = match httparse_req.method {
-            Some(method) => match method.parse() {
-                Ok(method) => method,
-                Err(_) => return Err(Error::UnrecognizedMethod(method.to_string())),
-            },
-            None => return Err(Error::MissingMethod),
-        };
-
-        let version = match httparse_req.version {
-            Some(0) => Version::Http1_0,
-            Some(1) => Version::Http1_1,
-            Some(version) => return Err(Error::UnsupportedVersion(version)),
-            None => return Err(Error::MissingVersion),
-        };
-
-        let mut request_headers = Headers::with_capacity(httparse_req.headers.len());
-        for header in httparse_req.headers {
-            let header_name = crate::HeaderName::from_str(header.name)?;
-            let header_value = crate::HeaderValue::from(header.value.to_owned());
-            request_headers.append(header_name, header_value);
-        }
-
+                    (method, path, version)
+                }
+                _ => return Err(Error::PartialHead),
+            };
+        let new_headers = NewHeaders::new(headers).map_err(|e| Error::PartialHead)?;
+        let request_headers = new_headers.into();
         Self::validate_headers(&request_headers)?;
 
-        let path = httparse_req
-            .path
-            .ok_or(Error::RequestPathMissing)?
-            .to_owned();
         log::debug!("received:\n{method} {path} {version}\n{request_headers}");
 
         let response_headers = Self::build_response_headers();
@@ -668,10 +656,12 @@ where
         let mut len = 0;
         let mut start_with_read = buf.is_empty();
         let mut instant = None;
-        let searcher = TwoWaySearcher::new(b"\r\n\r\n");
+        let finder = Finder::new(b"\r\n\r\n");
+        let mut reads = 0;
         loop {
             let bytes = if start_with_read {
-                buf.extend(iter::repeat(0).take(1024));
+                reads += 1;
+                buf.resize(buf.len() + 2usize.pow((reads * 2) + 6), 0);
                 if len == 0 {
                     stopper
                         .stop_future(transport.read(&mut buf[..]))
@@ -685,12 +675,14 @@ where
                 buf.len()
             };
 
+            dbg!(&bytes);
+
             if instant.is_none() {
                 instant = Some(Instant::now());
             }
 
             let search_start = len.max(3) - 3;
-            let search = searcher.search_in(&buf[search_start..]);
+            let search = finder.find(&buf[search_start..]);
 
             if let Some(index) = search {
                 buf.truncate(len + bytes);

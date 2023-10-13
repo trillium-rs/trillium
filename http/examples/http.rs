@@ -4,7 +4,13 @@ use trillium_http::{Conn, Stopper};
 
 async fn handler(mut conn: Conn<TcpStream>) -> Conn<TcpStream> {
     conn.set_status(200);
-    conn.set_response_body("ok");
+    let body = conn
+        .request_body()
+        .await
+        .read_string()
+        .await
+        .unwrap_or_default();
+    conn.set_response_body(format!("ok {body}"));
     conn
 }
 

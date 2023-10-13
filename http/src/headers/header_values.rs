@@ -13,6 +13,7 @@ use std::{
 /// accomodate more than one value.
 #[derive(Clone, Eq, PartialEq)]
 pub struct HeaderValues(SmallVec<[HeaderValue; 1]>);
+
 impl Deref for HeaderValues {
     type Target = [HeaderValue];
 

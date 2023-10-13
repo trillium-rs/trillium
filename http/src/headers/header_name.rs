@@ -1,12 +1,14 @@
-use smartcow::SmartCow;
+use super::{KnownHeaderName, UnknownHeaderName};
+use crate::Error;
 use smartstring::alias::String as SmartString;
 use std::{
+    borrow::Cow,
     fmt::{self, Debug, Display, Formatter},
     hash::Hash,
     str::FromStr,
+    sync::{Arc, Weak},
 };
-
-use super::{KnownHeaderName, UnknownHeaderName};
+use HeaderNameInner::{KnownHeader, UnknownHeader};
 
 /// The name of a http header. This can be either a
 /// [`KnownHeaderName`] or a string representation of an unknown
@@ -18,21 +20,36 @@ pub struct HeaderName<'a>(pub(super) HeaderNameInner<'a>);
 pub(super) enum HeaderNameInner<'a> {
     /// A `KnownHeaderName`
     KnownHeader(KnownHeaderName),
-    UnknownHeader(UnknownHeaderName<'a>),
+    UnknownHeader(Cow<'a, UnknownHeaderName>),
 }
-use crate::Error;
-use HeaderNameInner::{KnownHeader, UnknownHeader};
 
-impl<'a> HeaderName<'a> {
+impl<'a> From<&'a UnknownHeaderName> for HeaderName<'a> {
+    fn from(value: &'a UnknownHeaderName) -> Self {
+        Self(UnknownHeader(Cow::Borrowed(value)))
+    }
+}
+
+impl<'a> From<&'a KnownHeaderName> for HeaderName<'_> {
+    fn from(value: &'a KnownHeaderName) -> Self {
+        Self(KnownHeader(*value))
+    }
+}
+
+impl From<UnknownHeaderName> for HeaderName<'_> {
+    fn from(value: UnknownHeaderName) -> Self {
+        Self(UnknownHeader(Cow::Owned(value.into_owned())))
+    }
+}
+
+impl HeaderName<'_> {
     /// Convert a potentially-borrowed headername to a static
     /// headername _by value_.
     #[must_use]
     pub fn into_owned(self) -> HeaderName<'static> {
         HeaderName(match self.0 {
             KnownHeader(known) => KnownHeader(known),
-            UnknownHeader(UnknownHeaderName(smartcow)) => {
-                UnknownHeader(UnknownHeaderName(smartcow.into_owned()))
-            }
+            UnknownHeader(Cow::Owned(o)) => UnknownHeader(Cow::Owned(o.into_owned())),
+            UnknownHeader(Cow::Borrowed(o)) => UnknownHeader(Cow::Owned(o.clone())),
         })
     }
 
@@ -65,32 +82,32 @@ impl PartialEq<KnownHeaderName> for &HeaderName<'_> {
     }
 }
 
-impl From<String> for HeaderName<'static> {
+impl From<String> for HeaderName<'_> {
     fn from(s: String) -> Self {
         Self(match s.parse::<KnownHeaderName>() {
             Ok(khn) => KnownHeader(khn),
-            Err(()) => UnknownHeader(UnknownHeaderName(SmartCow::Owned(s.into()))),
+            Err(()) => UnknownHeader(Cow::Owned(UnknownHeaderName::Owned(s.into()))),
         })
     }
 }
 
-impl<'a> From<&'a str> for HeaderName<'a> {
-    fn from(s: &'a str) -> Self {
+impl From<&str> for HeaderName<'_> {
+    fn from(s: &str) -> Self {
         Self(match s.parse::<KnownHeaderName>() {
             Ok(khn) => KnownHeader(khn),
-            Err(_e) => UnknownHeader(UnknownHeaderName(SmartCow::Borrowed(s))),
+            Err(_e) => UnknownHeader(Cow::Owned(UnknownHeaderName::Owned(SmartString::from(s)))),
         })
     }
 }
 
-impl FromStr for HeaderName<'static> {
+impl FromStr for HeaderName<'_> {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.is_ascii() {
             Ok(Self(match s.parse::<KnownHeaderName>() {
                 Ok(known) => KnownHeader(known),
-                Err(_) => UnknownHeader(UnknownHeaderName(SmartCow::Owned(SmartString::from(s)))),
+                Err(_) => UnknownHeader(Cow::Owned(UnknownHeaderName::Owned(SmartString::from(s)))),
             }))
         } else {
             Err(Error::MalformedHeader(s.to_string().into()))

@@ -132,3 +132,5 @@ pub mod http_compat;
 
 mod copy;
 pub(crate) use copy::copy;
+
+pub mod new_headers;

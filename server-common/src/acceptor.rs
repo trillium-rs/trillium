@@ -18,18 +18,20 @@ where
 {
     type Output = my_tls_impl::TlsStream<Input>;
     type Error = my_tls_impl::Error;
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
-        self.accept(input).await
+    async fn accept(&self, input: Input) -> Result<Option<Self::Output>, Self::Error> {
+        self.accept(input).await.map(Some)
     }
 }
 ```
+
+Returning None from `accept` indicates that the received transport connection---while not an error---did not map to an application transport but was received and processed by 
 */
 #[async_trait]
 pub trait Acceptor<Input>: Clone + Send + Sync + 'static
 where
     Input: Transport,
 {
-    /// The stream type. For example, `TlsStream<Input>`
+    /// The stream type. For example, TlsStream<Input>
     type Output: Transport;
 
     /// An error type that [`Acceptor::accept`] may return
@@ -40,10 +42,10 @@ where
 
     Async trait signature:
     ```rust,ignore
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error>;
+    async fn accept(&self, input: Input) -> Result<Option<Self::Output>, Self::Error>;
     ```
     */
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error>;
+    async fn accept(&self, input: Input) -> Result<Option<Self::Output>, Self::Error>;
 }
 
 #[async_trait]
@@ -53,7 +55,7 @@ where
 {
     type Output = Input;
     type Error = Infallible;
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
-        Ok(input)
+    async fn accept(&self, input: Input) -> Result<Option<Self::Output>, Self::Error> {
+        Ok(Some(input))
     }
 }

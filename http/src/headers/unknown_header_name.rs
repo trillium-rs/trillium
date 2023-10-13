@@ -1,73 +1,67 @@
+use super::{weakrange::WeakRange, HeaderName, HeaderNameInner::UnknownHeader};
+use hashbrown::Equivalent;
+use smartcow::SmartCow;
+use smartstring::alias::String as SmartString;
 use std::{
     fmt::{self, Debug, Display, Formatter},
     hash::{Hash, Hasher},
+    marker::PhantomData,
     ops::Deref,
+    sync::Weak,
 };
 
-use hashbrown::Equivalent;
-use smartcow::SmartCow;
-
-use super::{HeaderName, HeaderNameInner::UnknownHeader};
-
 #[derive(Clone)]
-pub(super) struct UnknownHeaderName<'a>(pub(super) SmartCow<'a>);
-
-impl PartialEq for UnknownHeaderName<'_> {
+pub(super) struct UnknownHeaderName(SmartString);
+impl PartialEq for UnknownHeaderName {
     fn eq(&self, other: &Self) -> bool {
-        self.0.eq_ignore_ascii_case(&other.0)
+        self.as_ref().eq_ignore_ascii_case(other.as_ref())
     }
 }
 
-impl Eq for UnknownHeaderName<'_> {}
+impl AsRef<str> for UnknownHeaderName {
+    fn as_ref(&self) -> &str {
+        &*self.0
+    }
+}
 
-impl Hash for UnknownHeaderName<'_> {
+impl Eq for UnknownHeaderName {}
+
+impl Hash for UnknownHeaderName {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        for c in self.0.as_bytes() {
+        for c in self.as_ref().as_bytes() {
             c.to_ascii_lowercase().hash(state);
         }
     }
 }
 
-impl Debug for UnknownHeaderName<'_> {
+impl Debug for UnknownHeaderName {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Debug::fmt(&self.0, f)
+        Debug::fmt(self.as_ref(), f)
     }
 }
 
-impl Display for UnknownHeaderName<'_> {
+impl Display for UnknownHeaderName {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.0, f)
+        Display::fmt(self.as_ref(), f)
     }
 }
 
-impl<'a> From<UnknownHeaderName<'a>> for HeaderName<'a> {
-    fn from(value: UnknownHeaderName<'a>) -> Self {
-        HeaderName(UnknownHeader(value))
-    }
-}
-
-impl<'a> From<SmartCow<'a>> for UnknownHeaderName<'a> {
-    fn from(value: SmartCow<'a>) -> Self {
+impl From<SmartString> for UnknownHeaderName {
+    fn from(value: SmartString) -> Self {
         Self(value)
     }
 }
 
-impl<'a> From<UnknownHeaderName<'a>> for SmartCow<'a> {
-    fn from(value: UnknownHeaderName<'a>) -> Self {
-        value.0
-    }
-}
-
-impl Deref for UnknownHeaderName<'_> {
+impl Deref for UnknownHeaderName {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.as_ref()
     }
 }
 
-impl Equivalent<UnknownHeaderName<'_>> for &UnknownHeaderName<'_> {
-    fn equivalent(&self, key: &UnknownHeaderName<'_>) -> bool {
+impl Equivalent<UnknownHeaderName> for &UnknownHeaderName {
+    fn equivalent(&self, key: &UnknownHeaderName) -> bool {
         key.eq_ignore_ascii_case(self)
     }
 }

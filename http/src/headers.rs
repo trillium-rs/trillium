@@ -3,6 +3,7 @@ mod header_value;
 mod header_values;
 mod known_header_name;
 mod unknown_header_name;
+mod weakrange;
 
 pub use header_name::HeaderName;
 pub use header_value::HeaderValue;
@@ -21,14 +22,16 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
     hash::{BuildHasherDefault, Hasher},
     iter::FromIterator,
+    sync::Arc,
 };
 
 /// Trillium's header map type
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct Headers {
+    bytes: Option<Arc<[u8]>>,
     known: HashMap<KnownHeaderName, HeaderValues, BuildHasherDefault<DirectHasher>>,
-    unknown: HashMap<UnknownHeaderName<'static>, HeaderValues>,
+    unknown: HashMap<UnknownHeaderName, HeaderValues>,
 }
 
 impl Default for Headers {
@@ -48,18 +51,56 @@ impl Display for Headers {
     }
 }
 
+fn is_valid_token_char(c: u8) -> bool {
+    !matches!(c, 0..=32|127..|34|40|41|44|47|58|59|60|61|62|63|64|91|92|93|123|125)
+}
+
 impl Headers {
     /// Construct a new Headers, expecting to see at least this many known headers.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             known: HashMap::with_capacity_and_hasher(capacity, BuildHasherDefault::default()),
             unknown: HashMap::with_capacity(0),
+            bytes: None,
         }
     }
 
     /// Construct a new headers with a default capacity of 15 known headers
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn parse(bytes: Vec<u8>) -> Result<Self, ParseError> {
+        let bytes: Arc<[u8]> = bytes.into();
+        let mut last_line = 0;
+        for newline in memchr::memmem::Finder::new(b"\r\n").find_iter(&bytes) {
+            if newline == last_line {
+                continue;
+            }
+            let token_start = last_line;
+            let mut token_end = token_start;
+            while is_valid_token_char(bytes[token_end]) {
+                token_end += 1;
+            }
+
+            let utf8: Arc<str> = std::str::from_utf8(&bytes[token_start..token_end])
+                .map_err(|_| ParseError)?
+                .into();
+
+            if bytes[token_end] != b':' {
+                return Err(ParseError);
+            }
+
+            let mut value_start = token_end + 1;
+            while (bytes[value_start] as char).is_whitespace() {
+                value_start += 1;
+            }
+
+            //            ranges.push((token_start..token_end, value_start..newline));
+            last_line = newline + 2;
+        }
+
+        return Ok(Self::default());
     }
 
     /// Extend the capacity of the known headers map by this many
@@ -101,14 +142,16 @@ impl Headers {
                 }
             },
 
-            HeaderNameInner::UnknownHeader(unknown) => match self.unknown.entry(unknown) {
-                Entry::Occupied(mut o) => {
-                    o.get_mut().extend(value);
+            HeaderNameInner::UnknownHeader(unknown) => {
+                match self.unknown.entry(unknown.into_owned()) {
+                    Entry::Occupied(mut o) => {
+                        o.get_mut().extend(value);
+                    }
+                    Entry::Vacant(v) => {
+                        v.insert(value);
+                    }
                 }
-                Entry::Vacant(v) => {
-                    v.insert(value);
-                }
-            },
+            }
         }
     }
 
@@ -162,7 +205,7 @@ impl Headers {
             }
 
             HeaderNameInner::UnknownHeader(unknown) => {
-                self.unknown.insert(unknown, value);
+                self.unknown.insert(unknown.into_owned(), value);
             }
         }
     }
@@ -181,7 +224,7 @@ impl Headers {
             }
 
             HeaderNameInner::UnknownHeader(unknown) => {
-                self.unknown.entry(unknown).or_insert(value);
+                self.unknown.entry(unknown.into_owned()).or_insert(value);
             }
         }
     }
@@ -212,7 +255,7 @@ impl Headers {
     pub fn remove<'a>(&mut self, name: impl Into<HeaderName<'a>>) -> Option<HeaderValues> {
         match name.into().0 {
             HeaderNameInner::KnownHeader(known) => self.known.remove(&known),
-            HeaderNameInner::UnknownHeader(unknown) => self.unknown.remove(&&unknown),
+            HeaderNameInner::UnknownHeader(unknown) => self.unknown.remove(&*unknown),
         }
     }
 
@@ -222,7 +265,7 @@ impl Headers {
     pub fn get_values<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<&HeaderValues> {
         match name.into().0 {
             HeaderNameInner::KnownHeader(known) => self.known.get(&known),
-            HeaderNameInner::UnknownHeader(unknown) => self.unknown.get(&&unknown),
+            HeaderNameInner::UnknownHeader(unknown) => self.unknown.get(&*unknown),
         }
     }
 
@@ -233,7 +276,7 @@ impl Headers {
     pub fn has_header<'a>(&self, name: impl Into<HeaderName<'a>>) -> bool {
         match name.into().0 {
             HeaderNameInner::KnownHeader(known) => self.known.contains_key(&known),
-            HeaderNameInner::UnknownHeader(unknown) => self.unknown.contains_key(&unknown),
+            HeaderNameInner::UnknownHeader(unknown) => self.unknown.contains_key(&*unknown),
         }
     }
 
@@ -241,11 +284,7 @@ impl Headers {
     /// this header map for the provided name is
     /// ascii-case-insensitively equal to the provided comparison
     /// &str. Returns false if there is no value for the name
-    pub fn eq_ignore_ascii_case<'a>(
-        &'a self,
-        name: impl Into<HeaderName<'a>>,
-        needle: &str,
-    ) -> bool {
+    pub fn eq_ignore_ascii_case<'a>(&self, name: impl Into<HeaderName<'a>>, needle: &str) -> bool {
         self.get_str(name).map(|v| v == needle).unwrap_or_default()
     }
 
@@ -275,9 +314,9 @@ impl Headers {
     }
 
     /// Chainable method to insert a header
-    pub fn with_inserted_header(
+    pub fn with_inserted_header<'a>(
         mut self,
-        name: impl Into<HeaderName<'static>>,
+        name: impl Into<HeaderName<'a>>,
         values: impl Into<HeaderValues>,
     ) -> Self {
         self.insert(name, values);
@@ -285,9 +324,9 @@ impl Headers {
     }
 
     /// Chainable method to append a header
-    pub fn with_appended_header(
+    pub fn with_appended_header<'a>(
         mut self,
-        name: impl Into<HeaderName<'static>>,
+        name: impl Into<HeaderName<'a>>,
         values: impl Into<HeaderValues>,
     ) -> Self {
         self.append(name, values);
@@ -295,16 +334,16 @@ impl Headers {
     }
 
     /// Chainable method to remove a header
-    pub fn without_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
+    pub fn without_header<'a>(mut self, name: impl Into<HeaderName<'a>>) -> Self {
         self.remove(name);
         self
     }
 
     /// Chainable method to remove multiple headers by name
-    pub fn without_headers<I, H>(mut self, names: I) -> Self
+    pub fn without_headers<'a, I, H>(mut self, names: I) -> Self
     where
         I: IntoIterator<Item = H>,
-        H: Into<HeaderName<'static>>,
+        H: Into<HeaderName<'a>>,
     {
         for header in names {
             self.remove(header.into());
@@ -313,9 +352,11 @@ impl Headers {
     }
 }
 
-impl<HN, HV> Extend<(HN, HV)> for Headers
+pub struct ParseError;
+
+impl<'a, HN, HV> Extend<(HN, HV)> for Headers
 where
-    HN: Into<HeaderName<'static>>,
+    HN: Into<HeaderName<'a>>,
     HV: Into<HeaderValues>,
 {
     fn extend<T: IntoIterator<Item = (HN, HV)>>(&mut self, iter: T) {
@@ -331,9 +372,9 @@ where
     }
 }
 
-impl<HN, HV> FromIterator<(HN, HV)> for Headers
+impl<'a, HN, HV> FromIterator<(HN, HV)> for Headers
 where
-    HN: Into<HeaderName<'static>>,
+    HN: Into<HeaderName<'a>>,
     HV: Into<HeaderValues>,
 {
     fn from_iter<T: IntoIterator<Item = (HN, HV)>>(iter: T) -> Self {
@@ -383,7 +424,7 @@ impl<'a> IntoIterator for &'a Headers {
 #[derive(Debug)]
 pub struct IntoIter {
     known: hash_map::IntoIter<KnownHeaderName, HeaderValues>,
-    unknown: hash_map::IntoIter<UnknownHeaderName<'static>, HeaderValues>,
+    unknown: hash_map::IntoIter<UnknownHeaderName, HeaderValues>,
 }
 
 impl Iterator for IntoIter {
@@ -409,7 +450,7 @@ impl From<Headers> for IntoIter {
 #[derive(Debug)]
 pub struct Iter<'a> {
     known: hash_map::Iter<'a, KnownHeaderName, HeaderValues>,
-    unknown: hash_map::Iter<'a, UnknownHeaderName<'static>, HeaderValues>,
+    unknown: hash_map::Iter<'a, UnknownHeaderName, HeaderValues>,
 }
 
 impl<'a> From<&'a Headers> for Iter<'a> {
@@ -428,8 +469,8 @@ impl<'a> Iterator for Iter<'a> {
         let Iter { known, unknown } = self;
         known
             .next()
-            .map(|(k, v)| (HeaderName::from(*k), v))
-            .or_else(|| unknown.next().map(|(k, v)| (HeaderName::from(&**k), v)))
+            .map(|(k, v)| (HeaderName::from(k), v))
+            .or_else(|| unknown.next().map(|(k, v)| (HeaderName::from(k), v)))
     }
 }
 
