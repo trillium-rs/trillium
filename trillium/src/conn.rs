@@ -66,7 +66,8 @@ reading on this.
 */
 
 pub struct Conn {
-    inner: trillium_http::Conn<BoxedTransport>,
+    inner: Option<trillium_http::Conn<BoxedTransport>>,
+    on_drop: Option<Box<dyn FnOnce(Conn) + Send + Sync + 'static>>,
     halted: bool,
     path: Vec<String>,
 }
@@ -74,9 +75,17 @@ pub struct Conn {
 impl Debug for Conn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Conn")
-            .field("inner", &self.inner)
+            .field("inner", self.inner())
             .field("halted", &self.halted)
             .field("path", &self.path)
+            .field(
+                "on_drop",
+                if self.on_drop.is_some() {
+                    &"Some(..)"
+                } else {
+                    &"None"
+                },
+            )
             .finish()
     }
 }
@@ -84,9 +93,10 @@ impl Debug for Conn {
 impl<T: Transport + 'static> From<trillium_http::Conn<T>> for Conn {
     fn from(inner: trillium_http::Conn<T>) -> Self {
         Self {
-            inner: inner.map_transport(BoxedTransport::new),
+            inner: Some(inner.map_transport(BoxedTransport::new)),
             halted: false,
             path: vec![],
+            on_drop: None,
         }
     }
 }
@@ -121,12 +131,12 @@ impl Conn {
     ```
      */
     pub fn status(&self) -> Option<Status> {
-        self.inner.status()
+        self.inner().status()
     }
 
     /// assigns a status to this response. see [`Conn::status`] for example usage
     pub fn set_status(&mut self, status: impl TryInto<Status>) {
-        self.inner.set_status(status);
+        self.inner_mut().set_status(status);
     }
 
     /**
@@ -184,7 +194,7 @@ impl Conn {
     ```
     */
     pub fn set_body(&mut self, body: impl Into<Body>) {
-        self.inner.set_response_body(body);
+        self.inner_mut().set_response_body(body);
     }
 
     /**
@@ -201,7 +211,7 @@ impl Conn {
     ```
     */
     pub fn take_response_body(&mut self) -> Option<Body> {
-        self.inner.take_response_body()
+        self.inner_mut().take_response_body()
     }
 
     /**
@@ -219,7 +229,7 @@ impl Conn {
     ```
     */
     pub fn response_body(&self) -> Option<&Body> {
-        self.inner.response_body()
+        self.inner().response_body()
     }
 
     /**
@@ -236,19 +246,19 @@ impl Conn {
     ```
     */
     pub fn state<T: 'static>(&self) -> Option<&T> {
-        self.inner.state().get()
+        self.inner().state().get()
     }
 
     /// Attempts to retrieve a &mut T from the state set
     pub fn state_mut<T: 'static>(&mut self) -> Option<&mut T> {
-        self.inner.state_mut().get_mut()
+        self.inner_mut().state_mut().get_mut()
     }
 
     /// Puts a new type into the state set. see [`Conn::state`]
     /// for an example. returns the previous instance of this type, if
     /// any
     pub fn set_state<T: Send + Sync + 'static>(&mut self, val: T) -> Option<T> {
-        self.inner.state_mut().insert(val)
+        self.inner_mut().state_mut().insert(val)
     }
 
     /// Puts a new type into the state set and returns the
@@ -261,7 +271,7 @@ impl Conn {
 
     /// Removes a type from the state set and returns it, if present
     pub fn take_state<T: Send + Sync + 'static>(&mut self) -> Option<T> {
-        self.inner.state_mut().take()
+        self.inner_mut().state_mut().take()
     }
 
     /**
@@ -274,7 +284,7 @@ impl Conn {
         T: Send + Sync + 'static,
         F: FnOnce() -> T,
     {
-        self.inner.state_mut().get_or_insert_with(default)
+        self.inner_mut().state_mut().get_or_insert_with(default)
     }
 
     /**
@@ -300,7 +310,7 @@ impl Conn {
     ```
     */
     pub async fn request_body(&mut self) -> ReceivedBody<'_, BoxedTransport> {
-        self.inner.request_body().await
+        self.inner_mut().request_body().await
     }
 
     /**
@@ -343,7 +353,7 @@ impl Conn {
     ```
     */
     pub fn response_len(&self) -> Option<u64> {
-        self.inner.response_body().and_then(Body::len)
+        self.inner().response_body().and_then(Body::len)
     }
 
     /**
@@ -357,43 +367,43 @@ impl Conn {
 
     */
     pub fn method(&self) -> Method {
-        self.inner.method()
+        self.inner().method()
     }
 
     /// borrows the request headers
     ///
     /// this is aliased as [`Conn::request_headers`]
     pub fn headers(&self) -> &Headers {
-        self.inner.request_headers()
+        self.inner().request_headers()
     }
 
     /// mutably borrows response headers
     ///
     /// this is aliased as [`Conn::response_headers_mut`]
     pub fn headers_mut(&mut self) -> &mut Headers {
-        self.inner.response_headers_mut()
+        self.inner_mut().response_headers_mut()
     }
 
     /// borrow the response headers
     pub fn response_headers(&self) -> &Headers {
-        self.inner.response_headers()
+        self.inner().response_headers()
     }
 
     /// mutably borrow the response headers
     ///
     /// this is aliased as [`Conn::headers_mut`]
     pub fn response_headers_mut(&mut self) -> &mut Headers {
-        self.inner.response_headers_mut()
+        self.inner_mut().response_headers_mut()
     }
 
     /// borrow the request headers
     pub fn request_headers(&self) -> &Headers {
-        self.inner.request_headers()
+        self.inner().request_headers()
     }
 
     /// mutably borrow request headers
     pub fn request_headers_mut(&mut self) -> &mut Headers {
-        self.inner.request_headers_mut()
+        self.inner_mut().request_headers_mut()
     }
 
     /**
@@ -425,7 +435,9 @@ impl Conn {
     routers.
     */
     pub fn path(&self) -> &str {
-        self.path.last().map_or_else(|| self.inner.path(), |p| &**p)
+        self.path
+            .last()
+            .map_or_else(|| self.inner().path(), |p| &**p)
     }
 
     /**
@@ -453,7 +465,7 @@ impl Conn {
 
     */
     pub fn querystring(&self) -> &str {
-        self.inner.querystring()
+        self.inner().querystring()
     }
 
     /**
@@ -503,7 +515,7 @@ impl Conn {
     /// terminated tls and provided appropriate headers to indicate
     /// this.
     pub fn is_secure(&self) -> bool {
-        self.inner.is_secure()
+        self.inner().is_secure()
     }
 
     /// returns an immutable reference to the inner
@@ -513,8 +525,11 @@ impl Conn {
     /// stability note: hopefully this can go away at some point, but
     /// for now is an escape hatch in case `trillium_http::Conn`
     /// presents interfaces that cannot be reached otherwise.
-    pub const fn inner(&self) -> &trillium_http::Conn<BoxedTransport> {
-        &self.inner
+    // missing_panics_doc allowed because it should be unreachable in user code
+    #[allow(clippy::missing_panics_doc)]
+    #[inline]
+    pub fn inner(&self) -> &trillium_http::Conn<BoxedTransport> {
+        self.inner.as_ref().unwrap()
     }
 
     /// returns a mutable reference to the inner
@@ -524,8 +539,11 @@ impl Conn {
     /// stability note: hopefully this can go away at some point, but
     /// for now is an escape hatch in case `trillium_http::Conn`
     /// presents interfaces that cannot be reached otherwise.
+    // missing_panics_doc allowed because it should be unreachable in user code
+    #[allow(clippy::missing_panics_doc)]
+    #[inline]
     pub fn inner_mut(&mut self) -> &mut trillium_http::Conn<BoxedTransport> {
-        &mut self.inner
+        self.inner.as_mut().unwrap()
     }
 
     /// transforms this `trillium::Conn` into a `trillium_http::Conn`
@@ -534,8 +552,11 @@ impl Conn {
     /// transport into the wrong transport type. Also note that this
     /// is a lossy conversion, dropping the halted state and any
     /// nested router path data.
-    pub fn into_inner<T: Transport>(self) -> trillium_http::Conn<T> {
-        self.inner.map_transport(|t| {
+    // missing_panics_doc allowed because it should be unreachable in user code
+    #[allow(clippy::missing_panics_doc)]
+    #[inline]
+    pub fn into_inner<T: Transport>(mut self) -> trillium_http::Conn<T> {
+        self.inner.take().unwrap().map_transport(|t| {
             *t.downcast()
                 .expect("attempted to downcast to the wrong transport type")
         })
@@ -560,16 +581,42 @@ impl Conn {
     pub fn pop_path(&mut self) {
         self.path.pop();
     }
+
+    /// panic recovery function
+    pub fn on_drop(&mut self, on_drop: impl FnOnce(Self) + Send + Sync + 'static) {
+        self.on_drop = Some(Box::new(on_drop));
+    }
 }
 
 impl AsMut<StateSet> for Conn {
     fn as_mut(&mut self) -> &mut StateSet {
-        self.inner.state_mut()
+        self.inner_mut().state_mut()
     }
 }
 
 impl AsRef<StateSet> for Conn {
     fn as_ref(&self) -> &StateSet {
-        self.inner.state()
+        self.inner().state()
+    }
+}
+
+impl Drop for Conn {
+    fn drop(&mut self) {
+        let Some(on_drop) = self.on_drop.take() else {
+            return;
+        };
+
+        let Some(inner) = self.inner.take() else {
+            return;
+        };
+
+        let conn = Self {
+            inner: Some(inner),
+            on_drop: None,
+            halted: self.halted,
+            path: self.path.clone(),
+        };
+
+        on_drop(conn);
     }
 }
