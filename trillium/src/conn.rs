@@ -205,6 +205,24 @@ impl Conn {
     }
 
     /**
+    Borrows the response body from the `Conn`
+
+    ```
+    use trillium_testing::prelude::*;
+    let mut conn = get("/").on(&());
+
+    conn.set_body("hello");
+    let body = conn.response_body().unwrap();
+    assert_eq!(body.len(), Some(5));
+    assert!(body.is_static());
+    assert_eq!(body.static_bytes(), Some(&b"hello"[..]));
+    ```
+    */
+    pub fn response_body(&self) -> Option<&Body> {
+        self.inner.response_body()
+    }
+
+    /**
     Attempts to retrieve a &T from the state set
 
     ```
