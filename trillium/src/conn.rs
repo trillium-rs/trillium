@@ -421,6 +421,18 @@ impl Conn {
     let conn = get("/a/b").on(&());
     assert_eq!(conn.querystring(), "");
     ```
+
+
+    # Parsing
+
+    Trillium does not include a querystring parsing library, as there is no universal standard for
+    querystring encodings of arrays, but several library options exist, inluding:
+
+    * [`QueryStrong`](https://docs.rs/querystrong/) (by the author of trillium)
+    * [`serde_qs`](https://docs.rs/serde_qs/)
+    * [`querystring`](https://docs.rs/querystring/)
+    * [`serde_querystring`](https://docs.rs/serde-querystring/latest/serde_querystring/)
+
     */
     pub fn querystring(&self) -> &str {
         self.inner.querystring()
