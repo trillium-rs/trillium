@@ -4,9 +4,7 @@ use uuid::Uuid;
 
 #[test]
 fn test_defaults() {
-    fastrand::seed(1000);
-    let app = (ConnId::new(), "ok");
-
+    let app = (ConnId::new().with_seed(1000), "ok");
     assert_ok!(get("/").on(&app), "ok", "x-request-id" => "4fekClhof7");
     assert_ok!(get("/").on(&app), "ok", "x-request-id" => "PAmkU1LPSe");
     assert_ok!(
@@ -48,10 +46,9 @@ fn test_settings() {
 
 #[test]
 fn test_no_headers() {
-    fastrand::seed(1000);
-
     let app = (
         ConnId::new()
+            .with_seed(1000)
             .without_request_header()
             .without_response_header(),
         "ok",
