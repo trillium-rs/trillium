@@ -1,5 +1,5 @@
 use trillium::Conn;
-use trillium_cookies::{cookie::Cookie, CookiesConnExt, CookiesHandler};
+use trillium_cookies::{CookiesConnExt, CookiesHandler};
 
 pub fn main() {
     env_logger::init();
@@ -9,11 +9,7 @@ pub fn main() {
             println!("current cookie value: {}", cookie_value.value());
         }
 
-        conn.with_cookie(
-            Cookie::build("some_cookie", "some-cookie-value")
-                .path("/")
-                .finish(),
-        )
-        .ok("ok!")
+        conn.with_cookie(("some_cookie", "some-cookie-value"))
+            .ok("ok!")
     }));
 }

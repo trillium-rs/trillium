@@ -24,8 +24,7 @@ async fn handler_that_uses_cookies(conn: Conn) -> Conn {
         String::from("no cookie value set")
     };
 
-    let cookie = Cookie::build("some_cookie", "some-cookie-value").path("/").finish();
-    conn.with_cookie(cookie).ok(content)
+    conn.with_cookie(("some_cookie", "some-cookie-value")).ok(content)
 }
 
 let handler = (CookiesHandler::new(), handler_that_uses_cookies);
@@ -35,13 +34,13 @@ use trillium_testing::prelude::*;
 assert_ok!(
     get("/").on(&handler),
     "no cookie value set",
-    "set-cookie" => "some_cookie=some-cookie-value; Path=/"
+    "set-cookie" => "some_cookie=some-cookie-value"
 );
 
 assert_ok!(
     get("/").with_request_header("cookie", "some_cookie=trillium").on(&handler),
     "current cookie value: trillium",
-    "set-cookie" => "some_cookie=some-cookie-value; Path=/"
+    "set-cookie" => "some_cookie=some-cookie-value"
 );
 
 ```
