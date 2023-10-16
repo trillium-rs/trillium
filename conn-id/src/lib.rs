@@ -19,12 +19,32 @@ This crate provides the following utilities:
     unused_qualifications
 )]
 
+use fastrand::Rng;
 use std::{
     fmt::{Debug, Formatter, Result},
     iter::repeat_with,
     ops::Deref,
+    sync::{Arc, Mutex},
 };
 use trillium::{async_trait, Conn, Handler, HeaderName, KnownHeaderName, StateSet};
+
+#[derive(Default)]
+enum IdGenerator {
+    #[default]
+    Default,
+    SeededFastrand(Arc<Mutex<Rng>>),
+    Fn(Box<dyn Fn() -> String + Send + Sync + 'static>),
+}
+
+impl IdGenerator {
+    fn generate(&self) -> Id {
+        match self {
+            IdGenerator::Default => Id::default(),
+            IdGenerator::SeededFastrand(rng) => Id::with_rng(&mut rng.lock().unwrap()),
+            IdGenerator::Fn(gen_fun) => Id(gen_fun()),
+        }
+    }
+}
 
 /**
 Trillium handler to set a identifier for every Conn.
@@ -38,7 +58,7 @@ behavior can be customized with [`ConnId::with_request_header`],
 pub struct ConnId {
     request_header: Option<HeaderName<'static>>,
     response_header: Option<HeaderName<'static>>,
-    id_generator: Option<Box<dyn Fn() -> String + Send + Sync + 'static>>,
+    id_generator: IdGenerator,
 }
 
 impl Debug for ConnId {
@@ -46,14 +66,7 @@ impl Debug for ConnId {
         f.debug_struct("ConnId")
             .field("request_header", &self.request_header)
             .field("response_header", &self.response_header)
-            .field(
-                "id_generator",
-                &if self.id_generator.is_some() {
-                    "Some(id generator fn)"
-                } else {
-                    "None"
-                },
-            )
+            .field("id_generator", &self.id_generator)
             .finish()
     }
 }
@@ -63,7 +76,7 @@ impl Default for ConnId {
         Self {
             request_header: Some(KnownHeaderName::XrequestId.into()),
             response_header: Some(KnownHeaderName::XrequestId.into()),
-            id_generator: None,
+            id_generator: Default::default(),
         }
     }
 }
@@ -74,9 +87,7 @@ impl ConnId {
     ```
     # use trillium_testing::prelude::*;
     # use trillium_conn_id::ConnId;
-    fastrand::seed(1000); // for testing, so our id is predictable
-
-    let app = (ConnId::new(), "ok");
+    let app = (ConnId::new().with_seed(1000), "ok"); // seeded for testing
     assert_ok!(
         get("/").on(&app),
         "ok",
@@ -140,10 +151,10 @@ impl ConnId {
     ```
     # use trillium_testing::prelude::*;
     # use trillium_conn_id::ConnId;
-    fastrand::seed(1000); // for testing, so our id is predictable
-
     let app = (
-        ConnId::new().with_response_header("x-custom-header"),
+        ConnId::new()
+            .with_seed(1000) // for testing
+            .with_response_header("x-custom-header"),
         "ok"
     );
 
@@ -190,16 +201,20 @@ impl ConnId {
     where
         F: Fn() -> String + Send + Sync + 'static,
     {
-        self.id_generator = Some(Box::new(id_generator));
+        self.id_generator = IdGenerator::Fn(Box::new(id_generator));
+        self
+    }
+
+    /// seed a shared rng
+    ///
+    /// this is primarily useful for tests
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.id_generator = IdGenerator::SeededFastrand(Arc::new(Mutex::new(Rng::with_seed(seed))));
         self
     }
 
     fn generate_id(&self) -> Id {
-        if let Some(ref id_generator) = self.id_generator {
-            Id(id_generator())
-        } else {
-            Id::default()
-        }
+        self.id_generator.generate()
     }
 }
 
@@ -223,6 +238,12 @@ impl std::fmt::Display for Id {
 impl Default for Id {
     fn default() -> Self {
         Self(repeat_with(fastrand::alphanumeric).take(10).collect())
+    }
+}
+
+impl Id {
+    fn with_rng(rng: &mut Rng) -> Self {
+        Self(repeat_with(|| rng.alphanumeric()).take(10).collect())
     }
 }
 
@@ -280,4 +301,14 @@ pub mod log_formatter {
 /// Alias for ConnId::new()
 pub fn conn_id() -> ConnId {
     ConnId::new()
+}
+
+impl Debug for IdGenerator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.write_str(match self {
+            IdGenerator::Default => "IdGenerator::Default",
+            IdGenerator::SeededFastrand(_) => "IdGenerator::SeededFastrand",
+            IdGenerator::Fn(_) => "IdGenerator::Fn",
+        })
+    }
 }
