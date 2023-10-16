@@ -202,12 +202,12 @@ impl<Store: SessionStore> SessionHandler<Store> {
     }
 
     fn build_cookie(&self, secure: bool, cookie_value: String) -> Cookie<'static> {
-        let mut cookie = Cookie::build(self.cookie_name.clone(), cookie_value)
+        let mut cookie: Cookie<'static> = Cookie::build((self.cookie_name.clone(), cookie_value))
             .http_only(true)
             .same_site(self.same_site_policy)
             .secure(secure)
             .path(self.cookie_path.clone())
-            .finish();
+            .into();
 
         if let Some(ttl) = self.session_ttl {
             cookie.set_expires(Some((SystemTime::now() + ttl).into()));
@@ -296,7 +296,7 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
             if session.is_destroyed() {
                 self.store.destroy_session(session).await.ok();
                 conn.cookies_mut()
-                    .remove(Cookie::named(self.cookie_name.clone()));
+                    .remove(Cookie::from(self.cookie_name.clone()));
             } else if self.save_unchanged || session.data_changed() {
                 match self.store.store_session(session).await {
                     Ok(Some(cookie_value)) => {
