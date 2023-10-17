@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-broadcast = "0.5.1"
+async-broadcast = "0.6.0"
 async-channel = "1.9.0"
 dashmap = "5.5.0"
 futures-lite = "1.13.0"
