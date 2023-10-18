@@ -23,7 +23,7 @@ http = { version = "0.2.9", optional = true }
 httparse = "1.8.0"
 httpdate = "1.0.2"
 log = "0.4.19"
-memmem = "0.1.1"
+memchr = "2.6.4"
 mime = "0.3.17"
 serde = { version = "1.0.181", features = ["derive"], optional = true }
 smallvec = "1.11.0"
