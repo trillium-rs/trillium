@@ -19,6 +19,7 @@ pub async fn main() {
 
     trillium_tokio::config()
         .with_prebound_server(server)
+        .with_nodelay()
         .run_async(app())
         .await;
 }
