@@ -9,7 +9,7 @@ use crate::{
 use encoding_rs::Encoding;
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use httparse::{Request, EMPTY_HEADER};
-use memmem::{Searcher, TwoWaySearcher};
+use memchr::memmem::Finder;
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
@@ -668,7 +668,7 @@ where
         let mut len = 0;
         let mut start_with_read = buf.is_empty();
         let mut instant = None;
-        let searcher = TwoWaySearcher::new(b"\r\n\r\n");
+        let finder = Finder::new(b"\r\n\r\n");
         loop {
             let bytes = if start_with_read {
                 buf.extend(iter::repeat(0).take(1024));
@@ -690,7 +690,7 @@ where
             }
 
             let search_start = len.max(3) - 3;
-            let search = searcher.search_in(&buf[search_start..]);
+            let search = finder.find(&buf[search_start..]);
 
             if let Some(index) = search {
                 buf.truncate(len + bytes);
