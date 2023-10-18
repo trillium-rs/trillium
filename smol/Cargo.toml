@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 async-global-executor = "2.3.1"
-async-io = "1.13.0"
+async-io = "2.0.0"
 async-net = "1.7.0"
 futures-lite = "1.13.0"
 log = "0.4.19"
