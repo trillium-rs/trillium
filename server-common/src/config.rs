@@ -155,10 +155,6 @@ where
     /// <https://en.wikipedia.org/wiki/Nagle%27s_algorithm> for more
     /// information on this setting.
     pub fn with_nodelay(mut self) -> Self {
-        if self.has_binding() {
-            eprintln!("constructing a config with both nodelay and a pre-bound listener will ignore the nodelay setting. this may be a panic in the future");
-        }
-
         self.nodelay = true;
         self
     }
@@ -222,10 +218,8 @@ where
     ///
     /// ## Note well
     ///
-    /// Many of the other options on this config will be ignored if
-    /// you provide a listener. In particular, `host`, `port`, and
-    /// `nodelay` will be ignored. All of the other options will be
-    /// used.
+    /// Many of the other options on this config will be ignored if you provide a listener. In
+    /// particular, `host` and `port` will be ignored. All of the other options will be used.
     ///
     /// Additionally, cloning this config will not clone the listener.
     pub fn with_prebound_server(mut self, server: impl Into<ServerType>) -> Self {
@@ -235,10 +229,6 @@ where
 
         if self.port.is_some() {
             eprintln!("constructing a config with both a port and a pre-bound listener will ignore the port. this may be a panic in the future");
-        }
-
-        if self.nodelay {
-            eprintln!("constructing a config with nodelay and a pre-bound listener will ignore nodelay. this may be a panic in the future");
         }
 
         self.binding = RwLock::new(Some(server.into()));
