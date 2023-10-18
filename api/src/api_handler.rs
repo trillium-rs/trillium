@@ -1,7 +1,8 @@
 use crate::FromConn;
 use std::future::Future;
 use std::marker::PhantomData;
-use trillium::{async_trait, Conn, Handler, Status};
+use std::sync::Arc;
+use trillium::{async_trait, Conn, Handler, Info, Status};
 
 // A trait for `async fn(conn: &mut Conn, additional: Additional) -> ReturnType`
 pub trait MutBorrowConn<'conn, ReturnType, Additional>: Send + Sync + 'conn {
@@ -83,18 +84,56 @@ where
 {
     async fn run(&self, mut conn: Conn) -> Conn {
         if let Some(extracted) = Extracted::from_conn(&mut conn).await {
-            let output_handler = self.0.call(&mut conn, extracted).await;
+            let mut output_handler = self.0.call(&mut conn, extracted).await;
+            if let Some(info) = conn.state_mut::<Info>() {
+                output_handler.init(info).await;
+            } else {
+                output_handler.init(&mut Info::default()).await;
+            }
             let mut conn = output_handler.run(conn).await;
             if conn.status().is_none() && conn.inner().response_body().is_some() {
                 conn.set_status(Status::Ok);
             }
-            conn
+            conn.with_state(OutputHandlerWrapper(Arc::new(output_handler)))
         } else {
             conn.halt()
         }
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
-        crate::default_error_handler::handle_error(conn)
+        if let Some(OutputHandlerWrapper(handler)) =
+            conn.state::<OutputHandlerWrapper<OutputHandler>>().cloned()
+        {
+            handler.before_send(conn).await
+        } else {
+            crate::default_error_handler::handle_error(conn)
+        }
+    }
+
+    fn has_upgrade(&self, upgrade: &trillium::Upgrade) -> bool {
+        upgrade
+            .state()
+            .get::<OutputHandlerWrapper<OutputHandler>>()
+            .cloned()
+            .map_or(false, |OutputHandlerWrapper(handler)| {
+                handler.has_upgrade(upgrade)
+            })
+    }
+
+    async fn upgrade(&self, upgrade: trillium::Upgrade) {
+        if let Some(OutputHandlerWrapper(handler)) = upgrade
+            .state()
+            .get::<OutputHandlerWrapper<OutputHandler>>()
+            .cloned()
+        {
+            handler.upgrade(upgrade).await
+        }
+    }
+}
+
+struct OutputHandlerWrapper<OH>(Arc<OH>);
+impl<OH> Clone for OutputHandlerWrapper<OH> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
     }
 }
