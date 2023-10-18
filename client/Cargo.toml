@@ -36,7 +36,7 @@ version = "^0.3.0"
 
 [dev-dependencies]
 async-global-executor = "2.3.1"
-async-io = "1.13.0"
+async-io = "2.0.0"
 env_logger = "0.10.0"
 trillium = { path = "../trillium" }
 trillium-smol = { path = "../smol/" }
