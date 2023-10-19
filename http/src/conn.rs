@@ -1,3 +1,4 @@
+use crate::BufWriter;
 use crate::{
     copy,
     received_body::ReceivedBodyState,
@@ -171,15 +172,20 @@ where
     }
 
     async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
-        self.send_headers().await?;
+        let mut output_buffer = Vec::with_capacity(1024);
+        self.write_headers(&mut output_buffer)?;
 
-        if self.method() != Method::Head
+        let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport);
+
+        if self.method != Method::Head
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
         {
             if let Some(body) = self.response_body.take() {
-                copy(body, &mut self.transport).await?;
+                copy(body, &mut bufwriter).await?;
             }
         }
+
+        bufwriter.flush().await?;
 
         let mut after_send = std::mem::take(&mut self.after_send);
         after_send.call(true.into());
@@ -793,7 +799,7 @@ where
         }
     }
 
-    async fn send_headers(&mut self) -> Result<()> {
+    fn write_headers(&mut self, output_buffer: &mut Vec<u8>) -> Result<()> {
         let status = self.status().unwrap_or(Status::NotFound);
         let first_line = format!(
             "{} {} {}\r\n",
@@ -801,25 +807,23 @@ where
             status as u16,
             status.canonical_reason()
         );
-        self.transport.write_all(first_line.as_bytes()).await?;
+
+        output_buffer.extend_from_slice(first_line.as_bytes());
 
         self.finalize_headers();
 
         log::debug!("response:\n{first_line}\n{}", &self.response_headers);
 
-        for (header, values) in self.response_headers.iter() {
-            for value in &**values {
+        for (header, values) in &self.response_headers {
+            for value in values {
                 log::trace!("sending: {header}: {value}");
-
-                self.transport
-                    .write_all(format!("{header}: ").as_bytes())
-                    .await?;
-                self.transport.write_all(value.as_ref()).await?;
-                self.transport.write_all(b"\r\n").await?;
+                output_buffer.extend_from_slice(format!("{header}: ").as_bytes());
+                output_buffer.extend_from_slice(value.as_ref());
+                output_buffer.extend_from_slice(b"\r\n");
             }
         }
 
-        self.transport.write_all(b"\r\n").await?;
+        output_buffer.extend_from_slice(b"\r\n");
 
         Ok(())
     }
