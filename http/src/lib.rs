@@ -132,3 +132,6 @@ pub mod http_compat;
 
 mod copy;
 pub(crate) use copy::copy;
+
+mod bufwriter;
+pub(crate) use bufwriter::BufWriter;
