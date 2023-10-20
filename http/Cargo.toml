@@ -43,6 +43,8 @@ trillium-client = { path = "../client" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-http = { path = ".", features = ["http-compat"] }
+pretty_assertions = "1.4.0"
+fastrand = "2.0.1"
 
 [dev-dependencies.tokio]
 version = "1.29.1"
