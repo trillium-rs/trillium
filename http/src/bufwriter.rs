@@ -53,11 +53,6 @@ impl<W: AsyncWrite + Unpin> BufWriter<W> {
             }
         }
 
-        if *written > 0 {
-            buf.drain(..*written);
-        }
-        *written = 0;
-
         Poll::Ready(ret)
     }
 }
