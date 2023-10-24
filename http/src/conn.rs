@@ -186,11 +186,7 @@ where
         }
 
         bufwriter.flush().await?;
-
-        let mut after_send = std::mem::take(&mut self.after_send);
-        after_send.call(true.into());
-        std::mem::forget(after_send);
-
+        self.after_send.call(true.into());
         self.finish().await
     }
 
