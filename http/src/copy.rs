@@ -6,10 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-// to be tuned, not sure exactly how
-const MAX_LOOPS: usize = 16;
-
-pub async fn copy<R, W>(reader: R, writer: W) -> Result<u64>
+pub async fn copy<R, W>(reader: R, writer: W, loops_per_yield: usize) -> Result<u64>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -18,6 +15,7 @@ where
         reader: BufReader<R>,
         writer: W,
         amt: u64,
+        loops_per_yield: usize,
     }
 
     impl<R, W> Future for CopyFuture<R, W>
@@ -28,12 +26,13 @@ where
         type Output = Result<u64>;
 
         fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            for loop_number in 0..MAX_LOOPS {
+            for loop_number in 0..self.loops_per_yield {
                 log::trace!("copy loop number: {loop_number}");
                 let CopyFuture {
                     reader,
                     writer,
                     amt,
+                    ..
                 } = &mut *self;
 
                 let writer = Pin::new(writer);
@@ -61,6 +60,7 @@ where
         reader: BufReader::new(reader),
         writer,
         amt: 0,
+        loops_per_yield,
     };
     future.await
 }
