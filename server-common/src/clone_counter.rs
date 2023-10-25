@@ -1,26 +1,25 @@
-use futures_lite::Future;
+use event_listener::{Event, EventListener};
 use std::{
     fmt::{Debug, Formatter, Result},
-    future::IntoFuture,
-    pin::Pin,
+    future::{Future, IntoFuture},
+    pin::{pin, Pin},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
-use waker_set::WakerSet;
 
 pub struct CloneCounterInner {
     count: AtomicUsize,
-    waker: WakerSet,
+    event: Event,
 }
 
 impl CloneCounterInner {
     fn new(start: usize) -> Self {
         Self {
             count: AtomicUsize::new(start),
-            waker: WakerSet::new(),
+            event: Event::new(),
         }
     }
 }
@@ -107,7 +106,7 @@ impl IntoFuture for CloneCounter {
     fn into_future(self) -> Self::IntoFuture {
         CloneCounterFuture {
             inner: Arc::clone(&self.0),
-            target: 0,
+            listener: EventListener::new(&self.0.event),
         }
     }
 }
@@ -116,14 +115,16 @@ impl Future for &CloneCounter {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if 1 == self.0.current() {
-            Poll::Ready(())
-        } else {
-            self.0.register(cx);
+        let mut listener = pin!(EventListener::new(&self.0.event));
+        loop {
             if 1 == self.0.current() {
-                Poll::Ready(())
+                return Poll::Ready(());
+            }
+
+            if listener.is_listening() {
+                ready!(listener.as_mut().poll(cx));
             } else {
-                Poll::Pending
+                listener.as_mut().listen()
             }
         }
     }
@@ -146,12 +147,8 @@ impl CloneCounterInner {
         self.count.load(Ordering::SeqCst)
     }
 
-    fn register(&self, cx: &Context<'_>) {
-        self.waker.insert(cx);
-    }
-
     fn wake(&self) {
-        self.waker.notify_all();
+        self.event.notify(usize::MAX);
     }
 }
 
@@ -220,8 +217,8 @@ impl IntoFuture for CloneCounterObserver {
 
     fn into_future(self) -> Self::IntoFuture {
         CloneCounterFuture {
+            listener: EventListener::new(&self.0.event),
             inner: self.0,
-            target: 0,
         }
     }
 }
@@ -241,25 +238,39 @@ impl From<CloneCounterObserver> for CloneCounter {
     }
 }
 
-/// A future that waits for the clone counter to decrement to zero
-#[derive(Clone, Debug)]
-pub struct CloneCounterFuture {
-    inner: Arc<CloneCounterInner>,
-    target: usize,
+pin_project_lite::pin_project! {
+    /// A future that waits for the clone counter to decrement to zero
+    #[derive(Debug)]
+    pub struct CloneCounterFuture {
+        inner: Arc<CloneCounterInner>,
+        #[pin]
+        listener: EventListener,
+    }
+}
+
+impl Clone for CloneCounterFuture {
+    fn clone(&self) -> Self {
+        let listener = EventListener::new(&self.inner.event);
+        Self {
+            inner: Arc::clone(&self.inner),
+            listener,
+        }
+    }
 }
 
 impl Future for CloneCounterFuture {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.target == self.inner.current() {
-            Poll::Ready(())
-        } else {
-            self.inner.register(cx);
-            if self.target == self.inner.current() {
-                Poll::Ready(())
+        let mut this = self.project();
+        loop {
+            if 0 == this.inner.current() {
+                return Poll::Ready(());
+            };
+            if this.listener.is_listening() {
+                ready!(this.listener.as_mut().poll(cx));
             } else {
-                Poll::Pending
+                this.listener.as_mut().listen();
             }
         }
     }
