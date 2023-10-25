@@ -39,4 +39,7 @@ members = [
     "trillium",
     "websockets",
 ]
-exclude = ["controllers"]
+exclude = [
+    "controllers",
+    "fuzz",
+]
