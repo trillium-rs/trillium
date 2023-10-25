@@ -1,5 +1,6 @@
 use crate::CloneCounterObserver;
 use async_cell::sync::AsyncCell;
+use event_listener::{Event, EventListener};
 use std::{
     fmt::{Debug, Formatter, Result},
     future::{Future, IntoFuture},
@@ -24,13 +25,26 @@ pub struct ServerHandle {
     pub(crate) observer: CloneCounterObserver,
 }
 
-#[derive(Clone, Default)]
-pub struct CompletionFuture(Arc<CompletionFutureInner>);
+pub struct CompletionFuture(Arc<CompletionFutureInner>, Pin<Box<EventListener>>);
+
+impl Default for CompletionFuture {
+    fn default() -> Self {
+        let inner = Arc::new(CompletionFutureInner::default());
+        let listener = inner.event.listen();
+        Self(inner, listener)
+    }
+}
+
+impl Clone for CompletionFuture {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0), self.0.event.listen())
+    }
+}
 
 impl CompletionFuture {
     pub(crate) fn notify(self) {
         if !self.0.complete.swap(true, Ordering::SeqCst) {
-            self.0.waker_set.notify_all();
+            self.0.event.notify(usize::MAX);
         }
     }
 
@@ -45,14 +59,14 @@ impl CompletionFuture {
 
 pub struct CompletionFutureInner {
     complete: AtomicBool,
-    waker_set: waker_set::WakerSet,
+    event: Event,
 }
 
 impl Default for CompletionFutureInner {
     fn default() -> Self {
         Self {
             complete: AtomicBool::new(false),
-            waker_set: waker_set::WakerSet::new(),
+            event: Event::new(),
         }
     }
 }
@@ -68,16 +82,20 @@ impl Debug for CompletionFuture {
 impl Future for CompletionFuture {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.0.complete.load(Ordering::SeqCst) {
-            Poll::Ready(())
-        } else {
-            let key = self.0.waker_set.insert(cx);
-            if self.0.complete.load(Ordering::SeqCst) {
-                self.0.waker_set.cancel(key);
-                Poll::Ready(())
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let Self(inner, listener) = &mut *self;
+        loop {
+            if inner.complete.load(Ordering::SeqCst) {
+                return Poll::Ready(());
+            }
+
+            if listener.is_listening() {
+                match listener.as_mut().poll(cx) {
+                    Poll::Ready(()) => continue,
+                    Poll::Pending => return Poll::Pending,
+                }
             } else {
-                Poll::Pending
+                listener.as_mut().listen();
             }
         }
     }
@@ -107,7 +125,7 @@ impl ServerHandle {
         self.observer.clone()
     }
 
-    /// checks whether this server has shut down. It's preferable to
+    /// checks whether this server has shut down. It's preferable to await
     /// this [`ServerHandle`] instead of polling this.
     pub fn is_running(&self) -> bool {
         !self.completion.is_complete()
