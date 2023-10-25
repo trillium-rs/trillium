@@ -1,19 +1,20 @@
-use crate::{Body, MutCow};
+use crate::{copy, http_config::DEFAULT_CONFIG, Body, HttpConfig, MutCow};
 use encoding_rs::Encoding;
-use futures_lite::{io, ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
-use httparse::Status;
+use futures_lite::{ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
+use httparse::{InvalidChunkSize, Status};
 use std::{
-    convert::TryInto,
     fmt::{self, Formatter},
-    future::IntoFuture,
-    io::ErrorKind,
+    future::{Future, IntoFuture},
+    io::{self, ErrorKind},
     iter,
     pin::Pin,
     task::{Context, Poll},
 };
-
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, Start};
+
+#[cfg(test)]
+mod tests;
 
 macro_rules! trace {
     ($s:literal, $($arg:tt)+) => (
@@ -35,6 +36,20 @@ let body = conn.request_body().await;
 assert_eq!(body.read_string().await?, "hello");
 # trillium_http::Result::Ok(()) }).unwrap();
 ```
+
+## Bounds checking
+
+Every `ReceivedBody` has a maximum length beyond which it will return an error, expressed as a
+u64. To override this on the specific `ReceivedBody`, use [`ReceivedBody::with_max_len`] or
+[`ReceivedBody::set_max_len`]
+
+The default maximum length is currently set to 500mb. In the next semver-minor release, this value
+will decrease substantially.
+
+## Large chunks, small read buffers
+
+Attempting to read a chunked body with a buffer that is shorter than the chunk size in hex will
+result in an error. This limitation is temporary.
 */
 
 pub struct ReceivedBody<'conn, Transport> {
@@ -44,6 +59,14 @@ pub struct ReceivedBody<'conn, Transport> {
     state: MutCow<'conn, ReceivedBodyState>,
     on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
     encoding: &'static Encoding,
+    max_len: u64,
+    initial_len: usize,
+    copy_loops_per_yield: usize,
+}
+
+fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
+    buf.get(usize::try_from(min).unwrap_or(usize::MAX)..)
+        .filter(|buf| !buf.is_empty())
 }
 
 impl<'conn, Transport> ReceivedBody<'conn, Transport>
@@ -60,6 +83,28 @@ where
         on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
         encoding: &'static Encoding,
     ) -> Self {
+        Self::new_with_config(
+            content_length,
+            buffer,
+            transport,
+            state,
+            on_completion,
+            encoding,
+            &DEFAULT_CONFIG,
+        )
+    }
+
+    #[allow(missing_docs)]
+    #[doc(hidden)]
+    fn new_with_config(
+        content_length: Option<u64>,
+        buffer: impl Into<MutCow<'conn, Option<Vec<u8>>>>,
+        transport: impl Into<MutCow<'conn, Transport>>,
+        state: impl Into<MutCow<'conn, ReceivedBodyState>>,
+        on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
+        encoding: &'static Encoding,
+        config: &HttpConfig,
+    ) -> Self {
         Self {
             content_length,
             buffer: buffer.into(),
@@ -67,6 +112,9 @@ where
             state: state.into(),
             on_completion,
             encoding,
+            max_len: config.received_body_max_len,
+            initial_len: config.received_body_initial_len,
+            copy_loops_per_yield: config.copy_loops_per_yield,
         }
     }
 
@@ -104,6 +152,10 @@ where
     ///
     /// This will return an error if there is an IO error on the
     /// underlying transport such as a disconnect
+    ///
+    /// This will also return an error if the length exceeds the maximum length. To override this
+    /// value on this specific body, use [`ReceivedBody::with_max_len`] or
+    /// [`ReceivedBody::set_max_len`]
     pub async fn read_string(self) -> crate::Result<String> {
         let encoding = self.encoding();
         let bytes = self.read_bytes().await?;
@@ -118,22 +170,44 @@ where
             .unwrap_or_default()
     }
 
-    /// Similar to [`ReceivedBody::read_string`], but returns the raw
-    /// bytes. This is useful for bodies that are not text.
+    /// Set the maximum length that can be read from this body before error
+    pub fn set_max_len(&mut self, max_len: u64) {
+        self.max_len = max_len;
+    }
+
+    /// chainable setter for the maximum length that can be read from this body before error
+    #[must_use]
+    pub fn with_max_len(mut self, max_len: u64) -> Self {
+        self.set_max_len(max_len);
+        self
+    }
+
+    /// Similar to [`ReceivedBody::read_string`], but returns the raw bytes. This is useful for
+    /// bodies that are not text.
     ///
-    /// You can use this in conjunction with `encoding` if you need
-    /// different handling of malformed character encoding than the lossy
-    /// conversion provided by [`ReceivedBody::read_string`].
+    /// You can use this in conjunction with `encoding` if you need different handling of malformed
+    /// character encoding than the lossy conversion provided by [`ReceivedBody::read_string`].
     ///
     /// # Errors
     ///
-    /// This will return an error if there is an IO error on the
-    /// underlying transport such as a disconnect
+    /// This will return an error if there is an IO error on the underlying transport such as a
+    /// disconnect
+    ///
+    /// This will also return an error if the length exceeds
+    /// [`received_body_max_len`][HttpConfig::with_received_body_max_len]. To override this value on
+    /// this specific body, use [`ReceivedBody::with_max_len`] or [`ReceivedBody::set_max_len`]
     pub async fn read_bytes(mut self) -> crate::Result<Vec<u8>> {
         let mut vec = if let Some(len) = self.content_length {
-            Vec::with_capacity(len.try_into().unwrap_or(usize::max_value()))
+            if len > self.max_len {
+                return Err(crate::Error::ReceivedBodyTooLong(self.max_len));
+            }
+
+            let len = usize::try_from(len)
+                .map_err(|_| crate::Error::ReceivedBodyTooLong(self.max_len))?;
+
+            Vec::with_capacity(len)
         } else {
-            Vec::new()
+            Vec::with_capacity(self.initial_len)
         };
 
         self.read_to_end(&mut vec).await?;
@@ -141,37 +215,35 @@ where
     }
 
     /**
-    returns the character encoding of this body, usually
-    determined from the content type (mime-type) of the associated
-    Conn.
+    returns the character encoding of this body, usually determined from the content type
+    (mime-type) of the associated Conn.
     */
     pub fn encoding(&self) -> &'static Encoding {
         self.encoding
     }
 
     fn read_raw(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        if let Some(transport) = self.transport.as_mut() {
-            read_raw(&mut self.buffer, &mut **transport, cx, buf)
+        if let Some(transport) = self.transport.as_deref_mut() {
+            read_raw(&mut self.buffer, transport, cx, buf)
         } else {
             Ready(Err(ErrorKind::NotConnected.into()))
         }
     }
 
     /**
-    Consumes the remainder of this body from the underlying transport
-    by reading it to the end and discarding the contents. This is
-    important for http1.1 keepalive, but most of the time you do not
-    need to directly call this. It returns the number of bytes
-    consumed.
+    Consumes the remainder of this body from the underlying transport by reading it to the end and
+    discarding the contents. This is important for http1.1 keepalive, but most of the time you do
+    not need to directly call this. It returns the number of bytes consumed.
 
     # Errors
 
-    This will return an [`std::io::Result::Err`] if there is an io
-    error on the underlying transport, such as a disconnect
+    This will return an [`std::io::Result::Err`] if there is an io error on the underlying
+    transport, such as a disconnect
     */
     #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn drain(self) -> io::Result<u64> {
-        io::copy(self, io::sink()).await
+        let copy_loops_per_yield = self.copy_loops_per_yield;
+        copy(self, futures_lite::io::sink(), copy_loops_per_yield).await
     }
 }
 
@@ -181,7 +253,7 @@ where
 {
     type Output = crate::Result<String>;
 
-    type IntoFuture = Pin<Box<dyn std::future::Future<Output = Self::Output> + Send + 'a>>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.read_string().await })
@@ -233,16 +305,12 @@ where
     }
 }
 
-#[allow(
-    // the clippy::only_used_in_recursion seems like a false positive,
-    // it thinks `total` is unused
-    clippy::only_used_in_recursion,
-    clippy::cast_possible_truncation
-)]
 fn chunk_decode(
-    remaining: usize,
-    mut total: usize,
+    remaining: u64,
+    mut chunk_total: u64,
+    mut total: u64,
     buf: &mut [u8],
+    max_len: u64,
 ) -> io::Result<(ReceivedBodyState, usize, Option<Vec<u8>>)> {
     if buf.is_empty() {
         return Err(io::Error::new(
@@ -251,47 +319,43 @@ fn chunk_decode(
         ));
     }
     let mut ranges_to_keep = vec![];
-    let mut chunk_start = 0;
+    let mut chunk_start = 0u64;
     let mut chunk_end = remaining;
     let (request_body_state, unused) = loop {
         if chunk_end > 2 {
-            let keep_end = buf.len().min(chunk_end - 2);
-            ranges_to_keep.push(chunk_start..keep_end);
-            total += keep_end - chunk_start;
+            let keep_start = usize::try_from(chunk_start).unwrap_or(usize::MAX);
+            let keep_end = buf
+                .len()
+                .min(usize::try_from(chunk_end - 2).unwrap_or(usize::MAX));
+            ranges_to_keep.push(keep_start..keep_end);
+            let new_bytes = (keep_end - keep_start) as u64;
+            chunk_total += new_bytes;
+            total += new_bytes;
+            if total > max_len {
+                return Err(io::Error::new(ErrorKind::Unsupported, "content too long"));
+            }
         }
 
         chunk_start = chunk_end;
 
-        if chunk_start >= buf.len() {
+        let Some(buf_to_read) = slice_from(chunk_start, buf) else {
             break (
                 Chunked {
-                    remaining: (chunk_start - buf.len()),
+                    remaining: (chunk_start - buf.len() as u64),
+                    chunk_total,
                     total,
                 },
                 None,
             );
-        }
+        };
 
-        match httparse::parse_chunk_size(&buf[chunk_start..]) {
+        match httparse::parse_chunk_size(buf_to_read) {
             Ok(Status::Complete((framing_bytes, chunk_size))) => {
-                chunk_start += framing_bytes;
-                // the #[allow(clippy::cast_possible_truncation)]
-                // applied to this function is for the following
-                // line. This may in fact be a bug, and we do not
-                // handle chunks that are longer than a usize. There
-                // is no reason 32bit platforms should not be able
-                // to stream chunks longer than u32::MAX.
-                chunk_end = 2 + chunk_start + chunk_size as usize;
+                chunk_start += framing_bytes as u64;
+                chunk_end = 2 + chunk_start + chunk_size;
 
                 if chunk_size == 0 {
-                    break (
-                        End,
-                        if chunk_end < buf.len() {
-                            Some(buf[chunk_end..].to_vec())
-                        } else {
-                            None
-                        },
-                    );
+                    break (End, slice_from(chunk_end, buf).map(Vec::from));
                 }
             }
 
@@ -299,25 +363,15 @@ fn chunk_decode(
                 break (
                     Chunked {
                         remaining: 0,
+                        chunk_total,
                         total,
                     },
-                    if chunk_start < buf.len() {
-                        Some(buf[chunk_start..].to_vec())
-                    } else {
-                        None
-                    },
+                    slice_from(chunk_start, buf).map(Vec::from),
                 );
             }
 
-            Err(httparse::InvalidChunkSize) => {
-                log::error!(
-                    "invalid chunk size in buffer:\n\n {}",
-                    String::from_utf8_lossy(&buf[chunk_start..])
-                );
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid chunk size",
-                ));
+            Err(InvalidChunkSize) => {
+                return Err(io::Error::new(ErrorKind::InvalidData, "invalid chunk size"));
             }
         }
     };
@@ -369,7 +423,6 @@ impl<'conn, Transport> AsyncRead for ReceivedBody<'conn, Transport>
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
-    #[allow(clippy::cast_possible_truncation)]
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -381,13 +434,21 @@ where
                 match self.content_length {
                     Some(0) => End,
 
-                    Some(total_length) => FixedLength {
+                    Some(total_length) if total_length < self.max_len => FixedLength {
                         current_index: 0,
                         total_length,
                     },
 
+                    Some(_) => {
+                        return Ready(Err(io::Error::new(
+                            ErrorKind::Unsupported,
+                            "content too long",
+                        )))
+                    }
+
                     None => Chunked {
                         remaining: 0,
+                        chunk_total: 0,
                         total: 0,
                     },
                 },
@@ -395,9 +456,26 @@ where
                 None,
             ),
 
-            Chunked { remaining, total } => {
+            Chunked {
+                remaining,
+                chunk_total,
+                total,
+            } => {
                 let bytes = ready!(self.read_raw(cx, buf)?);
-                chunk_decode(remaining, total, &mut buf[..bytes])?
+                let source_buf = &mut buf[..bytes];
+                match chunk_decode(remaining, chunk_total, total, source_buf, self.max_len)? {
+                    (Chunked { remaining: 0, .. }, 0, Some(unused))
+                        if unused.len() == buf.len() =>
+                    {
+                        // we didn't use any of the bytes, which would result in a pathological loop
+                        return Ready(Err(io::Error::new(
+                            ErrorKind::Unsupported,
+                            "read buffer too short",
+                        )));
+                    }
+
+                    other => other,
+                }
             }
 
             FixedLength {
@@ -405,14 +483,7 @@ where
                 total_length,
             } => {
                 let len = buf.len();
-                // the #[allow(clippy::cast_possible_truncation)] on
-                // this function is for this line. this is ok because
-                // we are taking the min(remaining bytes, buffer
-                // length) and the buffer length will always be
-                // usize. As a result, if we truncate when we cast,
-                // the result of the min function will always be the
-                // same
-                let remaining = (total_length - current_index) as usize;
+                let remaining = usize::try_from(total_length - current_index).unwrap_or(usize::MAX);
                 let buf = &mut buf[..len.min(remaining)];
                 let bytes = ready!(self.read_raw(cx, buf)?);
                 let current_index = current_index + bytes as u64;
@@ -471,9 +542,9 @@ impl<'conn, Transport> fmt::Debug for ReceivedBody<'conn, Transport> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-/// the current read state of this body
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
+#[allow(missing_docs)]
+#[doc(hidden)]
 pub enum ReceivedBodyState {
     /// initial state
     #[default]
@@ -484,11 +555,15 @@ pub enum ReceivedBodyState {
     Chunked {
         /// remaining indicates the bytes left _in the current
         /// chunk_. initial state is zero.
-        remaining: usize,
-        /// total indicates the size of the current chunk or zero to
+        remaining: u64,
+
+        /// chunk_total indicates the size of the current chunk or zero to
         /// indicate that we expect to read a chunk size at the start
         /// of the next bytes. initial state is zero.
-        total: usize,
+        chunk_total: u64,
+
+        /// total indicates the absolute number of bytes read from all chunks
+        total: u64,
     },
 
     /// read state for a fixed-length body.
@@ -513,138 +588,5 @@ where
     fn from(rb: ReceivedBody<'static, Transport>) -> Self {
         let len = rb.content_length;
         Body::new_streaming(rb, len)
-    }
-}
-
-// This is commented out because I do not have use for it anymore and
-// as I was writing out the documentation I realized it was a footgun
-// without a clear use case. I'm retaining it in the code in case it's
-// useful later, though
-//
-// impl<'conn, Transport> ReceivedBody<'conn, Transport>
-// where
-//     Transport: AsyncRead + Unpin + Send + Sync + Clone + 'static,
-// {
-//     /**
-//     When the transport is Clone, this allows the creation of an owned
-//     body without taking the original transport away from the Conn.
-//
-//     Caution: You
-//     probably don't want to use this if it can be avoided, as it opens
-//     up the potential for two different bodies reading from the same
-//     transport, and rust will not protect you from those mistakes.
-//      */
-//     pub fn into_owned_by_cloning_transport(mut self) -> ReceivedBody<'static, Transport> {
-//         ReceivedBody {
-//             content_length: self.content_length,
-//             buffer: MutCow::Owned(self.buffer.take()),
-//             transport: self.transport.map(|transport| MutCow::Owned((*transport).clone())),
-//             state: MutCow::Owned(*self.state),
-//             on_completion: self.on_completion,
-//             encoding: self.encoding,
-//         }
-//     }
-// }
-
-#[cfg(test)]
-mod chunk_decode {
-    use super::{chunk_decode, ReceivedBody, ReceivedBodyState};
-    use encoding_rs::UTF_8;
-    use futures_lite::{io::Cursor, AsyncRead, AsyncReadExt};
-
-    fn assert_decoded(input: (usize, &str), expected_output: (Option<usize>, &str, Option<&str>)) {
-        let (remaining, input_data) = input;
-
-        let mut buf = input_data.to_string().into_bytes();
-
-        let (output_state, bytes, unused) = chunk_decode(remaining, 0, &mut buf).unwrap();
-
-        assert_eq!(
-            (
-                match output_state {
-                    ReceivedBodyState::Chunked { remaining, .. } => Some(remaining),
-                    ReceivedBodyState::End => None,
-                    _ => panic!("unexpected output state {output_state:?}"),
-                },
-                &*String::from_utf8_lossy(&buf[0..bytes]),
-                unused.as_deref().map(String::from_utf8_lossy).as_deref()
-            ),
-            expected_output
-        );
-    }
-
-    async fn read_with_buffers_of_size<R>(reader: &mut R, size: usize) -> crate::Result<String>
-    where
-        R: AsyncRead + Unpin,
-    {
-        let mut return_buffer = vec![];
-        loop {
-            let mut buf = vec![0; size];
-            match reader.read(&mut buf).await? {
-                0 => break Ok(String::from_utf8_lossy(&return_buffer).into()),
-                bytes_read => return_buffer.extend_from_slice(&buf[..bytes_read]),
-            }
-        }
-    }
-
-    fn full_decode_with_size(
-        input: &str,
-        poll_size: usize,
-    ) -> crate::Result<(String, ReceivedBody<'static, Cursor<&str>>)> {
-        let mut rb = ReceivedBody::new(
-            None,
-            None,
-            Cursor::new(input),
-            ReceivedBodyState::Chunked {
-                remaining: 0,
-                total: 0,
-            },
-            None,
-            UTF_8,
-        );
-
-        let output = trillium_testing::block_on(read_with_buffers_of_size(&mut rb, poll_size))?;
-        Ok((output, rb))
-    }
-
-    #[test]
-    fn test_full_decode() {
-        env_logger::try_init().ok();
-
-        for size in 3..50 {
-            let input = "5\r\n12345\r\n1\r\na\r\n2\r\nbc\r\n3\r\ndef\r\n0\r\n";
-            let (output, _) = full_decode_with_size(input, size).unwrap();
-            assert_eq!(output, "12345abcdef", "size: {size}");
-
-            let input = "7\r\nMozilla\r\n9\r\nDeveloper\r\n7\r\nNetwork\r\n0\r\n\r\n";
-            let (output, _) = full_decode_with_size(input, size).unwrap();
-            assert_eq!(output, "MozillaDeveloperNetwork", "size: {size}");
-
-            assert!(full_decode_with_size("", size).is_err());
-        }
-    }
-
-    #[test]
-    fn test_chunk_start() {
-        assert_decoded((0, "5\r\n12345\r\n"), (Some(0), "12345", None));
-        assert_decoded((0, "F\r\n1"), (Some(14 + 2), "1", None));
-        assert_decoded((0, "5\r\n123"), (Some(2 + 2), "123", None));
-        assert_decoded((0, "1\r\nX\r\n1\r\nX\r\n"), (Some(0), "XX", None));
-        assert_decoded((0, "1\r\nX\r\n1\r\nX\r\n1"), (Some(0), "XX", Some("1")));
-        assert_decoded((0, "FFF\r\n"), (Some(0xfff + 2), "", None));
-        assert_decoded((10, "hello"), (Some(5), "hello", None));
-        assert_decoded(
-            (7, "hello\r\nA\r\n world"),
-            (Some(4 + 2), "hello world", None),
-        );
-        assert_decoded(
-            (0, "e\r\ntest test test\r\n0\r\n\r\n"),
-            (None, "test test test", None),
-        );
-        assert_decoded(
-            (0, "1\r\n_\r\n0\r\n\r\nnext request"),
-            (None, "_", Some("next request")),
-        );
-        assert_decoded((7, "hello\r\n0\r\n\r\n"), (None, "hello", None));
     }
 }

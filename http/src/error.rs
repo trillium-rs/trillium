@@ -80,10 +80,16 @@ pub enum Error {
     #[error("unexpected header: {0}")]
     UnexpectedHeader(&'static str),
 
-    /// for security reasons, we do not allow request headers beyond
-    /// 8kb.
-    #[error("Head byte length should be less than 8kb")]
+    /// to mitigate against malicious http clients, we do not allow request headers beyond this
+    /// length.
+    #[error("Headers were malformed or longer than allowed")]
     HeadersTooLong,
+
+    /// to mitigate against malicious http clients, we do not read received bodies beyond this
+    /// length to memory. If you need to receive longer bodies, use the Stream or AsyncRead
+    /// implementation on ReceivedBody
+    #[error("Received body too long. Maximum {0} bytes")]
+    ReceivedBodyTooLong(u64),
 }
 
 /// this crate's result type
