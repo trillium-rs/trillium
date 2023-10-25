@@ -27,8 +27,8 @@ For more details, see [trillium_smol::config](crate::config).
 let stopper = trillium_smol::Stopper::new();
 # stopper.stop(); // stoppping the server immediately for the test
 trillium_smol::config()
-    .with_port(8082)
-    .with_host("0.0.0.0")
+    .with_port(0)
+    .with_host("127.0.0.1")
     .without_signals()
     .with_nodelay()
     .with_acceptor(()) // see [`trillium_rustls`] and [`trillium_native_tls`]
@@ -123,8 +123,8 @@ The default configuration is as follows:
 let stopper = trillium_smol::Stopper::new();
 # stopper.stop(); // stoppping the server immediately for the test
 trillium_smol::config()
-    .with_port(8082)
-    .with_host("0.0.0.0")
+    .with_port(0)
+    .with_host("127.0.0.1")
     .without_signals()
     .with_nodelay()
     .with_acceptor(()) // see [`trillium_rustls`] and [`trillium_native_tls`]
