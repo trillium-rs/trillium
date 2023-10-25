@@ -244,6 +244,12 @@ fn chunk_decode(
     mut total: usize,
     buf: &mut [u8],
 ) -> io::Result<(ReceivedBodyState, usize, Option<Vec<u8>>)> {
+    if buf.is_empty() {
+        return Err(io::Error::new(
+            ErrorKind::ConnectionAborted,
+            "chunked body closed without a last-chunk as per rfc9112 section 7.1",
+        ));
+    }
     let mut ranges_to_keep = vec![];
     let mut chunk_start = 0;
     let mut chunk_end = remaining;
@@ -613,6 +619,8 @@ mod chunk_decode {
             let input = "7\r\nMozilla\r\n9\r\nDeveloper\r\n7\r\nNetwork\r\n0\r\n\r\n";
             let (output, _) = full_decode_with_size(input, size).unwrap();
             assert_eq!(output, "MozillaDeveloperNetwork", "size: {size}");
+
+            assert!(full_decode_with_size("", size).is_err());
         }
     }
 
