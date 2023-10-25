@@ -1,13 +1,10 @@
 use crate::{
-    conn::{AfterSend, HttpConfig},
-    received_body::ReceivedBodyState,
-    transport::Transport,
-    Conn, Headers, KnownHeaderName, Method, StateSet, Stopper, Version,
+    after_send::AfterSend, http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState,
+    transport::Transport, Conn, Headers, KnownHeaderName, Method, StateSet, Stopper, Version,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Result};
 use std::{
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
     time::Instant,
 };
@@ -143,7 +140,7 @@ impl Conn<Synthetic> {
             after_send: AfterSend::default(),
             start_time: Instant::now(),
             peer_ip: None,
-            http_config: Arc::new(HttpConfig::default()),
+            http_config: DEFAULT_CONFIG,
         }
     }
 

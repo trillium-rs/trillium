@@ -135,3 +135,8 @@ pub(crate) use copy::copy;
 
 mod bufwriter;
 pub(crate) use bufwriter::BufWriter;
+
+mod http_config;
+pub(crate) use http_config::HttpConfig;
+
+pub(crate) mod after_send;
