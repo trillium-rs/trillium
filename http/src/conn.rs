@@ -15,7 +15,6 @@ use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
     future::Future,
-    iter,
     net::IpAddr,
     str::FromStr,
     time::{Instant, SystemTime},
@@ -172,7 +171,7 @@ where
     }
 
     async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
-        let mut output_buffer = Vec::with_capacity(1024);
+        let mut output_buffer = Vec::with_capacity(512);
         self.write_headers(&mut output_buffer)?;
 
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport);
@@ -611,7 +610,7 @@ where
                     .try_insert(ContentLength, len.to_string());
             }
 
-            if !self.response_headers.has_header(ContentLength) && self.version == Version::Http1_1
+            if self.version == Version::Http1_1 && !self.response_headers.has_header(ContentLength)
             {
                 self.response_headers.insert(TransferEncoding, "chunked");
             } else {
@@ -671,9 +670,16 @@ where
         let mut start_with_read = buf.is_empty();
         let mut instant = None;
         let finder = Finder::new(b"\r\n\r\n");
+        let mut resize_by = 128;
         loop {
+            if len >= MAX_HEAD_LENGTH {
+                log::error!("headers were {len}, greater than {MAX_HEAD_LENGTH}");
+                return Err(Error::HeadersTooLong);
+            }
+
             let bytes = if start_with_read {
-                buf.extend(iter::repeat(0).take(1024));
+                buf.resize(buf.len() + resize_by, 0);
+                resize_by *= 2;
                 if len == 0 {
                     stopper
                         .stop_future(transport.read(&mut buf[..]))
@@ -722,11 +728,6 @@ where
                     );
                     Err(Error::PartialHead)
                 };
-            }
-
-            if len >= MAX_HEAD_LENGTH {
-                log::error!("headers were {len}, greater than {MAX_HEAD_LENGTH}");
-                return Err(Error::HeadersTooLong);
             }
         }
     }
@@ -795,32 +796,28 @@ where
         }
     }
 
-    fn write_headers(&mut self, output_buffer: &mut Vec<u8>) -> Result<()> {
+    fn write_headers(&mut self, output_buffer: &mut Vec<u8>) -> std::io::Result<()> {
+        use std::io::Write;
         let status = self.status().unwrap_or(Status::NotFound);
-        let first_line = format!(
+
+        write!(
+            output_buffer,
             "{} {} {}\r\n",
             self.version,
             status as u16,
             status.canonical_reason()
-        );
-
-        output_buffer.extend_from_slice(first_line.as_bytes());
+        )?;
 
         self.finalize_headers();
-
-        log::debug!("response:\n{first_line}\n{}", &self.response_headers);
-
         for (header, values) in &self.response_headers {
             for value in values {
-                log::trace!("sending: {header}: {value}");
-                output_buffer.extend_from_slice(format!("{header}: ").as_bytes());
+                write!(output_buffer, "{header}: ")?;
                 output_buffer.extend_from_slice(value.as_ref());
-                output_buffer.extend_from_slice(b"\r\n");
+                write!(output_buffer, "\r\n")?;
             }
         }
 
-        output_buffer.extend_from_slice(b"\r\n");
-
+        write!(output_buffer, "\r\n")?;
         Ok(())
     }
 
