@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-futures-lite = "1.13.0"
+futures-lite = "2.0.0"
 trillium = { path = "../trillium", version = "^0.2.0" }
 log = "0.4.19"
 

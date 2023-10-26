@@ -22,5 +22,5 @@ trillium-logger = { path = "../logger" }
 trillium-cookies = { path = "../cookies" }
 trillium-sessions = { path = "../sessions" }
 trillium-askama = { path = "../askama" }
-futures-lite = "1.13.0"
+futures-lite = "2.0.0"
 askama = "0.12.0"

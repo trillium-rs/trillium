@@ -21,7 +21,7 @@ json = ["serde_json", "serde"]
 async-tungstenite = "0.22.2"
 base64 = "0.21.2"
 fastrand = "2.0.0"
-futures-lite = "1.13.0"
+futures-lite = "2.0.0"
 futures-util = "0.3.28"
 log = "0.4.19"
 serde = { version = "1.0.181", optional = true }
