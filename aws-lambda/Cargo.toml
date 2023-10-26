@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 base64 = "0.21.2"
-futures-lite = "1.13.0"
+futures-lite = "2.0.0"
 lamedh_runtime = "0.3.0"
 log = "0.4.19"
 serde = "1.0.181"

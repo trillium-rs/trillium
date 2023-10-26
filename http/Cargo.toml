@@ -17,7 +17,7 @@ serde = ["dep:serde"]
 
 [dependencies]
 encoding_rs = "0.8.32"
-futures-lite = "1.13.0"
+futures-lite = "2.0.0"
 hashbrown = "0.14.0"
 http = { version = "0.2.9", optional = true }
 httparse = "1.8.0"
