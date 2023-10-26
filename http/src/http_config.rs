@@ -7,8 +7,9 @@ pub const DEFAULT_CONFIG: HttpConfig = HttpConfig {
     max_headers: 128,
     response_header_initial_capacity: 16,
     copy_loops_per_yield: 16,
-    received_body_max_len: 524_288_000u64,
+    received_body_max_len: 500 * 1024 * 1024,
     received_body_initial_len: 128,
+    received_body_max_preallocate: 1024 * 1024,
 };
 
 /**
@@ -34,6 +35,7 @@ memory will be allocated for each conn. Although a tcp packet can be up to 64kb,
 better to use a value less than 1.5kb.
 
 **Default**: `512`
+
 **Unit**: byte count
 
 ### `request_buffer_initial_len`
@@ -43,6 +45,7 @@ headers. It will grow nonlinearly until `max_head_len` or the end of the headers
 whichever happens first.
 
 **Default**: `128`
+
 **Unit**: byte count
 
 ### `received_body_initial_len`
@@ -78,6 +81,22 @@ insertion when they reach this size.
 
 **Unit**: Header count
 
+### `received_body_max_preallocate`
+
+When we receive a fixed-length (not chunked-encoding) body that is smaller than this size, we can
+allocate a buffer with exactly the right size before we receive the body. However, if this is
+unbounded, malicious clients can issue headers with large content-length and then keep the
+connection open without sending any bytes, allowing them to allocate memory faster than their
+bandwidth usage. This does not limit the ability to receive fixed-length bodies larger than this,
+but the memory allocation will grow as with chunked bodies. Note that this has no impact on chunked
+bodies. If this is set higher than the `received_body_max_len`, this parameter has no effect. This
+parameter only impacts [`ReceivedBody::read_string`] and [`ReceivedBody::read_bytes`].
+
+**Default**: `1mb` in bytes
+
+**Unit**: Byte count
+
+
 ## Security parameters
 
 These parameters represent worst cases, to delineate between malicious (or malformed) requests and
@@ -112,6 +131,7 @@ pub struct HttpConfig {
     pub(crate) response_header_initial_capacity: usize,
     pub(crate) copy_loops_per_yield: usize,
     pub(crate) received_body_initial_len: usize,
+    pub(crate) received_body_max_preallocate: usize,
 }
 
 #[allow(missing_docs)]
@@ -158,6 +178,16 @@ impl HttpConfig {
     #[must_use]
     pub fn with_received_body_max_len(mut self, received_body_max_len: u64) -> Self {
         self.received_body_max_len = received_body_max_len;
+        self
+    }
+
+    /// See [`received_body_max_len`][HttpConfig#received_body_max_len]
+    #[must_use]
+    pub fn with_received_body_max_preallocate(
+        mut self,
+        received_body_max_preallocate: usize,
+    ) -> Self {
+        self.received_body_max_preallocate = received_body_max_preallocate;
         self
     }
 }
