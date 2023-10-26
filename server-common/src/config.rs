@@ -7,7 +7,7 @@ use std::{
     net::SocketAddr,
     sync::{Arc, RwLock},
 };
-use trillium::{Handler, Info};
+use trillium::{Handler, HttpConfig, Info};
 
 /**
 # Primary entrypoint for configuring and running a trillium server
@@ -72,6 +72,7 @@ pub struct Config<ServerType, AcceptorType> {
     pub(crate) completion_future: CompletionFuture,
     pub(crate) binding: RwLock<Option<ServerType>>,
     pub(crate) server: PhantomData<ServerType>,
+    pub(crate) http_config: HttpConfig,
 }
 
 impl<ServerType, AcceptorType> Config<ServerType, AcceptorType>
@@ -185,6 +186,7 @@ where
             info: self.info,
             completion_future: self.completion_future,
             binding: self.binding,
+            http_config: self.http_config,
         }
     }
 
@@ -208,6 +210,14 @@ where
     */
     pub fn with_max_connections(mut self, max_connections: Option<usize>) -> Self {
         self.max_connections = max_connections;
+        self
+    }
+
+    /// configures trillium-http performance and security tuning parameters.
+    ///
+    /// See [`HttpConfig`] for documentation
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = http_config;
         self
     }
 
@@ -273,6 +283,7 @@ where
             info: AsyncCell::shared(),
             completion_future: CompletionFuture::new(),
             binding: RwLock::new(None),
+            http_config: self.http_config,
         }
     }
 }
@@ -305,6 +316,7 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
             info: AsyncCell::shared(),
             completion_future: CompletionFuture::new(),
             binding: RwLock::new(None),
+            http_config: HttpConfig::default(),
         }
     }
 }

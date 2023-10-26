@@ -1,5 +1,4 @@
 use crate::{Acceptor, CloneCounterObserver, Config, Server, Stopper, Transport};
-
 use futures_lite::prelude::*;
 use std::{
     convert::{TryFrom, TryInto},
@@ -168,13 +167,18 @@ where
         };
 
         let handler = &handler;
-        let result = HttpConn::map(stream, self.stopper.clone(), |mut conn| async {
-            conn.set_peer_ip(peer_ip);
-            let conn = handler.run(conn.into()).await;
-            let conn = handler.before_send(conn).await;
+        let result = HttpConn::map_with_config(
+            self.http_config,
+            stream,
+            self.stopper.clone(),
+            |mut conn| async {
+                conn.set_peer_ip(peer_ip);
+                let conn = handler.run(conn.into()).await;
+                let conn = handler.before_send(conn).await;
 
-            conn.into_inner()
-        })
+                conn.into_inner()
+            },
+        )
         .await;
 
         match result {

@@ -87,6 +87,8 @@ where
     /// closed connection, while a return value of Ok(Some(upgrade))
     /// represents an upgrade.
     ///
+    /// Provides a default [`HttpConfig`]
+    ///
     /// See the documentation for [`Conn`] for a full example.
     ///
     /// # Errors
@@ -110,13 +112,32 @@ where
         F: Fn(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>> + Send,
     {
-        Self::map_with_config(DEFAULT_CONFIG, stopper, transport, handler).await
+        Self::map_with_config(DEFAULT_CONFIG, transport, stopper, handler).await
     }
 
-    async fn map_with_config<F, Fut>(
+    /// read any number of new `Conn`s from the transport and call the
+    /// provided handler function until either the connection is closed or
+    /// an upgrade is requested. A return value of Ok(None) indicates a
+    /// closed connection, while a return value of Ok(Some(upgrade))
+    /// represents an upgrade.
+    ///
+    /// See the documentation for [`Conn`] for a full example.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error variant if:
+    ///
+    /// * there is an io error when reading from the underlying transport
+    /// * headers are too long
+    /// * we are unable to parse some aspect of the request
+    /// * the request is an unsupported http version
+    /// * we cannot make sense of the headers, such as if there is a
+    /// `content-length` header as well as a `transfer-encoding: chunked`
+    /// header.
+    pub async fn map_with_config<F, Fut>(
         http_config: HttpConfig,
-        stopper: Stopper,
         transport: Transport,
+        stopper: Stopper,
         handler: F,
     ) -> Result<Option<Upgrade<Transport>>>
     where
@@ -124,7 +145,6 @@ where
         Fut: Future<Output = Conn<Transport>> + Send,
     {
         let mut conn = Conn::new_with_config(http_config, transport, None, stopper).await?;
-
         loop {
             conn = match handler(conn).await.send().await? {
                 ConnectionStatus::Upgrade(upgrade) => return Ok(Some(upgrade)),
@@ -135,7 +155,7 @@ where
     }
 
     async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
-        let mut output_buffer = Vec::with_capacity(self.http_config.write_buffer_len);
+        let mut output_buffer = Vec::with_capacity(self.http_config.response_buffer_len);
         self.write_headers(&mut output_buffer)?;
 
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport);
@@ -352,13 +372,14 @@ where
 
     #[allow(clippy::needless_borrow)]
     fn build_request_body(&mut self) -> ReceivedBody<'_, Transport> {
-        ReceivedBody::new(
+        ReceivedBody::new_with_config(
             self.request_content_length().ok().flatten(),
             &mut self.buffer,
             &mut self.transport,
             &mut self.request_body_state,
             None,
             encoding(&self.request_headers),
+            &self.http_config,
         )
     }
 
@@ -559,7 +580,7 @@ where
     }
 
     fn build_response_headers(config: &HttpConfig) -> Headers {
-        let mut headers = Headers::with_capacity(config.initial_header_capacity);
+        let mut headers = Headers::with_capacity(config.response_header_initial_capacity);
         headers.extend([
             (
                 Date,
@@ -664,9 +685,9 @@ where
         let mut start_with_read = buf.is_empty();
         let mut instant = None;
         let finder = Finder::new(b"\r\n\r\n");
-        let mut resize_by = http_config.read_buffer_len;
+        let mut resize_by = http_config.request_buffer_initial_len;
         loop {
-            if len >= http_config.max_head_len {
+            if len >= http_config.head_max_len {
                 return Err(Error::HeadersTooLong);
             }
 
@@ -729,7 +750,7 @@ where
         if !self.needs_100_continue() || self.request_body_state != ReceivedBodyState::Start {
             self.build_request_body().drain().await?;
         }
-        Conn::new(self.transport, self.buffer, self.stopper).await
+        Conn::new_with_config(self.http_config, self.transport, self.buffer, self.stopper).await
     }
 
     fn should_close(&self) -> bool {
