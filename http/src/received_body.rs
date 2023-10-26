@@ -96,7 +96,7 @@ where
 
     #[allow(missing_docs)]
     #[doc(hidden)]
-    fn new_with_config(
+    pub(crate) fn new_with_config(
         content_length: Option<u64>,
         buffer: impl Into<MutCow<'conn, Option<Vec<u8>>>>,
         transport: impl Into<MutCow<'conn, Transport>>,
