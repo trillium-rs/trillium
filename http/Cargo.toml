@@ -29,7 +29,7 @@ serde = { version = "1.0.181", features = ["derive"], optional = true }
 smallvec = "1.11.0"
 smartcow = "0.2.1"
 smartstring = "1.0.1"
-stopper = "0.2.0"
+stopper = "0.2.1"
 thiserror = "1.0.44"
 trillium-macros = { version = "0.0.4", path = "../macros" }
 
