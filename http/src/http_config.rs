@@ -3,7 +3,7 @@
 pub const DEFAULT_CONFIG: HttpConfig = HttpConfig {
     response_buffer_len: 512,
     request_buffer_initial_len: 128,
-    head_max_len: 8 * 1024,
+    head_max_len: 4 * 1024,
     max_headers: 128,
     response_header_initial_capacity: 16,
     copy_loops_per_yield: 16,
@@ -34,6 +34,7 @@ memory will be allocated for each conn. Although a tcp packet can be up to 64kb,
 better to use a value less than 1.5kb.
 
 **Default**: `512`
+
 **Unit**: byte count
 
 ### `request_buffer_initial_len`
@@ -43,6 +44,7 @@ headers. It will grow nonlinearly until `max_head_len` or the end of the headers
 whichever happens first.
 
 **Default**: `128`
+
 **Unit**: byte count
 
 ### `received_body_initial_len`
@@ -87,7 +89,7 @@ acceptable ones.
 
 The maximum length allowed before the http body begins for a given request.
 
-**Default**: `8kb` in bytes
+**Default**: `4kb` in bytes
 
 **Unit**: Byte count
 
