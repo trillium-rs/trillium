@@ -27,7 +27,7 @@ log = "0.4.19"
 serde = { version = "1.0.181", optional = true }
 serde_json = { version = "1.0.104", optional = true }
 sha-1 = "0.10.1"
-stopper = "0.2.0"
+stopper = "0.2.1"
 trillium = { path = "../trillium", version = "^0.2.0" }
 trillium-http = { path = "../http", version = "^0.3.0" }
 
