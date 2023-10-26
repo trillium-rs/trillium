@@ -62,6 +62,7 @@ pub struct ReceivedBody<'conn, Transport> {
     max_len: u64,
     initial_len: usize,
     copy_loops_per_yield: usize,
+    max_preallocate: usize,
 }
 
 fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
@@ -115,6 +116,7 @@ where
             max_len: config.received_body_max_len,
             initial_len: config.received_body_initial_len,
             copy_loops_per_yield: config.copy_loops_per_yield,
+            max_preallocate: config.received_body_max_preallocate,
         }
     }
 
@@ -171,11 +173,15 @@ where
     }
 
     /// Set the maximum length that can be read from this body before error
+    ///
+    /// See also [`HttpConfig::received_body_max_len`][HttpConfig#received_body_max_len]
     pub fn set_max_len(&mut self, max_len: u64) {
         self.max_len = max_len;
     }
 
     /// chainable setter for the maximum length that can be read from this body before error
+    ///
+    /// See also [`HttpConfig::received_body_max_len`][HttpConfig#received_body_max_len]
     #[must_use]
     pub fn with_max_len(mut self, max_len: u64) -> Self {
         self.set_max_len(max_len);
@@ -205,7 +211,7 @@ where
             let len = usize::try_from(len)
                 .map_err(|_| crate::Error::ReceivedBodyTooLong(self.max_len))?;
 
-            Vec::with_capacity(len)
+            Vec::with_capacity(len.min(self.max_preallocate))
         } else {
             Vec::with_capacity(self.initial_len)
         };
