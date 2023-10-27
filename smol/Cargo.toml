@@ -16,10 +16,10 @@ async-io = "2.0.0"
 async-net = "1.7.0"
 futures-lite = "2.0.0"
 log = "0.4.19"
-trillium = { path = "../trillium", version = "^0.2.0" }
-trillium-http = { path = "../http", version = "^0.3.0" }
+trillium = { path = "../trillium", version = "0.2.0" }
+trillium-http = { path = "../http", version = "0.3.0" }
 trillium-macros = { version = "0.0.4", path = "../macros" }
-trillium-server-common = { path = "../server-common", version = "^0.4.0" }
+trillium-server-common = { path = "../server-common", version = "0.4.0" }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3.17"
