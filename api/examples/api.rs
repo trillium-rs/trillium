@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use trillium::Conn;
-use trillium_api::{api, Body};
+use trillium_api::{api, Body, Result};
 use trillium_logger::logger;
 use trillium_router::router;
 
@@ -15,7 +15,14 @@ struct Post {
     body: String,
 }
 
-async fn save_post(_conn: &mut Conn, mut post: Body<Post>) -> Body<Post> {
+async fn save_post(_conn: &mut Conn, post: Result<Body<Post>>) -> Result<Body<Post>> {
+    post.map(|mut post| {
+        post.id = Some(10);
+        post
+    })
+}
+
+async fn save_post_alternative(_conn: &mut Conn, mut post: Body<Post>) -> Body<Post> {
     post.id = Some(10);
     post
 }
@@ -33,6 +40,9 @@ fn main() {
     env_logger::init();
     trillium_smol::run((
         logger(),
-        router().post("/", api(save_post)).get("/", api(get_post)),
+        router()
+            .post("/", api(save_post))
+            .get("/", api(get_post))
+            .put("/", api(save_post_alternative)),
     ));
 }

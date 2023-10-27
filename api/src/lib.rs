@@ -35,12 +35,12 @@ with different performance and ergonomic considerations.
 mod api_conn_ext;
 mod api_handler;
 mod body;
-mod default_error_handler;
 mod error;
 mod from_conn;
 mod halt;
 mod json;
 mod state;
+mod try_from_conn;
 
 pub use api_conn_ext::ApiConnExt;
 pub use api_handler::{api, ApiHandler};
@@ -51,3 +51,7 @@ pub use halt::Halt;
 pub use json::Json;
 pub use serde_json::{json, Value};
 pub use state::State;
+pub use try_from_conn::TryFromConn;
+
+/// trait alias for a result with this crate's [`Error`]
+pub type Result<T> = std::result::Result<T, Error>;

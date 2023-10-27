@@ -1,5 +1,7 @@
 use trillium::{async_trait, Conn};
 
+use crate::TryFromConn;
+
 /// A trait to extract content from [`Conn`]s to be used as the second
 /// argument to an api handler. Implement this for your types.
 #[async_trait]
@@ -37,27 +39,13 @@ impl<E: FromConn> FromConn for Option<E> {
     }
 }
 
-macro_rules! impl_from_conn_tuple {
-    ($($name:ident)+) => (
-        #[async_trait]
-        impl<$($name),*> FromConn for ($($name,)*) where $($name: FromConn),* {
-            #[allow(non_snake_case)]
-            async fn from_conn(conn: &mut Conn) -> Option<($($name,)*)> {
-                $(let $name = <$name as FromConn>::from_conn(conn).await;)*
-                Some(($($name?, )*))
-            }
-        }
-    )
+#[async_trait]
+impl<T, E> FromConn for Result<T, E>
+where
+    T: TryFromConn<Error = E>,
+    E: Send + Sync + 'static,
+{
+    async fn from_conn(conn: &mut Conn) -> Option<Self> {
+        Some(T::try_from_conn(conn).await)
+    }
 }
-
-impl_from_conn_tuple! { A B }
-impl_from_conn_tuple! { A B C }
-impl_from_conn_tuple! { A B C D }
-impl_from_conn_tuple! { A B C D E }
-impl_from_conn_tuple! { A B C D E F }
-impl_from_conn_tuple! { A B C D E F G }
-impl_from_conn_tuple! { A B C D E F G H }
-impl_from_conn_tuple! { A B C D E F G H I }
-impl_from_conn_tuple! { A B C D E F G H I J }
-impl_from_conn_tuple! { A B C D E F G H I J K }
-impl_from_conn_tuple! { A B C D E F G H I J K L }
