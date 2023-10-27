@@ -19,14 +19,8 @@ content types.
 The [`ApiConnExt`] extension trait and [`ApiHandler`] can be used
 independently or in combination.
 
-[`ApiHandler`] provides an easy way to deserialize a single type from
-the request body. ApiHandler does not handle serializing responses, so
-is best used in conjunction with the [`Json`] handler that this crate
-provides.
-
-If [`ApiHandler`] encounters an error of any sort before the
-user-provided logic is executed, it will put an [`Error`] into the
-conn's state. A default error handler is provided.
+[`ApiHandler`] provides a different and more experimental interface to writing trillium handlers,
+with different performance and ergonomic considerations.
 */
 #![forbid(unsafe_code)]
 #![deny(
