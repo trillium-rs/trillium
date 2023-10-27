@@ -20,11 +20,11 @@ pub trait Connector: Send + Sync + 'static {
     ///
     type Transport: Transport;
     /**
-    Initiate a connection to the provided url, using the configuration.
+    Initiate a connection to the provided url
 
     Async trait signature:
     ```rust,ignore
-    async fn connect(url: &Url, config: &Self::Config) -> std::io::Result<Self::Transport>;
+    async fn connect(&self, url: &Url) -> std::io::Result<Self::Transport>;
     ```
      */
     async fn connect(&self, url: &Url) -> Result<Self::Transport>;
