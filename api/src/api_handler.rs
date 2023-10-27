@@ -1,8 +1,6 @@
 use crate::FromConn;
-use std::future::Future;
-use std::marker::PhantomData;
-use std::sync::Arc;
-use trillium::{async_trait, Conn, Handler, Info, Status};
+use std::{future::Future, marker::PhantomData, sync::Arc};
+use trillium::{async_trait, Conn, Handler, Info, Status, Upgrade};
 
 // A trait for `async fn(conn: &mut Conn, additional: Additional) -> ReturnType`
 pub trait MutBorrowConn<'conn, ReturnType, Additional>: Send + Sync + 'conn {
@@ -23,9 +21,15 @@ where
     }
 }
 
-/// This handler provides the capacity to extract various components
-/// of a conn such as deserializing a body, and supports returning
-/// handlers that will be called on the returned conn.
+/// An interface layer built on trillium
+///
+/// This handler provides the capacity to extract various components of a conn such as deserializing
+/// a body, and supports returning handlers that will be called on the returned conn.
+///
+/// If [`ApiHandler`] encounters an error of any sort before the user-provided logic is executed, it
+/// will put an [`Error`] into the conn's state. A default error handler is provided.
+///
+/// More documentation for this type is needed, hence the -rc semver on this crate
 #[derive(Debug)]
 pub struct ApiHandler<F, OutputHandler, FromConn>(
     F,
@@ -110,7 +114,7 @@ where
         }
     }
 
-    fn has_upgrade(&self, upgrade: &trillium::Upgrade) -> bool {
+    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
         upgrade
             .state()
             .get::<OutputHandlerWrapper<OutputHandler>>()
@@ -120,7 +124,7 @@ where
             })
     }
 
-    async fn upgrade(&self, upgrade: trillium::Upgrade) {
+    async fn upgrade(&self, upgrade: Upgrade) {
         if let Some(OutputHandlerWrapper(handler)) = upgrade
             .state()
             .get::<OutputHandlerWrapper<OutputHandler>>()
