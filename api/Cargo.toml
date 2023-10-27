@@ -1,6 +1,6 @@
 [package]
 name = "trillium-api"
-version = "0.2.0-rc.4"
+version = "0.2.0-rc.5"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "an api handler for trillium.rs"
