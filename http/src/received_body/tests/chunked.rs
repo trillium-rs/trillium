@@ -85,6 +85,7 @@ fn test_full_decode() {
             assert_eq!(output, "MozillaDeveloperNetwork", "size: {size}");
 
             assert!(decode(String::new(), size).await.is_err());
+            assert!(decode("fffffffffffffff0\r\n".into(), size).await.is_err());
         }
     });
 }

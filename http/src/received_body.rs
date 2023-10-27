@@ -358,7 +358,9 @@ fn chunk_decode(
         match httparse::parse_chunk_size(buf_to_read) {
             Ok(Status::Complete((framing_bytes, chunk_size))) => {
                 chunk_start += framing_bytes as u64;
-                chunk_end = 2 + chunk_start + chunk_size;
+                chunk_end = (2 + chunk_start)
+                    .checked_add(chunk_size)
+                    .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "chunk size too long"))?;
 
                 if chunk_size == 0 {
                     break (End, slice_from(chunk_end, buf).map(Vec::from));
