@@ -4,25 +4,21 @@ use encoding_rs::UTF_8;
 use futures_lite::{io::Cursor, AsyncRead, AsyncReadExt};
 use trillium_testing::block_on;
 
+#[track_caller]
 fn assert_decoded(
     (remaining, input_data): (u64, &str),
     expected_output: (Option<u64>, &str, Option<&str>),
 ) {
     let mut buf = input_data.to_string().into_bytes();
 
-    let (output_state, bytes, unused) = chunk_decode(
-        remaining,
-        0,
-        0,
-        &mut buf,
-        DEFAULT_CONFIG.received_body_max_len,
-    )
-    .unwrap();
+    let (output_state, bytes, unused) =
+        chunk_decode(remaining, 0, &mut buf, DEFAULT_CONFIG.received_body_max_len).unwrap();
 
     assert_eq!(
         (
             match output_state {
                 ReceivedBodyState::Chunked { remaining, .. } => Some(remaining),
+                ReceivedBodyState::PartialChunkSize { .. } => Some(0),
                 ReceivedBodyState::End => None,
                 _ => panic!("unexpected output state {output_state:?}"),
             },
@@ -75,7 +71,7 @@ async fn decode(input: String, poll_size: usize) -> crate::Result<String> {
 #[test]
 fn test_full_decode() {
     block_on(async {
-        for size in 3..50 {
+        for size in 1..50 {
             let input = "5\r\n12345\r\n1\r\na\r\n2\r\nbc\r\n3\r\ndef\r\n0\r\n";
             let output = decode(input.into(), size).await.unwrap();
             assert_eq!(output, "12345abcdef", "size: {size}");
@@ -105,18 +101,17 @@ async fn build_chunked_body(input: String) -> String {
 }
 
 #[test]
-fn test_read_buffer_too_short() {
+fn test_read_buffer_short() {
     block_on(async {
         let input = "test ".repeat(50);
         let chunked = build_chunked_body(input.clone()).await;
-        assert!(chunked.starts_with("FA\r\n"));
 
-        for size in 1..4 {
-            assert!(decode(chunked.clone(), size).await.is_err());
-        }
-
-        for size in 4..10 {
-            assert_eq!(&decode(chunked.clone(), size).await.unwrap(), &input);
+        for size in 1..10 {
+            assert_eq!(
+                &decode(chunked.clone(), size).await.unwrap(),
+                &input,
+                "size: {size}"
+            );
         }
     });
 }
