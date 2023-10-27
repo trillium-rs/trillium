@@ -14,7 +14,7 @@ categories = ["web-programming::http-server", "web-programming"]
 async-trait = "0.1.72"
 futures-lite = "2.0.0"
 log = "0.4.19"
-trillium-http = { path = "../http", version = "^0.3.0" }
+trillium-http = { path = "../http", version = "^0.3.4" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }
