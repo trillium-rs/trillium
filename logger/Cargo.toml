@@ -16,7 +16,7 @@ is-terminal = "0.4.9"
 log = "0.4.19"
 size = "0.4.1"
 time = { version = "0.3.25", features = ["local-offset", "formatting", "macros"] }
-trillium = { path = "../trillium", version = "^0.2.0" }
+trillium = { path = "../trillium", version = "0.2.0" }
 
 [dev-dependencies]
 access_log_parser = "0.8.0"
