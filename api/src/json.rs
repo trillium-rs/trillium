@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use serde::{de::DeserializeOwned, Serialize};
 use trillium::{async_trait, Conn, Handler};
 
-use crate::{ApiConnExt, FromConn};
+use crate::{ApiConnExt, TryFromConn};
 
 /// A newtype wrapper struct for any [`serde::Serialize`] type. Note
 /// that this currently must own the serializable type.
@@ -54,12 +54,12 @@ where
 }
 
 #[async_trait]
-impl<T> FromConn for Json<T>
+impl<T> TryFromConn for Json<T>
 where
     T: DeserializeOwned + Send + Sync + 'static,
 {
-    async fn from_conn(conn: &mut Conn) -> Option<Self> {
-        let res = conn.deserialize_json::<T>().await;
-        conn.store_error(res).map(Self)
+    type Error = crate::Error;
+    async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
+        conn.deserialize_json().await.map(Self)
     }
 }

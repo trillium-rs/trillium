@@ -1,4 +1,4 @@
-use crate::{ApiConnExt, FromConn};
+use crate::{ApiConnExt, TryFromConn};
 use serde::{de::DeserializeOwned, Serialize};
 use std::ops::{Deref, DerefMut};
 use trillium::{async_trait, Conn, Handler};
@@ -40,13 +40,13 @@ impl<T> DerefMut for Body<T> {
 }
 
 #[async_trait]
-impl<T> FromConn for Body<T>
+impl<T> TryFromConn for Body<T>
 where
     T: DeserializeOwned + Send + Sync + 'static,
 {
-    async fn from_conn(conn: &mut Conn) -> Option<Self> {
-        let result = conn.deserialize::<T>().await;
-        conn.store_error(result).map(Self)
+    type Error = crate::Error;
+    async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
+        conn.deserialize().await.map(Self)
     }
 }
 

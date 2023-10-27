@@ -1,4 +1,4 @@
-use crate::FromConn;
+use crate::TryFromConn;
 use std::{future::Future, marker::PhantomData, sync::Arc};
 use trillium::{async_trait, Conn, Handler, Info, Status, Upgrade};
 
@@ -31,103 +31,109 @@ where
 ///
 /// More documentation for this type is needed, hence the -rc semver on this crate
 #[derive(Debug)]
-pub struct ApiHandler<F, OutputHandler, FromConn>(
+pub struct ApiHandler<F, OutputHandler, TryFromConn>(
     F,
     PhantomData<OutputHandler>,
-    PhantomData<FromConn>,
+    PhantomData<TryFromConn>,
 );
 
-impl<FromConnHandler, OutputHandler, Extracted>
-    ApiHandler<FromConnHandler, OutputHandler, Extracted>
+impl<TryFromConnHandler, OutputHandler, Extracted>
+    ApiHandler<TryFromConnHandler, OutputHandler, Extracted>
 where
-    FromConnHandler: for<'a> MutBorrowConn<'a, OutputHandler, Extracted>,
+    TryFromConnHandler: for<'a> MutBorrowConn<'a, OutputHandler, Extracted>,
     OutputHandler: Handler,
-    Extracted: FromConn,
+    Extracted: TryFromConn,
 {
-    /// constructs a new [`ApiFromConnHandler`] from the provided
-    /// `async fn(&mut conn, FromConn) -> impl Handler`
-    pub fn new(api_handler: FromConnHandler) -> Self {
+    /// constructs a new [`ApiTryFromConnHandler`] from the provided
+    /// `async fn(&mut conn, TryFromConn) -> impl Handler`
+    pub fn new(api_handler: TryFromConnHandler) -> Self {
         Self::from(api_handler)
     }
 }
 
-impl<FromConnHandler, OutputHandler, Extracted> From<FromConnHandler>
-    for ApiHandler<FromConnHandler, OutputHandler, Extracted>
+impl<TryFromConnHandler, OutputHandler, Extracted> From<TryFromConnHandler>
+    for ApiHandler<TryFromConnHandler, OutputHandler, Extracted>
 where
-    FromConnHandler: for<'a> MutBorrowConn<'a, OutputHandler, Extracted>,
+    TryFromConnHandler: for<'a> MutBorrowConn<'a, OutputHandler, Extracted>,
     OutputHandler: Handler,
-    Extracted: FromConn,
+    Extracted: TryFromConn,
 {
-    fn from(value: FromConnHandler) -> Self {
+    fn from(value: TryFromConnHandler) -> Self {
         Self(value, PhantomData, PhantomData)
     }
 }
 
-/// constructs a new [`ApiFromConnHandler`] from the provided
-/// `async fn(&mut conn, FromConn) -> impl Handler`
+/// constructs a new [`ApiTryFromConnHandler`] from the provided
+/// `async fn(&mut conn, TryFromConn) -> impl Handler`
 ///
-/// convenience function for [`ApiFromConnHandler::new`]
-pub fn api<FromConnHandler, OutputHandler, Extracted>(
-    api_handler: FromConnHandler,
-) -> ApiHandler<FromConnHandler, OutputHandler, Extracted>
+/// convenience function for [`ApiTryFromConnHandler::new`]
+pub fn api<TryFromConnHandler, OutputHandler, Extracted>(
+    api_handler: TryFromConnHandler,
+) -> ApiHandler<TryFromConnHandler, OutputHandler, Extracted>
 where
-    FromConnHandler: for<'a> MutBorrowConn<'a, OutputHandler, Extracted>,
-    Extracted: FromConn,
+    TryFromConnHandler: for<'a> MutBorrowConn<'a, OutputHandler, Extracted>,
+    Extracted: TryFromConn,
     OutputHandler: Handler,
 {
     ApiHandler::from(api_handler)
 }
 
 #[async_trait]
-impl<FromConnHandler, OutputHandler, Extracted> Handler
-    for ApiHandler<FromConnHandler, OutputHandler, Extracted>
+impl<TryFromConnHandler, OutputHandler, Extracted> Handler
+    for ApiHandler<TryFromConnHandler, OutputHandler, Extracted>
 where
-    FromConnHandler: for<'a> MutBorrowConn<'a, OutputHandler, Extracted>,
-    Extracted: FromConn,
+    TryFromConnHandler: for<'a> MutBorrowConn<'a, OutputHandler, Extracted>,
+    Extracted: TryFromConn,
+    Extracted::Error: Handler,
     OutputHandler: Handler,
 {
     async fn run(&self, mut conn: Conn) -> Conn {
-        if let Some(extracted) = Extracted::from_conn(&mut conn).await {
-            let mut output_handler = self.0.call(&mut conn, extracted).await;
-            if let Some(info) = conn.state_mut::<Info>() {
-                output_handler.init(info).await;
-            } else {
-                output_handler.init(&mut Info::default()).await;
-            }
-            let mut conn = output_handler.run(conn).await;
-            if conn.status().is_none() && conn.inner().response_body().is_some() {
-                conn.set_status(Status::Ok);
-            }
-            conn.with_state(OutputHandlerWrapper(Arc::new(output_handler)))
+        let mut output_handler: Result<OutputHandler, <Extracted as TryFromConn>::Error> =
+            match Extracted::try_from_conn(&mut conn).await {
+                Ok(extracted) => Ok(self.0.call(&mut conn, extracted).await),
+                Err(error_handler) => Err(error_handler),
+            };
+
+        if let Some(info) = conn.state_mut::<Info>() {
+            output_handler.init(info).await;
         } else {
-            conn.halt()
+            output_handler.init(&mut Info::default()).await;
         }
+        let mut conn = output_handler.run(conn).await;
+        if conn.status().is_none() && conn.inner().response_body().is_some() {
+            conn.set_status(Status::Ok);
+        }
+        conn.with_state(OutputHandlerWrapper(
+            Arc::new(output_handler),
+            PhantomData::<Self>,
+        ))
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
-        if let Some(OutputHandlerWrapper(handler)) =
-            conn.state::<OutputHandlerWrapper<OutputHandler>>().cloned()
+        if let Some(OutputHandlerWrapper(handler, _)) = conn
+            .state::<OutputHandlerWrapper<Self, OutputHandler, <Extracted as TryFromConn>::Error>>()
+            .cloned()
         {
             handler.before_send(conn).await
         } else {
-            crate::default_error_handler::handle_error(conn)
+            conn
         }
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
         upgrade
             .state()
-            .get::<OutputHandlerWrapper<OutputHandler>>()
+            .get::<OutputHandlerWrapper<Self, OutputHandler, <Extracted as TryFromConn>::Error>>()
             .cloned()
-            .map_or(false, |OutputHandlerWrapper(handler)| {
+            .map_or(false, |OutputHandlerWrapper(handler, _)| {
                 handler.has_upgrade(upgrade)
             })
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        if let Some(OutputHandlerWrapper(handler)) = upgrade
+        if let Some(OutputHandlerWrapper(handler, _)) = upgrade
             .state()
-            .get::<OutputHandlerWrapper<OutputHandler>>()
+            .get::<OutputHandlerWrapper<Self, OutputHandler, <Extracted as TryFromConn>::Error>>()
             .cloned()
         {
             handler.upgrade(upgrade).await
@@ -135,9 +141,10 @@ where
     }
 }
 
-struct OutputHandlerWrapper<OH>(Arc<OH>);
-impl<OH> Clone for OutputHandlerWrapper<OH> {
+struct OutputHandlerWrapper<TFC, OH, EH>(Arc<Result<OH, EH>>, PhantomData<TFC>);
+
+impl<TFC, OH, EH> Clone for OutputHandlerWrapper<TFC, OH, EH> {
     fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
+        Self(Arc::clone(&self.0), self.1)
     }
 }
