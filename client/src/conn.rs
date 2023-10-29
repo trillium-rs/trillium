@@ -57,7 +57,7 @@ pub struct Conn {
     status: Option<Status>,
     request_body: Option<Body>,
     pool: Option<Pool<Origin, BoxedTransport>>,
-    buffer: Option<Vec<u8>>,
+    buffer: Vec<u8>,
     response_body_state: ReceivedBodyState,
     config: Arc<dyn ObjectSafeConnector>,
     headers_finalized: bool,
@@ -75,10 +75,7 @@ impl Debug for Conn {
             .field("status", &self.status)
             .field("request_body", &self.request_body)
             .field("pool", &self.pool)
-            .field(
-                "buffer",
-                &self.buffer.as_deref().map(String::from_utf8_lossy),
-            )
+            .field("buffer", &String::from_utf8_lossy(&self.buffer))
             .field("response_body_state", &self.response_body_state)
             .field("config", &self.config)
             .finish()
@@ -148,7 +145,7 @@ impl Conn {
             status: None,
             request_body: None,
             pool: None,
-            buffer: None,
+            buffer: Vec::with_capacity(128),
             response_body_state: ReceivedBodyState::Start,
             config,
             headers_finalized: false,
@@ -688,28 +685,31 @@ impl Conn {
         self.transport.as_mut().unwrap()
     }
 
-    async fn read_head(&mut self) -> Result<(Vec<u8>, Vec<u8>)> {
-        let mut buf = self.buffer.take().unwrap_or_default();
+    async fn read_head(&mut self) -> Result<usize> {
+        let Self {
+            buffer,
+            transport: Some(transport),
+            ..
+        } = self
+        else {
+            return Err(Error::Closed);
+        };
         let mut len = 0;
         let searcher = TwoWaySearcher::new(b"\r\n\r\n");
         loop {
-            buf.extend(std::iter::repeat(0).take(100));
-            let bytes = self.transport().read(&mut buf[len..]).await?;
+            if buffer.len() == buffer.capacity() {
+                buffer.reserve(32);
+                buffer.resize(buffer.capacity(), 0);
+            }
+
+            let bytes = transport.read(&mut buffer[len..]).await?;
 
             let search_start = len.max(3) - 3;
-            let search = searcher.search_in(&buf[search_start..]);
+            let search = searcher.search_in(&buffer[search_start..len + bytes]);
 
             if let Some(index) = search {
-                buf.truncate(len + bytes);
-
-                log::trace!(
-                    "{}",
-                    String::from_utf8_lossy(&buf[..search_start + index]).replace("\r\n", "\r\n< ")
-                );
-
-                let body = buf.split_off(search_start + index + 4);
-
-                return Ok((buf, body));
+                buffer.truncate(len + bytes);
+                return Ok(search_start + index + 4);
             }
 
             len += bytes;
@@ -718,10 +718,6 @@ impl Conn {
                 if len == 0 {
                     return Err(Error::Closed);
                 } else {
-                    log::debug!(
-                        "disconnect? partial head content: \n\n{:?}",
-                        String::from_utf8_lossy(&buf[..])
-                    );
                     return Err(Error::PartialHead);
                 }
             }
@@ -733,27 +729,10 @@ impl Conn {
     }
 
     async fn parse_head(&mut self) -> Result<()> {
-        let (head, body) = self.read_head().await?;
-        self.buffer = if body.is_empty() { None } else { Some(body) };
+        let head_offset = self.read_head().await?;
         let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
         let mut httparse_res = httparse::Response::new(&mut headers);
-        let status = httparse_res.parse(&head[..]);
-
-        if let Err(e) = status {
-            log::error!("{:?}", e);
-            log::error!(
-                "partial head content: {}",
-                String::from_utf8_lossy(&head[..])
-            );
-        }
-
-        let status = status?;
-
-        if status.is_partial() {
-            log::trace!(
-                "partial head content: {}",
-                String::from_utf8_lossy(&head[..])
-            );
+        if httparse_res.parse(&self.buffer[..])?.is_partial() {
             return Err(Error::PartialHead);
         }
 
@@ -765,6 +744,8 @@ impl Conn {
             let header_value = HeaderValue::from(header.value.to_owned());
             self.response_headers.append(header_name, header_value);
         }
+
+        self.buffer = Vec::from(&self.buffer[head_offset..]);
 
         self.validate_response_headers()?;
         Ok(())
@@ -866,7 +847,7 @@ impl Drop for Conn {
             pool.insert(origin, PoolEntry::new(transport, None));
         } else {
             let content_length = self.response_content_length();
-            let buffer = self.buffer.take();
+            let buffer = std::mem::take(&mut self.buffer);
             let response_body_state = self.response_body_state;
             let encoding = encoding(&self.response_headers);
             Connector::spawn(&self.config, async move {
@@ -920,7 +901,7 @@ impl From<Conn> for ReceivedBody<'static, BoxedTransport> {
 
         ReceivedBody::new(
             conn.response_content_length(),
-            conn.buffer.take(),
+            std::mem::take(&mut conn.buffer),
             conn.transport.take().unwrap(),
             conn.response_body_state,
             on_completion,
@@ -932,12 +913,12 @@ impl From<Conn> for ReceivedBody<'static, BoxedTransport> {
 impl From<Conn> for Upgrade<BoxedTransport> {
     fn from(mut conn: Conn) -> Self {
         Upgrade {
-            request_headers: std::mem::replace(&mut conn.request_headers, Headers::new()),
+            request_headers: std::mem::take(&mut conn.request_headers),
             path: conn.url.path().to_string(),
             method: conn.method,
             state: StateSet::new(),
             transport: conn.transport.take().unwrap(),
-            buffer: conn.buffer.take(),
+            buffer: Some(std::mem::take(&mut conn.buffer)),
             stopper: Stopper::new(),
         }
     }

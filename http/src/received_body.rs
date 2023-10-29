@@ -13,14 +13,8 @@ use std::{
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 
-#[cfg(test)]
-mod tests;
-
-macro_rules! trace {
-    ($s:literal, $($arg:tt)+) => (
-        log::trace!(concat!(":{} ", $s), line!(), $($arg)+);
-    )
-}
+mod chunked;
+mod fixed_length;
 
 /** A received http body
 
@@ -54,7 +48,7 @@ result in an error. This limitation is temporary.
 
 pub struct ReceivedBody<'conn, Transport> {
     content_length: Option<u64>,
-    buffer: MutCow<'conn, Option<Vec<u8>>>,
+    buffer: MutCow<'conn, Vec<u8>>,
     transport: Option<MutCow<'conn, Transport>>,
     state: MutCow<'conn, ReceivedBodyState>,
     on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
@@ -78,7 +72,7 @@ where
     #[doc(hidden)]
     pub fn new(
         content_length: Option<u64>,
-        buffer: impl Into<MutCow<'conn, Option<Vec<u8>>>>,
+        buffer: impl Into<MutCow<'conn, Vec<u8>>>,
         transport: impl Into<MutCow<'conn, Transport>>,
         state: impl Into<MutCow<'conn, ReceivedBodyState>>,
         on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
@@ -99,7 +93,7 @@ where
     #[doc(hidden)]
     pub(crate) fn new_with_config(
         content_length: Option<u64>,
-        buffer: impl Into<MutCow<'conn, Option<Vec<u8>>>>,
+        buffer: impl Into<MutCow<'conn, Vec<u8>>>,
         transport: impl Into<MutCow<'conn, Transport>>,
         state: impl Into<MutCow<'conn, ReceivedBodyState>>,
         on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
@@ -274,7 +268,7 @@ impl<T> ReceivedBody<'static, T> {
 }
 
 fn read_raw<Transport>(
-    opt_buffer: &mut Option<Vec<u8>>,
+    self_buffer: &mut Vec<u8>,
     transport: &mut Transport,
     cx: &mut Context<'_>,
     buf: &mut [u8],
@@ -282,113 +276,24 @@ fn read_raw<Transport>(
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
-    match opt_buffer {
-        Some(buffer) if !buffer.is_empty() => {
-            let len = buffer.len();
-            if len > buf.len() {
-                trace!(
-                    "have {} bytes of pending data but can only use {}",
-                    len,
-                    buf.len()
-                );
-                let remaining = buffer.split_off(buf.len());
-                buf.copy_from_slice(buffer);
-                *buffer = remaining;
-                Ready(Ok(buf.len()))
-            } else {
-                trace!("have {} bytes of pending data, using all of it", len);
-                buf[..len].copy_from_slice(buffer);
-                *opt_buffer = None;
-                match Pin::new(transport).poll_read(cx, &mut buf[len..]) {
-                    Ready(Ok(e)) => Ready(Ok(e + len)),
-                    Pending => Ready(Ok(len)),
-                    other @ Ready(_) => other,
-                }
-            }
+    if self_buffer.is_empty() {
+        Pin::new(transport).poll_read(cx, buf)
+    } else if self_buffer.len() >= buf.len() {
+        let len = buf.len();
+        buf.copy_from_slice(&self_buffer[..len]);
+        self_buffer.copy_within(len.., 0);
+        self_buffer.truncate(len);
+        Ready(Ok(len))
+    } else {
+        let self_buffer_len = self_buffer.len();
+        buf[..self_buffer_len].copy_from_slice(self_buffer);
+        self_buffer.truncate(0);
+        match Pin::new(transport).poll_read(cx, &mut buf[self_buffer_len..]) {
+            Ready(Ok(additional)) => Ready(Ok(additional + self_buffer_len)),
+            Pending => Ready(Ok(self_buffer_len)),
+            other @ Ready(_) => other,
         }
-
-        _ => Pin::new(transport).poll_read(cx, buf),
     }
-}
-
-fn chunk_decode(
-    remaining: u64,
-    mut total: u64,
-    buf: &mut [u8],
-    max_len: u64,
-) -> io::Result<(ReceivedBodyState, usize, Option<Vec<u8>>)> {
-    if buf.is_empty() {
-        return Err(io::Error::from(ErrorKind::ConnectionAborted));
-    }
-    let mut ranges_to_keep = vec![];
-    let mut chunk_start = 0u64;
-    let mut chunk_end = remaining;
-    let (request_body_state, unused) = loop {
-        if chunk_end > 2 {
-            let keep_start = usize::try_from(chunk_start).unwrap_or(usize::MAX);
-            let keep_end = buf
-                .len()
-                .min(usize::try_from(chunk_end - 2).unwrap_or(usize::MAX));
-            ranges_to_keep.push(keep_start..keep_end);
-            let new_bytes = (keep_end - keep_start) as u64;
-            total += new_bytes;
-            if total > max_len {
-                return Err(io::Error::new(ErrorKind::Unsupported, "content too long"));
-            }
-        }
-        chunk_start = chunk_end;
-
-        let Some(buf_to_read) = slice_from(chunk_start, buf) else {
-            break (
-                Chunked {
-                    remaining: (chunk_start - buf.len() as u64),
-                    total,
-                },
-                None,
-            );
-        };
-
-        if buf_to_read.is_empty() {
-            break (
-                Chunked {
-                    remaining: (chunk_start - buf.len() as u64),
-                    total,
-                },
-                None,
-            );
-        }
-
-        match httparse::parse_chunk_size(buf_to_read) {
-            Ok(Status::Complete((framing_bytes, chunk_size))) => {
-                chunk_start += framing_bytes as u64;
-                chunk_end = (2 + chunk_start)
-                    .checked_add(chunk_size)
-                    .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "chunk size too long"))?;
-
-                if chunk_size == 0 {
-                    break (End, slice_from(chunk_end, buf).map(Vec::from));
-                }
-            }
-
-            Ok(Status::Partial) => {
-                break (PartialChunkSize { total }, Some(Vec::from(buf_to_read)));
-            }
-
-            Err(InvalidChunkSize) => {
-                return Err(io::Error::new(ErrorKind::InvalidData, "invalid chunk size"));
-            }
-        }
-    };
-
-    let mut bytes = 0;
-
-    for range_to_keep in ranges_to_keep {
-        let new_bytes = bytes + range_to_keep.end - range_to_keep.start;
-        buf.copy_within(range_to_keep, bytes);
-        bytes = new_bytes;
-    }
-
-    Ok((request_body_state, bytes, unused))
 }
 
 const STREAM_READ_BUF_LENGTH: usize = 128;
@@ -422,7 +327,7 @@ where
     }
 }
 
-type StateOutput = Poll<io::Result<(ReceivedBodyState, usize, Option<Vec<u8>>)>>;
+type StateOutput = Poll<io::Result<(ReceivedBodyState, usize)>>;
 
 impl<'conn, Transport> ReceivedBody<'conn, Transport>
 where
@@ -452,91 +357,10 @@ where
                 },
             },
             0,
-            None,
         )))
     }
-
-    #[inline]
-    fn handle_chunked(
-        &mut self,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-        remaining: u64,
-        total: u64,
-    ) -> StateOutput {
-        let bytes = ready!(self.read_raw(cx, buf)?);
-
-        Ready(chunk_decode(
-            remaining,
-            total,
-            &mut buf[..bytes],
-            self.max_len,
-        ))
-    }
-
-    #[inline]
-    fn handle_partial(&mut self, cx: &mut Context<'_>, buf: &mut [u8], total: u64) -> StateOutput {
-        let transport = self
-            .transport
-            .as_deref_mut()
-            .ok_or_else(|| io::Error::from(ErrorKind::NotConnected))?;
-        let bytes = ready!(Pin::new(transport).poll_read(cx, buf))?;
-
-        if bytes == 0 {
-            return Ready(Err(io::Error::from(ErrorKind::ConnectionAborted)));
-        }
-
-        let mut inner_buf = self.buffer.take().unwrap_or_default();
-        inner_buf.extend_from_slice(&buf[..bytes]);
-
-        match httparse::parse_chunk_size(&inner_buf) {
-            Ok(Status::Complete((framing_bytes, 0))) => {
-                Ready(Ok((End, 0, Some(Vec::from(&inner_buf[framing_bytes..])))))
-            }
-
-            Ok(Status::Complete((framing_bytes, remaining))) => Ready(Ok((
-                Chunked {
-                    remaining: remaining + 2,
-                    total,
-                },
-                0,
-                Some(Vec::from(&inner_buf[framing_bytes..])),
-            ))),
-
-            Ok(Status::Partial) => Ready(Ok((PartialChunkSize { total }, 0, Some(inner_buf)))),
-
-            Err(InvalidChunkSize) => Ready(Err(io::Error::new(
-                ErrorKind::InvalidData,
-                "invalid chunk framing",
-            ))),
-        }
-    }
-
-    #[inline]
-    fn handle_fixed_length(
-        &mut self,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-        current_index: u64,
-        total_length: u64,
-    ) -> StateOutput {
-        let len = buf.len();
-        let remaining = usize::try_from(total_length - current_index).unwrap_or(usize::MAX);
-        let buf = &mut buf[..len.min(remaining)];
-        let bytes = ready!(self.read_raw(cx, buf)?);
-        let current_index = current_index + bytes as u64;
-        let state = if bytes == 0 || current_index == total_length {
-            End
-        } else {
-            FixedLength {
-                current_index,
-                total: total_length,
-            }
-        };
-
-        Ready(Ok((state, bytes, None)))
-    }
 }
+
 impl<'conn, Transport> AsyncRead for ReceivedBody<'conn, Transport>
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
@@ -547,28 +371,16 @@ where
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         for _ in 0..self.copy_loops_per_yield {
-            trace!("polling received body with state {:?}", &*self.state);
-            let ret = match *self.state {
+            let (new_body_state, bytes) = ready!(match *self.state {
                 Start => self.handle_start(),
                 Chunked { remaining, total } => self.handle_chunked(cx, buf, remaining, total),
                 PartialChunkSize { total } => self.handle_partial(cx, buf, total),
                 FixedLength {
                     current_index,
-                    total: total_length,
-                } => self.handle_fixed_length(cx, buf, current_index, total_length),
-
-                End => Ready(Ok((End, 0, None))),
-            };
-
-            let (new_body_state, bytes, unused) = ready!(ret)?;
-
-            if let Some(unused) = unused {
-                if let Some(existing) = &mut *self.buffer {
-                    existing.extend_from_slice(&unused);
-                } else {
-                    *self.buffer = Some(unused);
-                }
-            }
+                    total,
+                } => self.handle_fixed_length(cx, buf, current_index, total),
+                End => Ready(Ok((End, 0))),
+            })?;
 
             *self.state = new_body_state;
 
@@ -594,10 +406,7 @@ impl<'conn, Transport> Debug for ReceivedBody<'conn, Transport> {
         f.debug_struct("RequestBody")
             .field("state", &*self.state)
             .field("content_length", &self.content_length)
-            .field(
-                "buffer",
-                &self.buffer.as_deref().map(String::from_utf8_lossy),
-            )
+            .field("buffer", &"..")
             .field("on_completion", &self.on_completion.is_some())
             .finish()
     }

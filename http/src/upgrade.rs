@@ -129,7 +129,11 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             method,
             state,
             transport,
-            buffer,
+            buffer: if buffer.is_empty() {
+                None
+            } else {
+                Some(buffer)
+            },
             stopper,
         }
     }

@@ -133,7 +133,7 @@ impl Conn<Synthetic> {
             version: Version::Http1_1,
             state: StateSet::new(),
             response_body: None,
-            buffer: None,
+            buffer: Vec::with_capacity(DEFAULT_CONFIG.request_buffer_initial_len),
             request_body_state: ReceivedBodyState::Start,
             secure: false,
             stopper: Stopper::new(),
