@@ -506,6 +506,12 @@ impl Conn {
         self.inner.is_secure()
     }
 
+    /// The [`Instant`] that the first header bytes for this conn were
+    /// received, before any processing or parsing has been performed.
+    pub fn start_time(&self) -> std::time::Instant {
+        self.inner.start_time()
+    }
+
     /// returns an immutable reference to the inner
     /// [`trillium_http::Conn`]. please open an issue if you need to do
     /// this in application code.
