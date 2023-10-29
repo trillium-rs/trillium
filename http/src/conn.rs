@@ -40,7 +40,7 @@ pub struct Conn<Transport> {
     pub(crate) state: StateSet,
     pub(crate) response_body: Option<Body>,
     pub(crate) transport: Transport,
-    pub(crate) buffer: Option<Vec<u8>>,
+    pub(crate) buffer: Vec<u8>,
     pub(crate) request_body_state: ReceivedBodyState,
     pub(crate) secure: bool,
     pub(crate) stopper: Stopper,
@@ -63,10 +63,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("state", &self.state)
             .field("response_body", &self.response_body)
             .field("transport", &"..")
-            .field(
-                "buffer",
-                &self.buffer.as_deref().map(String::from_utf8_lossy),
-            )
+            .field("buffer", &"..")
             .field("request_body_state", &self.request_body_state)
             .field("secure", &self.secure)
             .field("stopper", &self.stopper)
@@ -144,7 +141,13 @@ where
         F: Fn(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>> + Send,
     {
-        let mut conn = Conn::new_with_config(http_config, transport, None, stopper).await?;
+        let mut conn = Conn::new_with_config(
+            http_config,
+            transport,
+            Vec::with_capacity(http_config.request_buffer_initial_len),
+            stopper,
+        )
+        .await?;
         loop {
             conn = match handler(conn).await.send().await? {
                 ConnectionStatus::Upgrade(upgrade) => return Ok(Some(upgrade)),
@@ -475,11 +478,7 @@ where
     /// * we cannot make sense of the headers, such as if there is a
     /// `content-length` header as well as a `transfer-encoding: chunked`
     /// header.
-    pub async fn new(
-        transport: Transport,
-        bytes: Option<Vec<u8>>,
-        stopper: Stopper,
-    ) -> Result<Self> {
+    pub async fn new(transport: Transport, bytes: Vec<u8>, stopper: Stopper) -> Result<Self> {
         Self::new_with_config(DEFAULT_CONFIG, transport, bytes, stopper).await
     }
 
@@ -504,25 +503,18 @@ where
     /// header.
     async fn new_with_config(
         http_config: HttpConfig,
-        transport: Transport,
-        bytes: Option<Vec<u8>>,
+        mut transport: Transport,
+        mut buffer: Vec<u8>,
         stopper: Stopper,
     ) -> Result<Self> {
-        let (transport, buf, extra_bytes, start_time) =
-            Self::head(transport, bytes, &stopper, &http_config).await?;
-
-        let buffer = if extra_bytes.is_empty() {
-            None
-        } else {
-            Some(extra_bytes)
-        };
+        let (head_size, start_time) =
+            Self::head(&mut transport, &mut buffer, &stopper, &http_config).await?;
 
         let mut headers = vec![EMPTY_HEADER; http_config.max_headers];
         let mut httparse_req = Request::new(&mut headers);
 
-        let status = httparse_req.parse(&buf[..])?;
+        let status = httparse_req.parse(&buffer[..])?;
         if status.is_partial() {
-            log::trace!("partial head content: {}", String::from_utf8_lossy(&buf));
             return Err(Error::PartialHead);
         }
 
@@ -557,6 +549,10 @@ where
         log::debug!("received:\n{method} {path} {version}\n{request_headers}");
 
         let response_headers = Self::build_response_headers(&http_config);
+
+        let len = buffer.len() - head_size;
+        buffer.copy_within(head_size.., 0);
+        buffer.truncate(len);
 
         Ok(Self {
             transport,
@@ -675,31 +671,32 @@ where
     }
 
     async fn head(
-        mut transport: Transport,
-        bytes: Option<Vec<u8>>,
+        transport: &mut Transport,
+        buf: &mut Vec<u8>,
         stopper: &Stopper,
         http_config: &HttpConfig,
-    ) -> Result<(Transport, Vec<u8>, Vec<u8>, Instant)> {
-        let mut buf = bytes.unwrap_or_default();
+    ) -> Result<(usize, Instant)> {
         let mut len = 0;
         let mut start_with_read = buf.is_empty();
         let mut instant = None;
         let finder = Finder::new(b"\r\n\r\n");
-        let mut resize_by = http_config.request_buffer_initial_len;
         loop {
             if len >= http_config.head_max_len {
                 return Err(Error::HeadersTooLong);
             }
 
             let bytes = if start_with_read {
-                buf.resize(buf.len() + resize_by, 0);
-                resize_by *= 2;
                 if len == 0 {
+                    buf.resize(buf.capacity(), 0);
                     stopper
-                        .stop_future(transport.read(&mut buf[..]))
+                        .stop_future(transport.read(buf))
                         .await
                         .ok_or(Error::Closed)??
                 } else {
+                    if buf.len() == buf.capacity() {
+                        buf.reserve(32);
+                        buf.resize(buf.capacity(), 0);
+                    }
                     transport.read(&mut buf[len..]).await?
                 }
             } else {
@@ -716,18 +713,7 @@ where
 
             if let Some(index) = search {
                 buf.truncate(len + bytes);
-                log::trace!(
-                    "received head:\n{}",
-                    String::from_utf8_lossy(&buf[..search_start + index])
-                );
-                let body = buf.split_off(search_start + index + 4);
-                if !body.is_empty() {
-                    log::trace!(
-                        "read the front of the body: {}",
-                        String::from_utf8_lossy(&body)
-                    );
-                }
-                return Ok((transport, buf, body, instant.unwrap()));
+                return Ok((search_start + index + 4, instant.unwrap()));
             }
 
             len += bytes;
