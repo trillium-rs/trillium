@@ -1,5 +1,5 @@
 use super::{
-    io, ready, slice_from, AsyncRead, Chunked, Context, End, ErrorKind, InvalidChunkSize,
+    io, ready, slice_from, AsyncRead, Buffer, Chunked, Context, End, ErrorKind, InvalidChunkSize,
     PartialChunkSize, Pin, Ready, ReceivedBody, ReceivedBodyState, StateOutput, Status,
 };
 
@@ -47,10 +47,7 @@ where
 
         match httparse::parse_chunk_size(&self.buffer) {
             Ok(Status::Complete((framing_bytes, remaining))) => {
-                let len = self.buffer.len() - framing_bytes;
-                self.buffer.copy_within(framing_bytes.., 0);
-                self.buffer.truncate(len);
-
+                self.buffer.ignore_front(framing_bytes);
                 Ready(Ok((
                     if remaining == 0 {
                         End
@@ -75,7 +72,7 @@ where
 }
 
 pub(super) fn chunk_decode(
-    self_buffer: &mut Vec<u8>,
+    self_buffer: &mut Buffer,
     remaining: u64,
     mut total: u64,
     buf: &mut [u8],
@@ -156,7 +153,7 @@ pub(super) fn chunk_decode(
 #[cfg(test)]
 mod tests {
     use super::{chunk_decode, ReceivedBody, ReceivedBodyState};
-    use crate::{http_config::DEFAULT_CONFIG, HttpConfig};
+    use crate::{http_config::DEFAULT_CONFIG, Buffer, HttpConfig};
     use encoding_rs::UTF_8;
     use futures_lite::{io::Cursor, AsyncRead, AsyncReadExt};
     use trillium_testing::block_on;
@@ -167,7 +164,7 @@ mod tests {
         expected_output: (Option<u64>, &str, &str),
     ) {
         let mut buf = input_data.to_string().into_bytes();
-        let mut self_buf = Vec::with_capacity(100);
+        let mut self_buf = Buffer::with_capacity(100);
 
         let (output_state, bytes) = chunk_decode(
             &mut self_buf,
@@ -210,7 +207,7 @@ mod tests {
     fn new_with_config(input: String, config: &HttpConfig) -> ReceivedBody<'_, Cursor<String>> {
         ReceivedBody::new_with_config(
             None,
-            Vec::with_capacity(100),
+            Buffer::from(Vec::with_capacity(config.response_header_initial_capacity)),
             Cursor::new(input),
             ReceivedBodyState::Start,
             None,

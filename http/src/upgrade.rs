@@ -132,7 +132,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             buffer: if buffer.is_empty() {
                 None
             } else {
-                Some(buffer)
+                Some(buffer.into())
             },
             stopper,
         }

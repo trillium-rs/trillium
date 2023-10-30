@@ -140,3 +140,9 @@ mod http_config;
 pub use http_config::HttpConfig;
 
 pub(crate) mod after_send;
+
+mod buffer;
+#[cfg(feature = "unstable")]
+pub use buffer::Buffer;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use buffer::Buffer;

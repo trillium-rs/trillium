@@ -1,4 +1,4 @@
-use crate::{copy, http_config::DEFAULT_CONFIG, Body, HttpConfig, MutCow};
+use crate::{copy, http_config::DEFAULT_CONFIG, Body, Buffer, HttpConfig, MutCow};
 use encoding_rs::Encoding;
 use futures_lite::{ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
 use httparse::{InvalidChunkSize, Status};
@@ -48,7 +48,7 @@ result in an error. This limitation is temporary.
 
 pub struct ReceivedBody<'conn, Transport> {
     content_length: Option<u64>,
-    buffer: MutCow<'conn, Vec<u8>>,
+    buffer: MutCow<'conn, Buffer>,
     transport: Option<MutCow<'conn, Transport>>,
     state: MutCow<'conn, ReceivedBodyState>,
     on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
@@ -72,7 +72,7 @@ where
     #[doc(hidden)]
     pub fn new(
         content_length: Option<u64>,
-        buffer: impl Into<MutCow<'conn, Vec<u8>>>,
+        buffer: impl Into<MutCow<'conn, Buffer>>,
         transport: impl Into<MutCow<'conn, Transport>>,
         state: impl Into<MutCow<'conn, ReceivedBodyState>>,
         on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
@@ -93,7 +93,7 @@ where
     #[doc(hidden)]
     pub(crate) fn new_with_config(
         content_length: Option<u64>,
-        buffer: impl Into<MutCow<'conn, Vec<u8>>>,
+        buffer: impl Into<MutCow<'conn, Buffer>>,
         transport: impl Into<MutCow<'conn, Transport>>,
         state: impl Into<MutCow<'conn, ReceivedBodyState>>,
         on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
@@ -268,7 +268,7 @@ impl<T> ReceivedBody<'static, T> {
 }
 
 fn read_raw<Transport>(
-    self_buffer: &mut Vec<u8>,
+    self_buffer: &mut Buffer,
     transport: &mut Transport,
     cx: &mut Context<'_>,
     buf: &mut [u8],
@@ -281,8 +281,7 @@ where
     } else if self_buffer.len() >= buf.len() {
         let len = buf.len();
         buf.copy_from_slice(&self_buffer[..len]);
-        self_buffer.copy_within(len.., 0);
-        self_buffer.truncate(len);
+        self_buffer.ignore_front(len);
         Ready(Ok(len))
     } else {
         let self_buffer_len = self_buffer.len();

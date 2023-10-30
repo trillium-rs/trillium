@@ -57,7 +57,7 @@ pub struct Conn {
     status: Option<Status>,
     request_body: Option<Body>,
     pool: Option<Pool<Origin, BoxedTransport>>,
-    buffer: Vec<u8>,
+    buffer: trillium_http::Buffer,
     response_body_state: ReceivedBodyState,
     config: Arc<dyn ObjectSafeConnector>,
     headers_finalized: bool,
@@ -145,7 +145,7 @@ impl Conn {
             status: None,
             request_body: None,
             pool: None,
-            buffer: Vec::with_capacity(128),
+            buffer: Vec::with_capacity(128).into(),
             response_body_state: ReceivedBodyState::Start,
             config,
             headers_finalized: false,
@@ -697,11 +697,7 @@ impl Conn {
         let mut len = 0;
         let searcher = TwoWaySearcher::new(b"\r\n\r\n");
         loop {
-            if buffer.len() == buffer.capacity() {
-                buffer.reserve(32);
-                buffer.resize(buffer.capacity(), 0);
-            }
-
+            buffer.expand();
             let bytes = transport.read(&mut buffer[len..]).await?;
 
             let search_start = len.max(3) - 3;
@@ -732,7 +728,10 @@ impl Conn {
         let head_offset = self.read_head().await?;
         let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
         let mut httparse_res = httparse::Response::new(&mut headers);
-        if httparse_res.parse(&self.buffer[..])?.is_partial() {
+        if httparse_res
+            .parse(&self.buffer[..head_offset])?
+            .is_partial()
+        {
             return Err(Error::PartialHead);
         }
 
@@ -745,7 +744,7 @@ impl Conn {
             self.response_headers.append(header_name, header_value);
         }
 
-        self.buffer = Vec::from(&self.buffer[head_offset..]);
+        self.buffer.ignore_front(head_offset);
 
         self.validate_response_headers()?;
         Ok(())
@@ -918,7 +917,7 @@ impl From<Conn> for Upgrade<BoxedTransport> {
             method: conn.method,
             state: StateSet::new(),
             transport: conn.transport.take().unwrap(),
-            buffer: Some(std::mem::take(&mut conn.buffer)),
+            buffer: Some(std::mem::take(&mut conn.buffer).into()),
             stopper: Stopper::new(),
         }
     }

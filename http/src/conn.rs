@@ -4,8 +4,8 @@ use crate::{
     http_config::DEFAULT_CONFIG,
     received_body::ReceivedBodyState,
     util::encoding,
-    Body, BufWriter, ConnectionStatus, Error, HeaderName, HeaderValue, HeaderValues, Headers,
-    HttpConfig,
+    Body, BufWriter, Buffer, ConnectionStatus, Error, HeaderName, HeaderValue, HeaderValues,
+    Headers, HttpConfig,
     KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
     Method, ReceivedBody, Result, StateSet, Status, Stopper, Upgrade, Version,
 };
@@ -40,7 +40,7 @@ pub struct Conn<Transport> {
     pub(crate) state: StateSet,
     pub(crate) response_body: Option<Body>,
     pub(crate) transport: Transport,
-    pub(crate) buffer: Vec<u8>,
+    pub(crate) buffer: Buffer,
     pub(crate) request_body_state: ReceivedBodyState,
     pub(crate) secure: bool,
     pub(crate) stopper: Stopper,
@@ -144,7 +144,7 @@ where
         let mut conn = Conn::new_with_config(
             http_config,
             transport,
-            Vec::with_capacity(http_config.request_buffer_initial_len),
+            Vec::with_capacity(http_config.request_buffer_initial_len).into(),
             stopper,
         )
         .await?;
@@ -479,7 +479,7 @@ where
     /// `content-length` header as well as a `transfer-encoding: chunked`
     /// header.
     pub async fn new(transport: Transport, bytes: Vec<u8>, stopper: Stopper) -> Result<Self> {
-        Self::new_with_config(DEFAULT_CONFIG, transport, bytes, stopper).await
+        Self::new_with_config(DEFAULT_CONFIG, transport, bytes.into(), stopper).await
     }
 
     /// # Create a new `Conn`
@@ -504,7 +504,7 @@ where
     async fn new_with_config(
         http_config: HttpConfig,
         mut transport: Transport,
-        mut buffer: Vec<u8>,
+        mut buffer: Buffer,
         stopper: Stopper,
     ) -> Result<Self> {
         let (head_size, start_time) =
@@ -550,9 +550,7 @@ where
 
         let response_headers = Self::build_response_headers(&http_config);
 
-        let len = buffer.len() - head_size;
-        buffer.copy_within(head_size.., 0);
-        buffer.truncate(len);
+        buffer.ignore_front(head_size);
 
         Ok(Self {
             transport,
@@ -672,7 +670,7 @@ where
 
     async fn head(
         transport: &mut Transport,
-        buf: &mut Vec<u8>,
+        buf: &mut Buffer,
         stopper: &Stopper,
         http_config: &HttpConfig,
     ) -> Result<(usize, Instant)> {
@@ -686,17 +684,13 @@ where
             }
 
             let bytes = if start_with_read {
+                buf.expand();
                 if len == 0 {
-                    buf.resize(buf.capacity(), 0);
                     stopper
                         .stop_future(transport.read(buf))
                         .await
                         .ok_or(Error::Closed)??
                 } else {
-                    if buf.len() == buf.capacity() {
-                        buf.reserve(32);
-                        buf.resize(buf.capacity(), 0);
-                    }
                     transport.read(&mut buf[len..]).await?
                 }
             } else {
@@ -722,10 +716,6 @@ where
                 return if len == 0 {
                     Err(Error::Closed)
                 } else {
-                    log::debug!(
-                        "disconnect? partial head content: \n{:?}",
-                        String::from_utf8_lossy(&buf[..])
-                    );
                     Err(Error::PartialHead)
                 };
             }
