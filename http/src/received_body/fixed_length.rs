@@ -37,7 +37,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{http_config::DEFAULT_CONFIG, HttpConfig, ReceivedBody, ReceivedBodyState};
+    use crate::{http_config::DEFAULT_CONFIG, Buffer, HttpConfig, ReceivedBody, ReceivedBodyState};
     use encoding_rs::UTF_8;
     use futures_lite::{future::block_on, io::Cursor, AsyncRead, AsyncReadExt};
 
@@ -47,7 +47,7 @@ mod tests {
     ) -> ReceivedBody<'static, Cursor<String>> {
         ReceivedBody::new_with_config(
             Some(input.len() as u64),
-            Vec::with_capacity(100),
+            Buffer::with_capacity(100),
             Cursor::new(input),
             ReceivedBodyState::Start,
             None,
