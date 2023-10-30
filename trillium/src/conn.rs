@@ -547,6 +547,25 @@ impl Conn {
         })
     }
 
+    /// Attempt to get a reference to the trait object as a specific transport type T.
+    ///
+    /// If the type does not match the original transport type, this will return `None`.
+    pub fn downcast_transport_ref<T: Transport>(&self) -> Option<&T> {
+        self.inner.downcast_transport_ref()
+    }
+
+    /// Attempt to get a mutable reference to the trait object as a specific transport type T.
+    ///
+    /// If the type does not match the original transport type, this will return `None`.
+    ///
+    /// This should only be used to call your own custom methods on the transport that do not read
+    /// or write any data. Calling any method that reads or writes to the transport will disrupt
+    /// the HTTP protocol. If you're looking to transition from HTTP to another protocol, use an
+    /// HTTP upgrade.
+    pub fn downcast_transport_mut<T: Transport>(&mut self) -> Option<&mut T> {
+        self.inner.downcast_transport_mut()
+    }
+
     /// retrieves the remote ip address for this conn, if available.
     pub fn peer_ip(&self) -> Option<IpAddr> {
         self.inner().peer_ip()

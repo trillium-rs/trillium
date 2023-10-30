@@ -3,6 +3,7 @@ use crate::{
     copy,
     http_config::DEFAULT_CONFIG,
     received_body::ReceivedBodyState,
+    transport::BoxedTransport,
     util::encoding,
     Body, BufWriter, ConnectionStatus, Error, HeaderName, HeaderValue, HeaderValues, Headers,
     HttpConfig,
@@ -892,5 +893,26 @@ where
     /// retrieves the remote ip address for this conn, if available.
     pub fn peer_ip(&self) -> Option<IpAddr> {
         self.peer_ip
+    }
+}
+
+impl Conn<BoxedTransport> {
+    /// Attempt to get a reference to the transport as a specific transport type T.
+    ///
+    /// If the type does not match the original transport type, this will return `None`.
+    pub fn downcast_transport_ref<T: crate::transport::Transport>(&self) -> Option<&T> {
+        self.transport.downcast_ref()
+    }
+
+    /// Attempt to get a mutable reference to the transport as a specific transport type T.
+    ///
+    /// If the type does not match the original transport type, this will return `None`.
+    ///
+    /// This should only be used to call your own custom methods on the transport that do not read
+    /// or write any data. Calling any method that reads or writes to the transport will disrupt
+    /// the HTTP protocol. If you're looking to transition from HTTP to another protocol, use an
+    /// HTTP upgrade.
+    pub fn downcast_transport_mut<T: crate::transport::Transport>(&mut self) -> Option<&mut T> {
+        self.transport.downcast_mut()
     }
 }
