@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 async-broadcast = "0.6.0"
-async-channel = "1.9.0"
+async-channel = "2.0.0"
 dashmap = "5.5.0"
 futures-lite = "2.0.0"
 futures-util = "0.3.28"

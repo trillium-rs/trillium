@@ -33,7 +33,7 @@ trillium-http = { path = "../http", version = "0.3.0" }
 
 [dev-dependencies]
 serde = { version = "1.0.181", features = ["derive"] }
-async-channel = "1.9.0"
+async-channel = "2.0.0"
 async-net = "2.0.0"
 broadcaster = "1.0.0"
 trillium-smol = { path = "../smol" }
