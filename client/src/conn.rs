@@ -1,7 +1,7 @@
 use crate::{pool::PoolEntry, util::encoding, Pool};
 use encoding_rs::Encoding;
 use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
-use memmem::{Searcher, TwoWaySearcher};
+use memchr::memmem::Finder;
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Display, Formatter},
@@ -695,20 +695,19 @@ impl Conn {
             return Err(Error::Closed);
         };
         let mut len = 0;
-        let searcher = TwoWaySearcher::new(b"\r\n\r\n");
+        let finder = Finder::new(b"\r\n\r\n");
         loop {
             buffer.expand();
             let bytes = transport.read(&mut buffer[len..]).await?;
 
-            let search_start = len.max(3) - 3;
-            let search = searcher.search_in(&buffer[search_start..len + bytes]);
+            let search_start = len.saturating_sub(3);
+            len += bytes;
+            let search = finder.find(&buffer[search_start..len]);
 
             if let Some(index) = search {
-                buffer.truncate(len + bytes);
+                buffer.truncate(len);
                 return Ok(search_start + index + 4);
             }
-
-            len += bytes;
 
             if bytes == 0 {
                 if len == 0 {
