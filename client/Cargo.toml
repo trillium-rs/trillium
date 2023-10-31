@@ -18,7 +18,6 @@ encoding_rs = "0.8.32"
 futures-lite = "2.0.0"
 httparse = "1.8.0"
 log = "0.4.19"
-memmem = "0.1.1"
 size = "0.4.1"
 trillium-server-common = { version = "0.4.0", path = "../server-common" }
 url = "2.4.0"
@@ -28,6 +27,7 @@ serde = { version = "1.0.181", optional = true }
 thiserror = { version = "1.0.44", optional = true }
 dashmap = "5.5.0"
 crossbeam-queue = "0.3.8"
+memchr = "2.6.4"
 
 [dependencies.trillium-http]
 path = "../http"
