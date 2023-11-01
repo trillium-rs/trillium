@@ -1,4 +1,4 @@
-use crate::FromConn;
+use crate::{ApiConnExt, FromConn};
 use trillium::{async_trait, Conn, Handler};
 /// Like FromConn, but with an Error.
 ///
@@ -15,6 +15,14 @@ pub trait TryFromConn: Send + Sync + Sized + 'static {
 
     /// Attempt to extract Self from &mut Conn, returning Error in case of failure
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error>;
+}
+
+#[async_trait]
+impl TryFromConn for serde_json::Value {
+    type Error = crate::Error;
+    async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
+        conn.deserialize().await
+    }
 }
 
 #[async_trait]
