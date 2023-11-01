@@ -34,6 +34,7 @@ with different performance and ergonomic considerations.
 
 mod api_conn_ext;
 mod api_handler;
+mod before_send;
 mod body;
 mod error;
 mod from_conn;
@@ -44,6 +45,7 @@ mod try_from_conn;
 
 pub use api_conn_ext::ApiConnExt;
 pub use api_handler::{api, ApiHandler};
+pub use before_send::BeforeSend;
 pub use body::Body;
 pub use error::Error;
 pub use from_conn::FromConn;

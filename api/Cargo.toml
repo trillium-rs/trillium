@@ -24,6 +24,7 @@ serde_path_to_error = "0.1.14"
 serde_urlencoded = { version = "0.7.1", optional = true }
 thiserror = "1.0.44"
 trillium = { path = "../trillium", version = "0.2.11" }
+trillium-macros = { version = "0.0.4", path = "../macros" }
 
 
 [dev-dependencies]
