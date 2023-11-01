@@ -191,7 +191,11 @@ impl ApiConnExt for Conn {
     {
         let body = self.request_body_string().await?;
         let content_type = self.content_type()?;
-        match content_type.subtype().as_str() {
+        let suffix_or_subtype = content_type
+            .suffix()
+            .unwrap_or_else(|| content_type.subtype())
+            .as_str();
+        match suffix_or_subtype {
             "json" => {
                 let json_deserializer = &mut serde_json::Deserializer::from_str(&body);
                 Ok(serde_path_to_error::deserialize::<_, T>(json_deserializer)?)
@@ -226,7 +230,11 @@ impl ApiConnExt for Conn {
         T: DeserializeOwned,
     {
         let content_type = self.content_type()?;
-        if content_type.subtype().as_str() != "json" {
+        let suffix_or_subtype = content_type
+            .suffix()
+            .unwrap_or_else(|| content_type.subtype())
+            .as_str();
+        if suffix_or_subtype != "json" {
             return Err(Error::UnsupportedMimeType {
                 mime_type: content_type.to_string(),
             });
@@ -277,11 +285,13 @@ enum AcceptableMime {
 }
 
 fn acceptable_mime_type(mime: &str) -> Option<AcceptableMime> {
-    match mime {
-        "*/*" | "application/json" => Some(AcceptableMime::Json),
+    let mime: Mime = mime.parse().ok()?;
+    let suffix_or_subtype = mime.suffix().unwrap_or_else(|| mime.subtype()).as_str();
+    match suffix_or_subtype {
+        "*" | "json" => Some(AcceptableMime::Json),
 
         #[cfg(feature = "forms")]
-        "application/x-www-form-urlencoded" => Some(AcceptableMime::Form),
+        "x-www-form-urlencoded" => Some(AcceptableMime::Form),
 
         _ => None,
     }
