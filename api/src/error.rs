@@ -32,6 +32,9 @@ pub enum Error {
         /// the unsupported mime type
         mime_type: String,
     },
+    /// The client did not provide a content-type
+    #[error("Missing content type")]
+    MissingContentType,
     /// Miscellaneous other errors -- please open an issue on
     /// trillium-api if you find yourself parsing the contents of
     /// this.
@@ -102,7 +105,16 @@ impl From<serde_urlencoded::de::Error> for Error {
 #[async_trait]
 impl Handler for Error {
     async fn run(&self, conn: Conn) -> Conn {
-        conn.with_json(&json!({ "error": self })).with_status(self)
+        conn.with_state(self.clone()).halt()
+    }
+
+    async fn before_send(&self, mut conn: Conn) -> Conn {
+        if let Some(error) = conn.take_state::<Self>() {
+            conn.with_json(&json!({ "error": &error }))
+                .with_status(&error)
+        } else {
+            conn
+        }
     }
 }
 
@@ -110,9 +122,18 @@ impl From<&Error> for Status {
     fn from(value: &Error) -> Self {
         match value {
             Error::ParseError { .. } => Status::UnprocessableEntity,
-            Error::UnsupportedMimeType { .. } => Status::UnsupportedMediaType,
+            Error::UnsupportedMimeType { .. } | Error::MissingContentType => {
+                Status::UnsupportedMediaType
+            }
             Error::FailureToNegotiateContent => Status::NotAcceptable,
             _ => Status::InternalServerError,
         }
+    }
+}
+
+#[async_trait]
+impl crate::FromConn for Error {
+    async fn from_conn(conn: &mut Conn) -> Option<Self> {
+        conn.take_state()
     }
 }

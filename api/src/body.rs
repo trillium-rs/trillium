@@ -56,8 +56,17 @@ where
     T: Serialize + Send + Sync + 'static,
 {
     async fn run(&self, mut conn: Conn) -> Conn {
-        let result = conn.serialize(&self.0).await;
-        conn.store_error(result);
-        conn
+        match conn.serialize(&self.0).await {
+            Ok(()) => conn,
+            Err(e) => conn.with_state(e).halt(),
+        }
+    }
+
+    async fn before_send(&self, mut conn: Conn) -> Conn {
+        if let Some(error) = conn.take_state::<crate::Error>() {
+            error.before_send(conn).await
+        } else {
+            conn
+        }
     }
 }
