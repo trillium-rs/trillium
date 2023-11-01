@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use trillium::{Conn, Handler, Headers, KnownHeaderName};
-use trillium_api::*;
+use serde_json::Value;
+use trillium::{Conn, Handler, Headers, KnownHeaderName, Status};
+use trillium_api::{Error, *};
 use trillium_testing::prelude::*;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -79,5 +80,50 @@ fn get_custom_content_type() {
         )),
         r#"{"health":"ok"}"#,
         "Content-Type" => "application/custom+json"
+    );
+}
+
+fn app_with_json() -> impl Handler {
+    api(|_: &mut Conn, Json(value): Json<Value>| async { Json(value) })
+}
+
+#[test]
+fn json_try_from_conn_checks_content_type() {
+    assert_status!(
+        get("/")
+            .with_request_header("content-type", "application/x-www-form-urlencoded")
+            .with_request_body(r#"string=string"#)
+            .on(&app_with_json()),
+        trillium::Status::UnsupportedMediaType
+    );
+
+    assert_ok!(get("/")
+        .with_request_header("content-type", "application/json")
+        .with_request_body(r#"{"string": 1}"#)
+        .on(&app_with_json()));
+}
+
+async fn error_handler(conn: &mut Conn, error: Error) {
+    conn.set_body(format!("my error format: {error:?}"));
+    conn.set_status(&error);
+}
+
+fn app_with_error_handler() -> impl Handler {
+    (
+        api(|_: &mut Conn, Json(value): Json<Value>| async { Json(value) }),
+        BeforeSend(api(error_handler)),
+    )
+}
+
+#[test]
+fn error_handler_works() {
+    env_logger::init();
+    assert_response!(
+        get("/")
+            .with_request_header("content-type", "application/x-www-form-urlencoded")
+            .with_request_body(r#"string=string"#)
+            .on(&app_with_error_handler()),
+        Status::UnsupportedMediaType,
+        "my error format: UnsupportedMimeType { mime_type: \"application/x-www-form-urlencoded\" }"
     );
 }

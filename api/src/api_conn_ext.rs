@@ -6,7 +6,7 @@ use trillium::{
     Status,
 };
 
-use crate::Error;
+use crate::{Error, Result};
 
 /// Extension trait that adds api methods to [`trillium::Conn`]
 #[trillium::async_trait]
@@ -145,24 +145,25 @@ pub trait ApiConnExt {
     ```
 
     */
-    async fn deserialize<T>(&mut self) -> Result<T, Error>
+    async fn deserialize<T>(&mut self) -> Result<T>
     where
         T: DeserializeOwned;
 
     /// Deserializes json without any Accepts header content negotiation
-    async fn deserialize_json<T>(&mut self) -> Result<T, Error>
+    async fn deserialize_json<T>(&mut self) -> Result<T>
     where
         T: DeserializeOwned;
 
     /// Serializes the provided body using Accepts header content negotiation
-    async fn serialize<T>(&mut self, body: &T) -> Result<(), Error>
+    async fn serialize<T>(&mut self, body: &T) -> Result<()>
     where
         T: Serialize + Sync;
 
-    /// Store any error variant on this conn and return the Ok variant
-    fn store_error<T, E>(&mut self, result: Result<T, E>) -> Option<T>
-    where
-        E: Send + Sync + 'static;
+    /// Returns a parsed content type for this conn.
+    ///
+    /// Note that this function considers a missing content type an error of variant
+    /// [`Error::MissingContentType`].
+    fn content_type(&self) -> Result<Mime>;
 }
 
 #[trillium::async_trait]
@@ -184,26 +185,12 @@ impl ApiConnExt for Conn {
         }
     }
 
-    async fn deserialize<T>(&mut self) -> Result<T, Error>
+    async fn deserialize<T>(&mut self) -> Result<T>
     where
         T: DeserializeOwned,
     {
         let body = self.request_body_string().await?;
-
-        let content_type = self
-            .headers()
-            .get_str(ContentType)
-            .ok_or_else(|| Error::UnsupportedMimeType {
-                mime_type: "MISSING".into(),
-            })
-            .and_then(|mime_type| {
-                mime_type
-                    .parse::<Mime>()
-                    .map_err(|_| Error::UnsupportedMimeType {
-                        mime_type: mime_type.into(),
-                    })
-            })?;
-
+        let content_type = self.content_type()?;
         match content_type.subtype().as_str() {
             "json" => {
                 let json_deserializer = &mut serde_json::Deserializer::from_str(&body);
@@ -223,30 +210,35 @@ impl ApiConnExt for Conn {
         }
     }
 
-    async fn deserialize_json<T>(&mut self) -> Result<T, Error>
+    fn content_type(&self) -> Result<Mime> {
+        let header_str = self
+            .headers()
+            .get_str(ContentType)
+            .ok_or(Error::MissingContentType)?;
+
+        header_str.parse().map_err(|_| Error::UnsupportedMimeType {
+            mime_type: header_str.into(),
+        })
+    }
+
+    async fn deserialize_json<T>(&mut self) -> Result<T>
     where
         T: DeserializeOwned,
     {
+        let content_type = self.content_type()?;
+        if content_type.subtype().as_str() != "json" {
+            return Err(Error::UnsupportedMimeType {
+                mime_type: content_type.to_string(),
+            });
+        }
+
         log::debug!("extracting json");
         let body = self.request_body_string().await?;
         let json_deserializer = &mut serde_json::Deserializer::from_str(&body);
         Ok(serde_path_to_error::deserialize::<_, T>(json_deserializer)?)
     }
 
-    fn store_error<T, E>(&mut self, result: Result<T, E>) -> Option<T>
-    where
-        E: Send + Sync + 'static,
-    {
-        match result {
-            Ok(t) => Some(t),
-            Err(e) => {
-                self.set_state(e);
-                None
-            }
-        }
-    }
-
-    async fn serialize<T>(&mut self, body: &T) -> Result<(), Error>
+    async fn serialize<T>(&mut self, body: &T) -> Result<()>
     where
         T: Serialize + Sync,
     {
