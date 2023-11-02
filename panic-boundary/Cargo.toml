@@ -1,0 +1,20 @@
+[package]
+name = "trillium-panic-boundary"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2021"
+description = "experimental panic boundary for trillium.rs"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "../README.md"
+keywords = ["trillium", "framework", "async"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[dependencies]
+async-channel = "1.9.0"
+futures-lite = "1.13.0"
+trillium = { path = "../trillium", version = "^0.2.0"}
+trillium-macros = { version = "0.0.4", path = "../macros" }
+
+[dev-dependencies]
+trillium-smol = { path = "../smol" }
