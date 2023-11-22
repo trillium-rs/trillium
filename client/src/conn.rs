@@ -63,7 +63,8 @@ pub struct Conn {
     headers_finalized: bool,
 }
 
-const USER_AGENT: &str = concat!("trillium-client/", env!("CARGO_PKG_VERSION"));
+/// default http user-agent header
+pub const USER_AGENT: &str = concat!("trillium-client/", env!("CARGO_PKG_VERSION"));
 
 impl Debug for Conn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -757,6 +758,7 @@ impl Conn {
             log::trace!("Expecting 100-continue");
             self.parse_head().await?;
             if self.status == Some(Status::Continue) {
+                self.status = None;
                 log::trace!("Received 100-continue, sending request body");
             } else {
                 log::trace!(
@@ -767,7 +769,14 @@ impl Conn {
         }
 
         self.send_body().await?;
-        self.parse_head().await?;
+        loop {
+            self.parse_head().await?;
+            if self.status == Some(Status::Continue) {
+                self.status = None;
+            } else {
+                break;
+            }
+        }
 
         Ok(())
     }

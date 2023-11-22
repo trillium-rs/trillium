@@ -31,7 +31,7 @@ examples.
 */
 
 mod conn;
-pub use conn::{Conn, UnexpectedStatusError};
+pub use conn::{Conn, UnexpectedStatusError, USER_AGENT};
 
 #[cfg(feature = "json")]
 pub use conn::ClientSerdeError;
@@ -43,7 +43,9 @@ pub(crate) use pool::Pool;
 mod client;
 pub use client::Client;
 
-pub use trillium_http::{Error, Result};
+pub use trillium_http::{
+    Error, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, Result, Status, Version,
+};
 
 mod util;
 

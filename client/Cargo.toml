@@ -35,9 +35,14 @@ features = ["unstable"]
 version = "0.3.0"
 
 [dev-dependencies]
+async-channel = "2.1.0"
 async-global-executor = "2.3.1"
 async-io = "2.0.0"
 env_logger = "0.10.0"
+futures-lite = "2.0.1"
+indoc = "2.0.4"
+pretty_assertions = "1.4.0"
+test-harness = "0.1.1"
 trillium = { path = "../trillium" }
 trillium-smol = { path = "../smol/" }
 trillium-testing = { path = "../testing" }

@@ -1,0 +1,165 @@
+use async_channel::Sender;
+use pretty_assertions::assert_eq;
+use std::future::Future;
+use test_harness::test;
+use trillium_client::{Client, Status, USER_AGENT};
+use trillium_server_common::{async_trait, Connector, Url};
+use indoc::{formatdoc};
+use trillium_testing::{harness, TestResult, TestTransport};
+
+#[test(harness = harness)]
+async fn extra_one_hundred_continue() -> TestResult {
+    let (transport, conn_fut) =
+        test_conn(|client| client.post("http://example.com").with_body("body")).await;
+
+    let expected_request_head = formatdoc! {"
+        POST / HTTP/1.1\r
+        Expect: 100-continue\r
+        User-Agent: {USER_AGENT}\r
+        Host: example.com\r
+        Connection: close\r
+        Content-Length: 4\r
+        \r
+    "};
+
+    assert_eq!(
+        expected_request_head,
+        transport.read_available_string().await
+    );
+
+    transport.write_all("HTTP/1.1 100 Continue\r\n\r\n");
+    assert_eq!("body", transport.read_available_string().await);
+
+    transport.write_all("HTTP/1.1 100 Continue\r\nServer: Caddy\r\n\r\n"); //<-
+
+    let response_head = formatdoc! {"
+        HTTP/1.1 200 Ok\r
+        Server: text\r
+        Date: {TEST_DATE}\r
+        Connection: close\r
+        Content-Length: 20\r
+        \r
+        response: 0123456789\
+    "};
+
+    transport.write_all(response_head);
+
+    let mut conn = conn_fut.await.unwrap();
+    assert_eq!(
+        "response: 0123456789",
+        conn.response_body().read_string().await?
+    );
+
+    assert_eq!(
+        conn.response_headers().get_values("Server").unwrap(),
+        ["Caddy", "text"].as_slice()
+    );
+
+    assert_eq!(Some(Status::Ok), conn.status());
+
+    Ok(())
+}
+
+#[test(harness = harness)]
+async fn one_hundred_continue() -> TestResult {
+    let (transport, conn_fut) =
+        test_conn(|client| client.post("http://example.com").with_body("body")).await;
+
+    let expected_request = formatdoc! {"
+        POST / HTTP/1.1\r
+        Expect: 100-continue\r
+        User-Agent: {USER_AGENT}\r
+        Host: example.com\r
+        Connection: close\r
+        Content-Length: 4\r
+        \r
+    "};
+
+    assert_eq!(expected_request, transport.read_available_string().await);
+
+    transport.write_all("HTTP/1.1 100 Continue\r\n\r\n");
+    assert_eq!("body", transport.read_available_string().await);
+
+    transport.write_all(formatdoc! {"
+        HTTP/1.1 200 Ok\r
+        Server: text\r
+        Date: {TEST_DATE}\r
+        Connection: close\r
+        Content-Length: 20\r
+        \r
+        response: 0123456789\
+    "});
+
+    let mut conn = conn_fut.await.unwrap();
+
+    assert_eq!(
+        "response: 0123456789",
+        conn.response_body().read_string().await?
+    );
+
+    assert_eq!(Some(Status::Ok), conn.status());
+
+    Ok(())
+}
+
+#[test(harness = harness)]
+async fn empty_body_no_100_continue() -> TestResult {
+    let (transport, conn_fut) =
+        test_conn(|client| client.post("http://example.com").with_body("")).await;
+
+    let expected_request = formatdoc! {"
+        POST / HTTP/1.1\r
+        User-Agent: {USER_AGENT}\r
+        Host: example.com\r
+        Connection: close\r
+        Content-Length: 0\r
+        \r
+    "};
+
+    assert_eq!(expected_request, transport.read_available_string().await);
+
+    transport.write_all(formatdoc! {"
+        HTTP/1.1 200 Ok\r
+        Server: text\r
+        Date: {TEST_DATE}\r
+        Connection: close\r
+        Content-Length: 20\r
+        \r
+        response: 0123456789\
+    "});
+
+    let conn = conn_fut.await.unwrap();
+    assert_eq!(Some(Status::Ok), conn.status());
+    Ok(())
+}
+
+const TEST_DATE: &'static str = "Tue, 21 Nov 2023 21:27:21 GMT";
+
+struct TestConnector(Sender<TestTransport>);
+
+#[async_trait]
+impl Connector for TestConnector {
+    type Transport = TestTransport;
+    async fn connect(&self, _url: &Url) -> std::io::Result<Self::Transport> {
+        let (server, client) = TestTransport::new();
+        let _ = self.0.send(server).await;
+        Ok(client)
+    }
+
+    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
+        let _ = trillium_testing::spawn(fut);
+    }
+}
+
+async fn test_conn(
+    setup: impl FnOnce(Client) -> trillium_client::Conn + Send + 'static,
+) -> (
+    TestTransport,
+    impl Future<Output = Result<trillium_client::Conn, trillium_client::Error>>,
+) {
+    let (sender, receiver) = async_channel::unbounded();
+    let client = Client::new(TestConnector(sender));
+    let conn_fut = trillium_testing::spawn(async move { setup(client).await });
+    let transport = receiver.recv().await.unwrap();
+    (transport, async move { conn_fut.await.unwrap() })
+}
