@@ -65,7 +65,7 @@ trillium-testing = { version = "0.2", features = ["smol"] }
 mod assertions;
 
 mod test_transport;
-use std::future::Future;
+use std::future::{Future, IntoFuture};
 
 pub use test_transport::TestTransport;
 
@@ -104,13 +104,43 @@ pub use server_connector::{connector, ServerConnector};
 
 use trillium_server_common::{Config, Connector, Server};
 
+#[derive(Debug)]
+/// A droppable future
+///
+/// This only exists because of the #[must_use] on futures. The task will run to completion whether
+/// or not this future is awaited.
+pub struct SpawnHandle<F>(F);
+impl<F> IntoFuture for SpawnHandle<F>
+where
+    F: Future,
+{
+    type IntoFuture = F;
+    type Output = F::Output;
+    fn into_future(self) -> Self::IntoFuture {
+        self.0
+    }
+}
+
 cfg_if::cfg_if! {
     if #[cfg(feature = "smol")] {
         /// runtime server config
         pub fn config() -> Config<impl Server, ()> {
             trillium_smol::config()
         }
-        pub use trillium_smol::spawn;
+
+        /// smol-based spawn variant that finishes whether or not the returned future is dropped
+        pub fn spawn<Fut, Out>(future: Fut) -> SpawnHandle<impl Future<Output = Option<Out>>>
+        where
+            Fut: Future<Output = Out> + Send + 'static,
+            Out: Send + 'static
+        {
+            let (tx, rx) = async_channel::bounded::<Out>(1);
+            trillium_smol::async_global_executor::spawn(async move { let _ = tx.send(future.await).await; }).detach();
+            SpawnHandle(async move {
+                let rx = rx;
+                rx.recv().await.ok()
+            })
+        }
 
         /// runtime client config
         pub fn client_config() -> impl Connector {
@@ -126,7 +156,20 @@ cfg_if::cfg_if! {
         }
         pub use trillium_async_std::async_std::task::block_on;
         pub use trillium_async_std::ClientConfig;
-        pub use trillium_async_std::spawn;
+
+        /// async-std-based spawn variant that finishes whether or not the returned future is dropped
+        pub fn spawn<Fut, Out>(future: Fut) -> SpawnHandle<impl Future<Output = Option<Out>>>
+        where
+            Fut: Future<Output = Out> + Send + 'static,
+            Out: Send + 'static
+        {
+            let (tx, rx) = async_channel::bounded::<Out>(1);
+            trillium_async_std::async_std::task::spawn(async move { let _ = tx.send(future.await).await; });
+            SpawnHandle(async move {
+                let rx = rx;
+                rx.recv().await.ok()
+            })
+        }
         /// runtime client config
         pub fn client_config() -> impl Connector {
             trillium_async_std::ClientConfig::default()
@@ -138,7 +181,19 @@ cfg_if::cfg_if! {
         }
         pub use trillium_tokio::ClientConfig;
         pub use trillium_tokio::block_on;
-        pub use trillium_tokio::spawn;
+        /// tokio-based spawn variant that finishes whether or not the returned future is dropped
+        pub fn spawn<Fut, Out>(future: Fut) -> SpawnHandle<impl Future<Output = Option<Out>>>
+        where
+            Fut: Future<Output = Out> + Send + 'static,
+            Out: Send + 'static
+        {
+            let (tx, rx) = async_channel::bounded::<Out>(1);
+            trillium_tokio::tokio::task::spawn(async move { let _ = tx.send(future.await).await; });
+            SpawnHandle(async move {
+                let rx = rx;
+                rx.recv().await.ok()
+            })
+        }
         /// runtime client config
         pub fn client_config() -> impl Connector {
             trillium_tokio::ClientConfig::default()
@@ -157,11 +212,19 @@ cfg_if::cfg_if! {
         }
 
         pub use futures_lite::future::block_on;
-        /// spawn a "task" without a runtime by blocking on a new thread
-        pub fn spawn<Fut: Future<Output = ()> + Send + 'static>(future: Fut) {
-            std::thread::spawn(move || {
-                block_on(future)
-            });
+
+        /// fake runtimeless spawn that finishes whether or not the future is dropped
+        pub fn spawn<Fut, Out>(future: Fut) -> SpawnHandle<impl Future<Output = Option<Out>>>
+        where
+            Fut: Future<Output = Out> + Send + 'static,
+            Out: Send + 'static
+        {
+            let (tx, rx) = async_channel::bounded::<Out>(1);
+            std::thread::spawn(move || { let _ = tx.send_blocking(block_on(future)); });
+            SpawnHandle(async move {
+                let rx = rx;
+                rx.recv().await.ok()
+            })
         }
     }
 }
@@ -176,6 +239,7 @@ pub use runtimeless::{RuntimelessClientConfig, RuntimelessServer};
 pub type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// a test harness for use with [`test_harness`]
+#[track_caller]
 pub fn harness<F, Fut>(test: F)
 where
     F: FnOnce() -> Fut,
