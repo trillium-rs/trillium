@@ -51,7 +51,7 @@ impl<H: trillium::Handler> trillium_server_common::Connector for ServerConnector
     }
 
     fn spawn<Fut: std::future::Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        crate::spawn(fut)
+        crate::spawn(fut);
     }
 }
 

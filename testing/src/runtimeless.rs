@@ -59,7 +59,7 @@ impl Server for RuntimelessServer {
     }
 
     fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
-        spawn(fut)
+        spawn(fut);
     }
 }
 
@@ -96,7 +96,7 @@ impl Connector for RuntimelessClientConfig {
     }
 
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        spawn(fut)
+        spawn(fut);
     }
 }
 
