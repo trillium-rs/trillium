@@ -45,6 +45,8 @@ trillium-testing = { path = "../testing" }
 trillium-http = { path = ".", features = ["http-compat"] }
 pretty_assertions = "1.4.0"
 fastrand = "2.0.1"
+test-harness = "0.1.1"
+indoc = "2.0.4"
 
 [dev-dependencies.tokio]
 version = "1.29.1"
