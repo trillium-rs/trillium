@@ -695,7 +695,7 @@ impl Conn {
         else {
             return Err(Error::Closed);
         };
-        let mut len = 0;
+        let mut len = buffer.len();
         let finder = Finder::new(b"\r\n\r\n");
         loop {
             buffer.expand();
