@@ -2,7 +2,7 @@ use async_channel::{unbounded, Receiver, Sender};
 use async_tungstenite::{client_async, WebSocketStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::error::Error;
+use std::{error::Error, pin::Pin};
 use trillium::{async_trait, log_error};
 use trillium_http::transport::BoxedTransport;
 use trillium_websockets::{JsonWebSocketHandler, Message, WebSocket, WebSocketConn};
@@ -30,12 +30,12 @@ struct SomeJsonChannel;
 impl JsonWebSocketHandler for SomeJsonChannel {
     type InboundMessage = Inbound;
     type OutboundMessage = Response;
-    type StreamType = Receiver<Self::OutboundMessage>;
+    type StreamType = Pin<Box<Receiver<Self::OutboundMessage>>>;
 
     async fn connect(&self, conn: &mut WebSocketConn) -> Self::StreamType {
         let (s, r) = unbounded();
         conn.set_state(s);
-        r
+        Box::pin(r)
     }
 
     async fn receive_message(

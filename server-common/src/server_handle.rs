@@ -95,7 +95,7 @@ impl Future for CompletionFuture {
                     Poll::Pending => return Poll::Pending,
                 }
             } else {
-                listener.as_mut().listen();
+                listener.as_mut().listen(&inner.event);
             }
         }
     }

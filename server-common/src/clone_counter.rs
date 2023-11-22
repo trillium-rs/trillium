@@ -106,7 +106,7 @@ impl IntoFuture for CloneCounter {
     fn into_future(self) -> Self::IntoFuture {
         CloneCounterFuture {
             inner: Arc::clone(&self.0),
-            listener: EventListener::new(&self.0.event),
+            listener: EventListener::new(),
         }
     }
 }
@@ -115,7 +115,7 @@ impl Future for &CloneCounter {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut listener = pin!(EventListener::new(&self.0.event));
+        let mut listener = pin!(EventListener::new());
         loop {
             if 1 == self.0.current() {
                 return Poll::Ready(());
@@ -124,7 +124,7 @@ impl Future for &CloneCounter {
             if listener.is_listening() {
                 ready!(listener.as_mut().poll(cx));
             } else {
-                listener.as_mut().listen()
+                listener.as_mut().listen(&self.0.event)
             }
         }
     }
@@ -217,7 +217,7 @@ impl IntoFuture for CloneCounterObserver {
 
     fn into_future(self) -> Self::IntoFuture {
         CloneCounterFuture {
-            listener: EventListener::new(&self.0.event),
+            listener: EventListener::new(),
             inner: self.0,
         }
     }
@@ -250,7 +250,7 @@ pin_project_lite::pin_project! {
 
 impl Clone for CloneCounterFuture {
     fn clone(&self) -> Self {
-        let listener = EventListener::new(&self.inner.event);
+        let listener = EventListener::new();
         Self {
             inner: Arc::clone(&self.inner),
             listener,
@@ -270,7 +270,7 @@ impl Future for CloneCounterFuture {
             if this.listener.is_listening() {
                 ready!(this.listener.as_mut().poll(cx));
             } else {
-                this.listener.as_mut().listen();
+                this.listener.as_mut().listen(&this.inner.event);
             }
         }
     }

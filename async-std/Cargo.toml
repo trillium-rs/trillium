@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 async-std = { version = "1.12.0", package = "async-std" }
-log = "0.4.19"
+log = "0.4.20"
 trillium = { path = "../trillium", version = "0.2.0" }
 trillium-http = { path = "../http", version = "0.3.0" }
 trillium-macros = { version = "0.0.4", path = "../macros" }
@@ -23,7 +23,7 @@ signal-hook = "0.3.17"
 signal-hook-async-std = "0.2.2"
 
 [dev-dependencies]
-env_logger = "0.10.0"
+env_logger = "0.10.1"
 
 [dev-dependencies.async-std]
 version = "1.12.0"

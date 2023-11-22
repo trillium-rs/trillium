@@ -14,18 +14,18 @@ categories = ["web-programming", "web-programming::http-client"]
 json = ["serde_json", "serde", "thiserror"]
 
 [dependencies]
-encoding_rs = "0.8.32"
-futures-lite = "2.0.0"
+encoding_rs = "0.8.33"
+futures-lite = "2.0.1"
 httparse = "1.8.0"
-log = "0.4.19"
+log = "0.4.20"
 size = "0.4.1"
 trillium-server-common = { version = "0.4.0", path = "../server-common" }
-url = "2.4.0"
+url = "2.5.0"
 mime = "0.3.17"
-serde_json = { version = "1.0.104", optional = true }
-serde = { version = "1.0.181", optional = true }
-thiserror = { version = "1.0.44", optional = true }
-dashmap = "5.5.0"
+serde_json = { version = "1.0.108", optional = true }
+serde = { version = "1.0.193", optional = true }
+thiserror = { version = "1.0.50", optional = true }
+dashmap = "5.5.3"
 crossbeam-queue = "0.3.8"
 memchr = "2.6.4"
 
@@ -37,8 +37,8 @@ version = "0.3.0"
 [dev-dependencies]
 async-channel = "2.1.0"
 async-global-executor = "2.3.1"
-async-io = "2.0.0"
-env_logger = "0.10.0"
+async-io = "2.2.0"
+env_logger = "0.10.1"
 futures-lite = "2.0.1"
 indoc = "2.0.4"
 pretty_assertions = "1.4.0"

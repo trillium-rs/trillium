@@ -11,7 +11,7 @@ use trillium_websockets::Message;
 #[derive(Debug)]
 pub struct ClientReceiver {
     subscriptions: Subscriptions,
-    race: Race<BroadcastReceiver<ChannelEvent>, Receiver<ChannelEvent>>,
+    race: Pin<Box<Race<BroadcastReceiver<ChannelEvent>, Receiver<ChannelEvent>>>>,
     version: Version,
 }
 
@@ -23,7 +23,7 @@ impl ClientReceiver {
         version: Version,
     ) -> Self {
         Self {
-            race: broadcast.race(individual),
+            race: Box::pin(broadcast.race(individual)),
             subscriptions,
             version,
         }

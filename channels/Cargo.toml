@@ -12,14 +12,14 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 async-broadcast = "0.6.0"
-async-channel = "1.9.0"
-dashmap = "5.5.0"
-futures-lite = "2.0.0"
-futures-util = "0.3.28"
-log = "0.4.19"
+async-channel = "2.1.0"
+dashmap = "5.5.3"
+futures-lite = "2.0.1"
+futures-util = "0.3.29"
+log = "0.4.20"
 querystrong = "0.3.0"
-serde = { version = "1.0.181", features = ["derive"] }
-serde_json = "1.0.104"
+serde = { version = "1.0.193", features = ["derive"] }
+serde_json = "1.0.108"
 trillium = { path = "../trillium", version = "0.2.0" }
 trillium-websockets = { path = "../websockets", version = "0.5.0" }
 
