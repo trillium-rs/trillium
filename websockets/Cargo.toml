@@ -18,22 +18,22 @@ default = []
 json = ["serde_json", "serde"]
 
 [dependencies]
-async-tungstenite = "0.22.2"
-base64 = "0.21.2"
-fastrand = "2.0.0"
-futures-lite = "2.0.0"
-futures-util = "0.3.28"
-log = "0.4.19"
-serde = { version = "1.0.181", optional = true }
-serde_json = { version = "1.0.104", optional = true }
+async-tungstenite = "0.23.0"
+base64 = "0.21.5"
+fastrand = "2.0.1"
+futures-lite = "2.0.1"
+futures-util = "0.3.29"
+log = "0.4.20"
+serde = { version = "1.0.193", optional = true }
+serde_json = { version = "1.0.108", optional = true }
 sha-1 = "0.10.1"
-stopper = "0.2.1"
+stopper = "0.2.3"
 trillium = { path = "../trillium", version = "0.2.0" }
 trillium-http = { path = "../http", version = "0.3.0" }
 
 [dev-dependencies]
-serde = { version = "1.0.181", features = ["derive"] }
-async-channel = "1.9.0"
+serde = { version = "1.0.193", features = ["derive"] }
+async-channel = "2.1.0"
 async-net = "2.0.0"
 broadcaster = "1.0.0"
 trillium-smol = { path = "../smol" }

@@ -26,7 +26,7 @@ fn with_channel() {
     struct MyStruct;
     #[trillium::async_trait]
     impl WebSocketHandler for MyStruct {
-        type OutboundStream = Receiver<Message>;
+        type OutboundStream = Pin<Box<Receiver<Message>>>;
 
         async fn connect(
             &self,
@@ -34,7 +34,7 @@ fn with_channel() {
         ) -> Option<(WebSocketConn, Self::OutboundStream)> {
             let (send, receive) = async_channel::unbounded();
             conn.set_state(send);
-            Some((conn, receive))
+            Some((conn, Box::pin(receive)))
         }
 
         async fn inbound(&self, message: Message, conn: &mut WebSocketConn) {

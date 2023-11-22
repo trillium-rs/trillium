@@ -16,28 +16,28 @@ http-compat = ["http"]
 serde = ["dep:serde"]
 
 [dependencies]
-encoding_rs = "0.8.32"
-futures-lite = "2.0.0"
-hashbrown = "0.14.0"
+encoding_rs = "0.8.33"
+futures-lite = "2.0.1"
+hashbrown = "0.14.2"
 http = { version = "0.2.9", optional = true }
 httparse = "1.8.0"
-httpdate = "1.0.2"
-log = "0.4.19"
+httpdate = "1.0.3"
+log = "0.4.20"
 memchr = "2.6.4"
 mime = "0.3.17"
-serde = { version = "1.0.181", features = ["derive"], optional = true }
-smallvec = "1.11.0"
+serde = { version = "1.0.193", features = ["derive"], optional = true }
+smallvec = "1.11.2"
 smartcow = "0.2.1"
 smartstring = "1.0.1"
-stopper = "0.2.1"
-thiserror = "1.0.44"
+stopper = "0.2.3"
+thiserror = "1.0.50"
 trillium-macros = { version = "0.0.4", path = "../macros" }
 
 [dev-dependencies]
-async-compat = "0.2.1"
-async-io = "2.0.0"
+async-compat = "0.2.3"
+async-io = "2.2.0"
 async-net = "2.0.0"
-env_logger = "0.10.0"
+env_logger = "0.10.1"
 smol = "1.3.0"
 trillium-client = { path = "../client" }
 trillium-smol = { path = "../smol" }
@@ -49,6 +49,6 @@ test-harness = "0.1.1"
 indoc = "2.0.4"
 
 [dev-dependencies.tokio]
-version = "1.29.1"
+version = "1.34.0"
 features = ["rt", "net", "rt-multi-thread", "macros"]
 package = "tokio"

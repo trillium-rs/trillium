@@ -1,5 +1,6 @@
 use async_channel::{unbounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
+use std::pin::Pin;
 use trillium::{async_trait, log_error};
 use trillium_websockets::{json_websocket, JsonWebSocketHandler, WebSocketConn};
 
@@ -19,12 +20,12 @@ struct SomeJsonChannel;
 impl JsonWebSocketHandler for SomeJsonChannel {
     type InboundMessage = Inbound;
     type OutboundMessage = Response;
-    type StreamType = Receiver<Self::OutboundMessage>;
+    type StreamType = Pin<Box<Receiver<Self::OutboundMessage>>>;
 
     async fn connect(&self, conn: &mut WebSocketConn) -> Self::StreamType {
         let (s, r) = unbounded();
         conn.set_state(s);
-        r
+        Box::pin(r)
     }
 
     async fn receive_message(
