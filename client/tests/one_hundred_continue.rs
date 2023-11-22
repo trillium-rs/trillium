@@ -1,10 +1,10 @@
 use async_channel::Sender;
+use indoc::formatdoc;
 use pretty_assertions::assert_eq;
 use std::future::Future;
 use test_harness::test;
 use trillium_client::{Client, Status, USER_AGENT};
 use trillium_server_common::{async_trait, Connector, Url};
-use indoc::{formatdoc};
 use trillium_testing::{harness, TestResult, TestTransport};
 
 #[test(harness = harness)]

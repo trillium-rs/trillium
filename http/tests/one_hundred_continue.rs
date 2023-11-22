@@ -1,9 +1,9 @@
+use indoc::{formatdoc, indoc};
 use pretty_assertions::assert_eq;
 use stopper::Stopper;
 use test_harness::test;
 use trillium_http::{Conn, KnownHeaderName};
 use trillium_testing::{harness, TestResult, TestTransport};
-use indoc::{formatdoc, indoc};
 
 const TEST_DATE: &'static str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
