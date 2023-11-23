@@ -24,7 +24,7 @@ async-dup = "1.2.2"
 futures-lite = "2.0.1"
 portpicker = "0.1.1"
 trillium = { path = "../trillium", version = "0.2.0" }
-trillium-http = { path = "../http", version = "0.3.0" }
+trillium-http = { path = "../http", version = "0.3.6" }
 trillium-server-common = { path = "../server-common", version = "0.4.0" }
 cfg-if = "1.0.0"
 url = "2.5.0"
