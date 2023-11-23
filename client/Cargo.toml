@@ -37,9 +37,7 @@ version = "0.3.6"
 [dev-dependencies]
 async-channel = "2.1.0"
 async-global-executor = "2.3.1"
-async-io = "2.2.0"
 env_logger = "0.10.1"
-futures-lite = "2.0.1"
 indoc = "2.0.4"
 pretty_assertions = "1.4.0"
 test-harness = "0.1.1"
@@ -48,4 +46,4 @@ trillium-smol = { path = "../smol/" }
 trillium-testing = { path = "../testing" }
 
 [package.metadata.cargo-udeps.ignore]
-development = ["trillium-testing", "trillium"]
+development = ["trillium"]
