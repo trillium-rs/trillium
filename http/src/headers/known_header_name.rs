@@ -201,6 +201,7 @@ known_headers! {
     ("WWW-Authenticate", WwwAuthenticate),
     ("Warning", Warning),
     ("Width", Width),
+    ("X-Cache", Xcache),
     ("X-Content-Type-Options", XcontentTypeOptions),
     ("X-DNS-Prefetch-Control", XdnsPrefetchControl),
     ("X-Download-Options", XdownloadOptions),
@@ -217,6 +218,7 @@ known_headers! {
     ("X-Request-Id", XrequestId),
     ("X-Requested-With", XrequestedWith),
     ("X-Robots-Tag", XrobotsTag),
+    ("X-Served-By", XservedBy),
     ("X-UA-Compatible", XuaCompatible),
     ("X-XSS-Protection", XxssProtection)
 }
