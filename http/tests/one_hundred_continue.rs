@@ -2,7 +2,7 @@ use indoc::{formatdoc, indoc};
 use pretty_assertions::assert_eq;
 use stopper::Stopper;
 use test_harness::test;
-use trillium_http::{Conn, KnownHeaderName};
+use trillium_http::{Conn, KnownHeaderName, SERVER};
 use trillium_testing::{harness, TestResult, TestTransport};
 
 const TEST_DATE: &'static str = "Tue, 21 Nov 2023 21:27:21 GMT";
@@ -43,7 +43,7 @@ async fn one_hundred_continue() -> TestResult {
 
     let expected_response = formatdoc! {"
         HTTP/1.1 200 OK\r
-        Server: trillium/0.3.5\r
+        Server: {SERVER}\r
         Date: {TEST_DATE}\r
         Connection: close\r
         Content-Length: 20\r
@@ -76,7 +76,7 @@ async fn one_hundred_continue_http_one_dot_zero() -> TestResult {
 
     let expected_response = formatdoc! {"
         HTTP/1.0 200 OK\r
-        Server: trillium/0.3.5\r
+        Server: {SERVER}\r
         Date: {TEST_DATE}\r
         Connection: close\r
         Content-Length: 20\r

@@ -80,7 +80,7 @@ mod error;
 pub use error::{Error, Result};
 
 mod conn;
-pub use conn::Conn;
+pub use conn::{Conn, SERVER};
 
 mod connection_status;
 pub use connection_status::ConnectionStatus;
