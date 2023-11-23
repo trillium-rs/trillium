@@ -22,7 +22,8 @@ use std::{
     time::{Instant, SystemTime},
 };
 
-const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
+/// Default Server header
+pub const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
 
 /** A http connection
 
