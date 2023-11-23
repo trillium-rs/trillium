@@ -17,7 +17,7 @@ size = "0.4.1"
 trillium = { path = "../trillium", version = "0.2.0"}
 trillium-client = { path = "../client", version = "0.4.0" }
 trillium-forwarding = { version = "0.2.1", path = "../forwarding" }
-trillium-http = { path = "../http", version = "0.3.0" }
+trillium-http = { path = "../http", version = "0.3.6" }
 url = "2.5.0"
 
 [dev-dependencies]

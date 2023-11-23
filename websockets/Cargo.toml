@@ -29,7 +29,7 @@ serde_json = { version = "1.0.108", optional = true }
 sha-1 = "0.10.1"
 stopper = "0.2.3"
 trillium = { path = "../trillium", version = "0.2.0" }
-trillium-http = { path = "../http", version = "0.3.0" }
+trillium-http = { path = "../http", version = "0.3.6" }
 
 [dev-dependencies]
 serde = { version = "1.0.193", features = ["derive"] }
