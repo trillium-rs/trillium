@@ -695,20 +695,23 @@ impl Conn {
         else {
             return Err(Error::Closed);
         };
+
         let mut len = buffer.len();
+        let mut search_start = 0;
         let finder = Finder::new(b"\r\n\r\n");
         loop {
             buffer.expand();
             let bytes = transport.read(&mut buffer[len..]).await?;
-
-            let search_start = len.saturating_sub(3);
             len += bytes;
+
             let search = finder.find(&buffer[search_start..len]);
 
             if let Some(index) = search {
                 buffer.truncate(len);
                 return Ok(search_start + index + 4);
             }
+
+            search_start = len.saturating_sub(3);
 
             if bytes == 0 {
                 if len == 0 {
@@ -728,11 +731,11 @@ impl Conn {
         let head_offset = self.read_head().await?;
         let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
         let mut httparse_res = httparse::Response::new(&mut headers);
-        if httparse_res
-            .parse(&self.buffer[..head_offset])?
-            .is_partial()
-        {
-            return Err(Error::PartialHead);
+        let parse_result = httparse_res.parse(&self.buffer[..head_offset])?;
+
+        match parse_result {
+            httparse::Status::Complete(n) if n == head_offset => {}
+            _ => return Err(Error::PartialHead),
         }
 
         self.status = httparse_res.code.map(|code| code.try_into().unwrap());

@@ -1,5 +1,6 @@
 use async_channel::Sender;
-use indoc::formatdoc;
+use futures_lite::future;
+use indoc::{formatdoc, indoc};
 use pretty_assertions::assert_eq;
 use std::future::Future;
 use test_harness::test;
@@ -128,6 +129,81 @@ async fn empty_body_no_100_continue() -> TestResult {
         response: 0123456789\
     "});
 
+    let conn = conn_fut.await.unwrap();
+    assert_eq!(Some(Status::Ok), conn.status());
+    Ok(())
+}
+
+#[test(harness = harness)]
+async fn two_small_continues() -> TestResult {
+    let (transport, conn_fut) =
+        test_conn(|client| client.post("http://example.com").with_body("body")).await;
+    let expected_request = formatdoc! {"
+        POST / HTTP/1.1\r
+        Expect: 100-continue\r
+        User-Agent: {USER_AGENT}\r
+        Host: example.com\r
+        Connection: close\r
+        Content-Length: 4\r
+        \r
+    "};
+
+    assert_eq!(expected_request, transport.read_available_string().await);
+
+    for _ in 0..2 {
+        transport.write_all("HTTP/1.1 100 Continue\r\n");
+        future::yield_now().await;
+        transport.write_all("\r\n");
+        future::yield_now().await;
+    }
+    assert_eq!("body", transport.read_available_string().await);
+
+    transport.write_all(formatdoc! {"
+        HTTP/1.1 200 Ok\r
+        Date: {TEST_DATE}\r
+        Connection: close\r
+        Content-Length: 0\r
+        \r
+    "});
+    let conn = conn_fut.await.unwrap();
+    assert_eq!(Some(Status::Ok), conn.status());
+
+    Ok(())
+}
+
+#[test(harness = harness)]
+async fn little_continue_big_continue() -> TestResult {
+    let (transport, conn_fut) =
+        test_conn(|client| client.post("http://example.com").with_body("body")).await;
+
+    let expected_request = formatdoc! {"
+        POST / HTTP/1.1\r
+        Expect: 100-continue\r
+        User-Agent: {USER_AGENT}\r
+        Host: example.com\r
+        Connection: close\r
+        Content-Length: 4\r
+        \r
+    "};
+
+    assert_eq!(expected_request, transport.read_available_string().await);
+
+    transport.write_all(indoc! {"
+        HTTP/1.1 100 Continue\r
+        \r
+        HTTP/1.1 100 Continue\r
+        X-Filler: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r
+        \r
+    "});
+    assert_eq!("body", transport.read_available_string().await);
+
+    transport.write_all(formatdoc! {"
+        HTTP/1.1 200 Ok\r
+        Date: {TEST_DATE}\r
+        Connection: close\r
+        Content-Length: 0\r
+        \r
+    "});
     let conn = conn_fut.await.unwrap();
     assert_eq!(Some(Status::Ok), conn.status());
     Ok(())
