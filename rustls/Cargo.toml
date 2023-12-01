@@ -20,7 +20,7 @@ log = "0.4.19"
 rustls = "0.21.0"
 rustls-native-certs = { version = "0.6.2", optional = true }
 rustls-pemfile = "1.0.2"
-rustls-webpki = "0.100.1"
+rustls-webpki = "0.102.0"
 trillium-server-common = { path = "../server-common", version = "0.4.0" }
 webpki-roots = "0.23"
 
