@@ -4,10 +4,10 @@
     missing_copy_implementations,
     rustdoc::missing_crate_level_docs,
     missing_debug_implementations,
-    missing_docs,
     nonstandard_style,
     unused_qualifications
 )]
+#![warn(missing_docs)]
 
 /*!
 trillium client is a http client that uses the same `conn` approach as
@@ -30,6 +30,7 @@ examples.
 
 */
 
+mod client_handler;
 mod conn;
 pub use conn::{Conn, UnexpectedStatusError, USER_AGENT};
 
@@ -58,3 +59,18 @@ pub use client_like::ClientLike;
 pub fn client(connector: impl Connector) -> Client {
     Client::new(connector)
 }
+
+pub use client_handler::ClientHandler;
+
+#[cfg(feature = "cookies")]
+mod cookies;
+#[cfg(feature = "cookies")]
+pub use cookies::Cookies;
+
+mod follow_redirects;
+pub use follow_redirects::{FollowRedirects, RedirectHistory};
+
+pub use trillium_server_common::async_trait;
+
+mod expect_status;
+pub use expect_status::ExpectStatus;

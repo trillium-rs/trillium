@@ -11,7 +11,9 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming", "web-programming::http-client"]
 
 [features]
-json = ["serde_json", "serde", "thiserror"]
+default = ["cookies", "json"]
+cookies = ["dep:cookie_store", "dep:async-lock"]
+json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
 
 [dependencies]
 encoding_rs = "0.8.33"
@@ -28,6 +30,9 @@ thiserror = { version = "1.0.50", optional = true }
 dashmap = "5.5.3"
 crossbeam-queue = "0.3.8"
 memchr = "2.6.4"
+async-lock = {version = "3.2.0", optional = true }
+arc-swap = "1.6.0"
+cookie_store = { version = "0.20.0", optional = true }
 
 [dependencies.trillium-http]
 path = "../http"
@@ -36,12 +41,19 @@ version = "0.3.6"
 
 [dev-dependencies]
 async-channel = "2.1.0"
+async-fs = "2.1.0"
 async-global-executor = "2.3.1"
+blocking = "1.5.1"
+clap = { version = "4.4.10", features = ["derive", "env"] }
+clap-verbosity-flag = "2.1.0"
+crossbeam = "0.8.2"
 env_logger = "0.10.1"
 indoc = "2.0.4"
 pretty_assertions = "1.4.0"
 test-harness = "0.1.1"
 trillium = { path = "../trillium" }
+trillium-native-tls = { path = "../native-tls" }
+trillium-rustls = { path = "../rustls" }
 trillium-smol = { path = "../smol/" }
 trillium-testing = { path = "../testing" }
 

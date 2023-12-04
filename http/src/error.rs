@@ -90,6 +90,10 @@ pub enum Error {
     /// implementation on ReceivedBody
     #[error("Received body too long. Maximum {0} bytes")]
     ReceivedBodyTooLong(u64),
+
+    /// a catchall error
+    #[error("{0}")]
+    Other(String),
 }
 
 /// this crate's result type

@@ -1,4 +1,4 @@
-use crate::{pool::PoolEntry, util::encoding, Pool};
+use crate::{pool::PoolEntry, util::encoding, Client, Pool};
 use encoding_rs::Encoding;
 use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
 use memchr::memmem::Finder;
@@ -10,7 +10,6 @@ use std::{
     ops::{Deref, DerefMut},
     pin::Pin,
     str::FromStr,
-    sync::Arc,
 };
 use trillium_http::{
     transport::BoxedTransport,
@@ -20,7 +19,7 @@ use trillium_http::{
     },
     Method, ReceivedBody, ReceivedBodyState, Result, StateSet, Status, Stopper, Upgrade,
 };
-use trillium_server_common::{Connector, ObjectSafeConnector, Transport};
+use trillium_server_common::{Connector, Transport};
 use url::{Origin, Url};
 
 const MAX_HEADERS: usize = 128;
@@ -59,8 +58,9 @@ pub struct Conn {
     pool: Option<Pool<Origin, BoxedTransport>>,
     buffer: trillium_http::Buffer,
     response_body_state: ReceivedBodyState,
-    config: Arc<dyn ObjectSafeConnector>,
     headers_finalized: bool,
+    client: Client,
+    state: StateSet,
 }
 
 /// default http user-agent header
@@ -78,7 +78,7 @@ impl Debug for Conn {
             .field("pool", &self.pool)
             .field("buffer", &String::from_utf8_lossy(&self.buffer))
             .field("response_body_state", &self.response_body_state)
-            .field("config", &self.config)
+            .field("client", &self.client)
             .finish()
     }
 }
@@ -132,11 +132,17 @@ impl Conn {
     //     )
     // }
 
-    pub(crate) fn new_with_config(
-        config: Arc<dyn ObjectSafeConnector>,
-        method: Method,
-        url: Url,
-    ) -> Self {
+    /// document
+    pub fn state(&self) -> &StateSet {
+        &self.state
+    }
+
+    /// document
+    pub fn state_mut(&mut self) -> &mut StateSet {
+        &mut self.state
+    }
+
+    pub(crate) fn new_with_client(client: Client, method: Method, url: Url) -> Self {
         Self {
             url,
             method,
@@ -148,9 +154,15 @@ impl Conn {
             pool: None,
             buffer: Vec::with_capacity(128).into(),
             response_body_state: ReceivedBodyState::Start,
-            config,
+            client,
             headers_finalized: false,
+            state: StateSet::new(),
         }
+    }
+
+    ///document
+    pub fn client(&self) -> &Client {
+        &self.client
     }
 
     /**
@@ -197,7 +209,7 @@ impl Conn {
     use trillium_testing::ClientConfig;
 
 
-    let handler = |conn: trillium::Conn| async move {
+    let handler= |conn: trillium::Conn| async move {
         let header = conn.headers().get_str("some-request-header").unwrap_or_default();
         let response = format!("some-request-header was {}", header);
         conn.ok(response)
@@ -540,6 +552,13 @@ impl Conn {
     pub async fn recycle(mut self) {
         if self.is_keep_alive() && self.transport.is_some() && self.pool.is_some() {
             self.finish_reading_body().await;
+            if self.response_body_state == ReceivedBodyState::End {
+                let origin = self.url.origin();
+                let transport = self.transport.take().unwrap();
+                let pool = self.pool.as_ref().unwrap();
+                log::trace!("response body has been read to completion, checking transport back into pool for {origin:?}");
+                pool.insert(origin, PoolEntry::new(transport, None));
+            }
         }
     }
 
@@ -588,6 +607,7 @@ impl Conn {
                 }
                 self.request_headers.insert(ContentLength, len.to_string());
             } else {
+                self.request_headers.insert(Expect, "100-continue");
                 self.request_headers.insert(TransferEncoding, "chunked");
             }
         }
@@ -633,7 +653,7 @@ impl Conn {
             }
 
             None => {
-                let mut transport = Connector::connect(&self.config, &self.url).await?;
+                let mut transport = Connector::connect(self.client.connector(), &self.url).await?;
                 log::debug!("opened new connection to {:?}", transport.peer_addr()?);
                 transport.write_all(&head).await?;
                 transport
@@ -821,9 +841,16 @@ impl Conn {
     }
 
     async fn exec(&mut self) -> Result<()> {
+        let handler = self.client.handler();
+        if let Some(ref handler) = handler {
+            handler.before(self).await?;
+        }
         self.finalize_headers();
         self.connect_and_send_head().await?;
         self.send_body_and_parse_head().await?;
+        if let Some(handler) = handler {
+            handler.after(self).await?;
+        }
         Ok(())
     }
 }
@@ -845,22 +872,20 @@ impl Drop for Conn {
         let Some(transport) = self.transport.take() else {
             return;
         };
-        let Ok(Some(peer_addr)) = transport.peer_addr() else {
-            return;
-        };
+
         let Some(pool) = self.pool.take() else { return };
 
         let origin = self.url.origin();
 
         if self.response_body_state == ReceivedBodyState::End {
-            log::trace!("response body has been read to completion, checking transport back into pool for {}", &peer_addr);
+            log::trace!("response body has been read to completion, checking transport back into pool for {origin:?}");
             pool.insert(origin, PoolEntry::new(transport, None));
         } else {
             let content_length = self.response_content_length();
             let buffer = std::mem::take(&mut self.buffer);
             let response_body_state = self.response_body_state;
             let encoding = encoding(&self.response_headers);
-            Connector::spawn(&self.config, async move {
+            Connector::spawn(self.client.connector(), async move {
                 let mut response_body = ReceivedBody::new(
                     content_length,
                     buffer,
@@ -873,15 +898,11 @@ impl Drop for Conn {
                 match io::copy(&mut response_body, io::sink()).await {
                     Ok(bytes) => {
                         let transport = response_body.take_transport().unwrap();
-                        log::trace!(
-                            "read {} bytes in order to recycle conn for {}",
-                            bytes,
-                            &peer_addr
-                        );
+                        log::trace!("read {bytes} bytes in order to recycle conn for {origin:?}",);
                         pool.insert(origin, PoolEntry::new(transport, None));
                     }
 
-                    Err(ioerror) => log::error!("unable to recycle conn due to {}", ioerror),
+                    Err(ioerror) => log::error!("unable to recycle conn due to {ioerror}"),
                 };
             });
         }
