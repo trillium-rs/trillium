@@ -862,6 +862,21 @@ where
         }
     }
 
+    /// Get a reference to the transport.
+    pub fn transport(&self) -> &Transport {
+        &self.transport
+    }
+
+    /// Get a mutable reference to the transport.
+    ///
+    /// This should only be used to call your own custom methods on the transport that do not read
+    /// or write any data. Calling any method that reads from or writes to the transport will
+    /// disrupt the HTTP protocol. If you're looking to transition from HTTP to another protocol,
+    /// use an HTTP upgrade.
+    pub fn transport_mut(&mut self) -> &mut Transport {
+        &mut self.transport
+    }
+
     /// sets the remote ip address for this conn, if available.
     pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) {
         self.peer_ip = peer_ip;
