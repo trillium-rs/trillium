@@ -14,6 +14,8 @@ use trillium_macros::{AsyncRead, AsyncWrite};
 pub(crate) trait AnyTransport: Transport + Any {
     fn as_box_any(self: Box<Self>) -> Box<dyn Any>;
     fn as_box_transport(self: Box<Self>) -> Box<dyn Transport>;
+    fn as_any(&self) -> &dyn Any;
+    fn as_mut_any(&mut self) -> &mut dyn Any;
     fn as_transport(&self) -> &dyn Transport;
 }
 impl<T: Transport + Any> AnyTransport for T {
@@ -21,6 +23,12 @@ impl<T: Transport + Any> AnyTransport for T {
         self
     }
     fn as_box_transport(self: Box<Self>) -> Box<dyn Transport> {
+        self
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_mut_any(&mut self) -> &mut dyn Any {
         self
     }
     fn as_transport(&self) -> &dyn Transport {
@@ -84,6 +92,24 @@ impl BoxedTransport {
     #[must_use = "downcasting takes the inner transport, so you should use it"]
     pub fn downcast<T: 'static>(self) -> Option<Box<T>> {
         self.0.as_box_any().downcast().ok()
+    }
+
+    /**
+    Attempt to get a reference to the trait object as a specific transport type T. This will only
+    succeed if T is the type that was originally passed to [`BoxedTransport::new`], and will return
+    None otherwise
+    */
+    pub fn downcast_ref<T: Transport>(&self) -> Option<&T> {
+        self.0.as_any().downcast_ref()
+    }
+
+    /**
+    Attempt to get a mutable reference to the trait object as a specific transport type T. This
+    will only succeed if T is the type that was originally passed to [`BoxedTransport::new`], and
+    will return None otherwise
+    */
+    pub fn downcast_mut<T: Transport>(&mut self) -> Option<&mut T> {
+        self.0.as_mut_any().downcast_mut()
     }
 }
 
