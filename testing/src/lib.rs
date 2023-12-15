@@ -208,7 +208,7 @@ cfg_if::cfg_if! {
 
         /// generic client config
         pub fn client_config() -> impl Connector {
-            RuntimelessClientConfig::default()
+            RuntimelessClientConfig
         }
 
         pub use futures_lite::future::block_on;

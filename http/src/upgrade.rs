@@ -106,6 +106,9 @@ impl<Transport> Debug for Upgrade<Transport> {
                 "buffer",
                 &self.buffer.as_deref().map(String::from_utf8_lossy),
             )
+            .field("stopper", &self.stopper)
+            .field("state", &self.state)
+            .field("transport", &"..")
             .finish()
     }
 }

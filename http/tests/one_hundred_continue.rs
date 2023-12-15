@@ -5,7 +5,7 @@ use test_harness::test;
 use trillium_http::{Conn, KnownHeaderName, SERVER};
 use trillium_testing::{harness, TestResult, TestTransport};
 
-const TEST_DATE: &'static str = "Tue, 21 Nov 2023 21:27:21 GMT";
+const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
 async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
     conn.set_status(200);

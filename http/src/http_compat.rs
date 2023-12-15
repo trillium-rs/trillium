@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn versions() {
         assert_eq!(
-            http::Version::try_from(crate::Version::Http2_0).unwrap(),
+            http::Version::from(crate::Version::Http2_0),
             http::Version::HTTP_2
         );
         assert_eq!(
@@ -300,7 +300,7 @@ mod tests {
             vec!["cookie 1", "cookie 2"]
         );
 
-        let new_trillium_headers = crate::Headers::try_from(http_header_map).unwrap();
+        let new_trillium_headers = crate::Headers::from(http_header_map);
         assert_eq!(&trillium_headers, &new_trillium_headers);
         assert_eq!(
             new_trillium_headers

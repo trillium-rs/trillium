@@ -51,7 +51,7 @@ impl Debug for Box<dyn AnyTransport> {
 
 impl BoxedTransport {
     /**
-    Create a new BoxedTransport from some Transport.
+    Create a new `BoxedTransport` from some Transport.
 
     ```
     use trillium_http::transport::BoxedTransport;

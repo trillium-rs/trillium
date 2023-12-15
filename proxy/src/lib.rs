@@ -206,7 +206,7 @@ impl Handler for Proxy {
         let conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
                 conn.headers_mut()
-                    .extend(std::mem::take(client_conn.response_headers_mut()).into_iter());
+                    .extend(std::mem::take(client_conn.response_headers_mut()));
 
                 conn.with_state(UpstreamUpgrade(client_conn.into()))
                     .with_status(SwitchingProtocols)

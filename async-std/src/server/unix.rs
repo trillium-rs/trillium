@@ -5,7 +5,7 @@ use async_std::{
     stream::StreamExt,
     task::{block_on, spawn},
 };
-use std::{convert::TryInto, env, future::Future, io::Result, pin::Pin};
+use std::{env, future::Future, io::Result, pin::Pin};
 use trillium::{log_error, Info};
 use trillium_server_common::{
     Binding::{self, *},
@@ -84,11 +84,11 @@ impl Server for AsyncStdServer {
     }
 
     fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {
-        Self(Tcp(tcp.try_into().unwrap()))
+        Self(Tcp(tcp.into()))
     }
 
     fn listener_from_unix(tcp: std::os::unix::net::UnixListener) -> Self {
-        Self(Unix(tcp.try_into().unwrap()))
+        Self(Unix(tcp.into()))
     }
 
     fn info(&self) -> Info {

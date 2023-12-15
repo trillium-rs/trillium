@@ -209,7 +209,7 @@ async fn little_continue_big_continue() -> TestResult {
     Ok(())
 }
 
-const TEST_DATE: &'static str = "Tue, 21 Nov 2023 21:27:21 GMT";
+const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
 struct TestConnector(Sender<TestTransport>);
 
