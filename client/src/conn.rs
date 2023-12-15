@@ -440,7 +440,7 @@ impl Conn {
     ```
      */
 
-    #[allow(clippy::needless_borrow)]
+    #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
     pub fn response_body(&mut self) -> ReceivedBody<'_, BoxedTransport> {
         ReceivedBody::new(
             self.response_content_length(),

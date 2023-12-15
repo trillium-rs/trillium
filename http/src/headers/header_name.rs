@@ -90,7 +90,7 @@ impl FromStr for HeaderName<'static> {
         if s.is_ascii() {
             Ok(Self(match s.parse::<KnownHeaderName>() {
                 Ok(known) => KnownHeader(known),
-                Err(_) => UnknownHeader(UnknownHeaderName(SmartCow::Owned(SmartString::from(s)))),
+                Err(()) => UnknownHeader(UnknownHeaderName(SmartCow::Owned(SmartString::from(s)))),
             }))
         } else {
             Err(Error::MalformedHeader(s.to_string().into()))

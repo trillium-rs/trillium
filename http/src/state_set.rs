@@ -62,6 +62,7 @@ impl StateSet {
 
     /// Gets a value from this `StateSet` or populates it with the
     /// provided default.
+    #[allow(clippy::missing_panics_doc)]
     pub fn get_or_insert<T: Send + Sync + 'static>(&mut self, default: T) -> &mut T {
         self.0
             .entry(TypeId::of::<T>())
@@ -72,6 +73,7 @@ impl StateSet {
 
     /// Gets a value from this `StateSet` or populates it with the
     /// provided default function.
+    #[allow(clippy::missing_panics_doc)]
     pub fn get_or_insert_with<F, T>(&mut self, default: F) -> &mut T
     where
         F: FnOnce() -> T,

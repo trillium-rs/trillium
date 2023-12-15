@@ -375,7 +375,7 @@ where
                 .eq_ignore_ascii_case(Expect, "100-continue")
     }
 
-    #[allow(clippy::needless_borrow)]
+    #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
     fn build_request_body(&mut self) -> ReceivedBody<'_, Transport> {
         ReceivedBody::new_with_config(
             self.request_content_length().ok().flatten(),
@@ -389,7 +389,7 @@ where
     }
 
     /**
-    returns the [encoding_rs::Encoding] for this request, as
+    returns the [`encoding_rs::Encoding`] for this request, as
     determined from the mime-type charset, if available
 
     ```
@@ -405,7 +405,7 @@ where
     }
 
     /**
-    returns the [encoding_rs::Encoding] for this response, as
+    returns the [`encoding_rs::Encoding`] for this response, as
     determined from the mime-type charset, if available
 
     ```
@@ -421,9 +421,9 @@ where
     }
 
     /**
-    returns a [ReceivedBody] that references this conn. the conn
+    returns a [`ReceivedBody`] that references this conn. the conn
     retains all data and holds the singular transport, but the
-    ReceivedBody provides an interface to read body content
+    `ReceivedBody` provides an interface to read body content
     ```
     # async_io::block_on(async {
     # use trillium_http::{Conn, Method};
@@ -645,7 +645,7 @@ where
     and should be computationally lightweight. If your _application_
     needs additional async processing, use your runtime's task spawn
     within this hook.  If your _library_ needs additional async
-    processing in an after_send hook, please open an issue. This hook
+    processing in an `after_send` hook, please open an issue. This hook
     is currently designed for simple instrumentation and logging, and
     should be thought of as equivalent to a Drop hook.
     */

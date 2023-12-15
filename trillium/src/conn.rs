@@ -278,7 +278,7 @@ impl Conn {
     }
 
     /**
-    Returns a [ReceivedBody] that references this `Conn`. The `Conn`
+    Returns a [`ReceivedBody`] that references this `Conn`. The `Conn`
     retains all data and holds the singular transport, but the
     [`ReceivedBody`] provides an interface to read body content.
 
@@ -540,6 +540,10 @@ impl Conn {
     /// transport into the wrong transport type. Also note that this
     /// is a lossy conversion, dropping the halted state and any
     /// nested router path data.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if you attempt to downcast to the wrong Transport type.
     pub fn into_inner<T: Transport>(self) -> trillium_http::Conn<T> {
         self.inner.map_transport(|t| {
             *t.downcast()

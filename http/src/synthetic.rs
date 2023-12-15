@@ -90,7 +90,7 @@ impl From<&str> for Synthetic {
 }
 
 impl From<()> for Synthetic {
-    fn from(_: ()) -> Self {
+    fn from((): ()) -> Self {
         Self(None, 0)
     }
 }

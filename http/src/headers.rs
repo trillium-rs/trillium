@@ -461,7 +461,7 @@ mod tests {
 
         headers.append("mY-hEaDer-NaMe", "second-value");
         assert_eq!(
-            &*headers.get_values("my-header-name").unwrap(),
+            headers.get_values("my-header-name").unwrap(),
             ["my-header-value", "second-value"].as_slice()
         );
 

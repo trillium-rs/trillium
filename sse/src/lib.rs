@@ -91,7 +91,7 @@ where
         Self {
             stream,
             buffer: Vec::new(),
-            event: PhantomData::default(),
+            event: PhantomData,
         }
     }
 }
