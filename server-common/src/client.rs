@@ -81,6 +81,18 @@ impl Connector for Box<dyn ObjectSafeConnector> {
 }
 
 #[async_trait]
+impl Connector for dyn ObjectSafeConnector {
+    type Transport = BoxedTransport;
+    async fn connect(&self, url: &Url) -> Result<BoxedTransport> {
+        ObjectSafeConnector::connect(self, url).await
+    }
+
+    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
+        ObjectSafeConnector::spawn(self, Box::pin(fut))
+    }
+}
+
+#[async_trait]
 impl Connector for Arc<dyn ObjectSafeConnector> {
     type Transport = BoxedTransport;
     async fn connect(&self, url: &Url) -> Result<BoxedTransport> {

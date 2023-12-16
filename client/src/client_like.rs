@@ -1,4 +1,4 @@
-use crate::Conn;
+use crate::{Client, Conn};
 use trillium_http::Method;
 use trillium_server_common::{Connector, ObjectSafeConnector, Url};
 
@@ -41,6 +41,7 @@ pub trait ClientLike {
 
 impl<C: Connector + Clone> ClientLike for C {
     fn build_conn(&self, method: Method, url: Url) -> Conn {
-        Conn::new_with_config(self.clone().arced(), method, url)
+        let client = Client::new(self.clone().arced());
+        Conn::new_with_client(client, method, url)
     }
 }

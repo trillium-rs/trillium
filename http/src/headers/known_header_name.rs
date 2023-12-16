@@ -149,6 +149,7 @@ known_headers! {
     ("NEL", Nel),
     ("Origin", Origin),
     ("Origin-Isolation", OriginIsolation),
+    ("P3P", P3p),
     ("Ping-From", PingFrom),
     ("Ping-To", PingTo),
     ("Pragma", Pragma),

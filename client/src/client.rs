@@ -1,4 +1,6 @@
-use crate::{ClientLike, Conn, Pool};
+use crate::{client_handler::ClientHandler, ClientLike, Conn, Pool};
+use arc_swap::ArcSwapOption;
+
 use std::{convert::TryInto, fmt::Debug, sync::Arc};
 use trillium_http::{transport::BoxedTransport, Method};
 use trillium_server_common::{Connector, ObjectSafeConnector, Url};
@@ -9,10 +11,15 @@ A client contains a Config and an optional connection pool and builds
 conns.
 
 */
+
 #[derive(Clone, Debug)]
-pub struct Client {
-    config: Arc<dyn ObjectSafeConnector>,
-    pool: Option<Pool<Origin, BoxedTransport>>,
+pub struct Client(Arc<ClientInner>);
+
+#[derive(Debug)]
+pub struct ClientInner {
+    config: Box<dyn ObjectSafeConnector>,
+    pool: ArcSwapOption<Pool<Origin, BoxedTransport>>,
+    handler: ArcSwapOption<Box<dyn ClientHandler>>,
 }
 
 macro_rules! method {
@@ -59,10 +66,11 @@ assert_eq!(conn.url().to_string(), \"http://localhost:8080/some/route\");
 impl Client {
     /// builds a new client from this `Connector`
     pub fn new(config: impl Connector) -> Self {
-        Self {
-            config: config.arced(),
-            pool: None,
-        }
+        Self(Arc::new(ClientInner {
+            config: config.boxed(),
+            pool: ArcSwapOption::empty(),
+            handler: ArcSwapOption::empty(),
+        }))
     }
 
     /**
@@ -78,8 +86,8 @@ impl Client {
         .with_default_pool(); //<-
     ```
     */
-    pub fn with_default_pool(mut self) -> Self {
-        self.pool = Some(Pool::default());
+    pub fn with_default_pool(self) -> Self {
+        self.0.pool.store(Some(Arc::new(Pool::default())));
         self
     }
 
@@ -109,15 +117,16 @@ impl Client {
         U: TryInto<Url>,
         <U as TryInto<Url>>::Error: Debug,
     {
-        let mut conn = Conn::new_with_config(
-            Arc::clone(&self.config),
+        let mut conn = Conn::new_with_client(
+            self.clone(),
             method.try_into().unwrap(),
             url.try_into().unwrap(),
         );
 
-        if let Some(pool) = &self.pool {
+        if let Some(pool) = self.0.pool.load_full().as_deref() {
             conn.set_pool(pool.clone());
         }
+
         conn
     }
 
@@ -128,7 +137,7 @@ impl Client {
     intermittently.
     */
     pub fn clean_up_pool(&self) {
-        if let Some(pool) = &self.pool {
+        if let Some(pool) = &*self.0.pool.load() {
             pool.cleanup();
         }
     }
@@ -138,6 +147,23 @@ impl Client {
     method!(put, Put);
     method!(delete, Delete);
     method!(patch, Patch);
+
+    pub(crate) fn handler(&self) -> Option<Arc<Box<dyn ClientHandler>>> {
+        self.0.handler.load_full()
+    }
+    ///
+    pub fn with_handler(mut self, handler: impl ClientHandler) -> Self {
+        self.set_handler(handler);
+        self
+    }
+    ///
+    pub fn set_handler(&mut self, handler: impl ClientHandler) {
+        self.0.handler.store(Some(Arc::new(Box::new(handler))))
+    }
+
+    pub(crate) fn connector(&self) -> &dyn ObjectSafeConnector {
+        &self.0.config
+    }
 }
 
 impl<T: Connector> From<T> for Client {
