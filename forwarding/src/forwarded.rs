@@ -365,7 +365,7 @@ impl std::fmt::Display for Forwarded<'_> {
         let mut needs_semi = false;
         if let Some(by) = self.by() {
             needs_semi = true;
-            write!(f, "by={by}").unwrap();
+            write!(f, "by={}", format_value(by))?;
         }
 
         if !self.forwarded_for.is_empty() {
@@ -388,14 +388,14 @@ impl std::fmt::Display for Forwarded<'_> {
                 f.write_char(';')?;
             }
             needs_semi = true;
-            write!(f, "host={host}")?
+            write!(f, "host={}", format_value(host))?
         }
 
         if let Some(proto) = self.proto() {
             if needs_semi {
                 f.write_char(';')?;
             }
-            write!(f, "proto={proto}")?
+            write!(f, "proto={}", format_value(proto))?
         }
 
         Ok(())
@@ -616,6 +616,15 @@ mod tests {
             forwarded.to_string(),
             r#"for="quote: \" backslash: \\", for=";proto=https""#
         );
+
+        let mut forwarded = Forwarded::new();
+        forwarded.set_host("localhost:8080");
+        forwarded.set_proto("not:normal"); // handled correctly but should not happen
+        forwarded.set_by("localhost:8081");
+        assert_eq!(
+            forwarded.to_string(),
+            r#"by="localhost:8081";host="localhost:8080";proto="not:normal""#
+        );
     }
 
     #[test]
@@ -675,6 +684,7 @@ mod tests {
             "proto=https",
             "host=example.com",
             "for=a,for=b",
+            r#"by="localhost:8081";host="localhost:8080";proto="not:normal""#,
         ];
         for input in inputs {
             let forwarded = Forwarded::parse(input)?;
