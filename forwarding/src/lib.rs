@@ -32,7 +32,7 @@ pub use forwarded::Forwarded;
 mod parse_utils;
 
 use std::{fmt::Debug, net::IpAddr, ops::Deref};
-use trillium::{async_trait, conn_unwrap, Conn, Handler};
+use trillium::{async_trait, Conn, Handler, Status};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -67,12 +67,12 @@ impl Deref for TrustFn {
 }
 
 impl TrustProxy {
-    fn is_trusted(&self, ip: &IpAddr) -> bool {
-        match self {
-            TrustProxy::Always => true,
-            TrustProxy::Never => false,
-            TrustProxy::Cidr(cidrs) => cidrs.iter().any(|c| c.contains(ip)),
-            TrustProxy::Function(trust_predicate) => trust_predicate(ip),
+    fn is_trusted(&self, ip: Option<IpAddr>) -> bool {
+        match (self, ip) {
+            (TrustProxy::Always, _) => true,
+            (TrustProxy::Cidr(cidrs), Some(ip)) => cidrs.iter().any(|c| c.contains(&ip)),
+            (TrustProxy::Function(trust_predicate), Some(ip)) => trust_predicate(&ip),
+            _ => false,
         }
     }
 }
@@ -150,13 +150,21 @@ impl Default for TrustProxy {
 #[async_trait]
 impl Handler for Forwarding {
     async fn run(&self, mut conn: Conn) -> Conn {
-        let ip = conn_unwrap!(conn.inner().peer_ip(), conn);
-        if !self.0.is_trusted(&ip) {
+        if !self.0.is_trusted(conn.inner().peer_ip()) {
             return conn;
         }
 
-        let forwarded =
-            conn_unwrap!(Forwarded::from_headers(conn.headers()).ok().flatten(), conn).into_owned();
+        let forwarded = match Forwarded::from_headers(conn.headers()) {
+            Ok(Some(forwarded)) => forwarded.into_owned(),
+            Err(error) => {
+                log::error!("{error}");
+                return conn
+                    .halt()
+                    .with_state(error)
+                    .with_status(Status::BadRequest);
+            }
+            Ok(None) => return conn,
+        };
 
         log::debug!("received trusted forwarded {:?}", &forwarded);
 

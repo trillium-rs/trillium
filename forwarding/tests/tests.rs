@@ -28,6 +28,13 @@ fn test_always() {
 
     assert_ok!(
         get("/")
+            .with_request_header("forwarded", "for=192.0.2.60;proto=https;by=203.0.113.43")
+            .on(&app),
+        "true Some(192.0.2.60) None"
+    );
+
+    assert_ok!(
+        get("/")
             .with_request_header("x-forwarded-for", "192.0.2.60")
             .with_request_header("x-forwarded-proto", "https")
             .with_request_header("x-forwarded-host", "example.com")
