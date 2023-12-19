@@ -127,8 +127,14 @@ Content-Length: 0\r
 Retry-After: 60\r
 \r\n";
 
+#[cfg(feature = "http-compat-1")]
+pub mod http_compat1;
+
 #[cfg(feature = "http-compat")]
-pub mod http_compat;
+pub mod http_compat0;
+
+#[cfg(feature = "http-compat")]
+pub use http_compat0 as http_compat; // for semver
 
 mod copy;
 pub(crate) use copy::copy;
