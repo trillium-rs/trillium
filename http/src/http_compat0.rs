@@ -3,6 +3,7 @@
 pub use headers::HeaderConversionError; // for semver
 
 mod version {
+    use http0 as http;
     impl TryFrom<http::Version> for crate::Version {
         type Error = String;
         fn try_from(version: http::Version) -> Result<Self, Self::Error> {
@@ -46,6 +47,8 @@ mod version {
 }
 
 mod method {
+    use http0 as http;
+
     use std::str::FromStr;
 
     impl TryFrom<http::Method> for crate::Method {
@@ -84,6 +87,8 @@ mod method {
 }
 
 mod status {
+    use http0 as http;
+
     impl TryFrom<http::StatusCode> for crate::Status {
         type Error = <crate::Status as TryFrom<u16>>::Error;
 
@@ -114,6 +119,8 @@ mod status {
 }
 
 mod header_name {
+    use http0 as http;
+
     impl From<http::HeaderName> for crate::HeaderName<'static> {
         fn from(http_header_name: http::header::HeaderName) -> Self {
             http_header_name.as_str().to_owned().into()
@@ -142,6 +149,8 @@ mod header_name {
 }
 
 mod headers {
+    use http0 as http;
+
     use thiserror::Error;
 
     impl From<http::HeaderMap> for crate::Headers {
@@ -202,6 +211,8 @@ mod headers {
 }
 
 mod header_values {
+    use http0 as http;
+
     impl From<http::HeaderValue> for crate::HeaderValue {
         fn from(http_header_value: http::HeaderValue) -> Self {
             http_header_value.as_bytes().to_owned().into()
@@ -225,6 +236,7 @@ mod header_values {
 
 #[cfg(test)]
 mod tests {
+    use http0 as http;
 
     #[test]
     fn versions() {
