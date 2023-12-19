@@ -699,6 +699,14 @@ impl Conn {
         let mut len = buffer.len();
         let mut search_start = 0;
         let finder = Finder::new(b"\r\n\r\n");
+
+        if len > 0 {
+            if let Some(index) = finder.find(buffer) {
+                return Ok(index + 4);
+            }
+            search_start = len.saturating_sub(3);
+        }
+
         loop {
             buffer.expand();
             let bytes = transport.read(&mut buffer[len..]).await?;
