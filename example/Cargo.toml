@@ -20,7 +20,7 @@ trillium-sessions = { path = "../sessions" }
 trillium-websockets = { path = "../websockets" }
 trillium-smol = { path = "../smol" }
 trillium-askama = { path = "../askama" }
-futures-lite = "2.0.1"
+futures-lite = "2.1.0"
 askama = "0.12.1"
 trillium-static-compiled = { path = "../static-compiled/" }
 trillium-proxy = { path = "../proxy" }

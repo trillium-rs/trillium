@@ -11,10 +11,10 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-global-executor = "2.3.1"
-async-io = "2.2.0"
+async-global-executor = "2.4.1"
+async-io = "2.2.2"
 async-net = "2.0.0"
-futures-lite = "2.0.1"
+futures-lite = "2.1.0"
 log = "0.4.20"
 trillium = { path = "../trillium", version = "0.2.0" }
 trillium-http = { path = "../http", version = "0.3.6" }
