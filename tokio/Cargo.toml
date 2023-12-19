@@ -20,7 +20,7 @@ trillium-macros = { version = "0.0.4", path = "../macros" }
 trillium-server-common = { path = "../server-common", version = "0.4.0" }
 
 [dependencies.tokio]
-version = "1.34.0"
+version = "1.35.1"
 features = ["rt", "net", "fs", "rt-multi-thread", "time"]
 package = "tokio"
 
@@ -30,4 +30,4 @@ signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 
 [dev-dependencies]
 env_logger = "0.10.1"
-tokio = { version = "1.34.0", features = ["full"], package = "tokio" }
+tokio = { version = "1.35.1", features = ["full"], package = "tokio" }
