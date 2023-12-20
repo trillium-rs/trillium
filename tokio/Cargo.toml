@@ -15,7 +15,7 @@ async-compat = "0.2.3"
 log = "0.4.20"
 tokio-stream = { version = "0.1.14", features = ["net"] }
 trillium = { path = "../trillium", version = "0.2.0" }
-trillium-http = { path = "../http", version = "0.3.6" }
+trillium-http = { path = "../http", version = "0.3.7" }
 trillium-macros = { version = "0.0.4", path = "../macros" }
 trillium-server-common = { path = "../server-common", version = "0.4.0" }
 
