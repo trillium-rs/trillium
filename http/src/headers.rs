@@ -31,6 +31,21 @@ pub struct Headers {
     unknown: HashMap<UnknownHeaderName<'static>, HeaderValues>,
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for Headers {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.len()))?;
+        for (key, values) in self {
+            map.serialize_entry(&key, values)?;
+        }
+        map.end()
+    }
+}
+
 impl Default for Headers {
     fn default() -> Self {
         Self::with_capacity(15)

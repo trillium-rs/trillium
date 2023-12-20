@@ -21,6 +21,19 @@ impl Deref for HeaderValues {
     }
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for HeaderValues {
+    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self.one() {
+            Some(one) => one.serialize(serializer),
+            None => self.0.serialize(serializer),
+        }
+    }
+}
+
 impl Default for HeaderValues {
     fn default() -> Self {
         Self(SmallVec::with_capacity(1))
