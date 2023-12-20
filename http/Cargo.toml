@@ -49,6 +49,7 @@ pretty_assertions = "1.4.0"
 fastrand = "2.0.1"
 test-harness = "0.1.1"
 indoc = "2.0.4"
+serde_json = "1.0.108"
 
 [dev-dependencies.tokio]
 version = "1.35.1"
