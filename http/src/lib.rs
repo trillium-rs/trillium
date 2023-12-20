@@ -136,9 +136,6 @@ pub mod http_compat0;
 #[cfg(feature = "http-compat")]
 pub use http_compat0 as http_compat; // for semver
 
-mod copy;
-pub(crate) use copy::copy;
-
 mod bufwriter;
 pub(crate) use bufwriter::BufWriter;
 
@@ -152,3 +149,9 @@ mod buffer;
 pub use buffer::Buffer;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use buffer::Buffer;
+
+mod copy;
+#[cfg(feature = "unstable")]
+pub use copy::copy;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use copy::copy;
