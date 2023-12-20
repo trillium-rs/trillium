@@ -4,8 +4,7 @@ use crate::{
     http_config::DEFAULT_CONFIG,
     received_body::ReceivedBodyState,
     util::encoding,
-    Body, BufWriter, Buffer, ConnectionStatus, Error, HeaderName, HeaderValue, HeaderValues,
-    Headers, HttpConfig,
+    Body, BufWriter, Buffer, ConnectionStatus, Error, HeaderName, HeaderValue, Headers, HttpConfig,
     KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
     Method, ReceivedBody, Result, StateSet, Status, Stopper, Upgrade, Version,
 };
@@ -550,7 +549,7 @@ where
             .to_owned();
         log::debug!("received:\n{method} {path} {version}\n{request_headers}");
 
-        let response_headers = Self::build_response_headers(&http_config);
+        let response_headers = Headers::with_capacity(http_config.response_header_initial_capacity);
 
         buffer.ignore_front(head_size);
 
@@ -573,18 +572,6 @@ where
             peer_ip: None,
             http_config,
         })
-    }
-
-    fn build_response_headers(config: &HttpConfig) -> Headers {
-        let mut headers = Headers::with_capacity(config.response_header_initial_capacity);
-        headers.extend([
-            (
-                Date,
-                HeaderValues::from(httpdate::fmt_http_date(SystemTime::now())),
-            ),
-            (Server, HeaderValues::from(SERVER)),
-        ]);
-        headers
     }
 
     /// predicate function to indicate whether the connection is
@@ -613,6 +600,11 @@ where
         if self.status == Some(Status::SwitchingProtocols) {
             return;
         }
+
+        self.response_headers
+            .try_insert_with(Date, || httpdate::fmt_http_date(SystemTime::now()));
+
+        self.response_headers.try_insert(Server, SERVER);
 
         if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
             if let Some(len) = self.body_len() {

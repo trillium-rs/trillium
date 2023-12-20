@@ -311,6 +311,30 @@ impl Headers {
         }
         self
     }
+
+    /// if a key does not exist already, execute the provided function and insert a value
+    ///
+    /// this can be useful to avoid calculating an unnecessary header value, or checking for the
+    /// presence of a key before insertion
+    pub fn try_insert_with<F, V>(&mut self, name: impl Into<HeaderName<'static>>, values_fn: F)
+    where
+        F: Fn() -> V,
+        V: Into<HeaderValues>,
+    {
+        match name.into().0 {
+            HeaderNameInner::KnownHeader(known) => {
+                self.known
+                    .entry(known)
+                    .or_insert_with(|| values_fn().into());
+            }
+
+            HeaderNameInner::UnknownHeader(unknown) => {
+                self.unknown
+                    .entry(unknown)
+                    .or_insert_with(|| values_fn().into());
+            }
+        }
+    }
 }
 
 impl<HN, HV> Extend<(HN, HV)> for Headers
