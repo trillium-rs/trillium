@@ -18,7 +18,7 @@ futures-lite = "2.1.0"
 log = "0.4.20"
 pin-project-lite = "0.2.13"
 trillium = { path = "../trillium", version = "0.2.0" }
-trillium-http = { path = "../http", version = "0.3.6" }
+trillium-http = { path = "../http", version = "0.3.7" }
 url = "2.5.0"
 
 [target.'cfg(unix)'.dependencies]
