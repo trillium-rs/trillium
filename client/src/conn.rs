@@ -772,6 +772,7 @@ impl Conn {
                 self.status = None;
                 log::trace!("Received 100-continue, sending request body");
             } else {
+                self.request_body.take();
                 log::trace!(
                     "Received a status code other than 100-continue, not sending request body"
                 );
