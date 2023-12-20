@@ -11,13 +11,16 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
+event-listener = "4.0.1"
 full-duplex-async-copy = "0.1.0"
+futures-lite = "2.1.0"
 log = "0.4.20"
 size = "0.4.1"
+sluice = "0.5.5"
 trillium = { path = "../trillium", version = "0.2.0"}
 trillium-client = { path = "../client", version = "0.4.0" }
 trillium-forwarding = { version = "0.2.1", path = "../forwarding" }
-trillium-http = { path = "../http", version = "0.3.7" }
+trillium-http = { path = "../http", version = "0.3.7", features = ["unstable"] }
 url = "2.5.0"
 
 [dev-dependencies]

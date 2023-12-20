@@ -12,21 +12,31 @@
 /*!
 http reverse proxy trillium handler
 
-
-
 */
 
+use event_listener::Event;
 use full_duplex_async_copy::full_duplex_copy;
+use futures_lite::{future::zip, AsyncRead};
 use size::{Base, Size};
+use std::{
+    future::{Future, IntoFuture},
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    task::{Context, Poll},
+};
 use trillium::{
     async_trait, conn_try, Conn, Handler, KnownHeaderName,
     Status::{NotFound, SwitchingProtocols},
     Upgrade,
 };
-pub use trillium_client::Client;
 use trillium_forwarding::Forwarded;
-use trillium_http::HeaderValue;
+use trillium_http::{Body, HeaderValue, Status};
 use url::Url;
+
+pub use trillium_client::Client;
 
 /**
 the proxy handler
@@ -125,6 +135,68 @@ impl Proxy {
 
 struct UpstreamUpgrade(Upgrade);
 
+struct BodyProxyReader {
+    reader: sluice::pipe::PipeReader,
+    started: Option<Arc<(Event, AtomicBool)>>,
+}
+
+impl Drop for BodyProxyReader {
+    fn drop(&mut self) {
+        // if we haven't started yet, notify the copy future that we're not going to
+        if let Some(started) = self.started.take() {
+            started.0.notify(usize::MAX);
+        }
+    }
+}
+
+impl AsyncRead for BodyProxyReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<std::io::Result<usize>> {
+        if let Some(started) = self.started.take() {
+            started.1.store(true, Ordering::SeqCst);
+            started.0.notify(usize::MAX);
+        }
+        Pin::new(&mut self.reader).poll_read(cx, buf)
+    }
+}
+
+fn body_proxy(conn: &mut Conn) -> (impl Future<Output = ()> + Send + Sync + '_, Body) {
+    let started = Arc::new((Event::new(), AtomicBool::from(false)));
+    let started_clone = started.clone();
+    let (reader, writer) = sluice::pipe::pipe();
+    let len = conn
+        .request_headers()
+        .get_str(KnownHeaderName::ContentLength)
+        .and_then(|s| s.parse().ok());
+
+    (
+        async move {
+            log::trace!("waiting to stream request body");
+            started_clone.0.listen().await;
+            if started_clone.1.load(Ordering::SeqCst) {
+                log::trace!("started to stream request body");
+                let received_body = conn.request_body().await;
+                match trillium_http::copy(received_body, writer, 4).await {
+                    Ok(streamed) => log::info!("streamed {} request body bytes", bytes(streamed)),
+                    Err(e) => log::error!("request body stream error: {e}"),
+                };
+            } else {
+                log::trace!("not streaming request body");
+            }
+        },
+        Body::new_streaming(
+            BodyProxyReader {
+                started: Some(started),
+                reader,
+            },
+            len,
+        ),
+    )
+}
+
 #[async_trait]
 impl Handler for Proxy {
     async fn run(&self, mut conn: Conn) -> Conn {
@@ -134,17 +206,6 @@ impl Handler for Proxy {
             request_url.set_query(Some(querystring));
         }
         log::debug!("proxying to {}", request_url);
-
-        // need a better solution for streaming request bodies through
-        // the proxy, but http-types::Body needs to be 'static. Fixing
-        // this probably will entail moving away from http-types::Body
-        // for outbound bodies.
-        //
-        // this is very inefficient and possibly unscalable in
-        // situations where request bodies are large. there is no
-        // reason that we couldn't have another lifetime on client
-        // conn here, though
-        let client_body_content = conn_try!(conn.request_body().await.read_bytes().await, conn);
 
         let mut forwarded = Forwarded::from_headers(conn.request_headers())
             .ok()
@@ -193,14 +254,26 @@ impl Handler for Proxy {
             request_headers.insert(KnownHeaderName::Via, via);
         };
 
-        let Ok(mut client_conn) = self
+        let method = conn.method();
+        let (body_fut, request_body) = body_proxy(&mut conn);
+
+        let client_fut = self
             .client
-            .build_conn(conn.method(), request_url)
+            .build_conn(method, request_url)
             .with_headers(request_headers)
-            .with_body(client_body_content)
-            .await
-        else {
-            return conn.with_status(500).halt();
+            .with_body(request_body)
+            .into_future();
+
+        let conn_result = zip(body_fut, client_fut).await.1;
+
+        let mut client_conn = match conn_result {
+            Ok(client_conn) => client_conn,
+            Err(e) => {
+                return conn
+                    .with_status(Status::ServiceUnavailable)
+                    .halt()
+                    .with_state(e);
+            }
         };
 
         let conn = match client_conn.status() {
@@ -223,7 +296,7 @@ impl Handler for Proxy {
                 conn.with_body(client_conn).with_status(status)
             }
 
-            _ => unreachable!(),
+            None => return conn.with_status(Status::ServiceUnavailable).halt(),
         };
 
         if self.halt {
@@ -234,15 +307,19 @@ impl Handler for Proxy {
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        upgrade.state.get::<UpstreamUpgrade>().is_some()
+        upgrade.state.contains::<UpstreamUpgrade>()
     }
 
     async fn upgrade(&self, mut upgrade: Upgrade) {
-        let upstream = upgrade.state.take::<UpstreamUpgrade>().unwrap().0;
+        let Some(UpstreamUpgrade(upstream)) = upgrade.state.take() else {
+            return;
+        };
         let downstream = upgrade;
         match full_duplex_copy(upstream, downstream).await {
-            Err(e) => log::error!("{}:{} {:?}", file!(), line!(), e),
-            Ok((up, down)) => log::debug!("wrote {} up and {} down", bytes(up), bytes(down)),
+            Err(e) => log::error!("upgrade stream error: {:?}", e),
+            Ok((up, down)) => {
+                log::debug!("streamed upgrade {} up and {} down", bytes(up), bytes(down))
+            }
         }
     }
 }
