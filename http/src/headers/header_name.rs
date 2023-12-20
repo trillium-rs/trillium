@@ -14,6 +14,16 @@ use super::{KnownHeaderName, UnknownHeaderName};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HeaderName<'a>(pub(super) HeaderNameInner<'a>);
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for HeaderName<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_ref())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum HeaderNameInner<'a> {
     /// A `KnownHeaderName`

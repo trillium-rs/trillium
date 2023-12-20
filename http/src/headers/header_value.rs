@@ -17,6 +17,19 @@ pub(crate) enum HeaderValueInner {
     Bytes(SmallVec<[u8; 32]>),
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for HeaderValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match &self.0 {
+            HeaderValueInner::Utf8(s) => serializer.serialize_str(s),
+            HeaderValueInner::Bytes(bytes) => serializer.serialize_bytes(bytes),
+        }
+    }
+}
+
 impl Debug for HeaderValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
