@@ -33,7 +33,7 @@ use trillium::{
     Upgrade,
 };
 use trillium_forwarding::Forwarded;
-use trillium_http::{Body, HeaderValue, Status};
+use trillium_http::{Body, HeaderValue, Method, Status};
 use url::Url;
 
 pub use trillium_client::Client;
@@ -180,7 +180,9 @@ fn body_proxy(conn: &mut Conn) -> (impl Future<Output = ()> + Send + Sync + '_, 
                 log::trace!("started to stream request body");
                 let received_body = conn.request_body().await;
                 match trillium_http::copy(received_body, writer, 4).await {
-                    Ok(streamed) => log::info!("streamed {} request body bytes", bytes(streamed)),
+                    Ok(streamed) => {
+                        log::info!("streamed {} request body bytes", bytes(streamed))
+                    }
                     Err(e) => log::error!("request body stream error: {e}"),
                 };
             } else {
@@ -255,16 +257,23 @@ impl Handler for Proxy {
         };
 
         let method = conn.method();
-        let (body_fut, request_body) = body_proxy(&mut conn);
+        let conn_result = if method == Method::Get {
+            self.client
+                .get(request_url)
+                .with_headers(request_headers)
+                .await
+        } else {
+            let (body_fut, request_body) = body_proxy(&mut conn);
 
-        let client_fut = self
-            .client
-            .build_conn(method, request_url)
-            .with_headers(request_headers)
-            .with_body(request_body)
-            .into_future();
+            let client_fut = self
+                .client
+                .build_conn(method, request_url)
+                .with_headers(request_headers)
+                .with_body(request_body)
+                .into_future();
 
-        let conn_result = zip(body_fut, client_fut).await.1;
+            zip(body_fut, client_fut).await.1
+        };
 
         let mut client_conn = match conn_result {
             Ok(client_conn) => client_conn,
