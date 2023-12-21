@@ -2,11 +2,12 @@ use async_channel::{unbounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use trillium::{async_trait, log_error};
-use trillium_websockets::{json_websocket, JsonWebSocketHandler, WebSocketConn};
+use trillium_websockets::{json_websocket, JsonWebSocketHandler, Result, WebSocketConn};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
-struct Response {
-    inbound_message: Inbound,
+enum Response {
+    Ack(Inbound),
+    ParseError(String),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -30,13 +31,18 @@ impl JsonWebSocketHandler for SomeJsonChannel {
 
     async fn receive_message(
         &self,
-        inbound_message: Self::InboundMessage,
+        inbound_message: Result<Self::InboundMessage>,
         conn: &mut WebSocketConn,
     ) {
+        let response = match inbound_message {
+            Ok(message) => Response::Ack(message),
+            Err(e) => Response::ParseError(e.to_string()),
+        };
+
         log_error!(
             conn.state::<Sender<Response>>()
                 .unwrap()
-                .send(Response { inbound_message })
+                .send(response)
                 .await
         );
     }

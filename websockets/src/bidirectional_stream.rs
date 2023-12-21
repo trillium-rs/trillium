@@ -1,10 +1,9 @@
+use futures_lite::{Stream, StreamExt};
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Formatter, Result},
     pin::Pin,
     task::{Context, Poll},
 };
-
-use futures_lite::{Stream, StreamExt};
 
 pub(crate) struct BidirectionalStream<I, O> {
     pub(crate) inbound: Option<I>,
@@ -12,7 +11,7 @@ pub(crate) struct BidirectionalStream<I, O> {
 }
 
 impl<I, O> Debug for BidirectionalStream<I, O> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_struct("BidirectionalStream")
             .field(
                 "inbound",

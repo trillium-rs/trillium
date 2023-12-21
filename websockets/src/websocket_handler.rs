@@ -1,5 +1,5 @@
-use crate::WebSocketConn;
-use async_tungstenite::tungstenite::{protocol::CloseFrame, Error, Message};
+use crate::{Error, WebSocketConn};
+use async_tungstenite::tungstenite::{protocol::CloseFrame, Message};
 use futures_lite::stream::{Pending, Stream};
 use std::future::Future;
 use trillium::async_trait;

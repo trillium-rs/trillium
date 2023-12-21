@@ -2,10 +2,10 @@ use async_channel::{unbounded, Receiver, Sender};
 use async_tungstenite::{client_async, WebSocketStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{error::Error, pin::Pin};
+use std::pin::Pin;
 use trillium::{async_trait, log_error};
 use trillium_http::transport::BoxedTransport;
-use trillium_websockets::{JsonWebSocketHandler, Message, WebSocket, WebSocketConn};
+use trillium_websockets::{JsonWebSocketHandler, Message, Result, WebSocket, WebSocketConn};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 struct Response {
@@ -40,9 +40,12 @@ impl JsonWebSocketHandler for SomeJsonChannel {
 
     async fn receive_message(
         &self,
-        inbound_message: Self::InboundMessage,
+        inbound_message: Result<Self::InboundMessage>,
         conn: &mut WebSocketConn,
     ) {
+        let Ok(inbound_message) = inbound_message else {
+            return;
+        };
         log_error!(
             conn.state::<Sender<Response>>()
                 .unwrap()
@@ -54,14 +57,13 @@ impl JsonWebSocketHandler for SomeJsonChannel {
 async fn send<Out: Serialize, In: DeserializeOwned>(
     client: &mut WebSocketStream<BoxedTransport>,
     message: &Out,
-) -> Result<In, Box<dyn Error>> {
+) -> In {
     client
-        .send(Message::text(serde_json::to_string(&message)?))
-        .await?;
+        .send(Message::text(serde_json::to_string(&message).unwrap()))
+        .await
+        .unwrap();
 
-    Ok(serde_json::from_str(
-        &client.next().await.ok_or("stream closed")??.into_text()?,
-    )?)
+    serde_json::from_str(&client.next().await.unwrap().unwrap().into_text().unwrap()).unwrap()
 }
 
 #[test]
@@ -72,11 +74,11 @@ fn test() {
             let (mut client, _) = client_async("ws://localhost/", transport).await?;
 
             let inbound_message = Inbound::new("hello");
-            let response: Response = send(&mut client, &inbound_message).await?;
+            let response: Response = send(&mut client, &inbound_message).await;
             assert_eq!(response, Response { inbound_message });
 
             let inbound_message = Inbound::new("hey");
-            let response: Response = send(&mut client, &inbound_message).await?;
+            let response: Response = send(&mut client, &inbound_message).await;
             assert_eq!(response, Response { inbound_message });
 
             Ok(())

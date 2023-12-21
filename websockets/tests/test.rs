@@ -13,7 +13,8 @@ fn with_handler_fn() {
                 "received your message: {} at path {}",
                 &input, path
             ))
-            .await;
+            .await
+            .unwrap();
         }
     }));
 }
@@ -124,7 +125,7 @@ fn with_trait_directly() {
             let path = conn.path().to_string();
             if let Message::Text(input) = message {
                 let reply = format!("received your message: {} at path {}", &input, &path);
-                conn.send_string(reply).await;
+                conn.send_string(reply).await.unwrap();
             }
         }
     }

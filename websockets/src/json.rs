@@ -30,7 +30,7 @@ use async_channel::{unbounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use trillium::{async_trait, log_error};
-use trillium_websockets::{json_websocket, JsonWebSocketHandler, WebSocketConn};
+use trillium_websockets::{json_websocket, JsonWebSocketHandler, WebSocketConn, Result};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 struct Response {
@@ -58,15 +58,17 @@ impl JsonWebSocketHandler for SomeJsonChannel {
 
     async fn receive_message(
         &self,
-        inbound_message: Self::InboundMessage,
+        inbound_message: Result<Self::InboundMessage>,
         conn: &mut WebSocketConn,
     ) {
-        log_error!(
-            conn.state::<Sender<Response>>()
-                .unwrap()
-                .send(Response { inbound_message })
-                .await
-        );
+        if let Ok(inbound_message) = inbound_message {
+            log_error!(
+                conn.state::<Sender<Response>>()
+                    .unwrap()
+                    .send(Response { inbound_message })
+                    .await
+            );
+        }
     }
 }
 
@@ -110,7 +112,11 @@ pub trait JsonWebSocketHandler: Send + Sync + 'static {
     InboundMessage along with the websocket conn that it was received
     from.
     */
-    async fn receive_message(&self, message: Self::InboundMessage, conn: &mut WebSocketConn);
+    async fn receive_message(
+        &self,
+        message: crate::Result<Self::InboundMessage>,
+        conn: &mut WebSocketConn,
+    );
 
     /**
     `disconnect` is called when websocket clients disconnect, along
@@ -173,7 +179,13 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Poll::Ready(
             ready!(self.0.poll_next(cx))
-                .and_then(|i| serde_json::to_string(&i).ok())
+                .and_then(|i| match serde_json::to_string(&i) {
+                    Ok(j) => Some(j),
+                    Err(e) => {
+                        log::error!("serialization error: {e}");
+                        None
+                    }
+                })
                 .map(Message::Text),
         )
     }
@@ -195,13 +207,15 @@ where
     }
 
     async fn inbound(&self, message: Message, conn: &mut WebSocketConn) {
-        if let Some(message) = message
-            .to_text()
-            .ok()
-            .and_then(|m| serde_json::from_str(m).ok())
-        {
-            self.handler.receive_message(message, conn).await;
-        }
+        self.handler
+            .receive_message(
+                message
+                    .to_text()
+                    .map_err(Into::into)
+                    .and_then(|m| serde_json::from_str(m).map_err(Into::into)),
+                conn,
+            )
+            .await;
     }
 
     async fn disconnect(&self, conn: &mut WebSocketConn, close_frame: Option<CloseFrame<'static>>) {
