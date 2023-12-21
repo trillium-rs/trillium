@@ -19,6 +19,7 @@ use full_duplex_async_copy::full_duplex_copy;
 use futures_lite::{future::zip, AsyncRead};
 use size::{Base, Size};
 use std::{
+    borrow::Cow,
     future::{Future, IntoFuture},
     pin::Pin,
     sync::{
@@ -47,7 +48,7 @@ pub struct Proxy {
     client: Client,
     pass_through_not_found: bool,
     halt: bool,
-    via_pseudonym: Option<String>,
+    via_pseudonym: Option<Cow<'static, str>>,
 }
 
 impl Proxy {
@@ -127,8 +128,8 @@ impl Proxy {
     /// [`Via`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Via)
     /// header. If no pseudonym is provided, no via header will be
     /// inserted.
-    pub fn with_via_pseudonym(mut self, via_pseudonym: String) -> Self {
-        self.via_pseudonym = Some(via_pseudonym);
+    pub fn with_via_pseudonym(mut self, via_pseudonym: impl Into<Cow<'static, str>>) -> Self {
+        self.via_pseudonym = Some(via_pseudonym.into());
         self
     }
 }
@@ -181,7 +182,7 @@ fn body_proxy(conn: &mut Conn) -> (impl Future<Output = ()> + Send + Sync + '_, 
                 let received_body = conn.request_body().await;
                 match trillium_http::copy(received_body, writer, 4).await {
                     Ok(streamed) => {
-                        log::info!("streamed {} request body bytes", bytes(streamed))
+                        log::trace!("streamed {} request body bytes", bytes(streamed))
                     }
                     Err(e) => log::error!("request body stream error: {e}"),
                 };
