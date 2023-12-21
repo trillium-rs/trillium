@@ -1,4 +1,6 @@
 use broadcaster::BroadcastChannel;
+use std::net::IpAddr;
+use trillium::{async_trait, Conn};
 use trillium_websockets::{Message, WebSocket, WebSocketConn, WebSocketHandler};
 
 struct EchoServer {
@@ -12,7 +14,7 @@ impl EchoServer {
     }
 }
 
-#[trillium::async_trait]
+#[async_trait]
 impl WebSocketHandler for EchoServer {
     type OutboundStream = BroadcastChannel<Message>;
 
@@ -20,14 +22,27 @@ impl WebSocketHandler for EchoServer {
         Some((conn, self.channel.clone()))
     }
 
-    async fn inbound(&self, message: Message, _conn: &mut WebSocketConn) {
+    async fn inbound(&self, message: Message, conn: &mut WebSocketConn) {
         if let Message::Text(input) = message {
-            let message = Message::text(format!("received message: {}", &input));
+            let ip = conn
+                .state()
+                .map_or(String::from("<unknown>"), IpAddr::to_string);
+            let message = Message::text(format!("received message `{}` from {}", input, ip));
             trillium::log_error!(self.channel.send(&message).await);
         }
     }
 }
 
 fn main() {
-    trillium_smol::run(WebSocket::new(EchoServer::new()));
+    env_logger::init();
+    trillium_smol::run((
+        trillium_logger::logger(),
+        |mut conn: Conn| async move {
+            if let Some(ip) = conn.peer_ip() {
+                conn.set_state(ip);
+            };
+            conn
+        },
+        WebSocket::new(EchoServer::new()),
+    ));
 }

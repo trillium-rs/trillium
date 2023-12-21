@@ -42,26 +42,25 @@ type Wss = WebSocketStream<BoxedTransport>;
 
 impl WebSocketConn {
     /// send a [`Message::Text`] variant
-    pub async fn send_string(&mut self, string: String) {
-        self.send(Message::Text(string)).await.ok();
+    pub async fn send_string(&mut self, string: String) -> Result<()> {
+        self.send(Message::Text(string)).await.map_err(Into::into)
     }
 
     /// send a [`Message::Binary`] variant
-    pub async fn send_bytes(&mut self, bin: Vec<u8>) {
-        self.send(Message::Binary(bin)).await.ok();
+    pub async fn send_bytes(&mut self, bin: Vec<u8>) -> Result<()> {
+        self.send(Message::Binary(bin)).await.map_err(Into::into)
     }
 
     #[cfg(feature = "json")]
     /// send a [`Message::Text`] that contains json
     /// note that json messages are not actually part of the websocket specification
-    pub async fn send_json(&mut self, json: &impl serde::Serialize) -> serde_json::Result<()> {
-        self.send_string(serde_json::to_string(json)?).await;
-        Ok(())
+    pub async fn send_json(&mut self, json: &impl serde::Serialize) -> Result<()> {
+        self.send_string(serde_json::to_string(json)?).await
     }
 
     /// Sends a [`Message`] to the client
-    pub async fn send(&mut self, message: Message) -> tungstenite::Result<()> {
-        self.sink.send(message).await
+    pub async fn send(&mut self, message: Message) -> Result<()> {
+        self.sink.send(message).await.map_err(Into::into)
     }
 
     pub(crate) async fn new(upgrade: Upgrade, config: Option<WebSocketConfig>) -> Self {
@@ -103,7 +102,7 @@ impl WebSocketConn {
     }
 
     /// close the websocket connection gracefully
-    pub async fn close(&mut self) -> tungstenite::Result<()> {
+    pub async fn close(&mut self) -> Result<()> {
         self.send(Message::Close(None)).await
     }
 
@@ -122,7 +121,7 @@ impl WebSocketConn {
     any query component
      */
     pub fn path(&self) -> &str {
-        self.path.split('?').next().unwrap()
+        self.path.split('?').next().unwrap_or_default()
     }
 
     /**
@@ -176,15 +175,17 @@ impl WebSocketConn {
     }
 
     /// take the inbound Message stream from this conn
-    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = Result>> {
+    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult>> {
         self.stream.take()
     }
 
     /// borrow the inbound Message stream from this conn
-    pub fn inbound_stream(&mut self) -> Option<impl Stream<Item = Result> + '_> {
+    pub fn inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult> + '_> {
         self.stream.as_mut()
     }
 }
+
+type MessageResult = std::result::Result<Message, tungstenite::Error>;
 
 #[derive(Debug)]
 pub struct WStream {
@@ -192,7 +193,7 @@ pub struct WStream {
 }
 
 impl Stream for WStream {
-    type Item = Result;
+    type Item = MessageResult;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.stream.poll_next_unpin(cx)
@@ -212,7 +213,7 @@ impl AsRef<StateSet> for WebSocketConn {
 }
 
 impl Stream for WebSocketConn {
-    type Item = Result;
+    type Item = MessageResult;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.stream.as_mut() {

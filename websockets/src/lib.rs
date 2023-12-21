@@ -66,7 +66,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 use trillium::{
-    async_trait, conn_unwrap, Conn, Handler,
+    async_trait, Conn, Handler,
     KnownHeaderName::{
         Connection, SecWebsocketAccept, SecWebsocketKey, SecWebsocketProtocol, SecWebsocketVersion,
         Upgrade as UpgradeHeader,
@@ -76,15 +76,30 @@ use trillium::{
 
 pub use async_tungstenite::{
     self,
-    tungstenite::{self, protocol::WebSocketConfig, Error, Message},
+    tungstenite::{self, protocol::WebSocketConfig, Message},
 };
 pub use websocket_connection::WebSocketConn;
 pub use websocket_handler::WebSocketHandler;
 
 const WEBSOCKET_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-/// a Result type for websocket messages
-pub type Result = std::result::Result<Message, Error>;
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+/// An Error type that represents all exceptional conditions that can be encoutered in the operation
+/// of this crate
+pub enum Error {
+    #[error(transparent)]
+    /// an error in the underlying websocket implementation
+    WebSocket(#[from] async_tungstenite::tungstenite::Error),
+
+    #[cfg(feature = "json")]
+    #[error(transparent)]
+    /// an error in json serialization or deserialization
+    Json(#[from] serde_json::Error),
+}
+
+/// a Result type for this crate
+pub type Result<T = Message> = std::result::Result<T, Error>;
 
 #[cfg(feature = "json")]
 mod json;
@@ -174,15 +189,6 @@ struct IsWebsocket;
 
 #[cfg(test)]
 mod tests;
-
-macro_rules! unwrap_or_return {
-    ($expr:expr) => {
-        match $expr {
-            Some(x) => x,
-            None => return,
-        }
-    };
-}
 
 // this is a workaround for the fact that Upgrade is a public struct,
 // so adding peer_ip to that struct would be a breaking change. We
