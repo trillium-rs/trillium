@@ -543,6 +543,13 @@ impl Conn {
         }
     }
 
+    /// attempts to retrieve the connected peer address
+    pub fn peer_addr(&self) -> Option<std::net::SocketAddr> {
+        self.transport
+            .as_ref()
+            .and_then(|t| t.peer_addr().ok().flatten())
+    }
+
     // --- everything below here is private ---
 
     pub(crate) fn set_pool(&mut self, pool: Pool<Origin, BoxedTransport>) {
