@@ -743,7 +743,8 @@ where
     }
 
     fn should_upgrade(&self) -> bool {
-        self.status == Some(Status::SwitchingProtocols)
+        (self.method() == Method::Connect && self.status == Some(Status::Ok))
+            || self.status == Some(Status::SwitchingProtocols)
     }
 
     async fn finish(self) -> Result<ConnectionStatus<Transport>> {
