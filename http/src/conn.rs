@@ -258,6 +258,11 @@ where
         }
     }
 
+    /// retrieves the combined path and any query
+    pub fn path_and_query(&self) -> &str {
+        &self.path
+    }
+
     /**
     retrieves the query component of the path
     ```
