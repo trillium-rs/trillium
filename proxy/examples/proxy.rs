@@ -1,12 +1,24 @@
 use trillium_logger::Logger;
-use trillium_proxy::Proxy;
+use trillium_proxy::{
+    upstream::{ConnectionCounting, IntoUpstreamSelector, UpstreamSelector},
+    Proxy,
+};
 use trillium_smol::ClientConfig;
 
 pub fn main() {
     env_logger::init();
-    let client_config = ClientConfig::default();
+    let upstream = if std::env::args().count() == 1 {
+        "http://localhost:8080".into_upstream().boxed()
+    } else {
+        std::env::args()
+            .into_iter()
+            .skip(1)
+            .collect::<ConnectionCounting<_>>()
+            .boxed()
+    };
+
     trillium_smol::run((
         Logger::new(),
-        Proxy::new(client_config, "http://localhost:8081/").with_via_pseudonym("trillium-proxy"),
+        Proxy::new(ClientConfig::default(), upstream).with_via_pseudonym("trillium-proxy"),
     ));
 }
