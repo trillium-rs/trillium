@@ -10,52 +10,56 @@
 )]
 
 /*!
-http reverse proxy trillium handler
+http reverse and forward proxy trillium handler
 
 */
 
-use event_listener::Event;
+mod body_streamer;
+mod forward_proxy_connect;
+pub mod upstream;
+
+use body_streamer::stream_body;
 use full_duplex_async_copy::full_duplex_copy;
-use futures_lite::{future::zip, AsyncRead};
+use futures_lite::future::zip;
 use size::{Base, Size};
-use std::{
-    borrow::Cow,
-    future::{Future, IntoFuture},
-    pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    task::{Context, Poll},
-};
+use std::{borrow::Cow, fmt::Debug, future::IntoFuture};
 use trillium::{
-    async_trait, conn_try, Conn, Handler, KnownHeaderName,
+    async_trait, Conn, Handler, KnownHeaderName,
     Status::{NotFound, SwitchingProtocols},
     Upgrade,
 };
 use trillium_forwarding::Forwarded;
-use trillium_http::{Body, HeaderValue, Method, Status};
-use url::Url;
+use trillium_http::{HeaderValue, Method, Status};
+use upstream::{IntoUpstreamSelector, UpstreamSelector};
 
-pub use trillium_client::Client;
+pub use forward_proxy_connect::ForwardProxyConnect;
+pub use trillium_client::{Client, Connector};
+pub use url::Url;
+
+/// constructs a new [`Proxy`]. alias of [`Proxy::new`]
+pub fn proxy<I>(client: impl Into<Client>, upstream: I) -> Proxy<I::UpstreamSelector>
+where
+    I: IntoUpstreamSelector,
+{
+    Proxy::new(client, upstream)
+}
 
 /**
 the proxy handler
 */
 #[derive(Debug)]
-pub struct Proxy {
-    target: Url,
+pub struct Proxy<U> {
+    upstream: U,
     client: Client,
     pass_through_not_found: bool,
     halt: bool,
     via_pseudonym: Option<Cow<'static, str>>,
 }
 
-impl Proxy {
+impl<U: UpstreamSelector> Proxy<U> {
     /**
-    construct a new proxy handler that sends all requests to the url
-    provided.  if the url contains a path, the inbound request path
-    will be joined onto the end.
+    construct a new proxy handler that sends all requests to the upstream
+    provided
 
     ```
     use trillium_smol::ClientConfig;
@@ -65,16 +69,12 @@ impl Proxy {
     ```
 
      */
-    pub fn new(client: impl Into<Client>, target: impl TryInto<Url>) -> Self {
-        let url = match target.try_into() {
-            Ok(url) => url,
-            Err(_) => panic!("could not convert proxy target into a url"),
-        };
-
-        assert!(!url.cannot_be_a_base(), "{url} cannot be a base");
-
+    pub fn new<I>(client: impl Into<Client>, upstream: I) -> Self
+    where
+        I: IntoUpstreamSelector<UpstreamSelector = U>,
+    {
         Self {
-            target: url,
+            upstream: upstream.into_upstream(),
             client: client.into(),
             pass_through_not_found: true,
             halt: true,
@@ -132,83 +132,25 @@ impl Proxy {
         self.via_pseudonym = Some(via_pseudonym.into());
         self
     }
+
+    }
 }
 
+#[derive(Debug)]
 struct UpstreamUpgrade(Upgrade);
 
-struct BodyProxyReader {
-    reader: sluice::pipe::PipeReader,
-    started: Option<Arc<(Event, AtomicBool)>>,
-}
-
-impl Drop for BodyProxyReader {
-    fn drop(&mut self) {
-        // if we haven't started yet, notify the copy future that we're not going to
-        if let Some(started) = self.started.take() {
-            started.0.notify(usize::MAX);
-        }
-    }
-}
-
-impl AsyncRead for BodyProxyReader {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
-        if let Some(started) = self.started.take() {
-            started.1.store(true, Ordering::SeqCst);
-            started.0.notify(usize::MAX);
-        }
-        Pin::new(&mut self.reader).poll_read(cx, buf)
-    }
-}
-
-fn body_proxy(conn: &mut Conn) -> (impl Future<Output = ()> + Send + Sync + '_, Body) {
-    let started = Arc::new((Event::new(), AtomicBool::from(false)));
-    let started_clone = started.clone();
-    let (reader, writer) = sluice::pipe::pipe();
-    let len = conn
-        .request_headers()
-        .get_str(KnownHeaderName::ContentLength)
-        .and_then(|s| s.parse().ok());
-
-    (
-        async move {
-            log::trace!("waiting to stream request body");
-            started_clone.0.listen().await;
-            if started_clone.1.load(Ordering::SeqCst) {
-                log::trace!("started to stream request body");
-                let received_body = conn.request_body().await;
-                match trillium_http::copy(received_body, writer, 4).await {
-                    Ok(streamed) => {
-                        log::trace!("streamed {} request body bytes", bytes(streamed))
-                    }
-                    Err(e) => log::error!("request body stream error: {e}"),
-                };
-            } else {
-                log::trace!("not streaming request body");
-            }
-        },
-        Body::new_streaming(
-            BodyProxyReader {
-                started: Some(started),
-                reader,
-            },
-            len,
-        ),
-    )
-}
-
 #[async_trait]
-impl Handler for Proxy {
+impl<U: UpstreamSelector> Handler for Proxy<U> {
+    async fn init(&mut self, _info: &mut trillium::Info) {
+        log::info!("proxying to {:?}", self.upstream);
+    }
+
     async fn run(&self, mut conn: Conn) -> Conn {
-        let mut request_url = conn_try!(self.target.join(conn.path()), conn);
-        let querystring = conn.querystring();
-        if !querystring.is_empty() {
-            request_url.set_query(Some(querystring));
-        }
-        log::debug!("proxying to {}", request_url);
+        let Some(request_url) = self.upstream.determine_upstream(&mut conn) else {
+            return conn;
+        };
+
+        log::debug!("proxying to {}", request_url.as_str());
 
         let mut forwarded = Forwarded::from_headers(conn.request_headers())
             .ok()
@@ -264,7 +206,7 @@ impl Handler for Proxy {
                 .with_headers(request_headers)
                 .await
         } else {
-            let (body_fut, request_body) = body_proxy(&mut conn);
+            let (body_fut, request_body) = stream_body(&mut conn);
 
             let client_fut = self
                 .client
@@ -291,7 +233,7 @@ impl Handler for Proxy {
                 conn.headers_mut()
                     .extend(std::mem::take(client_conn.response_headers_mut()));
 
-                conn.with_state(UpstreamUpgrade(client_conn.into()))
+                conn.with_state(UpstreamUpgrade(Upgrade::from(client_conn)))
                     .with_status(SwitchingProtocols)
             }
 

@@ -39,6 +39,7 @@ broadcaster = "1.0.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-websockets = { features = ["json"], path = "." }
+env_logger = "0.10.1"
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

@@ -9,5 +9,6 @@ async fn websocket_handler(mut conn: WebSocketConn) {
 }
 
 pub fn main() {
+    env_logger::init();
     trillium_smol::run(websocket(websocket_handler));
 }
