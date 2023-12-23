@@ -547,7 +547,7 @@ where
             .path
             .ok_or(Error::RequestPathMissing)?
             .to_owned();
-        log::debug!("received:\n{method} {path} {version}\n{request_headers}");
+        log::trace!("received:\n{method} {path} {version}\n{request_headers}");
 
         let response_headers = Headers::with_capacity(http_config.response_header_initial_capacity);
 
@@ -793,6 +793,14 @@ where
         )?;
 
         self.finalize_headers();
+
+        log::trace!(
+            "sending:\n{} {}\n{}",
+            self.version,
+            status,
+            &self.response_headers
+        );
+
         for (header, values) in &self.response_headers {
             for value in values {
                 write!(output_buffer, "{header}: ")?;
