@@ -261,7 +261,8 @@ impl Headers {
         name: impl Into<HeaderName<'a>>,
         needle: &str,
     ) -> bool {
-        self.get_str(name).map(|v| v == needle).unwrap_or_default()
+        self.get_str(name)
+            .is_some_and(|v| v.eq_ignore_ascii_case(needle))
     }
 
     /// Convenience function to check whether the value contained in
@@ -484,7 +485,8 @@ impl IntoIterator for Headers {
 
 #[cfg(test)]
 mod tests {
-    use super::Headers;
+    use crate::{Headers, KnownHeaderName};
+
     #[test]
     fn header_names_are_case_insensitive_for_access_but_retain_initial_case_in_headers() {
         let mut headers = Headers::new();
@@ -511,5 +513,18 @@ mod tests {
 
         assert!(headers.remove("my-HEADER-name").is_some());
         assert!(headers.is_empty());
+    }
+
+    #[test]
+    fn value_case_insensitive_comparison() {
+        let mut headers = Headers::new();
+        headers.insert(KnownHeaderName::Upgrade, "WebSocket");
+        headers.insert(KnownHeaderName::Connection, "upgrade");
+
+        assert!(headers.eq_ignore_ascii_case(KnownHeaderName::Upgrade, "websocket"));
+        assert!(headers.eq_ignore_ascii_case(KnownHeaderName::Connection, "Upgrade"));
+        assert!(headers.contains_ignore_ascii_case(KnownHeaderName::Upgrade, "sock"));
+        assert!(headers.contains_ignore_ascii_case(KnownHeaderName::Upgrade, "sOck"));
+        assert!(headers.contains_ignore_ascii_case(KnownHeaderName::Connection, "Grad"));
     }
 }
