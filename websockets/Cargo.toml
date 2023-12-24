@@ -24,6 +24,7 @@ fastrand = "2.0.1"
 futures-lite = "2.1.0"
 futures-util = "0.3.29"
 log = "0.4.20"
+pin-project-lite = "0.2.13"
 serde = { version = "1.0.193", optional = true }
 serde_json = { version = "1.0.108", optional = true }
 sha-1 = "0.10.1"
