@@ -322,10 +322,19 @@ impl Headers {
         I: IntoIterator<Item = H>,
         H: Into<HeaderName<'static>>,
     {
+        self.remove_all(names);
+        self
+    }
+
+    /// remove multiple headers by name
+    pub fn remove_all<I, H>(&mut self, names: I)
+    where
+        I: IntoIterator<Item = H>,
+        H: Into<HeaderName<'static>>,
+    {
         for header in names {
             self.remove(header.into());
         }
-        self
     }
 
     /// if a key does not exist already, execute the provided function and insert a value

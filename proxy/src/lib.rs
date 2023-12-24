@@ -29,7 +29,7 @@ use trillium::{
     Upgrade,
 };
 use trillium_forwarding::Forwarded;
-use trillium_http::{HeaderValue, Method, Status};
+use trillium_http::{HeaderName, HeaderValue, Headers, Method, Status, Version};
 use upstream::{IntoUpstreamSelector, UpstreamSelector};
 
 pub use forward_proxy_connect::ForwardProxyConnect;
@@ -54,6 +54,7 @@ pub struct Proxy<U> {
     pass_through_not_found: bool,
     halt: bool,
     via_pseudonym: Option<Cow<'static, str>>,
+    allow_websocket_upgrade: bool,
 }
 
 impl<U: UpstreamSelector> Proxy<U> {
@@ -79,6 +80,7 @@ impl<U: UpstreamSelector> Proxy<U> {
             pass_through_not_found: true,
             halt: true,
             via_pseudonym: None,
+            allow_websocket_upgrade: false,
         }
     }
 
@@ -133,6 +135,32 @@ impl<U: UpstreamSelector> Proxy<U> {
         self
     }
 
+    /// Allow websockets to be proxied
+    ///
+    /// This is not currently the default, but that may change at some (semver-minor) point in the
+    /// future
+    pub fn with_websocket_upgrades(mut self) -> Self {
+        self.allow_websocket_upgrade = true;
+        self
+    }
+
+    fn set_via_pseudonym(&self, headers: &mut Headers, version: Version) {
+        if let Some(via) = &self.via_pseudonym {
+            let via = match headers.get_values(KnownHeaderName::Via) {
+                Some(old_via) => format!(
+                    "{version} {via}, {}",
+                    old_via
+                        .iter()
+                        .filter_map(HeaderValue::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+
+                None => format!("{version} {via}"),
+            };
+
+            headers.insert(KnownHeaderName::Via, via);
+        };
     }
 }
 
@@ -170,34 +198,52 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             .request_headers()
             .clone()
             .without_headers([
+                KnownHeaderName::Connection,
+                KnownHeaderName::KeepAlive,
+                KnownHeaderName::ProxyAuthenticate,
+                KnownHeaderName::ProxyAuthorization,
+                KnownHeaderName::Te,
+                KnownHeaderName::Trailer,
+                KnownHeaderName::TransferEncoding,
+                KnownHeaderName::Upgrade,
                 KnownHeaderName::Host,
                 KnownHeaderName::XforwardedBy,
                 KnownHeaderName::XforwardedFor,
                 KnownHeaderName::XforwardedHost,
                 KnownHeaderName::XforwardedProto,
                 KnownHeaderName::XforwardedSsl,
-                KnownHeaderName::AcceptEncoding,
             ])
-            .with_inserted_header(KnownHeaderName::Connection, "keep-alive")
             .with_inserted_header(KnownHeaderName::Forwarded, forwarded.to_string());
 
-        if let Some(via) = &self.via_pseudonym {
-            let new_via = format!("{} {}", conn.inner().http_version(), via);
-            let via = match request_headers.get_values(KnownHeaderName::Via) {
-                Some(old_via) => format!(
-                    "{new_via}, {}",
-                    old_via
-                        .iter()
-                        .filter_map(HeaderValue::as_str)
-                        .collect::<Vec<_>>()
-                        .join(",")
-                ),
+        let mut connection_is_upgrade = false;
+        for header in conn
+            .request_headers()
+            .get_str(KnownHeaderName::Connection)
+            .unwrap_or_default()
+            .split(',')
+            .map(|h| trillium::HeaderName::from(h.trim()))
+        {
+            if header == KnownHeaderName::Upgrade {
+                connection_is_upgrade = true;
+            }
+            request_headers.remove(header);
+        }
 
-                None => new_via,
-            };
+        if self.allow_websocket_upgrade
+            && connection_is_upgrade
+            && conn
+                .request_headers()
+                .eq_ignore_ascii_case(KnownHeaderName::Upgrade, "websocket")
+        {
+            request_headers.extend([
+                (KnownHeaderName::Upgrade, "WebSocket"),
+                (KnownHeaderName::Connection, "Upgrade"),
+            ]);
+        } else {
+            request_headers.insert(KnownHeaderName::Connection, "keep-alive")
+        }
 
-            request_headers.insert(KnownHeaderName::Via, via);
-        };
+        self.set_via_pseudonym(&mut request_headers, conn.inner().http_version());
 
         let method = conn.method();
         let conn_result = if method == Method::Get {
@@ -228,7 +274,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             }
         };
 
-        let conn = match client_conn.status() {
+        let mut conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
                 conn.headers_mut()
                     .extend(std::mem::take(client_conn.response_headers_mut()));
@@ -250,6 +296,30 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
 
             None => return conn.with_status(Status::ServiceUnavailable).halt(),
         };
+
+        let connection = conn
+            .response_headers_mut()
+            .remove(KnownHeaderName::Connection);
+
+        conn.response_headers_mut().remove_all(
+            connection
+                .iter()
+                .flatten()
+                .filter_map(|s| s.as_str())
+                .flat_map(|s| s.split(','))
+                .map(|t| HeaderName::from(t.trim()).into_owned()),
+        );
+
+        conn.response_headers_mut().remove_all([
+            KnownHeaderName::KeepAlive,
+            KnownHeaderName::ProxyAuthenticate,
+            KnownHeaderName::ProxyAuthorization,
+            KnownHeaderName::Te,
+            KnownHeaderName::Trailer,
+            KnownHeaderName::TransferEncoding,
+        ]);
+
+        self.set_via_pseudonym(conn.response_headers_mut(), Version::Http1_1);
 
         if self.halt {
             conn.halt()
