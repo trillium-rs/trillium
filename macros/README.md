@@ -1,5 +1,9 @@
 # Welcome to the `trillium-macros` crate!
 
+This crate derive macros for `Handler`, `AsyncRead`, and `AsyncWrite`.
+
+## `derive(Handler)`
+
 This crate currently offers a derive macro for Handler that can be
 used to delegate Handler behavior to a contained Handler
 type. Currently it only works for structs, but will eventually support
@@ -66,8 +70,7 @@ assert_handler(ContainsHandler {
 
 ```
 
-
-# Overriding a single trait function
+### Overriding a single trait function
 
 Annotate the handler with a
 [`trillium::Handler`](https://docs.rs/trillium/latest/trillium/trait.Handler.html)
@@ -98,7 +101,7 @@ assert_eq!(trillium::Handler::name(&handler), "custom name (handler)");
 assert_handler(handler);
 ```
 
-# Overriding several trait functions
+### Overriding several trait functions
 
 Annotate the handler with any number of
 [`trillium::Handler`](https://docs.rs/trillium/latest/trillium/trait.Handler.html)
