@@ -79,7 +79,7 @@ fn router() -> impl Handler {
                 while let Some(Ok(Message::Text(input))) = ws.next().await {
                     log::info!("received message {:?}", &input);
                     let output: String = input.chars().rev().collect();
-                    ws.send_string(format!("{} | {}", &input, &output)).await;
+                    let _ = ws.send_string(format!("{} | {}", &input, &output)).await;
                 }
             }),
         )
