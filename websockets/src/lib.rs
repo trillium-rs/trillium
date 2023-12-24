@@ -101,6 +101,7 @@ pub struct WebSocket<H> {
     handler: H,
     protocols: Vec<String>,
     config: Option<WebSocketConfig>,
+    required: bool,
 }
 
 impl<H> Deref for WebSocket<H> {
@@ -139,6 +140,7 @@ where
             handler,
             protocols: Default::default(),
             config: None,
+            required: false,
         }
     }
 
@@ -158,6 +160,13 @@ where
             config: Some(config),
             ..self
         }
+    }
+
+    /// configure this handler to halt and send back a [`426 Upgrade
+    /// Required`][Status::UpgradeRequired] if a websocket cannot be negotiated
+    pub fn required(mut self) -> Self {
+        self.required = true;
+        self
     }
 }
 
@@ -187,15 +196,18 @@ where
 {
     async fn run(&self, mut conn: Conn) -> Conn {
         if !upgrade_requested(&conn) {
-            return conn;
+            if self.required {
+                return conn.with_status(Status::UpgradeRequired).halt();
+            } else {
+                return conn;
+            }
         }
 
         let websocket_peer_ip = WebsocketPeerIp(conn.peer_ip());
 
-        let sec_websocket_accept = conn_unwrap!(
-            websocket_accept_hash(&conn),
-            conn.with_status(Status::BadRequest)
-        );
+        let Some(sec_websocket_accept) = websocket_accept_hash(&conn) else {
+            return conn.with_status(Status::BadRequest).halt();
+        };
 
         let protocol = websocket_protocol(&conn, &self.protocols);
 
@@ -225,7 +237,10 @@ where
 
     async fn upgrade(&self, upgrade: Upgrade) {
         let conn = WebSocketConn::new(upgrade, self.config).await;
-        let (mut conn, outbound) = unwrap_or_return!(self.handler.connect(conn).await);
+        let Some((mut conn, outbound)) = self.handler.connect(conn).await else {
+            return;
+        };
+
         let inbound = conn.take_inbound_stream();
 
         let mut stream = BidirectionalStream { inbound, outbound };
