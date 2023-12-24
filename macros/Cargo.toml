@@ -20,6 +20,8 @@ syn = { version = "2.0.41", features = ["full", "visit"] }
 
 [dev-dependencies]
 trillium = { path = "../trillium" }
+trillium-http = { path = "../http" }
+trillium-server-common = { path = "../server-common" }
 trillium-testing = { path = "../testing" }
 syn = { version = "2.0.41", features = ["extra-traits"] }
 futures-lite = "2.1.0"

@@ -1,6 +1,6 @@
 # Welcome to the `trillium-macros` crate!
 
-This crate derive macros for `Handler`, `AsyncRead`, and `AsyncWrite`.
+This crate provides derive macros for `Handler`, `AsyncRead`, and `AsyncWrite`.
 
 ## `derive(Handler)`
 
@@ -137,3 +137,30 @@ impl CustomName { // note that this is not a trait impl
 let handler = CustomName { inner: "handler" };
 assert_handler(handler);
 ```
+
+## `derive(AsyncRead)` and `derive(AsyncWrite)`
+
+To ease the development of `Transport` types, this crate provides proc macros
+to derive `AsyncRead` and `AsyncWrite` and delegate them to a field of the
+type.
+
+To delegate all methods of `AsyncRead` and `AsyncWrite` to the corresponding
+methods on a field, mark that field with `#[async_io]`:
+
+```rust
+use trillium_http::transport::BoxedTransport;
+use trillium_macros::{AsyncRead, AsyncWrite};
+use trillium_server_common::{AsyncRead, AsyncWrite};
+
+#[derive(Debug, AsyncRead, AsyncWrite)]
+struct TransportWrapper {
+    #[async_io]
+    inner: BoxedTransport,
+    another_field: u32,
+}
+```
+
+To delegate `AsyncRead` and `AsyncWrite` to different fields,
+mark the fields with `#[async_read]` and `#[async_write]`, respectively.
+
+These annotations are optional for structs with a single field.
