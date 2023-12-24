@@ -8,7 +8,7 @@ enums as well. Note that it will only delegate to a single inner Handler type.
 In the case of a newtype struct or named struct with only a single
 field, `#[derive(Handler)]` is all that's required. If there is more
 than one field in the struct, annotate exactly one of them with
-#[handler].
+`#[handler]`.
 
 As of v0.0.2, deriving Handler makes an effort at adding Handler
 bounds to generics contained within the `#[handler]` type. It may be
@@ -71,7 +71,7 @@ assert_handler(ContainsHandler {
 
 Annotate the handler with a
 [`trillium::Handler`](https://docs.rs/trillium/latest/trillium/trait.Handler.html)
-function name `#[handler(overrride = FN_NAME)]` where FN_NAME is one of
+function name `#[handler(overrride = FN_NAME)]` where `FN_NAME` is one of
 `run`, `before_send`, `name`, `has_upgrade`, or `upgrade`, and
 implement the same signature on Self. The rest of the Handler
 interface will be delegated to the inner Handler, but your custom
