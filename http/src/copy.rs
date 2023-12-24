@@ -7,6 +7,10 @@ use std::{
 };
 
 /// copy from the `reader` to the `writer`, yielding back to the runtime every `loops_per_yield`
+///
+/// # Errors
+///
+/// This returns any io error encountered in reading or writing
 pub async fn copy<R, W>(reader: R, writer: W, loops_per_yield: usize) -> Result<u64>
 where
     R: AsyncRead + Unpin,
