@@ -1,6 +1,6 @@
 # Welcome to the `trillium-macros` crate!
 
-This crate provides derive macros for `Handler`, `AsyncRead`, and `AsyncWrite`.
+This crate provides derive macros for `Handler`, `AsyncRead`, `AsyncWrite`, and `Transport`.
 
 ## `derive(Handler)`
 
@@ -164,3 +164,43 @@ To delegate `AsyncRead` and `AsyncWrite` to different fields,
 mark the fields with `#[async_read]` and `#[async_write]`, respectively.
 
 These annotations are optional for structs with a single field.
+
+## `derive(Transport)`
+
+This crate provides a proc macro to derive the `Transport` type and delegate it
+to a field of the type:
+
+```rust
+use trillium_http::transport::BoxedTransport;
+use trillium_macros::{AsyncRead, AsyncWrite, Transport};
+use trillium_server_common::{AsyncRead, AsyncWrite, Transport};
+
+#[derive(Debug, AsyncRead, AsyncWrite, Transport)]
+struct TransportWrapper {
+    #[transport] #[async_io]
+    inner: BoxedTransport,
+    another_field: u32,
+}
+```
+
+This supports the same mechanism that `derive(Handler)` does for overriding
+individual methods:
+
+```rust
+use trillium_http::transport::BoxedTransport;
+use trillium_macros::{AsyncRead, AsyncWrite, Transport};
+use trillium_server_common::{AsyncRead, AsyncWrite, Transport};
+
+#[derive(Debug, AsyncRead, AsyncWrite, Transport)]
+struct TransportWrapper {
+    #[transport(except = peer_addr)] #[async_io]
+    inner: BoxedTransport,
+    another_field: u32,
+}
+
+impl TransportWrapper { // note that this is not a trait impl
+    fn peer_addr(&self) -> std::io::Result<Option<std::net::SocketAddr>> {
+        Ok(None)
+    }
+}
+```

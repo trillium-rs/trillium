@@ -18,6 +18,13 @@ pub fn derive_handler(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     handler::derive_handler(input)
 }
 
+mod transport;
+///
+#[proc_macro_derive(Transport, attributes(transport))]
+pub fn derive_transport(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    transport::derive_transport(input)
+}
+
 mod async_read;
 ///
 #[proc_macro_derive(AsyncRead, attributes(async_read, async_io))]
