@@ -68,7 +68,7 @@ impl TryFrom<&Path> for Override {
         } else {
             Err(Error::new(
                 path.span(),
-                "unrecognized trillium::Handler function name",
+                "unrecognized trillium::Handler method name",
             ))
         }
     }
