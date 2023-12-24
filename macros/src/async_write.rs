@@ -96,7 +96,7 @@ impl Parse for DeriveOptions {
         } else {
             Err(Error::new(
                 input.span(),
-                "Structs with more than one field need an #[async_io] annotation",
+                "Structs with more than one field need an #[async_io] or #[async_write] annotation",
             ))
         }
     }
