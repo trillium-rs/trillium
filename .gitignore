@@ -3,6 +3,6 @@ Cargo.lock
 **/*.p12
 **/*.pem
 .envrc
-aws-lambda-example/lambda.zip
-aws-lambda-example/bootstrap
+crates/aws-lambda-example/lambda.zip
+crates/aws-lambda-example/bootstrap
 temp
