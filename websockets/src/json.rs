@@ -6,7 +6,7 @@ See the documentation for [`JsonWebSocketHandler`]
 
 use crate::{WebSocket, WebSocketConn, WebSocketHandler};
 use async_tungstenite::tungstenite::{protocol::CloseFrame, Message};
-use futures_lite::{ready, Stream, StreamExt};
+use futures_lite::{ready, Stream};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     fmt::Debug,
@@ -99,7 +99,7 @@ pub trait JsonWebSocketHandler: Send + Sync + 'static {
     futures_lite::stream::Pending if you never need to send an
     outbound message.
     */
-    type StreamType: Stream<Item = Self::OutboundMessage> + Unpin + Send + Sync + 'static;
+    type StreamType: Stream<Item = Self::OutboundMessage> + Send + Sync + 'static;
 
     /**
     `connect` is called once for each upgraded websocket
@@ -163,22 +163,27 @@ impl<T> Debug for JsonHandler<T> {
     }
 }
 
-/**
-A stream for internal use that attempts to serialize the items in the
-wrapped stream to a [`Message::Text`]
-*/
-#[derive(Debug)]
-pub struct SerializedStream<T>(T);
+pin_project_lite::pin_project! {
+    /**
+    A stream for internal use that attempts to serialize the items in the
+    wrapped stream to a [`Message::Text`]
+     */
+    #[derive(Debug)]
+    pub struct SerializedStream<T> {
+        #[pin] inner: T
+    }
+}
+
 impl<T> Stream for SerializedStream<T>
 where
-    T: Stream + Unpin,
+    T: Stream,
     T::Item: Serialize,
 {
     type Item = Message;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Poll::Ready(
-            ready!(self.0.poll_next(cx))
+            ready!(self.project().inner.poll_next(cx))
                 .and_then(|i| match serde_json::to_string(&i) {
                     Ok(j) => Some(j),
                     Err(e) => {
@@ -202,7 +207,9 @@ where
         &self,
         mut conn: WebSocketConn,
     ) -> Option<(WebSocketConn, Self::OutboundStream)> {
-        let stream = SerializedStream(self.handler.connect(&mut conn).await);
+        let stream = SerializedStream {
+            inner: self.handler.connect(&mut conn).await,
+        };
         Some((conn, stream))
     }
 

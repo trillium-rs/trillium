@@ -66,7 +66,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 use trillium::{
-    async_trait, Conn, Handler,
+    Conn, Handler,
     KnownHeaderName::{
         Connection, SecWebsocketAccept, SecWebsocketKey, SecWebsocketProtocol, SecWebsocketVersion,
         Upgrade as UpgradeHeader,
@@ -78,6 +78,7 @@ pub use async_tungstenite::{
     self,
     tungstenite::{self, protocol::WebSocketConfig, Message},
 };
+pub use trillium::async_trait;
 pub use websocket_connection::WebSocketConn;
 pub use websocket_handler::WebSocketHandler;
 
@@ -249,7 +250,7 @@ where
 
         let inbound = conn.take_inbound_stream();
 
-        let mut stream = BidirectionalStream { inbound, outbound };
+        let mut stream = std::pin::pin!(BidirectionalStream { inbound, outbound });
         while let Some(message) = stream.next().await {
             match message {
                 Direction::Inbound(Ok(Message::Close(close_frame))) => {

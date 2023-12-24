@@ -1,15 +1,18 @@
-use futures_lite::{Stream, StreamExt};
+use futures_lite::Stream;
 use std::{
     fmt::{Debug, Formatter, Result},
     pin::Pin,
     task::{Context, Poll},
 };
+pin_project_lite::pin_project! {
+
 
 pub(crate) struct BidirectionalStream<I, O> {
     pub(crate) inbound: Option<I>,
+    #[pin]
     pub(crate) outbound: O,
 }
-
+}
 impl<I, O> Debug for BidirectionalStream<I, O> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_struct("BidirectionalStream")
@@ -34,15 +37,17 @@ pub(crate) enum Direction<I, O> {
 impl<I, O> Stream for BidirectionalStream<I, O>
 where
     I: Stream + Unpin + Send + Sync + 'static,
-    O: Stream + Unpin + Send + Sync + 'static,
+    O: Stream + Send + Sync + 'static,
 {
     type Item = Direction<I::Item, O::Item>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+
         macro_rules! poll_inbound {
             () => {
-                if let Some(inbound) = self.inbound.as_mut() {
-                    match inbound.poll_next(cx) {
+                if let Some(inbound) = &mut *this.inbound {
+                    match Pin::new(inbound).poll_next(cx) {
                         Poll::Ready(Some(t)) => return Poll::Ready(Some(Direction::Inbound(t))),
                         Poll::Ready(None) => return Poll::Ready(None),
                         _ => (),
@@ -52,7 +57,7 @@ where
         }
         macro_rules! poll_outbound {
             () => {
-                match self.as_mut().outbound.poll_next(cx) {
+                match this.outbound.poll_next(cx) {
                     Poll::Ready(Some(t)) => return Poll::Ready(Some(Direction::Outbound(t))),
                     Poll::Ready(None) => return Poll::Ready(None),
                     _ => (),

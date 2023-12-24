@@ -132,7 +132,7 @@ pub trait WebSocketHandler: Send + Sync + Sized + 'static {
     stream that never returns if you do not need to use this aspect of
     the trait.
     */
-    type OutboundStream: Stream<Item = Message> + Unpin + Send + Sync + 'static;
+    type OutboundStream: Stream<Item = Message> + Send + Sync + 'static;
 
     /**
     This interface is the only mandatory function in
