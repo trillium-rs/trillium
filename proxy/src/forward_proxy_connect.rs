@@ -24,12 +24,20 @@ impl Handler for ForwardProxyConnect {
     async fn run(&self, conn: Conn) -> Conn {
         if conn.method() == Method::Connect {
             let Ok(url) = Url::parse(&format!("http://{}", conn.path())) else {
-                return conn.with_status(Status::BadGateway).halt();
+                return conn.with_status(Status::BadRequest).halt();
             };
+
+            if url.cannot_be_a_base() {
+                return conn.with_status(Status::BadRequest).halt();
+            }
+
             let Ok(tcp) = Connector::connect(&self.0, &url).await else {
                 return conn.with_status(Status::BadGateway).halt();
             };
-            return conn.with_status(Status::Ok).with_state(ForwardUpgrade(tcp));
+
+            conn.with_status(Status::Ok)
+                .with_state(ForwardUpgrade(tcp))
+                .halt()
         } else {
             conn
         }
