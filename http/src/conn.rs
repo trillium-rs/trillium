@@ -627,12 +627,6 @@ where
 
         if self.stopper.is_stopped() {
             self.response_headers.insert(Connection, "close");
-        } else if !self
-            .request_headers
-            .eq_ignore_ascii_case(Connection, "close")
-            && self.version == Version::Http1_1
-        {
-            self.response_headers.try_insert(Connection, "keep-alive");
         }
     }
 
