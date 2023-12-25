@@ -242,13 +242,12 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
         }
 
         self.set_via_pseudonym(&mut request_headers, conn.inner().http_version());
-        let content_length = match conn
-            .request_headers()
-            .get_str(KnownHeaderName::ContentLength)
-        {
-            Some("0") | None => false,
-            _ => true,
-        };
+        let content_length = !matches!(
+            conn.request_headers()
+                .get_str(KnownHeaderName::ContentLength),
+            Some("0") | None
+        );
+
         let chunked = conn
             .request_headers()
             .eq_ignore_ascii_case(KnownHeaderName::TransferEncoding, "chunked");
