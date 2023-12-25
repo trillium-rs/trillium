@@ -904,7 +904,7 @@ impl From<Conn> for Body {
 
 impl From<Conn> for ReceivedBody<'static, BoxedTransport> {
     fn from(mut conn: Conn) -> Self {
-        conn.finalize_headers();
+        let _ = conn.finalize_headers();
         let origin = conn.url.origin();
 
         let on_completion =
