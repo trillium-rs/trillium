@@ -16,7 +16,7 @@ use trillium_http::{
     transport::BoxedTransport,
     Body, Error, HeaderName, HeaderValue, HeaderValues, Headers,
     KnownHeaderName::{
-        Connection, ContentLength, Expect, Host, ProxyConnection, TransferEncoding, UserAgent,
+        Accept, Connection, ContentLength, Expect, Host, TransferEncoding, UserAgent,
     },
     Method, ReceivedBody, ReceivedBodyState, Result, StateSet, Status, Stopper, Upgrade,
 };
@@ -556,49 +556,40 @@ impl Conn {
         self.pool = Some(pool);
     }
 
-    fn finalize_headers(&mut self) {
+    fn finalize_headers(&mut self) -> Result<()> {
         if self.headers_finalized {
-            return;
+            return Ok(());
         }
 
-        if self.request_headers.get(Host).is_none() {
-            let url = &self.url;
-            let host = url.host_str().unwrap().to_owned();
+        let host = self.url.host_str().ok_or(Error::UnexpectedUriFormat)?;
 
-            if let Some(port) = url.port() {
-                self.request_headers.insert(Host, format!("{host}:{port}"));
-            } else {
-                self.request_headers.insert(Host, host);
-            };
-        }
+        self.request_headers.try_insert_with(Host, || {
+            self.url
+                .port()
+                .map_or_else(|| host.to_string(), |port| format!("{host}:{port}"))
+        });
 
         self.request_headers.try_insert(UserAgent, USER_AGENT);
+        self.request_headers.try_insert(Accept, "*/*");
 
-        if self.method == Method::Connect {
-            self.request_headers.insert(ProxyConnection, "keep-alive");
+        if self.pool.is_none() {
+            self.request_headers.try_insert(Connection, "close");
         }
 
-        match self.pool {
-            Some(_) => {
-                self.request_headers.insert(Connection, "keep-alive");
-            }
-
-            None => {
-                self.request_headers.try_insert(Connection, "close");
-            }
-        }
-
-        if self.method != Method::Get {
-            if let Some(len) = self.body_len() {
-                if len != 0 {
-                    self.request_headers.insert(Expect, "100-continue");
-                }
+        match self.body_len() {
+            Some(0) => {}
+            Some(len) => {
+                self.request_headers.insert(Expect, "100-continue");
                 self.request_headers.insert(ContentLength, len.to_string());
-            } else {
+            }
+            None => {
+                self.request_headers.insert(Expect, "100-continue");
                 self.request_headers.insert(TransferEncoding, "chunked");
             }
         }
+
         self.headers_finalized = true;
+        Ok(())
     }
 
     fn body_len(&self) -> Option<u64> {
@@ -837,7 +828,7 @@ impl Conn {
     }
 
     async fn exec(&mut self) -> Result<()> {
-        self.finalize_headers();
+        self.finalize_headers()?;
         self.connect_and_send_head().await?;
         self.send_body_and_parse_head().await?;
         Ok(())
