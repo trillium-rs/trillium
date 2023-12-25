@@ -29,7 +29,7 @@ use trillium::{
     Upgrade,
 };
 use trillium_forwarding::Forwarded;
-use trillium_http::{HeaderName, HeaderValue, Headers, Method, Status, Version};
+use trillium_http::{HeaderName, HeaderValue, Headers, Status, Version};
 use upstream::{IntoUpstreamSelector, UpstreamSelector};
 
 pub use forward_proxy_connect::ForwardProxyConnect;
@@ -239,19 +239,21 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
                 (KnownHeaderName::Upgrade, "WebSocket"),
                 (KnownHeaderName::Connection, "Upgrade"),
             ]);
-        } else {
-            request_headers.insert(KnownHeaderName::Connection, "keep-alive")
         }
 
         self.set_via_pseudonym(&mut request_headers, conn.inner().http_version());
-
+        let content_length = match conn
+            .request_headers()
+            .get_str(KnownHeaderName::ContentLength)
+        {
+            Some("0") | None => false,
+            _ => true,
+        };
+        let chunked = conn
+            .request_headers()
+            .eq_ignore_ascii_case(KnownHeaderName::TransferEncoding, "chunked");
         let method = conn.method();
-        let conn_result = if method == Method::Get {
-            self.client
-                .get(request_url)
-                .with_headers(request_headers)
-                .await
-        } else {
+        let conn_result = if chunked || content_length {
             let (body_fut, request_body) = stream_body(&mut conn);
 
             let client_fut = self
@@ -262,6 +264,11 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
                 .into_future();
 
             zip(body_fut, client_fut).await.1
+        } else {
+            self.client
+                .build_conn(method, request_url)
+                .with_headers(request_headers)
+                .await
         };
 
         let mut client_conn = match conn_result {
