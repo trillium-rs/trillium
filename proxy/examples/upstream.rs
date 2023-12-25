@@ -32,7 +32,8 @@ pub fn main() {
                 "headers": conn.request_headers(),
                 "ip": conn.inner().peer_ip(),
                 "query": query,
-                "body": body
+                "body": body,
+                "version": conn.inner().http_version()
             });
             conn.with_json(&json).with_status(Status::Ok)
         },

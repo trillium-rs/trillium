@@ -1,3 +1,4 @@
+use trillium_client::Client;
 use trillium_logger::Logger;
 use trillium_proxy::{
     upstream::{ConnectionCounting, IntoUpstreamSelector, UpstreamSelector},
@@ -19,6 +20,10 @@ pub fn main() {
 
     trillium_smol::run((
         Logger::new(),
-        Proxy::new(ClientConfig::default(), upstream).with_via_pseudonym("trillium-proxy"),
+        Proxy::new(
+            Client::new(ClientConfig::default()).with_default_pool(),
+            upstream,
+        )
+        .with_via_pseudonym("trillium-proxy"),
     ));
 }
