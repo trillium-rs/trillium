@@ -91,8 +91,10 @@ where
 }
 
 impl HeaderValues {
-    /// Builds an empty `HeaderValues`. This is not generally necessary
-    /// in application code. Using a `From` implementation is preferable.
+    /// Builds an empty `HeaderValues`.
+    ///
+    /// This is not generally necessary in application code. Using a `From` implementation is
+    /// preferable. If you need an empty `HeaderValues`, use `()`.
     #[must_use]
     pub fn new() -> Self {
         Self(SmallVec::with_capacity(1))
@@ -139,6 +141,12 @@ impl HeaderValues {
 //         self.one().as_ref()
 //     }
 // }
+
+impl From<()> for HeaderValues {
+    fn from((): ()) -> Self {
+        HeaderValues::new()
+    }
+}
 
 impl From<&'static [u8]> for HeaderValues {
     fn from(value: &'static [u8]) -> Self {
