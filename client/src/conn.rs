@@ -2,6 +2,7 @@ use crate::{pool::PoolEntry, util::encoding, Pool};
 use encoding_rs::Encoding;
 use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
 use memchr::memmem::Finder;
+use size::{Base, Size};
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Display, Formatter},
@@ -821,7 +822,10 @@ impl Conn {
         if self.response_body_state != ReceivedBodyState::End {
             let body = self.response_body();
             match body.drain().await {
-                Ok(drain) => log::debug!("drained {}", bytes(drain)),
+                Ok(drain) => log::debug!(
+                    "drained {}",
+                    Size::from_bytes(drain).format().with_base(Base::Base10)
+                ),
                 Err(e) => log::warn!("failed to drain body, {:?}", e),
             }
         }
@@ -833,14 +837,6 @@ impl Conn {
         self.send_body_and_parse_head().await?;
         Ok(())
     }
-}
-
-fn bytes(bytes: u64) -> String {
-    use size::{Base, Size};
-    Size::from_bytes(bytes)
-        .format()
-        .with_base(Base::Base10)
-        .to_string()
 }
 
 impl Drop for Conn {
