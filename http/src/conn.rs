@@ -554,7 +554,9 @@ where
             .to_owned();
         log::trace!("received:\n{method} {path} {version}\n{request_headers}");
 
-        let response_headers = Headers::with_capacity(http_config.response_header_initial_capacity);
+        let mut response_headers =
+            Headers::with_capacity(http_config.response_header_initial_capacity);
+        response_headers.insert(Server, SERVER);
 
         buffer.ignore_front(head_size);
 
@@ -608,8 +610,6 @@ where
 
         self.response_headers
             .try_insert_with(Date, || httpdate::fmt_http_date(SystemTime::now()));
-
-        self.response_headers.try_insert(Server, SERVER);
 
         if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
             if let Some(len) = self.body_len() {
