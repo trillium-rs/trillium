@@ -49,7 +49,7 @@ pub use trillium_http::{
 
 mod util;
 
-pub use trillium_server_common::Connector;
+pub use trillium_server_common::{async_trait, Connector, Url};
 
 mod client_like;
 pub use client_like::ClientLike;
