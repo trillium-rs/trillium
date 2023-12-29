@@ -16,9 +16,7 @@ use std::{
 use trillium_http::{
     transport::BoxedTransport,
     Body, Error, HeaderName, HeaderValue, HeaderValues, Headers,
-    KnownHeaderName::{
-        Accept, Connection, ContentLength, Expect, Host, TransferEncoding, UserAgent,
-    },
+    KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBody, ReceivedBodyState, Result, StateSet, Status, Stopper, Upgrade,
 };
 use trillium_server_common::{Connector, ObjectSafeConnector, Transport};
@@ -137,11 +135,12 @@ impl Conn {
         config: Arc<dyn ObjectSafeConnector>,
         method: Method,
         url: Url,
+        request_headers: Headers,
     ) -> Self {
         Self {
             url,
             method,
-            request_headers: Headers::new(),
+            request_headers,
             response_headers: Headers::new(),
             transport: None,
             status: None,
@@ -154,41 +153,9 @@ impl Conn {
         }
     }
 
-    /**
-    retrieves a mutable borrow of the request headers, suitable for
-    appending a header. generally, prefer using chainable methods on
-    Conn
-
-    ```
-    use trillium_testing::ClientConfig;
-    use trillium_client::Client;
-
-    let handler = |conn: trillium::Conn| async move {
-        let header = conn.headers().get_str("some-request-header").unwrap_or_default();
-        let response = format!("some-request-header was {}", header);
-        conn.ok(response)
-    };
-
-    let client = Client::new(ClientConfig::new());
-
-    trillium_testing::with_server(handler, move |url| async move {
-        let mut conn = client.get(url);
-
-        conn.request_headers() //<-
-            .insert("some-request-header", "header-value");
-
-        (&mut conn).await?;
-
-        assert_eq!(
-            conn.response_body().read_string().await?,
-            "some-request-header was header-value"
-        );
-        Ok(())
-    })
-    ```
-    */
-    pub fn request_headers(&mut self) -> &mut Headers {
-        &mut self.request_headers
+    /// borrow the request headers
+    pub fn request_headers(&self) -> &Headers {
+        &self.request_headers
     }
 
     /**
@@ -267,6 +234,12 @@ impl Conn {
         self
     }
 
+    /// Chainable method to remove a request header if present
+    pub fn without_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
+        self.request_headers.remove(name);
+        self
+    }
+
     /**
     ```
     let handler = |conn: trillium::Conn| async move {
@@ -290,6 +263,43 @@ impl Conn {
     */
     pub fn response_headers(&self) -> &Headers {
         &self.response_headers
+    }
+
+    /**
+    retrieves a mutable borrow of the request headers, suitable for
+    appending a header. generally, prefer using chainable methods on
+    Conn
+
+    ```
+    use trillium_testing::ClientConfig;
+    use trillium_client::Client;
+
+    let handler = |conn: trillium::Conn| async move {
+        let header = conn.headers().get_str("some-request-header").unwrap_or_default();
+        let response = format!("some-request-header was {}", header);
+        conn.ok(response)
+    };
+
+    let client = Client::new(ClientConfig::new());
+
+    trillium_testing::with_server(handler, move |url| async move {
+        let mut conn = client.get(url);
+
+        conn.request_headers_mut() //<-
+            .insert("some-request-header", "header-value");
+
+        let mut conn = conn.await?;
+
+        assert_eq!(
+            conn.response_body().read_string().await?,
+            "some-request-header was header-value"
+        );
+        Ok(())
+    })
+    ```
+    */
+    pub fn request_headers_mut(&mut self) -> &mut Headers {
+        &mut self.request_headers
     }
 
     /// get a mutable borrow of the response headers
@@ -569,9 +579,6 @@ impl Conn {
                 .port()
                 .map_or_else(|| host.to_string(), |port| format!("{host}:{port}"))
         });
-
-        self.request_headers.try_insert(UserAgent, USER_AGENT);
-        self.request_headers.try_insert(Accept, "*/*");
 
         if self.pool.is_none() {
             self.request_headers.try_insert(Connection, "close");
