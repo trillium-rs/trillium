@@ -1,0 +1,4 @@
+(function() {var implementors = {
+"trillium":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/convert/trait.AsMut.html\" title=\"trait core::convert::AsMut\">AsMut</a>&lt;<a class=\"struct\" href=\"trillium/struct.StateSet.html\" title=\"struct trillium::StateSet\">StateSet</a>&gt; for <a class=\"struct\" href=\"trillium/struct.Conn.html\" title=\"struct trillium::Conn\">Conn</a>"]],
+"trillium_websockets":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/convert/trait.AsMut.html\" title=\"trait core::convert::AsMut\">AsMut</a>&lt;StateSet&gt; for <a class=\"struct\" href=\"trillium_websockets/struct.WebSocketConn.html\" title=\"struct trillium_websockets::WebSocketConn\">WebSocketConn</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

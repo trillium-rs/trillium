@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["cookies"],"struct":["CookiesHandler"],"trait":["CookiesConnExt"]};

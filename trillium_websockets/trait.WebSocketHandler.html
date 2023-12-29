@@ -1,0 +1,179 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="This is the trait that defines a handler for trillium websockets."><title>WebSocketHandler in trillium_websockets - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../static.files/rustdoc-452d19225583af2a.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="trillium_websockets" data-themes="" data-resource-suffix="" data-rustdoc-version="1.77.0-nightly (fb5ed726f 2023-12-28)" data-channel="nightly" data-search-js="search-c17e98913a53b3b7.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../static.files/storage-f2adc0d6ca4d09fb.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-6902632119e002ca.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-feafe1bb7466e4bd.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../trillium_websockets/index.html">trillium_websockets</a><span class="version">0.6.0</span></h2></div><h2 class="location"><a href="#">WebSocketHandler</a></h2><div class="sidebar-elems"><section><h3><a href="#required-associated-types">Required Associated Types</a></h3><ul class="block"><li><a href="#associatedtype.OutboundStream">OutboundStream</a></li></ul><h3><a href="#required-methods">Required Methods</a></h3><ul class="block"><li><a href="#tymethod.connect">connect</a></li></ul><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.disconnect">disconnect</a></li><li><a href="#method.inbound">inbound</a></li><li><a href="#method.send">send</a></li></ul><h3><a href="#object-safety">Object Safety</a></h3><h3><a href="#implementors">Implementors</a></h3></section><h2><a href="index.html">In crate trillium_websockets</a></h2></div></nav><div class="sidebar-resizer"></div>
+    <main><div class="width-limiter"><nav class="sub"><form class="search-form"><span></span><div id="sidebar-button" tabindex="-1"><a href="../trillium_websockets/all.html" title="show sidebar"></a></div><input class="search-input" name="search" aria-label="Run search in the documentation" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" tabindex="-1"><a href="../help.html" title="help">?</a></div><div id="settings-menu" tabindex="-1"><a href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../static.files/wheel-7b819b6101059cd0.svg"></a></div></form></nav><section id="main-content" class="content"><div class="main-heading"><h1>Trait <a href="index.html">trillium_websockets</a>::<wbr><a class="trait" href="#">WebSocketHandler</a><button id="copy-path" title="Copy item path to clipboard"><img src="../static.files/clipboard-7571035ce49a181d.svg" width="19" height="18" alt="Copy item path"></button></h1><span class="out-of-band"><a class="src" href="../src/trillium_websockets/websocket_handler.rs.html#127-168">source</a> · <button id="toggle-all-docs" title="collapse all docs">[<span>&#x2212;</span>]</button></span></div><pre class="rust item-decl"><code>pub trait WebSocketHandler: <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a> + 'static {
+    type <a href="#associatedtype.OutboundStream" class="associatedtype">OutboundStream</a>: Stream&lt;Item = <a class="enum" href="enum.Message.html" title="enum trillium_websockets::Message">Message</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> + 'static;
+
+    // Required method
+    fn <a href="#tymethod.connect" class="fn">connect</a>&lt;'life0, 'async_trait&gt;(
+        &amp;'life0 self,
+        conn: <a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;(<a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>, Self::<a class="associatedtype" href="trait.WebSocketHandler.html#associatedtype.OutboundStream" title="type trillium_websockets::WebSocketHandler::OutboundStream">OutboundStream</a>)&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where Self: 'async_trait,
+             'life0: 'async_trait</span>;
+
+    // Provided methods
+    fn <a href="#method.inbound" class="fn">inbound</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        message: <a class="enum" href="enum.Message.html" title="enum trillium_websockets::Message">Message</a>,
+        conn: &amp;'life1 mut <a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where Self: 'async_trait,
+             'life0: 'async_trait,
+             'life1: 'async_trait</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.send" class="fn">send</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        message: <a class="enum" href="enum.Message.html" title="enum trillium_websockets::Message">Message</a>,
+        conn: &amp;'life1 mut <a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/nightly/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>, <a class="enum" href="enum.Error.html" title="enum trillium_websockets::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where Self: 'async_trait,
+             'life0: 'async_trait,
+             'life1: 'async_trait</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.disconnect" class="fn">disconnect</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        conn: &amp;'life1 mut <a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>,
+        close_frame: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;CloseFrame&lt;'static&gt;&gt;
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where Self: 'async_trait,
+             'life0: 'async_trait,
+             'life1: 'async_trait</span> { ... }
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><h2 id="this-is-the-trait-that-defines-a-handler-for-trillium-websockets"><a href="#this-is-the-trait-that-defines-a-handler-for-trillium-websockets">This is the trait that defines a handler for trillium websockets.</a></h2>
+<p>There are several mutually-exclusive ways to use this trait, and it is
+intended to be flexible for different use cases. If the trait does not
+support your use case, please open a discussion and/or build a trait
+on top of this trait to add additional functionality.</p>
+<h3 id="simple-example"><a href="#simple-example">Simple Example</a></h3>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>trillium_websockets::{Message, WebSocket, WebSocketConn, WebSocketHandler};
+<span class="kw">use </span>futures_lite::stream::{pending, Pending};
+
+<span class="kw">struct </span>EchoServer;
+<span class="attr">#[trillium::async_trait]
+</span><span class="kw">impl </span>WebSocketHandler <span class="kw">for </span>EchoServer {
+    <span class="kw">type </span>OutboundStream = Pending&lt;Message&gt;; <span class="comment">// we don't use an outbound stream in this example
+
+    </span><span class="kw">async fn </span>connect(<span class="kw-2">&amp;</span><span class="self">self</span>, conn: WebSocketConn) -&gt; <span class="prelude-ty">Option</span>&lt;(WebSocketConn, <span class="self">Self</span>::OutboundStream)&gt; {
+        <span class="prelude-val">Some</span>((conn, pending()))
+    }
+
+    <span class="kw">async fn </span>inbound(<span class="kw-2">&amp;</span><span class="self">self</span>, message: Message, conn: <span class="kw-2">&amp;mut </span>WebSocketConn) {
+        <span class="kw">let </span>path = conn.path().to_string();
+        <span class="kw">if let </span>Message::Text(input) = message {
+            <span class="kw">let </span>reply = <span class="macro">format!</span>(<span class="string">"received your message: {} at path {}"</span>, <span class="kw-2">&amp;</span>input, <span class="kw-2">&amp;</span>path);
+            conn.send_string(reply).<span class="kw">await</span>;
+        }
+    }
+}
+
+<span class="kw">let </span>handler = WebSocket::new(EchoServer);</code></pre></div>
+<h3 id="using-websockethandlerconnect-only"><a href="#using-websockethandlerconnect-only">Using <code>WebSocketHandler::connect</code> only</a></h3>
+<p>If you have needs that are not supported by this trait, you can either
+pass an <code>Fn(WebSocketConn) -&gt; impl Future&lt;Output=()&gt;</code> as a handler, or
+implement your own connect-only trait implementation that takes the
+WebSocketConn and returns None. The tcp connection will remain intact
+until the WebSocketConn is dropped, so you can store it in any data
+structure or move it between threads as needed.</p>
+<h3 id="using-streams"><a href="#using-streams">Using Streams</a></h3>
+<p>If you define an associated OutboundStream type and return it from
+<code>connect</code>, every message in that Stream will be sent to the connected
+websocket client. This is useful for sending messages that are
+triggered by other events in the application, using whatever channel
+mechanism is appropriate for your application. The websocket
+connection will be closed if the stream ends, yielding None.</p>
+<p>If you do not need to use streams, set <code>OutboundStream = futures_lite::stream::Pending&lt;Message&gt;</code> or a similar stream
+implementation that never yields. If associated type defaults were
+stable, we would use that.</p>
+<h3 id="receiving-client-sent-messages"><a href="#receiving-client-sent-messages">Receiving client-sent messages</a></h3>
+<p>Implement <a href="trait.WebSocketHandler.html#method.inbound" title="method trillium_websockets::WebSocketHandler::inbound"><code>WebSocketHandler::inbound</code></a> to receive client-sent
+messages. Currently inbound messages are not represented as a stream,
+but this may change in the future.</p>
+<h3 id="holding-data-inside-of-the-implementing-type"><a href="#holding-data-inside-of-the-implementing-type">Holding data inside of the implementing type</a></h3>
+<p>As this is a trait you implement for your own type, you can hold
+additional data or structs inside of your struct. There will be
+exactly one of these structs shared throughout the application, so
+async concurrency types can be used to mutate shared data.</p>
+<p>This example holds a shared BroadcastChannel that is cloned for each
+OutboundStream. Any message that a connected clients sends is
+broadcast to every other connected client.</p>
+<p>Importantly, this means that the dispatch and fanout of messages is
+managed entirely by your implementation. For an opinionated layer on
+top of this, see the trillium-channels crate.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>broadcaster::BroadcastChannel;
+<span class="kw">use </span>trillium_websockets::{Message, WebSocket, WebSocketConn, WebSocketHandler};
+
+<span class="kw">struct </span>EchoServer {
+    channel: BroadcastChannel&lt;Message&gt;,
+}
+<span class="kw">impl </span>EchoServer {
+    <span class="kw">fn </span>new() -&gt; <span class="self">Self </span>{
+        <span class="self">Self </span>{
+            channel: BroadcastChannel::new(),
+        }
+    }
+}
+
+<span class="attr">#[trillium::async_trait]
+</span><span class="kw">impl </span>WebSocketHandler <span class="kw">for </span>EchoServer {
+    <span class="kw">type </span>OutboundStream = BroadcastChannel&lt;Message&gt;;
+
+    <span class="kw">async fn </span>connect(<span class="kw-2">&amp;</span><span class="self">self</span>, conn: WebSocketConn) -&gt; <span class="prelude-ty">Option</span>&lt;(WebSocketConn, <span class="self">Self</span>::OutboundStream)&gt; {
+        <span class="prelude-val">Some</span>((conn, <span class="self">self</span>.channel.clone()))
+    }
+
+    <span class="kw">async fn </span>inbound(<span class="kw-2">&amp;</span><span class="self">self</span>, message: Message, _conn: <span class="kw-2">&amp;mut </span>WebSocketConn) {
+        <span class="kw">if let </span>Message::Text(input) = message {
+            <span class="kw">let </span>message = Message::text(<span class="macro">format!</span>(<span class="string">"received message: {}"</span>, <span class="kw-2">&amp;</span>input));
+            <span class="macro">trillium::log_error!</span>(<span class="self">self</span>.channel.send(<span class="kw-2">&amp;</span>message).<span class="kw">await</span>);
+        }
+    }
+}
+
+<span class="comment">// fn main() {
+//     trillium_smol::run(WebSocket::new(EchoServer::new()));
+// }
+</span></code></pre></div>
+</div></details><h2 id="required-associated-types" class="section-header">Required Associated Types<a href="#required-associated-types" class="anchor">§</a></h2><div class="methods"><details class="toggle" open><summary><section id="associatedtype.OutboundStream" class="method"><a class="src rightside" href="../src/trillium_websockets/websocket_handler.rs.html#135">source</a><h4 class="code-header">type <a href="#associatedtype.OutboundStream" class="associatedtype">OutboundStream</a>: Stream&lt;Item = <a class="enum" href="enum.Message.html" title="enum trillium_websockets::Message">Message</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> + 'static</h4></section></summary><div class="docblock"><p>A [<code>Stream</code>] type that represents <a href="enum.Message.html" title="enum trillium_websockets::Message"><code>Message</code></a>s to be sent to this
+client. It is built in your implementation code, in
+<a href="trait.WebSocketHandler.html#tymethod.connect" title="method trillium_websockets::WebSocketHandler::connect"><code>WebSocketHandler::connect</code></a>. Use <code>Pending&lt;Message&gt;</code> or another
+stream that never returns if you do not need to use this aspect of
+the trait.</p>
+</div></details></div><h2 id="required-methods" class="section-header">Required Methods<a href="#required-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="tymethod.connect" class="method"><a class="src rightside" href="../src/trillium_websockets/websocket_handler.rs.html#143">source</a><h4 class="code-header">fn <a href="#tymethod.connect" class="fn">connect</a>&lt;'life0, 'async_trait&gt;(
+    &amp;'life0 self,
+    conn: <a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;(<a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>, Self::<a class="associatedtype" href="trait.WebSocketHandler.html#associatedtype.OutboundStream" title="type trillium_websockets::WebSocketHandler::OutboundStream">OutboundStream</a>)&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    Self: 'async_trait,
+    'life0: 'async_trait,</div></h4></section></summary><div class="docblock"><p>This interface is the only mandatory function in
+WebSocketHandler. It receives an owned WebSocketConn and
+optionally returns it along with an <code>OutboundStream</code>
+type.</p>
+</div></details></div><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.inbound" class="method"><a class="src rightside" href="../src/trillium_websockets/websocket_handler.rs.html#149">source</a><h4 class="code-header">fn <a href="#method.inbound" class="fn">inbound</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    message: <a class="enum" href="enum.Message.html" title="enum trillium_websockets::Message">Message</a>,
+    conn: &amp;'life1 mut <a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    Self: 'async_trait,
+    'life0: 'async_trait,
+    'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p>This interface function is called once with every message received
+from a connected websocket client.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.send" class="method"><a class="src rightside" href="../src/trillium_websockets/websocket_handler.rs.html#157-159">source</a><h4 class="code-header">fn <a href="#method.send" class="fn">send</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    message: <a class="enum" href="enum.Message.html" title="enum trillium_websockets::Message">Message</a>,
+    conn: &amp;'life1 mut <a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/nightly/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>, <a class="enum" href="enum.Error.html" title="enum trillium_websockets::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    Self: 'async_trait,
+    'life0: 'async_trait,
+    'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p>This interface function is called once with every outbound message
+in the OutboundStream. You likely do not need to implement this,
+but if you do, you must call <code>conn.send(message).await</code> or the
+message will not be sent.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.disconnect" class="method"><a class="src rightside" href="../src/trillium_websockets/websocket_handler.rs.html#166-167">source</a><h4 class="code-header">fn <a href="#method.disconnect" class="fn">disconnect</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    conn: &amp;'life1 mut <a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>,
+    close_frame: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;CloseFrame&lt;'static&gt;&gt;
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    Self: 'async_trait,
+    'life0: 'async_trait,
+    'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p>This interface function is called with the websocket conn and, in
+the case of a clean disconnect, the [<code>CloseFrame</code>] if one is sent
+available.</p>
+</div></details></div><h2 id="object-safety" class="section-header">Object Safety<a href="#object-safety" class="anchor">§</a></h2><div class="object-safety-info">This trait is <b>not</b> <a href="https://doc.rust-lang.org/nightly/reference/items/traits.html#object-safety">object safe</a>.</div><h2 id="implementors" class="section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"><details class="toggle implementors-toggle"><summary><section id="impl-WebSocketHandler-for-H" class="impl"><a class="src rightside" href="../src/trillium_websockets/websocket_handler.rs.html#171-183">source</a><a href="#impl-WebSocketHandler-for-H" class="anchor">§</a><h3 class="code-header">impl&lt;H, Fut&gt; <a class="trait" href="trait.WebSocketHandler.html" title="trait trillium_websockets::WebSocketHandler">WebSocketHandler</a> for H<div class="where">where
+    H: <a class="trait" href="https://doc.rust-lang.org/nightly/core/ops/function/trait.Fn.html" title="trait core::ops::function::Fn">Fn</a>(<a class="struct" href="struct.WebSocketConn.html" title="struct trillium_websockets::WebSocketConn">WebSocketConn</a>) -&gt; Fut + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> + 'static,
+    Fut: <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'static,</div></h3></section></summary><div class="impl-items"><section id="associatedtype.OutboundStream-1" class="associatedtype trait-impl"><a href="#associatedtype.OutboundStream-1" class="anchor">§</a><h4 class="code-header">type <a href="#associatedtype.OutboundStream" class="associatedtype">OutboundStream</a> = Pending&lt;<a class="enum" href="enum.Message.html" title="enum trillium_websockets::Message">Message</a>&gt;</h4></section></div></details></div><script src="../trait.impl/trillium_websockets/websocket_handler/trait.WebSocketHandler.js" async></script></section></div></main></body></html>

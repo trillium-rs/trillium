@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["files"],"macro":["crate_relative_path"],"struct":["StaticFileHandler"],"trait":["StaticConnExt"]};

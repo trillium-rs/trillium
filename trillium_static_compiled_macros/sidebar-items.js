@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"macro":["include_dir","include_entry"]};

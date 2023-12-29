@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["async_trait"],"constant":["USER_AGENT"],"enum":["Error","KnownHeaderName","Status","Version"],"fn":["client"],"struct":["Client","Conn","HeaderName","HeaderValue","HeaderValues","Headers","UnexpectedStatusError","Url"],"trait":["Connector","IntoUrl"],"type":["Result"]};

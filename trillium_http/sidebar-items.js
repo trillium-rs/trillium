@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SERVER","SERVICE_UNAVAILABLE"],"enum":["ConnectionStatus","Error","KnownHeaderName","Method","Status","Version"],"fn":["copy"],"mod":["transport"],"struct":["Body","Conn","HeaderName","HeaderValue","HeaderValues","Headers","HttpConfig","ReceivedBody","StateSet","Stopper","Synthetic","Upgrade"],"type":["Result"]};

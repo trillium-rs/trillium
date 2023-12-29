@@ -1,0 +1,134 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Trait for you to implement in order to define a `Channel`."><title>ChannelHandler in trillium_channels - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../static.files/rustdoc-452d19225583af2a.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="trillium_channels" data-themes="" data-resource-suffix="" data-rustdoc-version="1.77.0-nightly (fb5ed726f 2023-12-28)" data-channel="nightly" data-search-js="search-c17e98913a53b3b7.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../static.files/storage-f2adc0d6ca4d09fb.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-6902632119e002ca.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-feafe1bb7466e4bd.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../trillium_channels/index.html">trillium_channels</a><span class="version">0.3.0</span></h2></div><h2 class="location"><a href="#">ChannelHandler</a></h2><div class="sidebar-elems"><section><h3><a href="#required-methods">Required Methods</a></h3><ul class="block"><li><a href="#tymethod.join_channel">join_channel</a></li></ul><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.connect">connect</a></li><li><a href="#method.disconnect">disconnect</a></li><li><a href="#method.incoming_message">incoming_message</a></li><li><a href="#method.leave_channel">leave_channel</a></li></ul><h3><a href="#object-safety">Object Safety</a></h3><h3><a href="#implementors">Implementors</a></h3></section><h2><a href="index.html">In crate trillium_channels</a></h2></div></nav><div class="sidebar-resizer"></div>
+    <main><div class="width-limiter"><nav class="sub"><form class="search-form"><span></span><div id="sidebar-button" tabindex="-1"><a href="../trillium_channels/all.html" title="show sidebar"></a></div><input class="search-input" name="search" aria-label="Run search in the documentation" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" tabindex="-1"><a href="../help.html" title="help">?</a></div><div id="settings-menu" tabindex="-1"><a href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../static.files/wheel-7b819b6101059cd0.svg"></a></div></form></nav><section id="main-content" class="content"><div class="main-heading"><h1>Trait <a href="index.html">trillium_channels</a>::<wbr><a class="trait" href="#">ChannelHandler</a><button id="copy-path" title="Copy item path to clipboard"><img src="../static.files/clipboard-7571035ce49a181d.svg" width="19" height="18" alt="Copy item path"></button></h1><span class="out-of-band"><a class="src" href="../src/trillium_channels/channel_handler.rs.html#53-97">source</a> · <button id="toggle-all-docs" title="collapse all docs">[<span>&#x2212;</span>]</button></span></div><pre class="rust item-decl"><code>pub trait ChannelHandler: <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a> + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> + 'static {
+    // Required method
+    fn <a href="#tymethod.join_channel" class="fn">join_channel</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;,
+        event: <a class="struct" href="struct.ChannelEvent.html" title="struct trillium_channels::ChannelEvent">ChannelEvent</a>
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where Self: 'async_trait,
+             'life0: 'async_trait,
+             'life1: 'async_trait</span>;
+
+    // Provided methods
+    fn <a href="#method.connect" class="fn">connect</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where Self: 'async_trait,
+             'life0: 'async_trait,
+             'life1: 'async_trait</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.leave_channel" class="fn">leave_channel</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;,
+        event: <a class="struct" href="struct.ChannelEvent.html" title="struct trillium_channels::ChannelEvent">ChannelEvent</a>
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where Self: 'async_trait,
+             'life0: 'async_trait,
+             'life1: 'async_trait</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.incoming_message" class="fn">incoming_message</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;,
+        event: <a class="struct" href="struct.ChannelEvent.html" title="struct trillium_channels::ChannelEvent">ChannelEvent</a>
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where Self: 'async_trait,
+             'life0: 'async_trait,
+             'life1: 'async_trait</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.disconnect" class="fn">disconnect</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where Self: 'async_trait,
+             'life0: 'async_trait,
+             'life1: 'async_trait</span> { ... }
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><h2 id="trait-for-you-to-implement-in-order-to-define-a-channel"><a href="#trait-for-you-to-implement-in-order-to-define-a-channel">Trait for you to implement in order to define a <code>Channel</code>.</a></h2><h3 id="example"><a href="#example">Example</a></h3>
+<p>This simple example represents a simple chat server that’s
+compatible with the <a href="https://github.com/chrismccord/phoenix_chat_example">phoenix chat
+example</a> – see
+channels/examples/channels.rs in this repo for a runnable example.</p>
+<p>The only behavior we need to implement:</p>
+<ul>
+<li>allow users to join the lobby channel</li>
+<li>broadcast to all users when a new user has joined the lobby</li>
+<li>broadcast all messages sent to the lobby channel to all users
+subscribed to the lobby channel.</li>
+</ul>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>trillium_channels::{channel, ChannelConn, ChannelEvent, ChannelHandler};
+
+<span class="kw">struct </span>ChatChannel;
+<span class="attr">#[trillium::async_trait]
+</span><span class="kw">impl </span>ChannelHandler <span class="kw">for </span>ChatChannel {
+    <span class="kw">async fn </span>join_channel(<span class="kw-2">&amp;</span><span class="self">self</span>, conn: ChannelConn&lt;<span class="lifetime">'_</span>&gt;, event: ChannelEvent) {
+        <span class="kw">match </span>event.topic() {
+            <span class="string">"rooms:lobby" </span>=&gt; {
+                conn.allow_join(<span class="kw-2">&amp;</span>event, <span class="kw-2">&amp;</span>()).<span class="kw">await</span>;
+                conn.broadcast((<span class="string">"rooms:lobby"</span>, <span class="string">"user:entered"</span>));
+            }
+
+            <span class="kw">_ </span>=&gt; {}
+        }
+    }
+
+    <span class="kw">async fn </span>incoming_message(<span class="kw-2">&amp;</span><span class="self">self</span>, conn: ChannelConn&lt;<span class="lifetime">'_</span>&gt;, event: ChannelEvent) {
+        <span class="kw">match </span>(event.topic(), event.event()) {
+            (<span class="string">"rooms:lobby"</span>, <span class="string">"new:msg"</span>) =&gt; conn.broadcast(event),
+            <span class="kw">_ </span>=&gt; {}
+        }
+    }
+}
+
+<span class="comment">// fn main() {
+//     trillium_smol::run(channel(ChatChannel));
+// }</span></code></pre></div>
+</div></details><h2 id="required-methods" class="section-header">Required Methods<a href="#required-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="tymethod.join_channel" class="method"><a class="src rightside" href="../src/trillium_channels/channel_handler.rs.html#75">source</a><h4 class="code-header">fn <a href="#tymethod.join_channel" class="fn">join_channel</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;,
+    event: <a class="struct" href="struct.ChannelEvent.html" title="struct trillium_channels::ChannelEvent">ChannelEvent</a>
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    Self: 'async_trait,
+    'life0: 'async_trait,
+    'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p><code>join_channel</code> is called when a websocket client sends a
+<code>phx_join</code> event. There is no default implementation to ensure
+that you implement the appropriate access control logic for your
+application. If you want clients to be able to connect to any
+channel they request, use this definition:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>join_channel(<span class="kw-2">&amp;</span><span class="self">self</span>, conn: ChannelConn&lt;<span class="lifetime">'_</span>&gt;, event: ChannelEvent) {
+    conn.allow_join(<span class="kw-2">&amp;</span>event, <span class="kw-2">&amp;</span>()).<span class="kw">await</span>;
+}</code></pre></div>
+</div></details></div><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.connect" class="method"><a class="src rightside" href="../src/trillium_channels/channel_handler.rs.html#57">source</a><h4 class="code-header">fn <a href="#method.connect" class="fn">connect</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    Self: 'async_trait,
+    'life0: 'async_trait,
+    'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p><code>connect</code> is called once when each websocket client is connected. The default implementation does nothing.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.leave_channel" class="method"><a class="src rightside" href="../src/trillium_channels/channel_handler.rs.html#82-84">source</a><h4 class="code-header">fn <a href="#method.leave_channel" class="fn">leave_channel</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;,
+    event: <a class="struct" href="struct.ChannelEvent.html" title="struct trillium_channels::ChannelEvent">ChannelEvent</a>
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    Self: 'async_trait,
+    'life0: 'async_trait,
+    'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p><code>leave_channel</code> is called when a websocket client sends a
+<code>phx_leave</code> event. The default implementation is to allow the user
+to leave that channel.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.incoming_message" class="method"><a class="src rightside" href="../src/trillium_channels/channel_handler.rs.html#90">source</a><h4 class="code-header">fn <a href="#method.incoming_message" class="fn">incoming_message</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;,
+    event: <a class="struct" href="struct.ChannelEvent.html" title="struct trillium_channels::ChannelEvent">ChannelEvent</a>
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    Self: 'async_trait,
+    'life0: 'async_trait,
+    'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p><code>incoming_message</code> is called once for each <a href="struct.ChannelEvent.html" title="struct trillium_channels::ChannelEvent"><code>ChannelEvent</code></a> sent
+from a client. The default implementation does nothing.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.disconnect" class="method"><a class="src rightside" href="../src/trillium_channels/channel_handler.rs.html#96">source</a><h4 class="code-header">fn <a href="#method.disconnect" class="fn">disconnect</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    conn: <a class="struct" href="struct.ChannelConn.html" title="struct trillium_channels::ChannelConn">ChannelConn</a>&lt;'life1&gt;
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/nightly/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.unit.html">()</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    Self: 'async_trait,
+    'life0: 'async_trait,
+    'life1: 'async_trait,</div></h4></section></summary><div class="docblock"><p><code>disconnect</code> is called when the websocket client ceases to be
+connected, either gracefully or abruptly.</p>
+</div></details></div><h2 id="object-safety" class="section-header">Object Safety<a href="#object-safety" class="anchor">§</a></h2><div class="object-safety-info">This trait is <b>not</b> <a href="https://doc.rust-lang.org/nightly/reference/items/traits.html#object-safety">object safe</a>.</div><h2 id="implementors" class="section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"></div><script src="../trait.impl/trillium_channels/channel_handler/trait.ChannelHandler.js" async></script></section></div></main></body></html>

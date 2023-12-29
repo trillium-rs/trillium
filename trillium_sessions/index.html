@@ -1,0 +1,84 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Trillium sessions"><title>trillium_sessions - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../static.files/rustdoc-452d19225583af2a.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="trillium_sessions" data-themes="" data-resource-suffix="" data-rustdoc-version="1.77.0-nightly (fb5ed726f 2023-12-28)" data-channel="nightly" data-search-js="search-c17e98913a53b3b7.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../static.files/storage-f2adc0d6ca4d09fb.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-6902632119e002ca.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-feafe1bb7466e4bd.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../trillium_sessions/index.html">trillium_sessions</a><span class="version">0.4.2</span></h2></div><div class="sidebar-elems"><ul class="block">
+            <li><a id="all-types" href="all.html">All Items</a></li></ul><section><ul class="block"><li><a href="#structs">Structs</a></li><li><a href="#traits">Traits</a></li><li><a href="#functions">Functions</a></li></ul></section></div></nav><div class="sidebar-resizer"></div>
+    <main><div class="width-limiter"><nav class="sub"><form class="search-form"><span></span><div id="sidebar-button" tabindex="-1"><a href="../trillium_sessions/all.html" title="show sidebar"></a></div><input class="search-input" name="search" aria-label="Run search in the documentation" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" tabindex="-1"><a href="../help.html" title="help">?</a></div><div id="settings-menu" tabindex="-1"><a href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../static.files/wheel-7b819b6101059cd0.svg"></a></div></form></nav><section id="main-content" class="content"><div class="main-heading"><h1>Crate <a class="mod" href="#">trillium_sessions</a><button id="copy-path" title="Copy item path to clipboard"><img src="../static.files/clipboard-7571035ce49a181d.svg" width="19" height="18" alt="Copy item path"></button></h1><span class="out-of-band"><a class="src" href="../src/trillium_sessions/lib.rs.html#1-122">source</a> · <button id="toggle-all-docs" title="collapse all docs">[<span>&#x2212;</span>]</button></span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><h2 id="trillium-sessions"><a href="#trillium-sessions">Trillium sessions</a></h2>
+<p>Trillium sessions is built on top of
+<a href="https://github.com/http-rs/async-session"><code>async-session</code></a>.</p>
+<p>Sessions allows trillium to securely attach data to a browser session
+allowing for retrieval and modification of this data within trillium
+on subsequent visits. Session data is generally only retained for the
+duration of a browser session.</p>
+<p>Trillium’s session implementation provides guest sessions by default,
+meaning that all web requests to a session-enabled trillium host will
+have a cookie attached, whether or not there is anything stored in
+that client’s session yet.</p>
+<h3 id="stores"><a href="#stores">Stores</a></h3>
+<p>Although this crate provides two bundled session stores, it is highly
+recommended that trillium applications use an
+external-datastore-backed session storage. For a list of currently
+available session stores, see <a href="https://github.com/http-rs/async-session">the documentation for
+async-session</a>.</p>
+<h3 id="security"><a href="#security">Security</a></h3>
+<p>Although each session store may have different security implications,
+the general approach of trillium’s session system is as follows: On
+each request, trillium checks the cookie configurable as <code>cookie_name</code>
+on the handler.</p>
+<h4 id="if-no-cookie-is-found"><a href="#if-no-cookie-is-found">If no cookie is found:</a></h4>
+<p>A cryptographically random cookie value is generated. A cookie is set
+on the outbound response and signed with an HKDF key derived from the
+<code>secret</code> provided on creation of the SessionHandler.  The configurable
+session store uses a SHA256 digest of the cookie value and stores the
+session along with a potential expiry.</p>
+<h4 id="if-a-cookie-is-found"><a href="#if-a-cookie-is-found">If a cookie is found:</a></h4>
+<p>The hkdf derived signing key is used to verify the cookie value’s
+signature. If it verifies, it is then passed to the session store to
+retrieve a Session. For most session stores, this will involve taking
+a SHA256 digest of the cookie value and retrieving a serialized
+Session from an external datastore based on that digest.</p>
+<h4 id="expiry"><a href="#expiry">Expiry</a></h4>
+<p>In addition to setting an expiry on the session cookie, trillium
+sessions include the same expiry in their serialization format. If an
+adversary were able to tamper with the expiry of a cookie, trillium
+sessions would still check the expiry on the contained session before
+using it</p>
+<h4 id="if-anything-goes-wrong-with-the-above-process"><a href="#if-anything-goes-wrong-with-the-above-process">If anything goes wrong with the above process</a></h4>
+<p>If there are any failures in the above session retrieval process, a
+new empty session is generated for the request, which proceeds through
+the application as normal.</p>
+<h3 id="staleexpired-session-cleanup"><a href="#staleexpired-session-cleanup">Stale/expired session cleanup</a></h3>
+<p>Any session store other than the cookie store will accumulate stale
+sessions.  Although the trillium session handler ensures that they
+will not be used as valid sessions, For most session stores, it is the
+trillium application’s responsibility to call cleanup on the session
+store if it requires it</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>trillium::Conn;
+<span class="kw">use </span>trillium_cookies::{CookiesHandler, cookie::Cookie};
+<span class="kw">use </span>trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
+<span class="kw">let </span>session_secret = std::env::var(<span class="string">"TRILLIUM_SESSION_SECRET"</span>).unwrap();
+
+<span class="kw">let </span>handler = (
+    CookiesHandler::new(),
+    SessionHandler::new(MemoryStore::new(), session_secret.as_bytes()),
+    |conn: Conn| <span class="kw">async move </span>{
+        <span class="kw">let </span>count: usize = conn.session().get(<span class="string">"count"</span>).unwrap_or_default();
+        conn.with_session(<span class="string">"count"</span>, count + <span class="number">1</span>)
+            .ok(<span class="macro">format!</span>(<span class="string">"count: {}"</span>, count))
+    },
+);
+
+<span class="kw">use </span>trillium_testing::prelude::<span class="kw-2">*</span>;
+<span class="kw">let </span><span class="kw-2">mut </span>conn = get(<span class="string">"/"</span>).on(<span class="kw-2">&amp;</span>handler);
+<span class="macro">assert_ok!</span>(<span class="kw-2">&amp;mut </span>conn, <span class="string">"count: 0"</span>);
+
+<span class="kw">let </span>set_cookie_header = conn.headers_mut().get_str(<span class="string">"set-cookie"</span>).unwrap();
+<span class="kw">let </span>cookie = Cookie::parse_encoded(set_cookie_header).unwrap();
+
+<span class="kw">let </span>make_request = || get(<span class="string">"/"</span>)
+    .with_request_header(<span class="string">"cookie"</span>, <span class="macro">format!</span>(<span class="string">"{}={}"</span>, cookie.name(), cookie.value()))
+    .on(<span class="kw-2">&amp;</span>handler);
+
+<span class="macro">assert_ok!</span>(make_request(), <span class="string">"count: 1"</span>);
+<span class="macro">assert_ok!</span>(make_request(), <span class="string">"count: 2"</span>);
+<span class="macro">assert_ok!</span>(make_request(), <span class="string">"count: 3"</span>);
+<span class="macro">assert_ok!</span>(make_request(), <span class="string">"count: 4"</span>);</code></pre></div>
+</div></details><h2 id="structs" class="section-header"><a href="#structs">Structs</a></h2><ul class="item-table"><li><div class="item-name"><a class="struct" href="struct.CookieStore.html" title="struct trillium_sessions::CookieStore">CookieStore</a></div><div class="desc docblock-short">A session store that serializes the entire session into a Cookie.</div></li><li><div class="item-name"><a class="struct" href="struct.MemoryStore.html" title="struct trillium_sessions::MemoryStore">MemoryStore</a></div><div class="desc docblock-short">in-memory session store</div></li><li><div class="item-name"><a class="struct" href="struct.Session.html" title="struct trillium_sessions::Session">Session</a></div><div class="desc docblock-short">The main session type.</div></li><li><div class="item-name"><a class="struct" href="struct.SessionHandler.html" title="struct trillium_sessions::SessionHandler">SessionHandler</a></div><div class="desc docblock-short">Handler to enable sessions.</div></li></ul><h2 id="traits" class="section-header"><a href="#traits">Traits</a></h2><ul class="item-table"><li><div class="item-name"><a class="trait" href="trait.SessionConnExt.html" title="trait trillium_sessions::SessionConnExt">SessionConnExt</a></div><div class="desc docblock-short">extension trait to add session support to <a href="../trillium/conn/struct.Conn.html" title="struct trillium::conn::Conn"><code>Conn</code></a></div></li></ul><h2 id="functions" class="section-header"><a href="#functions">Functions</a></h2><ul class="item-table"><li><div class="item-name"><a class="fn" href="fn.sessions.html" title="fn trillium_sessions::sessions">sessions</a></div><div class="desc docblock-short">Alias for <a href="struct.SessionHandler.html#method.new" title="associated function trillium_sessions::SessionHandler::new"><code>SessionHandler::new</code></a></div></li></ul></section></div></main></body></html>

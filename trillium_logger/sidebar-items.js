@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ColorMode","Target"],"fn":["logger"],"mod":["formatters"],"struct":["Logger"],"trait":["LogFormatter","Targetable"]};

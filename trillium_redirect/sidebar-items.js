@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["RedirectStatus"],"fn":["redirect"],"struct":["Redirect"],"trait":["RedirectConnExt"]};

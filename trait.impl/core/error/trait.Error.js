@@ -1,0 +1,6 @@
+(function() {var implementors = {
+"trillium_api":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/error/trait.Error.html\" title=\"trait core::error::Error\">Error</a> for <a class=\"enum\" href=\"trillium_api/enum.Error.html\" title=\"enum trillium_api::Error\">Error</a>"]],
+"trillium_client":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/error/trait.Error.html\" title=\"trait core::error::Error\">Error</a> for <a class=\"struct\" href=\"trillium_client/struct.UnexpectedStatusError.html\" title=\"struct trillium_client::UnexpectedStatusError\">UnexpectedStatusError</a>"]],
+"trillium_http":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/error/trait.Error.html\" title=\"trait core::error::Error\">Error</a> for <a class=\"enum\" href=\"trillium_http/enum.Error.html\" title=\"enum trillium_http::Error\">Error</a>"]],
+"trillium_websockets":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/error/trait.Error.html\" title=\"trait core::error::Error\">Error</a> for <a class=\"enum\" href=\"trillium_websockets/enum.Error.html\" title=\"enum trillium_websockets::Error\">Error</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

@@ -1,0 +1,5 @@
+(function() {var implementors = {
+"trillium_client":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"trillium_client/struct.Conn.html\" title=\"struct trillium_client::Conn\">Conn</a>"]],
+"trillium_server_common":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"trillium_server_common/struct.CloneCounter.html\" title=\"struct trillium_server_common::CloneCounter\">CloneCounter</a>"]],
+"trillium_testing":[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"trillium_testing/struct.RuntimelessServer.html\" title=\"struct trillium_testing::RuntimelessServer\">RuntimelessServer</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

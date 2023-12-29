@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["async_trait"],"enum":["Error","KnownHeaderName","Method","Status","Version"],"fn":["init","state"],"macro":["conn_try","conn_unwrap","delegate_handler","log_error"],"struct":["Body","Conn","HeaderName","HeaderValue","HeaderValues","Headers","HttpConfig","Info","Init","State","StateSet"],"trait":["Handler"],"type":["Upgrade"]};

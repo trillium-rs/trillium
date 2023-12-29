@@ -1,0 +1,175 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Welcome to the `trillium-macros` crate!"><title>trillium_macros - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../static.files/rustdoc-452d19225583af2a.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="trillium_macros" data-themes="" data-resource-suffix="" data-rustdoc-version="1.77.0-nightly (fb5ed726f 2023-12-28)" data-channel="nightly" data-search-js="search-c17e98913a53b3b7.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../static.files/storage-f2adc0d6ca4d09fb.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-6902632119e002ca.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-feafe1bb7466e4bd.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../trillium_macros/index.html">trillium_macros</a><span class="version">0.0.4</span></h2></div><div class="sidebar-elems"><ul class="block">
+            <li><a id="all-types" href="all.html">All Items</a></li></ul><section><ul class="block"><li><a href="#derives">Derive Macros</a></li></ul></section></div></nav><div class="sidebar-resizer"></div>
+    <main><div class="width-limiter"><nav class="sub"><form class="search-form"><span></span><div id="sidebar-button" tabindex="-1"><a href="../trillium_macros/all.html" title="show sidebar"></a></div><input class="search-input" name="search" aria-label="Run search in the documentation" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" tabindex="-1"><a href="../help.html" title="help">?</a></div><div id="settings-menu" tabindex="-1"><a href="../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../static.files/wheel-7b819b6101059cd0.svg"></a></div></form></nav><section id="main-content" class="content"><div class="main-heading"><h1>Crate <a class="mod" href="#">trillium_macros</a><button id="copy-path" title="Copy item path to clipboard"><img src="../static.files/clipboard-7571035ce49a181d.svg" width="19" height="18" alt="Copy item path"></button></h1><span class="out-of-band"><a class="src" href="../src/trillium_macros/lib.rs.html#1-40">source</a> · <button id="toggle-all-docs" title="collapse all docs">[<span>&#x2212;</span>]</button></span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><h2 id="welcome-to-the-trillium-macros-crate"><a href="#welcome-to-the-trillium-macros-crate">Welcome to the <code>trillium-macros</code> crate!</a></h2>
+<p>This crate provides derive macros for <code>Handler</code>, <code>AsyncRead</code>, <code>AsyncWrite</code>, and <code>Transport</code>.</p>
+<h3 id="derivehandler"><a href="#derivehandler"><code>derive(Handler)</code></a></h3>
+<p>This crate currently offers a derive macro for Handler that can be
+used to delegate Handler behavior to a contained Handler
+type. Currently it only works for structs, but will eventually support
+enums as well. Note that it will only delegate to a single inner Handler type.</p>
+<p>In the case of a newtype struct or named struct with only a single
+field, <code>#[derive(Handler)]</code> is all that’s required. If there is more
+than one field in the struct, annotate exactly one of them with
+<code>#[handler]</code>.</p>
+<p>As of v0.0.2, deriving Handler makes an effort at adding Handler
+bounds to generics contained within the <code>#[handler]</code> type. It may be
+overzealous in adding those bounds, in which case you’ll need to
+implement Handler yourself.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="comment">// for these examples, we are using a `&amp;'static str` as the handler type.
+</span><span class="kw">use </span>trillium_macros::Handler;
+
+<span class="attr">#[derive(Handler)]
+</span><span class="kw">struct </span>NewType(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str);
+assert_handler(NewType(<span class="string">"yep"</span>));
+
+<span class="attr">#[derive(Handler)]
+</span><span class="kw">struct </span>TwoTypes(usize, <span class="attr">#[handler] </span><span class="kw-2">&amp;</span><span class="lifetime">'static </span>str);
+assert_handler(TwoTypes(<span class="number">2</span>, <span class="string">"yep"</span>));
+
+<span class="attr">#[derive(Handler)]
+</span><span class="kw">struct </span>NamedSingleField {
+    this_is_the_handler: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+}
+assert_handler(NamedSingleField { this_is_the_handler: <span class="string">"yep" </span>});
+
+
+<span class="attr">#[derive(Handler)]
+</span><span class="kw">struct </span>NamedMultiField {
+    not_handler: usize,
+    <span class="attr">#[handler]
+    </span>inner_handler: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+    also_not_handler: usize,
+}
+
+assert_handler(NamedMultiField {
+    not_handler: <span class="number">1</span>,
+    inner_handler: <span class="string">"yep"</span>,
+    also_not_handler: <span class="number">3</span>,
+});
+
+<span class="attr">#[derive(Handler)]
+</span><span class="kw">struct </span>Generic&lt;G&gt;(G);
+assert_handler(Generic(<span class="string">"hi"</span>));
+assert_handler(Generic(trillium::Status::Ok));
+
+
+<span class="attr">#[derive(Handler)]
+</span><span class="kw">struct </span>ContainsHandler&lt;A, B&gt; {
+    the_handler: (A, B)
+}
+assert_handler(ContainsHandler {
+    the_handler: (<span class="string">"hi"</span>, trillium::Status::Ok)
+});
+</code></pre></div>
+<h4 id="overriding-a-single-trait-function"><a href="#overriding-a-single-trait-function">Overriding a single trait function</a></h4>
+<p>Annotate the handler with a
+<a href="https://docs.rs/trillium/latest/trillium/trait.Handler.html"><code>trillium::Handler</code></a>
+function name <code>#[handler(overrride = FN_NAME)]</code> where <code>FN_NAME</code> is one of
+<code>run</code>, <code>before_send</code>, <code>name</code>, <code>has_upgrade</code>, or <code>upgrade</code>, and
+implement the same signature on Self. The rest of the Handler
+interface will be delegated to the inner Handler, but your custom
+implementation for the specified function will be called instead.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>trillium_macros::Handler;
+
+<span class="attr">#[derive(Handler)]
+</span><span class="kw">struct </span>CustomName {
+    <span class="attr">#[handler(except = name)]
+    </span>inner: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str
+}
+
+<span class="kw">impl </span>CustomName { <span class="comment">// note that this is not a trait impl
+    </span><span class="kw">fn </span>name(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; std::borrow::Cow&lt;<span class="lifetime">'static</span>, str&gt; {
+        <span class="macro">format!</span>(<span class="string">"custom name ({})"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.inner).into()
+    }
+}
+
+<span class="kw">let </span>handler = CustomName { inner: <span class="string">"handler" </span>};
+<span class="macro">assert_eq!</span>(trillium::Handler::name(<span class="kw-2">&amp;</span>handler), <span class="string">"custom name (handler)"</span>);
+assert_handler(handler);</code></pre></div>
+<h4 id="overriding-several-trait-functions"><a href="#overriding-several-trait-functions">Overriding several trait functions</a></h4>
+<p>Annotate the handler with any number of
+<a href="https://docs.rs/trillium/latest/trillium/trait.Handler.html"><code>trillium::Handler</code></a>
+function names <code>#[handler(except = [run, before_send, name, has_upgrade, upgrade])]</code> and implement the trillium Handler signature of that name
+on Self.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>trillium_macros::Handler;
+<span class="kw">use </span>trillium::Handler;
+
+<span class="attr">#[derive(Handler)]
+</span><span class="kw">struct </span>CustomName {
+    <span class="attr">#[handler(except = [run, before_send]</span>)]
+    inner: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str
+}
+
+<span class="kw">impl </span>CustomName { <span class="comment">// note that this is not a trait impl
+    </span><span class="kw">async fn </span>run(<span class="kw-2">&amp;</span><span class="self">self</span>, conn: trillium::Conn) -&gt; trillium::Conn {
+        <span class="comment">// this is an uninspired example but we might do something
+        // before or after running the inner handler here
+        </span><span class="self">self</span>.inner.run(conn).<span class="kw">await
+    </span>}
+
+    <span class="kw">async fn </span>before_send(<span class="kw-2">&amp;</span><span class="self">self</span>, conn: trillium::Conn) -&gt; trillium::Conn {
+        <span class="comment">// this is an uninspired example but we might do something
+        // before or after running the inner handler here
+        </span><span class="self">self</span>.inner.before_send(conn).<span class="kw">await
+    </span>}
+}
+
+<span class="kw">let </span>handler = CustomName { inner: <span class="string">"handler" </span>};
+assert_handler(handler);</code></pre></div>
+<h3 id="deriveasyncread-and-deriveasyncwrite"><a href="#deriveasyncread-and-deriveasyncwrite"><code>derive(AsyncRead)</code> and <code>derive(AsyncWrite)</code></a></h3>
+<p>To ease the development of <code>Transport</code> types, this crate provides proc macros
+to derive <code>AsyncRead</code> and <code>AsyncWrite</code> and delegate them to a field of the
+type.</p>
+<p>To delegate all methods of <code>AsyncRead</code> and <code>AsyncWrite</code> to the corresponding
+methods on a field, mark that field with <code>#[async_io]</code>:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>trillium_http::transport::BoxedTransport;
+<span class="kw">use </span>trillium_macros::{AsyncRead, AsyncWrite};
+<span class="kw">use </span>trillium_server_common::{AsyncRead, AsyncWrite};
+
+<span class="attr">#[derive(Debug, AsyncRead, AsyncWrite)]
+</span><span class="kw">struct </span>TransportWrapper {
+    <span class="attr">#[async_io]
+    </span>inner: BoxedTransport,
+    another_field: u32,
+}</code></pre></div>
+<p>To delegate <code>AsyncRead</code> and <code>AsyncWrite</code> to different fields,
+mark the fields with <code>#[async_read]</code> and <code>#[async_write]</code>, respectively.</p>
+<p>These annotations are optional for structs with a single field.</p>
+<h3 id="derivetransport"><a href="#derivetransport"><code>derive(Transport)</code></a></h3>
+<p>This crate provides a proc macro to derive the <code>Transport</code> type and delegate it
+to a field of the type:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>trillium_http::transport::BoxedTransport;
+<span class="kw">use </span>trillium_macros::{AsyncRead, AsyncWrite, Transport};
+<span class="kw">use </span>trillium_server_common::{AsyncRead, AsyncWrite, Transport};
+
+<span class="attr">#[derive(Debug, AsyncRead, AsyncWrite, Transport)]
+</span><span class="kw">struct </span>TransportWrapper {
+    <span class="attr">#[transport] #[async_io]
+    </span>inner: BoxedTransport,
+    another_field: u32,
+}</code></pre></div>
+<p>This supports the same mechanism that <code>derive(Handler)</code> does for overriding
+individual methods:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>trillium_http::transport::BoxedTransport;
+<span class="kw">use </span>trillium_macros::{AsyncRead, AsyncWrite, Transport};
+<span class="kw">use </span>trillium_server_common::{AsyncRead, AsyncWrite, Transport};
+
+<span class="attr">#[derive(Debug, AsyncRead, AsyncWrite, Transport)]
+</span><span class="kw">struct </span>TransportWrapper {
+    <span class="attr">#[transport(except = peer_addr)] #[async_io]
+    </span>inner: BoxedTransport,
+    another_field: u32,
+}
+
+<span class="kw">impl </span>TransportWrapper { <span class="comment">// note that this is not a trait impl
+    </span><span class="kw">fn </span>peer_addr(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; std::io::Result&lt;<span class="prelude-ty">Option</span>&lt;std::net::SocketAddr&gt;&gt; {
+        <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>)
+    }
+}</code></pre></div>
+</div></details><h2 id="derives" class="section-header"><a href="#derives">Derive Macros</a></h2><ul class="item-table"><li><div class="item-name"><a class="derive" href="derive.AsyncRead.html" title="derive trillium_macros::AsyncRead">AsyncRead</a></div></li><li><div class="item-name"><a class="derive" href="derive.AsyncWrite.html" title="derive trillium_macros::AsyncWrite">AsyncWrite</a></div></li><li><div class="item-name"><a class="derive" href="derive.Handler.html" title="derive trillium_macros::Handler">Handler</a></div><div class="desc docblock-short">see crate docs</div></li><li><div class="item-name"><a class="derive" href="derive.Transport.html" title="derive trillium_macros::Transport">Transport</a></div></li></ul></section></div></main></body></html>

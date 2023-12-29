@@ -1,0 +1,5 @@
+(function() {var implementors = {
+"trillium_native_tls":[["impl&lt;Input&gt; Acceptor&lt;Input&gt; for <a class=\"struct\" href=\"trillium_native_tls/struct.NativeTlsAcceptor.html\" title=\"struct trillium_native_tls::NativeTlsAcceptor\">NativeTlsAcceptor</a><div class=\"where\">where\n    Input: Transport,</div>"]],
+"trillium_rustls":[["impl&lt;Input&gt; <a class=\"trait\" href=\"trillium_server_common/acceptor/trait.Acceptor.html\" title=\"trait trillium_server_common::acceptor::Acceptor\">Acceptor</a>&lt;Input&gt; for <a class=\"struct\" href=\"trillium_rustls/struct.RustlsAcceptor.html\" title=\"struct trillium_rustls::RustlsAcceptor\">RustlsAcceptor</a><div class=\"where\">where\n    Input: <a class=\"trait\" href=\"trillium_http/transport/trait.Transport.html\" title=\"trait trillium_http::transport::Transport\">Transport</a>,</div>"]],
+"trillium_server_common":[]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

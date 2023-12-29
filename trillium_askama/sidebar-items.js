@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"derive":["Template"],"trait":["AskamaConnExt","Template"]};

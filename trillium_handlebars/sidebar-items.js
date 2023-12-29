@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["Assigns","Handlebars","HandlebarsHandler"],"trait":["HandlebarsConnExt"]};

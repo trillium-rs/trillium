@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["conn_id"],"mod":["log_formatter"],"struct":["ConnId"],"trait":["ConnIdExt"]};

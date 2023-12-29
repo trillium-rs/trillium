@@ -1,0 +1,4 @@
+(function() {var implementors = {
+"trillium_api":[["impl&lt;'de&gt; <a class=\"trait\" href=\"https://docs.rs/serde/1.0.193/serde/de/trait.Deserialize.html\" title=\"trait serde::de::Deserialize\">Deserialize</a>&lt;'de&gt; for <a class=\"enum\" href=\"trillium_api/enum.Error.html\" title=\"enum trillium_api::Error\">Error</a>"]],
+"trillium_channels":[["impl&lt;'de&gt; <a class=\"trait\" href=\"https://docs.rs/serde/1.0.193/serde/de/trait.Deserialize.html\" title=\"trait serde::de::Deserialize\">Deserialize</a>&lt;'de&gt; for <a class=\"struct\" href=\"trillium_channels/struct.ChannelEvent.html\" title=\"struct trillium_channels::ChannelEvent\">ChannelEvent</a>"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
