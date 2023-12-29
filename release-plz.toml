@@ -1,8 +1,2 @@
 [workspace]
-[[package]]
-name = "trillium-rustls"
-allow_dirty = true
-
-[[package]]
-name = "trillium-native-tls"
 allow_dirty = true
