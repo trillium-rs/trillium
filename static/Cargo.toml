@@ -25,7 +25,7 @@ async-fs = { version = "2.1.0", optional = true }
 cfg-if = "1.0.0"
 futures-lite = "2.1.0"
 log = "0.4.20"
-relative-path = "1.9.0"
+relative-path = "1.9.2"
 trillium = { path = "../trillium", version = "0.2.0" }
 mime_guess = "2.0.4"
 httpdate = "1.0.3"

@@ -12,7 +12,6 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 colored = "2.1.0"
-is-terminal = "0.4.9"
 log = "0.4.20"
 size = "0.4.1"
 time = { version = "0.3.31", features = ["local-offset", "formatting", "macros"] }
