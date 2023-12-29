@@ -76,16 +76,8 @@ impl Client {
 
     /// chainable method to remove a header from default request headers
     pub fn without_default_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
-        self.remove_default_header(name);
+        self.default_headers_mut().remove(name);
         self
-    }
-
-    /// remove a header from default request headers
-    ///
-    /// If there are multiple clones of this client before changing default headers, those will not
-    /// propagate to other clones. Changes _will_ propagate to clones made after this change
-    pub fn remove_default_header(&mut self, name: impl Into<HeaderName<'static>>) {
-        Arc::make_mut(&mut self.default_headers).remove(name);
     }
 
     /// chainable method to insert a new default request header, replacing any existing value
@@ -94,20 +86,20 @@ impl Client {
         name: impl Into<HeaderName<'static>>,
         value: impl Into<HeaderValues>,
     ) -> Self {
-        self.insert_default_header(name, value);
+        self.default_headers_mut().insert(name, value);
         self
     }
 
-    /// insert a new default request header, replacing any existing value.
+    /// borrow the default headers
+    pub fn default_headers(&self) -> &Headers {
+        &self.default_headers
+    }
+
+    /// borrow the default headers mutably
     ///
-    /// If there are multiple clones of this client before changing default headers, those will not
-    /// propagate to other clones. Changes _will_ propagate to clones made after this change
-    pub fn insert_default_header(
-        &mut self,
-        name: impl Into<HeaderName<'static>>,
-        value: impl Into<HeaderValues>,
-    ) {
-        Arc::make_mut(&mut self.default_headers).insert(name, value);
+    /// calling this will copy-on-write if the default headers are shared with another client clone
+    pub fn default_headers_mut(&mut self) -> &mut Headers {
+        Arc::make_mut(&mut self.default_headers)
     }
 
     /**
