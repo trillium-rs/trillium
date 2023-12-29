@@ -51,9 +51,6 @@ mod util;
 
 pub use trillium_server_common::Connector;
 
-mod client_like;
-pub use client_like::ClientLike;
-
 /// constructs a new [`Client`] -- alias for [`Client::new`]
 pub fn client(connector: impl Connector) -> Client {
     Client::new(connector)
