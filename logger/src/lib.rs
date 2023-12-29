@@ -10,8 +10,7 @@
 Welcome to the trillium logger!
 */
 pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
-use is_terminal::IsTerminal;
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, io::IsTerminal, sync::Arc};
 use trillium::{async_trait, Conn, Handler, Info};
 /**
 Components with which common log formats can be constructed
