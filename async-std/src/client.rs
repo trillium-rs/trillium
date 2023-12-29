@@ -1,7 +1,11 @@
 use crate::AsyncStdTransport;
 use async_std::net::TcpStream;
-use std::{future::Future, io::Result};
-use trillium_server_common::{async_trait, Connector, Url};
+use std::{
+    future::Future,
+    io::{Error, ErrorKind, Result},
+};
+use trillium_server_common::{async_trait, Connector, Transport, Url};
+use url::Host;
 
 /**
 configuration for the tcp Connector
@@ -42,26 +46,37 @@ impl Connector for ClientConfig {
     type Transport = AsyncStdTransport<TcpStream>;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
-        let socket_addrs = url.socket_addrs(|| None)?;
-
         if url.scheme() != "http" {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
                 format!("unknown scheme {}", url.scheme()),
-            ))
-        } else {
-            let tcp = TcpStream::connect(&socket_addrs[..]).await?;
-
-            if let Some(nodelay) = self.nodelay {
-                tcp.set_nodelay(nodelay)?;
-            }
-
-            if let Some(ttl) = self.ttl {
-                tcp.set_ttl(ttl)?;
-            }
-
-            Ok(AsyncStdTransport::from(tcp))
+            ));
         }
+
+        let host = url
+            .host()
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, format!("{url} missing host")))?;
+
+        let port = url
+            .port_or_known_default()
+            // this should be ok because we already checked that the scheme is http, which has a default port
+            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, format!("{url} missing port")))?;
+
+        let mut tcp = match host {
+            Host::Domain(domain) => Self::Transport::connect((domain, port)).await?,
+            Host::Ipv4(ip) => Self::Transport::connect((ip, port)).await?,
+            Host::Ipv6(ip) => Self::Transport::connect((ip, port)).await?,
+        };
+
+        if let Some(nodelay) = self.nodelay {
+            tcp.set_nodelay(nodelay)?;
+        }
+
+        if let Some(ttl) = self.ttl {
+            tcp.set_ip_ttl(ttl)?;
+        }
+
+        Ok(tcp)
     }
 
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
