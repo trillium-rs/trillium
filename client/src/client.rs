@@ -1,6 +1,8 @@
-use crate::{Conn, IntoUrl, Pool};
+use crate::{Conn, IntoUrl, Pool, USER_AGENT};
 use std::{convert::TryInto, fmt::Debug, sync::Arc};
-use trillium_http::{transport::BoxedTransport, Method};
+use trillium_http::{
+    transport::BoxedTransport, HeaderName, HeaderValues, Headers, KnownHeaderName, Method,
+};
 use trillium_server_common::{Connector, ObjectSafeConnector, Url};
 use url::Origin;
 
@@ -14,6 +16,7 @@ pub struct Client {
     config: Arc<dyn ObjectSafeConnector>,
     pool: Option<Pool<Origin, BoxedTransport>>,
     base: Option<Arc<Url>>,
+    default_headers: Arc<Headers>,
 }
 
 macro_rules! method {
@@ -53,6 +56,13 @@ assert_eq!(conn.url().to_string(), \"http://localhost:8080/some/route\");
         }
     };
 }
+
+pub(crate) fn default_request_headers() -> Headers {
+    Headers::new()
+        .with_inserted_header(KnownHeaderName::UserAgent, USER_AGENT)
+        .with_inserted_header(KnownHeaderName::Accept, "*/*")
+}
+
 impl Client {
     /// builds a new client from this `Connector`
     pub fn new(config: impl Connector) -> Self {
@@ -60,7 +70,44 @@ impl Client {
             config: config.arced(),
             pool: None,
             base: None,
+            default_headers: Arc::new(default_request_headers()),
         }
+    }
+
+    /// chainable method to remove a header from default request headers
+    pub fn without_default_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
+        self.remove_default_header(name);
+        self
+    }
+
+    /// remove a header from default request headers
+    ///
+    /// If there are multiple clones of this client before changing default headers, those will not
+    /// propagate to other clones. Changes _will_ propagate to clones made after this change
+    pub fn remove_default_header(&mut self, name: impl Into<HeaderName<'static>>) {
+        Arc::make_mut(&mut self.default_headers).remove(name);
+    }
+
+    /// chainable method to insert a new default request header, replacing any existing value
+    pub fn with_default_header(
+        mut self,
+        name: impl Into<HeaderName<'static>>,
+        value: impl Into<HeaderValues>,
+    ) -> Self {
+        self.insert_default_header(name, value);
+        self
+    }
+
+    /// insert a new default request header, replacing any existing value.
+    ///
+    /// If there are multiple clones of this client before changing default headers, those will not
+    /// propagate to other clones. Changes _will_ propagate to clones made after this change
+    pub fn insert_default_header(
+        &mut self,
+        name: impl Into<HeaderName<'static>>,
+        value: impl Into<HeaderValues>,
+    ) {
+        Arc::make_mut(&mut self.default_headers).insert(name, value);
     }
 
     /**
@@ -109,6 +156,7 @@ impl Client {
             Arc::clone(&self.config),
             method.try_into().unwrap(),
             self.build_url(url).unwrap(),
+            Headers::clone(&self.default_headers),
         );
 
         if let Some(pool) = &self.pool {
