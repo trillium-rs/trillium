@@ -1,4 +1,4 @@
-use crate::{ClientLike, Conn, Pool};
+use crate::{Conn, Pool};
 use std::{convert::TryInto, fmt::Debug, sync::Arc};
 use trillium_http::{transport::BoxedTransport, Method};
 use trillium_server_common::{Connector, ObjectSafeConnector, Url};
@@ -143,11 +143,5 @@ impl Client {
 impl<T: Connector> From<T> for Client {
     fn from(connector: T) -> Self {
         Self::new(connector)
-    }
-}
-
-impl ClientLike for Client {
-    fn build_conn(&self, method: Method, url: Url) -> Conn {
-        Client::build_conn(self, method, url)
     }
 }
