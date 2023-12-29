@@ -55,3 +55,6 @@ pub use trillium_server_common::{async_trait, Connector, Url};
 pub fn client(connector: impl Connector) -> Client {
     Client::new(connector)
 }
+
+mod into_url;
+pub use into_url::IntoUrl;
