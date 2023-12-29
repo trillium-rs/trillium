@@ -27,7 +27,6 @@ jobs:
           RUSTDOCFLAGS="-Z unstable-options --enable-index-page"
           cargo +nightly doc
           --no-deps
-          --all
           --features smol,trillium-testing/smol
           --all
       - name: Setup Pages
