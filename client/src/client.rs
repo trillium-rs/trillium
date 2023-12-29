@@ -1,4 +1,4 @@
-use crate::{Conn, Pool};
+use crate::{Conn, IntoUrl, Pool};
 use std::{convert::TryInto, fmt::Debug, sync::Arc};
 use trillium_http::{transport::BoxedTransport, Method};
 use trillium_server_common::{Connector, ObjectSafeConnector, Url};
@@ -13,6 +13,7 @@ conns.
 pub struct Client {
     config: Arc<dyn ObjectSafeConnector>,
     pool: Option<Pool<Origin, BoxedTransport>>,
+    base: Option<Arc<Url>>,
 }
 
 macro_rules! method {
@@ -47,11 +48,7 @@ assert_eq!(conn.url().to_string(), \"http://localhost:8080/some/route\");
 
     ($fn_name:ident, $method:ident, $doc_comment:expr) => {
         #[doc = $doc_comment]
-        pub fn $fn_name<U>(&self, url: U) -> Conn
-        where
-            <U as TryInto<Url>>::Error: Debug,
-            U: TryInto<Url>,
-        {
+        pub fn $fn_name(&self, url: impl IntoUrl) -> Conn {
             self.build_conn(Method::$method, url)
         }
     };
@@ -62,6 +59,7 @@ impl Client {
         Self {
             config: config.arced(),
             pool: None,
+            base: None,
         }
     }
 
@@ -102,17 +100,15 @@ impl Client {
     assert_eq!(conn.url().host_str().unwrap(), "trillium.rs");
     ```
     */
-    pub fn build_conn<M, U>(&self, method: M, url: U) -> Conn
+    pub fn build_conn<M>(&self, method: M, url: impl IntoUrl) -> Conn
     where
         M: TryInto<Method>,
         <M as TryInto<Method>>::Error: Debug,
-        U: TryInto<Url>,
-        <U as TryInto<Url>>::Error: Debug,
     {
         let mut conn = Conn::new_with_config(
             Arc::clone(&self.config),
             method.try_into().unwrap(),
-            url.try_into().unwrap(),
+            self.build_url(url).unwrap(),
         );
 
         if let Some(pool) = &self.pool {
@@ -131,6 +127,35 @@ impl Client {
         if let Some(pool) = &self.pool {
             pool.cleanup();
         }
+    }
+
+    /// chainable method to set the base for this client
+    pub fn with_base(mut self, base: impl IntoUrl) -> Self {
+        self.set_base(base).unwrap();
+        self
+    }
+
+    /// retrieve the base for this client, if any
+    pub fn base(&self) -> Option<&Url> {
+        self.base.as_deref()
+    }
+
+    /// attempt to build a url from this IntoUrl and the [`Client::base`], if set
+    pub fn build_url(&self, url: impl IntoUrl) -> crate::Result<Url> {
+        url.into_url(self.base())
+    }
+
+    /// set the base for this client
+    pub fn set_base(&mut self, base: impl IntoUrl) -> crate::Result<()> {
+        let mut base = base.into_url(None)?;
+
+        if !base.path().ends_with('/') {
+            log::warn!("appending a trailing / to {base}");
+            base.set_path(&format!("{}/", base.path()));
+        }
+
+        self.base = Some(Arc::new(base));
+        Ok(())
     }
 
     method!(get, Get);
