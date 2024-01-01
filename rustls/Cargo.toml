@@ -17,7 +17,7 @@ native-roots = ["dep:rustls-native-certs"]
 [dependencies]
 async-rustls = "0.4.0"
 log = "0.4.19"
-rustls = "0.21.0"
+rustls = "0.22.1"
 rustls-native-certs = { version = "0.6.2", optional = true }
 rustls-pemfile = "1.0.2"
 rustls-webpki = "0.100.1"
