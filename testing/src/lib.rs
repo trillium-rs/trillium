@@ -66,6 +66,7 @@ mod assertions;
 
 mod test_transport;
 use std::future::{Future, IntoFuture};
+use std::process::Termination;
 
 pub use test_transport::TestTransport;
 
@@ -240,10 +241,11 @@ pub type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// a test harness for use with [`test_harness`]
 #[track_caller]
-pub fn harness<F, Fut>(test: F)
+pub fn harness<F, Fut, Output>(test: F) -> Output
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = TestResult>,
+    Fut: Future<Output = Output>,
+    Output: Termination,
 {
-    block_on(test()).unwrap();
+    block_on(test())
 }
