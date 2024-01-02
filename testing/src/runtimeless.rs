@@ -105,7 +105,7 @@ mod test {
     use super::*;
     use crate::{harness, TestResult};
     use test_harness::test;
-    #[test(harness = harness)]
+    #[test(harness)]
     async fn round_trip() -> TestResult {
         let handle1 = Config::<RuntimelessServer, ()>::new()
             .with_host("host.com")

@@ -18,7 +18,7 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
     conn
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn one_hundred_continue() -> TestResult {
     let (client, server) = TestTransport::new();
 
@@ -56,7 +56,7 @@ async fn one_hundred_continue() -> TestResult {
     Ok(())
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn one_hundred_continue_http_one_dot_zero() -> TestResult {
     let (client, server) = TestTransport::new();
 
