@@ -150,13 +150,19 @@ pub trait Server: Sized + Send + Sync + 'static {
             info.server_description_mut().push_str(Self::DESCRIPTION);
             handler.init(&mut info).await;
             config.info.set(info);
-
+            let config = Arc::new(config);
             let handler = Arc::new(handler);
-            let stopper = config.stopper.clone();
-            while let Some(stream) = stopper.stop_future(Self::accept(&mut listener)).await {
+
+            while let Some(stream) = config
+                .stopper
+                .stop_future(Self::accept(&mut listener))
+                .await
+            {
                 match stream {
                     Ok(stream) => {
-                        Self::spawn(config.clone().handle_stream(stream, handler.clone()))
+                        let config = Arc::clone(&config);
+                        let handler = Arc::clone(&handler);
+                        Self::spawn(async move { config.handle_stream(stream, handler).await })
                     }
                     Err(e) => log::error!("tcp error: {}", e),
                 }
