@@ -22,6 +22,7 @@ use std::{
     net::IpAddr,
     pin::pin,
     str::FromStr,
+    sync::Arc,
     time::{Instant, SystemTime},
 };
 
@@ -52,6 +53,7 @@ pub struct Conn<Transport> {
     pub(crate) start_time: Instant,
     pub(crate) peer_ip: Option<IpAddr>,
     pub(crate) http_config: HttpConfig,
+    pub(crate) shared_state: Option<Arc<StateSet>>,
 }
 
 impl<Transport> Debug for Conn<Transport> {
@@ -65,6 +67,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("status", &self.status)
             .field("version", &self.version)
             .field("state", &self.state)
+            .field("shared_state", &self.shared_state)
             .field("response_body", &self.response_body)
             .field("transport", &"..")
             .field("buffer", &"..")
@@ -139,19 +142,57 @@ where
         http_config: HttpConfig,
         transport: Transport,
         stopper: Stopper,
+        handler: F,
+    ) -> Result<Option<Upgrade<Transport>>>
+    where
+        F: FnMut(Conn<Transport>) -> Fut,
+        Fut: Future<Output = Conn<Transport>> + Send,
+    {
+        Self::map_with_config_and_shared_state(http_config, transport, stopper, None, handler).await
+    }
+
+    /// read any number of new `Conn`s from the transport and call the
+    /// provided handler function until either the connection is closed or
+    /// an upgrade is requested. A return value of Ok(None) indicates a
+    /// closed connection, while a return value of Ok(Some(upgrade))
+    /// represents an upgrade.
+    ///
+    /// The `shared_state` `Arc<Stateset>` is available provided to all Conns on this transport if
+    /// provided.
+    ///
+    /// See the documentation for [`Conn`] for a full example.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error variant if:
+    ///
+    /// * there is an io error when reading from the underlying transport
+    /// * headers are too long
+    /// * we are unable to parse some aspect of the request
+    /// * the request is an unsupported http version
+    /// * we cannot make sense of the headers, such as if there is a
+    /// `content-length` header as well as a `transfer-encoding: chunked`
+    /// header.
+    pub async fn map_with_config_and_shared_state<F, Fut>(
+        http_config: HttpConfig,
+        transport: Transport,
+        stopper: Stopper,
+        shared_state: Option<Arc<StateSet>>,
         mut handler: F,
     ) -> Result<Option<Upgrade<Transport>>>
     where
         F: FnMut(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>> + Send,
     {
-        let mut conn = Conn::new_with_config(
+        let mut conn = Conn::new_internal(
             http_config,
             transport,
             Vec::with_capacity(http_config.request_buffer_initial_len).into(),
             stopper,
+            shared_state,
         )
         .await?;
+
         loop {
             conn = match handler(conn).await.send().await? {
                 ConnectionStatus::Upgrade(upgrade) => return Ok(Some(upgrade)),
@@ -198,6 +239,15 @@ where
     /// than a `trillium_http` concern
     pub fn state_mut(&mut self) -> &mut StateSet {
         &mut self.state
+    }
+
+    /// Returns the shared state on this conn, if set
+    ///
+    /// stability note: this is not unlikely to be removed at some
+    /// point, as this may end up being more of a trillium concern
+    /// than a `trillium_http` concern
+    pub fn shared_state(&self) -> Option<&StateSet> {
+        self.shared_state.as_deref()
     }
 
     /// returns a reference to the request headers
@@ -558,33 +608,15 @@ where
     /// `content-length` header as well as a `transfer-encoding: chunked`
     /// header.
     pub async fn new(transport: Transport, bytes: Vec<u8>, stopper: Stopper) -> Result<Self> {
-        Self::new_with_config(DEFAULT_CONFIG, transport, bytes.into(), stopper).await
+        Self::new_internal(DEFAULT_CONFIG, transport, bytes.into(), stopper, None).await
     }
 
-    /// # Create a new `Conn`
-    ///
-    /// This function creates a new conn from the provided
-    /// [`Transport`][crate::transport::Transport], as well as any
-    /// bytes that have already been read from the transport, and a
-    /// [`Stopper`] instance that will be used to signal graceful
-    /// shutdown.
-    ///
-    /// # Errors
-    ///
-    /// This will return an error variant if:
-    ///
-    /// * there is an io error when reading from the underlying transport
-    /// * headers are too long
-    /// * we are unable to parse some aspect of the request
-    /// * the request is an unsupported http version
-    /// * we cannot make sense of the headers, such as if there is a
-    /// `content-length` header as well as a `transfer-encoding: chunked`
-    /// header.
-    async fn new_with_config(
+    async fn new_internal(
         http_config: HttpConfig,
         mut transport: Transport,
         mut buffer: Buffer,
         stopper: Stopper,
+        shared_state: Option<Arc<StateSet>>,
     ) -> Result<Self> {
         let (head_size, start_time) =
             Self::head(&mut transport, &mut buffer, &stopper, &http_config).await?;
@@ -651,6 +683,7 @@ where
             start_time,
             peer_ip: None,
             http_config,
+            shared_state,
         })
     }
 
@@ -792,7 +825,14 @@ where
         if !self.needs_100_continue() || self.request_body_state != ReceivedBodyState::Start {
             self.build_request_body().drain().await?;
         }
-        Conn::new_with_config(self.http_config, self.transport, self.buffer, self.stopper).await
+        Conn::new_internal(
+            self.http_config,
+            self.transport,
+            self.buffer,
+            self.stopper,
+            self.shared_state,
+        )
+        .await
     }
 
     fn should_close(&self) -> bool {
@@ -920,6 +960,7 @@ where
             start_time,
             peer_ip,
             http_config,
+            shared_state,
         } = self;
 
         Conn {
@@ -940,6 +981,7 @@ where
             start_time,
             peer_ip,
             http_config,
+            shared_state,
         }
     }
 
