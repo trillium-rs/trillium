@@ -85,6 +85,11 @@ impl StateSet {
             .downcast_mut()
             .expect("StateSet maintains the invariant the value associated with a given TypeId is always the type associated with that TypeId.")
     }
+
+    /// merge another `StateSet` into this one, overwriting any duplicates
+    pub fn merge(&mut self, other: StateSet) {
+        self.0.extend(other.0);
+    }
 }
 
 impl fmt::Debug for StateSet {
