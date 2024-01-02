@@ -48,25 +48,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
           components: rustfmt, clippy
-          override: true
-
-      - uses: actions-rs/clippy-check@v1
+      - uses: giraffate/clippy-action@v1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features
-
+          reporter: 'github-pr-review'
       - name: Format
         run: cargo fmt --all -- --check
-
       - name: Run cargo-udeps
         uses: aig787/cargo-udeps-action@v1
         with:
           version: latest
           args: --all-targets
-
       - name: Docs
-        run: cargo doc --no-deps --features smol,trillium-testing/smol
+        run: cargo doc --no-deps
