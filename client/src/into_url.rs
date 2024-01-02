@@ -33,3 +33,10 @@ impl IntoUrl for &str {
         }
     }
 }
+
+impl IntoUrl for String {
+    #[inline(always)]
+    fn into_url(self, base: Option<&Url>) -> Result<Url> {
+        self.as_str().into_url(base)
+    }
+}
