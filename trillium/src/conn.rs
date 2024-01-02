@@ -239,6 +239,11 @@ impl Conn {
         self.inner.state().get()
     }
 
+    /// Attempts to receive a &T from the shared state set
+    pub fn shared_state<T: 'static>(&self) -> Option<&T> {
+        self.inner.shared_state().and_then(StateSet::get)
+    }
+
     /// Attempts to retrieve a &mut T from the state set
     pub fn state_mut<T: 'static>(&mut self) -> Option<&mut T> {
         self.inner.state_mut().get_mut()
