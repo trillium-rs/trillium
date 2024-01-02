@@ -1,6 +1,6 @@
 [package]
 name = "trillium-static"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "filesystem-backed static assets for trillium.rs"
@@ -26,7 +26,7 @@ cfg-if = "1.0.0"
 futures-lite = "2.1.0"
 log = "0.4.20"
 relative-path = "1.9.2"
-trillium = { path = "../trillium", version = "0.2.0" }
+trillium = { path = "../trillium", version = "0.2.12" }
 mime_guess = "2.0.4"
 httpdate = "1.0.3"
 etag = { version = "4.0.0", features = ["std"] }

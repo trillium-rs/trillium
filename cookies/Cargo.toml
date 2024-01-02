@@ -1,5 +1,5 @@
 [package]
-version = "0.4.0"
+version = "0.4.1"
 name = "trillium-cookies"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 log = "0.4.20"
-trillium = { path = "../trillium", version = "0.2.0"}
+trillium = { path = "../trillium", version = "0.2.12" }
 
 [dependencies.cookie]
 version = "0.18.0"
