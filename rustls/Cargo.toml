@@ -27,7 +27,7 @@ webpki-roots = "0.23"
 [dev-dependencies]
 env_logger = "0.10.1"
 portpicker = "0.1.1"
-test-harness = "0.1.1"
+test-harness = "0.2.0"
 trillium = { path = "../trillium" }
 trillium-client = { path = "../client" }
 trillium-native-tls = { path = "../native-tls" }
