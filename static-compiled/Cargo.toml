@@ -1,6 +1,6 @@
 [package]
 name = "trillium-static-compiled"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "compile-time static assets for trillium.rs"
@@ -14,9 +14,9 @@ categories = ["web-programming::http-server", "web-programming"]
 log = "0.4.20"
 mime = "0.3.17"
 mime_guess = "2.0.4"
-trillium = { path = "../trillium", version = "0.2.0" }
+trillium = { path = "../trillium", version = "0.2.12" }
 httpdate = "1.0.3"
-trillium-static-compiled-macros = { path = "../static-compiled-macros", version = "0.1.0" }
+trillium-static-compiled-macros = { path = "../static-compiled-macros", version = "0.1.1" }
 
 [dev-dependencies]
 trillium-caching-headers = { path = "../caching-headers" }
