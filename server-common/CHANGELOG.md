@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.4.6...trillium-server-common-v0.4.7) - 2024-01-02
+
+### Other
+- Update test-harness requirement from 0.1.1 to 0.2.0
+
 ## [0.4.6](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.4.5...trillium-server-common-v0.4.6) - 2024-01-02
 
 ### Other

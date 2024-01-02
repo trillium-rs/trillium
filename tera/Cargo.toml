@@ -15,7 +15,7 @@ log = "0.4.20"
 mime-db = "1.7.0"
 serde = "1.0.193"
 tera = "1.19.1"
-trillium = { path = "../trillium", version = "0.2.12" }
+trillium = { path = "../trillium", version = "0.2.13" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

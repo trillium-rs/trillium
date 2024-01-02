@@ -1,6 +1,6 @@
 [package]
 name = "trillium-server-common"
-version = "0.4.6"
+version = "0.4.7"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "server utilities for trillium.rs"
@@ -17,8 +17,8 @@ event-listener = "4.0.1"
 futures-lite = "2.1.0"
 log = "0.4.20"
 pin-project-lite = "0.2.13"
-trillium = { path = "../trillium", version = "0.2.12" }
-trillium-http = { path = "../http", version = "0.3.10" }
+trillium = { path = "../trillium", version = "0.2.13" }
+trillium-http = { path = "../http", version = "0.3.11" }
 url = "2.5.0"
 
 [target.'cfg(unix)'.dependencies]

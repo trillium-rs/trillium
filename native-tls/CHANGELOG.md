@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/trillium-rs/trillium/compare/trillium-native-tls-v0.3.1...trillium-native-tls-v0.3.2) - 2024-01-02
+
+### Other
+- updated the following local packages: trillium-server-common
+
 ## [0.3.1](https://github.com/trillium-rs/trillium/compare/trillium-native-tls-v0.3.0...trillium-native-tls-v0.3.1) - 2024-01-02
 
 ### Fixed

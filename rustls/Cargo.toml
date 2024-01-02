@@ -1,6 +1,6 @@
 [package]
 name = "trillium-rustls"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "rustls adapter for trillium.rs"
@@ -21,7 +21,7 @@ rustls = "0.21.0"
 rustls-native-certs = { version = "0.6.2", optional = true }
 rustls-pemfile = "1.0.2"
 rustls-webpki = "0.100.1"
-trillium-server-common = { path = "../server-common", version = "0.4.6" }
+trillium-server-common = { path = "../server-common", version = "0.4.7" }
 webpki-roots = "0.23"
 
 [dev-dependencies]
