@@ -10,9 +10,6 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
-[package.metadata.docs.rs]
-features = ["smol"]
-
 [features]
 async-std = ["async_std_crate"]
 default = []

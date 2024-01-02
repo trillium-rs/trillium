@@ -78,7 +78,7 @@ impl StaticConnExt for Conn {
                 .try_insert(KnownHeaderName::Etag, etag.to_string());
         }
 
-        #[cfg(all(feature = "tokio", not(feature = "smol"), not(feature = "async-std")))]
+        #[cfg(feature = "tokio")]
         let file = async_compat::Compat::new(file);
 
         self.ok(Body::new_streaming(file, Some(metadata.len())))
