@@ -57,12 +57,12 @@ where
     /// waits for the last clone of the [`CloneCounter`][crate::CloneCounter] in this
     /// config to drop, indicating that all outstanding requests are
     /// complete
-    async fn graceful_shutdown(self);
+    async fn graceful_shutdown(&self);
 
     /// apply the provided handler to the transport, using
     /// [`trillium_http`]'s http implementation. this is the default inner
     /// loop for most trillium servers
-    async fn handle_stream(self, stream: ServerType::Transport, handler: impl Handler);
+    async fn handle_stream(&self, stream: ServerType::Transport, handler: impl Handler);
 
     /// builds any type that is TryFrom<std::net::TcpListener> and
     /// configures it for use. most trillium servers should use this if
@@ -131,7 +131,7 @@ where
         &self.observer
     }
 
-    async fn graceful_shutdown(self) {
+    async fn graceful_shutdown(&self) {
         let current = self.observer.current();
         if current > 0 {
             log::info!(
@@ -139,12 +139,12 @@ where
                 current,
                 if current == 1 { "" } else { "s" }
             );
-            self.observer.await;
+            self.observer.clone().await;
             log::info!("all done!")
         }
     }
 
-    async fn handle_stream(self, mut stream: ServerType::Transport, handler: impl Handler) {
+    async fn handle_stream(&self, mut stream: ServerType::Transport, handler: impl Handler) {
         if self.over_capacity() {
             let mut byte = [0u8]; // wait for the client to start requesting
             trillium::log_error!(stream.read(&mut byte).await);
