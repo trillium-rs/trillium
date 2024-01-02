@@ -1,6 +1,6 @@
 [package]
 name = "trillium-tera"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "tera template handler for trillium.rs"
@@ -15,7 +15,7 @@ log = "0.4.20"
 mime-db = "1.7.0"
 serde = "1.0.193"
 tera = "1.19.1"
-trillium = { path = "../trillium", version = "0.2.0" }
+trillium = { path = "../trillium", version = "0.2.12" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

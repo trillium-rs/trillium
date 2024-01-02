@@ -1,6 +1,6 @@
 [package]
 name = "trillium-http"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2021"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 description = "the http implementation for the trillium toolkit"
@@ -33,7 +33,7 @@ smartcow = "0.2.1"
 smartstring = "1.0.1"
 stopper = "0.2.3"
 thiserror = "1.0.52"
-trillium-macros = { version = "0.0.4", path = "../macros" }
+trillium-macros = { version = "0.0.5", path = "../macros" }
 
 [dev-dependencies]
 async-compat = "0.2.3"
