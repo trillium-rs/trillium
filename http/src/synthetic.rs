@@ -162,6 +162,7 @@ impl Conn<Synthetic> {
             start_time: Instant::now(),
             peer_ip: None,
             http_config: DEFAULT_CONFIG,
+            shared_state: None,
         }
     }
 
