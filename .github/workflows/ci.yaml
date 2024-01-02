@@ -19,9 +19,9 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
         rust: [stable]
         features:
-          - "--features smol,trillium-testing/smol"
-          - "--features tokio,trillium-testing/tokio"
-          - "--features async-std,trillium-testing/async-std"
+          - "--features trillium-static/smol,trillium-testing/smol"
+          - "--features trillium-static/tokio,trillium-testing/tokio"
+          - "--features trillium-static/async-std,trillium-testing/async-std"
           - ""
     steps:
       - uses: actions/checkout@master

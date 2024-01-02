@@ -17,6 +17,8 @@ Serves static file assets from the file system.
 # #[cfg(unix)] fn main() {
 use trillium_static::{StaticFileHandler, crate_relative_path};
 
+# trillium_testing::block_on(async {
+
 let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
     .with_index_file("index.html");
 
@@ -33,21 +35,22 @@ let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
 
 
 use trillium_testing::prelude::*;
+# use trillium::Handler;
 
-init(&mut handler);
+handler.init(&mut "testing".into()).await;
 
 assert_ok!(
-    get("/").on(&handler),
+    get("/").run_async(&handler).await,
     "<h1>hello world</h1>",
     "content-type" => "text/html; charset=utf-8"
 );
-assert_not_handled!(get("/file_that_does_not_exist.txt").on(&handler));
-assert_ok!(get("/index.html").on(&handler));
-assert_ok!(get("/subdir/index.html").on(&handler), "subdir index.html");
-assert_ok!(get("/subdir").on(&handler), "subdir index.html");
-assert_not_handled!(get("/subdir_with_no_index").on(&handler));
+assert_not_handled!(get("/file_that_does_not_exist.txt").run_async(&handler).await);
+assert_ok!(get("/index.html").run_async(&handler).await);
+assert_ok!(get("/subdir/index.html").run_async(&handler).await, "subdir index.html");
+assert_ok!(get("/subdir").run_async(&handler).await, "subdir index.html");
+assert_not_handled!(get("/subdir_with_no_index").run_async(&handler).await);
 assert_ok!(
-    get("/subdir_with_no_index/plaintext.txt").on(&handler),
+    get("/subdir_with_no_index/plaintext.txt").run_async(&handler).await,
     "plaintext file",
     "content-type" => "text/plain; charset=utf-8"
 );
@@ -57,14 +60,14 @@ assert_ok!(
 let plaintext_index = StaticFileHandler::new(crate_relative_path!("examples/files"))
     .with_index_file("plaintext.txt");
 
-assert_not_handled!(get("/").on(&plaintext_index));
-assert_not_handled!(get("/subdir").on(&plaintext_index));
+assert_not_handled!(get("/").run_async(&plaintext_index).await);
+assert_not_handled!(get("/subdir").run_async(&plaintext_index).await);
 assert_ok!(
-    get("/subdir_with_no_index").on(&plaintext_index),
+    get("/subdir_with_no_index").run_async(&plaintext_index).await,
     "plaintext file",
     "content-type" => "text/plain; charset=utf-8"
 );
-# }
+# }); }
 ```
 
 
@@ -84,40 +87,24 @@ does not include any notion of range requests or cache headers. It
 serves all files from disk every time, with no in-memory caching.
 */
 
-cfg_if::cfg_if! {
-   if #[cfg(any(feature = "smol", feature = "tokio", feature = "async-std"))] {
-       mod fs_shims;
-       mod handler;
-       mod options;
-       mod static_conn_ext;
+mod fs_shims;
+mod handler;
+mod options;
+mod static_conn_ext;
 
-       pub use handler::StaticFileHandler;
-       pub use relative_path;
-       pub use static_conn_ext::StaticConnExt;
+pub use handler::StaticFileHandler;
+pub use relative_path;
+pub use static_conn_ext::StaticConnExt;
 
-       /// a convenient helper macro to build a str relative to the crate root
-       #[macro_export]
-       macro_rules! crate_relative_path {
-           ($path:literal) => {
-               $crate::relative_path::RelativePath::new($path).to_logical_path(env!("CARGO_MANIFEST_DIR"))
-           };
-       }
+/// a convenient helper macro to build a str relative to the crate root
+#[macro_export]
+macro_rules! crate_relative_path {
+    ($path:literal) => {
+        $crate::relative_path::RelativePath::new($path).to_logical_path(env!("CARGO_MANIFEST_DIR"))
+    };
+}
 
-       /// convenience alias for [`StaticFileHandler::new`]
-       pub fn files(fs_root: impl AsRef<std::path::Path>) -> StaticFileHandler {
-           StaticFileHandler::new(fs_root)
-       }
-   } else {
-        compile_error!("trillium-static:
-You must enable one of the three runtime feature flags
-to use this crate:
-
-* tokio
-* async-std
-* smol
-
-This is a temporary constraint, and hopefully soon this
-will not require the use of cargo feature flags."
-);
-   }
+/// convenience alias for [`StaticFileHandler::new`]
+pub fn files(fs_root: impl AsRef<std::path::Path>) -> StaticFileHandler {
+    StaticFileHandler::new(fs_root)
 }
