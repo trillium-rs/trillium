@@ -14,13 +14,18 @@ async fn with_base() -> TestResult {
 
     assert_eq!(client.get("c").url().as_str(), "http://example.com/a/b/c");
 
+    assert_eq!(
+        client.get(format!("c/{}/d/{}", 2, 4)).url().as_str(),
+        "http://example.com/a/b/c/2/d/4"
+    );
+
     assert_eq!(client.build_url("/c")?.as_str(), "http://example.com/a/b/c");
 
     assert_eq!(
         client
             .build_url(Url::from_str("http://example.com/a/b/c/d")?)?
             .as_str(),
-        "http://example.com/a/b/c/d"
+        "http://example.com/a/b/c/d",
     );
 
     assert!(client
@@ -31,6 +36,18 @@ async fn with_base() -> TestResult {
         .build_url("http://example.test/") // does not start with http://example.com/a/b/
         .is_err());
 
+    Ok(())
+}
+
+#[test(harness)]
+async fn with_string_base() -> TestResult {
+    let host = "example.org";
+    let port = 8160;
+    let client = test_client().with_base(format!("http://{host}:{port}/a/b"));
+    assert_eq!(
+        client.get("c").url().as_str(),
+        "http://example.org:8160/a/b/c",
+    );
     Ok(())
 }
 
