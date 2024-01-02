@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 askama = "0.12.1"
 mime-db = "1.7.0"
-trillium = { path = "../trillium", version = "0.2.12" }
+trillium = { path = "../trillium", version = "0.2.13" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

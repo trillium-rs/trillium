@@ -1,6 +1,6 @@
 [package]
 name = "trillium-tokio"
-version = "0.3.3"
+version = "0.3.4"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "tokio runtime adapter for trillium.rs"
@@ -14,10 +14,10 @@ categories = ["web-programming::http-server", "web-programming"]
 async-compat = "0.2.3"
 log = "0.4.20"
 tokio-stream = { version = "0.1.14", features = ["net"] }
-trillium = { path = "../trillium", version = "0.2.12" }
-trillium-http = { path = "../http", version = "0.3.10" }
+trillium = { path = "../trillium", version = "0.2.13" }
+trillium-http = { path = "../http", version = "0.3.11" }
 trillium-macros = { version = "0.0.5", path = "../macros" }
-trillium-server-common = { path = "../server-common", version = "0.4.6" }
+trillium-server-common = { path = "../server-common", version = "0.4.7" }
 url = "2.5.0"
 
 [dependencies.tokio]

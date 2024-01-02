@@ -1,6 +1,6 @@
 [package]
 name = "trillium"
-version = "0.2.12"
+version = "0.2.13"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "a modular toolkit for building async web apps"
@@ -14,7 +14,7 @@ categories = ["web-programming::http-server", "web-programming"]
 async-trait = "0.1.75"
 futures-lite = "2.1.0"
 log = "0.4.20"
-trillium-http = { path = "../http", version = "0.3.10" }
+trillium-http = { path = "../http", version = "0.3.11" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

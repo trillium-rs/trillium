@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.5.0...trillium-client-v0.5.1) - 2024-01-02
+
+### Other
+- Add tests for using `String` with `IntoUrl`
+- `impl IntoUrl for String` for convenience
+- use #[test(harness)] instead of #[test(harness = harness)]
+- Update test-harness requirement from 0.1.1 to 0.2.0
+
 ## [0.5.0](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.4.9...trillium-client-v0.5.0) - 2024-01-02
 
 ### Other

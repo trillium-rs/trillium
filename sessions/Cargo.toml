@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 trillium-cookies = { path = "../cookies", version = "0.4.1" }
-trillium = { path = "../trillium", version = "0.2.12" }
+trillium = { path = "../trillium", version = "0.2.13" }
 async-session = "3.0.0"
 log = "0.4.20"
 

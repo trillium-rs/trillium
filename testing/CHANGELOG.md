@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.5.1...trillium-testing-v0.5.2) - 2024-01-02
+
+### Added
+- *(testing)* allow test(harness = trillium_testing::harness) to return ()
+
+### Other
+- use #[test(harness)] instead of #[test(harness = harness)]
+- Update test-harness requirement from 0.1.1 to 0.2.0
+
 ## [0.5.1](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.5.0...trillium-testing-v0.5.1) - 2024-01-02
 
 ### Fixed
