@@ -8,7 +8,7 @@ fn test_client() -> Client {
     Client::new(ServerConnector::new(Status::Ok))
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn with_base() -> TestResult {
     let client = test_client().with_base("http://example.com/a/b");
 
@@ -34,7 +34,7 @@ async fn with_base() -> TestResult {
     Ok(())
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn without_base() -> TestResult {
     let client = test_client();
 
@@ -60,7 +60,7 @@ async fn without_base() -> TestResult {
     Ok(())
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn base_without_trailing_slash() -> TestResult {
     let client = test_client().with_base("http://example.com/a/b");
     // the default behavior is "http://example.com/a/c"
@@ -68,7 +68,7 @@ async fn base_without_trailing_slash() -> TestResult {
     Ok(())
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn url_with_leading_slash() -> TestResult {
     let client = test_client().with_base("http://example.com/a/b");
     // the default behavior is "http://example.com/c"

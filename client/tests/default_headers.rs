@@ -6,7 +6,7 @@ use trillium_client::{
 use trillium_http::Headers;
 use trillium_testing::{harness, ServerConnector, TestResult};
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn default_headers() -> TestResult {
     let client = Client::new(ServerConnector::new("ok"))
         .with_default_header(UserAgent, "overridden")

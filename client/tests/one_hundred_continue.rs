@@ -8,7 +8,7 @@ use trillium_client::{Client, Conn, Error, Status, USER_AGENT};
 use trillium_server_common::{async_trait, Connector, Url};
 use trillium_testing::{harness, TestResult, TestTransport};
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn extra_one_hundred_continue() -> TestResult {
     let (transport, conn_fut) =
         test_conn(|client| client.post("http://example.com").with_body("body")).await;
@@ -62,7 +62,7 @@ async fn extra_one_hundred_continue() -> TestResult {
     Ok(())
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn one_hundred_continue() -> TestResult {
     let (transport, conn_fut) =
         test_conn(|client| client.post("http://example.com").with_body("body")).await;
@@ -106,7 +106,7 @@ async fn one_hundred_continue() -> TestResult {
     Ok(())
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn empty_body_no_100_continue() -> TestResult {
     let (transport, conn_fut) =
         test_conn(|client| client.post("http://example.com").with_body("")).await;
@@ -137,7 +137,7 @@ async fn empty_body_no_100_continue() -> TestResult {
     Ok(())
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn two_small_continues() -> TestResult {
     let (transport, conn_fut) =
         test_conn(|client| client.post("http://example.com").with_body("body")).await;
@@ -175,7 +175,7 @@ async fn two_small_continues() -> TestResult {
     Ok(())
 }
 
-#[test(harness = harness)]
+#[test(harness)]
 async fn little_continue_big_continue() -> TestResult {
     let (transport, conn_fut) =
         test_conn(|client| client.post("http://example.com").with_body("body")).await;
