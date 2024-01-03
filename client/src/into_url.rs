@@ -40,3 +40,28 @@ impl IntoUrl for String {
         self.as_str().into_url(base)
     }
 }
+
+impl<S: AsRef<str>> IntoUrl for &[S] {
+    fn into_url(self, base: Option<&Url>) -> Result<Url> {
+        let Some(mut url) = base.cloned() else {
+            return Err(Error::UnexpectedUriFormat);
+        };
+        url.path_segments_mut()
+            .map_err(|_| Error::UnexpectedUriFormat)?
+            .pop_if_empty()
+            .extend(self);
+        Ok(url)
+    }
+}
+
+impl<S: AsRef<str>, const N: usize> IntoUrl for [S; N] {
+    fn into_url(self, base: Option<&Url>) -> Result<Url> {
+        self.as_slice().into_url(base)
+    }
+}
+
+impl<S: AsRef<str>> IntoUrl for Vec<S> {
+    fn into_url(self, base: Option<&Url>) -> Result<Url> {
+        self.as_slice().into_url(base)
+    }
+}
