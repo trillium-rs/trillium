@@ -48,18 +48,18 @@ http response
 */
 #[must_use]
 pub struct Conn {
-    url: Url,
-    method: Method,
-    request_headers: Headers,
-    response_headers: Headers,
-    transport: Option<BoxedTransport>,
-    status: Option<Status>,
-    request_body: Option<Body>,
-    pool: Option<Pool<Origin, BoxedTransport>>,
-    buffer: trillium_http::Buffer,
-    response_body_state: ReceivedBodyState,
-    config: Arc<dyn ObjectSafeConnector>,
-    headers_finalized: bool,
+    pub(crate) url: Url,
+    pub(crate) method: Method,
+    pub(crate) request_headers: Headers,
+    pub(crate) response_headers: Headers,
+    pub(crate) transport: Option<BoxedTransport>,
+    pub(crate) status: Option<Status>,
+    pub(crate) request_body: Option<Body>,
+    pub(crate) pool: Option<Pool<Origin, BoxedTransport>>,
+    pub(crate) buffer: trillium_http::Buffer,
+    pub(crate) response_body_state: ReceivedBodyState,
+    pub(crate) config: Arc<dyn ObjectSafeConnector>,
+    pub(crate) headers_finalized: bool,
 }
 
 /// default http user-agent header
@@ -83,76 +83,6 @@ impl Debug for Conn {
 }
 
 impl Conn {
-    // * NOTICE TO READERS: *
-    //
-    // Conn::new is currently commented out in order to encourage
-    // people to use a Client.  Aside from a single Arc::clone,
-    // there is no performance advantage to directly constructing a
-    // Conn, and aside from tests, rarely does an application make a
-    // single standalone http request.
-    //
-    // Disadvantages of constructing a new Connector for each Conn
-    // 1. tls connectors are relatively expensive to construct, but
-    //    can be reused from within a Client
-    // 2. it becomes harder to take advantage of connection pooling
-    //    if at a later point you want to do so
-    //
-    // If this reasoning is not compelling to you, please open an
-    // issue or discussion -- this comment exists because I'm not
-    // certain.
-    //
-    // /**
-    // ```
-    // use trillium_testing::prelude::*;
-    //
-    // let conn = Conn::new("get", "http://trillium.rs", ClientConfig::default()); //<-
-    // assert_eq!(conn.method(), Method::Get);
-    // assert_eq!(conn.url().to_string(), "http://trillium.rs/");
-    //
-    // let url = url::Url::parse("http://trillium.rs").unwrap();
-    // let conn = Conn::new(Method::Post, url, ClientConfig::default()); //<-
-    // assert_eq!(conn.method(), Method::Post);
-    // assert_eq!(conn.url().to_string(), "http://trillium.rs/");
-    //
-    // ```
-    // */
-    // pub fn new<M, U, C>(method: M, url: U, config: C) -> Self
-    // where
-    //     M: TryInto<Method>,
-    //     <M as TryInto<Method>>::Error: Debug,
-    //     U: TryInto<Url>,
-    //     <U as TryInto<Url>>::Error: Debug,
-    //     C: Connector,
-    // {
-    //     Self::new_with_config(
-    //         config.arced(),
-    //         method.try_into().unwrap(),
-    //         url.try_into().unwrap(),
-    //     )
-    // }
-
-    pub(crate) fn new_with_config(
-        config: Arc<dyn ObjectSafeConnector>,
-        method: Method,
-        url: Url,
-        request_headers: Headers,
-    ) -> Self {
-        Self {
-            url,
-            method,
-            request_headers,
-            response_headers: Headers::new(),
-            transport: None,
-            status: None,
-            request_body: None,
-            pool: None,
-            buffer: Vec::with_capacity(128).into(),
-            response_body_state: ReceivedBodyState::Start,
-            config,
-            headers_finalized: false,
-        }
-    }
-
     /// borrow the request headers
     pub fn request_headers(&self) -> &Headers {
         &self.request_headers
@@ -562,10 +492,6 @@ impl Conn {
     }
 
     // --- everything below here is private ---
-
-    pub(crate) fn set_pool(&mut self, pool: Pool<Origin, BoxedTransport>) {
-        self.pool = Some(pool);
-    }
 
     fn finalize_headers(&mut self) -> Result<()> {
         if self.headers_finalized {
