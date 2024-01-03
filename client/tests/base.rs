@@ -36,6 +36,16 @@ async fn with_base() -> TestResult {
         .build_url("http://example.test/") // does not start with http://example.com/a/b/
         .is_err());
 
+    let id = 10usize;
+    assert_eq!(
+        client.build_url(["c", &id.to_string(), "d"])?.as_str(),
+        "http://example.com/a/b/c/10/d"
+    );
+    assert_eq!(
+        client.build_url(vec!["c", &id.to_string(), "d"])?.as_str(),
+        "http://example.com/a/b/c/10/d"
+    );
+
     Ok(())
 }
 
