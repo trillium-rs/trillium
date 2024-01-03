@@ -1,6 +1,9 @@
 use crate::RustlsTransport;
-use async_rustls::TlsConnector;
-use rustls::{Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName};
+use futures_rustls::TlsConnector;
+use rustls::{
+    pki_types::{CertificateDer, ServerName},
+    ClientConfig, RootCertStore,
+};
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
@@ -8,6 +11,7 @@ use std::{
     sync::Arc,
 };
 use trillium_server_common::{async_trait, Connector, Url};
+use webpki_roots::TLS_SERVER_ROOTS;
 
 #[derive(Clone, Debug)]
 pub struct RustlsClientConfig(Arc<ClientConfig>);
@@ -41,46 +45,36 @@ impl Default for RustlsClientConfig {
 }
 
 #[cfg(feature = "native-roots")]
-fn get_rustls_native_roots() -> Result<impl Iterator<Item = Certificate>> {
-    let roots = rustls_native_certs::load_native_certs()
-        .map(|certs| certs.into_iter().map(|cert| Certificate(cert.0)));
+fn get_rustls_native_roots() -> Option<Vec<CertificateDer<'static>>> {
+    let roots = rustls_native_certs::load_native_certs();
     if let Err(ref e) = roots {
         log::warn!("rustls native certs hard error, falling back to webpki roots: {e:?}");
     }
-    roots
+    roots.ok()
 }
 
 #[cfg(not(feature = "native-roots"))]
-fn get_rustls_native_roots() -> Result<impl Iterator<Item = Certificate>> {
-    Err::<std::iter::Empty<_>, _>(Error::new(ErrorKind::Unsupported, "unimplemented"))
+fn get_rustls_native_roots() -> Option<Vec<CertificateDer<'static>>> {
+    None
 }
 
 fn default_client_config() -> ClientConfig {
     let mut root_store = RootCertStore::empty();
     match get_rustls_native_roots() {
-        Ok(certs) => {
+        Some(certs) => {
             for cert in certs {
-                if let Err(e) = root_store.add(&cert) {
+                if let Err(e) = root_store.add(cert) {
                     log::debug!("unable to add certificate {:?}, skipping", e);
                 }
             }
         }
 
-        Err(_) => {
-            root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
-                |c: &webpki::TrustAnchor| {
-                    OwnedTrustAnchor::from_subject_spki_name_constraints(
-                        c.subject,
-                        c.spki,
-                        c.name_constraints,
-                    )
-                },
-            ));
+        None => {
+            root_store.extend(TLS_SERVER_ROOTS.to_owned());
         }
     };
 
     ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(root_store)
         .with_no_client_auth()
 }
@@ -128,7 +122,7 @@ impl<C: Connector> Connector for RustlsConfig<C> {
                 let connector: TlsConnector = Arc::clone(&self.rustls_config.0).into();
                 let domain = url
                     .domain()
-                    .and_then(|dns_name| ServerName::try_from(dns_name).ok())
+                    .and_then(|dns_name| ServerName::try_from(dns_name.to_string()).ok())
                     .ok_or_else(|| Error::new(ErrorKind::Other, "missing domain"))?;
 
                 connector

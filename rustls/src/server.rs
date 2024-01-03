@@ -1,6 +1,6 @@
 use crate::RustlsTransport;
-use async_rustls::TlsAcceptor;
-use rustls::{Certificate, PrivateKey, ServerConfig};
+use futures_rustls::TlsAcceptor;
+use rustls::ServerConfig;
 use rustls_pemfile::certs;
 use std::{
     fmt::{Debug, Formatter},
@@ -38,7 +38,6 @@ impl RustlsAcceptor {
     ```rust,ignore
     use trillium_rustls::{rustls::ServerConfig, RustlsAcceptor};
     let rustls_acceptor: RustlsAcceptor = ServerConfig::builder()
-        .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(certs, private_key)
         .expect("could not build rustls ServerConfig")
@@ -57,22 +56,18 @@ impl RustlsAcceptor {
     pub fn from_single_cert(cert: &[u8], key: &[u8]) -> Self {
         let mut br = BufReader::new(cert);
         let certs = certs(&mut br)
-            .expect("could not read cert pemfile")
-            .into_iter()
-            .map(Certificate)
-            .collect();
+            .collect::<Result<Vec<_>, _>>()
+            .expect("could not read certificate");
 
         let mut br = BufReader::new(key);
         let key = rustls_pemfile::pkcs8_private_keys(&mut br)
-            .expect("could not read key pemfile")
-            .first()
+            .next()
             .expect("no pkcs8 private key found in `key`")
-            .to_owned();
+            .expect("could not read key pemfile");
 
         ServerConfig::builder()
-            .with_safe_defaults()
             .with_no_client_auth()
-            .with_single_cert(certs, PrivateKey(key))
+            .with_single_cert(certs, key.into())
             .expect("could not create a rustls ServerConfig from the supplied cert and key")
             .into()
     }

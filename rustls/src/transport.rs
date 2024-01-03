@@ -1,4 +1,4 @@
-use async_rustls::{client, server, TlsStream};
+use futures_rustls::{client, server, TlsStream};
 use std::{
     fmt::Debug,
     io::Result,
