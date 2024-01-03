@@ -14,10 +14,14 @@ This crate provides rustls trait implementations for trillium
 client ([`RustlsConnector`]) and server ([`RustlsAcceptor`]).
 */
 
+#[cfg(feature = "client")]
 mod client;
+#[cfg(feature = "client")]
 pub use client::RustlsConfig;
 
+#[cfg(feature = "server")]
 mod server;
+#[cfg(feature = "server")]
 pub use server::RustlsAcceptor;
 
 pub use rustls;

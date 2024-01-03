@@ -1,10 +1,9 @@
 use crate::RustlsTransport;
 use futures_rustls::TlsAcceptor;
 use rustls::ServerConfig;
-use rustls_pemfile::certs;
 use std::{
     fmt::{Debug, Formatter},
-    io::{self, BufReader},
+    io,
     sync::Arc,
 };
 use trillium_server_common::{async_trait, Acceptor, Transport};
@@ -53,13 +52,16 @@ impl RustlsAcceptor {
     let rustls_acceptor = RustlsAcceptor::from_single_cert(CERT, KEY);
     ```
     */
+    #[cfg(feature = "ring")]
     pub fn from_single_cert(cert: &[u8], key: &[u8]) -> Self {
-        let mut br = BufReader::new(cert);
-        let certs = certs(&mut br)
+        use std::io::Cursor;
+
+        let mut br = Cursor::new(cert);
+        let certs = rustls_pemfile::certs(&mut br)
             .collect::<Result<Vec<_>, _>>()
             .expect("could not read certificate");
 
-        let mut br = BufReader::new(key);
+        let mut br = Cursor::new(key);
         let key = rustls_pemfile::pkcs8_private_keys(&mut br)
             .next()
             .expect("no pkcs8 private key found in `key`")

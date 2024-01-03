@@ -11,18 +11,20 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [features]
-default = ["native-roots", "rustls/ring"]
+default = ["native-roots", "ring", "client", "server"]
 native-roots = ["dep:rustls-native-certs"]
+ring = ["rustls/ring"]
+client = ["dep:webpki-roots"]
+server = ["dep:rustls-pemfile"]
 
 [dependencies]
 futures-rustls = "0.25.0"
 log = "0.4.20"
 rustls = "0.22.1"
 rustls-native-certs = { version = "0.7.0", optional = true }
-rustls-pemfile = "2.0.0"
-rustls-webpki = "0.102.0"
+rustls-pemfile = { version = "2.0.0", optional = true }
 trillium-server-common = { path = "../server-common", version = "0.4.7" }
-webpki-roots = "0.26"
+webpki-roots = { version = "0.26", optional = true }
 
 [dev-dependencies]
 env_logger = "0.10.1"
