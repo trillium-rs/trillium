@@ -20,7 +20,6 @@ pub use client::RustlsConfig;
 mod server;
 pub use server::RustlsAcceptor;
 
-pub use async_rustls;
 pub use rustls;
 
 mod transport;
