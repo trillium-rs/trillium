@@ -157,6 +157,11 @@ impl Client {
         conn
     }
 
+    /// borrow the connector for this client
+    pub fn connector(&self) -> &Arc<dyn ObjectSafeConnector> {
+        &self.config
+    }
+
     /**
     The pool implementation currently accumulates a small memory
     footprint for each new host. If your application is reusing a pool
