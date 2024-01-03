@@ -49,7 +49,7 @@ pub use trillium_http::{
 
 mod util;
 
-pub use trillium_server_common::{async_trait, Connector, Url};
+pub use trillium_server_common::{async_trait, Connector, ObjectSafeConnector, Url};
 
 /// constructs a new [`Client`] -- alias for [`Client::new`]
 pub fn client(connector: impl Connector) -> Client {
