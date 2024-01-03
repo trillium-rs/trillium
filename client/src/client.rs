@@ -2,6 +2,7 @@ use crate::{Conn, IntoUrl, Pool, USER_AGENT};
 use std::{convert::TryInto, fmt::Debug, sync::Arc};
 use trillium_http::{
     transport::BoxedTransport, HeaderName, HeaderValues, Headers, KnownHeaderName, Method,
+    ReceivedBodyState,
 };
 use trillium_server_common::{Connector, ObjectSafeConnector, Url};
 use url::Origin;
@@ -144,17 +145,20 @@ impl Client {
         M: TryInto<Method>,
         <M as TryInto<Method>>::Error: Debug,
     {
-        let mut conn = Conn::new_with_config(
-            Arc::clone(&self.config),
-            method.try_into().unwrap(),
-            self.build_url(url).unwrap(),
-            Headers::clone(&self.default_headers),
-        );
-
-        if let Some(pool) = &self.pool {
-            conn.set_pool(pool.clone());
+        Conn {
+            url: self.build_url(url).unwrap(),
+            method: method.try_into().unwrap(),
+            request_headers: Headers::clone(&self.default_headers),
+            response_headers: Headers::new(),
+            transport: None,
+            status: None,
+            request_body: None,
+            pool: self.pool.clone(),
+            buffer: Vec::with_capacity(128).into(),
+            response_body_state: ReceivedBodyState::Start,
+            config: Arc::clone(&self.config),
+            headers_finalized: false,
         }
-        conn
     }
 
     /// borrow the connector for this client
