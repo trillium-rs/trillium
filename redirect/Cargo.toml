@@ -1,6 +1,6 @@
 [package]
 name = "trillium-redirect"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "Redirect utilities for trillium.rs"
