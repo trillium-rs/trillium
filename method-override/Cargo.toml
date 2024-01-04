@@ -1,6 +1,6 @@
 [package]
 name = "trillium-method-override"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "http method override for trillium.rs"

@@ -1,6 +1,6 @@
 [package]
 name = "trillium-sessions"
-version = "0.4.3"
+version = "0.4.4"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "session storage handler for trillium.rs"
@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-trillium-cookies = { path = "../cookies", version = "0.4.1" }
+trillium-cookies = { path = "../cookies", version = "0.4.2" }
 trillium = { path = "../trillium", version = "0.2.13" }
 async-session = "3.0.0"
 log = "0.4.20"
