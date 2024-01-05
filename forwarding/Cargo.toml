@@ -1,6 +1,6 @@
 [package]
 name = "trillium-forwarding"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "handler for trillium.rs that rewrites host/scheme from forwarded/x-forwarded headers"

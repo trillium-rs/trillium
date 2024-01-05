@@ -1,6 +1,6 @@
 [package]
 name = "trillium-async-std"
-version = "0.3.3"
+version = "0.3.4"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "async-std runtime adapter for trillium.rs"
@@ -16,7 +16,7 @@ log = "0.4.20"
 trillium = { path = "../trillium", version = "0.2.13" }
 trillium-http = { path = "../http", version = "0.3.11" }
 trillium-macros = { version = "0.0.5", path = "../macros" }
-trillium-server-common = { path = "../server-common", version = "0.4.7" }
+trillium-server-common = { path = "../server-common", version = "0.5.0" }
 url = "2.5.0"
 
 [target.'cfg(unix)'.dependencies]

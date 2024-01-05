@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5](https://github.com/trillium-rs/trillium/compare/trillium-logger-v0.4.4...trillium-logger-v0.4.5) - 2024-01-05
+
+### Other
+- Release only rustls
+- release
+- release
+
 ## [0.4.4](https://github.com/trillium-rs/trillium/compare/trillium-logger-v0.4.3...trillium-logger-v0.4.4) - 2024-01-02
 
 ### Other

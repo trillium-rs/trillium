@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/trillium-rs/trillium/compare/trillium-cookies-v0.4.1...trillium-cookies-v0.4.2) - 2024-01-05
+
+### Other
+- Release only rustls
+- release
+- release
+
 ## [0.4.1](https://github.com/trillium-rs/trillium/compare/trillium-cookies-v0.4.0...trillium-cookies-v0.4.1) - 2024-01-02
 
 ### Other

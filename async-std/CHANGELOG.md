@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4](https://github.com/trillium-rs/trillium/compare/trillium-async-std-v0.3.3...trillium-async-std-v0.3.4) - 2024-01-05
+
+### Other
+- updated the following local packages: trillium-server-common
+
 ## [0.3.3](https://github.com/trillium-rs/trillium/compare/trillium-async-std-v0.3.2...trillium-async-std-v0.3.3) - 2024-01-02
 
 ### Other

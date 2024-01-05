@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.7](https://github.com/trillium-rs/trillium/compare/trillium-router-v0.3.6...trillium-router-v0.3.7) - 2024-01-05
+
+### Other
+- Release only rustls
+- release
+- release
+
 ## [0.3.6](https://github.com/trillium-rs/trillium/compare/trillium-router-v0.3.5...trillium-router-v0.3.6) - 2024-01-02
 
 ### Other
