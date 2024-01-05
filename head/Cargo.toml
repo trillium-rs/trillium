@@ -1,6 +1,6 @@
 [package]
 name = "trillium-head"
-version = "0.2.2"
+version = "0.2.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "http head handler for trillium.rs"

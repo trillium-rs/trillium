@@ -1,6 +1,6 @@
 [package]
 name = "trillium-testing"
-version = "0.5.3"
+version = "0.5.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "testing library for trillium applications"
@@ -25,7 +25,7 @@ futures-lite = "2.1.0"
 portpicker = "0.1.1"
 trillium = { path = "../trillium", version = "0.2.13" }
 trillium-http = { path = "../http", version = "0.3.11" }
-trillium-server-common = { path = "../server-common", version = "0.5.0" }
+trillium-server-common = { path = "../server-common", version = "0.4.7" }
 cfg-if = "1.0.0"
 url = "2.5.0"
 async-channel = "2.1.1"
@@ -35,17 +35,17 @@ once_cell = "1.19.0"
 
 [dependencies.trillium-smol]
 path = "../smol"
-version = "0.3.4"
+version = "0.3.3"
 optional = true
 
 [dependencies.trillium-tokio]
 path = "../tokio"
-version = "0.3.5"
+version = "0.3.4"
 optional = true
 
 [dependencies.trillium-async-std]
 path = "../async-std"
-version = "0.3.4"
+version = "0.3.3"
 optional = true
 
 [dev-dependencies]
