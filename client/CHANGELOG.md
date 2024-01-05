@@ -6,16 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.2](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.5.1...trillium-client-v0.5.2) - 2024-01-04
-
-### Added
-- *(client)* reexport ObjectSafeConnector
-- *(client)* add Client::connector to borrow the connector
-- *(client)* add IntoUrl impls for slices, arrays and vecs
-
-### Other
-- *(client)* construct Conn directly in Client::build_conn
-
 ## [0.5.1](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.5.0...trillium-client-v0.5.1) - 2024-01-02
 
 ### Other

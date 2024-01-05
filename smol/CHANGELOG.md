@@ -6,11 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.4](https://github.com/trillium-rs/trillium/compare/trillium-smol-v0.3.3...trillium-smol-v0.3.4) - 2024-01-04
-
-### Other
-- updated the following local packages: trillium-server-common
-
 ## [0.3.3](https://github.com/trillium-rs/trillium/compare/trillium-smol-v0.3.2...trillium-smol-v0.3.3) - 2024-01-02
 
 ### Other

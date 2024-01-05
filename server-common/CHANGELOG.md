@@ -6,11 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.4.7...trillium-server-common-v0.5.0) - 2024-01-04
-
-### Added
-- *(server-common)* [**breaking**] put Config in an Arc instead of cloning
-
 ## [0.4.7](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.4.6...trillium-server-common-v0.4.7) - 2024-01-02
 
 ### Other
