@@ -44,7 +44,8 @@ mod client;
 pub use client::Client;
 
 pub use trillium_http::{
-    Error, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, Result, Status, Version,
+    Body, Error, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, Method, Result,
+    Status, Version,
 };
 
 mod util;
