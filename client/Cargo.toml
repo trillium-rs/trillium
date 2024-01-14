@@ -11,6 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming", "web-programming::http-client"]
 
 [features]
+websocket = ["dep:trillium-websockets"]
 json = ["serde_json", "serde", "thiserror"]
 
 [dependencies]
@@ -20,6 +21,7 @@ httparse = "1.8.0"
 log = "0.4.20"
 size = "0.4.1"
 trillium-server-common = { version = "0.4.7", path = "../server-common" }
+trillium-websockets = { version = "0.6.2", path = "../websockets", optional = true }
 url = "2.5.0"
 mime = "0.3.17"
 serde_json = { version = "1.0.108", optional = true }
@@ -42,6 +44,7 @@ indoc = "2.0.4"
 pretty_assertions = "1.4.0"
 test-harness = "0.2.0"
 trillium = { path = "../trillium" }
+trillium-client = { path = ".", features = ["websocket"] }
 trillium-smol = { path = "../smol/" }
 trillium-testing = { path = "../testing" }
 

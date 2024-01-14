@@ -36,6 +36,13 @@ pub use conn::{Conn, UnexpectedStatusError, USER_AGENT};
 #[cfg(feature = "json")]
 pub use conn::ClientSerdeError;
 
+#[cfg(feature = "websocket")]
+pub mod websocket;
+#[cfg(feature = "websocket")]
+pub use trillium_websockets::{async_tungstenite, tungstenite, WebSocketConfig, WebSocketConn};
+#[cfg(feature = "websocket")]
+pub use websocket::WebSocketUpgradeError;
+
 mod pool;
 // open an issue if you have a reason for pool to be public
 pub(crate) use pool::Pool;
