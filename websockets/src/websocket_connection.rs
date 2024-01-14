@@ -1,6 +1,6 @@
-use crate::{Result, WebSocketConfig, WebsocketPeerIp};
+use crate::{Result, Role, WebSocketConfig};
 use async_tungstenite::{
-    tungstenite::{self, protocol::Role, Message},
+    tungstenite::{self, Message},
     WebSocketStream,
 };
 use futures_util::{
@@ -33,6 +33,7 @@ pub struct WebSocketConn {
     path: String,
     method: Method,
     state: StateSet,
+    peer_ip: Option<IpAddr>,
     stopper: Stopper,
     sink: SplitSink<Wss, Message>,
     stream: Option<WStream>,
@@ -63,7 +64,11 @@ impl WebSocketConn {
         self.sink.send(message).await.map_err(Into::into)
     }
 
-    pub(crate) async fn new(upgrade: Upgrade, config: Option<WebSocketConfig>) -> Self {
+    /// Create a `WebSocketConn` from an HTTP upgrade, with optional config and the specified role
+    ///
+    /// You should not typically need to call this; the trillium client and server both provide
+    /// your code with a `WebSocketConn`.
+    pub async fn new(upgrade: Upgrade, config: Option<WebSocketConfig>, role: Role) -> Self {
         let Upgrade {
             request_headers,
             path,
@@ -75,9 +80,9 @@ impl WebSocketConn {
         } = upgrade;
 
         let wss = if let Some(vec) = buffer {
-            WebSocketStream::from_partially_read(transport, vec, Role::Server, config).await
+            WebSocketStream::from_partially_read(transport, vec, role, config).await
         } else {
-            WebSocketStream::from_raw_socket(transport, Role::Server, config).await
+            WebSocketStream::from_raw_socket(transport, role, config).await
         };
 
         let (sink, stream) = wss.split();
@@ -90,6 +95,7 @@ impl WebSocketConn {
             path,
             method,
             state,
+            peer_ip: None,
             sink,
             stream,
             stopper,
@@ -113,7 +119,12 @@ impl WebSocketConn {
 
     /// retrieves the peer ip for this conn, if available
     pub fn peer_ip(&self) -> Option<IpAddr> {
-        self.state.get::<WebsocketPeerIp>().and_then(|i| i.0)
+        self.peer_ip
+    }
+
+    /// Sets the peer ip for this conn
+    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) {
+        self.peer_ip = peer_ip
     }
 
     /**

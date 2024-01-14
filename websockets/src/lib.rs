@@ -76,7 +76,11 @@ use trillium::{
 
 pub use async_tungstenite::{
     self,
-    tungstenite::{self, protocol::WebSocketConfig, Message},
+    tungstenite::{
+        self,
+        protocol::{Role, WebSocketConfig},
+        Message,
+    },
 };
 pub use trillium::async_trait;
 pub use websocket_connection::WebSocketConn;
@@ -194,7 +198,7 @@ mod tests;
 // this is a workaround for the fact that Upgrade is a public struct,
 // so adding peer_ip to that struct would be a breaking change. We
 // stash a copy in state for now.
-pub(crate) struct WebsocketPeerIp(Option<IpAddr>);
+struct WebsocketPeerIp(Option<IpAddr>);
 
 #[async_trait]
 impl<H> Handler for WebSocket<H>
@@ -212,9 +216,10 @@ where
 
         let websocket_peer_ip = WebsocketPeerIp(conn.peer_ip());
 
-        let Some(sec_websocket_accept) = websocket_accept_hash(&conn) else {
+        let Some(sec_websocket_key) = conn.headers().get_str(SecWebsocketKey) else {
             return conn.with_status(Status::BadRequest).halt();
         };
+        let sec_websocket_accept = websocket_accept_hash(sec_websocket_key);
 
         let protocol = websocket_protocol(&conn, &self.protocols);
 
@@ -242,8 +247,11 @@ where
         upgrade.state().contains::<IsWebsocket>()
     }
 
-    async fn upgrade(&self, upgrade: Upgrade) {
-        let conn = WebSocketConn::new(upgrade, self.config).await;
+    async fn upgrade(&self, mut upgrade: Upgrade) {
+        let peer_ip = upgrade.state.take::<WebsocketPeerIp>().and_then(|i| i.0);
+        let mut conn = WebSocketConn::new(upgrade, self.config, Role::Server).await;
+        conn.set_peer_ip(peer_ip);
+
         let Some((mut conn, outbound)) = self.handler.connect(conn).await else {
             return;
         };
@@ -314,13 +322,16 @@ fn upgrade_requested(conn: &Conn) -> bool {
     connection_is_upgrade(conn) && upgrade_to_websocket(conn)
 }
 
-fn websocket_accept_hash(conn: &Conn) -> Option<String> {
-    let websocket_key = conn.headers().get_str(SecWebsocketKey)?;
+/// Generate a random key suitable for Sec-WebSocket-Key
+pub fn websocket_key() -> String {
+    BASE64.encode(fastrand::u128(..).to_ne_bytes())
+}
 
+/// Generate the expected Sec-WebSocket-Accept hash from the Sec-WebSocket-Key
+pub fn websocket_accept_hash(websocket_key: &str) -> String {
     let hash = Sha1::new()
         .chain_update(websocket_key)
         .chain_update(WEBSOCKET_GUID)
         .finalize();
-
-    Some(BASE64.encode(&hash[..]))
+    BASE64.encode(&hash[..])
 }
