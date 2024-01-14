@@ -52,7 +52,7 @@ impl RustlsAcceptor {
     let rustls_acceptor = RustlsAcceptor::from_single_cert(CERT, KEY);
     ```
     */
-    #[cfg(feature = "ring")]
+    #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn from_single_cert(cert: &[u8], key: &[u8]) -> Self {
         use std::io::Cursor;
 
@@ -67,7 +67,14 @@ impl RustlsAcceptor {
             .expect("no pkcs8 private key found in `key`")
             .expect("could not read key pemfile");
 
-        ServerConfig::builder()
+        #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+        let provider = rustls::crypto::ring::default_provider();
+        #[cfg(feature = "aws-lc-rs")]
+        let provider = rustls::crypto::aws_lc_rs::default_provider();
+
+        ServerConfig::builder_with_provider(Arc::new(provider))
+            .with_safe_default_protocol_versions()
+            .expect("could not enable default TLS versions")
             .with_no_client_auth()
             .with_single_cert(certs, key.into())
             .expect("could not create a rustls ServerConfig from the supplied cert and key")

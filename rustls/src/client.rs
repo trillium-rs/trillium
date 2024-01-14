@@ -1,9 +1,8 @@
 use crate::RustlsTransport;
 use futures_rustls::TlsConnector;
-use rustls::{
-    pki_types::{CertificateDer, ServerName},
-    ClientConfig, RootCertStore,
-};
+#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
+use rustls::{pki_types::CertificateDer, RootCertStore};
+use rustls::{pki_types::ServerName, ClientConfig};
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
@@ -11,7 +10,6 @@ use std::{
     sync::Arc,
 };
 use trillium_server_common::{async_trait, Connector, Url};
-use webpki_roots::TLS_SERVER_ROOTS;
 
 #[derive(Clone, Debug)]
 pub struct RustlsClientConfig(Arc<ClientConfig>);
@@ -19,7 +17,8 @@ pub struct RustlsClientConfig(Arc<ClientConfig>);
 /**
 Client configuration for RustlsConnector
 */
-#[derive(Clone, Default)]
+#[derive(Clone)]
+#[cfg_attr(any(feature = "ring", feature = "aws-lc-rs"), derive(Default))]
 pub struct RustlsConfig<Config> {
     /// configuration for rustls itself
     pub rustls_config: RustlsClientConfig,
@@ -38,12 +37,14 @@ impl<C: Connector> RustlsConfig<C> {
     }
 }
 
+#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
 impl Default for RustlsClientConfig {
     fn default() -> Self {
         Self(Arc::new(default_client_config()))
     }
 }
 
+#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
 #[cfg(feature = "native-roots")]
 fn get_rustls_native_roots() -> Option<Vec<CertificateDer<'static>>> {
     let roots = rustls_native_certs::load_native_certs();
@@ -53,11 +54,13 @@ fn get_rustls_native_roots() -> Option<Vec<CertificateDer<'static>>> {
     roots.ok()
 }
 
+#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
 #[cfg(not(feature = "native-roots"))]
 fn get_rustls_native_roots() -> Option<Vec<CertificateDer<'static>>> {
     None
 }
 
+#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
 fn default_client_config() -> ClientConfig {
     let mut root_store = RootCertStore::empty();
     match get_rustls_native_roots() {
@@ -70,11 +73,18 @@ fn default_client_config() -> ClientConfig {
         }
 
         None => {
-            root_store.extend(TLS_SERVER_ROOTS.to_owned());
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.to_owned());
         }
     };
 
-    ClientConfig::builder()
+    #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+    let provider = rustls::crypto::ring::default_provider();
+    #[cfg(feature = "aws-lc-rs")]
+    let provider = rustls::crypto::aws_lc_rs::default_provider();
+
+    ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_safe_default_protocol_versions()
+        .expect("could not enable default TLS versions")
         .with_root_certificates(root_store)
         .with_no_client_auth()
 }
