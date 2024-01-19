@@ -68,6 +68,7 @@ impl WebSocketConn {
     ///
     /// You should not typically need to call this; the trillium client and server both provide
     /// your code with a `WebSocketConn`.
+    #[doc(hidden)]
     pub async fn new(upgrade: Upgrade, config: Option<WebSocketConfig>, role: Role) -> Self {
         let Upgrade {
             request_headers,
