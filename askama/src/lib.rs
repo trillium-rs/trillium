@@ -55,8 +55,8 @@ impl AskamaConnExt for trillium::Conn {
         use askama::DynTemplate;
         let text = template.render().unwrap();
         if let Some(extension) = template.extension() {
-            if let Some(mime) = mime_db::lookup(extension) {
-                self.headers_mut().insert(ContentType, mime);
+            if let Some(mime) = mime_guess::from_ext(extension).first_raw() {
+                self.response_headers_mut().try_insert(ContentType, mime);
             }
         }
 

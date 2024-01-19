@@ -61,11 +61,9 @@ impl TeraConnExt for Conn {
         let context = self.context();
         match self.tera().render(template_name, context) {
             Ok(string) => {
-                if let Some(extension) = PathBuf::from(template_name).extension() {
-                    if let Some(mime) = mime_db::lookup(extension.to_string_lossy()) {
-                        self.headers_mut()
-                            .insert(KnownHeaderName::ContentType, mime);
-                    }
+                if let Some(mime) = mime_guess::from_path(template_name).first_raw() {
+                    self.response_headers_mut()
+                        .try_insert(KnownHeaderName::ContentType, mime);
                 }
 
                 self.ok(string)
