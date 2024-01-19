@@ -1,6 +1,6 @@
 [package]
 name = "trillium-tera"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "tera template handler for trillium.rs"
