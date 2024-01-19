@@ -4,7 +4,7 @@ use trillium_testing::ClientConfig;
 use trillium_websockets::websocket;
 
 #[test]
-fn test_websocket() {
+fn test_websockets() {
     let handler = websocket(|mut conn: WebSocketConn| async move {
         while let Some(Ok(Message::Text(input))) = conn.next().await {
             conn.send_string(format!("Server received your message: {}", &input))
