@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/trillium-rs/trillium/compare/trillium-tera-v0.3.1...trillium-tera-v0.3.2) - 2024-01-19
+
+### Other
+- *(askama,tera)* move from mime-db to mime_guess
+- Release only rustls
+- release
+- release
+
 ## [0.3.1](https://github.com/trillium-rs/trillium/compare/trillium-tera-v0.3.0...trillium-tera-v0.3.1) - 2024-01-02
 
 ### Fixed
