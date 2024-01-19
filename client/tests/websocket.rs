@@ -1,5 +1,9 @@
 use futures_lite::StreamExt;
-use trillium_client::{websocket::Message, Client, WebSocketConn};
+use trillium_client::{
+    websocket::{self, Message},
+    Client, WebSocketConn,
+};
+use trillium_http::Status;
 use trillium_testing::ClientConfig;
 use trillium_websockets::websocket;
 
@@ -16,12 +20,7 @@ fn test_websockets() {
     let client = Client::new(ClientConfig::new());
 
     trillium_testing::with_server(handler, move |url| async move {
-        let mut ws = client
-            .get(url)
-            .with_websocket_upgrade_headers()
-            .await?
-            .into_websocket()
-            .await?;
+        let mut ws = client.get(url).into_websocket().await?;
 
         ws.send_string("Client test message".to_string()).await?;
 
@@ -31,6 +30,29 @@ fn test_websockets() {
             response,
             Message::Text("Server received your message: Client test message".to_string()),
         );
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_websockets_error() {
+    let handler =
+        |conn: trillium::Conn| async { conn.with_status(404).with_body("This does not exist") };
+    let client = Client::new(ClientConfig::new());
+    trillium_testing::with_server(handler, move |url| async move {
+        let err = client
+            .get(url)
+            .into_websocket()
+            .await
+            .expect_err("Expected a 404");
+        assert!(matches!(
+            err.kind,
+            websocket::ErrorKind::Status(Status::NotFound),
+        ));
+        let mut conn = trillium_client::Conn::from(err);
+        let body = conn.response_body().read_string().await?;
+        assert_eq!(body, "This does not exist");
 
         Ok(())
     })

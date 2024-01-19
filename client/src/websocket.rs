@@ -14,46 +14,51 @@ use crate::{Conn, WebSocketConfig, WebSocketConn};
 pub use trillium_websockets::Message;
 
 impl Conn {
-    /// Set the appropriate headers for upgrading to a WebSocket
-    pub fn with_websocket_upgrade_headers(self) -> Conn {
-        self.with_header(KnownHeaderName::Upgrade, "websocket")
-            .with_header(KnownHeaderName::Connection, "upgrade")
-            .with_header(KnownHeaderName::SecWebsocketVersion, "13")
-            .with_header(SecWebsocketKey, websocket_key())
+    fn set_websocket_upgrade_headers(&mut self) {
+        let h = self.request_headers_mut();
+        h.try_insert(KnownHeaderName::Upgrade, "websocket");
+        h.try_insert(KnownHeaderName::Connection, "upgrade");
+        h.try_insert(KnownHeaderName::SecWebsocketVersion, "13");
+        h.try_insert(SecWebsocketKey, websocket_key());
     }
 
     /// Turn this `Conn` into a [`WebSocketConn`]
+    ///
+    /// If the request has not yet been sent, this will call `with_websocket_upgrade_headers()` and
+    /// then send the request.
     pub async fn into_websocket(self) -> Result<WebSocketConn, WebSocketUpgradeError> {
         self.into_websocket_with_config(WebSocketConfig::default())
             .await
     }
 
     /// Turn this `Conn` into a [`WebSocketConn`], with a custom [`WebSocketConfig`]
+    ///
+    /// If the request has not yet been sent, this will call `with_websocket_upgrade_headers()` and
+    /// then send the request.
     pub async fn into_websocket_with_config(
-        self,
+        mut self,
         config: WebSocketConfig,
     ) -> Result<WebSocketConn, WebSocketUpgradeError> {
-        let status = self
-            .status()
-            .expect("into_websocket() with request not yet sent; remember to call .await");
-        if status != Status::SwitchingProtocols {
-            return Err(WebSocketUpgradeError::new(
-                self,
-                "Expected status 101 (Switching Protocols)",
-            ));
-        }
-        let Some(key) = self.request_headers().get_str(SecWebsocketKey) else {
-            return Err(WebSocketUpgradeError::new(
-                self,
-                "Request did not include Sec-WebSocket-Key",
-            ));
+        let status = match self.status() {
+            Some(status) => status,
+            None => {
+                self.set_websocket_upgrade_headers();
+                if let Err(e) = (&mut self).await {
+                    return Err(WebSocketUpgradeError::new(self, e.into()));
+                }
+                self.status().expect("Response did not include status")
+            }
         };
+        if status != Status::SwitchingProtocols {
+            return Err(WebSocketUpgradeError::new(self, ErrorKind::Status(status)));
+        }
+        let key = self
+            .request_headers()
+            .get_str(SecWebsocketKey)
+            .expect("Request did not include Sec-WebSocket-Key");
         let accept_key = websocket_accept_hash(key);
         if self.response_headers().get_str(SecWebsocketAccept) != Some(&accept_key) {
-            return Err(WebSocketUpgradeError::new(
-                self,
-                "Response did not contain valid Sec-WebSocket-Accept",
-            ));
+            return Err(WebSocketUpgradeError::new(self, ErrorKind::InvalidAccept));
         }
         let peer_ip = self.peer_addr().map(|addr| addr.ip());
         let mut conn = WebSocketConn::new(Upgrade::from(self), Some(config), Role::Client).await;
@@ -62,20 +67,44 @@ impl Conn {
     }
 }
 
+/// The kind of error that occurred when attempting a websocket upgrade
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+/// An Error type that represents all exceptional conditions that can be encoutered in the operation
+/// of this crate
+pub enum ErrorKind {
+    /// an HTTP error attempting to make the request
+    #[error(transparent)]
+    Http(#[from] trillium_http::Error),
+
+    /// Response didn't have status 101 (Switching Protocols)
+    #[error("Expected status 101 (Switching Protocols), got {0}")]
+    Status(Status),
+
+    /// Response Sec-WebSocket-Accept was missing or invalid; generally a server bug
+    #[error("Response Sec-WebSocket-Accept was missing or invalid")]
+    InvalidAccept,
+}
+
 /// An attempted upgrade to a WebSocket failed. You can transform this back into the Conn with
-/// [`From::from`]/[`Into::into`].
+/// [`From::from`]/[`Into::into`], if you need to look at the server response.
 #[derive(Debug)]
-pub struct WebSocketUpgradeError(Box<Conn>, &'static str);
+pub struct WebSocketUpgradeError {
+    /// The kind of error that occurred
+    pub kind: ErrorKind,
+    conn: Box<Conn>,
+}
 
 impl WebSocketUpgradeError {
-    fn new(conn: Conn, msg: &'static str) -> Self {
-        Self(Box::new(conn), msg)
+    fn new(conn: Conn, kind: ErrorKind) -> Self {
+        let conn = Box::new(conn);
+        Self { conn, kind }
     }
 }
 
 impl From<WebSocketUpgradeError> for Conn {
     fn from(value: WebSocketUpgradeError) -> Self {
-        *value.0
+        *value.conn
     }
 }
 
@@ -83,12 +112,12 @@ impl Deref for WebSocketUpgradeError {
     type Target = Conn;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.conn
     }
 }
 impl DerefMut for WebSocketUpgradeError {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.conn
     }
 }
 
@@ -96,6 +125,6 @@ impl std::error::Error for WebSocketUpgradeError {}
 
 impl Display for WebSocketUpgradeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.1)
+        self.kind.fmt(f)
     }
 }
