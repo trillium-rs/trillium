@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.2...trillium-websockets-v0.6.3) - 2024-01-22
+
+### Other
+- Mark `WebSocketConn::new` as `doc(hidden)` since users shouldn't need it
+- Add client WebSocket support
+
 ## [0.6.2](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.1...trillium-websockets-v0.6.2) - 2024-01-02
 
 ### Other
