@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-env_logger = "0.10.1"
+env_logger = "0.11.0"
 trillium = { path = "../trillium" }
 trillium-router = { path = "../router" }
 trillium-logger = { path = "../logger" }

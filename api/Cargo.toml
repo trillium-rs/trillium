@@ -28,7 +28,7 @@ trillium-macros = { version = "0.0.5", path = "../macros" }
 
 
 [dev-dependencies]
-env_logger = "0.10.1"
+env_logger = "0.11.0"
 serde = { version = "1.0.193", features = ["derive"] }
 trillium-logger = { path = "../logger" }
 trillium-router = { path = "../router" }

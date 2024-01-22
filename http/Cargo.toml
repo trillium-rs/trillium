@@ -39,7 +39,7 @@ trillium-macros = { version = "0.0.5", path = "../macros" }
 async-compat = "0.2.3"
 async-io = "2.2.2"
 async-net = "2.0.0"
-env_logger = "0.10.1"
+env_logger = "0.11.0"
 smol = "2.0.0"
 trillium-client = { path = "../client" }
 trillium-smol = { path = "../smol" }

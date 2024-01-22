@@ -27,7 +27,7 @@ signal-hook = "0.3.17"
 signal-hook-async-std = "0.2.2"
 
 [dev-dependencies]
-env_logger = "0.10.1"
+env_logger = "0.11.0"
 trillium-client = { path = "../client" }
 trillium-logger = { path = "../logger" }
 trillium-testing = { path = "../testing" }

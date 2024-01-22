@@ -20,7 +20,7 @@ version = "0.4.5"
 features = ["brotli", "gzip", "zstd", "futures-io"]
 
 [dev-dependencies]
-env_logger = "0.10.1"
+env_logger = "0.11.0"
 trillium-logger = { path = "../logger" }
 trillium-router = { path = "../router" }
 trillium-smol = { path = "../smol" }
