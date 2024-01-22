@@ -30,5 +30,5 @@ signal-hook = "0.3.17"
 signal-hook-tokio = { version = "0.3.1", features = ["futures-v0_3"] }
 
 [dev-dependencies]
-env_logger = "0.10.1"
+env_logger = "0.11.0"
 tokio = { version = "1.35.1", features = ["full"], package = "tokio" }

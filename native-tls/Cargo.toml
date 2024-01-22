@@ -16,7 +16,7 @@ native-tls = "0.2.11"
 trillium-server-common = { path = "../server-common", version = "0.4.7" }
 
 [dev-dependencies]
-env_logger = "0.10.1"
+env_logger = "0.11.0"
 portpicker = "0.1.1"
 test-harness = "0.2.0"
 trillium = { path = "../trillium" }

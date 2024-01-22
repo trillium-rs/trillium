@@ -31,7 +31,7 @@ trillium-server-common = { version = "0.4.7", path = "../server-common", optiona
 url = "2.5.0"
 
 [dev-dependencies]
-env_logger = "0.10.1"
+env_logger = "0.11.0"
 querystrong = { version = "0.3.0", features = ["serde"] }
 trillium-api = { path = "../api" }
 trillium-http = { path = "../http", features = ["serde"] }
