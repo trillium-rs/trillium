@@ -1,16 +1,14 @@
+use super::{HeaderName, HeaderNameInner::UnknownHeader};
+use hashbrown::Equivalent;
+use smartcow::SmartCow;
 use std::{
     fmt::{self, Debug, Display, Formatter},
     hash::{Hash, Hasher},
     ops::Deref,
 };
 
-use hashbrown::Equivalent;
-use smartcow::SmartCow;
-
-use super::{HeaderName, HeaderNameInner::UnknownHeader};
-
 #[derive(Clone)]
-pub(super) struct UnknownHeaderName<'a>(pub(super) SmartCow<'a>);
+pub(super) struct UnknownHeaderName<'a>(SmartCow<'a>);
 
 impl PartialEq for UnknownHeaderName<'_> {
     fn eq(&self, other: &Self) -> bool {
@@ -43,6 +41,30 @@ impl Display for UnknownHeaderName<'_> {
 impl<'a> From<UnknownHeaderName<'a>> for HeaderName<'a> {
     fn from(value: UnknownHeaderName<'a>) -> Self {
         HeaderName(UnknownHeader(value))
+    }
+}
+
+impl UnknownHeaderName<'_> {
+    pub(crate) fn is_valid(&self) -> bool {
+        self.0
+            .chars()
+            .all(|c| matches!(c, 'a'..='z'|'A'..='Z'|'0'..='9'|'-'|'_'))
+    }
+
+    pub(crate) fn into_owned(self) -> UnknownHeaderName<'static> {
+        UnknownHeaderName(self.0.into_owned())
+    }
+}
+
+impl From<String> for UnknownHeaderName<'static> {
+    fn from(value: String) -> Self {
+        Self(value.into())
+    }
+}
+
+impl<'a> From<&'a str> for UnknownHeaderName<'a> {
+    fn from(value: &'a str) -> Self {
+        Self(value.into())
     }
 }
 

@@ -1,15 +1,22 @@
 use smallvec::SmallVec;
 use smartcow::SmartCow;
-
 use std::{
     borrow::Cow,
     fmt::{Debug, Display, Formatter},
 };
+use HeaderValueInner::{Bytes, Utf8};
 
 /// A `HeaderValue` represents the right hand side of a single `name:
 /// value` pair.
 #[derive(Eq, PartialEq, Clone)]
 pub struct HeaderValue(HeaderValueInner);
+
+impl HeaderValue {
+    /// determine if this header contains no unsafe characters (\r, \n, \0)
+    pub fn is_valid(&self) -> bool {
+        memchr::memchr3(b'\r', b'\n', 0, self.as_ref()).is_none()
+    }
+}
 
 #[derive(Eq, PartialEq, Clone)]
 pub(crate) enum HeaderValueInner {
@@ -24,8 +31,8 @@ impl serde::Serialize for HeaderValue {
         S: serde::Serializer,
     {
         match &self.0 {
-            HeaderValueInner::Utf8(s) => serializer.serialize_str(s),
-            HeaderValueInner::Bytes(bytes) => serializer.serialize_bytes(bytes),
+            Utf8(s) => serializer.serialize_str(s),
+            Bytes(bytes) => serializer.serialize_bytes(bytes),
         }
     }
 }
@@ -33,8 +40,8 @@ impl serde::Serialize for HeaderValue {
 impl Debug for HeaderValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
-            HeaderValueInner::Utf8(s) => Debug::fmt(s, f),
-            HeaderValueInner::Bytes(b) => Debug::fmt(&String::from_utf8_lossy(b), f),
+            Utf8(s) => Debug::fmt(s, f),
+            Bytes(b) => Debug::fmt(&String::from_utf8_lossy(b), f),
         }
     }
 }
@@ -47,8 +54,8 @@ impl HeaderValue {
     /// whether it's utf8, use the `AsRef<[u8]>` impl
     pub fn as_str(&self) -> Option<&str> {
         match &self.0 {
-            HeaderValueInner::Utf8(utf8) => Some(utf8),
-            HeaderValueInner::Bytes(_) => None,
+            Utf8(utf8) => Some(utf8),
+            Bytes(_) => None,
         }
     }
 
@@ -66,8 +73,8 @@ impl HeaderValue {
 impl Display for HeaderValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
-            HeaderValueInner::Utf8(s) => f.write_str(s),
-            HeaderValueInner::Bytes(b) => f.write_str(&String::from_utf8_lossy(b)),
+            Utf8(s) => f.write_str(s),
+            Bytes(b) => f.write_str(&String::from_utf8_lossy(b)),
         }
     }
 }
@@ -75,44 +82,44 @@ impl Display for HeaderValue {
 impl From<Vec<u8>> for HeaderValue {
     fn from(v: Vec<u8>) -> Self {
         match String::from_utf8(v) {
-            Ok(s) => Self(HeaderValueInner::Utf8(SmartCow::Owned(s.into()))),
-            Err(e) => Self(HeaderValueInner::Bytes(e.into_bytes().into())),
+            Ok(s) => Self(Utf8(SmartCow::Owned(s.into()))),
+            Err(e) => Self(Bytes(e.into_bytes().into())),
         }
     }
 }
 
 impl From<Cow<'static, str>> for HeaderValue {
     fn from(c: Cow<'static, str>) -> Self {
-        Self(HeaderValueInner::Utf8(SmartCow::from(c)))
+        Self(Utf8(SmartCow::from(c)))
     }
 }
 
 impl From<&'static [u8]> for HeaderValue {
     fn from(b: &'static [u8]) -> Self {
         match std::str::from_utf8(b) {
-            Ok(s) => Self(HeaderValueInner::Utf8(SmartCow::Borrowed(s))),
-            Err(_) => Self(HeaderValueInner::Bytes(b.into())),
+            Ok(s) => Self(Utf8(SmartCow::Borrowed(s))),
+            Err(_) => Self(Bytes(b.into())),
         }
     }
 }
 
 impl From<String> for HeaderValue {
     fn from(s: String) -> Self {
-        Self(HeaderValueInner::Utf8(SmartCow::Owned(s.into())))
+        Self(Utf8(SmartCow::Owned(s.into())))
     }
 }
 
 impl From<&'static str> for HeaderValue {
     fn from(s: &'static str) -> Self {
-        Self(HeaderValueInner::Utf8(SmartCow::Borrowed(s)))
+        Self(Utf8(SmartCow::Borrowed(s)))
     }
 }
 
 impl AsRef<[u8]> for HeaderValue {
     fn as_ref(&self) -> &[u8] {
         match &self.0 {
-            HeaderValueInner::Utf8(utf8) => utf8.as_bytes(),
-            HeaderValueInner::Bytes(b) => b,
+            Utf8(utf8) => utf8.as_bytes(),
+            Bytes(b) => b,
         }
     }
 }

@@ -599,9 +599,20 @@ impl Conn {
 
         write!(buf, " HTTP/1.1\r\n")?;
 
-        for (header, values) in self.request_headers.iter() {
-            for value in values.iter() {
-                write!(buf, "{header}: {value}\r\n")?;
+        for (name, values) in &self.request_headers {
+            if !name.is_valid() {
+                return Err(Error::MalformedHeader(name.to_string().into()));
+            }
+
+            for value in values {
+                if !value.is_valid() {
+                    return Err(Error::MalformedHeader(
+                        format!("value for {name}: {value:?}").into(),
+                    ));
+                }
+                write!(buf, "{name}: ")?;
+                buf.extend_from_slice(value.as_ref());
+                write!(buf, "\r\n")?;
             }
         }
 
