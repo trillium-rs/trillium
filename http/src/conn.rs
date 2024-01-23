@@ -780,7 +780,7 @@ where
         }
     }
 
-    fn write_headers(&mut self, output_buffer: &mut Vec<u8>) -> std::io::Result<()> {
+    fn write_headers(&mut self, output_buffer: &mut Vec<u8>) -> Result<()> {
         use std::io::Write;
         let status = self.status().unwrap_or(Status::NotFound);
 
@@ -801,11 +801,19 @@ where
             &self.response_headers
         );
 
-        for (header, values) in &self.response_headers {
-            for value in values {
-                write!(output_buffer, "{header}: ")?;
-                output_buffer.extend_from_slice(value.as_ref());
-                write!(output_buffer, "\r\n")?;
+        for (name, values) in &self.response_headers {
+            if name.is_valid() {
+                for value in values {
+                    if value.is_valid() {
+                        write!(output_buffer, "{name}: ")?;
+                        output_buffer.extend_from_slice(value.as_ref());
+                        write!(output_buffer, "\r\n")?;
+                    } else {
+                        log::error!("skipping invalid header value {value:?} for header {name}");
+                    }
+                }
+            } else {
+                log::error!("skipping invalid header with name {name:?}");
             }
         }
 

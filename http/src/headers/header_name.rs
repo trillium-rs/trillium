@@ -1,5 +1,3 @@
-use smartcow::SmartCow;
-use smartstring::alias::String as SmartString;
 use std::{
     fmt::{self, Debug, Display, Formatter},
     hash::Hash,
@@ -7,6 +5,8 @@ use std::{
 };
 
 use super::{KnownHeaderName, UnknownHeaderName};
+use crate::Error;
+use HeaderNameInner::{KnownHeader, UnknownHeader};
 
 /// The name of a http header. This can be either a
 /// [`KnownHeaderName`] or a string representation of an unknown
@@ -30,8 +30,6 @@ pub(super) enum HeaderNameInner<'a> {
     KnownHeader(KnownHeaderName),
     UnknownHeader(UnknownHeaderName<'a>),
 }
-use crate::Error;
-use HeaderNameInner::{KnownHeader, UnknownHeader};
 
 impl<'a> HeaderName<'a> {
     /// Convert a potentially-borrowed headername to a static
@@ -40,9 +38,7 @@ impl<'a> HeaderName<'a> {
     pub fn into_owned(self) -> HeaderName<'static> {
         HeaderName(match self.0 {
             KnownHeader(known) => KnownHeader(known),
-            UnknownHeader(UnknownHeaderName(smartcow)) => {
-                UnknownHeader(UnknownHeaderName(smartcow.into_owned()))
-            }
+            UnknownHeader(uhn) => UnknownHeader(uhn.into_owned()),
         })
     }
 
@@ -54,6 +50,14 @@ impl<'a> HeaderName<'a> {
     #[must_use]
     pub fn to_owned(&self) -> HeaderName<'static> {
         self.clone().into_owned()
+    }
+
+    /// Determine if this header name contains only the appropriate characters
+    pub fn is_valid(&self) -> bool {
+        match &self.0 {
+            KnownHeader(_) => true,
+            UnknownHeader(uh) => uh.is_valid(),
+        }
     }
 }
 
@@ -79,7 +83,7 @@ impl From<String> for HeaderName<'static> {
     fn from(s: String) -> Self {
         Self(match s.parse::<KnownHeaderName>() {
             Ok(khn) => KnownHeader(khn),
-            Err(()) => UnknownHeader(UnknownHeaderName(SmartCow::Owned(s.into()))),
+            Err(()) => UnknownHeader(UnknownHeaderName::from(s)),
         })
     }
 }
@@ -88,7 +92,7 @@ impl<'a> From<&'a str> for HeaderName<'a> {
     fn from(s: &'a str) -> Self {
         Self(match s.parse::<KnownHeaderName>() {
             Ok(khn) => KnownHeader(khn),
-            Err(_e) => UnknownHeader(UnknownHeaderName(SmartCow::Borrowed(s))),
+            Err(_e) => UnknownHeader(UnknownHeaderName::from(s)),
         })
     }
 }
@@ -97,11 +101,12 @@ impl FromStr for HeaderName<'static> {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.is_ascii() {
-            Ok(Self(match s.parse::<KnownHeaderName>() {
-                Ok(known) => KnownHeader(known),
-                Err(()) => UnknownHeader(UnknownHeaderName(SmartCow::Owned(SmartString::from(s)))),
-            }))
+        if let Ok(known) = s.parse::<KnownHeaderName>() {
+            return Ok(known.into());
+        }
+        let uhn = UnknownHeaderName::from(s.to_string());
+        if uhn.is_valid() {
+            Ok(uhn.into())
         } else {
             Err(Error::MalformedHeader(s.to_string().into()))
         }
