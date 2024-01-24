@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.5.3...trillium-client-v0.5.4) - 2024-01-24
+
+### Fixed
+- *(security)* handling of unsafe characters in outbound header names and values
+
+### Other
+- *(deps)* update env_logger requirement from 0.10.1 to 0.11.0
+
 ## [0.5.3](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.5.2...trillium-client-v0.5.3) - 2024-01-22
 
 ### Other
