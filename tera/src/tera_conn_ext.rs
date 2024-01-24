@@ -1,6 +1,5 @@
 use crate::TeraHandler;
 use serde::Serialize;
-use std::path::PathBuf;
 use tera::{Context, Tera};
 use trillium::{Conn, KnownHeaderName};
 
