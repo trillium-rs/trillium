@@ -44,11 +44,35 @@ impl<'a> From<UnknownHeaderName<'a>> for HeaderName<'a> {
     }
 }
 
+fn is_tchar(c: char) -> bool {
+    matches!(
+        c,
+        'a'..='z'
+        | 'A'..='Z'
+        | '0'..='9'
+        | '!'
+        | '#'
+        | '$'
+        | '%'
+        | '&'
+        | '\''
+        | '*'
+        | '+'
+        | '-'
+        | '.'
+        | '^'
+        | '_'
+        | '`'
+        | '|'
+        | '~'
+    )
+}
+
 impl UnknownHeaderName<'_> {
     pub(crate) fn is_valid(&self) -> bool {
-        self.0
-            .chars()
-            .all(|c| matches!(c, 'a'..='z'|'A'..='Z'|'0'..='9'|'-'|'_'))
+        // token per https://www.rfc-editor.org/rfc/rfc9110#section-5.1
+        // tchar per https://www.rfc-editor.org/rfc/rfc9110#section-5.6.2
+        !self.is_empty() && self.0.chars().all(is_tchar)
     }
 
     pub(crate) fn into_owned(self) -> UnknownHeaderName<'static> {
