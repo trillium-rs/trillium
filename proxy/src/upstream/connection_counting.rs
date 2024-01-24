@@ -32,6 +32,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 struct ConnectionCount(CloneCounter);
 
 impl<T> UpstreamSelector for ConnectionCounting<T>
