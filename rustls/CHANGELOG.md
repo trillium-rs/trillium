@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.1](https://github.com/trillium-rs/trillium/compare/trillium-rustls-v0.5.0...trillium-rustls-v0.5.1) - 2024-01-24
+## [0.6.0](https://github.com/trillium-rs/trillium/compare/trillium-rustls-v0.5.0...trillium-rustls-v0.6.0) - 2024-01-24
 
 ### Other
 - *(deps)* update env_logger requirement from 0.10.1 to 0.11.0
