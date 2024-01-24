@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.12](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.11...trillium-http-v0.3.12) - 2024-01-24
+
+### Fixed
+- *(security)* allow all tchar in header names
+- *(security)* handling of unsafe characters in outbound header names and values
+
+### Other
+- *(deps)* update env_logger requirement from 0.10.1 to 0.11.0
+
 ## [0.3.11](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.10...trillium-http-v0.3.11) - 2024-01-02
 
 ### Other
