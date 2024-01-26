@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK\r\n
+Server: corpus-test\r\n
+Date: Tue, 21 Nov 2023 21:27:21 GMT\r\n
+Content-Length: 170\r\n
+\r\n
+===request===\n
+method: PATCH\n
+path: http://example.com:8080/\n
+version: HTTP/1.1\n
+\n
+===headers===\n
+Host: example.com:8080\r\n
+Connection: close\r\n
+X-Unknown-Header: 111\r\n
+\n
+===body===\n

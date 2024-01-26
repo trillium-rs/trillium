@@ -1,0 +1,10 @@
+POST http://example.com:8080/ngmmfwqdrlpe HTTP/1.1\r\n
+Transfer-Encoding: chunked\r\n
+Host: example.com:8080\r\n
+Connection: close\r\n
+\r\n
+
+64; name=value\r\n
+wyxgczrucwhsncrxxamygamgrqseegrbgrhiqyeuwlojphjnhvnqvzwpsrvwxpzdghoyhsseggpvoykxwyntzmirdgqcvphbwxbg\r\n
+0\r\n
+\r\n

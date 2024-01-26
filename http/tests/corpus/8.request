@@ -1,0 +1,4 @@
+PATCH http://example.com:8080/ogdlqgxkbepd HTTP/1.1\r\n
+Host: example.com:8080\r\n
+Connection: close\r\n
+\r\n
