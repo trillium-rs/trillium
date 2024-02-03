@@ -2,6 +2,7 @@ use crate::{
     after_send::{AfterSend, SendStatus},
     copy,
     http_config::DEFAULT_CONFIG,
+    liveness::{CancelOnDisconnect, LivenessFut},
     received_body::ReceivedBodyState,
     util::encoding,
     Body, BufWriter, Buffer, ConnectionStatus, Error, HeaderName, HeaderValue, Headers, HttpConfig,
@@ -9,7 +10,10 @@ use crate::{
     Method, ReceivedBody, Result, StateSet, Status, Stopper, Upgrade, Version,
 };
 use encoding_rs::Encoding;
-use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures_lite::{
+    future,
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+};
 use httparse::{Request, EMPTY_HEADER};
 use memchr::memmem::Finder;
 use std::{
@@ -17,6 +21,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
     net::IpAddr,
+    pin::pin,
     str::FromStr,
     time::{Instant, SystemTime},
 };
@@ -369,6 +374,75 @@ where
     */
     pub fn http_version(&self) -> Version {
         self.version
+    }
+
+    /// Cancels and drops the future if reading from the transport results in an error or empty read
+    ///
+    /// The use of this method is not advised if your connected http client employs pipelining
+    /// (rarely seen in the wild), as it will buffer an unbounded number of requests one byte at a
+    /// time
+    ///
+    /// If the client disconnects from the conn's transport, this function will return None. If the
+    /// future completes without disconnection, this future will return Some containing the output
+    /// of the future.
+    ///
+    /// The use of this method is not advised if your connected http client employs pipelining
+    /// (rarely seen in the wild), as it will buffer an unbounded number of requests
+    ///
+    /// Note that the inner future cannot borrow conn, so you will need to clone or take any
+    /// information needed to execute the future prior to executing this method.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use futures_lite::{AsyncRead, AsyncWrite};
+    /// # use trillium_http::{Conn, Method};
+    /// async fn something_slow_and_cancel_safe() -> String { String::from("this was not actually slow") }
+    /// async fn handler<T>(mut conn: Conn<T>) -> Conn<T>
+    /// where
+    ///     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static
+    /// {
+    ///     let Some(returned_body) = conn.cancel_on_disconnect(async {
+    ///         something_slow_and_cancel_safe().await
+    ///     }).await else { return conn; };
+    ///     conn.set_response_body(returned_body);
+    ///     conn.set_status(200);
+    ///     conn
+    /// }
+    /// ```
+    pub async fn cancel_on_disconnect<'a, Fut>(&'a mut self, fut: Fut) -> Option<Fut::Output>
+    where
+        Fut: Future + Send + 'a,
+    {
+        CancelOnDisconnect(self, pin!(fut)).await
+    }
+
+    /// Check if the transport is connected by attempting to read from the transport
+    ///
+    /// # Example
+    ///
+    /// This is best to use at appropriate points in a long-running handler, like:
+    ///
+    /// ```rust
+    /// # use futures_lite::{AsyncRead, AsyncWrite};
+    /// # use trillium_http::{Conn, Method};
+    /// # async fn something_slow_but_not_cancel_safe() {}
+    /// async fn handler<T>(mut conn: Conn<T>) -> Conn<T>
+    /// where
+    ///     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static
+    /// {
+    ///     for _ in 0..100 {
+    ///         if conn.is_disconnected().await {
+    ///             return conn;
+    ///         }
+    ///         something_slow_but_not_cancel_safe().await;
+    ///     }
+    ///    conn.set_status(200);
+    ///    conn
+    /// }
+    /// ```
+    pub async fn is_disconnected(&mut self) -> bool {
+        future::poll_once(LivenessFut(self)).await.is_none()
     }
 
     fn needs_100_continue(&self) -> bool {
