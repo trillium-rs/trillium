@@ -17,6 +17,8 @@ log = "0.4.20"
 trillium-http = { path = "../http", version = "0.3.11" }
 
 [dev-dependencies]
+async-io = "2.3.1"
+fastrand = "2.0.1"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 

@@ -1,6 +1,7 @@
 use std::{
     convert::TryInto,
     fmt::{self, Debug, Formatter},
+    future::Future,
     net::IpAddr,
 };
 use trillium_http::{
@@ -569,6 +570,64 @@ impl Conn {
     /// for router implementations. removes a route segment onto the path
     pub fn pop_path(&mut self) {
         self.path.pop();
+    }
+
+    /// Cancels and drops the future if reading from the transport results in an error or empty read
+    ///
+    /// If the client disconnects from the conn's transport, this function will return None. If the
+    /// future completes without disconnection, this future will return Some containing the output
+    /// of the future.
+    ///
+    /// The use of this method is not advised if your connected http client employs pipelining
+    /// (rarely seen in the wild), as it will buffer an unbounded number of requests
+    ///
+    /// Note that the inner future cannot borrow conn, so you will need to clone or take any
+    /// information needed to execute the future prior to executing this method.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use trillium::{Conn, Method};
+    /// async fn something_slow_and_cancel_safe() -> String {
+    ///     String::from("this was not actually slow")
+    /// }
+    /// async fn handler(mut conn: Conn) -> Conn {
+    ///     match conn.cancel_on_disconnect(async {
+    ///         something_slow_and_cancel_safe().await
+    ///     }).await {
+    ///        Some(returned_body) => conn.ok(returned_body),
+    ///        None => conn
+    ///     }
+    /// }
+    /// ```
+    pub async fn cancel_on_disconnect<'a, Fut>(&'a mut self, fut: Fut) -> Option<Fut::Output>
+    where
+        Fut: Future + Send + 'a,
+    {
+        self.inner_mut().cancel_on_disconnect(fut).await
+    }
+
+    /// Check if the transport is connected by testing attempting to read from the transport
+    ///
+    /// # Example
+    ///
+    /// This is best to use at appropriate points in a long-running handler, like:
+    ///
+    /// ```rust
+    /// # use trillium::{Conn, Method};
+    /// # async fn something_slow_but_not_cancel_safe() {}
+    /// async fn handler(mut conn: Conn) -> Conn {
+    ///     for _ in 0..100 {
+    ///         if conn.is_disconnected().await {
+    ///             return conn;
+    ///         }
+    ///         something_slow_but_not_cancel_safe().await;
+    ///     }
+    ///    conn.ok("ok!")
+    /// }
+    /// ```
+    pub async fn is_disconnected(&mut self) -> bool {
+        self.inner_mut().is_disconnected().await
     }
 }
 
