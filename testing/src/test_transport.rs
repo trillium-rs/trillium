@@ -48,6 +48,7 @@ impl TestTransport {
 
     /// close this transport, representing a disconnection
     pub fn close(&mut self) {
+        self.read.close();
         self.write.close();
     }
 
