@@ -49,3 +49,17 @@ where
         Some(T::try_from_conn(conn).await)
     }
 }
+
+#[async_trait]
+impl FromConn for trillium::Headers {
+    async fn from_conn(conn: &mut Conn) -> Option<Self> {
+        Some(conn.request_headers().clone())
+    }
+}
+
+#[async_trait]
+impl FromConn for trillium::Method {
+    async fn from_conn(conn: &mut Conn) -> Option<Self> {
+        Some(conn.method())
+    }
+}

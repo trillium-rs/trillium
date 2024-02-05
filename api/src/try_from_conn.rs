@@ -34,6 +34,22 @@ impl<T: FromConn> TryFromConn for T {
     }
 }
 
+#[cfg(feature = "url")]
+#[async_trait]
+impl TryFromConn for url::Url {
+    type Error = trillium::Status;
+    async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
+        let path = conn.path();
+        let host = conn
+            .request_headers()
+            .get_str(trillium::KnownHeaderName::Host)
+            .ok_or(trillium::Status::BadRequest)?;
+        let proto = if conn.is_secure() { "https" } else { "http" };
+        url::Url::parse(&format!("{proto}://{host}{path}"))
+            .map_err(|_| trillium::Status::BadRequest)
+    }
+}
+
 macro_rules! impl_try_from_conn_tuple {
     ($($name:ident)+) => (
         #[async_trait]
