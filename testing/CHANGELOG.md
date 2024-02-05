@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.5.2...trillium-testing-v0.5.3) - 2024-02-05
+
+### Added
+- *(testing)* reexport some server-common traits
+
+### Fixed
+- *(testing)* use host:port for runtimeless info for consistency with runtime adapters
+- *(testing)* TestTransport closure is symmetrical
+
 ## [0.5.2](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.5.1...trillium-testing-v0.5.2) - 2024-01-02
 
 ### Added
