@@ -20,7 +20,7 @@ serde = ["trillium-http/serde"]
 async-trait = "0.1.75"
 futures-lite = "2.1.0"
 log = "0.4.20"
-trillium-http = { path = "../http", version = "0.3.11" }
+trillium-http = { path = "../http", version = "0.3.13" }
 
 [dev-dependencies]
 async-io = "2.3.1"
