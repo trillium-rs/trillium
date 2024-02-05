@@ -12,8 +12,8 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [features]
 unstable = []
-http-compat = ["http0"]
-http-compat-1 = ["http1"]
+http-compat = ["dep:http0"]
+http-compat-1 = ["dep:http1"]
 serde = ["dep:serde"]
 
 [dependencies]
