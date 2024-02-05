@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.15](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.14...trillium-v0.2.15) - 2024-02-05
+
+### Fixed
+- *(trillium)* fix trillium-http dependency
+
 ## [0.2.14](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.13...trillium-v0.2.14) - 2024-02-05
 
 ### Added
