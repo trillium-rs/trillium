@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-rc.9](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.8...trillium-api-v0.2.0-rc.9) - 2024-02-05
+
+### Added
+- *(api)* add cancel_on_disconnect
+
+### Other
+- *(deps)* update env_logger requirement from 0.10.1 to 0.11.0
+- Release only rustls
+- release
+- release
+
 ## [0.2.0-rc.8](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.7...trillium-api-v0.2.0-rc.8) - 2024-01-02
 
 ### Other
