@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.14](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.13...trillium-v0.2.14) - 2024-02-05
+
+### Added
+- *(trillium)* reexpose trillium-http features
+- *(http)* cancel on disconnect
+
+### Other
+- *(trillium)* add liveness (cancel-on-disconnect) test
+
 ## [0.2.13](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.12...trillium-v0.2.13) - 2024-01-02
 
 ### Other
