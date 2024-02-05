@@ -273,21 +273,19 @@ impl Headers {
         name: impl Into<HeaderName<'a>>,
         needle: &str,
     ) -> bool {
-        self.get_str(name)
-            .map(|h| {
-                let needle = if needle.chars().all(|c| c.is_ascii_lowercase()) {
-                    SmartCow::Borrowed(needle)
-                } else {
-                    SmartCow::Owned(needle.chars().map(|c| c.to_ascii_lowercase()).collect())
-                };
+        self.get_str(name).is_some_and(|h| {
+            let needle = if needle.chars().all(|c| c.is_ascii_lowercase()) {
+                SmartCow::Borrowed(needle)
+            } else {
+                SmartCow::Owned(needle.chars().map(|c| c.to_ascii_lowercase()).collect())
+            };
 
-                if h.chars().all(|c| c.is_ascii_lowercase()) {
-                    h.contains(&*needle)
-                } else {
-                    h.to_ascii_lowercase().contains(&*needle)
-                }
-            })
-            .unwrap_or_default()
+            if h.chars().all(|c| c.is_ascii_lowercase()) {
+                h.contains(&*needle)
+            } else {
+                h.to_ascii_lowercase().contains(&*needle)
+            }
+        })
     }
 
     /// Chainable method to insert a header

@@ -45,12 +45,14 @@ impl<'de> serde::Deserialize<'de> for Version {
 }
 
 impl PartialEq<&Version> for Version {
+    #[allow(clippy::unconditional_recursion)] // false positive
     fn eq(&self, other: &&Version) -> bool {
         self == *other
     }
 }
 
 impl PartialEq<Version> for &Version {
+    #[allow(clippy::unconditional_recursion)] // false positive
     fn eq(&self, other: &Version) -> bool {
         *self == other
     }
@@ -133,6 +135,13 @@ mod test {
             "not a version".parse::<Version>().unwrap_err().to_string(),
             "unrecognized http version: not a version"
         );
+    }
+
+    #[test]
+    fn eq() {
+        assert_eq!(Version::Http1_1, Version::Http1_1);
+        assert_eq!(Version::Http1_1, &Version::Http1_1);
+        assert_eq!(&Version::Http1_1, Version::Http1_1);
     }
 
     #[test]
