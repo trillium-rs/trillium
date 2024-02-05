@@ -51,7 +51,7 @@ impl Server for RuntimelessServer {
     }
 
     fn info(&self) -> Info {
-        Info::from(&*format!("test server {}:{}", self.host, self.port))
+        Info::from(&*format!("{}:{}", &self.host, &self.port))
     }
 
     fn block_on(fut: impl Future<Output = ()> + 'static) {
