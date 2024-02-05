@@ -160,10 +160,7 @@ where
     }
 
     fn owns_transport(&self) -> bool {
-        self.transport
-            .as_ref()
-            .map(MutCow::is_owned)
-            .unwrap_or_default()
+        self.transport.as_ref().is_some_and(MutCow::is_owned)
     }
 
     /// Set the maximum length that can be read from this body before error
