@@ -10,6 +10,12 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[features]
+unstable = ["trillium-http/unstable"]
+http-compat = ["trillium-http/http-compat"]
+http-compat-1 = ["trillium-http/http-compat-1"]
+serde = ["trillium-http/serde"]
+
 [dependencies]
 async-trait = "0.1.75"
 futures-lite = "2.1.0"
