@@ -103,7 +103,8 @@ pub use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite};
 mod server_connector;
 pub use server_connector::{connector, ServerConnector};
 
-use trillium_server_common::{Config, Connector, Server};
+use trillium_server_common::Config;
+pub use trillium_server_common::{Connector, ObjectSafeConnector, Server};
 
 #[derive(Debug)]
 /// A droppable future
