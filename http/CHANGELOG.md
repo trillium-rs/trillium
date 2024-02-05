@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.13](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.12...trillium-http-v0.3.13) - 2024-02-05
+
+### Added
+- *(http)* fix http-compat cargo feature specification
+- *(http)* relax handler constraint to be FnMut instead of Fn
+- *(http)* cancel on disconnect
+
+### Other
+- *(http)* appease the clipmaster
+
 ## [0.3.12](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.11...trillium-http-v0.3.12) - 2024-01-24
 
 ### Fixed
