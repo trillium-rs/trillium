@@ -111,7 +111,7 @@ where
         handler: F,
     ) -> Result<Option<Upgrade<Transport>>>
     where
-        F: Fn(Conn<Transport>) -> Fut,
+        F: FnMut(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>> + Send,
     {
         Self::map_with_config(DEFAULT_CONFIG, transport, stopper, handler).await
@@ -140,10 +140,10 @@ where
         http_config: HttpConfig,
         transport: Transport,
         stopper: Stopper,
-        handler: F,
+        mut handler: F,
     ) -> Result<Option<Upgrade<Transport>>>
     where
-        F: Fn(Conn<Transport>) -> Fut,
+        F: FnMut(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>> + Send,
     {
         let mut conn = Conn::new_with_config(
