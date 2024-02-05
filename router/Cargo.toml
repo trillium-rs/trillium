@@ -10,9 +10,12 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "async", "router"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[features]
+memchr = ["routefinder/memchr"]
+
 [dependencies]
 log = "0.4.20"
-routefinder = "0.5.3"
+routefinder = "0.5.4"
 trillium = { path = "../trillium", version = "0.2.13" }
 
 [dev-dependencies]
@@ -21,4 +24,3 @@ trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
-[features]
