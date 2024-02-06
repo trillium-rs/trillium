@@ -106,3 +106,6 @@ macro_rules! routes {
 pub fn router() -> Router {
     Router::new()
 }
+
+pub(crate) struct CapturesNewType<'a, 'b>(routefinder::Captures<'a, 'b>);
+pub(crate) struct RouteSpecNewType(routefinder::RouteSpec);
