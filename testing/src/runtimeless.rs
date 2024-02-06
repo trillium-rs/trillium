@@ -109,6 +109,16 @@ impl Connector for RuntimelessClientConfig {
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         spawn(fut);
     }
+
+    async fn delay(&self, duration: std::time::Duration) {
+        let (sender, receiver) = async_channel::bounded::<()>(1);
+        std::thread::spawn(move || {
+            std::thread::sleep(duration);
+            let _ = sender.send_blocking(());
+        });
+
+        let _ = receiver.recv().await;
+    }
 }
 
 #[cfg(test)]

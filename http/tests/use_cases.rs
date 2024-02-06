@@ -60,4 +60,8 @@ where
     fn spawn<SpawnFut: Future<Output = ()> + Send + 'static>(&self, fut: SpawnFut) {
         trillium_testing::spawn(fut);
     }
+
+    async fn delay(&self, duration: std::time::Duration) {
+        trillium_testing::delay(duration).await
+    }
 }
