@@ -150,6 +150,10 @@ cfg_if::cfg_if! {
         }
         pub use trillium_smol::async_global_executor::block_on;
         pub use trillium_smol::ClientConfig;
+        /// a future that wakes after this amount of time
+        pub async fn delay(duration: std::time::Duration) {
+            trillium_smol::async_io::Timer::after(duration).await;
+        }
 
     } else if #[cfg(feature = "async-std")] {
         /// runtime server config
@@ -176,6 +180,15 @@ cfg_if::cfg_if! {
         pub fn client_config() -> impl Connector {
             ClientConfig::default()
         }
+
+       /// a future that wakes after this amount of time
+        pub async fn delay(duration: std::time::Duration) {
+            let _ = trillium_async_std::async_std::future::timeout(
+                duration,
+                std::future::pending::<()>()
+            ).await;
+        }
+
     } else if #[cfg(feature = "tokio")] {
         /// runtime server config
         pub fn config() -> Config<impl Server, ()> {
@@ -200,6 +213,12 @@ cfg_if::cfg_if! {
         pub fn client_config() -> impl Connector {
             ClientConfig::default()
         }
+
+       /// a future that wakes after this amount of time
+        pub async fn delay(duration: std::time::Duration) {
+            trillium_tokio::tokio::time::sleep(duration).await;
+        }
+
    } else {
         /// runtime server config
         pub fn config() -> Config<impl Server, ()> {
@@ -228,6 +247,17 @@ cfg_if::cfg_if! {
                 rx.recv().await.ok()
             })
         }
+
+       /// a future that wakes after this amount of time
+       pub async fn delay(duration: std::time::Duration) {
+           let (sender, receiver) = async_channel::bounded::<()>(1);
+           std::thread::spawn(move || {
+               std::thread::sleep(duration);
+               let _ = sender.send_blocking(());
+           });
+
+           let _ = receiver.recv().await;
+       }
     }
 }
 

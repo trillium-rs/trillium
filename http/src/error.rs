@@ -1,5 +1,5 @@
 use crate::{HeaderName, Version};
-use std::{num::TryFromIntError, str::Utf8Error};
+use std::{num::TryFromIntError, str::Utf8Error, time::Duration};
 use thiserror::Error;
 
 /// Concrete errors that occur within trillium's HTTP implementation
@@ -86,6 +86,10 @@ pub enum Error {
     /// implementation on `ReceivedBody`
     #[error("Received body too long. Maximum {0} bytes")]
     ReceivedBodyTooLong(u64),
+
+    /// something took longer than was allowed
+    #[error("{0} took longer than {1:?}")]
+    TimedOut(&'static str, Duration),
 }
 
 /// this crate's result type

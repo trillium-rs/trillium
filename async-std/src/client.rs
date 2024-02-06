@@ -83,4 +83,8 @@ impl Connector for ClientConfig {
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         async_std::task::spawn(fut);
     }
+
+    async fn delay(&self, duration: std::time::Duration) {
+        let _ = async_std::future::timeout(duration, std::future::pending::<()>()).await;
+    }
 }

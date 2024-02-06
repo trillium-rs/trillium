@@ -102,6 +102,10 @@ impl<T: Connector> Connector for NativeTlsConfig<T> {
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         self.tcp_config.spawn(fut)
     }
+
+    async fn delay(&self, duration: std::time::Duration) {
+        self.tcp_config.delay(duration).await
+    }
 }
 
 /**

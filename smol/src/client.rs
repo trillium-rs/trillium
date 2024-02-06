@@ -83,4 +83,8 @@ impl Connector for ClientConfig {
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         async_global_executor::spawn(fut).detach();
     }
+
+    async fn delay(&self, duration: std::time::Duration) {
+        async_io::Timer::after(duration).await;
+    }
 }
