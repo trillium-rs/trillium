@@ -1,4 +1,4 @@
-use crate::RouterRef;
+use crate::{CapturesNewType, RouteSpecNewType, RouterRef};
 use routefinder::{Captures, Match, RouteSpec, Router as Routefinder};
 use std::{
     collections::BTreeSet,
@@ -411,7 +411,7 @@ impl Router {
 impl Handler for Router {
     async fn run(&self, mut conn: Conn) -> Conn {
         let method = conn.method();
-        let original_captures = conn.take_state::<Captures>();
+        let original_captures = conn.take_state();
         let path = conn.path();
         let mut has_path = false;
 
@@ -420,7 +420,7 @@ impl Handler for Router {
 
             let route = m.route().clone();
 
-            if let Some(mut original_captures) = original_captures {
+            if let Some(CapturesNewType(mut original_captures)) = original_captures {
                 original_captures.append(captures);
                 captures = original_captures;
             }
@@ -435,7 +435,8 @@ impl Handler for Router {
                         has_path = true;
                     }
 
-                    conn.with_state(captures).with_state(route)
+                    conn.with_state(CapturesNewType(captures))
+                        .with_state(RouteSpecNewType(route))
                 })
                 .await;
 

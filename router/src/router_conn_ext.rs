@@ -1,4 +1,4 @@
-use routefinder::{Captures, RouteSpec};
+use crate::{CapturesNewType, RouteSpecNewType};
 use trillium::Conn;
 
 /**
@@ -71,20 +71,20 @@ pub trait RouterConnExt {
     ///     "route was /pages/:page_id"
     /// );
     /// ```
-    fn route(&self) -> Option<&RouteSpec>;
+    fn route(&self) -> Option<&str>;
 }
 
 impl RouterConnExt for Conn {
     fn param<'a>(&'a self, param: &str) -> Option<&'a str> {
-        self.state::<Captures>().and_then(|p| p.get(param))
+        self.state().and_then(|CapturesNewType(p)| p.get(param))
     }
 
     fn wildcard(&self) -> Option<&str> {
-        self.state::<Captures>().and_then(|p| p.wildcard())
+        self.state().and_then(|CapturesNewType(p)| p.wildcard())
     }
 
-    fn route(&self) -> Option<&RouteSpec> {
-        self.state()
+    fn route(&self) -> Option<&str> {
+        self.state().and_then(|RouteSpecNewType(r)| r.source())
     }
 }
 
