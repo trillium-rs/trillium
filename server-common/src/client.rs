@@ -29,8 +29,11 @@ pub trait Connector: Send + Sync + 'static {
      */
     async fn connect(&self, url: &Url) -> Result<Self::Transport>;
 
-    ///
+    /// spawn and detach a future on the runtime
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut);
+
+    /// wake in this amount of wall time
+    async fn delay(&self, duration: std::time::Duration);
 }
 
 ///
@@ -40,6 +43,10 @@ pub trait ObjectSafeConnector: Send + Sync + 'static {
     async fn connect(&self, url: &Url) -> Result<BoxedTransport>;
     ///
     fn spawn(&self, fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
+
+    /// wake in this amount of wall time
+    async fn delay(&self, duration: std::time::Duration);
+
     ///
     fn boxed(self) -> Box<dyn ObjectSafeConnector>
     where
@@ -66,6 +73,11 @@ impl<T: Connector> ObjectSafeConnector for T {
     fn spawn(&self, fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
         T::spawn(self, fut)
     }
+
+    /// wake in this amount of wall time
+    async fn delay(&self, duration: std::time::Duration) {
+        T::delay(self, duration).await
+    }
 }
 
 #[async_trait]
@@ -78,6 +90,10 @@ impl Connector for Box<dyn ObjectSafeConnector> {
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         ObjectSafeConnector::spawn(self.as_ref(), Box::pin(fut))
     }
+
+    async fn delay(&self, duration: std::time::Duration) {
+        ObjectSafeConnector::delay(self.as_ref(), duration).await
+    }
 }
 
 #[async_trait]
@@ -89,6 +105,10 @@ impl Connector for Arc<dyn ObjectSafeConnector> {
 
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         ObjectSafeConnector::spawn(self.as_ref(), Box::pin(fut))
+    }
+
+    async fn delay(&self, duration: std::time::Duration) {
+        ObjectSafeConnector::delay(self.as_ref(), duration).await
     }
 }
 

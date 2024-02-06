@@ -1,6 +1,6 @@
 use crate::{pool::PoolEntry, util::encoding, Pool};
 use encoding_rs::Encoding;
-use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
+use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt, FutureExt};
 use memchr::memmem::Finder;
 use size::{Base, Size};
 use std::{
@@ -11,6 +11,7 @@ use std::{
     pin::Pin,
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 use trillium_http::{
     transport::BoxedTransport,
@@ -59,6 +60,7 @@ pub struct Conn {
     pub(crate) response_body_state: ReceivedBodyState,
     pub(crate) config: Arc<dyn ObjectSafeConnector>,
     pub(crate) headers_finalized: bool,
+    pub(crate) timeout: Option<Duration>,
 }
 
 /// default http user-agent header
@@ -490,6 +492,21 @@ impl Conn {
             .and_then(|t| t.peer_addr().ok().flatten())
     }
 
+    /// set the timeout for this conn
+    ///
+    /// this can also be set on the client with [`Client::set_timeout`] and [`Client::with_timeout`]
+    pub fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = Some(timeout);
+    }
+
+    /// set the timeout for this conn
+    ///
+    /// this can also be set on the client with [`Client::set_timeout`] and [`Client::with_timeout`]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.set_timeout(timeout);
+        self
+    }
+
     // --- everything below here is private ---
 
     fn finalize_headers(&mut self) -> Result<()> {
@@ -887,7 +904,17 @@ impl IntoFuture for Conn {
 
     fn into_future(mut self) -> Self::IntoFuture {
         Box::pin(async move {
-            self.exec().await?;
+            if let Some(duration) = self.timeout {
+                let config = self.config.clone();
+                self.exec()
+                    .or(async {
+                        Connector::delay(&config, duration).await;
+                        Err(Error::TimedOut("Conn", duration))
+                    })
+                    .await?
+            } else {
+                self.exec().await?;
+            }
             Ok(self)
         })
     }

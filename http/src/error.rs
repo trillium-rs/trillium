@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::num::TryFromIntError;
 use std::str::Utf8Error;
+use std::time::Duration;
 
 use thiserror::Error;
 
@@ -90,6 +91,10 @@ pub enum Error {
     /// implementation on `ReceivedBody`
     #[error("Received body too long. Maximum {0} bytes")]
     ReceivedBodyTooLong(u64),
+
+    /// something took longer than was allowed
+    #[error("{0} took longer than {1:?}")]
+    TimedOut(&'static str, Duration),
 }
 
 /// this crate's result type
