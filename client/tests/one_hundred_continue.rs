@@ -2,7 +2,7 @@ use async_channel::Sender;
 use futures_lite::future;
 use indoc::{formatdoc, indoc};
 use pretty_assertions::assert_eq;
-use std::future::Future;
+use std::future::{Future, IntoFuture};
 use test_harness::test;
 use trillium_client::{Client, Conn, Error, Status, USER_AGENT};
 use trillium_server_common::{Connector, Url};
@@ -229,6 +229,10 @@ impl Connector for TestConnector {
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         let _ = trillium_testing::spawn(fut);
     }
+
+    async fn delay(&self, duration: std::time::Duration) {
+        trillium_testing::delay(duration).await
+    }
 }
 
 async fn test_conn(
@@ -236,7 +240,7 @@ async fn test_conn(
 ) -> (TestTransport, impl Future<Output = Result<Conn, Error>>) {
     let (sender, receiver) = async_channel::unbounded();
     let client = Client::new(TestConnector(sender));
-    let conn_fut = trillium_testing::spawn(async move { setup(client).await });
+    let conn_fut = trillium_testing::spawn(setup(client).into_future());
     let transport = receiver.recv().await.unwrap();
     (transport, async move { conn_fut.await.unwrap() })
 }

@@ -101,4 +101,8 @@ impl Connector for ClientConfig {
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         tokio::task::spawn(fut);
     }
+
+    async fn delay(&self, duration: Duration) {
+        tokio::time::sleep(duration).await
+    }
 }
