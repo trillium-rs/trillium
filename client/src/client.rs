@@ -1,5 +1,5 @@
 use crate::{Conn, IntoUrl, Pool, USER_AGENT};
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
     transport::BoxedTransport, HeaderName, HeaderValues, Headers, KnownHeaderName, Method,
     ReceivedBodyState,
@@ -20,6 +20,7 @@ pub struct Client {
     pool: Option<Pool<Origin, BoxedTransport>>,
     base: Option<Arc<Url>>,
     default_headers: Arc<Headers>,
+    timeout: Option<Duration>,
 }
 
 macro_rules! method {
@@ -74,8 +75,15 @@ impl Client {
             pool: None,
             base: None,
             default_headers: Arc::new(default_request_headers()),
+            timeout: None,
         }
     }
+
+    method!(get, Get);
+    method!(post, Post);
+    method!(put, Put);
+    method!(delete, Delete);
+    method!(patch, Patch);
 
     /// chainable method to remove a header from default request headers
     pub fn without_default_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
@@ -160,6 +168,7 @@ impl Client {
             response_body_state: ReceivedBodyState::Start,
             config: self.config.clone(),
             headers_finalized: false,
+            timeout: self.timeout,
         }
     }
 
@@ -209,11 +218,20 @@ impl Client {
         Ok(())
     }
 
-    method!(get, Get);
-    method!(post, Post);
-    method!(put, Put);
-    method!(delete, Delete);
-    method!(patch, Patch);
+    /// set the timeout for all conns this client builds
+    ///
+    /// this can also be set with [`Conn::set_timeout`] and [`Conn::with_timeout`]
+    pub fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = Some(timeout);
+    }
+
+    /// set the timeout for all conns this client builds
+    ///
+    /// this can also be set with [`Conn::set_timeout`] and [`Conn::with_timeout`]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.set_timeout(timeout);
+        self
+    }
 }
 
 impl<T: Connector> From<T> for Client {
