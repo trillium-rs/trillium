@@ -52,6 +52,10 @@ impl<H: trillium::Handler> trillium_server_common::Connector for ServerConnector
     fn spawn<Fut: std::future::Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         crate::spawn(fut);
     }
+
+    async fn delay(&self, duration: std::time::Duration) {
+        crate::delay(duration).await
+    }
 }
 
 /// build a connector from this handler

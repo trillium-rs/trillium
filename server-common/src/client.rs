@@ -8,6 +8,7 @@ use std::{
     io,
     pin::Pin,
     sync::Arc,
+    time::Duration,
 };
 /**
 Interface for runtime and tls adapters for the trillium client
@@ -23,8 +24,11 @@ pub trait Connector: Send + Sync + 'static {
     /// Initiate a connection to the provided url
     fn connect(&self, url: &Url) -> impl Future<Output = io::Result<Self::Transport>> + Send;
 
-    /// spwan a future on the runtime
+    /// spawn and detach a future on the runtime
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut);
+
+    /// wake in this amount of wall time
+    fn delay(&self, duration: Duration) -> impl Future<Output = ()> + Send;
 }
 
 /// An Arced and type-erased [`Connector`]
@@ -73,9 +77,17 @@ trait ObjectSafeConnector: Send + Sync + 'static {
         'url: 'fut,
         Self: 'fut;
     fn spawn(&self, fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
+    fn delay<'connector, 'fut>(
+        &'connector self,
+        duration: Duration,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'fut>>
+    where
+        'connector: 'fut,
+        Self: 'fut;
     fn as_any(&self) -> &dyn Any;
     fn as_mut_any(&mut self) -> &mut dyn Any;
 }
+
 impl<T: Connector> ObjectSafeConnector for T {
     fn connect<'connector, 'url, 'fut>(
         &'connector self,
@@ -86,10 +98,10 @@ impl<T: Connector> ObjectSafeConnector for T {
         'url: 'fut,
         Self: 'fut,
     {
-        Box::pin(async move { T::connect(self, url).await.map(BoxedTransport::new) })
+        Box::pin(async move { Connector::connect(self, url).await.map(BoxedTransport::new) })
     }
     fn spawn(&self, fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
-        T::spawn(self, fut)
+        Connector::spawn(self, fut)
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -97,6 +109,16 @@ impl<T: Connector> ObjectSafeConnector for T {
     }
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
+    }
+    fn delay<'connector, 'fut>(
+        &'connector self,
+        duration: Duration,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'fut>>
+    where
+        'connector: 'fut,
+        Self: 'fut,
+    {
+        Box::pin(async move { Connector::delay(self, duration).await })
     }
 }
 
@@ -108,5 +130,9 @@ impl Connector for ArcedConnector {
 
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         self.0.spawn(Box::pin(fut))
+    }
+
+    async fn delay(&self, duration: Duration) {
+        self.0.delay(duration).await
     }
 }
