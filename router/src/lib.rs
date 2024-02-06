@@ -66,6 +66,8 @@ pub use router_ref::RouterRef;
 mod router_conn_ext;
 pub use router_conn_ext::RouterConnExt;
 
+pub use routefinder::{Capture, Captures};
+
 /**
 The routes macro represents an experimental macro for defining
 routers.
