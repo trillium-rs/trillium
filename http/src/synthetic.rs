@@ -2,7 +2,8 @@ use crate::{
     after_send::AfterSend, http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState,
     transport::Transport, Conn, Headers, KnownHeaderName, Method, StateSet, Stopper, Version,
 };
-use futures_lite::io::{AsyncRead, AsyncWrite, Result};
+use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
+use trillium_macros::AsyncRead;
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -16,18 +17,22 @@ implementations that are not read from an io connection, such as a
 faas function, in which the entire body may be available immediately
 on invocation.
 */
-#[derive(Debug)]
-pub struct Synthetic(Option<Vec<u8>>, usize);
+#[derive(Debug, AsyncRead)]
+pub struct Synthetic(Cursor<Vec<u8>>);
 
 impl Synthetic {
     /// the length of this synthetic transport's body
     pub fn len(&self) -> Option<usize> {
-        self.0.as_ref().map(Vec::len)
+        // this is as such for semver-compatibility with a previous interface
+        match self.0.get_ref().len() {
+            0 => None,
+            n => Some(n)
+        }
     }
 
     /// predicate to determine if this synthetic contains no content
     pub fn is_empty(&self) -> bool {
-        self.0.as_ref().map_or(true, Vec::is_empty)
+        self.0.get_ref().is_empty()
     }
 }
 
@@ -47,27 +52,15 @@ impl AsyncWrite for Synthetic {
     }
 }
 
-impl AsyncRead for Synthetic {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize>> {
-        match &self.0 {
-            Some(bytes) => {
-                let bytes_left = bytes.len() - self.1;
-                let bytes_to_read = bytes_left.min(buf.len());
-                buf.copy_from_slice(&bytes[self.1..self.1 + bytes_to_read]);
-                Poll::Ready(Ok(bytes_to_read))
-            }
-            None => Poll::Ready(Ok(0)),
-        }
+impl From<Cursor<Vec<u8>>> for Synthetic {
+    fn from(value: Cursor<Vec<u8>>) -> Self {
+        Self(value)
     }
 }
 
 impl From<Vec<u8>> for Synthetic {
     fn from(v: Vec<u8>) -> Self {
-        Some(v).into()
+        Cursor::new(v).into()
     }
 }
 
@@ -91,13 +84,13 @@ impl From<&str> for Synthetic {
 
 impl From<()> for Synthetic {
     fn from((): ()) -> Self {
-        Self(None, 0)
+        Vec::new().into()
     }
 }
 
 impl From<Option<Vec<u8>>> for Synthetic {
     fn from(v: Option<Vec<u8>>) -> Self {
-        Self(v, 0)
+        v.unwrap_or_default().into()
     }
 }
 
