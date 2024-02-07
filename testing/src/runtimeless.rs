@@ -38,15 +38,27 @@ impl Server for RuntimelessServer {
     where
         A: Acceptor<Self::Transport>,
     {
+        let mut port = config.port();
+        let host = config.host();
+        if port == 0 {
+            loop {
+                port = fastrand::u16(..);
+                if !SERVERS.contains_key(&(host.clone(), port)) {
+                    break;
+                }
+            }
+        }
+
         let entry = SERVERS
-            .entry((config.host(), config.port()))
+            .entry((host.clone(), port))
             .or_insert_with(async_channel::unbounded);
+
         let (_, channel) = entry.value();
 
         Self {
-            host: config.host(),
+            host,
             channel: channel.clone(),
-            port: config.port(),
+            port,
         }
     }
 
