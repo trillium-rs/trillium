@@ -442,7 +442,7 @@ where
     /// }
     /// ```
     pub async fn is_disconnected(&mut self) -> bool {
-        future::poll_once(LivenessFut(self)).await.is_none()
+        future::poll_once(LivenessFut(self)).await.is_some()
     }
 
     fn needs_100_continue(&self) -> bool {
