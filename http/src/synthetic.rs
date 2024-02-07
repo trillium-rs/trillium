@@ -3,7 +3,6 @@ use crate::{
     transport::Transport, Conn, Headers, KnownHeaderName, Method, StateSet, Stopper, Version,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
-use trillium_macros::AsyncRead;
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -17,22 +16,48 @@ implementations that are not read from an io connection, such as a
 faas function, in which the entire body may be available immediately
 on invocation.
 */
-#[derive(Debug, AsyncRead)]
-pub struct Synthetic(Cursor<Vec<u8>>);
+#[derive(Debug)]
+pub struct Synthetic {
+    data: Cursor<Vec<u8>>,
+    closed: bool,
+}
+
+impl AsyncRead for Synthetic {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<Result<usize>> {
+        let Synthetic { data, closed } = &mut *self;
+        if *closed {
+            Poll::Ready(Ok(0))
+        } else {
+            match Pin::new(data).poll_read(cx, buf) {
+                Poll::Ready(Ok(0)) => Poll::Pending,
+                other => other,
+            }
+        }
+    }
+}
 
 impl Synthetic {
     /// the length of this synthetic transport's body
     pub fn len(&self) -> Option<usize> {
         // this is as such for semver-compatibility with a previous interface
-        match self.0.get_ref().len() {
+        match self.data.get_ref().len() {
             0 => None,
-            n => Some(n)
+            n => Some(n),
         }
     }
 
     /// predicate to determine if this synthetic contains no content
     pub fn is_empty(&self) -> bool {
-        self.0.get_ref().is_empty()
+        self.data.get_ref().is_empty()
+    }
+
+    /// close this connection
+    pub fn close(&mut self) {
+        self.closed = true;
     }
 }
 
@@ -53,8 +78,11 @@ impl AsyncWrite for Synthetic {
 }
 
 impl From<Cursor<Vec<u8>>> for Synthetic {
-    fn from(value: Cursor<Vec<u8>>) -> Self {
-        Self(value)
+    fn from(data: Cursor<Vec<u8>>) -> Self {
+        Self {
+            data,
+            closed: false,
+        }
     }
 }
 
@@ -135,6 +163,11 @@ impl Conn<Synthetic> {
             peer_ip: None,
             http_config: DEFAULT_CONFIG,
         }
+    }
+
+    /// simulate closing the transport
+    pub fn close(&mut self) {
+        self.transport.close();
     }
 
     /**
