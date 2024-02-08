@@ -44,9 +44,9 @@ async fn one_hundred_continue() -> TestResult {
     let expected_response = formatdoc! {"
         HTTP/1.1 200 OK\r
         Date: {TEST_DATE}\r
-        Server: {SERVER}\r
         Connection: close\r
         Content-Length: 20\r
+        Server: {SERVER}\r
         \r
         response: 0123456789\
     "};
@@ -77,9 +77,9 @@ async fn one_hundred_continue_http_one_dot_zero() -> TestResult {
     let expected_response = formatdoc! {"
         HTTP/1.0 200 OK\r
         Date: {TEST_DATE}\r
-        Server: {SERVER}\r
         Connection: close\r
         Content-Length: 20\r
+        Server: {SERVER}\r
         \r
         response: 0123456789\
     "};

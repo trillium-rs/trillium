@@ -14,6 +14,14 @@ use HeaderNameInner::{KnownHeader, UnknownHeader};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HeaderName<'a>(pub(super) HeaderNameInner<'a>);
 
+impl<'a> HeaderName<'a> {
+    pub(crate) fn parse(bytes: &'a [u8]) -> Result<Self, Error> {
+        std::str::from_utf8(bytes)
+            .map_err(|_| Error::InvalidHeaderName)
+            .map(HeaderName::from)
+    }
+}
+
 #[cfg(feature = "serde")]
 impl serde::Serialize for HeaderName<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
