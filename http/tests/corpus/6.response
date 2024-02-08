@@ -1,6 +1,6 @@
 HTTP/1.1 200 OK\r\n
-Server: corpus-test\r\n
 Date: Tue, 21 Nov 2023 21:27:21 GMT\r\n
+Server: corpus-test\r\n
 Content-Length: 286\r\n
 \r\n
 ===request===\n
@@ -9,8 +9,8 @@ path: http://example.com:8080/mztsfqlumrlm\n
 version: HTTP/1.1\n
 \n
 ===headers===\n
-Connection: close\r\n
 Host: example.com:8080\r\n
+Connection: close\r\n
 Transfer-Encoding: chunked\r\n
 \n
 ===body===\n
