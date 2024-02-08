@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.14](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.13...trillium-http-v0.3.14) - 2024-02-08
+
+### Added
+- *(http)* add the notion of closure to synthetic bodies
+
+### Fixed
+- *(http)* fix Conn::is_disconnected logic
+- *(http)* fix synthetic body AsyncRead implementation for large bodies
+
 ## [0.3.13](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.12...trillium-http-v0.3.13) - 2024-02-05
 
 ### Added
