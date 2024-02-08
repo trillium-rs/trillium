@@ -1,7 +1,6 @@
 use crate::{copy, http_config::DEFAULT_CONFIG, Body, Buffer, HttpConfig, MutCow};
 use encoding_rs::Encoding;
 use futures_lite::{ready, AsyncRead, AsyncReadExt, AsyncWrite};
-use httparse::{InvalidChunkSize, Status};
 use std::{
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},

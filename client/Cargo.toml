@@ -13,6 +13,7 @@ categories = ["web-programming", "web-programming::http-client"]
 [features]
 websockets = ["dep:trillium-websockets", "dep:thiserror"]
 json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
+parse = ["trillium-http/parse"]
 
 [dependencies]
 encoding_rs = "0.8.33"
