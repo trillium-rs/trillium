@@ -17,10 +17,10 @@ async fn extra_one_hundred_continue() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        Expect: 100-continue\r
-        User-Agent: {USER_AGENT}\r
         Connection: close\r
         Content-Length: 4\r
+        Expect: 100-continue\r
+        User-Agent: {USER_AGENT}\r
         \r
     "};
 
@@ -37,9 +37,9 @@ async fn extra_one_hundred_continue() -> TestResult {
     let response_head = formatdoc! {"
         HTTP/1.1 200 Ok\r
         Date: {TEST_DATE}\r
-        Server: text\r
         Connection: close\r
         Content-Length: 20\r
+        Server: text\r
         \r
         response: 0123456789\
     "};
@@ -71,10 +71,10 @@ async fn one_hundred_continue() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        Expect: 100-continue\r
-        User-Agent: {USER_AGENT}\r
         Connection: close\r
         Content-Length: 4\r
+        Expect: 100-continue\r
+        User-Agent: {USER_AGENT}\r
         \r
     "};
 
@@ -87,9 +87,9 @@ async fn one_hundred_continue() -> TestResult {
         HTTP/1.1 200 Ok\r
         Date: {TEST_DATE}\r
         Accept: */*\r
-        Server: text\r
         Connection: close\r
         Content-Length: 20\r
+        Server: text\r
         \r
         response: 0123456789\
     "});
@@ -115,8 +115,8 @@ async fn empty_body_no_100_continue() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        User-Agent: {USER_AGENT}\r
         Connection: close\r
+        User-Agent: {USER_AGENT}\r
         \r
     "};
 
@@ -125,9 +125,9 @@ async fn empty_body_no_100_continue() -> TestResult {
     transport.write_all(formatdoc! {"
         HTTP/1.1 200 Ok\r
         Date: {TEST_DATE}\r
-        Server: text\r
         Connection: close\r
         Content-Length: 20\r
+        Server: text\r
         \r
         response: 0123456789\
     "});
@@ -145,10 +145,10 @@ async fn two_small_continues() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        Expect: 100-continue\r
-        User-Agent: {USER_AGENT}\r
         Connection: close\r
         Content-Length: 4\r
+        Expect: 100-continue\r
+        User-Agent: {USER_AGENT}\r
         \r
     "};
 
@@ -184,10 +184,10 @@ async fn little_continue_big_continue() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        Expect: 100-continue\r
-        User-Agent: {USER_AGENT}\r
         Connection: close\r
         Content-Length: 4\r
+        Expect: 100-continue\r
+        User-Agent: {USER_AGENT}\r
         \r
     "};
 

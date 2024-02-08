@@ -9,22 +9,18 @@ use std::{
     io::{ErrorKind, Write},
     ops::{Deref, DerefMut},
     pin::Pin,
-    str::FromStr,
     time::Duration,
 };
 use trillium_http::{
-    transport::BoxedTransport,
-    Body, Error, HeaderName, HeaderValue, HeaderValues, Headers,
+    transport::{BoxedTransport, Transport},
+    Body, Error, HeaderName, HeaderValues, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
-    Method, ReceivedBody, ReceivedBodyState, Result, Status, Upgrade,
+    Method, ReceivedBody, ReceivedBodyState, Result, Status, Upgrade, Version,
 };
 use trillium_server_common::{
     url::{Origin, Url},
-    ArcedConnector, Connector, Transport,
+    ArcedConnector, Connector,
 };
-
-const MAX_HEADERS: usize = 128;
-const MAX_HEAD_LENGTH: usize = 2 * 1024;
 
 /**
 A wrapper error for [`trillium_http::Error`] or
@@ -62,6 +58,8 @@ pub struct Conn {
     pub(crate) config: ArcedConnector,
     pub(crate) headers_finalized: bool,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) http_version: Version,
+    pub(crate) max_head_length: usize,
 }
 
 /// default http user-agent header
@@ -80,6 +78,8 @@ impl Debug for Conn {
             .field("buffer", &String::from_utf8_lossy(&self.buffer))
             .field("response_body_state", &self.response_body_state)
             .field("config", &self.config)
+            .field("http_version", &self.http_version)
+            .field("max_head_length", &self.max_head_length)
             .finish()
     }
 }
@@ -509,6 +509,14 @@ impl Conn {
         self
     }
 
+    /// returns the http version for this conn.
+    ///
+    /// prior to conn execution, this reflects the request http version that will be sent, and after
+    /// execution this reflects the server-indicated http version
+    pub fn http_version(&self) -> Version {
+        self.http_version
+    }
+
     // --- everything below here is private ---
 
     fn finalize_headers(&mut self) -> Result<()> {
@@ -615,7 +623,7 @@ impl Conn {
             }
         }
 
-        write!(buf, " HTTP/1.1\r\n")?;
+        write!(buf, " {}\r\n", self.http_version)?;
 
         for (name, values) in &self.request_headers {
             if !name.is_valid() {
@@ -688,13 +696,18 @@ impl Conn {
                 }
             }
 
-            if len >= MAX_HEAD_LENGTH {
+            if len >= self.max_head_length {
                 return Err(Error::HeadersTooLong);
             }
         }
     }
 
+    #[cfg(not(feature = "parse"))]
     async fn parse_head(&mut self) -> Result<()> {
+        const MAX_HEADERS: usize = 128;
+        use crate::HeaderValue;
+        use std::str::FromStr;
+
         let head_offset = self.read_head().await?;
         let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
         let mut httparse_res = httparse::Response::new(&mut headers);
@@ -717,12 +730,37 @@ impl Conn {
 
         self.status = httparse_res.code.map(|code| code.try_into().unwrap());
 
-        self.response_headers.reserve(httparse_res.headers.len());
         for header in httparse_res.headers {
             let header_name = HeaderName::from_str(header.name)?;
             let header_value = HeaderValue::from(header.value.to_owned());
             self.response_headers.append(header_name, header_value);
         }
+
+        self.buffer.ignore_front(head_offset);
+
+        self.validate_response_headers()?;
+        Ok(())
+    }
+
+    #[cfg(feature = "parse")]
+    async fn parse_head(&mut self) -> Result<()> {
+        use std::str;
+
+        let head_offset = self.read_head().await?;
+
+        let space = memchr::memchr(b' ', &self.buffer[..head_offset]).ok_or(Error::InvalidHead)?;
+        self.http_version = str::from_utf8(&self.buffer[..space])
+            .map_err(|_| Error::InvalidHead)?
+            .parse()
+            .map_err(|_| Error::InvalidHead)?;
+        self.status = Some(str::from_utf8(&self.buffer[space + 1..space + 4])?.parse()?);
+        let end_of_first_line = 2 + Finder::new("\r\n")
+            .find(&self.buffer[..head_offset])
+            .ok_or(Error::InvalidHead)?;
+
+        self.response_headers
+            .extend_parse(&self.buffer[end_of_first_line..head_offset])
+            .map_err(|_| Error::InvalidHead)?;
 
         self.buffer.ignore_front(head_offset);
 
