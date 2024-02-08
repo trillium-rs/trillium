@@ -78,8 +78,19 @@ return`("${code.innerText}", ${enum_}, "${lowered}")`
 }).join(",\n"))
 
  on https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers
+
+
+per https://httpwg.org/specs/rfc9110.html#rfc.section.5.3,
+
+The order in which field lines with differing field names are received in a section is not
+significant. However, it is good practice to send header fields that contain additional control data
+first, such as Host on requests and Date on responses, so that implementations can decide when not
+to handle a message as early as possible.
 */
 known_headers! {
+    ("Host", Host),
+    ("Date", Date),
+
     ("Accept", Accept),
     ("Accept-CH", AcceptCh),
     ("Accept-CH-Lifetime", AcceptChLifetime),
@@ -121,7 +132,6 @@ known_headers! {
     ("Cross-Origin-Resource-Policy", CrossOriginResourcePolicy),
     ("DNT", Dnt),
     ("DPR", Dpr),
-    ("Date", Date),
     ("Device-Memory", DeviceMemory),
     ("Downlink", Downlink),
     ("ECT", Ect),
@@ -133,7 +143,6 @@ known_headers! {
     ("Feature-Policy", FeaturePolicy),
     ("Forwarded", Forwarded),
     ("From", From),
-    ("Host", Host),
     ("If-Match", IfMatch),
     ("If-Modified-Since", IfModifiedSince),
     ("If-None-Match", IfNoneMatch),

@@ -15,10 +15,10 @@ async fn extra_one_hundred_continue() -> TestResult {
 
     let expected_request_head = formatdoc! {"
         POST / HTTP/1.1\r
+        Host: example.com\r
         Accept: */*\r
         Expect: 100-continue\r
         User-Agent: {USER_AGENT}\r
-        Host: example.com\r
         Connection: close\r
         Content-Length: 4\r
         \r
@@ -36,8 +36,8 @@ async fn extra_one_hundred_continue() -> TestResult {
 
     let response_head = formatdoc! {"
         HTTP/1.1 200 Ok\r
-        Server: text\r
         Date: {TEST_DATE}\r
+        Server: text\r
         Connection: close\r
         Content-Length: 20\r
         \r
@@ -69,10 +69,10 @@ async fn one_hundred_continue() -> TestResult {
 
     let expected_request = formatdoc! {"
         POST / HTTP/1.1\r
+        Host: example.com\r
         Accept: */*\r
         Expect: 100-continue\r
         User-Agent: {USER_AGENT}\r
-        Host: example.com\r
         Connection: close\r
         Content-Length: 4\r
         \r
@@ -85,9 +85,9 @@ async fn one_hundred_continue() -> TestResult {
 
     transport.write_all(formatdoc! {"
         HTTP/1.1 200 Ok\r
+        Date: {TEST_DATE}\r
         Accept: */*\r
         Server: text\r
-        Date: {TEST_DATE}\r
         Connection: close\r
         Content-Length: 20\r
         \r
@@ -113,9 +113,9 @@ async fn empty_body_no_100_continue() -> TestResult {
 
     let expected_request = formatdoc! {"
         POST / HTTP/1.1\r
+        Host: example.com\r
         Accept: */*\r
         User-Agent: {USER_AGENT}\r
-        Host: example.com\r
         Connection: close\r
         \r
     "};
@@ -124,8 +124,8 @@ async fn empty_body_no_100_continue() -> TestResult {
 
     transport.write_all(formatdoc! {"
         HTTP/1.1 200 Ok\r
-        Server: text\r
         Date: {TEST_DATE}\r
+        Server: text\r
         Connection: close\r
         Content-Length: 20\r
         \r
@@ -143,10 +143,10 @@ async fn two_small_continues() -> TestResult {
         test_conn(|client| client.post("http://example.com").with_body("body")).await;
     let expected_request = formatdoc! {"
         POST / HTTP/1.1\r
+        Host: example.com\r
         Accept: */*\r
         Expect: 100-continue\r
         User-Agent: {USER_AGENT}\r
-        Host: example.com\r
         Connection: close\r
         Content-Length: 4\r
         \r
@@ -182,10 +182,10 @@ async fn little_continue_big_continue() -> TestResult {
 
     let expected_request = formatdoc! {"
         POST / HTTP/1.1\r
+        Host: example.com\r
         Accept: */*\r
         Expect: 100-continue\r
         User-Agent: {USER_AGENT}\r
-        Host: example.com\r
         Connection: close\r
         Content-Length: 4\r
         \r

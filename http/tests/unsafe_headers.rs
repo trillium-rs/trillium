@@ -36,8 +36,8 @@ async fn bad_headers() -> TestResult {
 
     let expected_response = formatdoc! {"
         HTTP/1.1 200 OK\r
-        Server: {SERVER}\r
         Date: {TEST_DATE}\r
+        Server: {SERVER}\r
         Content-Length: 20\r
         \r
         response: 0123456789\
