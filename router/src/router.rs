@@ -1,5 +1,5 @@
 use crate::{CapturesNewType, RouteSpecNewType, RouterRef};
-use routefinder::{Captures, Match, RouteSpec, Router as Routefinder};
+use routefinder::{Match, RouteSpec, Router as Routefinder};
 use std::{
     collections::BTreeSet,
     convert::TryInto,
