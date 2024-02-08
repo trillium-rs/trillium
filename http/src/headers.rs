@@ -10,6 +10,7 @@ pub use header_values::HeaderValues;
 pub use known_header_name::KnownHeaderName;
 
 use header_name::HeaderNameInner;
+use memchr::memmem::Finder;
 use unknown_header_name::UnknownHeaderName;
 
 use hashbrown::{
@@ -22,6 +23,8 @@ use std::{
     hash::{BuildHasherDefault, Hasher},
     iter::FromIterator,
 };
+
+use crate::Error;
 
 /// Trillium's header map type
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,7 +66,82 @@ impl Display for Headers {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ParseError;
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("parse error")
+    }
+}
+
+fn is_tchar(c: u8) -> bool {
+    matches!(
+        c,
+        b'a'..=b'z'
+        | b'A'..=b'Z'
+        | b'0'..=b'9'
+        | b'!'
+        | b'#'
+        | b'$'
+        | b'%'
+        | b'&'
+        | b'\''
+        | b'*'
+        | b'+'
+        | b'-'
+        | b'.'
+        | b'^'
+        | b'_'
+        | b'`'
+        | b'|'
+        | b'~'
+    )
+}
+
 impl Headers {
+    #[doc(hidden)]
+    pub fn extend_parse(&mut self, bytes: &[u8]) -> Result<usize, Error> {
+        let newlines = Finder::new(b"\r\n").find_iter(bytes).collect::<Vec<_>>();
+        self.reserve(newlines.len().saturating_sub(1));
+        let mut new_header_count = 0;
+        let mut last_line = 0;
+        for newline in newlines {
+            if newline == last_line {
+                continue;
+            }
+
+            let token_start = last_line;
+            let mut token_end = token_start;
+            while is_tchar(bytes[token_end]) {
+                token_end += 1;
+            }
+
+            let header_name = HeaderName::parse(&bytes[token_start..token_end])?.to_owned();
+
+            if bytes[token_end] != b':' {
+                return Err(Error::MalformedHeaders);
+            }
+
+            let mut value_start = token_end + 1;
+            while (bytes[value_start] as char).is_whitespace() {
+                value_start += 1;
+            }
+
+            let header_value = HeaderValue::parse(&bytes[value_start..newline]);
+            self.append(header_name, header_value);
+            new_header_count += 1;
+            last_line = newline + 2;
+        }
+        Ok(new_header_count)
+    }
+
+    #[doc(hidden)]
+    pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
+        let mut headers = Headers::new();
+        headers.extend_parse(bytes)?;
+        Ok(headers)
+    }
+
     /// Construct a new Headers, expecting to see at least this many known headers.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {

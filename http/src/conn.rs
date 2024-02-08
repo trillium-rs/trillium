@@ -5,7 +5,7 @@ use crate::{
     liveness::{CancelOnDisconnect, LivenessFut},
     received_body::ReceivedBodyState,
     util::encoding,
-    Body, BufWriter, Buffer, ConnectionStatus, Error, HeaderName, HeaderValue, Headers, HttpConfig,
+    Body, BufWriter, Buffer, ConnectionStatus, Error, Headers, HttpConfig,
     KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
     Method, ReceivedBody, Result, StateSet, Status, Stopper, Upgrade, Version,
 };
@@ -14,7 +14,6 @@ use futures_lite::{
     future,
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
 };
-use httparse::{Request, EMPTY_HEADER};
 use memchr::memmem::Finder;
 use std::{
     convert::TryInto,
@@ -22,7 +21,7 @@ use std::{
     future::Future,
     net::IpAddr,
     pin::pin,
-    str::FromStr,
+    str,
     time::{Instant, SystemTime},
 };
 
@@ -590,43 +589,33 @@ where
         let (head_size, start_time) =
             Self::head(&mut transport, &mut buffer, &stopper, &http_config).await?;
 
-        let mut headers = vec![EMPTY_HEADER; http_config.max_headers];
-        let mut httparse_req = Request::new(&mut headers);
+        let first_line_index = Finder::new(b"\r\n")
+            .find(&buffer)
+            .ok_or(Error::PartialHead)?;
 
-        let status = httparse_req.parse(&buffer[..])?;
-        if status.is_partial() {
-            return Err(Error::PartialHead);
-        }
+        let (method, path, version) = match &memchr::memchr_iter(b' ', &buffer[..first_line_index])
+            .collect::<Vec<usize>>()[..]
+        {
+            [first, second] => {
+                let (first, second) = (*first, *second);
+                let method = Method::parse(&buffer[0..first])?;
+                let path = str::from_utf8(&buffer[first + 1..second])
+                    .map_err(|_| Error::RequestPathMissing)?
+                    .to_string();
+                let version = Version::parse(&buffer[second + 1..first_line_index])?;
 
-        let method = match httparse_req.method {
-            Some(method) => match method.parse() {
-                Ok(method) => method,
-                Err(_) => return Err(Error::UnrecognizedMethod(method.to_string())),
-            },
-            None => return Err(Error::MissingMethod),
+                if !matches!(version, Version::Http1_1 | Version::Http1_0) {
+                    return Err(Error::RecognizedButUnsupportedVersion(version));
+                }
+
+                (method, path, version)
+            }
+            _ => return Err(Error::PartialHead),
         };
 
-        let version = match httparse_req.version {
-            Some(0) => Version::Http1_0,
-            Some(1) => Version::Http1_1,
-            Some(version) => return Err(Error::UnsupportedVersion(version)),
-            None => return Err(Error::MissingVersion),
-        };
-
-        let mut request_headers = Headers::with_capacity(httparse_req.headers.len());
-        for header in httparse_req.headers {
-            let header_name = HeaderName::from_str(header.name)?;
-            let header_value = HeaderValue::from(header.value.to_owned());
-            request_headers.append(header_name, header_value);
-        }
+        let request_headers = Headers::parse(&buffer[first_line_index + 2..])?;
 
         Self::validate_headers(&request_headers)?;
-
-        let path = httparse_req
-            .path
-            .ok_or(Error::RequestPathMissing)?
-            .to_owned();
-        log::trace!("received:\n{method} {path} {version}\n{request_headers}");
 
         let mut response_headers =
             Headers::with_capacity(http_config.response_header_initial_capacity);

@@ -1,6 +1,10 @@
 // originally from https://github.com/http-rs/http-types/blob/main/src/version.rs
 
-use std::{error::Error, fmt::Display, str::FromStr};
+use std::{
+    error::Error,
+    fmt::Display,
+    str::{self, FromStr},
+};
 
 /// The version of the HTTP protocol in use.
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -68,6 +72,13 @@ impl Version {
             Version::Http2_0 => "HTTP/2",
             Version::Http3_0 => "HTTP/3",
         }
+    }
+
+    pub(crate) fn parse(buf: &[u8]) -> crate::Result<Self> {
+        str::from_utf8(buf)
+            .map_err(|_| crate::Error::UnrecognizedVersion(String::from_utf8_lossy(buf).into()))?
+            .parse()
+            .map_err(|UnrecognizedVersion(v)| crate::Error::UnrecognizedVersion(v))
     }
 }
 

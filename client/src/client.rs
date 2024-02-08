@@ -2,7 +2,7 @@ use crate::{Conn, IntoUrl, Pool, USER_AGENT};
 use std::{convert::TryInto, fmt::Debug, sync::Arc};
 use trillium_http::{
     transport::BoxedTransport, HeaderName, HeaderValues, Headers, KnownHeaderName, Method,
-    ReceivedBodyState,
+    ReceivedBodyState, Version::Http1_1,
 };
 use trillium_server_common::{Connector, ObjectSafeConnector, Url};
 use url::Origin;
@@ -158,6 +158,8 @@ impl Client {
             response_body_state: ReceivedBodyState::Start,
             config: Arc::clone(&self.config),
             headers_finalized: false,
+            http_version: Http1_1,
+            max_head_length: 8 * 1024,
         }
     }
 
