@@ -75,6 +75,12 @@ impl TestTransport {
     }
 }
 
+impl Drop for TestTransport {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
 #[derive(Default)]
 struct CloseableCursorInner {
     data: Vec<u8>,
@@ -248,7 +254,6 @@ impl AsyncWrite for &CloseableCursor {
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.close();
         Poll::Ready(Ok(()))
     }
 }

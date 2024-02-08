@@ -86,7 +86,8 @@ async fn is_disconnected() -> TestResult {
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
         .await?;
-    client.close().await?;
+    drop(client);
+
     delay_sender.send(()).await?;
     assert!(disconnected_receiver.recv().await?);
 
