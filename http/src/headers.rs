@@ -10,6 +10,7 @@ pub use header_values::HeaderValues;
 pub use known_header_name::KnownHeaderName;
 
 use header_name::HeaderNameInner;
+use memchr::memmem::Finder;
 use unknown_header_name::UnknownHeaderName;
 
 use hashbrown::{
@@ -17,16 +18,22 @@ use hashbrown::{
     HashMap,
 };
 use smartcow::SmartCow;
+use std::collections::{
+    btree_map::{self, Entry as BTreeEntry},
+    BTreeMap,
+};
 use std::{
     fmt::{self, Debug, Display, Formatter},
-    hash::{BuildHasherDefault, Hasher},
+    hash::Hasher,
 };
 
+use crate::Error;
+
 /// Trillium's header map type
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[must_use]
 pub struct Headers {
-    known: HashMap<KnownHeaderName, HeaderValues, BuildHasherDefault<DirectHasher>>,
+    known: BTreeMap<KnownHeaderName, HeaderValues>,
     unknown: HashMap<UnknownHeaderName<'static>, HeaderValues>,
 }
 
@@ -45,12 +52,6 @@ impl serde::Serialize for Headers {
     }
 }
 
-impl Default for Headers {
-    fn default() -> Self {
-        Self::with_capacity(15)
-    }
-}
-
 impl Display for Headers {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for (n, v) in self {
@@ -62,23 +63,86 @@ impl Display for Headers {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ParseError;
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("parse error")
+    }
+}
+
+fn is_tchar(c: u8) -> bool {
+    matches!(
+        c,
+        b'a'..=b'z'
+        | b'A'..=b'Z'
+        | b'0'..=b'9'
+        | b'!'
+        | b'#'
+        | b'$'
+        | b'%'
+        | b'&'
+        | b'\''
+        | b'*'
+        | b'+'
+        | b'-'
+        | b'.'
+        | b'^'
+        | b'_'
+        | b'`'
+        | b'|'
+        | b'~'
+    )
+}
+
 impl Headers {
-    /// Construct a new Headers, expecting to see at least this many known headers.
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            known: HashMap::with_capacity_and_hasher(capacity, BuildHasherDefault::default()),
-            unknown: HashMap::with_capacity(0),
+    #[doc(hidden)]
+    pub fn extend_parse(&mut self, bytes: &[u8]) -> Result<usize, Error> {
+        let newlines = Finder::new(b"\r\n").find_iter(bytes).collect::<Vec<_>>();
+        //        self.reserve(newlines.len().saturating_sub(1));
+        let mut new_header_count = 0;
+        let mut last_line = 0;
+        for newline in newlines {
+            if newline == last_line {
+                continue;
+            }
+
+            let token_start = last_line;
+            let mut token_end = token_start;
+            while is_tchar(bytes[token_end]) {
+                token_end += 1;
+            }
+
+            let header_name = HeaderName::parse(&bytes[token_start..token_end])?.to_owned();
+
+            if bytes[token_end] != b':' {
+                return Err(Error::InvalidHead);
+            }
+
+            let mut value_start = token_end + 1;
+            while (bytes[value_start] as char).is_whitespace() {
+                value_start += 1;
+            }
+
+            let header_value = HeaderValue::parse(&bytes[value_start..newline]);
+            self.append(header_name, header_value);
+            new_header_count += 1;
+            last_line = newline + 2;
         }
+        Ok(new_header_count)
     }
 
-    /// Construct a new headers with a default capacity of 15 known headers
+    #[cfg(feature = "parse")]
+    #[doc(hidden)]
+    pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
+        let mut headers = Headers::new();
+        headers.extend_parse(bytes)?;
+        Ok(headers)
+    }
+
+    /// Construct a new headers with a default capacity
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Extend the capacity of the known headers map by this many
-    pub fn reserve(&mut self, additional: usize) {
-        self.known.reserve(additional);
     }
 
     /// Return an iterator over borrowed header names and header
@@ -107,10 +171,10 @@ impl Headers {
         let value = value.into();
         match name.into().0 {
             HeaderNameInner::KnownHeader(known) => match self.known.entry(known) {
-                Entry::Occupied(mut o) => {
+                BTreeEntry::Occupied(mut o) => {
                     o.get_mut().extend(value);
                 }
-                Entry::Vacant(v) => {
+                BTreeEntry::Vacant(v) => {
                     v.insert(value);
                 }
             },
@@ -129,13 +193,12 @@ impl Headers {
     /// A slightly more efficient way to combine two [`Headers`] than
     /// using [`Extend`]
     pub fn append_all(&mut self, other: Headers) {
-        self.known.reserve(other.known.len());
         for (name, value) in other.known {
             match self.known.entry(name) {
-                Entry::Occupied(mut entry) => {
+                BTreeEntry::Occupied(mut entry) => {
                     entry.get_mut().extend(value);
                 }
-                Entry::Vacant(entry) => {
+                BTreeEntry::Vacant(entry) => {
                     entry.insert(value);
                 }
             }
@@ -155,7 +218,6 @@ impl Headers {
 
     /// Combine two [`Headers`], replacing any existing header values
     pub fn insert_all(&mut self, other: Headers) {
-        self.known.reserve(other.known.len());
         for (name, value) in other.known {
             self.known.insert(name, value);
         }
@@ -369,12 +431,6 @@ where
     HV: Into<HeaderValues>,
 {
     fn extend<T: IntoIterator<Item = (HN, HV)>>(&mut self, iter: T) {
-        let iter = iter.into_iter();
-        match iter.size_hint() {
-            (additional, _) if additional > 0 => self.known.reserve(additional),
-            _ => {}
-        };
-
         for (name, values) in iter {
             self.append(name, values);
         }
@@ -388,11 +444,7 @@ where
 {
     fn from_iter<T: IntoIterator<Item = (HN, HV)>>(iter: T) -> Self {
         let iter = iter.into_iter();
-        let mut headers = match iter.size_hint() {
-            (0, _) => Self::new(),
-            (n, _) => Self::with_capacity(n),
-        };
-
+        let mut headers = Self::new();
         for (name, values) in iter {
             headers.append(name, values);
         }
@@ -432,7 +484,7 @@ impl<'a> IntoIterator for &'a Headers {
 
 #[derive(Debug)]
 pub struct IntoIter {
-    known: hash_map::IntoIter<KnownHeaderName, HeaderValues>,
+    known: btree_map::IntoIter<KnownHeaderName, HeaderValues>,
     unknown: hash_map::IntoIter<UnknownHeaderName<'static>, HeaderValues>,
 }
 
@@ -458,7 +510,7 @@ impl From<Headers> for IntoIter {
 
 #[derive(Debug)]
 pub struct Iter<'a> {
-    known: hash_map::Iter<'a, KnownHeaderName, HeaderValues>,
+    known: btree_map::Iter<'a, KnownHeaderName, HeaderValues>,
     unknown: hash_map::Iter<'a, UnknownHeaderName<'static>, HeaderValues>,
 }
 

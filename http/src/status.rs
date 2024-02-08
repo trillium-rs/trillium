@@ -1,6 +1,10 @@
 // originally from https://github.com/http-rs/http-types/blob/main/src/status_code.rs
 use crate::Error;
-use std::fmt::{self, Debug, Display};
+use std::{
+    convert::TryFrom,
+    fmt::{self, Debug, Display},
+    str::FromStr,
+};
 
 /// HTTP response status codes.
 ///
@@ -630,5 +634,15 @@ impl Debug for Status {
 impl Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", *self as u16, self.canonical_reason())
+    }
+}
+
+impl FromStr for Status {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        u16::from_str(s)
+            .map_err(|_| Error::InvalidStatus)?
+            .try_into()
     }
 }

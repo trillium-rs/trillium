@@ -2,7 +2,7 @@ use crate::{Conn, IntoUrl, Pool, USER_AGENT};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
     transport::BoxedTransport, HeaderName, HeaderValues, Headers, KnownHeaderName, Method,
-    ReceivedBodyState,
+    ReceivedBodyState, Version::Http1_1,
 };
 use trillium_server_common::{
     url::{Origin, Url},
@@ -169,6 +169,8 @@ impl Client {
             config: self.config.clone(),
             headers_finalized: false,
             timeout: self.timeout,
+            http_version: Http1_1,
+            max_head_length: 8 * 1024,
         }
     }
 

@@ -5,7 +5,7 @@ use crate::{
     liveness::{CancelOnDisconnect, LivenessFut},
     received_body::ReceivedBodyState,
     util::encoding,
-    Body, BufWriter, Buffer, ConnectionStatus, Error, HeaderName, HeaderValue, Headers, HttpConfig,
+    Body, BufWriter, Buffer, ConnectionStatus, Error, Headers, HttpConfig,
     KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
     Method, ReceivedBody, Result, StateSet, Status, Swansong, Upgrade, Version,
 };
@@ -14,14 +14,13 @@ use futures_lite::{
     future,
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
 };
-use httparse::{Request, EMPTY_HEADER};
 use memchr::memmem::Finder;
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
     net::IpAddr,
     pin::pin,
-    str::FromStr,
+    str,
     sync::Arc,
     time::{Instant, SystemTime},
 };
@@ -612,6 +611,7 @@ where
         Self::new_internal(DEFAULT_CONFIG, transport, bytes.into(), swansong, None).await
     }
 
+    #[cfg(not(feature = "parse"))]
     async fn new_internal(
         http_config: HttpConfig,
         mut transport: Transport,
@@ -619,6 +619,10 @@ where
         swansong: Swansong,
         shared_state: Option<Arc<StateSet>>,
     ) -> Result<Self> {
+        use crate::{HeaderName, HeaderValue};
+        use httparse::{Request, EMPTY_HEADER};
+        use std::str::FromStr;
+
         let (head_size, start_time) =
             Self::head(&mut transport, &mut buffer, &swansong, &http_config).await?;
 
@@ -633,6 +637,7 @@ where
             httparse::Error::Version => Error::InvalidVersion,
             _ => Error::InvalidHead,
         })?;
+
         if status.is_partial() {
             return Err(Error::InvalidHead);
         }
@@ -651,7 +656,7 @@ where
             _ => return Err(Error::InvalidVersion),
         };
 
-        let mut request_headers = Headers::with_capacity(httparse_req.headers.len());
+        let mut request_headers = Headers::new();
         for header in httparse_req.headers {
             let header_name = HeaderName::from_str(header.name)?;
             let header_value = HeaderValue::from(header.value.to_owned());
@@ -666,8 +671,73 @@ where
             .to_owned();
         log::trace!("received:\n{method} {path} {version}\n{request_headers}");
 
-        let mut response_headers =
-            Headers::with_capacity(http_config.response_header_initial_capacity);
+        let mut response_headers = Headers::new();
+        response_headers.insert(Server, SERVER);
+
+        buffer.ignore_front(head_size);
+
+        Ok(Self {
+            transport,
+            request_headers,
+            method,
+            version,
+            path,
+            buffer,
+            response_headers,
+            status: None,
+            state: StateSet::new(),
+            response_body: None,
+            request_body_state: ReceivedBodyState::Start,
+            secure: false,
+            swansong,
+            after_send: AfterSend::default(),
+            start_time,
+            peer_ip: None,
+            http_config,
+            shared_state,
+        })
+    }
+
+    #[cfg(feature = "parse")]
+    async fn new_internal(
+        http_config: HttpConfig,
+        mut transport: Transport,
+        mut buffer: Buffer,
+        swansong: Swansong,
+        shared_state: Option<Arc<StateSet>>,
+    ) -> Result<Self> {
+        let (head_size, start_time) =
+            Self::head(&mut transport, &mut buffer, &swansong, &http_config).await?;
+
+        let first_line_index = Finder::new(b"\r\n")
+            .find(&buffer)
+            .ok_or(Error::InvalidHead)?;
+
+        let (method, path, version) = match &memchr::memchr_iter(b' ', &buffer[..first_line_index])
+            .collect::<Vec<usize>>()[..]
+        {
+            [first, second] => {
+                let (first, second) = (*first, *second);
+                let method = Method::parse(&buffer[0..first])?;
+                let path = str::from_utf8(&buffer[first + 1..second])
+                    .map_err(|_| Error::RequestPathMissing)?
+                    .to_string();
+                let version = Version::parse(&buffer[second + 1..first_line_index])?;
+
+                if !matches!(version, Version::Http1_1 | Version::Http1_0) {
+                    return Err(Error::UnsupportedVersion(version));
+                }
+
+                (method, path, version)
+            }
+            _ => return Err(Error::InvalidHead),
+        };
+
+        let request_headers = Headers::parse(&buffer[first_line_index + 2..])?;
+
+        Self::validate_headers(&request_headers)?;
+
+        let mut response_headers = Headers::new();
         response_headers.insert(Server, SERVER);
 
         buffer.ignore_front(head_size);

@@ -15,6 +15,7 @@ unstable = []
 http-compat = ["dep:http0"]
 http-compat-1 = ["dep:http1"]
 serde = ["dep:serde"]
+parse = []
 
 [dependencies]
 encoding_rs = "0.8.33"

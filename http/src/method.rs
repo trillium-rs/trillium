@@ -1,7 +1,7 @@
 // originally from https://github.com/http-rs/http-types/blob/main/src/method.rs
 use std::{
     fmt::{self, Display},
-    str::FromStr,
+    str::{self, FromStr},
 };
 
 /// HTTP request methods.
@@ -432,6 +432,13 @@ impl Method {
             Self::VersionControl => "VERSION-CONTROL",
         }
     }
+
+    #[cfg(feature = "parse")]
+    pub(crate) fn parse(bytes: &[u8]) -> crate::Result<Self> {
+        str::from_utf8(bytes)
+            .map_err(|_| crate::Error::UnrecognizedMethod(String::from_utf8_lossy(bytes).into()))?
+            .parse()
+    }
 }
 
 impl Display for Method {
@@ -485,9 +492,7 @@ impl FromStr for Method {
             "UPDATE" => Ok(Self::Update),
             "UPDATEREDIRECTREF" => Ok(Self::UpdateRedirectRef),
             "VERSION-CONTROL" => Ok(Self::VersionControl),
-            _ => Err(crate::Error::UnrecognizedMethod(
-                "Invalid HTTP method".into(),
-            )),
+            _ => Err(crate::Error::UnrecognizedMethod(s.to_string())),
         }
     }
 }

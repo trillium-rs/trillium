@@ -70,6 +70,13 @@ impl HeaderValue {
             }
         })
     }
+
+    pub(crate) fn parse(bytes: &[u8]) -> Self {
+        match std::str::from_utf8(bytes) {
+            Ok(s) => Self(Utf8(SmartCow::Owned(s.into()))),
+            Err(_) => Self(Bytes(bytes.into())),
+        }
+    }
 }
 
 impl Display for HeaderValue {

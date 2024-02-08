@@ -4,7 +4,6 @@ use std::{
     hash::Hash,
     str::FromStr,
 };
-use HeaderNameInner::{KnownHeader, UnknownHeader};
 
 impl Display for KnownHeaderName {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -14,16 +13,13 @@ impl Display for KnownHeaderName {
 
 impl From<KnownHeaderName> for HeaderName<'_> {
     fn from(khn: KnownHeaderName) -> Self {
-        Self(KnownHeader(khn))
+        Self(HeaderNameInner::KnownHeader(khn))
     }
 }
 
 impl PartialEq<HeaderName<'_>> for KnownHeaderName {
     fn eq(&self, other: &HeaderName) -> bool {
-        match &other.0 {
-            KnownHeader(k) => self == k,
-            UnknownHeader(_) => false,
-        }
+        matches!(&other.0, HeaderNameInner::KnownHeader(k) if self == k)
     }
 }
 
@@ -38,7 +34,7 @@ macro_rules! known_headers {
         /// represent as a u8. Use a `KnownHeaderName` variant instead
         /// of a &'static str anywhere possible, as it allows trillium
         /// to skip parsing the header entirely.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
         #[non_exhaustive]
         #[repr(u8)]
         pub enum KnownHeaderName {
