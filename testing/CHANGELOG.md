@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.5.3...trillium-testing-v0.5.4) - 2024-02-08
+
+### Added
+- *(testing)* runtimeless testing randomizes port zero
+
+### Fixed
+- *(testing)* TestTransport behaves like TcpStream regarding closure
+
+### Other
+- *(testing)* add tests for cancel-on-disconnect using synthetic conns
+
 ## [0.5.3](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.5.2...trillium-testing-v0.5.3) - 2024-02-05
 
 ### Added
