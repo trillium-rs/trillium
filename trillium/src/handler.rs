@@ -214,10 +214,14 @@ impl<H: Handler> Handler for Arc<H> {
     }
 
     async fn init(&mut self, info: &mut Info) {
-        Self::get_mut(self)
-            .expect("cannot call init when there are already clones of an Arc<Handler>")
-            .init(info)
-            .await;
+        if let Some(handler) = Self::get_mut(self) {
+            handler.init(info).await;
+        } else {
+            log::warn!(concat!(
+                "Skipping Handler::init on an Arc that has previously been cloned.\n",
+                "This is a potential source of bugs for handlers that use init"
+            ));
+        }
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
