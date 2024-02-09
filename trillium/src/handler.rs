@@ -217,10 +217,15 @@ impl<H: Handler> Handler for Arc<H> {
         if let Some(handler) = Self::get_mut(self) {
             handler.init(info).await;
         } else {
-            log::warn!(concat!(
-                "Skipping Handler::init on an Arc that has previously been cloned.\n",
-                "This is a potential source of bugs for handlers that use init"
-            ));
+            let name = self.name();
+            log::warn!(
+                concat!(
+                    "Skipping <Arc<{name}> as Handler>::init that has previously been cloned.\n",
+                    "This is a potential source of bugs for handlers that use init.\n",
+                    "Call init explicitly before cloning if this is a concern."
+                ),
+                name = name
+            );
         }
     }
 
