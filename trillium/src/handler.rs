@@ -214,10 +214,14 @@ impl<H: Handler> Handler for Arc<H> {
     }
 
     async fn init(&mut self, info: &mut Info) {
-        Self::get_mut(self)
-            .expect("cannot call init when there are already clones of an Arc<Handler>")
-            .init(info)
-            .await;
+        if let Some(handler) = Self::get_mut(self) {
+            handler.init(info).await;
+        } else {
+            panic!(
+                "cannot call init when there are already clones of an Arc<{}>",
+                std::any::type_name::<H>()
+            );
+        }
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
@@ -539,3 +543,22 @@ impl_handler_tuple! { A B C D E F G H I J K L }
 impl_handler_tuple! { A B C D E F G H I J K L M }
 impl_handler_tuple! { A B C D E F G H I J K L M N }
 impl_handler_tuple! { A B C D E F G H I J K L M N O }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::{Handler, Info};
+
+    #[test]
+    #[should_panic(expected = "clones of an Arc<&str>")]
+    fn arc_clone_panic_message() {
+        futures_lite::future::block_on(async {
+            let handler = "OK";
+            let mut arc_handler = Arc::new(handler);
+            let _clone = Arc::clone(&arc_handler);
+            let mut info = Info::default();
+            arc_handler.init(&mut info).await;
+        });
+    }
+}
