@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.16](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.15...trillium-v0.2.16) - 2024-02-09
+
+### Fixed
+- *(trillium)* downgrade Arc<Handler>::init from a panic to a warning
+- *(testing)* TestTransport behaves like TcpStream regarding closure
+
+### Other
+- *(trillium)* add test for is_disconnected
+
 ## [0.2.15](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.14...trillium-v0.2.15) - 2024-02-05
 
 ### Fixed
