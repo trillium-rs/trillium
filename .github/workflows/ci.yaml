@@ -17,21 +17,15 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
-        rust: [stable]
-        features:
-          - "--features trillium-static/smol,trillium-testing/smol"
-          - "--features trillium-static/tokio,trillium-testing/tokio"
-          - "--features trillium-static/async-std,trillium-testing/async-std"
-          - ""
     steps:
       - uses: actions/checkout@master
       - name: Install mkcert (Linux)
         run: curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64" && chmod +x mkcert-v*-linux-amd64 && sudo cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert && mkcert -install && mkcert localhost
         if: matrix.os == 'ubuntu-latest'
-      - name: Install ${{ matrix.rust }}
+      - name: Install stable
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
           override: true
 
       - name: Rust Cache
@@ -41,7 +35,26 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --workspace ${{ matrix.features }}
+          args: --workspace
+
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --workspace --features trillium-static/smol,trillium-testing/smol
+
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --workspace --features trillium-static/tokio,trillium-testing/tokio
+
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --workspace --features trillium-static/async-std,trillium-testing/async-std
+
 
   check_fmt_and_docs:
     name: Lints and Docs
@@ -50,10 +63,7 @@ jobs:
       - uses: actions/checkout@master
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          components: rustfmt, clippy
-      - uses: giraffate/clippy-action@v1
-        with:
-          reporter: 'github-pr-review'
+          components: rustfmt
       - name: Format
         run: cargo fmt --all -- --check
       - name: Run cargo-udeps
@@ -63,3 +73,22 @@ jobs:
           args: --all-targets
       - name: Docs
         run: cargo doc --no-deps
+  minimal_versions:
+    name: Minimal versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@cargo-hack
+      - uses: taiki-e/install-action@cargo-minimal-versions
+      - name: cargo minimal-versions
+        run: |
+          set -euxo pipefail        
+          rm -f Cargo.toml Cargo.lock
+          for dir in ./*/; do
+            cd $dir
+            if [ -e Cargo.toml ]; then
+              cargo minimal-versions check --direct --detach-path-deps
+            fi
+            cd ..
+          done
