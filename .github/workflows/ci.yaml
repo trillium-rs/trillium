@@ -64,6 +64,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.7.3
       - name: Format
         run: cargo fmt --all -- --check
       - name: Run cargo-udeps
@@ -81,6 +83,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.7.3
       - name: cargo minimal-versions
         run: |
           set -euxo pipefail        
