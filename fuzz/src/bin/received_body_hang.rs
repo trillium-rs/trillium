@@ -92,7 +92,7 @@ fn received_body_fuzzer(input: FuzzInput) {
     let body = ReceivedBody::new(
         // None means "Transfer-Encoding: chunked", Some(_) means "Content-Length: <length>".
         input.content_length,
-        None,
+        trillium_http::Buffer::default(),
         transport,
         ReceivedBodyState::Start,
         None,
