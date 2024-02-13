@@ -10,13 +10,9 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "async", "router"]
 categories = ["web-programming::http-server", "web-programming"]
 
-[features]
-default = ["memchr"]
-memchr = ["routefinder/memchr"]
-
 [dependencies]
 log = "0.4.20"
-routefinder = "0.5.4"
+routefinder = { version = "0.5.4", features = ["memchr"] }
 trillium = { path = "../trillium", version = "0.2.13" }
 
 [dev-dependencies]
