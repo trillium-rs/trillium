@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-rc.10](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.9...trillium-api-v0.2.0-rc.10) - 2024-02-13
+
+### Fixed
+- *(api)* set minimum trillium dependency correctly
+
 ## [0.2.0-rc.9](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.8...trillium-api-v0.2.0-rc.9) - 2024-02-05
 
 ### Added
