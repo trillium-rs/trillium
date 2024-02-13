@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.5.5...trillium-client-v0.5.6) - 2024-02-13
+
+### Added
+- *(http)* sort Host and Date headers first
+
+### Fixed
+- *(client)* set minimum trillium-http version correctly
+
 ## [0.5.5](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.5.4...trillium-client-v0.5.5) - 2024-02-05
 
 ### Added
