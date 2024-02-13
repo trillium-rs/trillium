@@ -13,6 +13,8 @@ pub struct HeaderValue(HeaderValueInner);
 
 impl HeaderValue {
     /// determine if this header contains no unsafe characters (\r, \n, \0)
+    ///
+    /// since 0.3.12
     pub fn is_valid(&self) -> bool {
         memchr::memchr3(b'\r', b'\n', 0, self.as_ref()).is_none()
     }
