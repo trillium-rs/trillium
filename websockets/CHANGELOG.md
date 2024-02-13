@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.3...trillium-websockets-v0.6.4) - 2024-02-13
+
+### Other
+- *(deps)* update async-tungstenite requirement from 0.24.0 to 0.25.0
+- *(deps)* update env_logger requirement from 0.10.1 to 0.11.0
+
 ## [0.6.3](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.2...trillium-websockets-v0.6.3) - 2024-01-22
 
 ### Other
