@@ -1,40 +1,56 @@
 //! Support for client-side WebSockets
 
-use std::fmt::{self, Display};
-use std::ops::{Deref, DerefMut};
-
+use crate::{Conn, WebSocketConfig, WebSocketConn};
+use std::{
+    error::Error,
+    fmt::{self, Display},
+    ops::{Deref, DerefMut},
+};
 use trillium_http::{
-    KnownHeaderName::{self, SecWebsocketAccept, SecWebsocketKey},
+    KnownHeaderName::{
+        Connection, SecWebsocketAccept, SecWebsocketKey, SecWebsocketVersion,
+        Upgrade as UpgradeHeader,
+    },
     Status, Upgrade,
 };
 use trillium_websockets::{websocket_accept_hash, websocket_key, Role};
-
-use crate::{Conn, WebSocketConfig, WebSocketConn};
 
 pub use trillium_websockets::Message;
 
 impl Conn {
     fn set_websocket_upgrade_headers(&mut self) {
-        let h = self.request_headers_mut();
-        h.try_insert(KnownHeaderName::Upgrade, "websocket");
-        h.try_insert(KnownHeaderName::Connection, "upgrade");
-        h.try_insert(KnownHeaderName::SecWebsocketVersion, "13");
-        h.try_insert(SecWebsocketKey, websocket_key());
+        let headers = self.request_headers_mut();
+        headers.try_insert(UpgradeHeader, "websocket");
+        headers.try_insert(Connection, "upgrade");
+        headers.try_insert(SecWebsocketVersion, "13");
+        headers.try_insert(SecWebsocketKey, websocket_key());
     }
 
-    /// Turn this `Conn` into a [`WebSocketConn`]
+    /// Attempt to transform this `Conn` into a [`WebSocketConn`]
     ///
-    /// If the request has not yet been sent, this will call `with_websocket_upgrade_headers()` and
-    /// then send the request.
+    /// This will:
+    ///
+    /// * set `Upgrade`, `Connection`, `Sec-Websocket-Version`, and `Sec-Websocket-Key` headers
+    ///   appropriately if they have not yet been set and the `Conn` has not yet been awaited
+    /// * await the `Conn` if it has not yet been awaited
+    /// * confirm websocket upgrade negotiation per
+    ///   [rfc6455](https://datatracker.ietf.org/doc/html/rfc6455)
+    /// * transform the `Conn` into a [`WebSocketConn`]
     pub async fn into_websocket(self) -> Result<WebSocketConn, WebSocketUpgradeError> {
         self.into_websocket_with_config(WebSocketConfig::default())
             .await
     }
 
-    /// Turn this `Conn` into a [`WebSocketConn`], with a custom [`WebSocketConfig`]
+    /// Attempt to transform this `Conn` into a [`WebSocketConn`], with a custom [`WebSocketConfig`]
     ///
-    /// If the request has not yet been sent, this will call `with_websocket_upgrade_headers()` and
-    /// then send the request.
+    /// This will:
+    ///
+    /// * set `Upgrade`, `Connection`, `Sec-Websocket-Version`, and `Sec-Websocket-Key` headers
+    ///   appropriately if they have not yet been set and the `Conn` has not yet been awaited
+    /// * await the `Conn` if it has not yet been awaited
+    /// * confirm websocket upgrade negotiation per
+    ///   [rfc6455](https://datatracker.ietf.org/doc/html/rfc6455)
+    /// * transform the `Conn` into a [`WebSocketConn`]
     pub async fn into_websocket_with_config(
         mut self,
         config: WebSocketConfig,
@@ -70,8 +86,6 @@ impl Conn {
 /// The kind of error that occurred when attempting a websocket upgrade
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
-/// An Error type that represents all exceptional conditions that can be encoutered in the operation
-/// of this crate
 pub enum ErrorKind {
     /// an HTTP error attempting to make the request
     #[error(transparent)]
@@ -86,8 +100,10 @@ pub enum ErrorKind {
     InvalidAccept,
 }
 
-/// An attempted upgrade to a WebSocket failed. You can transform this back into the Conn with
-/// [`From::from`]/[`Into::into`], if you need to look at the server response.
+/// An attempted upgrade to a WebSocket failed.
+///
+/// You can transform this back into the Conn with [`From::from`]/[`Into::into`], if you need to
+/// look at the server response.
 #[derive(Debug)]
 pub struct WebSocketUpgradeError {
     /// The kind of error that occurred
@@ -121,7 +137,7 @@ impl DerefMut for WebSocketUpgradeError {
     }
 }
 
-impl std::error::Error for WebSocketUpgradeError {}
+impl Error for WebSocketUpgradeError {}
 
 impl Display for WebSocketUpgradeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
