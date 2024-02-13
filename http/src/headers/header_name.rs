@@ -53,6 +53,8 @@ impl<'a> HeaderName<'a> {
     }
 
     /// Determine if this header name contains only the appropriate characters
+    ///
+    /// since 0.3.12
     pub fn is_valid(&self) -> bool {
         match &self.0 {
             KnownHeader(_) => true,
