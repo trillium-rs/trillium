@@ -16,7 +16,7 @@ upstream-random = ["dep:fastrand"]
 upstream-connection-counting = ["dep:trillium-server-common", "dep:fastrand"]
 
 [dependencies]
-event-listener = "4.0.1"
+event-listener = "5.1.0"
 fastrand = { version = "2.0.1", optional = true }
 full-duplex-async-copy = "0.1.0"
 futures-lite = "2.1.0"
