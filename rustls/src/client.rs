@@ -1,15 +1,19 @@
-use crate::RustlsTransport;
-use futures_rustls::TlsConnector;
-#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
-use rustls::{pki_types::CertificateDer, RootCertStore};
-use rustls::{pki_types::ServerName, ClientConfig};
+use futures_rustls::{
+    client::TlsStream,
+    rustls::{pki_types::ServerName, ClientConfig, ClientConnection},
+    TlsConnector,
+};
 use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
-    io::{Error, ErrorKind, Result},
+    io::{Error, ErrorKind, IoSlice, Result},
+    net::SocketAddr,
+    pin::Pin,
     sync::Arc,
+    task::{Context, Poll},
 };
-use trillium_server_common::{async_trait, Connector, Url};
+use trillium_server_common::{async_trait, AsyncRead, AsyncWrite, Connector, Transport, Url};
+use RustlsClientTransportInner::{Tcp, Tls};
 
 #[derive(Clone, Debug)]
 pub struct RustlsClientConfig(Arc<ClientConfig>);
@@ -17,8 +21,7 @@ pub struct RustlsClientConfig(Arc<ClientConfig>);
 /**
 Client configuration for RustlsConnector
 */
-#[derive(Clone)]
-#[cfg_attr(any(feature = "ring", feature = "aws-lc-rs"), derive(Default))]
+#[derive(Clone, Default)]
 pub struct RustlsConfig<Config> {
     /// configuration for rustls itself
     pub rustls_config: RustlsClientConfig,
@@ -37,55 +40,24 @@ impl<C: Connector> RustlsConfig<C> {
     }
 }
 
-#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
 impl Default for RustlsClientConfig {
     fn default() -> Self {
         Self(Arc::new(default_client_config()))
     }
 }
 
-#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
-#[cfg(feature = "native-roots")]
-fn get_rustls_native_roots() -> Option<Vec<CertificateDer<'static>>> {
-    let roots = rustls_native_certs::load_native_certs();
-    if let Err(ref e) = roots {
-        log::warn!("rustls native certs hard error, falling back to webpki roots: {e:?}");
-    }
-    roots.ok()
-}
-
-#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
-#[cfg(not(feature = "native-roots"))]
-fn get_rustls_native_roots() -> Option<Vec<CertificateDer<'static>>> {
-    None
-}
-
-#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
+#[cfg(feature = "platform-verifier")]
 fn default_client_config() -> ClientConfig {
-    let mut root_store = RootCertStore::empty();
-    match get_rustls_native_roots() {
-        Some(certs) => {
-            for cert in certs {
-                if let Err(e) = root_store.add(cert) {
-                    log::debug!("unable to add certificate {:?}, skipping", e);
-                }
-            }
-        }
+    rustls_platform_verifier::tls_config()
+}
 
-        None => {
-            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.to_owned());
-        }
-    };
-
-    #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
-    let provider = rustls::crypto::ring::default_provider();
-    #[cfg(feature = "aws-lc-rs")]
-    let provider = rustls::crypto::aws_lc_rs::default_provider();
-
-    ClientConfig::builder_with_provider(Arc::new(provider))
-        .with_safe_default_protocol_versions()
-        .expect("could not enable default TLS versions")
-        .with_root_certificates(root_store)
+#[cfg(not(feature = "platform-verifier"))]
+fn default_client_config() -> ClientConfig {
+    let webpki_roots = futures_rustls::rustls::RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+    );
+    ClientConfig::builder()
+        .with_root_certificates(webpki_roots)
         .with_no_client_auth()
 }
 
@@ -120,7 +92,7 @@ impl<Config: Debug> Debug for RustlsConfig<Config> {
 
 #[async_trait]
 impl<C: Connector> Connector for RustlsConfig<C> {
-    type Transport = RustlsTransport<C::Transport>;
+    type Transport = RustlsClientTransport<C::Transport>;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         match url.scheme() {
@@ -139,14 +111,10 @@ impl<C: Connector> Connector for RustlsConfig<C> {
                     .connect(domain, self.tcp_config.connect(&http).await?)
                     .await
                     .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
-                    .map(RustlsTransport::from)
+                    .map(Into::into)
             }
 
-            "http" => self
-                .tcp_config
-                .connect(url)
-                .await
-                .map(RustlsTransport::from),
+            "http" => self.tcp_config.connect(url).await.map(Into::into),
 
             unknown => Err(Error::new(
                 ErrorKind::InvalidInput,
@@ -157,5 +125,121 @@ impl<C: Connector> Connector for RustlsConfig<C> {
 
     fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
         self.tcp_config.spawn(fut)
+    }
+}
+
+#[derive(Debug)]
+enum RustlsClientTransportInner<T> {
+    Tcp(T),
+    Tls(Box<TlsStream<T>>),
+}
+
+/**
+Transport for the rustls connector
+
+This may represent either an encrypted tls connection or a plaintext
+connection, depending on the request schema
+*/
+#[derive(Debug)]
+pub struct RustlsClientTransport<T>(RustlsClientTransportInner<T>);
+impl<T> From<T> for RustlsClientTransport<T> {
+    fn from(value: T) -> Self {
+        Self(Tcp(value))
+    }
+}
+
+impl<T> From<TlsStream<T>> for RustlsClientTransport<T> {
+    fn from(value: TlsStream<T>) -> Self {
+        Self(Tls(Box::new(value)))
+    }
+}
+
+impl<C> AsyncRead for RustlsClientTransport<C>
+where
+    C: AsyncWrite + AsyncRead + Unpin,
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<Result<usize>> {
+        match &mut self.0 {
+            Tcp(c) => Pin::new(c).poll_read(cx, buf),
+            Tls(c) => Pin::new(c).poll_read(cx, buf),
+        }
+    }
+}
+
+impl<C> AsyncWrite for RustlsClientTransport<C>
+where
+    C: AsyncRead + AsyncWrite + Unpin,
+{
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize>> {
+        match &mut self.0 {
+            Tcp(c) => Pin::new(c).poll_write(cx, buf),
+            Tls(c) => Pin::new(&mut *c).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        match &mut self.0 {
+            Tcp(c) => Pin::new(c).poll_flush(cx),
+            Tls(c) => Pin::new(&mut *c).poll_flush(cx),
+        }
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        match &mut self.0 {
+            Tcp(c) => Pin::new(c).poll_close(cx),
+            Tls(c) => Pin::new(&mut *c).poll_close(cx),
+        }
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<Result<usize>> {
+        match &mut self.0 {
+            Tcp(c) => Pin::new(c).poll_write_vectored(cx, bufs),
+            Tls(c) => Pin::new(&mut *c).poll_write_vectored(cx, bufs),
+        }
+    }
+}
+
+impl<T: Transport> Transport for RustlsClientTransport<T> {
+    fn peer_addr(&self) -> Result<Option<SocketAddr>> {
+        self.as_ref().peer_addr()
+    }
+}
+
+impl<T> AsRef<T> for RustlsClientTransport<T> {
+    fn as_ref(&self) -> &T {
+        match &self.0 {
+            Tcp(x) => x,
+            Tls(x) => x.get_ref().0,
+        }
+    }
+}
+
+impl<T> RustlsClientTransport<T> {
+    /// Retrieve the tls [`CommonState`] if this transport is Tls
+    pub fn tls_state_mut(&mut self) -> Option<&mut ClientConnection> {
+        match &mut self.0 {
+            Tls(x) => Some(x.get_mut().1),
+            _ => None,
+        }
+    }
+
+    /// Retrieve the tls [`CommonState`] if this transport is Tls
+    pub fn tls_state(&self) -> Option<&ClientConnection> {
+        match &self.0 {
+            Tls(x) => Some(x.get_ref().1),
+            _ => None,
+        }
     }
 }
