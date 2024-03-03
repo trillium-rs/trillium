@@ -4,14 +4,14 @@ use trillium_macros::{AsyncRead, AsyncWrite};
 struct Inner(#[async_write] Vec<u8>, #[async_read] &'static [u8]);
 
 #[derive(AsyncRead, AsyncWrite)]
-struct Middle(&'static str, #[async_io] Inner);
+struct Middle((), #[async_io] Inner);
 
 #[derive(AsyncRead, AsyncWrite)]
 struct Outer(Middle);
 
 #[test]
 fn test() -> std::io::Result<()> {
-    let mut outer = Outer(Middle("unrelated", Inner(vec![100; 0], b"content to read")));
+    let mut outer = Outer(Middle((), Inner(vec![100; 0], b"content to read")));
     let mut string = String::new();
     block_on(outer.read_to_string(&mut string))?;
     assert_eq!(string, "content to read");

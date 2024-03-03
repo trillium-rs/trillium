@@ -3,6 +3,7 @@ use crate::Error;
 use std::{
     convert::TryFrom,
     fmt::{self, Debug, Display},
+    str::FromStr,
 };
 
 /// HTTP response status codes.
@@ -633,5 +634,13 @@ impl Debug for Status {
 impl Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", *self as u16, self.canonical_reason())
+    }
+}
+
+impl FromStr for Status {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        u16::from_str(s).map_err(|_| Error::PartialHead)?.try_into()
     }
 }

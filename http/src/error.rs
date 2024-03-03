@@ -4,6 +4,8 @@ use std::str::Utf8Error;
 
 use thiserror::Error;
 
+use crate::Version;
+
 /// Concrete errors that occur within trillium's http implementation
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -46,13 +48,22 @@ pub enum Error {
     #[error("malformed http header {0}")]
     MalformedHeader(Cow<'static, str>),
 
-    /// async-h1 doesn't speak this http version
+    /// trillium doesn't speak this http version
     /// this error is deprecated
+    #[deprecated = "trillium will only return RecognizedBufUnsupportedVersion now"]
     #[error("unsupported http version 1.{0}")]
     UnsupportedVersion(u8),
 
+    /// trillium recognizes this http version but does not support it
+    #[error("unsupported http version {0}")]
+    RecognizedButUnsupportedVersion(Version),
+
+    /// trillium cannot parse this http version
+    #[error("unrecognized version {0}")]
+    UnrecognizedVersion(String),
+
     /// we were unable to parse this http method
-    #[error("unsupported http method {0}")]
+    #[error("unsupported or unrecognized http method {0}")]
     UnrecognizedMethod(String),
 
     /// this request did not have a method
@@ -90,6 +101,10 @@ pub enum Error {
     /// implementation on ReceivedBody
     #[error("Received body too long. Maximum {0} bytes")]
     ReceivedBodyTooLong(u64),
+
+    /// Something went wrong with header parsing
+    #[error("Malformed header")]
+    MalformedHeaders,
 }
 
 /// this crate's result type
