@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-base64 = "0.21.5"
+base64 = "0.22.0"
 futures-lite = "2.1.0"
 lamedh_runtime = "0.3.0"
 log = "0.4.20"
