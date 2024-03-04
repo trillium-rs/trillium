@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-base64 = "0.21.5"
+base64 = "0.22.0"
 trillium = { path = "../trillium", version = "0.2" }
 
 [dev-dependencies]
