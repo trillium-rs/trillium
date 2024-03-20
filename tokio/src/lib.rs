@@ -35,7 +35,7 @@ use std::future::Future;
 
 use trillium::Handler;
 
-pub use trillium_server_common::{Binding, CloneCounterObserver, Stopper};
+pub use trillium_server_common::{Binding, CloneCounterObserver, ServerHandle, Stopper};
 
 mod client;
 pub use client::ClientConfig;
