@@ -2,7 +2,7 @@ use event_listener::{Event, EventListener};
 use std::{
     fmt::{Debug, Formatter, Result},
     future::{Future, IntoFuture},
-    pin::{pin, Pin},
+    pin::Pin,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -106,29 +106,11 @@ impl IntoFuture for CloneCounter {
     fn into_future(self) -> Self::IntoFuture {
         CloneCounterFuture {
             inner: Arc::clone(&self.0),
-            listener: EventListener::new(),
+            listener: None,
         }
     }
 }
 
-impl Future for &CloneCounter {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut listener = pin!(EventListener::new());
-        loop {
-            if 1 == self.0.current() {
-                return Poll::Ready(());
-            }
-
-            if listener.is_listening() {
-                ready!(listener.as_mut().poll(cx));
-            } else {
-                listener.as_mut().listen(&self.0.event)
-            }
-        }
-    }
-}
 impl Clone for CloneCounter {
     fn clone(&self) -> Self {
         self.increment();
@@ -217,7 +199,7 @@ impl IntoFuture for CloneCounterObserver {
 
     fn into_future(self) -> Self::IntoFuture {
         CloneCounterFuture {
-            listener: EventListener::new(),
+            listener: None,
             inner: self.0,
         }
     }
@@ -238,22 +220,18 @@ impl From<CloneCounterObserver> for CloneCounter {
     }
 }
 
-pin_project_lite::pin_project! {
-    /// A future that waits for the clone counter to decrement to zero
-    #[derive(Debug)]
-    pub struct CloneCounterFuture {
-        inner: Arc<CloneCounterInner>,
-        #[pin]
-        listener: EventListener,
-    }
+/// A future that waits for the clone counter to decrement to zero
+#[derive(Debug)]
+pub struct CloneCounterFuture {
+    inner: Arc<CloneCounterInner>,
+    listener: Option<EventListener>,
 }
 
 impl Clone for CloneCounterFuture {
     fn clone(&self) -> Self {
-        let listener = EventListener::new();
         Self {
             inner: Arc::clone(&self.inner),
-            listener,
+            listener: None,
         }
     }
 }
@@ -261,39 +239,37 @@ impl Clone for CloneCounterFuture {
 impl Future for CloneCounterFuture {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut this = self.project();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
-            if 0 == this.inner.current() {
+            if 0 == self.inner.count.load(Ordering::Relaxed) {
                 return Poll::Ready(());
             };
-            if this.listener.is_listening() {
-                ready!(this.listener.as_mut().poll(cx));
-            } else {
-                this.listener.as_mut().listen(&this.inner.event);
-            }
+
+            let listener = self
+                .listener
+                .get_or_insert_with(|| self.inner.event.listen());
+
+            if 0 == self.inner.count.load(Ordering::SeqCst) {
+                return Poll::Ready(());
+            };
+
+            ready!(Pin::new(listener).poll(cx));
+
+            self.listener = None;
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::clone_counter::CloneCounterObserver;
-
     use super::CloneCounter;
+    use crate::clone_counter::CloneCounterObserver;
     use futures_lite::future::poll_once;
-    use std::future::{Future, IntoFuture};
+    use std::future::IntoFuture;
     use test_harness::test;
+    use trillium_testing::harness;
 
-    fn block_on<F, Fut>(test: F)
-    where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = ()>,
-    {
-        trillium_testing::block_on(test());
-    }
-
-    #[test(harness = block_on)]
+    #[test(harness)]
     async fn doctest_example() {
         let counter = CloneCounter::new();
         assert_eq!(counter.current(), 1);
@@ -313,7 +289,7 @@ mod test {
         counter.await; // ready
     }
 
-    #[test(harness = block_on)]
+    #[test(harness)]
     async fn observer_into_and_from() {
         let counter = CloneCounter::new();
         assert_eq!(counter, 1);
@@ -327,7 +303,7 @@ mod test {
         assert_eq!(poll_once(counter.into_future()).await, Some(()));
     }
 
-    #[test(harness = block_on)]
+    #[test(harness)]
     async fn observer_test() {
         let counter = CloneCounter::new();
         assert_eq!(counter.current(), 1);
