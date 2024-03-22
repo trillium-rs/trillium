@@ -17,14 +17,12 @@ client ([`RustlsConnector`]) and server ([`RustlsAcceptor`]).
 #[cfg(feature = "client")]
 mod client;
 #[cfg(feature = "client")]
-pub use client::RustlsConfig;
+pub use client::{RustlsClientTransport, RustlsConfig};
 
 #[cfg(feature = "server")]
 mod server;
 #[cfg(feature = "server")]
-pub use server::RustlsAcceptor;
+pub use server::{RustlsAcceptor, RustlsServerTransport};
 
-pub use rustls;
-
-mod transport;
-pub use transport::RustlsTransport;
+pub use futures_rustls;
+pub use futures_rustls::rustls;
