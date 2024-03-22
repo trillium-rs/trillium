@@ -1,0 +1,2 @@
+[workspace]
+release_commits = "^(feat|fix|deps)"
