@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 async-native-tls = "0.5.0"
 native-tls = "0.2.11"
-trillium-server-common = { path = "../server-common", version = "0.4.7" }
+trillium-server-common = { path = "../server-common", version = "0.5.0" }
 
 [dev-dependencies]
 env_logger = "0.11.0"

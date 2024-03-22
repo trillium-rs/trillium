@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.17](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.16...trillium-v0.2.17) - 2024-03-22
+
+### Added
+- *(trillium)* improve log message when calling `Arc<Handler>::init` on a clone
+
+### Other
+- clippy
+
 ## [0.2.16](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.15...trillium-v0.2.16) - 2024-02-09
 
 ### Fixed
