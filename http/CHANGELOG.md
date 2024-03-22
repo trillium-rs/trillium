@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.15](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.14...trillium-http-v0.3.15) - 2024-03-22
+
+### Added
+- *(http)* sort Host and Date headers first
+- *(test)* add corpus tests
+
+### Other
+- clippy
+- *(http)* document addition of is_valid
+
 ## [0.3.14](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.13...trillium-http-v0.3.14) - 2024-02-08
 
 ### Added

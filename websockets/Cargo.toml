@@ -30,8 +30,8 @@ serde_json = { version = "1.0.108", optional = true }
 sha-1 = "0.10.1"
 stopper = "0.2.3"
 thiserror = "1.0.52"
-trillium = { path = "../trillium", version = "0.2.13" }
-trillium-http = { path = "../http", version = "0.3.11" }
+trillium = { path = "../trillium", version = "0.2.17" }
+trillium-http = { path = "../http", version = "0.3.15" }
 
 [dev-dependencies]
 async-tungstenite = { version = "0.25.0", default-features = false, features = ["handshake"] }
