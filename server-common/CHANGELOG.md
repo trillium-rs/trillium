@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.4.7...trillium-server-common-v0.5.0) - 2024-03-22
+
+### Added
+- propagate write_vectored calls in Binding
+- *(server-common)* [**breaking**] put Config in an Arc instead of cloning
+
+### Other
+- clippy
+- Release only rustls
+- release
+
 ## [0.4.7](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.4.6...trillium-server-common-v0.4.7) - 2024-01-02
 
 ### Other

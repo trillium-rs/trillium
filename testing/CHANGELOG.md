@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.5.4...trillium-testing-v0.6.0) - 2024-03-22
+
+### Fixed
+- *(testing)* [**breaking**] RuntimelessClientConfig must be constructed with default or new
+
+### Other
+- clippy
+
 ## [0.5.4](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.5.3...trillium-testing-v0.5.4) - 2024-02-08
 
 ### Added
