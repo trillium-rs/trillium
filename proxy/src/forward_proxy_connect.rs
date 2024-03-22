@@ -2,8 +2,8 @@ use crate::bytes;
 use full_duplex_async_copy::full_duplex_copy;
 use std::fmt::Debug;
 use trillium::{async_trait, Conn, Handler, Upgrade};
+use trillium_client::{Connector, ObjectSafeConnector};
 use trillium_http::{Method, Status};
-use trillium_server_common::{Connector, ObjectSafeConnector};
 use url::Url;
 
 #[derive(Debug)]
