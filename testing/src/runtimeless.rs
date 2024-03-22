@@ -83,12 +83,12 @@ impl Drop for RuntimelessServer {
 
 /// An in-memory Connector to use with GenericServer.
 #[derive(Default, Debug, Clone, Copy)]
-pub struct RuntimelessClientConfig;
+pub struct RuntimelessClientConfig(());
 
 impl RuntimelessClientConfig {
     /// constructs a GenericClientConfig
     pub fn new() -> Self {
-        Self
+        Self(())
     }
 }
 
