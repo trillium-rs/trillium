@@ -120,7 +120,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
     /// Sets a cookie path for this session handler.
     /// The default for this value is "/"
     pub fn with_cookie_path(mut self, cookie_path: impl AsRef<str>) -> Self {
-        self.cookie_path = cookie_path.as_ref().to_owned();
+        cookie_path.as_ref().clone_into(&mut self.cookie_path);
         self
     }
 
@@ -140,7 +140,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
     /// domain, you will need different values for each
     /// application. The default value is "trillium.sid"
     pub fn with_cookie_name(mut self, cookie_name: impl AsRef<str>) -> Self {
-        self.cookie_name = cookie_name.as_ref().to_owned();
+        cookie_name.as_ref().clone_into(&mut self.cookie_name);
         self
     }
 

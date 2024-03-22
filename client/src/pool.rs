@@ -2,7 +2,6 @@ use crossbeam_queue::ArrayQueue;
 use dashmap::{mapref::entry::Entry, DashMap};
 use std::{
     borrow::Borrow,
-    cmp::Eq,
     fmt::{self, Debug, Formatter},
     hash::Hash,
     sync::Arc,

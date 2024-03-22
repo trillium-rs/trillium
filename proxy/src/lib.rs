@@ -221,7 +221,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             .get_str(KnownHeaderName::Connection)
             .unwrap_or_default()
             .split(',')
-            .map(|h| trillium::HeaderName::from(h.trim()))
+            .map(|h| HeaderName::from(h.trim()))
         {
             if header == KnownHeaderName::Upgrade {
                 connection_is_upgrade = true;

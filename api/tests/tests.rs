@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use trillium::{Conn, Handler, Headers, KnownHeaderName, Status};
-use trillium_api::{Error, *};
+use trillium::{Handler, Headers, KnownHeaderName};
+use trillium_api::*;
 use trillium_testing::prelude::*;
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -1,6 +1,6 @@
 use crate::Router;
 use routefinder::RouteSpec;
-use std::{convert::TryInto, fmt::Debug};
+use std::fmt::Debug;
 use trillium::{Handler, Method};
 
 macro_rules! method_ref {

@@ -1,7 +1,6 @@
 use crate::Transport;
 use futures_lite::{AsyncRead, AsyncWrite, Stream};
 use std::{
-    convert::{TryFrom, TryInto},
     io::Result,
     pin::Pin,
     task::{Context, Poll},

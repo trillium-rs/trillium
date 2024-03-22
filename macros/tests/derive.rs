@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-use trillium::{Conn, Handler, Info, Status::Ok};
+use trillium::{Handler, Info, Status::Ok};
 use trillium_macros::Handler;
 use trillium_testing::prelude::*;
 

@@ -4,7 +4,6 @@ use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
 use memchr::memmem::Finder;
 use size::{Base, Size};
 use std::{
-    convert::TryInto,
     fmt::{self, Debug, Display, Formatter},
     future::{Future, IntoFuture},
     io::{ErrorKind, Write},

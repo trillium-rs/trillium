@@ -5,7 +5,7 @@ use async_net::{
     TcpListener, TcpStream,
 };
 use futures_lite::prelude::*;
-use std::{convert::TryInto, env, io::Result, pin::Pin};
+use std::{env, io::Result, pin::Pin};
 use trillium::{log_error, Info};
 use trillium_server_common::{
     Binding::{self, *},

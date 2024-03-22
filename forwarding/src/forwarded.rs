@@ -1,5 +1,5 @@
 use crate::parse_utils::{parse_quoted_string, parse_token};
-use std::{borrow::Cow, convert::TryFrom, fmt::Write, net::IpAddr};
+use std::{borrow::Cow, fmt::Write, net::IpAddr};
 use trillium::{
     Headers,
     KnownHeaderName::{
@@ -469,7 +469,6 @@ impl<'a> TryFrom<&'a str> for Forwarded<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use trillium::Headers;
     type Result = std::result::Result<(), ParseError>;
 
     #[test]

@@ -12,7 +12,6 @@ pub fn main() {
         "http://localhost:8080".into_upstream().boxed()
     } else {
         std::env::args()
-            .into_iter()
             .skip(1)
             .collect::<ConnectionCounting<_>>()
             .boxed()

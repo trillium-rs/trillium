@@ -20,7 +20,6 @@ use smartcow::SmartCow;
 use std::{
     fmt::{self, Debug, Display, Formatter},
     hash::{BuildHasherDefault, Hasher},
-    iter::FromIterator,
 };
 
 /// Trillium's header map type

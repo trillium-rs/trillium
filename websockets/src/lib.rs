@@ -95,7 +95,7 @@ const WEBSOCKET_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 pub enum Error {
     #[error(transparent)]
     /// an error in the underlying websocket implementation
-    WebSocket(#[from] async_tungstenite::tungstenite::Error),
+    WebSocket(#[from] tungstenite::Error),
 
     #[cfg(feature = "json")]
     #[error(transparent)]

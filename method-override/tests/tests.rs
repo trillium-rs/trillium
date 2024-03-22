@@ -1,4 +1,3 @@
-use trillium::{Conn, Method};
 use trillium_method_override::*;
 use trillium_testing::prelude::*;
 

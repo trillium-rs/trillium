@@ -1,9 +1,6 @@
 // originally from https://github.com/http-rs/http-types/blob/main/src/status_code.rs
 use crate::Error;
-use std::{
-    convert::TryFrom,
-    fmt::{self, Debug, Display},
-};
+use std::fmt::{self, Debug, Display};
 
 /// HTTP response status codes.
 ///

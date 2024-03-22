@@ -17,7 +17,6 @@ use futures_lite::{
 use httparse::{Request, EMPTY_HEADER};
 use memchr::memmem::Finder;
 use std::{
-    convert::TryInto,
     fmt::{self, Debug, Formatter},
     future::Future,
     net::IpAddr,

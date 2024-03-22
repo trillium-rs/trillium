@@ -4,9 +4,6 @@ use trillium_api::{api, Body, Result};
 use trillium_logger::logger;
 use trillium_router::router;
 
-#[derive(Clone, Copy, Debug)]
-struct MyState;
-
 #[derive(Serialize, Deserialize, Debug)]
 struct Post {
     user_id: String,

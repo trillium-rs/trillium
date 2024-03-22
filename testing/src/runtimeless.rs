@@ -131,7 +131,7 @@ mod test {
             .spawn("server 2");
         handle2.info().await;
 
-        let client = trillium_client::Client::new(RuntimelessClientConfig);
+        let client = trillium_client::Client::new(RuntimelessClientConfig::default());
         let mut conn = client.get("http://host.com").await?;
         assert_eq!(conn.response_body().await?, "server 1");
 

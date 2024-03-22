@@ -1,6 +1,6 @@
 use crate::TokioTransport;
 use async_compat::Compat;
-use std::{convert::TryInto, future::Future, io::Result, pin::Pin};
+use std::{future::Future, io::Result, pin::Pin};
 use tokio::{
     net::{TcpListener, TcpStream},
     spawn,
