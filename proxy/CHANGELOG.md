@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3](https://github.com/trillium-rs/trillium/compare/trillium-proxy-v0.5.2...trillium-proxy-v0.5.3) - 2024-03-22
+
+### Fixed
+- *(proxy)* use Connector and ObjectSafeConnector from trillium_client
+
+### Other
+- clippy
+- *(clippy)* fix two clippies
+- *(deps)* update env_logger requirement from 0.10.1 to 0.11.0
+- release
+
 ## [0.5.2](https://github.com/trillium-rs/trillium/compare/trillium-proxy-v0.5.1...trillium-proxy-v0.5.2) - 2024-01-02
 
 ### Other
