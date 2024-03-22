@@ -13,7 +13,7 @@ pub trait HandlebarsConnExt {
     Registers an "assigns" value on this Conn for use in a template.
     See example usage at [`Handlebars::new`](crate::Handlebars::new)
     */
-    fn assign(self, key: impl Into<Cow<'static, str>> + Sized, data: impl Serialize) -> Self;
+    fn assign(self, key: impl Into<Cow<'static, str>>, data: impl Serialize) -> Self;
 
     /**
     renders a registered template by name with the provided data as

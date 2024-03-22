@@ -2,7 +2,6 @@ use crate::{CapturesNewType, RouteSpecNewType, RouterRef};
 use routefinder::{Match, RouteSpec, Router as Routefinder};
 use std::{
     collections::BTreeSet,
-    convert::TryInto,
     fmt::{self, Debug, Display, Formatter},
     mem,
 };

@@ -1,7 +1,6 @@
 use crate::{Acceptor, CloneCounterObserver, Config, Server, Stopper, Transport};
 use futures_lite::prelude::*;
 use std::{
-    convert::{TryFrom, TryInto},
     io::ErrorKind,
     net::{SocketAddr, TcpListener, ToSocketAddrs},
 };

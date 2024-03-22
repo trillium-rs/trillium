@@ -1,6 +1,5 @@
 use std::{
     fmt::{Display, Write},
-    iter::FromIterator,
     ops::{Deref, DerefMut},
     str::FromStr,
     time::Duration,

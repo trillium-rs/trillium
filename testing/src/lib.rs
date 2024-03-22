@@ -146,7 +146,7 @@ cfg_if::cfg_if! {
 
         /// runtime client config
         pub fn client_config() -> impl Connector {
-            trillium_smol::ClientConfig::default()
+            ClientConfig::default()
         }
         pub use trillium_smol::async_global_executor::block_on;
         pub use trillium_smol::ClientConfig;
@@ -174,7 +174,7 @@ cfg_if::cfg_if! {
         }
         /// runtime client config
         pub fn client_config() -> impl Connector {
-            trillium_async_std::ClientConfig::default()
+            ClientConfig::default()
         }
     } else if #[cfg(feature = "tokio")] {
         /// runtime server config
@@ -198,7 +198,7 @@ cfg_if::cfg_if! {
         }
         /// runtime client config
         pub fn client_config() -> impl Connector {
-            trillium_tokio::ClientConfig::default()
+            ClientConfig::default()
         }
    } else {
         /// runtime server config
@@ -210,7 +210,7 @@ cfg_if::cfg_if! {
 
         /// generic client config
         pub fn client_config() -> impl Connector {
-            RuntimelessClientConfig
+            RuntimelessClientConfig::default()
         }
 
         pub use futures_lite::future::block_on;

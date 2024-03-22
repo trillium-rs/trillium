@@ -86,8 +86,8 @@ pub enum Error {
     HeadersTooLong,
 
     /// to mitigate against malicious http clients, we do not read received bodies beyond this
-    /// length to memory. If you need to receive longer bodies, use the Stream or AsyncRead
-    /// implementation on ReceivedBody
+    /// length to memory. If you need to receive longer bodies, use the Stream or `AsyncRead`
+    /// implementation on `ReceivedBody`
     #[error("Received body too long. Maximum {0} bytes")]
     ReceivedBodyTooLong(u64),
 }

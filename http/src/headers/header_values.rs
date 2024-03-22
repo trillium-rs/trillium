@@ -4,7 +4,6 @@ use smartcow::SmartCow;
 use std::{
     borrow::Cow,
     fmt::{Debug, Formatter, Result},
-    iter::FromIterator,
     ops::{Deref, DerefMut},
 };
 

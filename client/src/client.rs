@@ -1,5 +1,5 @@
 use crate::{Conn, IntoUrl, Pool, USER_AGENT};
-use std::{convert::TryInto, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 use trillium_http::{
     transport::BoxedTransport, HeaderName, HeaderValues, Headers, KnownHeaderName, Method,
     ReceivedBodyState,

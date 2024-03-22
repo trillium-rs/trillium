@@ -1,4 +1,5 @@
-use trillium_smol::{async_global_executor, async_io::Timer};
+use trillium_smol::async_io::Timer;
+
 pub fn app() -> impl trillium::Handler {
     (
         trillium_logger::Logger::new(),

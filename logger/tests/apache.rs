@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use time::OffsetDateTime;
 use trillium::{
     KnownHeaderName::{Referer, UserAgent},
-    Status, Version,
+    Version,
 };
 use trillium_logger::{apache_combined, apache_common, logger, ColorMode};
 use trillium_testing::prelude::*;

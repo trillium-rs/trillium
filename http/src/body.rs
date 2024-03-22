@@ -1,7 +1,6 @@
 use futures_lite::{io::Cursor, ready, AsyncRead, AsyncReadExt};
 use std::{
     borrow::Cow,
-    convert::TryInto,
     fmt::Debug,
     io::{Error, ErrorKind, Result},
     pin::Pin,

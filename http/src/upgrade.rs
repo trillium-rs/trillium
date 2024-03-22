@@ -30,7 +30,7 @@ pub struct Upgrade<Transport> {
     pub method: Method,
     /// Any state that has been accumulated on the Conn before negotiating the upgrade
     pub state: StateSet,
-    /// The underlying io (often a TcpStream or similar)
+    /// The underlying io (often a `TcpStream` or similar)
     #[async_write]
     pub transport: Transport,
     /// Any bytes that have been read from the underlying tcpstream

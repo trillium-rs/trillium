@@ -11,7 +11,7 @@ pub trait IntoUrl {
 impl IntoUrl for Url {
     fn into_url(self, base: Option<&Url>) -> Result<Url> {
         if self.cannot_be_a_base() {
-            return Err(crate::Error::UnexpectedUriFormat);
+            return Err(Error::UnexpectedUriFormat);
         }
 
         if base.is_some_and(|base| !self.as_str().starts_with(base.as_str())) {
