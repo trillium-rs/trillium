@@ -1,7 +1,7 @@
 use crate::Transport;
 use futures_lite::{AsyncRead, AsyncWrite, Stream};
 use std::{
-    io::Result,
+    io::{IoSlice, Result},
     pin::Pin,
     task::{Context, Poll},
 };
@@ -119,13 +119,6 @@ where
     }
 }
 
-impl<T, U> Binding<T, U>
-where
-    T: AsyncWrite + Unpin,
-    U: AsyncWrite + Unpin,
-{
-}
-
 impl<T, U> AsyncRead for Binding<T, U>
 where
     T: AsyncRead + Unpin,
@@ -160,6 +153,14 @@ where
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         self.as_async_write().poll_close(cx)
     }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<Result<usize>> {
+        self.as_async_write().poll_write_vectored(cx, bufs)
+    }
 }
 
 impl<T, U> Binding<T, U>
@@ -167,13 +168,14 @@ where
     T: Transport,
     U: Transport,
 {
-    fn as_server_transport_mut(&mut self) -> &mut dyn Transport {
+    fn as_transport_mut(&mut self) -> &mut dyn Transport {
         match self {
             Tcp(t) => t as &mut dyn Transport,
             Unix(u) => u as &mut dyn Transport,
         }
     }
-    fn as_server_transport(&self) -> &dyn Transport {
+
+    fn as_transport(&self) -> &dyn Transport {
         match self {
             Tcp(t) => t as &dyn Transport,
             Unix(u) => u as &dyn Transport,
@@ -187,18 +189,18 @@ where
     U: Transport,
 {
     fn set_linger(&mut self, linger: Option<std::time::Duration>) -> Result<()> {
-        self.as_server_transport_mut().set_linger(linger)
+        self.as_transport_mut().set_linger(linger)
     }
 
     fn set_nodelay(&mut self, nodelay: bool) -> Result<()> {
-        self.as_server_transport_mut().set_nodelay(nodelay)
+        self.as_transport_mut().set_nodelay(nodelay)
     }
 
     fn set_ip_ttl(&mut self, ttl: u32) -> Result<()> {
-        self.as_server_transport_mut().set_ip_ttl(ttl)
+        self.as_transport_mut().set_ip_ttl(ttl)
     }
 
     fn peer_addr(&self) -> Result<Option<std::net::SocketAddr>> {
-        self.as_server_transport().peer_addr()
+        self.as_transport().peer_addr()
     }
 }
