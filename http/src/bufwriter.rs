@@ -114,19 +114,62 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for BufWriter<W> {
         ready!(self.as_mut().poll_flush_buf(cx))?;
         Pin::new(&mut self.inner).poll_close(cx)
     }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        additional_bufs: &[IoSlice<'_>],
+    ) -> Poll<Result<usize>> {
+        let Self {
+            inner,
+            buffer,
+            written_to_inner,
+        } = &mut *self;
+
+        loop {
+            let len = buffer.len();
+            let pending_buffer = &buffer[len.min(*written_to_inner)..];
+            let pending_bytes = pending_buffer.len();
+            let new_bytes = additional_bufs.iter().map(|x| x.len()).sum();
+            if *written_to_inner == 0 && (len + new_bytes) <= buffer.capacity() {
+                buffer.reserve(new_bytes);
+                for additional in additional_bufs {
+                    buffer.extend_from_slice(additional);
+                }
+                return Poll::Ready(Ok(new_bytes));
+            } else if pending_buffer.is_empty() {
+                let written =
+                    ready!(Pin::new(&mut *inner).poll_write_vectored(cx, additional_bufs))?;
+                *written_to_inner += written;
+                return Poll::Ready(Ok(written));
+            } else {
+                let mut vectored = Vec::with_capacity(additional_bufs.len() + 1);
+                vectored.push(IoSlice::new(pending_buffer));
+                vectored.extend_from_slice(additional_bufs);
+                let written = ready!(Pin::new(&mut *inner).poll_write_vectored(cx, &vectored))?;
+                *written_to_inner += written;
+                let written_from_additional = written.saturating_sub(pending_bytes);
+                if written_from_additional != 0 {
+                    return Poll::Ready(Ok(written_from_additional));
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use futures_lite::AsyncWriteExt;
     use pretty_assertions::assert_eq;
-
-    use super::*;
+    use test_harness::test;
+    use trillium_testing::harness;
     #[derive(Default)]
     struct TestWrite {
         writes: Vec<Vec<u8>>,
         max_write: Option<usize>,
     }
+
     impl AsyncWrite for TestWrite {
         fn poll_write(
             mut self: Pin<&mut Self>,
@@ -172,9 +215,11 @@ mod tests {
         std::array::from_fn(|_| fastrand::u8(..))
     }
 
-    #[test]
-    fn entire_content_shorter_than_capacity() {
-        futures_lite::future::block_on(async {
+    mod write {
+        use super::{test, *};
+
+        #[test(harness)]
+        async fn entire_content_shorter_than_capacity() {
             let data = rand_bytes::<90>();
             let mut tw = TestWrite::new(None);
             let mut bw = BufWriter::new_with_buffer(Vec::with_capacity(100), &mut tw);
@@ -182,12 +227,10 @@ mod tests {
             assert_eq!(bw.inner.writes.len(), 0);
             bw.flush().await.unwrap();
             assert_eq!(&bw.inner.writes, &[&data]);
-        });
-    }
+        }
 
-    #[test]
-    fn longer_than_capacity_but_still_a_single_write() {
-        futures_lite::future::block_on(async {
+        #[test(harness)]
+        async fn longer_than_capacity_but_still_a_single_write() {
             let data = rand_bytes::<200>();
             let mut tw = TestWrite::new(None);
             let mut bw = BufWriter::new_with_buffer(Vec::with_capacity(100), &mut tw);
@@ -195,12 +238,10 @@ mod tests {
             assert_eq!(&bw.inner.writes, &[&data]);
             bw.flush().await.unwrap();
             assert_eq!(&bw.inner.writes, &[&data]);
-        });
-    }
+        }
 
-    #[test]
-    fn multiple_writes() {
-        futures_lite::future::block_on(async {
+        #[test(harness)]
+        async fn multiple_writes() {
             let data = rand_bytes::<250>();
             let mut tw = TestWrite::new(None);
             let mut bw = BufWriter::new_with_buffer(Vec::with_capacity(100), &mut tw);
@@ -209,12 +250,10 @@ mod tests {
             assert_eq!(&bw.inner.writes, &[&data[..200], &data[200..]]);
             bw.flush().await.unwrap();
             assert_eq!(&bw.inner.writes, &[&data[..200], &data[200..]]);
-        });
-    }
+        }
 
-    #[test]
-    fn overflow_is_vectored() {
-        futures_lite::future::block_on(async {
+        #[test(harness)]
+        async fn overflow_is_vectored() {
             let data = rand_bytes::<101>();
             let mut tw = TestWrite::new(None);
             let mut bw = BufWriter::new_with_buffer(Vec::with_capacity(100), &mut tw);
@@ -223,12 +262,10 @@ mod tests {
             assert_eq!(&bw.inner.writes, &[&data]);
             bw.flush().await.unwrap();
             assert_eq!(&bw.inner.writes, &[&data]);
-        });
-    }
+        }
 
-    #[test]
-    fn max_write() {
-        futures_lite::future::block_on(async {
+        #[test(harness)]
+        fn max_write() {
             let data = rand_bytes::<200>();
             let mut tw = TestWrite::new(Some(50));
             let mut bw = BufWriter::new_with_buffer(Vec::with_capacity(100), &mut tw);
@@ -259,12 +296,10 @@ mod tests {
             );
             bw.flush().await.unwrap();
             assert_eq!(&bw.inner.data(), &data);
-        });
-    }
+        }
 
-    #[test]
-    fn write_boundary_is_exactly_buffer_len() {
-        futures_lite::future::block_on(async {
+        #[test(harness)]
+        fn write_boundary_is_exactly_buffer_len() {
             let data = rand_bytes::<200>();
             let mut tw = TestWrite::new(Some(50));
             let mut bw = BufWriter::new_with_buffer(Vec::with_capacity(100), &mut tw);
@@ -285,12 +320,10 @@ mod tests {
             );
             bw.flush().await.unwrap();
             assert_eq!(&bw.inner.data(), &data);
-        });
-    }
+        }
 
-    #[test]
-    fn buffer_is_exactly_full() {
-        futures_lite::future::block_on(async {
+        #[test(harness)]
+        fn buffer_is_exactly_full() {
             let data = rand_bytes::<200>();
             let mut tw = TestWrite::new(None);
             let mut bw = BufWriter::new_with_buffer(Vec::with_capacity(100), &mut tw);
@@ -299,11 +332,13 @@ mod tests {
             assert_eq!(&bw.inner.writes, &[&data]);
             bw.flush().await.unwrap();
             assert_eq!(&bw.inner.data(), &data);
-        });
-    }
+        }
 
-    fn test_x<const SIZE: usize>(capacity: usize, max_write: Option<usize>, split: usize) {
-        futures_lite::future::block_on(async {
+        async fn test_x<const SIZE: usize>(
+            capacity: usize,
+            max_write: Option<usize>,
+            split: usize,
+        ) {
             for _ in 0..100 {
                 let data = rand_bytes::<SIZE>();
                 let mut tw = TestWrite::new(max_write);
@@ -319,22 +354,22 @@ mod tests {
                     bw.inner.max_write
                 );
             }
-        });
-    }
+        }
 
-    #[test]
-    fn known_bad() {
-        test_x::<200>(188, Some(47), 123);
-    }
+        #[test(harness)]
+        async fn known_bad() {
+            test_x::<200>(188, Some(47), 123).await;
+        }
 
-    #[test]
-    fn random() {
-        for _ in 0..100 {
-            test_x::<200>(
-                fastrand::usize(1..200),
-                Some(fastrand::usize(1..200)),
-                fastrand::usize(1..200),
-            );
+        #[test(harness)]
+        async fn random() {
+            for _ in 0..100 {
+                test_x::<200>(
+                    fastrand::usize(1..200),
+                    Some(fastrand::usize(1..200)),
+                    fastrand::usize(1..200),
+                );
+            }
         }
     }
 }
