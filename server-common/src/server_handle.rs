@@ -9,7 +9,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 use trillium::Info;
 use trillium_http::Stopper;
@@ -25,19 +25,12 @@ pub struct ServerHandle {
     pub(crate) observer: CloneCounterObserver,
 }
 
-pub struct CompletionFuture(Arc<CompletionFutureInner>, Pin<Box<EventListener>>);
-
-impl Default for CompletionFuture {
-    fn default() -> Self {
-        let inner = Arc::new(CompletionFutureInner::default());
-        let listener = inner.event.listen();
-        Self(inner, listener)
-    }
-}
+#[derive(Default)]
+pub struct CompletionFuture(Arc<CompletionFutureInner>, Option<EventListener>);
 
 impl Clone for CompletionFuture {
     fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0), self.0.event.listen())
+        Self(Arc::clone(&self.0), None)
     }
 }
 
@@ -83,20 +76,21 @@ impl Future for CompletionFuture {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let Self(inner, listener) = &mut *self;
+        let Self(inner, option_listener) = &mut *self;
         loop {
+            if inner.complete.load(Ordering::Relaxed) {
+                return Poll::Ready(());
+            }
+
+            let listener = option_listener.get_or_insert_with(|| inner.event.listen());
+
             if inner.complete.load(Ordering::SeqCst) {
                 return Poll::Ready(());
             }
 
-            if listener.is_listening() {
-                match listener.as_mut().poll(cx) {
-                    Poll::Ready(()) => continue,
-                    Poll::Pending => return Poll::Pending,
-                }
-            } else {
-                listener.as_mut().listen(&inner.event);
-            }
+            ready!(Pin::new(listener).poll(cx));
+
+            *option_listener = None;
         }
     }
 }
