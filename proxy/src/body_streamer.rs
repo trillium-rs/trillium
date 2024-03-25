@@ -57,8 +57,11 @@ pub(crate) fn stream_body(conn: &mut Conn) -> (impl Future<Output = ()> + Send +
 
     (
         async move {
+            if !started.1.load(Ordering::Relaxed) {
+                started_clone.0.listen().await;
+            }
+
             log::trace!("waiting to stream request body");
-            started_clone.0.listen().await;
             if started_clone.1.load(Ordering::SeqCst) {
                 log::trace!("started to stream request body");
                 let received_body = conn.request_body().await;
