@@ -1,7 +1,7 @@
 use async_native_tls::TlsStream;
 use std::{
     fmt::Debug,
-    io::Result,
+    io::{IoSlice, IoSliceMut, Result},
     net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
@@ -56,6 +56,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for NativeTlsTransport<T> {
             Tls(t) => Pin::new(t).poll_read(cx, buf),
         }
     }
+
+    fn poll_read_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &mut [IoSliceMut<'_>],
+    ) -> Poll<Result<usize>> {
+        match &mut self.0 {
+            Tcp(t) => Pin::new(t).poll_read_vectored(cx, bufs),
+            Tls(t) => Pin::new(t).poll_read_vectored(cx, bufs),
+        }
+    }
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> AsyncWrite for NativeTlsTransport<T> {
@@ -81,6 +92,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncWrite for NativeTlsTransport<T> {
         match &mut self.0 {
             Tcp(t) => Pin::new(t).poll_close(cx),
             Tls(t) => Pin::new(t).poll_close(cx),
+        }
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<Result<usize>> {
+        match &mut self.0 {
+            Tcp(t) => Pin::new(t).poll_write_vectored(cx, bufs),
+            Tls(t) => Pin::new(t).poll_write_vectored(cx, bufs),
         }
     }
 }
