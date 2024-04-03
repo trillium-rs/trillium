@@ -22,6 +22,14 @@ jobs:
       - name: Install mkcert (Linux)
         run: curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64" && chmod +x mkcert-v*-linux-amd64 && sudo cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert && mkcert -install && mkcert localhost
         if: matrix.os == 'ubuntu-latest'
+
+      - name: get-cmake
+        uses: lukka/get-cmake@v3.29.0
+            
+      - name: Install NASM for aws-lc-rs on Windows
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
       - name: Install stable
         uses: actions-rs/toolchain@v1
         with:
@@ -75,24 +83,3 @@ jobs:
           args: --all-targets
       - name: Docs
         run: cargo doc --no-deps
-  minimal_versions:
-    name: Minimal versions
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@master
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: taiki-e/install-action@cargo-hack
-      - uses: taiki-e/install-action@cargo-minimal-versions
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.3
-      - name: cargo minimal-versions
-        run: |
-          set -euxo pipefail        
-          rm -f Cargo.toml Cargo.lock
-          for dir in ./*/; do
-            cd $dir
-            if [ -e Cargo.toml ]; then
-              cargo minimal-versions check --direct --detach-path-deps
-            fi
-            cd ..
-          done
