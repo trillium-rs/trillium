@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3](https://github.com/trillium-rs/trillium/compare/trillium-native-tls-v0.3.2...trillium-native-tls-v0.3.3) - 2024-04-03
+
+### Fixed
+- *(native-tls)* pass through poll_{write,read}_vectored
+
+### Other
+- release
+- *(deps)* update env_logger requirement from 0.10.1 to 0.11.0
+
 ## [0.3.2](https://github.com/trillium-rs/trillium/compare/trillium-native-tls-v0.3.1...trillium-native-tls-v0.3.2) - 2024-01-02
 
 ### Other
