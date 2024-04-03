@@ -41,3 +41,7 @@ trillium-client = { path = "../client" }
 trillium-native-tls = { path = "../native-tls" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
+
+[package.metadata.cargo-udeps.ignore]
+# because there is no way to say [dependencies.'cfg(not(feature = "platform-verifier"))']
+normal = ["webpki-roots"] 
