@@ -131,6 +131,14 @@ where
     ) -> Poll<Result<usize>> {
         self.as_async_read().poll_read(cx, buf)
     }
+
+    fn poll_read_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &mut [std::io::IoSliceMut<'_>],
+    ) -> Poll<Result<usize>> {
+        self.as_async_read().poll_read_vectored(cx, bufs)
+    }
 }
 
 impl<T, U> AsyncWrite for Binding<T, U>
