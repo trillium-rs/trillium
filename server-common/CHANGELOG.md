@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.5.0...trillium-server-common-v0.5.1) - 2024-04-03
+
+### Fixed
+- *(server-common)* pass through poll_read_vectored in binding
+
 ## [0.5.0](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.4.7...trillium-server-common-v0.5.0) - 2024-03-22
 
 ### Added
