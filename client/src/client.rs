@@ -4,8 +4,10 @@ use trillium_http::{
     transport::BoxedTransport, HeaderName, HeaderValues, Headers, KnownHeaderName, Method,
     ReceivedBodyState,
 };
-use trillium_server_common::{Connector, ObjectSafeConnector, Url};
-use url::Origin;
+use trillium_server_common::{
+    url::{Origin, Url},
+    Connector, ObjectSafeConnector,
+};
 
 /**
 A client contains a Config and an optional connection pool and builds
