@@ -59,6 +59,3 @@ pub use log;
 
 mod info;
 pub use info::Info;
-
-mod init;
-pub use init::{init, Init};
