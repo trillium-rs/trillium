@@ -4,8 +4,11 @@ use std::{
     future::Future,
     io::{Error, ErrorKind, Result},
 };
-use trillium_server_common::{async_trait, Connector, Transport, Url};
-use url::Host;
+use trillium_server_common::{
+    async_trait,
+    url::{Host, Url},
+    Connector, Transport,
+};
 
 /**
 configuration for the tcp Connector
