@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-tokio-v0.3.4...trillium-tokio-v0.4.0) - 2024-04-04
+
+### Added
+- *(tokio)* [**breaking**] use trillium-server-common 0.5
+
+### Other
+- release
+- release
+- release
+- clippy
+- *(deps)* update env_logger requirement from 0.10.1 to 0.11.0
+
 ## [0.3.4](https://github.com/trillium-rs/trillium/compare/trillium-tokio-v0.3.3...trillium-tokio-v0.3.4) - 2024-01-02
 
 ### Other

@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-native-tls-v0.3.3...trillium-native-tls-v0.4.0) - 2024-04-04
+
+### Added
+- *(native-tls)* [**breaking**] split NativeTlsTransport into client and server
+
+### Other
+- release
+
 ## [0.3.3](https://github.com/trillium-rs/trillium/compare/trillium-native-tls-v0.3.2...trillium-native-tls-v0.3.3) - 2024-04-03
 
 ### Fixed
