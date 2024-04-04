@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.5.6...trillium-client-v0.6.0) - 2024-04-04
+
+### Fixed
+- *(client)* [**breaking**] client use of server-common 0.5 was a breaking change
+
+### Other
+- release
+- release
+- release
+- clippy
+- *(client)* remove references to `with_websocket_upgrade_headers`
+
 ## [0.5.6](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.5.5...trillium-client-v0.5.6) - 2024-02-13
 
 ### Added

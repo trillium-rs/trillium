@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 log = "0.4.20"
 routefinder = { version = "0.5.4", features = ["memchr"] }
-trillium = { path = "../trillium", version = "0.2.17" }
+trillium = { path = "../trillium", version = "0.2.18" }
 
 [dev-dependencies]
 env_logger = "0.11.0"
