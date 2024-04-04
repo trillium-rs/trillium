@@ -1,6 +1,6 @@
 use crate::{Error, Result};
 use std::str::FromStr;
-use url::{ParseError, Url};
+use trillium_server_common::url::{ParseError, Url};
 
 /// attempt to construct a url, with base if present
 pub trait IntoUrl {

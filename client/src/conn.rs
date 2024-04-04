@@ -18,8 +18,10 @@ use trillium_http::{
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBody, ReceivedBodyState, Result, StateSet, Status, Stopper, Upgrade,
 };
-use trillium_server_common::{Connector, ObjectSafeConnector, Transport};
-use url::{Origin, Url};
+use trillium_server_common::{
+    url::{Origin, Url},
+    Connector, ObjectSafeConnector, Transport,
+};
 
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_LENGTH: usize = 2 * 1024;
@@ -306,10 +308,11 @@ impl Conn {
      */
     #[cfg(feature = "json")]
     pub fn with_json_body(self, body: &impl serde::Serialize) -> serde_json::Result<Self> {
-        Ok(self.with_body(serde_json::to_string(body)?).with_header(
-            trillium_http::KnownHeaderName::ContentType,
-            "application/json",
-        ))
+        use trillium_http::KnownHeaderName;
+
+        Ok(self
+            .with_body(serde_json::to_string(body)?)
+            .with_header(KnownHeaderName::ContentType, "application/json"))
     }
 
     pub(crate) fn response_encoding(&self) -> &'static Encoding {

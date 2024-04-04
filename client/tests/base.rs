@@ -1,8 +1,7 @@
 use std::str::FromStr;
 use test_harness::test;
 use trillium_client::{Client, Status};
-use trillium_testing::{harness, ServerConnector, TestResult};
-use url::Url;
+use trillium_testing::{harness, ServerConnector, TestResult, Url};
 
 fn test_client() -> Client {
     Client::new(ServerConnector::new(Status::Ok))
