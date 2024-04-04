@@ -1,6 +1,13 @@
-use crate::{Identity, NativeTlsTransport};
-use async_native_tls::{Error, TlsAcceptor};
-use trillium_server_common::{async_trait, Acceptor, Transport};
+use std::{
+    io::{self, IoSlice, IoSliceMut},
+    net::SocketAddr,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use crate::Identity;
+use async_native_tls::{Error, TlsAcceptor, TlsStream};
+use trillium_server_common::{async_trait, Acceptor, AsyncRead, AsyncWrite, Transport};
 
 /**
 trillium [`Acceptor`] for native-tls
@@ -68,9 +75,87 @@ impl<Input> Acceptor<Input> for NativeTlsAcceptor
 where
     Input: Transport,
 {
-    type Output = NativeTlsTransport<Input>;
+    type Output = NativeTlsServerTransport<Input>;
     type Error = Error;
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
-        self.0.accept(input).await.map(NativeTlsTransport::from)
+        self.0.accept(input).await.map(NativeTlsServerTransport)
+    }
+}
+
+/// Server Tls Transport
+///
+/// A wrapper type around [`TlsStream`] that also implements [`Transport`]
+#[derive(Debug)]
+pub struct NativeTlsServerTransport<T>(TlsStream<T>);
+
+impl<T: AsyncWrite + AsyncRead + Unpin> AsRef<T> for NativeTlsServerTransport<T> {
+    fn as_ref(&self) -> &T {
+        self.0.get_ref()
+    }
+}
+impl<T: AsyncWrite + AsyncRead + Unpin> AsMut<T> for NativeTlsServerTransport<T> {
+    fn as_mut(&mut self) -> &mut T {
+        self.0.get_mut()
+    }
+}
+
+impl<T> AsRef<TlsStream<T>> for NativeTlsServerTransport<T> {
+    fn as_ref(&self) -> &TlsStream<T> {
+        &self.0
+    }
+}
+impl<T> AsMut<TlsStream<T>> for NativeTlsServerTransport<T> {
+    fn as_mut(&mut self) -> &mut TlsStream<T> {
+        &mut self.0
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for NativeTlsServerTransport<T> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+
+    fn poll_read_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &mut [IoSliceMut<'_>],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0).poll_read_vectored(cx, bufs)
+    }
+}
+
+impl<T: AsyncWrite + AsyncRead + Unpin> AsyncWrite for NativeTlsServerTransport<T> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.0).poll_close(cx)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write_vectored(cx, bufs)
+    }
+}
+
+impl<T: Transport> Transport for NativeTlsServerTransport<T> {
+    fn peer_addr(&self) -> io::Result<Option<SocketAddr>> {
+        self.0.get_ref().peer_addr()
     }
 }
