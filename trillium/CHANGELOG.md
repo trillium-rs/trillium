@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.18](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.17...trillium-v0.2.18) - 2024-04-04
+
+### Fixed
+- *(trillium)* move futures-lite to dev-dependencies
+
 ## [0.2.17](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.16...trillium-v0.2.17) - 2024-03-22
 
 ### Added
