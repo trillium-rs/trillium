@@ -19,10 +19,7 @@ pub use native_tls;
 pub use native_tls::Identity;
 
 mod server;
-pub use server::NativeTlsAcceptor;
+pub use server::{NativeTlsAcceptor, NativeTlsServerTransport};
 
 mod client;
-pub use client::NativeTlsConfig;
-
-mod transport;
-pub use transport::NativeTlsTransport;
+pub use client::{NativeTlsClientTransport, NativeTlsConfig};
