@@ -26,6 +26,7 @@ issue.
 pub use async_trait::async_trait;
 pub use futures_lite::{AsyncRead, AsyncWrite};
 pub use trillium_http::{transport::Transport, Stopper};
+pub use url;
 pub use url::Url;
 
 mod clone_counter;
