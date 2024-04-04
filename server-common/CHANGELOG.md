@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.5.1...trillium-server-common-v0.5.2) - 2024-04-04
+
+### Added
+- *(server-common)* reexport all of ::url
+
 ## [0.5.1](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.5.0...trillium-server-common-v0.5.1) - 2024-04-03
 
 ### Fixed
