@@ -6,8 +6,11 @@ use std::{
     time::Duration,
 };
 use tokio::net::TcpStream;
-use trillium_server_common::{async_trait, Connector, Transport, Url};
-use url::Host;
+use trillium_server_common::{
+    async_trait,
+    url::{Host, Url},
+    Connector, Transport,
+};
 
 /**
 configuration for the tcp Connector
