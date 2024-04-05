@@ -149,7 +149,7 @@ pub trait Server: Sized + Send + Sync + 'static {
             let mut info = Self::info(&listener);
             info.server_description_mut().push_str(Self::DESCRIPTION);
             handler.init(&mut info).await;
-            config.info.set(info);
+            config.info.set(Arc::new(info));
             let config = Arc::new(config);
             let handler = Arc::new(handler);
 
