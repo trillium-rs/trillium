@@ -21,7 +21,7 @@ async fn handler(mut conn: Conn) -> Conn {
     let request_body = conn_try!(conn.request_body_string().await, conn);
     conn.with_body(format!("request body was: {}", request_body))
         .with_status(418)
-        .with_header("request-id", "special-request")
+        .with_response_header("request-id", "special-request")
 }
 
 assert_response!(

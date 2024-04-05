@@ -194,7 +194,7 @@ impl ConnId {
     );
 
     // assert that the id is a valid uuid, even if we can't assert a specific value
-    assert!(Uuid::parse_str(get("/").on(&app).headers_mut().get_str("x-request-id").unwrap()).is_ok());
+    assert!(Uuid::parse_str(get("/").on(&app).response_headers_mut().get_str("x-request-id").unwrap()).is_ok());
     ```
     */
     pub fn with_id_generator<F>(mut self, id_generator: F) -> Self
@@ -253,13 +253,12 @@ impl Handler for ConnId {
         let id = self
             .request_header
             .as_ref()
-            .and_then(|request_header| conn.headers().get_str(request_header.clone()))
+            .and_then(|request_header| conn.request_headers().get_str(request_header.clone()))
             .map(|request_header| Id(request_header.to_string()))
             .unwrap_or_else(|| self.generate_id());
 
         if let Some(ref response_header) = self.response_header {
-            conn.headers_mut()
-                .insert(response_header.clone(), id.to_string());
+            conn.insert_response_header(response_header.clone(), id.to_string());
         }
 
         conn.with_state(id)

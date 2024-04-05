@@ -24,7 +24,7 @@ the attribute and return the conn, enabling chained calls like:
 ```
 struct MyState(&'static str);
 async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
-    conn.with_header("content-type", "text/plain")
+    conn.with_response_header("content-type", "text/plain")
         .with_state(MyState("hello"))
         .with_body("hey there")
         .with_status(418)
@@ -365,28 +365,12 @@ impl Conn {
         self.inner.method()
     }
 
-    /// borrows the request headers
-    ///
-    /// this is aliased as [`Conn::request_headers`]
-    pub fn headers(&self) -> &Headers {
-        self.inner.request_headers()
-    }
-
-    /// mutably borrows response headers
-    ///
-    /// this is aliased as [`Conn::response_headers_mut`]
-    pub fn headers_mut(&mut self) -> &mut Headers {
-        self.inner.response_headers_mut()
-    }
-
     /// borrow the response headers
     pub fn response_headers(&self) -> &Headers {
         self.inner.response_headers()
     }
 
     /// mutably borrow the response headers
-    ///
-    /// this is aliased as [`Conn::headers_mut`]
     pub fn response_headers_mut(&mut self) -> &mut Headers {
         self.inner.response_headers_mut()
     }
@@ -401,27 +385,34 @@ impl Conn {
         self.inner.request_headers_mut()
     }
 
-    /**
-    insert a header name and value/values into the response headers
-    and return the conn. for a slight performance improvement, use a
-    [`KnownHeaderName`](crate::KnownHeaderName) as the first argument instead of a
-    str.
-
-    ```
-    use trillium_testing::prelude::*;
-    let mut conn = get("/").on(&|conn: trillium::Conn| async move {
-        conn.with_header("content-type", "application/html")
-    });
-    ```
-    */
+    /// Insert a header name and value/values into the response headers and return the conn.
+    ///
+    /// See also [`Headers::insert`] and [`Headers::append`]
+    ///
+    /// For a slight performance improvement, use a [`KnownHeaderName`](crate::KnownHeaderName) as
+    /// the first argument instead of a str.
     #[must_use]
-    pub fn with_header(
+    pub fn with_response_header(
         mut self,
         header_name: impl Into<HeaderName<'static>>,
         header_value: impl Into<HeaderValues>,
     ) -> Self {
-        self.headers_mut().insert(header_name, header_value);
+        self.insert_response_header(header_name, header_value);
         self
+    }
+
+    /// Insert a header name and value/values into the response headers.
+    ///
+    /// See also [`Headers::insert`] and [`Headers::append`]
+    ///
+    /// For a slight performance improvement, use a [`KnownHeaderName`](crate::KnownHeaderName).
+    pub fn insert_response_header(
+        &mut self,
+        header_name: impl Into<HeaderName<'static>>,
+        header_value: impl Into<HeaderValues>,
+    ) {
+        self.response_headers_mut()
+            .insert(header_name, header_value);
     }
 
     /**

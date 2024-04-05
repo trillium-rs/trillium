@@ -99,7 +99,7 @@ use trillium_testing::prelude::*;
 let mut conn = get("/").on(&handler);
 assert_ok!(&mut conn, "count: 0");
 
-let set_cookie_header = conn.headers_mut().get_str("set-cookie").unwrap();
+let set_cookie_header = conn.response_headers().get_str("set-cookie").unwrap();
 let cookie = Cookie::parse_encoded(set_cookie_header).unwrap();
 
 let make_request = || get("/")

@@ -97,7 +97,7 @@ impl RedirectConnExt for Conn {
 
     fn redirect_as(self, to: impl Into<Cow<'static, str>>, status: RedirectStatus) -> Self {
         self.with_status(status)
-            .with_header(Location, to.into())
+            .with_response_header(Location, to.into())
             .halt()
     }
 }
