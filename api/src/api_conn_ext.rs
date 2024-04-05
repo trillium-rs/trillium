@@ -261,16 +261,14 @@ impl ApiConnExt for Conn {
         match accept {
             Some(AcceptableMime::Json) => {
                 self.set_body(serde_json::to_string(body)?);
-                self.response_headers_mut()
-                    .insert(ContentType, "application/json");
+                self.insert_response_header(ContentType, "application/json");
                 Ok(())
             }
 
             #[cfg(feature = "forms")]
             Some(AcceptableMime::Form) => {
                 self.set_body(serde_urlencoded::to_string(body)?);
-                self.response_headers_mut()
-                    .insert(ContentType, "application/x-www-form-urlencoded");
+                self.insert_response_header(ContentType, "application/x-www-form-urlencoded");
                 Ok(())
             }
 
