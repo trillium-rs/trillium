@@ -1,4 +1,4 @@
-use crate::{Acceptor, Config, ConfigExt, Stopper, Transport};
+use crate::{Acceptor, ArcHandler, Config, ConfigExt, Stopper, Transport};
 use std::{
     future::{ready, Future},
     io::Result,
@@ -151,7 +151,7 @@ pub trait Server: Sized + Send + Sync + 'static {
             handler.init(&mut info).await;
             config.info.set(Arc::new(info));
             let config = Arc::new(config);
-            let handler = Arc::new(handler);
+            let handler = ArcHandler::new(handler);
 
             while let Some(stream) = config
                 .stopper
@@ -161,7 +161,7 @@ pub trait Server: Sized + Send + Sync + 'static {
                 match stream {
                     Ok(stream) => {
                         let config = Arc::clone(&config);
-                        let handler = Arc::clone(&handler);
+                        let handler = ArcHandler::clone(&handler);
                         Self::spawn(async move { config.handle_stream(stream, handler).await })
                     }
                     Err(e) => log::error!("tcp error: {}", e),
