@@ -63,13 +63,14 @@ impl TestTransport {
         io::Write::write_all(&mut &*self.write, bytes.as_ref()).unwrap();
     }
 
-    /// waits until there is content and then reads that content to a string until there is no
+    /// waits until there is content and then reads that content to a vec until there is no
     /// further content immediately available
     pub async fn read_available(&self) -> Vec<u8> {
         self.read.read_available().await
     }
 
-    ///
+    /// waits until there is content and then reads that content to a string until there is no
+    /// further content immediately available
     pub async fn read_available_string(&self) -> String {
         self.read.read_available_string().await
     }
@@ -254,6 +255,7 @@ impl AsyncWrite for &CloseableCursor {
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.close();
         Poll::Ready(Ok(()))
     }
 }
