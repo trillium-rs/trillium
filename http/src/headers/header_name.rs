@@ -110,7 +110,7 @@ impl FromStr for HeaderName<'static> {
         if uhn.is_valid() {
             Ok(uhn.into())
         } else {
-            Err(Error::MalformedHeader(s.to_string().into()))
+            Err(Error::InvalidHeaderName)
         }
     }
 }
