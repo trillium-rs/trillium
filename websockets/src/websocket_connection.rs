@@ -78,12 +78,14 @@ impl WebSocketConn {
             buffer,
             transport,
             stopper,
+            peer_ip,
+            ..
         } = upgrade;
 
-        let wss = if let Some(vec) = buffer {
-            WebSocketStream::from_partially_read(transport, vec, role, config).await
-        } else {
+        let wss = if buffer.is_empty() {
             WebSocketStream::from_raw_socket(transport, role, config).await
+        } else {
+            WebSocketStream::from_partially_read(transport, buffer.to_owned(), role, config).await
         };
 
         let (sink, stream) = wss.split();
@@ -96,7 +98,7 @@ impl WebSocketConn {
             path,
             method,
             state,
-            peer_ip: None,
+            peer_ip,
             sink,
             stream,
             stopper,
@@ -141,10 +143,10 @@ impl WebSocketConn {
     an empty string if there is no query component.
      */
     pub fn querystring(&self) -> &str {
-        match self.path.split_once('?') {
-            Some((_, query)) => query,
-            None => "",
-        }
+        self.path
+            .split_once('?')
+            .map(|(_, query)| query)
+            .unwrap_or_default()
     }
 
     /// retrieve the request method for this conn
