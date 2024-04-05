@@ -68,7 +68,7 @@ pub struct Config<ServerType, AcceptorType> {
     pub(crate) observer: CloneCounterObserver,
     pub(crate) register_signals: bool,
     pub(crate) max_connections: Option<usize>,
-    pub(crate) info: Arc<AsyncCell<Info>>,
+    pub(crate) info: Arc<AsyncCell<Arc<Info>>>,
     pub(crate) completion_future: CompletionFuture,
     pub(crate) binding: RwLock<Option<ServerType>>,
     pub(crate) server: PhantomData<ServerType>,

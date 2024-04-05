@@ -9,7 +9,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    task::{Context, Poll},
+    task::{ready, Context, Poll},
 };
 use trillium::Info;
 use trillium_http::Stopper;
@@ -20,7 +20,7 @@ use trillium_http::Stopper;
 #[derive(Clone, Debug)]
 pub struct ServerHandle {
     pub(crate) stopper: Stopper,
-    pub(crate) info: Arc<AsyncCell<Info>>,
+    pub(crate) info: Arc<AsyncCell<Arc<Info>>>,
     pub(crate) completion: CompletionFuture,
     pub(crate) observer: CloneCounterObserver,
 }
@@ -84,16 +84,14 @@ impl Future for CompletionFuture {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Self(inner, listener) = &mut *self;
+
         loop {
             if inner.complete.load(Ordering::SeqCst) {
                 return Poll::Ready(());
             }
 
             if listener.is_listening() {
-                match listener.as_mut().poll(cx) {
-                    Poll::Ready(()) => continue,
-                    Poll::Pending => return Poll::Pending,
-                }
+                ready!(listener.as_mut().poll(cx));
             } else {
                 listener.as_mut().listen(&inner.event);
             }
@@ -103,7 +101,7 @@ impl Future for CompletionFuture {
 
 impl ServerHandle {
     /// await server start and retrieve the server's [`Info`]
-    pub async fn info(&self) -> Info {
+    pub async fn info(&self) -> Arc<Info> {
         self.info.get().await
     }
 
