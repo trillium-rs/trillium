@@ -16,7 +16,7 @@ use trillium_http::{
     transport::BoxedTransport,
     Body, Error, HeaderName, HeaderValue, HeaderValues, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
-    Method, ReceivedBody, ReceivedBodyState, Result, StateSet, Status, Stopper, Upgrade,
+    Method, ReceivedBody, ReceivedBodyState, Result, Status, Upgrade,
 };
 use trillium_server_common::{
     url::{Origin, Url},
@@ -905,15 +905,13 @@ impl From<Conn> for ReceivedBody<'static, BoxedTransport> {
 
 impl From<Conn> for Upgrade<BoxedTransport> {
     fn from(mut conn: Conn) -> Self {
-        Upgrade {
-            request_headers: std::mem::take(&mut conn.request_headers),
-            path: conn.url.path().to_string(),
-            method: conn.method,
-            state: StateSet::new(),
-            transport: conn.transport.take().unwrap(),
-            buffer: Some(std::mem::take(&mut conn.buffer).into()),
-            stopper: Stopper::new(),
-        }
+        Upgrade::new(
+            std::mem::take(&mut conn.request_headers),
+            conn.url.path().to_string(),
+            conn.method,
+            conn.transport.take().unwrap(),
+            std::mem::take(&mut conn.buffer),
+        )
     }
 }
 

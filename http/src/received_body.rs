@@ -221,7 +221,7 @@ where
 
     fn read_raw(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         if let Some(transport) = self.transport.as_deref_mut() {
-            read_raw(&mut self.buffer, transport, cx, buf)
+            read_buffered(&mut self.buffer, transport, cx, buf)
         } else {
             Ready(Err(ErrorKind::NotConnected.into()))
         }
@@ -264,26 +264,26 @@ impl<T> ReceivedBody<'static, T> {
     }
 }
 
-fn read_raw<Transport>(
-    self_buffer: &mut Buffer,
+pub(crate) fn read_buffered<Transport>(
+    buffer: &mut Buffer,
     transport: &mut Transport,
     cx: &mut Context<'_>,
     buf: &mut [u8],
 ) -> Poll<io::Result<usize>>
 where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + Unpin,
 {
-    if self_buffer.is_empty() {
+    if buffer.is_empty() {
         Pin::new(transport).poll_read(cx, buf)
-    } else if self_buffer.len() >= buf.len() {
+    } else if buffer.len() >= buf.len() {
         let len = buf.len();
-        buf.copy_from_slice(&self_buffer[..len]);
-        self_buffer.ignore_front(len);
+        buf.copy_from_slice(&buffer[..len]);
+        buffer.ignore_front(len);
         Ready(Ok(len))
     } else {
-        let self_buffer_len = self_buffer.len();
-        buf[..self_buffer_len].copy_from_slice(self_buffer);
-        self_buffer.truncate(0);
+        let self_buffer_len = buffer.len();
+        buf[..self_buffer_len].copy_from_slice(buffer);
+        buffer.truncate(0);
         match Pin::new(transport).poll_read(cx, &mut buf[self_buffer_len..]) {
             Ready(Ok(additional)) => Ready(Ok(additional + self_buffer_len)),
             Pending => Ready(Ok(self_buffer_len)),
