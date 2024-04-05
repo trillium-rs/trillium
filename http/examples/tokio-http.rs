@@ -1,14 +1,11 @@
 use async_compat::Compat;
-use futures_lite::prelude::*;
 use tokio::net::{TcpListener, TcpStream};
 use trillium_http::{Conn, Stopper};
 
 async fn handler(mut conn: Conn<Compat<TcpStream>>) -> Conn<Compat<TcpStream>> {
-    let mut body = conn.request_body().await;
-    while let Some(chunk) = body.next().await {
-        log::info!("< {}", String::from_utf8(chunk).unwrap());
-    }
-    conn.set_response_body("Hello world");
+    let body = conn.request_body().await.read_string().await.unwrap();
+
+    conn.set_response_body(format!("Hello world:\n\n{body}"));
     conn.response_headers_mut()
         .insert("Content-type", "text/plain");
     conn.set_status(200);
