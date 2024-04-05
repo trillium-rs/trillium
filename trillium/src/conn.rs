@@ -365,18 +365,6 @@ impl Conn {
         self.inner.method()
     }
 
-    /// see [`Conn::request_headers`]
-    #[deprecated = "use Conn::request_headers"]
-    pub fn headers(&self) -> &Headers {
-        self.request_headers()
-    }
-
-    /// see [`Conn::response_headers_mut`]
-    #[deprecated = "use Conn::response_headers_mut"]
-    pub fn headers_mut(&mut self) -> &mut Headers {
-        self.response_headers_mut()
-    }
-
     /// borrow the response headers
     pub fn response_headers(&self) -> &Headers {
         self.inner.response_headers()
@@ -397,39 +385,34 @@ impl Conn {
         self.inner.request_headers_mut()
     }
 
-    /**
-    insert a header name and value/values into the response headers
-    and return the conn. for a slight performance improvement, use a
-    [`KnownHeaderName`](crate::KnownHeaderName) as the first argument instead of a
-    str.
-
-    ```
-    use trillium_testing::prelude::*;
-    let mut conn = get("/").on(&|conn: trillium::Conn| async move {
-        conn.with_response_header("content-type", "application/html")
-    });
-    ```
-    */
+    /// Insert a header name and value/values into the response headers and return the conn.
+    ///
+    /// See also [`Headers::insert`] and [`Headers::append`]
+    ///
+    /// For a slight performance improvement, use a [`KnownHeaderName`](crate::KnownHeaderName) as
+    /// the first argument instead of a str.
     #[must_use]
     pub fn with_response_header(
         mut self,
         header_name: impl Into<HeaderName<'static>>,
         header_value: impl Into<HeaderValues>,
     ) -> Self {
-        self.response_headers_mut()
-            .insert(header_name, header_value);
+        self.insert_response_header(header_name, header_value);
         self
     }
 
-    /// Prefer [`with_response_header`]
-    #[must_use]
-    #[deprecated = "use Conn::with_response_header"]
-    pub fn with_header(
-        self,
+    /// Insert a header name and value/values into the response headers.
+    ///
+    /// See also [`Headers::insert`] and [`Headers::append`]
+    ///
+    /// For a slight performance improvement, use a [`KnownHeaderName`](crate::KnownHeaderName).
+    pub fn insert_response_header(
+        &mut self,
         header_name: impl Into<HeaderName<'static>>,
         header_value: impl Into<HeaderValues>,
-    ) -> Self {
-        self.with_response_header(header_name, header_value)
+    ) {
+        self.response_headers_mut()
+            .insert(header_name, header_value);
     }
 
     /**
