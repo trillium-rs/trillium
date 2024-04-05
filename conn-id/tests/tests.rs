@@ -31,9 +31,9 @@ fn test_settings() {
         "ok",
     );
 
-    let mut conn = get("/").on(&app);
+    let conn = get("/").on(&app);
 
-    assert!(Uuid::parse_str(conn.headers_mut().get_str("x-something-else").unwrap()).is_ok());
+    assert!(Uuid::parse_str(conn.response_headers().get_str("x-something-else").unwrap()).is_ok());
     assert!(Uuid::parse_str(conn.id()).is_ok());
     assert!(Uuid::parse_str(&log_formatter::conn_id(&conn, true)).is_ok());
 
@@ -54,13 +54,13 @@ fn test_no_headers() {
         "ok",
     );
 
-    let mut conn = get("/").on(&app);
-    assert!(conn.headers_mut().get("x-request-id").is_none());
+    let conn = get("/").on(&app);
+    assert!(conn.response_headers().get("x-request-id").is_none());
     assert_eq!(conn.id(), "4fekClhof7");
 
-    let mut conn = get("/")
+    let conn = get("/")
         .with_request_header("x-request-id", "ignored")
         .on(&app);
     assert_eq!(conn.id(), "PAmkU1LPSe");
-    assert!(conn.headers_mut().get("x-request-id").is_none());
+    assert!(conn.response_headers().get("x-request-id").is_none());
 }

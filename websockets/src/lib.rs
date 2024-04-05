@@ -216,14 +216,14 @@ where
 
         let websocket_peer_ip = WebsocketPeerIp(conn.peer_ip());
 
-        let Some(sec_websocket_key) = conn.headers().get_str(SecWebsocketKey) else {
+        let Some(sec_websocket_key) = conn.request_headers().get_str(SecWebsocketKey) else {
             return conn.with_status(Status::BadRequest).halt();
         };
         let sec_websocket_accept = websocket_accept_hash(sec_websocket_key);
 
         let protocol = websocket_protocol(&conn, &self.protocols);
 
-        let headers = conn.headers_mut();
+        let headers = conn.response_headers_mut();
 
         headers.extend([
             (UpgradeHeader, "websocket"),
@@ -291,7 +291,7 @@ where
 }
 
 fn websocket_protocol(conn: &Conn, protocols: &[String]) -> Option<String> {
-    conn.headers()
+    conn.request_headers()
         .get_str(SecWebsocketProtocol)
         .and_then(|value| {
             value
@@ -303,7 +303,7 @@ fn websocket_protocol(conn: &Conn, protocols: &[String]) -> Option<String> {
 }
 
 fn connection_is_upgrade(conn: &Conn) -> bool {
-    conn.headers()
+    conn.request_headers()
         .get_str(Connection)
         .map(|connection| {
             connection
@@ -314,7 +314,7 @@ fn connection_is_upgrade(conn: &Conn) -> bool {
 }
 
 fn upgrade_to_websocket(conn: &Conn) -> bool {
-    conn.headers()
+    conn.request_headers()
         .eq_ignore_ascii_case(UpgradeHeader, "websocket")
 }
 

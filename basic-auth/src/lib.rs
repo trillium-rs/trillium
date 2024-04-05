@@ -61,7 +61,7 @@ impl Credentials {
 
     // const BASIC: &str = "Basic ";
     // pub fn for_conn(conn: &Conn) -> Option<Self> {
-    //     conn.headers()
+    //     conn.request_headers()
     //         .get_str(KnownHeaderName::Authorization)
     //         .and_then(|value| {
     //             if value[..BASIC.len().min(value.len())].eq_ignore_ascii_case(BASIC) {
@@ -107,12 +107,12 @@ impl BasicAuth {
     }
 
     fn is_allowed(&self, conn: &Conn) -> bool {
-        conn.headers().get_str(Authorization) == Some(&*self.expected_header)
+        conn.request_headers().get_str(Authorization) == Some(&*self.expected_header)
     }
 
     fn deny(&self, conn: Conn) -> Conn {
         conn.with_status(Status::Unauthorized)
-            .with_header(WwwAuthenticate, self.www_authenticate.clone())
+            .with_response_header(WwwAuthenticate, self.www_authenticate.clone())
             .halt()
     }
 }

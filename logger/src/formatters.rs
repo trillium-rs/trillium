@@ -161,7 +161,9 @@ pub fn request_header(header_name: impl Into<HeaderName<'static>>) -> impl LogFo
     move |conn: &Conn, _color: bool| {
         format!(
             "{:?}",
-            conn.headers().get_str(header_name.clone()).unwrap_or("")
+            conn.request_headers()
+                .get_str(header_name.clone())
+                .unwrap_or("")
         )
     }
 }

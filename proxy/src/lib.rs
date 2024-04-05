@@ -258,7 +258,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             let client_fut = self
                 .client
                 .build_conn(method, request_url)
-                .with_headers(request_headers)
+                .with_request_headers(request_headers)
                 .with_body(request_body)
                 .into_future();
 
@@ -266,7 +266,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
         } else {
             self.client
                 .build_conn(method, request_url)
-                .with_headers(request_headers)
+                .with_request_headers(request_headers)
                 .await
         };
 
@@ -282,7 +282,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
 
         let mut conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
-                conn.headers_mut()
+                conn.response_headers_mut()
                     .extend(std::mem::take(client_conn.response_headers_mut()));
 
                 conn.with_state(UpstreamUpgrade(Upgrade::from(client_conn)))
@@ -295,7 +295,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             }
 
             Some(status) => {
-                conn.headers_mut()
+                conn.response_headers_mut()
                     .append_all(client_conn.response_headers().clone());
                 conn.with_body(client_conn).with_status(status)
             }

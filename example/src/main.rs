@@ -25,7 +25,7 @@ struct HelloTemplate<'a> {
 
 async fn request_count(conn: Conn) -> Conn {
     let count = conn.session().get::<usize>("count").unwrap_or_default();
-    conn.with_header("request-count", count.to_string())
+    conn.with_response_header("request-count", count.to_string())
         .with_session("count", count + 1)
 }
 

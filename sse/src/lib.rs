@@ -186,8 +186,8 @@ impl SseConnExt for Conn {
         E: Eventable,
     {
         let body = SseBody::new(self.inner().stopper().stop_stream(sse_stream));
-        self.with_header(KnownHeaderName::ContentType, "text/event-stream")
-            .with_header(KnownHeaderName::CacheControl, "no-cache")
+        self.with_response_header(KnownHeaderName::ContentType, "text/event-stream")
+            .with_response_header(KnownHeaderName::CacheControl, "no-cache")
             .with_body(body)
             .with_status(Status::Ok)
             .halt()
