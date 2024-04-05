@@ -1,12 +1,11 @@
 use crate::{copy, http_config::DEFAULT_CONFIG, Body, Buffer, HttpConfig, MutCow};
 use encoding_rs::Encoding;
-use futures_lite::{ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
+use futures_lite::{ready, AsyncRead, AsyncReadExt, AsyncWrite};
 use httparse::{InvalidChunkSize, Status};
 use std::{
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},
     io::{self, ErrorKind},
-    iter,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -288,37 +287,6 @@ where
             Ready(Ok(additional)) => Ready(Ok(additional + self_buffer_len)),
             Pending => Ready(Ok(self_buffer_len)),
             other @ Ready(_) => other,
-        }
-    }
-}
-
-const STREAM_READ_BUF_LENGTH: usize = 128;
-impl<'conn, Transport> Stream for ReceivedBody<'conn, Transport>
-where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
-{
-    type Item = Vec<u8>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut bytes = 0;
-        let mut vec = vec![0; STREAM_READ_BUF_LENGTH];
-        loop {
-            match Pin::new(&mut *self).poll_read(cx, &mut vec[bytes..]) {
-                Pending if bytes == 0 => return Pending,
-                Ready(Ok(0)) if bytes == 0 => return Ready(None),
-                Pending | Ready(Ok(0)) => {
-                    vec.truncate(bytes);
-                    return Ready(Some(vec));
-                }
-                Ready(Ok(new_bytes)) => {
-                    bytes += new_bytes;
-                    vec.extend(iter::repeat(0).take(bytes + STREAM_READ_BUF_LENGTH - vec.len()));
-                }
-                Ready(Err(error)) => {
-                    log::error!("got {error:?} in ReceivedBody stream");
-                    return Ready(None);
-                }
-            }
         }
     }
 }
