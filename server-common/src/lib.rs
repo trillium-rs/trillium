@@ -52,3 +52,6 @@ pub use acceptor::Acceptor;
 
 mod server_handle;
 pub use server_handle::ServerHandle;
+
+mod arc_handler;
+pub(crate) use arc_handler::ArcHandler;

@@ -1,5 +1,5 @@
 use crate::{async_trait, Conn, Headers, Info, Status, Upgrade};
-use std::{borrow::Cow, future::Future, sync::Arc};
+use std::{borrow::Cow, future::Future};
 
 /**
 # The building block for Trillium applications.
@@ -208,44 +208,6 @@ impl std::fmt::Debug for Box<dyn Handler> {
 }
 
 #[async_trait]
-impl<H: Handler> Handler for Arc<H> {
-    async fn run(&self, conn: Conn) -> Conn {
-        self.as_ref().run(conn).await
-    }
-
-    async fn init(&mut self, info: &mut Info) {
-        if let Some(handler) = Self::get_mut(self) {
-            handler.init(info).await;
-        } else {
-            let name = self.name();
-            log::warn!(
-                concat!(
-                    "Skipping <Arc<{name}> as Handler>::init that has previously been cloned.\n",
-                    "This is a potential source of bugs for handlers that use init.\n",
-                    "Call init explicitly before cloning if this is a concern."
-                ),
-                name = name
-            );
-        }
-    }
-
-    async fn before_send(&self, conn: Conn) -> Conn {
-        self.as_ref().before_send(conn).await
-    }
-
-    fn name(&self) -> Cow<'static, str> {
-        self.as_ref().name()
-    }
-
-    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        self.as_ref().has_upgrade(upgrade)
-    }
-
-    async fn upgrade(&self, upgrade: Upgrade) {
-        self.as_ref().upgrade(upgrade).await;
-    }
-}
-
 #[async_trait]
 impl<H: Handler> Handler for Vec<H> {
     async fn run(&self, mut conn: Conn) -> Conn {
