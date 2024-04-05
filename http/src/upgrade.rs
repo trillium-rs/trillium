@@ -1,8 +1,9 @@
-use crate::{Conn, Headers, Method, StateSet, Stopper};
+use crate::{received_body::read_buffered, Buffer, Conn, Headers, Method, StateSet, Stopper};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
     fmt::{self, Debug, Formatter},
     io,
+    net::IpAddr,
     pin::Pin,
     str,
     task::{Context, Poll},
@@ -21,6 +22,7 @@ in it. Alternatively, read directly from the Upgrade, as that
 reading from the transport.
 */
 #[derive(AsyncWrite)]
+#[non_exhaustive]
 pub struct Upgrade<Transport> {
     /// The http request headers
     pub request_headers: Headers,
@@ -36,16 +38,37 @@ pub struct Upgrade<Transport> {
     /// Any bytes that have been read from the underlying tcpstream
     /// already. It is your responsibility to process these bytes
     /// before reading directly from the transport.
-    pub buffer: Option<Vec<u8>>,
+    pub buffer: Buffer,
     /// A [`Stopper`] which can and should be used to gracefully shut
     /// down any long running streams or futures associated with this
     /// upgrade
     pub stopper: Stopper,
+    /// the ip address of the connection, if available
+    pub peer_ip: Option<IpAddr>,
 }
 
 impl<Transport> Upgrade<Transport> {
-    /// see [`request_headers`]
-    #[deprecated = "directly access the request_headers field"]
+    #[doc(hidden)]
+    pub fn new(
+        request_headers: Headers,
+        path: String,
+        method: Method,
+        transport: Transport,
+        buffer: Buffer,
+    ) -> Self {
+        Self {
+            request_headers,
+            path,
+            method,
+            transport,
+            buffer,
+            state: StateSet::new(),
+            stopper: Stopper::new(),
+            peer_ip: None,
+        }
+    }
+
+    /// read-only access to the request headers
     pub fn headers(&self) -> &Headers {
         &self.request_headers
     }
@@ -92,6 +115,7 @@ impl<Transport> Upgrade<Transport> {
             buffer: self.buffer,
             request_headers: self.request_headers,
             stopper: self.stopper,
+            peer_ip: self.peer_ip,
         }
     }
 }
@@ -102,13 +126,11 @@ impl<Transport> Debug for Upgrade<Transport> {
             .field("request_headers", &self.request_headers)
             .field("path", &self.path)
             .field("method", &self.method)
-            .field(
-                "buffer",
-                &self.buffer.as_deref().map(String::from_utf8_lossy),
-            )
+            .field("buffer", &self.buffer)
             .field("stopper", &self.stopper)
             .field("state", &self.state)
             .field("transport", &"..")
+            .field("peer_ip", &self.peer_ip)
             .finish()
     }
 }
@@ -123,6 +145,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             transport,
             buffer,
             stopper,
+            peer_ip,
             ..
         } = conn;
 
@@ -132,12 +155,9 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             method,
             state,
             transport,
-            buffer: if buffer.is_empty() {
-                None
-            } else {
-                Some(buffer.into())
-            },
+            buffer,
             stopper,
+            peer_ip,
         }
     }
 }
@@ -148,32 +168,9 @@ impl<Transport: AsyncRead + Unpin> AsyncRead for Upgrade<Transport> {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        match self.buffer.take() {
-            Some(mut buffer) if !buffer.is_empty() => {
-                let len = buffer.len();
-                if len > buf.len() {
-                    log::trace!(
-                        "have {} bytes of pending data but can only use {}",
-                        len,
-                        buf.len()
-                    );
-                    let remaining = buffer.split_off(buf.len());
-                    buf.copy_from_slice(&buffer[..]);
-                    self.buffer = Some(remaining);
-                    Poll::Ready(Ok(buf.len()))
-                } else {
-                    log::trace!("have {} bytes of pending data, using all of it", len);
-                    buf[..len].copy_from_slice(&buffer);
-                    self.buffer = None;
-                    match Pin::new(&mut self.transport).poll_read(cx, &mut buf[len..]) {
-                        Poll::Ready(Ok(e)) => Poll::Ready(Ok(e + len)),
-                        Poll::Pending => Poll::Ready(Ok(len)),
-                        Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    }
-                }
-            }
-
-            _ => Pin::new(&mut self.transport).poll_read(cx, buf),
-        }
+        let Self {
+            transport, buffer, ..
+        } = &mut *self;
+        read_buffered(buffer, transport, cx, buf)
     }
 }
