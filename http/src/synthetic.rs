@@ -42,12 +42,8 @@ impl AsyncRead for Synthetic {
 
 impl Synthetic {
     /// the length of this synthetic transport's body
-    pub fn len(&self) -> Option<usize> {
-        // this is as such for semver-compatibility with a previous interface
-        match self.data.get_ref().len() {
-            0 => None,
-            n => Some(n),
-        }
+    pub fn len(&self) -> usize {
+        self.data.get_ref().len()
     }
 
     /// predicate to determine if this synthetic contains no content
@@ -139,10 +135,7 @@ impl Conn<Synthetic> {
     ) -> Self {
         let transport = body.into();
         let mut request_headers = Headers::new();
-        request_headers.insert(
-            KnownHeaderName::ContentLength,
-            transport.len().unwrap_or_default().to_string(),
-        );
+        request_headers.insert(KnownHeaderName::ContentLength, transport.len().to_string());
 
         Self {
             transport,
@@ -176,10 +169,8 @@ impl Conn<Synthetic> {
      */
     pub fn replace_body(&mut self, body: impl Into<Synthetic>) {
         let transport = body.into();
-        self.request_headers_mut().insert(
-            KnownHeaderName::ContentLength,
-            transport.len().unwrap_or_default().to_string(),
-        );
+        self.request_headers_mut()
+            .insert(KnownHeaderName::ContentLength, transport.len().to_string());
         self.transport = transport;
         self.request_body_state = ReceivedBodyState::default();
     }
