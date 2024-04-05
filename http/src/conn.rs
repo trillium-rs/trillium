@@ -330,10 +330,10 @@ where
     ```
     */
     pub fn querystring(&self) -> &str {
-        match self.path.split_once('?') {
-            Some((_, query)) => query,
-            None => "",
-        }
+        self.path
+            .split_once('?')
+            .map(|(_, query)| query)
+            .unwrap_or_default()
     }
 
     /// get the host for this conn, if it exists
@@ -582,7 +582,7 @@ where
             request_headers.eq_ignore_ascii_case(TransferEncoding, "chunked");
 
         if content_length && transfer_encoding_chunked {
-            Err(Error::UnexpectedHeader("content-length"))
+            Err(Error::UnexpectedHeader(ContentLength.into()))
         } else {
             Ok(())
         }
@@ -624,9 +624,16 @@ where
         let mut headers = vec![EMPTY_HEADER; http_config.max_headers];
         let mut httparse_req = Request::new(&mut headers);
 
-        let status = httparse_req.parse(&buffer[..])?;
+        let status = httparse_req.parse(&buffer[..]).map_err(|e| match e {
+            httparse::Error::HeaderName => Error::InvalidHeaderName,
+            httparse::Error::HeaderValue => Error::InvalidHeaderValue("unknown".into()),
+            httparse::Error::Status => Error::InvalidStatus,
+            httparse::Error::TooManyHeaders => Error::HeadersTooLong,
+            httparse::Error::Version => Error::InvalidVersion,
+            _ => Error::InvalidHead,
+        })?;
         if status.is_partial() {
-            return Err(Error::PartialHead);
+            return Err(Error::InvalidHead);
         }
 
         let method = match httparse_req.method {
@@ -640,8 +647,7 @@ where
         let version = match httparse_req.version {
             Some(0) => Version::Http1_0,
             Some(1) => Version::Http1_1,
-            Some(version) => return Err(Error::UnsupportedVersion(version)),
-            None => return Err(Error::MissingVersion),
+            _ => return Err(Error::InvalidVersion),
         };
 
         let mut request_headers = Headers::with_capacity(httparse_req.headers.len());
@@ -815,7 +821,7 @@ where
                 return if len == 0 {
                     Err(Error::Closed)
                 } else {
-                    Err(Error::PartialHead)
+                    Err(Error::InvalidHead)
                 };
             }
         }
@@ -880,7 +886,7 @@ where
         } else if let Some(cl) = self.request_headers.get_str(ContentLength) {
             cl.parse()
                 .map(Some)
-                .map_err(|_| Error::MalformedHeader("content-length".into()))
+                .map_err(|_| Error::InvalidHeaderValue(ContentLength.into()))
         } else {
             Ok(Some(0))
         }

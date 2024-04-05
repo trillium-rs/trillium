@@ -629,14 +629,12 @@ impl Conn {
 
         for (name, values) in &self.request_headers {
             if !name.is_valid() {
-                return Err(Error::MalformedHeader(name.to_string().into()));
+                return Err(Error::InvalidHeaderName);
             }
 
             for value in values {
                 if !value.is_valid() {
-                    return Err(Error::MalformedHeader(
-                        format!("value for {name}: {value:?}").into(),
-                    ));
+                    return Err(Error::InvalidHeaderValue(name.to_owned()));
                 }
                 write!(buf, "{name}: ")?;
                 buf.extend_from_slice(value.as_ref());
@@ -696,7 +694,7 @@ impl Conn {
                 if len == 0 {
                     return Err(Error::Closed);
                 } else {
-                    return Err(Error::PartialHead);
+                    return Err(Error::InvalidHead);
                 }
             }
 
@@ -710,11 +708,21 @@ impl Conn {
         let head_offset = self.read_head().await?;
         let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
         let mut httparse_res = httparse::Response::new(&mut headers);
-        let parse_result = httparse_res.parse(&self.buffer[..head_offset])?;
+        let parse_result =
+            httparse_res
+                .parse(&self.buffer[..head_offset])
+                .map_err(|e| match e {
+                    httparse::Error::HeaderName => Error::InvalidHeaderName,
+                    httparse::Error::HeaderValue => Error::InvalidHeaderValue("unknown".into()),
+                    httparse::Error::Status => Error::InvalidStatus,
+                    httparse::Error::TooManyHeaders => Error::HeadersTooLong,
+                    httparse::Error::Version => Error::InvalidVersion,
+                    _ => Error::InvalidHead,
+                })?;
 
         match parse_result {
             httparse::Status::Complete(n) if n == head_offset => {}
-            _ => return Err(Error::PartialHead),
+            _ => return Err(Error::InvalidHead),
         }
 
         self.status = httparse_res.code.map(|code| code.try_into().unwrap());
@@ -779,7 +787,7 @@ impl Conn {
             .eq_ignore_ascii_case(TransferEncoding, "chunked");
 
         if content_length && transfer_encoding_chunked {
-            Err(Error::UnexpectedHeader("content-length"))
+            Err(Error::UnexpectedHeader(ContentLength.into()))
         } else {
             Ok(())
         }

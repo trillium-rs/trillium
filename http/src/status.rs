@@ -604,7 +604,7 @@ impl TryFrom<u16> for Status {
             508 => Ok(Status::LoopDetected),
             510 => Ok(Status::NotExtended),
             511 => Ok(Status::NetworkAuthenticationRequired),
-            n => Err(Error::UnrecognizedStatusCode(n)),
+            _ => Err(Error::InvalidStatus),
         }
     }
 }
