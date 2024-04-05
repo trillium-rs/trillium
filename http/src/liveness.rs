@@ -6,7 +6,14 @@ use std::{
     task::{Context, Poll},
 };
 
-pub(crate) struct LivenessFut<'a, T>(pub(crate) &'a mut Conn<T>);
+pub(crate) struct LivenessFut<'a, T>(&'a mut Conn<T>);
+
+impl<'a, T> LivenessFut<'a, T> {
+    pub(crate) fn new(conn: &'a mut Conn<T>) -> Self {
+        Self(conn)
+    }
+}
+
 impl<T> Future for LivenessFut<'_, T>
 where
     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
