@@ -66,14 +66,14 @@ pub enum CacheControlDirective {
 #[async_trait]
 impl Handler for CacheControlDirective {
     async fn run(&self, conn: Conn) -> Conn {
-        conn.with_header(KnownHeaderName::CacheControl, self.clone())
+        conn.with_response_header(KnownHeaderName::CacheControl, self.clone())
     }
 }
 
 #[async_trait]
 impl Handler for CacheControlHeader {
     async fn run(&self, conn: Conn) -> Conn {
-        conn.with_header(KnownHeaderName::CacheControl, self.clone())
+        conn.with_response_header(KnownHeaderName::CacheControl, self.clone())
     }
 }
 

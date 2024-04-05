@@ -65,7 +65,7 @@ impl StaticConnExt for Conn {
 
         if options.modified {
             if let Ok(last_modified) = metadata.modified() {
-                self.headers_mut().try_insert(
+                self.response_headers_mut().try_insert(
                     KnownHeaderName::LastModified,
                     httpdate::fmt_http_date(last_modified),
                 );
@@ -74,7 +74,7 @@ impl StaticConnExt for Conn {
 
         if options.etag {
             let etag = EntityTag::from_file_meta(&metadata);
-            self.headers_mut()
+            self.response_headers_mut()
                 .try_insert(KnownHeaderName::Etag, etag.to_string());
         }
 
@@ -92,7 +92,7 @@ impl StaticConnExt for Conn {
                 (APPLICATION, JAVASCRIPT) | (TEXT, _) | (_, HTML)
             );
 
-            self.with_header(
+            self.with_response_header(
                 ContentType,
                 if is_text {
                     format!("{mime}; charset=utf-8")

@@ -6,7 +6,7 @@ use trillium_testing::{connector, harness};
 async fn bad_characters_in_header_value() {
     assert!(Client::new(connector(()))
         .get("http://example.com")
-        .with_header(
+        .with_request_header(
             KnownHeaderName::Referer,
             "x\r\nConnection: keep-alive\r\n\r\nGET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
         )
@@ -18,7 +18,7 @@ async fn bad_characters_in_header_value() {
 async fn bad_characters_in_header_name() {
     assert!(Client::new(connector(()))
         .get("http://example.com")
-        .with_header("dnt: 1\r\nConnection", "keep-alive")
+        .with_request_header("dnt: 1\r\nConnection", "keep-alive")
         .await
         .is_err());
 }
