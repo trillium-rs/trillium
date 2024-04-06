@@ -1,7 +1,7 @@
 use crate::{ApiConnExt, TryFromConn};
 use serde::{de::DeserializeOwned, Serialize};
 use std::ops::{Deref, DerefMut};
-use trillium::{async_trait, Conn, Handler};
+use trillium::{Conn, Handler};
 
 /// Body extractor
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -39,7 +39,6 @@ impl<T> DerefMut for Body<T> {
     }
 }
 
-#[async_trait]
 impl<T> TryFromConn for Body<T>
 where
     T: DeserializeOwned + Send + Sync + 'static,
@@ -50,7 +49,6 @@ where
     }
 }
 
-#[async_trait]
 impl<T> Handler for Body<T>
 where
     T: Serialize + Send + Sync + 'static,

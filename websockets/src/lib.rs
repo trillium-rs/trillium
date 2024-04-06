@@ -82,7 +82,6 @@ pub use async_tungstenite::{
         Message,
     },
 };
-pub use trillium::async_trait;
 pub use websocket_connection::WebSocketConn;
 pub use websocket_handler::WebSocketHandler;
 
@@ -200,7 +199,6 @@ mod tests;
 // stash a copy in state for now.
 struct WebsocketPeerIp(Option<IpAddr>);
 
-#[async_trait]
 impl<H> Handler for WebSocket<H>
 where
     H: WebSocketHandler,

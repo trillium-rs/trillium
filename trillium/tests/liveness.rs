@@ -9,10 +9,12 @@ use std::{
 };
 use test_harness::test;
 use trillium::Conn;
-use trillium_testing::{config, harness, ClientConfig, Connector, ObjectSafeConnector, TestResult};
+use trillium_testing::{config, harness, ArcedConnector, ClientConfig, Connector, TestResult};
 
 #[test(harness)]
 async fn infinitely_pending_task() -> TestResult {
+    let connector = ArcedConnector::new(ClientConfig::default());
+
     let handle = config()
         .with_host("localhost")
         .with_port(0)
@@ -26,7 +28,7 @@ async fn infinitely_pending_task() -> TestResult {
     let url = format!("http://{}", info.listener_description())
         .parse()
         .unwrap();
-    let mut client = Connector::connect(&ClientConfig::default().boxed(), &url).await?;
+    let mut client = connector.connect(&url).await?;
 
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
@@ -48,6 +50,7 @@ async fn infinitely_pending_task() -> TestResult {
 #[test(harness)]
 async fn is_disconnected() -> TestResult {
     let _ = env_logger::builder().is_test(true).try_init();
+    let connector = ArcedConnector::new(ClientConfig::default());
     let (delay_sender, delay_receiver) = async_channel::unbounded();
     let (disconnected_sender, disconnected_receiver) = async_channel::unbounded();
     let handle = config()
@@ -71,7 +74,7 @@ async fn is_disconnected() -> TestResult {
     let url = format!("http://{}", info.listener_description())
         .parse()
         .unwrap();
-    let mut client = Connector::connect(&ClientConfig::default().boxed(), &url).await?;
+    let mut client = connector.connect(&url).await?;
 
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
@@ -85,7 +88,7 @@ async fn is_disconnected() -> TestResult {
     assert!(s.starts_with("HTTP/1.1 200 OK\r\n"));
     client.close().await?;
 
-    let mut client = Connector::connect(&ClientConfig::default().boxed(), &url).await?;
+    let mut client = connector.connect(&url).await?;
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
         .await?;

@@ -1,5 +1,5 @@
 use crate::CachingHeadersExt;
-use trillium::{async_trait, Conn, Handler, Status};
+use trillium::{Conn, Handler, Status};
 
 /**
 # A handler for the `Last-Modified` and `If-Modified-Since` header interaction.
@@ -19,7 +19,6 @@ impl Modified {
     }
 }
 
-#[async_trait]
 impl Handler for Modified {
     async fn before_send(&self, conn: Conn) -> Conn {
         match (conn.if_modified_since(), conn.last_modified()) {

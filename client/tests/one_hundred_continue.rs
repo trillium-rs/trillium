@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 use std::future::Future;
 use test_harness::test;
 use trillium_client::{Client, Conn, Error, Status, USER_AGENT};
-use trillium_server_common::{async_trait, Connector, Url};
+use trillium_server_common::{Connector, Url};
 use trillium_testing::{harness, TestResult, TestTransport};
 
 #[test(harness)]
@@ -218,7 +218,6 @@ const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
 struct TestConnector(Sender<TestTransport>);
 
-#[async_trait]
 impl Connector for TestConnector {
     type Transport = TestTransport;
     async fn connect(&self, _url: &Url) -> std::io::Result<Self::Transport> {

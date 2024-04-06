@@ -37,8 +37,10 @@ A combined handler that provides both [`Etag`] and [`Modified`]
 behavior.
 */
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CachingHeaders((Modified, Etag));
-trillium::delegate_handler!(CachingHeaders);
+pub struct CachingHeaders {
+    inner: (Modified, Etag),
+}
+trillium::delegate_handler!(CachingHeaders => inner);
 
 impl CachingHeaders {
     /// Constructs a new combination modified and etag handler

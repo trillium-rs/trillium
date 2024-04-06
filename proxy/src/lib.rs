@@ -24,7 +24,7 @@ use futures_lite::future::zip;
 use size::{Base, Size};
 use std::{borrow::Cow, fmt::Debug, future::IntoFuture};
 use trillium::{
-    async_trait, Conn, Handler, KnownHeaderName,
+    Conn, Handler, KnownHeaderName,
     Status::{NotFound, SwitchingProtocols},
     Upgrade,
 };
@@ -167,7 +167,6 @@ impl<U: UpstreamSelector> Proxy<U> {
 #[derive(Debug)]
 struct UpstreamUpgrade(Upgrade);
 
-#[async_trait]
 impl<U: UpstreamSelector> Handler for Proxy<U> {
     async fn init(&mut self, _info: &mut trillium::Info) {
         log::info!("proxying to {:?}", self.upstream);

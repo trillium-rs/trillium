@@ -5,7 +5,6 @@ use std::{
     io::{Error, ErrorKind, Result},
 };
 use trillium_server_common::{
-    async_trait,
     url::{Host, Url},
     Connector, Transport,
 };
@@ -44,7 +43,6 @@ impl ClientConfig {
     }
 }
 
-#[async_trait]
 impl Connector for ClientConfig {
     type Transport = SmolTransport<TcpStream>;
 

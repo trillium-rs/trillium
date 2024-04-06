@@ -1,5 +1,5 @@
 use cookie::{Cookie, CookieJar};
-use trillium::{async_trait, Conn, Handler, HeaderValue, HeaderValues, KnownHeaderName};
+use trillium::{Conn, Handler, HeaderValue, HeaderValues, KnownHeaderName};
 
 /**
 The trillium cookie handler. See crate level docs for an example. This
@@ -20,7 +20,6 @@ impl CookiesHandler {
     }
 }
 
-#[async_trait]
 impl Handler for CookiesHandler {
     async fn run(&self, mut conn: Conn) -> Conn {
         let mut jar: CookieJar = conn.take_state().unwrap_or_default();

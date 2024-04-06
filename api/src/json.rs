@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use serde::{de::DeserializeOwned, Serialize};
-use trillium::{async_trait, Conn, Handler};
+use trillium::{Conn, Handler};
 
 use crate::{ApiConnExt, TryFromConn};
 
@@ -43,7 +43,6 @@ impl<T> DerefMut for Json<T> {
     }
 }
 
-#[async_trait]
 impl<Serializable> Handler for Json<Serializable>
 where
     Serializable: Serialize + Send + Sync + 'static,
@@ -53,7 +52,6 @@ where
     }
 }
 
-#[async_trait]
 impl<T> TryFromConn for Json<T>
 where
     T: DeserializeOwned + Send + Sync + 'static,

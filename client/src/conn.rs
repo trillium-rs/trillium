@@ -10,7 +10,6 @@ use std::{
     ops::{Deref, DerefMut},
     pin::Pin,
     str::FromStr,
-    sync::Arc,
 };
 use trillium_http::{
     transport::BoxedTransport,
@@ -20,7 +19,7 @@ use trillium_http::{
 };
 use trillium_server_common::{
     url::{Origin, Url},
-    Connector, ObjectSafeConnector, Transport,
+    ArcedConnector, Connector, Transport,
 };
 
 const MAX_HEADERS: usize = 128;
@@ -59,7 +58,7 @@ pub struct Conn {
     pub(crate) pool: Option<Pool<Origin, BoxedTransport>>,
     pub(crate) buffer: trillium_http::Buffer,
     pub(crate) response_body_state: ReceivedBodyState,
-    pub(crate) config: Arc<dyn ObjectSafeConnector>,
+    pub(crate) config: ArcedConnector,
     pub(crate) headers_finalized: bool,
 }
 

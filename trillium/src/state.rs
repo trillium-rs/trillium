@@ -1,8 +1,6 @@
-use std::fmt::{self, Debug};
+use crate::{Conn, Handler};
+use std::fmt::{self, Debug, Formatter};
 
-use fmt::Formatter;
-
-use crate::{async_trait, Conn, Handler};
 /**
 # A handler for sharing state across an application.
 
@@ -86,7 +84,7 @@ where
 {
     /// Constructs a new State handler from any `Clone` + `Send` + `Sync` +
     /// `'static`
-    #[allow(clippy::missing_const_for_fn)] // until const_fn stabilized
+    #[allow(clippy::missing_const_for_fn)]
     pub fn new(t: T) -> Self {
         Self(t)
     }
@@ -94,12 +92,11 @@ where
 
 /// Constructs a new [`State`] handler from any Clone + Send + Sync +
 /// 'static. Alias for [`State::new`]
-#[allow(clippy::missing_const_for_fn)] // until const_fn stabilized
+#[allow(clippy::missing_const_for_fn)]
 pub fn state<T: Clone + Send + Sync + 'static>(t: T) -> State<T> {
     State::new(t)
 }
 
-#[async_trait]
 impl<T: Clone + Send + Sync + 'static> Handler for State<T> {
     async fn run(&self, mut conn: Conn) -> Conn {
         conn.insert_state(self.0.clone());

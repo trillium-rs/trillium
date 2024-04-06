@@ -1,5 +1,5 @@
 use etag::EntityTag;
-use trillium::{async_trait, Conn, Handler, Status};
+use trillium::{Conn, Handler, Status};
 
 use crate::CachingHeadersExt;
 
@@ -49,7 +49,6 @@ impl Etag {
     }
 }
 
-#[async_trait]
 impl Handler for Etag {
     async fn run(&self, conn: Conn) -> Conn {
         conn

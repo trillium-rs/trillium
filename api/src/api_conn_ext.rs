@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use mime::Mime;
 use serde::{de::DeserializeOwned, Serialize};
 use trillium::{
@@ -9,7 +11,6 @@ use trillium::{
 use crate::{Error, Result};
 
 /// Extension trait that adds api methods to [`trillium::Conn`]
-#[trillium::async_trait]
 pub trait ApiConnExt {
     /**
     Sends a json response body. This sets a status code of 200,
@@ -145,17 +146,17 @@ pub trait ApiConnExt {
     ```
 
     */
-    async fn deserialize<T>(&mut self) -> Result<T>
+    fn deserialize<T>(&mut self) -> impl Future<Output = Result<T>> + Send
     where
         T: DeserializeOwned;
 
     /// Deserializes json without any Accepts header content negotiation
-    async fn deserialize_json<T>(&mut self) -> Result<T>
+    fn deserialize_json<T>(&mut self) -> impl Future<Output = Result<T>> + Send
     where
         T: DeserializeOwned;
 
     /// Serializes the provided body using Accepts header content negotiation
-    async fn serialize<T>(&mut self, body: &T) -> Result<()>
+    fn serialize<T>(&mut self, body: &T) -> impl Future<Output = Result<()>> + Send
     where
         T: Serialize + Sync;
 
@@ -166,7 +167,6 @@ pub trait ApiConnExt {
     fn content_type(&self) -> Result<Mime>;
 }
 
-#[trillium::async_trait]
 impl ApiConnExt for Conn {
     fn with_json(mut self, response: &impl Serialize) -> Self {
         match serde_json::to_string(&response) {

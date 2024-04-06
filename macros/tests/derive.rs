@@ -13,7 +13,6 @@ fn full_lifecycle() {
         init: bool,
     }
 
-    #[trillium::async_trait]
     impl Handler for InnerHandler {
         async fn run(&self, conn: Conn) -> Conn {
             conn.ok("run")

@@ -1,5 +1,5 @@
 use std::{borrow::Cow, fmt::Debug, ops::Deref, sync::Arc};
-use trillium::{async_trait, Conn, Handler, Info, Upgrade};
+use trillium::{Conn, Handler, Info, Upgrade};
 
 pub(crate) struct ArcHandler<H>(Arc<H>);
 
@@ -35,7 +35,6 @@ impl<H: Handler> ArcHandler<H> {
     }
 }
 
-#[async_trait]
 impl<H: Handler> Handler for ArcHandler<H> {
     async fn run(&self, conn: Conn) -> Conn {
         self.as_ref().run(conn).await

@@ -257,7 +257,6 @@ pub fn derive_handler(input: TokenStream) -> TokenStream {
     };
 
     quote! {
-        #[trillium::async_trait]
         impl #impl_generics trillium::Handler for #struct_name #ty_generics #where_clause {
             async fn run(&self, conn: trillium::Conn) -> trillium::Conn { #run.await }
             async fn init(&mut self, info: &mut trillium::Info) { #init.await; }

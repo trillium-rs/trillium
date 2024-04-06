@@ -23,7 +23,6 @@ If you are depending on this crate for private code that cannot be
 discovered through docs.rs' reverse dependencies, please open an
 issue.
 */
-pub use async_trait::async_trait;
 pub use futures_lite::{AsyncRead, AsyncWrite};
 pub use trillium_http::{transport::Transport, Stopper};
 pub use url;
@@ -45,7 +44,7 @@ mod binding;
 pub use binding::Binding;
 
 mod client;
-pub use client::{Connector, ObjectSafeConnector};
+pub use client::{ArcedConnector, Connector};
 
 mod acceptor;
 pub use acceptor::Acceptor;

@@ -43,7 +43,6 @@ where
     }
 }
 
-#[trillium_server_common::async_trait]
 impl<H: trillium::Handler> trillium_server_common::Connector for ServerConnector<H> {
     type Transport = TestTransport;
     async fn connect(&self, url: &Url) -> std::io::Result<Self::Transport> {

@@ -1,11 +1,12 @@
 use crate::{CapturesNewType, RouteSpecNewType, RouterRef};
 use routefinder::{Match, RouteSpec, Router as Routefinder};
 use std::{
+    borrow::Cow,
     collections::BTreeSet,
     fmt::{self, Debug, Display, Formatter},
     mem,
 };
-use trillium::{async_trait, Conn, Handler, Info, KnownHeaderName, Method, Upgrade};
+use trillium::{BoxedHandler, Conn, Handler, Info, KnownHeaderName, Method, Upgrade};
 
 const ALL_METHODS: [Method; 5] = [
     Method::Delete,
@@ -68,7 +69,7 @@ impl From<Vec<Method>> for MethodSelection {
 }
 
 #[derive(Debug, Default)]
-struct MethodRoutefinder(Routefinder<(MethodSelection, Box<dyn Handler>)>);
+struct MethodRoutefinder(Routefinder<(MethodSelection, BoxedHandler)>);
 impl MethodRoutefinder {
     fn add<R>(
         &mut self,
@@ -80,7 +81,7 @@ impl MethodRoutefinder {
         R::Error: Debug,
     {
         self.0
-            .add(path, (method_selection.into(), Box::new(handler)))
+            .add(path, (method_selection.into(), BoxedHandler::new(handler)))
             .expect("could not add route")
     }
 
@@ -119,7 +120,7 @@ impl MethodRoutefinder {
         &'a self,
         method: Method,
         path: &'b str,
-    ) -> Option<Match<'a, 'b, (MethodSelection, Box<dyn Handler>)>> {
+    ) -> Option<Match<'a, 'b, (MethodSelection, BoxedHandler)>> {
         self.0.match_iter(path).find(|m| m.0 == method)
     }
 }
@@ -276,7 +277,7 @@ impl Router {
         &'a self,
         method: Method,
         path: &'b str,
-    ) -> Option<Match<'a, 'b, (MethodSelection, Box<dyn Handler>)>> {
+    ) -> Option<Match<'a, 'b, (MethodSelection, BoxedHandler)>> {
         self.routefinder.best_match(method, path)
     }
 
@@ -406,7 +407,6 @@ impl Router {
     method!(patch, Patch);
 }
 
-#[async_trait]
 impl Handler for Router {
     async fn run(&self, mut conn: Conn) -> Conn {
         let method = conn.method();
@@ -488,7 +488,7 @@ impl Handler for Router {
             .await
     }
 
-    fn name(&self) -> std::borrow::Cow<'static, str> {
+    fn name(&self) -> Cow<'static, str> {
         "Router".into()
     }
 
@@ -496,20 +496,12 @@ impl Handler for Router {
         // This code is not what a reader would expect, so here's a
         // brief explanation:
         //
-        // Currently, the init trait interface must return a Send
-        // future because that's the default for async-trait. We don't
-        // actually need it to be Send, but changing that would be a
-        // semver-minor trillium release.
+        // Mutable map iterators are not Send, and because we need to hold that data across await
+        // boundaries in a Send future, we cannot mutate in place.
         //
-        // Mutable map iterators are not Send, and because we need to
-        // hold that data across await boundaries, we cannot mutate in
-        // place.
-        //
-        // However, because this is only called once at app boot, and
-        // because we have &mut self, it is safe to move the router
-        // contents into this future and then replace it, and the
-        // performance impacts of doing so are unimportant as it is
-        // part of app boot.
+        // However, because this is only called once at app boot, and because we have &mut self, it
+        // is safe to move the router contents into this future and then replace it, and the
+        // performance impacts of doing so are unimportant as it is part of app boot.
         let routefinder = mem::take(&mut self.routefinder);
         for (route, (methods, mut handler)) in routefinder.0 {
             handler.init(info).await;

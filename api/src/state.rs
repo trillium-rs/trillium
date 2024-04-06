@@ -1,6 +1,6 @@
 use crate::FromConn;
 use std::ops::{Deref, DerefMut};
-use trillium::{async_trait, Conn, Handler};
+use trillium::{Conn, Handler};
 
 /// State extractor
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -38,7 +38,6 @@ impl<T> DerefMut for State<T> {
     }
 }
 
-#[async_trait]
 impl<T> FromConn for State<T>
 where
     T: Send + Sync + 'static,
@@ -48,7 +47,6 @@ where
     }
 }
 
-#[async_trait]
 impl<T> Handler for State<T>
 where
     T: Clone + Send + Sync + 'static,

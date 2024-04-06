@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
 };
-use trillium::{async_trait, Conn, Handler};
+use trillium::{Conn, Handler};
 /**
 A trillium handler that provides registered templates to
 downsequence handlers
@@ -101,7 +101,6 @@ impl From<PathBuf> for HandlebarsHandler {
     }
 }
 
-#[async_trait]
 impl Handler for HandlebarsHandler {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone())

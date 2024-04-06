@@ -4,7 +4,7 @@ use crate::{
     StaticConnExt,
 };
 use std::path::{Path, PathBuf};
-use trillium::{async_trait, conn_unwrap, Conn, Handler};
+use trillium::{conn_unwrap, Conn, Handler};
 
 /**
 trillium handler to serve static files from the filesystem
@@ -143,7 +143,6 @@ impl StaticFileHandler {
     }
 }
 
-#[async_trait]
 impl Handler for StaticFileHandler {
     async fn init(&mut self, _info: &mut trillium::Info) {
         self.root_is_file = match self.resolve("/").await {

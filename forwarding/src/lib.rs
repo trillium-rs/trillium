@@ -32,7 +32,7 @@ pub use forwarded::Forwarded;
 mod parse_utils;
 
 use std::{fmt::Debug, net::IpAddr, ops::Deref};
-use trillium::{async_trait, Conn, Handler, Status};
+use trillium::{Conn, Handler, Status};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -147,7 +147,6 @@ impl Default for TrustProxy {
     }
 }
 
-#[async_trait]
 impl Handler for Forwarding {
     async fn run(&self, mut conn: Conn) -> Conn {
         if !self.0.is_trusted(conn.inner().peer_ip()) {

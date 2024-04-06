@@ -16,7 +16,7 @@ request.
     unused_qualifications
 )]
 
-use trillium::{async_trait, conn_unwrap, Conn, Handler, KnownHeaderName::ContentLength, Method};
+use trillium::{conn_unwrap, Conn, Handler, KnownHeaderName::ContentLength, Method};
 
 /**
 Trillium handler for HEAD requests
@@ -38,7 +38,6 @@ impl Head {
 #[derive(Clone, Copy, Debug)]
 struct RequestWasHead;
 
-#[async_trait]
 impl Handler for Head {
     async fn run(&self, mut conn: Conn) -> Conn {
         if conn.method() == Method::Head {

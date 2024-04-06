@@ -13,7 +13,6 @@ use trillium_http::{transport::BoxedTransport, Conn as HttpConn, Error, SERVICE_
 /// an issue if you find yourself using this trait directly in an
 /// application.
 
-#[trillium::async_trait]
 pub trait ConfigExt<ServerType, AcceptorType>
 where
     ServerType: Server,
@@ -56,12 +55,16 @@ where
     /// waits for the last clone of the [`CloneCounter`][crate::CloneCounter] in this
     /// config to drop, indicating that all outstanding requests are
     /// complete
-    async fn graceful_shutdown(&self);
+    fn graceful_shutdown(&self) -> impl Future<Output = ()> + Send;
 
     /// apply the provided handler to the transport, using
     /// [`trillium_http`]'s http implementation. this is the default inner
     /// loop for most trillium servers
-    async fn handle_stream(&self, stream: ServerType::Transport, handler: impl Handler);
+    fn handle_stream(
+        &self,
+        stream: ServerType::Transport,
+        handler: impl Handler,
+    ) -> impl Future<Output = ()> + Send;
 
     /// builds any type that is TryFrom<std::net::TcpListener> and
     /// configures it for use. most trillium servers should use this if
@@ -82,7 +85,6 @@ where
     fn over_capacity(&self) -> bool;
 }
 
-#[trillium::async_trait]
 impl<ServerType, AcceptorType> ConfigExt<ServerType, AcceptorType>
     for Config<ServerType, AcceptorType>
 where

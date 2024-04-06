@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use crate::{ChannelConn, ChannelEvent};
 
 /**
@@ -21,7 +23,6 @@ The only behavior we need to implement:
 use trillium_channels::{channel, ChannelConn, ChannelEvent, ChannelHandler};
 
 struct ChatChannel;
-#[trillium::async_trait]
 impl ChannelHandler for ChatChannel {
     async fn join_channel(&self, conn: ChannelConn<'_>, event: ChannelEvent) {
         match event.topic() {
@@ -49,12 +50,13 @@ impl ChannelHandler for ChatChannel {
 
 */
 #[allow(unused_variables)]
-#[trillium::async_trait]
 pub trait ChannelHandler: Sized + Send + Sync + 'static {
     /**
     `connect` is called once when each websocket client is connected. The default implementation does nothing.
      */
-    async fn connect(&self, conn: ChannelConn<'_>) {}
+    fn connect(&self, conn: ChannelConn<'_>) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 
     /**
     `join_channel` is called when a websocket client sends a
@@ -65,33 +67,49 @@ pub trait ChannelHandler: Sized + Send + Sync + 'static {
 
     ```
     # use trillium_channels::{ChannelEvent, ChannelConn, ChannelHandler};
-    # struct MyChannel; #[trillium::async_trait] impl ChannelHandler for MyChannel {
+    # struct MyChannel; impl ChannelHandler for MyChannel {
     async fn join_channel(&self, conn: ChannelConn<'_>, event: ChannelEvent) {
         conn.allow_join(&event, &()).await;
     }
     # }
     ```
     */
-    async fn join_channel(&self, conn: ChannelConn<'_>, event: ChannelEvent);
+    fn join_channel(
+        &self,
+        conn: ChannelConn<'_>,
+        event: ChannelEvent,
+    ) -> impl Future<Output = ()> + Send;
 
     /**
     `leave_channel` is called when a websocket client sends a
     `phx_leave` event. The default implementation is to allow the user
     to leave that channel.
     */
-    async fn leave_channel(&self, conn: ChannelConn<'_>, event: ChannelEvent) {
-        conn.allow_leave(&event, &()).await
+    fn leave_channel(
+        &self,
+        conn: ChannelConn<'_>,
+        event: ChannelEvent,
+    ) -> impl Future<Output = ()> + Send {
+        async move { conn.allow_leave(&event, &()).await }
     }
 
     /**
     `incoming_message` is called once for each [`ChannelEvent`] sent
     from a client. The default implementation does nothing.
     */
-    async fn incoming_message(&self, conn: ChannelConn<'_>, event: ChannelEvent) {}
+    fn incoming_message(
+        &self,
+        conn: ChannelConn<'_>,
+        event: ChannelEvent,
+    ) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 
     /**
     `disconnect` is called when the websocket client ceases to be
     connected, either gracefully or abruptly.
     */
-    async fn disconnect(&self, conn: ChannelConn<'_>) {}
+    fn disconnect(&self, conn: ChannelConn<'_>) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 }
