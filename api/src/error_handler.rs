@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{api_with_body_handler::MutBorrowConnWithBody, Error};
-use trillium::{async_trait, Conn, Handler};
+use trillium::{Conn, Handler};
 
 /// A convenient way to define custom error handling behavior. This
 /// handler will execute both on the `run` and `before_send` Handler
@@ -36,20 +36,23 @@ where
     ApiErrorHandler::new(error_handler)
 }
 
-#[async_trait]
 impl<ErrorHandler, OutputHandler> Handler for ApiErrorHandler<ErrorHandler, OutputHandler>
 where
     ErrorHandler: for<'a> MutBorrowConnWithBody<'a, OutputHandler, Error>,
     OutputHandler: Handler,
 {
     async fn run(&self, mut conn: Conn) -> Conn {
-        let Some(error) = conn.take_state::<Error>() else { return conn };
+        let Some(error) = conn.take_state::<Error>() else {
+            return conn;
+        };
         let handler = self.0.call(&mut conn, error).await;
         handler.run(conn).await
     }
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
-        let Some(error) = conn.take_state::<Error>() else { return conn };
+        let Some(error) = conn.take_state::<Error>() else {
+            return conn;
+        };
         let handler = self.0.call(&mut conn, error).await;
         handler.run(conn).await
     }

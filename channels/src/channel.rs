@@ -1,6 +1,6 @@
 use crate::{ChannelBroadcaster, ChannelCentral, ChannelEvent, ChannelHandler};
 use std::ops::{Deref, DerefMut};
-use trillium::{async_trait, Conn, Handler, Upgrade};
+use trillium::{Conn, Handler, Upgrade};
 use trillium_websockets::WebSocket;
 
 /**
@@ -12,7 +12,6 @@ and dereferences to that type.
 #[derive(Debug)]
 pub struct Channel<CH>(WebSocket<ChannelCentral<CH>>);
 
-#[async_trait]
 impl<CH> Handler for Channel<CH>
 where
     CH: ChannelHandler,

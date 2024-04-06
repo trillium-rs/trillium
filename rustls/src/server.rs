@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{async_trait, Acceptor, AsyncRead, AsyncWrite, Transport};
+use trillium_server_common::{Acceptor, AsyncRead, AsyncWrite, Transport};
 
 use crate::crypto_provider;
 
@@ -175,7 +175,6 @@ impl<T> From<RustlsServerTransport<T>> for TlsStream<T> {
     }
 }
 
-#[async_trait]
 impl<Input> Acceptor<Input> for RustlsAcceptor
 where
     Input: Transport,

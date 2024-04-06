@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{async_trait, AsyncRead, AsyncWrite, Connector, Transport, Url};
+use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url};
 
 /**
 Configuration for the native tls client connector
@@ -68,7 +68,6 @@ impl<Config> AsRef<Config> for NativeTlsConfig<Config> {
     }
 }
 
-#[async_trait]
 impl<T: Connector> Connector for NativeTlsConfig<T> {
     type Transport = NativeTlsClientTransport<T::Transport>;
 
