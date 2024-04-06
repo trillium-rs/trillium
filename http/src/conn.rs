@@ -114,7 +114,7 @@ where
     ) -> Result<Option<Upgrade<Transport>>>
     where
         F: FnMut(Conn<Transport>) -> Fut,
-        Fut: Future<Output = Conn<Transport>> + Send,
+        Fut: Future<Output = Conn<Transport>>,
     {
         Self::map_with_config(DEFAULT_CONFIG, transport, stopper, handler).await
     }
@@ -146,7 +146,7 @@ where
     ) -> Result<Option<Upgrade<Transport>>>
     where
         F: FnMut(Conn<Transport>) -> Fut,
-        Fut: Future<Output = Conn<Transport>> + Send,
+        Fut: Future<Output = Conn<Transport>>,
     {
         Self::map_with_config_and_shared_state(http_config, transport, stopper, None, handler).await
     }
@@ -182,7 +182,7 @@ where
     ) -> Result<Option<Upgrade<Transport>>>
     where
         F: FnMut(Conn<Transport>) -> Fut,
-        Fut: Future<Output = Conn<Transport>> + Send,
+        Fut: Future<Output = Conn<Transport>>,
     {
         let mut conn = Conn::new_internal(
             http_config,
