@@ -75,7 +75,6 @@ pub fn redirect(to: impl Into<Cow<'static, str>>) -> Redirect {
     Redirect::to(to)
 }
 
-#[trillium::async_trait]
 impl Handler for Redirect {
     async fn run(&self, conn: Conn) -> Conn {
         conn.redirect_as(self.to.clone(), self.status)

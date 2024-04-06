@@ -1,6 +1,6 @@
 use crate::TryFromConn;
 use std::{future::Future, marker::PhantomData, sync::Arc};
-use trillium::{async_trait, Conn, Handler, Info, Status, Upgrade};
+use trillium::{Conn, Handler, Info, Status, Upgrade};
 
 /// A struct that cancels a handler if the client disconnects.
 ///
@@ -41,7 +41,6 @@ where
     CancelOnDisconnect(handler, PhantomData, PhantomData)
 }
 
-#[async_trait]
 impl<F, OutputHandler, TFC, Fut> Handler for CancelOnDisconnect<F, OutputHandler, TFC>
 where
     F: Fn(TFC) -> Fut + Send + Sync + 'static,

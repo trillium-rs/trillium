@@ -68,7 +68,6 @@ eventually.
 use trillium_channels::{channel, ChannelConn, ChannelEvent, ChannelHandler};
 
 struct ChatChannel;
-#[trillium::async_trait]
 impl ChannelHandler for ChatChannel {
     async fn join_channel(&self, conn: ChannelConn<'_>, event: ChannelEvent) {
         match event.topic() {
