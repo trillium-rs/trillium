@@ -90,7 +90,7 @@ assert_not_handled!(get("/subdir_with_no_index").on(&no_index));
 */
 
 use trillium::{
-    async_trait, Conn, Handler,
+    Conn, Handler,
     KnownHeaderName::{ContentType, LastModified},
 };
 
@@ -185,7 +185,6 @@ impl StaticCompiledHandler {
     }
 }
 
-#[async_trait]
 impl Handler for StaticCompiledHandler {
     async fn run(&self, conn: Conn) -> Conn {
         match (
