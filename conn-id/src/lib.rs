@@ -26,7 +26,7 @@ use std::{
     ops::Deref,
     sync::{Arc, Mutex},
 };
-use trillium::{async_trait, Conn, Handler, HeaderName, KnownHeaderName, StateSet};
+use trillium::{Conn, Handler, HeaderName, KnownHeaderName, StateSet};
 
 #[derive(Default)]
 enum IdGenerator {
@@ -247,7 +247,6 @@ impl Id {
     }
 }
 
-#[async_trait]
 impl Handler for ConnId {
     async fn run(&self, mut conn: Conn) -> Conn {
         let id = self

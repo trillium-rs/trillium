@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 use tera::{Context, Tera};
-use trillium::{async_trait, Conn, Handler};
+use trillium::{Conn, Handler};
 
 /**
 
@@ -76,7 +76,6 @@ impl TeraHandler {
     }
 }
 
-#[async_trait]
 impl Handler for TeraHandler {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone()).with_state(Context::new())

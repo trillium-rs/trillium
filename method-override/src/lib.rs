@@ -28,7 +28,7 @@ POST.
 
 use querystrong::QueryStrong;
 use std::{collections::HashSet, fmt::Debug};
-use trillium::{async_trait, conn_unwrap, Conn, Handler, Method};
+use trillium::{conn_unwrap, Conn, Handler, Method};
 
 /**
 Trillium method override handler
@@ -91,7 +91,6 @@ impl MethodOverride {
     }
 }
 
-#[async_trait]
 impl Handler for MethodOverride {
     async fn run(&self, mut conn: Conn) -> Conn {
         if conn.method() != Method::Post {
