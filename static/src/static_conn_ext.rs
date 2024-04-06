@@ -1,6 +1,6 @@
 use crate::{fs_shims::File, options::StaticOptions};
 use etag::EntityTag;
-use std::path::Path;
+use std::{future::Future, path::Path};
 use trillium::{
     Body, Conn,
     KnownHeaderName::{self, ContentType},
@@ -8,27 +8,30 @@ use trillium::{
 
 /// conn extension trait to facilitate sending individual files and
 /// paths
-#[trillium::async_trait]
-pub trait StaticConnExt {
+pub trait StaticConnExt: Send {
     /// Send the file at the provided path. Will send a 404 if the
     /// file cannot be resolved or if it is a directory.
-    async fn send_path<A: AsRef<Path> + Send>(self, path: A) -> Self;
+    fn send_path<A: AsRef<Path> + Send>(self, path: A) -> impl Future<Output = Conn> + Send;
 
     /// Send the file at the provided path. Will send a 404 if the
     /// file cannot be resolved or if it is a directory.
-    async fn send_file(self, file: File) -> Self;
+    fn send_file(self, file: File) -> impl Future<Output = Conn> + Send;
 
     /// Send the file at the provided path. Will send a 404 if the
     /// file cannot be resolved or if it is a directory.
-    async fn send_file_with_options(self, file: File, options: &StaticOptions) -> Self;
+    fn send_file_with_options(
+        self,
+        file: File,
+        options: &StaticOptions,
+    ) -> impl Future<Output = Conn> + Send;
 
     /// Send the file at the provided path. Will send a 404 if the
     /// file cannot be resolved or if it is a directory.
-    async fn send_path_with_options<A: AsRef<Path> + Send>(
+    fn send_path_with_options<A: AsRef<Path> + Send>(
         self,
         path: A,
         options: &StaticOptions,
-    ) -> Self;
+    ) -> impl Future<Output = Conn> + Send;
 
     /// Guess the mime type for this fs path using
     /// [`mime_guess`](https://docs.rs/mime_guess/) and set the
@@ -36,20 +39,19 @@ pub trait StaticConnExt {
     fn with_mime_from_path(self, path: impl AsRef<Path>) -> Self;
 }
 
-#[trillium::async_trait]
 impl StaticConnExt for Conn {
-    async fn send_path<A: AsRef<Path> + Send>(mut self, path: A) -> Self {
+    async fn send_path<A: AsRef<Path> + Send>(self, path: A) -> Self {
         self.send_path_with_options(path, &StaticOptions::default())
             .await
     }
 
-    async fn send_file(mut self, file: File) -> Self {
+    async fn send_file(self, file: File) -> Self {
         self.send_file_with_options(file, &StaticOptions::default())
             .await
     }
 
     async fn send_path_with_options<A: AsRef<Path> + Send>(
-        mut self,
+        self,
         path: A,
         options: &StaticOptions,
     ) -> Self {

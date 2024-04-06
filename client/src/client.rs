@@ -6,7 +6,7 @@ use trillium_http::{
 };
 use trillium_server_common::{
     url::{Origin, Url},
-    Connector, ObjectSafeConnector,
+    ArcedConnector, Connector,
 };
 
 /**
@@ -16,7 +16,7 @@ conns.
 */
 #[derive(Clone, Debug)]
 pub struct Client {
-    config: Arc<dyn ObjectSafeConnector>,
+    config: ArcedConnector,
     pool: Option<Pool<Origin, BoxedTransport>>,
     base: Option<Arc<Url>>,
     default_headers: Arc<Headers>,
@@ -70,7 +70,7 @@ impl Client {
     /// builds a new client from this `Connector`
     pub fn new(config: impl Connector) -> Self {
         Self {
-            config: config.arced(),
+            config: ArcedConnector::new(config),
             pool: None,
             base: None,
             default_headers: Arc::new(default_request_headers()),
@@ -158,13 +158,13 @@ impl Client {
             pool: self.pool.clone(),
             buffer: Vec::with_capacity(128).into(),
             response_body_state: ReceivedBodyState::Start,
-            config: Arc::clone(&self.config),
+            config: self.config.clone(),
             headers_finalized: false,
         }
     }
 
     /// borrow the connector for this client
-    pub fn connector(&self) -> &Arc<dyn ObjectSafeConnector> {
+    pub fn connector(&self) -> &ArcedConnector {
         &self.config
     }
 

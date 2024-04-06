@@ -92,7 +92,6 @@ impl RuntimelessClientConfig {
     }
 }
 
-#[trillium::async_trait]
 impl Connector for RuntimelessClientConfig {
     type Transport = TestTransport;
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {

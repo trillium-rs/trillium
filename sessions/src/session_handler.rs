@@ -10,7 +10,7 @@ use std::{
     iter,
     time::{Duration, SystemTime},
 };
-use trillium::{async_trait, Conn, Handler};
+use trillium::{Conn, Handler};
 use trillium_cookies::{
     cookie::{Cookie, Key, SameSite},
     CookiesConnExt,
@@ -267,7 +267,6 @@ impl<Store: SessionStore> SessionHandler<Store> {
     }
 }
 
-#[async_trait]
 impl<Store: SessionStore> Handler for SessionHandler<Store> {
     async fn run(&self, mut conn: Conn) -> Conn {
         let session = conn.take_state::<Session>();
