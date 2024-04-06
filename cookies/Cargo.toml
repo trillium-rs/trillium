@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 log = "0.4.20"
-trillium = { path = "../trillium", version = "0.2.18" }
+trillium = { path = "../trillium", version = "0.2.19" }
 
 [dependencies.cookie]
 version = "0.18.0"

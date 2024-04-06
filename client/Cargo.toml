@@ -33,7 +33,7 @@ memchr = "2.7.1"
 [dependencies.trillium-http]
 path = "../http"
 features = ["unstable"]
-version = "0.3.15"
+version = "0.3.16"
 
 [dev-dependencies]
 async-channel = "2.1.1"
