@@ -12,7 +12,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{async_trait, AsyncRead, AsyncWrite, Connector, Transport, Url};
+use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url};
 use RustlsClientTransportInner::{Tcp, Tls};
 
 #[derive(Clone, Debug)]
@@ -90,7 +90,6 @@ impl<Config: Debug> Debug for RustlsConfig<Config> {
     }
 }
 
-#[async_trait]
 impl<C: Connector> Connector for RustlsConfig<C> {
     type Transport = RustlsClientTransport<C::Transport>;
 

@@ -1,4 +1,4 @@
-use crate::{async_trait, Conn, Headers, Info, Status, Upgrade};
+use crate::{Conn, Headers, Info, Status, Upgrade};
 use std::{borrow::Cow, future::Future};
 
 /**
@@ -42,7 +42,6 @@ assert_ok!(get("/").on(&handler), "trillium!");
 The simplest implementation of Handler for a named type looks like this:
 ```
 pub struct MyHandler;
-#[trillium::async_trait]
 impl trillium::Handler for MyHandler {
     async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
         conn
@@ -53,29 +52,6 @@ use trillium_testing::prelude::*;
 assert_not_handled!(get("/").on(&MyHandler)); // we did not halt or set a body status
 ```
 
-**Temporary Note:** Until rust has true async traits, implementing
-handler requires the use of the async_trait macro, which is reexported
-as [`trillium::async_trait`](crate::async_trait).
-
-## Full trait specification
-
-Unfortunately, the async_trait macro results in the difficult-to-read
-documentation at the top of the page, so here is how the trait is
-actually defined in trillium code:
-
-```
-# use trillium::{Conn, Upgrade, Info};
-# use std::borrow::Cow;
-#[trillium::async_trait]
-pub trait Handler: Send + Sync + 'static {
-    async fn run(&self, conn: Conn) -> Conn;
-    async fn init(&mut self, info: &mut Info); // optional
-    async fn before_send(&self, conn: Conn); // optional
-    fn has_upgrade(&self, _upgrade: &Upgrade) -> bool; // optional
-    async fn upgrade(&self, _upgrade: Upgrade); // mandatory only if has_upgrade returns true
-    fn name(&self) -> Cow<'static, str>; // optional
-}
-```
 See each of the function definitions below for advanced implementation.
 
 For most application code and even trillium-packaged framework code,
@@ -83,11 +59,10 @@ For most application code and even trillium-packaged framework code,
 
 */
 
-#[async_trait]
 pub trait Handler: Send + Sync + 'static {
     /// Executes this handler, performing any modifications to the
     /// Conn that are desired.
-    async fn run(&self, conn: Conn) -> Conn;
+    fn run(&self, conn: Conn) -> impl Future<Output = Conn> + Send;
 
     /**
     Performs one-time async set up on a mutable borrow of the
@@ -103,7 +78,9 @@ pub trait Handler: Send + Sync + 'static {
     **stability note:** This may go away at some point. Please open an
     **issue if you have a use case which requires it.
     */
-    async fn init(&mut self, _info: &mut Info) {}
+    fn init(&mut self, _info: &mut Info) -> impl Future<Output = ()> + Send {
+        std::future::ready(())
+    }
 
     /**
     Performs any final modifications to this conn after all handlers
@@ -127,8 +104,8 @@ pub trait Handler: Send + Sync + 'static {
     convenience for the application author, who should not have to add
     two Handlers to achieve an "around" effect.
     */
-    async fn before_send(&self, conn: Conn) -> Conn {
-        conn
+    fn before_send(&self, conn: Conn) -> impl Future<Output = Conn> + Send {
+        std::future::ready(conn)
     }
 
     /**
@@ -138,7 +115,8 @@ pub trait Handler: Send + Sync + 'static {
     handler that responds true to this will receive ownership of the
     [`trillium::Upgrade`][crate::Upgrade] in a subsequent call to [`Handler::upgrade`]
     */
-    fn has_upgrade(&self, _upgrade: &Upgrade) -> bool {
+    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+        let _ = upgrade;
         false
     }
 
@@ -151,11 +129,12 @@ pub trait Handler: Send + Sync + 'static {
     transport type is and perform any non-http protocol communication
     that has been negotiated. You probably don't want this unless
     you're implementing something like websockets. Please note that
-    for many transports such as TcpStreams, dropping the transport
+    for many transports such as `TcpStreams`, dropping the transport
     (and therefore the Upgrade) will hang up / disconnect.
     */
-    async fn upgrade(&self, _upgrade: Upgrade) {
-        unimplemented!("if has_upgrade returns true, you must also implement upgrade")
+    fn upgrade(&self, upgrade: Upgrade) -> impl Future<Output = ()> + Send {
+        let _ = upgrade;
+        async { unimplemented!("if has_upgrade returns true, you must also implement upgrade") }
     }
 
     /**
@@ -167,48 +146,39 @@ pub trait Handler: Send + Sync + 'static {
     }
 }
 
-#[async_trait]
-impl Handler for Box<dyn Handler> {
-    async fn run(&self, conn: Conn) -> Conn {
-        self.as_ref().run(conn).await
-    }
+//
+// impl Handler for Box<dyn Handler> {
+//     async fn run(&self, conn: Conn) -> Conn {
+//         self.as_ref().run(conn).await
+//     }
 
-    async fn init(&mut self, info: &mut Info) {
-        self.as_mut().init(info).await;
-    }
+//     async fn init(&mut self, info: &mut Info) {
+//         self.as_mut().init(info).await;
+//     }
 
-    async fn before_send(&self, conn: Conn) -> Conn {
-        self.as_ref().before_send(conn).await
-    }
+//     async fn before_send(&self, conn: Conn) -> Conn {
+//         self.as_ref().before_send(conn).await
+//     }
 
-    fn name(&self) -> Cow<'static, str> {
-        self.as_ref().name()
-    }
+//     fn name(&self) -> Cow<'static, str> {
+//         self.as_ref().name()
+//     }
 
-    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        self.as_ref().has_upgrade(upgrade)
-    }
+//     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+//         self.as_ref().has_upgrade(upgrade)
+//     }
 
-    async fn upgrade(&self, upgrade: Upgrade) {
-        self.as_ref().upgrade(upgrade).await;
-    }
-}
+//     async fn upgrade(&self, upgrade: Upgrade) {
+//         self.as_ref().upgrade(upgrade).await;
+//     }
+// }
 
-#[async_trait]
 impl Handler for Status {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_status(*self)
     }
 }
 
-impl std::fmt::Debug for Box<dyn Handler> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.name().as_ref())
-    }
-}
-
-#[async_trait]
-#[async_trait]
 impl<H: Handler> Handler for Vec<H> {
     async fn run(&self, mut conn: Conn) -> Conn {
         for handler in self {
@@ -253,7 +223,6 @@ impl<H: Handler> Handler for Vec<H> {
     }
 }
 
-#[async_trait]
 impl<const L: usize, H: Handler> Handler for [H; L] {
     async fn run(&self, mut conn: Conn) -> Conn {
         for handler in self {
@@ -298,7 +267,6 @@ impl<const L: usize, H: Handler> Handler for [H; L] {
     }
 }
 
-#[async_trait]
 impl<Fun, Fut> Handler for Fun
 where
     Fun: Fn(Conn) -> Fut + Send + Sync + 'static,
@@ -309,7 +277,6 @@ where
     }
 }
 
-#[async_trait]
 impl Handler for &'static str {
     async fn run(&self, conn: Conn) -> Conn {
         conn.ok(*self)
@@ -320,7 +287,6 @@ impl Handler for &'static str {
     }
 }
 
-#[async_trait]
 impl Handler for String {
     async fn run(&self, conn: Conn) -> Conn {
         conn.ok(self.clone())
@@ -331,14 +297,12 @@ impl Handler for String {
     }
 }
 
-#[async_trait]
 impl Handler for () {
     async fn run(&self, conn: Conn) -> Conn {
         conn
     }
 }
 
-#[async_trait]
 impl<H: Handler> Handler for Option<H> {
     async fn run(&self, conn: Conn) -> Conn {
         let handler = crate::conn_unwrap!(self, conn);
@@ -371,7 +335,6 @@ impl<H: Handler> Handler for Option<H> {
     }
 }
 
-#[async_trait]
 impl Handler for Headers {
     async fn run(&self, mut conn: Conn) -> Conn {
         conn.response_headers_mut().append_all(self.clone());
@@ -379,7 +342,6 @@ impl Handler for Headers {
     }
 }
 
-#[async_trait]
 impl<T, E> Handler for Result<T, E>
 where
     T: Handler,
@@ -441,7 +403,6 @@ macro_rules! reverse_before_send {
 
 macro_rules! impl_handler_tuple {
         ($($name:ident)+) => (
-            #[async_trait]
             impl<$($name),*> Handler for ($($name,)*) where $($name: Handler),* {
                 #[allow(non_snake_case)]
                 async fn run(&self, conn: Conn) -> Conn {

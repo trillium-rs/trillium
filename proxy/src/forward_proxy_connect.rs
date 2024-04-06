@@ -1,14 +1,14 @@
 use crate::bytes;
 use full_duplex_async_copy::full_duplex_copy;
 use std::fmt::Debug;
-use trillium::{async_trait, Conn, Handler, Upgrade};
-use trillium_client::{Connector, ObjectSafeConnector};
+use trillium::{Conn, Handler, Upgrade};
+use trillium_client::{ArcedConnector, Connector};
 use trillium_http::{Method, Status};
 use url::Url;
 
 #[derive(Debug)]
 /// trillium handler to implement Connect proxying
-pub struct ForwardProxyConnect(Box<dyn ObjectSafeConnector>);
+pub struct ForwardProxyConnect(ArcedConnector);
 
 #[derive(Debug)]
 struct ForwardUpgrade(trillium_http::transport::BoxedTransport);
@@ -16,10 +16,10 @@ struct ForwardUpgrade(trillium_http::transport::BoxedTransport);
 impl ForwardProxyConnect {
     /// construct a new ForwardProxyConnect
     pub fn new(connector: impl Connector) -> Self {
-        Self(connector.boxed())
+        Self(ArcedConnector::new(connector))
     }
 }
-#[async_trait]
+
 impl Handler for ForwardProxyConnect {
     async fn run(&self, conn: Conn) -> Conn {
         if conn.method() == Method::Connect {

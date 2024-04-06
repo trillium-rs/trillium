@@ -100,6 +100,30 @@ macro_rules! log_error {
 
 ```
 use trillium::{delegate_handler, State, Conn, conn_unwrap};
+
+#[derive(Clone, Copy)]
+struct MyState(usize);
+struct MyHandler { handler: State<MyState> }
+delegate_handler!(MyHandler => handler);
+impl MyHandler {
+    fn new(n: usize) -> Self {
+        MyHandler { handler: State::new(MyState(n)) }
+    }
+}
+
+
+# use trillium_testing::prelude::*;
+
+let handler = (MyHandler::new(5), |conn: Conn| async move {
+    let MyState(n) = *conn_unwrap!(conn.state(), conn);
+    conn.ok(n.to_string())
+});
+assert_ok!(get("/").on(&handler), "5");
+```
+
+```
+use trillium::{delegate_handler, State, Conn, conn_unwrap};
+
 #[derive(Clone, Copy)]
 struct MyState(usize);
 struct MyHandler(State<MyState>);
@@ -110,6 +134,7 @@ impl MyHandler {
     }
 }
 
+
 # use trillium_testing::prelude::*;
 
 let handler = (MyHandler::new(5), |conn: Conn| async move {
@@ -118,11 +143,11 @@ let handler = (MyHandler::new(5), |conn: Conn| async move {
 });
 assert_ok!(get("/").on(&handler), "5");
 ```
+
 */
 #[macro_export]
 macro_rules! delegate_handler {
     ($struct_name:ty) => {
-        #[$crate::async_trait]
         impl $crate::Handler for $struct_name {
             async fn run(&self, conn: $crate::Conn) -> $crate::Conn {
                 use $crate::Handler;
@@ -152,6 +177,40 @@ macro_rules! delegate_handler {
             async fn upgrade(&self, upgrade: $crate::Upgrade) {
                 use $crate::Handler;
                 self.0.upgrade(upgrade).await;
+            }
+        }
+    };
+
+    ($struct_name:ty => $target:ident) => {
+        impl $crate::Handler for $struct_name {
+            async fn run(&self, conn: $crate::Conn) -> $crate::Conn {
+                use $crate::Handler;
+                self.$target.run(conn).await
+            }
+
+            async fn init(&mut self, info: &mut $crate::Info) {
+                use $crate::Handler;
+                self.$target.init(info).await;
+            }
+
+            async fn before_send(&self, conn: $crate::Conn) -> $crate::Conn {
+                use $crate::Handler;
+                self.$target.before_send(conn).await
+            }
+
+            fn name(&self) -> std::borrow::Cow<'static, str> {
+                use $crate::Handler;
+                self.$target.name()
+            }
+
+            fn has_upgrade(&self, upgrade: &$crate::Upgrade) -> bool {
+                use $crate::Handler;
+                self.$target.has_upgrade(upgrade)
+            }
+
+            async fn upgrade(&self, upgrade: $crate::Upgrade) {
+                use $crate::Handler;
+                self.$target.upgrade(upgrade).await;
             }
         }
     };

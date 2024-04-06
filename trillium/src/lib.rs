@@ -37,8 +37,6 @@ pub use conn::Conn;
 mod state;
 pub use state::{state, State};
 
-pub use async_trait::async_trait;
-
 pub use trillium_http::{
     Body, Error, HeaderName, HeaderValue, HeaderValues, Headers, HttpConfig, KnownHeaderName,
     Method, StateSet, Status, Version,
@@ -59,3 +57,6 @@ pub use log;
 
 mod info;
 pub use info::Info;
+
+mod boxed_handler;
+pub use boxed_handler::BoxedHandler;

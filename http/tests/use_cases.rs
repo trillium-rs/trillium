@@ -36,7 +36,6 @@ where
     }
 }
 
-#[trillium_client::async_trait]
 impl<F, Fut> Connector for ServerConnector<F, Fut>
 where
     F: Fn(Conn<TestTransport>) -> Fut + Send + Sync + 'static,
