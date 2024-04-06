@@ -2,7 +2,6 @@ use crate::{Error, WebSocketConn};
 use async_tungstenite::tungstenite::{protocol::CloseFrame, Message};
 use futures_lite::stream::{Pending, Stream};
 use std::future::Future;
-use trillium::async_trait;
 
 /**
 # This is the trait that defines a handler for trillium websockets.
@@ -18,7 +17,6 @@ use trillium_websockets::{Message, WebSocket, WebSocketConn, WebSocketHandler};
 use futures_lite::stream::{pending, Pending};
 
 struct EchoServer;
-#[trillium::async_trait]
 impl WebSocketHandler for EchoServer {
     type OutboundStream = Pending<Message>; // we don't use an outbound stream in this example
 
@@ -99,7 +97,6 @@ impl EchoServer {
     }
 }
 
-#[trillium::async_trait]
 impl WebSocketHandler for EchoServer {
     type OutboundStream = BroadcastChannel<Message>;
 
@@ -123,7 +120,6 @@ impl WebSocketHandler for EchoServer {
 
 */
 #[allow(unused_variables)]
-#[async_trait]
 pub trait WebSocketHandler: Send + Sync + Sized + 'static {
     /**
     A [`Stream`] type that represents [`Message`]s to be sent to this
@@ -140,13 +136,22 @@ pub trait WebSocketHandler: Send + Sync + Sized + 'static {
     optionally returns it along with an `OutboundStream`
     type.
      */
-    async fn connect(&self, conn: WebSocketConn) -> Option<(WebSocketConn, Self::OutboundStream)>;
+    fn connect(
+        &self,
+        conn: WebSocketConn,
+    ) -> impl Future<Output = Option<(WebSocketConn, Self::OutboundStream)>> + Send;
 
     /**
     This interface function is called once with every message received
     from a connected websocket client.
     */
-    async fn inbound(&self, message: Message, conn: &mut WebSocketConn) {}
+    fn inbound(
+        &self,
+        message: Message,
+        conn: &mut WebSocketConn,
+    ) -> impl Future<Output = ()> + Send {
+        async {}
+    }
 
     /**
     This interface function is called once with every outbound message
@@ -154,8 +159,12 @@ pub trait WebSocketHandler: Send + Sync + Sized + 'static {
     but if you do, you must call `conn.send(message).await` or the
     message will not be sent.
     */
-    async fn send(&self, message: Message, conn: &mut WebSocketConn) -> Result<(), Error> {
-        conn.send(message).await
+    fn send(
+        &self,
+        message: Message,
+        conn: &mut WebSocketConn,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
+        async { conn.send(message).await }
     }
 
     /**
@@ -163,11 +172,15 @@ pub trait WebSocketHandler: Send + Sync + Sized + 'static {
     the case of a clean disconnect, the [`CloseFrame`] if one is sent
     available.
     */
-    async fn disconnect(&self, conn: &mut WebSocketConn, close_frame: Option<CloseFrame<'static>>) {
+    fn disconnect(
+        &self,
+        conn: &mut WebSocketConn,
+        close_frame: Option<CloseFrame<'static>>,
+    ) -> impl Future<Output = ()> + Send {
+        async {}
     }
 }
 
-#[async_trait]
 impl<H, Fut> WebSocketHandler for H
 where
     H: Fn(WebSocketConn) -> Fut + Send + Sync + 'static,

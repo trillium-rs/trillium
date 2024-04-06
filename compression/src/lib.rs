@@ -28,7 +28,7 @@ use std::{
     str::FromStr,
 };
 use trillium::{
-    async_trait, conn_try, conn_unwrap, Body, Conn, Handler, HeaderValues,
+    conn_try, conn_unwrap, Body, Conn, Handler, HeaderValues,
     KnownHeaderName::{AcceptEncoding, ContentEncoding, Vary},
 };
 
@@ -164,7 +164,6 @@ fn parse_accept_encoding(header: &str) -> Vec<(CompressionAlgorithm, u8)> {
     vec
 }
 
-#[async_trait]
 impl Handler for Compression {
     async fn run(&self, mut conn: Conn) -> Conn {
         if let Some(header) = conn

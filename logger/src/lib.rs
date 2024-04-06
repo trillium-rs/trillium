@@ -11,7 +11,7 @@ Welcome to the trillium logger!
 */
 pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
 use std::{fmt::Display, io::IsTerminal, sync::Arc};
-use trillium::{async_trait, Conn, Handler, Info};
+use trillium::{Conn, Handler, Info};
 /**
 Components with which common log formats can be constructed
 */
@@ -272,7 +272,6 @@ impl<F: LogFormatter> Logger<F> {
 
 struct LoggerWasRun;
 
-#[async_trait]
 impl<F> Handler for Logger<F>
 where
     F: LogFormatter,

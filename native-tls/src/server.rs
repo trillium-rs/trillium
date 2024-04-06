@@ -7,7 +7,7 @@ use std::{
 
 use crate::Identity;
 use async_native_tls::{Error, TlsAcceptor, TlsStream};
-use trillium_server_common::{async_trait, Acceptor, AsyncRead, AsyncWrite, Transport};
+use trillium_server_common::{Acceptor, AsyncRead, AsyncWrite, Transport};
 
 /**
 trillium [`Acceptor`] for native-tls
@@ -70,7 +70,6 @@ impl From<(&[u8], &str)> for NativeTlsAcceptor {
     }
 }
 
-#[async_trait]
 impl<Input> Acceptor<Input> for NativeTlsAcceptor
 where
     Input: Transport,

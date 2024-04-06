@@ -10,11 +10,11 @@ use futures_lite::{ready, Stream};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     fmt::Debug,
+    future::Future,
     ops::{Deref, DerefMut},
     pin::Pin,
     task::{Context, Poll},
 };
-use trillium::async_trait;
 
 /**
 # Implement this trait to use websockets with a json handler
@@ -29,7 +29,7 @@ you. This may eventually move to a crate of its own.
 use async_channel::{unbounded, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use trillium::{async_trait, log_error};
+use trillium::log_error;
 use trillium_websockets::{json_websocket, JsonWebSocketHandler, WebSocketConn, Result};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -44,7 +44,6 @@ struct Inbound {
 
 struct SomeJsonChannel;
 
-#[async_trait]
 impl JsonWebSocketHandler for SomeJsonChannel {
     type InboundMessage = Inbound;
     type OutboundMessage = Response;
@@ -79,7 +78,6 @@ impl JsonWebSocketHandler for SomeJsonChannel {
 
 */
 #[allow(unused_variables)]
-#[async_trait]
 pub trait JsonWebSocketHandler: Send + Sync + 'static {
     /**
     A type that can be deserialized from the json sent from the
@@ -105,25 +103,30 @@ pub trait JsonWebSocketHandler: Send + Sync + 'static {
     `connect` is called once for each upgraded websocket
     connection, and returns a Self::StreamType.
     */
-    async fn connect(&self, conn: &mut WebSocketConn) -> Self::StreamType;
+    fn connect(&self, conn: &mut WebSocketConn) -> impl Future<Output = Self::StreamType> + Send;
 
     /**
     `receive_message` is called once for each successfully deserialized
     InboundMessage along with the websocket conn that it was received
     from.
     */
-    async fn receive_message(
+    fn receive_message(
         &self,
         message: crate::Result<Self::InboundMessage>,
         conn: &mut WebSocketConn,
-    );
+    ) -> impl Future<Output = ()> + Send;
 
     /**
     `disconnect` is called when websocket clients disconnect, along
     with a CloseFrame, if one was provided. Implementing `disconnect`
     is optional.
     */
-    async fn disconnect(&self, conn: &mut WebSocketConn, close_frame: Option<CloseFrame<'static>>) {
+    fn disconnect(
+        &self,
+        conn: &mut WebSocketConn,
+        close_frame: Option<CloseFrame<'static>>,
+    ) -> impl Future<Output = ()> + Send {
+        async {}
     }
 }
 
@@ -196,7 +199,6 @@ where
     }
 }
 
-#[async_trait]
 impl<T> WebSocketHandler for JsonHandler<T>
 where
     T: JsonWebSocketHandler,

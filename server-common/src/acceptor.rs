@@ -1,5 +1,5 @@
-use crate::{async_trait, Transport};
-use std::{convert::Infallible, fmt::Debug};
+use crate::Transport;
+use std::{convert::Infallible, fmt::Debug, future::Future};
 
 /**
 This trait provides the common interface for server-side tls
@@ -8,23 +8,7 @@ acceptors, abstracting over various implementations
 The only implementation provided by this crate is `()`, which is
 a noop acceptor, and passes through the `Input` type.
 
-Implementing this trait looks like:
-```rust,ignore
-use trillium_server_common::{AsyncRead, AsyncWrite, async_trait, Transport};
-#[async_trait]
-impl<Input> Acceptor<Input> for my_tls_impl::Acceptor
-where
-    Input: Transport,
-{
-    type Output = my_tls_impl::TlsStream<Input>;
-    type Error = my_tls_impl::Error;
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
-        self.accept(input).await
-    }
-}
-```
 */
-#[async_trait]
 pub trait Acceptor<Input>: Clone + Send + Sync + 'static
 where
     Input: Transport,
@@ -43,10 +27,12 @@ where
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error>;
     ```
     */
-    async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error>;
+    fn accept(
+        &self,
+        input: Input,
+    ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
 }
 
-#[async_trait]
 impl<Input> Acceptor<Input> for ()
 where
     Input: Transport,
