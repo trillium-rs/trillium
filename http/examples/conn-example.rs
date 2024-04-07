@@ -1,21 +1,21 @@
 fn main() -> trillium_http::Result<()> {
     use async_net::{TcpListener, TcpStream};
     use futures_lite::StreamExt;
-    use stopper::Stopper;
+    use swansong::Swansong;
     use trillium_http::{Conn, Result};
 
     smol::block_on(async {
-        let stopper = Stopper::new();
+        let swansong = Swansong::new();
 
-        let server_stopper = stopper.clone();
+        let server_swansong = swansong.clone();
         let server = smol::spawn(async move {
             let listener = TcpListener::bind("localhost:8001").await?;
-            let mut incoming = server_stopper.stop_stream(listener.incoming());
+            let mut incoming = server_swansong.interrupt(listener.incoming());
 
             while let Some(Ok(stream)) = incoming.next().await {
-                let stopper = server_stopper.clone();
+                let swansong = server_swansong.clone();
                 smol::spawn(async move {
-                    Conn::map(stream, stopper, |mut conn: Conn<TcpStream>| async move {
+                    Conn::map(stream, swansong, |mut conn: Conn<TcpStream>| async move {
                         conn.set_response_body("hello world");
                         conn.set_status(200);
                         conn
@@ -42,7 +42,7 @@ fn main() -> trillium_http::Result<()> {
             "hello world"
         );
 
-        stopper.stop(); // stop the server after one request
+        swansong.shut_down(); // stop the server after one request
         server.await?; // wait for the server to shut down
 
         Result::Ok(())

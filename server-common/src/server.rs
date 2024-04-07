@@ -1,10 +1,5 @@
-use crate::{Acceptor, ArcHandler, Config, ConfigExt, Stopper, Transport};
-use std::{
-    future::{ready, Future},
-    io::Result,
-    pin::Pin,
-    sync::Arc,
-};
+use crate::{Acceptor, ArcHandler, Config, ConfigExt, Swansong, Transport};
+use std::{future::Future, io::Result, sync::Arc};
 use trillium::{Handler, Info};
 
 /**
@@ -21,7 +16,7 @@ pub trait Server: Sized + Send + Sync + 'static {
 
     /// Asynchronously return a single `Self::Transport` from a
     /// `Self::Listener`. Must be implemented.
-    fn accept(&mut self) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>>;
+    fn accept(&mut self) -> impl Future<Output = Result<Self::Transport>> + Send;
 
     /// Build an [`Info`] from the Self::Listener type. See [`Info`]
     /// for more details.
@@ -29,8 +24,8 @@ pub trait Server: Sized + Send + Sync + 'static {
 
     /// After the server has shut down, perform any housekeeping, eg
     /// unlinking a unix socket.
-    fn clean_up(self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        Box::pin(ready(()))
+    fn clean_up(self) -> impl Future<Output = ()> + Send {
+        async {}
     }
 
     /// Build a listener from the config. The default logic for this
@@ -104,10 +99,10 @@ pub trait Server: Sized + Send + Sync + 'static {
     }
 
     /// Implementation hook for listening for any os signals and
-    /// stopping the provided [`Stopper`]. The returned future will be
+    /// stopping the provided [`Swansong`]. The returned future will be
     /// spawned using [`Server::spawn`]
-    fn handle_signals(_stopper: Stopper) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        Box::pin(ready(()))
+    fn handle_signals(_swansong: Swansong) -> impl Future<Output = ()> + Send {
+        async {}
     }
 
     /// Runtime implementation hook for spawning a task.
@@ -128,18 +123,15 @@ pub trait Server: Sized + Send + Sync + 'static {
     /// Run a trillium application from an async context. The default
     /// implementation of this method contains the core logic of this
     /// Trait.
-    fn run_async<A, H>(
-        config: Config<Self, A>,
-        mut handler: H,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>
+    fn run_async<A, H>(config: Config<Self, A>, mut handler: H) -> impl Future<Output = ()> + Send
     where
         A: Acceptor<Self::Transport>,
         H: Handler,
     {
-        Box::pin(async move {
+        async move {
             if config.should_register_signals() {
                 #[cfg(unix)]
-                Self::spawn(Self::handle_signals(config.stopper()));
+                Self::spawn(Self::handle_signals(config.swansong()));
 
                 #[cfg(not(unix))]
                 log::error!("signals handling not supported on windows yet");
@@ -153,11 +145,7 @@ pub trait Server: Sized + Send + Sync + 'static {
             let config = Arc::new(config);
             let handler = ArcHandler::new(handler);
 
-            while let Some(stream) = config
-                .stopper
-                .stop_future(Self::accept(&mut listener))
-                .await
-            {
+            while let Some(stream) = config.swansong.interrupt(Self::accept(&mut listener)).await {
                 match stream {
                     Ok(stream) => {
                         let config = Arc::clone(&config);
@@ -170,6 +158,6 @@ pub trait Server: Sized + Send + Sync + 'static {
 
             config.graceful_shutdown().await;
             Self::clean_up(listener).await;
-        })
+        }
     }
 }
