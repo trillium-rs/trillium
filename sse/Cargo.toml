@@ -1,6 +1,6 @@
 [package]
 name = "trillium-sse"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "server sent events for trillium.rs"
@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 futures-lite = "2.1.0"
-trillium = { path = "../trillium", version = "0.2.18" }
+trillium = { path = "../trillium", version = "0.2.19" }
 
 [dev-dependencies]
 broadcaster = "1.0.0"
