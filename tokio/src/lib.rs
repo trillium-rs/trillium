@@ -35,7 +35,7 @@ use std::future::Future;
 
 use trillium::Handler;
 
-pub use trillium_server_common::{Binding, CloneCounterObserver, Stopper};
+pub use trillium_server_common::{Binding, Swansong};
 
 mod client;
 pub use client::ClientConfig;
@@ -95,15 +95,15 @@ The default configuration is as follows:
 ## Usage
 
 ```rust
-let stopper = trillium_tokio::Stopper::new();
-# stopper.stop(); // stoppping the server immediately for the test
+let swansong = trillium_tokio::Swansong::new();
+# swansong.shut_down(); // stoppping the server immediately for the test
 trillium_tokio::config()
     .with_port(0)
     .with_host("127.0.0.1")
     .without_signals()
     .with_nodelay()
     .with_acceptor(()) // see [`trillium_rustls`] and [`trillium_native_tls`]
-    .with_stopper(stopper)
+    .with_swansong(swansong)
     .run(|conn: trillium::Conn| async move {
         conn.ok("hello tokio")
     });

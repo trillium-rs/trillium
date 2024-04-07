@@ -31,9 +31,9 @@ serde = { version = "1.0.193", features = ["derive"], optional = true }
 smallvec = "1.11.2"
 smartcow = "0.2.1"
 smartstring = "1.0.1"
-stopper = "0.2.3"
 thiserror = "1.0.52"
-trillium-macros = { version = "0.0.6", path = "../macros" }
+trillium-macros = { version = "0.0.5", path = "../macros" }
+swansong = "0.3.0"
 
 [dev-dependencies]
 async-compat = "0.2.3"
