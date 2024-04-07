@@ -191,6 +191,12 @@ impl Conn {
         self
     }
 
+    /// see [`without_request_header`]
+    #[deprecated = "use Conn::without_request_header"]
+    pub fn without_header(self, name: impl Into<HeaderName<'static>>) -> Self {
+        self.without_request_header(name)
+    }
+
     /**
     ```
     let handler = |conn: trillium::Conn| async move {
