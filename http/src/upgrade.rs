@@ -45,19 +45,9 @@ pub struct Upgrade<Transport> {
 
 impl<Transport> Upgrade<Transport> {
     /// see [`request_headers`]
-    #[deprecated = "use Upgrade::request_headers"]
+    #[deprecated = "directly access the request_headers field"]
     pub fn headers(&self) -> &Headers {
         &self.request_headers
-    }
-
-    /// read-only access to the request headers
-    pub fn request_headers(&self) -> &Headers {
-        &self.request_headers
-    }
-
-    /// mutable access to headers
-    pub fn request_headers_mut(&mut self) -> &mut Headers {
-        &mut self.request_headers
     }
 
     /// the http request path up to but excluding any query component
@@ -70,10 +60,10 @@ impl<Transport> Upgrade<Transport> {
 
     /// retrieves the query component of the path
     pub fn querystring(&self) -> &str {
-        match self.path.split_once('?') {
-            Some((_, query)) => query,
-            None => "",
-        }
+        self.path
+            .split_once('?')
+            .map(|(_, query)| query)
+            .unwrap_or_default()
     }
 
     /// the http method
