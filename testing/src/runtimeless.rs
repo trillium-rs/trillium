@@ -5,7 +5,6 @@ use once_cell::sync::Lazy;
 use std::{
     future::Future,
     io::{Error, ErrorKind, Result},
-    pin::Pin,
 };
 use trillium::Info;
 use trillium_server_common::{Acceptor, Config, ConfigExt, Connector, Server};
@@ -25,13 +24,11 @@ pub struct RuntimelessServer {
 impl Server for RuntimelessServer {
     type Transport = TestTransport;
     const DESCRIPTION: &'static str = "test server";
-    fn accept(&mut self) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>> {
-        Box::pin(async move {
-            self.channel
-                .recv()
-                .await
-                .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
-        })
+    async fn accept(&mut self) -> Result<Self::Transport> {
+        self.channel
+            .recv()
+            .await
+            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
     }
 
     fn build_listener<A>(config: &Config<Self, A>) -> Self
@@ -147,11 +144,11 @@ mod test {
         let mut conn = client.get("http://other_host.com").await?;
         assert_eq!(conn.response_body().await?, "server 2");
 
-        handle1.stop().await;
+        handle1.shut_down().await;
         assert!(client.get("http://host.com").await.is_err());
         assert!(client.get("http://other_host.com").await.is_ok());
 
-        handle2.stop().await;
+        handle2.shut_down().await;
         assert!(client.get("http://other_host.com").await.is_err());
 
         assert!(SERVERS.is_empty());
