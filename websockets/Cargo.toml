@@ -1,6 +1,6 @@
 [package]
 name = "trillium-websockets"
-version = "0.6.4"
+version = "0.6.5"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "websocket support for trillium.rs"
@@ -30,8 +30,8 @@ serde_json = { version = "1.0.108", optional = true }
 sha-1 = "0.10.1"
 stopper = "0.2.3"
 thiserror = "1.0.52"
-trillium = { path = "../trillium", version = "0.2.18" }
-trillium-http = { path = "../http", version = "0.3.15" }
+trillium = { path = "../trillium", version = "0.2.19" }
+trillium-http = { path = "../http", version = "0.3.16" }
 
 [dev-dependencies]
 async-tungstenite = { version = "0.25.0", default-features = false, features = ["handshake"] }

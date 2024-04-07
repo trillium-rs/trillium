@@ -1,6 +1,6 @@
 [package]
 name = "trillium-basic-auth"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "basic auth for trillium.rs"

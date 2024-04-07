@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.6.0...trillium-testing-v0.6.1) - 2024-04-07
+
+### Added
+- add deprecation warnings to 0.2 branch in preparation for 0.3
+
+### Fixed
+- *(trillium)* fix the flaky liveness test
+
+### Other
+- release
+- release
+- release
+- release
+
 ## [0.6.0](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.5.4...trillium-testing-v0.6.0) - 2024-03-22
 
 ### Fixed

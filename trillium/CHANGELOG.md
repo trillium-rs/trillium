@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.19](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.18...trillium-v0.2.19) - 2024-04-07
+
+### Added
+- add deprecation warnings to 0.2 branch in preparation for 0.3
+
+### Fixed
+- *(trillium)* fix the flaky liveness test
+
 ## [0.2.18](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.17...trillium-v0.2.18) - 2024-04-04
 
 ### Fixed

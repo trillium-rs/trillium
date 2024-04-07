@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/trillium-rs/trillium/compare/trillium-static-v0.4.1...trillium-static-v0.4.2) - 2024-04-07
+
+### Added
+- add deprecation warnings to 0.2 branch in preparation for 0.3
+
+### Other
+- release
+- release
+- Release only rustls
+- release
+- release
+
 ## [0.4.1](https://github.com/trillium-rs/trillium/compare/trillium-static-v0.4.0...trillium-static-v0.4.1) - 2024-01-02
 
 ### Fixed

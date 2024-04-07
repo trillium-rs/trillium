@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.16](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.15...trillium-http-v0.3.16) - 2024-04-07
+
+### Added
+- add deprecation warnings to 0.2 branch in preparation for 0.3
+
+### Fixed
+- remove unreleased Upgrade::request_headers and Upgrade::request_headers_mut
+- *(trillium)* fix the flaky liveness test
+
 ## [0.3.15](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.14...trillium-http-v0.3.15) - 2024-03-22
 
 ### Added

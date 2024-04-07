@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.4...trillium-websockets-v0.6.5) - 2024-04-07
+
+### Added
+- add deprecation warnings to 0.2 branch in preparation for 0.3
+
+### Other
+- release
+- release
+- clippy
+- *(deps)* update base64 requirement from 0.21.5 to 0.22.0
+
 ## [0.6.4](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.3...trillium-websockets-v0.6.4) - 2024-02-13
 
 ### Other

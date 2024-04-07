@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4](https://github.com/trillium-rs/trillium/compare/trillium-sessions-v0.4.3...trillium-sessions-v0.4.4) - 2024-04-07
+
+### Added
+- add deprecation warnings to 0.2 branch in preparation for 0.3
+
+### Other
+- release
+- release
+- clippy
+- *(deps)* update env_logger requirement from 0.10.1 to 0.11.0
+- Release only rustls
+- release
+- release
+
 ## [0.4.3](https://github.com/trillium-rs/trillium/compare/trillium-sessions-v0.4.2...trillium-sessions-v0.4.3) - 2024-01-02
 
 ### Other
