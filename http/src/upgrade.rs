@@ -1,4 +1,4 @@
-use crate::{received_body::read_buffered, Buffer, Conn, Headers, Method, StateSet, Stopper};
+use crate::{received_body::read_buffered, Buffer, Conn, Headers, Method, StateSet, Swansong};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
     fmt::{self, Debug, Formatter},
@@ -39,10 +39,10 @@ pub struct Upgrade<Transport> {
     /// already. It is your responsibility to process these bytes
     /// before reading directly from the transport.
     pub buffer: Buffer,
-    /// A [`Stopper`] which can and should be used to gracefully shut
+    /// A [`Swansong`] which can and should be used to gracefully shut
     /// down any long running streams or futures associated with this
     /// upgrade
-    pub stopper: Stopper,
+    pub swansong: Swansong,
     /// the ip address of the connection, if available
     pub peer_ip: Option<IpAddr>,
 }
@@ -63,7 +63,7 @@ impl<Transport> Upgrade<Transport> {
             transport,
             buffer,
             state: StateSet::new(),
-            stopper: Stopper::new(),
+            swansong: Swansong::new(),
             peer_ip: None,
         }
     }
@@ -114,7 +114,7 @@ impl<Transport> Upgrade<Transport> {
             state: self.state,
             buffer: self.buffer,
             request_headers: self.request_headers,
-            stopper: self.stopper,
+            swansong: self.swansong,
             peer_ip: self.peer_ip,
         }
     }
@@ -127,7 +127,7 @@ impl<Transport> Debug for Upgrade<Transport> {
             .field("path", &self.path)
             .field("method", &self.method)
             .field("buffer", &self.buffer)
-            .field("stopper", &self.stopper)
+            .field("swansong", &self.swansong)
             .field("state", &self.state)
             .field("transport", &"..")
             .field("peer_ip", &self.peer_ip)
@@ -144,7 +144,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             state,
             transport,
             buffer,
-            stopper,
+            swansong,
             peer_ip,
             ..
         } = conn;
@@ -156,7 +156,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             state,
             transport,
             buffer,
-            stopper,
+            swansong,
             peer_ip,
         }
     }

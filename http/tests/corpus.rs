@@ -1,7 +1,7 @@
 use indoc::formatdoc;
 use pretty_assertions::assert_eq;
 use test_harness::test;
-use trillium_http::{Conn, KnownHeaderName, Stopper};
+use trillium_http::{Conn, KnownHeaderName, Swansong};
 use trillium_testing::{harness, TestTransport};
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
@@ -66,10 +66,10 @@ async fn corpus_test() {
             .replace("\\n", "\n");
 
         let (client, server) = TestTransport::new();
-        let stopper = Stopper::new();
+        let swansong = Swansong::new();
         let res = trillium_testing::spawn({
-            let stopper = stopper.clone();
-            async move { Conn::map(server, stopper, handler).await }
+            let swansong = swansong.clone();
+            async move { Conn::map(server, swansong, handler).await }
         });
 
         client.write_all(request);
@@ -96,6 +96,6 @@ async fn corpus_test() {
             assert_eq!(expected_response, response, "{file:?}");
         }
 
-        stopper.stop();
+        swansong.shut_down();
     }
 }

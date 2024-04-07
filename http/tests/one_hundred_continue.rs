@@ -1,6 +1,6 @@
 use indoc::{formatdoc, indoc};
 use pretty_assertions::assert_eq;
-use stopper::Stopper;
+use swansong::Swansong;
 use test_harness::test;
 use trillium_http::{Conn, KnownHeaderName, SERVER};
 use trillium_testing::{harness, TestResult, TestTransport};
@@ -23,7 +23,7 @@ async fn one_hundred_continue() -> TestResult {
     let (client, server) = TestTransport::new();
 
     trillium_testing::spawn(async move {
-        Conn::map(server, Stopper::new(), handler).await.unwrap();
+        Conn::map(server, Swansong::new(), handler).await.unwrap();
     });
 
     client.write_all(indoc! {"
@@ -61,7 +61,7 @@ async fn one_hundred_continue_http_one_dot_zero() -> TestResult {
     let (client, server) = TestTransport::new();
 
     trillium_testing::spawn(async move {
-        Conn::map(server, Stopper::new(), handler).await.unwrap();
+        Conn::map(server, Swansong::new(), handler).await.unwrap();
     });
 
     client.write_all(indoc! { "

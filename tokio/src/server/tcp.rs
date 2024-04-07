@@ -1,6 +1,6 @@
 use crate::TokioTransport;
 use async_compat::Compat;
-use std::{future::Future, io::Result, pin::Pin};
+use std::{future::Future, io::Result};
 use tokio::{
     net::{TcpListener, TcpStream},
     spawn,
@@ -28,13 +28,11 @@ impl Server for TokioServer {
         ")"
     );
 
-    fn accept(&mut self) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>> {
-        Box::pin(async move {
-            self.0
-                .accept()
-                .await
-                .map(|(t, _)| TokioTransport(Compat::new(t)))
-        })
+    async fn accept(&mut self) -> Result<Self::Transport> {
+        self.0
+            .accept()
+            .await
+            .map(|(t, _)| TokioTransport(Compat::new(t)))
     }
 
     fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {

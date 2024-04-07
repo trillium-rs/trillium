@@ -185,7 +185,7 @@ impl SseConnExt for Conn {
         S: Stream<Item = E> + Unpin + Send + Sync + 'static,
         E: Eventable,
     {
-        let body = SseBody::new(self.inner().stopper().stop_stream(sse_stream));
+        let body = SseBody::new(self.inner().swansong().interrupt(sse_stream));
         self.with_response_header(KnownHeaderName::ContentType, "text/event-stream")
             .with_response_header(KnownHeaderName::CacheControl, "no-cache")
             .with_body(body)

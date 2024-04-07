@@ -24,12 +24,9 @@ discovered through docs.rs' reverse dependencies, please open an
 issue.
 */
 pub use futures_lite::{AsyncRead, AsyncWrite};
-pub use trillium_http::{transport::Transport, Stopper};
+pub use trillium_http::transport::Transport;
 pub use url;
 pub use url::Url;
-
-mod clone_counter;
-pub use clone_counter::{CloneCounter, CloneCounterObserver};
 
 mod config;
 pub use config::Config;
@@ -54,3 +51,5 @@ pub use server_handle::ServerHandle;
 
 mod arc_handler;
 pub(crate) use arc_handler::ArcHandler;
+
+pub use swansong::Swansong;

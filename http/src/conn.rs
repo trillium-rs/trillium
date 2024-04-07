@@ -7,7 +7,7 @@ use crate::{
     util::encoding,
     Body, BufWriter, Buffer, ConnectionStatus, Error, HeaderName, HeaderValue, Headers, HttpConfig,
     KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
-    Method, ReceivedBody, Result, StateSet, Status, Stopper, Upgrade, Version,
+    Method, ReceivedBody, Result, StateSet, Status, Swansong, Upgrade, Version,
 };
 use encoding_rs::Encoding;
 use futures_lite::{
@@ -48,7 +48,7 @@ pub struct Conn<Transport> {
     pub(crate) buffer: Buffer,
     pub(crate) request_body_state: ReceivedBodyState,
     pub(crate) secure: bool,
-    pub(crate) stopper: Stopper,
+    pub(crate) swansong: Swansong,
     pub(crate) after_send: AfterSend,
     pub(crate) start_time: Instant,
     pub(crate) peer_ip: Option<IpAddr>,
@@ -73,7 +73,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("buffer", &"..")
             .field("request_body_state", &self.request_body_state)
             .field("secure", &self.secure)
-            .field("stopper", &self.stopper)
+            .field("swansong", &self.swansong)
             .field("after_send", &"..")
             .field("start_time", &self.start_time)
             .field("peer_ip", &self.peer_ip)
@@ -109,14 +109,14 @@ where
 
     pub async fn map<F, Fut>(
         transport: Transport,
-        stopper: Stopper,
+        swansong: Swansong,
         handler: F,
     ) -> Result<Option<Upgrade<Transport>>>
     where
         F: FnMut(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>>,
     {
-        Self::map_with_config(DEFAULT_CONFIG, transport, stopper, handler).await
+        Self::map_with_config(DEFAULT_CONFIG, transport, swansong, handler).await
     }
 
     /// read any number of new `Conn`s from the transport and call the
@@ -141,14 +141,15 @@ where
     pub async fn map_with_config<F, Fut>(
         http_config: HttpConfig,
         transport: Transport,
-        stopper: Stopper,
+        swansong: Swansong,
         handler: F,
     ) -> Result<Option<Upgrade<Transport>>>
     where
         F: FnMut(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>>,
     {
-        Self::map_with_config_and_shared_state(http_config, transport, stopper, None, handler).await
+        Self::map_with_config_and_shared_state(http_config, transport, swansong, None, handler)
+            .await
     }
 
     /// read any number of new `Conn`s from the transport and call the
@@ -176,7 +177,7 @@ where
     pub async fn map_with_config_and_shared_state<F, Fut>(
         http_config: HttpConfig,
         transport: Transport,
-        stopper: Stopper,
+        swansong: Swansong,
         shared_state: Option<Arc<StateSet>>,
         mut handler: F,
     ) -> Result<Option<Upgrade<Transport>>>
@@ -188,7 +189,7 @@ where
             http_config,
             transport,
             Vec::with_capacity(http_config.request_buffer_initial_len).into(),
-            stopper,
+            swansong,
             shared_state,
         )
         .await?;
@@ -569,11 +570,11 @@ where
         self.build_request_body()
     }
 
-    /// returns a clone of the [`stopper::Stopper`] for this Conn. use
+    /// returns a clone of the [`swansong::Swansong`] for this Conn. use
     /// this to gracefully stop long-running futures and streams
     /// inside of handler functions
-    pub fn stopper(&self) -> Stopper {
-        self.stopper.clone()
+    pub fn swansong(&self) -> Swansong {
+        self.swansong.clone()
     }
 
     fn validate_headers(request_headers: &Headers) -> Result<()> {
@@ -593,7 +594,7 @@ where
     /// This function creates a new conn from the provided
     /// [`Transport`][crate::transport::Transport], as well as any
     /// bytes that have already been read from the transport, and a
-    /// [`Stopper`] instance that will be used to signal graceful
+    /// [`Swansong`] instance that will be used to signal graceful
     /// shutdown.
     ///
     /// # Errors
@@ -607,19 +608,19 @@ where
     /// * we cannot make sense of the headers, such as if there is a
     /// `content-length` header as well as a `transfer-encoding: chunked`
     /// header.
-    pub async fn new(transport: Transport, bytes: Vec<u8>, stopper: Stopper) -> Result<Self> {
-        Self::new_internal(DEFAULT_CONFIG, transport, bytes.into(), stopper, None).await
+    pub async fn new(transport: Transport, bytes: Vec<u8>, swansong: Swansong) -> Result<Self> {
+        Self::new_internal(DEFAULT_CONFIG, transport, bytes.into(), swansong, None).await
     }
 
     async fn new_internal(
         http_config: HttpConfig,
         mut transport: Transport,
         mut buffer: Buffer,
-        stopper: Stopper,
+        swansong: Swansong,
         shared_state: Option<Arc<StateSet>>,
     ) -> Result<Self> {
         let (head_size, start_time) =
-            Self::head(&mut transport, &mut buffer, &stopper, &http_config).await?;
+            Self::head(&mut transport, &mut buffer, &swansong, &http_config).await?;
 
         let mut headers = vec![EMPTY_HEADER; http_config.max_headers];
         let mut httparse_req = Request::new(&mut headers);
@@ -684,7 +685,7 @@ where
             response_body: None,
             request_body_state: ReceivedBodyState::Start,
             secure: false,
-            stopper,
+            swansong,
             after_send: AfterSend::default(),
             start_time,
             peer_ip: None,
@@ -737,7 +738,7 @@ where
             }
         }
 
-        if self.stopper.is_stopped() {
+        if self.swansong.state().is_shutting_down() {
             self.response_headers.insert(Connection, "close");
         }
     }
@@ -776,7 +777,7 @@ where
     async fn head(
         transport: &mut Transport,
         buf: &mut Buffer,
-        stopper: &Stopper,
+        swansong: &Swansong,
         http_config: &HttpConfig,
     ) -> Result<(usize, Instant)> {
         let mut len = 0;
@@ -791,8 +792,8 @@ where
             let bytes = if start_with_read {
                 buf.expand();
                 if len == 0 {
-                    stopper
-                        .stop_future(transport.read(buf))
+                    swansong
+                        .interrupt(transport.read(buf))
                         .await
                         .ok_or(Error::Closed)??
                 } else {
@@ -835,7 +836,7 @@ where
             self.http_config,
             self.transport,
             self.buffer,
-            self.stopper,
+            self.swansong,
             self.shared_state,
         )
         .await
@@ -961,7 +962,7 @@ where
             secure,
             method,
             response_body,
-            stopper,
+            swansong,
             after_send,
             start_time,
             peer_ip,
@@ -982,7 +983,7 @@ where
             buffer,
             request_body_state,
             secure,
-            stopper,
+            swansong,
             after_send,
             start_time,
             peer_ip,

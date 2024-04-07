@@ -1,7 +1,7 @@
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
 use std::thread;
-use trillium_http::{Conn, Stopper};
+use trillium_http::{Conn, Swansong};
 
 async fn handler(mut conn: Conn<TcpStream>) -> Conn<TcpStream> {
     let rc = std::rc::Rc::new(());
@@ -14,13 +14,13 @@ async fn handler(mut conn: Conn<TcpStream>) -> Conn<TcpStream> {
 
 pub fn main() {
     env_logger::init();
-    let stopper = Stopper::new();
+    let swansong = Swansong::new();
     let (send, receive) = async_channel::unbounded();
     let core_ids = core_affinity::get_core_ids().unwrap();
     let handles = core_ids
         .into_iter()
         .map(|id| {
-            let stopper = stopper.clone();
+            let swansong = swansong.clone();
             let receive = receive.clone();
             thread::spawn(move || {
                 if !core_affinity::set_for_current(id) {
@@ -30,10 +30,10 @@ pub fn main() {
 
                 futures_lite::future::block_on(executor.run(async {
                     while let Ok(transport) = receive.recv().await {
-                        let stopper = stopper.clone();
+                        let swansong = swansong.clone();
 
                         let future = async move {
-                            match Conn::map(transport, stopper, handler).await {
+                            match Conn::map(transport, swansong, handler).await {
                                 Ok(_) => {}
                                 Err(e) => log::error!("{e}"),
                             }
@@ -52,7 +52,7 @@ pub fn main() {
             .unwrap();
 
         let listener = TcpListener::bind(("0.0.0.0", port)).await.unwrap();
-        let mut incoming = stopper.stop_stream(listener.incoming());
+        let mut incoming = swansong.interrupt(listener.incoming());
         while let Some(Ok(stream)) = incoming.next().await {
             send.send(stream).await.unwrap();
         }

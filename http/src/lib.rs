@@ -28,20 +28,19 @@ usable interface on top of `trillium_http`, at very little cost.
 # fn main() -> trillium_http::Result<()> { smol::block_on(async {
 use async_net::{TcpListener, TcpStream};
 use futures_lite::StreamExt;
-use stopper::Stopper;
-use trillium_http::{Conn, Result};
+use trillium_http::{Conn, Result, Swansong};
 
-let stopper = Stopper::new();
+let swansong = Swansong::new();
 let listener = TcpListener::bind(("localhost", 0)).await?;
 let port = listener.local_addr()?.port();
 
-let server_stopper = stopper.clone();
+let server_swansong = swansong.clone();
 let server_handle = smol::spawn(async move {
-    let mut incoming = server_stopper.stop_stream(listener.incoming());
+    let mut incoming = server_swansong.interrupt(listener.incoming());
 
     while let Some(Ok(stream)) = incoming.next().await {
-        let stopper = server_stopper.clone();
-        smol::spawn(Conn::map(stream, stopper, |mut conn: Conn<TcpStream>| async move {
+        let swansong = server_swansong.clone();
+        smol::spawn(Conn::map(stream, swansong, |mut conn: Conn<TcpStream>| async move {
             conn.set_response_body("hello world");
             conn.set_status(200);
             conn
@@ -64,7 +63,7 @@ assert_eq!(
     "hello world"
 );
 
-stopper.stop(); // stop the server after one request
+swansong.shut_down(); // stop the server after one request
 server_handle.await?; // wait for the server to shut down
 # Result::Ok(()) }) }
 ```
@@ -91,7 +90,7 @@ pub use synthetic::Synthetic;
 mod upgrade;
 pub use upgrade::Upgrade;
 
-pub use stopper::Stopper;
+pub use swansong::Swansong;
 
 mod mut_cow;
 pub(crate) use mut_cow::MutCow;
