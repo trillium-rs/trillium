@@ -58,7 +58,7 @@ impl Handler for Head {
                 .and_then(|body| body.len()),
             conn
         );
-        conn.with_header(ContentLength, len.to_string())
+        conn.with_response_header(ContentLength, len.to_string())
     }
 }
 

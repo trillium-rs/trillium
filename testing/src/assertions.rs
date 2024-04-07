@@ -179,7 +179,7 @@ use trillium_testing::prelude::*;
 async fn handler(conn: Conn) -> Conn {
     conn.with_body("just tea stuff here")
         .with_status(418)
-        .with_header("server", "zojirushi")
+        .with_response_header("server", "zojirushi")
 }
 
 assert_response!(get("/").on(&handler), 418);
@@ -231,8 +231,8 @@ asserts any number of response headers
 use trillium_testing::prelude::*;
 async fn handler(conn: Conn) -> Conn {
     conn.ok("headers")
-        .with_header("server", "special-custom-server")
-        .with_header("request-id", "10")
+        .with_response_header("server", "special-custom-server")
+        .with_response_header("request-id", "10")
 }
 
 assert_headers!(get("/").on(&handler), "server" => "special-custom-server");
@@ -288,8 +288,8 @@ it can be used to assert:
 use trillium_testing::prelude::*;
 async fn handler(conn: Conn) -> Conn {
     conn.ok("body")
-        .with_header("server", "special-custom-server")
-        .with_header("request-id", "10")
+        .with_response_header("server", "special-custom-server")
+        .with_response_header("request-id", "10")
 }
 
 assert_ok!(get("/").on(&handler));

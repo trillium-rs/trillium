@@ -8,7 +8,7 @@ async fn teapot(mut conn: Conn) -> Conn {
     } else {
         conn.with_body(format!("request body was: {request_body}"))
             .with_status(418)
-            .with_header(KnownHeaderName::Server, "zojirushi")
+            .with_response_header(KnownHeaderName::Server, "zojirushi")
     }
 }
 

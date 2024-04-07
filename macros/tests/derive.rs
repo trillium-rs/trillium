@@ -25,7 +25,7 @@ fn full_lifecycle() {
         }
 
         async fn before_send(&self, conn: Conn) -> Conn {
-            conn.with_header("before-send", "before-send")
+            conn.with_response_header("before-send", "before-send")
         }
 
         fn name(&self) -> std::borrow::Cow<'static, str> {

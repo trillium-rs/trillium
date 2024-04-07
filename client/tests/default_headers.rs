@@ -12,14 +12,21 @@ async fn default_headers() -> TestResult {
         .with_default_header(UserAgent, "overridden")
         .without_default_header(Accept);
 
-    let conn = client.get("http://_").without_header(UserAgent).await?;
+    let conn = client
+        .get("http://_")
+        .without_request_header(UserAgent)
+        .await?;
 
     assert_eq!(
         conn.request_headers(),
         &Headers::from_iter([(Host, "_"), (Connection, "close")])
     );
 
-    let conn = client.get("http://_").with_header(Accept, "*/*").await?;
+    let conn = client
+        .get("http://_")
+        .with_request_header(Accept, "*/*")
+        .await?;
+
     assert_eq!(
         conn.request_headers(),
         &Headers::from_iter([

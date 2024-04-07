@@ -44,9 +44,20 @@ pub struct Upgrade<Transport> {
 }
 
 impl<Transport> Upgrade<Transport> {
-    /// read-only access to the request headers
+    /// see [`request_headers`]
+    #[deprecated = "use Upgrade::request_headers"]
     pub fn headers(&self) -> &Headers {
         &self.request_headers
+    }
+
+    /// read-only access to the request headers
+    pub fn request_headers(&self) -> &Headers {
+        &self.request_headers
+    }
+
+    /// mutable access to headers
+    pub fn request_headers_mut(&mut self) -> &mut Headers {
+        &mut self.request_headers
     }
 
     /// the http request path up to but excluding any query component
@@ -57,9 +68,7 @@ impl<Transport> Upgrade<Transport> {
         }
     }
 
-    /**
-        retrieves the query component of the path
-    */
+    /// retrieves the query component of the path
     pub fn querystring(&self) -> &str {
         match self.path.split_once('?') {
             Some((_, query)) => query,
@@ -78,8 +87,9 @@ impl<Transport> Upgrade<Transport> {
         &self.state
     }
 
-    /// Modify the transport type of this upgrade. This is useful for
-    /// boxing the transport in order to erase the type argument.
+    /// Modify the transport type of this upgrade.
+    ///
+    /// This is useful for boxing the transport in order to erase the type argument.
     pub fn map_transport<T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static>(
         self,
         f: impl Fn(Transport) -> T,

@@ -154,7 +154,7 @@ impl StaticCompiledHandler {
             (mime::APPLICATION, mime::JAVASCRIPT) | (mime::TEXT, _) | (_, mime::HTML)
         );
 
-        conn.headers_mut().try_insert(
+        conn.response_headers_mut().try_insert(
             ContentType,
             if is_text && !is_ascii {
                 format!("{mime}; charset=utf-8")
@@ -164,7 +164,7 @@ impl StaticCompiledHandler {
         );
 
         if let Some(metadata) = file.metadata() {
-            conn.headers_mut()
+            conn.response_headers_mut()
                 .try_insert(LastModified, httpdate::fmt_http_date(metadata.modified()));
         }
 

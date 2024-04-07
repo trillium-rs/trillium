@@ -24,7 +24,7 @@ the attribute and return the conn, enabling chained calls like:
 ```
 struct MyState(&'static str);
 async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
-    conn.with_header("content-type", "text/plain")
+    conn.with_response_header("content-type", "text/plain")
         .with_state(MyState("hello"))
         .with_body("hey there")
         .with_status(418)
@@ -360,18 +360,16 @@ impl Conn {
         self.inner.method()
     }
 
-    /// borrows the request headers
-    ///
-    /// this is aliased as [`Conn::request_headers`]
+    /// see [`Conn::request_headers`]
+    #[deprecated = "use Conn::request_headers"]
     pub fn headers(&self) -> &Headers {
-        self.inner.request_headers()
+        self.request_headers()
     }
 
-    /// mutably borrows response headers
-    ///
-    /// this is aliased as [`Conn::response_headers_mut`]
+    /// see [`Conn::response_headers_mut`]
+    #[deprecated = "use Conn::response_headers_mut"]
     pub fn headers_mut(&mut self) -> &mut Headers {
-        self.inner.response_headers_mut()
+        self.response_headers_mut()
     }
 
     /// borrow the response headers
@@ -380,8 +378,6 @@ impl Conn {
     }
 
     /// mutably borrow the response headers
-    ///
-    /// this is aliased as [`Conn::headers_mut`]
     pub fn response_headers_mut(&mut self) -> &mut Headers {
         self.inner.response_headers_mut()
     }
@@ -405,18 +401,30 @@ impl Conn {
     ```
     use trillium_testing::prelude::*;
     let mut conn = get("/").on(&|conn: trillium::Conn| async move {
-        conn.with_header("content-type", "application/html")
+        conn.with_response_header("content-type", "application/html")
     });
     ```
     */
     #[must_use]
-    pub fn with_header(
+    pub fn with_response_header(
         mut self,
         header_name: impl Into<HeaderName<'static>>,
         header_value: impl Into<HeaderValues>,
     ) -> Self {
-        self.headers_mut().insert(header_name, header_value);
+        self.response_headers_mut()
+            .insert(header_name, header_value);
         self
+    }
+
+    /// Prefer [`with_response_header`]
+    #[must_use]
+    #[deprecated = "use Conn::with_response_header"]
+    pub fn with_header(
+        self,
+        header_name: impl Into<HeaderName<'static>>,
+        header_value: impl Into<HeaderValues>,
+    ) -> Self {
+        self.with_response_header(header_name, header_value)
     }
 
     /**
