@@ -29,7 +29,7 @@ where
             .spawn(handler);
         handle.info().await;
         tests(url).await.unwrap();
-        handle.stop().await;
+        handle.shut_down().await;
     });
 }
 

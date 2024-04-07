@@ -29,8 +29,8 @@ impl Server for AsyncStdServer {
         ")"
     );
 
-    fn accept(&mut self) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>> {
-        Box::pin(async move { self.0.accept().await.map(|(t, _)| t.into()) })
+    async fn accept(&mut self) -> Result<Self::Transport> {
+        self.0.accept().await.map(|(t, _)| t.into())
     }
 
     fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {

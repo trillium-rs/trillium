@@ -40,9 +40,9 @@ async fn infinitely_pending_task() -> TestResult {
 
     client.close().await?; // closing the client before we receive a response
 
-    handle.stop().await; // wait for a graceful shutdown the fact that we terminate here indicates
-                         // that the handler is not still running even though it polls an infinitely
-                         // pending future
+    handle.shut_down().await; // wait for a graceful shutdown the fact that we terminate here indicates
+                              // that the handler is not still running even though it polls an infinitely
+                              // pending future
 
     Ok(())
 }
@@ -97,7 +97,7 @@ async fn is_disconnected() -> TestResult {
     delay_sender.send(()).await?;
     assert!(disconnected_receiver.recv().await?);
 
-    handle.stop().await;
+    handle.shut_down().await;
 
     Ok(())
 }
