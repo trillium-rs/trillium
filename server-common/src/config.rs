@@ -1,13 +1,11 @@
-use crate::{
-    server_handle::CompletionFuture, Acceptor, CloneCounterObserver, Server, ServerHandle, Stopper,
-};
+use crate::{Acceptor, Server, ServerHandle};
 use async_cell::sync::AsyncCell;
 use std::{
     marker::PhantomData,
     net::SocketAddr,
     sync::{Arc, RwLock},
 };
-use trillium::{Handler, HttpConfig, Info};
+use trillium::{Handler, HttpConfig, Info, Swansong};
 
 /**
 # Primary entrypoint for configuring and running a trillium server
@@ -64,12 +62,10 @@ pub struct Config<ServerType, AcceptorType> {
     pub(crate) port: Option<u16>,
     pub(crate) host: Option<String>,
     pub(crate) nodelay: bool,
-    pub(crate) stopper: Stopper,
-    pub(crate) observer: CloneCounterObserver,
+    pub(crate) swansong: Swansong,
     pub(crate) register_signals: bool,
     pub(crate) max_connections: Option<usize>,
     pub(crate) info: Arc<AsyncCell<Arc<Info>>>,
-    pub(crate) completion_future: CompletionFuture,
     pub(crate) binding: RwLock<Option<ServerType>>,
     pub(crate) server: PhantomData<ServerType>,
     pub(crate) http_config: HttpConfig,
@@ -96,9 +92,9 @@ where
     /// unrelated to the trillium application. If you do not need to spawn
     /// other tasks, [`Config::run`] is the preferred entrypoint
     pub async fn run_async(self, handler: impl Handler) {
-        let completion_future = self.completion_future.clone();
+        let swansong = self.swansong.clone();
         ServerType::run_async(self, handler).await;
-        completion_future.notify()
+        swansong.shut_down().await;
     }
 
     /// Spawns the server onto the async runtime, returning a
@@ -115,10 +111,8 @@ where
     /// when spawning the server onto a runtime.
     pub fn handle(&self) -> ServerHandle {
         ServerHandle {
-            stopper: self.stopper.clone(),
+            swansong: self.swansong.clone(),
             info: self.info.clone(),
-            completion: self.completion_future.clone(),
-            observer: self.observer.clone(),
         }
     }
 
@@ -179,27 +173,18 @@ where
             port: self.port,
             nodelay: self.nodelay,
             server: PhantomData,
-            stopper: self.stopper,
-            observer: self.observer,
+            swansong: self.swansong,
             register_signals: self.register_signals,
             max_connections: self.max_connections,
             info: self.info,
-            completion_future: self.completion_future,
             binding: self.binding,
             http_config: self.http_config,
         }
     }
 
-    /// use the specific [`Stopper`] provided
-    pub fn with_stopper(mut self, stopper: Stopper) -> Self {
-        self.stopper = stopper;
-        self
-    }
-
-    /// use the specified [`CloneCounterObserver`] to monitor or
-    /// modify the outstanding connection count for graceful shutdown
-    pub fn with_observer(mut self, observer: CloneCounterObserver) -> Self {
-        self.observer = observer;
+    /// use the specific [`Swansong`] provided
+    pub fn with_swansong(mut self, swansong: Swansong) -> Self {
+        self.swansong = swansong;
         self
     }
 
@@ -276,12 +261,10 @@ where
             host: self.host.clone(),
             server: PhantomData,
             nodelay: self.nodelay,
-            stopper: self.stopper.clone(),
-            observer: self.observer.clone(),
+            swansong: self.swansong.clone(),
             register_signals: self.register_signals,
             max_connections: self.max_connections,
             info: AsyncCell::shared(),
-            completion_future: CompletionFuture::new(),
             binding: RwLock::new(None),
             http_config: self.http_config,
         }
@@ -309,12 +292,10 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
             host: None,
             server: PhantomData,
             nodelay: false,
-            stopper: Stopper::new(),
-            observer: CloneCounterObserver::new(),
+            swansong: Swansong::new(),
             register_signals: cfg!(unix),
             max_connections,
             info: AsyncCell::shared(),
-            completion_future: CompletionFuture::new(),
             binding: RwLock::new(None),
             http_config: HttpConfig::default(),
         }

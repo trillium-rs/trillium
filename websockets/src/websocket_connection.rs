@@ -12,7 +12,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use stopper::{Stopper, StreamStopper};
+use swansong::{Interrupt, Swansong};
 use trillium::{Headers, Method, StateSet, Upgrade};
 use trillium_http::transport::BoxedTransport;
 
@@ -34,7 +34,7 @@ pub struct WebSocketConn {
     method: Method,
     state: StateSet,
     peer_ip: Option<IpAddr>,
-    stopper: Stopper,
+    swansong: Swansong,
     sink: SplitSink<Wss, Message>,
     stream: Option<WStream>,
 }
@@ -77,7 +77,7 @@ impl WebSocketConn {
             state,
             buffer,
             transport,
-            stopper,
+            swansong,
             peer_ip,
             ..
         } = upgrade;
@@ -90,7 +90,7 @@ impl WebSocketConn {
 
         let (sink, stream) = wss.split();
         let stream = Some(WStream {
-            stream: stopper.stop_stream(stream),
+            stream: swansong.interrupt(stream),
         });
 
         Self {
@@ -101,13 +101,13 @@ impl WebSocketConn {
             peer_ip,
             sink,
             stream,
-            stopper,
+            swansong,
         }
     }
 
-    /// retrieve a clone of the server's [`Stopper`]
-    pub fn stopper(&self) -> Stopper {
-        self.stopper.clone()
+    /// retrieve a clone of the server's [`Swansong`]
+    pub fn swansong(&self) -> Swansong {
+        self.swansong.clone()
     }
 
     /// close the websocket connection gracefully
@@ -209,7 +209,7 @@ type MessageResult = std::result::Result<Message, tungstenite::Error>;
 
 #[derive(Debug)]
 pub struct WStream {
-    stream: StreamStopper<SplitStream<Wss>>,
+    stream: Interrupt<SplitStream<Wss>>,
 }
 
 impl Stream for WStream {

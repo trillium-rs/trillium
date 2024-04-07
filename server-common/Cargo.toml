@@ -12,10 +12,10 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 async_cell = "0.2.2"
-event-listener = "4.0.1"
 futures-lite = "2.1.0"
 log = "0.4.20"
 pin-project-lite = "0.2.13"
+swansong = "0.3.0"
 trillium = { path = "../trillium", version = "0.2.19" }
 trillium-http = { path = "../http", version = "0.3.16" }
 url = "2.5.0"
@@ -24,7 +24,6 @@ url = "2.5.0"
 rlimit = "0.10.1"
 
 [dev-dependencies]
-test-harness = "0.2.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
