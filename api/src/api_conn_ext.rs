@@ -216,7 +216,7 @@ impl ApiConnExt for Conn {
 
     fn content_type(&self) -> Result<Mime> {
         let header_str = self
-            .headers()
+            .request_headers()
             .get_str(ContentType)
             .ok_or(Error::MissingContentType)?;
 
@@ -251,7 +251,7 @@ impl ApiConnExt for Conn {
         T: Serialize + Sync,
     {
         let accept = self
-            .headers()
+            .request_headers()
             .get_str(Accept)
             .unwrap_or("*/*")
             .split(',')
@@ -261,14 +261,15 @@ impl ApiConnExt for Conn {
         match accept {
             Some(AcceptableMime::Json) => {
                 self.set_body(serde_json::to_string(body)?);
-                self.headers_mut().insert(ContentType, "application/json");
+                self.response_headers_mut()
+                    .insert(ContentType, "application/json");
                 Ok(())
             }
 
             #[cfg(feature = "forms")]
             Some(AcceptableMime::Form) => {
                 self.set_body(serde_urlencoded::to_string(body)?);
-                self.headers_mut()
+                self.response_headers_mut()
                     .insert(ContentType, "application/x-www-form-urlencoded");
                 Ok(())
             }

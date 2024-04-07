@@ -412,7 +412,7 @@ impl<H: Handler> Handler for Option<H> {
 #[async_trait]
 impl Handler for Headers {
     async fn run(&self, mut conn: Conn) -> Conn {
-        conn.headers_mut().append_all(self.clone());
+        conn.response_headers_mut().append_all(self.clone());
         conn
     }
 }

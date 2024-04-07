@@ -453,7 +453,7 @@ impl Handler for Router {
                 .join(", ");
 
             return conn
-                .with_header(KnownHeaderName::Allow, allow)
+                .with_response_header(KnownHeaderName::Allow, allow)
                 .with_status(200)
                 .halt();
         } else {

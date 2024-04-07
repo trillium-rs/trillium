@@ -41,7 +41,7 @@ impl TestConn {
     use trillium_testing::TestConn;
     let conn = TestConn::build("get", "/", "body")
         .with_request_header("some-header", "value");
-    assert_eq!(conn.headers().get_str("some-header"), Some("value"));
+    assert_eq!(conn.request_headers().get_str("some-header"), Some("value"));
     ```
     */
 

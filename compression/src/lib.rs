@@ -168,7 +168,7 @@ fn parse_accept_encoding(header: &str) -> Vec<(CompressionAlgorithm, u8)> {
 impl Handler for Compression {
     async fn run(&self, mut conn: Conn) -> Conn {
         if let Some(header) = conn
-            .headers()
+            .request_headers()
             .get_str(AcceptEncoding)
             .and_then(|h| self.negotiate(h))
         {
@@ -248,12 +248,12 @@ impl Handler for Compression {
 
             if compression_used {
                 let vary = conn
-                    .headers_mut()
+                    .response_headers()
                     .get_str(Vary)
                     .map(|vary| HeaderValues::from(format!("{vary}, Accept-Encoding")))
                     .unwrap_or_else(|| HeaderValues::from("Accept-Encoding"));
 
-                conn.headers_mut().extend([
+                conn.response_headers_mut().extend([
                     (ContentEncoding, HeaderValues::from(algo.as_str())),
                     (Vary, vary),
                 ]);

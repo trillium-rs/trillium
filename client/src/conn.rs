@@ -97,7 +97,7 @@ impl Conn {
 
 
     let handler = |conn: trillium::Conn| async move {
-        let header = conn.headers().get_str("some-request-header").unwrap_or_default();
+        let header = conn.request_headers().get_str("some-request-header").unwrap_or_default();
         let response = format!("some-request-header was {}", header);
         conn.ok(response)
     };
@@ -106,7 +106,7 @@ impl Conn {
 
     trillium_testing::with_server(handler, |url| async move {
         let mut conn = client.get(url)
-            .with_header("some-request-header", "header-value") // <--
+            .with_request_header("some-request-header", "header-value") // <--
             .await?;
         assert_eq!(
             conn.response_body().read_string().await?,
@@ -117,7 +117,7 @@ impl Conn {
     ```
     */
 
-    pub fn with_header(
+    pub fn with_request_header(
         mut self,
         name: impl Into<HeaderName<'static>>,
         value: impl Into<HeaderValues>,
@@ -126,12 +126,22 @@ impl Conn {
         self
     }
 
+    #[deprecated = "use Conn::with_request_header"]
+    /// see [`with_request_header]
+    pub fn with_header(
+        self,
+        name: impl Into<HeaderName<'static>>,
+        value: impl Into<HeaderValues>,
+    ) -> Self {
+        self.with_request_header(name, value)
+    }
+
     /**
     chainable setter for `extending` request headers
 
     ```
     let handler = |conn: trillium::Conn| async move {
-        let header = conn.headers().get_str("some-request-header").unwrap_or_default();
+        let header = conn.request_headers().get_str("some-request-header").unwrap_or_default();
         let response = format!("some-request-header was {}", header);
         conn.ok(response)
     };
@@ -141,7 +151,7 @@ impl Conn {
 
     trillium_testing::with_server(handler, move |url| async move {
         let mut conn = client.get(url)
-            .with_headers([ // <--
+            .with_request_headers([ // <--
                 ("some-request-header", "header-value"),
                 ("some-other-req-header", "other-header-value")
             ])
@@ -154,8 +164,7 @@ impl Conn {
     })
     ```
     */
-
-    pub fn with_headers<HN, HV, I>(mut self, headers: I) -> Self
+    pub fn with_request_headers<HN, HV, I>(mut self, headers: I) -> Self
     where
         I: IntoIterator<Item = (HN, HV)> + Send,
         HN: Into<HeaderName<'static>>,
@@ -165,8 +174,19 @@ impl Conn {
         self
     }
 
+    /// see [`with_request_headers`]
+    #[deprecated = "use Conn::with_request_headers"]
+    pub fn with_headers<HN, HV, I>(self, headers: I) -> Self
+    where
+        I: IntoIterator<Item = (HN, HV)> + Send,
+        HN: Into<HeaderName<'static>>,
+        HV: Into<HeaderValues>,
+    {
+        self.with_request_headers(headers)
+    }
+
     /// Chainable method to remove a request header if present
-    pub fn without_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
+    pub fn without_request_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
         self.request_headers.remove(name);
         self
     }
@@ -174,7 +194,7 @@ impl Conn {
     /**
     ```
     let handler = |conn: trillium::Conn| async move {
-        conn.with_header("some-header", "some-value")
+        conn.with_response_header("some-header", "some-value")
             .with_status(200)
     };
 
@@ -206,7 +226,7 @@ impl Conn {
     use trillium_client::Client;
 
     let handler = |conn: trillium::Conn| async move {
-        let header = conn.headers().get_str("some-request-header").unwrap_or_default();
+        let header = conn.request_headers().get_str("some-request-header").unwrap_or_default();
         let response = format!("some-request-header was {}", header);
         conn.ok(response)
     };
@@ -312,7 +332,7 @@ impl Conn {
 
         Ok(self
             .with_body(serde_json::to_string(body)?)
-            .with_header(KnownHeaderName::ContentType, "application/json"))
+            .with_request_header(KnownHeaderName::ContentType, "application/json"))
     }
 
     pub(crate) fn response_encoding(&self) -> &'static Encoding {

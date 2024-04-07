@@ -25,7 +25,7 @@ impl Handler for CookiesHandler {
     async fn run(&self, mut conn: Conn) -> Conn {
         let mut jar: CookieJar = conn.take_state().unwrap_or_default();
 
-        if let Some(cookies) = conn.headers().get_values(KnownHeaderName::Cookie) {
+        if let Some(cookies) = conn.request_headers().get_values(KnownHeaderName::Cookie) {
             for cookie in cookies.iter().filter_map(HeaderValue::as_str) {
                 for pair in cookie.split(';') {
                     if let Ok(cookie) = Cookie::parse_encoded(String::from(pair)) {
@@ -40,7 +40,7 @@ impl Handler for CookiesHandler {
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if let Some(jar) = conn.take_state::<CookieJar>() {
-            conn.headers_mut().append(
+            conn.response_headers_mut().append(
                 KnownHeaderName::SetCookie,
                 jar.delta()
                     .map(|cookie| cookie.encoded().to_string())

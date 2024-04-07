@@ -154,7 +154,7 @@ impl Handler for Forwarding {
             return conn;
         }
 
-        let forwarded = match Forwarded::from_headers(conn.headers()) {
+        let forwarded = match Forwarded::from_headers(conn.request_headers()) {
             Ok(Some(forwarded)) => forwarded.into_owned(),
             Err(error) => {
                 log::error!("{error}");
