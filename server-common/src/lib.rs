@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![deny(
     clippy::dbg_macro,
     missing_copy_implementations,
@@ -28,9 +29,6 @@ pub use url::{self, Url};
 mod config;
 pub use config::Config;
 
-mod config_ext;
-pub use config_ext::ConfigExt;
-
 mod server;
 pub use server::Server;
 
@@ -52,3 +50,5 @@ pub use swansong::Swansong;
 
 mod runtime;
 pub use runtime::{DroppableFuture, Runtime, RuntimeTrait};
+
+mod running_config;

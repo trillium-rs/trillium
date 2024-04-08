@@ -283,7 +283,7 @@ impl Debug for BodyType {
                 ..
             } => f
                 .debug_struct("BodyType::Streaming")
-                .field("async_read", &"..")
+                .field("async_read", &format_args!(".."))
                 .field("len", &len)
                 .field("done", &done)
                 .field("progress", &progress)

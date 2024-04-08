@@ -19,14 +19,6 @@ impl Server for TokioServer {
     type Runtime = TokioRuntime;
     type Transport = TokioTransport<Compat<TcpStream>>;
 
-    const DESCRIPTION: &'static str = concat!(
-        " (",
-        env!("CARGO_PKG_NAME"),
-        " v",
-        env!("CARGO_PKG_VERSION"),
-        ")"
-    );
-
     async fn accept(&mut self) -> io::Result<Self::Transport> {
         self.0
             .accept()
@@ -34,12 +26,14 @@ impl Server for TokioServer {
             .map(|(t, _)| TokioTransport(Compat::new(t)))
     }
 
-    fn listener_from_tcp(tcp: net::TcpListener) -> Self {
+    fn from_tcp(tcp: net::TcpListener) -> Self {
         Self(tcp.try_into().unwrap())
     }
 
-    fn info(&self) -> Info {
-        self.0.local_addr().unwrap().into()
+    fn init(&self, info: &mut Info) {
+        if let Ok(socket_addr) = self.0.local_addr() {
+            info.insert_state(socket_addr);
+        }
     }
 
     fn runtime() -> Self::Runtime {
