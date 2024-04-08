@@ -1,10 +1,11 @@
 use crate::{
     after_send::AfterSend, http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState,
-    transport::Transport, Conn, Headers, KnownHeaderName, Method, Swansong, TypeSet, Version,
+    transport::Transport, Conn, Headers, KnownHeaderName, Method, ServerConfig, TypeSet, Version,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Instant,
 };
@@ -134,6 +135,7 @@ impl Conn<Synthetic> {
         request_headers.insert(KnownHeaderName::ContentLength, transport.len().to_string());
 
         Self {
+            server_config: Arc::default(),
             transport,
             request_headers,
             response_headers: Headers::new(),
@@ -146,13 +148,22 @@ impl Conn<Synthetic> {
             buffer: Vec::with_capacity(DEFAULT_CONFIG.request_buffer_initial_len).into(),
             request_body_state: ReceivedBodyState::Start,
             secure: false,
-            swansong: Swansong::new(),
             after_send: AfterSend::default(),
             start_time: Instant::now(),
             peer_ip: None,
-            http_config: DEFAULT_CONFIG,
-            shared_state: None,
         }
+    }
+
+    /// use a particular shared server config for this synthetic conn
+    pub fn set_server_config(&mut self, server_config: Arc<ServerConfig>) {
+        self.server_config = server_config;
+    }
+
+    /// chainable setter for server config
+    #[must_use]
+    pub fn with_server_config(mut self, server_config: Arc<ServerConfig>) -> Self {
+        self.set_server_config(server_config);
+        self
     }
 
     /// simulate closing the transport

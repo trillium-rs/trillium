@@ -30,6 +30,14 @@ impl RuntimeTrait for AsyncStdRuntime {
     fn block_on<Fut: Future>(&self, fut: Fut) -> Fut::Output {
         async_std::task::block_on(fut)
     }
+
+    #[cfg(unix)]
+    fn hook_signals(
+        &self,
+        signals: impl IntoIterator<Item = i32>,
+    ) -> impl Stream<Item = i32> + Send + 'static {
+        signal_hook_async_std::Signals::new(signals).unwrap()
+    }
 }
 
 impl AsyncStdRuntime {
@@ -81,6 +89,6 @@ impl AsyncStdRuntime {
 
 impl From<AsyncStdRuntime> for Runtime {
     fn from(value: AsyncStdRuntime) -> Self {
-        Runtime::new(value)
+        Runtime::from_trait_impl(value)
     }
 }

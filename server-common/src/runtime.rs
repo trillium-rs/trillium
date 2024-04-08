@@ -22,16 +22,20 @@ pub struct Runtime(Arc<dyn ObjectSafeRuntime>);
 
 impl Debug for Runtime {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Runtime").field(&"..").finish()
+        f.debug_tuple("Runtime").field(&format_args!("..")).finish()
     }
 }
 
 impl Runtime {
     /// Construct a new type-erased runtime object from any [`RuntimeTrait`] implementation.
-    ///
-    /// Prefer using [`from`][From::from]/[`into`][Into::into] if you don't have a concrete
-    /// `RuntimeTrait` in order to avoid double-arc-ing a Runtime.
     pub fn new(runtime: impl RuntimeTrait) -> Self {
+        runtime.into() // we avoid re-arcing a Runtime by using Into::into
+    }
+
+    // in order to avoid re-arcing Runtime in new / into, we use this to actually construct the
+    // Runtime within From implementations on the runtime trait type
+    #[doc(hidden)]
+    pub fn from_trait_impl(runtime: impl RuntimeTrait) -> Self {
         Self(Arc::new(runtime))
     }
 
@@ -116,5 +120,12 @@ impl RuntimeTrait for Runtime {
             let _ = send.send(fut.await);
         }));
         receive.recv().unwrap()
+    }
+
+    fn hook_signals(
+        &self,
+        signals: impl IntoIterator<Item = i32>,
+    ) -> impl Stream<Item = i32> + Send + 'static {
+        self.0.hook_signals(signals.into_iter().collect())
     }
 }

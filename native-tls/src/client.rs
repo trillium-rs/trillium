@@ -43,7 +43,7 @@ impl<Config: Debug> Debug for NativeTlsConfig<Config> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NativeTlsConfig")
             .field("tcp_config", &self.tcp_config)
-            .field("tls_connector", &"..")
+            .field("tls_connector", &format_args!(".."))
             .finish()
     }
 }

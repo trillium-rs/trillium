@@ -2,7 +2,7 @@ use crate::{Conn, IntoUrl, Pool, USER_AGENT};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
     transport::BoxedTransport, HeaderName, HeaderValues, Headers, KnownHeaderName, Method,
-    ReceivedBodyState, Version::Http1_1,
+    ReceivedBodyState, TypeSet, Version::Http1_1,
 };
 use trillium_server_common::{
     url::{Origin, Url},
@@ -76,9 +76,9 @@ impl Client {
     method!(patch, Patch);
 
     /// builds a new client from this `Connector`
-    pub fn new(config: impl Connector) -> Self {
+    pub fn new(connector: impl Connector) -> Self {
         Self {
-            config: ArcedConnector::new(config),
+            config: ArcedConnector::new(connector),
             pool: None,
             base: None,
             default_headers: Arc::new(default_request_headers()),
@@ -167,6 +167,7 @@ impl Client {
             timeout: self.timeout,
             http_version: Http1_1,
             max_head_length: 8 * 1024,
+            state: TypeSet::new(),
         }
     }
 

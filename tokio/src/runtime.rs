@@ -55,6 +55,14 @@ impl RuntimeTrait for TokioRuntime {
             Inner::Owned(runtime) => runtime.block_on(fut),
         }
     }
+
+    #[cfg(unix)]
+    fn hook_signals(
+        &self,
+        signals: impl IntoIterator<Item = i32>,
+    ) -> impl Stream<Item = i32> + Send + 'static {
+        signal_hook_tokio::Signals::new(signals).unwrap()
+    }
 }
 
 impl TokioRuntime {
@@ -112,6 +120,6 @@ impl TokioRuntime {
 
 impl From<TokioRuntime> for Runtime {
     fn from(value: TokioRuntime) -> Self {
-        Runtime::new(value)
+        Runtime::from_trait_impl(value)
     }
 }
