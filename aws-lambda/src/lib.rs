@@ -19,7 +19,7 @@ use lamedh_runtime::{Context, Handler as AwsHandler};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::runtime;
 use trillium::{Conn, Handler};
-use trillium_http::{Conn as HttpConn, Synthetic};
+use trillium_http::{Conn as HttpConn, ServerConfig, Synthetic};
 
 mod context;
 pub use context::LambdaConnExt;
@@ -32,14 +32,19 @@ mod response;
 use response::{AlbMultiHeadersResponse, AlbResponse, LambdaResponse};
 
 #[derive(Debug)]
-struct HandlerWrapper<H>(Arc<H>);
+struct HandlerWrapper<H>(Arc<H>, Arc<ServerConfig>);
 
 impl<H: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<H> {
     type Error = std::io::Error;
     type Fut = Pin<Box<dyn Future<Output = Result<LambdaResponse, Self::Error>> + Send + 'static>>;
 
     fn call(&mut self, request: LambdaRequest, context: Context) -> Self::Fut {
-        Box::pin(handler_fn(request, context, Arc::clone(&self.0)))
+        Box::pin(handler_fn(
+            request,
+            context,
+            Arc::clone(&self.0),
+            Arc::clone(&self.1),
+        ))
     }
 }
 
@@ -52,17 +57,18 @@ async fn handler_fn(
     request: LambdaRequest,
     context: Context,
     handler: Arc<impl Handler>,
+    server_config: Arc<ServerConfig>,
 ) -> std::io::Result<LambdaResponse> {
     match request {
         LambdaRequest::Alb(request) => {
-            let mut conn = request.into_conn().await;
+            let mut conn = request.into_conn().await.with_server_config(server_config);
             conn.state_mut().insert(LambdaContext::new(context));
             let conn = run_handler(conn, handler).await;
             Ok(LambdaResponse::Alb(AlbResponse::from_conn(conn).await))
         }
 
         LambdaRequest::AlbMultiHeaders(request) => {
-            let mut conn = request.into_conn().await;
+            let mut conn = request.into_conn().await.with_server_config(server_config);
             conn.state_mut().insert(LambdaContext::new(context));
             let conn = run_handler(conn, handler).await;
             Ok(LambdaResponse::AlbMultiHeaders(
@@ -75,9 +81,9 @@ async fn handler_fn(
 ///
 /// This function will poll pending until the server shuts down.
 pub async fn run_async(mut handler: impl Handler) {
-    let mut info = "aws lambda".into();
+    let mut info = ServerConfig::default().into();
     handler.init(&mut info).await;
-    lamedh_runtime::run(HandlerWrapper(Arc::new(handler)))
+    lamedh_runtime::run(HandlerWrapper(Arc::new(handler), Arc::new(info.into())))
         .await
         .unwrap()
 }

@@ -51,4 +51,13 @@ pub trait RuntimeTrait: Into<Runtime> + Clone + Send + Sync + 'static {
             None
         })
     }
+
+    /// trap and return a [`Stream`] of signals that match the provided signals
+    fn hook_signals(
+        &self,
+        signals: impl IntoIterator<Item = i32>,
+    ) -> impl Stream<Item = i32> + Send + 'static {
+        let _ = signals;
+        futures_lite::stream::empty()
+    }
 }

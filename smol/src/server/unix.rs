@@ -3,12 +3,11 @@ use async_net::{
     unix::{UnixListener, UnixStream},
     TcpListener, TcpStream,
 };
-use futures_lite::prelude::*;
-use std::{env, io::Result};
+use std::io::Result;
 use trillium::{log_error, Info};
 use trillium_server_common::{
     Binding::{self, *},
-    Server, Swansong, Url,
+    Server,
 };
 
 #[derive(Debug, Clone)]
@@ -29,33 +28,8 @@ impl Server for SmolServer {
     type Runtime = SmolRuntime;
     type Transport = Binding<SmolTransport<TcpStream>, SmolTransport<UnixStream>>;
 
-    const DESCRIPTION: &'static str = concat!(
-        " (",
-        env!("CARGO_PKG_NAME"),
-        " v",
-        env!("CARGO_PKG_VERSION"),
-        ")"
-    );
-
     fn runtime() -> Self::Runtime {
         SmolRuntime::default()
-    }
-
-    async fn handle_signals(swansong: Swansong) {
-        use signal_hook::consts::signal::*;
-        use signal_hook_async_std::Signals;
-
-        let signals = Signals::new([SIGINT, SIGTERM, SIGQUIT]).unwrap();
-        let mut signals = signals.fuse();
-        while signals.next().await.is_some() {
-            if swansong.state().is_shutting_down() {
-                eprintln!("\nSecond interrupt, shutting down harshly");
-                std::process::exit(1);
-            } else {
-                println!("\nShutting down gracefully.\nControl-C again to force.");
-                swansong.shut_down();
-            }
-        }
     }
 
     async fn accept(&mut self) -> Result<Self::Transport> {
@@ -65,25 +39,26 @@ impl Server for SmolServer {
         }
     }
 
-    fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {
+    fn from_tcp(tcp: std::net::TcpListener) -> Self {
         Self(Tcp(tcp.try_into().unwrap()))
     }
 
-    fn listener_from_unix(tcp: std::os::unix::net::UnixListener) -> Self {
+    fn from_unix(tcp: std::os::unix::net::UnixListener) -> Self {
         Self(Unix(tcp.try_into().unwrap()))
     }
 
-    fn info(&self) -> Info {
+    fn init(&self, info: &mut Info) {
         match &self.0 {
             Tcp(t) => {
-                let local_addr = t.local_addr().unwrap();
-                let mut info = Info::from(local_addr);
-                if let Ok(url) = Url::parse(&format!("http://{local_addr}")) {
-                    info.state_mut().insert(url);
+                if let Ok(socket_addr) = t.local_addr() {
+                    info.insert_state(socket_addr);
                 }
-                info
             }
-            Unix(u) => u.local_addr().unwrap().into(),
+            Unix(u) => {
+                if let Ok(socket_addr) = u.local_addr() {
+                    info.insert_state(socket_addr);
+                }
+            }
         }
     }
 

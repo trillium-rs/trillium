@@ -1,7 +1,8 @@
 use indoc::{formatdoc, indoc};
 use pretty_assertions::assert_eq;
+use std::sync::Arc;
 use test_harness::test;
-use trillium_http::{Conn, KnownHeaderName, Swansong, SERVER};
+use trillium_http::{Conn, KnownHeaderName, ServerConfig, SERVER};
 use trillium_testing::{harness, RuntimeTrait, TestResult, TestTransport};
 
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
@@ -21,7 +22,8 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
 async fn one_hundred_continue() -> TestResult {
     let (client, server) = TestTransport::new();
     let runtime = trillium_testing::runtime();
-    let handle = runtime.spawn(async move { Conn::map(server, Swansong::new(), handler).await });
+    let server_config = Arc::new(ServerConfig::default());
+    let handle = runtime.spawn(server_config.run(server, handler));
 
     client.write_all(indoc! {"
         POST / HTTP/1.1\r
@@ -57,7 +59,8 @@ async fn one_hundred_continue() -> TestResult {
 async fn one_hundred_continue_http_one_dot_zero() -> TestResult {
     let (client, server) = TestTransport::new();
     let runtime = trillium_testing::runtime();
-    let handle = runtime.spawn(async move { Conn::map(server, Swansong::new(), handler).await });
+    let server_config = Arc::new(ServerConfig::default());
+    let handle = runtime.spawn(server_config.run(server, handler));
 
     client.write_all(indoc! { "
         POST / HTTP/1.0\r

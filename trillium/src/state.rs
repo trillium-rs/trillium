@@ -1,5 +1,5 @@
 use crate::{Conn, Handler};
-use std::fmt::{self, Debug, Formatter};
+use std::fmt::Debug;
 
 /// # A handler for sharing state across an application.
 ///
@@ -52,27 +52,8 @@ use std::fmt::{self, Debug, Formatter};
 /// for your application. There will be one clones of the contained T type
 /// in memory for each http connection, and any locks should be held as
 /// briefly as possible so as to minimize impact on other conns.
-///
-/// **Stability note:** This is a common enough pattern that it currently
-/// exists in the public api, but may be removed at some point for
-/// simplicity.
-
-pub struct State<T>(T);
-
-impl<T: Debug> Debug for State<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("State").field(&self.0).finish()
-    }
-}
-
-impl<T> Default for State<T>
-where
-    T: Default + Clone + Send + Sync + 'static,
-{
-    fn default() -> Self {
-        Self::new(T::default())
-    }
-}
+#[derive(Debug, Default)]
+pub struct State<T: Clone + Send + Sync + 'static>(T);
 
 impl<T> State<T>
 where
@@ -80,16 +61,14 @@ where
 {
     /// Constructs a new State handler from any `Clone` + `Send` + `Sync` +
     /// `'static`
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn new(t: T) -> Self {
+    pub const fn new(t: T) -> Self {
         Self(t)
     }
 }
 
 /// Constructs a new [`State`] handler from any Clone + Send + Sync +
 /// 'static. Alias for [`State::new`]
-#[allow(clippy::missing_const_for_fn)]
-pub fn state<T: Clone + Send + Sync + 'static>(t: T) -> State<T> {
+pub const fn state<T: Clone + Send + Sync + 'static>(t: T) -> State<T> {
     State::new(t)
 }
 

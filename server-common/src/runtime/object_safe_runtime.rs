@@ -19,6 +19,8 @@ pub(super) trait ObjectSafeRuntime: Send + Sync + 'static {
     where
         'runtime: 'fut,
         Self: 'fut;
+
+    fn hook_signals(&self, signals: Vec<i32>) -> Pin<Box<dyn Stream<Item = i32> + Send + 'static>>;
 }
 
 impl<R> ObjectSafeRuntime for R
@@ -53,5 +55,9 @@ where
         Self: 'fut,
     {
         RuntimeTrait::block_on(self, fut)
+    }
+
+    fn hook_signals(&self, signals: Vec<i32>) -> Pin<Box<dyn Stream<Item = i32> + Send + 'static>> {
+        Box::pin(RuntimeTrait::hook_signals(self, signals))
     }
 }

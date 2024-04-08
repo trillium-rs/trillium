@@ -57,107 +57,71 @@ use std::{borrow::Cow, future::Future};
 /// `run` is the only trait function that needs to be implemented.
 
 pub trait Handler: Send + Sync + 'static {
-    /// Executes this handler, performing any modifications to the
-    /// Conn that are desired.
-    fn run(&self, conn: Conn) -> impl Future<Output = Conn> + Send;
+    /// Executes this handler, performing any modifications to the Conn that are desired.
+    fn run(&self, conn: Conn) -> impl Future<Output = Conn> + Send {
+        async { conn }
+    }
 
-    /// Performs one-time async set up on a mutable borrow of the
-    /// Handler before the server starts accepting requests. This
-    /// allows a Handler to be defined in synchronous code but perform
-    /// async setup such as establishing a database connection or
-    /// fetching some state from an external source. This is optional,
-    /// and chances are high that you do not need this.
+    /// Performs one-time async set up on a mutable borrow of the Handler before the server starts
+    /// accepting requests. This allows a Handler to be defined in synchronous code but perform
+    /// async setup such as establishing a database connection or fetching some state from an
+    /// external source. This is optional, and chances are high that you do not need this.
     ///
-    /// It also receives a mutable borrow of the [`Info`] that represents
-    /// the current connection.
-    ///
-    /// **stability note:** This may go away at some point. Please open an
-    /// issue if you have a use case which requires it.
-    fn init(&mut self, _info: &mut Info) -> impl Future<Output = ()> + Send {
+    /// It also receives a mutable borrow of the [`Info`] that represents the current connection.
+    fn init(&mut self, info: &mut Info) -> impl Future<Output = ()> + Send {
+        let _ = info;
         std::future::ready(())
     }
 
-    /// Performs any final modifications to this conn after all handlers
-    /// have been run. Although this is a slight deviation from the simple
-    /// conn->conn->conn chain represented by most Handlers, it provides
-    /// an easy way for libraries to effectively inject a second handler
-    /// into a response chain. This is useful for loggers that need to
-    /// record information both before and after other handlers have run,
-    /// as well as database transaction handlers and similar library code.
+    /// Performs any final modifications to this conn after all handlers have been run. Although
+    /// this is a slight deviation from the simple conn->conn->conn chain represented by most
+    /// Handlers, it provides an easy way for libraries to effectively inject a second handler into
+    /// a response chain. This is useful for loggers that need to record information both before and
+    /// after other handlers have run, as well as database transaction handlers and similar library
+    /// code.
     ///
-    /// ❗IMPORTANT NOTE FOR LIBRARY AUTHORS:** Please note that this
-    /// will run __whether or not the conn has was halted before
-    /// [`Handler::run`] was called on a given conn__. This means that if
-    /// you want to make your `before_send` callback conditional on
-    /// whether `run` was called, you need to put a unit type into the
-    /// conn's state and check for that.
+    /// **❗IMPORTANT NOTE FOR LIBRARY AUTHORS:** Please note that this will run __whether or not
+    /// the conn has was halted before [`Handler::run`] was called on a given conn__. This means
+    /// that if you want to make your `before_send` callback conditional on whether `run` was
+    /// called, you need to put a unit type into the conn's state and check for that.
     ///
-    /// stability note: I don't love this for the exact reason that it
-    /// breaks the simplicity of the conn->conn->model, but it is
-    /// currently the best compromise between that simplicity and
-    /// convenience for the application author, who should not have to add
-    /// two Handlers to achieve an "around" effect.
+    /// stability note: I don't love this for the exact reason that it breaks the simplicity of the
+    /// conn->conn->model, but it is currently the best compromise between that simplicity and
+    /// convenience for the application author, who should not have to add two Handlers to achieve
+    /// an "around" effect.
     fn before_send(&self, conn: Conn) -> impl Future<Output = Conn> + Send {
         std::future::ready(conn)
     }
 
-    /// predicate function answering the question of whether this Handler
-    /// would like to take ownership of the negotiated Upgrade. If this
-    /// returns true, you must implement [`Handler::upgrade`]. The first
-    /// handler that responds true to this will receive ownership of the
-    /// [`trillium::Upgrade`][crate::Upgrade] in a subsequent call to [`Handler::upgrade`]
+    /// predicate function answering the question of whether this Handler would like to take
+    /// ownership of the negotiated Upgrade. If this returns true, you must implement
+    /// [`Handler::upgrade`]. The first handler that responds true to this will receive
+    /// ownership of the [`trillium::Upgrade`][crate::Upgrade] in a subsequent call to
+    /// [`Handler::upgrade`]
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
         let _ = upgrade;
         false
     }
 
-    /// This will only be called if the handler reponds true to
-    /// [`Handler::has_upgrade`] and will only be called once for this
-    /// upgrade. There is no return value, and this function takes
-    /// exclusive ownership of the underlying transport once this is
-    /// called. You can downcast the transport to whatever the source
-    /// transport type is and perform any non-http protocol communication
-    /// that has been negotiated. You probably don't want this unless
-    /// you're implementing something like websockets. Please note that
-    /// for many transports such as `TcpStreams`, dropping the transport
-    /// (and therefore the Upgrade) will hang up / disconnect.
+    /// This will only be called if the handler reponds true to [`Handler::has_upgrade`] and will
+    /// only be called once for this upgrade. There is no return value, and this function takes
+    /// exclusive ownership of the underlying transport once this is called. You can downcast
+    /// the transport to whatever the source transport type is and perform any non-http protocol
+    /// communication that has been negotiated. You probably don't want this unless you're
+    /// implementing something like websockets. Please note that for many transports such as
+    /// `TcpStreams`, dropping the transport (and therefore the Upgrade) will hang up /
+    /// disconnect.
     fn upgrade(&self, upgrade: Upgrade) -> impl Future<Output = ()> + Send {
         let _ = upgrade;
         async { unimplemented!("if has_upgrade returns true, you must also implement upgrade") }
     }
 
-    /// Customize the name of your handler. This is used in Debug
-    /// implementations. The default is the type name of this handler.
+    /// Customize the name of your handler. This is used in Debug implementations. The default is
+    /// the type name of this handler.
     fn name(&self) -> Cow<'static, str> {
         std::any::type_name::<Self>().into()
     }
 }
-
-// impl Handler for Box<dyn Handler> {
-//     async fn run(&self, conn: Conn) -> Conn {
-//         self.as_ref().run(conn).await
-//     }
-
-//     async fn init(&mut self, info: &mut Info) {
-//         self.as_mut().init(info).await;
-//     }
-
-//     async fn before_send(&self, conn: Conn) -> Conn {
-//         self.as_ref().before_send(conn).await
-//     }
-
-//     fn name(&self) -> Cow<'static, str> {
-//         self.as_ref().name()
-//     }
-
-//     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-//         self.as_ref().has_upgrade(upgrade)
-//     }
-
-//     async fn upgrade(&self, upgrade: Upgrade) {
-//         self.as_ref().upgrade(upgrade).await;
-//     }
-// }
 
 impl Handler for Status {
     async fn run(&self, conn: Conn) -> Conn {

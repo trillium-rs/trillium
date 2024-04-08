@@ -3,7 +3,7 @@ use crate::{RuntimelessRuntime, TestTransport};
 use async_channel::Receiver;
 use std::io::{Error, ErrorKind, Result};
 use trillium::Info;
-use trillium_server_common::{Acceptor, Config, ConfigExt, Server};
+use trillium_server_common::Server;
 use url::Url;
 
 /// A [`Server`] for testing that does not depend on any runtime
@@ -30,8 +30,6 @@ impl Server for RuntimelessServer {
     type Runtime = RuntimelessRuntime;
     type Transport = TestTransport;
 
-    const DESCRIPTION: &'static str = "test server";
-
     fn runtime() -> Self::Runtime {
         RuntimelessRuntime::default()
     }
@@ -43,29 +41,24 @@ impl Server for RuntimelessServer {
             .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
     }
 
-    fn build_listener<A>(config: &Config<Self, A>) -> Self
-    where
-        A: Acceptor<Self::Transport>,
-    {
-        let mut port = config.port();
-        let host = config.host();
+    fn from_host_and_port(host: &str, mut port: u16) -> Self {
         if port == 0 {
             loop {
                 port = fastrand::u16(..);
-                if !SERVERS.contains_key(&(host.clone(), port)) {
+                if !SERVERS.contains_key(&(host.to_string(), port)) {
                     break;
                 }
             }
         }
 
         let entry = SERVERS
-            .entry((host.clone(), port))
+            .entry((host.to_string(), port))
             .or_insert_with(async_channel::unbounded);
 
         let (_, channel) = entry.value();
 
         Self {
-            host,
+            host: host.to_string(),
             channel: channel.clone(),
             port,
         }
@@ -75,10 +68,7 @@ impl Server for RuntimelessServer {
         SERVERS.remove(&(self.host, self.port));
     }
 
-    fn info(&self) -> Info {
-        let mut info = Info::from(&*format!("{}:{}", &self.host, &self.port));
-        info.state_mut()
-            .insert(Url::parse(&format!("http://{}:{}", &self.host, self.port)).unwrap());
-        info
+    fn init(&self, info: &mut Info) {
+        info.insert_state(Url::parse(&format!("http://{}:{}", &self.host, self.port)).unwrap());
     }
 }

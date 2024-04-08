@@ -1,7 +1,7 @@
 use crate::{RuntimeType, TestTransport};
 use std::{io, sync::Arc};
 use trillium::Handler;
-use trillium_http::Conn;
+use trillium_http::ServerConfig;
 use trillium_server_common::Connector;
 use url::Url;
 
@@ -10,6 +10,7 @@ use url::Url;
 pub struct ServerConnector<H> {
     handler: Arc<H>,
     runtime: RuntimeType,
+    server_config: Arc<ServerConfig>,
 }
 
 impl<H: Handler> ServerConnector<H> {
@@ -18,7 +19,14 @@ impl<H: Handler> ServerConnector<H> {
         Self {
             handler: Arc::new(handler),
             runtime: RuntimeType::default(),
+            server_config: Arc::default(),
         }
+    }
+
+    /// use a specific server config
+    pub fn with_server_config(mut self, server_config: ServerConfig) -> Self {
+        self.server_config = Arc::new(server_config);
+        self
     }
 
     /// opens a new connection to this virtual server, returning the client transport
@@ -26,19 +34,21 @@ impl<H: Handler> ServerConnector<H> {
         let (client_transport, server_transport) = TestTransport::new();
 
         let handler = Arc::clone(&self.handler);
+        let server_config = Arc::clone(&self.server_config);
 
         self.runtime.spawn(async move {
-            Conn::map(server_transport, Default::default(), |mut conn| {
-                let handler = Arc::clone(&handler);
-                async move {
-                    conn.set_secure(secure);
-                    let conn = handler.run(conn.into()).await;
-                    let conn = handler.before_send(conn).await;
-                    conn.into_inner()
-                }
-            })
-            .await
-            .unwrap();
+            server_config
+                .run(server_transport, |mut conn| {
+                    let handler = Arc::clone(&handler);
+                    async move {
+                        conn.set_secure(secure);
+                        let conn = handler.run(conn.into()).await;
+                        let conn = handler.before_send(conn).await;
+                        conn.into_inner()
+                    }
+                })
+                .await
+                .unwrap();
         });
 
         client_transport

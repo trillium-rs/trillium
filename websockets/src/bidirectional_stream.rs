@@ -23,7 +23,7 @@ impl<I, O> Debug for BidirectionalStream<I, O> {
                     None => "None",
                 },
             )
-            .field("outbound", &"..")
+            .field("outbound", &format_args!(".."))
             .finish()
     }
 }

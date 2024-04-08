@@ -1,12 +1,10 @@
-use crate::{Acceptor, RuntimeTrait, Server, ServerHandle};
+use crate::{running_config::RunningConfig, Acceptor, RuntimeTrait, Server, ServerHandle};
 use async_cell::sync::AsyncCell;
-use std::{
-    cell::OnceCell,
-    marker::PhantomData,
-    net::SocketAddr,
-    sync::{Arc, RwLock},
-};
-use trillium::{Handler, HttpConfig, Info, Swansong};
+use futures_lite::StreamExt;
+use std::{cell::OnceCell, net::SocketAddr, pin::pin, sync::Arc};
+use trillium::{Handler, HttpConfig, Info, Swansong, TypeSet};
+use trillium_http::ServerConfig;
+use url::Url;
 
 /// # Primary entrypoint for configuring and running a trillium server
 ///
@@ -58,17 +56,15 @@ use trillium::{Handler, HttpConfig, Info, Swansong};
 #[derive(Debug)]
 pub struct Config<ServerType: Server, AcceptorType> {
     pub(crate) acceptor: AcceptorType,
-    pub(crate) port: Option<u16>,
+    pub(crate) binding: Option<ServerType>,
     pub(crate) host: Option<String>,
-    pub(crate) nodelay: bool,
-    pub(crate) swansong: Swansong,
-    pub(crate) register_signals: bool,
+    pub(crate) server_config_cell: Arc<AsyncCell<Arc<ServerConfig>>>,
     pub(crate) max_connections: Option<usize>,
-    pub(crate) info: Arc<AsyncCell<Arc<Info>>>,
-    pub(crate) binding: RwLock<Option<ServerType>>,
-    pub(crate) server: PhantomData<ServerType>,
-    pub(crate) http_config: HttpConfig,
+    pub(crate) nodelay: bool,
+    pub(crate) port: Option<u16>,
+    pub(crate) register_signals: bool,
     pub(crate) runtime: ServerType::Runtime,
+    pub(crate) server_config: ServerConfig,
 }
 
 impl<ServerType, AcceptorType> Config<ServerType, AcceptorType>
@@ -82,8 +78,8 @@ where
     /// outside of trillium's web server. For applications that embed a
     /// trillium server inside of an already-running async runtime, use
     /// [`Config::run_async`]
-    pub fn run<H: Handler>(self, h: H) {
-        ServerType::run(self, h)
+    pub fn run(self, handler: impl Handler) {
+        self.runtime.clone().block_on(self.run_async(handler));
     }
 
     /// Runs the provided handler with this config, in an
@@ -91,10 +87,78 @@ where
     /// for an application that needs to spawn async tasks that are
     /// unrelated to the trillium application. If you do not need to spawn
     /// other tasks, [`Config::run`] is the preferred entrypoint
-    pub async fn run_async(self, handler: impl Handler) {
-        let swansong = self.swansong.clone();
-        ServerType::run_async(self, handler).await;
-        swansong.shut_down().await;
+    pub async fn run_async(self, mut handler: impl Handler) {
+        let Self {
+            runtime,
+            acceptor,
+            max_connections,
+            nodelay,
+            binding,
+            host,
+            port,
+            register_signals,
+            server_config,
+            server_config_cell,
+        } = self;
+        let host = host
+            .or_else(|| std::env::var("HOST").ok())
+            .unwrap_or_else(|| "localhost".into());
+        let port = port
+            .or_else(|| {
+                std::env::var("PORT")
+                    .ok()
+                    .map(|x| x.parse().expect("PORT must be an unsigned integer"))
+            })
+            .unwrap_or(8080);
+
+        let listener = binding
+            .inspect(|_| log::debug!("taking prebound listener"))
+            .unwrap_or_else(|| ServerType::from_host_and_port(&host, port));
+
+        let swansong = server_config.swansong().clone();
+
+        let mut info = Info::from(server_config)
+            .with_state(runtime.clone().into())
+            .with_state(runtime.clone());
+        listener.init(&mut info);
+        insert_url(info.as_mut(), acceptor.is_secure());
+        handler.init(&mut info).await;
+
+        let server_config = Arc::new(ServerConfig::from(info));
+        server_config_cell.set(server_config.clone());
+
+        if register_signals {
+            let runtime = runtime.clone();
+            runtime.clone().spawn(async move {
+                let mut signals = pin!(runtime.hook_signals([2, 3, 15]));
+                while signals.next().await.is_some() {
+                    let guard_count = swansong.guard_count();
+                    if swansong.state().is_shutting_down() {
+                        eprintln!(
+                            "\nSecond interrupt, shutting down harshly (dropping {guard_count} \
+                             guards)"
+                        );
+                        std::process::exit(1);
+                    } else {
+                        println!(
+                            "\nShutting down gracefully. Waiting for {guard_count} shutdown \
+                             guards to drop.\nControl-c again to force."
+                        );
+                        swansong.shut_down();
+                    }
+                }
+            });
+        }
+
+        let running_config = Arc::new(RunningConfig {
+            acceptor,
+            max_connections,
+            server_config,
+            runtime,
+            nodelay,
+        });
+
+        running_config.run_async(listener, handler).await;
     }
 
     /// Spawns the server onto the async runtime, returning a
@@ -111,9 +175,9 @@ where
     /// when spawning the server onto a runtime.
     pub fn handle(&self) -> ServerHandle {
         ServerHandle {
-            swansong: self.swansong.clone(),
-            info: self.info.clone(),
-            received_info: OnceCell::new(),
+            swansong: self.server_config.swansong().clone(),
+            server_config: self.server_config_cell.clone(),
+            received_server_config: OnceCell::new(),
             runtime: self.runtime().into(),
         }
     }
@@ -180,20 +244,18 @@ where
             host: self.host,
             port: self.port,
             nodelay: self.nodelay,
-            server: PhantomData,
-            swansong: self.swansong,
             register_signals: self.register_signals,
             max_connections: self.max_connections,
-            info: self.info,
+            server_config_cell: self.server_config_cell,
+            server_config: self.server_config,
             binding: self.binding,
-            http_config: self.http_config,
             runtime: self.runtime,
         }
     }
 
     /// use the specific [`Swansong`] provided
     pub fn with_swansong(mut self, swansong: Swansong) -> Self {
-        self.swansong = swansong;
+        self.server_config.set_swansong(swansong);
         self
     }
 
@@ -209,7 +271,7 @@ where
     ///
     /// See [`HttpConfig`] for documentation
     pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
-        self.http_config = http_config;
+        *self.server_config.http_config_mut() = http_config;
         self
     }
 
@@ -239,20 +301,27 @@ where
             );
         }
 
-        self.binding = RwLock::new(Some(server.into()));
+        self.binding = Some(server.into());
         self
     }
 
     fn has_binding(&self) -> bool {
-        self.binding
-            .read()
-            .as_deref()
-            .map_or(false, Option::is_some)
+        self.binding.is_some()
     }
 
     /// retrieve the runtime
     pub fn runtime(&self) -> ServerType::Runtime {
         self.runtime.clone()
+    }
+
+    /// return the configured port
+    pub fn port(&self) -> Option<u16> {
+        self.port
+    }
+
+    /// return the configured host
+    pub fn host(&self) -> Option<&str> {
+        self.host.as_deref()
     }
 }
 
@@ -282,15 +351,28 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
             acceptor: (),
             port: None,
             host: None,
-            server: PhantomData,
             nodelay: false,
-            swansong: Swansong::new(),
             register_signals: cfg!(unix),
             max_connections,
-            info: AsyncCell::shared(),
-            binding: RwLock::new(None),
-            http_config: HttpConfig::default(),
+            server_config_cell: AsyncCell::shared(),
+            binding: None,
             runtime: ServerType::runtime(),
+            server_config: Default::default(),
         }
     }
+}
+
+fn insert_url(state: &mut TypeSet, secure: bool) -> Option<()> {
+    let socket_addr = state.get::<SocketAddr>().copied()?;
+    let vacant_entry = state.entry::<Url>().into_vacant()?;
+    let scheme = if secure { "https" } else { "http" };
+    let url = Url::parse(&if socket_addr.ip().is_loopback() {
+        format!("{scheme}://localhost:{}/", socket_addr.port())
+    } else {
+        format!("{scheme}://{socket_addr}/")
+    })
+    .ok()?;
+
+    vacant_entry.insert(url);
+    Some(())
 }

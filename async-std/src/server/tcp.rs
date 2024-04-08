@@ -1,6 +1,6 @@
 use crate::{AsyncStdRuntime, AsyncStdTransport};
 use async_std::net::{TcpListener, TcpStream};
-use std::{env, io::Result};
+use std::io::Result;
 use trillium::Info;
 use trillium_server_common::Server;
 
@@ -22,24 +22,18 @@ impl Server for AsyncStdServer {
     type Runtime = AsyncStdRuntime;
     type Transport = AsyncStdTransport<TcpStream>;
 
-    const DESCRIPTION: &'static str = concat!(
-        " (",
-        env!("CARGO_PKG_NAME"),
-        " v",
-        env!("CARGO_PKG_VERSION"),
-        ")"
-    );
-
     async fn accept(&mut self) -> Result<Self::Transport> {
         self.0.accept().await.map(|(t, _)| t.into())
     }
 
-    fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {
+    fn from_tcp(tcp: std::net::TcpListener) -> Self {
         Self(tcp.into())
     }
 
-    fn info(&self) -> Info {
-        self.0.local_addr().unwrap().into()
+    fn init(&self, info: &mut Info) {
+        if let Ok(socket_addr) = self.0.local_addr() {
+            info.insert_state(socket_addr);
+        }
     }
 
     fn runtime() -> Self::Runtime {

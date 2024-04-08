@@ -51,7 +51,7 @@ impl RuntimeTrait for RuntimelessRuntime {
 }
 impl From<RuntimelessRuntime> for Runtime {
     fn from(value: RuntimelessRuntime) -> Self {
-        Runtime::new(value)
+        Runtime::from_trait_impl(value)
     }
 }
 impl RuntimelessRuntime {

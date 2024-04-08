@@ -5,7 +5,7 @@ use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
 use trillium::{log_error, Info};
 use trillium_server_common::{
     Binding::{self, *},
-    Server, Swansong,
+    Server,
 };
 
 /// Tcp/Unix Trillium server adapter for Tokio
@@ -28,31 +28,6 @@ impl Server for TokioServer {
     type Runtime = TokioRuntime;
     type Transport = Binding<TokioTransport<Compat<TcpStream>>, TokioTransport<Compat<UnixStream>>>;
 
-    const DESCRIPTION: &'static str = concat!(
-        " (",
-        env!("CARGO_PKG_NAME"),
-        " v",
-        env!("CARGO_PKG_VERSION"),
-        ")"
-    );
-
-    async fn handle_signals(swansong: Swansong) {
-        use signal_hook::consts::signal::*;
-        use signal_hook_tokio::Signals;
-        use tokio_stream::StreamExt;
-        let signals = Signals::new([SIGINT, SIGTERM, SIGQUIT]).unwrap();
-        let mut signals = signals.fuse();
-        while signals.next().await.is_some() {
-            if swansong.state().is_shutting_down() {
-                eprintln!("\nSecond interrupt, shutting down harshly");
-                std::process::exit(1);
-            } else {
-                println!("\nShutting down gracefully.\nControl-C again to force.");
-                swansong.shut_down();
-            }
-        }
-    }
-
     async fn accept(&mut self) -> Result<Self::Transport> {
         match &mut self.0 {
             Tcp(t) => t
@@ -67,19 +42,20 @@ impl Server for TokioServer {
         }
     }
 
-    fn info(&self) -> Info {
+    fn init(&self, info: &mut Info) {
         match &self.0 {
-            Tcp(t) => t.local_addr().unwrap().into(),
-            Unix(u) => (*format!("{:?}", u.local_addr().unwrap())).into(),
+            Tcp(t) => {
+                if let Ok(socket_addr) = t.local_addr() {
+                    info.insert_state(socket_addr);
+                }
+            }
+
+            Unix(u) => {
+                if let Ok(socket_addr) = u.local_addr() {
+                    info.insert_state(socket_addr);
+                }
+            }
         }
-    }
-
-    fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {
-        Self(Tcp(tcp.try_into().unwrap()))
-    }
-
-    fn listener_from_unix(unix: std::os::unix::net::UnixListener) -> Self {
-        Self(Unix(unix.try_into().unwrap()))
     }
 
     async fn clean_up(self) {
@@ -91,6 +67,14 @@ impl Server for TokioServer {
                 }
             }
         }
+    }
+
+    fn from_tcp(tcp_listener: std::net::TcpListener) -> Self {
+        TcpListener::from_std(tcp_listener).unwrap().into()
+    }
+
+    fn from_unix(unix_listener: std::os::unix::net::UnixListener) -> Self {
+        UnixListener::from_std(unix_listener).unwrap().into()
     }
 
     fn runtime() -> Self::Runtime {

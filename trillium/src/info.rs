@@ -1,140 +1,78 @@
-use std::{
-    fmt::{Display, Formatter, Result},
-    net::SocketAddr,
-};
-use trillium_http::TypeSet;
-
-const DEFAULT_SERVER_DESCRIPTION: &str = concat!("trillium v", env!("CARGO_PKG_VERSION"));
+use std::net::SocketAddr;
+use trillium_http::{type_set::entry::Entry, ServerConfig, Swansong, TypeSet};
 
 /// This struct represents information about the currently connected
 /// server.
 ///
 /// It is passed to [`Handler::init`](crate::Handler::init).
 
-#[derive(Debug)]
-pub struct Info {
-    server_description: String,
-    listener_description: String,
-    tcp_socket_addr: Option<SocketAddr>,
-    state: TypeSet,
-}
-
-impl Default for Info {
-    fn default() -> Self {
-        Self {
-            server_description: DEFAULT_SERVER_DESCRIPTION.into(),
-            listener_description: String::new(),
-            tcp_socket_addr: None,
-            state: TypeSet::new(),
-        }
+#[derive(Debug, Default)]
+pub struct Info(ServerConfig);
+impl From<ServerConfig> for Info {
+    fn from(value: ServerConfig) -> Self {
+        Self(value)
     }
 }
-
-impl Display for Info {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        f.write_fmt(format_args!(
-            "{} listening on {}",
-            self.server_description(),
-            self.listener_description(),
-        ))
-    }
-}
-
-impl Info {
-    /// Returns a user-displayable description of the server. This
-    /// might be a string like "trillium x.y.z (trillium-tokio x.y.z)" or "my
-    /// special application".
-    pub fn server_description(&self) -> &str {
-        &self.server_description
-    }
-
-    /// Returns a user-displayable string description of the location
-    /// or port the listener is bound to, potentially as a url. Do not
-    /// rely on the format of this string, as it will vary between
-    /// server implementations and is intended for user
-    /// display. Instead, use [`Info::tcp_socket_addr`] for any
-    /// processing.
-    pub fn listener_description(&self) -> &str {
-        &self.listener_description
-    }
-
-    /// Returns the `local_addr` of a bound tcp listener, if such a
-    /// thing exists for this server
-    pub const fn tcp_socket_addr(&self) -> Option<&SocketAddr> {
-        self.tcp_socket_addr.as_ref()
-    }
-
-    /// obtain a mutable borrow of the server description, suitable
-    /// for appending information or replacing it
-    pub fn server_description_mut(&mut self) -> &mut String {
-        &mut self.server_description
-    }
-
-    /// obtain a mutable borrow of the listener description, suitable
-    /// for appending information or replacing it
-    pub fn listener_description_mut(&mut self) -> &mut String {
-        &mut self.listener_description
-    }
-
-    /// borrow the [`TypeSet`] on this `Info`. This can be useful for passing initialization data
-    /// between handlers
-    #[allow(clippy::missing_const_for_fn)] // Info isn't useful in a const context
-    pub fn state(&self) -> &TypeSet {
-        &self.state
-    }
-
-    /// attempt to mutably borrow the [`TypeSet`] on this `Info`.
-    pub fn state_mut(&mut self) -> &mut TypeSet {
-        &mut self.state
+impl From<Info> for ServerConfig {
+    fn from(value: Info) -> Self {
+        value.0
     }
 }
 
 impl AsRef<TypeSet> for Info {
     fn as_ref(&self) -> &TypeSet {
-        self.state()
+        self.0.as_ref()
     }
 }
-
 impl AsMut<TypeSet> for Info {
     fn as_mut(&mut self) -> &mut TypeSet {
-        self.state_mut()
+        self.0.as_mut()
     }
 }
 
-impl From<&str> for Info {
-    fn from(description: &str) -> Self {
-        Self {
-            server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
-            listener_description: String::from(description),
-            ..Self::default()
-        }
+impl Info {
+    /// Returns the `local_addr` of a bound tcp listener, if such a
+    /// thing exists for this server
+    pub fn tcp_socket_addr(&self) -> Option<&SocketAddr> {
+        self.state()
     }
-}
 
-impl From<SocketAddr> for Info {
-    fn from(socket_addr: SocketAddr) -> Self {
-        let mut info = Self {
-            server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
-            listener_description: socket_addr.to_string(),
-            tcp_socket_addr: Some(socket_addr),
-            ..Self::default()
-        };
-
-        info.state_mut().insert(socket_addr);
-        info
+    /// Returns the `local_addr` of a bound unix listener, if such a
+    /// thing exists for this server
+    #[cfg(unix)]
+    pub fn unix_socket_addr(&self) -> Option<&std::os::unix::net::SocketAddr> {
+        self.state()
     }
-}
 
-#[cfg(unix)]
-impl From<std::os::unix::net::SocketAddr> for Info {
-    fn from(s: std::os::unix::net::SocketAddr) -> Self {
-        let mut info = Self {
-            server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
-            listener_description: format!("{s:?}"),
-            ..Self::default()
-        };
+    /// Borrow a type from the shared state [`TypeSet`] on this `Info`.
+    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.0.shared_state().get()
+    }
 
-        info.state_mut().insert(s);
-        info
+    /// Insert a type into the shared state typeset, returning the previous value if any
+    pub fn insert_state<T: Send + Sync + 'static>(&mut self, value: T) -> Option<T> {
+        self.0.shared_state_mut().insert(value)
+    }
+
+    /// Mutate a type in the shared state typeset
+    pub fn state_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
+        self.0.shared_state_mut().get_mut()
+    }
+
+    /// Returns an [`Entry`] into the shared state typeset.
+    pub fn state_entry<T: Send + Sync + 'static>(&mut self) -> Entry<'_, T> {
+        self.0.shared_state_mut().entry()
+    }
+
+    /// chainable interface to insert a type into the shared state typeset
+    #[must_use]
+    pub fn with_state<T: Send + Sync + 'static>(mut self, value: T) -> Self {
+        self.insert_state(value);
+        self
+    }
+
+    /// Borrow the [`Swansong`] graceful shutdown interface for this server
+    pub fn swansong(&self) -> &Swansong {
+        self.0.swansong()
     }
 }
