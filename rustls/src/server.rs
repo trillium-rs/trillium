@@ -12,6 +12,8 @@ use std::{
 };
 use trillium_server_common::{async_trait, Acceptor, AsyncRead, AsyncWrite, Transport};
 
+use crate::crypto_provider;
+
 /**
 trillium [`Acceptor`] for Rustls
 */
@@ -69,7 +71,9 @@ impl RustlsAcceptor {
             .expect("could not read key pemfile")
             .expect("no private key found in `key`");
 
-        ServerConfig::builder()
+        ServerConfig::builder_with_provider(crypto_provider())
+            .with_safe_default_protocol_versions()
+            .expect("crypto provider did not support safe default protocol versions")
             .with_no_client_auth()
             .with_single_cert(cert_chain, key_der)
             .expect("could not create a rustls ServerConfig from the supplied cert and key")
