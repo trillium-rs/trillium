@@ -1,6 +1,10 @@
+use crate::crypto_provider;
 use futures_rustls::{
     client::TlsStream,
-    rustls::{pki_types::ServerName, ClientConfig, ClientConnection},
+    rustls::{
+        client::danger::ServerCertVerifier, crypto::CryptoProvider, pki_types::ServerName,
+        ClientConfig, ClientConnection,
+    },
     TlsConnector,
 };
 use std::{
@@ -47,17 +51,29 @@ impl Default for RustlsClientConfig {
 }
 
 #[cfg(feature = "platform-verifier")]
-fn default_client_config() -> ClientConfig {
-    rustls_platform_verifier::tls_config()
+fn verifier(provider: Arc<CryptoProvider>) -> Arc<dyn ServerCertVerifier> {
+    Arc::new(rustls_platform_verifier::Verifier::new().with_provider(provider))
 }
 
 #[cfg(not(feature = "platform-verifier"))]
-fn default_client_config() -> ClientConfig {
-    let webpki_roots = futures_rustls::rustls::RootCertStore::from_iter(
+fn verifier(provider: Arc<CryptoProvider>) -> Arc<dyn ServerCertVerifier> {
+    let roots = Arc::new(futures_rustls::rustls::RootCertStore::from_iter(
         webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-    );
-    ClientConfig::builder()
-        .with_root_certificates(webpki_roots)
+    ));
+    futures_rustls::rustls::client::WebPkiServerVerifier::builder_with_provider(roots, provider)
+        .build()
+        .unwrap()
+}
+
+fn default_client_config() -> ClientConfig {
+    let provider = crypto_provider();
+    let verifier = verifier(Arc::clone(&provider));
+
+    ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("crypto provider did not support safe default protocol versions")
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
         .with_no_client_auth()
 }
 
