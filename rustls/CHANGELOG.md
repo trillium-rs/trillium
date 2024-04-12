@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/trillium-rs/trillium/compare/trillium-rustls-v0.7.0...trillium-rustls-v0.8.0) - 2024-04-12
+
+### Added
+- *(rustls)* [**breaking**] change how crypto providers are selected
+
+See crate-level documentation for more on how the new features work. This is only a breaking change if you were using `default-features = false` AND not enabling either `ring` or `aws-lc-rs`. In that case you'll need to enable `custom-crypto-provider` on this crate, which brings in no additional dependencies but makes the possibility of a runtime panic due to crypto feature selection opt-in. Without this feature, misconfiguration (`default-features = false` without a crypto provider`) will be a compile-time error. 
+
+### Other
+- release
+
 ## [0.7.0](https://github.com/trillium-rs/trillium/compare/trillium-rustls-v0.6.0...trillium-rustls-v0.7.0) - 2024-04-03
 
 ### Added
