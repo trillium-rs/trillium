@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/trillium-rs/trillium/compare/trillium-smol-v0.4.0...trillium-smol-v0.4.1) - 2024-04-12
+
+### Added
+- *(smol)* enable the async-io feature on async-global-executor
+
+### Other
+- release
+- release
+
 ## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-smol-v0.3.3...trillium-smol-v0.4.0) - 2024-04-04
 
 ### Added
