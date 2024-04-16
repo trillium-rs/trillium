@@ -10,16 +10,16 @@ features = "trillium-http/parse trillium-client/parse"
 packages = ["trillium-http", "trillium-client"]
 
 [smol]
-features = "trillium-testing/smol,trillium-static/smol"
-workspace = true
+features = "trillium-testing/smol trillium-static/smol"
+packages = ["trillium", "trillium-client", "trillium-static"]
 
 [tokio]
-features = "trillium-testing/tokio,trillium-static/tokio"
-workspace = true
+features = "trillium-testing/tokio trillium-static/tokio"
+packages = ["trillium", "trillium-client", "trillium-static"]
 
 [async-std]
-features = "trillium-testing/async-std,trillium-static/async-std"
-workspace = true
+features = "trillium-testing/async-std trillium-static/async-std"
+packages = ["trillium", "trillium-client", "trillium-static"]
 
 [report]
 out = ["Html", "Xml"]
