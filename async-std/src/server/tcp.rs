@@ -1,7 +1,7 @@
 use crate::AsyncStdTransport;
 use async_std::net::{TcpListener, TcpStream};
 use async_std::task::{block_on, spawn};
-use std::{convert::TryInto, env, future::Future, io::Result, pin::Pin};
+use std::{convert::TryInto, env, future::Future, io::Result};
 use trillium::Info;
 use trillium_server_common::Server;
 

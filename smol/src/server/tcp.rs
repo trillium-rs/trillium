@@ -2,7 +2,7 @@ use crate::SmolTransport;
 use async_global_executor::{block_on, spawn};
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
-use std::{convert::TryInto, env, io::Result, pin::Pin};
+use std::{convert::TryInto, env, io::Result};
 use trillium::Info;
 use trillium_server_common::Server;
 
