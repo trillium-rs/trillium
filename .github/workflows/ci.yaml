@@ -45,19 +45,25 @@ jobs:
           command: test
           args: --workspace
 
-      - name: Run tests
+      - name: Run tests (parse)
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: -p trillium-http -p trillium-client --features parse
+
+      - name: Run tests (smol)
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --workspace --features trillium-static/smol,trillium-testing/smol
 
-      - name: Run tests
+      - name: Run tests (tokio)
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --workspace --features trillium-static/tokio,trillium-testing/tokio
 
-      - name: Run tests
+      - name: Run tests (async-std)
         uses: actions-rs/cargo@v1
         with:
           command: test

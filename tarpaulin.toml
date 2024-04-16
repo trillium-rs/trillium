@@ -1,0 +1,27 @@
+[base]
+workspace = true
+
+[http_serde]
+features = "trillium-http/serde"
+packages = ["trillium-http"]
+
+[http_parse]
+features = "trillium-http/parse trillium-client/parse"
+packages = ["trillium-http", "trillium-client"]
+
+[smol]
+features = "trillium-testing/smol,trillium-static/smol"
+workspace = true
+
+[tokio]
+features = "trillium-testing/tokio,trillium-static/tokio"
+workspace = true
+
+[async-std]
+features = "trillium-testing/async-std,trillium-static/async-std"
+workspace = true
+
+[report]
+out = ["Html", "Xml"]
+engine = "Llvm"
+timeout = "120 seconds"
