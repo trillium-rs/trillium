@@ -171,12 +171,6 @@ impl WebSocketConn {
         self.state.get_mut()
     }
 
-    /// see [`insert_state`]
-    #[deprecated = "use WebsocketConn::insert_state"]
-    pub fn set_state<T: Send + Sync + 'static>(&mut self, state: T) {
-        self.insert_state(state);
-    }
-
     /// inserts new state
     ///
     /// returns the previously set state of the same type, if any existed
