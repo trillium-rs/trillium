@@ -249,12 +249,6 @@ impl Conn {
         self.inner.state_mut().get_mut()
     }
 
-    #[deprecated = "use Conn::insert_state"]
-    /// see [`insert_state`]
-    pub fn set_state<T: Send + Sync + 'static>(&mut self, state: T) -> Option<T> {
-        self.insert_state(state)
-    }
-
     /// Inserts a new type into the state set. See [`Conn::state`]
     /// for an example.
     ///
