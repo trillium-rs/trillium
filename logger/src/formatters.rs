@@ -169,15 +169,6 @@ pub fn request_header(header_name: impl Into<HeaderName<'static>>) -> impl LogFo
 }
 
 /**
-please use [`request_header`] instead. it was a mistake to name this
-[`header`] as it is not apparent whether it's inbound or outbound.
-*/
-#[deprecated = "use trillium_logger::formatters::request_header"]
-pub fn header(header_name: impl Into<HeaderName<'static>>) -> impl LogFormatter {
-    request_header(header_name)
-}
-
-/**
 formatter-builder for a particular response header, formatted wrapped
 in quotes. `""` if the header is not present
 
