@@ -141,10 +141,10 @@ impl WebSocketConn {
     an empty string if there is no query component.
      */
     pub fn querystring(&self) -> &str {
-        match self.path.split_once('?') {
-            Some((_, query)) => query,
-            None => "",
-        }
+        self.path
+            .split_once('?')
+            .map(|(_, q)| q)
+            .unwrap_or_default()
     }
 
     /// retrieve the request method for this conn
@@ -169,11 +169,17 @@ impl WebSocketConn {
         self.state.get_mut()
     }
 
-    /**
-    set state on this connection
-    */
-    pub fn set_state<T: Send + Sync + 'static>(&mut self, val: T) {
-        self.state.insert(val);
+    /// see [`insert_state`]
+    #[deprecated = "use WebsocketConn::insert_state"]
+    pub fn set_state<T: Send + Sync + 'static>(&mut self, state: T) {
+        self.insert_state(state);
+    }
+
+    /// inserts new state
+    ///
+    /// returns the previously set state of the same type, if any existed
+    pub fn insert_state<T: Send + Sync + 'static>(&mut self, state: T) -> Option<T> {
+        self.state.insert(state)
     }
 
     /**

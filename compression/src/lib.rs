@@ -172,7 +172,7 @@ impl Handler for Compression {
             .get_str(AcceptEncoding)
             .and_then(|h| self.negotiate(h))
         {
-            conn.set_state(header);
+            conn.insert_state(header);
         }
         conn
     }

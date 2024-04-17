@@ -102,7 +102,7 @@ pub fn state<T: Clone + Send + Sync + 'static>(t: T) -> State<T> {
 #[async_trait]
 impl<T: Clone + Send + Sync + 'static> Handler for State<T> {
     async fn run(&self, mut conn: Conn) -> Conn {
-        conn.set_state(self.0.clone());
+        conn.insert_state(self.0.clone());
         conn
     }
 }

@@ -25,7 +25,7 @@ impl JsonWebSocketHandler for SomeJsonChannel {
 
     async fn connect(&self, conn: &mut WebSocketConn) -> Self::StreamType {
         let (s, r) = unbounded();
-        conn.set_state(s);
+        conn.insert_state(s);
         r
     }
 
