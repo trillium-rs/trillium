@@ -127,16 +127,6 @@ impl Conn {
         self
     }
 
-    #[deprecated = "use Conn::with_request_header"]
-    /// see [`with_request_header]
-    pub fn with_header(
-        self,
-        name: impl Into<HeaderName<'static>>,
-        value: impl Into<HeaderValues>,
-    ) -> Self {
-        self.with_request_header(name, value)
-    }
-
     /**
     chainable setter for `extending` request headers
 
@@ -175,27 +165,10 @@ impl Conn {
         self
     }
 
-    /// see [`with_request_headers`]
-    #[deprecated = "use Conn::with_request_headers"]
-    pub fn with_headers<HN, HV, I>(self, headers: I) -> Self
-    where
-        I: IntoIterator<Item = (HN, HV)> + Send,
-        HN: Into<HeaderName<'static>>,
-        HV: Into<HeaderValues>,
-    {
-        self.with_request_headers(headers)
-    }
-
     /// Chainable method to remove a request header if present
     pub fn without_request_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
         self.request_headers.remove(name);
         self
-    }
-
-    /// see [`without_request_header`]
-    #[deprecated = "use Conn::without_request_header"]
-    pub fn without_header(self, name: impl Into<HeaderName<'static>>) -> Self {
-        self.without_request_header(name)
     }
 
     /**
