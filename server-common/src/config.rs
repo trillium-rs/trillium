@@ -245,32 +245,6 @@ impl<ServerType: Server> Config<ServerType, ()> {
     }
 }
 
-impl<ServerType, AcceptorType> Clone for Config<ServerType, AcceptorType>
-where
-    ServerType: Server,
-    AcceptorType: Acceptor<ServerType::Transport> + Clone,
-{
-    fn clone(&self) -> Self {
-        if self.has_binding() {
-            eprintln!("cloning a Config with a pre-bound listener will not clone the listener. this may be a panic in the future.");
-        }
-
-        Self {
-            acceptor: self.acceptor.clone(),
-            port: self.port,
-            host: self.host.clone(),
-            server: PhantomData,
-            nodelay: self.nodelay,
-            swansong: self.swansong.clone(),
-            register_signals: self.register_signals,
-            max_connections: self.max_connections,
-            info: AsyncCell::shared(),
-            binding: RwLock::new(None),
-            http_config: self.http_config,
-        }
-    }
-}
-
 impl<ServerType: Server> Default for Config<ServerType, ()> {
     fn default() -> Self {
         #[cfg(unix)]
