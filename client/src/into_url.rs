@@ -1,5 +1,8 @@
 use crate::{Error, Result};
-use std::str::FromStr;
+use std::{
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
+};
 use trillium_server_common::url::{ParseError, Url};
 
 /// attempt to construct a url, with base if present
@@ -63,5 +66,23 @@ impl<S: AsRef<str>, const N: usize> IntoUrl for [S; N] {
 impl<S: AsRef<str>> IntoUrl for Vec<S> {
     fn into_url(self, base: Option<&Url>) -> Result<Url> {
         self.as_slice().into_url(base)
+    }
+}
+
+impl IntoUrl for SocketAddr {
+    fn into_url(self, base: Option<&Url>) -> Result<Url> {
+        let scheme = if self.port() == 443 { "https" } else { "http" };
+        format!("{scheme}://{self}").into_url(base)
+    }
+}
+
+impl IntoUrl for IpAddr {
+    /// note that http is assumed regardless of port
+    fn into_url(self, base: Option<&Url>) -> Result<Url> {
+        match self {
+            IpAddr::V4(v4) => format!("http://{v4}"),
+            IpAddr::V6(v6) => format!("http://[{v6}]"),
+        }
+        .into_url(base)
     }
 }
