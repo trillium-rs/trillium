@@ -96,7 +96,7 @@ impl TestConn {
     where
         S: Send + Sync + 'static,
     {
-        self.0.set_state(state);
+        self.0.insert_state(state);
         self
     }
 

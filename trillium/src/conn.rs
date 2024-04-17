@@ -231,7 +231,7 @@ impl Conn {
     struct Hello;
     let mut conn = get("/").on(&());
     assert!(conn.state::<Hello>().is_none());
-    conn.set_state(Hello);
+    conn.insert_state(Hello);
     assert!(conn.state::<Hello>().is_some());
     ```
     */
@@ -244,18 +244,26 @@ impl Conn {
         self.inner.state_mut().get_mut()
     }
 
-    /// Puts a new type into the state set. see [`Conn::state`]
-    /// for an example. returns the previous instance of this type, if
+    #[deprecated = "use Conn::insert_state"]
+    /// see [`insert_state`]
+    pub fn set_state<T: Send + Sync + 'static>(&mut self, state: T) -> Option<T> {
+        self.insert_state(state)
+    }
+
+    /// Inserts a new type into the state set. See [`Conn::state`]
+    /// for an example.
+    ///
+    /// Returns the previously-set instance of this type, if
     /// any
-    pub fn set_state<T: Send + Sync + 'static>(&mut self, val: T) -> Option<T> {
-        self.inner.state_mut().insert(val)
+    pub fn insert_state<T: Send + Sync + 'static>(&mut self, state: T) -> Option<T> {
+        self.inner.state_mut().insert(state)
     }
 
     /// Puts a new type into the state set and returns the
     /// `Conn`. this is useful for fluent chaining
     #[must_use]
-    pub fn with_state<T: Send + Sync + 'static>(mut self, val: T) -> Self {
-        self.set_state(val);
+    pub fn with_state<T: Send + Sync + 'static>(mut self, state: T) -> Self {
+        self.insert_state(state);
         self
     }
 

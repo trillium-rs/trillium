@@ -59,7 +59,7 @@ where
         }
 
         fastrand::choice(current_selection).and_then(|(u, cc)| {
-            conn.set_state(ConnectionCount(cc.counter()));
+            conn.insert_state(ConnectionCount(cc.counter()));
             u.determine_upstream(conn)
         })
     }

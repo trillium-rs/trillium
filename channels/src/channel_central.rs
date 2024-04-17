@@ -86,7 +86,7 @@ where
 
         let (client, receiver) = self.build_client(vsn);
 
-        conn.set_state(client);
+        conn.insert_state(client);
 
         // this is always ok because we just set the client in state
         self.handler.connect(ChannelConn { conn: &mut conn }).await;

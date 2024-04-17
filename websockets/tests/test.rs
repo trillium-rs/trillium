@@ -34,7 +34,7 @@ fn with_channel() {
             mut conn: WebSocketConn,
         ) -> Option<(WebSocketConn, Self::OutboundStream)> {
             let (send, receive) = async_channel::unbounded();
-            conn.set_state(send);
+            conn.insert_state(send);
             Some((conn, Box::pin(receive)))
         }
 

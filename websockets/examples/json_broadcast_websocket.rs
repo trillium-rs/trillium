@@ -39,7 +39,7 @@ fn main() {
         trillium_logger::logger(),
         |mut conn: Conn| async move {
             if let Some(ip) = conn.peer_ip() {
-                conn.set_state(ip);
+                conn.insert_state(ip);
             };
             conn
         },

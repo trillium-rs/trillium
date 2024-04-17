@@ -43,7 +43,7 @@ impl Handler for Head {
     async fn run(&self, mut conn: Conn) -> Conn {
         if conn.method() == Method::Head {
             conn.inner_mut().set_method(Method::Get);
-            conn.set_state(RequestWasHead);
+            conn.insert_state(RequestWasHead);
         }
 
         conn
