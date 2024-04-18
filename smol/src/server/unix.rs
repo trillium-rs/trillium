@@ -1,5 +1,4 @@
-use crate::SmolTransport;
-use async_global_executor::{block_on, spawn};
+use crate::{SmolRuntime, SmolTransport};
 use async_net::{
     unix::{UnixListener, UnixStream},
     TcpListener, TcpStream,
@@ -9,7 +8,7 @@ use std::{env, io::Result};
 use trillium::{log_error, Info};
 use trillium_server_common::{
     Binding::{self, *},
-    Server, Swansong,
+    Server, Swansong, Url,
 };
 
 #[derive(Debug, Clone)]
@@ -28,6 +27,7 @@ impl From<UnixListener> for SmolServer {
 #[cfg(unix)]
 impl Server for SmolServer {
     type Transport = Binding<SmolTransport<TcpStream>, SmolTransport<UnixStream>>;
+    type Runtime = SmolRuntime;
     const DESCRIPTION: &'static str = concat!(
         " (",
         env!("CARGO_PKG_NAME"),
@@ -35,6 +35,10 @@ impl Server for SmolServer {
         env!("CARGO_PKG_VERSION"),
         ")"
     );
+
+    fn runtime() -> Self::Runtime {
+        SmolRuntime::default()
+    }
 
     async fn handle_signals(swansong: Swansong) {
         use signal_hook::consts::signal::*;
@@ -70,17 +74,16 @@ impl Server for SmolServer {
 
     fn info(&self) -> Info {
         match &self.0 {
-            Tcp(t) => t.local_addr().unwrap().into(),
+            Tcp(t) => {
+                let local_addr = t.local_addr().unwrap();
+                let mut info = Info::from(local_addr);
+                if let Ok(url) = Url::parse(&format!("http://{local_addr}")) {
+                    info.state_mut().insert(url);
+                }
+                info
+            }
             Unix(u) => u.local_addr().unwrap().into(),
         }
-    }
-
-    fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
-        spawn(fut).detach();
-    }
-
-    fn block_on(fut: impl Future<Output = ()> + 'static) {
-        block_on(fut)
     }
 
     async fn clean_up(self) {

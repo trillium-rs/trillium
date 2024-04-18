@@ -1,6 +1,6 @@
 use crate::{pool::PoolEntry, util::encoding, Pool};
 use encoding_rs::Encoding;
-use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt, FutureExt};
+use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
 use memchr::memmem::Finder;
 use size::{Base, Size};
 use std::{
@@ -94,7 +94,7 @@ impl Conn {
     chainable setter for [`inserting`](Headers::insert) a request header
 
     ```
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
 
 
     let handler = |conn: trillium::Conn| async move {
@@ -103,7 +103,7 @@ impl Conn {
         conn.ok(response)
     };
 
-    let client = trillium_client::Client::new(ClientConfig::new());
+    let client = trillium_client::Client::new(client_config());
 
     trillium_testing::with_server(handler, |url| async move {
         let mut conn = client.get(url)
@@ -137,8 +137,8 @@ impl Conn {
         conn.ok(response)
     };
 
-    use trillium_testing::ClientConfig;
-    let client = trillium_client::client(ClientConfig::new());
+    use trillium_testing::client_config;
+    let client = trillium_client::client(client_config());
 
     trillium_testing::with_server(handler, move |url| async move {
         let mut conn = client.get(url)
@@ -179,10 +179,10 @@ impl Conn {
     };
 
     use trillium_client::Client;
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
 
     trillium_testing::with_server(handler, move |url| async move {
-        let client = Client::new(ClientConfig::new());
+        let client = Client::new(client_config());
         let conn = client.get(url).await?;
 
         let headers = conn.response_headers(); //<-
@@ -202,7 +202,7 @@ impl Conn {
     Conn
 
     ```
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
     use trillium_client::Client;
 
     let handler = |conn: trillium::Conn| async move {
@@ -211,7 +211,7 @@ impl Conn {
         conn.ok(response)
     };
 
-    let client = Client::new(ClientConfig::new());
+    let client = Client::new(client_config());
 
     trillium_testing::with_server(handler, move |url| async move {
         let mut conn = client.get(url);
@@ -245,7 +245,7 @@ impl Conn {
     ```
     env_logger::init();
     use trillium_client::Client;
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
 
 
     let handler = |mut conn: trillium::Conn| async move {
@@ -254,7 +254,7 @@ impl Conn {
     };
 
     trillium_testing::with_server(handler, move |url| async move {
-        let client = Client::new(ClientConfig::new());
+        let client = Client::new(client_config());
         let mut conn = client.post(url);
 
         conn.set_request_body("body"); //<-
@@ -275,7 +275,7 @@ impl Conn {
 
     ```
     env_logger::init();
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
     use trillium_client::Client;
 
     let handler = |mut conn: trillium::Conn| async move {
@@ -285,7 +285,7 @@ impl Conn {
 
 
     trillium_testing::with_server(handler, |url| async move {
-        let client = Client::from(ClientConfig::default());
+        let client = Client::from(client_config());
         let mut conn = client.post(url)
             .with_body("body") //<-
             .await?;
@@ -322,9 +322,9 @@ impl Conn {
     /**
     retrieves the url for this conn.
     ```
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
     use trillium_client::Client;
-    let client = Client::from(ClientConfig::new());
+    let client = Client::from(client_config());
     let conn = client.get("http://localhost:9080");
 
     let url = conn.url(); //<-
@@ -339,12 +339,12 @@ impl Conn {
     /**
     retrieves the url for this conn.
     ```
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
     use trillium_client::Client;
 
     use trillium_testing::prelude::*;
 
-    let client = Client::from(ClientConfig::new());
+    let client = Client::from(client_config());
     let conn = client.get("http://localhost:9080");
 
     let method = conn.method(); //<-
@@ -360,7 +360,7 @@ impl Conn {
     returns a [`ReceivedBody`] that borrows the connection inside this conn.
     ```
     env_logger::init();
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
     use trillium_client::Client;
 
 
@@ -370,7 +370,7 @@ impl Conn {
     };
 
     trillium_testing::with_server(handler, |url| async move {
-        let client = Client::from(ClientConfig::new());
+        let client = Client::from(client_config());
         let mut conn = client.get(url).await?;
 
         let response_body = conn.response_body(); //<-
@@ -425,7 +425,7 @@ impl Conn {
     been sent, this will be None.
 
     ```
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
     use trillium_client::Client;
     use trillium_testing::prelude::*;
 
@@ -434,7 +434,7 @@ impl Conn {
     }
 
     trillium_testing::with_server(handler, |url| async move {
-        let client = Client::new(ClientConfig::new());
+        let client = Client::new(client_config());
         let conn = client.get(url).await?;
         assert_eq!(Status::ImATeapot, conn.status().unwrap());
         Ok(())
@@ -449,10 +449,10 @@ impl Conn {
     Returns the conn or an [`UnexpectedStatusError`] that contains the conn
 
     ```
-    use trillium_testing::ClientConfig;
+    use trillium_testing::client_config;
 
     trillium_testing::with_server(trillium::Status::NotFound, |url| async move {
-        let client = trillium_client::Client::new(ClientConfig::new());
+        let client = trillium_client::Client::new(client_config());
         assert_eq!(
             client.get(url).await?.success().unwrap_err().to_string(),
             "expected a success (2xx) status code, but got 404 Not Found"
@@ -461,7 +461,7 @@ impl Conn {
     });
 
     trillium_testing::with_server(trillium::Status::Ok, |url| async move {
-        let client = trillium_client::Client::new(ClientConfig::new());
+        let client = trillium_client::Client::new(client_config());
         assert!(client.get(url).await?.success().is_ok());
         Ok(())
     });
@@ -870,7 +870,7 @@ impl Drop for Conn {
             let buffer = std::mem::take(&mut self.buffer);
             let response_body_state = self.response_body_state;
             let encoding = encoding(&self.response_headers);
-            Connector::spawn(&self.config, async move {
+            self.config.runtime().spawn(async move {
                 let mut response_body = ReceivedBody::new(
                     content_length,
                     buffer,
@@ -950,13 +950,11 @@ impl IntoFuture for Conn {
     fn into_future(mut self) -> Self::IntoFuture {
         Box::pin(async move {
             if let Some(duration) = self.timeout {
-                let config = self.config.clone();
-                self.exec()
-                    .or(async {
-                        config.delay(duration).await;
-                        Err(Error::TimedOut("Conn", duration))
-                    })
-                    .await?
+                self.config
+                    .runtime()
+                    .timeout(duration, self.exec())
+                    .await
+                    .ok_or(Error::TimedOut("Conn", duration))??;
             } else {
                 self.exec().await?;
             }

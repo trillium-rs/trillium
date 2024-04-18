@@ -1,9 +1,6 @@
-use crate::SmolTransport;
+use crate::{SmolRuntime, SmolTransport};
 use async_net::TcpStream;
-use std::{
-    future::Future,
-    io::{Error, ErrorKind, Result},
-};
+use std::io::{Error, ErrorKind, Result};
 use trillium_server_common::{
     url::{Host, Url},
     Connector, Transport,
@@ -45,6 +42,11 @@ impl ClientConfig {
 
 impl Connector for ClientConfig {
     type Transport = SmolTransport<TcpStream>;
+    type Runtime = SmolRuntime;
+
+    fn runtime(&self) -> Self::Runtime {
+        SmolRuntime::default()
+    }
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         if url.scheme() != "http" {
@@ -79,12 +81,19 @@ impl Connector for ClientConfig {
 
         Ok(tcp)
     }
+}
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        async_global_executor::spawn(fut).detach();
+#[cfg(unix)]
+impl Connector for SmolTransport<async_net::unix::UnixStream> {
+    type Transport = Self;
+
+    type Runtime = SmolRuntime;
+
+    async fn connect(&self, _url: &Url) -> Result<Self::Transport> {
+        Ok(self.clone())
     }
 
-    async fn delay(&self, duration: std::time::Duration) {
-        async_io::Timer::after(duration).await;
+    fn runtime(&self) -> Self::Runtime {
+        SmolRuntime::default()
     }
 }
