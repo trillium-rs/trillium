@@ -1,9 +1,6 @@
-use crate::AsyncStdTransport;
+use crate::{AsyncStdRuntime, AsyncStdTransport};
 use async_std::net::TcpStream;
-use std::{
-    future::Future,
-    io::{Error, ErrorKind, Result},
-};
+use std::io::{Error, ErrorKind, Result};
 use trillium_server_common::{
     url::{Host, Url},
     Connector, Transport,
@@ -45,6 +42,7 @@ impl ClientConfig {
 
 impl Connector for ClientConfig {
     type Transport = AsyncStdTransport<TcpStream>;
+    type Runtime = AsyncStdRuntime;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         if url.scheme() != "http" {
@@ -80,11 +78,7 @@ impl Connector for ClientConfig {
         Ok(tcp)
     }
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        async_std::task::spawn(fut);
-    }
-
-    async fn delay(&self, duration: std::time::Duration) {
-        let _ = async_std::future::timeout(duration, std::future::pending::<()>()).await;
+    fn runtime(&self) -> Self::Runtime {
+        AsyncStdRuntime::default()
     }
 }

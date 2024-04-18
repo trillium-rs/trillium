@@ -4,9 +4,9 @@ use std::{future::Future, marker::PhantomData, sync::Arc};
 use test_harness::test;
 use trillium_client::{Client, Connector, Url};
 use trillium_http::{Conn, KnownHeaderName};
-use trillium_testing::{TestResult, TestTransport};
+use trillium_testing::{harness, Runtime, TestResult, TestTransport};
 
-#[test(harness = trillium_testing::harness)]
+#[test(harness)]
 async fn send_no_server_header() -> TestResult {
     let client = Client::new(ServerConnector::new(|mut conn| async move {
         conn.response_headers_mut().remove(KnownHeaderName::Server);
@@ -21,6 +21,7 @@ async fn send_no_server_header() -> TestResult {
 pub struct ServerConnector<F, Fut> {
     handler: Arc<F>,
     fut: PhantomData<Fut>,
+    runtime: Runtime,
 }
 
 impl<F, Fut> ServerConnector<F, Fut>
@@ -32,6 +33,7 @@ where
         Self {
             handler: Arc::new(handler),
             fut: PhantomData,
+            runtime: trillium_testing::runtime().into(),
         }
     }
 }
@@ -42,13 +44,14 @@ where
     Fut: Future<Output = Conn<TestTransport>> + Send + Sync + 'static,
 {
     type Transport = TestTransport;
+    type Runtime = Runtime;
 
     async fn connect(&self, _: &Url) -> std::io::Result<Self::Transport> {
         let (client_transport, server_transport) = TestTransport::new();
 
         let handler = self.handler.clone();
 
-        trillium_testing::spawn(async move {
+        self.runtime.spawn(async move {
             Conn::map(server_transport, Default::default(), &*handler)
                 .await
                 .unwrap();
@@ -57,11 +60,7 @@ where
         Ok(client_transport)
     }
 
-    fn spawn<SpawnFut: Future<Output = ()> + Send + 'static>(&self, fut: SpawnFut) {
-        trillium_testing::spawn(fut);
-    }
-
-    async fn delay(&self, duration: std::time::Duration) {
-        trillium_testing::delay(duration).await
+    fn runtime(&self) -> Self::Runtime {
+        self.runtime.clone()
     }
 }

@@ -2,7 +2,7 @@ use indoc::formatdoc;
 use pretty_assertions::assert_eq;
 use test_harness::test;
 use trillium_http::{Conn, KnownHeaderName, Swansong};
-use trillium_testing::{harness, TestTransport};
+use trillium_testing::{harness, RuntimeTrait, TestTransport};
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
 async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
@@ -44,6 +44,7 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
 #[test(harness)]
 async fn corpus_test() {
     env_logger::init();
+    let runtime = trillium_testing::runtime();
     let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
     let filter = std::env::var("CORPUS_TEST_FILTER").unwrap_or_default();
     let corpus_request_files = std::fs::read_dir(dir)
@@ -67,7 +68,7 @@ async fn corpus_test() {
 
         let (client, server) = TestTransport::new();
         let swansong = Swansong::new();
-        let res = trillium_testing::spawn({
+        let res = runtime.spawn({
             let swansong = swansong.clone();
             async move { Conn::map(server, swansong, handler).await }
         });
