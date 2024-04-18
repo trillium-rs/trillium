@@ -23,7 +23,7 @@ If you are depending on this crate for private code that cannot be
 discovered through docs.rs' reverse dependencies, please open an
 issue.
 */
-pub use futures_lite::{AsyncRead, AsyncWrite};
+pub use futures_lite::{AsyncRead, AsyncWrite, Stream};
 pub use trillium_http::transport::Transport;
 pub use url;
 pub use url::Url;
@@ -53,3 +53,6 @@ mod arc_handler;
 pub(crate) use arc_handler::ArcHandler;
 
 pub use swansong::Swansong;
+
+mod runtime;
+pub use runtime::{DroppableFuture, Runtime, RuntimeTrait};

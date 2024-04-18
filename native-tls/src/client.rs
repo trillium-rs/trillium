@@ -1,7 +1,6 @@
 use async_native_tls::{TlsConnector, TlsStream};
 use std::{
     fmt::{Debug, Formatter},
-    future::Future,
     io::{Error, ErrorKind, IoSlice, IoSliceMut, Result},
     net::SocketAddr,
     pin::Pin,
@@ -69,6 +68,7 @@ impl<Config> AsRef<Config> for NativeTlsConfig<Config> {
 }
 
 impl<T: Connector> Connector for NativeTlsConfig<T> {
+    type Runtime = T::Runtime;
     type Transport = NativeTlsClientTransport<T::Transport>;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
@@ -99,12 +99,8 @@ impl<T: Connector> Connector for NativeTlsConfig<T> {
         }
     }
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        self.tcp_config.spawn(fut)
-    }
-
-    async fn delay(&self, duration: std::time::Duration) {
-        self.tcp_config.delay(duration).await
+    fn runtime(&self) -> Self::Runtime {
+        self.tcp_config.runtime()
     }
 }
 

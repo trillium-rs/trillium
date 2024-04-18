@@ -31,8 +31,6 @@ async fn main() {
 ```
 */
 
-use std::future::Future;
-
 use trillium::Handler;
 
 pub use trillium_server_common::{Binding, Swansong};
@@ -116,14 +114,5 @@ pub fn config() -> Config<()> {
     Config::new()
 }
 
-/**
-reexport tokio runtime block_on
-*/
-pub fn block_on<Fut: Future<Output = T>, T>(future: Fut) -> T {
-    tokio::runtime::Runtime::new().unwrap().block_on(future)
-}
-
-/// spawn and detach a Future that returns ()
-pub fn spawn<Fut: Future<Output = ()> + Send + 'static>(future: Fut) {
-    tokio::task::spawn(future);
-}
+mod runtime;
+pub use runtime::TokioRuntime;

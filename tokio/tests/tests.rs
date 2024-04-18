@@ -1,20 +1,30 @@
-#[cfg(feature = "tokio")]
+use trillium::Swansong;
+use trillium_tokio::config;
+
+#[tokio::test]
+async fn spawn_async() {
+    config().with_port(0).spawn(()).shut_down().await;
+}
+
 #[test]
-fn smoke() {
-    use trillium_testing::prelude::*;
+fn spawn_block() {
+    config().with_port(0).spawn(()).shut_down().block();
+}
 
-    fn app() -> impl trillium::Handler {
-        |conn: trillium::Conn| async move {
-            let response = tokio::task::spawn(async {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                "successfully spawned a task"
-            })
-            .await
-            .unwrap();
-            conn.ok(response)
-        }
-    }
+#[test]
+fn run() {
+    let swansong = Swansong::new();
+    swansong.shut_down();
+    config().with_port(0).with_swansong(swansong).run(());
+}
 
-    let app = app();
-    assert_ok!(get("/").on(&app), "successfully spawned a task");
+#[tokio::test]
+async fn run_async() {
+    let swansong = Swansong::new();
+    swansong.shut_down();
+    config()
+        .with_port(0)
+        .with_swansong(swansong)
+        .run_async(())
+        .await;
 }

@@ -1,11 +1,10 @@
-use crate::AsyncStdTransport;
+use crate::{AsyncStdRuntime, AsyncStdTransport};
 use async_std::{
     net::{TcpListener, TcpStream},
     os::unix::net::{UnixListener, UnixStream},
     stream::StreamExt,
-    task::{block_on, spawn},
 };
-use std::{env, future::Future, io::Result};
+use std::{env, io::Result};
 use trillium::{log_error, Info};
 use trillium_server_common::{
     Binding::{self, *},
@@ -39,6 +38,8 @@ impl From<std::os::unix::net::UnixListener> for AsyncStdServer {
 
 #[cfg(unix)]
 impl Server for AsyncStdServer {
+    type Runtime = AsyncStdRuntime;
+
     type Transport = Binding<AsyncStdTransport<TcpStream>, AsyncStdTransport<UnixStream>>;
     const DESCRIPTION: &'static str = concat!(
         " (",
@@ -94,12 +95,8 @@ impl Server for AsyncStdServer {
         }
     }
 
-    fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
-        spawn(fut);
-    }
-
-    fn block_on(fut: impl Future<Output = ()> + 'static) {
-        block_on(fut);
+    fn runtime() -> Self::Runtime {
+        AsyncStdRuntime::default()
     }
 
     async fn clean_up(self) {

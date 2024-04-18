@@ -3,7 +3,7 @@ use pretty_assertions::assert_eq;
 use swansong::Swansong;
 use test_harness::test;
 use trillium_http::{Conn, KnownHeaderName, SERVER};
-use trillium_testing::{harness, TestResult, TestTransport};
+use trillium_testing::{harness, RuntimeTrait, TestResult, TestTransport};
 
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
@@ -23,14 +23,13 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
 #[test(harness)]
 async fn bad_headers() -> TestResult {
     let (client, server) = TestTransport::new();
-
-    trillium_testing::spawn(async move {
-        Conn::map(server, Swansong::new(), handler).await.unwrap();
-    });
+    let runtime = trillium_testing::runtime();
+    let handle = runtime.spawn(async move { Conn::map(server, Swansong::new(), handler).await });
 
     client.write_all(indoc! {"
         GET / HTTP/1.1\r
         Host: example.com\r
+        Connection: close\r
         \r
     "});
 
@@ -44,6 +43,8 @@ async fn bad_headers() -> TestResult {
     "};
 
     assert_eq!(client.read_available_string().await, expected_response);
+
+    handle.await.unwrap().unwrap();
 
     Ok(())
 }

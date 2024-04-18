@@ -1,6 +1,6 @@
 use trillium_http::transport::BoxedTransport;
 
-use crate::{Transport, Url};
+use crate::{Runtime, RuntimeTrait, Transport, Url};
 use std::{
     any::Any,
     fmt::{self, Debug},
@@ -8,7 +8,6 @@ use std::{
     io,
     pin::Pin,
     sync::Arc,
-    time::Duration,
 };
 /**
 Interface for runtime and tls adapters for the trillium client
@@ -21,14 +20,22 @@ pub trait Connector: Send + Sync + 'static {
     /// the [`Transport`] that [`connect`] returns
     type Transport: Transport;
 
+    /// The [`RuntimeTrait`] for this Connector
+    type Runtime: RuntimeTrait;
+
     /// Initiate a connection to the provided url
     fn connect(&self, url: &Url) -> impl Future<Output = io::Result<Self::Transport>> + Send;
 
-    /// spawn and detach a future on the runtime
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut);
+    /// Returns an object-safe [`ArcedConnector`]. Do not implement this.
+    fn arced(self) -> ArcedConnector
+    where
+        Self: Sized,
+    {
+        ArcedConnector(Arc::new(self))
+    }
 
-    /// wake in this amount of wall time
-    fn delay(&self, duration: Duration) -> impl Future<Output = ()> + Send;
+    /// Returns the runtime
+    fn runtime(&self) -> Self::Runtime;
 }
 
 /// An Arced and type-erased [`Connector`]
@@ -44,8 +51,8 @@ impl Debug for ArcedConnector {
 impl ArcedConnector {
     /// Constructs a new `ArcedConnector`
     #[must_use]
-    pub fn new(handler: impl Connector) -> Self {
-        Self(Arc::new(handler))
+    pub fn new(connector: impl Connector) -> Self {
+        connector.arced()
     }
 
     /// Determine if this `ArcedConnector` is the specified type
@@ -64,6 +71,11 @@ impl ArcedConnector {
     pub fn downcast_mut<T: Any + 'static>(&mut self) -> Option<&mut T> {
         Arc::get_mut(&mut self.0)?.as_mut_any().downcast_mut()
     }
+
+    /// Returns an object-safe [`Runtime`]
+    pub fn runtime(&self) -> Runtime {
+        self.0.runtime()
+    }
 }
 
 trait ObjectSafeConnector: Send + Sync + 'static {
@@ -76,16 +88,9 @@ trait ObjectSafeConnector: Send + Sync + 'static {
         'connector: 'fut,
         'url: 'fut,
         Self: 'fut;
-    fn spawn(&self, fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
-    fn delay<'connector, 'fut>(
-        &'connector self,
-        duration: Duration,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'fut>>
-    where
-        'connector: 'fut,
-        Self: 'fut;
     fn as_any(&self) -> &dyn Any;
     fn as_mut_any(&mut self) -> &mut dyn Any;
+    fn runtime(&self) -> Runtime;
 }
 
 impl<T: Connector> ObjectSafeConnector for T {
@@ -100,25 +105,14 @@ impl<T: Connector> ObjectSafeConnector for T {
     {
         Box::pin(async move { Connector::connect(self, url).await.map(BoxedTransport::new) })
     }
-    fn spawn(&self, fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
-        Connector::spawn(self, fut)
-    }
-
     fn as_any(&self) -> &dyn Any {
         self
     }
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
     }
-    fn delay<'connector, 'fut>(
-        &'connector self,
-        duration: Duration,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'fut>>
-    where
-        'connector: 'fut,
-        Self: 'fut,
-    {
-        Box::pin(async move { Connector::delay(self, duration).await })
+    fn runtime(&self) -> Runtime {
+        Connector::runtime(self).into()
     }
 }
 
@@ -128,11 +122,13 @@ impl Connector for ArcedConnector {
         self.0.connect(url).await
     }
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        self.0.spawn(Box::pin(fut))
+    type Runtime = Runtime;
+
+    fn arced(self) -> ArcedConnector {
+        self
     }
 
-    async fn delay(&self, duration: Duration) {
-        self.0.delay(duration).await
+    fn runtime(&self) -> Self::Runtime {
+        self.0.runtime()
     }
 }

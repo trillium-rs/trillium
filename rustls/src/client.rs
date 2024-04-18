@@ -9,7 +9,6 @@ use futures_rustls::{
 };
 use std::{
     fmt::{self, Debug, Formatter},
-    future::Future,
     io::{Error, ErrorKind, IoSlice, Result},
     net::SocketAddr,
     pin::Pin,
@@ -108,6 +107,7 @@ impl<Config: Debug> Debug for RustlsConfig<Config> {
 
 impl<C: Connector> Connector for RustlsConfig<C> {
     type Transport = RustlsClientTransport<C::Transport>;
+    type Runtime = C::Runtime;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         match url.scheme() {
@@ -138,12 +138,8 @@ impl<C: Connector> Connector for RustlsConfig<C> {
         }
     }
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        self.tcp_config.spawn(fut)
-    }
-
-    async fn delay(&self, duration: std::time::Duration) {
-        self.tcp_config.delay(duration).await
+    fn runtime(&self) -> Self::Runtime {
+        self.tcp_config.runtime()
     }
 }
 

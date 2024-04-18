@@ -1,7 +1,6 @@
-use crate::AsyncStdTransport;
+use crate::{AsyncStdRuntime, AsyncStdTransport};
 use async_std::net::{TcpListener, TcpStream};
-use async_std::task::{block_on, spawn};
-use std::{convert::TryInto, env, future::Future, io::Result};
+use std::{env, io::Result};
 use trillium::Info;
 use trillium_server_common::Server;
 
@@ -20,6 +19,7 @@ impl From<std::net::TcpListener> for AsyncStdServer {
 }
 
 impl Server for AsyncStdServer {
+    type Runtime = AsyncStdRuntime;
     type Transport = AsyncStdTransport<TcpStream>;
     const DESCRIPTION: &'static str = concat!(
         " (",
@@ -34,18 +34,14 @@ impl Server for AsyncStdServer {
     }
 
     fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {
-        Self(tcp.try_into().unwrap())
+        Self(tcp.into())
     }
 
     fn info(&self) -> Info {
         self.0.local_addr().unwrap().into()
     }
 
-    fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
-        spawn(fut);
-    }
-
-    fn block_on(fut: impl Future<Output = ()> + 'static) {
-        block_on(fut)
+    fn runtime() -> Self::Runtime {
+        AsyncStdRuntime::default()
     }
 }

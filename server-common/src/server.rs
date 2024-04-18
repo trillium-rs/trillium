@@ -1,4 +1,4 @@
-use crate::{Acceptor, ArcHandler, Config, ConfigExt, Swansong, Transport};
+use crate::{Acceptor, ArcHandler, Config, ConfigExt, RuntimeTrait, Swansong, Transport};
 use std::{future::Future, io::Result, sync::Arc};
 use trillium::{Handler, Info};
 
@@ -10,6 +10,9 @@ pub trait Server: Sized + Send + Sync + 'static {
     /// will be communicated over. This is often an async "stream"
     /// like TcpStream or UnixStream. See [`Transport`]
     type Transport: Transport;
+
+    /// The [`RuntimeTrait`] for this `Server`.
+    type Runtime: RuntimeTrait;
 
     /// The description of this server, to be appended to the Info and potentially logged.
     const DESCRIPTION: &'static str;
@@ -27,6 +30,9 @@ pub trait Server: Sized + Send + Sync + 'static {
     fn clean_up(self) -> impl Future<Output = ()> + Send {
         async {}
     }
+
+    /// Return this `Server`'s `Runtime`
+    fn runtime() -> Self::Runtime;
 
     /// Build a listener from the config. The default logic for this
     /// is described elsewhere. To override the default logic, server
@@ -105,19 +111,16 @@ pub trait Server: Sized + Send + Sync + 'static {
         async {}
     }
 
-    /// Runtime implementation hook for spawning a task.
-    fn spawn(fut: impl Future<Output = ()> + Send + 'static);
-
-    /// Runtime implementation hook for blocking on a top level future.
-    fn block_on(fut: impl Future<Output = ()> + 'static);
-
     /// Run a trillium application from a sync context
     fn run<A, H>(config: Config<Self, A>, handler: H)
     where
         A: Acceptor<Self::Transport>,
         H: Handler,
     {
-        Self::block_on(Self::run_async(config, handler))
+        config
+            .runtime
+            .clone()
+            .block_on(async move { Self::run_async(config, handler).await });
     }
 
     /// Run a trillium application from an async context. The default
@@ -129,14 +132,14 @@ pub trait Server: Sized + Send + Sync + 'static {
         H: Handler,
     {
         async move {
+            let runtime = config.runtime.clone();
             if config.should_register_signals() {
                 #[cfg(unix)]
-                Self::spawn(Self::handle_signals(config.swansong()));
+                runtime.spawn(Self::handle_signals(config.swansong()));
 
                 #[cfg(not(unix))]
                 log::error!("signals handling not supported on windows yet");
             }
-
             let mut listener = Self::build_listener(&config);
             let mut info = Self::info(&listener);
             info.server_description_mut().push_str(Self::DESCRIPTION);
@@ -144,13 +147,14 @@ pub trait Server: Sized + Send + Sync + 'static {
             config.info.set(Arc::new(info));
             let config = Arc::new(config);
             let handler = ArcHandler::new(handler);
+            let swansong = &config.swansong;
 
-            while let Some(stream) = config.swansong.interrupt(Self::accept(&mut listener)).await {
-                match stream {
+            while let Some(transport) = swansong.interrupt(Self::accept(&mut listener)).await {
+                match transport {
                     Ok(stream) => {
                         let config = Arc::clone(&config);
                         let handler = ArcHandler::clone(&handler);
-                        Self::spawn(async move { config.handle_stream(stream, handler).await })
+                        runtime.spawn(config.handle_stream(stream, handler));
                     }
                     Err(e) => log::error!("tcp error: {}", e),
                 }

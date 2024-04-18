@@ -1,4 +1,7 @@
-use std::str::FromStr;
+use std::{
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
+};
 use test_harness::test;
 use trillium_client::{Client, Status};
 use trillium_testing::{harness, ServerConnector, TestResult, Url};
@@ -82,6 +85,36 @@ async fn without_base() -> TestResult {
     assert!(client
         .build_url(Url::from_str("data:text/plain,Stuff")?)
         .is_err());
+
+    assert_eq!(
+        client
+            .build_url(IpAddr::from_str("127.0.0.1").unwrap())
+            .unwrap()
+            .as_str(),
+        "http://127.0.0.1/"
+    );
+    assert_eq!(
+        client
+            .build_url(IpAddr::from_str("::1").unwrap())
+            .unwrap()
+            .as_str(),
+        "http://[::1]/"
+    );
+
+    assert_eq!(
+        client
+            .build_url(SocketAddr::from_str("127.0.0.1:8080").unwrap())
+            .unwrap()
+            .as_str(),
+        "http://127.0.0.1:8080/"
+    );
+    assert_eq!(
+        client
+            .build_url(SocketAddr::from_str("[::1]:8080").unwrap())
+            .unwrap()
+            .as_str(),
+        "http://[::1]:8080/"
+    );
 
     Ok(())
 }

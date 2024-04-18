@@ -1,6 +1,7 @@
-use crate::{Acceptor, Server, ServerHandle};
+use crate::{Acceptor, RuntimeTrait, Server, ServerHandle};
 use async_cell::sync::AsyncCell;
 use std::{
+    cell::OnceCell,
     marker::PhantomData,
     net::SocketAddr,
     sync::{Arc, RwLock},
@@ -57,7 +58,7 @@ In order to use this to _implement_ a trillium server, see
 */
 
 #[derive(Debug)]
-pub struct Config<ServerType, AcceptorType> {
+pub struct Config<ServerType: Server, AcceptorType> {
     pub(crate) acceptor: AcceptorType,
     pub(crate) port: Option<u16>,
     pub(crate) host: Option<String>,
@@ -69,6 +70,7 @@ pub struct Config<ServerType, AcceptorType> {
     pub(crate) binding: RwLock<Option<ServerType>>,
     pub(crate) server: PhantomData<ServerType>,
     pub(crate) http_config: HttpConfig,
+    pub(crate) runtime: ServerType::Runtime,
 }
 
 impl<ServerType, AcceptorType> Config<ServerType, AcceptorType>
@@ -103,7 +105,7 @@ where
     /// [`ServerHandle::stop`]
     pub fn spawn(self, handler: impl Handler) -> ServerHandle {
         let server_handle = self.handle();
-        ServerType::spawn(self.run_async(handler));
+        self.runtime.clone().spawn(self.run_async(handler));
         server_handle
     }
 
@@ -113,6 +115,8 @@ where
         ServerHandle {
             swansong: self.swansong.clone(),
             info: self.info.clone(),
+            received_info: OnceCell::new(),
+            runtime: self.runtime().into(),
         }
     }
 
@@ -179,6 +183,7 @@ where
             info: self.info,
             binding: self.binding,
             http_config: self.http_config,
+            runtime: self.runtime,
         }
     }
 
@@ -236,6 +241,11 @@ where
             .as_deref()
             .map_or(false, Option::is_some)
     }
+
+    /// retrieve the runtime
+    pub fn runtime(&self) -> ServerType::Runtime {
+        self.runtime.clone()
+    }
 }
 
 impl<ServerType: Server> Config<ServerType, ()> {
@@ -272,6 +282,7 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
             info: AsyncCell::shared(),
             binding: RwLock::new(None),
             http_config: HttpConfig::default(),
+            runtime: ServerType::runtime(),
         }
     }
 }

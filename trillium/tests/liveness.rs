@@ -4,16 +4,15 @@ use std::{
     io,
     pin::Pin,
     task::{Context, Poll},
-    thread,
     time::Duration,
 };
 use test_harness::test;
 use trillium::Conn;
-use trillium_testing::{config, harness, ArcedConnector, ClientConfig, Connector, TestResult};
+use trillium_testing::{client_config, config, harness, ArcedConnector, Connector, TestResult};
 
 #[test(harness)]
 async fn infinitely_pending_task() -> TestResult {
-    let connector = ArcedConnector::new(ClientConfig::default());
+    let connector = ArcedConnector::new(client_config());
 
     let handle = config()
         .with_host("localhost")
@@ -50,7 +49,7 @@ async fn infinitely_pending_task() -> TestResult {
 #[test(harness)]
 async fn is_disconnected() -> TestResult {
     let _ = env_logger::builder().is_test(true).try_init();
-    let connector = ArcedConnector::new(ClientConfig::default());
+    let connector = ArcedConnector::new(client_config());
     let (delay_sender, delay_receiver) = async_channel::unbounded();
     let (disconnected_sender, disconnected_receiver) = async_channel::unbounded();
     let handle = config()
@@ -70,6 +69,7 @@ async fn is_disconnected() -> TestResult {
         });
 
     let info = handle.info().await;
+    let runtime = handle.runtime();
 
     let url = format!("http://{}", info.listener_description())
         .parse()
@@ -93,7 +93,7 @@ async fn is_disconnected() -> TestResult {
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
         .await?;
     drop(client);
-    thread::sleep(Duration::from_millis(10));
+    runtime.delay(Duration::from_millis(10)).await;
     delay_sender.send(()).await?;
     assert!(disconnected_receiver.recv().await?);
 

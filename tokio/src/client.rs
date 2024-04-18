@@ -1,7 +1,6 @@
-use crate::TokioTransport;
+use crate::{TokioRuntime, TokioTransport};
 use async_compat::Compat;
 use std::{
-    future::Future,
     io::{Error, ErrorKind, Result},
     time::Duration,
 };
@@ -59,6 +58,7 @@ impl ClientConfig {
 
 impl Connector for ClientConfig {
     type Transport = TokioTransport<Compat<TcpStream>>;
+    type Runtime = TokioRuntime;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         if url.scheme() != "http" {
@@ -98,11 +98,7 @@ impl Connector for ClientConfig {
         Ok(tcp)
     }
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        tokio::task::spawn(fut);
-    }
-
-    async fn delay(&self, duration: Duration) {
-        tokio::time::sleep(duration).await
+    fn runtime(&self) -> Self::Runtime {
+        TokioRuntime::default()
     }
 }

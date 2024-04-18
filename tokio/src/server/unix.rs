@@ -1,10 +1,7 @@
-use crate::TokioTransport;
+use crate::{TokioRuntime, TokioTransport};
 use async_compat::Compat;
-use std::{future::Future, io::Result};
-use tokio::{
-    net::{TcpListener, TcpStream, UnixListener, UnixStream},
-    spawn,
-};
+use std::io::Result;
+use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
 use trillium::{log_error, Info};
 use trillium_server_common::{
     Binding::{self, *},
@@ -28,7 +25,9 @@ impl From<UnixListener> for TokioServer {
 }
 
 impl Server for TokioServer {
+    type Runtime = TokioRuntime;
     type Transport = Binding<TokioTransport<Compat<TcpStream>>, TokioTransport<Compat<UnixStream>>>;
+
     const DESCRIPTION: &'static str = concat!(
         " (",
         env!("CARGO_PKG_NAME"),
@@ -75,14 +74,6 @@ impl Server for TokioServer {
         }
     }
 
-    fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
-        spawn(fut);
-    }
-
-    fn block_on(fut: impl Future<Output = ()> + 'static) {
-        crate::block_on(fut)
-    }
-
     fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {
         Self(Tcp(tcp.try_into().unwrap()))
     }
@@ -100,5 +91,9 @@ impl Server for TokioServer {
                 }
             }
         }
+    }
+
+    fn runtime() -> Self::Runtime {
+        TokioRuntime::default()
     }
 }

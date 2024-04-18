@@ -60,7 +60,7 @@ trillium_testing::with_server("ok", |url| async move {
 */
 
 use trillium::Handler;
-pub use trillium_server_common::{Binding, Swansong};
+pub use trillium_server_common::{Binding, Connector, Runtime, RuntimeTrait, Swansong};
 
 mod client;
 pub use client::ClientConfig;
@@ -74,6 +74,9 @@ pub use transport::SmolTransport;
 pub use async_global_executor;
 pub use async_io;
 pub use async_net;
+
+mod runtime;
+pub use runtime::SmolRuntime;
 
 /**
 # Runs a trillium handler in a sync context with default config
@@ -139,9 +142,4 @@ See [`trillium_server_common::Config`] for more details
 */
 pub fn config() -> Config<()> {
     Config::new()
-}
-
-/// spawn and detach a Future that returns ()
-pub fn spawn<Fut: std::future::Future<Output = ()> + Send + 'static>(future: Fut) {
-    async_global_executor::spawn(future).detach();
 }
