@@ -6,7 +6,7 @@ use std::future::{Future, IntoFuture};
 use test_harness::test;
 use trillium_client::{Client, Conn, Error, Status, USER_AGENT};
 use trillium_server_common::{Connector, Url};
-use trillium_testing::{harness, TestResult, TestTransport};
+use trillium_testing::{harness, RuntimeTrait, TestResult, TestTransport};
 
 #[test(harness)]
 async fn extra_one_hundred_continue() -> TestResult {
@@ -216,22 +216,19 @@ async fn little_continue_big_continue() -> TestResult {
 
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
-struct TestConnector(Sender<TestTransport>);
+struct TestConnector<R>(Sender<TestTransport>, R);
 
-impl Connector for TestConnector {
+impl<R: RuntimeTrait> Connector for TestConnector<R> {
     type Transport = TestTransport;
+    type Runtime = R;
     async fn connect(&self, _url: &Url) -> std::io::Result<Self::Transport> {
         let (server, client) = TestTransport::new();
         let _ = self.0.send(server).await;
         Ok(client)
     }
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        let _ = trillium_testing::spawn(fut);
-    }
-
-    async fn delay(&self, duration: std::time::Duration) {
-        trillium_testing::delay(duration).await
+    fn runtime(&self) -> Self::Runtime {
+        self.1.clone()
     }
 }
 
@@ -239,8 +236,9 @@ async fn test_conn(
     setup: impl FnOnce(Client) -> Conn + Send + 'static,
 ) -> (TestTransport, impl Future<Output = Result<Conn, Error>>) {
     let (sender, receiver) = async_channel::unbounded();
-    let client = Client::new(TestConnector(sender));
-    let conn_fut = trillium_testing::spawn(setup(client).into_future());
+    let client = Client::new(TestConnector(sender, trillium_testing::runtime()));
+    let runtime = client.connector().runtime();
+    let conn_fut = runtime.spawn(setup(client).into_future()).into_future();
     let transport = receiver.recv().await.unwrap();
     (transport, async move { conn_fut.await.unwrap() })
 }

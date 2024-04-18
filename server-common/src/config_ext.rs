@@ -3,11 +3,10 @@ use futures_lite::prelude::*;
 use std::{
     io::ErrorKind,
     net::{SocketAddr, TcpListener, ToSocketAddrs},
+    sync::Arc,
 };
 use trillium::Handler;
-use trillium_http::{
-    transport::BoxedTransport, Conn as HttpConn, Error, Swansong, SERVICE_UNAVAILABLE,
-};
+use trillium_http::{transport::BoxedTransport, Error, Swansong, SERVICE_UNAVAILABLE};
 /// # Server-implementer interfaces to Config
 ///
 /// These functions are intended for use by authors of trillium servers,
@@ -58,7 +57,7 @@ where
     /// [`trillium_http`]'s http implementation. this is the default inner
     /// loop for most trillium servers
     fn handle_stream(
-        &self,
+        self: Arc<Self>,
         stream: ServerType::Transport,
         handler: impl Handler,
     ) -> impl Future<Output = ()> + Send;
@@ -129,7 +128,11 @@ where
         self.swansong.shut_down().await
     }
 
-    async fn handle_stream(&self, mut stream: ServerType::Transport, handler: impl Handler) {
+    async fn handle_stream(
+        self: Arc<Self>,
+        mut stream: ServerType::Transport,
+        handler: impl Handler,
+    ) {
         if self.over_capacity() {
             let mut byte = [0u8]; // wait for the client to start requesting
             trillium::log_error!(stream.read(&mut byte).await);
@@ -137,13 +140,13 @@ where
             return;
         }
 
-        let counter = self.swansong.guard();
+        let guard = self.swansong.guard();
 
         trillium::log_error!(stream.set_nodelay(self.nodelay));
 
         let peer_ip = stream.peer_addr().ok().flatten().map(|addr| addr.ip());
 
-        let stream = match self.acceptor.accept(stream).await {
+        let transport = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
             Err(e) => {
                 log::error!("acceptor error: {:?}", e);
@@ -152,9 +155,9 @@ where
         };
 
         let handler = &handler;
-        let result = HttpConn::map_with_config(
+        let result = trillium_http::Conn::map_with_config(
             self.http_config,
-            stream,
+            transport,
             self.swansong.clone(),
             |mut conn| async {
                 conn.set_peer_ip(peer_ip);
@@ -192,7 +195,7 @@ where
             }
         };
 
-        drop(counter);
+        drop(guard);
     }
 
     fn build_listener<Listener>(&self) -> Listener
