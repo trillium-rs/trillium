@@ -11,6 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
+async-channel = "2.2.0"
 async_cell = "0.2.2"
 futures-lite = "2.1.0"
 log = "0.4.20"

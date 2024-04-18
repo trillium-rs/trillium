@@ -65,7 +65,7 @@ trillium-testing = { version = "0.2", features = ["smol"] }
 mod assertions;
 
 mod test_transport;
-use std::future::{Future, IntoFuture};
+use std::future::Future;
 use std::process::Termination;
 
 pub use test_transport::TestTransport;
@@ -90,38 +90,26 @@ pub use trillium::{Method, Status};
 
 pub use url::Url;
 
+/// runs the future to completion on the current thread
+pub fn block_on<Fut: Future>(fut: Fut) -> Fut::Output {
+    runtime().block_on(fut)
+}
+
 /// initialize a handler
 pub fn init(handler: &mut impl trillium::Handler) {
     let mut info = "testing".into();
-    block_on(handler.init(&mut info))
+    block_on(async move { handler.init(&mut info).await })
 }
 
 // these exports are used by macros
 pub use futures_lite;
-pub use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite};
+pub use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, Stream};
 
 mod server_connector;
 pub use server_connector::{connector, ServerConnector};
 
 use trillium_server_common::Config;
-pub use trillium_server_common::{ArcedConnector, Connector, Server};
-
-#[derive(Debug)]
-/// A droppable future
-///
-/// This only exists because of the #[must_use] on futures. The task will run to completion whether
-/// or not this future is awaited.
-pub struct SpawnHandle<F>(F);
-impl<F> IntoFuture for SpawnHandle<F>
-where
-    F: Future,
-{
-    type IntoFuture = F;
-    type Output = F::Output;
-    fn into_future(self) -> Self::IntoFuture {
-        self.0
-    }
-}
+pub use trillium_server_common::{ArcedConnector, Connector, Runtime, RuntimeTrait, Server};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "smol")] {
@@ -130,142 +118,72 @@ cfg_if::cfg_if! {
             trillium_smol::config()
         }
 
-        /// smol-based spawn variant that finishes whether or not the returned future is dropped
-        pub fn spawn<Fut, Out>(future: Fut) -> SpawnHandle<impl Future<Output = Option<Out>>>
-        where
-            Fut: Future<Output = Out> + Send + 'static,
-            Out: Send + 'static
-        {
-            let (tx, rx) = async_channel::bounded::<Out>(1);
-            trillium_smol::async_global_executor::spawn(async move { let _ = tx.send(future.await).await; }).detach();
-            SpawnHandle(async move {
-                let rx = rx;
-                rx.recv().await.ok()
-            })
-        }
-
         /// runtime client config
         pub fn client_config() -> impl Connector {
-            ClientConfig::default()
+            trillium_smol::ClientConfig::default()
         }
-        pub use trillium_smol::async_global_executor::block_on;
-        pub use trillium_smol::ClientConfig;
-        /// a future that wakes after this amount of time
-        pub async fn delay(duration: std::time::Duration) {
-            trillium_smol::async_io::Timer::after(duration).await;
+        /// smol runtime
+        pub fn runtime() -> impl RuntimeTrait {
+            trillium_smol::SmolRuntime::default()
         }
-
+        pub(crate) use trillium_smol::SmolRuntime as RuntimeType;
     } else if #[cfg(feature = "async-std")] {
         /// runtime server config
         pub fn config() -> Config<impl Server, ()> {
             trillium_async_std::config()
         }
-        pub use trillium_async_std::async_std::task::block_on;
-        pub use trillium_async_std::ClientConfig;
-
-        /// async-std-based spawn variant that finishes whether or not the returned future is dropped
-        pub fn spawn<Fut, Out>(future: Fut) -> SpawnHandle<impl Future<Output = Option<Out>>>
-        where
-            Fut: Future<Output = Out> + Send + 'static,
-            Out: Send + 'static
-        {
-            let (tx, rx) = async_channel::bounded::<Out>(1);
-            trillium_async_std::async_std::task::spawn(async move { let _ = tx.send(future.await).await; });
-            SpawnHandle(async move {
-                let rx = rx;
-                rx.recv().await.ok()
-            })
-        }
         /// runtime client config
         pub fn client_config() -> impl Connector {
-            ClientConfig::default()
+            trillium_async_std::ClientConfig::default()
         }
-
-       /// a future that wakes after this amount of time
-        pub async fn delay(duration: std::time::Duration) {
-            let _ = trillium_async_std::async_std::future::timeout(
-                duration,
-                std::future::pending::<()>()
-            ).await;
+        /// async std runtime
+        pub fn runtime() -> impl RuntimeTrait {
+            trillium_async_std::AsyncStdRuntime::default()
         }
+        pub(crate) use trillium_async_std::AsyncStdRuntime as RuntimeType;
 
     } else if #[cfg(feature = "tokio")] {
         /// runtime server config
         pub fn config() -> Config<impl Server, ()> {
             trillium_tokio::config()
         }
-        pub use trillium_tokio::ClientConfig;
-        pub use trillium_tokio::block_on;
-        /// tokio-based spawn variant that finishes whether or not the returned future is dropped
-        pub fn spawn<Fut, Out>(future: Fut) -> SpawnHandle<impl Future<Output = Option<Out>>>
-        where
-            Fut: Future<Output = Out> + Send + 'static,
-            Out: Send + 'static
-        {
-            let (tx, rx) = async_channel::bounded::<Out>(1);
-            trillium_tokio::tokio::task::spawn(async move { let _ = tx.send(future.await).await; });
-            SpawnHandle(async move {
-                let rx = rx;
-                rx.recv().await.ok()
-            })
-        }
-        /// runtime client config
+
+        /// tokio client config
         pub fn client_config() -> impl Connector {
-            ClientConfig::default()
+            trillium_tokio::ClientConfig::default()
         }
 
-       /// a future that wakes after this amount of time
-        pub async fn delay(duration: std::time::Duration) {
-            trillium_tokio::tokio::time::sleep(duration).await;
+        /// tokio runtime
+        pub fn runtime() -> impl RuntimeTrait {
+            trillium_tokio::TokioRuntime::default()
         }
 
+        pub(crate) use trillium_tokio::TokioRuntime as RuntimeType;
    } else {
         /// runtime server config
         pub fn config() -> Config<impl Server, ()> {
             Config::<RuntimelessServer, ()>::new()
         }
 
-        pub use RuntimelessClientConfig as ClientConfig;
-
         /// generic client config
         pub fn client_config() -> impl Connector {
             RuntimelessClientConfig::default()
         }
 
-        pub use futures_lite::future::block_on;
-
-        /// fake runtimeless spawn that finishes whether or not the future is dropped
-        pub fn spawn<Fut, Out>(future: Fut) -> SpawnHandle<impl Future<Output = Option<Out>>>
-        where
-            Fut: Future<Output = Out> + Send + 'static,
-            Out: Send + 'static
-        {
-            let (tx, rx) = async_channel::bounded::<Out>(1);
-            std::thread::spawn(move || { let _ = tx.send_blocking(block_on(future)); });
-            SpawnHandle(async move {
-                let rx = rx;
-                rx.recv().await.ok()
-            })
-        }
-
-       /// a future that wakes after this amount of time
-       pub async fn delay(duration: std::time::Duration) {
-           let (sender, receiver) = async_channel::bounded::<()>(1);
-           std::thread::spawn(move || {
-               std::thread::sleep(duration);
-               let _ = sender.send_blocking(());
-           });
-
-           let _ = receiver.recv().await;
+       /// generic runtime
+       pub fn runtime() -> impl RuntimeTrait {
+           RuntimelessRuntime::default()
        }
-    }
+
+       pub(crate) use RuntimelessRuntime as RuntimeType;
+   }
 }
 
 mod with_server;
 pub use with_server::{with_server, with_transport};
 
 mod runtimeless;
-pub use runtimeless::{RuntimelessClientConfig, RuntimelessServer};
+pub use runtimeless::{RuntimelessClientConfig, RuntimelessRuntime, RuntimelessServer};
 
 /// a sponge Result
 pub type TestResult = Result<(), Box<dyn std::error::Error>>;
