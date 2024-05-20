@@ -1,6 +1,13 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use trillium_conn_id::*;
 use trillium_testing::{prelude::*, TestConn};
 use uuid::Uuid;
+
+fn build_incrementing_id_generator() -> impl Fn() -> String + Send + Sync + 'static {
+    let count = AtomicUsize::default();
+    move || count.fetch_add(1, Ordering::SeqCst).to_string()
+}
 
 #[test]
 fn test_defaults() {
@@ -48,7 +55,7 @@ fn test_settings() {
 fn test_no_headers() {
     let app = (
         ConnId::new()
-            .with_seed(1000)
+            .with_id_generator(build_incrementing_id_generator())
             .without_request_header()
             .without_response_header(),
         "ok",
@@ -56,11 +63,11 @@ fn test_no_headers() {
 
     let conn = get("/").on(&app);
     assert!(conn.response_headers().get("x-request-id").is_none());
-    assert_eq!(conn.id(), "J4lzoPXcT5");
+    assert_eq!(conn.id(), "0");
 
     let conn = get("/")
         .with_request_header("x-request-id", "ignored")
         .on(&app);
-    assert_eq!(conn.id(), "Sn0wUTe4EF");
+    assert_eq!(conn.id(), "1");
     assert!(conn.response_headers().get("x-request-id").is_none());
 }
