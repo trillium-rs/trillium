@@ -1,4 +1,4 @@
-use crate::{received_body::read_buffered, Buffer, Conn, Headers, Method, StateSet, Swansong};
+use crate::{received_body::read_buffered, Buffer, Conn, Headers, Method, Swansong, TypeSet};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
     fmt::{self, Debug, Formatter},
@@ -31,7 +31,7 @@ pub struct Upgrade<Transport> {
     /// The http request method
     pub method: Method,
     /// Any state that has been accumulated on the Conn before negotiating the upgrade
-    pub state: StateSet,
+    pub state: TypeSet,
     /// The underlying io (often a `TcpStream` or similar)
     #[async_write]
     pub transport: Transport,
@@ -62,7 +62,7 @@ impl<Transport> Upgrade<Transport> {
             method,
             transport,
             buffer,
-            state: StateSet::new(),
+            state: TypeSet::new(),
             swansong: Swansong::new(),
             peer_ip: None,
         }
@@ -96,7 +96,7 @@ impl<Transport> Upgrade<Transport> {
 
     /// any state that has been accumulated on the Conn before
     /// negotiating the upgrade.
-    pub fn state(&self) -> &StateSet {
+    pub fn state(&self) -> &TypeSet {
         &self.state
     }
 

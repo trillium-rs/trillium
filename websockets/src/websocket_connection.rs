@@ -13,8 +13,8 @@ use std::{
     task::{Context, Poll},
 };
 use swansong::{Interrupt, Swansong};
-use trillium::{Headers, Method, StateSet, Upgrade};
-use trillium_http::transport::BoxedTransport;
+use trillium::{Headers, Method, TypeSet, Upgrade};
+use trillium_http::{transport::BoxedTransport, type_set::entry::Entry};
 
 /**
 A struct that represents an specific websocket connection.
@@ -32,7 +32,7 @@ pub struct WebSocketConn {
     request_headers: Headers,
     path: String,
     method: Method,
-    state: StateSet,
+    state: TypeSet,
     peer_ip: Option<IpAddr>,
     swansong: Swansong,
     sink: SplitSink<Wss, Message>,
@@ -160,14 +160,14 @@ impl WebSocketConn {
     became a websocket. see [`trillium::Conn::state`] for more
     information
      */
-    pub fn state<T: 'static>(&self) -> Option<&T> {
+    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
         self.state.get()
     }
 
     /**
     retrieve a mutable borrow of the state from the state set
      */
-    pub fn state_mut<T: 'static>(&mut self) -> Option<&mut T> {
+    pub fn state_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
         self.state.get_mut()
     }
 
@@ -184,8 +184,14 @@ impl WebSocketConn {
     before it became a websocket. see [`trillium::Conn::take_state`]
     for more information
      */
-    pub fn take_state<T: 'static>(&mut self) -> Option<T> {
+    pub fn take_state<T: Send + Sync + 'static>(&mut self) -> Option<T> {
         self.state.take()
+    }
+
+    /// Returns an [`Entry`] for the state typeset that can be used with functions like
+    /// [`Entry::or_insert`], [`Entry::or_insert_with`], [`Entry::and_modify`], and others.
+    pub fn state_entry<T: Send + Sync + 'static>(&mut self) -> Entry<'_, T> {
+        self.state.entry()
     }
 
     /// take the inbound Message stream from this conn
@@ -214,14 +220,14 @@ impl Stream for WStream {
     }
 }
 
-impl AsMut<StateSet> for WebSocketConn {
-    fn as_mut(&mut self) -> &mut StateSet {
+impl AsMut<TypeSet> for WebSocketConn {
+    fn as_mut(&mut self) -> &mut TypeSet {
         &mut self.state
     }
 }
 
-impl AsRef<StateSet> for WebSocketConn {
-    fn as_ref(&self) -> &StateSet {
+impl AsRef<TypeSet> for WebSocketConn {
+    fn as_ref(&self) -> &TypeSet {
         &self.state
     }
 }
