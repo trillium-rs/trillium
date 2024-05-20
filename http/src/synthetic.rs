@@ -1,6 +1,6 @@
 use crate::{
     after_send::AfterSend, http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState,
-    transport::Transport, Conn, Headers, KnownHeaderName, Method, StateSet, Swansong, Version,
+    transport::Transport, Conn, Headers, KnownHeaderName, Method, Swansong, TypeSet, Version,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
 use std::{
@@ -145,7 +145,7 @@ impl Conn<Synthetic> {
             method,
             status: None,
             version: Version::Http1_1,
-            state: StateSet::new(),
+            state: TypeSet::new(),
             response_body: None,
             buffer: Vec::with_capacity(DEFAULT_CONFIG.request_buffer_initial_len).into(),
             request_body_state: ReceivedBodyState::Start,
