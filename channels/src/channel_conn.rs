@@ -8,7 +8,7 @@ A ChannelConn is a wrapper around a [`WebSocketConn`] that also
 contains a [`ChannelClient`]
 
 It that provides convenient access to functions from the ChannelClient
-held in the WebSocketConn's StateSet, and dereferences to the
+held in the WebSocketConn's TypeSet, and dereferences to the
 `WebSocketConn` for other functionality.
 */
 #[derive(Debug)]
