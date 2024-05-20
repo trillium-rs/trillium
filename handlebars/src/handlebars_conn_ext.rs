@@ -102,6 +102,6 @@ impl HandlebarsConnExt for Conn {
     }
 
     fn assigns_mut(&mut self) -> &mut Assigns {
-        self.mut_state_or_insert_with(Assigns::default)
+        self.state_entry().or_default()
     }
 }

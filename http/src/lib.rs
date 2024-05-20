@@ -100,8 +100,8 @@ mod util;
 mod body;
 pub use body::Body;
 
-mod state_set;
-pub use state_set::StateSet;
+pub use type_set;
+pub use type_set::TypeSet;
 
 mod headers;
 pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName};

@@ -26,7 +26,7 @@ use std::{
     ops::Deref,
     sync::{Arc, Mutex},
 };
-use trillium::{Conn, Handler, HeaderName, KnownHeaderName, StateSet};
+use trillium::{Conn, Handler, HeaderName, KnownHeaderName, TypeSet};
 
 #[derive(Default)]
 enum IdGenerator {
@@ -274,7 +274,7 @@ pub trait ConnIdExt {
 
 impl<ConnLike> ConnIdExt for ConnLike
 where
-    ConnLike: AsRef<StateSet>,
+    ConnLike: AsRef<TypeSet>,
 {
     fn id(&self) -> &str {
         self.as_ref()

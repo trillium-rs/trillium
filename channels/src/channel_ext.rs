@@ -1,7 +1,7 @@
 use crate::{ChannelClient, ChannelEvent};
 use serde::Serialize;
 use serde_json::Value;
-use trillium::StateSet;
+use trillium::TypeSet;
 macro_rules! unwrap_or_log_and_return {
     ($expr:expr) => {
         match $expr {
@@ -75,7 +75,7 @@ pub trait ChannelConnExt {
 
 impl<Conn> ChannelConnExt for Conn
 where
-    Conn: AsRef<StateSet>,
+    Conn: AsRef<TypeSet>,
 {
     fn channel_client(&self) -> Option<&ChannelClient> {
         self.as_ref().get()

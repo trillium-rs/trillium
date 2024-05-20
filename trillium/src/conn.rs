@@ -5,7 +5,8 @@ use std::{
 };
 use trillium_http::{
     transport::{BoxedTransport, Transport},
-    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, StateSet, Status,
+    type_set::entry::Entry,
+    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status, TypeSet,
 };
 
 /**
@@ -235,17 +236,20 @@ impl Conn {
     assert!(conn.state::<Hello>().is_some());
     ```
     */
-    pub fn state<T: 'static>(&self) -> Option<&T> {
+    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
         self.inner.state().get()
     }
 
     /// Attempts to receive a &T from the shared state set
-    pub fn shared_state<T: 'static>(&self) -> Option<&T> {
-        self.inner.shared_state().and_then(StateSet::get)
+    ///
+    /// Note that shared state may not currently be mutated after server start, so there is no
+    /// `shared_state_mut` or `shared_state_entry`
+    pub fn shared_state<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.inner.shared_state().and_then(TypeSet::get)
     }
 
     /// Attempts to retrieve a &mut T from the state set
-    pub fn state_mut<T: 'static>(&mut self) -> Option<&mut T> {
+    pub fn state_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
         self.inner.state_mut().get_mut()
     }
 
@@ -271,17 +275,12 @@ impl Conn {
         self.inner.state_mut().take()
     }
 
-    /**
-    Either returns the current &mut T from the state set, or
-    inserts a new one with the provided default function and
-    returns a mutable reference to it
-    */
-    pub fn mut_state_or_insert_with<T, F>(&mut self, default: F) -> &mut T
-    where
-        T: Send + Sync + 'static,
-        F: FnOnce() -> T,
-    {
-        self.inner.state_mut().get_or_insert_with(default)
+    /// Returns an [`Entry`] type that represents the presence or absence of a type in this state.
+    ///
+    /// Use this for chainable combinators like [`Entry::or_default`], [`Entry::or_insert`],
+    /// [`Entry::or_insert_with`], and [`Entry::and_modify`] as well as matching on it as an enum.
+    pub fn state_entry<T: Send + Sync + 'static>(&mut self) -> Entry<'_, T> {
+        self.inner.state_mut().entry()
     }
 
     /**
@@ -628,14 +627,14 @@ impl Conn {
     }
 }
 
-impl AsMut<StateSet> for Conn {
-    fn as_mut(&mut self) -> &mut StateSet {
+impl AsMut<TypeSet> for Conn {
+    fn as_mut(&mut self) -> &mut TypeSet {
         self.inner.state_mut()
     }
 }
 
-impl AsRef<StateSet> for Conn {
-    fn as_ref(&self) -> &StateSet {
+impl AsRef<TypeSet> for Conn {
+    fn as_ref(&self) -> &TypeSet {
         self.inner.state()
     }
 }

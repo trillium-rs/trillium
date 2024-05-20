@@ -2,7 +2,7 @@ use std::{
     fmt::{Display, Formatter, Result},
     net::SocketAddr,
 };
-use trillium_http::StateSet;
+use trillium_http::TypeSet;
 
 const DEFAULT_SERVER_DESCRIPTION: &str = concat!("trillium v", env!("CARGO_PKG_VERSION"));
 
@@ -18,7 +18,7 @@ pub struct Info {
     server_description: String,
     listener_description: String,
     tcp_socket_addr: Option<SocketAddr>,
-    state: StateSet,
+    state: TypeSet,
 }
 
 impl Default for Info {
@@ -27,7 +27,7 @@ impl Default for Info {
             server_description: DEFAULT_SERVER_DESCRIPTION.into(),
             listener_description: String::new(),
             tcp_socket_addr: None,
-            state: StateSet::default(),
+            state: TypeSet::new(),
         }
     }
 }
@@ -78,27 +78,27 @@ impl Info {
         &mut self.listener_description
     }
 
-    /// borrow the [`StateSet`] on this `Info`. This can be useful for passing initialization data
+    /// borrow the [`TypeSet`] on this `Info`. This can be useful for passing initialization data
     /// between handlers
     #[allow(clippy::missing_const_for_fn)] // Info isn't useful in a const context
-    pub fn state(&self) -> &StateSet {
+    pub fn state(&self) -> &TypeSet {
         &self.state
     }
 
-    /// attempt to mutably borrow the [`StateSet`] on this `Info`.
-    pub fn state_mut(&mut self) -> &mut StateSet {
+    /// attempt to mutably borrow the [`TypeSet`] on this `Info`.
+    pub fn state_mut(&mut self) -> &mut TypeSet {
         &mut self.state
     }
 }
 
-impl AsRef<StateSet> for Info {
-    fn as_ref(&self) -> &StateSet {
+impl AsRef<TypeSet> for Info {
+    fn as_ref(&self) -> &TypeSet {
         self.state()
     }
 }
 
-impl AsMut<StateSet> for Info {
-    fn as_mut(&mut self) -> &mut StateSet {
+impl AsMut<TypeSet> for Info {
+    fn as_mut(&mut self) -> &mut TypeSet {
         self.state_mut()
     }
 }

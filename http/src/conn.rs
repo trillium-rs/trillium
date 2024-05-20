@@ -7,7 +7,7 @@ use crate::{
     util::encoding,
     Body, BufWriter, Buffer, ConnectionStatus, Error, Headers, HttpConfig,
     KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
-    Method, ReceivedBody, Result, StateSet, Status, Swansong, Upgrade, Version,
+    Method, ReceivedBody, Result, Status, Swansong, TypeSet, Upgrade, Version,
 };
 use encoding_rs::Encoding;
 use futures_lite::{
@@ -41,7 +41,7 @@ pub struct Conn<Transport> {
     pub(crate) method: Method,
     pub(crate) status: Option<Status>,
     pub(crate) version: Version,
-    pub(crate) state: StateSet,
+    pub(crate) state: TypeSet,
     pub(crate) response_body: Option<Body>,
     pub(crate) transport: Transport,
     pub(crate) buffer: Buffer,
@@ -52,7 +52,7 @@ pub struct Conn<Transport> {
     pub(crate) start_time: Instant,
     pub(crate) peer_ip: Option<IpAddr>,
     pub(crate) http_config: HttpConfig,
-    pub(crate) shared_state: Option<Arc<StateSet>>,
+    pub(crate) shared_state: Option<Arc<TypeSet>>,
 }
 
 impl<Transport> Debug for Conn<Transport> {
@@ -177,7 +177,7 @@ where
         http_config: HttpConfig,
         transport: Transport,
         swansong: Swansong,
-        shared_state: Option<Arc<StateSet>>,
+        shared_state: Option<Arc<TypeSet>>,
         mut handler: F,
     ) -> Result<Option<Upgrade<Transport>>>
     where
@@ -222,22 +222,22 @@ where
     }
 
     /// returns a read-only reference to the [state
-    /// typemap](StateSet) for this conn
+    /// typemap](TypeSet) for this conn
     ///
     /// stability note: this is not unlikely to be removed at some
     /// point, as this may end up being more of a trillium concern
     /// than a `trillium_http` concern
-    pub fn state(&self) -> &StateSet {
+    pub fn state(&self) -> &TypeSet {
         &self.state
     }
 
     /// returns a mutable reference to the [state
-    /// typemap](StateSet) for this conn
+    /// typemap](TypeSet) for this conn
     ///
     /// stability note: this is not unlikely to be removed at some
     /// point, as this may end up being more of a trillium concern
     /// than a `trillium_http` concern
-    pub fn state_mut(&mut self) -> &mut StateSet {
+    pub fn state_mut(&mut self) -> &mut TypeSet {
         &mut self.state
     }
 
@@ -246,7 +246,7 @@ where
     /// stability note: this is not unlikely to be removed at some
     /// point, as this may end up being more of a trillium concern
     /// than a `trillium_http` concern
-    pub fn shared_state(&self) -> Option<&StateSet> {
+    pub fn shared_state(&self) -> Option<&TypeSet> {
         self.shared_state.as_deref()
     }
 
@@ -617,7 +617,7 @@ where
         mut transport: Transport,
         mut buffer: Buffer,
         swansong: Swansong,
-        shared_state: Option<Arc<StateSet>>,
+        shared_state: Option<Arc<TypeSet>>,
     ) -> Result<Self> {
         use crate::{HeaderName, HeaderValue};
         use httparse::{Request, EMPTY_HEADER};
@@ -685,7 +685,7 @@ where
             buffer,
             response_headers,
             status: None,
-            state: StateSet::new(),
+            state: TypeSet::new(),
             response_body: None,
             request_body_state: ReceivedBodyState::Start,
             secure: false,
@@ -704,7 +704,7 @@ where
         mut transport: Transport,
         mut buffer: Buffer,
         swansong: Swansong,
-        shared_state: Option<Arc<StateSet>>,
+        shared_state: Option<Arc<TypeSet>>,
     ) -> Result<Self> {
         let (head_size, start_time) =
             Self::head(&mut transport, &mut buffer, &swansong, &http_config).await?;
@@ -751,7 +751,7 @@ where
             buffer,
             response_headers,
             status: None,
-            state: StateSet::new(),
+            state: TypeSet::new(),
             response_body: None,
             request_body_state: ReceivedBodyState::Start,
             secure: false,
