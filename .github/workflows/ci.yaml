@@ -24,7 +24,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
 
       - name: get-cmake
-        uses: lukka/get-cmake@v3.29.2
+        uses: lukka/get-cmake@v3.29.3
             
       - name: Install NASM for aws-lc-rs on Windows
         if: runner.os == 'Windows'
