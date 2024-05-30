@@ -728,7 +728,7 @@ where
             return Err(Error::UnsupportedVersion(version));
         }
 
-        let request_headers = Headers::parse(&buffer[first_line_index + 2..])?;
+        let request_headers = Headers::parse(&buffer[first_line_index + 2..head_size])?;
 
         Self::validate_headers(&request_headers)?;
 

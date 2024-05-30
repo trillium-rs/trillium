@@ -1,7 +1,6 @@
-use std::{env, net::Shutdown, path::PathBuf};
-
 use indoc::formatdoc;
-use pretty_assertions::{assert_eq, assert_str_eq};
+use pretty_assertions::assert_str_eq;
+use std::{env, net::Shutdown, path::PathBuf};
 use test_harness::test;
 use trillium_http::{Conn, KnownHeaderName, Swansong};
 use trillium_testing::{harness, RuntimeTrait, TestTransport};
