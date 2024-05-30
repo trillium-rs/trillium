@@ -104,7 +104,7 @@ mod server_connector;
 pub use server_connector::{connector, ServerConnector};
 
 use trillium_server_common::Config;
-pub use trillium_server_common::{Connector, ObjectSafeConnector, Server};
+pub use trillium_server_common::{Connector, ObjectSafeConnector, Server, ServerHandle};
 
 #[derive(Debug)]
 /// A droppable future

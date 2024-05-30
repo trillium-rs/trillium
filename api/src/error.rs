@@ -126,6 +126,7 @@ impl From<&Error> for Status {
                 Status::UnsupportedMediaType
             }
             Error::FailureToNegotiateContent => Status::NotAcceptable,
+            Error::IoError { .. } => Status::BadRequest,
             _ => Status::InternalServerError,
         }
     }
