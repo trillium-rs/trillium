@@ -1,6 +1,5 @@
-use trillium::{async_trait, Conn};
-
 use crate::TryFromConn;
+use trillium::{async_trait, Conn};
 
 /// A trait to extract content from [`Conn`]s to be used as the second
 /// argument to an api handler. Implement this for your types.
@@ -15,20 +14,6 @@ pub trait FromConn: Send + Sync + Sized + 'static {
 impl FromConn for () {
     async fn from_conn(_: &mut Conn) -> Option<Self> {
         Some(())
-    }
-}
-
-#[async_trait]
-impl FromConn for String {
-    async fn from_conn(conn: &mut Conn) -> Option<Self> {
-        conn.request_body_string().await.ok()
-    }
-}
-
-#[async_trait]
-impl FromConn for Vec<u8> {
-    async fn from_conn(conn: &mut Conn) -> Option<Self> {
-        conn.request_body().await.read_bytes().await.ok()
     }
 }
 

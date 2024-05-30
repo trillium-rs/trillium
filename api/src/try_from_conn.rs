@@ -34,6 +34,26 @@ impl<T: FromConn> TryFromConn for T {
     }
 }
 
+#[async_trait]
+impl TryFromConn for Vec<u8> {
+    type Error = crate::Error;
+    async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
+        conn.request_body()
+            .await
+            .read_bytes()
+            .await
+            .map_err(Into::into)
+    }
+}
+
+#[async_trait]
+impl TryFromConn for String {
+    type Error = crate::Error;
+    async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
+        conn.request_body_string().await.map_err(Into::into)
+    }
+}
+
 #[cfg(feature = "url")]
 #[async_trait]
 impl TryFromConn for url::Url {
