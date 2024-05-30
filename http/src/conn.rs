@@ -795,13 +795,14 @@ where
             .try_insert_with(Date, || httpdate::fmt_http_date(SystemTime::now()));
 
         if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
-            if let Some(len) = self.body_len() {
-                self.response_headers
-                    .try_insert(ContentLength, len.to_string());
-            }
+            let has_content_length = if let Some(len) = self.body_len() {
+                self.response_headers.try_insert(ContentLength, len);
+                true
+            } else {
+                self.response_headers.has_header(ContentLength)
+            };
 
-            if self.version == Version::Http1_1 && !self.response_headers.has_header(ContentLength)
-            {
+            if self.version == Version::Http1_1 && !has_content_length {
                 self.response_headers.insert(TransferEncoding, "chunked");
             } else {
                 self.response_headers.remove(TransferEncoding);
