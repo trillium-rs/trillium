@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 async-trait = "0.1.75"
 async_cell = "0.2.2"
-event-listener = "4.0.1"
+event-listener = "5.3.1"
 futures-lite = "2.1.0"
 log = "0.4.20"
 pin-project-lite = "0.2.13"
