@@ -11,9 +11,16 @@ use HeaderNameInner::{KnownHeader, UnknownHeader};
 /// The name of a http header. This can be either a
 /// [`KnownHeaderName`] or a string representation of an unknown
 /// header.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct HeaderName<'a>(pub(super) HeaderNameInner<'a>);
 
+impl<'a> Debug for HeaderName<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Debug::fmt(&self.0, f)
+    }
+}
+
+#[cfg(feature = "parse")]
 impl<'a> HeaderName<'a> {
     pub(crate) fn parse(bytes: &'a [u8]) -> Result<Self, Error> {
         std::str::from_utf8(bytes)
@@ -32,11 +39,20 @@ impl serde::Serialize for HeaderName<'_> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) enum HeaderNameInner<'a> {
     /// A `KnownHeaderName`
     KnownHeader(KnownHeaderName),
     UnknownHeader(UnknownHeaderName<'a>),
+}
+
+impl<'a> Debug for HeaderNameInner<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::KnownHeader(known) => Debug::fmt(known, f),
+            Self::UnknownHeader(unknown) => Debug::fmt(unknown, f),
+        }
+    }
 }
 
 impl<'a> HeaderName<'a> {
@@ -48,6 +64,14 @@ impl<'a> HeaderName<'a> {
             KnownHeader(known) => KnownHeader(known),
             UnknownHeader(uhn) => UnknownHeader(uhn.into_owned()),
         })
+    }
+
+    /// Turn a `&'b HeaderName<'a>` into a `HeaderName<'b>`
+    pub fn reborrow<'b: 'a>(&'b self) -> HeaderName<'b> {
+        match self.0 {
+            KnownHeader(khn) => khn.into(),
+            UnknownHeader(ref uhn) => uhn.reborrow().into(),
+        }
     }
 
     /// Convert a potentially-borrowed headername to a static
@@ -86,6 +110,18 @@ impl PartialEq<KnownHeaderName> for &HeaderName<'_> {
             KnownHeader(k) => other == k,
             UnknownHeader(_) => false,
         }
+    }
+}
+
+impl PartialEq<str> for HeaderName<'_> {
+    fn eq(&self, other: &str) -> bool {
+        self.as_ref() == other
+    }
+}
+
+impl PartialEq<&str> for HeaderName<'_> {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_ref() == *other
     }
 }
 

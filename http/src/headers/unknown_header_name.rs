@@ -80,6 +80,12 @@ impl UnknownHeaderName<'_> {
     }
 }
 
+impl<'a> UnknownHeaderName<'a> {
+    pub(crate) fn reborrow<'b: 'a>(&'b self) -> UnknownHeaderName<'b> {
+        Self(self.0.borrow())
+    }
+}
+
 impl From<String> for UnknownHeaderName<'static> {
     fn from(value: String) -> Self {
         Self(value.into())

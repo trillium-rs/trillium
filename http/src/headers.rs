@@ -1,20 +1,21 @@
+mod entry;
 mod header_name;
 mod header_value;
 mod header_values;
 mod known_header_name;
 mod unknown_header_name;
 
+pub use entry::{Entry, OccupiedEntry, VacantEntry};
 pub use header_name::HeaderName;
 pub use header_value::HeaderValue;
 pub use header_values::HeaderValues;
 pub use known_header_name::KnownHeaderName;
 
 use header_name::HeaderNameInner;
-use memchr::memmem::Finder;
 use unknown_header_name::UnknownHeaderName;
 
 use hashbrown::{
-    hash_map::{self, Entry},
+    hash_map::{self, Entry as HashbrownEntry},
     HashMap,
 };
 use smartcow::SmartCow;
@@ -22,12 +23,9 @@ use std::collections::{
     btree_map::{self, Entry as BTreeEntry},
     BTreeMap,
 };
-use std::{
-    fmt::{self, Debug, Display, Formatter},
-    hash::Hasher,
-};
+use std::fmt::{self, Debug, Display, Formatter};
 
-use crate::Error;
+use crate::headers::entry::{OccupiedEntryInner, VacantEntryInner};
 
 /// Trillium's header map type
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -63,14 +61,7 @@ impl Display for Headers {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ParseError;
-impl Display for ParseError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str("parse error")
-    }
-}
-
+#[cfg(feature = "parse")]
 fn is_tchar(c: u8) -> bool {
     matches!(
         c,
@@ -95,9 +86,12 @@ fn is_tchar(c: u8) -> bool {
     )
 }
 
+#[cfg(feature = "parse")]
 impl Headers {
     #[doc(hidden)]
-    pub fn extend_parse(&mut self, bytes: &[u8]) -> Result<usize, Error> {
+    pub fn extend_parse(&mut self, bytes: &[u8]) -> Result<usize, crate::Error> {
+        use memchr::memmem::Finder;
+
         let newlines = Finder::new(b"\r\n").find_iter(bytes).collect::<Vec<_>>();
         //        self.reserve(newlines.len().saturating_sub(1));
         let mut new_header_count = 0;
@@ -116,7 +110,7 @@ impl Headers {
             let header_name = HeaderName::parse(&bytes[token_start..token_end])?.to_owned();
 
             if bytes[token_end] != b':' {
-                return Err(Error::InvalidHead);
+                return Err(crate::Error::InvalidHead);
             }
 
             let mut value_start = token_end + 1;
@@ -132,14 +126,15 @@ impl Headers {
         Ok(new_header_count)
     }
 
-    #[cfg(feature = "parse")]
     #[doc(hidden)]
-    pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn parse(bytes: &[u8]) -> Result<Self, crate::Error> {
         let mut headers = Headers::new();
         headers.extend_parse(bytes)?;
         Ok(headers)
     }
+}
 
+impl Headers {
     /// Construct a new headers with a default capacity
     pub fn new() -> Self {
         Self::default()
@@ -167,27 +162,14 @@ impl Headers {
     /// there is already a header with the same name, the new values
     /// will be added to the existing ones. To replace any existing
     /// values, use [`Headers::insert`]
-    pub fn append(&mut self, name: impl Into<HeaderName<'static>>, value: impl Into<HeaderValues>) {
-        let value = value.into();
-        match name.into().0 {
-            HeaderNameInner::KnownHeader(known) => match self.known.entry(known) {
-                BTreeEntry::Occupied(mut o) => {
-                    o.get_mut().extend(value);
-                }
-                BTreeEntry::Vacant(v) => {
-                    v.insert(value);
-                }
-            },
-
-            HeaderNameInner::UnknownHeader(unknown) => match self.unknown.entry(unknown) {
-                Entry::Occupied(mut o) => {
-                    o.get_mut().extend(value);
-                }
-                Entry::Vacant(v) => {
-                    v.insert(value);
-                }
-            },
-        }
+    ///
+    /// Identical to [`headers.entry(name).append(values)`][Entry::append]
+    pub fn append(
+        &mut self,
+        name: impl Into<HeaderName<'static>>,
+        values: impl Into<HeaderValues>,
+    ) -> &mut HeaderValues {
+        self.entry(name).append(values)
     }
 
     /// A slightly more efficient way to combine two [`Headers`] than
@@ -206,10 +188,10 @@ impl Headers {
 
         for (name, value) in other.unknown {
             match self.unknown.entry(name) {
-                Entry::Occupied(mut entry) => {
+                HashbrownEntry::Occupied(mut entry) => {
                     entry.get_mut().extend(value);
                 }
-                Entry::Vacant(entry) => {
+                HashbrownEntry::Vacant(entry) => {
                     entry.insert(value);
                 }
             }
@@ -230,35 +212,63 @@ impl Headers {
     /// Add a header value or header values into this header map. If a
     /// header already exists with the same name, it will be
     /// replaced. To combine, see [`Headers::append`]
-    pub fn insert(&mut self, name: impl Into<HeaderName<'static>>, value: impl Into<HeaderValues>) {
-        let value = value.into();
-        match name.into().0 {
-            HeaderNameInner::KnownHeader(known) => {
-                self.known.insert(known, value);
-            }
-
-            HeaderNameInner::UnknownHeader(unknown) => {
-                self.unknown.insert(unknown, value);
-            }
-        }
+    pub fn insert(
+        &mut self,
+        name: impl Into<HeaderName<'static>>,
+        values: impl Into<HeaderValues>,
+    ) {
+        self.entry(name).insert(values);
     }
 
     /// Add a header value or header values into this header map if
     /// and only if there is not already a header with the same name.
+    ///
+    /// Identical to [`headers.entry(name).or_insert(default)`][Entry::or_insert]
     pub fn try_insert(
         &mut self,
         name: impl Into<HeaderName<'static>>,
-        value: impl Into<HeaderValues>,
+        values: impl Into<HeaderValues>,
     ) {
-        let value = value.into();
-        match name.into().0 {
-            HeaderNameInner::KnownHeader(known) => {
-                self.known.entry(known).or_insert(value);
-            }
+        self.entry(name).or_insert(values);
+    }
 
-            HeaderNameInner::UnknownHeader(unknown) => {
-                self.unknown.entry(unknown).or_insert(value);
-            }
+    /// if a key does not exist already, execute the provided function and insert a value
+    ///
+    /// Identical to [`headers.entry(name).or_insert_with(values)`][Entry::or_insert_with]
+    pub fn try_insert_with<V>(
+        &mut self,
+        name: impl Into<HeaderName<'static>>,
+        values: impl FnOnce() -> V,
+    ) -> &mut HeaderValues
+    where
+        V: Into<HeaderValues>,
+    {
+        self.entry(name).or_insert_with(values)
+    }
+
+    /// Return a view into the entry for this header name, whether or not it is populated.
+    ///
+    /// See also [`Entry`]
+    pub fn entry(&mut self, name: impl Into<HeaderName<'static>>) -> Entry<'_> {
+        match name.into().0 {
+            HeaderNameInner::KnownHeader(known) => match self.known.entry(known) {
+                BTreeEntry::Vacant(vacant) => {
+                    Entry::Vacant(VacantEntry(VacantEntryInner::Known(vacant)))
+                }
+                BTreeEntry::Occupied(occupied) => {
+                    Entry::Occupied(OccupiedEntry(OccupiedEntryInner::Known(occupied)))
+                }
+            },
+
+            HeaderNameInner::UnknownHeader(unknown) => match self.unknown.entry(unknown) {
+                HashbrownEntry::Occupied(occupied) => {
+                    Entry::Occupied(OccupiedEntry(OccupiedEntryInner::Unknown(occupied)))
+                }
+
+                HashbrownEntry::Vacant(vacant) => {
+                    Entry::Vacant(VacantEntry(VacantEntryInner::Unknown(vacant)))
+                }
+            },
         }
     }
 
@@ -275,16 +285,15 @@ impl Headers {
         self.get_values(name).and_then(HeaderValues::as_lower)
     }
 
-    /// Retrieves a singular header value from this header map. If
-    /// there are several headers with the same name, this follows the
-    /// behavior defined at [`HeaderValues::one`]. Returns None if there is no header with the provided header name
+    /// Retrieves a singular header value from this header map. If there are several headers with
+    /// the same name, this follows the behavior defined at [`HeaderValues::one`]. Returns None if
+    /// there is no header with the provided header name
     pub fn get<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<&HeaderValue> {
         self.get_values(name).and_then(HeaderValues::one)
     }
 
-    /// Takes all headers with the provided header name out of this
-    /// header map and returns them. Returns None if the header did
-    /// not have an entry in this map.
+    /// Takes all headers with the provided header name out of this header map and returns
+    /// them. Returns None if the header did not have an entry in this map.
     pub fn remove<'a>(&mut self, name: impl Into<HeaderName<'a>>) -> Option<HeaderValues> {
         match name.into().0 {
             HeaderNameInner::KnownHeader(known) => self.known.remove(&known),
@@ -374,53 +383,29 @@ See documentation for deprecation rationale"]
     }
 
     /// Chainable method to remove a header
-    pub fn without_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {
+    pub fn without_header<'a>(mut self, name: impl Into<HeaderName<'a>>) -> Self {
         self.remove(name);
         self
     }
 
     /// Chainable method to remove multiple headers by name
-    pub fn without_headers<I, H>(mut self, names: I) -> Self
+    pub fn without_headers<'a, I, H>(mut self, names: I) -> Self
     where
         I: IntoIterator<Item = H>,
-        H: Into<HeaderName<'static>>,
+        H: Into<HeaderName<'a>>,
     {
         self.remove_all(names);
         self
     }
 
     /// remove multiple headers by name
-    pub fn remove_all<I, H>(&mut self, names: I)
+    pub fn remove_all<'a, I, H>(&mut self, names: I)
     where
         I: IntoIterator<Item = H>,
-        H: Into<HeaderName<'static>>,
+        H: Into<HeaderName<'a>>,
     {
-        for header in names {
-            self.remove(header.into());
-        }
-    }
-
-    /// if a key does not exist already, execute the provided function and insert a value
-    ///
-    /// this can be useful to avoid calculating an unnecessary header value, or checking for the
-    /// presence of a key before insertion
-    pub fn try_insert_with<F, V>(&mut self, name: impl Into<HeaderName<'static>>, values_fn: F)
-    where
-        F: Fn() -> V,
-        V: Into<HeaderValues>,
-    {
-        match name.into().0 {
-            HeaderNameInner::KnownHeader(known) => {
-                self.known
-                    .entry(known)
-                    .or_insert_with(|| values_fn().into());
-            }
-
-            HeaderNameInner::UnknownHeader(unknown) => {
-                self.unknown
-                    .entry(unknown)
-                    .or_insert_with(|| values_fn().into());
-            }
+        for name in names {
+            self.remove(name);
         }
     }
 }
@@ -453,25 +438,6 @@ where
     }
 }
 
-#[derive(Default)]
-struct DirectHasher(u8);
-
-impl Hasher for DirectHasher {
-    fn write(&mut self, _: &[u8]) {
-        unreachable!("KnownHeaderName calls write_u64");
-    }
-
-    #[inline]
-    fn write_u8(&mut self, i: u8) {
-        self.0 = i;
-    }
-
-    #[inline]
-    fn finish(&self) -> u64 {
-        u64::from(self.0)
-    }
-}
-
 impl<'a> IntoIterator for &'a Headers {
     type Item = (HeaderName<'a>, &'a HeaderValues);
 
@@ -499,6 +465,7 @@ impl Iterator for IntoIter {
             .or_else(|| unknown.next().map(|(k, v)| (HeaderName::from(k), v)))
     }
 }
+
 impl From<Headers> for IntoIter {
     fn from(value: Headers) -> Self {
         Self {
@@ -542,48 +509,5 @@ impl IntoIterator for Headers {
 
     fn into_iter(self) -> Self::IntoIter {
         self.into()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{Headers, KnownHeaderName};
-
-    #[test]
-    fn header_names_are_case_insensitive_for_access_but_retain_initial_case_in_headers() {
-        let mut headers = Headers::new();
-        headers.insert("my-Header-name", "initial-value");
-        headers.insert("my-Header-NAME", "my-header-value");
-
-        assert_eq!(headers.len(), 1);
-
-        assert_eq!(
-            headers.get_str("My-Header-Name").unwrap(),
-            "my-header-value"
-        );
-
-        headers.append("mY-hEaDer-NaMe", "second-value");
-        assert_eq!(
-            headers.get_values("my-header-name").unwrap(),
-            ["my-header-value", "second-value"].as_slice()
-        );
-
-        assert_eq!(
-            headers.iter().next().unwrap().0.to_string(),
-            "my-Header-name"
-        );
-
-        assert!(headers.remove("my-HEADER-name").is_some());
-        assert!(headers.is_empty());
-    }
-
-    #[test]
-    fn value_case_insensitive_comparison() {
-        let mut headers = Headers::new();
-        headers.insert(KnownHeaderName::Upgrade, "WebSocket");
-        headers.insert(KnownHeaderName::Connection, "upgrade");
-
-        assert!(headers.eq_ignore_ascii_case(KnownHeaderName::Upgrade, "websocket"));
-        assert!(headers.eq_ignore_ascii_case(KnownHeaderName::Connection, "Upgrade"));
     }
 }
