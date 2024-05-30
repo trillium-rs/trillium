@@ -17,8 +17,8 @@ event-listener = "4.0.1"
 futures-lite = "2.1.0"
 log = "0.4.20"
 pin-project-lite = "0.2.13"
-trillium = { path = "../trillium", version = "0.2.19" }
-trillium-http = { path = "../http", version = "0.3.16" }
+trillium = { path = "../trillium", version = "0.2.20" }
+trillium-http = { path = "../http", version = "0.3.17" }
 url = "2.5.0"
 
 [target.'cfg(unix)'.dependencies]

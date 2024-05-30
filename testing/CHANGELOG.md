@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.6.1...trillium-testing-v0.7.0) - 2024-05-30
+
+### Added
+- *(api)* [**breaking**] make IoErrors respond with BadRequest
+- deprecate set_state for insert_state
+
+### Other
+- release
+
 ## [0.6.1](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.6.0...trillium-testing-v0.6.1) - 2024-04-07
 
 ### Added
