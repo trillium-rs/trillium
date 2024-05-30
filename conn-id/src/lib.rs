@@ -91,7 +91,7 @@ impl ConnId {
     assert_ok!(
         get("/").on(&app),
         "ok",
-        "x-request-id" => "4fekClhof7"
+        "x-request-id" => "J4lzoPXcT5"
     );
 
     assert_headers!(
@@ -160,7 +160,7 @@ impl ConnId {
 
     assert_headers!(
         get("/").on(&app),
-        "x-custom-header" => "4fekClhof7"
+        "x-custom-header" => "J4lzoPXcT5"
     );
     ```
     */
