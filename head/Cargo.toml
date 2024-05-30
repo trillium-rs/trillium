@@ -1,6 +1,6 @@
 [package]
 name = "trillium-head"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "http head handler for trillium.rs"
@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-trillium = { path = "../trillium", version = "0.2.19" }
+trillium = { path = "../trillium", version = "0.2.20" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

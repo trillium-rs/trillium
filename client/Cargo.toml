@@ -1,6 +1,6 @@
 [package]
 name = "trillium-client"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "http/1.x client for trillium.rs"
@@ -21,7 +21,7 @@ httparse = "1.8.0"
 log = "0.4.20"
 size = "0.4.1"
 trillium-server-common = { version = "0.5.2", path = "../server-common" }
-trillium-websockets = { version = "0.6.5", path = "../websockets", optional = true }
+trillium-websockets = { version = "0.6.6", path = "../websockets", optional = true }
 mime = "0.3.17"
 serde_json = { version = "1.0.108", optional = true }
 serde = { version = "1.0.193", optional = true }
@@ -33,7 +33,7 @@ memchr = "2.7.1"
 [dependencies.trillium-http]
 path = "../http"
 features = ["unstable"]
-version = "0.3.16"
+version = "0.3.17"
 
 [dev-dependencies]
 async-channel = "2.1.1"

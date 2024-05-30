@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.6.1...trillium-client-v0.6.2) - 2024-05-30
+
+### Added
+- deprecate Headers::contains_ignore_ascii_case
+- *(client)* impl IntoUrl for IpAddr and SocketAddr for convenience
+
 ## [0.6.1](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.6.0...trillium-client-v0.6.1) - 2024-04-07
 
 ### Added

@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.17](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.16...trillium-http-v0.3.17) - 2024-05-30
+
+### Added
+- deprecate Headers::contains_ignore_ascii_case
+
 ## [0.3.16](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.15...trillium-http-v0.3.16) - 2024-04-07
 
 ### Added

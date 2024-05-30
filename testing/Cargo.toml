@@ -1,6 +1,6 @@
 [package]
 name = "trillium-testing"
-version = "0.6.1"
+version = "0.7.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "testing library for trillium applications"
@@ -23,8 +23,8 @@ default = []
 async-dup = "1.2.4"
 futures-lite = "2.1.0"
 portpicker = "0.1.1"
-trillium = { path = "../trillium", version = "0.2.19" }
-trillium-http = { path = "../http", version = "0.3.16" }
+trillium = { path = "../trillium", version = "0.2.20" }
+trillium-http = { path = "../http", version = "0.3.17" }
 trillium-server-common = { path = "../server-common", version = "0.5.2" }
 cfg-if = "1.0.0"
 url = "2.5.0"

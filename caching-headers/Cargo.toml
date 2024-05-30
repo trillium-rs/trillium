@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 etag = { version = "4.0.0", features = ["std"] }
 httpdate = "1.0.3"
-trillium = { path = "../trillium", version = "0.2.19" }
+trillium = { path = "../trillium", version = "0.2.20" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-rc.12](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.11...trillium-api-v0.2.0-rc.12) - 2024-05-30
+
+### Added
+- *(api)* [**breaking**] make IoErrors respond with BadRequest
+- *(api)* [**breaking**] implement TryFromConn for `Vec<u8>` and `String`
+
 ## [0.2.0-rc.11](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.10...trillium-api-v0.2.0-rc.11) - 2024-04-07
 
 ### Added

@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3](https://github.com/trillium-rs/trillium/compare/trillium-compression-v0.1.2...trillium-compression-v0.1.3) - 2024-05-30
+
+### Added
+- deprecate set_state for insert_state
+
 ## [0.1.2](https://github.com/trillium-rs/trillium/compare/trillium-compression-v0.1.1...trillium-compression-v0.1.2) - 2024-04-07
 
 ### Added

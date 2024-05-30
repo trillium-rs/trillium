@@ -1,6 +1,6 @@
 [package]
 name = "trillium-api"
-version = "0.2.0-rc.11"
+version = "0.2.0-rc.12"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "an api handler for trillium.rs"
@@ -24,7 +24,7 @@ serde_json = "1.0.108"
 serde_path_to_error = "0.1.14"
 serde_urlencoded = { version = "0.7.1", optional = true }
 thiserror = "1.0.52"
-trillium = { path = "../trillium", version = "0.2.19" }
+trillium = { path = "../trillium", version = "0.2.20" }
 trillium-macros = { version = "0.0.6", path = "../macros" }
 url = { version = "2.5.0", optional = true }
 

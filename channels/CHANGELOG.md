@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/trillium-rs/trillium/compare/trillium-channels-v0.3.1...trillium-channels-v0.3.2) - 2024-05-30
+
+### Added
+- deprecate set_state for insert_state
+
+### Other
+- release
+- release
+- release
+- *(deps)* update async-broadcast requirement from 0.6.0 to 0.7.0
+- Release only rustls
+- release
+- release
+
 ## [0.3.1](https://github.com/trillium-rs/trillium/compare/trillium-channels-v0.3.0...trillium-channels-v0.3.1) - 2024-01-02
 
 ### Other
