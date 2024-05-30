@@ -264,9 +264,13 @@ impl Headers {
             .is_some_and(|v| v.eq_ignore_ascii_case(needle))
     }
 
-    /// Convenience function to check whether the value contained in
-    /// this header map for the provided name. Prefer testing against
-    /// a lower case string, as the implementation currently has to allocate if .
+    /// Deprecated because is likely not what you want. It is rarely the case that headers should
+    /// be searched for a matching string instead of carefully parsed according to the appropriate
+    /// header rule. Naive string matching on headers without regard to header structure is a
+    /// possible source of spec noncompliance or occasionally security vulnerability, so trillium
+    /// does not go out of its way to facilitate that.
+    #[deprecated = "Please open an issue if this behavior is important to you. \
+See documentation for deprecation rationale"]
     pub fn contains_ignore_ascii_case<'a>(
         &self,
         name: impl Into<HeaderName<'a>>,
@@ -529,8 +533,5 @@ mod tests {
 
         assert!(headers.eq_ignore_ascii_case(KnownHeaderName::Upgrade, "websocket"));
         assert!(headers.eq_ignore_ascii_case(KnownHeaderName::Connection, "Upgrade"));
-        assert!(headers.contains_ignore_ascii_case(KnownHeaderName::Upgrade, "sock"));
-        assert!(headers.contains_ignore_ascii_case(KnownHeaderName::Upgrade, "sOck"));
-        assert!(headers.contains_ignore_ascii_case(KnownHeaderName::Connection, "Grad"));
     }
 }

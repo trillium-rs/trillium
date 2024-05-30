@@ -735,7 +735,7 @@ impl Conn {
     async fn send_body_and_parse_head(&mut self) -> Result<()> {
         if self
             .request_headers
-            .contains_ignore_ascii_case("expect", "100-continue")
+            .eq_ignore_ascii_case(Expect, "100-continue")
         {
             log::trace!("Expecting 100-continue");
             self.parse_head().await?;
