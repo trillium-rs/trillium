@@ -5,8 +5,8 @@ use uuid::Uuid;
 #[test]
 fn test_defaults() {
     let app = (ConnId::new().with_seed(1000), "ok");
-    assert_ok!(get("/").on(&app), "ok", "x-request-id" => "4fekClhof7");
-    assert_ok!(get("/").on(&app), "ok", "x-request-id" => "PAmkU1LPSe");
+    assert_ok!(get("/").on(&app), "ok", "x-request-id" => "J4lzoPXcT5");
+    assert_ok!(get("/").on(&app), "ok", "x-request-id" => "Sn0wUTe4EF");
     assert_ok!(
         get("/").with_request_header("x-request-id", "inbound-id").on(&app),
         "ok",
@@ -14,8 +14,8 @@ fn test_defaults() {
     );
 
     let conn = get("/").on(&app);
-    assert_eq!(conn.id(), "kZTgZfbUJB");
-    assert_eq!(log_formatter::conn_id(&conn, true), "kZTgZfbUJB");
+    assert_eq!(conn.id(), "cnx2OnqZsR");
+    assert_eq!(log_formatter::conn_id(&conn, true), "cnx2OnqZsR");
 
     let conn = TestConn::build("get", "/", ());
     assert_eq!(log_formatter::conn_id(&conn, true), "-");
@@ -56,11 +56,11 @@ fn test_no_headers() {
 
     let conn = get("/").on(&app);
     assert!(conn.response_headers().get("x-request-id").is_none());
-    assert_eq!(conn.id(), "4fekClhof7");
+    assert_eq!(conn.id(), "J4lzoPXcT5");
 
     let conn = get("/")
         .with_request_header("x-request-id", "ignored")
         .on(&app);
-    assert_eq!(conn.id(), "PAmkU1LPSe");
+    assert_eq!(conn.id(), "Sn0wUTe4EF");
     assert!(conn.response_headers().get("x-request-id").is_none());
 }
