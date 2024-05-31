@@ -335,33 +335,6 @@ impl Headers {
             .is_some_and(|v| v.eq_ignore_ascii_case(needle))
     }
 
-    /// Deprecated because is likely not what you want. It is rarely the case that headers should
-    /// be searched for a matching string instead of carefully parsed according to the appropriate
-    /// header rule. Naive string matching on headers without regard to header structure is a
-    /// possible source of spec noncompliance or occasionally security vulnerability, so trillium
-    /// does not go out of its way to facilitate that.
-    #[deprecated = "Please open an issue if this behavior is important to you. \
-See documentation for deprecation rationale"]
-    pub fn contains_ignore_ascii_case<'a>(
-        &self,
-        name: impl Into<HeaderName<'a>>,
-        needle: &str,
-    ) -> bool {
-        self.get_str(name).is_some_and(|h| {
-            let needle = if needle.chars().all(|c| c.is_ascii_lowercase()) {
-                SmartCow::Borrowed(needle)
-            } else {
-                SmartCow::Owned(needle.chars().map(|c| c.to_ascii_lowercase()).collect())
-            };
-
-            if h.chars().all(|c| c.is_ascii_lowercase()) {
-                h.contains(&*needle)
-            } else {
-                h.to_ascii_lowercase().contains(&*needle)
-            }
-        })
-    }
-
     /// Chainable method to insert a header
     pub fn with_inserted_header(
         mut self,
