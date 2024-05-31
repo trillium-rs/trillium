@@ -1,0 +1,3 @@
+GET /i HTTP/1.1\r\n
+Host: ho\r\n
+\r\n

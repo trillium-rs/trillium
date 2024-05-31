@@ -114,7 +114,11 @@ impl Headers {
             }
 
             let mut value_start = token_end + 1;
-            while (bytes[value_start] as char).is_whitespace() {
+
+            while bytes
+                .get(value_start)
+                .is_some_and(|b| matches!(b, b'\t' | b' '))
+            {
                 value_start += 1;
             }
 

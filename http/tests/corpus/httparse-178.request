@@ -1,0 +1,3 @@
+GET /relative_import.html HTTP/1.1\r\n
+Host: 127.0.0.1\r\n
+\r\n

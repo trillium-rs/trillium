@@ -1,0 +1,3 @@
+GET /nvidia_web_services/controller.gfeclientcontent.php/com.nvidia.services.GFEClientContent.getShieldReady/{"gcV":"2.2.2.0","dID":"1341","osC":"6.20","is6":"1","lg":"1033","GFPV":"389.08","isO":"1","sM":"16777216"} HTTP/1.0\r\n
+Host: gfwsl.geforce.com\r\n
+\r\n

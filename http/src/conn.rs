@@ -713,25 +713,20 @@ where
             .find(&buffer)
             .ok_or(Error::InvalidHead)?;
 
-        let (method, path, version) = match &memchr::memchr_iter(b' ', &buffer[..first_line_index])
-            .collect::<Vec<usize>>()[..]
-        {
-            [first, second] => {
-                let (first, second) = (*first, *second);
-                let method = Method::parse(&buffer[0..first])?;
-                let path = str::from_utf8(&buffer[first + 1..second])
-                    .map_err(|_| Error::RequestPathMissing)?
-                    .to_string();
-                let version = Version::parse(&buffer[second + 1..first_line_index])?;
-
-                if !matches!(version, Version::Http1_1 | Version::Http1_0) {
-                    return Err(Error::UnsupportedVersion(version));
-                }
-
-                (method, path, version)
-            }
-            _ => return Err(Error::InvalidHead),
-        };
+        let mut spaces = memchr::memchr_iter(b' ', &buffer[..first_line_index]);
+        let first_space = spaces.next().ok_or(Error::MissingMethod)?;
+        let method = Method::parse(&buffer[0..first_space])?;
+        let second_space = spaces.next().ok_or(Error::RequestPathMissing)?;
+        let path = str::from_utf8(&buffer[first_space + 1..second_space])
+            .map_err(|_| Error::RequestPathMissing)?
+            .to_string();
+        if path.is_empty() {
+            return Err(Error::InvalidHead);
+        }
+        let version = Version::parse(&buffer[second_space + 1..first_line_index])?;
+        if !matches!(version, Version::Http1_1 | Version::Http1_0) {
+            return Err(Error::UnsupportedVersion(version));
+        }
 
         let request_headers = Headers::parse(&buffer[first_line_index + 2..])?;
 

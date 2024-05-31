@@ -4,6 +4,7 @@ use std::{
     fmt::{Debug, Display},
     future::Future,
     io,
+    net::Shutdown,
     pin::Pin,
     sync::RwLock,
     task::{Context, Poll, Waker},
@@ -50,6 +51,21 @@ impl TestTransport {
     pub fn close(&mut self) {
         self.read.close();
         self.write.close();
+    }
+
+    /// Shuts down the read, write, or both halves of this connection.
+    ///
+    // This function will cause all pending and future I/O on the specified portions to return
+    // immediately with an appropriate value (see the documentation of Shutdown).
+    pub fn shutdown(&self, how: Shutdown) {
+        match how {
+            Shutdown::Read => self.read.close(),
+            Shutdown::Write => self.write.close(),
+            Shutdown::Both => {
+                self.read.close();
+                self.write.close();
+            }
+        }
     }
 
     /// take an owned snapshot of the received data
