@@ -1,0 +1,3 @@
+GET /0?baz=bam&qux=baz HTTP/1.1\r\n
+Host: somehost\r\n
+\r\n

@@ -1,0 +1,3 @@
+GET /path HTTP/1.1\r\n
+Host: H%4fSt\r\n
+\r\n
