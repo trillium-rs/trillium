@@ -1,0 +1,3 @@
+GET /abcd HTTP/1.1\r\n
+Host: foo\r\n
+\r\n
