@@ -18,7 +18,7 @@ default = []
 json = ["serde_json", "serde"]
 
 [dependencies]
-async-tungstenite = { version = "0.25.0", default-features = false }
+async-tungstenite = { version = "0.26.0", default-features = false }
 base64 = "0.22.0"
 fastrand = "2.0.1"
 futures-lite = "2.1.0"
@@ -34,7 +34,7 @@ trillium = { path = "../trillium", version = "0.2.20" }
 trillium-http = { path = "../http", version = "0.3.17" }
 
 [dev-dependencies]
-async-tungstenite = { version = "0.25.0", default-features = false, features = ["handshake"] }
+async-tungstenite = { version = "0.26.0", default-features = false, features = ["handshake"] }
 serde = { version = "1.0.193", features = ["derive"] }
 async-channel = "2.1.1"
 async-net = "2.0.0"
