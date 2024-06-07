@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: get-cmake
-        uses: lukka/get-cmake@v3.29.4
+        uses: lukka/get-cmake@v3.29.5
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
