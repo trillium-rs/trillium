@@ -124,7 +124,10 @@ where
     /// the PORT environment variable or 8080
     pub fn with_port(mut self, port: u16) -> Self {
         if self.has_binding() {
-            eprintln!("constructing a config with both a port and a pre-bound listener will ignore the port. this may be a panic in the future");
+            eprintln!(
+                "constructing a config with both a port and a pre-bound listener will ignore the \
+                 port. this may be a panic in the future"
+            );
         }
         self.port = Some(port);
         self
@@ -135,7 +138,10 @@ where
     /// "localhost"
     pub fn with_host(mut self, host: &str) -> Self {
         if self.has_binding() {
-            eprintln!("constructing a config with both a host and a pre-bound listener will ignore the host. this may be a panic in the future");
+            eprintln!(
+                "constructing a config with both a host and a pre-bound listener will ignore the \
+                 host. this may be a panic in the future"
+            );
         }
         self.host = Some(host.into());
         self
@@ -224,11 +230,17 @@ where
     /// Additionally, cloning this config will not clone the listener.
     pub fn with_prebound_server(mut self, server: impl Into<ServerType>) -> Self {
         if self.host.is_some() {
-            eprintln!("constructing a config with both a host and a pre-bound listener will ignore the host. this may be a panic in the future");
+            eprintln!(
+                "constructing a config with both a host and a pre-bound listener will ignore the \
+                 host. this may be a panic in the future"
+            );
         }
 
         if self.port.is_some() {
-            eprintln!("constructing a config with both a port and a pre-bound listener will ignore the port. this may be a panic in the future");
+            eprintln!(
+                "constructing a config with both a port and a pre-bound listener will ignore the \
+                 port. this may be a panic in the future"
+            );
         }
 
         self.binding = RwLock::new(Some(server.into()));

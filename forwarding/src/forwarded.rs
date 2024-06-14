@@ -48,11 +48,14 @@ impl<'a> Forwarded<'a> {
     /// let mut headers = Headers::new();
     /// headers.insert(
     ///     "Forwarded",
-    ///     r#"for=192.0.2.43, for="[2001:db8:cafe::17]", for=unknown;proto=https"#
+    ///     r#"for=192.0.2.43, for="[2001:db8:cafe::17]", for=unknown;proto=https"#,
     /// );
     /// let forwarded = Forwarded::from_headers(&headers)?.unwrap();
     /// assert_eq!(forwarded.proto(), Some("https"));
-    /// assert_eq!(forwarded.forwarded_for(), vec!["192.0.2.43", "[2001:db8:cafe::17]", "unknown"]);
+    /// assert_eq!(
+    ///     forwarded.forwarded_for(),
+    ///     vec!["192.0.2.43", "[2001:db8:cafe::17]", "unknown"]
+    /// );
     /// # Ok(()) }
     /// ```
     ///
@@ -83,7 +86,8 @@ impl<'a> Forwarded<'a> {
         }
     }
 
-    /// Parse a borrowed Forwarded from the Forwarded header, without x-forwarded-{for,by,proto} fallback
+    /// Parse a borrowed Forwarded from the Forwarded header, without x-forwarded-{for,by,proto}
+    /// fallback
     ///
     /// # Examples
     /// ```rust
@@ -93,11 +97,14 @@ impl<'a> Forwarded<'a> {
     /// let mut headers = Headers::new();
     /// headers.insert(
     ///     "Forwarded",
-    ///     r#"for=192.0.2.43, for="[2001:db8:cafe::17]", for=unknown;proto=https"#
+    ///     r#"for=192.0.2.43, for="[2001:db8:cafe::17]", for=unknown;proto=https"#,
     /// );
     /// let forwarded = Forwarded::from_forwarded_header(&headers)?.unwrap();
     /// assert_eq!(forwarded.proto(), Some("https"));
-    /// assert_eq!(forwarded.forwarded_for(), vec!["192.0.2.43", "[2001:db8:cafe::17]", "unknown"]);
+    /// assert_eq!(
+    ///     forwarded.forwarded_for(),
+    ///     vec!["192.0.2.43", "[2001:db8:cafe::17]", "unknown"]
+    /// );
     /// # Ok(()) }
     /// ```
     /// ```rust
@@ -129,7 +136,10 @@ impl<'a> Forwarded<'a> {
     /// let mut headers = Headers::new();
     /// headers.insert("X-Forwarded-For", "192.0.2.43, 2001:db8:cafe::17");
     /// let forwarded = Forwarded::from_headers(&headers)?.unwrap();
-    /// assert_eq!(forwarded.forwarded_for(), vec!["192.0.2.43", "[2001:db8:cafe::17]"]);
+    /// assert_eq!(
+    ///     forwarded.forwarded_for(),
+    ///     vec!["192.0.2.43", "[2001:db8:cafe::17]"]
+    /// );
     /// # Ok(()) }
     /// ```
     /// ```rust
@@ -139,7 +149,7 @@ impl<'a> Forwarded<'a> {
     /// let mut headers = Headers::new();
     /// headers.insert(
     ///     "Forwarded",
-    ///     r#"for=192.0.2.43, for="[2001:db8:cafe::17]", for=unknown;proto=https"#
+    ///     r#"for=192.0.2.43, for="[2001:db8:cafe::17]", for=unknown;proto=https"#,
     /// );
     /// assert!(Forwarded::from_x_headers(&headers)?.is_none());
     /// # Ok(()) }

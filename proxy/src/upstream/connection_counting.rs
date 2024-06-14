@@ -10,9 +10,11 @@ use trillium::Conn;
 use url::Url;
 
 #[derive(Debug)]
-/// an upstream selector that attempts to send requests to the upstream with the fewest open connections.
+/// an upstream selector that attempts to send requests to the upstream with the fewest open
+/// connections.
 ///
-/// if there are several with the same lowest number of connections, a random upstream is chosen from them.
+/// if there are several with the same lowest number of connections, a random upstream is chosen
+/// from them.
 pub struct ConnectionCounting<T>(Vec<(T, Arc<()>)>);
 impl<T> ConnectionCounting<T>
 where

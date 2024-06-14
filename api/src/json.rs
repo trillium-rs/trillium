@@ -1,9 +1,7 @@
-use std::ops::{Deref, DerefMut};
-
-use serde::{de::DeserializeOwned, Serialize};
-use trillium::{Conn, Handler};
-
 use crate::{ApiConnExt, TryFromConn};
+use serde::{de::DeserializeOwned, Serialize};
+use std::ops::{Deref, DerefMut};
+use trillium::{Conn, Handler};
 
 /// A newtype wrapper struct for any [`serde::Serialize`] type. Note
 /// that this currently must own the serializable type.

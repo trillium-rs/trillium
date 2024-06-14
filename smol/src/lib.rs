@@ -69,11 +69,10 @@ mod server;
 use server::Config;
 
 mod transport;
-pub use transport::SmolTransport;
-
 pub use async_global_executor;
 pub use async_io;
 pub use async_net;
+pub use transport::SmolTransport;
 
 mod runtime;
 pub use runtime::SmolRuntime;

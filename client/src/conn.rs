@@ -863,7 +863,11 @@ impl Drop for Conn {
         let origin = self.url.origin();
 
         if self.response_body_state == ReceivedBodyState::End {
-            log::trace!("response body has been read to completion, checking transport back into pool for {}", &peer_addr);
+            log::trace!(
+                "response body has been read to completion, checking transport back into pool for \
+                 {}",
+                &peer_addr
+            );
             pool.insert(origin, PoolEntry::new(transport, None));
         } else {
             let content_length = self.response_content_length();

@@ -588,11 +588,12 @@ impl Conn {
     ///     String::from("this was not actually slow")
     /// }
     /// async fn handler(mut conn: Conn) -> Conn {
-    ///     match conn.cancel_on_disconnect(async {
-    ///         something_slow_and_cancel_safe().await
-    ///     }).await {
-    ///        Some(returned_body) => conn.ok(returned_body),
-    ///        None => conn
+    ///     match conn
+    ///         .cancel_on_disconnect(async { something_slow_and_cancel_safe().await })
+    ///         .await
+    ///     {
+    ///         Some(returned_body) => conn.ok(returned_body),
+    ///         None => conn,
     ///     }
     /// }
     /// ```
@@ -619,7 +620,7 @@ impl Conn {
     ///         }
     ///         something_slow_but_not_cancel_safe().await;
     ///     }
-    ///    conn.ok("ok!")
+    ///     conn.ok("ok!")
     /// }
     /// ```
     pub async fn is_disconnected(&mut self) -> bool {

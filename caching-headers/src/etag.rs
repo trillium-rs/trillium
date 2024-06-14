@@ -1,7 +1,6 @@
+use crate::CachingHeadersExt;
 use etag::EntityTag;
 use trillium::{Conn, Handler, Status};
-
-use crate::CachingHeadersExt;
 
 /**
 # Etag and If-None-Match header handler

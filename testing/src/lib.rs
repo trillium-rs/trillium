@@ -65,9 +65,7 @@ trillium-testing = { version = "0.2", features = ["smol"] }
 mod assertions;
 
 mod test_transport;
-use std::future::Future;
-use std::process::Termination;
-
+use std::{future::Future, process::Termination};
 pub use test_transport::TestTransport;
 
 mod test_conn;
@@ -82,12 +80,10 @@ pub mod prelude {
         assert_body, assert_body_contains, assert_headers, assert_not_handled, assert_ok,
         assert_response, assert_status, block_on, connector, init, methods::*,
     };
-
     pub use trillium::{Conn, Method, Status};
 }
 
 pub use trillium::{Method, Status};
-
 pub use url::Url;
 
 /// runs the future to completion on the current thread
@@ -102,12 +98,10 @@ pub fn init(handler: &mut impl trillium::Handler) {
 }
 
 // these exports are used by macros
-pub use futures_lite;
-pub use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, Stream};
+pub use futures_lite::{self, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
 
 mod server_connector;
 pub use server_connector::{connector, ServerConnector};
-
 use trillium_server_common::Config;
 pub use trillium_server_common::{
     ArcedConnector, Connector, Runtime, RuntimeTrait, Server, ServerHandle,
