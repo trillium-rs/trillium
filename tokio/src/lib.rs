@@ -32,16 +32,14 @@ async fn main() {
 */
 
 use trillium::Handler;
-
 pub use trillium_server_common::{Binding, Swansong};
 
 mod client;
 pub use client::ClientConfig;
 
 mod server;
-use server::Config;
-
 pub use async_compat;
+use server::Config;
 pub use tokio;
 pub use tokio_stream;
 

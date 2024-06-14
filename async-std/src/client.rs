@@ -58,7 +58,8 @@ impl Connector for ClientConfig {
 
         let port = url
             .port_or_known_default()
-            // this should be ok because we already checked that the scheme is http, which has a default port
+            // this should be ok because we already checked that the scheme is http, which has a
+            // default port
             .ok_or_else(|| Error::new(ErrorKind::InvalidInput, format!("{url} missing port")))?;
 
         let mut tcp = match host {

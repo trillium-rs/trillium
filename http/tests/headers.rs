@@ -213,7 +213,8 @@ fn bulk_header_operations() {
 
     assert_str_eq!(
         headers.to_string(),
-        "Host: other-host\r\nServer: server\r\nServer: x\r\nother-Header: 1 + 2 = 3\r\nx-other: 1\r\n"
+        "Host: other-host\r\nServer: server\r\nServer: x\r\nother-Header: 1 + 2 = 3\r\nx-other: \
+         1\r\n"
     );
 
     assert_str_eq!(

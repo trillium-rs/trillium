@@ -99,9 +99,8 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use trillium_testing::prelude::*;
-
     use super::app;
+    use trillium_testing::prelude::*;
 
     #[test]
     fn test_index() {

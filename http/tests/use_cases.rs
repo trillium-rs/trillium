@@ -1,5 +1,5 @@
-/// This file represents representative use cases in order to ensure future changes take them into
-/// consideration
+/// This file represents representative use cases in order to ensure future changes take them
+/// into consideration
 use std::{future::Future, marker::PhantomData, sync::Arc};
 use test_harness::test;
 use trillium_client::{Client, Connector, Url};

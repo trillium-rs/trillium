@@ -1,11 +1,10 @@
 // originally from https://github.com/http-rs/http-types/blob/main/src/version.rs
 
+use crate::Error;
 use std::{
     fmt::Display,
     str::{self, FromStr},
 };
-
-use crate::Error;
 
 /// The version of the HTTP protocol in use.
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]

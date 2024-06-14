@@ -99,10 +99,7 @@ mod dir_entry;
 mod file;
 mod metadata;
 
-pub(crate) use crate::dir::Dir;
-pub(crate) use crate::dir_entry::DirEntry;
-pub(crate) use crate::file::File;
-pub(crate) use crate::metadata::Metadata;
+pub(crate) use crate::{dir::Dir, dir_entry::DirEntry, file::File, metadata::Metadata};
 
 #[doc(hidden)]
 pub mod __macro_internals {

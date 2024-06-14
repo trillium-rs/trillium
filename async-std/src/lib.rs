@@ -39,9 +39,8 @@ mod client;
 pub use client::ClientConfig;
 
 mod server;
-use server::Config;
-
 pub use async_std;
+use server::Config;
 
 mod transport;
 pub use transport::AsyncStdTransport;

@@ -1,12 +1,11 @@
+use crate::Identity;
+use async_native_tls::{Error, TlsAcceptor, TlsStream};
 use std::{
     io::{self, IoSlice, IoSliceMut},
     net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
 };
-
-use crate::Identity;
-use async_native_tls::{Error, TlsAcceptor, TlsStream};
 use trillium_server_common::{Acceptor, AsyncRead, AsyncWrite, Transport};
 
 /**

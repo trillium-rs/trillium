@@ -118,10 +118,9 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for BufWriter<W> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use futures_lite::AsyncWriteExt;
     use pretty_assertions::assert_eq;
-
-    use super::*;
     #[derive(Default)]
     struct TestWrite {
         writes: Vec<Vec<u8>>,

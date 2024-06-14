@@ -71,7 +71,6 @@ server_handle.await?; // wait for the server to shut down
 
 mod received_body;
 pub use received_body::ReceivedBody;
-
 #[cfg(feature = "unstable")]
 pub use received_body::ReceivedBodyState;
 
@@ -88,9 +87,8 @@ mod synthetic;
 pub use synthetic::Synthetic;
 
 mod upgrade;
-pub use upgrade::Upgrade;
-
 pub use swansong::Swansong;
+pub use upgrade::Upgrade;
 
 mod mut_cow;
 pub(crate) use mut_cow::MutCow;
@@ -99,9 +97,7 @@ mod util;
 
 mod body;
 pub use body::Body;
-
-pub use type_set;
-pub use type_set::TypeSet;
+pub use type_set::{self, TypeSet};
 
 mod headers;
 pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName};

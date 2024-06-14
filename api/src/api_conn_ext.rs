@@ -1,14 +1,12 @@
-use std::future::Future;
-
+use crate::{Error, Result};
 use mime::Mime;
 use serde::{de::DeserializeOwned, Serialize};
+use std::future::Future;
 use trillium::{
     Conn,
     KnownHeaderName::{Accept, ContentType},
     Status,
 };
-
-use crate::{Error, Result};
 
 /// Extension trait that adds api methods to [`trillium::Conn`]
 pub trait ApiConnExt {

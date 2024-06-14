@@ -1,3 +1,4 @@
+use crate::crypto_provider;
 use futures_rustls::{
     rustls::{ServerConfig, ServerConnection},
     server::TlsStream,
@@ -11,8 +12,6 @@ use std::{
     task::{Context, Poll},
 };
 use trillium_server_common::{Acceptor, AsyncRead, AsyncWrite, Transport};
-
-use crate::crypto_provider;
 
 /**
 trillium [`Acceptor`] for Rustls

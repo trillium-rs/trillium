@@ -99,7 +99,8 @@ pub(crate) fn parse_quoted_string(input: &str) -> (Option<Cow<'_, str>>, &str) {
                 .char_indices()
                 .filter_map(|(i, c)| {
                     if Some(&i) == backslashes.last() {
-                        // they're already sorted highest to lowest, so we only need to check the last one
+                        // they're already sorted highest to lowest, so we only need to check the
+                        // last one
                         backslashes.pop();
                         None // remove the backslash from the output
                     } else {

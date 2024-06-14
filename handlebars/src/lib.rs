@@ -14,13 +14,13 @@
 //! ```
 //! # if cfg!(unix) {
 //! # use std::path::PathBuf;
-//! use trillium_handlebars::{HandlebarsHandler, HandlebarsConnExt};
+//! use trillium_handlebars::{HandlebarsConnExt, HandlebarsHandler};
 //! let handler = (
 //!     HandlebarsHandler::new("**/*.hbs"),
 //!     |mut conn: trillium::Conn| async move {
 //!         conn.assign("name", "handlebars")
 //!             .render("examples/templates/hello.hbs")
-//!     }
+//!     },
 //! );
 //!
 //! use trillium_testing::prelude::*;
@@ -28,8 +28,7 @@
 //! # }
 //! ```
 
-pub use handlebars;
-pub use handlebars::Handlebars;
+pub use handlebars::{self, Handlebars};
 
 mod assigns;
 pub use assigns::Assigns;

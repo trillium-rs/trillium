@@ -57,6 +57,14 @@ mod bidirectional_stream;
 mod websocket_connection;
 mod websocket_handler;
 
+pub use async_tungstenite::{
+    self,
+    tungstenite::{
+        self,
+        protocol::{Role, WebSocketConfig},
+        Message,
+    },
+};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use bidirectional_stream::{BidirectionalStream, Direction};
 use futures_lite::stream::StreamExt;
@@ -72,15 +80,6 @@ use trillium::{
         Upgrade as UpgradeHeader,
     },
     Status, Upgrade,
-};
-
-pub use async_tungstenite::{
-    self,
-    tungstenite::{
-        self,
-        protocol::{Role, WebSocketConfig},
-        Message,
-    },
 };
 pub use websocket_connection::WebSocketConn;
 pub use websocket_handler::WebSocketHandler;

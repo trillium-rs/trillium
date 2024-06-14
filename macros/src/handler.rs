@@ -84,7 +84,11 @@ struct DeriveOptions {
 fn overrides<'a, I: Iterator<Item = &'a Expr>>(iter: I) -> syn::Result<Vec<Override>> {
     iter.map(|expr| match expr {
         Expr::Path(ExprPath { path, .. }) => path.try_into(),
-        _ => Err(Error::new(expr.span(), "unrecognized override. valid options are run, init, before_send, name, has_upgrade, and upgrade")),
+        _ => Err(Error::new(
+            expr.span(),
+            "unrecognized override. valid options are run, init, before_send, name, has_upgrade, \
+             and upgrade",
+        )),
     })
     .collect()
 }

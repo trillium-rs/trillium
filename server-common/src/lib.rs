@@ -25,8 +25,7 @@ issue.
 */
 pub use futures_lite::{AsyncRead, AsyncWrite, Stream};
 pub use trillium_http::transport::Transport;
-pub use url;
-pub use url::Url;
+pub use url::{self, Url};
 
 mod config;
 pub use config::Config;
@@ -51,7 +50,6 @@ pub use server_handle::ServerHandle;
 
 mod arc_handler;
 pub(crate) use arc_handler::ArcHandler;
-
 pub use swansong::Swansong;
 
 mod runtime;

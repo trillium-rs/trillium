@@ -49,6 +49,5 @@ mod cookies_handler;
 pub use cookies_handler::{cookies, CookiesHandler};
 
 mod cookies_conn_ext;
-pub use cookies_conn_ext::CookiesConnExt;
-
 pub use cookie;
+pub use cookies_conn_ext::CookiesConnExt;

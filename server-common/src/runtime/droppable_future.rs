@@ -1,10 +1,9 @@
+use pin_project_lite::pin_project;
 use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
-
-use pin_project_lite::pin_project;
 
 pin_project! {
     /// A wrapper type for futures that do not need to be polled but still can be awaited.

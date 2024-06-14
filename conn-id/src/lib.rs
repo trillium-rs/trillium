@@ -285,9 +285,8 @@ where
 
 /// Formatter for the trillium_log crate
 pub mod log_formatter {
-    use std::borrow::Cow;
-
     use super::*;
+    use std::borrow::Cow;
     /// Formatter for the trillium_log crate. This will be `-` if
     /// there is no id on the conn.
     pub fn conn_id(conn: &Conn, _color: bool) -> Cow<'static, str> {

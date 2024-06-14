@@ -42,8 +42,8 @@ impl Runtime {
     /// * detach on drop: If the returned [`DroppableFuture`] is dropped immediately, the task will
     ///   continue to execute until completion.
     ///
-    /// * unwinding: If the spawned future panics, this must not propagate to the join
-    ///   handle. Instead, the awaiting the join handle returns None in case of panic.
+    /// * unwinding: If the spawned future panics, this must not propagate to the join handle.
+    ///   Instead, the awaiting the join handle returns None in case of panic.
     pub fn spawn<Output: Send + 'static>(
         &self,
         fut: impl Future<Output = Output> + Send + 'static,

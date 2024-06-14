@@ -36,7 +36,6 @@ pub use conn::Conn;
 
 mod state;
 pub use state::{state, State};
-
 pub use trillium_http::{
     Body, Error, HeaderName, HeaderValue, HeaderValues, Headers, HttpConfig, KnownHeaderName,
     Method, Status, Swansong, TypeSet, Version,

@@ -6,7 +6,8 @@ use trillium::{BoxedHandler, Conn, Handler};
 ///
 /// If you want to use this directly, Error needs to be Handler.
 ///
-/// If Error is not Handler, you can use `Result<T, E> as TryFromConn where T: TryFromConn<Error = E>`
+/// If Error is not Handler, you can use `Result<T, E> as TryFromConn where T: TryFromConn<Error =
+/// E>`
 ///
 /// If extraction is infallible, implement [`FromConn`].
 pub trait TryFromConn: Send + Sync + Sized + 'static {

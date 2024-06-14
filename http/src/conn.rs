@@ -446,14 +446,19 @@ where
     /// ```rust
     /// # use futures_lite::{AsyncRead, AsyncWrite};
     /// # use trillium_http::{Conn, Method};
-    /// async fn something_slow_and_cancel_safe() -> String { String::from("this was not actually slow") }
+    /// async fn something_slow_and_cancel_safe() -> String {
+    ///     String::from("this was not actually slow")
+    /// }
     /// async fn handler<T>(mut conn: Conn<T>) -> Conn<T>
     /// where
-    ///     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static
+    ///     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     /// {
-    ///     let Some(returned_body) = conn.cancel_on_disconnect(async {
-    ///         something_slow_and_cancel_safe().await
-    ///     }).await else { return conn; };
+    ///     let Some(returned_body) = conn
+    ///         .cancel_on_disconnect(async { something_slow_and_cancel_safe().await })
+    ///         .await
+    ///     else {
+    ///         return conn;
+    ///     };
     ///     conn.set_response_body(returned_body);
     ///     conn.set_status(200);
     ///     conn
@@ -478,7 +483,7 @@ where
     /// # async fn something_slow_but_not_cancel_safe() {}
     /// async fn handler<T>(mut conn: Conn<T>) -> Conn<T>
     /// where
-    ///     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static
+    ///     T: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     /// {
     ///     for _ in 0..100 {
     ///         if conn.is_disconnected().await {
@@ -486,8 +491,8 @@ where
     ///         }
     ///         something_slow_but_not_cancel_safe().await;
     ///     }
-    ///    conn.set_status(200);
-    ///    conn
+    ///     conn.set_status(200);
+    ///     conn
     /// }
     /// ```
     pub async fn is_disconnected(&mut self) -> bool {

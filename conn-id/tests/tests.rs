@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-
 use trillium_conn_id::*;
 use trillium_testing::{prelude::*, TestConn};
 use uuid::Uuid;

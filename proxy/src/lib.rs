@@ -19,6 +19,7 @@ mod forward_proxy_connect;
 pub mod upstream;
 
 use body_streamer::stream_body;
+pub use forward_proxy_connect::ForwardProxyConnect;
 use full_duplex_async_copy::full_duplex_copy;
 use futures_lite::future::zip;
 use size::{Base, Size};
@@ -28,12 +29,10 @@ use trillium::{
     Status::{NotFound, SwitchingProtocols},
     Upgrade,
 };
+pub use trillium_client::{Client, Connector};
 use trillium_forwarding::Forwarded;
 use trillium_http::{HeaderName, HeaderValue, Headers, Status, Version};
 use upstream::{IntoUpstreamSelector, UpstreamSelector};
-
-pub use forward_proxy_connect::ForwardProxyConnect;
-pub use trillium_client::{Client, Connector};
 pub use url::Url;
 
 /// constructs a new [`Proxy`]. alias of [`Proxy::new`]
