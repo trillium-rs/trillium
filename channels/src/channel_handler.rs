@@ -1,6 +1,5 @@
-use std::future::Future;
-
 use crate::{ChannelConn, ChannelEvent};
+use std::future::Future;
 
 /**
 # Trait for you to implement in order to define a [`Channel`](crate::Channel).

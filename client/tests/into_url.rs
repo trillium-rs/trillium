@@ -2,7 +2,6 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
 };
-
 use trillium_client::{IntoUrl, Url};
 
 #[test]

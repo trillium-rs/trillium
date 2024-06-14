@@ -74,11 +74,9 @@ pub use client::{RustlsClientTransport, RustlsConfig};
 
 #[cfg(feature = "server")]
 mod server;
+pub use futures_rustls::{self, rustls};
 #[cfg(feature = "server")]
 pub use server::{RustlsAcceptor, RustlsServerTransport};
-
-pub use futures_rustls;
-pub use futures_rustls::rustls;
 
 #[cfg(any(feature = "client", feature = "server"))]
 mod crypto_provider;

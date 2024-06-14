@@ -1,8 +1,7 @@
-use std::borrow::Cow;
-
 use crate::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::borrow::Cow;
 
 /**
 # The messages passed between server and connected clients.

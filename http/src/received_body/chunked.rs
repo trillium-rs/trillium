@@ -1,9 +1,8 @@
-use std::io::ErrorKind::InvalidData;
-
 use super::{
     io, ready, slice_from, AsyncRead, Buffer, Chunked, Context, End, ErrorKind, PartialChunkSize,
     Pin, Ready, ReceivedBody, ReceivedBodyState, StateOutput,
 };
+use std::io::ErrorKind::InvalidData;
 
 #[cfg(feature = "parse")]
 fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {

@@ -1,5 +1,3 @@
-use trillium_http::transport::BoxedTransport;
-
 use crate::{Runtime, RuntimeTrait, Transport, Url};
 use std::{
     any::Any,
@@ -9,6 +7,7 @@ use std::{
     pin::Pin,
     sync::Arc,
 };
+use trillium_http::transport::BoxedTransport;
 /**
 Interface for runtime and tls adapters for the trillium client
 

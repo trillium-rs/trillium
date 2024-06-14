@@ -54,7 +54,6 @@ impl TestTransport {
     }
 
     /// Shuts down the read, write, or both halves of this connection.
-    ///
     // This function will cause all pending and future I/O on the specified portions to return
     // immediately with an appropriate value (see the documentation of Shutdown).
     pub fn shutdown(&self, how: Shutdown) {

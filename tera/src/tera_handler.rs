@@ -50,9 +50,8 @@ impl TeraHandler {
     /// [`tera::Tera`] instance
     /// ```
     /// # fn main() -> tera::Result<()> {
-    /// use std::path::PathBuf;
+    /// use std::{iter::FromIterator, path::PathBuf};
     /// use trillium_tera::TeraHandler;
-    /// use std::iter::FromIterator;
     ///
     /// let handler = TeraHandler::new(PathBuf::from_iter([".", "examples", "**", "*.html"]));
     ///

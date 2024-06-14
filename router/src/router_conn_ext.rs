@@ -66,10 +66,7 @@ pub trait RouterConnExt {
     /// });
     ///
     /// use trillium_testing::prelude::*;
-    /// assert_ok!(
-    ///     get("/pages/12345").on(&router),
-    ///     "route was /pages/:page_id"
-    /// );
+    /// assert_ok!(get("/pages/12345").on(&router), "route was /pages/:page_id");
     /// ```
     fn route(&self) -> Option<&str>;
 }
