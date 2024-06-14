@@ -38,8 +38,7 @@ assert_ok!(
 ```
 */
 
-pub use askama;
-pub use askama::Template;
+pub use askama::{self, Template};
 use trillium::KnownHeaderName::ContentType;
 
 /// extends trillium conns with the ability to render askama templates

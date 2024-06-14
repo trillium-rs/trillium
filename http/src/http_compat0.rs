@@ -48,7 +48,6 @@ mod version {
 
 mod method {
     use http0 as http;
-
     use std::str::FromStr;
 
     impl TryFrom<http::Method> for crate::Method {
@@ -150,7 +149,6 @@ mod header_name {
 
 mod headers {
     use http0 as http;
-
     use thiserror::Error;
 
     impl From<http::HeaderMap> for crate::Headers {

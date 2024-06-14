@@ -1,0 +1,8 @@
+unstable_features = true
+format_code_in_doc_comments = true
+format_macro_matchers = true
+format_strings = true
+imports_granularity = "Crate"
+group_imports = "One"
+wrap_comments = true
+comment_width = 100

@@ -254,9 +254,9 @@ pub enum Method {
     Put,
 
     /// The QUERY method is used to initiate a server-side query. Unlike the HTTP GET method, which
-    /// requests that a server return a representation of the resource identified by the target URI,
-    /// the QUERY method is used to ask the server to perform a query operation (described by the
-    /// request payload) over some set of data scoped to the effective request URI.  See
+    /// requests that a server return a representation of the resource identified by the target
+    /// URI, the QUERY method is used to ask the server to perform a query operation (described
+    /// by the request payload) over some set of data scoped to the effective request URI.  See
     /// [draft-ietf-httpbis-safe-method-w-body-03][]
     ///
     /// NOTE: As of January 2023, this draft has expired.

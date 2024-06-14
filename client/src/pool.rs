@@ -191,9 +191,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use trillium_server_common::Url;
-
     use super::*;
+    use trillium_server_common::Url;
 
     #[test]
     fn basic_pool_functionality() {

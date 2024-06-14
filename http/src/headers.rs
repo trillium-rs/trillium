@@ -5,27 +5,26 @@ mod header_values;
 mod known_header_name;
 mod unknown_header_name;
 
+use crate::headers::entry::{OccupiedEntryInner, VacantEntryInner};
 pub use entry::{Entry, OccupiedEntry, VacantEntry};
-pub use header_name::HeaderName;
-pub use header_value::HeaderValue;
-pub use header_values::HeaderValues;
-pub use known_header_name::KnownHeaderName;
-
-use header_name::HeaderNameInner;
-use unknown_header_name::UnknownHeaderName;
-
 use hashbrown::{
     hash_map::{self, Entry as HashbrownEntry},
     HashMap,
 };
+pub use header_name::HeaderName;
+use header_name::HeaderNameInner;
+pub use header_value::HeaderValue;
+pub use header_values::HeaderValues;
+pub use known_header_name::KnownHeaderName;
 use smartcow::SmartCow;
-use std::collections::{
-    btree_map::{self, Entry as BTreeEntry},
-    BTreeMap,
+use std::{
+    collections::{
+        btree_map::{self, Entry as BTreeEntry},
+        BTreeMap,
+    },
+    fmt::{self, Debug, Display, Formatter},
 };
-use std::fmt::{self, Debug, Display, Formatter};
-
-use crate::headers::entry::{OccupiedEntryInner, VacantEntryInner};
+use unknown_header_name::UnknownHeaderName;
 
 /// Trillium's header map type
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

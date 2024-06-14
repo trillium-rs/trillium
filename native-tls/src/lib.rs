@@ -15,8 +15,7 @@ client ([`NativeTlsConnector`]) and server ([`NativeTlsAcceptor`]).
 */
 
 pub use async_native_tls;
-pub use native_tls;
-pub use native_tls::Identity;
+pub use native_tls::{self, Identity};
 
 mod server;
 pub use server::{NativeTlsAcceptor, NativeTlsServerTransport};
