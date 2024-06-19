@@ -24,7 +24,7 @@ jobs:
         uses: Swatinem/rust-cache@v2.7.3
 
       - name: get-cmake
-        uses: lukka/get-cmake@v3.29.5
+        uses: lukka/get-cmake@v3.29.6
             
       - name: Build Documentation
         run: >-
