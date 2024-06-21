@@ -16,6 +16,7 @@ where
     Fut: Future<Output = ReturnType> + Send + 'conn,
 {
     type Fut = Fut;
+
     fn call(&self, conn: &'conn mut Conn, additional: Additional) -> Fut {
         self(conn, additional)
     }

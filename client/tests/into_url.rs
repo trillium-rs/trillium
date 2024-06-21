@@ -40,9 +40,11 @@ fn socket_addr() {
         "http://[2610:28:3090:3000:0:bad:cafe:47]:8080/"
     );
 
-    assert!(SocketAddr::from(([127, 0, 0, 1], 8080))
-        .into_url(Some(&Url::parse("http://_").unwrap()))
-        .is_err());
+    assert!(
+        SocketAddr::from(([127, 0, 0, 1], 8080))
+            .into_url(Some(&Url::parse("http://_").unwrap()))
+            .is_err()
+    );
 }
 
 #[test]
@@ -73,7 +75,9 @@ fn ip_addr() {
         "http://[2610:28:3090:3000:0:bad:cafe:47]/"
     );
 
-    assert!(IpAddr::from([127, 0, 0, 1])
-        .into_url(Some(&Url::parse("http://_").unwrap()))
-        .is_err());
+    assert!(
+        IpAddr::from([127, 0, 0, 1])
+            .into_url(Some(&Url::parse("http://_").unwrap()))
+            .is_err()
+    );
 }
