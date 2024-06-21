@@ -61,9 +61,8 @@ impl PartialEq<[&str]> for HeaderValues {
 }
 
 impl IntoIterator for HeaderValues {
-    type Item = HeaderValue;
-
     type IntoIter = smallvec::IntoIter<[HeaderValue; 1]>;
+    type Item = HeaderValue;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -71,9 +70,8 @@ impl IntoIterator for HeaderValues {
 }
 
 impl<'a> IntoIterator for &'a HeaderValues {
-    type Item = &'a HeaderValue;
-
     type IntoIter = std::slice::Iter<'a, HeaderValue>;
+    type Item = &'a HeaderValue;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()

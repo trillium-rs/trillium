@@ -39,8 +39,8 @@ impl From<std::os::unix::net::UnixListener> for AsyncStdServer {
 #[cfg(unix)]
 impl Server for AsyncStdServer {
     type Runtime = AsyncStdRuntime;
-
     type Transport = Binding<AsyncStdTransport<TcpStream>, AsyncStdTransport<UnixStream>>;
+
     const DESCRIPTION: &'static str = concat!(
         " (",
         env!("CARGO_PKG_NAME"),

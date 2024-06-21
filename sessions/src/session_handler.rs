@@ -221,6 +221,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
 
         cookie
     }
+
     // the following is reused verbatim from
     // https://github.com/SergioBenitez/cookie-rs/blob/master/src/secure/signed.rs#L37-46
     /// Signs the cookie's value providing integrity and authenticity.

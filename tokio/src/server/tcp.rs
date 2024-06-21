@@ -18,6 +18,7 @@ impl From<TcpListener> for TokioServer {
 impl Server for TokioServer {
     type Runtime = TokioRuntime;
     type Transport = TokioTransport<Compat<TcpStream>>;
+
     const DESCRIPTION: &'static str = concat!(
         " (",
         env!("CARGO_PKG_NAME"),

@@ -43,8 +43,8 @@ where
     F: Fn(Conn<TestTransport>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Conn<TestTransport>> + Send + Sync + 'static,
 {
-    type Transport = TestTransport;
     type Runtime = Runtime;
+    type Transport = TestTransport;
 
     async fn connect(&self, _: &Url) -> std::io::Result<Self::Transport> {
         let (client_transport, server_transport) = TestTransport::new();

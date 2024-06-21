@@ -128,6 +128,7 @@ impl StaticCompiledHandler {
             index_file: None,
         }
     }
+
     /// Configures the optional index file for this
     /// StaticCompiledHandler. See the crate-level docs for example
     /// usage.

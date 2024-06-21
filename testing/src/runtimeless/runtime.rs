@@ -21,6 +21,7 @@ impl RuntimeTrait for RuntimelessRuntime {
         });
         DroppableFuture::new(async move { receive.recv().await.ok() })
     }
+
     async fn delay(&self, duration: Duration) {
         let (send, receive) = async_channel::bounded(1);
         thread::spawn(move || {
@@ -32,10 +33,12 @@ impl RuntimeTrait for RuntimelessRuntime {
 
     fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static {
         let (send, receive) = async_channel::bounded(1);
-        thread::spawn(move || loop {
-            thread::sleep(period);
-            if send.send_blocking(()).is_err() {
-                break;
+        thread::spawn(move || {
+            loop {
+                thread::sleep(period);
+                if send.send_blocking(()).is_err() {
+                    break;
+                }
             }
         });
 
@@ -85,12 +88,14 @@ impl RuntimelessRuntime {
     /// Returns a [`Stream`] that yields a `()` on the provided period
     pub fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static {
         let (send, receive) = async_channel::bounded(1);
-        thread::spawn(move || loop {
-            thread::sleep(period);
-            if send.is_closed() {
-                break;
+        thread::spawn(move || {
+            loop {
+                thread::sleep(period);
+                if send.is_closed() {
+                    break;
+                }
+                let _ = send.send_blocking(());
             }
-            let _ = send.send_blocking(());
         });
 
         receive

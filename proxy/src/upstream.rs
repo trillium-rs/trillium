@@ -52,6 +52,7 @@ pub trait IntoUpstreamSelector {
 
 impl<U: UpstreamSelector> IntoUpstreamSelector for U {
     type UpstreamSelector = Self;
+
     fn into_upstream(self) -> Self {
         self
     }
@@ -59,6 +60,7 @@ impl<U: UpstreamSelector> IntoUpstreamSelector for U {
 
 impl IntoUpstreamSelector for &str {
     type UpstreamSelector = Url;
+
     fn into_upstream(self) -> Url {
         let url = match Url::try_from(self) {
             Ok(url) => url,
@@ -72,6 +74,7 @@ impl IntoUpstreamSelector for &str {
 
 impl IntoUpstreamSelector for String {
     type UpstreamSelector = Url;
+
     fn into_upstream(self) -> Url {
         (&*self).into_upstream()
     }

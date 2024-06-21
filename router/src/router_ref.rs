@@ -62,9 +62,13 @@ registration. See [`Router::build`] for further documentation.
 pub struct RouterRef<'r>(&'r mut Router);
 impl<'r> RouterRef<'r> {
     method_ref!(get, Get);
+
     method_ref!(post, Post);
+
     method_ref!(put, Put);
+
     method_ref!(delete, Delete);
+
     method_ref!(patch, Patch);
 
     /**
@@ -139,6 +143,7 @@ impl<'r> RouterRef<'r> {
     pub(crate) fn new(router: &'r mut Router) -> Self {
         Self(router)
     }
+
     /**
     Registers a handler for a method other than get, put, post, patch, or delete.
     ```

@@ -947,9 +947,8 @@ impl From<Conn> for Upgrade<BoxedTransport> {
 }
 
 impl IntoFuture for Conn {
-    type Output = Result<Conn>;
-
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'static>>;
+    type Output = Result<Conn>;
 
     fn into_future(mut self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -968,9 +967,8 @@ impl IntoFuture for Conn {
 }
 
 impl<'conn> IntoFuture for &'conn mut Conn {
-    type Output = Result<()>;
-
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'conn>>;
+    type Output = Result<()>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
