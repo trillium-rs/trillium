@@ -21,6 +21,7 @@ impl From<std::net::TcpListener> for AsyncStdServer {
 impl Server for AsyncStdServer {
     type Runtime = AsyncStdRuntime;
     type Transport = AsyncStdTransport<TcpStream>;
+
     const DESCRIPTION: &'static str = concat!(
         " (",
         env!("CARGO_PKG_NAME"),

@@ -415,9 +415,8 @@ where
 }
 
 impl<'a> IntoIterator for &'a Headers {
-    type Item = (HeaderName<'a>, &'a HeaderValues);
-
     type IntoIter = Iter<'a>;
+    type Item = (HeaderName<'a>, &'a HeaderValues);
 
     fn into_iter(self) -> Self::IntoIter {
         self.into()
@@ -479,9 +478,8 @@ impl<'a> Iterator for Iter<'a> {
 }
 
 impl IntoIterator for Headers {
-    type Item = (HeaderName<'static>, HeaderValues);
-
     type IntoIter = IntoIter;
+    type Item = (HeaderName<'static>, HeaderValues);
 
     fn into_iter(self) -> Self::IntoIter {
         self.into()

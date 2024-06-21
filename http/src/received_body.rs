@@ -246,9 +246,8 @@ impl<'a, Transport> IntoFuture for ReceivedBody<'a, Transport>
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
-    type Output = crate::Result<String>;
-
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+    type Output = crate::Result<String>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.read_string().await })
@@ -311,7 +310,7 @@ where
                     return Ready(Err(io::Error::new(
                         ErrorKind::Unsupported,
                         "content too long",
-                    )))
+                    )));
                 }
 
                 None => Chunked {

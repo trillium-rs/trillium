@@ -201,9 +201,11 @@ impl AsyncRead for Body {
                     .unwrap_or(buf.len())
                     .min(buf.len());
 
-                let bytes = ready!(async_read
-                    .as_mut()
-                    .poll_read(cx, &mut buf[..max_bytes_to_read]))?;
+                let bytes = ready!(
+                    async_read
+                        .as_mut()
+                        .poll_read(cx, &mut buf[..max_bytes_to_read])
+                )?;
 
                 if bytes == 0 {
                     *done = true;
@@ -226,9 +228,11 @@ impl AsyncRead for Body {
 
                 let max_bytes_to_read = max_bytes_to_read(buf.len());
 
-                let bytes = ready!(async_read
-                    .as_mut()
-                    .poll_read(cx, &mut buf[..max_bytes_to_read]))?;
+                let bytes = ready!(
+                    async_read
+                        .as_mut()
+                        .poll_read(cx, &mut buf[..max_bytes_to_read])
+                )?;
 
                 if bytes == 0 {
                     *done = true;

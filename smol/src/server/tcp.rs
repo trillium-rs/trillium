@@ -13,8 +13,8 @@ impl From<TcpListener> for SmolTcpServer {
 }
 
 impl Server for SmolTcpServer {
-    type Transport = SmolTransport<TcpStream>;
     type Runtime = SmolRuntime;
+    type Transport = SmolTransport<TcpStream>;
 
     const DESCRIPTION: &'static str = concat!(
         " (",

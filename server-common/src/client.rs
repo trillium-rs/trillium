@@ -104,24 +104,27 @@ impl<T: Connector> ObjectSafeConnector for T {
     {
         Box::pin(async move { Connector::connect(self, url).await.map(BoxedTransport::new) })
     }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
+
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
     }
+
     fn runtime(&self) -> Runtime {
         Connector::runtime(self).into()
     }
 }
 
 impl Connector for ArcedConnector {
+    type Runtime = Runtime;
     type Transport = BoxedTransport;
+
     async fn connect(&self, url: &Url) -> io::Result<BoxedTransport> {
         self.0.connect(url).await
     }
-
-    type Runtime = Runtime;
 
     fn arced(self) -> ArcedConnector {
         self

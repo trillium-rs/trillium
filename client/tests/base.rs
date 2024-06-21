@@ -30,13 +30,17 @@ async fn with_base() -> TestResult {
         "http://example.com/a/b/c/d",
     );
 
-    assert!(client
-        .build_url(Url::from_str("http://example.com/a")?) // does not start with http://example.com/a/b/
-        .is_err());
+    assert!(
+        client
+            .build_url(Url::from_str("http://example.com/a")?) // does not start with http://example.com/a/b/
+            .is_err()
+    );
 
-    assert!(client
-        .build_url("http://example.test/") // does not start with http://example.com/a/b/
-        .is_err());
+    assert!(
+        client
+            .build_url("http://example.test/") // does not start with http://example.com/a/b/
+            .is_err()
+    );
 
     let id = 10usize;
     assert_eq!(
@@ -82,9 +86,11 @@ async fn without_base() -> TestResult {
     assert!(client.build_url("/a/b/c").is_err());
 
     assert!(client.build_url("data:text/plain,Stuff").is_err());
-    assert!(client
-        .build_url(Url::from_str("data:text/plain,Stuff")?)
-        .is_err());
+    assert!(
+        client
+            .build_url(Url::from_str("data:text/plain,Stuff")?)
+            .is_err()
+    );
 
     assert_eq!(
         client

@@ -471,6 +471,7 @@ impl std::fmt::Display for ParseError {
 
 impl<'a> TryFrom<&'a str> for Forwarded<'a> {
     type Error = ParseError;
+
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         Self::parse(value)
     }

@@ -194,6 +194,16 @@ assert_not_handled!(",
 }
 
 impl Router {
+    method!(get, Get);
+
+    method!(post, Post);
+
+    method!(put, Put);
+
+    method!(delete, Delete);
+
+    method!(patch, Patch);
+
     /**
     Constructs a new Router. This is often used with [`Router::get`],
     [`Router::post`], [`Router::put`], [`Router::delete`], and
@@ -399,12 +409,6 @@ impl Router {
         self.add_any(&methods, path, handler);
         self
     }
-
-    method!(get, Get);
-    method!(post, Post);
-    method!(put, Put);
-    method!(delete, Delete);
-    method!(patch, Patch);
 }
 
 impl Handler for Router {

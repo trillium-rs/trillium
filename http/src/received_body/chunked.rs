@@ -298,13 +298,15 @@ mod tests {
             let input = build_chunked_body("test ".repeat(10)).await;
 
             for size in 4..10 {
-                assert!(decode_with_config(
-                    input.clone(),
-                    size,
-                    &HttpConfig::default().with_received_body_max_len(5)
-                )
-                .await
-                .is_err());
+                assert!(
+                    decode_with_config(
+                        input.clone(),
+                        size,
+                        &HttpConfig::default().with_received_body_max_len(5)
+                    )
+                    .await
+                    .is_err()
+                );
 
                 assert!(
                     decode_with_config(input.clone(), size, &HttpConfig::default())
@@ -388,33 +390,41 @@ mod tests {
                 500
             );
 
-            assert!(new_with_config(
-                content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(400)
-            )
-            .read_string()
-            .await
-            .is_err());
-
-            assert!(new_with_config(
-                content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(400)
-            )
-            .read_bytes()
-            .await
-            .is_err());
-
-            assert!(new_with_config(content.clone(), &DEFAULT_CONFIG)
-                .with_max_len(400)
-                .read_bytes()
-                .await
-                .is_err());
-
-            assert!(new_with_config(content.clone(), &DEFAULT_CONFIG)
-                .with_max_len(400)
+            assert!(
+                new_with_config(
+                    content.clone(),
+                    &DEFAULT_CONFIG.with_received_body_max_len(400)
+                )
                 .read_string()
                 .await
-                .is_err());
+                .is_err()
+            );
+
+            assert!(
+                new_with_config(
+                    content.clone(),
+                    &DEFAULT_CONFIG.with_received_body_max_len(400)
+                )
+                .read_bytes()
+                .await
+                .is_err()
+            );
+
+            assert!(
+                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                    .with_max_len(400)
+                    .read_bytes()
+                    .await
+                    .is_err()
+            );
+
+            assert!(
+                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                    .with_max_len(400)
+                    .read_string()
+                    .await
+                    .is_err()
+            );
         });
     }
 }

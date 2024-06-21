@@ -44,6 +44,7 @@ where
     T: UpstreamSelector,
 {
     type Target = [T];
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }

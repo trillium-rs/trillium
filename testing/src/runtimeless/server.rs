@@ -27,8 +27,8 @@ impl RuntimelessServer {
 }
 
 impl Server for RuntimelessServer {
-    type Transport = TestTransport;
     type Runtime = RuntimelessRuntime;
+    type Transport = TestTransport;
 
     const DESCRIPTION: &'static str = "test server";
 

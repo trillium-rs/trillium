@@ -6,3 +6,6 @@ imports_granularity = "Crate"
 group_imports = "One"
 wrap_comments = true
 comment_width = 100
+reorder_impl_items = true
+use_field_init_shorthand = true
+version = "Two"

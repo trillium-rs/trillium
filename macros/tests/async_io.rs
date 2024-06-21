@@ -16,7 +16,7 @@ fn test() -> std::io::Result<()> {
     block_on(outer.read_to_string(&mut string))?;
     assert_eq!(string, "content to read");
     block_on(outer.write_all(b"written content"))?;
-    assert_eq!(outer.0 .1 .0, b"written content");
+    assert_eq!(outer.0.1.0, b"written content");
     Ok(())
 }
 

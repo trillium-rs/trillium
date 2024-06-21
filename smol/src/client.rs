@@ -41,8 +41,8 @@ impl ClientConfig {
 }
 
 impl Connector for ClientConfig {
-    type Transport = SmolTransport<TcpStream>;
     type Runtime = SmolRuntime;
+    type Transport = SmolTransport<TcpStream>;
 
     fn runtime(&self) -> Self::Runtime {
         SmolRuntime::default()
@@ -86,9 +86,8 @@ impl Connector for ClientConfig {
 
 #[cfg(unix)]
 impl Connector for SmolTransport<async_net::unix::UnixStream> {
-    type Transport = Self;
-
     type Runtime = SmolRuntime;
+    type Transport = Self;
 
     async fn connect(&self, _url: &Url) -> Result<Self::Transport> {
         Ok(self.clone())

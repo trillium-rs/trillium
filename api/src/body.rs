@@ -44,6 +44,7 @@ where
     T: DeserializeOwned + Send + Sync + 'static,
 {
     type Error = crate::Error;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         conn.deserialize().await.map(Self)
     }

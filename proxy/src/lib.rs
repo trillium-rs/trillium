@@ -331,11 +331,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
 
         self.set_via_pseudonym(conn.response_headers_mut(), Version::Http1_1);
 
-        if self.halt {
-            conn.halt()
-        } else {
-            conn
-        }
+        if self.halt { conn.halt() } else { conn }
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {

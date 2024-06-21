@@ -73,8 +73,9 @@ impl<Input> Acceptor<Input> for NativeTlsAcceptor
 where
     Input: Transport,
 {
-    type Output = NativeTlsServerTransport<Input>;
     type Error = Error;
+    type Output = NativeTlsServerTransport<Input>;
+
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
         self.0.accept(input).await.map(NativeTlsServerTransport)
     }

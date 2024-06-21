@@ -72,6 +72,7 @@ where
     T: UpstreamSelector,
 {
     type Target = [(T, Arc<()>)];
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }

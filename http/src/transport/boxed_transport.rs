@@ -22,15 +22,18 @@ impl<T: Transport + Any> AnyTransport for T {
     fn as_box_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
+
     // fn as_box_transport(self: Box<Self>) -> Box<dyn Transport> {
     //     self
     // }
     fn as_any(&self) -> &dyn Any {
         self
     }
+
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
     }
+
     fn as_transport(&self) -> &dyn Transport {
         self
     }

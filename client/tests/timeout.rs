@@ -22,11 +22,13 @@ fn timeout_on_conn() {
 
         assert_eq!(err.to_string(), "Conn took longer than 100ms");
 
-        assert!(client
-            .get("/")
-            .with_timeout(Duration::from_millis(100))
-            .await
-            .is_ok());
+        assert!(
+            client
+                .get("/")
+                .with_timeout(Duration::from_millis(100))
+                .await
+                .is_ok()
+        );
 
         Ok(())
     })

@@ -26,8 +26,9 @@ impl From<UnixListener> for SmolServer {
 
 #[cfg(unix)]
 impl Server for SmolServer {
-    type Transport = Binding<SmolTransport<TcpStream>, SmolTransport<UnixStream>>;
     type Runtime = SmolRuntime;
+    type Transport = Binding<SmolTransport<TcpStream>, SmolTransport<UnixStream>>;
+
     const DESCRIPTION: &'static str = concat!(
         " (",
         env!("CARGO_PKG_NAME"),

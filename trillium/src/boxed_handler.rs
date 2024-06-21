@@ -58,6 +58,7 @@ impl<H: Handler> ObjectSafeHandler for H {
     {
         Box::pin(async move { Handler::run(self, conn).await })
     }
+
     fn init<'handler, 'info, 'fut>(
         &'handler mut self,
         info: &'info mut Info,
@@ -71,6 +72,7 @@ impl<H: Handler> ObjectSafeHandler for H {
             Handler::init(self, info).await;
         })
     }
+
     fn before_send<'handler, 'fut>(
         &'handler self,
         conn: Conn,
@@ -81,9 +83,11 @@ impl<H: Handler> ObjectSafeHandler for H {
     {
         Box::pin(async move { Handler::before_send(self, conn).await })
     }
+
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
         Handler::has_upgrade(self, upgrade)
     }
+
     fn upgrade<'handler, 'fut>(
         &'handler self,
         upgrade: Upgrade,
@@ -96,6 +100,7 @@ impl<H: Handler> ObjectSafeHandler for H {
             Handler::upgrade(self, upgrade).await;
         })
     }
+
     fn name(&self) -> Cow<'static, str> {
         Handler::name(self)
     }

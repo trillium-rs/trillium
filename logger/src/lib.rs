@@ -290,6 +290,7 @@ Control-C to quit",
                 .unwrap_or_default(),
         ));
     }
+
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(LoggerWasRun)
     }

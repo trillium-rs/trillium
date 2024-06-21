@@ -21,6 +21,7 @@ pub trait TryFromConn: Send + Sync + Sized + 'static {
 
 impl TryFromConn for serde_json::Value {
     type Error = crate::Error;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         conn.deserialize().await
     }
@@ -36,6 +37,7 @@ impl<T: FromConn> TryFromConn for T {
 
 impl TryFromConn for Vec<u8> {
     type Error = crate::Error;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         conn.request_body()
             .await
@@ -47,6 +49,7 @@ impl TryFromConn for Vec<u8> {
 
 impl TryFromConn for String {
     type Error = crate::Error;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         conn.request_body_string().await.map_err(Into::into)
     }
@@ -55,6 +58,7 @@ impl TryFromConn for String {
 #[cfg(feature = "url")]
 impl TryFromConn for url::Url {
     type Error = trillium::Status;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         let path = conn.path();
         let host = conn

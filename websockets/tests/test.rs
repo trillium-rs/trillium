@@ -109,7 +109,9 @@ fn with_trait_directly() {
     struct MyStruct;
 
     impl WebSocketHandler for MyStruct {
-        type OutboundStream = Pending<Message>; // we don't use an outbound stream in this example
+        type OutboundStream = Pending<Message>;
+
+        // we don't use an outbound stream in this example
 
         async fn connect(
             &self,

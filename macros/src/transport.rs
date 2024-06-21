@@ -50,6 +50,7 @@ enum Override {
 
 impl TryFrom<&Path> for Override {
     type Error = Error;
+
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
         if path.is_ident("set_linger") {
             Ok(Self::SetLinger)

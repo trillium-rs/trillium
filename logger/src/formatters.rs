@@ -304,11 +304,7 @@ formatter that prints an emoji if the request is secure as determined
 by [`Conn::is_secure`]
 */
 pub fn secure(conn: &Conn, _: bool) -> &'static str {
-    if conn.is_secure() {
-        "🔒"
-    } else {
-        "  "
-    }
+    if conn.is_secure() { "🔒" } else { "  " }
 }
 
 /**
@@ -355,6 +351,7 @@ pub fn version(conn: &Conn, _color: bool) -> Version {
 
 impl LogFormatter for &'static str {
     type Output = Self;
+
     fn format(&self, _conn: &Conn, _color: bool) -> Self::Output {
         self
     }
@@ -362,6 +359,7 @@ impl LogFormatter for &'static str {
 
 impl LogFormatter for Arc<str> {
     type Output = Self;
+
     fn format(&self, _conn: &Conn, _color: bool) -> Self::Output {
         Arc::clone(self)
     }
@@ -369,6 +367,7 @@ impl LogFormatter for Arc<str> {
 
 impl LogFormatter for ColoredString {
     type Output = String;
+
     fn format(&self, _conn: &Conn, color: bool) -> Self::Output {
         if color {
             self.to_string()
@@ -384,6 +383,7 @@ where
     O: Display + Send + Sync + 'static,
 {
     type Output = O;
+
     fn format(&self, conn: &Conn, color: bool) -> Self::Output {
         self(conn, color)
     }

@@ -178,8 +178,9 @@ impl<Input> Acceptor<Input> for RustlsAcceptor
 where
     Input: Transport,
 {
-    type Output = RustlsServerTransport<Input>;
     type Error = io::Error;
+    type Output = RustlsServerTransport<Input>;
+
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
         self.0.accept(input).await.map(RustlsServerTransport)
     }

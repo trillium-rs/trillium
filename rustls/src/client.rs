@@ -106,8 +106,8 @@ impl<Config: Debug> Debug for RustlsConfig<Config> {
 }
 
 impl<C: Connector> Connector for RustlsConfig<C> {
-    type Transport = RustlsClientTransport<C::Transport>;
     type Runtime = C::Runtime;
+    type Transport = RustlsClientTransport<C::Transport>;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         match url.scheme() {
