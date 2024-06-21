@@ -16,8 +16,9 @@ impl RuntimelessClientConfig {
 }
 
 impl Connector for RuntimelessClientConfig {
-    type Transport = TestTransport;
     type Runtime = RuntimelessRuntime;
+    type Transport = TestTransport;
+
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         let (tx, _) = &*SERVERS
             .get(&(

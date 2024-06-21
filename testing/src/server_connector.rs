@@ -46,8 +46,9 @@ impl<H: Handler> ServerConnector<H> {
 }
 
 impl<H: Handler> Connector for ServerConnector<H> {
-    type Transport = TestTransport;
     type Runtime = RuntimeType;
+    type Transport = TestTransport;
+
     async fn connect(&self, url: &Url) -> io::Result<Self::Transport> {
         Ok(self.connect(url.scheme() == "https").await)
     }

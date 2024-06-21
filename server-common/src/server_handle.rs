@@ -42,9 +42,8 @@ impl ServerHandle {
 }
 
 impl IntoFuture for ServerHandle {
-    type Output = ();
-
     type IntoFuture = ShutdownCompletion;
+    type Output = ();
 
     fn into_future(self) -> Self::IntoFuture {
         self.swansong.into_future()

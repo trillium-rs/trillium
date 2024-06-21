@@ -68,6 +68,16 @@ pub(crate) fn default_request_headers() -> Headers {
 }
 
 impl Client {
+    method!(get, Get);
+
+    method!(post, Post);
+
+    method!(put, Put);
+
+    method!(delete, Delete);
+
+    method!(patch, Patch);
+
     /// builds a new client from this `Connector`
     pub fn new(config: impl Connector) -> Self {
         Self {
@@ -78,12 +88,6 @@ impl Client {
             timeout: None,
         }
     }
-
-    method!(get, Get);
-    method!(post, Post);
-    method!(put, Put);
-    method!(delete, Delete);
-    method!(patch, Patch);
 
     /// chainable method to remove a header from default request headers
     pub fn without_default_header(mut self, name: impl Into<HeaderName<'static>>) -> Self {

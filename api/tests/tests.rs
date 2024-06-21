@@ -96,10 +96,12 @@ fn json_try_from_conn_checks_content_type() {
         trillium::Status::UnsupportedMediaType
     );
 
-    assert_ok!(get("/")
-        .with_request_header("content-type", "application/json")
-        .with_request_body(r#"{"string": 1}"#)
-        .on(&app_with_json()));
+    assert_ok!(
+        get("/")
+            .with_request_header("content-type", "application/json")
+            .with_request_body(r#"{"string": 1}"#)
+            .on(&app_with_json())
+    );
 }
 
 async fn error_handler(conn: &mut Conn, error: Error) {

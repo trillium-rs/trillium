@@ -57,8 +57,8 @@ impl ClientConfig {
 }
 
 impl Connector for ClientConfig {
-    type Transport = TokioTransport<Compat<TcpStream>>;
     type Runtime = TokioRuntime;
+    type Transport = TokioTransport<Compat<TcpStream>>;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         if url.scheme() != "http" {

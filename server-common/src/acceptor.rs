@@ -37,8 +37,9 @@ impl<Input> Acceptor<Input> for ()
 where
     Input: Transport,
 {
-    type Output = Input;
     type Error = Infallible;
+    type Output = Input;
+
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
         Ok(input)
     }

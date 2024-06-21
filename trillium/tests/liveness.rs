@@ -35,13 +35,13 @@ async fn infinitely_pending_task() -> TestResult {
 
     let mut byte = [0u8];
     assert!(poll_once(client.read(&mut byte)).await.is_none()); // nothing to read; the handler has
-                                                                // not responded
+    // not responded
 
     client.close().await?; // closing the client before we receive a response
 
     handle.shut_down().await; // wait for a graceful shutdown the fact that we terminate here indicates
-                              // that the handler is not still running even though it polls an infinitely
-                              // pending future
+    // that the handler is not still running even though it polls an infinitely
+    // pending future
 
     Ok(())
 }

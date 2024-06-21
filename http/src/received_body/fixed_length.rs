@@ -94,12 +94,14 @@ mod tests {
             assert!(decode_with_config(String::new(), size, &DEFAULT_CONFIG).is_ok());
 
             let input = "MozillaDeveloperNetwork";
-            assert!(decode_with_config(
-                input.into(),
-                size,
-                &DEFAULT_CONFIG.with_received_body_max_len(5)
-            )
-            .is_err());
+            assert!(
+                decode_with_config(
+                    input.into(),
+                    size,
+                    &DEFAULT_CONFIG.with_received_body_max_len(5)
+                )
+                .is_err()
+            );
         }
     }
 
@@ -125,33 +127,41 @@ mod tests {
                 5000
             );
 
-            assert!(new_with_config(
-                content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(750)
-            )
-            .read_string()
-            .await
-            .is_err());
-
-            assert!(new_with_config(
-                content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(750)
-            )
-            .read_bytes()
-            .await
-            .is_err());
-
-            assert!(new_with_config(content.clone(), &DEFAULT_CONFIG)
-                .with_max_len(750)
-                .read_bytes()
-                .await
-                .is_err());
-
-            assert!(new_with_config(content.clone(), &DEFAULT_CONFIG)
-                .with_max_len(750)
+            assert!(
+                new_with_config(
+                    content.clone(),
+                    &DEFAULT_CONFIG.with_received_body_max_len(750)
+                )
                 .read_string()
                 .await
-                .is_err());
+                .is_err()
+            );
+
+            assert!(
+                new_with_config(
+                    content.clone(),
+                    &DEFAULT_CONFIG.with_received_body_max_len(750)
+                )
+                .read_bytes()
+                .await
+                .is_err()
+            );
+
+            assert!(
+                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                    .with_max_len(750)
+                    .read_bytes()
+                    .await
+                    .is_err()
+            );
+
+            assert!(
+                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                    .with_max_len(750)
+                    .read_string()
+                    .await
+                    .is_err()
+            );
         });
     }
 }

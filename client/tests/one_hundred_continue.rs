@@ -219,8 +219,9 @@ const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 struct TestConnector<R>(Sender<TestTransport>, R);
 
 impl<R: RuntimeTrait> Connector for TestConnector<R> {
-    type Transport = TestTransport;
     type Runtime = R;
+    type Transport = TestTransport;
+
     async fn connect(&self, _url: &Url) -> std::io::Result<Self::Transport> {
         let (server, client) = TestTransport::new();
         let _ = self.0.send(server).await;

@@ -41,8 +41,8 @@ impl ClientConfig {
 }
 
 impl Connector for ClientConfig {
-    type Transport = AsyncStdTransport<TcpStream>;
     type Runtime = AsyncStdRuntime;
+    type Transport = AsyncStdTransport<TcpStream>;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         if url.scheme() != "http" {
