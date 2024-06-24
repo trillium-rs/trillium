@@ -38,5 +38,5 @@ trillium-router = { path = "../router" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-api = { path = ".", features = ["url"] }
-test-harness = "0.2.0"
+test-harness = "0.3.0"
 async-channel = "2.3.1"
