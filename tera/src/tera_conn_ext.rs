@@ -3,9 +3,7 @@ use serde::Serialize;
 use tera::{Context, Tera};
 use trillium::{Conn, KnownHeaderName};
 
-/**
-Extends trillium::Conn with tera template-rendering functionality.
-*/
+/// Extends trillium::Conn with tera template-rendering functionality.
 pub trait TeraConnExt {
     /// Adds a key-value pair to the assigns [`Context`], where the key is
     /// a &str and the value is any [`Serialize`] type.

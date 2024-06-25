@@ -1,27 +1,23 @@
-use crate::{Acceptor, Config, ConfigExt, Stopper, Transport};
-use std::{
-    future::{ready, Future},
-    io::Result,
-    pin::Pin,
-    sync::Arc,
-};
+use crate::{Acceptor, ArcHandler, Config, ConfigExt, RuntimeTrait, Swansong, Transport};
+use std::{future::Future, io::Result, sync::Arc};
 use trillium::{Handler, Info};
 
-/**
-The server trait, for standard network-based server implementations.
-*/
+/// The server trait, for standard network-based server implementations.
 pub trait Server: Sized + Send + Sync + 'static {
     /// the individual byte stream that http
     /// will be communicated over. This is often an async "stream"
     /// like TcpStream or UnixStream. See [`Transport`]
     type Transport: Transport;
 
+    /// The [`RuntimeTrait`] for this `Server`.
+    type Runtime: RuntimeTrait;
+
     /// The description of this server, to be appended to the Info and potentially logged.
     const DESCRIPTION: &'static str;
 
     /// Asynchronously return a single `Self::Transport` from a
     /// `Self::Listener`. Must be implemented.
-    fn accept(&mut self) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>>;
+    fn accept(&mut self) -> impl Future<Output = Result<Self::Transport>> + Send;
 
     /// Build an [`Info`] from the Self::Listener type. See [`Info`]
     /// for more details.
@@ -29,9 +25,12 @@ pub trait Server: Sized + Send + Sync + 'static {
 
     /// After the server has shut down, perform any housekeeping, eg
     /// unlinking a unix socket.
-    fn clean_up(self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        Box::pin(ready(()))
+    fn clean_up(self) -> impl Future<Output = ()> + Send {
+        async {}
     }
+
+    /// Return this `Server`'s `Runtime`
+    fn runtime() -> Self::Runtime;
 
     /// Build a listener from the config. The default logic for this
     /// is described elsewhere. To override the default logic, server
@@ -104,17 +103,11 @@ pub trait Server: Sized + Send + Sync + 'static {
     }
 
     /// Implementation hook for listening for any os signals and
-    /// stopping the provided [`Stopper`]. The returned future will be
+    /// stopping the provided [`Swansong`]. The returned future will be
     /// spawned using [`Server::spawn`]
-    fn handle_signals(_stopper: Stopper) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        Box::pin(ready(()))
+    fn handle_signals(_swansong: Swansong) -> impl Future<Output = ()> + Send {
+        async {}
     }
-
-    /// Runtime implementation hook for spawning a task.
-    fn spawn(fut: impl Future<Output = ()> + Send + 'static);
-
-    /// Runtime implementation hook for blocking on a top level future.
-    fn block_on(fut: impl Future<Output = ()> + 'static);
 
     /// Run a trillium application from a sync context
     fn run<A, H>(config: Config<Self, A>, handler: H)
@@ -122,47 +115,44 @@ pub trait Server: Sized + Send + Sync + 'static {
         A: Acceptor<Self::Transport>,
         H: Handler,
     {
-        Self::block_on(Self::run_async(config, handler))
+        config
+            .runtime
+            .clone()
+            .block_on(async move { Self::run_async(config, handler).await });
     }
 
     /// Run a trillium application from an async context. The default
     /// implementation of this method contains the core logic of this
     /// Trait.
-    fn run_async<A, H>(
-        config: Config<Self, A>,
-        mut handler: H,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>
+    fn run_async<A, H>(config: Config<Self, A>, mut handler: H) -> impl Future<Output = ()> + Send
     where
         A: Acceptor<Self::Transport>,
         H: Handler,
     {
-        Box::pin(async move {
+        async move {
+            let runtime = config.runtime.clone();
             if config.should_register_signals() {
                 #[cfg(unix)]
-                Self::spawn(Self::handle_signals(config.stopper()));
+                runtime.spawn(Self::handle_signals(config.swansong()));
 
                 #[cfg(not(unix))]
                 log::error!("signals handling not supported on windows yet");
             }
-
             let mut listener = Self::build_listener(&config);
             let mut info = Self::info(&listener);
             info.server_description_mut().push_str(Self::DESCRIPTION);
             handler.init(&mut info).await;
-            config.info.set(info);
+            config.info.set(Arc::new(info));
             let config = Arc::new(config);
-            let handler = Arc::new(handler);
+            let handler = ArcHandler::new(handler);
+            let swansong = &config.swansong;
 
-            while let Some(stream) = config
-                .stopper
-                .stop_future(Self::accept(&mut listener))
-                .await
-            {
-                match stream {
+            while let Some(transport) = swansong.interrupt(Self::accept(&mut listener)).await {
+                match transport {
                     Ok(stream) => {
                         let config = Arc::clone(&config);
-                        let handler = Arc::clone(&handler);
-                        Self::spawn(async move { config.handle_stream(stream, handler).await })
+                        let handler = ArcHandler::clone(&handler);
+                        runtime.spawn(config.handle_stream(stream, handler));
                     }
                     Err(e) => log::error!("tcp error: {}", e),
                 }
@@ -170,6 +160,6 @@ pub trait Server: Sized + Send + Sync + 'static {
 
             config.graceful_shutdown().await;
             Self::clean_up(listener).await;
-        })
+        }
     }
 }

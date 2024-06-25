@@ -1,0 +1,3 @@
+GET /Index.ut2 HTTP/1.1\r\n
+Host: 10.10.10.10\r\n
+\r\n

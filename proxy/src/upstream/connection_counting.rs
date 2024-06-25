@@ -1,24 +1,26 @@
 //! Upstream selectors
 use super::{IntoUpstreamSelector, UpstreamSelector};
-use std::cmp::Ordering::*;
 use std::{
+    cmp::Ordering::*,
     fmt::Debug,
     ops::{Deref, DerefMut},
+    sync::Arc,
 };
 use trillium::Conn;
-use trillium_server_common::{CloneCounter, CloneCounterObserver};
 use url::Url;
 
 #[derive(Debug)]
-/// an upstream selector that attempts to send requests to the upstream with the fewest open connections.
+/// an upstream selector that attempts to send requests to the upstream with the fewest open
+/// connections.
 ///
-/// if there are several with the same lowest number of connections, a random upstream is chosen from them.
-pub struct ConnectionCounting<T>(Vec<(T, CloneCounterObserver)>);
+/// if there are several with the same lowest number of connections, a random upstream is chosen
+/// from them.
+pub struct ConnectionCounting<T>(Vec<(T, Arc<()>)>);
 impl<T> ConnectionCounting<T>
 where
     T: UpstreamSelector,
 {
-    ///
+    /// Constructs a new connection counting upstream.
     pub fn new<I, U>(urls: I) -> Self
     where
         I: IntoIterator<Item = U>,
@@ -26,14 +28,14 @@ where
     {
         Self(
             urls.into_iter()
-                .map(|u| (u.into_upstream(), CloneCounterObserver::new()))
+                .map(|u| (u.into_upstream(), Arc::new(())))
                 .collect(),
         )
     }
 }
 
 #[allow(dead_code)]
-struct ConnectionCount(CloneCounter);
+struct ConnectionCount(Arc<()>);
 
 impl<T> UpstreamSelector for ConnectionCounting<T>
 where
@@ -43,7 +45,7 @@ where
         let mut current_lowest = usize::MAX;
         let mut current_selection = vec![];
         for (u, c) in &self.0 {
-            let current = c.current();
+            let current = Arc::strong_count(c);
             match current.cmp(&current_lowest) {
                 Less => {
                     current_lowest = current;
@@ -59,7 +61,7 @@ where
         }
 
         fastrand::choice(current_selection).and_then(|(u, cc)| {
-            conn.insert_state(ConnectionCount(cc.counter()));
+            conn.insert_state(ConnectionCount(Arc::clone(cc)));
             u.determine_upstream(conn)
         })
     }
@@ -69,7 +71,8 @@ impl<T> Deref for ConnectionCounting<T>
 where
     T: UpstreamSelector,
 {
-    type Target = [(T, CloneCounterObserver)];
+    type Target = [(T, Arc<()>)];
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -88,10 +91,8 @@ where
     U: IntoUpstreamSelector<UpstreamSelector = T>,
 {
     fn extend<I: IntoIterator<Item = U>>(&mut self, iter: I) {
-        self.0.extend(
-            iter.into_iter()
-                .map(|i| (i.into_upstream(), CloneCounterObserver::new())),
-        );
+        self.0
+            .extend(iter.into_iter().map(|i| (i.into_upstream(), Arc::new(()))));
     }
 }
 

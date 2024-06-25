@@ -1,21 +1,21 @@
-use crate::SmolTransport;
-use async_global_executor::{block_on, spawn};
+use crate::{SmolRuntime, SmolTransport};
 use async_net::{TcpListener, TcpStream};
-use futures_lite::prelude::*;
-use std::{convert::TryInto, env, io::Result, pin::Pin};
+use std::{convert::TryInto, env, io::Result, net};
 use trillium::Info;
-use trillium_server_common::Server;
+use trillium_server_common::{Server, Url};
 
 #[derive(Debug)]
-pub struct SmolServer(TcpListener);
-impl From<TcpListener> for SmolServer {
+pub struct SmolTcpServer(TcpListener);
+impl From<TcpListener> for SmolTcpServer {
     fn from(value: TcpListener) -> Self {
         Self(value)
     }
 }
 
-impl Server for SmolServer {
+impl Server for SmolTcpServer {
+    type Runtime = SmolRuntime;
     type Transport = SmolTransport<TcpStream>;
+
     const DESCRIPTION: &'static str = concat!(
         " (",
         env!("CARGO_PKG_NAME"),
@@ -24,23 +24,24 @@ impl Server for SmolServer {
         ")"
     );
 
-    fn accept(&mut self) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>> {
-        Box::pin(async move { self.0.accept().await.map(|(t, _)| t.into()) })
+    async fn accept(&mut self) -> Result<Self::Transport> {
+        self.0.accept().await.map(|(t, _)| t.into())
     }
 
-    fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {
+    fn listener_from_tcp(tcp: net::TcpListener) -> Self {
         Self(tcp.try_into().unwrap())
     }
 
     fn info(&self) -> Info {
-        self.0.local_addr().unwrap().into()
+        let local_addr = self.0.local_addr().unwrap();
+        let mut info = Info::from(local_addr);
+        if let Ok(url) = Url::parse(&format!("http://{local_addr}")) {
+            info.state_mut().insert(url);
+        }
+        info
     }
 
-    fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
-        spawn(fut).detach();
-    }
-
-    fn block_on(fut: impl Future<Output = ()> + 'static) {
-        block_on(fut)
+    fn runtime() -> Self::Runtime {
+        SmolRuntime::default()
     }
 }

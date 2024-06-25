@@ -85,9 +85,9 @@ impl AlbMultiHeadersRequest {
         let Self {
             http_method,
             path,
-            //multi_value_query_string_parameters,
+            // multi_value_query_string_parameters,
             multi_value_headers,
-            //request_context,
+            // request_context,
             is_base64_encoded,
             body,
             ..

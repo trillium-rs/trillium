@@ -43,3 +43,10 @@ impl Transport for SmolTransport<TcpStream> {
 
 #[cfg(unix)]
 impl Transport for SmolTransport<async_net::unix::UnixStream> {}
+#[cfg(unix)]
+impl SmolTransport<async_net::unix::UnixStream> {
+    /// connnect to the provided path as a unix domain socket
+    pub async fn connect_unix(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        async_net::unix::UnixStream::connect(path).await.map(Self)
+    }
+}

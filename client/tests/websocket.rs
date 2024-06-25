@@ -4,7 +4,7 @@ use trillium_client::{
     Client, WebSocketConn,
 };
 use trillium_http::Status;
-use trillium_testing::ClientConfig;
+use trillium_testing::client_config;
 use trillium_websockets::websocket;
 
 #[test]
@@ -17,7 +17,7 @@ fn test_websockets() {
         }
     });
 
-    let client = Client::new(ClientConfig::new());
+    let client = Client::new(client_config());
 
     trillium_testing::with_server(handler, move |url| async move {
         let mut ws = client.get(url).into_websocket().await?;
@@ -39,7 +39,7 @@ fn test_websockets() {
 fn test_websockets_error() {
     let handler =
         |conn: trillium::Conn| async { conn.with_status(404).with_body("This does not exist") };
-    let client = Client::new(ClientConfig::new());
+    let client = Client::new(client_config());
     trillium_testing::with_server(handler, move |url| async move {
         let err = client
             .get(url)

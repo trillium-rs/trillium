@@ -1,6 +1,5 @@
 use crate::{file::File, DirEntry};
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
 /// A directory.
 #[derive(Debug, Clone, Copy, PartialEq)]

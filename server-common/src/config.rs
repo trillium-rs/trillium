@@ -1,78 +1,74 @@
-use crate::{
-    server_handle::CompletionFuture, Acceptor, CloneCounterObserver, Server, ServerHandle, Stopper,
-};
+use crate::{Acceptor, RuntimeTrait, Server, ServerHandle};
 use async_cell::sync::AsyncCell;
 use std::{
+    cell::OnceCell,
     marker::PhantomData,
     net::SocketAddr,
     sync::{Arc, RwLock},
 };
-use trillium::{Handler, HttpConfig, Info};
+use trillium::{Handler, HttpConfig, Info, Swansong};
 
-/**
-# Primary entrypoint for configuring and running a trillium server
-
-The associated methods on this struct are intended to be chained.
-
-## Example
-```rust,no_run
-trillium_smol::config() // or trillium_async_std, trillium_tokio
-    .with_port(8080) // the default
-    .with_host("localhost") // the default
-    .with_nodelay()
-    .with_max_connections(Some(10000))
-    .without_signals()
-    .run(|conn: trillium::Conn| async move { conn.ok("hello") });
-```
-
-# Socket binding
-
-The socket binding logic is as follows:
-
-* If a LISTEN_FD environment variable is available on `cfg(unix)`
-  systems, that will be used, overriding host and port settings
-* Otherwise:
-  * Host will be selected from explicit configuration using
-    [`Config::with_host`] or else the `HOST` environment variable,
-    or else a default of "localhost".
-    * On `cfg(unix)` systems only: If the host string (as set by env var
-      or direct config) begins with `.`, `/`, or `~`, it is
-      interpreted to be a path, and trillium will bind to it as a unix
-      domain socket. Port will be ignored. The socket will be deleted
-      on clean shutdown.
-  * Port will be selected from explicit configuration using
-    [`Config::with_port`] or else the `PORT` environment variable,
-    or else a default of 8080.
-
-## Signals
-
-On `cfg(unix)` systems, `SIGTERM`, `SIGINT`, and `SIGQUIT` are all
-registered to perform a graceful shutdown on the first signal and an
-immediate shutdown on a subsequent signal. This behavior may change as
-trillium matures. To disable this behavior, use
-[`Config::without_signals`].
-
-## For runtime adapter authors
-
-In order to use this to _implement_ a trillium server, see
-[`trillium_server_common::ConfigExt`](crate::ConfigExt)
-*/
+/// # Primary entrypoint for configuring and running a trillium server
+///
+/// The associated methods on this struct are intended to be chained.
+///
+/// ## Example
+/// ```rust,no_run
+/// trillium_smol::config() // or trillium_async_std, trillium_tokio
+///     .with_port(8080) // the default
+///     .with_host("localhost") // the default
+///     .with_nodelay()
+///     .with_max_connections(Some(10000))
+///     .without_signals()
+///     .run(|conn: trillium::Conn| async move { conn.ok("hello") });
+/// ```
+///
+/// # Socket binding
+///
+/// The socket binding logic is as follows:
+///
+/// If a LISTEN_FD environment variable is available on `cfg(unix)`
+/// systems, that will be used, overriding host and port settings
+/// Otherwise:
+/// Host will be selected from explicit configuration using
+/// [`Config::with_host`] or else the `HOST` environment variable,
+/// or else a default of "localhost".
+/// On `cfg(unix)` systems only: If the host string (as set by env var
+/// or direct config) begins with `.`, `/`, or `~`, it is
+/// interpreted to be a path, and trillium will bind to it as a unix
+/// domain socket. Port will be ignored. The socket will be deleted
+/// on clean shutdown.
+/// Port will be selected from explicit configuration using
+/// [`Config::with_port`] or else the `PORT` environment variable,
+/// or else a default of 8080.
+///
+/// ## Signals
+///
+/// On `cfg(unix)` systems, `SIGTERM`, `SIGINT`, and `SIGQUIT` are all
+/// registered to perform a graceful shutdown on the first signal and an
+/// immediate shutdown on a subsequent signal. This behavior may change as
+/// trillium matures. To disable this behavior, use
+/// [`Config::without_signals`].
+///
+/// ## For runtime adapter authors
+///
+/// In order to use this to _implement_ a trillium server, see
+/// [`trillium_server_common::ConfigExt`](crate::ConfigExt)
 
 #[derive(Debug)]
-pub struct Config<ServerType, AcceptorType> {
+pub struct Config<ServerType: Server, AcceptorType> {
     pub(crate) acceptor: AcceptorType,
     pub(crate) port: Option<u16>,
     pub(crate) host: Option<String>,
     pub(crate) nodelay: bool,
-    pub(crate) stopper: Stopper,
-    pub(crate) observer: CloneCounterObserver,
+    pub(crate) swansong: Swansong,
     pub(crate) register_signals: bool,
     pub(crate) max_connections: Option<usize>,
-    pub(crate) info: Arc<AsyncCell<Info>>,
-    pub(crate) completion_future: CompletionFuture,
+    pub(crate) info: Arc<AsyncCell<Arc<Info>>>,
     pub(crate) binding: RwLock<Option<ServerType>>,
     pub(crate) server: PhantomData<ServerType>,
     pub(crate) http_config: HttpConfig,
+    pub(crate) runtime: ServerType::Runtime,
 }
 
 impl<ServerType, AcceptorType> Config<ServerType, AcceptorType>
@@ -96,9 +92,9 @@ where
     /// unrelated to the trillium application. If you do not need to spawn
     /// other tasks, [`Config::run`] is the preferred entrypoint
     pub async fn run_async(self, handler: impl Handler) {
-        let completion_future = self.completion_future.clone();
+        let swansong = self.swansong.clone();
         ServerType::run_async(self, handler).await;
-        completion_future.notify()
+        swansong.shut_down().await;
     }
 
     /// Spawns the server onto the async runtime, returning a
@@ -107,7 +103,7 @@ where
     /// [`ServerHandle::stop`]
     pub fn spawn(self, handler: impl Handler) -> ServerHandle {
         let server_handle = self.handle();
-        ServerType::spawn(self.run_async(handler));
+        self.runtime.clone().spawn(self.run_async(handler));
         server_handle
     }
 
@@ -115,10 +111,10 @@ where
     /// when spawning the server onto a runtime.
     pub fn handle(&self) -> ServerHandle {
         ServerHandle {
-            stopper: self.stopper.clone(),
+            swansong: self.swansong.clone(),
             info: self.info.clone(),
-            completion: self.completion_future.clone(),
-            observer: self.observer.clone(),
+            received_info: OnceCell::new(),
+            runtime: self.runtime().into(),
         }
     }
 
@@ -126,7 +122,10 @@ where
     /// the PORT environment variable or 8080
     pub fn with_port(mut self, port: u16) -> Self {
         if self.has_binding() {
-            eprintln!("constructing a config with both a port and a pre-bound listener will ignore the port. this may be a panic in the future");
+            eprintln!(
+                "constructing a config with both a port and a pre-bound listener will ignore the \
+                 port. this may be a panic in the future"
+            );
         }
         self.port = Some(port);
         self
@@ -137,7 +136,10 @@ where
     /// "localhost"
     pub fn with_host(mut self, host: &str) -> Self {
         if self.has_binding() {
-            eprintln!("constructing a config with both a host and a pre-bound listener will ignore the host. this may be a panic in the future");
+            eprintln!(
+                "constructing a config with both a host and a pre-bound listener will ignore the \
+                 host. this may be a panic in the future"
+            );
         }
         self.host = Some(host.into());
         self
@@ -179,35 +181,25 @@ where
             port: self.port,
             nodelay: self.nodelay,
             server: PhantomData,
-            stopper: self.stopper,
-            observer: self.observer,
+            swansong: self.swansong,
             register_signals: self.register_signals,
             max_connections: self.max_connections,
             info: self.info,
-            completion_future: self.completion_future,
             binding: self.binding,
             http_config: self.http_config,
+            runtime: self.runtime,
         }
     }
 
-    /// use the specific [`Stopper`] provided
-    pub fn with_stopper(mut self, stopper: Stopper) -> Self {
-        self.stopper = stopper;
+    /// use the specific [`Swansong`] provided
+    pub fn with_swansong(mut self, swansong: Swansong) -> Self {
+        self.swansong = swansong;
         self
     }
 
-    /// use the specified [`CloneCounterObserver`] to monitor or
-    /// modify the outstanding connection count for graceful shutdown
-    pub fn with_observer(mut self, observer: CloneCounterObserver) -> Self {
-        self.observer = observer;
-        self
-    }
-
-    /**
-    Configures the maximum number of connections to accept. The
-    default is 75% of the soft rlimit_nofile (`ulimit -n`) on unix
-    systems, and None on other sytems.
-    */
+    /// Configures the maximum number of connections to accept. The
+    /// default is 75% of the soft rlimit_nofile (`ulimit -n`) on unix
+    /// systems, and None on other sytems.
     pub fn with_max_connections(mut self, max_connections: Option<usize>) -> Self {
         self.max_connections = max_connections;
         self
@@ -234,11 +226,17 @@ where
     /// Additionally, cloning this config will not clone the listener.
     pub fn with_prebound_server(mut self, server: impl Into<ServerType>) -> Self {
         if self.host.is_some() {
-            eprintln!("constructing a config with both a host and a pre-bound listener will ignore the host. this may be a panic in the future");
+            eprintln!(
+                "constructing a config with both a host and a pre-bound listener will ignore the \
+                 host. this may be a panic in the future"
+            );
         }
 
         if self.port.is_some() {
-            eprintln!("constructing a config with both a port and a pre-bound listener will ignore the port. this may be a panic in the future");
+            eprintln!(
+                "constructing a config with both a port and a pre-bound listener will ignore the \
+                 port. this may be a panic in the future"
+            );
         }
 
         self.binding = RwLock::new(Some(server.into()));
@@ -251,40 +249,17 @@ where
             .as_deref()
             .map_or(false, Option::is_some)
     }
+
+    /// retrieve the runtime
+    pub fn runtime(&self) -> ServerType::Runtime {
+        self.runtime.clone()
+    }
 }
 
 impl<ServerType: Server> Config<ServerType, ()> {
     /// build a new config with default acceptor
     pub fn new() -> Self {
         Self::default()
-    }
-}
-
-impl<ServerType, AcceptorType> Clone for Config<ServerType, AcceptorType>
-where
-    ServerType: Server,
-    AcceptorType: Acceptor<ServerType::Transport> + Clone,
-{
-    fn clone(&self) -> Self {
-        if self.has_binding() {
-            eprintln!("cloning a Config with a pre-bound listener will not clone the listener. this may be a panic in the future.");
-        }
-
-        Self {
-            acceptor: self.acceptor.clone(),
-            port: self.port,
-            host: self.host.clone(),
-            server: PhantomData,
-            nodelay: self.nodelay,
-            stopper: self.stopper.clone(),
-            observer: self.observer.clone(),
-            register_signals: self.register_signals,
-            max_connections: self.max_connections,
-            info: AsyncCell::shared(),
-            completion_future: CompletionFuture::new(),
-            binding: RwLock::new(None),
-            http_config: self.http_config,
-        }
     }
 }
 
@@ -309,14 +284,13 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
             host: None,
             server: PhantomData,
             nodelay: false,
-            stopper: Stopper::new(),
-            observer: CloneCounterObserver::new(),
+            swansong: Swansong::new(),
             register_signals: cfg!(unix),
             max_connections,
             info: AsyncCell::shared(),
-            completion_future: CompletionFuture::new(),
             binding: RwLock::new(None),
             http_config: HttpConfig::default(),
+            runtime: ServerType::runtime(),
         }
     }
 }

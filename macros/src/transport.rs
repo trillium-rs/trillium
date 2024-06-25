@@ -50,6 +50,7 @@ enum Override {
 
 impl TryFrom<&Path> for Override {
     type Error = Error;
+
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
         if path.is_ident("set_linger") {
             Ok(Self::SetLinger)
@@ -78,7 +79,11 @@ struct DeriveOptions {
 fn overrides<'a, I: Iterator<Item = &'a Expr>>(iter: I) -> syn::Result<Vec<Override>> {
     iter.map(|expr| match expr {
         Expr::Path(ExprPath { path, .. }) => path.try_into(),
-        _ => Err(Error::new(expr.span(), "unrecognized override. valid options are set_linger, set_nodelay, set_ip_ttl, and peer_addr")),
+        _ => Err(Error::new(
+            expr.span(),
+            "unrecognized override. valid options are set_linger, set_nodelay, set_ip_ttl, and \
+             peer_addr",
+        )),
     })
     .collect()
 }

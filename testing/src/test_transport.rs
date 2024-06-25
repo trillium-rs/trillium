@@ -4,6 +4,7 @@ use std::{
     fmt::{Debug, Display},
     future::Future,
     io,
+    net::Shutdown,
     pin::Pin,
     sync::RwLock,
     task::{Context, Poll, Waker},
@@ -52,6 +53,20 @@ impl TestTransport {
         self.write.close();
     }
 
+    /// Shuts down the read, write, or both halves of this connection.
+    // This function will cause all pending and future I/O on the specified portions to return
+    // immediately with an appropriate value (see the documentation of Shutdown).
+    pub fn shutdown(&self, how: Shutdown) {
+        match how {
+            Shutdown::Read => self.read.close(),
+            Shutdown::Write => self.write.close(),
+            Shutdown::Both => {
+                self.read.close();
+                self.write.close();
+            }
+        }
+    }
+
     /// take an owned snapshot of the received data
     pub fn snapshot(&self) -> Vec<u8> {
         self.read.snapshot()
@@ -94,23 +109,17 @@ struct CloseableCursorInner {
 pub struct CloseableCursor(RwLock<CloseableCursorInner>);
 
 impl CloseableCursor {
-    /**
-    the length of the content
-    */
+    /// the length of the content
     pub fn len(&self) -> usize {
         self.0.read().unwrap().data.len()
     }
 
-    /**
-    the current read position
-    */
+    /// the current read position
     pub fn cursor(&self) -> usize {
         self.0.read().unwrap().cursor
     }
 
-    /**
-    does what it says on the tin
-    */
+    /// does what it says on the tin
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -120,17 +129,13 @@ impl CloseableCursor {
         self.0.read().unwrap().data.clone()
     }
 
-    /**
-    have we read to the end of the available content
-    */
+    /// have we read to the end of the available content
     pub fn current(&self) -> bool {
         let inner = self.0.read().unwrap();
         inner.data.len() == inner.cursor
     }
 
-    /**
-    close this cursor, waking any pending polls
-    */
+    /// close this cursor, waking any pending polls
     pub fn close(&self) {
         let mut inner = self.0.write().unwrap();
         inner.closed = true;

@@ -1,6 +1,6 @@
 use futures_lite::StreamExt;
 use serde::{Deserialize, Serialize};
-use trillium::{async_trait, state, Conn};
+use trillium::{state, Conn};
 use trillium_api::{api, Json, State};
 use trillium_caching_headers::caching_headers;
 use trillium_channels::{channel, ChannelBroadcaster, ChannelConn, ChannelEvent, ChannelHandler};
@@ -10,7 +10,6 @@ use trillium_router::router;
 use trillium_static_compiled::static_compiled;
 
 struct ChatChannel;
-#[async_trait]
 impl ChannelHandler for ChatChannel {
     async fn join_channel(&self, conn: ChannelConn<'_>, event: ChannelEvent) {
         if event.topic() == "rooms:lobby" {

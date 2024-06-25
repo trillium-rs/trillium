@@ -1,6 +1,4 @@
-/*!
-[`TestConn`](crate::TestConn) builders for http methods
-*/
+//! [`TestConn`](crate::TestConn) builders for http methods
 
 macro_rules! method {
     ($fn_name:ident, $method:ident) => {

@@ -1,6 +1,10 @@
 // originally from https://github.com/http-rs/http-types/blob/main/src/status_code.rs
 use crate::Error;
-use std::fmt::{self, Debug, Display};
+use std::{
+    convert::TryFrom,
+    fmt::{self, Debug, Display},
+    str::FromStr,
+};
 
 /// HTTP response status codes.
 ///
@@ -274,7 +278,6 @@ pub enum Status {
     /// This response code means the expectation indicated by the Expect request
     /// header field can't be met by the server.
     ExpectationFailed = 417,
-    ///
     /// 418 I'm a teapot
     ///
     /// The server refuses the attempt to brew coffee with a teapot.
@@ -604,7 +607,7 @@ impl TryFrom<u16> for Status {
             508 => Ok(Status::LoopDetected),
             510 => Ok(Status::NotExtended),
             511 => Ok(Status::NetworkAuthenticationRequired),
-            n => Err(Error::UnrecognizedStatusCode(n)),
+            _ => Err(Error::InvalidStatus),
         }
     }
 }
@@ -630,5 +633,15 @@ impl Debug for Status {
 impl Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", *self as u16, self.canonical_reason())
+    }
+}
+
+impl FromStr for Status {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        u16::from_str(s)
+            .map_err(|_| Error::InvalidStatus)?
+            .try_into()
     }
 }

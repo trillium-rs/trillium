@@ -1,0 +1,3 @@
+GET %NBD HTTP/1.1\r\n
+Host: \r\n
+\r\n

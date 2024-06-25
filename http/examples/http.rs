@@ -1,6 +1,6 @@
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
-use trillium_http::{Conn, Stopper};
+use trillium_http::{Conn, Swansong};
 
 async fn handler(mut conn: Conn<TcpStream>) -> Conn<TcpStream> {
     conn.set_status(200);
@@ -12,18 +12,18 @@ pub fn main() {
     env_logger::init();
 
     smol::block_on(async move {
-        let stopper = Stopper::new();
+        let swansong = Swansong::new();
         let port = std::env::var("PORT")
             .unwrap_or("8080".into())
             .parse::<u16>()
             .unwrap();
 
         let listener = TcpListener::bind(("0.0.0.0", port)).await.unwrap();
-        let mut incoming = stopper.stop_stream(listener.incoming());
+        let mut incoming = swansong.interrupt(listener.incoming());
         while let Some(Ok(stream)) = incoming.next().await {
-            let stopper = stopper.clone();
+            let swansong = swansong.clone();
             smol::spawn(async move {
-                match Conn::map(stream, stopper, handler).await {
+                match Conn::map(stream, swansong, handler).await {
                     Ok(Some(_)) => log::info!("upgrade"),
                     Ok(None) => log::info!("closing connection"),
                     Err(e) => log::error!("{:?}", e),

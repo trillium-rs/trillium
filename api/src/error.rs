@@ -2,7 +2,7 @@ use crate::ApiConnExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt::Display;
-use trillium::{async_trait, Conn, Handler, Status};
+use trillium::{Conn, Handler, Status};
 
 /// A serde-serializable error
 #[derive(Serialize, Deserialize, Debug, Clone, thiserror::Error)]
@@ -102,7 +102,6 @@ impl From<serde_urlencoded::de::Error> for Error {
     }
 }
 
-#[async_trait]
 impl Handler for Error {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone()).halt()
@@ -132,7 +131,6 @@ impl From<&Error> for Status {
     }
 }
 
-#[async_trait]
 impl crate::FromConn for Error {
     async fn from_conn(conn: &mut Conn) -> Option<Self> {
         conn.take_state()

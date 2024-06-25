@@ -1,7 +1,7 @@
 use broadcaster::BroadcastChannel;
 use std::net::IpAddr;
 use trillium::Conn;
-use trillium_websockets::{async_trait, Message, WebSocket, WebSocketConn, WebSocketHandler};
+use trillium_websockets::{Message, WebSocket, WebSocketConn, WebSocketHandler};
 
 struct EchoServer {
     channel: BroadcastChannel<Message>,
@@ -14,7 +14,6 @@ impl EchoServer {
     }
 }
 
-#[async_trait]
 impl WebSocketHandler for EchoServer {
     type OutboundStream = BroadcastChannel<Message>;
 

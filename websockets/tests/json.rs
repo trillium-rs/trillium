@@ -3,7 +3,7 @@ use async_tungstenite::{client_async, WebSocketStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::pin::Pin;
-use trillium::{async_trait, log_error};
+use trillium::log_error;
 use trillium_http::transport::BoxedTransport;
 use trillium_websockets::{JsonWebSocketHandler, Message, Result, WebSocket, WebSocketConn};
 
@@ -26,7 +26,6 @@ impl Inbound {
 }
 
 struct SomeJsonChannel;
-#[async_trait]
 impl JsonWebSocketHandler for SomeJsonChannel {
     type InboundMessage = Inbound;
     type OutboundMessage = Response;

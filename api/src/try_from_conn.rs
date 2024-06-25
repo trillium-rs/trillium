@@ -1,31 +1,32 @@
 use crate::{ApiConnExt, FromConn};
-use trillium::{async_trait, Conn, Handler};
+use std::future::Future;
+use trillium::{BoxedHandler, Conn, Handler};
+
 /// Like FromConn, but with an Error.
 ///
 /// If you want to use this directly, Error needs to be Handler.
 ///
-/// If Error is not Handler, you can use `Result<T, E> as TryFromConn where T: TryFromConn<Error = E>`
+/// If Error is not Handler, you can use `Result<T, E> as TryFromConn where T: TryFromConn<Error =
+/// E>`
 ///
 /// If extraction is infallible, implement [`FromConn`].
-#[async_trait]
 pub trait TryFromConn: Send + Sync + Sized + 'static {
     /// The Error type. Tf this is a Handler, you can extract Self directly in a ApiHandler
     /// signature, and Error will be called on Conn if try_from_conn fails.
     type Error: Send + Sync + Sized + 'static;
 
     /// Attempt to extract Self from &mut Conn, returning Error in case of failure
-    async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error>;
+    fn try_from_conn(conn: &mut Conn) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
-#[async_trait]
 impl TryFromConn for serde_json::Value {
     type Error = crate::Error;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         conn.deserialize().await
     }
 }
 
-#[async_trait]
 impl<T: FromConn> TryFromConn for T {
     type Error = ();
 
@@ -34,9 +35,9 @@ impl<T: FromConn> TryFromConn for T {
     }
 }
 
-#[async_trait]
 impl TryFromConn for Vec<u8> {
     type Error = crate::Error;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         conn.request_body()
             .await
@@ -46,18 +47,18 @@ impl TryFromConn for Vec<u8> {
     }
 }
 
-#[async_trait]
 impl TryFromConn for String {
     type Error = crate::Error;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         conn.request_body_string().await.map_err(Into::into)
     }
 }
 
 #[cfg(feature = "url")]
-#[async_trait]
 impl TryFromConn for url::Url {
     type Error = trillium::Status;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         let path = conn.path();
         let host = conn
@@ -72,14 +73,13 @@ impl TryFromConn for url::Url {
 
 macro_rules! impl_try_from_conn_tuple {
     ($($name:ident)+) => (
-        #[async_trait]
         impl<$($name),*> TryFromConn for ($($name,)*) where $($name: TryFromConn, <$name as TryFromConn>::Error: Handler),* {
-            type Error = Box<dyn Handler>;
+            type Error = BoxedHandler;
             #[allow(non_snake_case)]
             async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
                 $(let $name = <$name as TryFromConn>::try_from_conn(conn)
                   .await
-                  .map_err(|h| Box::new(h) as Box<dyn Handler>)?;)*
+                  .map_err(|h| BoxedHandler::new(h))?;)*
                 Ok(($($name, )*))
             }
         }

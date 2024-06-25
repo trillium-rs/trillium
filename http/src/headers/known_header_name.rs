@@ -4,7 +4,6 @@ use std::{
     hash::Hash,
     str::FromStr,
 };
-use HeaderNameInner::{KnownHeader, UnknownHeader};
 
 impl Display for KnownHeaderName {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -14,16 +13,13 @@ impl Display for KnownHeaderName {
 
 impl From<KnownHeaderName> for HeaderName<'_> {
     fn from(khn: KnownHeaderName) -> Self {
-        Self(KnownHeader(khn))
+        Self(HeaderNameInner::KnownHeader(khn))
     }
 }
 
 impl PartialEq<HeaderName<'_>> for KnownHeaderName {
     fn eq(&self, other: &HeaderName) -> bool {
-        match &other.0 {
-            KnownHeader(k) => self == k,
-            UnknownHeader(_) => false,
-        }
+        matches!(&other.0, HeaderNameInner::KnownHeader(k) if self == k)
     }
 }
 
@@ -38,7 +34,7 @@ macro_rules! known_headers {
         /// represent as a u8. Use a `KnownHeaderName` variant instead
         /// of a &'static str anywhere possible, as it allows trillium
         /// to skip parsing the header entirely.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
         #[non_exhaustive]
         #[repr(u8)]
         pub enum KnownHeaderName {
@@ -69,24 +65,23 @@ macro_rules! known_headers {
     }
 }
 
-/* generated with
-
-console.log($$('main > article > div > dl > dt > a > code').map(code => {
-let lowered = code.innerText.toLowerCase();
-let enum_ = lowered.replace(/(?:-|^)([a-z])/g, (_, p1) => p1.toUpperCase());
-return`("${code.innerText}", ${enum_}, "${lowered}")`
-}).join(",\n"))
-
- on https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers
-
-
-per https://httpwg.org/specs/rfc9110.html#rfc.section.5.3,
-
-The order in which field lines with differing field names are received in a section is not
-significant. However, it is good practice to send header fields that contain additional control data
-first, such as Host on requests and Date on responses, so that implementations can decide when not
-to handle a message as early as possible.
-*/
+// generated with
+//
+// console.log($$('main > article > div > dl > dt > a > code').map(code => {
+// let lowered = code.innerText.toLowerCase();
+// let enum_ = lowered.replace(/(?:-|^)([a-z])/g, (_, p1) => p1.toUpperCase());
+// return`("${code.innerText}", ${enum_}, "${lowered}")`
+// }).join(",\n"))
+//
+// on https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers
+//
+//
+// per https://httpwg.org/specs/rfc9110.html#rfc.section.5.3,
+//
+// The order in which field lines with differing field names are received in a section is not
+// significant. However, it is good practice to send header fields that contain additional control
+// data first, such as Host on requests and Date on responses, so that implementations can decide
+// when not to handle a message as early as possible.
 known_headers! {
     ("Host", Host),
     ("Date", Date),

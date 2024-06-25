@@ -3,7 +3,6 @@ mod unix;
 #[cfg(unix)]
 pub use unix::TokioServer;
 
-//#[cfg(not(unix))]
 mod tcp;
 #[cfg(not(unix))]
 pub use tcp::TokioServer;

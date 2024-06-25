@@ -6,6 +6,7 @@ mod version {
     use http1 as http;
     impl TryFrom<http::Version> for crate::Version {
         type Error = String;
+
         fn try_from(version: http::Version) -> Result<Self, Self::Error> {
             match version {
                 http::Version::HTTP_09 => Ok(crate::Version::Http0_9),
@@ -48,11 +49,11 @@ mod version {
 
 mod method {
     use http1 as http;
-
     use std::str::FromStr;
 
     impl TryFrom<http::Method> for crate::Method {
         type Error = <crate::Method as FromStr>::Err;
+
         fn try_from(http_method: http::Method) -> Result<Self, Self::Error> {
             http_method.as_str().parse()
         }
@@ -60,6 +61,7 @@ mod method {
 
     impl TryFrom<&http::Method> for crate::Method {
         type Error = <crate::Method as FromStr>::Err;
+
         fn try_from(http_method: &http::Method) -> Result<Self, Self::Error> {
             http_method.as_str().parse()
         }
@@ -150,7 +152,6 @@ mod header_name {
 
 mod headers {
     use http1 as http;
-
     use thiserror::Error;
 
     impl From<http::HeaderMap> for crate::Headers {
@@ -195,6 +196,7 @@ mod headers {
 
     impl TryFrom<crate::Headers> for http::HeaderMap {
         type Error = HeaderConversionError;
+
         fn try_from(trillium_headers: crate::Headers) -> Result<Self, Self::Error> {
             let mut http_header_map = http::HeaderMap::default();
             for (trillium_header_name, trillium_header_values) in trillium_headers {

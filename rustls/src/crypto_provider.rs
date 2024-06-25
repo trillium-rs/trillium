@@ -41,8 +41,8 @@ pub(crate) fn crypto_provider() -> Arc<CryptoProvider> {
 Please enable `ring`, `aws-lc-rs`, or `custom-crypto-provider`.
 
 To use ring or aws-lc-rs, nothing further is needed than enabling the feature.
-To use `custom-crypto-provider`, either configure a `ClientConfig::builder_with_provider` \
-and pass it to `trillium_rustls::RustlsConfig::new` or use \
-`CryptoProvider::install_default` before building the trillium_rustls::RustlsConfig::default().\n\n"
+To use `custom-crypto-provider`, either configure a `ClientConfig::builder_with_provider` and pass \
+         it to `trillium_rustls::RustlsConfig::new` or use `CryptoProvider::install_default` \
+         before building the trillium_rustls::RustlsConfig::default().\n\n"
     )
 }

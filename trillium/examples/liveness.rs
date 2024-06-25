@@ -1,6 +1,5 @@
-use std::time::{Duration, Instant};
-
 use async_io::Timer;
+use std::time::{Duration, Instant};
 
 fn main() {
     trillium_smol::run(|mut conn: trillium::Conn| async move {

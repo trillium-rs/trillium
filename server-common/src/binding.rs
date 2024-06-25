@@ -24,38 +24,22 @@ use Binding::{Tcp, Unix};
 impl<T, U> Binding<T, U> {
     /// borrows the tcp stream or listener, if this is a tcp variant
     pub fn get_tcp(&self) -> Option<&T> {
-        if let Tcp(t) = self {
-            Some(t)
-        } else {
-            None
-        }
+        if let Tcp(t) = self { Some(t) } else { None }
     }
 
     /// borrows the unix stream or listener, if this is unix variant
     pub fn get_unix(&self) -> Option<&U> {
-        if let Unix(u) = self {
-            Some(u)
-        } else {
-            None
-        }
+        if let Unix(u) = self { Some(u) } else { None }
     }
 
     /// mutably borrows the tcp stream or listener, if this is tcp variant
     pub fn get_tcp_mut(&mut self) -> Option<&mut T> {
-        if let Tcp(t) = self {
-            Some(t)
-        } else {
-            None
-        }
+        if let Tcp(t) = self { Some(t) } else { None }
     }
 
     /// mutably borrows the unix stream or listener, if this is unix variant
     pub fn get_unix_mut(&mut self) -> Option<&mut U> {
-        if let Unix(u) = self {
-            Some(u)
-        } else {
-            None
-        }
+        if let Unix(u) = self { Some(u) } else { None }
     }
 }
 

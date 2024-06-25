@@ -1,0 +1,3 @@
+GET /%3A%3a%3C%3c HTTP/1.1\r\n
+Host: example.com\r\n
+\r\n

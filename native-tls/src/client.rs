@@ -1,29 +1,24 @@
 use async_native_tls::{TlsConnector, TlsStream};
 use std::{
     fmt::{Debug, Formatter},
-    future::Future,
     io::{Error, ErrorKind, IoSlice, IoSliceMut, Result},
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{async_trait, AsyncRead, AsyncWrite, Connector, Transport, Url};
+use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url};
 
-/**
-Configuration for the native tls client connector
-*/
+/// Configuration for the native tls client connector
 #[derive(Clone)]
 pub struct NativeTlsConfig<Config> {
     /// configuration for the inner Connector (usually tcp)
     pub tcp_config: Config,
 
-    /**
-    native tls configuration
-
-    Although async_native_tls calls this
-    a TlsConnector, it's actually a builder ¯\_(ツ)_/¯
-    */
+    /// native tls configuration
+    ///
+    /// Although async_native_tls calls this
+    /// a TlsConnector, it's actually a builder ¯\_(ツ)_/¯
     pub tls_connector: Arc<TlsConnector>,
 }
 
@@ -68,8 +63,8 @@ impl<Config> AsRef<Config> for NativeTlsConfig<Config> {
     }
 }
 
-#[async_trait]
 impl<T: Connector> Connector for NativeTlsConfig<T> {
+    type Runtime = T::Runtime;
     type Transport = NativeTlsClientTransport<T::Transport>;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
@@ -100,17 +95,15 @@ impl<T: Connector> Connector for NativeTlsConfig<T> {
         }
     }
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        self.tcp_config.spawn(fut)
+    fn runtime(&self) -> Self::Runtime {
+        self.tcp_config.runtime()
     }
 }
 
-/**
-Client [`Transport`] for the native tls connector
-
-This may represent either an encrypted tls connection or a plaintext
-connection
-*/
+/// Client [`Transport`] for the native tls connector
+///
+/// This may represent either an encrypted tls connection or a plaintext
+/// connection
 
 #[derive(Debug)]
 pub struct NativeTlsClientTransport<T>(NativeTlsClientTransportInner<T>);

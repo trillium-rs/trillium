@@ -1,0 +1,3 @@
+GET /someconfig;mode=netascii HTTP/1.1\r\n
+Host: foobar.com\r\n
+\r\n

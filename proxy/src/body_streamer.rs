@@ -1,7 +1,6 @@
+use crate::bytes;
 use event_listener::Event;
-
 use futures_lite::AsyncRead;
-
 use sluice::pipe::PipeReader;
 use std::{
     future::Future,
@@ -13,10 +12,7 @@ use std::{
     task::{Context, Poll},
 };
 use trillium::{Conn, KnownHeaderName};
-
 use trillium_http::Body;
-
-use crate::bytes;
 
 struct BodyProxyReader {
     reader: PipeReader,

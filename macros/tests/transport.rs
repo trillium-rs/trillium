@@ -1,6 +1,7 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use trillium_http::Synthetic;
 use trillium_macros::{AsyncRead, AsyncWrite, Transport};
 use trillium_server_common::{AsyncRead, AsyncWrite, Transport};

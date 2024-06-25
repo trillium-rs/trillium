@@ -5,7 +5,6 @@ use crate::{
 use async_broadcast::{InactiveReceiver, Sender};
 use querystrong::QueryStrong;
 use std::ops::{Deref, DerefMut};
-use trillium::async_trait;
 use trillium_websockets::{tungstenite::protocol::CloseFrame, WebSocketConn, WebSocketHandler};
 
 const CHANNEL_CAP: usize = 10;
@@ -65,7 +64,6 @@ macro_rules! unwrap_or_return {
     };
 }
 
-#[async_trait]
 impl<CH> WebSocketHandler for ChannelCentral<CH>
 where
     CH: ChannelHandler,

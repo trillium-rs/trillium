@@ -1,10 +1,8 @@
 use std::{path::PathBuf, sync::Arc};
 use tera::{Context, Tera};
-use trillium::{async_trait, Conn, Handler};
+use trillium::{Conn, Handler};
 
-/**
-
-*/
+///
 #[derive(Clone, Debug)]
 pub struct TeraHandler(Arc<Tera>);
 
@@ -50,9 +48,8 @@ impl TeraHandler {
     /// [`tera::Tera`] instance
     /// ```
     /// # fn main() -> tera::Result<()> {
-    /// use std::path::PathBuf;
+    /// use std::{iter::FromIterator, path::PathBuf};
     /// use trillium_tera::TeraHandler;
-    /// use std::iter::FromIterator;
     ///
     /// let handler = TeraHandler::new(PathBuf::from_iter([".", "examples", "**", "*.html"]));
     ///
@@ -76,7 +73,6 @@ impl TeraHandler {
     }
 }
 
-#[async_trait]
 impl Handler for TeraHandler {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone()).with_state(Context::new())

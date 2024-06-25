@@ -21,7 +21,7 @@ pub fn main() {
                     Err(e) => {
                         return conn
                             .with_status(Status::InternalServerError)
-                            .with_body(e.to_string())
+                            .with_body(e.to_string());
                     }
                 }
             };

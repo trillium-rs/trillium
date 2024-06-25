@@ -1,252 +1,170 @@
-use crate::{async_trait, Conn, Headers, Info, Status, Upgrade};
-use std::{borrow::Cow, future::Future, sync::Arc};
+use crate::{Conn, Headers, Info, Status, Upgrade};
+use std::{borrow::Cow, future::Future};
 
-/**
-# The building block for Trillium applications.
+/// # The building block for Trillium applications.
+///
+/// ## Concept
+///
+/// Many other frameworks have a notion of `middleware` and `endpoints`,
+/// in which the model is that a request passes through a router and then
+/// any number of middlewares, then a single endpoint that returns a
+/// response, and then passes a response back through the middleware
+/// stack.
+///
+/// Because a Trillium Conn represents both a request and response, there
+/// is no distinction between middleware and endpoints, as all of these
+/// can be modeled as `Fn(Conn) -> Future<Output = Conn>`.
+///
+/// ## Implementing Handler
+///
+/// The simplest handler is an async closure or
+/// async fn that receives a Conn and returns a Conn, and Handler has a
+/// blanket implementation for any such Fn.
+///
+/// ```
+/// // as a closure
+/// let handler = |conn: trillium::Conn| async move { conn.ok("trillium!") };
+///
+/// use trillium_testing::prelude::*;
+/// assert_ok!(get("/").on(&handler), "trillium!");
+/// ```
+///
+/// ```
+/// // as an async function
+/// async fn handler(conn: trillium::Conn) -> trillium::Conn {
+///     conn.ok("trillium!")
+/// }
+/// use trillium_testing::prelude::*;
+/// assert_ok!(get("/").on(&handler), "trillium!");
+/// ```
+///
+/// The simplest implementation of Handler for a named type looks like this:
+/// ```
+/// pub struct MyHandler;
+/// impl trillium::Handler for MyHandler {
+///     async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
+///         conn
+///     }
+/// }
+///
+/// use trillium_testing::prelude::*;
+/// assert_not_handled!(get("/").on(&MyHandler)); // we did not halt or set a body status
+/// ```
+///
+/// See each of the function definitions below for advanced implementation.
+///
+/// For most application code and even trillium-packaged framework code,
+/// `run` is the only trait function that needs to be implemented.
 
-## Concept
-
-Many other frameworks have a notion of `middleware` and `endpoints`,
-in which the model is that a request passes through a router and then
-any number of middlewares, then a single endpoint that returns a
-response, and then passes a response back through the middleware
-stack.
-
-Because a Trillium Conn represents both a request and response, there
-is no distinction between middleware and endpoints, as all of these
-can be modeled as `Fn(Conn) -> Future<Output = Conn>`.
-
-## Implementing Handler
-
-The simplest handler is an async closure or
-async fn that receives a Conn and returns a Conn, and Handler has a
-blanket implementation for any such Fn.
-
-```
-// as a closure
-let handler = |conn: trillium::Conn| async move { conn.ok("trillium!") };
-
-use trillium_testing::prelude::*;
-assert_ok!(get("/").on(&handler), "trillium!");
-```
-
-```
-// as an async function
-async fn handler(conn: trillium::Conn) -> trillium::Conn {
-    conn.ok("trillium!")
-}
-use trillium_testing::prelude::*;
-assert_ok!(get("/").on(&handler), "trillium!");
-```
-
-The simplest implementation of Handler for a named type looks like this:
-```
-pub struct MyHandler;
-#[trillium::async_trait]
-impl trillium::Handler for MyHandler {
-    async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
-        conn
-    }
-}
-
-use trillium_testing::prelude::*;
-assert_not_handled!(get("/").on(&MyHandler)); // we did not halt or set a body status
-```
-
-**Temporary Note:** Until rust has true async traits, implementing
-handler requires the use of the async_trait macro, which is reexported
-as [`trillium::async_trait`](crate::async_trait).
-
-## Full trait specification
-
-Unfortunately, the async_trait macro results in the difficult-to-read
-documentation at the top of the page, so here is how the trait is
-actually defined in trillium code:
-
-```
-# use trillium::{Conn, Upgrade, Info};
-# use std::borrow::Cow;
-#[trillium::async_trait]
-pub trait Handler: Send + Sync + 'static {
-    async fn run(&self, conn: Conn) -> Conn;
-    async fn init(&mut self, info: &mut Info); // optional
-    async fn before_send(&self, conn: Conn); // optional
-    fn has_upgrade(&self, _upgrade: &Upgrade) -> bool; // optional
-    async fn upgrade(&self, _upgrade: Upgrade); // mandatory only if has_upgrade returns true
-    fn name(&self) -> Cow<'static, str>; // optional
-}
-```
-See each of the function definitions below for advanced implementation.
-
-For most application code and even trillium-packaged framework code,
-`run` is the only trait function that needs to be implemented.
-
-*/
-
-#[async_trait]
 pub trait Handler: Send + Sync + 'static {
     /// Executes this handler, performing any modifications to the
     /// Conn that are desired.
-    async fn run(&self, conn: Conn) -> Conn;
+    fn run(&self, conn: Conn) -> impl Future<Output = Conn> + Send;
 
-    /**
-    Performs one-time async set up on a mutable borrow of the
-    Handler before the server starts accepting requests. This
-    allows a Handler to be defined in synchronous code but perform
-    async setup such as establishing a database connection or
-    fetching some state from an external source. This is optional,
-    and chances are high that you do not need this.
-
-    It also receives a mutable borrow of the [`Info`] that represents
-    the current connection.
-
-    **stability note:** This may go away at some point. Please open an
-    **issue if you have a use case which requires it.
-    */
-    async fn init(&mut self, _info: &mut Info) {}
-
-    /**
-    Performs any final modifications to this conn after all handlers
-    have been run. Although this is a slight deviation from the simple
-    conn->conn->conn chain represented by most Handlers, it provides
-    an easy way for libraries to effectively inject a second handler
-    into a response chain. This is useful for loggers that need to
-    record information both before and after other handlers have run,
-    as well as database transaction handlers and similar library code.
-
-    **❗IMPORTANT NOTE FOR LIBRARY AUTHORS:** Please note that this
-    will run __whether or not the conn has was halted before
-    [`Handler::run`] was called on a given conn__. This means that if
-    you want to make your `before_send` callback conditional on
-    whether `run` was called, you need to put a unit type into the
-    conn's state and check for that.
-
-    stability note: I don't love this for the exact reason that it
-    breaks the simplicity of the conn->conn->model, but it is
-    currently the best compromise between that simplicity and
-    convenience for the application author, who should not have to add
-    two Handlers to achieve an "around" effect.
-    */
-    async fn before_send(&self, conn: Conn) -> Conn {
-        conn
+    /// Performs one-time async set up on a mutable borrow of the
+    /// Handler before the server starts accepting requests. This
+    /// allows a Handler to be defined in synchronous code but perform
+    /// async setup such as establishing a database connection or
+    /// fetching some state from an external source. This is optional,
+    /// and chances are high that you do not need this.
+    ///
+    /// It also receives a mutable borrow of the [`Info`] that represents
+    /// the current connection.
+    ///
+    /// **stability note:** This may go away at some point. Please open an
+    /// issue if you have a use case which requires it.
+    fn init(&mut self, _info: &mut Info) -> impl Future<Output = ()> + Send {
+        std::future::ready(())
     }
 
-    /**
-    predicate function answering the question of whether this Handler
-    would like to take ownership of the negotiated Upgrade. If this
-    returns true, you must implement [`Handler::upgrade`]. The first
-    handler that responds true to this will receive ownership of the
-    [`trillium::Upgrade`][crate::Upgrade] in a subsequent call to [`Handler::upgrade`]
-    */
-    fn has_upgrade(&self, _upgrade: &Upgrade) -> bool {
+    /// Performs any final modifications to this conn after all handlers
+    /// have been run. Although this is a slight deviation from the simple
+    /// conn->conn->conn chain represented by most Handlers, it provides
+    /// an easy way for libraries to effectively inject a second handler
+    /// into a response chain. This is useful for loggers that need to
+    /// record information both before and after other handlers have run,
+    /// as well as database transaction handlers and similar library code.
+    ///
+    /// ❗IMPORTANT NOTE FOR LIBRARY AUTHORS:** Please note that this
+    /// will run __whether or not the conn has was halted before
+    /// [`Handler::run`] was called on a given conn__. This means that if
+    /// you want to make your `before_send` callback conditional on
+    /// whether `run` was called, you need to put a unit type into the
+    /// conn's state and check for that.
+    ///
+    /// stability note: I don't love this for the exact reason that it
+    /// breaks the simplicity of the conn->conn->model, but it is
+    /// currently the best compromise between that simplicity and
+    /// convenience for the application author, who should not have to add
+    /// two Handlers to achieve an "around" effect.
+    fn before_send(&self, conn: Conn) -> impl Future<Output = Conn> + Send {
+        std::future::ready(conn)
+    }
+
+    /// predicate function answering the question of whether this Handler
+    /// would like to take ownership of the negotiated Upgrade. If this
+    /// returns true, you must implement [`Handler::upgrade`]. The first
+    /// handler that responds true to this will receive ownership of the
+    /// [`trillium::Upgrade`][crate::Upgrade] in a subsequent call to [`Handler::upgrade`]
+    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+        let _ = upgrade;
         false
     }
 
-    /**
-    This will only be called if the handler reponds true to
-    [`Handler::has_upgrade`] and will only be called once for this
-    upgrade. There is no return value, and this function takes
-    exclusive ownership of the underlying transport once this is
-    called. You can downcast the transport to whatever the source
-    transport type is and perform any non-http protocol communication
-    that has been negotiated. You probably don't want this unless
-    you're implementing something like websockets. Please note that
-    for many transports such as TcpStreams, dropping the transport
-    (and therefore the Upgrade) will hang up / disconnect.
-    */
-    async fn upgrade(&self, _upgrade: Upgrade) {
-        unimplemented!("if has_upgrade returns true, you must also implement upgrade")
+    /// This will only be called if the handler reponds true to
+    /// [`Handler::has_upgrade`] and will only be called once for this
+    /// upgrade. There is no return value, and this function takes
+    /// exclusive ownership of the underlying transport once this is
+    /// called. You can downcast the transport to whatever the source
+    /// transport type is and perform any non-http protocol communication
+    /// that has been negotiated. You probably don't want this unless
+    /// you're implementing something like websockets. Please note that
+    /// for many transports such as `TcpStreams`, dropping the transport
+    /// (and therefore the Upgrade) will hang up / disconnect.
+    fn upgrade(&self, upgrade: Upgrade) -> impl Future<Output = ()> + Send {
+        let _ = upgrade;
+        async { unimplemented!("if has_upgrade returns true, you must also implement upgrade") }
     }
 
-    /**
-    Customize the name of your handler. This is used in Debug
-    implementations. The default is the type name of this handler.
-    */
+    /// Customize the name of your handler. This is used in Debug
+    /// implementations. The default is the type name of this handler.
     fn name(&self) -> Cow<'static, str> {
         std::any::type_name::<Self>().into()
     }
 }
 
-#[async_trait]
-impl Handler for Box<dyn Handler> {
-    async fn run(&self, conn: Conn) -> Conn {
-        self.as_ref().run(conn).await
-    }
+// impl Handler for Box<dyn Handler> {
+//     async fn run(&self, conn: Conn) -> Conn {
+//         self.as_ref().run(conn).await
+//     }
 
-    async fn init(&mut self, info: &mut Info) {
-        self.as_mut().init(info).await;
-    }
+//     async fn init(&mut self, info: &mut Info) {
+//         self.as_mut().init(info).await;
+//     }
 
-    async fn before_send(&self, conn: Conn) -> Conn {
-        self.as_ref().before_send(conn).await
-    }
+//     async fn before_send(&self, conn: Conn) -> Conn {
+//         self.as_ref().before_send(conn).await
+//     }
 
-    fn name(&self) -> Cow<'static, str> {
-        self.as_ref().name()
-    }
+//     fn name(&self) -> Cow<'static, str> {
+//         self.as_ref().name()
+//     }
 
-    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        self.as_ref().has_upgrade(upgrade)
-    }
+//     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+//         self.as_ref().has_upgrade(upgrade)
+//     }
 
-    async fn upgrade(&self, upgrade: Upgrade) {
-        self.as_ref().upgrade(upgrade).await;
-    }
-}
+//     async fn upgrade(&self, upgrade: Upgrade) {
+//         self.as_ref().upgrade(upgrade).await;
+//     }
+// }
 
-#[async_trait]
 impl Handler for Status {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_status(*self)
     }
 }
 
-impl std::fmt::Debug for Box<dyn Handler> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.name().as_ref())
-    }
-}
-
-#[async_trait]
-impl<H: Handler> Handler for Arc<H> {
-    async fn run(&self, conn: Conn) -> Conn {
-        self.as_ref().run(conn).await
-    }
-
-    async fn init(&mut self, info: &mut Info) {
-        if let Some(handler) = Self::get_mut(self) {
-            handler.init(info).await;
-        } else {
-            let name = self.name();
-            log::warn!(
-                concat!(
-                    "Skipping <Arc<{name}> as Handler>::init that has previously been cloned.\n",
-                    "This is a potential source of bugs for handlers that use init.\n",
-                    "Call init explicitly before cloning if this is a concern."
-                ),
-                name = name
-            );
-        }
-    }
-
-    async fn before_send(&self, conn: Conn) -> Conn {
-        self.as_ref().before_send(conn).await
-    }
-
-    fn name(&self) -> Cow<'static, str> {
-        self.as_ref().name()
-    }
-
-    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        self.as_ref().has_upgrade(upgrade)
-    }
-
-    async fn upgrade(&self, upgrade: Upgrade) {
-        self.as_ref().upgrade(upgrade).await;
-    }
-}
-
-#[async_trait]
 impl<H: Handler> Handler for Vec<H> {
     async fn run(&self, mut conn: Conn) -> Conn {
         for handler in self {
@@ -291,7 +209,6 @@ impl<H: Handler> Handler for Vec<H> {
     }
 }
 
-#[async_trait]
 impl<const L: usize, H: Handler> Handler for [H; L] {
     async fn run(&self, mut conn: Conn) -> Conn {
         for handler in self {
@@ -336,7 +253,6 @@ impl<const L: usize, H: Handler> Handler for [H; L] {
     }
 }
 
-#[async_trait]
 impl<Fun, Fut> Handler for Fun
 where
     Fun: Fn(Conn) -> Fut + Send + Sync + 'static,
@@ -347,7 +263,6 @@ where
     }
 }
 
-#[async_trait]
 impl Handler for &'static str {
     async fn run(&self, conn: Conn) -> Conn {
         conn.ok(*self)
@@ -358,7 +273,6 @@ impl Handler for &'static str {
     }
 }
 
-#[async_trait]
 impl Handler for String {
     async fn run(&self, conn: Conn) -> Conn {
         conn.ok(self.clone())
@@ -369,14 +283,12 @@ impl Handler for String {
     }
 }
 
-#[async_trait]
 impl Handler for () {
     async fn run(&self, conn: Conn) -> Conn {
         conn
     }
 }
 
-#[async_trait]
 impl<H: Handler> Handler for Option<H> {
     async fn run(&self, conn: Conn) -> Conn {
         let handler = crate::conn_unwrap!(self, conn);
@@ -409,7 +321,6 @@ impl<H: Handler> Handler for Option<H> {
     }
 }
 
-#[async_trait]
 impl Handler for Headers {
     async fn run(&self, mut conn: Conn) -> Conn {
         conn.response_headers_mut().append_all(self.clone());
@@ -417,7 +328,6 @@ impl Handler for Headers {
     }
 }
 
-#[async_trait]
 impl<T, E> Handler for Result<T, E>
 where
     T: Handler,
@@ -479,7 +389,6 @@ macro_rules! reverse_before_send {
 
 macro_rules! impl_handler_tuple {
         ($($name:ident)+) => (
-            #[async_trait]
             impl<$($name),*> Handler for ($($name,)*) where $($name: Handler),* {
                 #[allow(non_snake_case)]
                 async fn run(&self, conn: Conn) -> Conn {
