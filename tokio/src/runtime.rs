@@ -120,6 +120,6 @@ impl TokioRuntime {
 
 impl From<TokioRuntime> for Runtime {
     fn from(value: TokioRuntime) -> Self {
-        Runtime::from_trait_impl(value)
+        Arc::new(value).into()
     }
 }

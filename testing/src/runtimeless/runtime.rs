@@ -1,5 +1,5 @@
 use futures_lite::{future, Stream};
-use std::{future::Future, thread, time::Duration};
+use std::{future::Future, sync::Arc, thread, time::Duration};
 use trillium_server_common::{DroppableFuture, Runtime, RuntimeTrait};
 
 /// a runtime that isn't a runtime
@@ -49,11 +49,13 @@ impl RuntimeTrait for RuntimelessRuntime {
         future::block_on(fut)
     }
 }
+
 impl From<RuntimelessRuntime> for Runtime {
     fn from(value: RuntimelessRuntime) -> Self {
-        Runtime::from_trait_impl(value)
+        Arc::new(value).into()
     }
 }
+
 impl RuntimelessRuntime {
     /// Spawn a future on the runtime, returning a future that has detach-on-drop semantics
     ///
