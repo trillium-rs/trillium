@@ -14,35 +14,34 @@ use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 mod chunked;
 mod fixed_length;
 
-/** A received http body
-
-This type represents a body that will be read from the underlying
-transport, which it may either borrow from a [`Conn`](crate::Conn) or
-own.
-
-```rust
-# trillium_testing::block_on(async {
-# use trillium_http::{Method, Conn};
-let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
-let body = conn.request_body().await;
-assert_eq!(body.read_string().await?, "hello");
-# trillium_http::Result::Ok(()) }).unwrap();
-```
-
-## Bounds checking
-
-Every `ReceivedBody` has a maximum length beyond which it will return an error, expressed as a
-u64. To override this on the specific `ReceivedBody`, use [`ReceivedBody::with_max_len`] or
-[`ReceivedBody::set_max_len`]
-
-The default maximum length is currently set to 500mb. In the next semver-minor release, this value
-will decrease substantially.
-
-## Large chunks, small read buffers
-
-Attempting to read a chunked body with a buffer that is shorter than the chunk size in hex will
-result in an error. This limitation is temporary.
-*/
+/// A received http body
+///
+/// This type represents a body that will be read from the underlying
+/// transport, which it may either borrow from a [`Conn`](crate::Conn) or
+/// own.
+///
+/// ```rust
+/// # trillium_testing::block_on(async {
+/// # use trillium_http::{Method, Conn};
+/// let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
+/// let body = conn.request_body().await;
+/// assert_eq!(body.read_string().await?, "hello");
+/// # trillium_http::Result::Ok(()) }).unwrap();
+/// ```
+///
+/// ## Bounds checking
+///
+/// Every `ReceivedBody` has a maximum length beyond which it will return an error, expressed as a
+/// u64. To override this on the specific `ReceivedBody`, use [`ReceivedBody::with_max_len`] or
+/// [`ReceivedBody::set_max_len`]
+///
+/// The default maximum length is currently set to 500mb. In the next semver-minor release, this
+/// value will decrease substantially.
+///
+/// ## Large chunks, small read buffers
+///
+/// Attempting to read a chunked body with a buffer that is shorter than the chunk size in hex will
+/// result in an error. This limitation is temporary.
 
 pub struct ReceivedBody<'conn, Transport> {
     content_length: Option<u64>,
@@ -112,21 +111,19 @@ where
         }
     }
 
-    /**
-    Returns the content-length of this body, if available. This
-    usually is derived from the content-length header. If the http
-    request or response that this body is attached to uses
-    transfer-encoding chunked, this will be None.
-
-    ```rust
-    # trillium_testing::block_on(async {
-    # use trillium_http::{Method, Conn};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
-    let body = conn.request_body().await;
-    assert_eq!(body.content_length(), Some(5));
-    # trillium_http::Result::Ok(()) }).unwrap();
-    ```
-    */
+    /// Returns the content-length of this body, if available. This
+    /// usually is derived from the content-length header. If the http
+    /// request or response that this body is attached to uses
+    /// transfer-encoding chunked, this will be None.
+    ///
+    /// ```rust
+    /// # trillium_testing::block_on(async {
+    /// # use trillium_http::{Method, Conn};
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
+    /// let body = conn.request_body().await;
+    /// assert_eq!(body.content_length(), Some(5));
+    /// # trillium_http::Result::Ok(()) }).unwrap();
+    /// ```
     pub fn content_length(&self) -> Option<u64> {
         self.content_length
     }
@@ -209,10 +206,8 @@ where
         Ok(vec)
     }
 
-    /**
-    returns the character encoding of this body, usually determined from the content type
-    (mime-type) of the associated Conn.
-    */
+    /// returns the character encoding of this body, usually determined from the content type
+    /// (mime-type) of the associated Conn.
     pub fn encoding(&self) -> &'static Encoding {
         self.encoding
     }
@@ -225,16 +220,14 @@ where
         }
     }
 
-    /**
-    Consumes the remainder of this body from the underlying transport by reading it to the end and
-    discarding the contents. This is important for http1.1 keepalive, but most of the time you do
-    not need to directly call this. It returns the number of bytes consumed.
-
-    # Errors
-
-    This will return an [`std::io::Result::Err`] if there is an io error on the underlying
-    transport, such as a disconnect
-    */
+    /// Consumes the remainder of this body from the underlying transport by reading it to the end
+    /// and discarding the contents. This is important for http1.1 keepalive, but most of the
+    /// time you do not need to directly call this. It returns the number of bytes consumed.
+    ///
+    /// # Errors
+    ///
+    /// This will return an [`std::io::Result::Err`] if there is an io error on the underlying
+    /// transport, such as a disconnect
     #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn drain(self) -> io::Result<u64> {
         let copy_loops_per_yield = self.copy_loops_per_yield;

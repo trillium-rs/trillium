@@ -21,9 +21,7 @@ use RustlsClientTransportInner::{Tcp, Tls};
 #[derive(Clone, Debug)]
 pub struct RustlsClientConfig(Arc<ClientConfig>);
 
-/**
-Client configuration for RustlsConnector
-*/
+/// Client configuration for RustlsConnector
 #[derive(Clone, Default)]
 pub struct RustlsConfig<Config> {
     /// configuration for rustls itself
@@ -149,12 +147,10 @@ enum RustlsClientTransportInner<T> {
     Tls(Box<TlsStream<T>>),
 }
 
-/**
-Transport for the rustls connector
-
-This may represent either an encrypted tls connection or a plaintext
-connection, depending on the request schema
-*/
+/// Transport for the rustls connector
+///
+/// This may represent either an encrypted tls connection or a plaintext
+/// connection, depending on the request schema
 #[derive(Debug)]
 pub struct RustlsClientTransport<T>(RustlsClientTransportInner<T>);
 impl<T> From<T> for RustlsClientTransport<T> {

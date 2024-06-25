@@ -8,13 +8,11 @@ use std::{
     sync::Arc,
 };
 use trillium_http::transport::BoxedTransport;
-/**
-Interface for runtime and tls adapters for the trillium client
-
-See
-[`trillium_client`](https://docs.trillium.rs/trillium_client) for more
-information on usage.
-*/
+/// Interface for runtime and tls adapters for the trillium client
+///
+/// See
+/// [`trillium_client`](https://docs.trillium.rs/trillium_client) for more
+/// information on usage.
 pub trait Connector: Send + Sync + 'static {
     /// the [`Transport`] that [`connect`] returns
     type Transport: Transport;

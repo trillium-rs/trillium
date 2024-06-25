@@ -7,20 +7,17 @@ use std::{
     task::{Context, Poll},
 };
 
-/**
-Channel-wide event broadcaster and subscriber
-
-This can be cloned and stored elsewhere in an application in order to
-send events to connected channel clients. Retrieve a [`ChannelBroadcaster`] from a
-[`Channel`](crate::Channel) by calling
-[`Channel::broadcaster`](crate::Channel::broadcaster)
-
-ChannelBroadcaster also implements [`Stream`] so that your application
-can listen in on ChannelEvents happening elsewhere. This might be used
-for spawning a task to log events, or synchronizing events between
-servers.
-
-*/
+/// Channel-wide event broadcaster and subscriber
+///
+/// This can be cloned and stored elsewhere in an application in order to
+/// send events to connected channel clients. Retrieve a [`ChannelBroadcaster`] from a
+/// [`Channel`](crate::Channel) by calling
+/// [`Channel::broadcaster`](crate::Channel::broadcaster)
+///
+/// ChannelBroadcaster also implements [`Stream`] so that your application
+/// can listen in on ChannelEvents happening elsewhere. This might be used
+/// for spawning a task to log events, or synchronizing events between
+/// servers.
 #[derive(Clone, Debug)]
 pub struct ChannelBroadcaster {
     sender: Sender<ChannelEvent>,
@@ -84,20 +81,16 @@ impl ChannelBroadcaster {
         }
     }
 
-    /**
-    Send this ChannelEvent to all subscribed channel clients
-    */
+    /// Send this ChannelEvent to all subscribed channel clients
     pub fn broadcast(&self, event: impl Into<ChannelEvent>) {
         // we don't care about whether there are any connected clients
         // here, so we ignore error results.
         self.sender.try_broadcast(event.into()).ok();
     }
 
-    /**
-    Returns the number of connected clients. Note that the number of
-    clients listening on any given channel will likely be smaller than
-    this, and currently that number is not available.
-    */
+    /// Returns the number of connected clients. Note that the number of
+    /// clients listening on any given channel will likely be smaller than
+    /// this, and currently that number is not available.
     pub fn connected_clients(&self) -> usize {
         self.sender.receiver_count()
     }

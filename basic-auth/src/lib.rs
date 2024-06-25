@@ -8,17 +8,15 @@
     nonstandard_style,
     unused_qualifications
 )]
-/*!
-Basic authentication for trillium.rs
-
-```rust,no_run
-use trillium_basic_auth::BasicAuth;
-trillium_smol::run((
-    BasicAuth::new("trillium", "7r1ll1um").with_realm("rust"),
-    |conn: trillium::Conn| async move { conn.ok("authenticated") },
-));
-```
-*/
+//! Basic authentication for trillium.rs
+//!
+//! ```rust,no_run
+//! use trillium_basic_auth::BasicAuth;
+//! trillium_smol::run((
+//!     BasicAuth::new("trillium", "7r1ll1um").with_realm("rust"),
+//!     |conn: trillium::Conn| async move { conn.ok("authenticated") },
+//! ));
+//! ```
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use trillium::{
     Conn, Handler,

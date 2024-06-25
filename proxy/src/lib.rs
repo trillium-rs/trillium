@@ -9,10 +9,7 @@
     unused_qualifications
 )]
 
-/*!
-http reverse and forward proxy trillium handler
-
-*/
+//! http reverse and forward proxy trillium handler
 
 mod body_streamer;
 mod forward_proxy_connect;
@@ -43,9 +40,7 @@ where
     Proxy::new(client, upstream)
 }
 
-/**
-the proxy handler
-*/
+/// the proxy handler
 #[derive(Debug)]
 pub struct Proxy<U> {
     upstream: U,
@@ -57,18 +52,18 @@ pub struct Proxy<U> {
 }
 
 impl<U: UpstreamSelector> Proxy<U> {
-    /**
-    construct a new proxy handler that sends all requests to the upstream
-    provided
-
-    ```
-    use trillium_smol::ClientConfig;
-    use trillium_proxy::Proxy;
-
-    let proxy = Proxy::new(ClientConfig::default(), "http://docs.trillium.rs/trillium_proxy");
-    ```
-
-     */
+    /// construct a new proxy handler that sends all requests to the upstream
+    /// provided
+    ///
+    /// ```
+    /// use trillium_proxy::Proxy;
+    /// use trillium_smol::ClientConfig;
+    ///
+    /// let proxy = Proxy::new(
+    ///     ClientConfig::default(),
+    ///     "http://docs.trillium.rs/trillium_proxy",
+    /// );
+    /// ```
     pub fn new<I>(client: impl Into<Client>, upstream: I) -> Self
     where
         I: IntoUpstreamSelector<UpstreamSelector = U>,
@@ -83,43 +78,37 @@ impl<U: UpstreamSelector> Proxy<U> {
         }
     }
 
-    /**
-    chainable constructor to set the 404 Not Found handling
-    behavior. By default, this proxy will pass through the trillium
-    Conn unmodified if the proxy response is a 404 not found, allowing
-    it to be chained in a tuple handler. To modify this behavior, call
-    proxy_not_found, and the full 404 response will be forwarded. The
-    Conn will be halted unless [`Proxy::without_halting`] was
-    configured
-
-    ```
-    # use trillium_smol::ClientConfig;
-    # use trillium_proxy::Proxy;
-    let proxy = Proxy::new(ClientConfig::default(), "http://trillium.rs")
-        .proxy_not_found();
-    ```
-    */
+    /// chainable constructor to set the 404 Not Found handling
+    /// behavior. By default, this proxy will pass through the trillium
+    /// Conn unmodified if the proxy response is a 404 not found, allowing
+    /// it to be chained in a tuple handler. To modify this behavior, call
+    /// proxy_not_found, and the full 404 response will be forwarded. The
+    /// Conn will be halted unless [`Proxy::without_halting`] was
+    /// configured
+    ///
+    /// ```
+    /// # use trillium_smol::ClientConfig;
+    /// # use trillium_proxy::Proxy;
+    /// let proxy = Proxy::new(ClientConfig::default(), "http://trillium.rs").proxy_not_found();
+    /// ```
     pub fn proxy_not_found(mut self) -> Self {
         self.pass_through_not_found = false;
         self
     }
 
-    /**
-    The default behavior for this handler is to halt the conn on any
-    response other than a 404. If [`Proxy::proxy_not_found`] has been
-    configured, the default behavior for all response statuses is to
-    halt the trillium conn. To change this behavior, call
-    without_halting when constructing the proxy, and it will not halt
-    the conn. This is useful when passing the proxy reply through
-    [`trillium_html_rewriter`](https://docs.trillium.rs/trillium_html_rewriter).
-
-    ```
-    # use trillium_smol::ClientConfig;
-    # use trillium_proxy::Proxy;
-    let proxy = Proxy::new(ClientConfig::default(), "http://trillium.rs")
-        .without_halting();
-    ```
-    */
+    /// The default behavior for this handler is to halt the conn on any
+    /// response other than a 404. If [`Proxy::proxy_not_found`] has been
+    /// configured, the default behavior for all response statuses is to
+    /// halt the trillium conn. To change this behavior, call
+    /// without_halting when constructing the proxy, and it will not halt
+    /// the conn. This is useful when passing the proxy reply through
+    /// [`trillium_html_rewriter`](https://docs.trillium.rs/trillium_html_rewriter).
+    ///
+    /// ```
+    /// # use trillium_smol::ClientConfig;
+    /// # use trillium_proxy::Proxy;
+    /// let proxy = Proxy::new(ClientConfig::default(), "http://trillium.rs").without_halting();
+    /// ```
     pub fn without_halting(mut self) -> Self {
         self.halt = false;
         self

@@ -6,11 +6,9 @@ use std::{
 };
 use trillium::{Conn, Handler, HeaderValues, KnownHeaderName};
 use CacheControlDirective::*;
-/**
-An enum representation of the
-[`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control)
-directives.
-*/
+/// An enum representation of the
+/// [`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control)
+/// directives.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum CacheControlDirective {
@@ -75,11 +73,9 @@ impl Handler for CacheControlHeader {
     }
 }
 
-/**
-A representation of the
-[`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control)
-header.
-*/
+/// A representation of the
+/// [`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control)
+/// header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheControlHeader(Vec<CacheControlDirective>);
 
