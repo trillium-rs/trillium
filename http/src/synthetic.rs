@@ -9,13 +9,11 @@ use std::{
     time::Instant,
 };
 
-/**
-Synthetic represents a simple transport that contains fixed
-content. This is exclusively useful for testing or for server
-implementations that are not read from an io connection, such as a
-faas function, in which the entire body may be available immediately
-on invocation.
-*/
+/// Synthetic represents a simple transport that contains fixed
+/// content. This is exclusively useful for testing or for server
+/// implementations that are not read from an io connection, such as a
+/// faas function, in which the entire body may be available immediately
+/// on invocation.
 #[derive(Debug)]
 pub struct Synthetic {
     data: Cursor<Vec<u8>>,
@@ -119,15 +117,13 @@ impl From<Option<Vec<u8>>> for Synthetic {
 }
 
 impl Conn<Synthetic> {
-    /**
-    Construct a new synthetic conn with provided method, path, and body.
-    ```rust
-    # use trillium_http::{Method, Conn};
-    let conn = Conn::new_synthetic(Method::Get, "/", "hello");
-    assert_eq!(conn.method(), Method::Get);
-    assert_eq!(conn.path(), "/");
-    ```
-    */
+    /// Construct a new synthetic conn with provided method, path, and body.
+    /// ```rust
+    /// # use trillium_http::{Method, Conn};
+    /// let conn = Conn::new_synthetic(Method::Get, "/", "hello");
+    /// assert_eq!(conn.method(), Method::Get);
+    /// assert_eq!(conn.path(), "/");
+    /// ```
     pub fn new_synthetic(
         method: Method,
         path: impl Into<String>,
@@ -164,9 +160,7 @@ impl Conn<Synthetic> {
         self.transport.close();
     }
 
-    /**
-    Replaces the synthetic body. This is intended for testing use.
-     */
+    /// Replaces the synthetic body. This is intended for testing use.
     pub fn replace_body(&mut self, body: impl Into<Synthetic>) {
         let transport = body.into();
         self.request_headers_mut()

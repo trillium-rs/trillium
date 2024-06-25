@@ -4,41 +4,40 @@ use size::{Base, Size};
 use std::{borrow::Cow, fmt::Display, sync::Arc, time::Instant};
 use trillium::{Conn, HeaderName, KnownHeaderName, Method, Status, Version};
 
-/**
-[apache combined log format][apache]
-
-[apache]: https://httpd.apache.org/docs/current/logs.html#combined
-
-This is defined as follows:
-
-[`apache_combined`](`request_id`, `user_id`) [`request_header`]`("referrer")` [`request_header`]`("user-agent")`
-
-where `request_id` and `user_id` are mandatory formatters provided at time of usage.
-
-
-## usage with empty `request_id` and `user_id`
-```
-# use trillium_logger::{Logger, apache_combined};
-Logger::new().with_formatter(apache_combined("-", "-"));
-```
-
-## usage with an app-specific `user_id`
-
-```
-# use trillium_logger::{Logger, apache_combined};
-# use trillium::Conn;
-# use std::borrow::Cow;
-# struct User(String); impl User { fn name(&self) -> &str { &self.0 } }
-fn user(conn: &Conn, color: bool) -> Cow<'static, str> {
-     match conn.state::<User>() {
-        Some(user) => String::from(user.name()).into(),
-        None => "guest".into()
-    }
-}
-
-Logger::new().with_formatter(apache_combined("-", user));
-```
-*/
+/// [apache combined log format][apache]
+///
+/// [apache]: https://httpd.apache.org/docs/current/logs.html#combined
+///
+/// This is defined as follows:
+///
+/// [`apache_combined`](`request_id`, `user_id`) [`request_header`]`("referrer")`
+/// [`request_header`]`("user-agent")`
+///
+/// where `request_id` and `user_id` are mandatory formatters provided at time of usage.
+///
+///
+/// ## usage with empty `request_id` and `user_id`
+/// ```
+/// # use trillium_logger::{Logger, apache_combined};
+/// Logger::new().with_formatter(apache_combined("-", "-"));
+/// ```
+///
+/// ## usage with an app-specific `user_id`
+///
+/// ```
+/// # use trillium_logger::{Logger, apache_combined};
+/// # use trillium::Conn;
+/// # use std::borrow::Cow;
+/// # struct User(String); impl User { fn name(&self) -> &str { &self.0 } }
+/// fn user(conn: &Conn, color: bool) -> Cow<'static, str> {
+///     match conn.state::<User>() {
+///         Some(user) => String::from(user.name()).into(),
+///         None => "guest".into(),
+///     }
+/// }
+///
+/// Logger::new().with_formatter(apache_combined("-", user));
+/// ```
 pub fn apache_combined(
     request_id: impl LogFormatter,
     user_id: impl LogFormatter,
@@ -52,35 +51,29 @@ pub fn apache_combined(
     )
 }
 
-/**
-formatter for the conn's http method that delegates to [`Method`]'s
-[`Display`] implementation
-*/
+/// formatter for the conn's http method that delegates to [`Method`]'s
+/// [`Display`] implementation
 pub fn method(conn: &Conn, _color: bool) -> Method {
     conn.method()
 }
 
-/**
-simple development-mode formatter
-
-composed of
-
-`"`[`method`] [`url`] [`response_time`] [`status`]`"`
-*/
+/// simple development-mode formatter
+///
+/// composed of
+///
+/// `"`[`method`] [`url`] [`response_time`] [`status`]`"`
 pub fn dev_formatter(conn: &Conn, color: bool) -> impl Display + Send + 'static {
     (method, " ", url, " ", response_time, " ", status).format(conn, color)
 }
 
-/**
-formatter for the peer ip address of the connection
-
-**note**: this can be modified by handlers prior to logging, such as
-when running a trillium application behind a reverse proxy or load
-balancer that sets a `forwarded` or `x-forwarded-for` header. this
-will display `"-"` if there is no available peer ip address, such as
-when running on a runtime adapter that does not have access to this
-information
-*/
+/// formatter for the peer ip address of the connection
+///
+/// **note**: this can be modified by handlers prior to logging, such as
+/// when running a trillium application behind a reverse proxy or load
+/// balancer that sets a `forwarded` or `x-forwarded-for` header. this
+/// will display `"-"` if there is no available peer ip address, such as
+/// when running on a runtime adapter that does not have access to this
+/// information
 pub fn ip(conn: &Conn, _color: bool) -> Cow<'static, str> {
     match conn.inner().peer_ip() {
         Some(peer) => format!("{peer:?}").into(),
@@ -90,9 +83,7 @@ pub fn ip(conn: &Conn, _color: bool) -> Cow<'static, str> {
 
 mod status_mod {
     use super::*;
-    /**
-    The display type for [`status`]
-    */
+    /// The display type for [`status`]
     #[derive(Copy, Clone)]
     pub struct StatusOutput(Status, bool);
     impl Display for StatusOutput {
@@ -116,20 +107,18 @@ mod status_mod {
         }
     }
 
-    /**
-    formatter for the http status
-
-    displays just the numeric code of the
-    status. when color is enabled, it uses the following color encoding:
-
-    | code | color  |
-    |------|--------|
-    | 2xx  | green  |
-    | 3xx  | cyan   |
-    | 4xx  | yellow |
-    | 5xx  | red    |
-    | ???  | white  |
-    */
+    /// formatter for the http status
+    ///
+    /// displays just the numeric code of the
+    /// status. when color is enabled, it uses the following color encoding:
+    ///
+    /// | code | color  |
+    /// |------|--------|
+    /// | 2xx  | green  |
+    /// | 3xx  | cyan   |
+    /// | 4xx  | yellow |
+    /// | 5xx  | red    |
+    /// | ???  | white  |
     pub fn status(conn: &Conn, color: bool) -> StatusOutput {
         StatusOutput(conn.status().unwrap_or(Status::NotFound), color)
     }
@@ -137,25 +126,25 @@ mod status_mod {
 
 pub use status_mod::status;
 
-/**
-formatter-builder for a particular request header, formatted wrapped
-in quotes. `""` if the header is not present
-
-usage:
-
-```rust
-# use trillium_logger::{Logger, formatters::request_header};
-Logger::new().with_formatter(("user-agent: ", request_header("user-agent")));
-
-// or
-
-Logger::new().with_formatter(("user-agent: ", request_header(trillium::KnownHeaderName::UserAgent)));
-
-```
-
-**note**: this is not a formatter itself, but returns a formatter when
-called with a header name
-*/
+/// formatter-builder for a particular request header, formatted wrapped
+/// in quotes. `""` if the header is not present
+///
+/// usage:
+///
+/// ```rust
+/// # use trillium_logger::{Logger, formatters::request_header};
+/// Logger::new().with_formatter(("user-agent: ", request_header("user-agent")));
+///
+/// // or
+///
+/// Logger::new().with_formatter((
+///     "user-agent: ",
+///     request_header(trillium::KnownHeaderName::UserAgent),
+/// ));
+/// ```
+///
+/// **note**: this is not a formatter itself, but returns a formatter when
+/// called with a header name
 pub fn request_header(header_name: impl Into<HeaderName<'static>>) -> impl LogFormatter {
     let header_name = header_name.into();
     move |conn: &Conn, _color: bool| {
@@ -168,22 +157,23 @@ pub fn request_header(header_name: impl Into<HeaderName<'static>>) -> impl LogFo
     }
 }
 
-/**
-formatter-builder for a particular response header, formatted wrapped
-in quotes. `""` if the header is not present
-
-usage:
-
-```rust
-# use trillium_logger::{Logger, formatters::response_header};
-Logger::new().with_formatter(("location: ", response_header(trillium::KnownHeaderName::Location)));
-// or
-Logger::new().with_formatter(("location: ", response_header("Location")));
-```
-
-**note**: this is not a formatter itself, but returns a formatter when
-called with a header name
-*/
+/// formatter-builder for a particular response header, formatted wrapped
+/// in quotes. `""` if the header is not present
+///
+/// usage:
+///
+/// ```rust
+/// # use trillium_logger::{Logger, formatters::response_header};
+/// Logger::new().with_formatter((
+///     "location: ",
+///     response_header(trillium::KnownHeaderName::Location),
+/// ));
+/// // or
+/// Logger::new().with_formatter(("location: ", response_header("Location")));
+/// ```
+///
+/// **note**: this is not a formatter itself, but returns a formatter when
+/// called with a header name
 pub fn response_header(header_name: impl Into<HeaderName<'static>>) -> impl LogFormatter {
     let header_name = header_name.into();
     move |conn: &Conn, _color: bool| {
@@ -200,15 +190,11 @@ pub fn response_header(header_name: impl Into<HeaderName<'static>>) -> impl LogF
 mod timestamp_mod {
     use super::*;
     use time::{macros::format_description, OffsetDateTime};
-    /**
-    Display output for [`timestamp`]
-    */
+    /// Display output for [`timestamp`]
     pub struct Now;
 
-    /**
-    formatter for the current timestamp. this represents the time that the
-    log is written, not the beginning timestamp of the request
-    */
+    /// formatter for the current timestamp. this represents the time that the
+    /// log is written, not the beginning timestamp of the request
     pub fn timestamp(_conn: &Conn, _color: bool) -> Now {
         Now
     }
@@ -230,11 +216,9 @@ mod timestamp_mod {
 }
 pub use timestamp_mod::timestamp;
 
-/**
-formatter for the response body length, represented as a
-human-readable string like `5 bytes` or `10.1mb`. prints `-` if there
-is no response body. see [`bytes`] for the raw number of bytes
-*/
+/// formatter for the response body length, represented as a
+/// human-readable string like `5 bytes` or `10.1mb`. prints `-` if there
+/// is no response body. see [`bytes`] for the raw number of bytes
 pub fn body_len_human(conn: &Conn, _color: bool) -> Cow<'static, str> {
     conn.response_len()
         .map(|l| {
@@ -247,39 +231,38 @@ pub fn body_len_human(conn: &Conn, _color: bool) -> Cow<'static, str> {
         .unwrap_or_else(|| Cow::from("-"))
 }
 
-/**
-[apache common log format][apache]
-
-[apache]: https://httpd.apache.org/docs/current/logs.html#common
-
-This is defined as follows:
-
-[`ip`] `request_id` `user_id` `\[`[`timestamp`]`\]` "[`method`] [`url`] [`version`]" [`status`] [`bytes`]
-
-where `request_id` and `user_id` are mandatory formatters provided at time of usage.
-
-## usage without `request_id` or `user_id`
-```
-# use trillium_logger::{Logger, apache_common};
-Logger::new().with_formatter(apache_common("-", "-"));
-```
-
-## usage with app-specific `user_id`
-```
-# use trillium_logger::{Logger, apache_common};
-# use trillium::Conn;
-# use std::borrow::Cow;
-# struct User(String); impl User { fn name(&self) -> &str { &self.0 } }
-fn user(conn: &Conn, color: bool) -> Cow<'static, str> {
-     match conn.state::<User>() {
-        Some(user) => String::from(user.name()).into(),
-        None => "guest".into()
-    }
-}
-
-Logger::new().with_formatter(apache_common("-", user));
-```
-*/
+/// [apache common log format][apache]
+///
+/// [apache]: https://httpd.apache.org/docs/current/logs.html#common
+///
+/// This is defined as follows:
+///
+/// [`ip`] `request_id` `user_id` `\[`[`timestamp`]`\]` "[`method`] [`url`] [`version`]" [`status`]
+/// [`bytes`]
+///
+/// where `request_id` and `user_id` are mandatory formatters provided at time of usage.
+///
+/// ## usage without `request_id` or `user_id`
+/// ```
+/// # use trillium_logger::{Logger, apache_common};
+/// Logger::new().with_formatter(apache_common("-", "-"));
+/// ```
+///
+/// ## usage with app-specific `user_id`
+/// ```
+/// # use trillium_logger::{Logger, apache_common};
+/// # use trillium::Conn;
+/// # use std::borrow::Cow;
+/// # struct User(String); impl User { fn name(&self) -> &str { &self.0 } }
+/// fn user(conn: &Conn, color: bool) -> Cow<'static, str> {
+///     match conn.state::<User>() {
+///         Some(user) => String::from(user.name()).into(),
+///         None => "guest".into(),
+///     }
+/// }
+///
+/// Logger::new().with_formatter(apache_common("-", user));
+/// ```
 pub fn apache_common(
     request_id: impl LogFormatter,
     user_id: impl LogFormatter,
@@ -290,26 +273,20 @@ pub fn apache_common(
     )
 }
 
-/**
-formatter that prints the number of response body bytes as a
-number. see [`body_len_human`] for a human-readable response body
-length with units
-*/
+/// formatter that prints the number of response body bytes as a
+/// number. see [`body_len_human`] for a human-readable response body
+/// length with units
 pub fn bytes(conn: &Conn, _color: bool) -> u64 {
     conn.response_len().unwrap_or_default()
 }
 
-/**
-formatter that prints an emoji if the request is secure as determined
-by [`Conn::is_secure`]
-*/
+/// formatter that prints an emoji if the request is secure as determined
+/// by [`Conn::is_secure`]
 pub fn secure(conn: &Conn, _: bool) -> &'static str {
     if conn.is_secure() { "🔒" } else { "  " }
 }
 
-/**
-formatter for the current url or path of the request, including query
-*/
+/// formatter for the current url or path of the request, including query
 pub fn url(conn: &Conn, _color: bool) -> String {
     match conn.querystring() {
         "" => conn.inner().path().into(),
@@ -319,9 +296,7 @@ pub fn url(conn: &Conn, _color: bool) -> String {
 
 mod response_time_mod {
     use super::*;
-    /**
-    display output type for the [`response_time`] formatter
-    */
+    /// display output type for the [`response_time`] formatter
     pub struct ResponseTimeOutput(Instant);
     impl Display for ResponseTimeOutput {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -329,11 +304,9 @@ mod response_time_mod {
         }
     }
 
-    /**
-    formatter for the wall-time duration with units that this http
-    request-response cycle took, from the first bytes read to the
-    completion of the response.
-    */
+    /// formatter for the wall-time duration with units that this http
+    /// request-response cycle took, from the first bytes read to the
+    /// completion of the response.
     pub fn response_time(conn: &Conn, _color: bool) -> ResponseTimeOutput {
         ResponseTimeOutput(conn.inner().start_time())
     }
@@ -341,10 +314,8 @@ mod response_time_mod {
 
 pub use response_time_mod::response_time;
 
-/**
-formatter for the http version, as delegated to the display
-implementation of [`Version`]
-*/
+/// formatter for the http version, as delegated to the display
+/// implementation of [`Version`]
 pub fn version(conn: &Conn, _color: bool) -> Version {
     conn.inner().http_version()
 }
@@ -391,15 +362,13 @@ where
 
 mod tuples {
     use super::*;
-    /**
-    display output for the tuple implementation
-
-    The Display type of each tuple element is contained in this type, and
-    it implements [`Display`] for 2-26-arity tuples.
-
-    Please open an issue if you find yourself needing to do something with
-    this other than [`Display`] it.
-    */
+    /// display output for the tuple implementation
+    ///
+    /// The Display type of each tuple element is contained in this type, and
+    /// it implements [`Display`] for 2-26-arity tuples.
+    ///
+    /// Please open an issue if you find yourself needing to do something with
+    /// this other than [`Display`] it.
     pub struct TupleOutput<O>(O);
     macro_rules! impl_formatter_tuple {
         ($($name:ident)+) => (

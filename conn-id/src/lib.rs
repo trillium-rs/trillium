@@ -1,14 +1,11 @@
-/*!
-Trillium crate to add identifiers to conns.
-
-This crate provides the following utilities:
-* [`ConnId`] a handler which must be called for the rest of this crate to function
-* [`log_formatter::conn_id`] a formatter to use with trillium_logger
-  (note that this does not depend on the trillium_logger crate and is very lightweight
-  if you do not use that crate)
-* [`ConnIdExt`] an extension trait for retrieving the id from a conn
-
-*/
+//! Trillium crate to add identifiers to conns.
+//!
+//! This crate provides the following utilities:
+//! [`ConnId`] a handler which must be called for the rest of this crate to function
+//! [`log_formatter::conn_id`] a formatter to use with trillium_logger
+//! (note that this does not depend on the trillium_logger crate and is very lightweight
+//! if you do not use that crate)
+//! [`ConnIdExt`] an extension trait for retrieving the id from a conn
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
@@ -46,15 +43,13 @@ impl IdGenerator {
     }
 }
 
-/**
-Trillium handler to set a identifier for every Conn.
-
-By default, it will use an inbound `x-request-id` request header or if
-that is missing, populate a ten character random id. This handler will
-set an outbound `x-request-id` header as well by default. All of this
-behavior can be customized with [`ConnId::with_request_header`],
-[`ConnId::with_response_header`] and [`ConnId::with_id_generator`]
-*/
+/// Trillium handler to set a identifier for every Conn.
+///
+/// By default, it will use an inbound `x-request-id` request header or if
+/// that is missing, populate a ten character random id. This handler will
+/// set an outbound `x-request-id` header as well by default. All of this
+/// behavior can be customized with [`ConnId::with_request_header`],
+/// [`ConnId::with_response_header`] and [`ConnId::with_id_generator`]
 pub struct ConnId {
     request_header: Option<HeaderName<'static>>,
     response_header: Option<HeaderName<'static>>,
@@ -82,121 +77,117 @@ impl Default for ConnId {
 }
 
 impl ConnId {
-    /**
-    Constructs a new ConnId handler
-    ```
-    # use trillium_testing::prelude::*;
-    # use trillium_conn_id::ConnId;
-    let app = (ConnId::new().with_seed(1000), "ok"); // seeded for testing
-    assert_ok!(
-        get("/").on(&app),
-        "ok",
-        "x-request-id" => "J4lzoPXcT5"
-    );
-
-    assert_headers!(
-        get("/")
-            .with_request_header("x-request-id", "inbound")
-            .on(&app),
-        "x-request-id" => "inbound"
-    );
-    ```
-    */
+    /// Constructs a new ConnId handler
+    /// ```
+    /// # use trillium_testing::prelude::*;
+    /// # use trillium_conn_id::ConnId;
+    /// let app = (ConnId::new().with_seed(1000), "ok"); // seeded for testing
+    /// assert_ok!(
+    /// get("/").on(&app),
+    /// "ok",
+    /// "x-request-id" => "J4lzoPXcT5"
+    /// );
+    ///
+    /// assert_headers!(
+    /// get("/")
+    /// .with_request_header("x-request-id", "inbound")
+    /// .on(&app),
+    /// "x-request-id" => "inbound"
+    /// );
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
-    /**
-    Specifies a request header to use. If this header is provided on
-    the inbound request, the id will be used unmodified. To disable
-    this behavior, see [`ConnId::without_request_header`]
-
-    ```
-    # use trillium_testing::prelude::*;
-    # use trillium_conn_id::ConnId;
-
-    let app = (
-        ConnId::new().with_request_header("x-custom-id"),
-        "ok"
-    );
-
-    assert_headers!(
-        get("/")
-            .with_request_header("x-custom-id", "inbound")
-            .on(&app),
-        "x-request-id" => "inbound"
-    );
-    ```
-
-    */
+    /// Specifies a request header to use. If this header is provided on
+    /// the inbound request, the id will be used unmodified. To disable
+    /// this behavior, see [`ConnId::without_request_header`]
+    ///
+    /// ```
+    /// # use trillium_testing::prelude::*;
+    /// # use trillium_conn_id::ConnId;
+    ///
+    /// let app = (
+    /// ConnId::new().with_request_header("x-custom-id"),
+    /// "ok"
+    /// );
+    ///
+    /// assert_headers!(
+    /// get("/")
+    /// .with_request_header("x-custom-id", "inbound")
+    /// .on(&app),
+    /// "x-request-id" => "inbound"
+    /// );
+    /// ```
     pub fn with_request_header(mut self, request_header: impl Into<HeaderName<'static>>) -> Self {
         self.request_header = Some(request_header.into());
         self
     }
 
-    /**
-    disables the default behavior of reusing an inbound header for
-    the request id. If a ConnId is configured
-    `without_request_header`, a new id will always be generated
-    */
+    /// disables the default behavior of reusing an inbound header for
+    /// the request id. If a ConnId is configured
+    /// `without_request_header`, a new id will always be generated
     pub fn without_request_header(mut self) -> Self {
         self.request_header = None;
         self
     }
 
-    /**
-    Specifies a response header to set. To disable this behavior, see
-    [`ConnId::without_response_header`]
-
-    ```
-    # use trillium_testing::prelude::*;
-    # use trillium_conn_id::ConnId;
-    let app = (
-        ConnId::new()
-            .with_seed(1000) // for testing
-            .with_response_header("x-custom-header"),
-        "ok"
-    );
-
-    assert_headers!(
-        get("/").on(&app),
-        "x-custom-header" => "J4lzoPXcT5"
-    );
-    ```
-    */
+    /// Specifies a response header to set. To disable this behavior, see
+    /// [`ConnId::without_response_header`]
+    ///
+    /// ```
+    /// # use trillium_testing::prelude::*;
+    /// # use trillium_conn_id::ConnId;
+    /// let app = (
+    ///   ConnId::new()
+    ///       .with_seed(1000) // for testing
+    ///       .with_response_header("x-custom-header"),
+    ///   "ok",
+    /// );
+    ///
+    /// assert_headers!(
+    ///     get("/").on(&app),
+    ///     "x-custom-header" => "J4lzoPXcT5"
+    /// );
+    /// ```
     pub fn with_response_header(mut self, response_header: impl Into<HeaderName<'static>>) -> Self {
         self.response_header = Some(response_header.into());
         self
     }
 
-    /**
-    Disables the default behavior of sending the conn id as a response
-    header. A request id will be available within the application
-    through use of [`ConnIdExt`] but will not be sent as part of the
-    response.
-    */
+    /// Disables the default behavior of sending the conn id as a response
+    /// header. A request id will be available within the application
+    /// through use of [`ConnIdExt`] but will not be sent as part of the
+    /// response.
     pub fn without_response_header(mut self) -> Self {
         self.response_header = None;
         self
     }
 
-    /**
-    Provide an alternative generator function for ids. The default
-    is a ten-character alphanumeric random sequence.
-
-    ```
-    # use trillium_testing::prelude::*;
-    # use trillium_conn_id::ConnId;
-    # use uuid::Uuid;
-    let app = (
-        ConnId::new().with_id_generator(|| Uuid::new_v4().to_string()),
-        "ok"
-    );
-
-    // assert that the id is a valid uuid, even if we can't assert a specific value
-    assert!(Uuid::parse_str(get("/").on(&app).response_headers().get_str("x-request-id").unwrap()).is_ok());
-    ```
-    */
+    /// Provide an alternative generator function for ids. The default
+    /// is a ten-character alphanumeric random sequence.
+    ///
+    /// ```
+    /// # use trillium_testing::prelude::*;
+    /// # use trillium_conn_id::ConnId;
+    /// # use uuid::Uuid;
+    /// let app = (
+    ///     ConnId::new().with_id_generator(|| Uuid::new_v4().to_string()),
+    ///     "ok",
+    /// );
+    ///
+    /// // assert that the id is a valid uuid, even if we can't assert a specific value
+    /// assert!(
+    ///     Uuid::parse_str(
+    ///         get("/")
+    ///             .on(&app)
+    ///             .response_headers()
+    ///             .get_str("x-request-id")
+    ///             .unwrap()
+    ///     )
+    ///     .is_ok()
+    /// );
+    /// ```
     pub fn with_id_generator<F>(mut self, id_generator: F) -> Self
     where
         F: Fn() -> String + Send + Sync + 'static,

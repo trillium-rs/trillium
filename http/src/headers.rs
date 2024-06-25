@@ -166,7 +166,7 @@ impl Headers {
     /// will be added to the existing ones. To replace any existing
     /// values, use [`Headers::insert`]
     ///
-    /// Identical to [`headers.entry(name).append(values)`][Entry::append]
+    /// Identical to [`headers.entry(name).append(values)`][crate::headers::Entry::append]
     pub fn append(
         &mut self,
         name: impl Into<HeaderName<'static>>,
@@ -226,7 +226,7 @@ impl Headers {
     /// Add a header value or header values into this header map if
     /// and only if there is not already a header with the same name.
     ///
-    /// Identical to [`headers.entry(name).or_insert(default)`][Entry::or_insert]
+    /// Identical to [`headers.entry(name).or_insert(default)`][crate::headers::Entry::or_insert]
     pub fn try_insert(
         &mut self,
         name: impl Into<HeaderName<'static>>,
@@ -237,7 +237,8 @@ impl Headers {
 
     /// if a key does not exist already, execute the provided function and insert a value
     ///
-    /// Identical to [`headers.entry(name).or_insert_with(values)`][Entry::or_insert_with]
+    /// Identical to
+    /// [`headers.entry(name).or_insert_with(values)`][crate::headers::Entry::or_insert_with]
     pub fn try_insert_with<V>(
         &mut self,
         name: impl Into<HeaderName<'static>>,

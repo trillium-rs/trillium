@@ -2,9 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 use tera::{Context, Tera};
 use trillium::{Conn, Handler};
 
-/**
-
-*/
+///
 #[derive(Clone, Debug)]
 pub struct TeraHandler(Arc<Tera>);
 

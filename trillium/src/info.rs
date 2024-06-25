@@ -6,12 +6,10 @@ use trillium_http::TypeSet;
 
 const DEFAULT_SERVER_DESCRIPTION: &str = concat!("trillium v", env!("CARGO_PKG_VERSION"));
 
-/**
-This struct represents information about the currently connected
-server.
-
-It is passed to [`Handler::init`](crate::Handler::init).
-*/
+/// This struct represents information about the currently connected
+/// server.
+///
+/// It is passed to [`Handler::init`](crate::Handler::init).
 
 #[derive(Debug)]
 pub struct Info {
