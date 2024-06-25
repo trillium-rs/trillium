@@ -6,9 +6,7 @@ use crate::{
 use std::path::{Path, PathBuf};
 use trillium::{conn_unwrap, Conn, Handler};
 
-/**
-trillium handler to serve static files from the filesystem
-*/
+/// trillium handler to serve static files from the filesystem
 #[derive(Debug)]
 pub struct StaticFileHandler {
     fs_root: PathBuf,
@@ -67,32 +65,30 @@ impl StaticFileHandler {
         }
     }
 
-    /**
-    builds a new StaticFileHandler
-
-    If the fs_root is a file instead of a directory, that file will be served at all paths.
-
-    ```
-    # #[cfg(not(unix))] fn main() {}
-    # #[cfg(unix)] fn main() {
-    # use trillium::Handler;
-    # trillium_testing::block_on(async {
-    use trillium_static::{StaticFileHandler, crate_relative_path};
-    use trillium_testing::prelude::*;
-
-    let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"));
-    # handler.init(&mut "testing".into()).await;
-
-    assert_not_handled!(get("/").run_async(&handler).await); // no index file configured
-
-    assert_ok!(
-        get("/index.html").run_async(&handler).await,
-        "<h1>hello world</h1>",
-        "content-type" => "text/html; charset=utf-8"
-    );
-    # }); }
-    ```
-    */
+    /// builds a new StaticFileHandler
+    ///
+    /// If the fs_root is a file instead of a directory, that file will be served at all paths.
+    ///
+    /// ```
+    /// # #[cfg(not(unix))] fn main() {}
+    /// # #[cfg(unix)] fn main() {
+    /// # use trillium::Handler;
+    /// # trillium_testing::block_on(async {
+    /// use trillium_static::{StaticFileHandler, crate_relative_path};
+    /// use trillium_testing::prelude::*;
+    ///
+    /// let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"));
+    /// # handler.init(&mut "testing".into()).await;
+    ///
+    /// assert_not_handled!(get("/").run_async(&handler).await); // no index file configured
+    ///
+    /// assert_ok!(
+    /// get("/index.html").run_async(&handler).await,
+    /// "<h1>hello world</h1>",
+    /// "content-type" => "text/html; charset=utf-8"
+    /// );
+    /// # }); }
+    /// ```
     pub fn new(fs_root: impl AsRef<Path>) -> Self {
         let fs_root = fs_root.as_ref().canonicalize().unwrap();
         Self {
@@ -115,28 +111,26 @@ impl StaticFileHandler {
         self
     }
 
-    /**
-    sets the index file on this StaticFileHandler
-    ```
-    # #[cfg(not(unix))] fn main() {}
-    # #[cfg(unix)] fn main() {
-    # use trillium::Handler;
-    # trillium_testing::block_on(async {
-
-    use trillium_static::{StaticFileHandler, crate_relative_path};
-
-    let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
-        .with_index_file("index.html");
-    # handler.init(&mut "testing".into()).await;
-
-    use trillium_testing::prelude::*;
-    assert_ok!(
-        get("/").run_async(&handler).await,
-        "<h1>hello world</h1>", "content-type" => "text/html; charset=utf-8"
-    );
-    # }); }
-    ```
-    */
+    /// sets the index file on this StaticFileHandler
+    /// ```
+    /// # #[cfg(not(unix))] fn main() {}
+    /// # #[cfg(unix)] fn main() {
+    /// # use trillium::Handler;
+    /// # trillium_testing::block_on(async {
+    ///
+    /// use trillium_static::{StaticFileHandler, crate_relative_path};
+    ///
+    /// let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
+    /// .with_index_file("index.html");
+    /// # handler.init(&mut "testing".into()).await;
+    ///
+    /// use trillium_testing::prelude::*;
+    /// assert_ok!(
+    /// get("/").run_async(&handler).await,
+    /// "<h1>hello world</h1>", "content-type" => "text/html; charset=utf-8"
+    /// );
+    /// # }); }
+    /// ```
     pub fn with_index_file(mut self, file: &str) -> Self {
         self.index_file = Some(file.to_string());
         self

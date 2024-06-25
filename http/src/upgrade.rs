@@ -10,17 +10,15 @@ use std::{
 };
 use trillium_macros::AsyncWrite;
 
-/**
-This open (pub fields) struct represents a http upgrade. It contains
-all of the data available on a Conn, as well as owning the underlying
-transport.
-
-Important implementation note: When reading directly from the
-transport, ensure that you read from `buffer` first if there are bytes
-in it. Alternatively, read directly from the Upgrade, as that
-[`AsyncRead`] implementation will drain the buffer first before
-reading from the transport.
-*/
+/// This open (pub fields) struct represents a http upgrade. It contains
+/// all of the data available on a Conn, as well as owning the underlying
+/// transport.
+///
+/// Important implementation note: When reading directly from the
+/// transport, ensure that you read from `buffer` first if there are bytes
+/// in it. Alternatively, read directly from the Upgrade, as that
+/// [`AsyncRead`] implementation will drain the buffer first before
+/// reading from the transport.
 #[derive(AsyncWrite)]
 #[non_exhaustive]
 pub struct Upgrade<Transport> {

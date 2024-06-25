@@ -65,24 +65,23 @@ macro_rules! known_headers {
     }
 }
 
-/* generated with
-
-console.log($$('main > article > div > dl > dt > a > code').map(code => {
-let lowered = code.innerText.toLowerCase();
-let enum_ = lowered.replace(/(?:-|^)([a-z])/g, (_, p1) => p1.toUpperCase());
-return`("${code.innerText}", ${enum_}, "${lowered}")`
-}).join(",\n"))
-
- on https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers
-
-
-per https://httpwg.org/specs/rfc9110.html#rfc.section.5.3,
-
-The order in which field lines with differing field names are received in a section is not
-significant. However, it is good practice to send header fields that contain additional control data
-first, such as Host on requests and Date on responses, so that implementations can decide when not
-to handle a message as early as possible.
-*/
+// generated with
+//
+// console.log($$('main > article > div > dl > dt > a > code').map(code => {
+// let lowered = code.innerText.toLowerCase();
+// let enum_ = lowered.replace(/(?:-|^)([a-z])/g, (_, p1) => p1.toUpperCase());
+// return`("${code.innerText}", ${enum_}, "${lowered}")`
+// }).join(",\n"))
+//
+// on https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers
+//
+//
+// per https://httpwg.org/specs/rfc9110.html#rfc.section.5.3,
+//
+// The order in which field lines with differing field names are received in a section is not
+// significant. However, it is good practice to send header fields that contain additional control
+// data first, such as Host on requests and Date on responses, so that implementations can decide
+// when not to handle a message as early as possible.
 known_headers! {
     ("Host", Host),
     ("Date", Date),

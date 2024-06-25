@@ -1,6 +1,4 @@
-/*!
-Trillium handler for redirection
-*/
+//! Trillium handler for redirection
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
