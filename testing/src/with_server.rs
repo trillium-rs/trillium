@@ -5,16 +5,14 @@ use trillium_http::transport::BoxedTransport;
 use trillium_server_common::RuntimeTrait;
 use url::Url;
 
-/**
-Starts a trillium handler bound to a random available port on
-localhost, run the async tests provided as the second
-argument, and then shut down the server. useful for full
-integration tests that actually exercise the tcp layer.
-
-See
-[`trillium_client::Conn`](https://docs.trillium.rs/trillium_client/struct.conn)
-for usage examples.
-**/
+/// Starts a trillium handler bound to a random available port on
+/// localhost, run the async tests provided as the second
+/// argument, and then shut down the server. useful for full
+/// integration tests that actually exercise the tcp layer.
+///
+/// See
+/// [`trillium_client::Conn`](https://docs.trillium.rs/trillium_client/struct.conn)
+/// for usage examples.
 pub fn with_server<H, Fun, Fut>(handler: H, tests: Fun)
 where
     H: Handler,

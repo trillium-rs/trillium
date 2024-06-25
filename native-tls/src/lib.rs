@@ -9,10 +9,8 @@
     unused_qualifications
 )]
 
-/*!
-This crate provides native tls trait implementations for trillium
-client ([`NativeTlsConnector`]) and server ([`NativeTlsAcceptor`]).
-*/
+//! This crate provides native tls trait implementations for trillium
+//! client ([`NativeTlsConnector`]) and server ([`NativeTlsAcceptor`]).
 
 pub use async_native_tls;
 pub use native_tls::{self, Identity};

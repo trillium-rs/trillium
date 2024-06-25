@@ -22,11 +22,9 @@ use trillium_server_common::{
     ArcedConnector, Connector,
 };
 
-/**
-A wrapper error for [`trillium_http::Error`] or
-[`serde_json::Error`]. Only available when the `json` crate feature is
-enabled.
-*/
+/// A wrapper error for [`trillium_http::Error`] or
+/// [`serde_json::Error`]. Only available when the `json` crate feature is
+/// enabled.
 #[cfg(feature = "json")]
 #[derive(thiserror::Error, Debug)]
 pub enum ClientSerdeError {
@@ -39,10 +37,8 @@ pub enum ClientSerdeError {
     JsonError(#[from] serde_json::Error),
 }
 
-/**
-a client connection, representing both an outbound http request and a
-http response
-*/
+/// a client connection, representing both an outbound http request and a
+/// http response
 #[must_use]
 pub struct Conn {
     pub(crate) url: Url,
@@ -90,33 +86,34 @@ impl Conn {
         &self.request_headers
     }
 
-    /**
-    chainable setter for [`inserting`](Headers::insert) a request header
-
-    ```
-    use trillium_testing::client_config;
-
-
-    let handler = |conn: trillium::Conn| async move {
-        let header = conn.request_headers().get_str("some-request-header").unwrap_or_default();
-        let response = format!("some-request-header was {}", header);
-        conn.ok(response)
-    };
-
-    let client = trillium_client::Client::new(client_config());
-
-    trillium_testing::with_server(handler, |url| async move {
-        let mut conn = client.get(url)
-            .with_request_header("some-request-header", "header-value") // <--
-            .await?;
-        assert_eq!(
-            conn.response_body().read_string().await?,
-            "some-request-header was header-value"
-        );
-        Ok(())
-    })
-    ```
-    */
+    /// chainable setter for [`inserting`](Headers::insert) a request header
+    ///
+    /// ```
+    /// use trillium_testing::client_config;
+    ///
+    /// let handler = |conn: trillium::Conn| async move {
+    ///     let header = conn
+    ///         .request_headers()
+    ///         .get_str("some-request-header")
+    ///         .unwrap_or_default();
+    ///     let response = format!("some-request-header was {}", header);
+    ///     conn.ok(response)
+    /// };
+    ///
+    /// let client = trillium_client::Client::new(client_config());
+    ///
+    /// trillium_testing::with_server(handler, |url| async move {
+    ///     let mut conn = client
+    ///         .get(url)
+    ///         .with_request_header("some-request-header", "header-value") // <--
+    ///         .await?;
+    ///     assert_eq!(
+    ///         conn.response_body().read_string().await?,
+    ///         "some-request-header was header-value"
+    ///     );
+    ///     Ok(())
+    /// })
+    /// ```
 
     pub fn with_request_header(
         mut self,
@@ -127,34 +124,36 @@ impl Conn {
         self
     }
 
-    /**
-    chainable setter for `extending` request headers
-
-    ```
-    let handler = |conn: trillium::Conn| async move {
-        let header = conn.request_headers().get_str("some-request-header").unwrap_or_default();
-        let response = format!("some-request-header was {}", header);
-        conn.ok(response)
-    };
-
-    use trillium_testing::client_config;
-    let client = trillium_client::client(client_config());
-
-    trillium_testing::with_server(handler, move |url| async move {
-        let mut conn = client.get(url)
-            .with_request_headers([ // <--
-                ("some-request-header", "header-value"),
-                ("some-other-req-header", "other-header-value")
-            ])
-            .await?;
-        assert_eq!(
-            conn.response_body().read_string().await?,
-            "some-request-header was header-value"
-        );
-        Ok(())
-    })
-    ```
-    */
+    /// chainable setter for `extending` request headers
+    ///
+    /// ```
+    /// let handler = |conn: trillium::Conn| async move {
+    ///     let header = conn
+    ///         .request_headers()
+    ///         .get_str("some-request-header")
+    ///         .unwrap_or_default();
+    ///     let response = format!("some-request-header was {}", header);
+    ///     conn.ok(response)
+    /// };
+    ///
+    /// use trillium_testing::client_config;
+    /// let client = trillium_client::client(client_config());
+    ///
+    /// trillium_testing::with_server(handler, move |url| async move {
+    ///     let mut conn = client
+    ///         .get(url)
+    ///         .with_request_headers([
+    ///             ("some-request-header", "header-value"),
+    ///             ("some-other-req-header", "other-header-value"),
+    ///         ])
+    ///         .await?;
+    ///     assert_eq!(
+    ///         conn.response_body().read_string().await?,
+    ///         "some-request-header was header-value"
+    ///     );
+    ///     Ok(())
+    /// })
+    /// ```
     pub fn with_request_headers<HN, HV, I>(mut self, headers: I) -> Self
     where
         I: IntoIterator<Item = (HN, HV)> + Send,
@@ -171,64 +170,63 @@ impl Conn {
         self
     }
 
-    /**
-    ```
-    let handler = |conn: trillium::Conn| async move {
-        conn.with_response_header("some-header", "some-value")
-            .with_status(200)
-    };
-
-    use trillium_client::Client;
-    use trillium_testing::client_config;
-
-    trillium_testing::with_server(handler, move |url| async move {
-        let client = Client::new(client_config());
-        let conn = client.get(url).await?;
-
-        let headers = conn.response_headers(); //<-
-
-        assert_eq!(headers.get_str("some-header"), Some("some-value"));
-        Ok(())
-    })
-    ```
-    */
+    /// ```
+    /// let handler = |conn: trillium::Conn| async move {
+    ///     conn.with_response_header("some-header", "some-value")
+    ///         .with_status(200)
+    /// };
+    ///
+    /// use trillium_client::Client;
+    /// use trillium_testing::client_config;
+    ///
+    /// trillium_testing::with_server(handler, move |url| async move {
+    ///     let client = Client::new(client_config());
+    ///     let conn = client.get(url).await?;
+    ///
+    ///     let headers = conn.response_headers(); //<-
+    ///
+    ///     assert_eq!(headers.get_str("some-header"), Some("some-value"));
+    ///     Ok(())
+    /// })
+    /// ```
     pub fn response_headers(&self) -> &Headers {
         &self.response_headers
     }
 
-    /**
-    retrieves a mutable borrow of the request headers, suitable for
-    appending a header. generally, prefer using chainable methods on
-    Conn
-
-    ```
-    use trillium_testing::client_config;
-    use trillium_client::Client;
-
-    let handler = |conn: trillium::Conn| async move {
-        let header = conn.request_headers().get_str("some-request-header").unwrap_or_default();
-        let response = format!("some-request-header was {}", header);
-        conn.ok(response)
-    };
-
-    let client = Client::new(client_config());
-
-    trillium_testing::with_server(handler, move |url| async move {
-        let mut conn = client.get(url);
-
-        conn.request_headers_mut() //<-
-            .insert("some-request-header", "header-value");
-
-        let mut conn = conn.await?;
-
-        assert_eq!(
-            conn.response_body().read_string().await?,
-            "some-request-header was header-value"
-        );
-        Ok(())
-    })
-    ```
-    */
+    /// retrieves a mutable borrow of the request headers, suitable for
+    /// appending a header. generally, prefer using chainable methods on
+    /// Conn
+    ///
+    /// ```
+    /// use trillium_client::Client;
+    /// use trillium_testing::client_config;
+    ///
+    /// let handler = |conn: trillium::Conn| async move {
+    ///     let header = conn
+    ///         .request_headers()
+    ///         .get_str("some-request-header")
+    ///         .unwrap_or_default();
+    ///     let response = format!("some-request-header was {}", header);
+    ///     conn.ok(response)
+    /// };
+    ///
+    /// let client = Client::new(client_config());
+    ///
+    /// trillium_testing::with_server(handler, move |url| async move {
+    ///     let mut conn = client.get(url);
+    ///
+    ///     conn.request_headers_mut() //<-
+    ///         .insert("some-request-header", "header-value");
+    ///
+    ///     let mut conn = conn.await?;
+    ///
+    ///     assert_eq!(
+    ///         conn.response_body().read_string().await?,
+    ///         "some-request-header was header-value"
+    ///     );
+    ///     Ok(())
+    /// })
+    /// ```
     pub fn request_headers_mut(&mut self) -> &mut Headers {
         &mut self.request_headers
     }
@@ -238,74 +236,70 @@ impl Conn {
         &mut self.response_headers
     }
 
-    /**
-    sets the request body on a mutable reference. prefer the chainable
-    [`Conn::with_body`] wherever possible
-
-    ```
-    env_logger::init();
-    use trillium_client::Client;
-    use trillium_testing::client_config;
-
-
-    let handler = |mut conn: trillium::Conn| async move {
-        let body = conn.request_body_string().await.unwrap();
-        conn.ok(format!("request body was: {}", body))
-    };
-
-    trillium_testing::with_server(handler, move |url| async move {
-        let client = Client::new(client_config());
-        let mut conn = client.post(url);
-
-        conn.set_request_body("body"); //<-
-
-        (&mut conn).await?;
-
-        assert_eq!(conn.response_body().read_string().await?, "request body was: body");
-        Ok(())
-    });
-    ```
-     */
+    /// sets the request body on a mutable reference. prefer the chainable
+    /// [`Conn::with_body`] wherever possible
+    ///
+    /// ```
+    /// env_logger::init();
+    /// use trillium_client::Client;
+    /// use trillium_testing::client_config;
+    ///
+    /// let handler = |mut conn: trillium::Conn| async move {
+    ///     let body = conn.request_body_string().await.unwrap();
+    ///     conn.ok(format!("request body was: {}", body))
+    /// };
+    ///
+    /// trillium_testing::with_server(handler, move |url| async move {
+    ///     let client = Client::new(client_config());
+    ///     let mut conn = client.post(url);
+    ///
+    ///     conn.set_request_body("body"); //<-
+    ///
+    ///     (&mut conn).await?;
+    ///
+    ///     assert_eq!(
+    ///         conn.response_body().read_string().await?,
+    ///         "request body was: body"
+    ///     );
+    ///     Ok(())
+    /// });
+    /// ```
     pub fn set_request_body(&mut self, body: impl Into<Body>) {
         self.request_body = Some(body.into());
     }
 
-    /**
-    chainable setter for the request body
-
-    ```
-    env_logger::init();
-    use trillium_testing::client_config;
-    use trillium_client::Client;
-
-    let handler = |mut conn: trillium::Conn| async move {
-        let body = conn.request_body_string().await.unwrap();
-        conn.ok(format!("request body was: {}", body))
-    };
-
-
-    trillium_testing::with_server(handler, |url| async move {
-        let client = Client::from(client_config());
-        let mut conn = client.post(url)
-            .with_body("body") //<-
-            .await?;
-
-        assert_eq!(
-            conn.response_body().read_string().await?,
-            "request body was: body"
-        );
-        Ok(())
-    });
-    ```
-     */
+    /// chainable setter for the request body
+    ///
+    /// ```
+    /// env_logger::init();
+    /// use trillium_client::Client;
+    /// use trillium_testing::client_config;
+    ///
+    /// let handler = |mut conn: trillium::Conn| async move {
+    ///     let body = conn.request_body_string().await.unwrap();
+    ///     conn.ok(format!("request body was: {}", body))
+    /// };
+    ///
+    /// trillium_testing::with_server(handler, |url| async move {
+    ///     let client = Client::from(client_config());
+    ///     let mut conn = client
+    ///         .post(url)
+    ///         .with_body("body") //<-
+    ///         .await?;
+    ///
+    ///     assert_eq!(
+    ///         conn.response_body().read_string().await?,
+    ///         "request body was: body"
+    ///     );
+    ///     Ok(())
+    /// });
+    /// ```
     pub fn with_body(mut self, body: impl Into<Body>) -> Self {
         self.set_request_body(body);
         self
     }
 
-    /**
-    chainable setter for json body. this requires the `json` crate feature to be enabled.
-     */
+    /// chainable setter for json body. this requires the `json` crate feature to be enabled.
     #[cfg(feature = "json")]
     pub fn with_json_body(self, body: &impl serde::Serialize) -> serde_json::Result<Self> {
         use trillium_http::KnownHeaderName;
@@ -319,69 +313,57 @@ impl Conn {
         encoding(&self.response_headers)
     }
 
-    /**
-    retrieves the url for this conn.
-    ```
-    use trillium_testing::client_config;
-    use trillium_client::Client;
-    let client = Client::from(client_config());
-    let conn = client.get("http://localhost:9080");
-
-    let url = conn.url(); //<-
-
-    assert_eq!(url.host_str().unwrap(), "localhost");
-    ```
-     */
+    /// retrieves the url for this conn.
+    /// ```
+    /// use trillium_client::Client;
+    /// use trillium_testing::client_config;
+    /// let client = Client::from(client_config());
+    /// let conn = client.get("http://localhost:9080");
+    ///
+    /// let url = conn.url(); //<-
+    ///
+    /// assert_eq!(url.host_str().unwrap(), "localhost");
+    /// ```
     pub fn url(&self) -> &Url {
         &self.url
     }
 
-    /**
-    retrieves the url for this conn.
-    ```
-    use trillium_testing::client_config;
-    use trillium_client::Client;
-
-    use trillium_testing::prelude::*;
-
-    let client = Client::from(client_config());
-    let conn = client.get("http://localhost:9080");
-
-    let method = conn.method(); //<-
-
-    assert_eq!(method, Method::Get);
-    ```
-     */
+    /// retrieves the url for this conn.
+    /// ```
+    /// use trillium_client::Client;
+    /// use trillium_testing::{client_config, prelude::*};
+    ///
+    /// let client = Client::from(client_config());
+    /// let conn = client.get("http://localhost:9080");
+    ///
+    /// let method = conn.method(); //<-
+    ///
+    /// assert_eq!(method, Method::Get);
+    /// ```
     pub fn method(&self) -> Method {
         self.method
     }
 
-    /**
-    returns a [`ReceivedBody`] that borrows the connection inside this conn.
-    ```
-    env_logger::init();
-    use trillium_testing::client_config;
-    use trillium_client::Client;
-
-
-
-    let handler = |mut conn: trillium::Conn| async move {
-        conn.ok("hello from trillium")
-    };
-
-    trillium_testing::with_server(handler, |url| async move {
-        let client = Client::from(client_config());
-        let mut conn = client.get(url).await?;
-
-        let response_body = conn.response_body(); //<-
-
-        assert_eq!(19, response_body.content_length().unwrap());
-        let string = response_body.read_string().await?;
-        assert_eq!("hello from trillium", string);
-        Ok(())
-    });
-    ```
-     */
+    /// returns a [`ReceivedBody`] that borrows the connection inside this conn.
+    /// ```
+    /// env_logger::init();
+    /// use trillium_client::Client;
+    /// use trillium_testing::client_config;
+    ///
+    /// let handler = |mut conn: trillium::Conn| async move { conn.ok("hello from trillium") };
+    ///
+    /// trillium_testing::with_server(handler, |url| async move {
+    ///     let client = Client::from(client_config());
+    ///     let mut conn = client.get(url).await?;
+    ///
+    ///     let response_body = conn.response_body(); //<-
+    ///
+    ///     assert_eq!(19, response_body.content_length().unwrap());
+    ///     let string = response_body.read_string().await?;
+    ///     assert_eq!("hello from trillium", string);
+    ///     Ok(())
+    /// });
+    /// ```
 
     #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
     pub fn response_body(&mut self) -> ReceivedBody<'_, BoxedTransport> {
@@ -395,9 +377,7 @@ impl Conn {
         )
     }
 
-    /**
-    Attempt to deserialize the response body. Note that this consumes the body content.
-     */
+    /// Attempt to deserialize the response body. Note that this consumes the body content.
     #[cfg(feature = "json")]
     pub async fn response_json<T>(&mut self) -> std::result::Result<T, ClientSerdeError>
     where
@@ -420,53 +400,48 @@ impl Conn {
         }
     }
 
-    /**
-    returns the status code for this conn. if the conn has not yet
-    been sent, this will be None.
-
-    ```
-    use trillium_testing::client_config;
-    use trillium_client::Client;
-    use trillium_testing::prelude::*;
-
-    async fn handler(conn: trillium::Conn) -> trillium::Conn {
-        conn.with_status(418)
-    }
-
-    trillium_testing::with_server(handler, |url| async move {
-        let client = Client::new(client_config());
-        let conn = client.get(url).await?;
-        assert_eq!(Status::ImATeapot, conn.status().unwrap());
-        Ok(())
-    });
-    ```
-     */
+    /// returns the status code for this conn. if the conn has not yet
+    /// been sent, this will be None.
+    ///
+    /// ```
+    /// use trillium_client::Client;
+    /// use trillium_testing::{client_config, prelude::*};
+    ///
+    /// async fn handler(conn: trillium::Conn) -> trillium::Conn {
+    ///     conn.with_status(418)
+    /// }
+    ///
+    /// trillium_testing::with_server(handler, |url| async move {
+    ///     let client = Client::new(client_config());
+    ///     let conn = client.get(url).await?;
+    ///     assert_eq!(Status::ImATeapot, conn.status().unwrap());
+    ///     Ok(())
+    /// });
+    /// ```
     pub fn status(&self) -> Option<Status> {
         self.status
     }
 
-    /**
-    Returns the conn or an [`UnexpectedStatusError`] that contains the conn
-
-    ```
-    use trillium_testing::client_config;
-
-    trillium_testing::with_server(trillium::Status::NotFound, |url| async move {
-        let client = trillium_client::Client::new(client_config());
-        assert_eq!(
-            client.get(url).await?.success().unwrap_err().to_string(),
-            "expected a success (2xx) status code, but got 404 Not Found"
-        );
-        Ok(())
-    });
-
-    trillium_testing::with_server(trillium::Status::Ok, |url| async move {
-        let client = trillium_client::Client::new(client_config());
-        assert!(client.get(url).await?.success().is_ok());
-        Ok(())
-    });
-    ```
-     */
+    /// Returns the conn or an [`UnexpectedStatusError`] that contains the conn
+    ///
+    /// ```
+    /// use trillium_testing::client_config;
+    ///
+    /// trillium_testing::with_server(trillium::Status::NotFound, |url| async move {
+    ///     let client = trillium_client::Client::new(client_config());
+    ///     assert_eq!(
+    ///         client.get(url).await?.success().unwrap_err().to_string(),
+    ///         "expected a success (2xx) status code, but got 404 Not Found"
+    ///     );
+    ///     Ok(())
+    /// });
+    ///
+    /// trillium_testing::with_server(trillium::Status::Ok, |url| async move {
+    ///     let client = trillium_client::Client::new(client_config());
+    ///     assert!(client.get(url).await?.success().is_ok());
+    ///     Ok(())
+    /// });
+    /// ```
     pub fn success(self) -> std::result::Result<Self, UnexpectedStatusError> {
         match self.status() {
             Some(status) if status.is_success() => Ok(self),
@@ -474,12 +449,10 @@ impl Conn {
         }
     }
 
-    /**
-    Returns this conn to the connection pool if it is keepalive, and
-    closes it otherwise. This will happen asynchronously as a spawned
-    task when the conn is dropped, but calling it explicitly allows
-    you to block on it and control where it happens.
-    */
+    /// Returns this conn to the connection pool if it is keepalive, and
+    /// closes it otherwise. This will happen asynchronously as a spawned
+    /// task when the conn is dropped, but calling it explicitly allows
+    /// you to block on it and control where it happens.
     pub async fn recycle(mut self) {
         if self.is_keep_alive() && self.transport.is_some() && self.pool.is_some() {
             self.finish_reading_body().await;

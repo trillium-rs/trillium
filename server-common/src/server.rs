@@ -2,9 +2,7 @@ use crate::{Acceptor, ArcHandler, Config, ConfigExt, RuntimeTrait, Swansong, Tra
 use std::{future::Future, io::Result, sync::Arc};
 use trillium::{Handler, Info};
 
-/**
-The server trait, for standard network-based server implementations.
-*/
+/// The server trait, for standard network-based server implementations.
 pub trait Server: Sized + Send + Sync + 'static {
     /// the individual byte stream that http
     /// will be communicated over. This is often an async "stream"

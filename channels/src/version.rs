@@ -1,8 +1,6 @@
 use std::{convert::Infallible, str::FromStr};
 
-/**
-The phoenix channel "protocol" version
-*/
+/// The phoenix channel "protocol" version
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub enum Version {

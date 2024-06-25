@@ -278,7 +278,6 @@ pub enum Status {
     /// This response code means the expectation indicated by the Expect request
     /// header field can't be met by the server.
     ExpectationFailed = 417,
-    ///
     /// 418 I'm a teapot
     ///
     /// The server refuses the attempt to brew coffee with a teapot.

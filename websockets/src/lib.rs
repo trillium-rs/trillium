@@ -9,49 +9,47 @@
     unused_qualifications
 )]
 
-/*!
-# A websocket trillium handler
-
-There are three primary ways to use this crate
-
-## With an async function that receives a [`WebSocketConn`](crate::WebSocketConn)
-
-This is the simplest way to use trillium websockets, but does not
-provide any of the affordances that implementing the
-[`WebSocketHandler`] trait does. It is best for very simple websockets
-or for usages that require moving the WebSocketConn elsewhere in an
-application. The WebSocketConn is fully owned at this point, and will
-disconnect when dropped, not when the async function passed to
-`websocket` completes.
-
-```
-use futures_lite::stream::StreamExt;
-use trillium_websockets::{Message, WebSocketConn, websocket};
-
-let handler = websocket(|mut conn: WebSocketConn| async move {
-    while let Some(Ok(Message::Text(input))) = conn.next().await {
-        conn.send_string(format!("received your message: {}", &input)).await;
-    }
-});
-# // tests at tests/tests.rs for example simplicity
-```
-
-
-## Implementing [`WebSocketHandler`](crate::WebSocketHandler)
-
-[`WebSocketHandler`] provides support for sending outbound messages as a
-stream, and simplifies common patterns like executing async code on
-received messages.
-
-## Using [`JsonWebSocketHandler`](crate::JsonWebSocketHandler)
-
-[`JsonWebSocketHandler`] provides a thin serialization and
-deserialization layer on top of [`WebSocketHandler`] for this common
-use case.  See the [`JsonWebSocketHandler`] documentation for example
-usage. In order to use this trait, the `json` cargo feature must be
-enabled.
-
-*/
+//! # A websocket trillium handler
+//!
+//! There are three primary ways to use this crate
+//!
+//! ## With an async function that receives a [`WebSocketConn`](crate::WebSocketConn)
+//!
+//! This is the simplest way to use trillium websockets, but does not
+//! provide any of the affordances that implementing the
+//! [`WebSocketHandler`] trait does. It is best for very simple websockets
+//! or for usages that require moving the WebSocketConn elsewhere in an
+//! application. The WebSocketConn is fully owned at this point, and will
+//! disconnect when dropped, not when the async function passed to
+//! `websocket` completes.
+//!
+//! ```
+//! use futures_lite::stream::StreamExt;
+//! use trillium_websockets::{websocket, Message, WebSocketConn};
+//!
+//! let handler = websocket(|mut conn: WebSocketConn| async move {
+//!     while let Some(Ok(Message::Text(input))) = conn.next().await {
+//!         conn.send_string(format!("received your message: {}", &input))
+//!             .await;
+//!     }
+//! });
+//! # // tests at tests/tests.rs for example simplicity
+//! ```
+//!
+//!
+//! ## Implementing [`WebSocketHandler`](crate::WebSocketHandler)
+//!
+//! [`WebSocketHandler`] provides support for sending outbound messages as a
+//! stream, and simplifies common patterns like executing async code on
+//! received messages.
+//!
+//! ## Using [`JsonWebSocketHandler`](crate::JsonWebSocketHandler)
+//!
+//! [`JsonWebSocketHandler`] provides a thin serialization and
+//! deserialization layer on top of [`WebSocketHandler`] for this common
+//! use case.  See the [`JsonWebSocketHandler`] documentation for example
+//! usage. In order to use this trait, the `json` cargo feature must be
+//! enabled.
 
 mod bidirectional_stream;
 mod websocket_connection;
@@ -110,10 +108,8 @@ mod json;
 #[cfg(feature = "json")]
 pub use json::{json_websocket, JsonHandler, JsonWebSocketHandler};
 
-/**
-The trillium handler.
-See crate-level docs for example usage.
-*/
+/// The trillium handler.
+/// See crate-level docs for example usage.
 #[derive(Debug)]
 pub struct WebSocket<H> {
     handler: H,
@@ -136,10 +132,8 @@ impl<H> DerefMut for WebSocket<H> {
     }
 }
 
-/**
-Builds a new trillium handler from the provided
-WebSocketHandler. Alias for [`WebSocket::new`]
-*/
+/// Builds a new trillium handler from the provided
+/// WebSocketHandler. Alias for [`WebSocket::new`]
 pub fn websocket<H>(websocket_handler: H) -> WebSocket<H>
 where
     H: WebSocketHandler,

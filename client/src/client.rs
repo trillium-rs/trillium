@@ -9,11 +9,8 @@ use trillium_server_common::{
     ArcedConnector, Connector,
 };
 
-/**
-A client contains a Config and an optional connection pool and builds
-conns.
-
-*/
+/// A client contains a Config and an optional connection pool and builds
+/// conns.
 #[derive(Clone, Debug)]
 pub struct Client {
     config: ArcedConnector,
@@ -117,43 +114,38 @@ impl Client {
         Arc::make_mut(&mut self.default_headers)
     }
 
-    /**
-    chainable constructor to enable connection pooling. this can be
-    combined with [`Client::with_config`]
-
-
-    ```
-    use trillium_smol::ClientConfig;
-    use trillium_client::Client;
-
-    let client = Client::new(ClientConfig::default())
-        .with_default_pool(); //<-
-    ```
-    */
+    /// chainable constructor to enable connection pooling. this can be
+    /// combined with [`Client::with_config`]
+    ///
+    ///
+    /// ```
+    /// use trillium_client::Client;
+    /// use trillium_smol::ClientConfig;
+    ///
+    /// let client = Client::new(ClientConfig::default()).with_default_pool();
+    /// ```
     pub fn with_default_pool(mut self) -> Self {
         self.pool = Some(Pool::default());
         self
     }
 
-    /**
-    builds a new conn.
-
-    if the client has pooling enabled and there is
-    an available connection to the dns-resolved socket (ip and port),
-    the new conn will reuse that when it is sent.
-
-    ```
-    use trillium_smol::ClientConfig;
-    use trillium_client::Client;
-    use trillium_testing::prelude::*;
-    let client = Client::new(ClientConfig::default());
-
-    let conn = client.build_conn("get", "http://trillium.rs"); //<-
-
-    assert_eq!(conn.method(), Method::Get);
-    assert_eq!(conn.url().host_str().unwrap(), "trillium.rs");
-    ```
-    */
+    /// builds a new conn.
+    ///
+    /// if the client has pooling enabled and there is
+    /// an available connection to the dns-resolved socket (ip and port),
+    /// the new conn will reuse that when it is sent.
+    ///
+    /// ```
+    /// use trillium_client::Client;
+    /// use trillium_smol::ClientConfig;
+    /// use trillium_testing::prelude::*;
+    /// let client = Client::new(ClientConfig::default());
+    ///
+    /// let conn = client.build_conn("get", "http://trillium.rs"); //<-
+    ///
+    /// assert_eq!(conn.method(), Method::Get);
+    /// assert_eq!(conn.url().host_str().unwrap(), "trillium.rs");
+    /// ```
     pub fn build_conn<M>(&self, method: M, url: impl IntoUrl) -> Conn
     where
         M: TryInto<Method>,
@@ -183,12 +175,10 @@ impl Client {
         &self.config
     }
 
-    /**
-    The pool implementation currently accumulates a small memory
-    footprint for each new host. If your application is reusing a pool
-    against a large number of unique hosts, call this method
-    intermittently.
-    */
+    /// The pool implementation currently accumulates a small memory
+    /// footprint for each new host. If your application is reusing a pool
+    /// against a large number of unique hosts, call this method
+    /// intermittently.
     pub fn clean_up_pool(&self) {
         if let Some(pool) = &self.pool {
             pool.cleanup();

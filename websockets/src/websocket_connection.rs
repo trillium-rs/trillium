@@ -16,16 +16,14 @@ use swansong::{Interrupt, Swansong};
 use trillium::{Headers, Method, TypeSet, Upgrade};
 use trillium_http::{transport::BoxedTransport, type_set::entry::Entry};
 
-/**
-A struct that represents an specific websocket connection.
-
-This can be thought of as a combination of a [`async_tungstenite::WebSocketStream`] and a
-[`trillium::Conn`], as it contains a combination of their fields and
-associated functions.
-
-The WebSocketConn implements `Stream<Item=Result<Message, Error>>`,
-and can be polled with `StreamExt::next`
- */
+/// A struct that represents an specific websocket connection.
+///
+/// This can be thought of as a combination of a [`async_tungstenite::WebSocketStream`] and a
+/// [`trillium::Conn`], as it contains a combination of their fields and
+/// associated functions.
+///
+/// The WebSocketConn implements `Stream<Item=Result<Message, Error>>`,
+/// and can be polled with `StreamExt::next`
 
 #[derive(Debug)]
 pub struct WebSocketConn {
@@ -130,18 +128,14 @@ impl WebSocketConn {
         self.peer_ip = peer_ip
     }
 
-    /**
-    retrieves the path part of the request url, up to and excluding
-    any query component
-     */
+    /// retrieves the path part of the request url, up to and excluding
+    /// any query component
     pub fn path(&self) -> &str {
         self.path.split('?').next().unwrap_or_default()
     }
 
-    /**
-    Retrieves the query component of the path, excluding `?`. Returns
-    an empty string if there is no query component.
-     */
+    /// Retrieves the query component of the path, excluding `?`. Returns
+    /// an empty string if there is no query component.
     pub fn querystring(&self) -> &str {
         self.path
             .split_once('?')
@@ -154,19 +148,15 @@ impl WebSocketConn {
         self.method
     }
 
-    /**
-    retrieve state from the state set that has been accumulated by
-    trillium handlers run on the [`trillium::Conn`] before it
-    became a websocket. see [`trillium::Conn::state`] for more
-    information
-     */
+    /// retrieve state from the state set that has been accumulated by
+    /// trillium handlers run on the [`trillium::Conn`] before it
+    /// became a websocket. see [`trillium::Conn::state`] for more
+    /// information
     pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
         self.state.get()
     }
 
-    /**
-    retrieve a mutable borrow of the state from the state set
-     */
+    /// retrieve a mutable borrow of the state from the state set
     pub fn state_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
         self.state.get_mut()
     }
@@ -178,12 +168,10 @@ impl WebSocketConn {
         self.state.insert(state)
     }
 
-    /**
-    take some type T out of the state set that has been
-    accumulated by trillium handlers run on the [`trillium::Conn`]
-    before it became a websocket. see [`trillium::Conn::take_state`]
-    for more information
-     */
+    /// take some type T out of the state set that has been
+    /// accumulated by trillium handlers run on the [`trillium::Conn`]
+    /// before it became a websocket. see [`trillium::Conn::take_state`]
+    /// for more information
     pub fn take_state<T: Send + Sync + 'static>(&mut self) -> Option<T> {
         self.state.take()
     }

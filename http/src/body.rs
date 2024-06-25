@@ -61,21 +61,18 @@ impl Body {
         }
     }
 
-    /**
-    Consume this body and return the full content. If the body was
-    constructed with `[Body::new_streaming`], this will read the
-    entire streaming body into memory, awaiting the streaming
-    source's completion. This function will return an error if a
-    streaming body has already been read to completion.
-
-    # Errors
-
-    This returns an error variant if either of the following conditions are met:
-
-    * there is an io error when reading from the underlying transport such as a disconnect
-    * the body has already been read to completion
-
-    */
+    /// Consume this body and return the full content. If the body was
+    /// constructed with `[Body::new_streaming`], this will read the
+    /// entire streaming body into memory, awaiting the streaming
+    /// source's completion. This function will return an error if a
+    /// streaming body has already been read to completion.
+    ///
+    /// # Errors
+    ///
+    /// This returns an error variant if either of the following conditions are met:
+    ///
+    /// there is an io error when reading from the underlying transport such as a disconnect
+    /// the body has already been read to completion
     #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn into_bytes(self) -> Result<Cow<'static, [u8]>> {
         match self.0 {

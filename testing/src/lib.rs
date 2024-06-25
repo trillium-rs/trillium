@@ -9,58 +9,53 @@
     unused_qualifications
 )]
 
-/*!
-testing utilities for trillium applications.
-
-this crate is intended to be used as a development dependency.
-
-```
-use trillium_testing::prelude::*;
-use trillium::{Conn, conn_try};
-async fn handler(mut conn: Conn) -> Conn {
-    let request_body = conn_try!(conn.request_body_string().await, conn);
-    conn.with_body(format!("request body was: {}", request_body))
-        .with_status(418)
-        .with_response_header("request-id", "special-request")
-}
-
-assert_response!(
-    post("/").with_request_body("hello trillium!").on(&handler),
-    Status::ImATeapot,
-    "request body was: hello trillium!",
-    "request-id" => "special-request",
-    "content-length" => "33"
-);
-
-```
-
-## Features
-
-**You must enable a runtime feature for trillium testing**
-
-### Tokio:
-```toml
-[dev-dependencies]
-# ...
-trillium-testing = { version = "0.2", features = ["tokio"] }
-```
-
-### Async-std:
-```toml
-[dev-dependencies]
-# ...
-trillium-testing = { version = "0.2", features = ["async-std"] }
-```
-
-### Smol:
-```toml
-[dev-dependencies]
-# ...
-trillium-testing = { version = "0.2", features = ["smol"] }
-```
-
-
-*/
+//! testing utilities for trillium applications.
+//!
+//! this crate is intended to be used as a development dependency.
+//!
+//! ```
+//! use trillium::{conn_try, Conn};
+//! use trillium_testing::prelude::*;
+//! async fn handler(mut conn: Conn) -> Conn {
+//!     let request_body = conn_try!(conn.request_body_string().await, conn);
+//!     conn.with_body(format!("request body was: {}", request_body))
+//!         .with_status(418)
+//!         .with_response_header("request-id", "special-request")
+//! }
+//!
+//! assert_response!(
+//!     post("/").with_request_body("hello trillium!").on(&handler),
+//!     Status::ImATeapot,
+//!     "request body was: hello trillium!",
+//!     "request-id" => "special-request",
+//!     "content-length" => "33"
+//! );
+//! ```
+//!
+//! ## Features
+//!
+//! You must enable a runtime feature for **trillium testing**
+//!
+//! ### Tokio:
+//! ```toml
+//! [dev-dependencies]
+//! # ...
+//! trillium-testing = { version = "0.2", features = ["tokio"] }
+//! ```
+//!
+//! ### Async-std:
+//! ```toml
+//! [dev-dependencies]
+//! # ...
+//! trillium-testing = { version = "0.2", features = ["async-std"] }
+//! ```
+//!
+//! ### Smol:
+//! ```toml
+//! [dev-dependencies]
+//! # ...
+//! trillium-testing = { version = "0.2", features = ["smol"] }
+//! ```
 
 mod assertions;
 
@@ -73,9 +68,7 @@ pub use test_conn::TestConn;
 
 pub mod methods;
 pub mod prelude {
-    /*!
-    useful stuff for testing trillium apps
-    */
+    //! useful stuff for testing trillium apps
     pub use crate::{
         assert_body, assert_body_contains, assert_headers, assert_not_handled, assert_ok,
         assert_response, assert_status, block_on, connector, init, methods::*,

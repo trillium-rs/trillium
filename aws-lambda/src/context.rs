@@ -16,12 +16,10 @@ impl Deref for LambdaContext {
     }
 }
 
-/**
-Provides access to the aws lambda context for [`trillium::Conn`].
-
-See [`lamedh_runtime::Context`] for more details on the data available
-on this struct.
-*/
+/// Provides access to the aws lambda context for [`trillium::Conn`].
+///
+/// See [`lamedh_runtime::Context`] for more details on the data available
+/// on this struct.
 pub trait LambdaConnExt {
     /// returns the [`lamedh_runtime::Context`] for this conn
     fn lambda_context(&self) -> &Context;

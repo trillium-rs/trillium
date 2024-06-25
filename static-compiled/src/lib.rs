@@ -9,85 +9,77 @@
     unused_qualifications
 )]
 
-/*!
-Serves static file assets from memory, as included in the binary at
-compile time. Because this includes file system content at compile
-time, it requires a macro interface, [`static_compiled`](crate::static_compiled).
-
-If the root is a directory, it will recursively serve any files
-relative to the path that this handler is mounted at, or an index file
-if one is configured with
-[`with_index_file`](crate::StaticCompiledHandler::with_index_file).
-
-If the root is a file, it will serve that file at all request paths.
-
-This crate contains code from [`include_dir`][include_dir], but with
-several tweaks to make it more suitable for this specific use case.
-
-[include_dir]:https://docs.rs/include_dir/latest/include_dir/
-
-```
-# #[cfg(not(unix))] fn main() {}
-# #[cfg(unix)] fn main() {
-use trillium_static_compiled::static_compiled;
-
-let handler = static_compiled!("./examples/files")
-    .with_index_file("index.html");
-
-// given the following directory layout
-//
-// examples/files
-// ├── index.html
-// ├── subdir
-// │  └── index.html
-// └── subdir_with_no_index
-//    └── plaintext.txt
-//
-
-use trillium_testing::prelude::*;
-
-assert_ok!(
-    get("/").on(&handler),
-    "<html>\n  <head>\n    <script src=\"/js.js\"></script>\n  </head>\n  <body>\n    <h1>hello world</h1>\n  </body>\n</html>",
-    "content-type" => "text/html"
-);
-assert_not_handled!(get("/file_that_does_not_exist.txt").on(&handler));
-assert_ok!(get("/index.html").on(&handler));
-assert_ok!(
-    get("/subdir/index.html").on(&handler),
-    "subdir index.html 🎈",
-    "content-type" => "text/html; charset=utf-8"
-);
-assert_ok!(get("/subdir").on(&handler), "subdir index.html 🎈");
-assert_not_handled!(get("/subdir_with_no_index").on(&handler));
-assert_ok!(
-    get("/subdir_with_no_index/plaintext.txt").on(&handler),
-    "plaintext file",
-    "content-type" => "text/plain"
-);
-
-
-// with a different index file
-let plaintext_index = static_compiled!("./examples/files")
-    .with_index_file("plaintext.txt");
-
-assert_not_handled!(get("/").on(&plaintext_index));
-assert_not_handled!(get("/subdir").on(&plaintext_index));
-assert_ok!(
-    get("/subdir_with_no_index").on(&plaintext_index),
-    "plaintext file",
-    "content-type" => "text/plain"
-);
-
-// with no index file
-let no_index = static_compiled!("./examples/files");
-
-assert_not_handled!(get("/").on(&no_index));
-assert_not_handled!(get("/subdir").on(&no_index));
-assert_not_handled!(get("/subdir_with_no_index").on(&no_index));
-# }
-```
-*/
+//! Serves static file assets from memory, as included in the binary at
+//! compile time. Because this includes file system content at compile
+//! time, it requires a macro interface, [`static_compiled`](crate::static_compiled).
+//!
+//! If the root is a directory, it will recursively serve any files
+//! relative to the path that this handler is mounted at, or an index file
+//! if one is configured with
+//! [`with_index_file`](crate::StaticCompiledHandler::with_index_file).
+//!
+//! If the root is a file, it will serve that file at all request paths.
+//!
+//! This crate contains code from [`include_dir`][include_dir], but with
+//! several tweaks to make it more suitable for this specific use case.
+//!
+//! [include_dir]:https://docs.rs/include_dir/latest/include_dir/
+//!
+//! ```
+//! use trillium_static_compiled::static_compiled;
+//!
+//! let handler = static_compiled!("./examples/files").with_index_file("index.html");
+//!
+//! // given the following directory layout
+//! //
+//! // examples/files
+//! // ├── index.html
+//! // ├── subdir
+//! // │  └── index.html
+//! // └── subdir_with_no_index
+//! //    └── plaintext.txt
+//!
+//! use trillium_testing::prelude::*;
+//!
+//! let index = include_str!("../examples/files/index.html");
+//! assert_ok!(
+//!     get("/").on(&handler),
+//!     index,
+//!     "content-type" => "text/html"
+//! );
+//! assert_not_handled!(get("/file_that_does_not_exist.txt").on(&handler));
+//! assert_ok!(get("/index.html").on(&handler));
+//! assert_ok!(
+//!     get("/subdir/index.html").on(&handler),
+//!     "subdir index.html 🎈",
+//!     "content-type" => "text/html; charset=utf-8"
+//! );
+//! assert_ok!(get("/subdir").on(&handler), "subdir index.html 🎈");
+//! assert_not_handled!(get("/subdir_with_no_index").on(&handler));
+//! assert_ok!(
+//!     get("/subdir_with_no_index/plaintext.txt").on(&handler),
+//!     "plaintext file",
+//!     "content-type" => "text/plain"
+//! );
+//!
+//! // with a different index file
+//! let plaintext_index = static_compiled!("./examples/files").with_index_file("plaintext.txt");
+//!
+//! assert_not_handled!(get("/").on(&plaintext_index));
+//! assert_not_handled!(get("/subdir").on(&plaintext_index));
+//! assert_ok!(
+//!     get("/subdir_with_no_index").on(&plaintext_index),
+//!     "plaintext file",
+//!     "content-type" => "text/plain"
+//! );
+//!
+//! // with no index file
+//! let no_index = static_compiled!("./examples/files");
+//!
+//! assert_not_handled!(get("/").on(&no_index));
+//! assert_not_handled!(get("/subdir").on(&no_index));
+//! assert_not_handled!(get("/subdir_with_no_index").on(&no_index));
+//! ```
 
 use trillium::{
     Conn, Handler,
@@ -107,11 +99,8 @@ pub mod __macro_internals {
     pub use trillium_static_compiled_macros::{include_dir, include_entry};
 }
 
-/**
-The static compiled handler which contains the compile-time loaded
-assets
-
-*/
+/// The static compiled handler which contains the compile-time loaded
+/// assets
 #[derive(Debug, Clone, Copy)]
 pub struct StaticCompiledHandler {
     root: DirEntry,
@@ -203,36 +192,34 @@ impl Handler for StaticCompiledHandler {
     }
 }
 
-/**
-The preferred interface to build a StaticCompiledHandler
-
-Macro interface to build a
-[`StaticCompiledHandler`]. `static_compiled!("assets")` is
-identical to
-`StaticCompiledHandler::new(root!("assets"))`.
-
-This takes one argument, which must be a string literal.
-
-## Relative paths
-
-Relative paths are expanded and canonicalized relative to
-`$CARGO_MANIFEST_DIR`, which is usually the directory that contains
-your Cargo.toml. If compiled within a workspace, this will be the
-subcrate's Cargo.toml.
-
-## Environment variable expansion
-
-If the argument to `static_compiled` contains substrings that are
-formatted like an environment variable, beginning with a $, they will
-be interpreted in the compile time environment.
-
-For example "$OUT_DIR/some_directory" will expand to the directory
-`some_directory` within the env variable `$OUT_DIR` set by cargo. See
-[this link][env_vars] for further documentation on the environment
-variables set by cargo.
-
-[env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
-*/
+/// The preferred interface to build a StaticCompiledHandler
+///
+/// Macro interface to build a
+/// [`StaticCompiledHandler`]. `static_compiled!("assets")` is
+/// identical to
+/// `StaticCompiledHandler::new(root!("assets"))`.
+///
+/// This takes one argument, which must be a string literal.
+///
+/// ## Relative paths
+///
+/// Relative paths are expanded and canonicalized relative to
+/// `$CARGO_MANIFEST_DIR`, which is usually the directory that contains
+/// your Cargo.toml. If compiled within a workspace, this will be the
+/// subcrate's Cargo.toml.
+///
+/// ## Environment variable expansion
+///
+/// If the argument to `static_compiled` contains substrings that are
+/// formatted like an environment variable, beginning with a $, they will
+/// be interpreted in the compile time environment.
+///
+/// For example "$OUT_DIR/some_directory" will expand to the directory
+/// `some_directory` within the env variable `$OUT_DIR` set by cargo. See
+/// [this link][env_vars] for further documentation on the environment
+/// variables set by cargo.
+///
+/// [env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
 
 #[macro_export]
 macro_rules! static_compiled {
@@ -241,32 +228,29 @@ macro_rules! static_compiled {
     };
 }
 
-/**
-Include the path as root. To be passed into [`StaticCompiledHandler::new`].
-
-This takes one argument, which must be a string literal.
-
-## Relative paths
-
-Relative paths are expanded and canonicalized relative to
-`$CARGO_MANIFEST_DIR`, which is usually the directory that contains
-your Cargo.toml. If compiled within a workspace, this will be the
-subcrate's Cargo.toml.
-
-## Environment variable expansion
-
-If the argument to `static_compiled` contains substrings that are
-formatted like an environment variable, beginning with a $, they will
-be interpreted in the compile time environment.
-
-For example "$OUT_DIR/some_directory" will expand to the directory
-`some_directory` within the env variable `$OUT_DIR` set by cargo. See
-[this link][env_vars] for further documentation on the environment
-variables set by cargo.
-
-[env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
-
-*/
+/// Include the path as root. To be passed into [`StaticCompiledHandler::new`].
+///
+/// This takes one argument, which must be a string literal.
+///
+/// ## Relative paths
+///
+/// Relative paths are expanded and canonicalized relative to
+/// `$CARGO_MANIFEST_DIR`, which is usually the directory that contains
+/// your Cargo.toml. If compiled within a workspace, this will be the
+/// subcrate's Cargo.toml.
+///
+/// ## Environment variable expansion
+///
+/// If the argument to `static_compiled` contains substrings that are
+/// formatted like an environment variable, beginning with a $, they will
+/// be interpreted in the compile time environment.
+///
+/// For example "$OUT_DIR/some_directory" will expand to the directory
+/// `some_directory` within the env variable `$OUT_DIR` set by cargo. See
+/// [this link][env_vars] for further documentation on the environment
+/// variables set by cargo.
+///
+/// [env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
 #[macro_export]
 macro_rules! root {
     ($path:tt) => {{

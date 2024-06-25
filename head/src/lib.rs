@@ -1,11 +1,9 @@
-/*!
-# Trillium handler for HEAD requests
-
-This simple handler rewrites HEAD requests to be GET requests, and
-then before sending the response, removes the outbound body but sets a
-content length header. Any handlers subsequent to this one see a GET
-request.
-*/
+//! # Trillium handler for HEAD requests
+//!
+//! This simple handler rewrites HEAD requests to be GET requests, and
+//! then before sending the response, removes the outbound body but sets a
+//! content length header. Any handlers subsequent to this one see a GET
+//! request.
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
@@ -18,11 +16,9 @@ request.
 
 use trillium::{conn_unwrap, Conn, Handler, KnownHeaderName::ContentLength, Method};
 
-/**
-Trillium handler for HEAD requests
-
-See crate-level docs for an explanation
-*/
+/// Trillium handler for HEAD requests
+///
+/// See crate-level docs for an explanation
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Head {
     _my_private_things: (),

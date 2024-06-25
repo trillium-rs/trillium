@@ -28,12 +28,11 @@ use std::{
 /// Default Server header
 pub const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
 
-/** A http connection
-
-Unlike in other rust http implementations, this struct represents both
-the request and the response, and holds the transport over which the
-response will be sent.
-*/
+/// A http connection
+///
+/// Unlike in other rust http implementations, this struct represents both
+/// the request and the response, and holds the transport over which the
+/// response will be sent.
 pub struct Conn<Transport> {
     pub(crate) request_headers: Headers,
     pub(crate) response_headers: Headers,
@@ -270,20 +269,19 @@ where
         &self.response_headers
     }
 
-    /** sets the http status code from any `TryInto<Status>`.
-
-    ```
-    # use trillium_http::{Conn, Method, Status};
-    # let mut conn = Conn::new_synthetic(Method::Get, "/", ());
-    assert!(conn.status().is_none());
-
-    conn.set_status(200); // a status can be set as a u16
-    assert_eq!(conn.status().unwrap(), Status::Ok);
-
-    conn.set_status(Status::ImATeapot); // or as a Status
-    assert_eq!(conn.status().unwrap(), Status::ImATeapot);
-    ```
-    */
+    /// sets the http status code from any `TryInto<Status>`.
+    ///
+    /// ```
+    /// # use trillium_http::{Conn, Method, Status};
+    /// # let mut conn = Conn::new_synthetic(Method::Get, "/", ());
+    /// assert!(conn.status().is_none());
+    ///
+    /// conn.set_status(200); // a status can be set as a u16
+    /// assert_eq!(conn.status().unwrap(), Status::Ok);
+    ///
+    /// conn.set_status(Status::ImATeapot); // or as a Status
+    /// assert_eq!(conn.status().unwrap(), Status::ImATeapot);
+    /// ```
     pub fn set_status(&mut self, status: impl TryInto<Status>) {
         self.status = Some(status.try_into().unwrap_or_else(|_| {
             log::error!("attempted to set an invalid status code");
@@ -297,14 +295,12 @@ where
         self.status
     }
 
-    /**
-    retrieves the path part of the request url, up to and excluding any query component
-    ```
-    # use trillium_http::{Conn, Method};
-    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
-    assert_eq!(conn.path(), "/some/path");
-    ```
-    */
+    /// retrieves the path part of the request url, up to and excluding any query component
+    /// ```
+    /// # use trillium_http::{Conn, Method};
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
+    /// assert_eq!(conn.path(), "/some/path");
+    /// ```
     pub fn path(&self) -> &str {
         match self.path.split_once('?') {
             Some((path, _)) => path,
@@ -317,18 +313,15 @@ where
         &self.path
     }
 
-    /**
-    retrieves the query component of the path
-    ```
-    # use trillium_http::{Conn, Method};
-    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
-    assert_eq!(conn.querystring(), "and&a=query");
-
-    let mut conn = Conn::new_synthetic(Method::Get, "/some/path", ());
-    assert_eq!(conn.querystring(), "");
-
-    ```
-    */
+    /// retrieves the query component of the path
+    /// ```
+    /// # use trillium_http::{Conn, Method};
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
+    /// assert_eq!(conn.querystring(), "and&a=query");
+    ///
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/some/path", ());
+    /// assert_eq!(conn.querystring(), "");
+    /// ```
     pub fn querystring(&self) -> &str {
         self.path
             .split_once('?')
@@ -361,17 +354,15 @@ where
     //     }
     // }
 
-    /**
-    Sets the response body to anything that is [`impl Into<Body>`][Body].
-
-    ```
-    # use trillium_http::{Conn, Method, Body};
-    # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
-    conn.set_response_body("hello");
-    conn.set_response_body(String::from("hello"));
-    conn.set_response_body(vec![99, 97, 116]);
-    ```
-    */
+    /// Sets the response body to anything that is [`impl Into<Body>`][Body].
+    ///
+    /// ```
+    /// # use trillium_http::{Conn, Method, Body};
+    /// # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
+    /// conn.set_response_body("hello");
+    /// conn.set_response_body(String::from("hello"));
+    /// conn.set_response_body(vec![99, 97, 116]);
+    /// ```
     pub fn set_response_body(&mut self, body: impl Into<Body>) {
         self.response_body = Some(body.into());
     }
@@ -381,46 +372,38 @@ where
         self.response_body.as_ref()
     }
 
-    /**
-    remove the response body from this conn and return it
-
-    ```
-    # use trillium_http::{Conn, Method};
-    # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
-    assert!(conn.response_body().is_none());
-    conn.set_response_body("hello");
-    assert!(conn.response_body().is_some());
-    let body = conn.take_response_body();
-    assert!(body.is_some());
-    assert!(conn.response_body().is_none());
-    ```
-    */
+    /// remove the response body from this conn and return it
+    ///
+    /// ```
+    /// # use trillium_http::{Conn, Method};
+    /// # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
+    /// assert!(conn.response_body().is_none());
+    /// conn.set_response_body("hello");
+    /// assert!(conn.response_body().is_some());
+    /// let body = conn.take_response_body();
+    /// assert!(body.is_some());
+    /// assert!(conn.response_body().is_none());
+    /// ```
     pub fn take_response_body(&mut self) -> Option<Body> {
         self.response_body.take()
     }
 
-    /**
-    returns the http method for this conn's request.
-    ```
-    # use trillium_http::{Conn, Method};
-    let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
-    assert_eq!(conn.method(), Method::Get);
-    ```
-     */
+    /// returns the http method for this conn's request.
+    /// ```
+    /// # use trillium_http::{Conn, Method};
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
+    /// assert_eq!(conn.method(), Method::Get);
+    /// ```
     pub fn method(&self) -> Method {
         self.method
     }
 
-    /**
-    overrides the http method for this conn
-     */
+    /// overrides the http method for this conn
     pub fn set_method(&mut self, method: Method) {
         self.method = method;
     }
 
-    /**
-    returns the http version for this conn.
-    */
+    /// returns the http version for this conn.
     pub fn http_version(&self) -> Version {
         self.version
     }
@@ -520,52 +503,48 @@ where
         )
     }
 
-    /**
-    returns the [`encoding_rs::Encoding`] for this request, as
-    determined from the mime-type charset, if available
-
-    ```
-    # use trillium_http::{Conn, Method};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", ());
-    assert_eq!(conn.request_encoding(), encoding_rs::WINDOWS_1252); // the default
-    conn.request_headers_mut().insert("content-type", "text/plain;charset=utf-16");
-    assert_eq!(conn.request_encoding(), encoding_rs::UTF_16LE);
-    ```
-    */
+    /// returns the [`encoding_rs::Encoding`] for this request, as
+    /// determined from the mime-type charset, if available
+    ///
+    /// ```
+    /// # use trillium_http::{Conn, Method};
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/", ());
+    /// assert_eq!(conn.request_encoding(), encoding_rs::WINDOWS_1252); // the default
+    /// conn.request_headers_mut()
+    ///     .insert("content-type", "text/plain;charset=utf-16");
+    /// assert_eq!(conn.request_encoding(), encoding_rs::UTF_16LE);
+    /// ```
     pub fn request_encoding(&self) -> &'static Encoding {
         encoding(&self.request_headers)
     }
 
-    /**
-    returns the [`encoding_rs::Encoding`] for this response, as
-    determined from the mime-type charset, if available
-
-    ```
-    # use trillium_http::{Conn, Method};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", ());
-    assert_eq!(conn.response_encoding(), encoding_rs::WINDOWS_1252); // the default
-    conn.response_headers_mut().insert("content-type", "text/plain;charset=utf-16");
-    assert_eq!(conn.response_encoding(), encoding_rs::UTF_16LE);
-    ```
-    */
+    /// returns the [`encoding_rs::Encoding`] for this response, as
+    /// determined from the mime-type charset, if available
+    ///
+    /// ```
+    /// # use trillium_http::{Conn, Method};
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/", ());
+    /// assert_eq!(conn.response_encoding(), encoding_rs::WINDOWS_1252); // the default
+    /// conn.response_headers_mut()
+    ///     .insert("content-type", "text/plain;charset=utf-16");
+    /// assert_eq!(conn.response_encoding(), encoding_rs::UTF_16LE);
+    /// ```
     pub fn response_encoding(&self) -> &'static Encoding {
         encoding(&self.response_headers)
     }
 
-    /**
-    returns a [`ReceivedBody`] that references this conn. the conn
-    retains all data and holds the singular transport, but the
-    `ReceivedBody` provides an interface to read body content
-    ```
-    # async_io::block_on(async {
-    # use trillium_http::{Conn, Method};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
-    let request_body = conn.request_body().await;
-    assert_eq!(request_body.content_length(), Some(5));
-    assert_eq!(request_body.read_string().await.unwrap(), "hello");
-    # });
-    ```
-    */
+    /// returns a [`ReceivedBody`] that references this conn. the conn
+    /// retains all data and holds the singular transport, but the
+    /// `ReceivedBody` provides an interface to read body content
+    /// ```
+    /// # async_io::block_on(async {
+    /// # use trillium_http::{Conn, Method};
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
+    /// let request_body = conn.request_body().await;
+    /// assert_eq!(request_body.content_length(), Some(5));
+    /// assert_eq!(request_body.read_string().await.unwrap(), "hello");
+    /// # });
+    /// ```
     pub async fn request_body(&mut self) -> ReceivedBody<'_, Transport> {
         if self.needs_100_continue() {
             self.send_100_continue().await.ok();
@@ -783,9 +762,7 @@ where
         self.secure = secure;
     }
 
-    /**
-    calculates any auto-generated headers for this conn prior to sending it
-    */
+    /// calculates any auto-generated headers for this conn prior to sending it
     pub fn finalize_headers(&mut self) {
         if self.status == Some(Status::SwitchingProtocols) {
             return;
@@ -814,16 +791,14 @@ where
         }
     }
 
-    /**
-    Registers a function to call after the http response has been
-    completely transferred. Please note that this is a sync function
-    and should be computationally lightweight. If your _application_
-    needs additional async processing, use your runtime's task spawn
-    within this hook.  If your _library_ needs additional async
-    processing in an `after_send` hook, please open an issue. This hook
-    is currently designed for simple instrumentation and logging, and
-    should be thought of as equivalent to a Drop hook.
-    */
+    /// Registers a function to call after the http response has been
+    /// completely transferred. Please note that this is a sync function
+    /// and should be computationally lightweight. If your _application_
+    /// needs additional async processing, use your runtime's task spawn
+    /// within this hook.  If your _library_ needs additional async
+    /// processing in an `after_send` hook, please open an issue. This hook
+    /// is currently designed for simple instrumentation and logging, and
+    /// should be thought of as equivalent to a Drop hook.
     pub fn after_send<F>(&mut self, after_send: F)
     where
         F: FnOnce(SendStatus) + Send + Sync + 'static,

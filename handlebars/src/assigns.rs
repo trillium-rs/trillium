@@ -6,10 +6,8 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-/**
-A struct for accumulating key-value data for use in handlebars
-templates. The values can be any type that is serde serializable
-*/
+/// A struct for accumulating key-value data for use in handlebars
+/// templates. The values can be any type that is serde serializable
 #[derive(Default, Serialize, Debug)]
 pub struct Assigns(HashMap<Cow<'static, str>, Value>);
 

@@ -9,20 +9,16 @@ use std::{
 };
 use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url};
 
-/**
-Configuration for the native tls client connector
-*/
+/// Configuration for the native tls client connector
 #[derive(Clone)]
 pub struct NativeTlsConfig<Config> {
     /// configuration for the inner Connector (usually tcp)
     pub tcp_config: Config,
 
-    /**
-    native tls configuration
-
-    Although async_native_tls calls this
-    a TlsConnector, it's actually a builder ¯\_(ツ)_/¯
-    */
+    /// native tls configuration
+    ///
+    /// Although async_native_tls calls this
+    /// a TlsConnector, it's actually a builder ¯\_(ツ)_/¯
     pub tls_connector: Arc<TlsConnector>,
 }
 
@@ -104,12 +100,10 @@ impl<T: Connector> Connector for NativeTlsConfig<T> {
     }
 }
 
-/**
-Client [`Transport`] for the native tls connector
-
-This may represent either an encrypted tls connection or a plaintext
-connection
-*/
+/// Client [`Transport`] for the native tls connector
+///
+/// This may represent either an encrypted tls connection or a plaintext
+/// connection
 
 #[derive(Debug)]
 pub struct NativeTlsClientTransport<T>(NativeTlsClientTransportInner<T>);

@@ -10,9 +10,7 @@ use trillium_server_common::{
     Connector, Transport,
 };
 
-/**
-configuration for the tcp Connector
-*/
+/// configuration for the tcp Connector
 #[derive(Default, Debug, Clone, Copy)]
 pub struct ClientConfig {
     /// disable [nagle's algorithm](https://en.wikipedia.org/wiki/Nagle%27s_algorithm)

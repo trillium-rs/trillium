@@ -5,10 +5,8 @@ use std::{
     sync::{Arc, RwLock},
 };
 use trillium::{Conn, Handler};
-/**
-A trillium handler that provides registered templates to
-downsequence handlers
-*/
+/// A trillium handler that provides registered templates to
+/// downsequence handlers
 
 #[derive(Default, Clone, Debug)]
 pub struct HandlebarsHandler(Arc<RwLock<Handlebars<'static>>>);

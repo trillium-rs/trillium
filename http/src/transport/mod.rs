@@ -3,23 +3,21 @@ pub use boxed_transport::BoxedTransport;
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{any::Any, io::Result, net::SocketAddr, time::Duration};
 
-/**
-# The interface that the http protocol is communicated over.
-
-This trait supports several common interfaces supported by tcp
-streams, but also can be implemented for other stream types. All trait
-functions are currently optional.
-
-**Note:** `Transport` is currently designed around
-[`AsyncWrite`](https://docs.rs/futures/0.3.15/futures/io/trait.AsyncWrite.html)
-and
-[`AsyncRead`](https://docs.rs/futures/0.3.15/futures/io/trait.AsyncRead.html)
-from the futures crate, which are different from the tokio
-[`AsyncRead`](https://docs.rs/tokio/1.6.0/tokio/io/trait.AsyncRead.html) and
-[`AsyncWrite`](https://docs.rs/tokio/1.6.0/tokio/io/trait.AsyncWrite.html) traits.
-Hopefully this is a temporary
-situation.
-*/
+/// # The interface that the http protocol is communicated over.
+///
+/// This trait supports several common interfaces supported by tcp
+/// streams, but also can be implemented for other stream types. All trait
+/// functions are currently optional.
+///
+/// **Note:** `Transport` is currently designed around
+/// [`AsyncWrite`](https://docs.rs/futures/0.3.15/futures/io/trait.AsyncWrite.html)
+/// and
+/// [`AsyncRead`](https://docs.rs/futures/0.3.15/futures/io/trait.AsyncRead.html)
+/// from the futures crate, which are different from the tokio
+/// [`AsyncRead`](https://docs.rs/tokio/1.6.0/tokio/io/trait.AsyncRead.html) and
+/// [`AsyncWrite`](https://docs.rs/tokio/1.6.0/tokio/io/trait.AsyncWrite.html) traits.
+/// Hopefully this is a temporary
+/// situation.
 #[allow(unused)]
 pub trait Transport: Any + AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static {
     /// # Sets the linger duration of this transport by setting the `SO_LINGER` option

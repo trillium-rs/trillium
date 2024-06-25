@@ -8,21 +8,19 @@
     unused_qualifications
 )]
 
-/*!
-# Utilities and traits for building trillium runtime adapters
-
-Trillium applications should never need to depend directly on this
-library. Server adapters should reexport any types from this crate
-that an application author would need to use.
-
-The parts of this crate that are not application facing should be
-expected to change more frequently than the parts that are application
-facing.
-
-If you are depending on this crate for private code that cannot be
-discovered through docs.rs' reverse dependencies, please open an
-issue.
-*/
+//! # Utilities and traits for building trillium runtime adapters
+//!
+//! Trillium applications should never need to depend directly on this
+//! library. Server adapters should reexport any types from this crate
+//! that an application author would need to use.
+//!
+//! The parts of this crate that are not application facing should be
+//! expected to change more frequently than the parts that are application
+//! facing.
+//!
+//! If you are depending on this crate for private code that cannot be
+//! discovered through docs.rs' reverse dependencies, please open an
+//! issue.
 pub use futures_lite::{AsyncRead, AsyncWrite, Stream};
 pub use trillium_http::transport::Transport;
 pub use url::{self, Url};

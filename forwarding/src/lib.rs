@@ -1,22 +1,20 @@
-/*!
-# Trillium handler for `x-forwarded-*` / `forwarded`
-
-This simple handler rewrites the request's host, secure setting, and
-peer ip based on headers added by a trusted reverse proxy.
-
-The specific headers that are understood by this handler are:
-
-* [`Forwarded`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Forwarded)
-* or some combination of the following
-    - [`X-Forwarded-For`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-For)
-    - [`X-Forwarded-Proto`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-Proto)
-    - [`X-Forwarded-Host`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-Host)
-
-There are several ways of specifying when to trust a peer ip address,
-and the narrowest possible trust rules should be used for a given
-deployment so as to decrease the chance for a threat actor to generate
-a request with forwarded headers that we mistakenly trust.
-*/
+//! # Trillium handler for `x-forwarded-*` / `forwarded`
+//!
+//! This simple handler rewrites the request's host, secure setting, and
+//! peer ip based on headers added by a trusted reverse proxy.
+//!
+//! The specific headers that are understood by this handler are:
+//!
+//! [`Forwarded`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Forwarded)
+//! or some combination of the following
+//! - [`X-Forwarded-For`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-For)
+//! - [`X-Forwarded-Proto`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-Proto)
+//! - [`X-Forwarded-Host`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-Host)
+//!
+//! There are several ways of specifying when to trust a peer ip address,
+//! and the narrowest possible trust rules should be used for a given
+//! deployment so as to decrease the chance for a threat actor to generate
+//! a request with forwarded headers that we mistakenly trust.
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
@@ -77,11 +75,9 @@ impl TrustProxy {
     }
 }
 
-/**
-Trillium handler for `forwarded`/`x-forwarded-*` headers
-
-See crate-level docs for an explanation
-*/
+/// Trillium handler for `forwarded`/`x-forwarded-*` headers
+///
+/// See crate-level docs for an explanation
 #[derive(Default, Debug)]
 pub struct Forwarding(TrustProxy);
 
@@ -92,33 +88,29 @@ impl From<TrustProxy> for Forwarding {
 }
 
 impl Forwarding {
-    /**
-    builds a Forwarding handler that trusts a list of strings that represent either specific IPs or a CIDR range.
-    ```
-    # use trillium_forwarding::Forwarding;
-    let forwarding = Forwarding::trust_ips(["10.1.10.1"]);
-    let forwarding = Forwarding::trust_ips(["10.1.10.1", "192.168.0.0/16"]);
-    ```
-    */
+    /// builds a Forwarding handler that trusts a list of strings that represent either specific IPs
+    /// or a CIDR range. ```
+    /// # use trillium_forwarding::Forwarding;
+    /// let forwarding = Forwarding::trust_ips(["10.1.10.1"]);
+    /// let forwarding = Forwarding::trust_ips(["10.1.10.1", "192.168.0.0/16"]);
+    /// ```
     pub fn trust_ips<'a>(ips: impl IntoIterator<Item = &'a str>) -> Self {
         Self(TrustProxy::Cidr(
             ips.into_iter().map(|ip| ip.parse().unwrap()).collect(),
         ))
     }
 
-    /**
-    builds a Forwarding handler that trusts a peer ip based on the provided predicate function.
-
-    ```
-    # use trillium_forwarding::Forwarding;
-    # use std::net::IpAddr;
-    let forwarding = Forwarding::trust_fn(IpAddr::is_loopback);
-    let forwarding = Forwarding::trust_fn(|ip| match ip {
-        IpAddr::V6(_) => false,
-        IpAddr::V4(ipv4) => ipv4.is_link_local()
-    });
-    ```
-     */
+    /// builds a Forwarding handler that trusts a peer ip based on the provided predicate function.
+    ///
+    /// ```
+    /// # use trillium_forwarding::Forwarding;
+    /// # use std::net::IpAddr;
+    /// let forwarding = Forwarding::trust_fn(IpAddr::is_loopback);
+    /// let forwarding = Forwarding::trust_fn(|ip| match ip {
+    ///     IpAddr::V6(_) => false,
+    ///     IpAddr::V4(ipv4) => ipv4.is_link_local(),
+    /// });
+    /// ```
     pub fn trust_fn<F>(trust_predicate: F) -> Self
     where
         F: Fn(&IpAddr) -> bool + Send + Sync + 'static,
@@ -126,16 +118,13 @@ impl Forwarding {
         Self(TrustProxy::Function(TrustFn::from(trust_predicate)))
     }
 
-    /**
-    builds a Forwarding handler that expects that all http connections
-    will always come from a trusted and spec-compliant reverse
-    proxy. This should only be used in situations in which the
-    application is either running inside of a vpc and the reverse
-    proxy ip cannot be known. Using an overbroad trust rule such as
-    `trust_always` introduces security risk to an application, as it
-    allows any request to forge Forwarded headers.
-
-    */
+    /// builds a Forwarding handler that expects that all http connections
+    /// will always come from a trusted and spec-compliant reverse
+    /// proxy. This should only be used in situations in which the
+    /// application is either running inside of a vpc and the reverse
+    /// proxy ip cannot be known. Using an overbroad trust rule such as
+    /// `trust_always` introduces security risk to an application, as it
+    /// allows any request to forge Forwarded headers.
     pub fn trust_always() -> Self {
         Self(TrustProxy::Always)
     }

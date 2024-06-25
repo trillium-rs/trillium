@@ -1,10 +1,8 @@
 use cookie::{Cookie, CookieJar};
 use trillium::{Conn, Handler, HeaderValue, HeaderValues, KnownHeaderName};
 
-/**
-The trillium cookie handler. See crate level docs for an example. This
-must run before any handlers access the cookie jar.
-*/
+/// The trillium cookie handler. See crate level docs for an example. This
+/// must run before any handlers access the cookie jar.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CookiesHandler {
     // this is in order to force users to call CookiesHandler::new or
