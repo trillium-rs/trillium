@@ -26,17 +26,16 @@ impl Debug for Runtime {
     }
 }
 
+impl<R: RuntimeTrait> From<Arc<R>> for Runtime {
+    fn from(value: Arc<R>) -> Self {
+        Self(value)
+    }
+}
+
 impl Runtime {
     /// Construct a new type-erased runtime object from any [`RuntimeTrait`] implementation.
     pub fn new(runtime: impl RuntimeTrait) -> Self {
         runtime.into() // we avoid re-arcing a Runtime by using Into::into
-    }
-
-    // in order to avoid re-arcing Runtime in new / into, we use this to actually construct the
-    // Runtime within From implementations on the runtime trait type
-    #[doc(hidden)]
-    pub fn from_trait_impl(runtime: impl RuntimeTrait) -> Self {
-        Self(Arc::new(runtime))
     }
 
     /// Spawn a future on the runtime, returning a future that has detach-on-drop semantics

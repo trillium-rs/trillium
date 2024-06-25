@@ -1,5 +1,5 @@
 use futures_lite::future::FutureExt;
-use std::{future::Future, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 use trillium_server_common::{DroppableFuture, Runtime, RuntimeTrait, Stream};
 
 /// async-std runtime
@@ -89,6 +89,6 @@ impl AsyncStdRuntime {
 
 impl From<AsyncStdRuntime> for Runtime {
     fn from(value: AsyncStdRuntime) -> Self {
-        Runtime::from_trait_impl(value)
+        Arc::new(value).into()
     }
 }

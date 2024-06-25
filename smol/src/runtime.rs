@@ -4,6 +4,7 @@ use futures_lite::{FutureExt, Stream, StreamExt};
 use std::{
     future::Future,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -113,6 +114,6 @@ impl SmolRuntime {
 
 impl From<SmolRuntime> for Runtime {
     fn from(value: SmolRuntime) -> Self {
-        Runtime::from_trait_impl(value)
+        Arc::new(value).into()
     }
 }
