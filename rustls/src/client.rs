@@ -97,7 +97,7 @@ impl<C: Connector> RustlsConfig<C> {
 impl<Config: Debug> Debug for RustlsConfig<Config> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("RustlsConfig")
-            .field("rustls_config", &"..")
+            .field("rustls_config", &format_args!(".."))
             .field("tcp_config", &self.tcp_config)
             .finish()
     }

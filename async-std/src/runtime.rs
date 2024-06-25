@@ -1,5 +1,5 @@
 use futures_lite::future::FutureExt;
-use std::{future::Future, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 use trillium_server_common::{DroppableFuture, Runtime, RuntimeTrait, Stream};
 
 /// async-std runtime
@@ -29,6 +29,14 @@ impl RuntimeTrait for AsyncStdRuntime {
 
     fn block_on<Fut: Future>(&self, fut: Fut) -> Fut::Output {
         async_std::task::block_on(fut)
+    }
+
+    #[cfg(unix)]
+    fn hook_signals(
+        &self,
+        signals: impl IntoIterator<Item = i32>,
+    ) -> impl Stream<Item = i32> + Send + 'static {
+        signal_hook_async_std::Signals::new(signals).unwrap()
     }
 }
 
@@ -81,6 +89,6 @@ impl AsyncStdRuntime {
 
 impl From<AsyncStdRuntime> for Runtime {
     fn from(value: AsyncStdRuntime) -> Self {
-        Runtime::new(value)
+        Arc::new(value).into()
     }
 }

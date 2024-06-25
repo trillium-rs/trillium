@@ -1,7 +1,7 @@
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
-use std::thread;
-use trillium_http::{Conn, Swansong};
+use std::{sync::Arc, thread};
+use trillium_http::{Conn, ServerConfig, Swansong};
 
 async fn handler(mut conn: Conn<TcpStream>) -> Conn<TcpStream> {
     let rc = std::rc::Rc::new(());
@@ -14,13 +14,15 @@ async fn handler(mut conn: Conn<TcpStream>) -> Conn<TcpStream> {
 
 pub fn main() {
     env_logger::init();
-    let swansong = Swansong::new();
+    let server_config = Arc::new(ServerConfig::new());
     let (send, receive) = async_channel::unbounded();
     let core_ids = core_affinity::get_core_ids().unwrap();
+
+    let swansong = Swansong::new();
     let handles = core_ids
         .into_iter()
         .map(|id| {
-            let swansong = swansong.clone();
+            let server_config = server_config.clone();
             let receive = receive.clone();
             thread::spawn(move || {
                 if !core_affinity::set_for_current(id) {
@@ -28,12 +30,11 @@ pub fn main() {
                 }
                 let executor = async_executor::LocalExecutor::new();
 
-                futures_lite::future::block_on(executor.run(async {
+                async_io::block_on(executor.run(async {
                     while let Ok(transport) = receive.recv().await {
-                        let swansong = swansong.clone();
-
+                        let server_config = server_config.clone();
                         let future = async move {
-                            match Conn::map(transport, swansong, handler).await {
+                            match server_config.run(transport, handler).await {
                                 Ok(_) => {}
                                 Err(e) => log::error!("{e}"),
                             }
