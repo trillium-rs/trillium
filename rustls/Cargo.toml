@@ -29,7 +29,7 @@ features = ["logging"]
 [dependencies]
 log = "0.4.21"
 rustls-pemfile = { version = "2.1.1", optional = true }
-rustls-platform-verifier = { version = "0.3.1", optional = true }
+rustls-platform-verifier = { version = "0.3.2", optional = true }
 trillium-server-common = { path = "../server-common", version = "0.5.2" }
 webpki-roots = { version = "0.26", optional = true }
 
