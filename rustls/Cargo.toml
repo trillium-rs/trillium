@@ -1,6 +1,6 @@
 [package]
 name = "trillium-rustls"
-version = "0.8.0"
+version = "0.8.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "rustls adapter for trillium.rs"
