@@ -25,7 +25,7 @@ url = "2.5.0"
 rlimit = "0.10.1"
 
 [dev-dependencies]
-test-harness = "0.2.0"
+test-harness = "0.3.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
