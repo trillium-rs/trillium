@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/trillium-rs/trillium/compare/trillium-smol-v0.4.1...trillium-smol-v0.4.2) - 2024-07-03
+
+### Added
+- *(smol)* use async_signal instead of signal_hook_async_std
+
+### Other
+- release
+
 ## [0.4.1](https://github.com/trillium-rs/trillium/compare/trillium-smol-v0.4.0...trillium-smol-v0.4.1) - 2024-04-12
 
 ### Added
