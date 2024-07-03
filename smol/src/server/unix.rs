@@ -38,15 +38,13 @@ impl Server for SmolServer {
 
     fn handle_signals(stop: Stopper) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         Box::pin(async move {
-            use signal_hook::consts::signal::*;
-            use signal_hook_async_std::Signals;
-
-            let signals = Signals::new([SIGINT, SIGTERM, SIGQUIT]).unwrap();
-            let mut signals = signals.fuse();
-            while signals.next().await.is_some() {
+            use async_signal::{Signal, Signals};
+            let mut signals = Signals::new([Signal::Int, Signal::Term, Signal::Quit]).unwrap();
+            while let Some(signal) = signals.next().await {
                 if stop.is_stopped() {
-                    eprintln!("\nSecond interrupt, shutting down harshly");
-                    std::process::exit(1);
+                    eprintln!("\nSecond signal ({signal:?}), shutting down harshly");
+                    signal_hook::low_level::emulate_default_handler(signal.unwrap() as i32)
+                        .unwrap();
                 } else {
                     println!("\nShutting down gracefully.\nControl-C again to force.");
                     stop.stop();
