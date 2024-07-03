@@ -29,10 +29,9 @@
 //! // └── subdir_with_no_index
 //! //    └── plaintext.txt
 //!
-//! use trillium::Handler;
 //! use trillium_testing::prelude::*;
 //!
-//! handler.init(&mut "testing".into()).await;
+//! init(&mut handler).await;
 //!
 //! assert_ok!(
 //!     get("/").run_async(&handler).await,
@@ -63,6 +62,8 @@
 //! // with a different index file
 //! let plaintext_index = StaticFileHandler::new(crate_relative_path!("examples/files"))
 //!     .with_index_file("plaintext.txt");
+//!
+//! init(&mut handler).await;
 //!
 //! assert_not_handled!(get("/").run_async(&plaintext_index).await);
 //! assert_not_handled!(get("/subdir").run_async(&plaintext_index).await);

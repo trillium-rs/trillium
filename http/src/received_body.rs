@@ -361,7 +361,7 @@ impl<'conn, Transport> Debug for ReceivedBody<'conn, Transport> {
         f.debug_struct("RequestBody")
             .field("state", &*self.state)
             .field("content_length", &self.content_length)
-            .field("buffer", &"..")
+            .field("buffer", &format_args!(".."))
             .field("on_completion", &self.on_completion.is_some())
             .finish()
     }

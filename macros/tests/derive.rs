@@ -20,7 +20,7 @@ fn full_lifecycle() {
 
         async fn init(&mut self, info: &mut Info) {
             self.init = true;
-            *info.server_description_mut() = "inner handler took over".into();
+            info.insert_state("inner handler took over");
         }
 
         async fn before_send(&self, conn: Conn) -> Conn {
@@ -40,7 +40,7 @@ fn full_lifecycle() {
         let mut handler = OuterHandler(InnerHandler { init: false });
 
         handler.init(&mut info).await;
-        assert_eq!(info.server_description(), "inner handler took over");
+        assert_eq!(info.state::<&str>().unwrap(), &"inner handler took over");
         assert!(handler.0.init);
         assert_ok!(get("/").run_async(&handler).await, "run", "before-send" => "before-send");
         assert_eq!(handler.name(), "OuterHandler (inner handler)");

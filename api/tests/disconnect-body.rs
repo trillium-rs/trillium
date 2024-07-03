@@ -5,6 +5,7 @@ use trillium_testing::{
     client_config, futures_lite::AsyncWriteExt, harness, ArcedConnector, AsyncWrite, Connector,
     ServerHandle,
 };
+use url::Url;
 
 struct LastStatus(Sender<Option<Status>>);
 
@@ -100,20 +101,10 @@ async fn establish_server(handler: impl Handler) -> (ServerHandle, impl AsyncWri
 
     let handle = trillium_testing::config().with_port(0).spawn(handler);
     let info = handle.info().await;
-    let port = info.tcp_socket_addr().map_or_else(
-        || {
-            info.listener_description()
-                .split(":")
-                .nth(1)
-                .unwrap()
-                .parse()
-                .unwrap()
-        },
-        |x| x.port(),
-    );
+    let url: &Url = info.state().unwrap();
 
     let client = ArcedConnector::new(client_config())
-        .connect(&format!("http://localhost:{port}").parse().unwrap())
+        .connect(url)
         .await
         .unwrap();
     (handle, client)

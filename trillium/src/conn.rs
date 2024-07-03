@@ -21,22 +21,22 @@ use trillium_http::{
 /// that is named `with_{attribute}` will take ownership of the conn, set
 /// the attribute and return the conn, enabling chained calls like:
 ///
-/// ```rust
+/// ```
 /// struct MyState(&'static str);
 /// async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
-///     conn.with_response_header("content-type", "text/plain")
-///         .with_state(MyState("hello"))
-///         .with_body("hey there")
-///         .with_status(418)
+/// conn.with_response_header("content-type", "text/plain")
+/// .with_state(MyState("hello"))
+/// .with_body("hey there")
+/// .with_status(418)
 /// }
 ///
 /// use trillium_testing::prelude::*;
 ///
 /// assert_response!(
-///     get("/").on(&handler),
-///     Status::ImATeapot,
-///     "hey there",
-///     "content-type" => "text/plain"
+/// get("/").on(&handler),
+/// Status::ImATeapot,
+/// "hey there",
+/// "content-type" => "text/plain"
 /// );
 /// ```
 ///
@@ -217,14 +217,6 @@ impl Conn {
         self.inner.state().get()
     }
 
-    /// Attempts to receive a &T from the shared state set
-    ///
-    /// Note that shared state may not currently be mutated after server start, so there is no
-    /// `shared_state_mut` or `shared_state_entry`
-    pub fn shared_state<T: Send + Sync + 'static>(&self) -> Option<&T> {
-        self.inner.shared_state().and_then(TypeSet::get)
-    }
-
     /// Attempts to retrieve a &mut T from the state set
     pub fn state_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
         self.inner.state_mut().get_mut()
@@ -252,12 +244,15 @@ impl Conn {
         self.inner.state_mut().take()
     }
 
-    /// Returns an [`Entry`] type that represents the presence or absence of a type in this state.
-    ///
-    /// Use this for chainable combinators like [`Entry::or_default`], [`Entry::or_insert`],
-    /// [`Entry::or_insert_with`], and [`Entry::and_modify`] as well as matching on it as an enum.
+    /// Returns an [`Entry`] for the state typeset that can be used with functions like
+    /// [`Entry::or_insert`], [`Entry::or_insert_with`], [`Entry::and_modify`], and others.
     pub fn state_entry<T: Send + Sync + 'static>(&mut self) -> Entry<'_, T> {
         self.inner.state_mut().entry()
+    }
+
+    /// Attempts to borrow a T from the immutable shared state set
+    pub fn shared_state<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.inner.shared_state().get()
     }
 
     /// Returns a [`ReceivedBody`] that references this `Conn`. The `Conn`
@@ -457,7 +452,7 @@ impl Conn {
         self.inner.is_secure()
     }
 
-    /// The [`Instant`][std::time::Instant] that the first header bytes for this conn were
+    /// The [`Instant`] that the first header bytes for this conn were
     /// received, before any processing or parsing has been performed.
     pub fn start_time(&self) -> std::time::Instant {
         self.inner.start_time()
@@ -494,7 +489,7 @@ impl Conn {
     ///
     /// # Panics
     ///
-    /// This will panic if you attempt to downcast to the wrong `Transport` type.
+    /// This will panic if you attempt to downcast to the wrong Transport type.
     pub fn into_inner<T: Transport>(self) -> trillium_http::Conn<T> {
         self.inner.map_transport(|t| {
             *t.downcast()

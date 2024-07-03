@@ -24,57 +24,53 @@
 //! usable interface on top of `trillium_http`, at very little cost.
 //!
 //! ```
-//! # fn main() -> trillium_http::Result<()> { smol::block_on(async {
-//! use async_net::{TcpListener, TcpStream};
-//! use futures_lite::StreamExt;
-//! use trillium_http::{Conn, Result, Swansong};
+//! fn main() -> trillium_http::Result<()> {
+//!     smol::block_on(async {
+//!         use async_net::TcpListener;
+//!         use futures_lite::StreamExt;
+//!         use std::sync::Arc;
+//!         use trillium_http::ServerConfig;
 //!
-//! let swansong = Swansong::new();
-//! let listener = TcpListener::bind(("localhost", 0)).await?;
-//! let port = listener.local_addr()?.port();
+//!         let server_config = Arc::new(ServerConfig::default());
+//!         let listener = TcpListener::bind(("localhost", 0)).await?;
+//!         let local_addr = listener.local_addr().unwrap();
+//!         let server_handle = smol::spawn({
+//!             let server_config = server_config.clone();
+//!             async move {
+//!                 let mut incoming = server_config.swansong().interrupt(listener.incoming());
 //!
-//! let server_swansong = swansong.clone();
-//! let server_handle = smol::spawn(async move {
-//!     let mut incoming = server_swansong.interrupt(listener.incoming());
+//!                 while let Some(Ok(stream)) = incoming.next().await {
+//!                     smol::spawn(server_config.clone().run(stream, |mut conn| async move {
+//!                         conn.set_response_body("hello world");
+//!                         conn.set_status(200);
+//!                         conn
+//!                     }))
+//!                     .detach()
+//!                 }
+//!             }
+//!         });
 //!
-//!     while let Some(Ok(stream)) = incoming.next().await {
-//!         let swansong = server_swansong.clone();
-//!         smol::spawn(Conn::map(
-//!             stream,
-//!             swansong,
-//!             |mut conn: Conn<TcpStream>| async move {
-//!                 conn.set_response_body("hello world");
-//!                 conn.set_status(200);
-//!                 conn
-//!             },
-//!         ))
-//!         .detach()
-//!     }
+//!         // this example uses the trillium client
+//!         // any other http client would work here too
+//!         let client = trillium_client::Client::new(trillium_smol::ClientConfig::default())
+//!             .with_base(local_addr);
+//!         let mut client_conn = client.get("/").await?;
 //!
-//!     Result::Ok(())
-//! });
+//!         assert_eq!(client_conn.status().unwrap(), 200);
+//!         assert_eq!(
+//!             client_conn.response_headers().get_str("content-length"),
+//!             Some("11")
+//!         );
+//!         assert_eq!(
+//!             client_conn.response_body().read_string().await?,
+//!             "hello world"
+//!         );
 //!
-//! // this example uses the trillium client
-//! // any other http client would work here too
-//!
-//! let url = format!("http://localhost:{}/", port);
-//! let client = trillium_client::Client::new(trillium_smol::ClientConfig::default());
-//! let mut client_conn = client.get(&*url).await?;
-//!
-//! assert_eq!(client_conn.status().unwrap(), 200);
-//! assert_eq!(
-//!     client_conn.response_headers().get_str("content-length"),
-//!     Some("11")
-//! );
-//! assert_eq!(
-//!     client_conn.response_body().read_string().await?,
-//!     "hello world"
-//! );
-//!
-//! swansong.shut_down(); // stop the server after one request
-//! server_handle.await?; // wait for the server to shut down
-//! //
-//! # Result::Ok(()) }) }
+//!         server_config.shut_down().await; // stop the server after one request
+//!         server_handle.await; // wait for the server to shut down
+//!         Ok(())
+//!     })
+//! }
 //! ```
 
 mod received_body;
@@ -160,3 +156,5 @@ pub use copy::copy;
 pub(crate) use copy::copy;
 
 mod liveness;
+mod server_config;
+pub use server_config::ServerConfig;

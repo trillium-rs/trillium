@@ -20,13 +20,13 @@ impl From<&str> for TeraHandler {
 
 impl From<&String> for TeraHandler {
     fn from(dir: &String) -> Self {
-        (**dir).into()
+        Tera::new(&dir).unwrap().into()
     }
 }
 
 impl From<String> for TeraHandler {
     fn from(dir: String) -> Self {
-        dir.into()
+        Tera::new(&dir).unwrap().into()
     }
 }
 

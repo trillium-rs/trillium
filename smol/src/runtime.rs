@@ -4,6 +4,7 @@ use futures_lite::{FutureExt, Stream, StreamExt};
 use std::{
     future::Future,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -53,6 +54,14 @@ impl RuntimeTrait for SmolRuntime {
 
     fn block_on<Fut: Future>(&self, fut: Fut) -> Fut::Output {
         async_global_executor::block_on(fut)
+    }
+
+    #[cfg(unix)]
+    fn hook_signals(
+        &self,
+        signals: impl IntoIterator<Item = i32>,
+    ) -> impl Stream<Item = i32> + Send + 'static {
+        signal_hook_async_std::Signals::new(signals).unwrap()
     }
 }
 
@@ -105,6 +114,6 @@ impl SmolRuntime {
 
 impl From<SmolRuntime> for Runtime {
     fn from(value: SmolRuntime) -> Self {
-        Runtime::new(value)
+        Arc::new(value).into()
     }
 }

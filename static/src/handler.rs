@@ -78,7 +78,7 @@ impl StaticFileHandler {
     /// use trillium_testing::prelude::*;
     ///
     /// let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"));
-    /// # handler.init(&mut "testing".into()).await;
+    /// # init(&mut handler);
     ///
     /// assert_not_handled!(get("/").run_async(&handler).await); // no index file configured
     ///
@@ -122,7 +122,7 @@ impl StaticFileHandler {
     ///
     /// let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
     /// .with_index_file("index.html");
-    /// # handler.init(&mut "testing".into()).await;
+    /// # init(&mut handler);
     ///
     /// use trillium_testing::prelude::*;
     /// assert_ok!(

@@ -1,10 +1,13 @@
 use std::time::Duration;
 use trillium_client::Client;
-use trillium_testing::{client_config, runtime, RuntimeTrait};
+use trillium_testing::{client_config, Runtime};
 
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     if conn.path() == "/slow" {
-        runtime().delay(Duration::from_secs(5)).await;
+        conn.shared_state::<Runtime>()
+            .unwrap()
+            .delay(Duration::from_secs(5))
+            .await;
     }
     conn.ok("ok")
 }

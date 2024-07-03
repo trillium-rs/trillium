@@ -1,6 +1,9 @@
-use crate::{Acceptor, ArcHandler, Config, ConfigExt, RuntimeTrait, Swansong, Transport};
-use std::{future::Future, io::Result, sync::Arc};
-use trillium::{Handler, Info};
+use crate::{RuntimeTrait, Swansong, Transport};
+use listenfd::ListenFd;
+#[cfg(unix)]
+use std::os::unix::net::UnixListener;
+use std::{future::Future, io::Result, net::TcpListener};
+use trillium::Info;
 
 /// The server trait, for standard network-based server implementations.
 pub trait Server: Sized + Send + Sync + 'static {
@@ -12,16 +15,15 @@ pub trait Server: Sized + Send + Sync + 'static {
     /// The [`RuntimeTrait`] for this `Server`.
     type Runtime: RuntimeTrait;
 
-    /// The description of this server, to be appended to the Info and potentially logged.
-    const DESCRIPTION: &'static str;
-
     /// Asynchronously return a single `Self::Transport` from a
     /// `Self::Listener`. Must be implemented.
     fn accept(&mut self) -> impl Future<Output = Result<Self::Transport>> + Send;
 
     /// Build an [`Info`] from the Self::Listener type. See [`Info`]
     /// for more details.
-    fn info(&self) -> Info;
+    fn init(&self, info: &mut Info) {
+        let _ = info;
+    }
 
     /// After the server has shut down, perform any housekeeping, eg
     /// unlinking a unix socket.
@@ -36,61 +38,59 @@ pub trait Server: Sized + Send + Sync + 'static {
     /// is described elsewhere. To override the default logic, server
     /// implementations could potentially implement this directly.  To
     /// use this default logic, implement
-    /// [`Server::listener_from_tcp`] and
-    /// [`Server::listener_from_unix`].
-    #[cfg(unix)]
-    fn build_listener<A>(config: &Config<Self, A>) -> Self
-    where
-        A: Acceptor<Self::Transport>,
-    {
-        if let Some(listener) = config.binding.write().unwrap().take() {
-            log::debug!("taking prebound listener");
-            return listener;
-        }
-
-        use std::os::unix::prelude::FromRawFd;
-        let host = config.host();
+    /// [`Server::from_tcp`] and
+    /// [`Server::from_unix`].
+    fn from_host_and_port(host: &str, port: u16) -> Self {
+        #[cfg(unix)]
         if host.starts_with(|c| c == '/' || c == '.' || c == '~') {
-            Self::listener_from_unix(std::os::unix::net::UnixListener::bind(host).unwrap())
-        } else {
-            let tcp_listener = if let Some(fd) = std::env::var("LISTEN_FD")
-                .ok()
-                .and_then(|fd| fd.parse().ok())
-            {
-                log::debug!("using fd {} from LISTEN_FD", fd);
-                unsafe { std::net::TcpListener::from_raw_fd(fd) }
-            } else {
-                std::net::TcpListener::bind((host, config.port())).unwrap()
-            };
-
-            tcp_listener.set_nonblocking(true).unwrap();
-            Self::listener_from_tcp(tcp_listener)
-        }
-    }
-
-    /// Build a listener from the config. The default logic for this
-    /// is described elsewhere. To override the default logic, server
-    /// implementations could potentially implement this directly.  To
-    /// use this default logic, implement [`Server::listener_from_tcp`]
-    #[cfg(not(unix))]
-    fn build_listener<A>(config: &Config<Self, A>) -> Self
-    where
-        A: Acceptor<Self::Transport>,
-    {
-        if let Some(listener) = config.binding.write().unwrap().take() {
-            log::debug!("taking prebound listener");
-            return listener;
+            log::debug!("using unix listener at {host}");
+            return UnixListener::bind(host)
+                .inspect(|unix_listener| {
+                    log::debug!("listening at {:?}", unix_listener.local_addr().unwrap());
+                })
+                .map(Self::from_unix)
+                .unwrap();
         }
 
-        let tcp_listener = std::net::TcpListener::bind((config.host(), config.port())).unwrap();
+        let mut listen_fd = ListenFd::from_env();
+
+        #[cfg(unix)]
+        if let Ok(Some(unix_listener)) = listen_fd.take_unix_listener(0) {
+            log::debug!(
+                "using unix listener from systemfd environment {:?}",
+                unix_listener.local_addr().unwrap()
+            );
+            return Self::from_unix(unix_listener);
+        }
+
+        let tcp_listener = listen_fd
+            .take_tcp_listener(0)
+            .ok()
+            .flatten()
+            .inspect(|tcp_listener| {
+                log::debug!(
+                    "using tcp listener from systemfd environment, listening at {:?}",
+                    tcp_listener.local_addr()
+                )
+            })
+            .unwrap_or_else(|| {
+                log::debug!("using tcp listener at {host}:{port}");
+                TcpListener::bind((host, port))
+                    .inspect(|tcp_listener| {
+                        log::debug!("listening at {:?}", tcp_listener.local_addr().unwrap())
+                    })
+                    .unwrap()
+            });
+
         tcp_listener.set_nonblocking(true).unwrap();
-        Self::listener_from_tcp(tcp_listener)
+        Self::from_tcp(tcp_listener)
     }
 
     /// Build a Self::Listener from a tcp listener. This is called by
     /// the [`Server::build_listener`] default implementation, and
     /// is mandatory if the default implementation is used.
-    fn listener_from_tcp(_tcp: std::net::TcpListener) -> Self {
+    fn from_tcp(tcp_listener: TcpListener) -> Self {
+        let _ = tcp_listener;
         unimplemented!()
     }
 
@@ -98,7 +98,8 @@ pub trait Server: Sized + Send + Sync + 'static {
     /// the [`Server::build_listener`] default implementation. You
     /// will want to tag an implementation of this with #[cfg(unix)].
     #[cfg(unix)]
-    fn listener_from_unix(_tcp: std::os::unix::net::UnixListener) -> Self {
+    fn from_unix(unix_listener: UnixListener) -> Self {
+        let _ = unix_listener;
         unimplemented!()
     }
 
@@ -107,59 +108,5 @@ pub trait Server: Sized + Send + Sync + 'static {
     /// spawned using [`Server::spawn`]
     fn handle_signals(_swansong: Swansong) -> impl Future<Output = ()> + Send {
         async {}
-    }
-
-    /// Run a trillium application from a sync context
-    fn run<A, H>(config: Config<Self, A>, handler: H)
-    where
-        A: Acceptor<Self::Transport>,
-        H: Handler,
-    {
-        config
-            .runtime
-            .clone()
-            .block_on(async move { Self::run_async(config, handler).await });
-    }
-
-    /// Run a trillium application from an async context. The default
-    /// implementation of this method contains the core logic of this
-    /// Trait.
-    fn run_async<A, H>(config: Config<Self, A>, mut handler: H) -> impl Future<Output = ()> + Send
-    where
-        A: Acceptor<Self::Transport>,
-        H: Handler,
-    {
-        async move {
-            let runtime = config.runtime.clone();
-            if config.should_register_signals() {
-                #[cfg(unix)]
-                runtime.spawn(Self::handle_signals(config.swansong()));
-
-                #[cfg(not(unix))]
-                log::error!("signals handling not supported on windows yet");
-            }
-            let mut listener = Self::build_listener(&config);
-            let mut info = Self::info(&listener);
-            info.server_description_mut().push_str(Self::DESCRIPTION);
-            handler.init(&mut info).await;
-            config.info.set(Arc::new(info));
-            let config = Arc::new(config);
-            let handler = ArcHandler::new(handler);
-            let swansong = &config.swansong;
-
-            while let Some(transport) = swansong.interrupt(Self::accept(&mut listener)).await {
-                match transport {
-                    Ok(stream) => {
-                        let config = Arc::clone(&config);
-                        let handler = ArcHandler::clone(&handler);
-                        runtime.spawn(config.handle_stream(stream, handler));
-                    }
-                    Err(e) => log::error!("tcp error: {}", e),
-                }
-            }
-
-            config.graceful_shutdown().await;
-            Self::clean_up(listener).await;
-        }
     }
 }
