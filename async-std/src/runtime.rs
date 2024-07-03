@@ -1,3 +1,4 @@
+use async_std::{stream, task};
 use futures_lite::future::FutureExt;
 use std::{future::Future, sync::Arc, time::Duration};
 use trillium_server_common::{DroppableFuture, Runtime, RuntimeTrait, Stream};
@@ -15,20 +16,20 @@ impl RuntimeTrait for AsyncStdRuntime {
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
     {
-        let join_handle = async_std::task::spawn(fut);
+        let join_handle = task::spawn(fut);
         DroppableFuture::new(async move { join_handle.catch_unwind().await.ok() })
     }
 
     async fn delay(&self, duration: Duration) {
-        async_std::task::sleep(duration).await
+        task::sleep(duration).await
     }
 
     fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static {
-        async_std::stream::interval(period)
+        stream::interval(period)
     }
 
     fn block_on<Fut: Future>(&self, fut: Fut) -> Fut::Output {
-        async_std::task::block_on(fut)
+        task::block_on(fut)
     }
 
     #[cfg(unix)]
@@ -58,23 +59,23 @@ impl AsyncStdRuntime {
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
     {
-        let join_handle = async_std::task::spawn(fut);
+        let join_handle = task::spawn(fut);
         DroppableFuture::new(async move { join_handle.catch_unwind().await.ok() })
     }
 
     /// Wake in this amount of wall time
     pub async fn delay(&self, duration: Duration) {
-        async_std::task::sleep(duration).await
+        task::sleep(duration).await
     }
 
     /// Returns a [`Stream`] that yields a `()` on the provided period
     pub fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static {
-        async_std::stream::interval(period)
+        stream::interval(period)
     }
 
     /// Runtime implementation hook for blocking on a top level future.
     pub fn block_on<Fut: Future>(&self, fut: Fut) -> Fut::Output {
-        async_std::task::block_on(fut)
+        task::block_on(fut)
     }
 
     /// Race a future against the provided duration, returning None in case of timeout.
