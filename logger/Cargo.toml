@@ -18,7 +18,7 @@ time = { version = "0.3.31", features = ["local-offset", "formatting", "macros"]
 trillium = { path = "../trillium", version = "0.2.20" }
 
 [dev-dependencies]
-access_log_parser = "0.8.0"
+access_log_parser = "0.9.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-http = { path = "../http", features = ["http-compat"] }
