@@ -26,7 +26,7 @@ mime = "0.3.17"
 serde_json = { version = "1.0.108", optional = true }
 serde = { version = "1.0.193", optional = true }
 thiserror = { version = "1.0.52", optional = true }
-dashmap = "5.5.3"
+dashmap = "6.1.0"
 crossbeam-queue = "0.3.10"
 memchr = "2.7.1"
 
