@@ -10,6 +10,9 @@ readme = "../README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming", "web-programming::http-client"]
 
+[package.metadata.docs.rs]
+features = ["json", "websockets"]
+
 [features]
 websockets = ["dep:trillium-websockets", "dep:thiserror"]
 json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
