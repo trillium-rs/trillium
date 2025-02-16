@@ -19,7 +19,7 @@
 /// ```
 #[macro_export]
 macro_rules! conn_try {
-    ($expr:expr_2021, $conn:expr_2021) => {
+    ($expr:expr, $conn:expr $(,)?) => {
         match $expr {
             Ok(value) => value,
             Err(error) => {
@@ -52,7 +52,7 @@ macro_rules! conn_try {
 /// ```
 #[macro_export]
 macro_rules! conn_unwrap {
-    ($option:expr_2021, $conn:expr_2021) => {
+    ($option:expr, $conn:expr $(,)?) => {
         match $option {
             Some(value) => value,
             None => return $conn,
