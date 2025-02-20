@@ -1,6 +1,6 @@
 [package]
 name = "trillium-proxy"
-version = "0.5.5"
+version = "0.6.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "reverse proxy for trillium.rs"
@@ -24,7 +24,7 @@ log = "0.4.20"
 size = "0.4.1"
 sluice = "0.5.5"
 trillium = { path = "../trillium", version = "0.2.20" }
-trillium-client = { path = "../client", version = "0.6.2" }
+trillium-client = { path = "../client", version = "0.7.0" }
 trillium-forwarding = { version = "0.2.4", path = "../forwarding" }
 trillium-http = { path = "../http", version = "0.3.17", features = ["unstable"] }
 trillium-server-common = { version = "0.5.2", path = "../server-common", optional = true }

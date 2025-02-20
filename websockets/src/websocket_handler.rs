@@ -163,8 +163,7 @@ pub trait WebSocketHandler: Send + Sync + Sized + 'static {
     the case of a clean disconnect, the [`CloseFrame`] if one is sent
     available.
     */
-    async fn disconnect(&self, conn: &mut WebSocketConn, close_frame: Option<CloseFrame<'static>>) {
-    }
+    async fn disconnect(&self, conn: &mut WebSocketConn, close_frame: Option<CloseFrame>) {}
 }
 
 #[async_trait]

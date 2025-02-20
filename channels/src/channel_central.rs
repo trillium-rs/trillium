@@ -124,11 +124,7 @@ where
         }
     }
 
-    async fn disconnect(
-        &self,
-        conn: &mut WebSocketConn,
-        _close_frame: Option<CloseFrame<'static>>,
-    ) {
+    async fn disconnect(&self, conn: &mut WebSocketConn, _close_frame: Option<CloseFrame>) {
         self.handler.disconnect(ChannelConn { conn }).await
     }
 }
