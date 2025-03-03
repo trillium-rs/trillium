@@ -124,8 +124,9 @@ impl WebSocketConn {
     }
 
     /// Sets the peer ip for this conn
-    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) {
-        self.peer_ip = peer_ip
+    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) -> &mut Self {
+        self.peer_ip = peer_ip;
+        self
     }
 
     /**
