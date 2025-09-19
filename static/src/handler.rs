@@ -3,6 +3,7 @@ use crate::{
     fs_shims::{File, fs},
     options::StaticOptions,
 };
+use relative_path::RelativePath;
 use std::path::{Path, PathBuf};
 use trillium::{Conn, Handler, conn_unwrap};
 
@@ -29,11 +30,10 @@ impl StaticFileHandler {
             url_path,
             file_path.to_str().unwrap()
         );
-        for segment in Path::new(url_path) {
-            match segment.to_str() {
-                Some("/") => {}
-                Some(".") => {}
-                Some("..") => {
+        for segment in RelativePath::new(url_path) {
+            match segment {
+                "." => {}
+                ".." => {
                     file_path.pop();
                 }
                 _ => {
