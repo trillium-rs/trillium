@@ -28,7 +28,7 @@ assert_body!(
 */
 #[macro_export]
 macro_rules! conn_try {
-    ($expr:expr, $conn:expr) => {
+    ($expr:expr, $conn:expr $(,)?) => {
         match $expr {
             Ok(value) => value,
             Err(error) => {
@@ -66,7 +66,7 @@ assert_ok!(
 */
 #[macro_export]
 macro_rules! conn_unwrap {
-    ($option:expr, $conn:expr) => {
+    ($option:expr, $conn:expr $(,)?) => {
         match $option {
             Some(value) => value,
             None => return $conn,
