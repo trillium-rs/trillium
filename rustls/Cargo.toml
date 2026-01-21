@@ -1,6 +1,6 @@
 [package]
 name = "trillium-rustls"
-version = "0.8.1"
+version = "0.9.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2021"
 description = "rustls adapter for trillium.rs"
@@ -45,4 +45,4 @@ trillium-testing = { path = "../testing" }
 
 [package.metadata.cargo-udeps.ignore]
 # because there is no way to say [dependencies.'cfg(not(feature = "platform-verifier"))']
-normal = ["webpki-roots"] 
+normal = ["webpki-roots"]
