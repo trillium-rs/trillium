@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/trillium-rs/trillium/releases/tag/trillium-rustls-v0.9.0) - 2026-01-21
+
+### Added
+
+- [**breaking**] release trillium-rustls 0.9.0
+
+### Other
+
+- *(rustls)* update rustls deps
+
 ## [0.8.1](https://github.com/trillium-rs/trillium/compare/trillium-rustls-v0.8.0...trillium-rustls-v0.8.1) - 2024-06-29
 
 ### Fixed
