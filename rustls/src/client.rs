@@ -52,7 +52,7 @@ impl Default for RustlsClientConfig {
 
 #[cfg(feature = "platform-verifier")]
 fn verifier(provider: Arc<CryptoProvider>) -> Arc<dyn ServerCertVerifier> {
-    Arc::new(rustls_platform_verifier::Verifier::new().with_provider(provider))
+    Arc::new(rustls_platform_verifier::Verifier::new(provider).unwrap())
 }
 
 #[cfg(not(feature = "platform-verifier"))]
