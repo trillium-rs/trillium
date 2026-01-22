@@ -42,7 +42,7 @@ fn with_channel() {
             let path = conn.path().to_string();
             let sender: &mut Sender<Message> = conn.state_mut().unwrap();
             if let Message::Text(input) = message {
-                let reply = Message::Text(format!(
+                let reply = Message::text(format!(
                     "received your message: {} at path {}",
                     &input, &path
                 ));
@@ -77,7 +77,7 @@ fn with_stream_only() {
                         let path = path.clone();
                         async move {
                             match message {
-                                Ok(Message::Text(text)) => Some(Message::Text(format!(
+                                Ok(Message::Text(text)) => Some(Message::text(format!(
                                     "received your message: {} at path {}",
                                     &text, &path
                                 ))),
@@ -93,7 +93,7 @@ fn with_stream_only() {
             let path = conn.path().to_string();
             let sender: &mut Sender<Message> = conn.state_mut().unwrap();
             if let Message::Text(input) = message {
-                let reply = Message::Text(format!(
+                let reply = Message::text(format!(
                     "received your message: {} at path {}",
                     &input, &path
                 ));
@@ -141,15 +141,15 @@ fn test_handler(handler: impl Handler) {
         client.send(Message::text("hello")).await?;
         let received_message = client.next().await.unwrap()?.into_text()?;
         assert_eq!(
+            received_message,
             "received your message: hello at path /some/route",
-            received_message
         );
 
         client.send(Message::text("hey")).await?;
         let received_message = client.next().await.unwrap()?.into_text()?;
         assert_eq!(
+            received_message,
             "received your message: hey at path /some/route",
-            received_message
         );
 
         Ok(())

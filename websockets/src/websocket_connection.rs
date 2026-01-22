@@ -43,13 +43,13 @@ type Wss = WebSocketStream<BoxedTransport>;
 
 impl WebSocketConn {
     /// send a [`Message::Text`] variant
-    pub async fn send_string(&mut self, string: String) -> Result<()> {
-        self.send(Message::Text(string)).await.map_err(Into::into)
+    pub async fn send_string(&mut self, string: impl Into<tungstenite::Utf8Bytes>) -> Result<()> {
+        self.send(Message::text(string)).await
     }
 
     /// send a [`Message::Binary`] variant
-    pub async fn send_bytes(&mut self, bin: Vec<u8>) -> Result<()> {
-        self.send(Message::Binary(bin)).await.map_err(Into::into)
+    pub async fn send_bytes(&mut self, bin: impl Into<tungstenite::Bytes>) -> Result<()> {
+        self.send(Message::binary(bin)).await
     }
 
     #[cfg(feature = "json")]

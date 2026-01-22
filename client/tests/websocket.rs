@@ -28,7 +28,7 @@ fn test_websockets() {
 
         assert_eq!(
             response,
-            Message::Text("Server received your message: Client test message".to_string()),
+            Message::text("Server received your message: Client test message"),
         );
 
         Ok(())
