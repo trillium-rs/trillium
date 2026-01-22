@@ -5,6 +5,7 @@ use crate::{
 };
 use std::path::{Path, PathBuf};
 use trillium::{async_trait, conn_unwrap, Conn, Handler};
+use relative_path::RelativePath;
 
 /**
 trillium handler to serve static files from the filesystem
@@ -31,11 +32,10 @@ impl StaticFileHandler {
             url_path,
             file_path.to_str().unwrap()
         );
-        for segment in Path::new(url_path) {
+        for segment in RelativePath::new(url_path) {
             match segment.to_str() {
-                Some("/") => {}
-                Some(".") => {}
-                Some("..") => {
+                "." => {}
+                ".." => {
                     file_path.pop();
                 }
                 _ => {
