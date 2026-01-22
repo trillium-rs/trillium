@@ -172,7 +172,7 @@ impl ApiConnExt for Conn {
         match serde_json::to_string(&response) {
             Ok(body) => {
                 if self.status().is_none() {
-                    self.set_status(Status::Ok)
+                    self.set_status(Status::Ok);
                 }
 
                 self.response_headers_mut()
@@ -260,16 +260,16 @@ impl ApiConnExt for Conn {
 
         match accept {
             Some(AcceptableMime::Json) => {
-                self.set_body(serde_json::to_string(body)?);
-                self.response_headers_mut()
+                self.set_body(serde_json::to_string(body)?)
+                    .response_headers_mut()
                     .insert(ContentType, "application/json");
                 Ok(())
             }
 
             #[cfg(feature = "forms")]
             Some(AcceptableMime::Form) => {
-                self.set_body(serde_urlencoded::to_string(body)?);
-                self.response_headers_mut()
+                self.set_body(serde_urlencoded::to_string(body)?)
+                    .response_headers_mut()
                     .insert(ContentType, "application/x-www-form-urlencoded");
                 Ok(())
             }

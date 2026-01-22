@@ -103,8 +103,8 @@ fn json_try_from_conn_checks_content_type() {
 }
 
 async fn error_handler(conn: &mut Conn, error: Error) {
-    conn.set_body(format!("my error format: {error:?}"));
-    conn.set_status(&error);
+    conn.set_body(format!("my error format: {error:?}"))
+        .set_status(&error);
 }
 
 fn app_with_error_handler() -> impl Handler {

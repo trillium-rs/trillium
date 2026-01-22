@@ -42,7 +42,8 @@ assert_response!(
 
 If you need to set a property on the conn without moving it,
 `set_{attribute}` associated functions will be your huckleberry, as is
-conventional in other rust projects.
+conventional in other rust projects. These methods accept `&mut self`,
+and they support chaining as well.
 
 ## State
 
@@ -125,8 +126,9 @@ impl Conn {
     }
 
     /// assigns a status to this response. see [`Conn::status`] for example usage
-    pub fn set_status(&mut self, status: impl TryInto<Status>) {
+    pub fn set_status(&mut self, status: impl TryInto<Status>) -> &mut Self {
         self.inner.set_status(status);
+        self
     }
 
     /**
@@ -183,8 +185,9 @@ impl Conn {
     assert_eq!(conn.response_len(), Some(5));
     ```
     */
-    pub fn set_body(&mut self, body: impl Into<Body>) {
+    pub fn set_body(&mut self, body: impl Into<Body>) -> &mut Self {
         self.inner.set_response_body(body);
+        self
     }
 
     /**
@@ -503,8 +506,9 @@ impl Conn {
     assert!(conn.is_halted());
     ```
     */
-    pub fn set_halted(&mut self, halted: bool) {
+    pub fn set_halted(&mut self, halted: bool) -> &mut Self {
         self.halted = halted;
+        self
     }
 
     /// retrieves the halted state of this conn.  see [`Conn::halt`].
@@ -573,8 +577,9 @@ impl Conn {
     }
 
     /// sets the remote ip address for this conn.
-    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) {
+    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) -> &mut Self {
         self.inner_mut().set_peer_ip(peer_ip);
+        self
     }
 
     /// for router implementations. pushes a route segment onto the path
