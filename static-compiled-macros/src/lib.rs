@@ -108,7 +108,16 @@ fn expand_file(root: &Path, path: &Path) -> proc_macro2::TokenStream {
     let contents = read_file(path);
     let literal = Literal::byte_string(&contents);
 
-    let normalized_path = normalize_path(root, path);
+    // When the file IS the root (include_entry! called directly on a file),
+    // normalize_path would strip the entire path leaving "". Use the filename
+    // directly so that mime_guess can detect the correct content type.
+    let normalized_path = if root == path {
+        path.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    } else {
+        normalize_path(root, path)
+    };
 
     let tokens = quote!(File::new(#normalized_path, #literal));
 
