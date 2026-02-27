@@ -303,18 +303,24 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             None => return conn.with_status(Status::ServiceUnavailable).halt(),
         };
 
-        let connection = conn
-            .response_headers_mut()
-            .remove(KnownHeaderName::Connection);
+        if Some(SwitchingProtocols) != conn.status()
+            || !conn
+                .response_headers()
+                .eq_ignore_ascii_case(KnownHeaderName::Connection, "Upgrade")
+        {
+            let connection = conn
+                .response_headers_mut()
+                .remove(KnownHeaderName::Connection);
 
-        conn.response_headers_mut().remove_all(
-            connection
-                .iter()
-                .flatten()
-                .filter_map(|s| s.as_str())
-                .flat_map(|s| s.split(','))
-                .map(|t| HeaderName::from(t.trim()).into_owned()),
-        );
+            conn.response_headers_mut().remove_all(
+                connection
+                    .iter()
+                    .flatten()
+                    .filter_map(|s| s.as_str())
+                    .flat_map(|s| s.split(','))
+                    .map(|t| HeaderName::from(t.trim()).into_owned()),
+            );
+        }
 
         conn.response_headers_mut().remove_all([
             KnownHeaderName::KeepAlive,
