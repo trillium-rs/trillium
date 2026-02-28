@@ -2,7 +2,7 @@ use crate::{TokioRuntime, TokioTransport};
 use async_compat::Compat;
 use std::io::Result;
 use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
-use trillium::{log_error, Info};
+use trillium::{Info, log_error};
 use trillium_server_common::{
     Binding::{self, *},
     Server, Swansong,

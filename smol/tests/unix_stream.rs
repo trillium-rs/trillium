@@ -1,7 +1,7 @@
 #![cfg(unix)]
 use test_harness::test;
 use trillium_client::Client;
-use trillium_smol::{config, SmolTransport};
+use trillium_smol::{SmolTransport, config};
 use trillium_testing::harness;
 
 #[test(harness)]

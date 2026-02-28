@@ -8,8 +8,8 @@ mod unknown_header_name;
 use crate::headers::entry::{OccupiedEntryInner, VacantEntryInner};
 pub use entry::{Entry, OccupiedEntry, VacantEntry};
 use hashbrown::{
-    hash_map::{self, Entry as HashbrownEntry},
     HashMap,
+    hash_map::{self, Entry as HashbrownEntry},
 };
 pub use header_name::HeaderName;
 use header_name::HeaderNameInner;
@@ -19,8 +19,8 @@ pub use known_header_name::KnownHeaderName;
 use smartcow::SmartCow;
 use std::{
     collections::{
-        btree_map::{self, Entry as BTreeEntry},
         BTreeMap,
+        btree_map::{self, Entry as BTreeEntry},
     },
     fmt::{self, Debug, Display, Formatter},
 };

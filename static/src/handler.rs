@@ -1,10 +1,10 @@
 use crate::{
-    fs_shims::{fs, File},
-    options::StaticOptions,
     StaticConnExt,
+    fs_shims::{File, fs},
+    options::StaticOptions,
 };
 use std::path::{Path, PathBuf};
-use trillium::{conn_unwrap, Conn, Handler};
+use trillium::{Conn, Handler, conn_unwrap};
 
 /// trillium handler to serve static files from the filesystem
 #[derive(Debug)]

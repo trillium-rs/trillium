@@ -1,6 +1,6 @@
-use crate::{pool::PoolEntry, util::encoding, Pool};
+use crate::{Pool, pool::PoolEntry, util::encoding};
 use encoding_rs::Encoding;
-use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
+use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once, io};
 use memchr::memmem::Finder;
 use size::{Base, Size};
 use std::{
@@ -12,14 +12,14 @@ use std::{
     time::Duration,
 };
 use trillium_http::{
-    transport::{BoxedTransport, Transport},
     Body, Error, HeaderName, HeaderValues, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBody, ReceivedBodyState, Result, Status, Upgrade, Version,
+    transport::{BoxedTransport, Transport},
 };
 use trillium_server_common::{
-    url::{Origin, Url},
     ArcedConnector, Connector,
+    url::{Origin, Url},
 };
 
 /// A wrapper error for [`trillium_http::Error`] or

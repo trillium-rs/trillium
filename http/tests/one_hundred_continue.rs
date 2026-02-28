@@ -1,8 +1,8 @@
 use indoc::{formatdoc, indoc};
 use pretty_assertions::assert_eq;
 use test_harness::test;
-use trillium_http::{Conn, KnownHeaderName, Swansong, SERVER};
-use trillium_testing::{harness, RuntimeTrait, TestResult, TestTransport};
+use trillium_http::{Conn, KnownHeaderName, SERVER, Swansong};
+use trillium_testing::{RuntimeTrait, TestResult, TestTransport, harness};
 
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 

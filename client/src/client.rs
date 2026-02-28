@@ -1,12 +1,12 @@
 use crate::{Conn, IntoUrl, Pool, USER_AGENT};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
-    transport::BoxedTransport, HeaderName, HeaderValues, Headers, KnownHeaderName, Method,
-    ReceivedBodyState, Version::Http1_1,
+    HeaderName, HeaderValues, Headers, KnownHeaderName, Method, ReceivedBodyState,
+    Version::Http1_1, transport::BoxedTransport,
 };
 use trillium_server_common::{
-    url::{Origin, Url},
     ArcedConnector, Connector,
+    url::{Origin, Url},
 };
 
 /// A client contains a Config and an optional connection pool and builds
@@ -50,7 +50,7 @@ assert_eq!(conn.url().to_string(), \"http://localhost:8080/some/route\");
         );
     };
 
-    ($fn_name:ident, $method:ident, $doc_comment:expr) => {
+    ($fn_name:ident, $method:ident, $doc_comment:expr_2021) => {
         #[doc = $doc_comment]
         pub fn $fn_name(&self, url: impl IntoUrl) -> Conn {
             self.build_conn(Method::$method, url)

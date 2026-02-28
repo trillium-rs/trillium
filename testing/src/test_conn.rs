@@ -17,7 +17,7 @@ pub struct TestConn(Conn);
 impl TestConn {
     /// constructs a new TestConn with the provided method, path, and body.
     /// ```
-    /// use trillium_testing::{prelude::*, TestConn};
+    /// use trillium_testing::{TestConn, prelude::*};
     /// let mut conn = TestConn::build("get", "/", "body");
     /// assert_eq!(conn.method(), Method::Get);
     /// assert_eq!(conn.path(), "/");
@@ -55,7 +55,7 @@ impl TestConn {
     /// builder, as they do not provide a way to specify the body.
     ///
     /// ```
-    /// use trillium_testing::{methods::post, TestConn};
+    /// use trillium_testing::{TestConn, methods::post};
     /// let mut conn = post("/").with_request_body("some body");
     /// assert_eq!(conn.take_request_body_string(), "some body");
     ///
@@ -150,15 +150,14 @@ impl TestConn {
     /// used internally to [`assert_body`] which is the preferred
     /// interface
     pub fn take_response_body_string(&mut self) -> Option<String> {
-        if let Some(body) = self.take_response_body() {
-            String::from_utf8(
+        match self.take_response_body() {
+            Some(body) => String::from_utf8(
                 futures_lite::future::block_on(body.into_bytes())
                     .unwrap()
                     .to_vec(),
             )
-            .ok()
-        } else {
-            None
+            .ok(),
+            _ => None,
         }
     }
 

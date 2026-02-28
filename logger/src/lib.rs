@@ -133,7 +133,7 @@ impl Default for Target {
 /// interspersing spaces and other static formatting details into tuples.
 ///
 /// ```rust
-/// use trillium_logger::{formatters, Logger};
+/// use trillium_logger::{Logger, formatters};
 /// let handler = Logger::new().with_formatter(("-> ", formatters::method, " ", formatters::url));
 /// ```
 ///
@@ -197,7 +197,7 @@ impl<T> Logger<T> {
     /// chained with [`Logger::with_target`] and [`Logger::with_color_mode`]
     ///
     /// ```
-    /// use trillium_logger::{apache_common, Logger};
+    /// use trillium_logger::{Logger, apache_common};
     /// Logger::new().with_formatter(apache_common("-", "-"));
     /// ```
     pub fn with_formatter<Formatter: LogFormatter>(

@@ -5,7 +5,7 @@ use async_std::{
     stream::StreamExt,
 };
 use std::{env, io::Result};
-use trillium::{log_error, Info};
+use trillium::{Info, log_error};
 use trillium_server_common::{
     Binding::{self, *},
     Server, Swansong,

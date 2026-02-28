@@ -1,11 +1,11 @@
 use crate::{Result, Role, WebSocketConfig};
 use async_tungstenite::{
-    tungstenite::{self, Message},
     WebSocketStream,
+    tungstenite::{self, Message},
 };
 use futures_util::{
-    stream::{SplitSink, SplitStream, Stream},
     SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream, Stream},
 };
 use std::{
     net::IpAddr,
@@ -183,7 +183,7 @@ impl WebSocketConn {
     }
 
     /// take the inbound Message stream from this conn
-    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult>> {
+    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult> + use<>> {
         self.stream.take()
     }
 

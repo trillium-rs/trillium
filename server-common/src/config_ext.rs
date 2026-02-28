@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 use trillium::Handler;
-use trillium_http::{transport::BoxedTransport, Error, Swansong, SERVICE_UNAVAILABLE};
+use trillium_http::{Error, SERVICE_UNAVAILABLE, Swansong, transport::BoxedTransport};
 /// # Server-implementer interfaces to Config
 ///
 /// These functions are intended for use by authors of trillium servers,

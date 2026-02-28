@@ -1,11 +1,11 @@
-use access_log_parser::{parse, LogEntry, LogType, RequestResult};
+use access_log_parser::{LogEntry, LogType, RequestResult, parse};
 use std::sync::{Arc, Mutex};
 use time::OffsetDateTime;
 use trillium::{
     KnownHeaderName::{Referer, UserAgent},
     Version,
 };
-use trillium_logger::{apache_combined, apache_common, logger, ColorMode};
+use trillium_logger::{ColorMode, apache_combined, apache_common, logger};
 use trillium_testing::prelude::*;
 
 async fn teapot(conn: trillium::Conn) -> trillium::Conn {

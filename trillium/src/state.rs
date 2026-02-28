@@ -8,8 +8,8 @@ use std::fmt::{self, Debug, Formatter};
 ///
 /// ```
 /// use std::sync::{
-///     atomic::{AtomicBool, Ordering},
 ///     Arc,
+///     atomic::{AtomicBool, Ordering},
 /// };
 /// use trillium::{Conn, State};
 /// use trillium_testing::prelude::*;

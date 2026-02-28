@@ -4,7 +4,7 @@ use std::{future::Future, marker::PhantomData, sync::Arc};
 use test_harness::test;
 use trillium_client::{Client, Connector, Url};
 use trillium_http::{Conn, KnownHeaderName};
-use trillium_testing::{harness, Runtime, TestResult, TestTransport};
+use trillium_testing::{Runtime, TestResult, TestTransport, harness};
 
 #[test(harness)]
 async fn send_no_server_header() -> TestResult {

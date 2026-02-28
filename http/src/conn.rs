@@ -1,13 +1,13 @@
 use crate::{
+    Body, BufWriter, Buffer, ConnectionStatus, Error, Headers, HttpConfig,
+    KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
+    Method, ReceivedBody, Result, Status, Swansong, TypeSet, Upgrade, Version,
     after_send::{AfterSend, SendStatus},
     copy,
     http_config::DEFAULT_CONFIG,
     liveness::{CancelOnDisconnect, LivenessFut},
     received_body::ReceivedBodyState,
     util::encoding,
-    Body, BufWriter, Buffer, ConnectionStatus, Error, Headers, HttpConfig,
-    KnownHeaderName::{Connection, ContentLength, Date, Expect, Host, Server, TransferEncoding},
-    Method, ReceivedBody, Result, Status, Swansong, TypeSet, Upgrade, Version,
 };
 use encoding_rs::Encoding;
 use futures_lite::{
@@ -604,7 +604,7 @@ where
         shared_state: Option<Arc<TypeSet>>,
     ) -> Result<Self> {
         use crate::{HeaderName, HeaderValue};
-        use httparse::{Request, EMPTY_HEADER};
+        use httparse::{EMPTY_HEADER, Request};
         use std::str::FromStr;
 
         let (head_size, start_time) =

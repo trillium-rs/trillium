@@ -2,8 +2,8 @@ use async_channel::Sender;
 use test_harness::test;
 use trillium::{Conn, Handler, Status};
 use trillium_testing::{
-    client_config, futures_lite::AsyncWriteExt, harness, ArcedConnector, AsyncWrite, Connector,
-    ServerHandle,
+    ArcedConnector, AsyncWrite, Connector, ServerHandle, client_config,
+    futures_lite::AsyncWriteExt, harness,
 };
 
 struct LastStatus(Sender<Option<Status>>);

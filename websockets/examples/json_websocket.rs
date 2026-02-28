@@ -1,6 +1,6 @@
-use async_channel::{unbounded, Receiver, Sender};
+use async_channel::{Receiver, Sender, unbounded};
 use serde::{Deserialize, Serialize};
-use trillium_websockets::{json_websocket, JsonWebSocketHandler, Result, WebSocketConn};
+use trillium_websockets::{JsonWebSocketHandler, Result, WebSocketConn, json_websocket};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 enum Response {

@@ -3,7 +3,7 @@ use pretty_assertions::assert_str_eq;
 use std::{env, net::Shutdown, path::PathBuf};
 use test_harness::test;
 use trillium_http::{Conn, KnownHeaderName, Swansong};
-use trillium_testing::{harness, RuntimeTrait, TestTransport};
+use trillium_testing::{RuntimeTrait, TestTransport, harness};
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
 async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
