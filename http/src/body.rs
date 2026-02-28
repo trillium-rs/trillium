@@ -1,4 +1,5 @@
-use futures_lite::{io::Cursor, ready, AsyncRead, AsyncReadExt};
+use BodyType::{Empty, Static, Streaming};
+use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor, ready};
 use std::{
     borrow::Cow,
     fmt::Debug,
@@ -6,7 +7,6 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use BodyType::{Empty, Static, Streaming};
 
 /// The trillium representation of a http body. This can contain
 /// either `&'static [u8]` content, `Vec<u8>` content, or a boxed

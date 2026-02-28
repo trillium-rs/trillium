@@ -79,7 +79,7 @@
 //!
 //! ```
 //! use trillium::Conn;
-//! use trillium_cookies::{cookie::Cookie, CookiesHandler};
+//! use trillium_cookies::{CookiesHandler, cookie::Cookie};
 //! use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
 //! # std::env::set_var(
 //! #    "TRILLIUM_SESSION_SECRET",
@@ -120,4 +120,4 @@ pub use session_conn_ext::SessionConnExt;
 
 mod session_handler;
 pub use async_session::{CookieStore, MemoryStore, Session};
-pub use session_handler::{sessions, SessionHandler};
+pub use session_handler::{SessionHandler, sessions};

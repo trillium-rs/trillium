@@ -18,7 +18,7 @@ use std::future::Future;
 /// subscribed to the lobby channel.
 ///
 /// ```
-/// use trillium_channels::{channel, ChannelConn, ChannelEvent, ChannelHandler};
+/// use trillium_channels::{ChannelConn, ChannelEvent, ChannelHandler, channel};
 ///
 /// struct ChatChannel;
 /// impl ChannelHandler for ChatChannel {

@@ -1,4 +1,4 @@
-use trillium::{conn_try, Conn, Handler, KnownHeaderName};
+use trillium::{Conn, Handler, KnownHeaderName, conn_try};
 use trillium_logger::Logger;
 
 async fn teapot(mut conn: Conn) -> Conn {

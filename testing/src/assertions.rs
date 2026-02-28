@@ -26,7 +26,7 @@
 
 #[macro_export]
 macro_rules! assert_status {
-    ($conn:expr, $status:expr) => {{
+    ($conn:expr_2021, $status:expr_2021) => {{
         use std::convert::TryInto;
         let expected_status: $crate::prelude::Status =
             $status.try_into().expect("expected a status code");
@@ -68,7 +68,7 @@ macro_rules! assert_status {
 
 #[macro_export]
 macro_rules! assert_not_handled {
-    ($conn:expr) => {{
+    ($conn:expr_2021) => {{
         let conn = $conn;
         assert_eq!(conn.status(), None);
         assert!(conn.inner().response_body().is_none());
@@ -106,7 +106,7 @@ macro_rules! assert_not_handled {
 
 #[macro_export]
 macro_rules! assert_body {
-    ($conn:expr, $body:expr) => {
+    ($conn:expr_2021, $body:expr_2021) => {
         match $conn.take_response_body_string().unwrap_or_default() {
             body => {
                 assert_eq!(body.trim_end(), $body.trim_end());
@@ -139,7 +139,7 @@ macro_rules! assert_body {
 
 #[macro_export]
 macro_rules! assert_body_contains {
-    ($conn:expr, $pattern:expr) => {
+    ($conn:expr_2021, $pattern:expr_2021) => {
         match $conn.take_response_body_string().unwrap_or_default() {
             body => {
                 assert!(
@@ -184,21 +184,21 @@ macro_rules! assert_body_contains {
 
 #[macro_export]
 macro_rules! assert_response {
-    ($conn:expr, $status:expr, $body:expr) => {{
+    ($conn:expr_2021, $status:expr_2021, $body:expr_2021) => {{
         let mut conn = $conn;
         $crate::assert_status!(conn, $status);
         $crate::assert_body!(conn, $body);
     }};
 
-    ($conn:expr, $status:expr) => {
+    ($conn:expr_2021, $status:expr_2021) => {
         $crate::assert_status!($conn, $status);
     };
 
-    ($conn:expr, $status:expr, $body:expr, $($header_name:literal => $header_value:expr,)+) => {
+    ($conn:expr_2021, $status:expr_2021, $body:expr_2021, $($header_name:literal => $header_value:expr_2021,)+) => {
         assert_response!($conn, $status, $body, $($header_name => $header_value),+);
     };
 
-    ($conn:expr, $status:expr, $body:expr, $($header_name:literal => $header_value:expr),*) => {
+    ($conn:expr_2021, $status:expr_2021, $body:expr_2021, $($header_name:literal => $header_value:expr_2021),*) => {
         let mut conn = $conn;
         $crate::assert_response!(&mut conn, $status, $body);
         $crate::assert_headers!(&conn, $($header_name => $header_value),*);
@@ -226,7 +226,7 @@ macro_rules! assert_response {
 /// ```
 #[macro_export]
 macro_rules! assert_headers {
-    (@pair, $conn:expr, $header_name:tt, None) => {
+    (@pair, $conn:expr_2021, $header_name:tt, None) => {
         match $conn.inner().response_headers().get_str($header_name) {
             actual => {
                 assert_eq!(actual, None, concat!("for header ", stringify!($header_name)));
@@ -234,7 +234,7 @@ macro_rules! assert_headers {
         };
     };
 
-    (@pair, $conn:expr, $header_name:tt, $header_value:expr) => {
+    (@pair, $conn:expr_2021, $header_name:tt, $header_value:expr_2021) => {
         match ($conn.inner().response_headers().get_str($header_name), $header_value) {
             (actual, expected) => {
                 assert_eq!(actual, Some(expected), concat!("for header ", stringify!($header_name)));
@@ -242,11 +242,11 @@ macro_rules! assert_headers {
         };
     };
 
-    ($conn:expr, $($header_name:tt => $header_value:tt,)+) => {
+    ($conn:expr_2021, $($header_name:tt => $header_value:tt,)+) => {
         assert_headers!($conn, $($header_name => $header_value),+);
     };
 
-    ($conn:expr, $($header_name:tt => $header_value:tt),*) => {
+    ($conn:expr_2021, $($header_name:tt => $header_value:tt),*) => {
         match $conn {
             conn => {
                 $(assert_headers!(@pair, conn, $header_name, $header_value);)*
@@ -286,20 +286,20 @@ macro_rules! assert_headers {
 
 #[macro_export]
 macro_rules! assert_ok {
-    ($conn:expr) => {
+    ($conn:expr_2021) => {
         $crate::assert_response!($conn, 200);
     };
 
-    ($conn:expr, $body:expr) => {
+    ($conn:expr_2021, $body:expr_2021) => {
         $crate::assert_response!($conn, 200, $body);
     };
 
 
-    ($conn:expr, $body:expr, $($header_name:literal => $header_value:expr,)+) => {
+    ($conn:expr_2021, $body:expr_2021, $($header_name:literal => $header_value:expr_2021,)+) => {
         assert_ok!($conn, $body, $($header_name => $header_value),+);
     };
 
-    ($conn:expr, $body:expr, $($header_name:literal => $header_value:expr),*) => {
+    ($conn:expr_2021, $body:expr_2021, $($header_name:literal => $header_value:expr_2021),*) => {
         $crate::assert_response!($conn, 200, $body, $($header_name => $header_value),*);
     };
 }

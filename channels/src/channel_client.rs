@@ -1,4 +1,4 @@
-use crate::{client_receiver::ClientReceiver, subscriptions::Subscriptions, ChannelEvent, Version};
+use crate::{ChannelEvent, Version, client_receiver::ClientReceiver, subscriptions::Subscriptions};
 use async_broadcast::{Receiver, Sender as BroadcastSender};
 use async_channel::Sender;
 use serde::Serialize;

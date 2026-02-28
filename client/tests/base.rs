@@ -4,7 +4,7 @@ use std::{
 };
 use test_harness::test;
 use trillium_client::{Client, Status};
-use trillium_testing::{harness, ServerConnector, TestResult, Url};
+use trillium_testing::{ServerConnector, TestResult, Url, harness};
 
 fn test_client() -> Client {
     Client::new(ServerConnector::new(Status::Ok))

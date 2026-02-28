@@ -2,7 +2,7 @@
 name = "trillium-router"
 version = "0.4.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
-edition = "2021"
+edition = "2024"
 description = "router for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"

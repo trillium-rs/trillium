@@ -1,7 +1,7 @@
 use crate::{
-    after_send::AfterSend, conn::ReceivedBodyState, copy, util::encoding, BufWriter, Buffer, Conn,
-    ConnectionStatus, Error, Headers, KnownHeaderName, Method, ReceivedBody, Result, ServerConfig,
-    Status, TypeSet, Version, SERVER,
+    BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, KnownHeaderName, Method,
+    ReceivedBody, Result, SERVER, ServerConfig, Status, TypeSet, Version, after_send::AfterSend,
+    conn::ReceivedBodyState, copy, util::encoding,
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use memchr::memmem::Finder;
@@ -101,7 +101,7 @@ where
         mut buffer: Buffer,
     ) -> Result<Self> {
         use crate::{HeaderName, HeaderValue};
-        use httparse::{Request, EMPTY_HEADER};
+        use httparse::{EMPTY_HEADER, Request};
         use std::str::FromStr;
 
         let (head_size, start_time) =

@@ -3,7 +3,7 @@ use std::{
     fmt,
     io::{Error, ErrorKind, IoSlice, Result},
     pin::Pin,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 use trillium_macros::AsyncRead;
 

@@ -1,5 +1,5 @@
 use trillium::{Conn, State};
-use trillium_logger::{apache_combined, Logger};
+use trillium_logger::{Logger, apache_combined};
 
 #[derive(Clone, Copy)]
 struct User(&'static str);

@@ -1,3 +1,4 @@
+use HeaderValueInner::{Bytes, Utf8};
 use smallvec::SmallVec;
 use smartcow::SmartCow;
 use smartstring::SmartString;
@@ -5,7 +6,6 @@ use std::{
     borrow::Cow,
     fmt::{Debug, Display, Formatter, Write},
 };
-use HeaderValueInner::{Bytes, Utf8};
 
 /// A `HeaderValue` represents the right hand side of a single `name:
 /// value` pair.

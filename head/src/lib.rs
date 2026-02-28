@@ -14,7 +14,7 @@
     unused_qualifications
 )]
 
-use trillium::{conn_unwrap, Conn, Handler, KnownHeaderName::ContentLength, Method};
+use trillium::{Conn, Handler, KnownHeaderName::ContentLength, Method, conn_unwrap};
 
 /// Trillium handler for HEAD requests
 ///

@@ -1,6 +1,6 @@
 use trillium_client::Client;
 use trillium_logger::logger;
-use trillium_proxy::{proxy, upstream::ForwardProxy, ForwardProxyConnect};
+use trillium_proxy::{ForwardProxyConnect, proxy, upstream::ForwardProxy};
 use trillium_smol::ClientConfig;
 
 fn main() {

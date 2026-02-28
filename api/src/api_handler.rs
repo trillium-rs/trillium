@@ -110,13 +110,12 @@ where
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
-        if let Some(OutputHandlerWrapper(handler, _)) = conn
+        match conn
             .state::<OutputHandlerWrapper<Self, OutputHandler, <Extracted as TryFromConn>::Error>>()
             .cloned()
         {
-            handler.before_send(conn).await
-        } else {
-            conn
+            Some(OutputHandlerWrapper(handler, _)) => handler.before_send(conn).await,
+            _ => conn,
         }
     }
 

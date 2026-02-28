@@ -30,12 +30,12 @@
 mod conn;
 #[cfg(feature = "json")]
 pub use conn::ClientSerdeError;
-pub use conn::{Conn, UnexpectedStatusError, USER_AGENT};
+pub use conn::{Conn, USER_AGENT, UnexpectedStatusError};
 
 #[cfg(feature = "websockets")]
 pub mod websocket;
 #[cfg(feature = "websockets")]
-pub use trillium_websockets::{async_tungstenite, tungstenite, WebSocketConfig, WebSocketConn};
+pub use trillium_websockets::{WebSocketConfig, WebSocketConn, async_tungstenite, tungstenite};
 #[cfg(feature = "websockets")]
 pub use websocket::WebSocketUpgradeError;
 

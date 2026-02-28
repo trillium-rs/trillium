@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use trillium::Conn;
-use trillium_api::{api, Body, Result};
+use trillium_api::{Body, Result, api};
 use trillium_logger::logger;
 use trillium_router::router;
 

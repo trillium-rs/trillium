@@ -3,9 +3,9 @@
 //! See the documentation for [`JsonWebSocketHandler`]
 
 use crate::{WebSocket, WebSocketConn, WebSocketHandler};
-use async_tungstenite::tungstenite::{protocol::CloseFrame, Message};
-use futures_lite::{ready, Stream};
-use serde::{de::DeserializeOwned, Serialize};
+use async_tungstenite::tungstenite::{Message, protocol::CloseFrame};
+use futures_lite::{Stream, ready};
+use serde::{Serialize, de::DeserializeOwned};
 use std::{
     fmt::Debug,
     future::Future,
@@ -23,11 +23,11 @@ use std::{
 /// ## ℹ️ In order to use this trait, the `json` crate feature must be enabled.
 ///
 /// ```
-/// use async_channel::{unbounded, Receiver, Sender};
+/// use async_channel::{Receiver, Sender, unbounded};
 /// use serde::{Deserialize, Serialize};
 /// use std::pin::Pin;
 /// use trillium::log_error;
-/// use trillium_websockets::{json_websocket, JsonWebSocketHandler, Result, WebSocketConn};
+/// use trillium_websockets::{JsonWebSocketHandler, Result, WebSocketConn, json_websocket};
 ///
 /// #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 /// struct Response {

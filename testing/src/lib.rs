@@ -99,7 +99,7 @@ pub async fn init(handler: &mut impl Handler) -> Arc<ServerConfig> {
 pub use futures_lite::{self, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
 
 mod server_connector;
-pub use server_connector::{connector, ServerConnector};
+pub use server_connector::{ServerConnector, connector};
 use trillium_server_common::Config;
 pub use trillium_server_common::{
     ArcedConnector, Connector, Runtime, RuntimeTrait, Server, ServerHandle,

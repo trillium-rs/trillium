@@ -1,3 +1,4 @@
+use CacheControlDirective::*;
 use std::{
     fmt::{Display, Write},
     ops::{Deref, DerefMut},
@@ -5,7 +6,6 @@ use std::{
     time::Duration,
 };
 use trillium::{Conn, Handler, HeaderValues, KnownHeaderName};
-use CacheControlDirective::*;
 /// An enum representation of the
 /// [`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control)
 /// directives.

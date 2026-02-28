@@ -15,7 +15,7 @@ pub struct ChannelConn<'a> {
 }
 
 macro_rules! channel_client {
-    ($conn:expr) => {
+    ($conn:expr_2021) => {
         match $conn.client() {
             Some(client) => client,
             None => {

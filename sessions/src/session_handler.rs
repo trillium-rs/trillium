@@ -1,9 +1,8 @@
 const BASE64_DIGEST_LEN: usize = 44;
 use async_session::{
-    base64,
+    Session, SessionStore, base64,
     hmac::{Hmac, Mac, NewMac},
     sha2::Sha256,
-    Session, SessionStore,
 };
 use std::{
     fmt::{self, Debug, Formatter},
@@ -12,8 +11,8 @@ use std::{
 };
 use trillium::{Conn, Handler};
 use trillium_cookies::{
-    cookie::{Cookie, Key, SameSite},
     CookiesConnExt,
+    cookie::{Cookie, Key, SameSite},
 };
 
 /// # Handler to enable sessions.
@@ -83,7 +82,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
     /// #     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     /// # std::env::set_var("TRILLIUM_SESSION_SECRETS", secrets);
     ///
-    /// use trillium_cookies::{cookie::SameSite, CookiesHandler};
+    /// use trillium_cookies::{CookiesHandler, cookie::SameSite};
     /// use trillium_sessions::{MemoryStore, SessionHandler};
     ///
     /// // this logic will be unique to your deployment

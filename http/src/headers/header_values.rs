@@ -1,5 +1,5 @@
 use crate::HeaderValue;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use smartcow::SmartCow;
 use std::{
     borrow::Cow,

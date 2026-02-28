@@ -1,8 +1,8 @@
 use crate::crypto_provider;
 use futures_rustls::{
+    TlsAcceptor,
     rustls::{ServerConfig, ServerConnection},
     server::TlsStream,
-    TlsAcceptor,
 };
 use std::{
     fmt::{Debug, Formatter},

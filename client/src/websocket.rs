@@ -14,7 +14,7 @@ use trillium_http::{
     Status, Upgrade,
 };
 pub use trillium_websockets::Message;
-use trillium_websockets::{websocket_accept_hash, websocket_key, Role};
+use trillium_websockets::{Role, websocket_accept_hash, websocket_key};
 
 impl Conn {
     fn set_websocket_upgrade_headers(&mut self) {
