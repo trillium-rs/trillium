@@ -68,7 +68,7 @@ where
             output_handler.init(&mut Info::default()).await;
         }
         let mut conn = output_handler.run(conn).await;
-        if conn.status().is_none() && conn.inner().response_body().is_some() {
+        if conn.status().is_none() && conn.response_body().is_some() {
             conn.set_status(Status::Ok);
         }
         conn.with_state(OutputHandlerWrapper(
