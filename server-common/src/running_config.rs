@@ -3,8 +3,8 @@ use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use std::{io::ErrorKind, sync::Arc};
 use trillium::Handler;
 use trillium_http::{
+    Error, SERVICE_UNAVAILABLE, ServerConfig,
     transport::{BoxedTransport, Transport},
-    Error, ServerConfig, SERVICE_UNAVAILABLE,
 };
 
 #[derive(Debug)]

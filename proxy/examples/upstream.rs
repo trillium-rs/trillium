@@ -1,6 +1,6 @@
 use querystrong::QueryStrong;
 use trillium::Conn;
-use trillium_api::{json, ApiConnExt};
+use trillium_api::{ApiConnExt, json};
 use trillium_forwarding::Forwarding;
 use trillium_http::Status;
 use trillium_logger::Logger;

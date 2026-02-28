@@ -1,6 +1,6 @@
 use test_harness::test;
 use trillium_client::Client;
-use trillium_testing::{harness, ServerConnector};
+use trillium_testing::{ServerConnector, harness};
 
 #[test(harness)]
 async fn test() {

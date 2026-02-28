@@ -1,6 +1,6 @@
 use crate::{Error, Result};
 use mime::Mime;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::future::Future;
 use trillium::{
     Conn,

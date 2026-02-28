@@ -17,7 +17,7 @@
 //!     |conn: trillium::Conn| async move { conn.ok("authenticated") },
 //! ));
 //! ```
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use trillium::{
     Conn, Handler,
     KnownHeaderName::{Authorization, WwwAuthenticate},

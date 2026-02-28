@@ -1,4 +1,4 @@
-use crate::{running_config::RunningConfig, Acceptor, RuntimeTrait, Server, ServerHandle};
+use crate::{Acceptor, RuntimeTrait, Server, ServerHandle, running_config::RunningConfig};
 use async_cell::sync::AsyncCell;
 use futures_lite::StreamExt;
 use std::{cell::OnceCell, net::SocketAddr, pin::pin, sync::Arc};

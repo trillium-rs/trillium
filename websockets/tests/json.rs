@@ -1,7 +1,7 @@
-use async_channel::{unbounded, Receiver, Sender};
-use async_tungstenite::{client_async, WebSocketStream};
+use async_channel::{Receiver, Sender, unbounded};
+use async_tungstenite::{WebSocketStream, client_async};
 use futures_util::{SinkExt, StreamExt};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::pin::Pin;
 use trillium::log_error;
 use trillium_http::transport::BoxedTransport;

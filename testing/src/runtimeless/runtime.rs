@@ -1,4 +1,4 @@
-use futures_lite::{future, Stream};
+use futures_lite::{Stream, future};
 use std::{future::Future, sync::Arc, thread, time::Duration};
 use trillium_server_common::{DroppableFuture, Runtime, RuntimeTrait};
 
@@ -69,7 +69,7 @@ impl RuntimelessRuntime {
     pub fn spawn<Fut>(
         &self,
         fut: Fut,
-    ) -> DroppableFuture<impl Future<Output = Option<Fut::Output>> + Send + 'static>
+    ) -> DroppableFuture<impl Future<Output = Option<Fut::Output>> + Send + 'static + use<Fut>>
     where
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
@@ -88,7 +88,7 @@ impl RuntimelessRuntime {
     }
 
     /// Returns a [`Stream`] that yields a `()` on the provided period
-    pub fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static {
+    pub fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static + use<> {
         let (send, receive) = async_channel::bounded(1);
         thread::spawn(move || {
             loop {

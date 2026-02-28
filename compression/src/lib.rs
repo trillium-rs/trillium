@@ -17,8 +17,8 @@
 
 use async_compression::futures::bufread::{BrotliEncoder, GzipEncoder, ZstdEncoder};
 use futures_lite::{
-    io::{BufReader, Cursor},
     AsyncReadExt,
+    io::{BufReader, Cursor},
 };
 use std::{
     collections::BTreeSet,
@@ -26,8 +26,9 @@ use std::{
     str::FromStr,
 };
 use trillium::{
-    conn_try, conn_unwrap, Body, Conn, Handler, HeaderValues,
+    Body, Conn, Handler, HeaderValues,
     KnownHeaderName::{AcceptEncoding, ContentEncoding, Vary},
+    conn_try, conn_unwrap,
 };
 
 /// Algorithms supported by this crate

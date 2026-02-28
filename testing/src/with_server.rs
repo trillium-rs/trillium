@@ -1,4 +1,4 @@
-use crate::{block_on, config, ServerConnector};
+use crate::{ServerConnector, block_on, config};
 use std::{error::Error, future::Future};
 use trillium::Handler;
 use trillium_http::transport::BoxedTransport;

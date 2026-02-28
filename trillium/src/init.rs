@@ -70,10 +70,13 @@ where
     }
 
     async fn init(&mut self, info: &mut Info) {
-        if let Some(init) = self.0.take() {
-            *info = init(mem::take(info)).await;
-        } else {
-            log::warn!("called init more than once");
+        match self.0.take() {
+            Some(init) => {
+                *info = init(mem::take(info)).await;
+            }
+            _ => {
+                log::warn!("called init more than once");
+            }
         }
     }
 }

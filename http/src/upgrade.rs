@@ -1,4 +1,4 @@
-use crate::{received_body::read_buffered, Buffer, Conn, Headers, Method, ServerConfig, TypeSet};
+use crate::{Buffer, Conn, Headers, Method, ServerConfig, TypeSet, received_body::read_buffered};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
     fmt::{self, Debug, Formatter},

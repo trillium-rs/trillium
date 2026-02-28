@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use trillium_http::{type_set::entry::Entry, ServerConfig, Swansong, TypeSet};
+use trillium_http::{ServerConfig, Swansong, TypeSet, type_set::entry::Entry};
 
 /// This struct represents information about the currently connected
 /// server.

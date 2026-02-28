@@ -1,4 +1,4 @@
-use futures_lite::{future::block_on, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, future::block_on};
 use trillium_macros::{AsyncRead, AsyncWrite};
 #[derive(AsyncRead, AsyncWrite)]
 struct Inner(#[async_write] Vec<u8>, #[async_read] &'static [u8]);

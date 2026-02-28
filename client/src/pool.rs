@@ -1,5 +1,5 @@
 use crossbeam_queue::ArrayQueue;
-use dashmap::{mapref::entry::Entry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry};
 use std::{
     borrow::Borrow,
     fmt::{self, Debug, Formatter},
@@ -172,7 +172,7 @@ where
         self.connections.iter().map(|k| (*k.key()).clone())
     }
 
-    pub fn candidates<Q>(&self, key: &Q) -> impl Iterator<Item = V>
+    pub fn candidates<Q>(&self, key: &Q) -> impl Iterator<Item = V> + use<Q, K, V>
     where
         K: Borrow<Q>,
         Q: Hash + Eq + ?Sized,

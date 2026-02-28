@@ -4,7 +4,6 @@ mod unix;
 pub use unix::SmolServer;
 
 mod tcp;
-
 #[cfg(not(unix))]
 pub use tcp::SmolTcpServer as SmolServer;
 

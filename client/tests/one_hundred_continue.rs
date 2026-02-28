@@ -6,7 +6,7 @@ use std::future::{Future, IntoFuture};
 use test_harness::test;
 use trillium_client::{Client, Conn, Error, Status, USER_AGENT};
 use trillium_server_common::{Connector, Url};
-use trillium_testing::{harness, RuntimeTrait, TestResult, TestTransport};
+use trillium_testing::{RuntimeTrait, TestResult, TestTransport, harness};
 
 #[test(harness)]
 async fn extra_one_hundred_continue() -> TestResult {

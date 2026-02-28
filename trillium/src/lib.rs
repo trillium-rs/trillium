@@ -32,7 +32,7 @@ mod conn;
 pub use conn::Conn;
 
 mod state;
-pub use state::{state, State};
+pub use state::{State, state};
 pub use trillium_http::{
     Body, Error, HeaderName, HeaderValue, HeaderValues, Headers, HttpConfig, KnownHeaderName,
     Method, Status, Swansong, TypeSet, Version,
@@ -56,4 +56,4 @@ mod boxed_handler;
 pub use boxed_handler::BoxedHandler;
 
 mod init;
-pub use init::{init, Init};
+pub use init::{Init, init};

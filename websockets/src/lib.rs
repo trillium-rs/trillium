@@ -25,7 +25,7 @@
 //!
 //! ```
 //! use futures_lite::stream::StreamExt;
-//! use trillium_websockets::{websocket, Message, WebSocketConn};
+//! use trillium_websockets::{Message, WebSocketConn, websocket};
 //!
 //! let handler = websocket(|mut conn: WebSocketConn| async move {
 //!     while let Some(Ok(Message::Text(input))) = conn.next().await {
@@ -58,12 +58,11 @@ mod websocket_handler;
 pub use async_tungstenite::{
     self,
     tungstenite::{
-        self,
+        self, Message,
         protocol::{Role, WebSocketConfig},
-        Message,
     },
 };
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use bidirectional_stream::{BidirectionalStream, Direction};
 use futures_lite::stream::StreamExt;
 use sha1::{Digest, Sha1};
@@ -106,7 +105,7 @@ pub type Result<T = Message> = std::result::Result<T, Error>;
 mod json;
 
 #[cfg(feature = "json")]
-pub use json::{json_websocket, JsonHandler, JsonWebSocketHandler};
+pub use json::{JsonHandler, JsonWebSocketHandler, json_websocket};
 
 /// The trillium handler.
 /// See crate-level docs for example usage.

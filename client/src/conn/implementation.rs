@@ -1,6 +1,6 @@
 use super::Conn;
 use crate::{pool::PoolEntry, util::encoding};
-use futures_lite::{future::poll_once, io, AsyncReadExt, AsyncWriteExt};
+use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once, io};
 use memchr::memmem::Finder;
 use size::{Base, Size};
 use std::{
@@ -10,10 +10,10 @@ use std::{
     pin::Pin,
 };
 use trillium_http::{
-    transport::BoxedTransport,
     Body, Error,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBody, ReceivedBodyState, Result, Status, TypeSet, Upgrade,
+    transport::BoxedTransport,
 };
 use trillium_server_common::{Connector, Transport};
 

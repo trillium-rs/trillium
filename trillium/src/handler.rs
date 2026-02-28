@@ -55,7 +55,6 @@ use std::{borrow::Cow, future::Future};
 ///
 /// For most application code and even trillium-packaged framework code,
 /// `run` is the only trait function that needs to be implemented.
-
 pub trait Handler: Send + Sync + 'static {
     /// Executes this handler, performing any modifications to the Conn that are desired.
     fn run(&self, conn: Conn) -> impl Future<Output = Conn> + Send {
@@ -275,7 +274,7 @@ impl<H: Handler> Handler for Option<H> {
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        self.as_ref().map_or(false, |h| h.has_upgrade(upgrade))
+        self.as_ref().is_some_and(|h| h.has_upgrade(upgrade))
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {

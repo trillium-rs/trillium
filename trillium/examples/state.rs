@@ -1,7 +1,7 @@
 mod conn_counter {
     use std::sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     };
     use trillium::{Conn, Handler};
 

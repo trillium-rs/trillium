@@ -1,5 +1,5 @@
 use super::{
-    io, ready, AsyncRead, Context, End, ErrorKind, FixedLength, Ready, ReceivedBody, StateOutput,
+    AsyncRead, Context, End, ErrorKind, FixedLength, Ready, ReceivedBody, StateOutput, io, ready,
 };
 
 impl<'conn, Transport> ReceivedBody<'conn, Transport>
@@ -37,9 +37,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{http_config::DEFAULT_CONFIG, Buffer, HttpConfig, ReceivedBody, ReceivedBodyState};
+    use crate::{Buffer, HttpConfig, ReceivedBody, ReceivedBodyState, http_config::DEFAULT_CONFIG};
     use encoding_rs::UTF_8;
-    use futures_lite::{future::block_on, io::Cursor, AsyncRead, AsyncReadExt};
+    use futures_lite::{AsyncRead, AsyncReadExt, future::block_on, io::Cursor};
 
     fn new_with_config(
         input: String,

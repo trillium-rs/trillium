@@ -1,13 +1,13 @@
-use crate::{util::encoding, Pool};
+use crate::{Pool, util::encoding};
 use encoding_rs::Encoding;
 use std::{net::SocketAddr, time::Duration};
 use trillium_http::{
-    transport::BoxedTransport, Body, Buffer, HeaderName, HeaderValues, Headers, Method,
-    ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
+    Body, Buffer, HeaderName, HeaderValues, Headers, Method, ReceivedBody, ReceivedBodyState,
+    Status, TypeSet, Version, transport::BoxedTransport,
 };
 use trillium_server_common::{
-    url::{Origin, Url},
     ArcedConnector, Transport,
+    url::{Origin, Url},
 };
 
 mod implementation;

@@ -1,5 +1,5 @@
 use trillium::Conn;
-use trillium_router::{routes, RouterConnExt};
+use trillium_router::{RouterConnExt, routes};
 
 pub fn main() {
     env_logger::init();

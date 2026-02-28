@@ -1,11 +1,11 @@
 use crate::{Result, Role, WebSocketConfig};
 use async_tungstenite::{
-    tungstenite::{self, Message},
     WebSocketStream,
+    tungstenite::{self, Message},
 };
 use futures_util::{
-    stream::{SplitSink, SplitStream, Stream},
     SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream, Stream},
 };
 use std::{
     net::IpAddr,
@@ -15,7 +15,7 @@ use std::{
 };
 use swansong::{Interrupt, Swansong};
 use trillium::{Headers, Method, TypeSet, Upgrade};
-use trillium_http::{transport::BoxedTransport, type_set::entry::Entry, ServerConfig};
+use trillium_http::{ServerConfig, transport::BoxedTransport, type_set::entry::Entry};
 
 /// A struct that represents an specific websocket connection.
 ///
@@ -184,7 +184,7 @@ impl WebSocketConn {
     }
 
     /// take the inbound Message stream from this conn
-    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult>> {
+    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult> + use<>> {
         self.stream.take()
     }
 

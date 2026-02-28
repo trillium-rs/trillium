@@ -27,7 +27,7 @@ mod caching_conn_ext;
 pub use caching_conn_ext::CachingHeadersExt;
 
 mod cache_control;
-pub use cache_control::{cache_control, CacheControlDirective, CacheControlHeader};
+pub use cache_control::{CacheControlDirective, CacheControlHeader, cache_control};
 
 /// A combined handler that provides both [`Etag`] and [`Modified`]
 /// behavior.

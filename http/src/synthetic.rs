@@ -1,6 +1,6 @@
 use crate::{
-    after_send::AfterSend, http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState,
-    transport::Transport, Conn, Headers, KnownHeaderName, Method, ServerConfig, TypeSet, Version,
+    Conn, Headers, KnownHeaderName, Method, ServerConfig, TypeSet, Version, after_send::AfterSend,
+    http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState, transport::Transport,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
 use std::{

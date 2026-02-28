@@ -1,6 +1,6 @@
 use std::time::Duration;
 use trillium_client::Client;
-use trillium_testing::{client_config, Runtime};
+use trillium_testing::{Runtime, client_config};
 
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     if conn.path() == "/slow" {

@@ -8,5 +8,5 @@ normalize_comments = true
 reorder_impl_items = true
 unstable_features = true
 use_field_init_shorthand = true
-version = "Two"
 wrap_comments = true
+style_edition = "2024"
