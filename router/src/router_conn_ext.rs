@@ -10,7 +10,7 @@ pub trait RouterConnExt {
     /// colon is not needed when fetching the param.
     ///
     /// ```
-    /// use trillium::{conn_unwrap, Conn};
+    /// use trillium::{Conn, conn_unwrap};
     /// use trillium_router::{Router, RouterConnExt};
     ///
     /// let router = Router::new().get("/pages/:page_name", |conn: Conn| async move {
@@ -33,7 +33,7 @@ pub trait RouterConnExt {
     /// expressed by a "*" in the routefinder route spec.
     ///
     /// ```
-    /// use trillium::{conn_unwrap, Conn};
+    /// use trillium::{Conn, conn_unwrap};
     /// use trillium_router::{Router, RouterConnExt};
     ///
     /// let router = Router::new().get("/pages/*", |conn: Conn| async move {
@@ -53,7 +53,7 @@ pub trait RouterConnExt {
 
     /// Retrieves the matched route specification
     /// ```
-    /// use trillium::{conn_unwrap, Conn};
+    /// use trillium::{Conn, conn_unwrap};
     /// use trillium_router::{Router, RouterConnExt};
     ///
     /// let router = Router::new().get("/pages/:page_id", |conn: Conn| async move {

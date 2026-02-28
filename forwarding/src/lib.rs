@@ -52,7 +52,9 @@ where
 }
 impl Debug for TrustFn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("TrustPredicate").field(&"..").finish()
+        f.debug_tuple("TrustPredicate")
+            .field(&format_args!(".."))
+            .finish()
     }
 }
 

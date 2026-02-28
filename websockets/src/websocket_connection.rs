@@ -1,20 +1,21 @@
 use crate::{Result, Role, WebSocketConfig};
 use async_tungstenite::{
-    tungstenite::{self, Message},
     WebSocketStream,
+    tungstenite::{self, Message},
 };
 use futures_util::{
-    stream::{SplitSink, SplitStream, Stream},
     SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream, Stream},
 };
 use std::{
     net::IpAddr,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 use swansong::{Interrupt, Swansong};
 use trillium::{Headers, Method, TypeSet, Upgrade};
-use trillium_http::{transport::BoxedTransport, type_set::entry::Entry};
+use trillium_http::{ServerConfig, transport::BoxedTransport, type_set::entry::Entry};
 
 /// A struct that represents an specific websocket connection.
 ///
@@ -32,7 +33,7 @@ pub struct WebSocketConn {
     method: Method,
     state: TypeSet,
     peer_ip: Option<IpAddr>,
-    swansong: Swansong,
+    server_config: Arc<ServerConfig>,
     sink: SplitSink<Wss, Message>,
     stream: Option<WStream>,
 }
@@ -75,7 +76,7 @@ impl WebSocketConn {
             state,
             buffer,
             transport,
-            swansong,
+            server_config,
             peer_ip,
             ..
         } = upgrade;
@@ -88,7 +89,7 @@ impl WebSocketConn {
 
         let (sink, stream) = wss.split();
         let stream = Some(WStream {
-            stream: swansong.interrupt(stream),
+            stream: server_config.swansong().interrupt(stream),
         });
 
         Self {
@@ -99,13 +100,13 @@ impl WebSocketConn {
             peer_ip,
             sink,
             stream,
-            swansong,
+            server_config,
         }
     }
 
     /// retrieve a clone of the server's [`Swansong`]
     pub fn swansong(&self) -> Swansong {
-        self.swansong.clone()
+        self.server_config.swansong().clone()
     }
 
     /// close the websocket connection gracefully
@@ -168,6 +169,12 @@ impl WebSocketConn {
         self.state.insert(state)
     }
 
+    /// Returns an [`Entry`] for the state typeset that can be used with functions like
+    /// [`Entry::or_insert`], [`Entry::or_insert_with`], [`Entry::and_modify`], and others.
+    pub fn state_entry<T: Send + Sync + 'static>(&mut self) -> Entry<'_, T> {
+        self.state.entry()
+    }
+
     /// take some type T out of the state set that has been
     /// accumulated by trillium handlers run on the [`trillium::Conn`]
     /// before it became a websocket. see [`trillium::Conn::take_state`]
@@ -176,14 +183,8 @@ impl WebSocketConn {
         self.state.take()
     }
 
-    /// Returns an [`Entry`] for the state typeset that can be used with functions like
-    /// [`Entry::or_insert`], [`Entry::or_insert_with`], [`Entry::and_modify`], and others.
-    pub fn state_entry<T: Send + Sync + 'static>(&mut self) -> Entry<'_, T> {
-        self.state.entry()
-    }
-
     /// take the inbound Message stream from this conn
-    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult>> {
+    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult> + use<>> {
         self.stream.take()
     }
 

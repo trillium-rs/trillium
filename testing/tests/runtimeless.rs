@@ -1,7 +1,7 @@
 use test_harness::test;
 use trillium_client::Client;
 use trillium_server_common::Config;
-use trillium_testing::{harness, RuntimelessClientConfig, RuntimelessServer, TestResult};
+use trillium_testing::{RuntimelessClientConfig, RuntimelessServer, TestResult, harness};
 #[test(harness)]
 async fn round_trip() -> TestResult {
     let handle1 = Config::<RuntimelessServer, ()>::new()

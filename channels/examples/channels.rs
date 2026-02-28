@@ -1,9 +1,9 @@
 use futures_lite::StreamExt;
 use serde::{Deserialize, Serialize};
-use trillium::{state, Conn};
-use trillium_api::{api, Json, State};
+use trillium::{Conn, state};
+use trillium_api::{Json, State, api};
 use trillium_caching_headers::caching_headers;
-use trillium_channels::{channel, ChannelBroadcaster, ChannelConn, ChannelEvent, ChannelHandler};
+use trillium_channels::{ChannelBroadcaster, ChannelConn, ChannelEvent, ChannelHandler, channel};
 use trillium_conn_id::{conn_id, log_formatter};
 use trillium_logger::{apache_common, logger};
 use trillium_router::router;

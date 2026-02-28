@@ -1,4 +1,4 @@
-use crate::{block_on, config, ServerConnector};
+use crate::{ServerConnector, block_on, config};
 use std::{error::Error, future::Future};
 use trillium::Handler;
 use trillium_http::transport::BoxedTransport;
@@ -24,7 +24,7 @@ where
     runtime.block_on(async move {
         let handle = config.spawn(handler);
         let info = handle.info().await;
-        let url = info.state().get::<Url>().cloned().unwrap_or_else(|| {
+        let url = info.state().cloned().unwrap_or_else(|| {
             let port = info.tcp_socket_addr().map(|t| t.port()).unwrap_or(0);
             format!("http://localhost:{port}").parse().unwrap()
         });

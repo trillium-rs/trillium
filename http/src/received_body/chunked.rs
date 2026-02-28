@@ -1,6 +1,6 @@
 use super::{
-    io, ready, slice_from, AsyncRead, Buffer, Chunked, Context, End, ErrorKind, PartialChunkSize,
-    Pin, Ready, ReceivedBody, ReceivedBodyState, StateOutput,
+    AsyncRead, Buffer, Chunked, Context, End, ErrorKind, PartialChunkSize, Pin, Ready,
+    ReceivedBody, ReceivedBodyState, StateOutput, io, ready, slice_from,
 };
 use std::io::ErrorKind::InvalidData;
 
@@ -21,7 +21,7 @@ fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
 
 #[cfg(not(feature = "parse"))]
 fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
-    use httparse::{parse_chunk_size, Status};
+    use httparse::{Status, parse_chunk_size};
     match parse_chunk_size(buf) {
         Ok(Status::Complete((index, next_chunk))) => Ok(Some((index, next_chunk + 2))),
         Ok(Status::Partial) => Ok(None),
@@ -167,11 +167,12 @@ pub(super) fn chunk_decode(
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_decode, ReceivedBody, ReceivedBodyState};
-    use crate::{http_config::DEFAULT_CONFIG, Buffer, HttpConfig};
+    use super::{ReceivedBody, ReceivedBodyState, chunk_decode};
+    use crate::{Buffer, HttpConfig, http_config::DEFAULT_CONFIG};
     use encoding_rs::UTF_8;
-    use futures_lite::{io::Cursor, AsyncRead, AsyncReadExt};
-    use trillium_testing::block_on;
+    use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
+    use test_harness::test;
+    use trillium_testing::harness;
 
     #[track_caller]
     fn assert_decoded(
@@ -244,22 +245,20 @@ mod tests {
         decode_with_config(input, poll_size, &DEFAULT_CONFIG).await
     }
 
-    #[test]
-    fn test_full_decode() {
-        block_on(async {
-            for size in 1..50 {
-                let input = "5\r\n12345\r\n1\r\na\r\n2\r\nbc\r\n3\r\ndef\r\n0\r\n";
-                let output = decode(input.into(), size).await.unwrap();
-                assert_eq!(output, "12345abcdef", "size: {size}");
+    #[test(harness)]
+    async fn test_full_decode() {
+        for size in 1..50 {
+            let input = "5\r\n12345\r\n1\r\na\r\n2\r\nbc\r\n3\r\ndef\r\n0\r\n";
+            let output = decode(input.into(), size).await.unwrap();
+            assert_eq!(output, "12345abcdef", "size: {size}");
 
-                let input = "7\r\nMozilla\r\n9\r\nDeveloper\r\n7\r\nNetwork\r\n0\r\n\r\n";
-                let output = decode(input.into(), size).await.unwrap();
-                assert_eq!(output, "MozillaDeveloperNetwork", "size: {size}");
+            let input = "7\r\nMozilla\r\n9\r\nDeveloper\r\n7\r\nNetwork\r\n0\r\n\r\n";
+            let output = decode(input.into(), size).await.unwrap();
+            assert_eq!(output, "MozillaDeveloperNetwork", "size: {size}");
 
-                assert!(decode(String::new(), size).await.is_err());
-                assert!(decode("fffffffffffffff0\r\n".into(), size).await.is_err());
-            }
-        });
+            assert!(decode(String::new(), size).await.is_err());
+            assert!(decode("fffffffffffffff0\r\n".into(), size).await.is_err());
+        }
     }
 
     async fn build_chunked_body(input: String) -> String {
@@ -276,49 +275,46 @@ mod tests {
         String::from_utf8(output).unwrap()
     }
 
-    #[test]
-    fn test_read_buffer_short() {
-        block_on(async {
-            let input = "test ".repeat(50);
-            let chunked = build_chunked_body(input.clone()).await;
+    #[test(harness)]
+    async fn test_read_buffer_short() {
+        let input = "test ".repeat(50);
+        let chunked = build_chunked_body(input.clone()).await;
 
-            for size in 1..10 {
-                assert_eq!(
-                    &decode(chunked.clone(), size).await.unwrap(),
-                    &input,
-                    "size: {size}"
-                );
-            }
-        });
+        for size in 1..10 {
+            assert_eq!(
+                &decode(chunked.clone(), size).await.unwrap(),
+                &input,
+                "size: {size}"
+            );
+        }
     }
 
-    #[test]
-    fn test_max_len() {
-        block_on(async {
-            let input = build_chunked_body("test ".repeat(10)).await;
+    #[test(harness)]
+    async fn test_max_len() {
+        let input = build_chunked_body("test ".repeat(10)).await;
 
-            for size in 4..10 {
-                assert!(
-                    decode_with_config(
-                        input.clone(),
-                        size,
-                        &HttpConfig::default().with_received_body_max_len(5)
-                    )
+        for size in 4..10 {
+            assert!(
+                decode_with_config(
+                    input.clone(),
+                    size,
+                    &HttpConfig::default().with_received_body_max_len(5)
+                )
+                .await
+                .is_err()
+            );
+
+            assert!(
+                decode_with_config(input.clone(), size, &HttpConfig::default())
                     .await
-                    .is_err()
-                );
-
-                assert!(
-                    decode_with_config(input.clone(), size, &HttpConfig::default())
-                        .await
-                        .is_ok()
-                );
-            }
-        });
+                    .is_ok()
+            );
+        }
     }
 
     #[test]
     fn test_chunk_start() {
+        let _ = env_logger::builder().is_test(true).try_init();
         assert_decoded((0, "5\r\n12345\r\n"), (Some(0), "12345", ""));
         assert_decoded((0, "F\r\n1"), (Some(14 + 2), "1", ""));
         assert_decoded((0, "5\r\n123"), (Some(2 + 2), "123", ""));
@@ -343,6 +339,8 @@ mod tests {
 
     #[test]
     fn test_chunk_start_with_ext() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
         assert_decoded((0, "5;abcdefg\r\n12345\r\n"), (Some(0), "12345", ""));
         assert_decoded((0, "F;aaa\taaaaa\taaa aaa\r\n1"), (Some(14 + 2), "1", ""));
         assert_decoded((0, "5;;;;;;;;;;;;;;;;\r\n123"), (Some(2 + 2), "123", ""));
@@ -368,63 +366,61 @@ mod tests {
         assert_decoded((7, "hello\r\n0;\r\n\r\n"), (None, "hello", ""));
     }
 
-    #[test]
-    fn read_string_and_read_bytes() {
-        block_on(async {
-            let content = build_chunked_body("test ".repeat(100)).await;
-            assert_eq!(
-                new_with_config(content.clone(), &DEFAULT_CONFIG)
-                    .read_string()
-                    .await
-                    .unwrap()
-                    .len(),
-                500
-            );
-
-            assert_eq!(
-                new_with_config(content.clone(), &DEFAULT_CONFIG)
-                    .read_bytes()
-                    .await
-                    .unwrap()
-                    .len(),
-                500
-            );
-
-            assert!(
-                new_with_config(
-                    content.clone(),
-                    &DEFAULT_CONFIG.with_received_body_max_len(400)
-                )
+    #[test(harness)]
+    async fn read_string_and_read_bytes() {
+        let content = build_chunked_body("test ".repeat(100)).await;
+        assert_eq!(
+            new_with_config(content.clone(), &DEFAULT_CONFIG)
                 .read_string()
                 .await
-                .is_err()
-            );
+                .unwrap()
+                .len(),
+            500
+        );
 
-            assert!(
-                new_with_config(
-                    content.clone(),
-                    &DEFAULT_CONFIG.with_received_body_max_len(400)
-                )
+        assert_eq!(
+            new_with_config(content.clone(), &DEFAULT_CONFIG)
+                .read_bytes()
+                .await
+                .unwrap()
+                .len(),
+            500
+        );
+
+        assert!(
+            new_with_config(
+                content.clone(),
+                &DEFAULT_CONFIG.with_received_body_max_len(400)
+            )
+            .read_string()
+            .await
+            .is_err()
+        );
+
+        assert!(
+            new_with_config(
+                content.clone(),
+                &DEFAULT_CONFIG.with_received_body_max_len(400)
+            )
+            .read_bytes()
+            .await
+            .is_err()
+        );
+
+        assert!(
+            new_with_config(content.clone(), &DEFAULT_CONFIG)
+                .with_max_len(400)
                 .read_bytes()
                 .await
                 .is_err()
-            );
+        );
 
-            assert!(
-                new_with_config(content.clone(), &DEFAULT_CONFIG)
-                    .with_max_len(400)
-                    .read_bytes()
-                    .await
-                    .is_err()
-            );
-
-            assert!(
-                new_with_config(content.clone(), &DEFAULT_CONFIG)
-                    .with_max_len(400)
-                    .read_string()
-                    .await
-                    .is_err()
-            );
-        });
+        assert!(
+            new_with_config(content.clone(), &DEFAULT_CONFIG)
+                .with_max_len(400)
+                .read_string()
+                .await
+                .is_err()
+        );
     }
 }

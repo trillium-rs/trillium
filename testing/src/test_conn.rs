@@ -2,9 +2,10 @@ use std::{
     fmt::Debug,
     net::IpAddr,
     ops::{Deref, DerefMut},
+    sync::Arc,
 };
 use trillium::{Conn, Handler, HeaderName, HeaderValues, Method};
-use trillium_http::{Conn as HttpConn, Synthetic};
+use trillium_http::{Conn as HttpConn, ServerConfig, Synthetic};
 
 type SyntheticConn = HttpConn<Synthetic>;
 
@@ -17,7 +18,7 @@ pub struct TestConn(Conn);
 impl TestConn {
     /// constructs a new TestConn with the provided method, path, and body.
     /// ```
-    /// use trillium_testing::{prelude::*, TestConn};
+    /// use trillium_testing::{TestConn, prelude::*};
     /// let mut conn = TestConn::build("get", "/", "body");
     /// assert_eq!(conn.method(), Method::Get);
     /// assert_eq!(conn.path(), "/");
@@ -29,6 +30,17 @@ impl TestConn {
         <M as TryInto<Method>>::Error: Debug,
     {
         Self(HttpConn::new_synthetic(method.try_into().unwrap(), path.into(), body).into())
+    }
+
+    /// assigns a shared server config to this test conn
+    pub fn with_server_config(self, server_config: Arc<ServerConfig>) -> Self {
+        let inner = self
+            .0
+            .into_inner::<Synthetic>()
+            .with_server_config(server_config)
+            .into();
+
+        Self(inner)
     }
 
     /// chainable constructor to append a request header to the TestConn
@@ -55,7 +67,7 @@ impl TestConn {
     /// builder, as they do not provide a way to specify the body.
     ///
     /// ```
-    /// use trillium_testing::{methods::post, TestConn};
+    /// use trillium_testing::{TestConn, methods::post};
     /// let mut conn = post("/").with_request_body("some body");
     /// assert_eq!(conn.take_request_body_string(), "some body");
     ///
@@ -96,7 +108,7 @@ impl TestConn {
     /// use trillium_testing::prelude::*;
     ///
     /// async fn handler(conn: Conn) -> Conn {
-    ///     conn.ok("hello trillium")
+    /// conn.ok("hello trillium")
     /// }
     ///
     /// let conn = get("/").run(&handler);
@@ -113,12 +125,12 @@ impl TestConn {
     /// use trillium_testing::prelude::*;
     ///
     /// async fn handler(conn: Conn) -> Conn {
-    ///     conn.ok("hello trillium")
+    /// conn.ok("hello trillium")
     /// }
     ///
     /// block_on(async move {
-    ///     let conn = get("/").run_async(&handler).await;
-    ///     assert_ok!(conn, "hello trillium", "content-length" => "14");
+    /// let conn = get("/").run_async(&handler).await;
+    /// assert_ok!(conn, "hello trillium", "content-length" => "14");
     /// });
     /// ```
     pub async fn run_async(self, handler: &impl Handler) -> Self {
@@ -150,15 +162,14 @@ impl TestConn {
     /// used internally to [`assert_body`] which is the preferred
     /// interface
     pub fn take_response_body_string(&mut self) -> Option<String> {
-        if let Some(body) = self.take_response_body() {
-            String::from_utf8(
+        match self.take_response_body() {
+            Some(body) => String::from_utf8(
                 futures_lite::future::block_on(body.into_bytes())
                     .unwrap()
                     .to_vec(),
             )
-            .ok()
-        } else {
-            None
+            .ok(),
+            _ => None,
         }
     }
 

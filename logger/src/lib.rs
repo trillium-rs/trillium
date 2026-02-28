@@ -8,7 +8,11 @@
 
 //! Welcome to the trillium logger!
 pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
-use std::{fmt::Display, io::IsTerminal, sync::Arc};
+use std::{
+    fmt::{Display, Write},
+    io::IsTerminal,
+    sync::Arc,
+};
 use trillium::{Conn, Handler, Info};
 /// Components with which common log formats can be constructed
 pub mod formatters;
@@ -133,7 +137,7 @@ impl Default for Target {
 /// interspersing spaces and other static formatting details into tuples.
 ///
 /// ```rust
-/// use trillium_logger::{formatters, Logger};
+/// use trillium_logger::{Logger, formatters};
 /// let handler = Logger::new().with_formatter(("-> ", formatters::method, " ", formatters::url));
 /// ```
 ///
@@ -197,7 +201,7 @@ impl<T> Logger<T> {
     /// chained with [`Logger::with_target`] and [`Logger::with_color_mode`]
     ///
     /// ```
-    /// use trillium_logger::{apache_common, Logger};
+    /// use trillium_logger::{Logger, apache_common};
     /// Logger::new().with_formatter(apache_common("-", "-"));
     /// ```
     pub fn with_formatter<Formatter: LogFormatter>(
@@ -241,6 +245,21 @@ impl<F: LogFormatter> Logger<F> {
     }
 }
 
+/// An easily-named `Arc<dyn Targetable>` that is stored in trillium shared state
+#[derive(Clone)]
+pub struct LogTarget(Arc<dyn Targetable>);
+impl Targetable for LogTarget {
+    fn write(&self, data: String) {
+        self.0.write(data);
+    }
+}
+impl LogTarget {
+    /// Emit a log message to the logging backend
+    pub fn write(&self, data: String) {
+        self.0.write(data);
+    }
+}
+
 struct LoggerWasRun;
 
 impl<F> Handler for Logger<F>
@@ -248,18 +267,25 @@ where
     F: LogFormatter,
 {
     async fn init(&mut self, info: &mut Info) {
-        self.target.write(format!(
-            "
-🌱🦀🌱 {} started
-Listening at {}{}
+        let mut string = "\nTrillium started\n".to_string();
 
-Control-C to quit",
-            info.server_description(),
-            info.listener_description(),
-            info.tcp_socket_addr()
-                .map(|s| format!(" (bound as tcp://{s})"))
-                .unwrap_or_default(),
-        ));
+        if let Some(url) = info.state::<url::Url>() {
+            writeln!(string, "✾ Listening at {}", url.as_str()).unwrap();
+        }
+
+        if let Some(tcp) = info.tcp_socket_addr() {
+            writeln!(string, "✾ Bound as tcp://{tcp}").unwrap();
+        }
+
+        #[cfg(unix)]
+        if let Some(unix) = info.unix_socket_addr().and_then(|unix| unix.as_pathname()) {
+            writeln!(string, "✾ Bound as unix://{}", unix.display()).unwrap();
+        }
+
+        writeln!(string, "Control-c to quit").unwrap();
+
+        self.target.write(string);
+        info.insert_state(LogTarget(Arc::clone(&self.target)));
     }
 
     async fn run(&self, conn: Conn) -> Conn {
@@ -267,7 +293,7 @@ Control-C to quit",
     }
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
-        if conn.state::<LoggerWasRun>().is_some() {
+        if conn.as_ref().contains::<LoggerWasRun>() {
             let target = self.target.clone();
             let output = self.format.format(&conn, self.color_mode.is_enabled());
             conn.inner_mut()

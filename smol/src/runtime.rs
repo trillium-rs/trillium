@@ -4,6 +4,7 @@ use futures_lite::{FutureExt, Stream, StreamExt};
 use std::{
     future::Future,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -54,6 +55,14 @@ impl RuntimeTrait for SmolRuntime {
     fn block_on<Fut: Future>(&self, fut: Fut) -> Fut::Output {
         async_global_executor::block_on(fut)
     }
+
+    #[cfg(unix)]
+    fn hook_signals(
+        &self,
+        signals: impl IntoIterator<Item = i32>,
+    ) -> impl Stream<Item = i32> + Send + 'static {
+        signal_hook_async_std::Signals::new(signals).unwrap()
+    }
 }
 
 impl SmolRuntime {
@@ -69,7 +78,7 @@ impl SmolRuntime {
     pub fn spawn<Fut>(
         &self,
         fut: Fut,
-    ) -> DroppableFuture<impl Future<Output = Option<Fut::Output>> + Send + 'static>
+    ) -> DroppableFuture<impl Future<Output = Option<Fut::Output>> + Send + 'static + use<Fut>>
     where
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
@@ -84,7 +93,7 @@ impl SmolRuntime {
     }
 
     /// Returns a [`Stream`] that yields a `()` on the provided period
-    pub fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static {
+    pub fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static + use<> {
         Timer::interval(period).map(|_| ())
     }
 
@@ -105,6 +114,6 @@ impl SmolRuntime {
 
 impl From<SmolRuntime> for Runtime {
     fn from(value: SmolRuntime) -> Self {
-        Runtime::new(value)
+        Arc::new(value).into()
     }
 }

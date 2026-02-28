@@ -62,7 +62,7 @@ pub fn method(conn: &Conn, _color: bool) -> Method {
 /// composed of
 ///
 /// `"`[`method`] [`url`] [`response_time`] [`status`]`"`
-pub fn dev_formatter(conn: &Conn, color: bool) -> impl Display + Send + 'static {
+pub fn dev_formatter(conn: &Conn, color: bool) -> impl Display + Send + 'static + use<> {
     (method, " ", url, " ", response_time, " ", status).format(conn, color)
 }
 
@@ -189,7 +189,7 @@ pub fn response_header(header_name: impl Into<HeaderName<'static>>) -> impl LogF
 
 mod timestamp_mod {
     use super::*;
-    use time::{macros::format_description, OffsetDateTime};
+    use time::{OffsetDateTime, macros::format_description};
     /// Display output for [`timestamp`]
     pub struct Now;
 

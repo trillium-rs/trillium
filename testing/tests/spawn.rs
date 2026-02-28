@@ -1,6 +1,6 @@
 use std::time::Duration;
 use test_harness::test;
-use trillium_testing::{harness, runtime, RuntimeTrait, TestResult};
+use trillium_testing::{RuntimeTrait, TestResult, harness, runtime};
 
 #[test(harness)]
 async fn spawn_works() -> TestResult {

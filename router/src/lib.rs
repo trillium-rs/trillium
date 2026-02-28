@@ -16,7 +16,7 @@
 //! route resolution and definition are documented on that repository.
 //!
 //! ```
-//! use trillium::{conn_unwrap, Conn};
+//! use trillium::{Conn, conn_unwrap};
 //! use trillium_router::{Router, RouterConnExt};
 //!
 //! let router = Router::new()
@@ -96,7 +96,7 @@ pub use router_conn_ext::RouterConnExt;
 /// ```
 #[macro_export]
 macro_rules! routes {
-    ($($method:ident $path:literal $(-> )?$handler:expr),+ $(,)?) => {
+    ($($method:ident $path:literal $(-> )?$handler:expr_2021),+ $(,)?) => {
 	$crate::Router::new()$(
             .$method($path, $handler)
         )+;

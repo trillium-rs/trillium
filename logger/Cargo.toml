@@ -2,7 +2,7 @@
 name = "trillium-logger"
 version = "0.4.5"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
-edition = "2021"
+edition = "2024"
 description = "logger for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
@@ -16,6 +16,7 @@ log = "0.4.20"
 size = "0.4.1"
 time = { version = "0.3.31", features = ["local-offset", "formatting", "macros"] }
 trillium = { path = "../trillium", version = "0.2.20" }
+url = "2.5.0"
 
 [dev-dependencies]
 access_log_parser = "0.8.0"

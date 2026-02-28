@@ -1,6 +1,6 @@
 use std::{future::Future, sync::Arc, time::Duration};
 use tokio::{runtime::Handle, time};
-use tokio_stream::{wrappers::IntervalStream, Stream, StreamExt};
+use tokio_stream::{Stream, StreamExt, wrappers::IntervalStream};
 use trillium_server_common::{DroppableFuture, Runtime, RuntimeTrait};
 
 #[derive(Debug, Clone)]
@@ -15,12 +15,11 @@ pub struct TokioRuntime(Inner);
 
 impl Default for TokioRuntime {
     fn default() -> Self {
-        if let Ok(handle) = Handle::try_current() {
-            Self(Inner::AlreadyRunning(handle))
-        } else {
-            Self(Inner::Owned(Arc::new(
+        match Handle::try_current() {
+            Ok(handle) => Self(Inner::AlreadyRunning(handle)),
+            _ => Self(Inner::Owned(Arc::new(
                 tokio::runtime::Runtime::new().unwrap(),
-            )))
+            ))),
         }
     }
 }
@@ -55,6 +54,14 @@ impl RuntimeTrait for TokioRuntime {
             Inner::Owned(runtime) => runtime.block_on(fut),
         }
     }
+
+    #[cfg(unix)]
+    fn hook_signals(
+        &self,
+        signals: impl IntoIterator<Item = i32>,
+    ) -> impl Stream<Item = i32> + Send + 'static {
+        signal_hook_tokio::Signals::new(signals).unwrap()
+    }
 }
 
 impl TokioRuntime {
@@ -70,7 +77,7 @@ impl TokioRuntime {
     pub fn spawn<Fut>(
         &self,
         fut: Fut,
-    ) -> DroppableFuture<impl Future<Output = Option<Fut::Output>> + Send + 'static>
+    ) -> DroppableFuture<impl Future<Output = Option<Fut::Output>> + Send + 'static + use<Fut>>
     where
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
@@ -88,7 +95,7 @@ impl TokioRuntime {
     }
 
     /// Returns a [`Stream`] that yields a `()` on the provided period
-    pub fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static {
+    pub fn interval(&self, period: Duration) -> impl Stream<Item = ()> + Send + 'static + use<> {
         IntervalStream::new(time::interval(period)).map(|_| ())
     }
 
@@ -112,6 +119,6 @@ impl TokioRuntime {
 
 impl From<TokioRuntime> for Runtime {
     fn from(value: TokioRuntime) -> Self {
-        Runtime::new(value)
+        Arc::new(value).into()
     }
 }

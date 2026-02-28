@@ -1,6 +1,8 @@
-use crate::{copy, http_config::DEFAULT_CONFIG, Body, Buffer, HttpConfig, MutCow};
+use crate::{Body, Buffer, HttpConfig, MutCow, copy, http_config::DEFAULT_CONFIG};
+use Poll::{Pending, Ready};
+use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 use encoding_rs::Encoding;
-use futures_lite::{ready, AsyncRead, AsyncReadExt, AsyncWrite};
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, ready};
 use std::{
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},
@@ -8,8 +10,6 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use Poll::{Pending, Ready};
-use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 
 mod chunked;
 mod fixed_length;
@@ -361,7 +361,7 @@ impl<'conn, Transport> Debug for ReceivedBody<'conn, Transport> {
         f.debug_struct("RequestBody")
             .field("state", &*self.state)
             .field("content_length", &self.content_length)
-            .field("buffer", &"..")
+            .field("buffer", &format_args!(".."))
             .field("on_completion", &self.on_completion.is_some())
             .finish()
     }

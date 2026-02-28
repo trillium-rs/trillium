@@ -64,7 +64,7 @@
 //! ## Simple Example: Chat App
 //!
 //! ```
-//! use trillium_channels::{channel, ChannelConn, ChannelEvent, ChannelHandler};
+//! use trillium_channels::{ChannelConn, ChannelEvent, ChannelHandler, channel};
 //!
 //! struct ChatChannel;
 //! impl ChannelHandler for ChatChannel {
@@ -151,11 +151,11 @@ pub use version::Version;
 /// ```
 #[macro_export]
 macro_rules! event {
-    ($topic:expr, $event:expr) => {
+    ($topic:expr_2021, $event:expr_2021) => {
         $crate::ChannelEvent::new($topic, $event, &())
     };
 
-    ($topic:expr, $event:expr, $($json:tt)+) => {
+    ($topic:expr_2021, $event:expr_2021, $($json:tt)+) => {
         $crate::ChannelEvent::new($topic, $event, &$crate::json!($($json)+))
     };
 }

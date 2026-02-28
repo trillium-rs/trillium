@@ -2,7 +2,7 @@
 name = "trillium-testing"
 version = "0.7.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
-edition = "2021"
+edition = "2024"
 description = "testing library for trillium applications"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
@@ -32,6 +32,7 @@ trillium-macros = { version = "0.0.6", path = "../macros" }
 dashmap = "5.5.3"
 once_cell = "1.19.0"
 fastrand = "2.0.1"
+env_logger = "0.11.3"
 log = "0.4.21"
 
 [dependencies.trillium-smol]

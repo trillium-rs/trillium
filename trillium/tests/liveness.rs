@@ -1,6 +1,6 @@
-use futures_lite::{future::poll_once, AsyncRead, AsyncReadExt, AsyncWriteExt};
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWriteExt, future::poll_once};
 use std::{
-    future::{pending, Future},
+    future::{Future, pending},
     io,
     pin::Pin,
     task::{Context, Poll},
@@ -8,7 +8,7 @@ use std::{
 };
 use test_harness::test;
 use trillium::Conn;
-use trillium_testing::{client_config, config, harness, ArcedConnector, Connector, TestResult};
+use trillium_testing::{ArcedConnector, Connector, TestResult, client_config, config, harness};
 
 #[test(harness)]
 async fn infinitely_pending_task() -> TestResult {
@@ -23,11 +23,8 @@ async fn infinitely_pending_task() -> TestResult {
         });
 
     let info = handle.info().await;
-
-    let url = format!("http://{}", info.listener_description())
-        .parse()
-        .unwrap();
-    let mut client = connector.connect(&url).await?;
+    let url = info.url().unwrap();
+    let mut client = connector.connect(url).await?;
 
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
@@ -48,7 +45,6 @@ async fn infinitely_pending_task() -> TestResult {
 
 #[test(harness)]
 async fn is_disconnected() -> TestResult {
-    let _ = env_logger::builder().is_test(true).try_init();
     let connector = ArcedConnector::new(client_config());
     let (delay_sender, delay_receiver) = async_channel::unbounded();
     let (disconnected_sender, disconnected_receiver) = async_channel::unbounded();
@@ -71,10 +67,8 @@ async fn is_disconnected() -> TestResult {
     let info = handle.info().await;
     let runtime = handle.runtime();
 
-    let url = format!("http://{}", info.listener_description())
-        .parse()
-        .unwrap();
-    let mut client = connector.connect(&url).await?;
+    let url = info.url().unwrap();
+    let mut client = connector.connect(url).await?;
 
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
@@ -88,7 +82,7 @@ async fn is_disconnected() -> TestResult {
     assert!(s.starts_with("HTTP/1.1 200 OK\r\n"));
     client.close().await?;
 
-    let mut client = connector.connect(&url).await?;
+    let mut client = connector.connect(url).await?;
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
         .await?;

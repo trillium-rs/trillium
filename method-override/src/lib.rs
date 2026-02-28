@@ -26,7 +26,7 @@
 
 use querystrong::QueryStrong;
 use std::{collections::HashSet, fmt::Debug};
-use trillium::{conn_unwrap, Conn, Handler, Method};
+use trillium::{Conn, Handler, Method, conn_unwrap};
 
 /// Trillium method override handler
 ///

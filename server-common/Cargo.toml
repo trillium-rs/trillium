@@ -2,7 +2,7 @@
 name = "trillium-server-common"
 version = "0.5.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
-edition = "2021"
+edition = "2024"
 description = "server utilities for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
@@ -14,6 +14,7 @@ categories = ["web-programming::http-server", "web-programming"]
 async-channel = "2.2.0"
 async_cell = "0.2.2"
 futures-lite = "2.1.0"
+listenfd = "1.0.1"
 log = "0.4.20"
 pin-project-lite = "0.2.13"
 swansong = "0.3.0"

@@ -1,11 +1,12 @@
 use crate::crypto_provider;
+use RustlsClientTransportInner::{Tcp, Tls};
 use futures_rustls::{
+    TlsConnector,
     client::TlsStream,
     rustls::{
-        client::danger::ServerCertVerifier, crypto::CryptoProvider, pki_types::ServerName,
-        ClientConfig, ClientConnection,
+        ClientConfig, ClientConnection, client::danger::ServerCertVerifier, crypto::CryptoProvider,
+        pki_types::ServerName,
     },
-    TlsConnector,
 };
 use std::{
     fmt::{self, Debug, Formatter},
@@ -16,7 +17,6 @@ use std::{
     task::{Context, Poll},
 };
 use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url};
-use RustlsClientTransportInner::{Tcp, Tls};
 
 #[derive(Clone, Debug)]
 pub struct RustlsClientConfig(Arc<ClientConfig>);
@@ -97,7 +97,7 @@ impl<C: Connector> RustlsConfig<C> {
 impl<Config: Debug> Debug for RustlsConfig<Config> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("RustlsConfig")
-            .field("rustls_config", &"..")
+            .field("rustls_config", &format_args!(".."))
             .field("tcp_config", &self.tcp_config)
             .finish()
     }

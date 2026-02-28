@@ -1,4 +1,4 @@
-use futures_lite::stream::{pending, Pending, Stream};
+use futures_lite::stream::{Pending, Stream, pending};
 use futures_util::{SinkExt, StreamExt};
 use std::pin::Pin;
 use trillium::Handler;

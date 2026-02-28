@@ -1,8 +1,8 @@
 use crate::Runtime;
 use async_cell::sync::AsyncCell;
-use std::{cell::OnceCell, future::IntoFuture, sync::Arc};
+use std::{cell::OnceCell, future::IntoFuture, net::SocketAddr, sync::Arc};
 use swansong::{ShutdownCompletion, Swansong};
-use trillium::Info;
+use trillium_http::ServerConfig;
 
 /// A handle for a spawned trillium server. Returned by
 /// [`Config::handle`][crate::Config::handle] and
@@ -10,19 +10,48 @@ use trillium::Info;
 #[derive(Clone, Debug)]
 pub struct ServerHandle {
     pub(crate) swansong: Swansong,
-    pub(crate) info: Arc<AsyncCell<Arc<Info>>>,
-    pub(crate) received_info: OnceCell<Arc<Info>>,
+    pub(crate) server_config: Arc<AsyncCell<Arc<ServerConfig>>>,
+    pub(crate) received_server_config: OnceCell<Arc<ServerConfig>>,
     pub(crate) runtime: Runtime,
+}
+
+#[derive(Debug)]
+pub struct BoundInfo(Arc<ServerConfig>);
+
+impl BoundInfo {
+    /// Borrow a type from the [`TypeSet`] on this `BoundInfo`.
+    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.0.shared_state().get()
+    }
+
+    /// Returns the `local_addr` of a bound tcp listener, if such a thing exists for this server
+    pub fn tcp_socket_addr(&self) -> Option<&SocketAddr> {
+        self.state()
+    }
+
+    pub fn url(&self) -> Option<&url::Url> {
+        self.state()
+    }
+
+    /// Returns the `local_addr` of a bound unix listener, if such a thing exists for this server
+    #[cfg(unix)]
+    pub fn unix_socket_addr(&self) -> Option<&std::os::unix::net::SocketAddr> {
+        self.state()
+    }
 }
 
 impl ServerHandle {
     /// await server start and retrieve the server's [`Info`]
-    pub async fn info(&self) -> &Info {
-        if let Some(info) = self.received_info.get() {
-            return info;
+    pub async fn info(&self) -> BoundInfo {
+        if let Some(server_config) = self.received_server_config.get().cloned() {
+            return BoundInfo(server_config);
         }
-        let arc_info = self.info.get().await;
-        self.received_info.get_or_init(|| arc_info)
+        let arc_server_config = self.server_config.get().await;
+        let server_config = self
+            .received_server_config
+            .get_or_init(|| arc_server_config);
+
+        BoundInfo(Arc::clone(server_config))
     }
 
     /// stop server and return a future that can be awaited for it to shut down gracefully

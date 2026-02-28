@@ -1,4 +1,4 @@
-use trillium::{conn_try, conn_unwrap, Conn, Handler};
+use trillium::{Conn, Handler, conn_try, conn_unwrap};
 use trillium_logger::Logger;
 use trillium_router::{Router, RouterConnExt};
 

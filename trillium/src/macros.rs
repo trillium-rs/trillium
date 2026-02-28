@@ -1,7 +1,7 @@
 /// # Unwraps an `Result::Ok` or returns the `Conn` with a 500 status.
 ///
 /// ```
-/// use trillium::{conn_try, Conn};
+/// use trillium::{Conn, conn_try};
 /// use trillium_testing::prelude::*;
 ///
 /// let handler = |mut conn: Conn| async move {
@@ -19,7 +19,7 @@
 /// ```
 #[macro_export]
 macro_rules! conn_try {
-    ($expr:expr, $conn:expr) => {
+    ($expr:expr_2021, $conn:expr_2021) => {
         match $expr {
             Ok(value) => value,
             Err(error) => {
@@ -36,7 +36,7 @@ macro_rules! conn_try {
 /// returning an error.
 ///
 /// ```
-/// use trillium::{conn_unwrap, Conn, State};
+/// use trillium::{Conn, State, conn_unwrap};
 /// use trillium_testing::prelude::*;
 ///
 /// #[derive(Copy, Clone)]
@@ -52,7 +52,7 @@ macro_rules! conn_try {
 /// ```
 #[macro_export]
 macro_rules! conn_unwrap {
-    ($option:expr, $conn:expr) => {
+    ($option:expr_2021, $conn:expr_2021) => {
         match $option {
             Some(value) => value,
             None => return $conn,
@@ -66,13 +66,13 @@ macro_rules! conn_unwrap {
 /// error path, but you still want to record that it transpired
 #[macro_export]
 macro_rules! log_error {
-    ($expr:expr) => {
+    ($expr:expr_2021) => {
         if let Err(err) = $expr {
             $crate::log::error!("{}:{} {:?}", file!(), line!(), err);
         }
     };
 
-    ($expr:expr, $message:expr) => {
+    ($expr:expr_2021, $message:expr_2021) => {
         if let Err(err) = $expr {
             $crate::log::error!("{}:{} {} {:?}", file!(), line!(), $message, err);
         }
@@ -105,7 +105,7 @@ macro_rules! log_error {
 /// ```
 ///
 /// ```
-/// use trillium::{conn_unwrap, delegate_handler, Conn, State};
+/// use trillium::{Conn, State, conn_unwrap, delegate_handler};
 ///
 /// #[derive(Clone, Copy)]
 /// struct MyState(usize);

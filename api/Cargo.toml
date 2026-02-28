@@ -2,7 +2,7 @@
 name = "trillium-api"
 version = "0.2.0-rc.12"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
-edition = "2021"
+edition = "2024"
 description = "an api handler for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"

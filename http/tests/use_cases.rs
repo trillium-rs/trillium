@@ -3,8 +3,8 @@
 use std::{future::Future, marker::PhantomData, sync::Arc};
 use test_harness::test;
 use trillium_client::{Client, Connector, Url};
-use trillium_http::{Conn, KnownHeaderName};
-use trillium_testing::{harness, Runtime, TestResult, TestTransport};
+use trillium_http::{Conn, KnownHeaderName, ServerConfig};
+use trillium_testing::{Runtime, TestResult, TestTransport, harness};
 
 #[test(harness)]
 async fn send_no_server_header() -> TestResult {
@@ -22,6 +22,7 @@ pub struct ServerConnector<F, Fut> {
     handler: Arc<F>,
     fut: PhantomData<Fut>,
     runtime: Runtime,
+    server_config: Arc<ServerConfig>,
 }
 
 impl<F, Fut> ServerConnector<F, Fut>
@@ -33,6 +34,7 @@ where
         Self {
             handler: Arc::new(handler),
             fut: PhantomData,
+            server_config: ServerConfig::default().into(),
             runtime: trillium_testing::runtime().into(),
         }
     }
@@ -50,12 +52,10 @@ where
         let (client_transport, server_transport) = TestTransport::new();
 
         let handler = self.handler.clone();
+        let server_config = self.server_config.clone();
 
-        self.runtime.spawn(async move {
-            Conn::map(server_transport, Default::default(), &*handler)
-                .await
-                .unwrap();
-        });
+        self.runtime
+            .spawn(async move { server_config.run(server_transport, &*handler).await });
 
         Ok(client_transport)
     }

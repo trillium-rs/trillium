@@ -1,5 +1,5 @@
 use trillium_router::*;
-use trillium_testing::{prelude::*, TestConn};
+use trillium_testing::{TestConn, prelude::*};
 
 #[test]
 fn options_star_with_a_star_handler() {

@@ -1,7 +1,7 @@
 mod conn_counter {
     use std::sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     };
     use trillium::{Conn, Handler};
 
@@ -37,13 +37,26 @@ mod conn_counter {
 }
 
 use conn_counter::{ConnCounterConnExt, ConnCounterHandler};
-use trillium::{Conn, Handler};
+use std::time::Instant;
+use trillium::{Conn, Handler, Init};
+
+struct ServerStart(Instant);
 
 fn handler() -> impl Handler {
-    (ConnCounterHandler::new(), |conn: Conn| async move {
-        let conn_number = conn.conn_number();
-        conn.ok(format!("conn number was {conn_number}"))
-    })
+    (
+        Init::new(|info| async move { info.with_state(ServerStart(Instant::now())) }),
+        ConnCounterHandler::new(),
+        |conn: Conn| async move {
+            let uptime = conn
+                .shared_state()
+                .map(|ServerStart(instant)| instant.elapsed())
+                .unwrap_or_default();
+            let conn_number = conn.conn_number();
+            conn.ok(format!(
+                "conn number was {conn_number}, server has been up {uptime:?}"
+            ))
+        },
+    )
 }
 
 fn main() {

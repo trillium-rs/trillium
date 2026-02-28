@@ -2,13 +2,12 @@ use crate::{AsyncStdRuntime, AsyncStdTransport};
 use async_std::{
     net::{TcpListener, TcpStream},
     os::unix::net::{UnixListener, UnixStream},
-    stream::StreamExt,
 };
-use std::{env, io::Result};
-use trillium::{log_error, Info};
+use std::io::Result;
+use trillium::{Info, log_error};
 use trillium_server_common::{
     Binding::{self, *},
-    Server, Swansong,
+    Server,
 };
 
 /// Tcp/Unix Trillium server adapter for Async-Std
@@ -41,31 +40,6 @@ impl Server for AsyncStdServer {
     type Runtime = AsyncStdRuntime;
     type Transport = Binding<AsyncStdTransport<TcpStream>, AsyncStdTransport<UnixStream>>;
 
-    const DESCRIPTION: &'static str = concat!(
-        " (",
-        env!("CARGO_PKG_NAME"),
-        " v",
-        env!("CARGO_PKG_VERSION"),
-        ")"
-    );
-
-    async fn handle_signals(swansong: Swansong) {
-        use signal_hook::consts::signal::*;
-        use signal_hook_async_std::Signals;
-
-        let signals = Signals::new([SIGINT, SIGTERM, SIGQUIT]).unwrap();
-        let mut signals = signals.fuse();
-        while signals.next().await.is_some() {
-            if swansong.state().is_shutting_down() {
-                eprintln!("\nSecond interrupt, shutting down harshly");
-                std::process::exit(1);
-            } else {
-                println!("\nShutting down gracefully.\nControl-C again to force.");
-                swansong.shut_down();
-            }
-        }
-    }
-
     async fn accept(&mut self) -> Result<Self::Transport> {
         match &self.0 {
             Tcp(t) => t
@@ -80,18 +54,27 @@ impl Server for AsyncStdServer {
         }
     }
 
-    fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {
+    fn from_tcp(tcp: std::net::TcpListener) -> Self {
         Self(Tcp(tcp.into()))
     }
 
-    fn listener_from_unix(tcp: std::os::unix::net::UnixListener) -> Self {
+    fn from_unix(tcp: std::os::unix::net::UnixListener) -> Self {
         Self(Unix(tcp.into()))
     }
 
-    fn info(&self) -> Info {
+    fn init(&self, info: &mut Info) {
         match &self.0 {
-            Tcp(t) => t.local_addr().unwrap().into(),
-            Unix(u) => u.local_addr().unwrap().into(),
+            Tcp(t) => {
+                if let Ok(socket_addr) = t.local_addr() {
+                    info.insert_state(socket_addr);
+                }
+            }
+
+            Unix(u) => {
+                if let Ok(socket_addr) = u.local_addr() {
+                    info.insert_state(socket_addr);
+                }
+            }
         }
     }
 
