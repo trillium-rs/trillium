@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/trillium-rs/trillium/compare/trillium-static-compiled-macros-v0.1.1...trillium-static-compiled-macros-v0.1.2) - 2026-02-28
+
+### Fixed
+
+- *(static-compiled)* handle mime correctly for file-as-root
+
 ## [0.1.1](https://github.com/trillium-rs/trillium/compare/trillium-static-compiled-macros-v0.1.0...trillium-static-compiled-macros-v0.1.1) - 2024-01-02
 
 ### Fixed
