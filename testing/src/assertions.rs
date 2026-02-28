@@ -71,7 +71,7 @@ macro_rules! assert_not_handled {
     ($conn:expr_2021) => {{
         let conn = $conn;
         assert_eq!(conn.status(), None);
-        assert!(conn.inner().response_body().is_none());
+        assert!(conn.response_body().is_none());
         assert!(!conn.is_halted());
     }};
 }
@@ -227,7 +227,7 @@ macro_rules! assert_response {
 #[macro_export]
 macro_rules! assert_headers {
     (@pair, $conn:expr_2021, $header_name:tt, None) => {
-        match $conn.inner().response_headers().get_str($header_name) {
+        match $conn.response_headers().get_str($header_name) {
             actual => {
                 assert_eq!(actual, None, concat!("for header ", stringify!($header_name)));
             }
@@ -235,7 +235,7 @@ macro_rules! assert_headers {
     };
 
     (@pair, $conn:expr_2021, $header_name:tt, $header_value:expr_2021) => {
-        match ($conn.inner().response_headers().get_str($header_name), $header_value) {
+        match ($conn.response_headers().get_str($header_name), $header_value) {
             (actual, expected) => {
                 assert_eq!(actual, Some(expected), concat!("for header ", stringify!($header_name)));
             }
