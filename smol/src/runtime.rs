@@ -61,7 +61,46 @@ impl RuntimeTrait for SmolRuntime {
         &self,
         signals: impl IntoIterator<Item = i32>,
     ) -> impl Stream<Item = i32> + Send + 'static {
-        signal_hook_async_std::Signals::new(signals).unwrap()
+        use async_signal::{Signal, Signals};
+        use signal_hook::consts::signal::*;
+        let signals: Vec<Signal> = signals
+            .into_iter()
+            .filter_map(|n| match n {
+                SIGHUP => Some(Signal::Hup),
+                SIGINT => Some(Signal::Int),
+                SIGQUIT => Some(Signal::Quit),
+                SIGILL => Some(Signal::Ill),
+                SIGTRAP => Some(Signal::Trap),
+                SIGABRT => Some(Signal::Abort),
+                SIGBUS => Some(Signal::Bus),
+                SIGFPE => Some(Signal::Fpe),
+                SIGKILL => Some(Signal::Kill),
+                SIGUSR1 => Some(Signal::Usr1),
+                SIGSEGV => Some(Signal::Segv),
+                SIGUSR2 => Some(Signal::Usr2),
+                SIGPIPE => Some(Signal::Pipe),
+                SIGALRM => Some(Signal::Alarm),
+                SIGTERM => Some(Signal::Term),
+                SIGCHLD => Some(Signal::Child),
+                SIGCONT => Some(Signal::Cont),
+                SIGSTOP => Some(Signal::Stop),
+                SIGTSTP => Some(Signal::Tstp),
+                SIGTTIN => Some(Signal::Ttin),
+                SIGTTOU => Some(Signal::Ttou),
+                SIGURG => Some(Signal::Urg),
+                SIGXCPU => Some(Signal::Xcpu),
+                SIGXFSZ => Some(Signal::Xfsz),
+                SIGVTALRM => Some(Signal::Vtalarm),
+                SIGPROF => Some(Signal::Prof),
+                SIGWINCH => Some(Signal::Winch),
+                SIGIO => Some(Signal::Io),
+                SIGSYS => Some(Signal::Sys),
+                _ => None,
+            })
+            .collect();
+        Signals::new(signals)
+            .unwrap()
+            .filter_map(|r| r.ok().map(|s| s as i32))
     }
 }
 
