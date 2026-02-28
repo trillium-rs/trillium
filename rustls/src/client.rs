@@ -1,30 +1,27 @@
 use crate::crypto_provider;
+use RustlsClientTransportInner::{Tcp, Tls};
 use futures_rustls::{
+    TlsConnector,
     client::TlsStream,
     rustls::{
-        client::danger::ServerCertVerifier, crypto::CryptoProvider, pki_types::ServerName,
-        ClientConfig, ClientConnection,
+        ClientConfig, ClientConnection, client::danger::ServerCertVerifier, crypto::CryptoProvider,
+        pki_types::ServerName,
     },
-    TlsConnector,
 };
 use std::{
     fmt::{self, Debug, Formatter},
-    future::Future,
     io::{Error, ErrorKind, IoSlice, Result},
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{async_trait, AsyncRead, AsyncWrite, Connector, Transport, Url};
-use RustlsClientTransportInner::{Tcp, Tls};
+use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url};
 
 #[derive(Clone, Debug)]
 pub struct RustlsClientConfig(Arc<ClientConfig>);
 
-/**
-Client configuration for RustlsConnector
-*/
+/// Client configuration for RustlsConnector
 #[derive(Clone, Default)]
 pub struct RustlsConfig<Config> {
     /// configuration for rustls itself
@@ -106,8 +103,8 @@ impl<Config: Debug> Debug for RustlsConfig<Config> {
     }
 }
 
-#[async_trait]
 impl<C: Connector> Connector for RustlsConfig<C> {
+    type Runtime = C::Runtime;
     type Transport = RustlsClientTransport<C::Transport>;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
@@ -139,8 +136,8 @@ impl<C: Connector> Connector for RustlsConfig<C> {
         }
     }
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        self.tcp_config.spawn(fut)
+    fn runtime(&self) -> Self::Runtime {
+        self.tcp_config.runtime()
     }
 }
 
@@ -150,12 +147,10 @@ enum RustlsClientTransportInner<T> {
     Tls(Box<TlsStream<T>>),
 }
 
-/**
-Transport for the rustls connector
-
-This may represent either an encrypted tls connection or a plaintext
-connection, depending on the request schema
-*/
+/// Transport for the rustls connector
+///
+/// This may represent either an encrypted tls connection or a plaintext
+/// connection, depending on the request schema
 #[derive(Debug)]
 pub struct RustlsClientTransport<T>(RustlsClientTransportInner<T>);
 impl<T> From<T> for RustlsClientTransport<T> {

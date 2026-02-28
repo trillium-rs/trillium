@@ -8,20 +8,18 @@
     nonstandard_style,
     unused_qualifications
 )]
-/*!
-Basic authentication for trillium.rs
-
-```rust,no_run
-use trillium_basic_auth::BasicAuth;
-trillium_smol::run((
-    BasicAuth::new("trillium", "7r1ll1um").with_realm("rust"),
-    |conn: trillium::Conn| async move { conn.ok("authenticated") },
-));
-```
-*/
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+//! Basic authentication for trillium.rs
+//!
+//! ```rust,no_run
+//! use trillium_basic_auth::BasicAuth;
+//! trillium_smol::run((
+//!     BasicAuth::new("trillium", "7r1ll1um").with_realm("rust"),
+//!     |conn: trillium::Conn| async move { conn.ok("authenticated") },
+//! ));
+//! ```
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use trillium::{
-    async_trait, Conn, Handler,
+    Conn, Handler,
     KnownHeaderName::{Authorization, WwwAuthenticate},
     Status,
 };
@@ -117,7 +115,6 @@ impl BasicAuth {
     }
 }
 
-#[async_trait]
 impl Handler for BasicAuth {
     async fn run(&self, conn: Conn) -> Conn {
         if self.is_allowed(&conn) {

@@ -1,40 +1,38 @@
 use crate::{Result, Role, WebSocketConfig};
 use async_tungstenite::{
-    tungstenite::{self, Message},
     WebSocketStream,
+    tungstenite::{self, Message},
 };
 use futures_util::{
-    stream::{SplitSink, SplitStream, Stream},
     SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream, Stream},
 };
 use std::{
     net::IpAddr,
     pin::Pin,
     task::{Context, Poll},
 };
-use stopper::{Stopper, StreamStopper};
-use trillium::{Headers, Method, StateSet, Upgrade};
-use trillium_http::transport::BoxedTransport;
+use swansong::{Interrupt, Swansong};
+use trillium::{Headers, Method, TypeSet, Upgrade};
+use trillium_http::{transport::BoxedTransport, type_set::entry::Entry};
 
-/**
-A struct that represents an specific websocket connection.
-
-This can be thought of as a combination of a [`async_tungstenite::WebSocketStream`] and a
-[`trillium::Conn`], as it contains a combination of their fields and
-associated functions.
-
-The WebSocketConn implements `Stream<Item=Result<Message, Error>>`,
-and can be polled with `StreamExt::next`
- */
+/// A struct that represents an specific websocket connection.
+///
+/// This can be thought of as a combination of a [`async_tungstenite::WebSocketStream`] and a
+/// [`trillium::Conn`], as it contains a combination of their fields and
+/// associated functions.
+///
+/// The WebSocketConn implements `Stream<Item=Result<Message, Error>>`,
+/// and can be polled with `StreamExt::next`
 
 #[derive(Debug)]
 pub struct WebSocketConn {
     request_headers: Headers,
     path: String,
     method: Method,
-    state: StateSet,
+    state: TypeSet,
     peer_ip: Option<IpAddr>,
-    stopper: Stopper,
+    swansong: Swansong,
     sink: SplitSink<Wss, Message>,
     stream: Option<WStream>,
 }
@@ -77,18 +75,20 @@ impl WebSocketConn {
             state,
             buffer,
             transport,
-            stopper,
+            swansong,
+            peer_ip,
+            ..
         } = upgrade;
 
-        let wss = if let Some(vec) = buffer {
-            WebSocketStream::from_partially_read(transport, vec, role, config).await
-        } else {
+        let wss = if buffer.is_empty() {
             WebSocketStream::from_raw_socket(transport, role, config).await
+        } else {
+            WebSocketStream::from_partially_read(transport, buffer.to_owned(), role, config).await
         };
 
         let (sink, stream) = wss.split();
         let stream = Some(WStream {
-            stream: stopper.stop_stream(stream),
+            stream: swansong.interrupt(stream),
         });
 
         Self {
@@ -96,16 +96,16 @@ impl WebSocketConn {
             path,
             method,
             state,
-            peer_ip: None,
+            peer_ip,
             sink,
             stream,
-            stopper,
+            swansong,
         }
     }
 
-    /// retrieve a clone of the server's [`Stopper`]
-    pub fn stopper(&self) -> Stopper {
-        self.stopper.clone()
+    /// retrieve a clone of the server's [`Swansong`]
+    pub fn swansong(&self) -> Swansong {
+        self.swansong.clone()
     }
 
     /// close the websocket connection gracefully
@@ -128,22 +128,18 @@ impl WebSocketConn {
         self.peer_ip = peer_ip
     }
 
-    /**
-    retrieves the path part of the request url, up to and excluding
-    any query component
-     */
+    /// retrieves the path part of the request url, up to and excluding
+    /// any query component
     pub fn path(&self) -> &str {
         self.path.split('?').next().unwrap_or_default()
     }
 
-    /**
-    Retrieves the query component of the path, excluding `?`. Returns
-    an empty string if there is no query component.
-     */
+    /// Retrieves the query component of the path, excluding `?`. Returns
+    /// an empty string if there is no query component.
     pub fn querystring(&self) -> &str {
         self.path
             .split_once('?')
-            .map(|(_, q)| q)
+            .map(|(_, query)| query)
             .unwrap_or_default()
     }
 
@@ -152,27 +148,17 @@ impl WebSocketConn {
         self.method
     }
 
-    /**
-    retrieve state from the state set that has been accumulated by
-    trillium handlers run on the [`trillium::Conn`] before it
-    became a websocket. see [`trillium::Conn::state`] for more
-    information
-     */
-    pub fn state<T: 'static>(&self) -> Option<&T> {
+    /// retrieve state from the state set that has been accumulated by
+    /// trillium handlers run on the [`trillium::Conn`] before it
+    /// became a websocket. see [`trillium::Conn::state`] for more
+    /// information
+    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
         self.state.get()
     }
 
-    /**
-    retrieve a mutable borrow of the state from the state set
-     */
-    pub fn state_mut<T: 'static>(&mut self) -> Option<&mut T> {
+    /// retrieve a mutable borrow of the state from the state set
+    pub fn state_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
         self.state.get_mut()
-    }
-
-    /// see [`insert_state`]
-    #[deprecated = "use WebsocketConn::insert_state"]
-    pub fn set_state<T: Send + Sync + 'static>(&mut self, state: T) {
-        self.insert_state(state);
     }
 
     /// inserts new state
@@ -182,18 +168,22 @@ impl WebSocketConn {
         self.state.insert(state)
     }
 
-    /**
-    take some type T out of the state set that has been
-    accumulated by trillium handlers run on the [`trillium::Conn`]
-    before it became a websocket. see [`trillium::Conn::take_state`]
-    for more information
-     */
-    pub fn take_state<T: 'static>(&mut self) -> Option<T> {
+    /// take some type T out of the state set that has been
+    /// accumulated by trillium handlers run on the [`trillium::Conn`]
+    /// before it became a websocket. see [`trillium::Conn::take_state`]
+    /// for more information
+    pub fn take_state<T: Send + Sync + 'static>(&mut self) -> Option<T> {
         self.state.take()
     }
 
+    /// Returns an [`Entry`] for the state typeset that can be used with functions like
+    /// [`Entry::or_insert`], [`Entry::or_insert_with`], [`Entry::and_modify`], and others.
+    pub fn state_entry<T: Send + Sync + 'static>(&mut self) -> Entry<'_, T> {
+        self.state.entry()
+    }
+
     /// take the inbound Message stream from this conn
-    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult>> {
+    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult> + use<>> {
         self.stream.take()
     }
 
@@ -207,7 +197,7 @@ type MessageResult = std::result::Result<Message, tungstenite::Error>;
 
 #[derive(Debug)]
 pub struct WStream {
-    stream: StreamStopper<SplitStream<Wss>>,
+    stream: Interrupt<SplitStream<Wss>>,
 }
 
 impl Stream for WStream {
@@ -218,14 +208,14 @@ impl Stream for WStream {
     }
 }
 
-impl AsMut<StateSet> for WebSocketConn {
-    fn as_mut(&mut self) -> &mut StateSet {
+impl AsMut<TypeSet> for WebSocketConn {
+    fn as_mut(&mut self) -> &mut TypeSet {
         &mut self.state
     }
 }
 
-impl AsRef<StateSet> for WebSocketConn {
-    fn as_ref(&self) -> &StateSet {
+impl AsRef<TypeSet> for WebSocketConn {
+    fn as_ref(&self) -> &TypeSet {
         &self.state
     }
 }

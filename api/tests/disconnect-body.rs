@@ -1,18 +1,18 @@
 use async_channel::Sender;
 use test_harness::test;
-use trillium::{async_trait, Conn, Handler, Status};
+use trillium::{Conn, Handler, Status};
 use trillium_testing::{
-    futures_lite::AsyncWriteExt, harness, AsyncWrite, ClientConfig, Connector, ObjectSafeConnector,
-    ServerHandle,
+    ArcedConnector, AsyncWrite, Connector, ServerHandle, client_config,
+    futures_lite::AsyncWriteExt, harness,
 };
 
 struct LastStatus(Sender<Option<Status>>);
 
-#[async_trait]
 impl Handler for LastStatus {
     async fn run(&self, conn: Conn) -> Conn {
         conn
     }
+
     async fn before_send(&self, conn: Conn) -> Conn {
         self.0.send(conn.status()).await.unwrap();
         conn
@@ -35,7 +35,7 @@ async fn disconnect_on_string_body() {
 
     drop(client);
     assert_eq!(Some(Status::BadRequest), receiver.recv().await.unwrap());
-    handle.stop().await;
+    handle.shut_down().await;
 }
 
 /// this test exists to confirm that the 400 response tested above is in fact due to the disconnect
@@ -54,7 +54,7 @@ async fn normal_string_body() {
 
     drop(client);
     assert_eq!(Some(Status::Ok), receiver.recv().await.unwrap());
-    handle.stop().await;
+    handle.shut_down().await;
 }
 
 #[test(harness)]
@@ -73,7 +73,7 @@ async fn disconnect_on_vec_body() {
 
     drop(client);
     assert_eq!(Some(Status::BadRequest), receiver.recv().await.unwrap());
-    handle.stop().await;
+    handle.shut_down().await;
 }
 
 /// this test exists to confirm that the 400 response tested above is in fact due to the disconnect
@@ -92,7 +92,7 @@ async fn normal_vec_body() {
 
     drop(client);
     assert_eq!(Some(Status::Ok), receiver.recv().await.unwrap());
-    handle.stop().await;
+    handle.shut_down().await;
 }
 
 async fn establish_server(handler: impl Handler) -> (ServerHandle, impl AsyncWrite) {
@@ -112,11 +112,9 @@ async fn establish_server(handler: impl Handler) -> (ServerHandle, impl AsyncWri
         |x| x.port(),
     );
 
-    let client = Connector::connect(
-        &ClientConfig::default().boxed(),
-        &format!("http://localhost:{port}").parse().unwrap(),
-    )
-    .await
-    .unwrap();
+    let client = ArcedConnector::new(client_config())
+        .connect(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap();
     (handle, client)
 }

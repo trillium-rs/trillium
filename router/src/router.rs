@@ -1,11 +1,12 @@
 use crate::{CapturesNewType, RouteSpecNewType, RouterRef};
 use routefinder::{Match, RouteSpec, Router as Routefinder};
 use std::{
+    borrow::Cow,
     collections::BTreeSet,
     fmt::{self, Debug, Display, Formatter},
     mem,
 };
-use trillium::{async_trait, Conn, Handler, Info, KnownHeaderName, Method, Upgrade};
+use trillium::{BoxedHandler, Conn, Handler, Info, KnownHeaderName, Method, Upgrade};
 
 const ALL_METHODS: [Method; 5] = [
     Method::Delete,
@@ -68,7 +69,7 @@ impl From<Vec<Method>> for MethodSelection {
 }
 
 #[derive(Debug, Default)]
-struct MethodRoutefinder(Routefinder<(MethodSelection, Box<dyn Handler>)>);
+struct MethodRoutefinder(Routefinder<(MethodSelection, BoxedHandler)>);
 impl MethodRoutefinder {
     fn add<R>(
         &mut self,
@@ -80,7 +81,7 @@ impl MethodRoutefinder {
         R::Error: Debug,
     {
         self.0
-            .add(path, (method_selection.into(), Box::new(handler)))
+            .add(path, (method_selection.into(), BoxedHandler::new(handler)))
             .expect("could not add route")
     }
 
@@ -119,17 +120,14 @@ impl MethodRoutefinder {
         &'a self,
         method: Method,
         path: &'b str,
-    ) -> Option<Match<'a, 'b, (MethodSelection, Box<dyn Handler>)>> {
+    ) -> Option<Match<'a, 'b, (MethodSelection, BoxedHandler)>> {
         self.0.match_iter(path).find(|m| m.0 == method)
     }
 }
 
-/**
-# The Router handler
-
-See crate level docs for more, as this is the primary type in this crate.
-
-*/
+/// # The Router handler
+///
+/// See crate level docs for more, as this is the primary type in this crate.
 pub struct Router {
     routefinder: MethodRoutefinder,
     handle_options: bool,
@@ -179,7 +177,7 @@ assert_not_handled!(",
         );
     };
 
-    ($fn_name:ident, $method:ident, $doc_comment:expr) => {
+    ($fn_name:ident, $method:ident, $doc_comment:expr_2021) => {
         #[doc = $doc_comment]
         pub fn $fn_name<R>(mut self, path: R, handler: impl Handler) -> Self
         where
@@ -193,79 +191,89 @@ assert_not_handled!(",
 }
 
 impl Router {
-    /**
-    Constructs a new Router. This is often used with [`Router::get`],
-    [`Router::post`], [`Router::put`], [`Router::delete`], and
-    [`Router::patch`] chainable methods to build up an application.
+    method!(get, Get);
 
-    For an alternative way of constructing a Router, see [`Router::build`]
+    method!(post, Post);
 
-    ```
-    # use trillium::Conn;
-    # use trillium_router::Router;
+    method!(put, Put);
 
-    let router = Router::new()
-        .get("/", |conn: Conn| async move { conn.ok("you have reached the index") })
-        .get("/some/:param", |conn: Conn| async move { conn.ok("you have reached /some/:param") })
-        .post("/", |conn: Conn| async move { conn.ok("post!") });
+    method!(delete, Delete);
 
-    use trillium_testing::prelude::*;
-    assert_ok!(get("/").on(&router), "you have reached the index");
-    assert_ok!(get("/some/route").on(&router), "you have reached /some/:param");
-    assert_ok!(post("/").on(&router), "post!");
-    ```
-     */
+    method!(patch, Patch);
+
+    /// Constructs a new Router. This is often used with [`Router::get`],
+    /// [`Router::post`], [`Router::put`], [`Router::delete`], and
+    /// [`Router::patch`] chainable methods to build up an application.
+    ///
+    /// For an alternative way of constructing a Router, see [`Router::build`]
+    ///
+    /// ```
+    /// # use trillium::Conn;
+    /// # use trillium_router::Router;
+    ///
+    /// let router = Router::new()
+    ///     .get("/", |conn: Conn| async move {
+    ///         conn.ok("you have reached the index")
+    ///     })
+    ///     .get("/some/:param", |conn: Conn| async move {
+    ///         conn.ok("you have reached /some/:param")
+    ///     })
+    ///     .post("/", |conn: Conn| async move { conn.ok("post!") });
+    ///
+    /// use trillium_testing::prelude::*;
+    /// assert_ok!(get("/").on(&router), "you have reached the index");
+    /// assert_ok!(
+    ///     get("/some/route").on(&router),
+    ///     "you have reached /some/:param"
+    /// );
+    /// assert_ok!(post("/").on(&router), "post!");
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
-    /**
-    Disable the default behavior of responding to OPTIONS requests
-    with the supported methods at a given path
-    */
+    /// Disable the default behavior of responding to OPTIONS requests
+    /// with the supported methods at a given path
     pub fn without_options_handling(mut self) -> Self {
         self.set_options_handling(false);
         self
     }
 
-    /**
-    enable or disable the router's behavior of responding to OPTIONS requests with the supported methods at given path.
-
-    default: enabled
-     */
+    /// enable or disable the router's behavior of responding to OPTIONS requests with the supported
+    /// methods at given path.
+    ///
+    /// default: enabled
     pub(crate) fn set_options_handling(&mut self, options_enabled: bool) {
         self.handle_options = options_enabled;
     }
 
-    /**
-    Another way to build a router, if you don't like the chainable
-    interface described in [`Router::new`]. Note that the argument to
-    the closure is a [`RouterRef`].
-
-    ```
-    # use trillium::Conn;
-    # use trillium_router::Router;
-    let router = Router::build(|mut router| {
-        router.get("/", |conn: Conn| async move {
-            conn.ok("you have reached the index")
-        });
-
-        router.get("/some/:paramroute", |conn: Conn| async move {
-            conn.ok("you have reached /some/:param")
-        });
-
-        router.post("/", |conn: Conn| async move {
-            conn.ok("post!")
-        });
-    });
-
-
-    use trillium_testing::prelude::*;
-    assert_ok!(get("/").on(&router), "you have reached the index");
-    assert_ok!(get("/some/route").on(&router), "you have reached /some/:param");
-    assert_ok!(post("/").on(&router), "post!");
-    ```
-    */
+    /// Another way to build a router, if you don't like the chainable
+    /// interface described in [`Router::new`]. Note that the argument to
+    /// the closure is a [`RouterRef`].
+    ///
+    /// ```
+    /// # use trillium::Conn;
+    /// # use trillium_router::Router;
+    /// let router = Router::build(|mut router| {
+    ///     router.get("/", |conn: Conn| async move {
+    ///         conn.ok("you have reached the index")
+    ///     });
+    ///
+    ///     router.get("/some/:paramroute", |conn: Conn| async move {
+    ///         conn.ok("you have reached /some/:param")
+    ///     });
+    ///
+    ///     router.post("/", |conn: Conn| async move { conn.ok("post!") });
+    /// });
+    ///
+    /// use trillium_testing::prelude::*;
+    /// assert_ok!(get("/").on(&router), "you have reached the index");
+    /// assert_ok!(
+    ///     get("/some/route").on(&router),
+    ///     "you have reached /some/:param"
+    /// );
+    /// assert_ok!(post("/").on(&router), "post!");
+    /// ```
     pub fn build(builder: impl Fn(RouterRef)) -> Router {
         let mut router = Router::new();
         builder(RouterRef::new(&mut router));
@@ -276,25 +284,33 @@ impl Router {
         &'a self,
         method: Method,
         path: &'b str,
-    ) -> Option<Match<'a, 'b, (MethodSelection, Box<dyn Handler>)>> {
+    ) -> Option<Match<'a, 'b, (MethodSelection, BoxedHandler)>> {
         self.routefinder.best_match(method, path)
     }
 
-    /**
-    Registers a handler for a method other than get, put, post, patch, or delete.
-
-    ```
-    # use trillium::{Conn, Method};
-    # use trillium_router::Router;
-    let router = Router::new()
-        .with_route("OPTIONS", "/some/route", |conn: Conn| async move { conn.ok("directly handling options") })
-        .with_route(Method::Checkin, "/some/route", |conn: Conn| async move { conn.ok("checkin??") });
-
-    use trillium_testing::{prelude::*, TestConn};
-    assert_ok!(TestConn::build(Method::Options, "/some/route", ()).on(&router), "directly handling options");
-    assert_ok!(TestConn::build("checkin", "/some/route", ()).on(&router), "checkin??");
-    ```
-    */
+    /// Registers a handler for a method other than get, put, post, patch, or delete.
+    ///
+    /// ```
+    /// # use trillium::{Conn, Method};
+    /// # use trillium_router::Router;
+    /// let router = Router::new()
+    ///     .with_route("OPTIONS", "/some/route", |conn: Conn| async move {
+    ///         conn.ok("directly handling options")
+    ///     })
+    ///     .with_route(Method::Checkin, "/some/route", |conn: Conn| async move {
+    ///         conn.ok("checkin??")
+    ///     });
+    ///
+    /// use trillium_testing::{TestConn, prelude::*};
+    /// assert_ok!(
+    ///     TestConn::build(Method::Options, "/some/route", ()).on(&router),
+    ///     "directly handling options"
+    /// );
+    /// assert_ok!(
+    ///     TestConn::build("checkin", "/some/route", ()).on(&router),
+    ///     "checkin??"
+    /// );
+    /// ```
     pub fn with_route<M, R>(mut self, method: M, path: R, handler: impl Handler) -> Self
     where
         M: TryInto<Method>,
@@ -330,26 +346,30 @@ impl Router {
         self.routefinder.add((), path, handler);
     }
 
-    /**
-    Appends the handler to all (get, post, put, delete, and patch) methods.
-    ```
-    # use trillium::Conn;
-    # use trillium_router::Router;
-    let router = Router::new().all("/any", |conn: Conn| async move {
-        let response = format!("you made a {} request to /any", conn.method());
-        conn.ok(response)
-    });
-
-    use trillium_testing::prelude::*;
-    assert_ok!(get("/any").on(&router), "you made a GET request to /any");
-    assert_ok!(post("/any").on(&router), "you made a POST request to /any");
-    assert_ok!(delete("/any").on(&router), "you made a DELETE request to /any");
-    assert_ok!(patch("/any").on(&router), "you made a PATCH request to /any");
-    assert_ok!(put("/any").on(&router), "you made a PUT request to /any");
-
-    assert_not_handled!(get("/").on(&router));
-    ```
-    */
+    /// Appends the handler to all (get, post, put, delete, and patch) methods.
+    /// ```
+    /// # use trillium::Conn;
+    /// # use trillium_router::Router;
+    /// let router = Router::new().all("/any", |conn: Conn| async move {
+    ///     let response = format!("you made a {} request to /any", conn.method());
+    ///     conn.ok(response)
+    /// });
+    ///
+    /// use trillium_testing::prelude::*;
+    /// assert_ok!(get("/any").on(&router), "you made a GET request to /any");
+    /// assert_ok!(post("/any").on(&router), "you made a POST request to /any");
+    /// assert_ok!(
+    ///     delete("/any").on(&router),
+    ///     "you made a DELETE request to /any"
+    /// );
+    /// assert_ok!(
+    ///     patch("/any").on(&router),
+    ///     "you made a PATCH request to /any"
+    /// );
+    /// assert_ok!(put("/any").on(&router), "you made a PUT request to /any");
+    ///
+    /// assert_not_handled!(get("/").on(&router));
+    /// ```
     pub fn all<R>(mut self, path: R, handler: impl Handler) -> Self
     where
         R: TryInto<RouteSpec>,
@@ -359,25 +379,29 @@ impl Router {
         self
     }
 
-    /**
-    Appends the handler to each of the provided http methods.
-    ```
-    # use trillium::Conn;
-    # use trillium_router::Router;
-    let router = Router::new().any(&["get", "post"], "/get_or_post", |conn: Conn| async move {
-        let response = format!("you made a {} request to /get_or_post", conn.method());
-        conn.ok(response)
-    });
-
-    use trillium_testing::prelude::*;
-    assert_ok!(get("/get_or_post").on(&router), "you made a GET request to /get_or_post");
-    assert_ok!(post("/get_or_post").on(&router), "you made a POST request to /get_or_post");
-    assert_not_handled!(delete("/any").on(&router));
-    assert_not_handled!(patch("/any").on(&router));
-    assert_not_handled!(put("/any").on(&router));
-    assert_not_handled!(get("/").on(&router));
-    ```
-    */
+    /// Appends the handler to each of the provided http methods.
+    /// ```
+    /// # use trillium::Conn;
+    /// # use trillium_router::Router;
+    /// let router = Router::new().any(&["get", "post"], "/get_or_post", |conn: Conn| async move {
+    ///     let response = format!("you made a {} request to /get_or_post", conn.method());
+    ///     conn.ok(response)
+    /// });
+    ///
+    /// use trillium_testing::prelude::*;
+    /// assert_ok!(
+    ///     get("/get_or_post").on(&router),
+    ///     "you made a GET request to /get_or_post"
+    /// );
+    /// assert_ok!(
+    ///     post("/get_or_post").on(&router),
+    ///     "you made a POST request to /get_or_post"
+    /// );
+    /// assert_not_handled!(delete("/any").on(&router));
+    /// assert_not_handled!(patch("/any").on(&router));
+    /// assert_not_handled!(put("/any").on(&router));
+    /// assert_not_handled!(get("/").on(&router));
+    /// ```
     pub fn any<IntoMethod, R>(
         mut self,
         methods: &[IntoMethod],
@@ -398,15 +422,8 @@ impl Router {
         self.add_any(&methods, path, handler);
         self
     }
-
-    method!(get, Get);
-    method!(post, Post);
-    method!(put, Put);
-    method!(delete, Delete);
-    method!(patch, Patch);
 }
 
-#[async_trait]
 impl Handler for Router {
     async fn run(&self, mut conn: Conn) -> Conn {
         let method = conn.method();
@@ -488,7 +505,7 @@ impl Handler for Router {
             .await
     }
 
-    fn name(&self) -> std::borrow::Cow<'static, str> {
+    fn name(&self) -> Cow<'static, str> {
         "Router".into()
     }
 
@@ -496,20 +513,12 @@ impl Handler for Router {
         // This code is not what a reader would expect, so here's a
         // brief explanation:
         //
-        // Currently, the init trait interface must return a Send
-        // future because that's the default for async-trait. We don't
-        // actually need it to be Send, but changing that would be a
-        // semver-minor trillium release.
+        // Mutable map iterators are not Send, and because we need to hold that data across await
+        // boundaries in a Send future, we cannot mutate in place.
         //
-        // Mutable map iterators are not Send, and because we need to
-        // hold that data across await boundaries, we cannot mutate in
-        // place.
-        //
-        // However, because this is only called once at app boot, and
-        // because we have &mut self, it is safe to move the router
-        // contents into this future and then replace it, and the
-        // performance impacts of doing so are unimportant as it is
-        // part of app boot.
+        // However, because this is only called once at app boot, and because we have &mut self, it
+        // is safe to move the router contents into this future and then replace it, and the
+        // performance impacts of doing so are unimportant as it is part of app boot.
         let routefinder = mem::take(&mut self.routefinder);
         for (route, (methods, mut handler)) in routefinder.0 {
             handler.init(info).await;

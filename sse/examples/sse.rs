@@ -1,5 +1,5 @@
 use broadcaster::BroadcastChannel;
-use trillium::{conn_try, conn_unwrap, log_error, Conn, Method, State};
+use trillium::{Conn, Method, State, conn_try, conn_unwrap, log_error};
 use trillium_logger::logger;
 use trillium_sse::SseConnExt;
 use trillium_static_compiled::static_compiled;

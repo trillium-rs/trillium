@@ -1,20 +1,16 @@
-use crate::TokioTransport;
+use crate::{TokioRuntime, TokioTransport};
 use async_compat::Compat;
 use std::{
-    future::Future,
     io::{Error, ErrorKind, Result},
     time::Duration,
 };
 use tokio::net::TcpStream;
 use trillium_server_common::{
-    async_trait,
-    url::{Host, Url},
     Connector, Transport,
+    url::{Host, Url},
 };
 
-/**
-configuration for the tcp Connector
-*/
+/// configuration for the tcp Connector
 #[derive(Default, Debug, Clone, Copy)]
 pub struct ClientConfig {
     /// disable [nagle's algorithm](https://en.wikipedia.org/wiki/Nagle%27s_algorithm)
@@ -58,8 +54,8 @@ impl ClientConfig {
     }
 }
 
-#[async_trait]
 impl Connector for ClientConfig {
+    type Runtime = TokioRuntime;
     type Transport = TokioTransport<Compat<TcpStream>>;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
@@ -76,7 +72,8 @@ impl Connector for ClientConfig {
 
         let port = url
             .port_or_known_default()
-            // this should be ok because we already checked that the scheme is http, which has a default port
+            // this should be ok because we already checked that the scheme is http, which has a
+            // default port
             .ok_or_else(|| Error::new(ErrorKind::InvalidInput, format!("{url} missing port")))?;
 
         let mut tcp = match host {
@@ -100,7 +97,7 @@ impl Connector for ClientConfig {
         Ok(tcp)
     }
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        tokio::task::spawn(fut);
+    fn runtime(&self) -> Self::Runtime {
+        TokioRuntime::default()
     }
 }

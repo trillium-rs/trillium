@@ -4,7 +4,7 @@ use trillium_client::{
     KnownHeaderName::{Accept, Connection, Host, UserAgent},
 };
 use trillium_http::Headers;
-use trillium_testing::{harness, ServerConnector, TestResult};
+use trillium_testing::{ServerConnector, TestResult, harness};
 
 #[test(harness)]
 async fn default_headers() -> TestResult {

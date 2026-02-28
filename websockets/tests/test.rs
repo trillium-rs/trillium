@@ -1,4 +1,4 @@
-use futures_lite::stream::{pending, Pending, Stream};
+use futures_lite::stream::{Pending, Stream, pending};
 use futures_util::{SinkExt, StreamExt};
 use std::pin::Pin;
 use trillium::Handler;
@@ -25,7 +25,6 @@ fn with_channel() {
     use trillium_websockets::{Message, WebSocket, WebSocketHandler};
 
     struct MyStruct;
-    #[trillium::async_trait]
     impl WebSocketHandler for MyStruct {
         type OutboundStream = Pin<Box<Receiver<Message>>>;
 
@@ -61,7 +60,6 @@ fn with_stream_only() {
     use trillium_websockets::{Message, WebSocket, WebSocketHandler};
 
     struct MyStruct;
-    #[trillium::async_trait]
     impl WebSocketHandler for MyStruct {
         type OutboundStream = Pin<Box<dyn Stream<Item = Message> + Send + Sync + 'static>>;
 
@@ -110,9 +108,10 @@ fn with_stream_only() {
 fn with_trait_directly() {
     struct MyStruct;
 
-    #[trillium::async_trait]
     impl WebSocketHandler for MyStruct {
-        type OutboundStream = Pending<Message>; // we don't use an outbound stream in this example
+        type OutboundStream = Pending<Message>;
+
+        // we don't use an outbound stream in this example
 
         async fn connect(
             &self,

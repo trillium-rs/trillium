@@ -1,5 +1,5 @@
 use crate::HeaderValue;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use smartcow::SmartCow;
 use std::{
     borrow::Cow,
@@ -22,13 +22,13 @@ impl Deref for HeaderValues {
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for HeaderValues {
-    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        match self.one() {
-            Some(one) => one.serialize(serializer),
-            None => self.0.serialize(serializer),
+        match &**self {
+            [one] => one.serialize(serializer),
+            several => several.serialize(serializer),
         }
     }
 }
@@ -61,9 +61,8 @@ impl PartialEq<[&str]> for HeaderValues {
 }
 
 impl IntoIterator for HeaderValues {
-    type Item = HeaderValue;
-
     type IntoIter = smallvec::IntoIter<[HeaderValue; 1]>;
+    type Item = HeaderValue;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -71,9 +70,8 @@ impl IntoIterator for HeaderValues {
 }
 
 impl<'a> IntoIterator for &'a HeaderValues {
-    type Item = &'a HeaderValue;
-
     type IntoIter = std::slice::Iter<'a, HeaderValue>;
+    type Item = &'a HeaderValue;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
@@ -139,35 +137,32 @@ impl HeaderValues {
 //     }
 // }
 
-impl From<&'static [u8]> for HeaderValues {
-    fn from(value: &'static [u8]) -> Self {
-        HeaderValue::from(value).into()
-    }
+macro_rules! delegate_from_to_header_value {
+    ($($t:ty),*) => {
+        $(
+        impl From<$t> for HeaderValues {
+            fn from(value: $t) -> Self {
+                HeaderValue::from(value).into()
+            }
+        }
+        )*
+    };
 }
 
-impl From<Vec<u8>> for HeaderValues {
-    fn from(value: Vec<u8>) -> Self {
-        HeaderValue::from(value).into()
-    }
-}
-
-impl From<String> for HeaderValues {
-    fn from(value: String) -> Self {
-        HeaderValue::from(value).into()
-    }
-}
-
-impl From<&'static str> for HeaderValues {
-    fn from(value: &'static str) -> Self {
-        HeaderValue::from(value).into()
-    }
-}
-
-impl From<Cow<'static, str>> for HeaderValues {
-    fn from(value: Cow<'static, str>) -> Self {
-        HeaderValue::from(value).into()
-    }
-}
+delegate_from_to_header_value!(
+    &'static [u8],
+    Vec<u8>,
+    String,
+    usize,
+    u64,
+    u16,
+    u32,
+    i32,
+    i64,
+    Cow<'static, str>,
+    &'static str,
+    std::fmt::Arguments<'_>
+);
 
 impl From<HeaderValue> for HeaderValues {
     fn from(v: HeaderValue) -> Self {
@@ -175,11 +170,41 @@ impl From<HeaderValue> for HeaderValues {
     }
 }
 
+impl<const N: usize, HV> From<[HV; N]> for HeaderValues
+where
+    HV: Into<HeaderValue>,
+{
+    fn from(v: [HV; N]) -> Self {
+        Self(v.into_iter().map(Into::into).collect())
+    }
+}
+
 impl<HV> From<Vec<HV>> for HeaderValues
 where
     HV: Into<HeaderValue>,
 {
-    fn from(v: Vec<HV>) -> Self {
-        Self(v.into_iter().map(Into::into).collect())
+    fn from(value: Vec<HV>) -> Self {
+        Self(value.into_iter().map(Into::into).collect())
+    }
+}
+
+impl<'a, HV> From<&'a [HV]> for HeaderValues
+where
+    &'a HV: Into<HeaderValue>,
+{
+    fn from(value: &'a [HV]) -> Self {
+        Self(value.iter().map(Into::into).collect())
+    }
+}
+
+impl PartialEq<str> for HeaderValues {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str().is_some_and(|v| v == other)
+    }
+}
+
+impl PartialEq<&str> for HeaderValues {
+    fn eq(&self, other: &&str) -> bool {
+        self == *other
     }
 }

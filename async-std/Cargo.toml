@@ -2,7 +2,7 @@
 name = "trillium-async-std"
 version = "0.4.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
-edition = "2021"
+edition = "2024"
 description = "async-std runtime adapter for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
@@ -11,7 +11,8 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-std = "1.12.0"
+async-std = { version = "1.12.0", features = ["unstable"] }
+futures-lite = "2.3.0"
 log = "0.4.20"
 trillium = { path = "../trillium", version = "0.2.20" }
 trillium-http = { path = "../http", version = "0.3.17" }

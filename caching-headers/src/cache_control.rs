@@ -1,16 +1,14 @@
+use CacheControlDirective::*;
 use std::{
     fmt::{Display, Write},
     ops::{Deref, DerefMut},
     str::FromStr,
     time::Duration,
 };
-use trillium::{async_trait, Conn, Handler, HeaderValues, KnownHeaderName};
-use CacheControlDirective::*;
-/**
-An enum representation of the
-[`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control)
-directives.
-*/
+use trillium::{Conn, Handler, HeaderValues, KnownHeaderName};
+/// An enum representation of the
+/// [`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control)
+/// directives.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum CacheControlDirective {
@@ -63,25 +61,21 @@ pub enum CacheControlDirective {
     UnknownDirective(String),
 }
 
-#[async_trait]
 impl Handler for CacheControlDirective {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_response_header(KnownHeaderName::CacheControl, self.clone())
     }
 }
 
-#[async_trait]
 impl Handler for CacheControlHeader {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_response_header(KnownHeaderName::CacheControl, self.clone())
     }
 }
 
-/**
-A representation of the
-[`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control)
-header.
-*/
+/// A representation of the
+/// [`Cache-Control`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control)
+/// header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheControlHeader(Vec<CacheControlDirective>);
 

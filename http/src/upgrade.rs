@@ -1,26 +1,26 @@
-use crate::{Conn, Headers, Method, StateSet, Stopper};
+use crate::{Buffer, Conn, Headers, Method, Swansong, TypeSet, received_body::read_buffered};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
     fmt::{self, Debug, Formatter},
     io,
+    net::IpAddr,
     pin::Pin,
     str,
     task::{Context, Poll},
 };
 use trillium_macros::AsyncWrite;
 
-/**
-This open (pub fields) struct represents a http upgrade. It contains
-all of the data available on a Conn, as well as owning the underlying
-transport.
-
-Important implementation note: When reading directly from the
-transport, ensure that you read from `buffer` first if there are bytes
-in it. Alternatively, read directly from the Upgrade, as that
-[`AsyncRead`] implementation will drain the buffer first before
-reading from the transport.
-*/
+/// This open (pub fields) struct represents a http upgrade. It contains
+/// all of the data available on a Conn, as well as owning the underlying
+/// transport.
+///
+/// Important implementation note: When reading directly from the
+/// transport, ensure that you read from `buffer` first if there are bytes
+/// in it. Alternatively, read directly from the Upgrade, as that
+/// [`AsyncRead`] implementation will drain the buffer first before
+/// reading from the transport.
 #[derive(AsyncWrite)]
+#[non_exhaustive]
 pub struct Upgrade<Transport> {
     /// The http request headers
     pub request_headers: Headers,
@@ -29,23 +29,44 @@ pub struct Upgrade<Transport> {
     /// The http request method
     pub method: Method,
     /// Any state that has been accumulated on the Conn before negotiating the upgrade
-    pub state: StateSet,
+    pub state: TypeSet,
     /// The underlying io (often a `TcpStream` or similar)
     #[async_write]
     pub transport: Transport,
     /// Any bytes that have been read from the underlying tcpstream
     /// already. It is your responsibility to process these bytes
     /// before reading directly from the transport.
-    pub buffer: Option<Vec<u8>>,
-    /// A [`Stopper`] which can and should be used to gracefully shut
+    pub buffer: Buffer,
+    /// A [`Swansong`] which can and should be used to gracefully shut
     /// down any long running streams or futures associated with this
     /// upgrade
-    pub stopper: Stopper,
+    pub swansong: Swansong,
+    /// the ip address of the connection, if available
+    pub peer_ip: Option<IpAddr>,
 }
 
 impl<Transport> Upgrade<Transport> {
-    /// see [`request_headers`]
-    #[deprecated = "directly access the request_headers field"]
+    #[doc(hidden)]
+    pub fn new(
+        request_headers: Headers,
+        path: String,
+        method: Method,
+        transport: Transport,
+        buffer: Buffer,
+    ) -> Self {
+        Self {
+            request_headers,
+            path,
+            method,
+            transport,
+            buffer,
+            state: TypeSet::new(),
+            swansong: Swansong::new(),
+            peer_ip: None,
+        }
+    }
+
+    /// read-only access to the request headers
     pub fn headers(&self) -> &Headers {
         &self.request_headers
     }
@@ -73,7 +94,7 @@ impl<Transport> Upgrade<Transport> {
 
     /// any state that has been accumulated on the Conn before
     /// negotiating the upgrade.
-    pub fn state(&self) -> &StateSet {
+    pub fn state(&self) -> &TypeSet {
         &self.state
     }
 
@@ -91,7 +112,8 @@ impl<Transport> Upgrade<Transport> {
             state: self.state,
             buffer: self.buffer,
             request_headers: self.request_headers,
-            stopper: self.stopper,
+            swansong: self.swansong,
+            peer_ip: self.peer_ip,
         }
     }
 }
@@ -102,13 +124,11 @@ impl<Transport> Debug for Upgrade<Transport> {
             .field("request_headers", &self.request_headers)
             .field("path", &self.path)
             .field("method", &self.method)
-            .field(
-                "buffer",
-                &self.buffer.as_deref().map(String::from_utf8_lossy),
-            )
-            .field("stopper", &self.stopper)
+            .field("buffer", &self.buffer)
+            .field("swansong", &self.swansong)
             .field("state", &self.state)
             .field("transport", &"..")
+            .field("peer_ip", &self.peer_ip)
             .finish()
     }
 }
@@ -122,7 +142,8 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             state,
             transport,
             buffer,
-            stopper,
+            swansong,
+            peer_ip,
             ..
         } = conn;
 
@@ -132,12 +153,9 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             method,
             state,
             transport,
-            buffer: if buffer.is_empty() {
-                None
-            } else {
-                Some(buffer.into())
-            },
-            stopper,
+            buffer,
+            swansong,
+            peer_ip,
         }
     }
 }
@@ -148,32 +166,9 @@ impl<Transport: AsyncRead + Unpin> AsyncRead for Upgrade<Transport> {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        match self.buffer.take() {
-            Some(mut buffer) if !buffer.is_empty() => {
-                let len = buffer.len();
-                if len > buf.len() {
-                    log::trace!(
-                        "have {} bytes of pending data but can only use {}",
-                        len,
-                        buf.len()
-                    );
-                    let remaining = buffer.split_off(buf.len());
-                    buf.copy_from_slice(&buffer[..]);
-                    self.buffer = Some(remaining);
-                    Poll::Ready(Ok(buf.len()))
-                } else {
-                    log::trace!("have {} bytes of pending data, using all of it", len);
-                    buf[..len].copy_from_slice(&buffer);
-                    self.buffer = None;
-                    match Pin::new(&mut self.transport).poll_read(cx, &mut buf[len..]) {
-                        Poll::Ready(Ok(e)) => Poll::Ready(Ok(e + len)),
-                        Poll::Pending => Poll::Ready(Ok(len)),
-                        Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    }
-                }
-            }
-
-            _ => Pin::new(&mut self.transport).poll_read(cx, buf),
-        }
+        let Self {
+            transport, buffer, ..
+        } = &mut *self;
+        read_buffered(buffer, transport, cx, buf)
     }
 }

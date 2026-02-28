@@ -1,22 +1,18 @@
+use crate::bytes;
 use event_listener::Event;
-
 use futures_lite::AsyncRead;
-
 use sluice::pipe::PipeReader;
 use std::{
     future::Future,
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
 };
 use trillium::{Conn, KnownHeaderName};
-
 use trillium_http::Body;
-
-use crate::bytes;
 
 struct BodyProxyReader {
     reader: PipeReader,

@@ -1,7 +1,6 @@
-use trillium_channels::{channel, ChannelConn, ChannelEvent, ChannelHandler};
+use trillium_channels::{ChannelConn, ChannelEvent, ChannelHandler, channel};
 
 struct ChatChannel;
-#[trillium::async_trait]
 impl ChannelHandler for ChatChannel {
     async fn join_channel(&self, conn: ChannelConn<'_>, event: ChannelEvent) {
         if event.topic() == "rooms:lobby" {

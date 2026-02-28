@@ -1,6 +1,10 @@
 // originally from https://github.com/http-rs/http-types/blob/main/src/version.rs
 
-use std::{error::Error, fmt::Display, str::FromStr};
+use crate::Error;
+use std::{
+    fmt::Display,
+    str::{self, FromStr},
+};
 
 /// The version of the HTTP protocol in use.
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -69,19 +73,17 @@ impl Version {
             Version::Http3_0 => "HTTP/3",
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct UnrecognizedVersion(String);
-impl Display for UnrecognizedVersion {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("unrecognized http version: {}", self.0))
+    #[cfg(feature = "parse")]
+    pub(crate) fn parse(buf: &[u8]) -> crate::Result<Self> {
+        str::from_utf8(buf)
+            .map_err(|_| Error::InvalidVersion)?
+            .parse()
     }
 }
-impl Error for UnrecognizedVersion {}
 
 impl FromStr for Version {
-    type Err = UnrecognizedVersion;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -90,7 +92,7 @@ impl FromStr for Version {
             "HTTP/1.1" | "http/1.1" | "1.1" => Ok(Self::Http1_1),
             "HTTP/2" | "http/2" | "2" => Ok(Self::Http2_0),
             "HTTP/3" | "http/3" | "3" => Ok(Self::Http3_0),
-            _ => Err(UnrecognizedVersion(s.to_string())),
+            _ => Err(Error::InvalidVersion),
         }
     }
 }
@@ -133,7 +135,7 @@ mod test {
 
         assert_eq!(
             "not a version".parse::<Version>().unwrap_err().to_string(),
-            "unrecognized http version: not a version"
+            "Invalid or missing version"
         );
     }
 

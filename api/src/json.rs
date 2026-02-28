@@ -1,9 +1,7 @@
-use std::ops::{Deref, DerefMut};
-
-use serde::{de::DeserializeOwned, Serialize};
-use trillium::{async_trait, Conn, Handler};
-
 use crate::{ApiConnExt, TryFromConn};
+use serde::{Serialize, de::DeserializeOwned};
+use std::ops::{Deref, DerefMut};
+use trillium::{Conn, Handler};
 
 /// A newtype wrapper struct for any [`serde::Serialize`] type. Note
 /// that this currently must own the serializable type.
@@ -43,7 +41,6 @@ impl<T> DerefMut for Json<T> {
     }
 }
 
-#[async_trait]
 impl<Serializable> Handler for Json<Serializable>
 where
     Serializable: Serialize + Send + Sync + 'static,
@@ -53,12 +50,12 @@ where
     }
 }
 
-#[async_trait]
 impl<T> TryFromConn for Json<T>
 where
     T: DeserializeOwned + Send + Sync + 'static,
 {
     type Error = crate::Error;
+
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
         conn.deserialize_json().await.map(Self)
     }

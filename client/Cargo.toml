@@ -2,7 +2,7 @@
 name = "trillium-client"
 version = "0.6.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
-edition = "2021"
+edition = "2024"
 description = "http/1.x client for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
@@ -13,6 +13,7 @@ categories = ["web-programming", "web-programming::http-client"]
 [features]
 websockets = ["dep:trillium-websockets", "dep:thiserror"]
 json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
+parse = ["trillium-http/parse"]
 
 [dependencies]
 encoding_rs = "0.8.33"

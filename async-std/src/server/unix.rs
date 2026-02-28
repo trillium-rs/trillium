@@ -1,15 +1,14 @@
-use crate::AsyncStdTransport;
+use crate::{AsyncStdRuntime, AsyncStdTransport};
 use async_std::{
     net::{TcpListener, TcpStream},
     os::unix::net::{UnixListener, UnixStream},
     stream::StreamExt,
-    task::{block_on, spawn},
 };
-use std::{env, future::Future, io::Result, pin::Pin};
-use trillium::{log_error, Info};
+use std::{env, io::Result};
+use trillium::{Info, log_error};
 use trillium_server_common::{
     Binding::{self, *},
-    Server, Stopper,
+    Server, Swansong,
 };
 
 /// Tcp/Unix Trillium server adapter for Async-Std
@@ -39,7 +38,9 @@ impl From<std::os::unix::net::UnixListener> for AsyncStdServer {
 
 #[cfg(unix)]
 impl Server for AsyncStdServer {
+    type Runtime = AsyncStdRuntime;
     type Transport = Binding<AsyncStdTransport<TcpStream>, AsyncStdTransport<UnixStream>>;
+
     const DESCRIPTION: &'static str = concat!(
         " (",
         env!("CARGO_PKG_NAME"),
@@ -48,39 +49,35 @@ impl Server for AsyncStdServer {
         ")"
     );
 
-    fn handle_signals(stop: Stopper) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        Box::pin(async move {
-            use signal_hook::consts::signal::*;
-            use signal_hook_async_std::Signals;
+    async fn handle_signals(swansong: Swansong) {
+        use signal_hook::consts::signal::*;
+        use signal_hook_async_std::Signals;
 
-            let signals = Signals::new([SIGINT, SIGTERM, SIGQUIT]).unwrap();
-            let mut signals = signals.fuse();
-            while signals.next().await.is_some() {
-                if stop.is_stopped() {
-                    eprintln!("\nSecond interrupt, shutting down harshly");
-                    std::process::exit(1);
-                } else {
-                    println!("\nShutting down gracefully.\nControl-C again to force.");
-                    stop.stop();
-                }
+        let signals = Signals::new([SIGINT, SIGTERM, SIGQUIT]).unwrap();
+        let mut signals = signals.fuse();
+        while signals.next().await.is_some() {
+            if swansong.state().is_shutting_down() {
+                eprintln!("\nSecond interrupt, shutting down harshly");
+                std::process::exit(1);
+            } else {
+                println!("\nShutting down gracefully.\nControl-C again to force.");
+                swansong.shut_down();
             }
-        })
+        }
     }
 
-    fn accept(&mut self) -> Pin<Box<dyn Future<Output = Result<Self::Transport>> + Send + '_>> {
-        Box::pin(async move {
-            match &self.0 {
-                Tcp(t) => t
-                    .accept()
-                    .await
-                    .map(|(t, _)| Tcp(AsyncStdTransport::from(t))),
+    async fn accept(&mut self) -> Result<Self::Transport> {
+        match &self.0 {
+            Tcp(t) => t
+                .accept()
+                .await
+                .map(|(t, _)| Tcp(AsyncStdTransport::from(t))),
 
-                Unix(u) => u
-                    .accept()
-                    .await
-                    .map(|(u, _)| Unix(AsyncStdTransport::from(u))),
-            }
-        })
+            Unix(u) => u
+                .accept()
+                .await
+                .map(|(u, _)| Unix(AsyncStdTransport::from(u))),
+        }
     }
 
     fn listener_from_tcp(tcp: std::net::TcpListener) -> Self {
@@ -98,24 +95,18 @@ impl Server for AsyncStdServer {
         }
     }
 
-    fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
-        spawn(fut);
+    fn runtime() -> Self::Runtime {
+        AsyncStdRuntime::default()
     }
 
-    fn block_on(fut: impl Future<Output = ()> + 'static) {
-        block_on(fut);
-    }
-
-    fn clean_up(self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-        Box::pin(async move {
-            if let Unix(u) = &self.0 {
-                if let Ok(local) = u.local_addr() {
-                    if let Some(path) = local.as_pathname() {
-                        log::info!("deleting {:?}", &path);
-                        log_error!(async_std::fs::remove_file(path).await);
-                    }
+    async fn clean_up(self) {
+        if let Unix(u) = &self.0 {
+            if let Ok(local) = u.local_addr() {
+                if let Some(path) = local.as_pathname() {
+                    log::info!("deleting {:?}", &path);
+                    log_error!(async_std::fs::remove_file(path).await);
                 }
             }
-        })
+        }
     }
 }

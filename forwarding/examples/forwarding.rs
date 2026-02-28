@@ -1,5 +1,5 @@
 use trillium_forwarding::Forwarding;
-use trillium_logger::{apache_common, formatters::secure, Logger};
+use trillium_logger::{Logger, apache_common, formatters::secure};
 
 pub fn main() {
     trillium_smol::run((

@@ -1,7 +1,33 @@
 use super::{
-    io, ready, slice_from, AsyncRead, Buffer, Chunked, Context, End, ErrorKind, InvalidChunkSize,
-    PartialChunkSize, Pin, Ready, ReceivedBody, ReceivedBodyState, StateOutput, Status,
+    AsyncRead, Buffer, Chunked, Context, End, ErrorKind, PartialChunkSize, Pin, Ready,
+    ReceivedBody, ReceivedBodyState, StateOutput, io, ready, slice_from,
 };
+use std::io::ErrorKind::InvalidData;
+
+#[cfg(feature = "parse")]
+fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
+    use memchr::memmem::Finder;
+    use std::str;
+
+    let Some(index) = memchr::memchr2(b';', b'\r', &buf[..buf.len().min(17)]) else {
+        return if buf.len() < 17 { Ok(None) } else { Err(()) };
+    };
+    let src = str::from_utf8(&buf[..index]).map_err(|_| ())?;
+    let chunk_size = u64::from_str_radix(src, 16).map_err(|_| ())?;
+    Ok(Finder::new("\r\n")
+        .find(&buf[index..])
+        .map(|end| (index + end + 2, chunk_size + 2)))
+}
+
+#[cfg(not(feature = "parse"))]
+fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
+    use httparse::{Status, parse_chunk_size};
+    match parse_chunk_size(buf) {
+        Ok(Status::Complete((index, next_chunk))) => Ok(Some((index, next_chunk + 2))),
+        Ok(Status::Partial) => Ok(None),
+        Err(_) => Err(()),
+    }
+}
 
 impl<'conn, Transport> ReceivedBody<'conn, Transport>
 where
@@ -45,29 +71,18 @@ where
 
         self.buffer.extend_from_slice(&buf[..bytes]);
 
-        match httparse::parse_chunk_size(&self.buffer) {
-            Ok(Status::Complete((framing_bytes, remaining))) => {
-                self.buffer.ignore_front(framing_bytes);
-                Ready(Ok((
-                    if remaining == 0 {
-                        End
-                    } else {
-                        Chunked {
-                            remaining: remaining + 2,
-                            total,
-                        }
-                    },
-                    0,
-                )))
+        Ready(match parse_chunk_size(&self.buffer) {
+            Ok(Some((used, remaining))) => {
+                self.buffer.ignore_front(used);
+                if remaining == 2 {
+                    Ok((End, 0))
+                } else {
+                    Ok((Chunked { remaining, total }, 0))
+                }
             }
-
-            Ok(Status::Partial) => Ready(Ok((PartialChunkSize { total }, 0))),
-
-            Err(InvalidChunkSize) => Ready(Err(io::Error::new(
-                ErrorKind::InvalidData,
-                "invalid chunk framing",
-            ))),
-        }
+            Ok(None) => Ok((PartialChunkSize { total }, 0)),
+            Err(()) => Err(io::Error::new(InvalidData, "invalid chunk size")),
+        })
     }
 }
 
@@ -113,14 +128,14 @@ pub(super) fn chunk_decode(
             };
         }
 
-        match httparse::parse_chunk_size(buf_to_read) {
-            Ok(Status::Complete((framing_bytes, chunk_size))) => {
+        match parse_chunk_size(buf_to_read) {
+            Ok(Some((framing_bytes, chunk_size))) => {
                 chunk_start += framing_bytes as u64;
-                chunk_end = (2 + chunk_start)
+                chunk_end = chunk_start
                     .checked_add(chunk_size)
-                    .ok_or_else(|| io::Error::new(ErrorKind::InvalidData, "chunk size too long"))?;
+                    .ok_or_else(|| io::Error::new(InvalidData, "chunk size too long"))?;
 
-                if chunk_size == 0 {
+                if chunk_size == 2 {
                     if let Some(buf) = slice_from(chunk_end, buf) {
                         self_buffer.extend_from_slice(buf);
                     }
@@ -128,13 +143,13 @@ pub(super) fn chunk_decode(
                 }
             }
 
-            Ok(Status::Partial) => {
+            Ok(None) => {
                 self_buffer.extend_from_slice(buf_to_read);
                 break PartialChunkSize { total };
             }
 
-            Err(InvalidChunkSize) => {
-                return Err(io::Error::new(ErrorKind::InvalidData, "invalid chunk size"));
+            Err(()) => {
+                return Err(io::Error::new(InvalidData, "invalid chunk size"));
             }
         }
     };
@@ -152,10 +167,10 @@ pub(super) fn chunk_decode(
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_decode, ReceivedBody, ReceivedBodyState};
-    use crate::{http_config::DEFAULT_CONFIG, Buffer, HttpConfig};
+    use super::{ReceivedBody, ReceivedBodyState, chunk_decode};
+    use crate::{Buffer, HttpConfig, http_config::DEFAULT_CONFIG};
     use encoding_rs::UTF_8;
-    use futures_lite::{io::Cursor, AsyncRead, AsyncReadExt};
+    use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
     use trillium_testing::block_on;
 
     #[track_caller]
@@ -283,13 +298,15 @@ mod tests {
             let input = build_chunked_body("test ".repeat(10)).await;
 
             for size in 4..10 {
-                assert!(decode_with_config(
-                    input.clone(),
-                    size,
-                    &HttpConfig::default().with_received_body_max_len(5)
-                )
-                .await
-                .is_err());
+                assert!(
+                    decode_with_config(
+                        input.clone(),
+                        size,
+                        &HttpConfig::default().with_received_body_max_len(5)
+                    )
+                    .await
+                    .is_err()
+                );
 
                 assert!(
                     decode_with_config(input.clone(), size, &HttpConfig::default())
@@ -325,6 +342,33 @@ mod tests {
     }
 
     #[test]
+    fn test_chunk_start_with_ext() {
+        assert_decoded((0, "5;abcdefg\r\n12345\r\n"), (Some(0), "12345", ""));
+        assert_decoded((0, "F;aaa\taaaaa\taaa aaa\r\n1"), (Some(14 + 2), "1", ""));
+        assert_decoded((0, "5;;;;;;;;;;;;;;;;\r\n123"), (Some(2 + 2), "123", ""));
+        assert_decoded(
+            (0, "1;   a = b\"\" \r\nX\r\n1;;;\r\nX\r\n"),
+            (Some(0), "XX", ""),
+        );
+        assert_decoded((0, "1\r\nX\r\n1;\r\nX\r\n1"), (Some(0), "XX", "1"));
+        assert_decoded((0, "FFF; 000\r\n"), (Some(0xfff + 2), "", ""));
+        assert_decoded((10, "hello"), (Some(5), "hello", ""));
+        assert_decoded(
+            (7, "hello\r\nA;111\r\n world"),
+            (Some(4 + 2), "hello world", ""),
+        );
+        assert_decoded(
+            (0, "e\r\ntest test test\r\n0;00\r\n\r\n"),
+            (None, "test test test", ""),
+        );
+        assert_decoded(
+            (0, "1;\r\n_\r\n0;\r\n\r\nnext request"),
+            (None, "_", "next request"),
+        );
+        assert_decoded((7, "hello\r\n0;\r\n\r\n"), (None, "hello", ""));
+    }
+
+    #[test]
     fn read_string_and_read_bytes() {
         block_on(async {
             let content = build_chunked_body("test ".repeat(100)).await;
@@ -346,33 +390,41 @@ mod tests {
                 500
             );
 
-            assert!(new_with_config(
-                content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(400)
-            )
-            .read_string()
-            .await
-            .is_err());
-
-            assert!(new_with_config(
-                content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(400)
-            )
-            .read_bytes()
-            .await
-            .is_err());
-
-            assert!(new_with_config(content.clone(), &DEFAULT_CONFIG)
-                .with_max_len(400)
-                .read_bytes()
-                .await
-                .is_err());
-
-            assert!(new_with_config(content.clone(), &DEFAULT_CONFIG)
-                .with_max_len(400)
+            assert!(
+                new_with_config(
+                    content.clone(),
+                    &DEFAULT_CONFIG.with_received_body_max_len(400)
+                )
                 .read_string()
                 .await
-                .is_err());
+                .is_err()
+            );
+
+            assert!(
+                new_with_config(
+                    content.clone(),
+                    &DEFAULT_CONFIG.with_received_body_max_len(400)
+                )
+                .read_bytes()
+                .await
+                .is_err()
+            );
+
+            assert!(
+                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                    .with_max_len(400)
+                    .read_bytes()
+                    .await
+                    .is_err()
+            );
+
+            assert!(
+                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                    .with_max_len(400)
+                    .read_string()
+                    .await
+                    .is_err()
+            );
         });
     }
 }

@@ -1,5 +1,5 @@
 use trillium_head::*;
-use trillium_testing::{prelude::*, TestConn};
+use trillium_testing::{TestConn, prelude::*};
 
 #[test]
 fn test() {

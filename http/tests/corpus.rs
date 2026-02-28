@@ -1,8 +1,9 @@
 use indoc::formatdoc;
-use pretty_assertions::assert_eq;
+use pretty_assertions::assert_str_eq;
+use std::{env, net::Shutdown, path::PathBuf};
 use test_harness::test;
-use trillium_http::{Conn, KnownHeaderName, Stopper};
-use trillium_testing::{harness, TestTransport};
+use trillium_http::{Conn, KnownHeaderName, Swansong};
+use trillium_testing::{RuntimeTrait, TestTransport, harness};
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
 async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
@@ -44,8 +45,9 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
 #[test(harness)]
 async fn corpus_test() {
     env_logger::init();
-    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
-    let filter = std::env::var("CORPUS_TEST_FILTER").unwrap_or_default();
+    let runtime = trillium_testing::runtime();
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
+    let filter = env::var("CORPUS_TEST_FILTER").unwrap_or_default();
     let corpus_request_files = std::fs::read_dir(dir)
         .unwrap()
         .filter_map(|f| {
@@ -66,13 +68,14 @@ async fn corpus_test() {
             .replace("\\n", "\n");
 
         let (client, server) = TestTransport::new();
-        let stopper = Stopper::new();
-        let res = trillium_testing::spawn({
-            let stopper = stopper.clone();
-            async move { Conn::map(server, stopper, handler).await }
+        let swansong = Swansong::new();
+        let res = runtime.spawn({
+            let swansong = swansong.clone();
+            async move { Conn::map(server, swansong, handler).await }
         });
 
         client.write_all(request);
+        client.shutdown(Shutdown::Write);
         let (response, extension) = match res.await.unwrap() {
             Ok(None) => (client.read_available_string().await, "response"),
             Err(e) => (e.to_string(), "error"),
@@ -93,9 +96,9 @@ async fn corpus_test() {
                 .replace(['\n', '\r'], "")
                 .replace("\\r", "\r")
                 .replace("\\n", "\n");
-            assert_eq!(expected_response, response, "{file:?}");
+            assert_str_eq!(expected_response, response, "\n\n{file:?}");
         }
 
-        stopper.stop();
+        swansong.shut_down();
     }
 }

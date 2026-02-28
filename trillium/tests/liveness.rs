@@ -1,18 +1,19 @@
-use futures_lite::{future::poll_once, AsyncRead, AsyncReadExt, AsyncWriteExt};
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWriteExt, future::poll_once};
 use std::{
-    future::{pending, Future},
+    future::{Future, pending},
     io,
     pin::Pin,
     task::{Context, Poll},
-    thread,
     time::Duration,
 };
 use test_harness::test;
 use trillium::Conn;
-use trillium_testing::{config, harness, ClientConfig, Connector, ObjectSafeConnector, TestResult};
+use trillium_testing::{ArcedConnector, Connector, TestResult, client_config, config, harness};
 
 #[test(harness)]
 async fn infinitely_pending_task() -> TestResult {
+    let connector = ArcedConnector::new(client_config());
+
     let handle = config()
         .with_host("localhost")
         .with_port(0)
@@ -26,7 +27,7 @@ async fn infinitely_pending_task() -> TestResult {
     let url = format!("http://{}", info.listener_description())
         .parse()
         .unwrap();
-    let mut client = Connector::connect(&ClientConfig::default().boxed(), &url).await?;
+    let mut client = connector.connect(&url).await?;
 
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
@@ -34,13 +35,13 @@ async fn infinitely_pending_task() -> TestResult {
 
     let mut byte = [0u8];
     assert!(poll_once(client.read(&mut byte)).await.is_none()); // nothing to read; the handler has
-                                                                // not responded
+    // not responded
 
     client.close().await?; // closing the client before we receive a response
 
-    handle.stop().await; // wait for a graceful shutdown the fact that we terminate here indicates
-                         // that the handler is not still running even though it polls an infinitely
-                         // pending future
+    handle.shut_down().await; // wait for a graceful shutdown the fact that we terminate here indicates
+    // that the handler is not still running even though it polls an infinitely
+    // pending future
 
     Ok(())
 }
@@ -48,6 +49,7 @@ async fn infinitely_pending_task() -> TestResult {
 #[test(harness)]
 async fn is_disconnected() -> TestResult {
     let _ = env_logger::builder().is_test(true).try_init();
+    let connector = ArcedConnector::new(client_config());
     let (delay_sender, delay_receiver) = async_channel::unbounded();
     let (disconnected_sender, disconnected_receiver) = async_channel::unbounded();
     let handle = config()
@@ -67,11 +69,12 @@ async fn is_disconnected() -> TestResult {
         });
 
     let info = handle.info().await;
+    let runtime = handle.runtime();
 
     let url = format!("http://{}", info.listener_description())
         .parse()
         .unwrap();
-    let mut client = Connector::connect(&ClientConfig::default().boxed(), &url).await?;
+    let mut client = connector.connect(&url).await?;
 
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
@@ -85,16 +88,16 @@ async fn is_disconnected() -> TestResult {
     assert!(s.starts_with("HTTP/1.1 200 OK\r\n"));
     client.close().await?;
 
-    let mut client = Connector::connect(&ClientConfig::default().boxed(), &url).await?;
+    let mut client = connector.connect(&url).await?;
     client
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
         .await?;
     drop(client);
-    thread::sleep(Duration::from_millis(10));
+    runtime.delay(Duration::from_millis(10)).await;
     delay_sender.send(()).await?;
     assert!(disconnected_receiver.recv().await?);
 
-    handle.stop().await;
+    handle.shut_down().await;
 
     Ok(())
 }

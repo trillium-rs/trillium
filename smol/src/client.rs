@@ -1,18 +1,12 @@
-use crate::SmolTransport;
+use crate::{SmolRuntime, SmolTransport};
 use async_net::TcpStream;
-use std::{
-    future::Future,
-    io::{Error, ErrorKind, Result},
-};
+use std::io::{Error, ErrorKind, Result};
 use trillium_server_common::{
-    async_trait,
-    url::{Host, Url},
     Connector, Transport,
+    url::{Host, Url},
 };
 
-/**
-configuration for the tcp Connector
-*/
+/// configuration for the tcp Connector
 #[derive(Default, Debug, Clone, Copy)]
 pub struct ClientConfig {
     /// disable [nagle's algorithm](https://en.wikipedia.org/wiki/Nagle%27s_algorithm)
@@ -44,9 +38,13 @@ impl ClientConfig {
     }
 }
 
-#[async_trait]
 impl Connector for ClientConfig {
+    type Runtime = SmolRuntime;
     type Transport = SmolTransport<TcpStream>;
+
+    fn runtime(&self) -> Self::Runtime {
+        SmolRuntime::default()
+    }
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         if url.scheme() != "http" {
@@ -58,7 +56,8 @@ impl Connector for ClientConfig {
 
         let port = url
             .port_or_known_default()
-            // this should be ok because we already checked that the scheme is http, which has a default port
+            // this should be ok because we already checked that the scheme is http, which has a
+            // default port
             .ok_or_else(|| Error::new(ErrorKind::InvalidInput, format!("{url} missing port")))?;
 
         let host = url
@@ -81,8 +80,18 @@ impl Connector for ClientConfig {
 
         Ok(tcp)
     }
+}
 
-    fn spawn<Fut: Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        async_global_executor::spawn(fut).detach();
+#[cfg(unix)]
+impl Connector for SmolTransport<async_net::unix::UnixStream> {
+    type Runtime = SmolRuntime;
+    type Transport = Self;
+
+    async fn connect(&self, _url: &Url) -> Result<Self::Transport> {
+        Ok(self.clone())
+    }
+
+    fn runtime(&self) -> Self::Runtime {
+        SmolRuntime::default()
     }
 }

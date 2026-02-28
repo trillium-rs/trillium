@@ -1,5 +1,5 @@
 use super::{
-    io, ready, AsyncRead, Context, End, ErrorKind, FixedLength, Ready, ReceivedBody, StateOutput,
+    AsyncRead, Context, End, ErrorKind, FixedLength, Ready, ReceivedBody, StateOutput, io, ready,
 };
 
 impl<'conn, Transport> ReceivedBody<'conn, Transport>
@@ -37,9 +37,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{http_config::DEFAULT_CONFIG, Buffer, HttpConfig, ReceivedBody, ReceivedBodyState};
+    use crate::{Buffer, HttpConfig, ReceivedBody, ReceivedBodyState, http_config::DEFAULT_CONFIG};
     use encoding_rs::UTF_8;
-    use futures_lite::{future::block_on, io::Cursor, AsyncRead, AsyncReadExt};
+    use futures_lite::{AsyncRead, AsyncReadExt, future::block_on, io::Cursor};
 
     fn new_with_config(
         input: String,
@@ -94,12 +94,14 @@ mod tests {
             assert!(decode_with_config(String::new(), size, &DEFAULT_CONFIG).is_ok());
 
             let input = "MozillaDeveloperNetwork";
-            assert!(decode_with_config(
-                input.into(),
-                size,
-                &DEFAULT_CONFIG.with_received_body_max_len(5)
-            )
-            .is_err());
+            assert!(
+                decode_with_config(
+                    input.into(),
+                    size,
+                    &DEFAULT_CONFIG.with_received_body_max_len(5)
+                )
+                .is_err()
+            );
         }
     }
 
@@ -125,33 +127,41 @@ mod tests {
                 5000
             );
 
-            assert!(new_with_config(
-                content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(750)
-            )
-            .read_string()
-            .await
-            .is_err());
-
-            assert!(new_with_config(
-                content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(750)
-            )
-            .read_bytes()
-            .await
-            .is_err());
-
-            assert!(new_with_config(content.clone(), &DEFAULT_CONFIG)
-                .with_max_len(750)
-                .read_bytes()
-                .await
-                .is_err());
-
-            assert!(new_with_config(content.clone(), &DEFAULT_CONFIG)
-                .with_max_len(750)
+            assert!(
+                new_with_config(
+                    content.clone(),
+                    &DEFAULT_CONFIG.with_received_body_max_len(750)
+                )
                 .read_string()
                 .await
-                .is_err());
+                .is_err()
+            );
+
+            assert!(
+                new_with_config(
+                    content.clone(),
+                    &DEFAULT_CONFIG.with_received_body_max_len(750)
+                )
+                .read_bytes()
+                .await
+                .is_err()
+            );
+
+            assert!(
+                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                    .with_max_len(750)
+                    .read_bytes()
+                    .await
+                    .is_err()
+            );
+
+            assert!(
+                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                    .with_max_len(750)
+                    .read_string()
+                    .await
+                    .is_err()
+            );
         });
     }
 }

@@ -1,30 +1,27 @@
 use crate::TryFromConn;
-use trillium::{async_trait, Conn};
+use std::future::Future;
+use trillium::Conn;
 
 /// A trait to extract content from [`Conn`]s to be used as the second
 /// argument to an api handler. Implement this for your types.
-#[async_trait]
 pub trait FromConn: Send + Sync + Sized + 'static {
     /// returning None from this will not call the api handler, but
     /// will halt the conn.
-    async fn from_conn(conn: &mut Conn) -> Option<Self>;
+    fn from_conn(conn: &mut Conn) -> impl Future<Output = Option<Self>> + Send;
 }
 
-#[async_trait]
 impl FromConn for () {
     async fn from_conn(_: &mut Conn) -> Option<Self> {
         Some(())
     }
 }
 
-#[async_trait]
 impl<E: FromConn> FromConn for Option<E> {
     async fn from_conn(conn: &mut Conn) -> Option<Self> {
         Some(E::from_conn(conn).await)
     }
 }
 
-#[async_trait]
 impl<T, E> FromConn for Result<T, E>
 where
     T: TryFromConn<Error = E>,
@@ -35,14 +32,12 @@ where
     }
 }
 
-#[async_trait]
 impl FromConn for trillium::Headers {
     async fn from_conn(conn: &mut Conn) -> Option<Self> {
         Some(conn.request_headers().clone())
     }
 }
 
-#[async_trait]
 impl FromConn for trillium::Method {
     async fn from_conn(conn: &mut Conn) -> Option<Self> {
         Some(conn.method())

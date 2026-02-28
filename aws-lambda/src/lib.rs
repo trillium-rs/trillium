@@ -9,15 +9,11 @@
     unused_qualifications
 )]
 
-/*!
-# Trillium server adapter for aws lambda
-
-```rust,no_run
-trillium_aws_lambda::run(|conn: trillium::Conn| async move {
-    conn.ok("hello lambda")
-});
-```
-*/
+//! # Trillium server adapter for aws lambda
+//!
+//! ```rust,no_run
+//! trillium_aws_lambda::run(|conn: trillium::Conn| async move { conn.ok("hello lambda") });
+//! ```
 
 use lamedh_runtime::{Context, Handler as AwsHandler};
 use std::{future::Future, pin::Pin, sync::Arc};
@@ -75,11 +71,9 @@ async fn handler_fn(
         }
     }
 }
-/**
-# Runs a trillium handler on an already-running tokio runtime
-
-This function will poll pending until the server shuts down.
-*/
+/// # Runs a trillium handler on an already-running tokio runtime
+///
+/// This function will poll pending until the server shuts down.
 pub async fn run_async(mut handler: impl Handler) {
     let mut info = "aws lambda".into();
     handler.init(&mut info).await;
@@ -88,15 +82,13 @@ pub async fn run_async(mut handler: impl Handler) {
         .unwrap()
 }
 
-/**
-# Runs a trillium handler in a sync context
-
-This function creates a new tokio runtime and executes the handler on
-it for aws lambda.
-
-This function will block the current thread until the server shuts
-down
-*/
+/// # Runs a trillium handler in a sync context
+///
+/// This function creates a new tokio runtime and executes the handler on
+/// it for aws lambda.
+///
+/// This function will block the current thread until the server shuts
+/// down
 
 pub fn run(handler: impl Handler) {
     runtime::Builder::new_current_thread()

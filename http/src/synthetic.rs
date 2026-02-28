@@ -1,6 +1,6 @@
 use crate::{
-    after_send::AfterSend, http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState,
-    transport::Transport, Conn, Headers, KnownHeaderName, Method, StateSet, Stopper, Version,
+    Conn, Headers, KnownHeaderName, Method, Swansong, TypeSet, Version, after_send::AfterSend,
+    http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState, transport::Transport,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
 use std::{
@@ -9,13 +9,11 @@ use std::{
     time::Instant,
 };
 
-/**
-Synthetic represents a simple transport that contains fixed
-content. This is exclusively useful for testing or for server
-implementations that are not read from an io connection, such as a
-faas function, in which the entire body may be available immediately
-on invocation.
-*/
+/// Synthetic represents a simple transport that contains fixed
+/// content. This is exclusively useful for testing or for server
+/// implementations that are not read from an io connection, such as a
+/// faas function, in which the entire body may be available immediately
+/// on invocation.
 #[derive(Debug)]
 pub struct Synthetic {
     data: Cursor<Vec<u8>>,
@@ -42,12 +40,8 @@ impl AsyncRead for Synthetic {
 
 impl Synthetic {
     /// the length of this synthetic transport's body
-    pub fn len(&self) -> Option<usize> {
-        // this is as such for semver-compatibility with a previous interface
-        match self.data.get_ref().len() {
-            0 => None,
-            n => Some(n),
-        }
+    pub fn len(&self) -> usize {
+        self.data.get_ref().len()
     }
 
     /// predicate to determine if this synthetic contains no content
@@ -123,15 +117,13 @@ impl From<Option<Vec<u8>>> for Synthetic {
 }
 
 impl Conn<Synthetic> {
-    /**
-    Construct a new synthetic conn with provided method, path, and body.
-    ```rust
-    # use trillium_http::{Method, Conn};
-    let conn = Conn::new_synthetic(Method::Get, "/", "hello");
-    assert_eq!(conn.method(), Method::Get);
-    assert_eq!(conn.path(), "/");
-    ```
-    */
+    /// Construct a new synthetic conn with provided method, path, and body.
+    /// ```rust
+    /// # use trillium_http::{Method, Conn};
+    /// let conn = Conn::new_synthetic(Method::Get, "/", "hello");
+    /// assert_eq!(conn.method(), Method::Get);
+    /// assert_eq!(conn.path(), "/");
+    /// ```
     pub fn new_synthetic(
         method: Method,
         path: impl Into<String>,
@@ -139,10 +131,7 @@ impl Conn<Synthetic> {
     ) -> Self {
         let transport = body.into();
         let mut request_headers = Headers::new();
-        request_headers.insert(
-            KnownHeaderName::ContentLength,
-            transport.len().unwrap_or_default().to_string(),
-        );
+        request_headers.insert(KnownHeaderName::ContentLength, transport.len().to_string());
 
         Self {
             transport,
@@ -152,16 +141,17 @@ impl Conn<Synthetic> {
             method,
             status: None,
             version: Version::Http1_1,
-            state: StateSet::new(),
+            state: TypeSet::new(),
             response_body: None,
             buffer: Vec::with_capacity(DEFAULT_CONFIG.request_buffer_initial_len).into(),
             request_body_state: ReceivedBodyState::Start,
             secure: false,
-            stopper: Stopper::new(),
+            swansong: Swansong::new(),
             after_send: AfterSend::default(),
             start_time: Instant::now(),
             peer_ip: None,
             http_config: DEFAULT_CONFIG,
+            shared_state: None,
         }
     }
 
@@ -170,15 +160,11 @@ impl Conn<Synthetic> {
         self.transport.close();
     }
 
-    /**
-    Replaces the synthetic body. This is intended for testing use.
-     */
+    /// Replaces the synthetic body. This is intended for testing use.
     pub fn replace_body(&mut self, body: impl Into<Synthetic>) {
         let transport = body.into();
-        self.request_headers_mut().insert(
-            KnownHeaderName::ContentLength,
-            transport.len().unwrap_or_default().to_string(),
-        );
+        self.request_headers_mut()
+            .insert(KnownHeaderName::ContentLength, transport.len().to_string());
         self.transport = transport;
         self.request_body_state = ReceivedBodyState::default();
     }

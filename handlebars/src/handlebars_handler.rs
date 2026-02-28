@@ -4,11 +4,9 @@ use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
 };
-use trillium::{async_trait, Conn, Handler};
-/**
-A trillium handler that provides registered templates to
-downsequence handlers
-*/
+use trillium::{Conn, Handler};
+/// A trillium handler that provides registered templates to
+/// downsequence handlers
 
 #[derive(Default, Clone, Debug)]
 pub struct HandlebarsHandler(Arc<RwLock<Handlebars<'static>>>);
@@ -23,13 +21,13 @@ impl HandlebarsHandler {
     /// ```
     /// # if cfg!(unix) {
     /// # use std::path::PathBuf;
-    /// use trillium_handlebars::{HandlebarsHandler, HandlebarsConnExt};
+    /// use trillium_handlebars::{HandlebarsConnExt, HandlebarsHandler};
     /// let handler = (
     ///     HandlebarsHandler::new("**/*.hbs"),
     ///     |mut conn: trillium::Conn| async move {
     ///         conn.assign("name", "handlebars")
     ///             .render("examples/templates/hello.hbs")
-    ///     }
+    ///     },
     /// );
     ///
     /// use trillium_testing::prelude::*;
@@ -101,7 +99,6 @@ impl From<PathBuf> for HandlebarsHandler {
     }
 }
 
-#[async_trait]
 impl Handler for HandlebarsHandler {
     async fn run(&self, conn: Conn) -> Conn {
         conn.with_state(self.clone())

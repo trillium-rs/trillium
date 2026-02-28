@@ -1,4 +1,5 @@
-use futures_lite::{io::Cursor, ready, AsyncRead, AsyncReadExt};
+use BodyType::{Empty, Static, Streaming};
+use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor, ready};
 use std::{
     borrow::Cow,
     fmt::Debug,
@@ -6,7 +7,6 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use BodyType::{Empty, Static, Streaming};
 
 /// The trillium representation of a http body. This can contain
 /// either `&'static [u8]` content, `Vec<u8>` content, or a boxed
@@ -61,21 +61,18 @@ impl Body {
         }
     }
 
-    /**
-    Consume this body and return the full content. If the body was
-    constructed with `[Body::new_streaming`], this will read the
-    entire streaming body into memory, awaiting the streaming
-    source's completion. This function will return an error if a
-    streaming body has already been read to completion.
-
-    # Errors
-
-    This returns an error variant if either of the following conditions are met:
-
-    * there is an io error when reading from the underlying transport such as a disconnect
-    * the body has already been read to completion
-
-    */
+    /// Consume this body and return the full content. If the body was
+    /// constructed with `[Body::new_streaming`], this will read the
+    /// entire streaming body into memory, awaiting the streaming
+    /// source's completion. This function will return an error if a
+    /// streaming body has already been read to completion.
+    ///
+    /// # Errors
+    ///
+    /// This returns an error variant if either of the following conditions are met:
+    ///
+    /// there is an io error when reading from the underlying transport such as a disconnect
+    /// the body has already been read to completion
     #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn into_bytes(self) -> Result<Cow<'static, [u8]>> {
         match self.0 {
@@ -201,9 +198,11 @@ impl AsyncRead for Body {
                     .unwrap_or(buf.len())
                     .min(buf.len());
 
-                let bytes = ready!(async_read
-                    .as_mut()
-                    .poll_read(cx, &mut buf[..max_bytes_to_read]))?;
+                let bytes = ready!(
+                    async_read
+                        .as_mut()
+                        .poll_read(cx, &mut buf[..max_bytes_to_read])
+                )?;
 
                 if bytes == 0 {
                     *done = true;
@@ -226,9 +225,11 @@ impl AsyncRead for Body {
 
                 let max_bytes_to_read = max_bytes_to_read(buf.len());
 
-                let bytes = ready!(async_read
-                    .as_mut()
-                    .poll_read(cx, &mut buf[..max_bytes_to_read]))?;
+                let bytes = ready!(
+                    async_read
+                        .as_mut()
+                        .poll_read(cx, &mut buf[..max_bytes_to_read])
+                )?;
 
                 if bytes == 0 {
                     *done = true;

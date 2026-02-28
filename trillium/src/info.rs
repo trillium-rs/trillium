@@ -2,21 +2,21 @@ use std::{
     fmt::{Display, Formatter, Result},
     net::SocketAddr,
 };
+use trillium_http::TypeSet;
 
 const DEFAULT_SERVER_DESCRIPTION: &str = concat!("trillium v", env!("CARGO_PKG_VERSION"));
 
-/**
-This struct represents information about the currently connected
-server.
+/// This struct represents information about the currently connected
+/// server.
+///
+/// It is passed to [`Handler::init`](crate::Handler::init).
 
-It is passed to [`Handler::init`](crate::Handler::init) and the [`Init`](crate::Init) handler.
-*/
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Info {
     server_description: String,
     listener_description: String,
     tcp_socket_addr: Option<SocketAddr>,
+    state: TypeSet,
 }
 
 impl Default for Info {
@@ -25,6 +25,7 @@ impl Default for Info {
             server_description: DEFAULT_SERVER_DESCRIPTION.into(),
             listener_description: String::new(),
             tcp_socket_addr: None,
+            state: TypeSet::new(),
         }
     }
 }
@@ -74,6 +75,30 @@ impl Info {
     pub fn listener_description_mut(&mut self) -> &mut String {
         &mut self.listener_description
     }
+
+    /// borrow the [`TypeSet`] on this `Info`. This can be useful for passing initialization data
+    /// between handlers
+    #[allow(clippy::missing_const_for_fn)] // Info isn't useful in a const context
+    pub fn state(&self) -> &TypeSet {
+        &self.state
+    }
+
+    /// attempt to mutably borrow the [`TypeSet`] on this `Info`.
+    pub fn state_mut(&mut self) -> &mut TypeSet {
+        &mut self.state
+    }
+}
+
+impl AsRef<TypeSet> for Info {
+    fn as_ref(&self) -> &TypeSet {
+        self.state()
+    }
+}
+
+impl AsMut<TypeSet> for Info {
+    fn as_mut(&mut self) -> &mut TypeSet {
+        self.state_mut()
+    }
 }
 
 impl From<&str> for Info {
@@ -88,21 +113,28 @@ impl From<&str> for Info {
 
 impl From<SocketAddr> for Info {
     fn from(socket_addr: SocketAddr) -> Self {
-        Self {
+        let mut info = Self {
             server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
             listener_description: socket_addr.to_string(),
             tcp_socket_addr: Some(socket_addr),
-        }
+            ..Self::default()
+        };
+
+        info.state_mut().insert(socket_addr);
+        info
     }
 }
 
 #[cfg(unix)]
 impl From<std::os::unix::net::SocketAddr> for Info {
     fn from(s: std::os::unix::net::SocketAddr) -> Self {
-        Self {
+        let mut info = Self {
             server_description: String::from(DEFAULT_SERVER_DESCRIPTION),
             listener_description: format!("{s:?}"),
-            tcp_socket_addr: None,
-        }
+            ..Self::default()
+        };
+
+        info.state_mut().insert(s);
+        info
     }
 }

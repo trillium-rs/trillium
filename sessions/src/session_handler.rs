@@ -1,28 +1,24 @@
 const BASE64_DIGEST_LEN: usize = 44;
 use async_session::{
-    base64,
+    Session, SessionStore, base64,
     hmac::{Hmac, Mac, NewMac},
     sha2::Sha256,
-    Session, SessionStore,
 };
 use std::{
     fmt::{self, Debug, Formatter},
     iter,
     time::{Duration, SystemTime},
 };
-use trillium::{async_trait, Conn, Handler};
+use trillium::{Conn, Handler};
 use trillium_cookies::{
-    cookie::{Cookie, Key, SameSite},
     CookiesConnExt,
+    cookie::{Cookie, Key, SameSite},
 };
 
-/**
-# Handler to enable sessions.
-
-See crate-level docs for an overview of this crate's approach to
-sessions and security.
-*/
-
+/// # Handler to enable sessions.
+///
+/// See crate-level docs for an overview of this crate's approach to
+/// sessions and security.
 pub struct SessionHandler<Store> {
     store: Store,
     cookie_path: String,
@@ -52,57 +48,59 @@ impl<Store: SessionStore> Debug for SessionHandler<Store> {
 }
 
 impl<Store: SessionStore> SessionHandler<Store> {
-    /**
-    Constructs a SessionHandler from the given
-    [`async_session::SessionStore`] and secret. The `secret` MUST be
-    at least 32 bytes long, and MUST be cryptographically random to be
-    secure. It is recommended to retrieve this at runtime from the
-    environment instead of compiling it into your application.
-
-    # Panics
-
-    SessionHandler::new will panic if the secret is fewer than
-    32 bytes.
-
-    # Defaults
-
-    The defaults for SessionHandler are:
-    * cookie path: "/"
-    * cookie name: "trillium.sid"
-    * session ttl: one day
-    * same site: strict
-    * save unchanged: enabled
-    * older secrets: none
-
-    # Customization
-
-    Although the above defaults are appropriate for most applications,
-    they can be overridden. Please be careful changing these settings,
-    as they can weaken your application's security:
-
-    ```rust
-    # use std::time::Duration;
-    # use trillium_sessions::{SessionHandler, MemoryStore};
-    # use trillium_cookies::{CookiesHandler, cookie::SameSite};
-    # std::env::set_var("TRILLIUM_SESSION_SECRETS", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    // this logic will be unique to your deployment
-    let secrets_var = std::env::var("TRILLIUM_SESSION_SECRETS").unwrap();
-    let session_secrets = secrets_var.split(' ').collect::<Vec<_>>();
-
-    let handler = (
-        CookiesHandler::new(),
-        SessionHandler::new(MemoryStore::new(), session_secrets[0])
-            .with_cookie_name("custom.cookie.name")
-            .with_cookie_path("/some/path")
-            .with_cookie_domain("trillium.rs")
-            .with_same_site_policy(SameSite::Strict)
-            .with_session_ttl(Some(Duration::from_secs(1)))
-            .with_older_secrets(&session_secrets[1..])
-            .without_save_unchanged()
-    );
-
-    ```
-    */
+    /// Constructs a SessionHandler from the given
+    /// [`async_session::SessionStore`] and secret.
+    ///
+    /// The `secret` MUST be at least 32 bytes long, and MUST be cryptographically random to be
+    /// secure. It is recommended to retrieve this at runtime from the environment instead of
+    /// compiling it into your application.
+    ///
+    /// # Panics
+    ///
+    /// `SessionHandler::new` will panic if the secret is fewer than 32 bytes.
+    ///
+    /// # Defaults
+    ///
+    /// The defaults for `SessionHandler` are:
+    ///
+    /// * cookie path: "/"
+    /// * cookie name: "trillium.sid"
+    /// * session ttl: one day
+    /// * same site: strict
+    /// * save unchanged: enabled
+    /// * older secrets: none
+    ///
+    /// # Customization
+    ///
+    /// Although the above defaults are appropriate for most applications, they can be
+    /// overridden. Please be careful changing these settings, as they can weaken your application's
+    /// security:
+    ///
+    /// ```rust
+    /// # use std::time::Duration;
+    /// # let secrets = concat!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ",
+    /// #     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    /// # std::env::set_var("TRILLIUM_SESSION_SECRETS", secrets);
+    ///
+    /// use trillium_cookies::{CookiesHandler, cookie::SameSite};
+    /// use trillium_sessions::{MemoryStore, SessionHandler};
+    ///
+    /// // this logic will be unique to your deployment
+    /// let secrets_var = std::env::var("TRILLIUM_SESSION_SECRETS").unwrap();
+    /// let session_secrets = secrets_var.split(' ').collect::<Vec<_>>();
+    ///
+    /// let handler = (
+    ///     CookiesHandler::new(),
+    ///     SessionHandler::new(MemoryStore::new(), session_secrets[0])
+    ///         .with_cookie_name("custom.cookie.name")
+    ///         .with_cookie_path("/some/path")
+    ///         .with_cookie_domain("trillium.rs")
+    ///         .with_same_site_policy(SameSite::Strict)
+    ///         .with_session_ttl(Some(Duration::from_secs(1)))
+    ///         .with_older_secrets(&session_secrets[1..])
+    ///         .without_save_unchanged(),
+    /// );
+    /// ```
     pub fn new(store: Store, secret: impl AsRef<[u8]>) -> Self {
         Self {
             store,
@@ -124,11 +122,12 @@ impl<Store: SessionStore> SessionHandler<Store> {
         self
     }
 
-    /// Sets a session ttl. This will be used both for the cookie
-    /// expiry and also for the session-internal expiry.
+    /// Sets a session ttl.
     ///
-    /// The default for this value is one day. Set this to None to not
-    /// set a cookie or session expiry. This is not recommended.
+    /// This will be used both for the cookie expiry and also for the session-internal expiry.
+    ///
+    /// The default for this value is one day. Set this to None to not set a cookie or session
+    /// expiry. This is not recommended.
     pub fn with_session_ttl(mut self, session_ttl: Option<Duration>) -> Self {
         self.session_ttl = session_ttl;
         self
@@ -136,30 +135,28 @@ impl<Store: SessionStore> SessionHandler<Store> {
 
     /// Sets the name of the cookie that the session is stored with or in.
     ///
-    /// If you are running multiple trillium applications on the same
-    /// domain, you will need different values for each
-    /// application. The default value is "trillium.sid"
+    /// If you are running multiple trillium applications on the same domain, you will need
+    /// different values for each application. The default value is "trillium.sid"
     pub fn with_cookie_name(mut self, cookie_name: impl AsRef<str>) -> Self {
         cookie_name.as_ref().clone_into(&mut self.cookie_name);
         self
     }
 
-    /// Disables the `save_unchanged` setting. When `save_unchanged`
-    /// is enabled, a session will cookie will always be set. With
-    /// `save_unchanged` disabled, the session data must be modified
-    /// from the `Default` value in order for it to save. If a session
-    /// already exists and its data unmodified in the course of a
-    /// request, the session will only be persisted if
-    /// `save_unchanged` is enabled.
+    /// Disables the `save_unchanged` setting.
+    ///
+    /// When `save_unchanged` is enabled, a session will cookie will always be set. With
+    /// `save_unchanged` disabled, the session data must be modified from the `Default` value in
+    /// order for it to save. If a session already exists and its data unmodified in the course of a
+    /// request, the session will only be persisted if `save_unchanged` is enabled.
     pub fn without_save_unchanged(mut self) -> Self {
         self.save_unchanged = false;
         self
     }
 
-    /// Sets the same site policy for the session cookie. Defaults to
-    /// SameSite::Strict. See [incrementally better
-    /// cookies](https://tools.ietf.org/html/draft-west-cookie-incrementalism-01)
-    /// for more information about this setting
+    /// Sets the same site policy for the session cookie. Defaults to SameSite::Strict. See
+    /// [incrementally better
+    /// cookies](https://tools.ietf.org/html/draft-west-cookie-incrementalism-01) for more
+    /// information about this setting
     pub fn with_same_site_policy(mut self, policy: SameSite) -> Self {
         self.same_site_policy = policy;
         self
@@ -171,9 +168,8 @@ impl<Store: SessionStore> SessionHandler<Store> {
         self
     }
 
-    /// Sets optional older signing keys that will not be used to sign
-    /// cookies, but can be used to validate previously signed
-    /// cookies.
+    /// Sets optional older signing keys that will not be used to sign cookies, but can be used to
+    /// validate previously signed cookies.
     pub fn with_older_secrets(mut self, secrets: &[impl AsRef<[u8]>]) -> Self {
         self.older_keys = secrets
             .iter()
@@ -221,6 +217,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
 
         cookie
     }
+
     // the following is reused verbatim from
     // https://github.com/SergioBenitez/cookie-rs/blob/master/src/secure/signed.rs#L37-46
     /// Signs the cookie's value providing integrity and authenticity.
@@ -235,11 +232,11 @@ impl<Store: SessionStore> SessionHandler<Store> {
         cookie.set_value(new_value);
     }
 
-    // the following is reused verbatim from
+    // the following is based on
     // https://github.com/SergioBenitez/cookie-rs/blob/master/src/secure/signed.rs#L51-L66
-    /// Given a signed value `str` where the signature is prepended to `value`,
-    /// verifies the signed value and returns it. If there's a problem, returns
-    /// an `Err` with a string describing the issue.
+    /// Given a signed value `str` where the signature is prepended to `value`, verifies the signed
+    /// value and returns it. If there's a problem, returns an `Err` with a string describing the
+    /// issue.
     fn verify_signature<'a>(&self, cookie_value: &'a str) -> Option<&'a str> {
         if cookie_value.len() < BASE64_DIGEST_LEN {
             log::trace!("length of value is <= BASE64_DIGEST_LEN");
@@ -267,7 +264,6 @@ impl<Store: SessionStore> SessionHandler<Store> {
     }
 }
 
-#[async_trait]
 impl<Store: SessionStore> Handler for SessionHandler<Store> {
     async fn run(&self, mut conn: Conn) -> Conn {
         let session = conn.take_state::<Session>();

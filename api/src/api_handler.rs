@@ -1,6 +1,6 @@
 use crate::TryFromConn;
 use std::{future::Future, marker::PhantomData, sync::Arc};
-use trillium::{async_trait, Conn, Handler, Info, Status, Upgrade};
+use trillium::{Conn, Handler, Info, Status, Upgrade};
 
 // A trait for `async fn(conn: &mut Conn, additional: Additional) -> ReturnType`
 pub trait MutBorrowConn<'conn, ReturnType, Additional>: Send + Sync + 'conn {
@@ -16,6 +16,7 @@ where
     Fut: Future<Output = ReturnType> + Send + 'conn,
 {
     type Fut = Fut;
+
     fn call(&self, conn: &'conn mut Conn, additional: Additional) -> Fut {
         self(conn, additional)
     }
@@ -78,7 +79,6 @@ where
     ApiHandler::from(api_handler)
 }
 
-#[async_trait]
 impl<TryFromConnHandler, OutputHandler, Extracted> Handler
     for ApiHandler<TryFromConnHandler, OutputHandler, Extracted>
 where
@@ -110,13 +110,12 @@ where
     }
 
     async fn before_send(&self, conn: Conn) -> Conn {
-        if let Some(OutputHandlerWrapper(handler, _)) = conn
+        match conn
             .state::<OutputHandlerWrapper<Self, OutputHandler, <Extracted as TryFromConn>::Error>>()
             .cloned()
         {
-            handler.before_send(conn).await
-        } else {
-            conn
+            Some(OutputHandlerWrapper(handler, _)) => handler.before_send(conn).await,
+            _ => conn,
         }
     }
 

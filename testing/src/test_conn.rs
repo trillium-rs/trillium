@@ -8,25 +8,21 @@ use trillium_http::{Conn as HttpConn, Synthetic};
 
 type SyntheticConn = HttpConn<Synthetic>;
 
-/**
-A wrapper around a [`trillium::Conn`] for testing
-
-Stability note: this may be replaced by an extension trait at some point.
-*/
+/// A wrapper around a [`trillium::Conn`] for testing
+///
+/// Stability note: this may be replaced by an extension trait at some point.
 #[derive(Debug)]
 pub struct TestConn(Conn);
 
 impl TestConn {
-    /**
-    constructs a new TestConn with the provided method, path, and body.
-    ```
-    use trillium_testing::{prelude::*, TestConn};
-    let mut conn = TestConn::build("get", "/", "body");
-    assert_eq!(conn.method(), Method::Get);
-    assert_eq!(conn.path(), "/");
-    assert_eq!(conn.take_request_body_string(), "body");
-    ```
-    */
+    /// constructs a new TestConn with the provided method, path, and body.
+    /// ```
+    /// use trillium_testing::{TestConn, prelude::*};
+    /// let mut conn = TestConn::build("get", "/", "body");
+    /// assert_eq!(conn.method(), Method::Get);
+    /// assert_eq!(conn.path(), "/");
+    /// assert_eq!(conn.take_request_body_string(), "body");
+    /// ```
     pub fn build<M>(method: M, path: impl Into<String>, body: impl Into<Synthetic>) -> Self
     where
         M: TryInto<Method>,
@@ -35,15 +31,12 @@ impl TestConn {
         Self(HttpConn::new_synthetic(method.try_into().unwrap(), path.into(), body).into())
     }
 
-    /**
-    chainable constructor to append a request header to the TestConn
-    ```
-    use trillium_testing::TestConn;
-    let conn = TestConn::build("get", "/", "body")
-        .with_request_header("some-header", "value");
-    assert_eq!(conn.request_headers().get_str("some-header"), Some("value"));
-    ```
-    */
+    /// chainable constructor to append a request header to the TestConn
+    /// ```
+    /// use trillium_testing::TestConn;
+    /// let conn = TestConn::build("get", "/", "body").with_request_header("some-header", "value");
+    /// assert_eq!(conn.request_headers().get_str("some-header"), Some("value"));
+    /// ```
 
     pub fn with_request_header(
         self,
@@ -57,22 +50,18 @@ impl TestConn {
         Self(inner.into())
     }
 
-    /**
-    chainable constructor to replace the request body. this is useful
-    when chaining with a [`trillium_testing::methods`](crate::methods)
-    builder, as they do not provide a way to specify the body.
-
-    ```
-    use trillium_testing::{methods::post, TestConn};
-    let mut conn = post("/").with_request_body("some body");
-    assert_eq!(conn.take_request_body_string(), "some body");
-
-    let mut conn = TestConn::build("post", "/", "some body")
-        .with_request_body("once told me");
-    assert_eq!(conn.take_request_body_string(), "once told me");
-
-    ```
-    */
+    /// chainable constructor to replace the request body. this is useful
+    /// when chaining with a [`trillium_testing::methods`](crate::methods)
+    /// builder, as they do not provide a way to specify the body.
+    ///
+    /// ```
+    /// use trillium_testing::{TestConn, methods::post};
+    /// let mut conn = post("/").with_request_body("some body");
+    /// assert_eq!(conn.take_request_body_string(), "some body");
+    ///
+    /// let mut conn = TestConn::build("post", "/", "some body").with_request_body("once told me");
+    /// assert_eq!(conn.take_request_body_string(), "once told me");
+    /// ```
     pub fn with_request_body(self, body: impl Into<Synthetic>) -> Self {
         let mut inner: SyntheticConn = self.into();
         inner.replace_body(body);
@@ -100,42 +89,38 @@ impl TestConn {
         self
     }
 
-    /**
-    blocks on running this conn against a handler and finalizes
-    response headers. also aliased as [`TestConn::on`]
-
-    ```
-    use trillium_testing::prelude::*;
-
-    async fn handler(conn: Conn) -> Conn {
-        conn.ok("hello trillium")
-    }
-
-    let conn = get("/").run(&handler);
-    assert_ok!(conn, "hello trillium", "content-length" => "14");
-    ```
-    */
+    /// blocks on running this conn against a handler and finalizes
+    /// response headers. also aliased as [`TestConn::on`]
+    ///
+    /// ```
+    /// use trillium_testing::prelude::*;
+    ///
+    /// async fn handler(conn: Conn) -> Conn {
+    ///     conn.ok("hello trillium")
+    /// }
+    ///
+    /// let conn = get("/").run(&handler);
+    /// assert_ok!(conn, "hello trillium", "content-length" => "14");
+    /// ```
     pub fn run(self, handler: &impl Handler) -> Self {
         crate::block_on(self.run_async(handler))
     }
 
-    /**
-    runs this conn against a handler and finalizes
-    response headers.
-
-    ```
-    use trillium_testing::prelude::*;
-
-    async fn handler(conn: Conn) -> Conn {
-        conn.ok("hello trillium")
-    }
-
-    block_on(async move {
-        let conn = get("/").run_async(&handler).await;
-        assert_ok!(conn, "hello trillium", "content-length" => "14");
-    });
-    ```
-    */
+    /// runs this conn against a handler and finalizes
+    /// response headers.
+    ///
+    /// ```
+    /// use trillium_testing::prelude::*;
+    ///
+    /// async fn handler(conn: Conn) -> Conn {
+    ///     conn.ok("hello trillium")
+    /// }
+    ///
+    /// block_on(async move {
+    ///     let conn = get("/").run_async(&handler).await;
+    ///     assert_ok!(conn, "hello trillium", "content-length" => "14");
+    /// });
+    /// ```
     pub async fn run_async(self, handler: &impl Handler) -> Self {
         let conn = handler.run(self.into()).await;
         let mut conn = handler.before_send(conn).await;
@@ -143,47 +128,40 @@ impl TestConn {
         Self(conn)
     }
 
-    /**
-    blocks on running this conn against a handler and finalizes
-    response headers. also aliased as [`TestConn::run`].
-
-    ```
-    use trillium_testing::prelude::*;
-
-    async fn handler(conn: Conn) -> Conn {
-        conn.ok("hello trillium")
-    }
-
-    let conn = get("/").on(&handler);
-    assert_ok!(conn, "hello trillium", "content-length" => "14");
-    ```
-    */
+    /// blocks on running this conn against a handler and finalizes
+    /// response headers. also aliased as [`TestConn::run`].
+    ///
+    /// ```
+    /// use trillium_testing::prelude::*;
+    ///
+    /// async fn handler(conn: Conn) -> Conn {
+    /// conn.ok("hello trillium")
+    /// }
+    ///
+    /// let conn = get("/").on(&handler);
+    /// assert_ok!(conn, "hello trillium", "content-length" => "14");
+    /// ```
 
     pub fn on(self, handler: &impl Handler) -> Self {
         self.run(handler)
     }
 
-    /**
-    Reads the response body to string and returns it, if set. This is
-    used internally to [`assert_body`] which is the preferred
-    interface
-    */
+    /// Reads the response body to string and returns it, if set. This is
+    /// used internally to [`assert_body`] which is the preferred
+    /// interface
     pub fn take_response_body_string(&mut self) -> Option<String> {
-        if let Some(body) = self.take_response_body() {
-            String::from_utf8(
+        match self.take_response_body() {
+            Some(body) => String::from_utf8(
                 futures_lite::future::block_on(body.into_bytes())
                     .unwrap()
                     .to_vec(),
             )
-            .ok()
-        } else {
-            None
+            .ok(),
+            _ => None,
         }
     }
 
-    /**
-    Reads the request body to string and returns it
-    */
+    /// Reads the request body to string and returns it
     pub fn take_request_body_string(&mut self) -> String {
         futures_lite::future::block_on(async {
             self.request_body().await.read_string().await.unwrap()

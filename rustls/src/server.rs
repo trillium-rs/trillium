@@ -1,7 +1,8 @@
+use crate::crypto_provider;
 use futures_rustls::{
+    TlsAcceptor,
     rustls::{ServerConfig, ServerConnection},
     server::TlsStream,
-    TlsAcceptor,
 };
 use std::{
     fmt::{Debug, Formatter},
@@ -10,13 +11,9 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{async_trait, Acceptor, AsyncRead, AsyncWrite, Transport};
+use trillium_server_common::{Acceptor, AsyncRead, AsyncWrite, Transport};
 
-use crate::crypto_provider;
-
-/**
-trillium [`Acceptor`] for Rustls
-*/
+/// trillium [`Acceptor`] for Rustls
 
 #[derive(Clone)]
 pub struct RustlsAcceptor(TlsAcceptor);
@@ -27,39 +24,37 @@ impl Debug for RustlsAcceptor {
 }
 
 impl RustlsAcceptor {
-    /**
-    build a new RustlsAcceptor from a [`ServerConfig`] or a [`TlsAcceptor`]
-    */
+    /// build a new RustlsAcceptor from a [`ServerConfig`] or a [`TlsAcceptor`]
     pub fn new(t: impl Into<Self>) -> Self {
         t.into()
     }
 
-    /**
-    build a new RustlsAcceptor from a cert chain (pem) and private key.
-
-    See
-    [`ConfigBuilder::with_single_cert`][`crate::rustls::ConfigBuilder::with_single_cert`]
-    for accepted formats. If you need to customize the
-    [`ServerConfig`], use ServerConfig's Into RustlsAcceptor, eg
-
-    ```rust,ignore
-    use trillium_rustls::{rustls::ServerConfig, RustlsAcceptor};
-    let rustls_acceptor: RustlsAcceptor = ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(certs, private_key)
-        .expect("could not build rustls ServerConfig")
-        .into();
-    ```
-
-    # Example
-
-    ```rust,no_run
-    use trillium_rustls::RustlsAcceptor;
-    const KEY: &[u8] = include_bytes!("../examples/key.pem");
-    const CERT: &[u8] = include_bytes!("../examples/cert.pem");
-    let rustls_acceptor = RustlsAcceptor::from_single_cert(CERT, KEY);
-    ```
-    */
+    /// build a new RustlsAcceptor from a cert chain (pem) and private key.
+    ///
+    /// See
+    /// [`ConfigBuilder::with_single_cert`][`crate::rustls::ConfigBuilder::with_single_cert`]
+    /// for accepted formats. If you need to customize the
+    /// [`ServerConfig`], use ServerConfig's `Into<RustlsAcceptor>`, eg
+    ///
+    /// ```rust,no_run
+    /// use trillium_rustls::{rustls::ServerConfig, RustlsAcceptor};
+    /// # let certs = vec![];
+    /// # let mut private_key = rustls_pemfile::private_key(&mut std::io::Cursor::new(b"")).unwrap().unwrap();
+    /// let rustls_acceptor: RustlsAcceptor = ServerConfig::builder()
+    ///     .with_no_client_auth()
+    ///     .with_single_cert(certs, private_key)
+    ///     .expect("could not build rustls ServerConfig")
+    ///     .into();
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use trillium_rustls::RustlsAcceptor;
+    /// const KEY: &[u8] = include_bytes!("../examples/key.pem");
+    /// const CERT: &[u8] = include_bytes!("../examples/cert.pem");
+    /// let rustls_acceptor = RustlsAcceptor::from_single_cert(CERT, KEY);
+    /// ```
     pub fn from_single_cert(cert: &[u8], key: &[u8]) -> Self {
         use std::io::Cursor;
 
@@ -175,13 +170,13 @@ impl<T> From<RustlsServerTransport<T>> for TlsStream<T> {
     }
 }
 
-#[async_trait]
 impl<Input> Acceptor<Input> for RustlsAcceptor
 where
     Input: Transport,
 {
-    type Output = RustlsServerTransport<Input>;
     type Error = io::Error;
+    type Output = RustlsServerTransport<Input>;
+
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
         self.0.accept(input).await.map(RustlsServerTransport)
     }

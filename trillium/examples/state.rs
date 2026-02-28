@@ -1,9 +1,9 @@
 mod conn_counter {
     use std::sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     };
-    use trillium::{async_trait, Conn, Handler};
+    use trillium::{Conn, Handler};
 
     struct ConnNumber(u64);
 
@@ -16,7 +16,6 @@ mod conn_counter {
         }
     }
 
-    #[async_trait]
     impl Handler for ConnCounterHandler {
         async fn run(&self, conn: Conn) -> Conn {
             let number = self.0.fetch_add(1, Ordering::SeqCst);

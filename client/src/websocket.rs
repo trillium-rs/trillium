@@ -13,9 +13,8 @@ use trillium_http::{
     },
     Status, Upgrade,
 };
-use trillium_websockets::{websocket_accept_hash, websocket_key, Role};
-
 pub use trillium_websockets::Message;
+use trillium_websockets::{Role, websocket_accept_hash, websocket_key};
 
 impl Conn {
     fn set_websocket_upgrade_headers(&mut self) {
@@ -33,8 +32,7 @@ impl Conn {
     /// * set `Upgrade`, `Connection`, `Sec-Websocket-Version`, and `Sec-Websocket-Key` headers
     ///   appropriately if they have not yet been set and the `Conn` has not yet been awaited
     /// * await the `Conn` if it has not yet been awaited
-    /// * confirm websocket upgrade negotiation per
-    ///   [rfc6455](https://datatracker.ietf.org/doc/html/rfc6455)
+    /// * confirm websocket upgrade negotiation per [rfc6455](https://datatracker.ietf.org/doc/html/rfc6455)
     /// * transform the `Conn` into a [`WebSocketConn`]
     pub async fn into_websocket(self) -> Result<WebSocketConn, WebSocketUpgradeError> {
         self.into_websocket_with_config(WebSocketConfig::default())
@@ -48,8 +46,7 @@ impl Conn {
     /// * set `Upgrade`, `Connection`, `Sec-Websocket-Version`, and `Sec-Websocket-Key` headers
     ///   appropriately if they have not yet been set and the `Conn` has not yet been awaited
     /// * await the `Conn` if it has not yet been awaited
-    /// * confirm websocket upgrade negotiation per
-    ///   [rfc6455](https://datatracker.ietf.org/doc/html/rfc6455)
+    /// * confirm websocket upgrade negotiation per [rfc6455](https://datatracker.ietf.org/doc/html/rfc6455)
     /// * transform the `Conn` into a [`WebSocketConn`]
     pub async fn into_websocket_with_config(
         mut self,

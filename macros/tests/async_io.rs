@@ -1,4 +1,4 @@
-use futures_lite::{future::block_on, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, future::block_on};
 use trillium_macros::{AsyncRead, AsyncWrite};
 #[derive(AsyncRead, AsyncWrite)]
 struct Inner(#[async_write] Vec<u8>, #[async_read] &'static [u8]);
@@ -16,7 +16,7 @@ fn test() -> std::io::Result<()> {
     block_on(outer.read_to_string(&mut string))?;
     assert_eq!(string, "content to read");
     block_on(outer.write_all(b"written content"))?;
-    assert_eq!(outer.0 .1 .0, b"written content");
+    assert_eq!(outer.0.1.0, b"written content");
     Ok(())
 }
 

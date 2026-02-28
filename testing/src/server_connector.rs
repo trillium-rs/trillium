@@ -1,21 +1,23 @@
-use crate::TestTransport;
-use std::sync::Arc;
+use crate::{RuntimeType, TestTransport};
+use std::{io, sync::Arc};
+use trillium::Handler;
+use trillium_http::Conn;
+use trillium_server_common::Connector;
 use url::Url;
 
 /// a bridge between trillium servers and clients
 #[derive(Debug)]
 pub struct ServerConnector<H> {
     handler: Arc<H>,
+    runtime: RuntimeType,
 }
 
-impl<H> ServerConnector<H>
-where
-    H: trillium::Handler,
-{
+impl<H: Handler> ServerConnector<H> {
     /// builds a new ServerConnector
     pub fn new(handler: H) -> Self {
         Self {
             handler: Arc::new(handler),
+            runtime: RuntimeType::default(),
         }
     }
 
@@ -25,8 +27,8 @@ where
 
         let handler = Arc::clone(&self.handler);
 
-        crate::spawn(async move {
-            trillium_http::Conn::map(server_transport, Default::default(), |mut conn| {
+        self.runtime.spawn(async move {
+            Conn::map(server_transport, Default::default(), |mut conn| {
                 let handler = Arc::clone(&handler);
                 async move {
                     conn.set_secure(secure);
@@ -43,82 +45,21 @@ where
     }
 }
 
-#[trillium_server_common::async_trait]
-impl<H: trillium::Handler> trillium_server_common::Connector for ServerConnector<H> {
+impl<H: Handler> Connector for ServerConnector<H> {
+    type Runtime = RuntimeType;
     type Transport = TestTransport;
-    async fn connect(&self, url: &Url) -> std::io::Result<Self::Transport> {
+
+    async fn connect(&self, url: &Url) -> io::Result<Self::Transport> {
         Ok(self.connect(url.scheme() == "https").await)
     }
 
-    fn spawn<Fut: std::future::Future<Output = ()> + Send + 'static>(&self, fut: Fut) {
-        crate::spawn(fut);
+    fn runtime(&self) -> Self::Runtime {
+        #[allow(clippy::clone_on_copy)]
+        self.runtime.clone()
     }
 }
 
 /// build a connector from this handler
-pub fn connector(handler: impl trillium::Handler) -> impl trillium_server_common::Connector {
+pub fn connector(handler: impl Handler) -> impl Connector {
     ServerConnector::new(handler)
-}
-
-#[cfg(test)]
-mod test {
-    use crate::server_connector::ServerConnector;
-    use trillium_client::Client;
-
-    #[test]
-    fn test() {
-        crate::block_on(async {
-            let client = Client::new(ServerConnector::new("test"));
-            let mut conn = client.get("https://example.com/test").await.unwrap();
-            assert_eq!(conn.response_body().read_string().await.unwrap(), "test");
-        });
-    }
-
-    #[test]
-    fn test_no_dns() {
-        crate::block_on(async {
-            let client = Client::new(ServerConnector::new("test"));
-            let mut conn = client
-                .get("https://not.a.real.tld.example/test")
-                .await
-                .unwrap();
-            assert_eq!(conn.response_body().read_string().await.unwrap(), "test");
-        });
-    }
-
-    #[test]
-    fn test_post() {
-        crate::block_on(async {
-            let client = Client::new(ServerConnector::new(
-                |mut conn: trillium::Conn| async move {
-                    let body = conn.request_body_string().await.unwrap();
-                    let response = format!(
-                        "{} {}://{}{} with body \"{}\"",
-                        conn.method(),
-                        if conn.is_secure() { "https" } else { "http" },
-                        conn.inner().host().unwrap_or_default(),
-                        conn.path(),
-                        body
-                    );
-
-                    conn.ok(response)
-                },
-            ));
-
-            let body = client
-                .post("https://example.com/test")
-                .with_body("some body")
-                .await
-                .unwrap()
-                .response_body()
-                .read_string()
-                .await
-                .unwrap();
-
-            assert_eq!(
-                body,
-                "POST https://example.com/test with body \"some body\""
-            );
-        });
-    }
 }

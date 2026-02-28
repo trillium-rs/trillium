@@ -6,7 +6,7 @@ src = "src"
 title = "trillium"
 
 [rust]
-edition = "2021"
+edition = "2024"
 
 [output.html]
 git-repository-url = "https://github.com/trillium-rs/trillium"

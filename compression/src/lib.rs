@@ -1,12 +1,10 @@
-/*!
-Body compression for trillium.rs
-
-Currently, this crate only supports compressing outbound bodies with
-the zstd, brotli, and gzip algorithms (in order of preference),
-although more algorithms may be added in the future. The correct
-algorithm will be selected based on the Accept-Encoding header sent by
-the client, if one exists.
-*/
+//! Body compression for trillium.rs
+//!
+//! Currently, this crate only supports compressing outbound bodies with
+//! the zstd, brotli, and gzip algorithms (in order of preference),
+//! although more algorithms may be added in the future. The correct
+//! algorithm will be selected based on the Accept-Encoding header sent by
+//! the client, if one exists.
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
@@ -19,8 +17,8 @@ the client, if one exists.
 
 use async_compression::futures::bufread::{BrotliEncoder, GzipEncoder, ZstdEncoder};
 use futures_lite::{
-    io::{BufReader, Cursor},
     AsyncReadExt,
+    io::{BufReader, Cursor},
 };
 use std::{
     collections::BTreeSet,
@@ -28,8 +26,9 @@ use std::{
     str::FromStr,
 };
 use trillium::{
-    async_trait, conn_try, conn_unwrap, Body, Conn, Handler, HeaderValues,
+    Body, Conn, Handler, HeaderValues,
     KnownHeaderName::{AcceptEncoding, ContentEncoding, Vary},
+    conn_try, conn_unwrap,
 };
 
 /// Algorithms supported by this crate
@@ -88,9 +87,7 @@ impl FromStr for CompressionAlgorithm {
     }
 }
 
-/**
-Trillium handler for compression
-*/
+/// Trillium handler for compression
 #[derive(Clone, Debug)]
 pub struct Compression {
     algorithms: BTreeSet<CompressionAlgorithm>,
@@ -115,11 +112,9 @@ impl Compression {
         self.algorithms = algos.iter().copied().collect();
     }
 
-    /**
-    sets the compression algorithms that this handler will
-    use. the default of Zstd, Brotli, Gzip is recommended. Note that the
-    order is ignored.
-    */
+    /// sets the compression algorithms that this handler will
+    /// use. the default of Zstd, Brotli, Gzip is recommended. Note that the
+    /// order is ignored.
     pub fn with_algorithms(mut self, algorithms: &[CompressionAlgorithm]) -> Self {
         self.set_algorithms(algorithms);
         self
@@ -164,7 +159,6 @@ fn parse_accept_encoding(header: &str) -> Vec<(CompressionAlgorithm, u8)> {
     vec
 }
 
-#[async_trait]
 impl Handler for Compression {
     async fn run(&self, mut conn: Conn) -> Conn {
         if let Some(header) = conn

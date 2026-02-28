@@ -1,7 +1,10 @@
-use std::str::FromStr;
+use std::{
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
+};
 use test_harness::test;
 use trillium_client::{Client, Status};
-use trillium_testing::{harness, ServerConnector, TestResult, Url};
+use trillium_testing::{ServerConnector, TestResult, Url, harness};
 
 fn test_client() -> Client {
     Client::new(ServerConnector::new(Status::Ok))
@@ -27,13 +30,17 @@ async fn with_base() -> TestResult {
         "http://example.com/a/b/c/d",
     );
 
-    assert!(client
-        .build_url(Url::from_str("http://example.com/a")?) // does not start with http://example.com/a/b/
-        .is_err());
+    assert!(
+        client
+            .build_url(Url::from_str("http://example.com/a")?) // does not start with http://example.com/a/b/
+            .is_err()
+    );
 
-    assert!(client
-        .build_url("http://example.test/") // does not start with http://example.com/a/b/
-        .is_err());
+    assert!(
+        client
+            .build_url("http://example.test/") // does not start with http://example.com/a/b/
+            .is_err()
+    );
 
     let id = 10usize;
     assert_eq!(
@@ -79,9 +86,41 @@ async fn without_base() -> TestResult {
     assert!(client.build_url("/a/b/c").is_err());
 
     assert!(client.build_url("data:text/plain,Stuff").is_err());
-    assert!(client
-        .build_url(Url::from_str("data:text/plain,Stuff")?)
-        .is_err());
+    assert!(
+        client
+            .build_url(Url::from_str("data:text/plain,Stuff")?)
+            .is_err()
+    );
+
+    assert_eq!(
+        client
+            .build_url(IpAddr::from_str("127.0.0.1").unwrap())
+            .unwrap()
+            .as_str(),
+        "http://127.0.0.1/"
+    );
+    assert_eq!(
+        client
+            .build_url(IpAddr::from_str("::1").unwrap())
+            .unwrap()
+            .as_str(),
+        "http://[::1]/"
+    );
+
+    assert_eq!(
+        client
+            .build_url(SocketAddr::from_str("127.0.0.1:8080").unwrap())
+            .unwrap()
+            .as_str(),
+        "http://127.0.0.1:8080/"
+    );
+    assert_eq!(
+        client
+            .build_url(SocketAddr::from_str("[::1]:8080").unwrap())
+            .unwrap()
+            .as_str(),
+        "http://[::1]:8080/"
+    );
 
     Ok(())
 }

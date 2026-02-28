@@ -1,11 +1,12 @@
-use crate::{Acceptor, CloneCounterObserver, Config, Server, Stopper, Transport};
+use crate::{Acceptor, Config, Server, Transport};
 use futures_lite::prelude::*;
 use std::{
     io::ErrorKind,
     net::{SocketAddr, TcpListener, ToSocketAddrs},
+    sync::Arc,
 };
 use trillium::Handler;
-use trillium_http::{transport::BoxedTransport, Conn as HttpConn, Error, SERVICE_UNAVAILABLE};
+use trillium_http::{Error, SERVICE_UNAVAILABLE, Swansong, transport::BoxedTransport};
 /// # Server-implementer interfaces to Config
 ///
 /// These functions are intended for use by authors of trillium servers,
@@ -13,7 +14,6 @@ use trillium_http::{transport::BoxedTransport, Conn as HttpConn, Error, SERVICE_
 /// an issue if you find yourself using this trait directly in an
 /// application.
 
-#[trillium::async_trait]
 pub trait ConfigExt<ServerType, AcceptorType>
 where
     ServerType: Server,
@@ -42,26 +42,25 @@ where
     /// TcpListener, if that is applicable
     fn nodelay(&self) -> bool;
 
-    /// returns a clone of the [`Stopper`] associated with
+    /// returns a clone of the [`Swansong`] associated with
     /// this server, to be used in conjunction with signals or other
     /// service interruption methods
-    fn stopper(&self) -> Stopper;
+    fn swansong(&self) -> Swansong;
 
     /// returns the tls acceptor for this server
     fn acceptor(&self) -> &AcceptorType;
 
-    /// returns the [`CloneCounterObserver`] for this server
-    fn counter_observer(&self) -> &CloneCounterObserver;
-
-    /// waits for the last clone of the [`CloneCounter`][crate::CloneCounter] in this
-    /// config to drop, indicating that all outstanding requests are
-    /// complete
-    async fn graceful_shutdown(&self);
+    /// waits for all requests to complete
+    fn graceful_shutdown(&self) -> impl Future<Output = ()> + Send;
 
     /// apply the provided handler to the transport, using
     /// [`trillium_http`]'s http implementation. this is the default inner
     /// loop for most trillium servers
-    async fn handle_stream(&self, stream: ServerType::Transport, handler: impl Handler);
+    fn handle_stream(
+        self: Arc<Self>,
+        stream: ServerType::Transport,
+        handler: impl Handler,
+    ) -> impl Future<Output = ()> + Send;
 
     /// builds any type that is TryFrom<std::net::TcpListener> and
     /// configures it for use. most trillium servers should use this if
@@ -82,7 +81,6 @@ where
     fn over_capacity(&self) -> bool;
 }
 
-#[trillium::async_trait]
 impl<ServerType, AcceptorType> ConfigExt<ServerType, AcceptorType>
     for Config<ServerType, AcceptorType>
 where
@@ -118,32 +116,23 @@ where
         self.nodelay
     }
 
-    fn stopper(&self) -> Stopper {
-        self.stopper.clone()
+    fn swansong(&self) -> Swansong {
+        self.swansong.clone()
     }
 
     fn acceptor(&self) -> &AcceptorType {
         &self.acceptor
     }
 
-    fn counter_observer(&self) -> &CloneCounterObserver {
-        &self.observer
-    }
-
     async fn graceful_shutdown(&self) {
-        let current = self.observer.current();
-        if current > 0 {
-            log::info!(
-                "waiting for {} open connection{} to close",
-                current,
-                if current == 1 { "" } else { "s" }
-            );
-            self.observer.clone().await;
-            log::info!("all done!")
-        }
+        self.swansong.shut_down().await
     }
 
-    async fn handle_stream(&self, mut stream: ServerType::Transport, handler: impl Handler) {
+    async fn handle_stream(
+        self: Arc<Self>,
+        mut stream: ServerType::Transport,
+        handler: impl Handler,
+    ) {
         if self.over_capacity() {
             let mut byte = [0u8]; // wait for the client to start requesting
             trillium::log_error!(stream.read(&mut byte).await);
@@ -151,13 +140,13 @@ where
             return;
         }
 
-        let counter = self.observer.counter();
+        let guard = self.swansong.guard();
 
         trillium::log_error!(stream.set_nodelay(self.nodelay));
 
         let peer_ip = stream.peer_addr().ok().flatten().map(|addr| addr.ip());
 
-        let stream = match self.acceptor.accept(stream).await {
+        let transport = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
             Err(e) => {
                 log::error!("acceptor error: {:?}", e);
@@ -166,10 +155,10 @@ where
         };
 
         let handler = &handler;
-        let result = HttpConn::map_with_config(
+        let result = trillium_http::Conn::map_with_config(
             self.http_config,
-            stream,
-            self.stopper.clone(),
+            transport,
+            self.swansong.clone(),
             |mut conn| async {
                 conn.set_peer_ip(peer_ip);
                 let conn = handler.run(conn.into()).await;
@@ -206,7 +195,7 @@ where
             }
         };
 
-        drop(counter);
+        drop(guard);
     }
 
     fn build_listener<Listener>(&self) -> Listener
@@ -238,6 +227,6 @@ where
 
     fn over_capacity(&self) -> bool {
         self.max_connections
-            .map_or(false, |m| self.observer.current() >= m)
+            .map_or(false, |m| self.swansong.guard_count() >= m)
     }
 }

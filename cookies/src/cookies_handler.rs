@@ -1,10 +1,8 @@
 use cookie::{Cookie, CookieJar};
-use trillium::{async_trait, Conn, Handler, HeaderValue, HeaderValues, KnownHeaderName};
+use trillium::{Conn, Handler, HeaderValue, HeaderValues, KnownHeaderName};
 
-/**
-The trillium cookie handler. See crate level docs for an example. This
-must run before any handlers access the cookie jar.
-*/
+/// The trillium cookie handler. See crate level docs for an example. This
+/// must run before any handlers access the cookie jar.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CookiesHandler {
     // this is in order to force users to call CookiesHandler::new or
@@ -20,7 +18,6 @@ impl CookiesHandler {
     }
 }
 
-#[async_trait]
 impl Handler for CookiesHandler {
     async fn run(&self, mut conn: Conn) -> Conn {
         let mut jar: CookieJar = conn.take_state().unwrap_or_default();

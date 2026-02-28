@@ -1,50 +1,47 @@
-use crate::{copy, http_config::DEFAULT_CONFIG, Body, Buffer, HttpConfig, MutCow};
+use crate::{Body, Buffer, HttpConfig, MutCow, copy, http_config::DEFAULT_CONFIG};
+use Poll::{Pending, Ready};
+use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 use encoding_rs::Encoding;
-use futures_lite::{ready, AsyncRead, AsyncReadExt, AsyncWrite, Stream};
-use httparse::{InvalidChunkSize, Status};
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, ready};
 use std::{
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},
     io::{self, ErrorKind},
-    iter,
     pin::Pin,
     task::{Context, Poll},
 };
-use Poll::{Pending, Ready};
-use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 
 mod chunked;
 mod fixed_length;
 
-/** A received http body
-
-This type represents a body that will be read from the underlying
-transport, which it may either borrow from a [`Conn`](crate::Conn) or
-own.
-
-```rust
-# trillium_testing::block_on(async {
-# use trillium_http::{Method, Conn};
-let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
-let body = conn.request_body().await;
-assert_eq!(body.read_string().await?, "hello");
-# trillium_http::Result::Ok(()) }).unwrap();
-```
-
-## Bounds checking
-
-Every `ReceivedBody` has a maximum length beyond which it will return an error, expressed as a
-u64. To override this on the specific `ReceivedBody`, use [`ReceivedBody::with_max_len`] or
-[`ReceivedBody::set_max_len`]
-
-The default maximum length is currently set to 500mb. In the next semver-minor release, this value
-will decrease substantially.
-
-## Large chunks, small read buffers
-
-Attempting to read a chunked body with a buffer that is shorter than the chunk size in hex will
-result in an error. This limitation is temporary.
-*/
+/// A received http body
+///
+/// This type represents a body that will be read from the underlying
+/// transport, which it may either borrow from a [`Conn`](crate::Conn) or
+/// own.
+///
+/// ```rust
+/// # trillium_testing::block_on(async {
+/// # use trillium_http::{Method, Conn};
+/// let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
+/// let body = conn.request_body().await;
+/// assert_eq!(body.read_string().await?, "hello");
+/// # trillium_http::Result::Ok(()) }).unwrap();
+/// ```
+///
+/// ## Bounds checking
+///
+/// Every `ReceivedBody` has a maximum length beyond which it will return an error, expressed as a
+/// u64. To override this on the specific `ReceivedBody`, use [`ReceivedBody::with_max_len`] or
+/// [`ReceivedBody::set_max_len`]
+///
+/// The default maximum length is currently set to 500mb. In the next semver-minor release, this
+/// value will decrease substantially.
+///
+/// ## Large chunks, small read buffers
+///
+/// Attempting to read a chunked body with a buffer that is shorter than the chunk size in hex will
+/// result in an error. This limitation is temporary.
 
 pub struct ReceivedBody<'conn, Transport> {
     content_length: Option<u64>,
@@ -114,21 +111,19 @@ where
         }
     }
 
-    /**
-    Returns the content-length of this body, if available. This
-    usually is derived from the content-length header. If the http
-    request or response that this body is attached to uses
-    transfer-encoding chunked, this will be None.
-
-    ```rust
-    # trillium_testing::block_on(async {
-    # use trillium_http::{Method, Conn};
-    let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
-    let body = conn.request_body().await;
-    assert_eq!(body.content_length(), Some(5));
-    # trillium_http::Result::Ok(()) }).unwrap();
-    ```
-    */
+    /// Returns the content-length of this body, if available. This
+    /// usually is derived from the content-length header. If the http
+    /// request or response that this body is attached to uses
+    /// transfer-encoding chunked, this will be None.
+    ///
+    /// ```rust
+    /// # trillium_testing::block_on(async {
+    /// # use trillium_http::{Method, Conn};
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
+    /// let body = conn.request_body().await;
+    /// assert_eq!(body.content_length(), Some(5));
+    /// # trillium_http::Result::Ok(()) }).unwrap();
+    /// ```
     pub fn content_length(&self) -> Option<u64> {
         self.content_length
     }
@@ -211,32 +206,28 @@ where
         Ok(vec)
     }
 
-    /**
-    returns the character encoding of this body, usually determined from the content type
-    (mime-type) of the associated Conn.
-    */
+    /// returns the character encoding of this body, usually determined from the content type
+    /// (mime-type) of the associated Conn.
     pub fn encoding(&self) -> &'static Encoding {
         self.encoding
     }
 
     fn read_raw(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         if let Some(transport) = self.transport.as_deref_mut() {
-            read_raw(&mut self.buffer, transport, cx, buf)
+            read_buffered(&mut self.buffer, transport, cx, buf)
         } else {
             Ready(Err(ErrorKind::NotConnected.into()))
         }
     }
 
-    /**
-    Consumes the remainder of this body from the underlying transport by reading it to the end and
-    discarding the contents. This is important for http1.1 keepalive, but most of the time you do
-    not need to directly call this. It returns the number of bytes consumed.
-
-    # Errors
-
-    This will return an [`std::io::Result::Err`] if there is an io error on the underlying
-    transport, such as a disconnect
-    */
+    /// Consumes the remainder of this body from the underlying transport by reading it to the end
+    /// and discarding the contents. This is important for http1.1 keepalive, but most of the
+    /// time you do not need to directly call this. It returns the number of bytes consumed.
+    ///
+    /// # Errors
+    ///
+    /// This will return an [`std::io::Result::Err`] if there is an io error on the underlying
+    /// transport, such as a disconnect
     #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn drain(self) -> io::Result<u64> {
         let copy_loops_per_yield = self.copy_loops_per_yield;
@@ -248,9 +239,8 @@ impl<'a, Transport> IntoFuture for ReceivedBody<'a, Transport>
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
-    type Output = crate::Result<String>;
-
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+    type Output = crate::Result<String>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.read_string().await })
@@ -264,61 +254,30 @@ impl<T> ReceivedBody<'static, T> {
     }
 }
 
-fn read_raw<Transport>(
-    self_buffer: &mut Buffer,
+pub(crate) fn read_buffered<Transport>(
+    buffer: &mut Buffer,
     transport: &mut Transport,
     cx: &mut Context<'_>,
     buf: &mut [u8],
 ) -> Poll<io::Result<usize>>
 where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + Unpin,
 {
-    if self_buffer.is_empty() {
+    if buffer.is_empty() {
         Pin::new(transport).poll_read(cx, buf)
-    } else if self_buffer.len() >= buf.len() {
+    } else if buffer.len() >= buf.len() {
         let len = buf.len();
-        buf.copy_from_slice(&self_buffer[..len]);
-        self_buffer.ignore_front(len);
+        buf.copy_from_slice(&buffer[..len]);
+        buffer.ignore_front(len);
         Ready(Ok(len))
     } else {
-        let self_buffer_len = self_buffer.len();
-        buf[..self_buffer_len].copy_from_slice(self_buffer);
-        self_buffer.truncate(0);
+        let self_buffer_len = buffer.len();
+        buf[..self_buffer_len].copy_from_slice(buffer);
+        buffer.truncate(0);
         match Pin::new(transport).poll_read(cx, &mut buf[self_buffer_len..]) {
             Ready(Ok(additional)) => Ready(Ok(additional + self_buffer_len)),
             Pending => Ready(Ok(self_buffer_len)),
             other @ Ready(_) => other,
-        }
-    }
-}
-
-const STREAM_READ_BUF_LENGTH: usize = 128;
-impl<'conn, Transport> Stream for ReceivedBody<'conn, Transport>
-where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
-{
-    type Item = Vec<u8>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut bytes = 0;
-        let mut vec = vec![0; STREAM_READ_BUF_LENGTH];
-        loop {
-            match Pin::new(&mut *self).poll_read(cx, &mut vec[bytes..]) {
-                Pending if bytes == 0 => return Pending,
-                Ready(Ok(0)) if bytes == 0 => return Ready(None),
-                Pending | Ready(Ok(0)) => {
-                    vec.truncate(bytes);
-                    return Ready(Some(vec));
-                }
-                Ready(Ok(new_bytes)) => {
-                    bytes += new_bytes;
-                    vec.extend(iter::repeat(0).take(bytes + STREAM_READ_BUF_LENGTH - vec.len()));
-                }
-                Ready(Err(error)) => {
-                    log::error!("got {error:?} in ReceivedBody stream");
-                    return Ready(None);
-                }
-            }
         }
     }
 }
@@ -344,7 +303,7 @@ where
                     return Ready(Err(io::Error::new(
                         ErrorKind::Unsupported,
                         "content too long",
-                    )))
+                    )));
                 }
 
                 None => Chunked {

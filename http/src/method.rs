@@ -1,7 +1,7 @@
 // originally from https://github.com/http-rs/http-types/blob/main/src/method.rs
 use std::{
     fmt::{self, Display},
-    str::FromStr,
+    str::{self, FromStr},
 };
 
 /// HTTP request methods.
@@ -254,9 +254,9 @@ pub enum Method {
     Put,
 
     /// The QUERY method is used to initiate a server-side query. Unlike the HTTP GET method, which
-    /// requests that a server return a representation of the resource identified by the target URI,
-    /// the QUERY method is used to ask the server to perform a query operation (described by the
-    /// request payload) over some set of data scoped to the effective request URI.  See
+    /// requests that a server return a representation of the resource identified by the target
+    /// URI, the QUERY method is used to ask the server to perform a query operation (described
+    /// by the request payload) over some set of data scoped to the effective request URI.  See
     /// [draft-ietf-httpbis-safe-method-w-body-03][]
     ///
     /// NOTE: As of January 2023, this draft has expired.
@@ -432,6 +432,13 @@ impl Method {
             Self::VersionControl => "VERSION-CONTROL",
         }
     }
+
+    #[cfg(feature = "parse")]
+    pub(crate) fn parse(bytes: &[u8]) -> crate::Result<Self> {
+        str::from_utf8(bytes)
+            .map_err(|_| crate::Error::UnrecognizedMethod(String::from_utf8_lossy(bytes).into()))?
+            .parse()
+    }
 }
 
 impl Display for Method {
@@ -485,9 +492,7 @@ impl FromStr for Method {
             "UPDATE" => Ok(Self::Update),
             "UPDATEREDIRECTREF" => Ok(Self::UpdateRedirectRef),
             "VERSION-CONTROL" => Ok(Self::VersionControl),
-            _ => Err(crate::Error::UnrecognizedMethod(
-                "Invalid HTTP method".into(),
-            )),
+            _ => Err(crate::Error::UnrecognizedMethod(s.to_string())),
         }
     }
 }

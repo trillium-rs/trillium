@@ -2,14 +2,14 @@ use proc_macro::TokenStream;
 use quote::quote;
 use std::{collections::HashSet, iter::once};
 use syn::{
+    Attribute, Data, DeriveInput, Error, Expr, ExprArray, ExprAssign, ExprPath, Field, Ident,
+    Index, Member, Meta, Path, Type, TypePath, WhereClause,
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Comma, Where},
-    visit::{visit_type_path, Visit},
-    Attribute, Data, DeriveInput, Error, Expr, ExprArray, ExprAssign, ExprPath, Field, Ident,
-    Index, Member, Meta, Path, Type, TypePath, WhereClause,
+    visit::{Visit, visit_type_path},
 };
 
 fn is_required_generic_for_type(ty: &Type, generic: &Ident) -> bool {
@@ -52,6 +52,7 @@ enum Override {
 
 impl TryFrom<&Path> for Override {
     type Error = Error;
+
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
         if path.is_ident("run") {
             Ok(Self::Run)
@@ -84,7 +85,11 @@ struct DeriveOptions {
 fn overrides<'a, I: Iterator<Item = &'a Expr>>(iter: I) -> syn::Result<Vec<Override>> {
     iter.map(|expr| match expr {
         Expr::Path(ExprPath { path, .. }) => path.try_into(),
-        _ => Err(Error::new(expr.span(), "unrecognized override. valid options are run, init, before_send, name, has_upgrade, and upgrade")),
+        _ => Err(Error::new(
+            expr.span(),
+            "unrecognized override. valid options are run, init, before_send, name, has_upgrade, \
+             and upgrade",
+        )),
     })
     .collect()
 }
@@ -257,7 +262,6 @@ pub fn derive_handler(input: TokenStream) -> TokenStream {
     };
 
     quote! {
-        #[trillium::async_trait]
         impl #impl_generics trillium::Handler for #struct_name #ty_generics #where_clause {
             async fn run(&self, conn: trillium::Conn) -> trillium::Conn { #run.await }
             async fn init(&mut self, info: &mut trillium::Info) { #init.await; }

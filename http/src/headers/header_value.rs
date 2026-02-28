@@ -1,29 +1,34 @@
+use HeaderValueInner::{Bytes, Utf8};
 use smallvec::SmallVec;
 use smartcow::SmartCow;
+use smartstring::SmartString;
 use std::{
     borrow::Cow,
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Display, Formatter, Write},
 };
-use HeaderValueInner::{Bytes, Utf8};
 
 /// A `HeaderValue` represents the right hand side of a single `name:
 /// value` pair.
-#[derive(Eq, PartialEq, Clone)]
-pub struct HeaderValue(HeaderValueInner);
-
-impl HeaderValue {
-    /// determine if this header contains no unsafe characters (\r, \n, \0)
-    ///
-    /// since 0.3.12
-    pub fn is_valid(&self) -> bool {
-        memchr::memchr3(b'\r', b'\n', 0, self.as_ref()).is_none()
-    }
-}
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd)]
+pub struct HeaderValue(pub(crate) HeaderValueInner);
 
 #[derive(Eq, PartialEq, Clone)]
 pub(crate) enum HeaderValueInner {
     Utf8(SmartCow<'static>),
     Bytes(SmallVec<[u8; 32]>),
+}
+
+impl PartialOrd for HeaderValueInner {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for HeaderValueInner {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let this: &[u8] = self.as_ref();
+        let that: &[u8] = other.as_ref();
+        this.cmp(that)
+    }
 }
 
 #[cfg(feature = "serde")]
@@ -49,6 +54,13 @@ impl Debug for HeaderValue {
 }
 
 impl HeaderValue {
+    /// determine if this header contains no unsafe characters (\r, \n, \0)
+    ///
+    /// since 0.3.12
+    pub fn is_valid(&self) -> bool {
+        memchr::memchr3(b'\r', b'\n', 0, self.as_ref()).is_none()
+    }
+
     /// Returns this header value as a &str if it is utf8, None
     /// otherwise. If you need to convert non-utf8 bytes to a string
     /// somehow, match directly on the `HeaderValue` as an enum and
@@ -69,6 +81,16 @@ impl HeaderValue {
                 SmartCow::Owned(s.chars().map(|c| c.to_ascii_lowercase()).collect())
             }
         })
+    }
+}
+
+#[cfg(feature = "parse")]
+impl HeaderValue {
+    pub(crate) fn parse(bytes: &[u8]) -> Self {
+        match std::str::from_utf8(bytes) {
+            Ok(s) => Self(Utf8(SmartCow::Owned(s.into()))),
+            Err(_) => Self(Bytes(bytes.into())),
+        }
     }
 }
 
@@ -117,12 +139,40 @@ impl From<&'static str> for HeaderValue {
     }
 }
 
-impl AsRef<[u8]> for HeaderValue {
+macro_rules! delegate_from_to_format {
+    ($($t:ty),*) => {
+        $(
+        impl From<$t> for HeaderValue {
+            fn from(value: $t) -> Self {
+                format_args!("{value}").into()
+            }
+        }
+        )*
+    };
+}
+
+delegate_from_to_format!(usize, u64, u16, u32, i32, i64);
+
+impl From<std::fmt::Arguments<'_>> for HeaderValue {
+    fn from(value: std::fmt::Arguments<'_>) -> Self {
+        let mut s = SmartString::new();
+        s.write_fmt(value).unwrap();
+        Self(Utf8(SmartCow::Owned(s)))
+    }
+}
+
+impl AsRef<[u8]> for HeaderValueInner {
     fn as_ref(&self) -> &[u8] {
-        match &self.0 {
+        match self {
             Utf8(utf8) => utf8.as_bytes(),
             Bytes(b) => b,
         }
+    }
+}
+
+impl AsRef<[u8]> for HeaderValue {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
     }
 }
 

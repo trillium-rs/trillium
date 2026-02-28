@@ -1,12 +1,11 @@
 use crate::{
-    client_receiver::ClientReceiver, ChannelBroadcaster, ChannelClient, ChannelConn, ChannelEvent,
-    ChannelHandler, Version,
+    ChannelBroadcaster, ChannelClient, ChannelConn, ChannelEvent, ChannelHandler, Version,
+    client_receiver::ClientReceiver,
 };
 use async_broadcast::{InactiveReceiver, Sender};
 use querystrong::QueryStrong;
 use std::ops::{Deref, DerefMut};
-use trillium::async_trait;
-use trillium_websockets::{tungstenite::protocol::CloseFrame, WebSocketConn, WebSocketHandler};
+use trillium_websockets::{WebSocketConn, WebSocketHandler, tungstenite::protocol::CloseFrame};
 
 const CHANNEL_CAP: usize = 10;
 
@@ -53,11 +52,11 @@ where
 }
 
 macro_rules! unwrap_or_return {
-    ($option:expr) => {
+    ($option:expr_2021) => {
         unwrap_or_return!($option, ())
     };
 
-    ($option:expr, $value:expr) => {
+    ($option:expr_2021, $value:expr_2021) => {
         match $option {
             Some(value) => value,
             None => return $value,
@@ -65,7 +64,6 @@ macro_rules! unwrap_or_return {
     };
 }
 
-#[async_trait]
 impl<CH> WebSocketHandler for ChannelCentral<CH>
 where
     CH: ChannelHandler,

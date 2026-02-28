@@ -1,60 +1,57 @@
-/*!
-# Trillium tools for server sent events
-
-This primarily provides [`SseConnExt`](crate::SseConnExt), an
-extension trait for [`trillium::Conn`] that has a
-[`with_sse_stream`](crate::SseConnExt::with_sse_stream) chainable
-method that takes a [`Stream`](futures_lite::Stream) where the `Item`
-implements [`Eventable`].
-
-Often, you will want this stream to be something like a channel, but
-the specifics of that are dependent on the event fanout
-characteristics of your application.
-
-This crate implements [`Eventable`] for an [`Event`] type that you can
-use in your application, for `String`, and for `&'static str`. You can
-also implement [`Eventable`] for any type in your application.
-
-## Example usage
-
-```
-use broadcaster::BroadcastChannel;
-use trillium::{conn_try, conn_unwrap, log_error, Conn, Method, State};
-use trillium_sse::SseConnExt;
-use trillium_static_compiled::static_compiled;
-
-type Channel = BroadcastChannel<String>;
-
-fn get_sse(mut conn: Conn) -> Conn {
-    let broadcaster = conn_unwrap!(conn.take_state::<Channel>(), conn);
-    conn.with_sse_stream(broadcaster)
-}
-
-async fn post_broadcast(mut conn: Conn) -> Conn {
-    let broadcaster = conn_unwrap!(conn.take_state::<Channel>(), conn);
-    let body = conn_try!(conn.request_body_string().await, conn);
-    log_error!(broadcaster.send(&body).await);
-    conn.ok("sent")
-}
-
-fn main() {
-    let handler = (
-        static_compiled!("examples/static").with_index_file("index.html"),
-        State::new(Channel::new()),
-        |conn: Conn| async move {
-            match (conn.method(), conn.path()) {
-                (Method::Get, "/sse") => get_sse(conn),
-                (Method::Post, "/broadcast") => post_broadcast(conn).await,
-                _ => conn,
-            }
-        },
-    );
-
-    // trillium_smol::run(handler);
-}
-
-```
-*/
+//! # Trillium tools for server sent events
+//!
+//! This primarily provides [`SseConnExt`](crate::SseConnExt), an
+//! extension trait for [`trillium::Conn`] that has a
+//! [`with_sse_stream`](crate::SseConnExt::with_sse_stream) chainable
+//! method that takes a [`Stream`](futures_lite::Stream) where the `Item`
+//! implements [`Eventable`].
+//!
+//! Often, you will want this stream to be something like a channel, but
+//! the specifics of that are dependent on the event fanout
+//! characteristics of your application.
+//!
+//! This crate implements [`Eventable`] for an [`Event`] type that you can
+//! use in your application, for `String`, and for `&'static str`. You can
+//! also implement [`Eventable`] for any type in your application.
+//!
+//! ## Example usage
+//!
+//! ```
+//! use broadcaster::BroadcastChannel;
+//! use trillium::{Conn, Method, State, conn_try, conn_unwrap, log_error};
+//! use trillium_sse::SseConnExt;
+//! use trillium_static_compiled::static_compiled;
+//!
+//! type Channel = BroadcastChannel<String>;
+//!
+//! fn get_sse(mut conn: Conn) -> Conn {
+//!     let broadcaster = conn_unwrap!(conn.take_state::<Channel>(), conn);
+//!     conn.with_sse_stream(broadcaster)
+//! }
+//!
+//! async fn post_broadcast(mut conn: Conn) -> Conn {
+//!     let broadcaster = conn_unwrap!(conn.take_state::<Channel>(), conn);
+//!     let body = conn_try!(conn.request_body_string().await, conn);
+//!     log_error!(broadcaster.send(&body).await);
+//!     conn.ok("sent")
+//! }
+//!
+//! fn main() {
+//!     let handler = (
+//!         static_compiled!("examples/static").with_index_file("index.html"),
+//!         State::new(Channel::new()),
+//!         |conn: Conn| async move {
+//!             match (conn.method(), conn.path()) {
+//!                 (Method::Get, "/sse") => get_sse(conn),
+//!                 (Method::Post, "/broadcast") => post_broadcast(conn).await,
+//!                 _ => conn,
+//!             }
+//!         },
+//!     );
+//!
+//!     // trillium_smol::run(handler);
+//! }
+//! ```
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
@@ -65,7 +62,7 @@ fn main() {
 )]
 #![warn(missing_docs)]
 
-use futures_lite::{stream::Stream, AsyncRead};
+use futures_lite::{AsyncRead, stream::Stream};
 use std::{
     borrow::Cow,
     fmt::Write,
@@ -161,18 +158,14 @@ where
     }
 }
 
-/**
-Extension trait for server sent events
-*/
+/// Extension trait for server sent events
 pub trait SseConnExt {
-    /**
-    builds and sets a streaming response body that conforms to the
-    [server-sent-events
-    spec](https://html.spec.whatwg.org/multipage/server-sent-events.html#server-sent-events)
-    from a Stream of any [`Eventable`](crate::Eventable) type (such as
-    [`Event`](crate::Event), as well as setting appropiate headers for
-    this response.
-    */
+    /// builds and sets a streaming response body that conforms to the
+    /// [server-sent-events
+    /// spec](https://html.spec.whatwg.org/multipage/server-sent-events.html#server-sent-events)
+    /// from a Stream of any [`Eventable`](crate::Eventable) type (such as
+    /// [`Event`](crate::Event), as well as setting appropiate headers for
+    /// this response.
     fn with_sse_stream<S, E>(self, sse_stream: S) -> Self
     where
         S: Stream<Item = E> + Unpin + Send + Sync + 'static,
@@ -185,7 +178,7 @@ impl SseConnExt for Conn {
         S: Stream<Item = E> + Unpin + Send + Sync + 'static,
         E: Eventable,
     {
-        let body = SseBody::new(self.inner().stopper().stop_stream(sse_stream));
+        let body = SseBody::new(self.inner().swansong().interrupt(sse_stream));
         self.with_response_header(KnownHeaderName::ContentType, "text/event-stream")
             .with_response_header(KnownHeaderName::CacheControl, "no-cache")
             .with_body(body)
@@ -194,12 +187,10 @@ impl SseConnExt for Conn {
     }
 }
 
-/**
-A trait that allows any Unpin + Send + Sync type to act as an event.
-
-For a concrete implementation of this trait, you can use [`Event`],
-but it is also implemented for [`String`] and [`&'static str`].
-*/
+/// A trait that allows any Unpin + Send + Sync type to act as an event.
+///
+/// For a concrete implementation of this trait, you can use [`Event`],
+/// but it is also implemented for [`String`] and [`&'static str`].
 
 pub trait Eventable: Unpin + Send + Sync + 'static {
     /// return the data for this event. non-optional.
@@ -238,9 +229,7 @@ impl Eventable for String {
     }
 }
 
-/**
-Events are a concrete implementation of the [`Eventable`] trait.
-*/
+/// Events are a concrete implementation of the [`Eventable`] trait.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Event {
     data: Cow<'static, str>,
@@ -269,40 +258,34 @@ impl From<Cow<'static, str>> for Event {
 }
 
 impl Event {
-    /**
-    builds a new [`Event`]
-
-    by default, this event has no event type. to set an event type,
-    use [`Event::with_type`] or [`Event::set_type`]
-    */
+    /// builds a new [`Event`]
+    ///
+    /// by default, this event has no event type. to set an event type,
+    /// use [`Event::with_type`] or [`Event::set_type`]
     pub fn new(data: impl Into<Cow<'static, str>>) -> Self {
         Self::from(data.into())
     }
 
-    /**
-    chainable constructor to set the type on an event
-
-    ```
-    let event = trillium_sse::Event::new("event data").with_type("userdata");
-    assert_eq!(event.event_type(), Some("userdata"));
-    assert_eq!(event.data(), "event data");
-    ```
-    */
+    /// chainable constructor to set the type on an event
+    ///
+    /// ```
+    /// let event = trillium_sse::Event::new("event data").with_type("userdata");
+    /// assert_eq!(event.event_type(), Some("userdata"));
+    /// assert_eq!(event.data(), "event data");
+    /// ```
     pub fn with_type(mut self, event_type: impl Into<Cow<'static, str>>) -> Self {
         self.set_type(event_type);
         self
     }
 
-    /**
-    set the event type for this Event. The default is None.
-
-    ```
-    let mut event = trillium_sse::Event::new("event data");
-    assert_eq!(event.event_type(), None);
-    event.set_type("userdata");
-    assert_eq!(event.event_type(), Some("userdata"));
-    ```
-     */
+    /// set the event type for this Event. The default is None.
+    ///
+    /// ```
+    /// let mut event = trillium_sse::Event::new("event data");
+    /// assert_eq!(event.event_type(), None);
+    /// event.set_type("userdata");
+    /// assert_eq!(event.event_type(), Some("userdata"));
+    /// ```
     pub fn set_type(&mut self, event_type: impl Into<Cow<'static, str>>) {
         self.event_type = Some(event_type.into());
     }

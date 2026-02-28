@@ -2,7 +2,7 @@
 name = "trillium-websockets"
 version = "0.6.6"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
-edition = "2021"
+edition = "2024"
 description = "websocket support for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
@@ -18,7 +18,7 @@ default = []
 json = ["serde_json", "serde"]
 
 [dependencies]
-async-tungstenite = { version = "0.26.0", default-features = false }
+async-tungstenite = { version = "0.25.0", default-features = false }
 base64 = "0.22.0"
 fastrand = "2.0.1"
 futures-lite = "2.1.0"
@@ -28,13 +28,13 @@ pin-project-lite = "0.2.13"
 serde = { version = "1.0.193", optional = true }
 serde_json = { version = "1.0.108", optional = true }
 sha-1 = "0.10.1"
-stopper = "0.2.3"
-thiserror = "2.0.11"
+swansong = "0.3.0"
+thiserror = "1.0.52"
 trillium = { path = "../trillium", version = "0.2.20" }
 trillium-http = { path = "../http", version = "0.3.17" }
 
 [dev-dependencies]
-async-tungstenite = { version = "0.26.0", default-features = false, features = ["handshake"] }
+async-tungstenite = { version = "0.25.0", default-features = false, features = ["handshake"] }
 serde = { version = "1.0.193", features = ["derive"] }
 async-channel = "2.1.1"
 async-net = "2.0.0"
