@@ -1,6 +1,6 @@
 use super::{
-    io, ready, slice_from, AsyncRead, Buffer, Chunked, Context, End, ErrorKind, PartialChunkSize,
-    Pin, Ready, ReceivedBody, ReceivedBodyState, StateOutput,
+    AsyncRead, Buffer, Chunked, Context, End, ErrorKind, PartialChunkSize, Pin, Ready,
+    ReceivedBody, ReceivedBodyState, StateOutput, io, ready, slice_from,
 };
 use std::io::ErrorKind::InvalidData;
 
@@ -21,7 +21,7 @@ fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
 
 #[cfg(not(feature = "parse"))]
 fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
-    use httparse::{parse_chunk_size, Status};
+    use httparse::{Status, parse_chunk_size};
     match parse_chunk_size(buf) {
         Ok(Status::Complete((index, next_chunk))) => Ok(Some((index, next_chunk + 2))),
         Ok(Status::Partial) => Ok(None),
@@ -167,10 +167,10 @@ pub(super) fn chunk_decode(
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_decode, ReceivedBody, ReceivedBodyState};
-    use crate::{http_config::DEFAULT_CONFIG, Buffer, HttpConfig};
+    use super::{ReceivedBody, ReceivedBodyState, chunk_decode};
+    use crate::{Buffer, HttpConfig, http_config::DEFAULT_CONFIG};
     use encoding_rs::UTF_8;
-    use futures_lite::{io::Cursor, AsyncRead, AsyncReadExt};
+    use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
     use test_harness::test;
     use trillium_testing::harness;
 

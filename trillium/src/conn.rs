@@ -4,9 +4,9 @@ use std::{
     net::IpAddr,
 };
 use trillium_http::{
+    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status, TypeSet,
     transport::{BoxedTransport, Transport},
     type_set::entry::Entry,
-    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status, TypeSet,
 };
 
 /// # A Trillium HTTP connection.

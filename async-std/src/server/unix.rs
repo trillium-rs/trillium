@@ -4,7 +4,7 @@ use async_std::{
     os::unix::net::{UnixListener, UnixStream},
 };
 use std::io::Result;
-use trillium::{log_error, Info};
+use trillium::{Info, log_error};
 use trillium_server_common::{
     Binding::{self, *},
     Server,

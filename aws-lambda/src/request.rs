@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Deserializer};
 use std::{collections::HashMap, str::FromStr};
 use trillium_http::{Conn as HttpConn, Method, Synthetic};

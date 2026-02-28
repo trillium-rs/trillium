@@ -1,4 +1,4 @@
-use crate::{file::File, DirEntry};
+use crate::{DirEntry, file::File};
 use std::{fs, path::Path};
 
 /// A directory.
@@ -26,12 +26,12 @@ impl Dir {
     }
 
     /// Get a list of the files in this directory.
-    pub fn files(&self) -> impl Iterator<Item = &'static File> + 'static {
+    pub fn files(&self) -> impl Iterator<Item = &'static File> + 'static + use<> {
         self.entries().iter().filter_map(DirEntry::as_file)
     }
 
     /// Get a list of the sub-directories inside this directory.
-    pub fn dirs(&self) -> impl Iterator<Item = &'static Dir> + 'static {
+    pub fn dirs(&self) -> impl Iterator<Item = &'static Dir> + 'static + use<> {
         self.entries().iter().filter_map(DirEntry::as_dir)
     }
 

@@ -1,7 +1,7 @@
-use crate::{subscriptions::Subscriptions, ChannelEvent, Version};
+use crate::{ChannelEvent, Version, subscriptions::Subscriptions};
 use async_broadcast::Receiver as BroadcastReceiver;
 use async_channel::Receiver;
-use futures_lite::{stream::Race, Stream, StreamExt};
+use futures_lite::{Stream, StreamExt, stream::Race};
 use std::{
     pin::Pin,
     task::{Context, Poll},

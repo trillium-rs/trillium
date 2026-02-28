@@ -1,5 +1,5 @@
 use crate::{Error, WebSocketConn};
-use async_tungstenite::tungstenite::{protocol::CloseFrame, Message};
+use async_tungstenite::tungstenite::{Message, protocol::CloseFrame};
 use futures_lite::stream::{Pending, Stream};
 use std::future::Future;
 
@@ -12,7 +12,7 @@ use std::future::Future;
 ///
 /// ## Simple Example
 /// ```
-/// use futures_lite::stream::{pending, Pending};
+/// use futures_lite::stream::{Pending, pending};
 /// use trillium_websockets::{Message, WebSocket, WebSocketConn, WebSocketHandler};
 ///
 /// struct EchoServer;

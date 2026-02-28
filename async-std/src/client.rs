@@ -2,8 +2,8 @@ use crate::{AsyncStdRuntime, AsyncStdTransport};
 use async_std::net::TcpStream;
 use std::io::{Error, ErrorKind, Result};
 use trillium_server_common::{
-    url::{Host, Url},
     Connector, Transport,
+    url::{Host, Url},
 };
 
 /// configuration for the tcp Connector

@@ -177,7 +177,7 @@ assert_not_handled!(",
         );
     };
 
-    ($fn_name:ident, $method:ident, $doc_comment:expr) => {
+    ($fn_name:ident, $method:ident, $doc_comment:expr_2021) => {
         #[doc = $doc_comment]
         pub fn $fn_name<R>(mut self, path: R, handler: impl Handler) -> Self
         where
@@ -301,7 +301,7 @@ impl Router {
     ///         conn.ok("checkin??")
     ///     });
     ///
-    /// use trillium_testing::{prelude::*, TestConn};
+    /// use trillium_testing::{TestConn, prelude::*};
     /// assert_ok!(
     ///     TestConn::build(Method::Options, "/some/route", ()).on(&router),
     ///     "directly handling options"

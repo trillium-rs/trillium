@@ -2,13 +2,13 @@ use proc_macro::TokenStream;
 use quote::quote;
 use std::collections::HashSet;
 use syn::{
+    Data, DeriveInput, Error, Field, Ident, Index, Member, Type, TypePath, WhereClause,
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Comma, Where},
-    visit::{visit_type_path, Visit},
-    Data, DeriveInput, Error, Field, Ident, Index, Member, Type, TypePath, WhereClause,
+    visit::{Visit, visit_type_path},
 };
 
 fn is_required_generic_for_type(ty: &Type, generic: &Ident) -> bool {

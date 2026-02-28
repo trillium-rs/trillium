@@ -1,6 +1,6 @@
-use futures_lite::{future::poll_once, AsyncRead, AsyncReadExt, AsyncWriteExt};
+use futures_lite::{AsyncRead, AsyncReadExt, AsyncWriteExt, future::poll_once};
 use std::{
-    future::{pending, Future},
+    future::{Future, pending},
     io,
     pin::Pin,
     task::{Context, Poll},
@@ -8,7 +8,7 @@ use std::{
 };
 use test_harness::test;
 use trillium::Conn;
-use trillium_testing::{client_config, config, harness, ArcedConnector, Connector, TestResult};
+use trillium_testing::{ArcedConnector, Connector, TestResult, client_config, config, harness};
 
 #[test(harness)]
 async fn infinitely_pending_task() -> TestResult {

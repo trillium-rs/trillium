@@ -1,4 +1,4 @@
-use async_session::{serde::Serialize, Session};
+use async_session::{Session, serde::Serialize};
 use trillium::Conn;
 
 /// extension trait to add session support to [`Conn`]

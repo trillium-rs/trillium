@@ -28,7 +28,7 @@ assert_eq!(conn.path(), \"/some/route\");
         );
     };
 
-    ($fn_name:ident, $method:ident, $doc_comment:expr) => {
+    ($fn_name:ident, $method:ident, $doc_comment:expr_2021) => {
         #[doc = $doc_comment]
         pub fn $fn_name(path: impl Into<String>) -> $crate::TestConn {
             $crate::TestConn::build($crate::prelude::Method::$method, path, ())

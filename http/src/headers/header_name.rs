@@ -1,11 +1,11 @@
 use super::{KnownHeaderName, UnknownHeaderName};
 use crate::Error;
+use HeaderNameInner::{KnownHeader, UnknownHeader};
 use std::{
     fmt::{self, Debug, Display, Formatter},
     hash::Hash,
     str::FromStr,
 };
-use HeaderNameInner::{KnownHeader, UnknownHeader};
 
 /// The name of a http header. This can be either a
 /// [`KnownHeaderName`] or a string representation of an unknown

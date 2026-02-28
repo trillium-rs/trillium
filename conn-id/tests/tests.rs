@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use trillium_conn_id::*;
-use trillium_testing::{prelude::*, TestConn};
+use trillium_testing::{TestConn, prelude::*};
 use uuid::Uuid;
 
 fn build_incrementing_id_generator() -> impl Fn() -> String + Send + Sync + 'static {

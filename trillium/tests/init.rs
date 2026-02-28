@@ -3,7 +3,7 @@ use test_harness::test;
 use trillium::Handler;
 use trillium_client::Client;
 use trillium_http::ServerConfig;
-use trillium_testing::{harness, ServerConnector, TestResult};
+use trillium_testing::{ServerConnector, TestResult, harness};
 
 async fn test_client(mut handler: impl Handler) -> Client {
     let mut info = ServerConfig::default().into();

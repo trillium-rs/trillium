@@ -1,8 +1,8 @@
 use trillium_client::Client;
 use trillium_logger::Logger;
 use trillium_proxy::{
-    upstream::{ConnectionCounting, IntoUpstreamSelector, UpstreamSelector},
     Proxy,
+    upstream::{ConnectionCounting, IntoUpstreamSelector, UpstreamSelector},
 };
 use trillium_smol::ClientConfig;
 

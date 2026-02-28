@@ -6,8 +6,8 @@ use std::{
 };
 use tokio::net::TcpStream;
 use trillium_server_common::{
-    url::{Host, Url},
     Connector, Transport,
+    url::{Host, Url},
 };
 
 /// configuration for the tcp Connector

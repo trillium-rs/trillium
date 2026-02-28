@@ -42,7 +42,7 @@
 //! );
 //! ```
 mod cookies_handler;
-pub use cookies_handler::{cookies, CookiesHandler};
+pub use cookies_handler::{CookiesHandler, cookies};
 
 mod cookies_conn_ext;
 pub use cookie;

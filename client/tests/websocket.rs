@@ -1,7 +1,7 @@
 use futures_lite::StreamExt;
 use trillium_client::{
-    websocket::{self, Message},
     Client, WebSocketConn,
+    websocket::{self, Message},
 };
 use trillium_http::Status;
 use trillium_testing::client_config;

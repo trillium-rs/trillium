@@ -254,7 +254,7 @@ macro_rules! static_compiled {
 #[macro_export]
 macro_rules! root {
     ($path:tt) => {{
-        use $crate::__macro_internals::{include_entry, Dir, DirEntry, File, Metadata};
+        use $crate::__macro_internals::{Dir, DirEntry, File, Metadata, include_entry};
         const ENTRY: DirEntry = include_entry!($path);
         ENTRY
     }};
