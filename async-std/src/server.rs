@@ -3,6 +3,7 @@ mod unix;
 #[cfg(unix)]
 pub use unix::AsyncStdServer;
 
+#[cfg(not(unix))]
 mod tcp;
 #[cfg(not(unix))]
 pub use tcp::AsyncStdServer;
