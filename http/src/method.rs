@@ -433,7 +433,6 @@ impl Method {
         }
     }
 
-    #[cfg(feature = "parse")]
     pub(crate) fn parse(bytes: &[u8]) -> crate::Result<Self> {
         str::from_utf8(bytes)
             .map_err(|_| crate::Error::UnrecognizedMethod(String::from_utf8_lossy(bytes).into()))?

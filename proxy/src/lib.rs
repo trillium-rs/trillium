@@ -324,11 +324,11 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        upgrade.state.contains::<UpstreamUpgrade>()
+        upgrade.state().contains::<UpstreamUpgrade>()
     }
 
     async fn upgrade(&self, mut upgrade: Upgrade) {
-        let Some(UpstreamUpgrade(upstream)) = upgrade.state.take() else {
+        let Some(UpstreamUpgrade(upstream)) = upgrade.state_mut().take() else {
             return;
         };
         let downstream = upgrade;

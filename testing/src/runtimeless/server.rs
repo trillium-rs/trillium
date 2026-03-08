@@ -29,6 +29,7 @@ impl RuntimelessServer {
 impl Server for RuntimelessServer {
     type Runtime = RuntimelessRuntime;
     type Transport = TestTransport;
+    type UdpTransport = ();
 
     fn runtime() -> Self::Runtime {
         RuntimelessRuntime::default()

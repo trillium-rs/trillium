@@ -238,7 +238,10 @@ where
     }
 
     async fn upgrade(&self, mut upgrade: Upgrade) {
-        let peer_ip = upgrade.state.take::<WebsocketPeerIp>().and_then(|i| i.0);
+        let peer_ip = upgrade
+            .state_mut()
+            .take::<WebsocketPeerIp>()
+            .and_then(|i| i.0);
         let mut conn = WebSocketConn::new(upgrade, self.config, Role::Server).await;
         conn.set_peer_ip(peer_ip);
 

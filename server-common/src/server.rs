@@ -1,4 +1,4 @@
-use crate::{RuntimeTrait, Swansong, Transport};
+use crate::{RuntimeTrait, Swansong, Transport, UdpTransport};
 use listenfd::ListenFd;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
@@ -14,6 +14,11 @@ pub trait Server: Sized + Send + Sync + 'static {
 
     /// The [`RuntimeTrait`] for this `Server`.
     type Runtime: RuntimeTrait;
+
+    /// The async UDP socket type for this server. Used by QUIC adapters
+    /// for HTTP/3 support. Runtimes that do not support UDP should set
+    /// this to `()`.
+    type UdpTransport: UdpTransport;
 
     /// Asynchronously return a single `Self::Transport` from a
     /// `Self::Listener`. Must be implemented.

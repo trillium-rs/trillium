@@ -1,4 +1,4 @@
-use crate::{Body, Buffer, HttpConfig, MutCow, copy, http_config::DEFAULT_CONFIG};
+use crate::{Body, Buffer, Error, HttpConfig, MutCow, copy, http_config::DEFAULT_CONFIG};
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 use encoding_rs::Encoding;
@@ -13,6 +13,7 @@ use std::{
 
 mod chunked;
 mod fixed_length;
+mod h3_data;
 
 /// A received http body
 ///
@@ -42,7 +43,7 @@ mod fixed_length;
 ///
 /// Attempting to read a chunked body with a buffer that is shorter than the chunk size in hex will
 /// result in an error. This limitation is temporary.
-
+#[derive(fieldwork::Fieldwork)]
 pub struct ReceivedBody<'conn, Transport> {
     content_length: Option<u64>,
     buffer: MutCow<'conn, Buffer>,
@@ -50,6 +51,10 @@ pub struct ReceivedBody<'conn, Transport> {
     state: MutCow<'conn, ReceivedBodyState>,
     on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
     encoding: &'static Encoding,
+    /// The maximum length that can be read from this body before error
+    ///
+    /// See also [`HttpConfig::set_received_body_max_len`]
+    #[field(with, get)]
     max_len: u64,
     initial_len: usize,
     copy_loops_per_yield: usize,
@@ -158,22 +163,6 @@ where
         self.transport.as_ref().is_some_and(MutCow::is_owned)
     }
 
-    /// Set the maximum length that can be read from this body before error
-    ///
-    /// See also [`HttpConfig::received_body_max_len`][HttpConfig#received_body_max_len]
-    pub fn set_max_len(&mut self, max_len: u64) {
-        self.max_len = max_len;
-    }
-
-    /// chainable setter for the maximum length that can be read from this body before error
-    ///
-    /// See also [`HttpConfig::received_body_max_len`][HttpConfig#received_body_max_len]
-    #[must_use]
-    pub fn with_max_len(mut self, max_len: u64) -> Self {
-        self.set_max_len(max_len);
-        self
-    }
-
     /// Similar to [`ReceivedBody::read_string`], but returns the raw bytes. This is useful for
     /// bodies that are not text.
     ///
@@ -191,11 +180,10 @@ where
     pub async fn read_bytes(mut self) -> crate::Result<Vec<u8>> {
         let mut vec = if let Some(len) = self.content_length {
             if len > self.max_len {
-                return Err(crate::Error::ReceivedBodyTooLong(self.max_len));
+                return Err(Error::ReceivedBodyTooLong(self.max_len));
             }
 
-            let len = usize::try_from(len)
-                .map_err(|_| crate::Error::ReceivedBodyTooLong(self.max_len))?;
+            let len = usize::try_from(len).map_err(|_| Error::ReceivedBodyTooLong(self.max_len))?;
 
             Vec::with_capacity(len.min(self.max_preallocate))
         } else {
@@ -284,7 +272,7 @@ where
 
 type StateOutput = Poll<io::Result<(ReceivedBodyState, usize)>>;
 
-impl<'conn, Transport> ReceivedBody<'conn, Transport>
+impl<Transport> ReceivedBody<'_, Transport>
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
@@ -316,7 +304,7 @@ where
     }
 }
 
-impl<'conn, Transport> AsyncRead for ReceivedBody<'conn, Transport>
+impl<Transport> AsyncRead for ReceivedBody<'_, Transport>
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {
@@ -334,6 +322,19 @@ where
                     current_index,
                     total,
                 } => self.handle_fixed_length(cx, buf, current_index, total),
+                ReceivedBodyState::H3Data {
+                    remaining_in_frame,
+                    total,
+                    frame_type,
+                    partial_frame_header,
+                } => self.handle_h3_data(
+                    cx,
+                    buf,
+                    remaining_in_frame,
+                    total,
+                    frame_type,
+                    partial_frame_header
+                ),
                 End => Ready(Ok((End, 0))),
             })?;
 
@@ -356,7 +357,7 @@ where
     }
 }
 
-impl<'conn, Transport> Debug for ReceivedBody<'conn, Transport> {
+impl<Transport> Debug for ReceivedBody<'_, Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("RequestBody")
             .field("state", &*self.state)
@@ -365,6 +366,22 @@ impl<'conn, Transport> Debug for ReceivedBody<'conn, Transport> {
             .field("on_completion", &self.on_completion.is_some())
             .finish()
     }
+}
+
+/// The type of H3 frame currently being processed in [`ReceivedBodyState::H3Data`].
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
+#[allow(missing_docs)]
+#[doc(hidden)]
+pub enum H3BodyFrameType {
+    /// Initial state — no frame decoded yet.
+    #[default]
+    Start,
+    /// Inside a DATA frame — body bytes to keep.
+    Data,
+    /// Inside an unknown frame — payload bytes to discard.
+    Unknown,
+    /// Inside a trailing HEADERS frame — accumulate into buffer for parsing.
+    Trailers,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
@@ -386,9 +403,9 @@ pub enum ReceivedBodyState {
         total: u64,
     },
 
-    PartialChunkSize {
-        total: u64,
-    },
+    /// read state when we have buffered content between subsequent polls because chunk framing
+    /// overlapped a buffer boundary
+    PartialChunkSize { total: u64 },
 
     /// read state for a fixed-length body.
     FixedLength {
@@ -399,6 +416,23 @@ pub enum ReceivedBodyState {
         /// total length indicates the claimed length, usually
         /// determined by the content-length header
         total: u64,
+    },
+
+    /// read state for an H3 body framed as DATA frames.
+    H3Data {
+        /// bytes remaining in the current frame (DATA, Unknown, or Trailers). zero means we need
+        /// to read the next frame header.
+        remaining_in_frame: u64,
+
+        /// total body bytes read across all DATA frames.
+        total: u64,
+
+        /// what kind of frame we're currently inside.
+        frame_type: H3BodyFrameType,
+
+        /// when true, a partial frame header is sitting in `self.buffer` and needs more bytes
+        /// before we can decode it.
+        partial_frame_header: bool,
     },
 
     /// the terminal read state

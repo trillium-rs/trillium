@@ -44,11 +44,11 @@ impl Handler for ForwardProxyConnect {
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        upgrade.state.contains::<ForwardUpgrade>()
+        upgrade.state().contains::<ForwardUpgrade>()
     }
 
     async fn upgrade(&self, mut upgrade: Upgrade) {
-        let Some(ForwardUpgrade(upstream)) = upgrade.state.take() else {
+        let Some(ForwardUpgrade(upstream)) = upgrade.state_mut().take() else {
             return;
         };
         let downstream = upgrade;

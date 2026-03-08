@@ -51,4 +51,12 @@ pub use swansong::Swansong;
 mod runtime;
 pub use runtime::{DroppableFuture, Runtime, RuntimeTrait};
 
+mod quic;
+pub use quic::{QuicBinding, QuicConfig, QuicConnection};
+
+mod udp_transport;
+pub use udp_transport::UdpTransport;
+
 mod running_config;
+
+mod h3;

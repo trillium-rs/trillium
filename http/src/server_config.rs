@@ -43,6 +43,11 @@ impl ServerConfig {
         &mut self.http_config
     }
 
+    /// Borrow the [`HttpConfig`] for this server
+    pub fn http_config(&self) -> &HttpConfig {
+        &self.http_config
+    }
+
     /// Replace the [`Swansong`] graceful shutdown control interface for this server.
     pub fn set_swansong(&mut self, swansong: Swansong) {
         self.swansong = swansong;

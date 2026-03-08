@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use crate::SmolUdpSocket;
 use crate::{SmolRuntime, SmolTransport};
 use async_net::{
     TcpListener, TcpStream,
@@ -27,6 +29,7 @@ impl From<UnixListener> for SmolServer {
 impl Server for SmolServer {
     type Runtime = SmolRuntime;
     type Transport = Binding<SmolTransport<TcpStream>, SmolTransport<UnixStream>>;
+    type UdpTransport = SmolUdpSocket;
 
     fn runtime() -> Self::Runtime {
         SmolRuntime::default()

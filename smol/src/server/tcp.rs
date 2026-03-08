@@ -1,10 +1,11 @@
-use crate::{SmolRuntime, SmolTransport};
+use crate::{SmolRuntime, SmolTransport, SmolUdpSocket};
 use async_net::{TcpListener, TcpStream};
 use std::{convert::TryInto, io::Result, net};
 use trillium::Info;
 use trillium_server_common::Server;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SmolTcpServer(TcpListener);
 impl From<TcpListener> for SmolTcpServer {
     fn from(value: TcpListener) -> Self {
@@ -15,6 +16,7 @@ impl From<TcpListener> for SmolTcpServer {
 impl Server for SmolTcpServer {
     type Runtime = SmolRuntime;
     type Transport = SmolTransport<TcpStream>;
+    type UdpTransport = SmolUdpSocket;
 
     async fn accept(&mut self) -> Result<Self::Transport> {
         self.0.accept().await.map(|(t, _)| t.into())
