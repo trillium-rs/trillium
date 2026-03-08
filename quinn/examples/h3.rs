@@ -1,18 +1,8 @@
 use std::fs;
 use trillium::{Conn, Handler, KnownHeaderName};
+use trillium_logger::logger;
+use trillium_quinn::QuicConfig;
 use trillium_rustls::RustlsAcceptor;
-
-fn build_handler() -> impl Handler {
-    use trillium_logger::{
-        Logger,
-        formatters::{dev_formatter, version},
-    };
-
-    (
-        Logger::new().with_formatter((version, " ", dev_formatter)),
-        handler_fn,
-    )
-}
 
 async fn handler_fn(conn: Conn) -> Conn {
     let body = format!("trillium h3-example\n\n{conn:#?}");
@@ -38,8 +28,6 @@ fn main() {
 
     trillium_tokio::config()
         .with_acceptor(RustlsAcceptor::from_single_cert(&cert_pem, &key_pem))
-        .with_quic(trillium_quinn::QuicConfig::from_single_cert(
-            &cert_pem, &key_pem,
-        ))
-        .run(build_handler());
+        .with_quic(QuicConfig::from_single_cert(&cert_pem, &key_pem))
+        .run((logger(), handler_fn));
 }
