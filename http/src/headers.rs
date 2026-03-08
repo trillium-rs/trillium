@@ -3,6 +3,7 @@ mod header_name;
 mod header_value;
 mod header_values;
 mod known_header_name;
+pub(crate) mod qpack;
 mod unknown_header_name;
 
 use crate::headers::entry::{OccupiedEntryInner, VacantEntryInner};

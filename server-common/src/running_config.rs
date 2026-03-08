@@ -17,10 +17,13 @@ pub struct RunningConfig<ServerType: Server, AcceptorType> {
 }
 
 impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
-    pub(crate) async fn run_async(self: Arc<Self>, mut listener: S, handler: impl Handler) {
+    pub(crate) async fn run_async(
+        self: Arc<Self>,
+        mut listener: S,
+        handler: ArcHandler<impl Handler>,
+    ) {
         let swansong = self.server_config.as_ref().swansong();
         let runtime = self.runtime.clone();
-        let handler = ArcHandler::new(handler);
         while let Some(transport) = swansong.interrupt(listener.accept()).await {
             match transport {
                 Ok(stream) => {

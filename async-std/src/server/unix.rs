@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use crate::AsyncStdUdpSocket;
 use crate::{AsyncStdRuntime, AsyncStdTransport};
 use async_std::{
     net::{TcpListener, TcpStream},
@@ -39,6 +41,7 @@ impl From<std::os::unix::net::UnixListener> for AsyncStdServer {
 impl Server for AsyncStdServer {
     type Runtime = AsyncStdRuntime;
     type Transport = Binding<AsyncStdTransport<TcpStream>, AsyncStdTransport<UnixStream>>;
+    type UdpTransport = AsyncStdUdpSocket;
 
     async fn accept(&mut self) -> Result<Self::Transport> {
         match &self.0 {

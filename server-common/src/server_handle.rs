@@ -38,6 +38,10 @@ impl BoundInfo {
     pub fn unix_socket_addr(&self) -> Option<&std::os::unix::net::SocketAddr> {
         self.state()
     }
+
+    pub fn server_config(&self) -> Arc<ServerConfig> {
+        self.0.clone()
+    }
 }
 
 impl ServerHandle {

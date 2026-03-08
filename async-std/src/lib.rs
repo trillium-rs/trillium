@@ -100,3 +100,6 @@ pub fn config() -> Config<()> {
 
 mod runtime;
 pub use runtime::AsyncStdRuntime;
+
+mod udp;
+pub use udp::AsyncStdUdpSocket;

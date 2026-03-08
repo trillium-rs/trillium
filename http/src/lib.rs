@@ -155,6 +155,7 @@ pub use copy::copy;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use copy::copy;
 
+pub mod h3;
 mod liveness;
 mod server_config;
 pub use server_config::ServerConfig;

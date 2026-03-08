@@ -12,8 +12,8 @@ mod version {
                 http::Version::HTTP_09 => Ok(crate::Version::Http0_9),
                 http::Version::HTTP_10 => Ok(crate::Version::Http1_0),
                 http::Version::HTTP_11 => Ok(crate::Version::Http1_1),
-                http::Version::HTTP_2 => Ok(crate::Version::Http2_0),
-                http::Version::HTTP_3 => Ok(crate::Version::Http3_0),
+                http::Version::HTTP_2 => Ok(crate::Version::Http2),
+                http::Version::HTTP_3 => Ok(crate::Version::Http3),
                 other => Err(format!("unsupported version {other:?}")),
             }
         }
@@ -25,8 +25,8 @@ mod version {
                 crate::Version::Http0_9 => http::Version::HTTP_09,
                 crate::Version::Http1_0 => http::Version::HTTP_10,
                 crate::Version::Http1_1 => http::Version::HTTP_11,
-                crate::Version::Http2_0 => http::Version::HTTP_2,
-                crate::Version::Http3_0 => http::Version::HTTP_3,
+                crate::Version::Http2 => http::Version::HTTP_2,
+                crate::Version::Http3 => http::Version::HTTP_3,
             }
         }
     }
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn versions() {
         assert_eq!(
-            http::Version::from(crate::Version::Http2_0),
+            http::Version::from(crate::Version::Http2),
             http::Version::HTTP_2
         );
         assert_eq!(
@@ -252,7 +252,7 @@ mod tests {
         );
 
         assert_eq!(crate::Version::Http1_1, http::Version::HTTP_11);
-        assert_eq!(http::Version::HTTP_3, crate::Version::Http3_0);
+        assert_eq!(http::Version::HTTP_3, crate::Version::Http3);
     }
 
     #[test]

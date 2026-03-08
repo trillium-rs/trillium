@@ -23,6 +23,7 @@ members = [
     "method-override",
     "native-tls",
     "proxy",
+    "quinn",
     "redirect",
     "router",
     "rustls",

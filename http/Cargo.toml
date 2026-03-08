@@ -36,6 +36,8 @@ thiserror = "1.0.52"
 trillium-macros = { version = "0.0.6", path = "../macros" }
 swansong = "0.3.0"
 type-set = "0.3.0"
+fastrand = "2.0.1"
+fieldwork = "0.4.8"
 
 [dev-dependencies]
 async-compat = "0.2.3"
@@ -48,7 +50,6 @@ trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-http = { path = ".", features = ["http-compat"] }
 pretty_assertions = "1.4.0"
-fastrand = "2.0.1"
 test-harness = "0.2.0"
 indoc = "2.0.4"
 serde_json = "1.0.108"

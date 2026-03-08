@@ -1,4 +1,4 @@
-use crate::{AsyncStdRuntime, AsyncStdTransport};
+use crate::{AsyncStdRuntime, AsyncStdTransport, AsyncStdUdpSocket};
 use async_std::net::{TcpListener, TcpStream};
 use std::io::Result;
 use trillium::Info;
@@ -21,6 +21,7 @@ impl From<std::net::TcpListener> for AsyncStdServer {
 impl Server for AsyncStdServer {
     type Runtime = AsyncStdRuntime;
     type Transport = AsyncStdTransport<TcpStream>;
+    type UdpTransport = AsyncStdUdpSocket;
 
     async fn accept(&mut self) -> Result<Self::Transport> {
         self.0.accept().await.map(|(t, _)| t.into())

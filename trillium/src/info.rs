@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use trillium_http::{ServerConfig, Swansong, TypeSet, type_set::entry::Entry};
+use trillium_http::{HttpConfig, ServerConfig, Swansong, TypeSet, type_set::entry::Entry};
 
 /// This struct represents information about the currently connected
 /// server.
@@ -69,6 +69,16 @@ impl Info {
     pub fn with_state<T: Send + Sync + 'static>(mut self, value: T) -> Self {
         self.insert_state(value);
         self
+    }
+
+    /// borrow the http config
+    pub fn http_config(&self) -> &HttpConfig {
+        self.0.http_config()
+    }
+
+    /// mutate the http config
+    pub fn http_config_mut(&mut self) -> &mut HttpConfig {
+        self.0.http_config_mut()
     }
 
     /// Borrow the [`Swansong`] graceful shutdown interface for this server

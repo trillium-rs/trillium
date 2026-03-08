@@ -8,6 +8,7 @@ use futures_util::{
     stream::{SplitSink, SplitStream, Stream},
 };
 use std::{
+    borrow::Cow,
     net::IpAddr,
     pin::Pin,
     sync::Arc,
@@ -29,7 +30,7 @@ use trillium_http::{ServerConfig, transport::BoxedTransport, type_set::entry::En
 #[derive(Debug)]
 pub struct WebSocketConn {
     request_headers: Headers,
-    path: String,
+    path: Cow<'static, str>,
     method: Method,
     state: TypeSet,
     peer_ip: Option<IpAddr>,
@@ -68,18 +69,15 @@ impl WebSocketConn {
     /// You should not typically need to call this; the trillium client and server both provide
     /// your code with a `WebSocketConn`.
     #[doc(hidden)]
-    pub async fn new(upgrade: Upgrade, config: Option<WebSocketConfig>, role: Role) -> Self {
-        let Upgrade {
-            request_headers,
-            path,
-            method,
-            state,
-            buffer,
-            transport,
-            server_config,
-            peer_ip,
-            ..
-        } = upgrade;
+    pub async fn new(mut upgrade: Upgrade, config: Option<WebSocketConfig>, role: Role) -> Self {
+        let request_headers = std::mem::take(upgrade.request_headers_mut());
+        let path = std::mem::take(upgrade.path_mut());
+        let method = upgrade.method();
+        let state = std::mem::take(upgrade.state_mut());
+        let buffer = std::mem::take(upgrade.buffer_mut());
+        let server_config = upgrade.server_config().clone();
+        let peer_ip = upgrade.take_peer_ip();
+        let transport = upgrade.into_transport();
 
         let wss = if buffer.is_empty() {
             WebSocketStream::from_raw_socket(transport, role, config).await

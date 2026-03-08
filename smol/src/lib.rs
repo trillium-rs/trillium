@@ -69,6 +69,9 @@ pub use transport::SmolTransport;
 mod runtime;
 pub use runtime::SmolRuntime;
 
+mod udp;
+pub use udp::SmolUdpSocket;
+
 /// # Runs a trillium handler in a sync context with default config
 ///
 /// Runs a trillium handler on the async-global-executor runtime with

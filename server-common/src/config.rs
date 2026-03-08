@@ -1,4 +1,7 @@
-use crate::{Acceptor, RuntimeTrait, Server, ServerHandle, running_config::RunningConfig};
+use crate::{
+    Acceptor, ArcHandler, QuicConfig, RuntimeTrait, Server, ServerHandle,
+    running_config::RunningConfig,
+};
 use async_cell::sync::AsyncCell;
 use futures_lite::StreamExt;
 use std::{cell::OnceCell, net::SocketAddr, pin::pin, sync::Arc};
@@ -54,8 +57,9 @@ use url::Url;
 /// [`trillium_server_common::ConfigExt`](crate::ConfigExt)
 
 #[derive(Debug)]
-pub struct Config<ServerType: Server, AcceptorType> {
+pub struct Config<ServerType: Server, AcceptorType, QuicType: QuicConfig<ServerType> = ()> {
     pub(crate) acceptor: AcceptorType,
+    pub(crate) quic: QuicType,
     pub(crate) binding: Option<ServerType>,
     pub(crate) host: Option<String>,
     pub(crate) server_config_cell: Arc<AsyncCell<Arc<ServerConfig>>>,
@@ -67,10 +71,11 @@ pub struct Config<ServerType: Server, AcceptorType> {
     pub(crate) server_config: ServerConfig,
 }
 
-impl<ServerType, AcceptorType> Config<ServerType, AcceptorType>
+impl<ServerType, AcceptorType, QuicType> Config<ServerType, AcceptorType, QuicType>
 where
     ServerType: Server,
     AcceptorType: Acceptor<ServerType::Transport>,
+    QuicType: QuicConfig<ServerType>,
 {
     /// Starts an async runtime and runs the provided handler with
     /// this config in that runtime. This is the appropriate
@@ -91,6 +96,7 @@ where
         let Self {
             runtime,
             acceptor,
+            quic,
             max_connections,
             nodelay,
             binding,
@@ -124,6 +130,13 @@ where
         insert_url(info.as_mut(), acceptor.is_secure());
         handler.init(&mut info).await;
 
+        let quic_binding = info
+            .as_ref()
+            .get::<SocketAddr>()
+            .copied()
+            .and_then(|addr| quic.bind(addr, runtime.clone()))
+            .map(|r| r.expect("failed to bind QUIC endpoint"));
+
         let server_config = Arc::new(ServerConfig::from(info));
         server_config_cell.set(server_config.clone());
 
@@ -148,6 +161,20 @@ where
                     }
                 }
             });
+        }
+
+        let handler = ArcHandler::new(handler);
+
+        if let Some(quic_binding) = quic_binding {
+            let server_config = server_config.clone();
+            let handler = handler.clone();
+            let runtime: crate::Runtime = runtime.clone().into();
+            runtime.clone().spawn(crate::h3::run_h3(
+                quic_binding,
+                server_config,
+                handler,
+                runtime,
+            ));
         }
 
         let running_config = Arc::new(RunningConfig {
@@ -238,9 +265,30 @@ where
     pub fn with_acceptor<A: Acceptor<ServerType::Transport>>(
         self,
         acceptor: A,
-    ) -> Config<ServerType, A> {
+    ) -> Config<ServerType, A, QuicType> {
         Config {
             acceptor,
+            quic: self.quic,
+            host: self.host,
+            port: self.port,
+            nodelay: self.nodelay,
+            register_signals: self.register_signals,
+            max_connections: self.max_connections,
+            server_config_cell: self.server_config_cell,
+            server_config: self.server_config,
+            binding: self.binding,
+            runtime: self.runtime,
+        }
+    }
+
+    /// Configures QUIC/HTTP3 for this server
+    pub fn with_quic<Q: QuicConfig<ServerType>>(
+        self,
+        quic: Q,
+    ) -> Config<ServerType, AcceptorType, Q> {
+        Config {
+            acceptor: self.acceptor,
+            quic,
             host: self.host,
             port: self.port,
             nodelay: self.nodelay,
@@ -349,6 +397,7 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
 
         Self {
             acceptor: (),
+            quic: (),
             port: None,
             host: None,
             nodelay: false,
