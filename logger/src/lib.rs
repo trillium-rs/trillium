@@ -9,6 +9,7 @@
 //! Welcome to the trillium logger!
 pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
 use std::{
+    convert::AsMut,
     fmt::{Display, Write},
     io::IsTerminal,
     sync::Arc,
@@ -293,11 +294,13 @@ where
     }
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
-        if conn.as_ref().contains::<LoggerWasRun>() {
+        if conn.state::<LoggerWasRun>().is_some() {
             let target = self.target.clone();
             let output = self.format.format(&conn, self.color_mode.is_enabled());
-            conn.inner_mut()
-                .after_send(move |_| target.write(output.to_string()));
+            AsMut::<trillium_http::Conn<trillium_http::transport::BoxedTransport>>::as_mut(
+                &mut conn,
+            )
+            .after_send(move |_| target.write(output.to_string()));
         }
 
         conn

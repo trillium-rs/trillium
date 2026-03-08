@@ -173,7 +173,7 @@ impl Handler for Compression {
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if let Some(algo) = conn.state::<CompressionAlgorithm>().copied() {
-            let mut body = conn_unwrap!(conn.inner_mut().take_response_body(), conn);
+            let mut body = conn_unwrap!(conn.take_response_body(), conn);
             let mut compression_used = false;
 
             if body.is_static() {

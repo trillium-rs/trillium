@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 use trillium::{Conn, Handler, HeaderName, HeaderValues, Method};
-use trillium_http::{Conn as HttpConn, ServerConfig, Synthetic};
+use trillium_http::{Conn as HttpConn, ServerConfig, Synthetic, transport::BoxedTransport};
 
 type SyntheticConn = HttpConn<Synthetic>;
 
@@ -49,7 +49,6 @@ impl TestConn {
     /// let conn = TestConn::build("get", "/", "body").with_request_header("some-header", "value");
     /// assert_eq!(conn.request_headers().get_str("some-header"), Some("value"));
     /// ```
-
     pub fn with_request_header(
         self,
         header_name: impl Into<HeaderName<'static>>,
@@ -82,13 +81,13 @@ impl TestConn {
 
     /// sets the peer ip for this test conn
     pub fn with_peer_ip(mut self, ip: IpAddr) -> Self {
-        self.inner_mut().set_peer_ip(Some(ip));
+        self.set_peer_ip(Some(ip));
         self
     }
 
     /// set the test conn to be secure
     pub fn secure(mut self) -> Self {
-        self.inner_mut().set_secure(true);
+        AsMut::<trillium_http::Conn<BoxedTransport>>::as_mut(&mut self.0).set_secure(true);
         self
     }
 
@@ -136,7 +135,7 @@ impl TestConn {
     pub async fn run_async(self, handler: &impl Handler) -> Self {
         let conn = handler.run(self.into()).await;
         let mut conn = handler.before_send(conn).await;
-        conn.inner_mut().finalize_headers();
+        AsMut::<trillium_http::Conn<BoxedTransport>>::as_mut(&mut conn).finalize_headers();
         Self(conn)
     }
 
@@ -153,7 +152,6 @@ impl TestConn {
     /// let conn = get("/").on(&handler);
     /// assert_ok!(conn, "hello trillium", "content-length" => "14");
     /// ```
-
     pub fn on(self, handler: &impl Handler) -> Self {
         self.run(handler)
     }

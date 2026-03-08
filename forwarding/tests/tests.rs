@@ -6,9 +6,9 @@ fn app(forwarding: Forwarding) -> impl trillium::Handler {
     (forwarding, |conn: Conn| async move {
         let response = format!(
             "{:?} {:?} {:?}",
-            conn.inner().is_secure(),
-            conn.inner().peer_ip(),
-            conn.inner().host()
+            conn.is_secure(),
+            conn.peer_ip(),
+            conn.host()
         );
         conn.ok(response)
     })

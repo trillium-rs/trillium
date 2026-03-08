@@ -69,39 +69,35 @@ pub trait CachingHeadersExt: Sized {
 
 impl CachingHeadersExt for trillium::Conn {
     fn etag(&self) -> Option<EntityTag> {
-        self.inner().response_headers().etag()
+        self.response_headers().etag()
     }
 
     fn set_etag(&mut self, entity_tag: &EntityTag) {
-        self.inner_mut().response_headers_mut().set_etag(entity_tag)
+        self.response_headers_mut().set_etag(entity_tag)
     }
 
     fn last_modified(&self) -> Option<SystemTime> {
-        self.inner().response_headers().last_modified()
+        self.response_headers().last_modified()
     }
 
     fn set_last_modified(&mut self, system_time: SystemTime) {
-        self.inner_mut()
-            .response_headers_mut()
-            .set_last_modified(system_time)
+        self.response_headers_mut().set_last_modified(system_time)
     }
 
     fn cache_control(&self) -> Option<CacheControlHeader> {
-        self.inner().request_headers().cache_control()
+        self.request_headers().cache_control()
     }
 
     fn set_cache_control(&mut self, cache_control: impl Into<CacheControlHeader>) {
-        self.inner_mut()
-            .response_headers_mut()
-            .set_cache_control(cache_control)
+        self.response_headers_mut().set_cache_control(cache_control)
     }
 
     fn if_modified_since(&self) -> Option<SystemTime> {
-        self.inner().request_headers().if_modified_since()
+        self.request_headers().if_modified_since()
     }
 
     fn if_none_match(&self) -> Option<EntityTag> {
-        self.inner().request_headers().if_none_match()
+        self.request_headers().if_none_match()
     }
 
     fn set_vary<I, N>(&mut self, vary: I)
@@ -109,7 +105,7 @@ impl CachingHeadersExt for trillium::Conn {
         I: IntoIterator<Item = N>,
         N: Into<HeaderName<'static>>,
     {
-        self.inner_mut().response_headers_mut().set_vary(vary)
+        self.response_headers_mut().set_vary(vary)
     }
 }
 
