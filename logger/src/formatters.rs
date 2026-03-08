@@ -63,7 +63,18 @@ pub fn method(conn: &Conn, _color: bool) -> Method {
 ///
 /// `"`[`method`] [`url`] [`response_time`] [`status`]`"`
 pub fn dev_formatter(conn: &Conn, color: bool) -> impl Display + Send + 'static + use<> {
-    (method, " ", url, " ", response_time, " ", status).format(conn, color)
+    (
+        version,
+        " ",
+        method,
+        " ",
+        url,
+        " ",
+        response_time,
+        " ",
+        status,
+    )
+        .format(conn, color)
 }
 
 /// formatter for the peer ip address of the connection
