@@ -19,7 +19,6 @@ impl AlbMultiHeadersResponse {
         let (body, is_base64_encoded) = response_body(&mut conn).await;
 
         let multi_value_headers = conn
-            .inner()
             .response_headers()
             .iter()
             .map(|(n, v)| (n.to_string(), v.iter().map(|v| v.to_string()).collect()))
@@ -46,7 +45,7 @@ pub(crate) struct AlbResponse {
 }
 
 async fn response_body(conn: &mut Conn) -> (Option<String>, bool) {
-    match conn.inner_mut().take_response_body() {
+    match conn.take_response_body() {
         Some(body) => {
             let bytes = body.into_bytes().await.unwrap();
             match String::from_utf8(bytes.to_vec()) {
@@ -62,16 +61,15 @@ impl AlbResponse {
     pub async fn from_conn(mut conn: Conn) -> Self {
         let status = conn.status().unwrap_or(Status::NotFound);
         let (body, is_base64_encoded) = response_body(&mut conn).await;
-        let headers =
-            conn.inner()
-                .response_headers()
-                .iter()
-                .fold(HashMap::new(), |mut h, (n, v)| {
-                    if let Some(one) = v.one() {
-                        h.insert(n.to_string(), one.to_string());
-                    }
-                    h
-                });
+        let headers = conn
+            .response_headers()
+            .iter()
+            .fold(HashMap::new(), |mut h, (n, v)| {
+                if let Some(one) = v.one() {
+                    h.insert(n.to_string(), one.to_string());
+                }
+                h
+            });
 
         Self {
             is_base64_encoded,

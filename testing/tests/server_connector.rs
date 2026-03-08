@@ -28,7 +28,7 @@ async fn test_post() {
                 "{} {}://{}{} with body \"{}\"",
                 conn.method(),
                 if conn.is_secure() { "https" } else { "http" },
-                conn.inner().host().unwrap_or_default(),
+                conn.host().unwrap_or_default(),
                 conn.path(),
                 body
             );

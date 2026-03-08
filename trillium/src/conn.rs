@@ -4,7 +4,8 @@ use std::{
     net::IpAddr,
 };
 use trillium_http::{
-    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status, TypeSet,
+    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status, Swansong, TypeSet,
+    Version,
     transport::{BoxedTransport, Transport},
     type_set::entry::Entry,
 };
@@ -62,7 +63,6 @@ use trillium_http::{
 /// so that application code can be written without transport
 /// generics. See [`Transport`](trillium_http::transport::Transport) for further
 /// reading on this.
-
 pub struct Conn {
     inner: trillium_http::Conn<BoxedTransport>,
     halted: bool,
@@ -134,7 +134,6 @@ impl Conn {
     /// assert_eq!(status, 418);
     /// assert!(!conn.is_halted());
     /// ```
-
     #[must_use]
     pub fn with_status(mut self, status: impl TryInto<Status>) -> Self {
         self.set_status(status);
@@ -151,7 +150,6 @@ impl Conn {
     /// let conn = get("/").on(&|conn: Conn| async move { conn.with_body("hello") });
     /// assert_eq!(conn.response_len(), Some(5));
     /// ```
-
     #[must_use]
     pub fn with_body(mut self, body: impl Into<Body>) -> Self {
         self.set_body(body);
@@ -433,8 +431,9 @@ impl Conn {
     /// conn.set_halted(true);
     /// assert!(conn.is_halted());
     /// ```
-    pub fn set_halted(&mut self, halted: bool) {
+    pub const fn set_halted(&mut self, halted: bool) -> &mut Self {
         self.halted = halted;
+        self
     }
 
     /// retrieves the halted state of this conn.  see [`Conn::halt`].
@@ -458,28 +457,6 @@ impl Conn {
         self.inner.start_time()
     }
 
-    /// returns an immutable reference to the inner
-    /// [`trillium_http::Conn`]. please open an issue if you need to do
-    /// this in application code.
-    ///
-    /// stability note: hopefully this can go away at some point, but
-    /// for now is an escape hatch in case `trillium_http::Conn`
-    /// presents interfaces that cannot be reached otherwise.
-    pub const fn inner(&self) -> &trillium_http::Conn<BoxedTransport> {
-        &self.inner
-    }
-
-    /// returns a mutable reference to the inner
-    /// [`trillium_http::Conn`]. please open an issue if you need to
-    /// do this in application code.
-    ///
-    /// stability note: hopefully this can go away at some point, but
-    /// for now is an escape hatch in case `trillium_http::Conn`
-    /// presents interfaces that cannot be reached otherwise.
-    pub fn inner_mut(&mut self) -> &mut trillium_http::Conn<BoxedTransport> {
-        &mut self.inner
-    }
-
     /// transforms this `trillium::Conn` into a `trillium_http::Conn`
     /// with the specified transport type. Please note that this will
     /// panic if you attempt to downcast from trillium's boxed
@@ -499,12 +476,13 @@ impl Conn {
 
     /// retrieves the remote ip address for this conn, if available.
     pub fn peer_ip(&self) -> Option<IpAddr> {
-        self.inner().peer_ip()
+        self.inner.peer_ip()
     }
 
     /// sets the remote ip address for this conn.
-    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) {
-        self.inner_mut().set_peer_ip(peer_ip);
+    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) -> &mut Self {
+        self.inner.set_peer_ip(peer_ip);
+        self
     }
 
     /// for router implementations. pushes a route segment onto the path
@@ -550,7 +528,7 @@ impl Conn {
     where
         Fut: Future + Send + 'a,
     {
-        self.inner_mut().cancel_on_disconnect(fut).await
+        self.inner.cancel_on_disconnect(fut).await
     }
 
     /// Check if the transport is connected by testing attempting to read from the transport
@@ -573,7 +551,39 @@ impl Conn {
     /// }
     /// ```
     pub async fn is_disconnected(&mut self) -> bool {
-        self.inner_mut().is_disconnected().await
+        self.inner.is_disconnected().await
+    }
+
+    /// Returns the http version over which this Conn is being communicated
+    pub fn http_version(&self) -> Version {
+        self.inner.http_version()
+    }
+
+    /// get the host for this conn, if it exists
+    pub fn host(&self) -> Option<&str> {
+        self.inner.host()
+    }
+
+    /// retrieves the combined path and any query
+    pub fn path_and_query(&self) -> &str {
+        self.inner.path_and_query()
+    }
+
+    /// retrieves a [`Swansong`] graceful shutdown controller
+    pub fn swansong(&self) -> Swansong {
+        self.inner.swansong()
+    }
+}
+
+impl AsMut<trillium_http::Conn<BoxedTransport>> for Conn {
+    fn as_mut(&mut self) -> &mut trillium_http::Conn<BoxedTransport> {
+        &mut self.inner
+    }
+}
+
+impl AsRef<trillium_http::Conn<BoxedTransport>> for Conn {
+    fn as_ref(&self) -> &trillium_http::Conn<BoxedTransport> {
+        &self.inner
     }
 }
 

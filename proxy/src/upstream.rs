@@ -85,13 +85,13 @@ impl IntoUpstreamSelector for String {
 pub struct ForwardProxy;
 impl UpstreamSelector for ForwardProxy {
     fn determine_upstream(&self, conn: &mut Conn) -> Option<Url> {
-        conn.inner().path_and_query().parse().ok()
+        conn.path_and_query().parse().ok()
     }
 }
 
 impl UpstreamSelector for Url {
     fn determine_upstream(&self, conn: &mut Conn) -> Option<Url> {
-        self.join(conn.inner().path_and_query().trim_start_matches('/'))
+        self.join(conn.path_and_query().trim_start_matches('/'))
             .ok()
     }
 }

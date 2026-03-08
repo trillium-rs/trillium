@@ -14,6 +14,7 @@ categories = ["web-programming::http-server", "web-programming"]
 cidr = "0.2.2"
 log = "0.4.20"
 trillium = { path = "../trillium", version = "0.2.20" }
+trillium-http = { version = "0.3.17", path = "../http" }
 
 [dev-dependencies]
 trillium-logger = { path = "../logger" }
