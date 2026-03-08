@@ -1,5 +1,5 @@
 use std::fs;
-use trillium::{Conn, Handler, KnownHeaderName};
+use trillium::Conn;
 use trillium_logger::logger;
 use trillium_quinn::QuicConfig;
 use trillium_rustls::RustlsAcceptor;
@@ -7,7 +7,6 @@ use trillium_rustls::RustlsAcceptor;
 async fn handler_fn(conn: Conn) -> Conn {
     let body = format!("trillium h3-example\n\n{conn:#?}");
     conn.ok(body)
-        .with_response_header(KnownHeaderName::AltSvc, "h3=\":443\"; ma=86400")
 }
 
 fn main() {

@@ -23,6 +23,7 @@
 //! discovered through docs.rs' reverse dependencies, please open an
 //! issue.
 pub use futures_lite::{AsyncRead, AsyncWrite, Stream};
+pub use trillium::Info;
 pub use trillium_http::transport::Transport;
 pub use url::{self, Url};
 

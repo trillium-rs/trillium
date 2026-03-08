@@ -27,7 +27,7 @@ mod h3;
 mod implementation;
 
 /// Default Server header
-pub const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
+pub const SERVER: &str = concat!("trillium-http/", env!("CARGO_PKG_VERSION"));
 
 /// A http connection
 ///

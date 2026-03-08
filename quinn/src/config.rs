@@ -3,7 +3,7 @@ use crate::{
     runtime::{SocketTransport, TrilliumRuntime},
 };
 use std::{io, net::SocketAddr, sync::Arc};
-use trillium_server_common::{QuicBinding, QuicConfig as QuicConfigTrait, Server};
+use trillium_server_common::{Info, QuicBinding, QuicConfig as QuicConfigTrait, Server};
 
 /// User-facing QUIC configuration backed by quinn.
 ///
@@ -56,12 +56,18 @@ where
 {
     type Binding = QuinnBinding;
 
-    fn bind(self, addr: SocketAddr, runtime: S::Runtime) -> Option<io::Result<Self::Binding>> {
+    fn bind(
+        self,
+        addr: SocketAddr,
+        runtime: S::Runtime,
+        _info: &mut Info,
+    ) -> Option<io::Result<Self::Binding>> {
         let quinn_runtime = TrilliumRuntime::<S::Runtime, S::UdpTransport>::new(runtime);
         let socket = match std::net::UdpSocket::bind(addr) {
             Ok(s) => s,
             Err(e) => return Some(Err(e)),
         };
+
         Some(
             quinn::Endpoint::new(
                 quinn::EndpointConfig::default(),

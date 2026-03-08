@@ -1,5 +1,5 @@
 use crate::{
-    BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, SERVER, Status, TypeSet, Version,
+    BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, Status, TypeSet, Version,
     after_send::AfterSend,
     copy,
     h3::{ErrorCode, Frame, FrameStream, H3BodyWrapper, H3Connection, H3RequestError},
@@ -172,8 +172,12 @@ where
             _ => return Err(ErrorCode::MessageError),
         }
 
-        let mut response_headers = Headers::new();
-        response_headers.insert(KnownHeaderName::Server, SERVER);
+        let response_headers = h3_connection
+            .server_config()
+            .shared_state()
+            .get::<Headers>()
+            .cloned()
+            .unwrap_or_default();
 
         Ok(Conn {
             server_config: h3_connection.server_config(),
