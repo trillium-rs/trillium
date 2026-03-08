@@ -164,7 +164,7 @@ impl ApiConnExt for Conn {
         match serde_json::to_string(&response) {
             Ok(body) => {
                 if self.status().is_none() {
-                    self.set_status(Status::Ok)
+                    self.set_status(Status::Ok);
                 }
 
                 self.response_headers_mut()
