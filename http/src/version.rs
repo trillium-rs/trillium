@@ -19,11 +19,11 @@ pub enum Version {
     /// HTTP/1.1
     Http1_1,
 
-    /// HTTP/2.0
-    Http2_0,
+    /// HTTP/2
+    Http2,
 
-    /// HTTP/3.0
-    Http3_0,
+    /// HTTP/3
+    Http3,
 }
 
 #[cfg(feature = "serde")]
@@ -69,8 +69,8 @@ impl Version {
             Version::Http0_9 => "HTTP/0.9",
             Version::Http1_0 => "HTTP/1.0",
             Version::Http1_1 => "HTTP/1.1",
-            Version::Http2_0 => "HTTP/2",
-            Version::Http3_0 => "HTTP/3",
+            Version::Http2 => "HTTP/2",
+            Version::Http3 => "HTTP/3",
         }
     }
 
@@ -90,8 +90,8 @@ impl FromStr for Version {
             "HTTP/0.9" | "http/0.9" | "0.9" => Ok(Self::Http0_9),
             "HTTP/1.0" | "http/1.0" | "1.0" => Ok(Self::Http1_0),
             "HTTP/1.1" | "http/1.1" | "1.1" => Ok(Self::Http1_1),
-            "HTTP/2" | "http/2" | "2" => Ok(Self::Http2_0),
-            "HTTP/3" | "http/3" | "3" => Ok(Self::Http3_0),
+            "HTTP/2" | "http/2" | "2" => Ok(Self::Http2),
+            "HTTP/3" | "http/3" | "3" => Ok(Self::Http3),
             _ => Err(Error::InvalidVersion),
         }
     }
@@ -124,8 +124,8 @@ mod test {
             Version::Http0_9,
             Version::Http1_0,
             Version::Http1_1,
-            Version::Http2_0,
-            Version::Http3_0,
+            Version::Http2,
+            Version::Http3,
         ];
 
         for version in versions {
@@ -153,17 +153,17 @@ mod test {
             Version::Http0_9,
             Version::Http1_0,
             Version::Http1_1,
-            Version::Http2_0,
-            Version::Http3_0
+            Version::Http2,
+            Version::Http3
         );
         assert_eq!("HTTP/0.9 HTTP/1.0 HTTP/1.1 HTTP/2 HTTP/3", output);
     }
 
     #[test]
     fn ord() {
-        use Version::{Http0_9, Http1_0, Http1_1, Http2_0, Http3_0};
-        assert!(Http3_0 > Http2_0);
-        assert!(Http2_0 > Http1_1);
+        use Version::{Http0_9, Http1_0, Http1_1, Http2, Http3};
+        assert!(Http3 > Http2);
+        assert!(Http2 > Http1_1);
         assert!(Http1_1 > Http1_0);
         assert!(Http1_0 > Http0_9);
     }

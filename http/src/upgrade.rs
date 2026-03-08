@@ -1,6 +1,11 @@
-use crate::{Buffer, Conn, Headers, Method, ServerConfig, TypeSet, received_body::read_buffered};
+use crate::{
+    Buffer, Conn, Headers, Method, ServerConfig, TypeSet, h3::H3Connection,
+    received_body::read_buffered,
+};
+use fieldwork::Fieldwork;
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
+    borrow::Cow,
     fmt::{self, Debug, Formatter},
     io,
     net::IpAddr,
@@ -11,63 +16,89 @@ use std::{
 };
 use trillium_macros::AsyncWrite;
 
-/// This open (pub fields) struct represents a http upgrade. It contains
-/// all of the data available on a Conn, as well as owning the underlying
-/// transport.
+/// This struct represents a http upgrade. It contains all of the data available on a Conn, as well
+/// as owning the underlying transport.
 ///
-/// Important implementation note: When reading directly from the
-/// transport, ensure that you read from `buffer` first if there are bytes
-/// in it. Alternatively, read directly from the Upgrade, as that
-/// [`AsyncRead`] implementation will drain the buffer first before
-/// reading from the transport.
-#[derive(AsyncWrite)]
-#[non_exhaustive]
+/// **Important implementation note**: When reading directly from the transport, ensure that you
+/// read from `buffer` first if there are bytes in it. Alternatively, read directly from the
+/// Upgrade, as that [`AsyncRead`] implementation will drain the buffer first before reading from
+/// the transport.
+#[derive(AsyncWrite, Fieldwork)]
+#[fieldwork(get, get_mut, set, with, take, into_field)]
 pub struct Upgrade<Transport> {
     /// The http request headers
-    pub request_headers: Headers,
+    request_headers: Headers,
+
     /// The request path
-    pub path: String,
+    #[field(get = false)]
+    path: Cow<'static, str>,
+
     /// The http request method
-    pub method: Method,
+    #[field(copy)]
+    method: Method,
+
     /// Any state that has been accumulated on the Conn before negotiating the upgrade
-    pub state: TypeSet,
+    state: TypeSet,
+
     /// The underlying io (often a `TcpStream` or similar)
     #[async_write]
-    pub transport: Transport,
-    /// Any bytes that have been read from the underlying tcpstream
-    /// already. It is your responsibility to process these bytes
-    /// before reading directly from the transport.
-    pub buffer: Buffer,
+    transport: Transport,
+
+    /// Any bytes that have been read from the underlying transport already.
+    ///
+    /// It is your responsibility to process these bytes before reading directly from the
+    /// transport.
+    buffer: Buffer,
+
     /// The [`ServerConfig`] shared for this server
-    pub server_config: Arc<ServerConfig>,
+    #[field(deref = false)]
+    server_config: Arc<ServerConfig>,
+
     /// the ip address of the connection, if available
-    pub peer_ip: Option<IpAddr>,
+    #[field(copy)]
+    peer_ip: Option<IpAddr>,
+
+    /// the :authority http/3 pseudo-header
+    authority: Option<Cow<'static, str>>,
+
+    /// the :scheme http/3 pseudo-header
+    scheme: Option<Cow<'static, str>>,
+
+    /// the [quic connection state](H3Connection) for this peer
+    h3_connection: Option<Arc<H3Connection>>,
+
+    /// the :protocol http/3 pseudo-header
+    protocol: Option<Cow<'static, str>>,
 }
 
 impl<Transport> Upgrade<Transport> {
     #[doc(hidden)]
     pub fn new(
         request_headers: Headers,
-        path: String,
+        path: impl Into<Cow<'static, str>>,
         method: Method,
         transport: Transport,
         buffer: Buffer,
     ) -> Self {
         Self {
             request_headers,
-            path,
+            path: path.into(),
             method,
             transport,
             buffer,
             state: TypeSet::new(),
             server_config: Arc::default(),
             peer_ip: None,
+            authority: None,
+            scheme: None,
+            h3_connection: None,
+            protocol: None,
         }
     }
 
-    /// read-only access to the request headers
-    pub fn headers(&self) -> &Headers {
-        &self.request_headers
+    /// borrow the shared state [`TypeSet`] for this application
+    pub fn shared_state(&self) -> &TypeSet {
+        self.server_config.shared_state()
     }
 
     /// the http request path up to but excluding any query component
@@ -86,17 +117,6 @@ impl<Transport> Upgrade<Transport> {
             .unwrap_or_default()
     }
 
-    /// the http method
-    pub fn method(&self) -> &Method {
-        &self.method
-    }
-
-    /// any state that has been accumulated on the Conn before
-    /// negotiating the upgrade.
-    pub fn state(&self) -> &TypeSet {
-        &self.state
-    }
-
     /// Modify the transport type of this upgrade.
     ///
     /// This is useful for boxing the transport in order to erase the type argument.
@@ -113,6 +133,10 @@ impl<Transport> Upgrade<Transport> {
             request_headers: self.request_headers,
             server_config: self.server_config,
             peer_ip: self.peer_ip,
+            authority: self.authority,
+            scheme: self.scheme,
+            h3_connection: self.h3_connection,
+            protocol: self.protocol,
         }
     }
 }
@@ -143,6 +167,10 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             buffer,
             server_config,
             peer_ip,
+            authority,
+            scheme,
+            h3_connection,
+            protocol,
             ..
         } = conn;
 
@@ -155,6 +183,10 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             buffer,
             server_config,
             peer_ip,
+            authority,
+            scheme,
+            h3_connection,
+            protocol,
         }
     }
 }

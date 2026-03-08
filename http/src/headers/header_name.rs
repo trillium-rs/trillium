@@ -19,12 +19,18 @@ impl<'a> Debug for HeaderName<'a> {
     }
 }
 
-#[cfg(feature = "parse")]
 impl<'a> HeaderName<'a> {
     pub(crate) fn parse(bytes: &'a [u8]) -> Result<Self, Error> {
         std::str::from_utf8(bytes)
             .map_err(|_| Error::InvalidHeaderName)
             .map(HeaderName::from)
+    }
+
+    pub(crate) fn as_known(&self) -> Option<KnownHeaderName> {
+        match self.0 {
+            KnownHeader(k) => Some(k),
+            _ => None,
+        }
     }
 }
 

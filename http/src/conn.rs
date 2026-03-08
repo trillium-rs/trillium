@@ -1,8 +1,9 @@
 use crate::{
     Body, Buffer, Headers,
-    KnownHeaderName::{Connection, ContentLength, Date, Host, TransferEncoding},
+    KnownHeaderName::Host,
     Method, ReceivedBody, ServerConfig, Status, Swansong, TypeSet, Version,
     after_send::{AfterSend, SendStatus},
+    h3::H3Connection,
     liveness::{CancelOnDisconnect, LivenessFut},
     received_body::ReceivedBodyState,
     util::encoding,
@@ -13,14 +14,16 @@ use futures_lite::{
     io::{AsyncRead, AsyncWrite},
 };
 use std::{
+    borrow::Cow,
     fmt::{self, Debug, Formatter},
     future::Future,
     net::IpAddr,
     pin::pin,
     str,
     sync::Arc,
-    time::{Instant, SystemTime},
+    time::Instant,
 };
+mod h3;
 mod implementation;
 
 /// Default Server header
@@ -31,23 +34,103 @@ pub const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
 /// Unlike in other rust http implementations, this struct represents both
 /// the request and the response, and holds the transport over which the
 /// response will be sent.
+#[derive(fieldwork::Fieldwork)]
 pub struct Conn<Transport> {
+    #[field(get)]
+    /// the shared [`ServerConfig`]
     pub(crate) server_config: Arc<ServerConfig>,
+
+    /// request [headers](Headers)
+    #[field(get, get_mut)]
     pub(crate) request_headers: Headers,
+
+    /// response [headers](Headers)
+    #[field(get, get_mut)]
     pub(crate) response_headers: Headers,
-    pub(crate) path: String,
+
+    pub(crate) path: Cow<'static, str>,
+
+    /// the http method for this conn's request
+    ///
+    /// ```
+    /// # use trillium_http::{Conn, Method};
+    /// let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
+    /// assert_eq!(conn.method(), Method::Get);
+    /// ```
+    #[field(get, set, copy)]
     pub(crate) method: Method,
+
+    /// the http status for this conn, if set
+    #[field(get, copy)]
     pub(crate) status: Option<Status>,
+
+    #[field(get = http_version, copy)]
+    /// the http version for this conn
     pub(crate) version: Version,
+
+    /// the [state typemap](TypeSet) for this conn
+    #[field(get, get_mut)]
     pub(crate) state: TypeSet,
+
+    /// the response [body](Body)
+    ///
+    /// ```
+    /// # use trillium_http::{Conn, Method, Body};
+    /// # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
+    /// conn.set_response_body("hello");
+    /// conn.set_response_body(String::from("hello"));
+    /// conn.set_response_body(vec![99, 97, 116]);
+    /// ```
+    #[field(get, set, into, option_set_some, take)]
     pub(crate) response_body: Option<Body>,
+
+    /// the transport
+    ///
+    /// This should only be used to call your own custom methods on the transport that do not read
+    /// or write any data. Calling any method that reads from or writes to the transport will
+    /// disrupt the HTTP protocol. If you're looking to transition from HTTP to another protocol,
+    /// use an HTTP upgrade.
+    #[field(get, get_mut)]
     pub(crate) transport: Transport,
+
     pub(crate) buffer: Buffer,
+
     pub(crate) request_body_state: ReceivedBodyState,
-    pub(crate) secure: bool,
+
     pub(crate) after_send: AfterSend,
+
+    /// whether the connection is secure
+    ///
+    /// note that this does not necessarily indicate that the transport itself is secure, as it may
+    /// indicate that `trillium_http` is behind a trusted reverse proxy that has terminated tls and
+    /// provided appropriate headers to indicate this.
+    #[field(get, set, rename_predicates)]
+    pub(crate) secure: bool,
+
+    /// The [`Instant`] that the first header bytes for this conn were
+    /// received, before any processing or parsing has been performed.
+    #[field(get, copy)]
     pub(crate) start_time: Instant,
+
+    /// The IP Address for the connection, if available
+    #[field(set, get, copy, into)]
     pub(crate) peer_ip: Option<IpAddr>,
+
+    /// the :authority http/3 pseudo-header
+    #[field(set, get, into)]
+    pub(crate) authority: Option<Cow<'static, str>>,
+
+    /// the :scheme http/3 pseudo-header
+    #[field(set, get, into)]
+    pub(crate) scheme: Option<Cow<'static, str>>,
+
+    /// the [quic connection state](H3Connection) for this conn's transport
+    #[field(get)]
+    pub(crate) h3_connection: Option<Arc<H3Connection>>,
+
+    /// the :protocol http/3 pseudo-header
+    #[field(set, get, into)]
+    pub(crate) protocol: Option<Cow<'static, str>>,
 }
 
 impl<Transport> Debug for Conn<Transport> {
@@ -69,6 +152,10 @@ impl<Transport> Debug for Conn<Transport> {
             .field("after_send", &format_args!(".."))
             .field("start_time", &self.start_time)
             .field("peer_ip", &self.peer_ip)
+            .field("authority", &self.authority)
+            .field("scheme", &self.scheme)
+            .field("protocol", &self.protocol)
+            .field("h3_connection", &self.h3_connection)
             .finish()
     }
 }
@@ -77,45 +164,9 @@ impl<Transport> Conn<Transport>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
-    /// returns a read-only reference to the [state
-    /// typemap](TypeSet) for this conn
-    ///
-    /// stability note: this is not unlikely to be removed at some
-    /// point, as this may end up being more of a trillium concern
-    /// than a `trillium_http` concern
-    pub fn state(&self) -> &TypeSet {
-        &self.state
-    }
-
-    /// returns a mutable reference to the [state
-    /// typemap](TypeSet) for this conn
-    pub fn state_mut(&mut self) -> &mut TypeSet {
-        &mut self.state
-    }
-
     /// Returns the shared state on this conn, if set
     pub fn shared_state(&self) -> &TypeSet {
         &self.server_config.shared_state
-    }
-
-    /// returns a reference to the request headers
-    pub fn request_headers(&self) -> &Headers {
-        &self.request_headers
-    }
-
-    /// returns a mutable reference to the response [headers](Headers)
-    pub fn request_headers_mut(&mut self) -> &mut Headers {
-        &mut self.request_headers
-    }
-
-    /// returns a mutable reference to the response [headers](Headers)
-    pub fn response_headers_mut(&mut self) -> &mut Headers {
-        &mut self.response_headers
-    }
-
-    /// returns a reference to the response [headers](Headers)
-    pub fn response_headers(&self) -> &Headers {
-        &self.response_headers
     }
 
     /// sets the http status code from any `TryInto<Status>`.
@@ -137,12 +188,6 @@ where
             Status::InternalServerError
         }));
         self
-    }
-
-    /// retrieves the current response status code for this conn, if
-    /// it has been set. See [`Conn::set_status`] for example usage.
-    pub fn status(&self) -> Option<Status> {
-        self.status
     }
 
     /// retrieves the path part of the request url, up to and excluding any query component
@@ -188,60 +233,6 @@ where
     pub fn set_host(&mut self, host: String) -> &mut Self {
         self.request_headers.insert(Host, host);
         self
-    }
-
-    /// Sets the response body to anything that is [`impl Into<Body>`][Body].
-    ///
-    /// ```
-    /// # use trillium_http::{Conn, Method, Body};
-    /// # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
-    /// conn.set_response_body("hello");
-    /// conn.set_response_body(String::from("hello"));
-    /// conn.set_response_body(vec![99, 97, 116]);
-    /// ```
-    pub fn set_response_body(&mut self, body: impl Into<Body>) {
-        self.response_body = Some(body.into());
-    }
-
-    /// returns a reference to the current response body, if it has been set
-    pub fn response_body(&self) -> Option<&Body> {
-        self.response_body.as_ref()
-    }
-
-    /// remove the response body from this conn and return it
-    ///
-    /// ```
-    /// # use trillium_http::{Conn, Method};
-    /// # let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
-    /// assert!(conn.response_body().is_none());
-    /// conn.set_response_body("hello");
-    /// assert!(conn.response_body().is_some());
-    /// let body = conn.take_response_body();
-    /// assert!(body.is_some());
-    /// assert!(conn.response_body().is_none());
-    /// ```
-    pub fn take_response_body(&mut self) -> Option<Body> {
-        self.response_body.take()
-    }
-
-    /// returns the http method for this conn's request.
-    /// ```
-    /// # use trillium_http::{Conn, Method};
-    /// let mut conn = Conn::new_synthetic(Method::Get, "/some/path?and&a=query", ());
-    /// assert_eq!(conn.method(), Method::Get);
-    /// ```
-    pub fn method(&self) -> Method {
-        self.method
-    }
-
-    /// overrides the http method for this conn
-    pub fn set_method(&mut self, method: Method) {
-        self.method = method;
-    }
-
-    /// returns the http version for this conn.
-    pub fn http_version(&self) -> Version {
-        self.version
     }
 
     /// Cancels and drops the future if reading from the transport results in an error or empty read
@@ -372,55 +363,10 @@ where
     /// this to gracefully stop long-running futures and streams
     /// inside of handler functions
     pub fn swansong(&self) -> Swansong {
-        self.server_config.swansong.clone()
-    }
-
-    /// predicate function to indicate whether the connection is
-    /// secure. note that this does not necessarily indicate that the
-    /// transport itself is secure, as it may indicate that
-    /// `trillium_http` is behind a trusted reverse proxy that has
-    /// terminated tls and provided appropriate headers to indicate
-    /// this.
-    pub fn is_secure(&self) -> bool {
-        self.secure
-    }
-
-    /// set whether the connection should be considered secure. note
-    /// that this does not necessarily indicate that the transport
-    /// itself is secure, as it may indicate that `trillium_http` is
-    /// behind a trusted reverse proxy that has terminated tls and
-    /// provided appropriate headers to indicate this.
-    pub fn set_secure(&mut self, secure: bool) {
-        self.secure = secure;
-    }
-
-    /// calculates any auto-generated headers for this conn prior to sending it
-    pub fn finalize_headers(&mut self) {
-        if self.status == Some(Status::SwitchingProtocols) {
-            return;
-        }
-
-        self.response_headers
-            .try_insert_with(Date, || httpdate::fmt_http_date(SystemTime::now()));
-
-        if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
-            let has_content_length = if let Some(len) = self.body_len() {
-                self.response_headers.try_insert(ContentLength, len);
-                true
-            } else {
-                self.response_headers.has_header(ContentLength)
-            };
-
-            if self.version == Version::Http1_1 && !has_content_length {
-                self.response_headers.insert(TransferEncoding, "chunked");
-            } else {
-                self.response_headers.remove(TransferEncoding);
-            }
-        }
-
-        if self.server_config.swansong.state().is_shutting_down() {
-            self.response_headers.insert(Connection, "close");
-        }
+        self.h3_connection.as_ref().map_or_else(
+            || self.server_config.swansong.clone(),
+            |h| h.swansong().clone(),
+        )
     }
 
     /// Registers a function to call after the http response has been
@@ -436,12 +382,6 @@ where
         F: FnOnce(SendStatus) + Send + Sync + 'static,
     {
         self.after_send.append(after_send);
-    }
-
-    /// The [`Instant`] that the first header bytes for this conn were
-    /// received, before any processing or parsing has been performed.
-    pub fn start_time(&self) -> Instant {
-        self.start_time
     }
 
     /// applies a mapping function from one transport to another. This
@@ -472,31 +412,25 @@ where
             after_send: self.after_send,
             start_time: self.start_time,
             peer_ip: self.peer_ip,
+            authority: self.authority,
+            scheme: self.scheme,
+            h3_connection: self.h3_connection,
+            protocol: self.protocol,
         }
     }
 
-    /// Get a reference to the transport.
-    pub fn transport(&self) -> &Transport {
-        &self.transport
+    /// whether this conn is suitable for an http upgrade to another protocol
+    pub fn should_upgrade(&self) -> bool {
+        (self.method() == Method::Connect && self.status == Some(Status::Ok))
+            || self.status == Some(Status::SwitchingProtocols)
     }
 
-    /// Get a mutable reference to the transport.
-    ///
-    /// This should only be used to call your own custom methods on the transport that do not read
-    /// or write any data. Calling any method that reads from or writes to the transport will
-    /// disrupt the HTTP protocol. If you're looking to transition from HTTP to another protocol,
-    /// use an HTTP upgrade.
-    pub fn transport_mut(&mut self) -> &mut Transport {
-        &mut self.transport
-    }
-
-    /// sets the remote ip address for this conn, if available.
-    pub fn set_peer_ip(&mut self, peer_ip: Option<IpAddr>) {
-        self.peer_ip = peer_ip;
-    }
-
-    /// retrieves the remote ip address for this conn, if available.
-    pub fn peer_ip(&self) -> Option<IpAddr> {
-        self.peer_ip
+    #[doc(hidden)]
+    pub fn finalize_headers(&mut self) {
+        if self.version == Version::Http3 {
+            self.finalize_response_headers_h3();
+        } else {
+            self.finalize_response_headers_1x();
+        }
     }
 }

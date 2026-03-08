@@ -12,7 +12,7 @@ use std::{
 /// either `&'static [u8]` content, `Vec<u8>` content, or a boxed
 /// `AsyncRead` type.
 #[derive(Debug, Default)]
-pub struct Body(BodyType);
+pub struct Body(pub(crate) BodyType);
 
 impl Body {
     /// Construct a new body from a streaming [`AsyncRead`] source. If
@@ -250,7 +250,7 @@ impl AsyncRead for Body {
 }
 
 #[derive(Default)]
-enum BodyType {
+pub(crate) enum BodyType {
     #[default]
     Empty,
 

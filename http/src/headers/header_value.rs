@@ -84,7 +84,6 @@ impl HeaderValue {
     }
 }
 
-#[cfg(feature = "parse")]
 impl HeaderValue {
     pub(crate) fn parse(bytes: &[u8]) -> Self {
         match std::str::from_utf8(bytes) {

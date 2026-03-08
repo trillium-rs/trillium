@@ -23,6 +23,12 @@ impl PartialEq<HeaderName<'_>> for KnownHeaderName {
     }
 }
 
+impl AsRef<str> for KnownHeaderName {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
 macro_rules! known_headers {
     (
         $(
@@ -44,9 +50,9 @@ macro_rules! known_headers {
             )+
         }
 
-
-        impl AsRef<str> for KnownHeaderName {
-            fn as_ref(&self) -> &str {
+        impl KnownHeaderName {
+            /// Retrieve a static string representation of this header name
+            pub fn as_str(&self) -> &'static str {
                 match self {
                     $( Self::$variant => $capitalized, )+
                 }
@@ -161,6 +167,7 @@ known_headers! {
     ("Proxy-Connection", ProxyConnection),
     ("Public-Key-Pins", PublicKeyPins),
     ("Public-Key-Pins-Report-Only", PublicKeyPinsReportOnly),
+    ("Purpose", Purpose),
     ("Push-Policy", PushPolicy),
     ("RTT", Rtt),
     ("Range", Range),

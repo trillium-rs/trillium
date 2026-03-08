@@ -11,6 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
+async-io = "2.2.2"
 async-std = { version = "1.12.0", features = ["unstable"] }
 futures-lite = "2.3.0"
 log = "0.4.20"

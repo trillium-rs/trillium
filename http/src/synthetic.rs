@@ -4,6 +4,7 @@ use crate::{
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
 use std::{
+    borrow::Cow,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -139,7 +140,7 @@ impl Conn<Synthetic> {
             transport,
             request_headers,
             response_headers: Headers::new(),
-            path: path.into(),
+            path: Cow::Owned(path.into()),
             method,
             status: None,
             version: Version::Http1_1,
@@ -151,6 +152,10 @@ impl Conn<Synthetic> {
             after_send: AfterSend::default(),
             start_time: Instant::now(),
             peer_ip: None,
+            authority: None,
+            scheme: None,
+            h3_connection: None,
+            protocol: None,
         }
     }
 

@@ -1,0 +1,30 @@
+[package]
+name = "trillium-quinn"
+version = "0.1.0"
+edition = "2024"
+description = "quinn QUIC adapter for trillium.rs HTTP/3 support"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+keywords = ["trillium", "framework", "async", "quic", "h3"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[dependencies]
+async-compat = "0.2"
+futures-lite = "2"
+log = "0.4"
+quinn = { version = "0.11", default-features = false, features = [
+        "rustls-ring",
+        "log",
+] }
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2"
+trillium-macros = { path = "../macros", version = "0.0.6" }
+trillium-server-common = { path = "../server-common", version = "0.5.2" }
+
+
+[dev-dependencies]
+env_logger = "0.11.9"
+trillium = { version = "0.2.20", path = "../trillium" }
+trillium-logger = { version = "0.4.5", path = "../logger" }
+trillium-rustls = { version = "0.9.0", path = "../rustls" }
+trillium-tokio = { version = "0.4.0", path = "../tokio" }

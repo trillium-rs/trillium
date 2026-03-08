@@ -426,6 +426,73 @@ pub enum Status {
 }
 
 impl Status {
+    /// Retrieve a string representation of the status code (just the number, not the reason).
+    ///
+    /// See also [`Status::canonical_reason`]
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::Continue => "100",
+            Self::SwitchingProtocols => "101",
+            Self::EarlyHints => "103",
+            Self::Ok => "200",
+            Self::Created => "201",
+            Self::Accepted => "202",
+            Self::NonAuthoritativeInformation => "203",
+            Self::NoContent => "204",
+            Self::ResetContent => "205",
+            Self::PartialContent => "206",
+            Self::MultiStatus => "207",
+            Self::ImUsed => "226",
+            Self::MultipleChoice => "300",
+            Self::MovedPermanently => "301",
+            Self::Found => "302",
+            Self::SeeOther => "303",
+            Self::NotModified => "304",
+            Self::TemporaryRedirect => "307",
+            Self::PermanentRedirect => "308",
+            Self::BadRequest => "400",
+            Self::Unauthorized => "401",
+            Self::PaymentRequired => "402",
+            Self::Forbidden => "403",
+            Self::NotFound => "404",
+            Self::MethodNotAllowed => "405",
+            Self::NotAcceptable => "406",
+            Self::ProxyAuthenticationRequired => "407",
+            Self::RequestTimeout => "408",
+            Self::Conflict => "409",
+            Self::Gone => "410",
+            Self::LengthRequired => "411",
+            Self::PreconditionFailed => "412",
+            Self::PayloadTooLarge => "413",
+            Self::UriTooLong => "414",
+            Self::UnsupportedMediaType => "415",
+            Self::RequestedRangeNotSatisfiable => "416",
+            Self::ExpectationFailed => "417",
+            Self::ImATeapot => "418",
+            Self::MisdirectedRequest => "421",
+            Self::UnprocessableEntity => "422",
+            Self::Locked => "423",
+            Self::FailedDependency => "424",
+            Self::TooEarly => "425",
+            Self::UpgradeRequired => "426",
+            Self::PreconditionRequired => "428",
+            Self::TooManyRequests => "429",
+            Self::RequestHeaderFieldsTooLarge => "431",
+            Self::UnavailableForLegalReasons => "451",
+            Self::InternalServerError => "500",
+            Self::NotImplemented => "501",
+            Self::BadGateway => "502",
+            Self::ServiceUnavailable => "503",
+            Self::GatewayTimeout => "504",
+            Self::HttpVersionNotSupported => "505",
+            Self::VariantAlsoNegotiates => "506",
+            Self::InsufficientStorage => "507",
+            Self::LoopDetected => "508",
+            Self::NotExtended => "510",
+            Self::NetworkAuthenticationRequired => "511",
+        }
+    }
+
     /// Returns `true` if the status code is `1xx` range.
     ///
     /// If this returns `true` it indicates that the request was received,
@@ -472,7 +539,7 @@ impl Status {
     }
 
     /// The canonical reason for a given status code
-    pub fn canonical_reason(&self) -> &'static str {
+    pub const fn canonical_reason(&self) -> &'static str {
         match self {
             Status::Continue => "Continue",
             Status::SwitchingProtocols => "Switching Protocols",

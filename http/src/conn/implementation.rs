@@ -5,12 +5,50 @@ use crate::{
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use memchr::memmem::Finder;
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Instant, SystemTime},
+};
 
 impl<Transport> Conn<Transport>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
+    pub(super) fn finalize_response_headers_1x(&mut self) {
+        if self.status == Some(Status::SwitchingProtocols) {
+            return;
+        }
+
+        self.response_headers
+            .try_insert_with(KnownHeaderName::Date, || {
+                httpdate::fmt_http_date(SystemTime::now())
+            });
+
+        if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
+            let has_content_length = if let Some(len) = self.body_len() {
+                self.response_headers
+                    .try_insert(KnownHeaderName::ContentLength, len);
+                true
+            } else {
+                self.response_headers
+                    .has_header(KnownHeaderName::ContentLength)
+            };
+
+            if self.version == Version::Http1_1 && !has_content_length {
+                self.response_headers
+                    .insert(KnownHeaderName::TransferEncoding, "chunked");
+            } else {
+                self.response_headers
+                    .remove(KnownHeaderName::TransferEncoding);
+            }
+        }
+
+        if self.server_config.swansong.state().is_shutting_down() {
+            self.response_headers
+                .insert(KnownHeaderName::Connection, "close");
+        }
+    }
+
     pub(crate) async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
         let mut output_buffer =
             Vec::with_capacity(self.server_config.http_config.response_buffer_len);
@@ -38,7 +76,7 @@ where
 
     pub(super) fn needs_100_continue(&self) -> bool {
         self.request_body_state == ReceivedBodyState::Start
-            && self.version != Version::Http1_0
+            && self.version == Version::Http1_1
             && self
                 .request_headers
                 .eq_ignore_ascii_case(KnownHeaderName::Expect, "100-continue")
@@ -162,7 +200,7 @@ where
             request_headers,
             method,
             version,
-            path,
+            path: path.into(),
             buffer,
             response_headers,
             status: None,
@@ -174,6 +212,10 @@ where
             start_time,
             peer_ip: None,
             server_config,
+            authority: None,
+            scheme: None,
+            h3_connection: None,
+            protocol: None,
         })
     }
 
@@ -220,7 +262,7 @@ where
             request_headers,
             method,
             version,
-            path,
+            path: path.into(),
             buffer,
             response_headers,
             status: None,
@@ -231,6 +273,10 @@ where
             after_send: AfterSend::default(),
             start_time,
             peer_ip: None,
+            authority: None,
+            scheme: None,
+            h3_connection: None,
+            protocol: None,
         })
     }
 
@@ -317,11 +363,6 @@ where
         }
     }
 
-    fn should_upgrade(&self) -> bool {
-        (self.method() == Method::Connect && self.status == Some(Status::Ok))
-            || self.status == Some(Status::SwitchingProtocols)
-    }
-
     async fn finish(self) -> Result<ConnectionStatus<Transport>> {
         if self.should_close() {
             Ok(ConnectionStatus::Close)
@@ -349,6 +390,8 @@ where
             cl.parse()
                 .map(Some)
                 .map_err(|_| Error::InvalidHeaderValue(KnownHeaderName::ContentLength.into()))
+        } else if self.version == Version::Http3 {
+            Ok(None)
         } else {
             Ok(Some(0))
         }

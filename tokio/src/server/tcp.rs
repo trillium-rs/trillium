@@ -1,4 +1,4 @@
-use crate::{TokioRuntime, TokioTransport};
+use crate::{TokioRuntime, TokioTransport, TokioUdpSocket};
 use async_compat::Compat;
 use std::{io, net};
 use tokio::net::{TcpListener, TcpStream};
@@ -18,6 +18,7 @@ impl From<TcpListener> for TokioServer {
 impl Server for TokioServer {
     type Runtime = TokioRuntime;
     type Transport = TokioTransport<Compat<TcpStream>>;
+    type UdpTransport = TokioUdpSocket;
 
     async fn accept(&mut self) -> io::Result<Self::Transport> {
         self.0
