@@ -131,11 +131,12 @@ where
     /// conn.set_status(Status::ImATeapot); // or as a Status
     /// assert_eq!(conn.status().unwrap(), Status::ImATeapot);
     /// ```
-    pub fn set_status(&mut self, status: impl TryInto<Status>) {
+    pub fn set_status(&mut self, status: impl TryInto<Status>) -> &mut Self {
         self.status = Some(status.try_into().unwrap_or_else(|_| {
             log::error!("attempted to set an invalid status code");
             Status::InternalServerError
         }));
+        self
     }
 
     /// retrieves the current response status code for this conn, if
@@ -184,8 +185,9 @@ where
     }
 
     /// set the host for this conn
-    pub fn set_host(&mut self, host: String) {
+    pub fn set_host(&mut self, host: String) -> &mut Self {
         self.request_headers.insert(Host, host);
+        self
     }
 
     /// Sets the response body to anything that is [`impl Into<Body>`][Body].

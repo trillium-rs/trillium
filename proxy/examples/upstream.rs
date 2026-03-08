@@ -30,10 +30,10 @@ pub fn main() {
                 "path": conn.path(),
                 "method": conn.method(),
                 "headers": conn.request_headers(),
-                "ip": conn.inner().peer_ip(),
+                "ip": conn.peer_ip(),
                 "query": query,
                 "body": body,
-                "version": conn.inner().http_version()
+                "version": conn.http_version()
             });
             conn.with_json(&json).with_status(Status::Ok)
         },

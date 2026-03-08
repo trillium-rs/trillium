@@ -75,7 +75,7 @@ pub fn dev_formatter(conn: &Conn, color: bool) -> impl Display + Send + 'static 
 /// when running on a runtime adapter that does not have access to this
 /// information
 pub fn ip(conn: &Conn, _color: bool) -> Cow<'static, str> {
-    match conn.inner().peer_ip() {
+    match conn.peer_ip() {
         Some(peer) => format!("{peer:?}").into(),
         None => "-".into(),
     }
@@ -179,8 +179,7 @@ pub fn response_header(header_name: impl Into<HeaderName<'static>>) -> impl LogF
     move |conn: &Conn, _color: bool| {
         format!(
             "{:?}",
-            conn.inner()
-                .response_headers()
+            conn.response_headers()
                 .get_str(header_name.clone())
                 .unwrap_or("")
         )
@@ -289,8 +288,8 @@ pub fn secure(conn: &Conn, _: bool) -> &'static str {
 /// formatter for the current url or path of the request, including query
 pub fn url(conn: &Conn, _color: bool) -> String {
     match conn.querystring() {
-        "" => conn.inner().path().into(),
-        query => format!("{}?{}", conn.inner().path(), query),
+        "" => conn.path().into(),
+        query => format!("{}?{}", conn.path(), query),
     }
 }
 
@@ -308,7 +307,7 @@ mod response_time_mod {
     /// request-response cycle took, from the first bytes read to the
     /// completion of the response.
     pub fn response_time(conn: &Conn, _color: bool) -> ResponseTimeOutput {
-        ResponseTimeOutput(conn.inner().start_time())
+        ResponseTimeOutput(conn.start_time())
     }
 }
 
@@ -317,7 +316,7 @@ pub use response_time_mod::response_time;
 /// formatter for the http version, as delegated to the display
 /// implementation of [`Version`]
 pub fn version(conn: &Conn, _color: bool) -> Version {
-    conn.inner().http_version()
+    conn.http_version()
 }
 
 impl LogFormatter for &'static str {

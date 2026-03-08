@@ -177,7 +177,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             forwarded.add_for(peer_ip.to_string());
         };
 
-        if let Some(host) = conn.inner().host() {
+        if let Some(host) = conn.host() {
             forwarded.set_host(host);
         }
 
@@ -228,7 +228,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             ]);
         }
 
-        self.set_via_pseudonym(&mut request_headers, conn.inner().http_version());
+        self.set_via_pseudonym(&mut request_headers, conn.http_version());
         let content_length = !matches!(
             conn.request_headers()
                 .get_str(KnownHeaderName::ContentLength),

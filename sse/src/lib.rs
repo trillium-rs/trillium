@@ -178,7 +178,7 @@ impl SseConnExt for Conn {
         S: Stream<Item = E> + Unpin + Send + Sync + 'static,
         E: Eventable,
     {
-        let body = SseBody::new(self.inner().swansong().interrupt(sse_stream));
+        let body = SseBody::new(self.swansong().interrupt(sse_stream));
         self.with_response_header(KnownHeaderName::ContentType, "text/event-stream")
             .with_response_header(KnownHeaderName::CacheControl, "no-cache")
             .with_body(body)
@@ -191,7 +191,6 @@ impl SseConnExt for Conn {
 ///
 /// For a concrete implementation of this trait, you can use [`Event`],
 /// but it is also implemented for [`String`] and [`&'static str`].
-
 pub trait Eventable: Unpin + Send + Sync + 'static {
     /// return the data for this event. non-optional.
     fn data(&self) -> &str;

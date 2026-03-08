@@ -76,7 +76,6 @@ impl MethodOverride {
     /// # use trillium_method_override::MethodOverride;
     /// let handler = MethodOverride::new().with_param_name("_http_method");
     /// ```
-
     pub fn with_param_name(mut self, param_name: &'static str) -> Self {
         self.param = param_name;
         self
@@ -92,7 +91,10 @@ impl Handler for MethodOverride {
         let method_str = conn_unwrap!(qs.get_str(self.param), conn);
         let method: Method = conn_unwrap!(method_str.try_into().ok(), conn);
         if self.allowed_methods.contains(&method) {
-            conn.inner_mut().set_method(method);
+            AsMut::<trillium_http::Conn<trillium_http::transport::BoxedTransport>>::as_mut(
+                &mut conn,
+            )
+            .set_method(method);
         }
         conn
     }

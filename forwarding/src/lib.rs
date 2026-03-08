@@ -140,7 +140,7 @@ impl Default for TrustProxy {
 
 impl Handler for Forwarding {
     async fn run(&self, mut conn: Conn) -> Conn {
-        if !self.0.is_trusted(conn.inner().peer_ip()) {
+        if !self.0.is_trusted(conn.peer_ip()) {
             return conn;
         }
 
@@ -158,7 +158,8 @@ impl Handler for Forwarding {
 
         log::debug!("received trusted forwarded {:?}", &forwarded);
 
-        let inner_mut = conn.inner_mut();
+        let inner_mut: &mut trillium_http::Conn<trillium_http::transport::BoxedTransport> =
+            conn.as_mut();
 
         if let Some(host) = forwarded.host() {
             inner_mut.set_host(String::from(host));

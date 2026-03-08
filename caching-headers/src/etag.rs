@@ -56,7 +56,6 @@ impl Handler for Etag {
 
         let etag = conn.etag().or_else(|| {
             let etag = conn
-                .inner()
                 .response_body()
                 .and_then(|body| body.static_bytes())
                 .map(EntityTag::from_data);
