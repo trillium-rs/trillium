@@ -81,10 +81,10 @@
 //! use trillium::Conn;
 //! use trillium_cookies::{CookiesHandler, cookie::Cookie};
 //! use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
-//! # std::env::set_var(
+//! # unsafe { std::env::set_var(
 //! #    "TRILLIUM_SESSION_SECRET",
 //! #     "this is just for testing and you should not do this",
-//! # );
+//! # ); }
 //! let session_secret = std::env::var("TRILLIUM_SESSION_SECRET").unwrap();
 //!
 //! let handler = (
