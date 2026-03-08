@@ -80,7 +80,7 @@ impl<Store: SessionStore> SessionHandler<Store> {
     /// # use std::time::Duration;
     /// # let secrets = concat!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ",
     /// #     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    /// # std::env::set_var("TRILLIUM_SESSION_SECRETS", secrets);
+    /// # unsafe { std::env::set_var("TRILLIUM_SESSION_SECRETS", secrets); }
     ///
     /// use trillium_cookies::{CookiesHandler, cookie::SameSite};
     /// use trillium_sessions::{MemoryStore, SessionHandler};
