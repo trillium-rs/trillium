@@ -119,8 +119,9 @@ impl Conn {
     }
 
     /// assigns a status to this response. see [`Conn::status`] for example usage
-    pub fn set_status(&mut self, status: impl TryInto<Status>) {
+    pub fn set_status(&mut self, status: impl TryInto<Status>) -> &mut Self {
         self.inner.set_status(status);
+        self
     }
 
     /// sets the response status for this `Conn` and returns it. note that
@@ -165,8 +166,9 @@ impl Conn {
     /// conn.set_body("hello");
     /// assert_eq!(conn.response_len(), Some(5));
     /// ```
-    pub fn set_body(&mut self, body: impl Into<Body>) {
+    pub fn set_body(&mut self, body: impl Into<Body>) -> &mut Self {
         self.inner.set_response_body(body);
+        self
     }
 
     /// Removes the response body from the `Conn`
@@ -417,7 +419,7 @@ impl Conn {
     /// assert!(conn.is_halted());
     /// ```
     #[must_use]
-    pub fn halt(mut self) -> Self {
+    pub const fn halt(mut self) -> Self {
         self.set_halted(true);
         self
     }
