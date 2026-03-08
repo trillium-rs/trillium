@@ -7,6 +7,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use trillium::Info;
 
 /// Abstraction over a single QUIC connection.
 ///
@@ -90,13 +91,18 @@ pub trait QuicConfig<S: Server>: Send + 'static {
     ///
     /// Returns `None` if QUIC is not configured (the `()` case), `Some(Ok(binding))` on success,
     /// or `Some(Err(..))` if binding fails.
-    fn bind(self, addr: SocketAddr, runtime: S::Runtime) -> Option<io::Result<Self::Binding>>;
+    fn bind(
+        self,
+        addr: SocketAddr,
+        runtime: S::Runtime,
+        info: &mut Info,
+    ) -> Option<io::Result<Self::Binding>>;
 }
 
 impl<S: Server> QuicConfig<S> for () {
     type Binding = ();
 
-    fn bind(self, _: SocketAddr, _: S::Runtime) -> Option<io::Result<()>> {
+    fn bind(self, _: SocketAddr, _: S::Runtime, _: &mut Info) -> Option<io::Result<()>> {
         None
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, KnownHeaderName, Method,
-    ReceivedBody, Result, SERVER, ServerConfig, Status, TypeSet, Version, after_send::AfterSend,
+    ReceivedBody, Result, ServerConfig, Status, TypeSet, Version, after_send::AfterSend,
     conn::ReceivedBodyState, copy, util::encoding,
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -190,8 +190,11 @@ where
             .to_owned();
         log::trace!("received:\n{method} {path} {version}\n{request_headers}");
 
-        let mut response_headers = Headers::new();
-        response_headers.insert(KnownHeaderName::Server, SERVER);
+        let response_headers = server_config
+            .shared_state()
+            .get::<Headers>()
+            .cloned()
+            .unwrap_or_default();
 
         buffer.ignore_front(head_size);
 

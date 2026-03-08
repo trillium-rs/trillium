@@ -28,6 +28,9 @@
 mod handler;
 pub use handler::Handler;
 
+/// Server header
+pub const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
+
 mod conn;
 pub use conn::Conn;
 
