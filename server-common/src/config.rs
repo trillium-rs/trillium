@@ -5,7 +5,7 @@ use crate::{
 use async_cell::sync::AsyncCell;
 use futures_lite::StreamExt;
 use std::{cell::OnceCell, net::SocketAddr, pin::pin, sync::Arc};
-use trillium::{Handler, HttpConfig, Info, Swansong, TypeSet};
+use trillium::{Handler, Headers, HttpConfig, Info, KnownHeaderName, SERVER, Swansong, TypeSet};
 use trillium_http::ServerConfig;
 use url::Url;
 
@@ -97,7 +97,7 @@ where
             runtime,
             acceptor,
             quic,
-            max_connections,
+            mut max_connections,
             nodelay,
             binding,
             host,
@@ -106,6 +106,17 @@ where
             server_config,
             server_config_cell,
         } = self;
+
+        #[cfg(unix)]
+        if max_connections.is_none() {
+            max_connections = rlimit::getrlimit(rlimit::Resource::NOFILE)
+                .ok()
+                .and_then(|(soft, _hard)| soft.try_into().ok())
+                .map(|limit: usize| ((limit as f32) * 0.75) as usize);
+        };
+
+        log::debug!("using max connections of {:?}", max_connections);
+
         let host = host
             .or_else(|| std::env::var("HOST").ok())
             .unwrap_or_else(|| "localhost".into());
@@ -126,18 +137,37 @@ where
         let mut info = Info::from(server_config)
             .with_state(runtime.clone().into())
             .with_state(runtime.clone());
+
+        info.state_entry::<Headers>()
+            .or_default()
+            .try_insert(KnownHeaderName::Server, SERVER);
+
         listener.init(&mut info);
+
+        let quic_binding = if let Some(socket_addr) = info.tcp_socket_addr().copied() {
+            let quic_binding = quic
+                .bind(socket_addr, runtime.clone(), &mut info)
+                .map(|r| r.expect("failed to bind QUIC endpoint"));
+
+            if quic_binding.is_some() {
+                info.state_entry::<Headers>()
+                    .or_default()
+                    .try_insert_with(KnownHeaderName::AltSvc, || {
+                        format!("h3=\":{}\"", socket_addr.port())
+                    });
+            }
+
+            quic_binding
+        } else {
+            None
+        };
+
         insert_url(info.as_mut(), acceptor.is_secure());
+
         handler.init(&mut info).await;
 
-        let quic_binding = info
-            .as_ref()
-            .get::<SocketAddr>()
-            .copied()
-            .and_then(|addr| quic.bind(addr, runtime.clone()))
-            .map(|r| r.expect("failed to bind QUIC endpoint"));
-
         let server_config = Arc::new(ServerConfig::from(info));
+
         server_config_cell.set(server_config.clone());
 
         if register_signals {
@@ -382,19 +412,6 @@ impl<ServerType: Server> Config<ServerType, ()> {
 
 impl<ServerType: Server> Default for Config<ServerType, ()> {
     fn default() -> Self {
-        #[cfg(unix)]
-        let max_connections = {
-            rlimit::getrlimit(rlimit::Resource::NOFILE)
-                .ok()
-                .and_then(|(soft, _hard)| soft.try_into().ok())
-                .map(|limit: usize| 3 * limit / 4)
-        };
-
-        #[cfg(not(unix))]
-        let max_connections = None;
-
-        log::debug!("using max connections of {:?}", max_connections);
-
         Self {
             acceptor: (),
             quic: (),
@@ -402,7 +419,7 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
             host: None,
             nodelay: false,
             register_signals: cfg!(unix),
-            max_connections,
+            max_connections: None,
             server_config_cell: AsyncCell::shared(),
             binding: None,
             runtime: ServerType::runtime(),
@@ -414,13 +431,21 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
 fn insert_url(state: &mut TypeSet, secure: bool) -> Option<()> {
     let socket_addr = state.get::<SocketAddr>().copied()?;
     let vacant_entry = state.entry::<Url>().into_vacant()?;
-    let scheme = if secure { "https" } else { "http" };
-    let url = Url::parse(&if socket_addr.ip().is_loopback() {
-        format!("{scheme}://localhost:{}/", socket_addr.port())
+
+    let host = if socket_addr.ip().is_loopback() {
+        "localhost".to_string()
     } else {
-        format!("{scheme}://{socket_addr}/")
-    })
-    .ok()?;
+        socket_addr.ip().to_string()
+    };
+
+    let url = match (secure, socket_addr.port()) {
+        (true, 443) => format!("https://{host}"),
+        (false, 80) => format!("http://{host}"),
+        (true, port) => format!("https://{host}:{port}/"),
+        (false, port) => format!("http://{host}:{port}/"),
+    };
+
+    let url = Url::parse(&url).ok()?;
 
     vacant_entry.insert(url);
     Some(())
