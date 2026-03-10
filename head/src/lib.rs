@@ -51,7 +51,7 @@ impl Handler for Head {
         }
         AsMut::<trillium_http::Conn<BoxedTransport>>::as_mut(&mut conn).set_method(Method::Head);
         if let Some(len) = conn.take_response_body().and_then(|body| body.len()) {
-            conn.response_headers_mut().insert(ContentLength, len)
+            conn.response_headers_mut().insert(ContentLength, len);
         }
 
         conn
