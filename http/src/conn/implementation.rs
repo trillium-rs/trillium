@@ -254,8 +254,11 @@ where
 
         Self::validate_headers(&request_headers)?;
 
-        let mut response_headers = Headers::new();
-        response_headers.insert(KnownHeaderName::Server, SERVER);
+        let response_headers = server_config
+            .shared_state()
+            .get::<Headers>()
+            .cloned()
+            .unwrap_or_default();
 
         buffer.ignore_front(head_size);
 

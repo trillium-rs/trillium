@@ -12,9 +12,9 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
     let request_body = conn.request_body().await.read_string().await.unwrap();
     conn.set_response_body(format!("response: {request_body}"));
     conn.response_headers_mut()
-        .insert(KnownHeaderName::Connection, "close");
-    conn.response_headers_mut()
-        .insert(KnownHeaderName::Date, TEST_DATE);
+        .insert(KnownHeaderName::Connection, "close")
+        .insert(KnownHeaderName::Date, TEST_DATE)
+        .insert(KnownHeaderName::Server, SERVER);
     conn
 }
 
