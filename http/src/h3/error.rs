@@ -5,7 +5,7 @@ use std::borrow::Cow;
 /// Used when closing connections or resetting streams.
 /// Unknown error codes are mapped to `NoError` per spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum ErrorCode {
+pub enum H3ErrorCode {
     /// No error. Used when closing without an error to signal.
     #[error("No error. Used when closing without an error to signal.")]
     NoError = 0x0100,
@@ -73,9 +73,30 @@ pub enum ErrorCode {
     /// Requested operation cannot be served over HTTP/3.
     #[error("Requested operation cannot be served over HTTP/3.")]
     VersionFallback = 0x0110,
+
+    // -- WebTransport error codes (draft-ietf-webtrans-http3) --
+    /// WebTransport data stream rejected due to lack of associated session.
+    #[error("WebTransport data stream rejected due to lack of associated session.")]
+    WebTransportBufferedStreamRejected = 0x3994bd84,
+
+    /// WebTransport data stream or session closed because the associated session is gone.
+    #[error("WebTransport session gone.")]
+    WebTransportSessionGone = 0x170d7b68,
+
+    /// WebTransport session flow control error.
+    #[error("WebTransport flow control error.")]
+    WebTransportFlowControlError = 0x045d4487,
+
+    /// WebTransport application protocol negotiation failed.
+    #[error("WebTransport ALPN error.")]
+    WebTransportAlpnError = 0x0817b3dd,
+
+    /// Required WebTransport settings or transport parameters not met.
+    #[error("WebTransport requirements not met.")]
+    WebTransportRequirementsNotMet = 0x212c0d48,
 }
 
-impl ErrorCode {
+impl H3ErrorCode {
     /// A "reason phrase" per rfc9000 §19.19
     pub fn reason(&self) -> Cow<'static, str> {
         // eventually this probably should either be &'static str or callsite-specific
@@ -83,7 +104,7 @@ impl ErrorCode {
     }
 }
 
-impl From<u64> for ErrorCode {
+impl From<u64> for H3ErrorCode {
     /// All unknown error codes are treated as equivalent to `NoError`
     /// per RFC 9114 §9.
     fn from(value: u64) -> Self {
@@ -104,18 +125,23 @@ impl From<u64> for ErrorCode {
             0x010e => Self::MessageError,
             0x010f => Self::ConnectError,
             0x0110 => Self::VersionFallback,
+            0x3994bd84 => Self::WebTransportBufferedStreamRejected,
+            0x170d7b68 => Self::WebTransportSessionGone,
+            0x045d4487 => Self::WebTransportFlowControlError,
+            0x0817b3dd => Self::WebTransportAlpnError,
+            0x212c0d48 => Self::WebTransportRequirementsNotMet,
             _ => Self::NoError,
         }
     }
 }
 
-impl From<ErrorCode> for u64 {
+impl From<H3ErrorCode> for u64 {
     /// Encodes the error code. `NoError` emits a random GREASE value
     /// (`0x1f * N + 0x21`) per RFC 9114 §8.1 to exercise peer handling
     /// of unknown codes.
-    fn from(code: ErrorCode) -> u64 {
+    fn from(code: H3ErrorCode) -> u64 {
         match code {
-            ErrorCode::NoError => {
+            H3ErrorCode::NoError => {
                 let n = u64::from(fastrand::u16(..));
                 0x1f * n + 0x21
             }
@@ -131,25 +157,30 @@ mod tests {
     #[test]
     fn known_codes_roundtrip() {
         for code in [
-            ErrorCode::GeneralProtocolError,
-            ErrorCode::InternalError,
-            ErrorCode::StreamCreationError,
-            ErrorCode::ClosedCriticalStream,
-            ErrorCode::FrameUnexpected,
-            ErrorCode::FrameError,
-            ErrorCode::ExcessiveLoad,
-            ErrorCode::IdError,
-            ErrorCode::SettingsError,
-            ErrorCode::MissingSettings,
-            ErrorCode::RequestRejected,
-            ErrorCode::RequestCancelled,
-            ErrorCode::RequestIncomplete,
-            ErrorCode::MessageError,
-            ErrorCode::ConnectError,
-            ErrorCode::VersionFallback,
+            H3ErrorCode::GeneralProtocolError,
+            H3ErrorCode::InternalError,
+            H3ErrorCode::StreamCreationError,
+            H3ErrorCode::ClosedCriticalStream,
+            H3ErrorCode::FrameUnexpected,
+            H3ErrorCode::FrameError,
+            H3ErrorCode::ExcessiveLoad,
+            H3ErrorCode::IdError,
+            H3ErrorCode::SettingsError,
+            H3ErrorCode::MissingSettings,
+            H3ErrorCode::RequestRejected,
+            H3ErrorCode::RequestCancelled,
+            H3ErrorCode::RequestIncomplete,
+            H3ErrorCode::MessageError,
+            H3ErrorCode::ConnectError,
+            H3ErrorCode::VersionFallback,
+            H3ErrorCode::WebTransportBufferedStreamRejected,
+            H3ErrorCode::WebTransportSessionGone,
+            H3ErrorCode::WebTransportFlowControlError,
+            H3ErrorCode::WebTransportAlpnError,
+            H3ErrorCode::WebTransportRequirementsNotMet,
         ] {
             let wire: u64 = code.into();
-            let decoded = ErrorCode::from(wire);
+            let decoded = H3ErrorCode::from(wire);
             assert_eq!(decoded, code, "roundtrip failed for {code:?}");
         }
     }
@@ -157,7 +188,7 @@ mod tests {
     #[test]
     fn no_error_encodes_as_grease() {
         for _ in 0..100 {
-            let wire: u64 = ErrorCode::NoError.into();
+            let wire: u64 = H3ErrorCode::NoError.into();
             assert_ne!(wire, 0x0100, "should emit GREASE, not literal NoError");
             assert_eq!(
                 (wire - 0x21) % 0x1f,
@@ -171,14 +202,14 @@ mod tests {
     fn grease_decodes_as_no_error() {
         for n in [0u64, 1, 100, 0xFFFF] {
             let grease = 0x1f * n + 0x21;
-            assert_eq!(ErrorCode::from(grease), ErrorCode::NoError);
+            assert_eq!(H3ErrorCode::from(grease), H3ErrorCode::NoError);
         }
     }
 
     #[test]
     fn unknown_non_grease_decodes_as_no_error() {
-        assert_eq!(ErrorCode::from(0xDEAD), ErrorCode::NoError);
-        assert_eq!(ErrorCode::from(0), ErrorCode::NoError);
-        assert_eq!(ErrorCode::from(u64::MAX), ErrorCode::NoError);
+        assert_eq!(H3ErrorCode::from(0xDEAD), H3ErrorCode::NoError);
+        assert_eq!(H3ErrorCode::from(0), H3ErrorCode::NoError);
+        assert_eq!(H3ErrorCode::from(u64::MAX), H3ErrorCode::NoError);
     }
 }

@@ -53,11 +53,11 @@ mod runtime;
 pub use runtime::{DroppableFuture, Runtime, RuntimeTrait};
 
 mod quic;
-pub use quic::{QuicBinding, QuicConfig, QuicConnection};
+pub use quic::{QuicBinding, QuicConfig, QuicConnection, QuicConnectionTrait};
 
 mod udp_transport;
 pub use udp_transport::UdpTransport;
 
 mod running_config;
 
-mod h3;
+pub mod h3;

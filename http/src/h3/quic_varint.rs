@@ -1,6 +1,13 @@
+//! QUIC Variable-length integer coding
+//!
+//! Caveat usor: This is only public under cfg("unstable"), and is, as it says on the tin,
+//! semver-unstable.
+//!
+//! See [RFC 9000 §16](https://datatracker.ietf.org/doc/html/rfc9000#section-16) for specification
+
 /// Errors that can occur during QUIC variable-length integer decoding.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub(crate) enum QuicVarIntError {
+#[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
+pub enum QuicVarIntError {
     /// The input ended before the integer was fully decoded.
     #[error("unexpected end of input")]
     UnexpectedEnd,
@@ -15,7 +22,8 @@ pub(crate) enum QuicVarIntError {
     },
 }
 
-/// Decode a QUIC variable-length integer per RFC 9000 §16.
+/// Decode a QUIC variable-length integer per [RFC 9000
+/// §16](https://datatracker.ietf.org/doc/html/rfc9000#section-16).
 ///
 /// The 2-bit prefix of the first byte encodes the length:
 /// `00` = 1 byte (6-bit value), `01` = 2 bytes (14-bit),
@@ -23,7 +31,13 @@ pub(crate) enum QuicVarIntError {
 ///
 /// The decoded varint is converted to `T` via `TryFrom<u64>`.
 /// Returns the decoded value and the unconsumed remainder of the input.
-pub(crate) fn decode<T: TryFrom<u64>>(input: &[u8]) -> Result<(T, usize), QuicVarIntError> {
+///
+/// # Errors
+///
+/// Returns a [`QuicVarIntError`] if:
+/// - input does not contain a full varint
+/// - we were not able to convert the decoded u64 into the provided T
+pub fn decode<T: TryFrom<u64>>(input: &[u8]) -> Result<(T, usize), QuicVarIntError> {
     let [first, ..] = input else {
         return Err(QuicVarIntError::UnexpectedEnd);
     };
@@ -49,7 +63,7 @@ pub(crate) fn decode<T: TryFrom<u64>>(input: &[u8]) -> Result<(T, usize), QuicVa
 /// The number of bytes needed to encode `value` as a QUIC varint.
 ///
 /// Panics if the value exceeds 2^62 - 1.
-pub(crate) fn encoded_len(value: impl Into<u64>) -> usize {
+pub fn encoded_len(value: impl Into<u64>) -> usize {
     let value = value.into();
     if value < (1 << 6) {
         1
@@ -68,7 +82,7 @@ pub(crate) fn encoded_len(value: impl Into<u64>) -> usize {
 /// Returns the number of bytes written. Panics if the value exceeds
 /// 2^62 - 1 or if `buf` is too small (caller should check with
 /// [`encoded_len`] first).
-pub(crate) fn encode(value: impl Into<u64>, buf: &mut [u8]) -> Option<usize> {
+pub fn encode(value: impl Into<u64>, buf: &mut [u8]) -> Option<usize> {
     let value = value.into();
     if value < (1 << 6) {
         let [dest, ..] = buf else { return None };
