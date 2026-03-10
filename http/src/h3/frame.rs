@@ -102,18 +102,19 @@ impl FrameHeader {
         ))
     }
 
-    // /// Encode this frame header into `buf`.
-    // ///
-    // /// Does nothing if `frame_type` is `None` (unknown frame types are
-    // /// never sent, only received and skipped).
-    // fn encode(&self, buf: &mut [u8]) -> Option<usize> {
-    //     let mut written = 0;
-    //     if let Some(ft) = self.frame_type {
-    //         written += quic_varint::encode(ft, buf)?;
-    //         written += quic_varint::encode(self.payload_length, &mut buf[written..])?;
-    //     }
-    //     Some(written)
-    // }
+    /// Encode this frame header into `buf`.
+    ///
+    /// Does nothing if `frame_type` is `None` (unknown frame types are
+    /// never sent, only received and skipped).
+    #[cfg(test)]
+    fn encode(&self, buf: &mut [u8]) -> Option<usize> {
+        let mut written = 0;
+        if let Some(ft) = self.frame_type {
+            written += quic_varint::encode(ft, buf)?;
+            written += quic_varint::encode(self.payload_length, &mut buf[written..])?;
+        }
+        Some(written)
+    }
 }
 
 /// Errors from [`Frame::decode`].
