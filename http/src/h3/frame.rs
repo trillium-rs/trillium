@@ -1,5 +1,5 @@
 use super::{
-    error::ErrorCode,
+    error::H3ErrorCode,
     quic_varint::{self, QuicVarIntError},
     settings::H3Settings,
 };
@@ -30,6 +30,12 @@ pub(crate) enum FrameType {
     Goaway = 0x07,
     /// §7.2.7 — controls the number of server pushes.
     MaxPushId = 0x0d,
+    /// WebTransport bidi stream signal (draft-ietf-webtrans-http3 §4.2).
+    ///
+    /// On the wire this looks like a frame header (`varint(0x41) + varint(session_id)`),
+    /// but it is not a proper H3 frame — there is no length-delimited payload.
+    /// The rest of the stream after the session ID is raw application data.
+    WebTransport = 0x41,
 }
 
 impl From<FrameType> for u64 {
@@ -52,6 +58,7 @@ impl TryFrom<u64> for FrameType {
             0x05 => Ok(Self::PushPromise),
             0x07 => Ok(Self::Goaway),
             0x0d => Ok(Self::MaxPushId),
+            0x41 => Ok(Self::WebTransport),
             other => {
                 log::trace!("did not recognize frame type {value}");
                 Err(other)
@@ -95,19 +102,18 @@ impl FrameHeader {
         ))
     }
 
-    /// Encode this frame header into `buf`.
-    ///
-    /// Does nothing if `frame_type` is `None` (unknown frame types are
-    /// never sent, only received and skipped).
-    #[allow(unused)]
-    fn encode(&self, buf: &mut [u8]) -> Option<usize> {
-        let mut written = 0;
-        if let Some(ft) = self.frame_type {
-            written += quic_varint::encode(ft, buf)?;
-            written += quic_varint::encode(self.payload_length, &mut buf[written..])?;
-        }
-        Some(written)
-    }
+    // /// Encode this frame header into `buf`.
+    // ///
+    // /// Does nothing if `frame_type` is `None` (unknown frame types are
+    // /// never sent, only received and skipped).
+    // fn encode(&self, buf: &mut [u8]) -> Option<usize> {
+    //     let mut written = 0;
+    //     if let Some(ft) = self.frame_type {
+    //         written += quic_varint::encode(ft, buf)?;
+    //         written += quic_varint::encode(self.payload_length, &mut buf[written..])?;
+    //     }
+    //     Some(written)
+    // }
 }
 
 /// Errors from [`Frame::decode`].
@@ -116,11 +122,11 @@ pub(crate) enum FrameDecodeError {
     /// Not enough bytes in the input yet.
     Incomplete,
     /// Protocol violation.
-    Error(ErrorCode),
+    Error(H3ErrorCode),
 }
 
-impl From<ErrorCode> for FrameDecodeError {
-    fn from(code: ErrorCode) -> Self {
+impl From<H3ErrorCode> for FrameDecodeError {
+    fn from(code: H3ErrorCode) -> Self {
         Self::Error(code)
     }
 }
@@ -151,6 +157,11 @@ pub(crate) enum Frame {
     Goaway(u64),
     /// MAX_PUSH_ID frame — maximum push ID the peer will accept.
     MaxPushId(u64),
+    /// WebTransport bidi stream signal — the session ID.
+    ///
+    /// Unlike other frames, there is no length-delimited payload. The rest of the
+    /// stream is raw application data belonging to the WebTransport session.
+    WebTransport(u64),
     /// Unknown frame type — `payload_length` bytes to skip follow in the rest slice.
     Unknown(u64),
 }
@@ -175,6 +186,11 @@ impl Frame {
             // Large-payload frames: return immediately, caller handles payload.
             Some(FrameType::Data) => Ok((Frame::Data(header.payload_length), header_len)),
             Some(FrameType::Headers) => Ok((Frame::Headers(header.payload_length), header_len)),
+            // WebTransport: payload_length is actually the session ID.
+            // No length-delimited payload — rest of stream is raw application data.
+            Some(FrameType::WebTransport) => {
+                Ok((Frame::WebTransport(header.payload_length), header_len))
+            }
             None => Ok((Frame::Unknown(header.payload_length), header_len)),
 
             // PushPromise: parse push_id varint from the payload, leave
@@ -186,7 +202,7 @@ impl Frame {
                 bytes_read += push_id_len;
 
                 if push_id_len as u64 > header.payload_length {
-                    return Err(ErrorCode::FrameError.into());
+                    return Err(H3ErrorCode::FrameError.into());
                 }
 
                 Ok((
@@ -201,7 +217,7 @@ impl Frame {
             // Control frames: need full payload buffered.
             Some(FrameType::Settings) => {
                 let payload = require_payload(&input[bytes_read..], header.payload_length)?;
-                let settings = H3Settings::decode(payload).ok_or(ErrorCode::SettingsError)?;
+                let settings = H3Settings::decode(payload).ok_or(H3ErrorCode::SettingsError)?;
                 Ok((Frame::Settings(settings), header_len + payload.len()))
             }
 
@@ -255,6 +271,12 @@ impl Frame {
                 let push_id_len = quic_varint::encoded_len(*push_id);
                 let payload_len = push_id_len as u64 + field_section_length;
                 frame_header_len(FrameType::PushPromise, payload_len) + push_id_len
+            }
+
+            // varint(0x41) + varint(session_id), no length field
+            Frame::WebTransport(session_id) => {
+                quic_varint::encoded_len(FrameType::WebTransport)
+                    + quic_varint::encoded_len(*session_id)
             }
 
             Frame::Unknown(_) => 0,
@@ -311,6 +333,12 @@ impl Frame {
                 written += quic_varint::encode(*push_id, &mut buf[written..])?;
                 Some(written)
             }
+            Frame::WebTransport(session_id) => {
+                let mut written = quic_varint::encode(FrameType::WebTransport, buf)?;
+                written += quic_varint::encode(*session_id, &mut buf[written..])?;
+                Some(written)
+            }
+
             Frame::Unknown(_) => Some(0),
         }
     }
@@ -350,7 +378,7 @@ fn encode_single_varint_frame(frame_type: FrameType, value: u64, buf: &mut [u8])
 /// Check that `after_header` contains at least `payload_length` bytes,
 /// returning the payload slice.
 fn require_payload(after_header: &[u8], payload_length: u64) -> Result<&[u8], FrameDecodeError> {
-    let len = usize::try_from(payload_length).map_err(|_| ErrorCode::FrameError)?;
+    let len = usize::try_from(payload_length).map_err(|_| H3ErrorCode::FrameError)?;
     if after_header.len() < len {
         Err(FrameDecodeError::Incomplete)
     } else {
@@ -370,9 +398,9 @@ fn decode_single_varint(
 ) -> Result<(Frame, usize), FrameDecodeError> {
     let payload = require_payload(after_header, payload_length)?;
     let (value, bytes_read) =
-        quic_varint::decode::<u64>(payload).map_err(|_| ErrorCode::FrameError)?;
+        quic_varint::decode::<u64>(payload).map_err(|_| H3ErrorCode::FrameError)?;
     if bytes_read != after_header.len() {
-        return Err(ErrorCode::FrameError.into());
+        return Err(H3ErrorCode::FrameError.into());
     }
     Ok((wrap(value), header_len + payload.len()))
 }
@@ -389,6 +417,8 @@ pub(crate) enum UniStreamType {
     QpackEncoder = 0x02,
     /// QPACK decoder stream (RFC 9204 §4.2).
     QpackDecoder = 0x03,
+    /// WebTransport unidirectional stream (draft-ietf-webtrans-http3 §4.1).
+    WebTransport = 0x54,
 }
 
 impl From<UniStreamType> for u64 {
@@ -408,6 +438,7 @@ impl TryFrom<u64> for UniStreamType {
             0x01 => Ok(Self::Push),
             0x02 => Ok(Self::QpackEncoder),
             0x03 => Ok(Self::QpackDecoder),
+            0x54 => Ok(Self::WebTransport),
             other => Err(other),
         }
     }

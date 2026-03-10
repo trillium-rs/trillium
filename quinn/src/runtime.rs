@@ -4,9 +4,10 @@ use std::os::unix::io::AsFd;
 #[cfg(windows)]
 use std::os::windows::io::AsSocket;
 use std::{
-    fmt::{self, Debug},
+    fmt::{self, Debug, Formatter},
     future::Future,
     io,
+    marker::PhantomData,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -33,20 +34,20 @@ impl<T: UdpTransport + AsSocket> SocketTransport for T {}
 /// [`Runtime`](quinn::Runtime) trait, making quinn runtime-agnostic.
 pub(crate) struct TrilliumRuntime<R: RuntimeTrait + Unpin, U: SocketTransport> {
     runtime: R,
-    _udp: std::marker::PhantomData<U>,
+    _udp: PhantomData<U>,
 }
 
 impl<R: RuntimeTrait + Unpin, U: SocketTransport> TrilliumRuntime<R, U> {
     pub(crate) fn new(runtime: R) -> Arc<Self> {
         Arc::new(Self {
             runtime,
-            _udp: std::marker::PhantomData,
+            _udp: PhantomData,
         })
     }
 }
 
 impl<R: RuntimeTrait + Unpin, U: SocketTransport> Debug for TrilliumRuntime<R, U> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("TrilliumRuntime").finish_non_exhaustive()
     }
 }
@@ -100,7 +101,7 @@ impl<R: RuntimeTrait> Timer<R> {
 }
 
 impl<R: RuntimeTrait> Debug for Timer<R> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Timer")
             .field("deadline", &self.deadline)
             .finish()
@@ -127,7 +128,7 @@ struct UdpSocket<U> {
 }
 
 impl<U: SocketTransport> Debug for UdpSocket<U> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("UdpSocket").finish_non_exhaustive()
     }
 }
@@ -177,7 +178,7 @@ struct UdpPoller<U> {
 }
 
 impl<U: SocketTransport> Debug for UdpPoller<U> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("UdpPoller").finish_non_exhaustive()
     }
 }

@@ -1,11 +1,30 @@
-use crate::{ArcHandler, QuicBinding, QuicConnection, Runtime};
+//! HTTP/3 specific exports
+
+pub mod web_transport;
+use crate::{ArcHandler, QuicBinding, QuicConnection, QuicConnectionTrait, Runtime};
 use std::sync::Arc;
-use trillium::{Conn, Handler};
+use trillium::Handler;
 use trillium_http::{
     ServerConfig,
-    h3::{H3Connection, H3RequestError},
+    h3::{H3Connection, H3Error, H3ErrorCode, H3StreamResult, UniStreamResult},
     transport::BoxedTransport,
 };
+use web_transport::{WebTransportDispatcher, WebTransportStream};
+
+/// A quic stream identifier
+#[derive(Clone, Copy, Debug)]
+pub struct StreamId(u64);
+impl From<StreamId> for u64 {
+    fn from(val: StreamId) -> Self {
+        val.0
+    }
+}
+
+impl From<u64> for StreamId {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
 
 pub(crate) async fn run_h3<QB: QuicBinding>(
     quic_binding: QB,
@@ -24,95 +43,75 @@ pub(crate) async fn run_h3<QB: QuicBinding>(
     }
 }
 
-async fn run_h3_connection<QC: QuicConnection>(
+async fn run_h3_connection<QC: QuicConnectionTrait>(
     connection: QC,
     h3: Arc<H3Connection>,
     handler: ArcHandler<impl Handler>,
     runtime: Runtime,
 ) {
-    // Outbound control stream
-    {
-        let (connection, h3) = (connection.clone(), h3.clone());
-        runtime.spawn(async move {
-            let result: Result<(), H3RequestError> =
-                async { h3.outbound_control(connection.open_uni().await?).await }.await;
-            if let Err(error) = result {
-                handle_h3_error(error, &connection, &h3).await;
-            }
-        });
-    }
+    let wt_dispatcher = h3
+        .server_config()
+        .http_config()
+        .webtransport_enabled()
+        .then(WebTransportDispatcher::new);
 
-    // QPACK encoder stream
-    {
-        let (connection, h3) = (connection.clone(), h3.clone());
-        runtime.spawn(async move {
-            let result: Result<(), H3RequestError> =
-                async { h3.encoder(connection.open_uni().await?).await }.await;
-            if let Err(error) = result {
-                handle_h3_error(error, &connection, &h3).await;
-            }
-        });
-    }
+    log::trace!("new quic connection from {}", connection.remote_address());
 
-    // QPACK decoder stream
-    {
-        let (connection, h3) = (connection.clone(), h3.clone());
-        runtime.spawn(async move {
-            let result: Result<(), H3RequestError> =
-                async { h3.decoder(connection.open_uni().await?).await }.await;
-            if let Err(error) = result {
-                handle_h3_error(error, &connection, &h3).await;
-            }
-        });
-    }
+    spawn_outbound_control_stream(&connection, &h3, &runtime);
+    spawn_qpack_encoder_stream(&connection, &h3, &runtime);
+    spawn_qpack_decoder_stream(&connection, &h3, &runtime);
+    spawn_inbound_uni_streams(&connection, &h3, &runtime, &wt_dispatcher);
+    handle_inbound_bidi_streams(connection, h3, handler, runtime, wt_dispatcher).await;
+}
 
-    // Inbound unidirectional streams
-    {
-        let (connection, h3, runtime) = (connection.clone(), h3.clone(), runtime.clone());
-        runtime.clone().spawn(async move {
-            while let Ok(recv) = connection.accept_uni().await {
-                let (connection, h3) = (connection.clone(), h3.clone());
-                runtime.spawn(async move {
-                    let stop_connection = connection.clone();
-                    let result = h3
-                        .inbound_uni(recv, async move |stream, error_code| {
-                            stop_connection.stop_stream(stream, error_code.into());
-                        })
-                        .await;
-                    if let Err(error) = result {
-                        handle_h3_error(error, &connection, &h3).await;
-                    }
-                });
-            }
-        });
-    }
-
-    // Bidirectional request streams
+async fn handle_inbound_bidi_streams<QC: QuicConnectionTrait>(
+    connection: QC,
+    h3: Arc<H3Connection>,
+    handler: ArcHandler<impl Handler>,
+    runtime: Runtime,
+    wt_dispatcher: Option<WebTransportDispatcher>,
+) {
     let swansong = h3.swansong().clone();
-    while let Some(Ok((stream_id, transport))) = swansong.interrupt(connection.accept_bi()).await {
-        let (h3, handler, connection) = (h3.clone(), handler.clone(), connection.clone());
+    while let Some(Ok((stream_id, transport))) = swansong.interrupt(connection.accept_bidi()).await
+    {
+        let (h3, handler, connection, wt_dispatcher) = (
+            h3.clone(),
+            handler.clone(),
+            connection.clone(),
+            wt_dispatcher.clone(),
+        );
         let peer_ip = connection.remote_address().ip();
         runtime.spawn(async move {
             let handler = &handler;
             let quic_connection = connection.clone();
+            let wt_dispatcher = wt_dispatcher.clone();
             let result = h3
                 .clone()
-                .run_request(
+                .process_inbound_bidi(
                     transport,
-                    |mut conn| async move {
-                        conn.set_peer_ip(Some(peer_ip));
-                        conn.set_secure(true);
-                        let conn = Conn::from(conn).with_state(quic_connection);
-                        let conn = handler.run(conn).await;
-                        let conn = handler.before_send(conn).await;
-                        conn.into_inner()
+                    {
+                        let wt_dispatcher = wt_dispatcher.clone();
+                        |mut conn| async move {
+                            conn.set_peer_ip(Some(peer_ip));
+                            conn.set_secure(true);
+                            let state = conn.state_mut();
+                            state.insert(quic_connection.clone());
+                            state.insert(QuicConnection::from(quic_connection));
+                            state.insert(StreamId(stream_id));
+                            if let Some(dispatcher) = wt_dispatcher {
+                                state.insert(dispatcher);
+                            }
+                            let conn = handler.run(conn.into()).await;
+                            let conn = handler.before_send(conn).await;
+                            conn.into_inner()
+                        }
                     },
                     stream_id,
                 )
                 .await;
 
             match result {
-                Ok(conn) if conn.should_upgrade() => {
+                Ok(H3StreamResult::Request(conn)) if conn.should_upgrade() => {
                     let upgrade =
                         trillium_http::Upgrade::from(conn).map_transport(BoxedTransport::new);
                     if handler.has_upgrade(&upgrade) {
@@ -122,20 +121,128 @@ async fn run_h3_connection<QC: QuicConnection>(
                         log::error!("h3 upgrade specified but no upgrade handler provided");
                     }
                 }
-                Ok(_) => {}
+                Ok(H3StreamResult::Request(_)) => {}
+                Ok(H3StreamResult::WebTransport {
+                    session_id,
+                    transport,
+                    buffer,
+                }) => {
+                    if let Some(dispatcher) = &wt_dispatcher {
+                        dispatcher.dispatch(WebTransportStream::Bidi {
+                            session_id,
+                            stream: BoxedTransport::new(transport),
+                            buffer: buffer.into(),
+                        });
+                    } else {
+                        connection.stop_bidi(transport, H3ErrorCode::StreamCreationError.into());
+                    }
+                }
                 Err(error) => handle_h3_error(error, &connection, &h3).await,
             }
         });
     }
 }
 
-async fn handle_h3_error(
-    error: H3RequestError,
-    connection: &impl QuicConnection,
-    h3: &H3Connection,
+fn spawn_inbound_uni_streams<QC: QuicConnectionTrait>(
+    connection: &QC,
+    h3: &Arc<H3Connection>,
+    runtime: &Runtime,
+    wt_dispatcher: &Option<WebTransportDispatcher>,
 ) {
+    let (connection, h3, runtime, wt_dispatcher) = (
+        connection.clone(),
+        h3.clone(),
+        runtime.clone(),
+        wt_dispatcher.clone(),
+    );
+    runtime.clone().spawn(async move {
+        while let Ok((_stream_id, recv)) = connection.accept_uni().await {
+            let (connection, h3, wt_dispatcher) =
+                (connection.clone(), h3.clone(), wt_dispatcher.clone());
+            runtime.spawn(async move {
+                match h3.process_inbound_uni(recv).await {
+                    Ok(UniStreamResult::Handled) => {}
+                    Ok(UniStreamResult::WebTransport {
+                        session_id,
+                        stream,
+                        buffer,
+                    }) => {
+                        if let Some(dispatcher) = &wt_dispatcher {
+                            dispatcher.dispatch(WebTransportStream::Uni {
+                                session_id,
+                                stream: Box::new(stream),
+                                buffer: buffer.into(),
+                            });
+                        } else {
+                            connection.stop_uni(stream, H3ErrorCode::StreamCreationError.into());
+                        }
+                    }
+                    Ok(UniStreamResult::Unknown { stream, .. }) => {
+                        connection.stop_uni(stream, H3ErrorCode::StreamCreationError.into());
+                    }
+                    Err(error) => {
+                        handle_h3_error(error, &connection, &h3).await;
+                    }
+                }
+            });
+        }
+    });
+}
+
+fn spawn_qpack_decoder_stream<QC: QuicConnectionTrait>(
+    connection: &QC,
+    h3: &Arc<H3Connection>,
+    runtime: &Runtime,
+) {
+    let (connection, h3) = (connection.clone(), h3.clone());
+    runtime.spawn(async move {
+        let result: Result<(), H3Error> =
+            async { h3.run_decoder(connection.open_uni().await?.1).await }.await;
+        if let Err(error) = result {
+            handle_h3_error(error, &connection, &h3).await;
+        }
+    });
+}
+
+fn spawn_qpack_encoder_stream<QC: QuicConnectionTrait>(
+    connection: &QC,
+    h3: &Arc<H3Connection>,
+    runtime: &Runtime,
+) {
+    let (connection, h3) = (connection.clone(), h3.clone());
+    runtime.spawn(async move {
+        let result: Result<(), H3Error> =
+            async { h3.run_encoder(connection.open_uni().await?.1).await }.await;
+        if let Err(error) = result {
+            handle_h3_error(error, &connection, &h3).await;
+        }
+    });
+}
+
+fn spawn_outbound_control_stream<QC: QuicConnectionTrait>(
+    connection: &QC,
+    h3: &Arc<H3Connection>,
+    runtime: &Runtime,
+) {
+    let (connection, h3) = (connection.clone(), h3.clone());
+    runtime.spawn(async move {
+        let guard = h3.swansong().guard();
+
+        let result: Result<(), H3Error> = async {
+            h3.run_outbound_control(connection.open_uni().await?.1)
+                .await
+        }
+        .await;
+        drop(guard);
+        if let Err(error) = result {
+            handle_h3_error(error, &connection, &h3).await;
+        }
+    });
+}
+
+async fn handle_h3_error(error: H3Error, connection: &impl QuicConnectionTrait, h3: &H3Connection) {
     log::debug!("H3 error: {error}");
-    if let H3RequestError::Protocol(code) = error {
+    if let H3Error::Protocol(code) = error {
         connection.close(code.into(), code.reason().as_bytes());
     }
     h3.shut_down().await;
