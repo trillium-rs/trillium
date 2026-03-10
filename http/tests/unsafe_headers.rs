@@ -11,12 +11,13 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
     conn.set_status(200);
     conn.set_response_body("response: 0123456789");
     conn.response_headers_mut()
-        .insert(KnownHeaderName::Date, TEST_DATE);
-    conn.response_headers_mut().insert(
-        KnownHeaderName::Connection,
-        "close\r\nGET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
-    );
-    conn.response_headers_mut().insert("Bad\r\nHeader", "true");
+        .insert(KnownHeaderName::Date, TEST_DATE)
+        .insert(
+            KnownHeaderName::Connection,
+            "close\r\nGET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
+        .insert(KnownHeaderName::Server, SERVER)
+        .insert("Bad\r\nHeader", "true");
     conn
 }
 

@@ -220,8 +220,9 @@ impl Headers {
         &mut self,
         name: impl Into<HeaderName<'static>>,
         values: impl Into<HeaderValues>,
-    ) {
+    ) -> &mut Self {
         self.entry(name).insert(values);
+        self
     }
 
     /// Add a header value or header values into this header map if
@@ -232,8 +233,9 @@ impl Headers {
         &mut self,
         name: impl Into<HeaderName<'static>>,
         values: impl Into<HeaderValues>,
-    ) {
+    ) -> &mut Self {
         self.entry(name).or_insert(values);
+        self
     }
 
     /// if a key does not exist already, execute the provided function and insert a value
