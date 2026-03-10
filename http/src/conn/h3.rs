@@ -2,7 +2,7 @@ use crate::{
     BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, Status, TypeSet, Version,
     after_send::AfterSend,
     copy,
-    h3::{ErrorCode, Frame, FrameStream, H3BodyWrapper, H3Connection, H3RequestError},
+    h3::{Frame, FrameStream, H3BodyWrapper, H3Connection, H3Error, H3ErrorCode, H3StreamResult},
     headers::qpack::{PseudoHeaders, decode_field_section, encode_field_section},
     received_body::{H3BodyFrameType, ReceivedBodyState},
 };
@@ -18,11 +18,15 @@ impl<Transport> Conn<Transport>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
+    /// Parse the first frame on a bidi stream.
+    ///
+    /// Returns [`H3StreamResult::Request`] for normal H3 requests (HEADERS frame) or
+    /// [`H3StreamResult::WebTransport`] for WebTransport bidi streams (0x41 signal).
     pub(crate) async fn new_h3(
         h3_connection: Arc<H3Connection>,
         mut transport: Transport,
         mut buffer: Buffer,
-    ) -> Result<Self, H3RequestError> {
+    ) -> Result<H3StreamResult<Transport>, H3Error> {
         let start_time = Instant::now();
 
         let mut frame_stream = FrameStream::new(&mut transport, &mut buffer);
@@ -30,22 +34,37 @@ where
             let mut frame = frame_stream
                 .next()
                 .await?
-                .ok_or(ErrorCode::RequestIncomplete)?;
+                .ok_or(H3ErrorCode::RequestIncomplete)?;
 
-            if let Frame::Headers(_) = frame.frame() {
-                let buffered = frame.buffer_payload().await?;
-                break decode_field_section(buffered).map_err(|_| ErrorCode::MessageError)?;
+            match frame.frame() {
+                Frame::Headers(_) => {
+                    let buffered = frame.buffer_payload().await?;
+                    break decode_field_section(buffered).map_err(|_| H3ErrorCode::MessageError)?;
+                }
+
+                Frame::WebTransport(session_id) => {
+                    let session_id = *session_id;
+                    drop(frame); // release borrow on frame_stream
+                    drop(frame_stream); // release borrows on transport/buffer
+                    return Ok(H3StreamResult::WebTransport {
+                        session_id,
+                        transport,
+                        buffer,
+                    });
+                }
+
+                _ => {}
             }
         };
 
-        Ok(Self::build_h3(
+        Ok(H3StreamResult::Request(Self::build_h3(
             h3_connection,
             transport,
             buffer,
             pseudos,
             request_headers,
             start_time,
-        )?)
+        )?))
     }
 
     fn max_peer_field_section_size(&self) -> Option<u64> {
@@ -117,7 +136,7 @@ where
         pseudos: PseudoHeaders<'static>,
         request_headers: Headers,
         start_time: Instant,
-    ) -> Result<Self, ErrorCode> {
+    ) -> Result<Self, H3ErrorCode> {
         let PseudoHeaders {
             method,
             path,
@@ -131,7 +150,7 @@ where
             && let Some(authority) = &authority
             && host != authority.as_ref()
         {
-            return Err(ErrorCode::MessageError);
+            return Err(H3ErrorCode::MessageError);
         }
 
         if [
@@ -144,32 +163,28 @@ where
         .into_iter()
         .any(|name| request_headers.has_header(name))
         {
-            return Err(ErrorCode::MessageError);
+            return Err(H3ErrorCode::MessageError);
         }
 
-        let method = method.ok_or(ErrorCode::MessageError)?;
+        let method = method.ok_or(H3ErrorCode::MessageError)?;
 
-        match (method, &scheme) {
-            (Method::Connect, None) => {}
-            (Method::Connect, Some(_)) => return Err(ErrorCode::MessageError),
-            (_, Some(_)) => {}
-            (_, None) => return Err(ErrorCode::MessageError),
+        if method != Method::Connect && scheme.is_none() {
+            return Err(H3ErrorCode::MessageError);
         }
 
         let path = match (method, path) {
-            (Method::Connect, None) => Cow::Borrowed(""),
-            (Method::Connect, Some(_)) => return Err(ErrorCode::MessageError),
             (_, Some(path)) => path,
-            (_, None) => return Err(ErrorCode::MessageError),
+            (Method::Connect, None) => Cow::Borrowed("/"),
+            (_, None) => return Err(H3ErrorCode::MessageError),
         };
 
         if method == Method::Connect && authority.is_none() {
-            return Err(ErrorCode::MessageError);
+            return Err(H3ErrorCode::MessageError);
         }
 
         match request_headers.get_str(KnownHeaderName::Te) {
             None | Some("trailers") => {}
-            _ => return Err(ErrorCode::MessageError),
+            _ => return Err(H3ErrorCode::MessageError),
         }
 
         let response_headers = h3_connection

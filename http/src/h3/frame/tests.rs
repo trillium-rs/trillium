@@ -148,7 +148,7 @@ fn frame_goaway_trailing_bytes_is_error() {
     let buf = encode_raw_frame(FrameType::Goaway, &payload);
     assert_eq!(
         Frame::decode(&buf),
-        Err(FrameDecodeError::Error(ErrorCode::FrameError))
+        Err(FrameDecodeError::Error(H3ErrorCode::FrameError))
     );
 }
 

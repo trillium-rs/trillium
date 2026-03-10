@@ -1,10 +1,10 @@
 use super::{
-    H3RequestError,
+    H3Error,
     frame::{Frame, FrameDecodeError, UniStreamType},
     quic_varint::{self, QuicVarIntError},
     settings::H3Settings,
 };
-use crate::{Conn, ServerConfig, h3::ErrorCode};
+use crate::{Buffer, Conn, ServerConfig, h3::H3ErrorCode};
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::{
     future::Future,
@@ -15,6 +15,50 @@ use std::{
     },
 };
 use swansong::{ShutdownCompletion, Swansong};
+
+/// The result of reading the first frame on an H3 bidirectional stream.
+#[derive(Debug)]
+pub enum H3StreamResult<Transport> {
+    /// The stream is a normal H3 request — a HEADERS frame was read and a `Conn` was constructed.
+    Request(Conn<Transport>),
+
+    /// The stream is a WebTransport bidi stream (signal value 0x41). The signal and session ID
+    /// have been consumed; the transport and buffer contain any remaining bytes.
+    WebTransport {
+        /// The WebTransport session ID (stream ID of the CONNECT request).
+        session_id: u64,
+        /// The underlying transport, ready for application data.
+        transport: Transport,
+        /// Any bytes buffered past the session ID during parsing.
+        buffer: Buffer,
+    },
+}
+
+/// The result of reading the stream type on an H3 unidirectional stream.
+#[derive(Debug)]
+pub enum UniStreamResult<T> {
+    /// The stream was handled internally by H3 (control, QPACK encoder/decoder).
+    Handled,
+
+    /// WebTransport uni stream (type 0x54). The stream type and session ID have been consumed;
+    /// the stream and buffer contain any remaining bytes.
+    WebTransport {
+        /// The WebTransport session ID.
+        session_id: u64,
+        /// The receive stream, ready for application data.
+        stream: T,
+        /// Any bytes buffered past the session ID during parsing.
+        buffer: Buffer,
+    },
+
+    /// Unknown or unsupported stream type (e.g. Push). The caller should stop this stream.
+    Unknown {
+        /// The raw stream type varint value.
+        stream_type: u64,
+        /// The stream, with the type varint already consumed.
+        stream: T,
+    },
+}
 
 /// Per-QUIC-connection state, shared across all stream tasks via `Arc`.
 ///
@@ -61,7 +105,7 @@ impl H3Connection {
         &self.swansong
     }
 
-    /// Attempt graceful shutdown of this http3 connection (all streams).
+    /// Attempt graceful shutdown of this HTTP/3 connection (all streams).
     ///
     /// The returned [`ShutdownCompletion`] type can
     /// either be awaited in an async context or blocked on with [`ShutdownCompletion::block`] in a
@@ -104,13 +148,18 @@ impl H3Connection {
     /// Run a single http/3 request/response on a bidirectional stream.
     ///
     /// Trillium runtime adapters call this once per accepted bidirectional stream, typically in a
-    /// spawned task.
-    pub async fn run_request<Transport, Handler, Fut>(
+    /// spawned task. Returns [`H3StreamResult::WebTransport`] if the first frame is a WebTransport
+    /// signal (0x41) instead of HEADERS.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `H3Error` in case of io error or http/3 semantic error.
+    pub async fn process_inbound_bidi<Transport, Handler, Fut>(
         self: Arc<Self>,
         transport: Transport,
         handler: Handler,
         stream_id: u64,
-    ) -> Result<Conn<Transport>, H3RequestError>
+    ) -> Result<H3StreamResult<Transport>, H3Error>
     where
         Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
         Handler: FnOnce(Conn<Transport>) -> Fut,
@@ -120,8 +169,12 @@ impl H3Connection {
         let _guard = self.swansong.guard();
         let buffer =
             Vec::with_capacity(self.server_config.http_config.request_buffer_initial_len).into();
-        let conn = Conn::new_h3(self, transport, buffer).await?;
-        Ok(handler(conn).await.send_h3().await?)
+        match Conn::new_h3(self, transport, buffer).await? {
+            H3StreamResult::Request(conn) => Ok(H3StreamResult::Request(
+                handler(conn).await.send_h3().await?,
+            )),
+            wt @ H3StreamResult::WebTransport { .. } => Ok(wt),
+        }
     }
 
     /// Run this server's http/3 outbound control stream.
@@ -132,7 +185,11 @@ impl H3Connection {
     /// 9114 §6.2.1).
     ///
     /// There should only be one of these per peer, but this is not currently enforced
-    pub async fn outbound_control<T>(&self, mut stream: T) -> Result<(), H3RequestError>
+    ///
+    /// # Errors
+    ///
+    /// Returns an `H3Error` in case of io error or http/3 semantic error.
+    pub async fn run_outbound_control<T>(&self, mut stream: T) -> Result<(), H3Error>
     where
         T: AsyncWrite + Unpin + Send,
     {
@@ -163,9 +220,13 @@ impl H3Connection {
     /// Run this server's outbound QPACK (headers) encoder stream.
     ///
     /// Writes the encoder stream type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `H3Error` in case of io error or http/3 semantic error.
     // Currently idle (static table only); will carry encoder instructions when dynamic table is
     // added.
-    pub async fn encoder<T>(&self, mut stream: T) -> Result<(), H3RequestError>
+    pub async fn run_encoder<T>(&self, mut stream: T) -> Result<(), H3Error>
     where
         T: AsyncWrite + Unpin + Send,
     {
@@ -180,9 +241,13 @@ impl H3Connection {
     }
 
     /// Run this server's outbound QPACK (headers) decoder stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `H3Error` in case of io error or http/3 semantic error.
     // Writes the decoder stream type. Currently idle (static table only); will carry decoder
     // instructions when dynamic table is added.
-    pub async fn decoder<T>(&self, mut stream: T) -> Result<(), H3RequestError>
+    pub async fn run_decoder<T>(&self, mut stream: T) -> Result<(), H3Error>
     where
         T: AsyncWrite + Unpin + Send,
     {
@@ -196,15 +261,15 @@ impl H3Connection {
         Ok(())
     }
 
-    /// Handle an inbound unidirectional http/3 stream from the peer.
-    // Reads the stream type varint and dispatches to the appropriate handler (control, QPACK
-    // encoder, QPACK decoder). Unknown stream types are handled with H3_STREAM_CREATION_ERROR per
-    // RFC 9114 §6.2.
-    pub async fn inbound_uni<T>(
-        &self,
-        mut stream: T,
-        stop: impl AsyncFn(T, ErrorCode),
-    ) -> Result<(), H3RequestError>
+    /// Handle an inbound unidirectional HTTP/3 stream from the peer.
+    ///
+    /// Reads the stream type varint and either handles the stream internally (control, QPACK) or
+    /// returns it to the caller via [`UniStreamResult`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a `H3Error` in case of io error or http/3 semantic error.
+    pub async fn process_inbound_uni<T>(&self, mut stream: T) -> Result<UniStreamResult<T>, H3Error>
     where
         T: AsyncRead + Unpin + Send,
     {
@@ -227,41 +292,67 @@ impl H3Connection {
 
         match UniStreamType::try_from(stream_type) {
             Ok(UniStreamType::Control) => {
-                self.inbound_control(&mut buf, &mut filled, &mut stream)
+                self.run_inbound_control(&mut buf, &mut filled, &mut stream)
                     .await?;
-                Ok(())
+                Ok(UniStreamResult::Handled)
             }
 
             Ok(UniStreamType::QpackEncoder | UniStreamType::QpackDecoder) => {
                 // Static table only — hold stream open until shutdown
                 self.swansong.clone().await;
-                Ok(())
+                Ok(UniStreamResult::Handled)
             }
 
-            Ok(UniStreamType::Push) | Err(_ /* unknown stream type, discard per §6.2 */) => {
-                log::trace!("{stream_type}");
-                stop(stream, ErrorCode::StreamCreationError).await;
-                Ok(())
+            Ok(UniStreamType::WebTransport) => {
+                let session_id =
+                    read(
+                        &mut buf,
+                        &mut filled,
+                        &mut stream,
+                        |data| match quic_varint::decode::<u64>(data) {
+                            Ok(ok) => Ok(Some(ok)),
+                            Err(QuicVarIntError::UnexpectedEnd) => Ok(None),
+                            Err(QuicVarIntError::UnknownValue { bytes, value }) => {
+                                Ok(Some((value, bytes)))
+                            }
+                        },
+                    )
+                    .await?;
+                buf.truncate(filled);
+                Ok(UniStreamResult::WebTransport {
+                    session_id,
+                    stream,
+                    buffer: buf.into(),
+                })
             }
+
+            Ok(UniStreamType::Push) | Err(_) => Ok(UniStreamResult::Unknown {
+                stream_type,
+                stream,
+            }),
         }
     }
 
     /// Handle the http/3 peer's inbound control stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `H3Error` in case of io error or HTTP/3 semantic error.
     // The first frame must be SETTINGS. After that, watches for
     // GOAWAY to initiate connection shutdown.
-    async fn inbound_control<T>(
+    async fn run_inbound_control<T>(
         &self,
         buf: &mut Vec<u8>,
         filled: &mut usize,
         stream: &mut T,
-    ) -> Result<(), H3RequestError>
+    ) -> Result<(), H3Error>
     where
         T: AsyncRead + Unpin + Send,
     {
         // First frame must be SETTINGS (§6.2.1)
         let settings = read(buf, filled, stream, |data| match Frame::decode(data) {
             Ok((Frame::Settings(s), consumed)) => Ok(Some((s, consumed))),
-            Ok(_) => Err(ErrorCode::FrameUnexpected),
+            Ok(_) => Err(H3ErrorCode::FrameUnexpected),
             Err(FrameDecodeError::Incomplete) => Ok(None),
             Err(FrameDecodeError::Error(code)) => Err(code),
         })
@@ -269,7 +360,7 @@ impl H3Connection {
 
         self.peer_settings
             .set(settings)
-            .map_err(|_| ErrorCode::FrameUnexpected)?;
+            .map_err(|_| H3ErrorCode::FrameUnexpected)?;
 
         // Read subsequent frames, watching for GOAWAY
         loop {
@@ -286,7 +377,7 @@ impl H3Connection {
                     return Ok(());
                 }
                 Frame::Settings(_) => {
-                    return Err(ErrorCode::FrameUnexpected.into());
+                    return Err(H3ErrorCode::FrameUnexpected.into());
                 }
 
                 _ => { /* MAX_PUSH_ID, CANCEL_PUSH, unknown — ignored for now */ }
@@ -327,8 +418,8 @@ async fn read<R>(
     buf: &mut Vec<u8>,
     filled: &mut usize,
     stream: &mut (impl AsyncRead + Unpin + Send),
-    f: impl Fn(&[u8]) -> Result<Option<(R, usize)>, ErrorCode>,
-) -> Result<R, H3RequestError> {
+    f: impl Fn(&[u8]) -> Result<Option<(R, usize)>, H3ErrorCode>,
+) -> Result<R, H3Error> {
     loop {
         if let Some((result, consumed)) = f(&buf[..*filled])? {
             buf.copy_within(consumed..*filled, 0);

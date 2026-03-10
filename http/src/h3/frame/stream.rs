@@ -1,7 +1,7 @@
 use crate::{
     Buffer,
     h3::{
-        H3RequestError,
+        H3Error,
         frame::{Frame, FrameDecodeError},
     },
 };
@@ -32,7 +32,7 @@ impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
     /// drained before decoding the next frame header.
     ///
     /// Returns `Ok(None)` on clean stream end (FIN before any frame header).
-    pub async fn next(&mut self) -> Result<Option<ActiveFrame<'_, 'a, R>>, H3RequestError> {
+    pub async fn next(&mut self) -> Result<Option<ActiveFrame<'_, 'a, R>>, H3Error> {
         if self.pending_skip > 0 {
             let skip = self.pending_skip as usize;
             self.pending_skip = 0;

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>WebTransport Tester</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: monospace;
+      background: #0f1117;
+      color: #c9d1d9;
+      max-width: 780px;
+      margin: 2em auto;
+      padding: 0 1.2em;
+    }
+    h1 { color: #79c0ff; margin-bottom: 1em; font-size: 1.3rem; }
+    h2 { color: #58a6ff; font-size: 0.9rem; font-weight: normal; margin-bottom: 0.6em; }
+    .section {
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 0.9em 1em;
+      margin-bottom: 0.8em;
+    }
+    .row { display: flex; gap: 0.5em; align-items: center; margin-bottom: 0.5em; }
+    input, select {
+      background: #161b22;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      padding: 0.35em 0.6em;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9rem;
+    }
+    input { flex: 1; }
+    input:focus, select:focus { outline: none; border-color: #388bfd; }
+    button {
+      background: #21262d;
+      color: #79c0ff;
+      border: 1px solid #388bfd;
+      padding: 0.35em 0.8em;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+    button:hover { background: #1f6feb33; }
+    button:disabled { opacity: 0.35; cursor: default; }
+    .log {
+      font-size: 0.82rem;
+      max-height: 130px;
+      overflow-y: auto;
+      background: #0d1117;
+      padding: 0.4em 0.6em;
+      border-radius: 4px;
+      margin-top: 0.5em;
+    }
+    .log div { padding: 0.1em 0; border-bottom: 1px solid #161b22; }
+    .log div:last-child { border-bottom: none; }
+    .sent { color: #3fb950; }
+    .recv { color: #79c0ff; }
+    .info { color: #d29922; }
+    .s1 { color: #a5d6ff; }
+    .s2 { color: #ffa657; }
+    .dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #f85149;
+      margin-right: 4px;
+      flex-shrink: 0;
+    }
+    .dot.on { background: #3fb950; }
+    .sessions { display: flex; gap: 1em; flex-wrap: wrap; }
+    .session-row { display: flex; align-items: center; gap: 0.5em; font-size: 0.85rem; }
+    .rtt { font-size: 0.85rem; color: #a5d6ff; margin-left: 0.5em; }
+    .note { font-size: 0.75rem; color: #6e7681; margin-top: 0.4em; }
+  </style>
+</head>
+<body>
+  <h1>WebTransport Tester</h1>
+
+  <div class="section">
+    <div class="sessions">
+      <div class="session-row">
+        <span class="dot" id="dot-0"></span>
+        <span id="status-0">Disconnected</span>
+        <button id="connect-btn-0">Connect Session 1</button>
+      </div>
+      <div class="session-row">
+        <span class="dot" id="dot-1"></span>
+        <span id="status-1">Disconnected</span>
+        <button id="connect-btn-1" disabled>Connect Session 2</button>
+      </div>
+    </div>
+    <p class="note">Session 2 available after Session 1 connects (reuses same QUIC connection).</p>
+    <p class="note">Tip: if connect fails, reload once so the browser discovers HTTP/3 via alt-svc.</p>
+  </div>
+
+  <div class="section">
+    <h2>Server Push &mdash; open_uni (welcome) + open_bidi (greeting/reply)</h2>
+    <div class="log" id="push-log"><div class="info">Waiting for connection&hellip;</div></div>
+  </div>
+
+  <div class="section">
+    <h2>Bidi Echo &mdash; accept_bidi echoes UPPERCASE</h2>
+    <div class="row">
+      <select id="bidi-session">
+        <option value="0">Session 1</option>
+        <option value="1">Session 2</option>
+      </select>
+      <input id="bidi-input" placeholder="Type a message&hellip;" disabled>
+      <button id="bidi-btn" disabled>Send</button>
+    </div>
+    <div class="log" id="bidi-log"></div>
+  </div>
+
+  <div class="section">
+    <h2>Uni Log &mdash; accept_uni, server acks via send_datagram</h2>
+    <div class="row">
+      <select id="uni-session">
+        <option value="0">Session 1</option>
+        <option value="1">Session 2</option>
+      </select>
+      <input id="uni-input" placeholder="Type a message to log&hellip;" disabled>
+      <button id="uni-btn" disabled>Send</button>
+    </div>
+    <div class="log" id="uni-log"></div>
+  </div>
+
+  <div class="section">
+    <h2>Datagram Ping &mdash; recv_datagram echo, measures RTT</h2>
+    <div class="row">
+      <select id="ping-session">
+        <option value="0">Session 1</option>
+        <option value="1">Session 2</option>
+      </select>
+      <button id="ping-btn" disabled>Ping</button>
+      <span class="rtt" id="rtt"></span>
+    </div>
+    <div class="log" id="ping-log"></div>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>

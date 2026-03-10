@@ -1,13 +1,16 @@
 use crate::{Server, Transport};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
+    fmt::Debug,
     future::Future,
     io,
     net::SocketAddr,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 use trillium::Info;
+use trillium_http::transport::BoxedTransport;
 
 /// Abstraction over a single QUIC connection.
 ///
@@ -17,7 +20,7 @@ use trillium::Info;
 ///
 /// Implementations should be cheaply cloneable (typically wrapping an `Arc`-based connection
 /// handle) since the connection handler clones this into spawned tasks.
-pub trait QuicConnection: Clone + Send + Sync + 'static {
+pub trait QuicConnectionTrait: Clone + Send + Sync + 'static {
     /// A bidirectional stream, used for HTTP/3 request/response pairs.
     type BidiStream: Transport;
 
@@ -31,13 +34,22 @@ pub trait QuicConnection: Clone + Send + Sync + 'static {
     ///
     /// Returns the QUIC stream ID and a combined read/write transport.
     /// The stream ID is passed to [`H3Connection::run_request`] for GOAWAY tracking.
-    fn accept_bi(&self) -> impl Future<Output = io::Result<(u64, Self::BidiStream)>> + Send;
+    fn accept_bidi(&self) -> impl Future<Output = io::Result<(u64, Self::BidiStream)>> + Send;
 
     /// Accept the next unidirectional stream opened by the peer.
-    fn accept_uni(&self) -> impl Future<Output = io::Result<Self::RecvStream>> + Send;
+    ///
+    /// Returns the QUIC stream ID and a receive-only stream.
+    fn accept_uni(&self) -> impl Future<Output = io::Result<(u64, Self::RecvStream)>> + Send;
 
     /// Open a new unidirectional stream to the peer.
-    fn open_uni(&self) -> impl Future<Output = io::Result<Self::SendStream>> + Send;
+    ///
+    /// Returns the QUIC stream ID and a send-only stream.
+    fn open_uni(&self) -> impl Future<Output = io::Result<(u64, Self::SendStream)>> + Send;
+
+    /// Open a new bidirectional stream to the peer.
+    ///
+    /// Returns the QUIC stream ID and a combined read/write transport.
+    fn open_bidi(&self) -> impl Future<Output = io::Result<(u64, Self::BidiStream)>> + Send;
 
     /// The peer's address.
     fn remote_address(&self) -> SocketAddr;
@@ -45,10 +57,16 @@ pub trait QuicConnection: Clone + Send + Sync + 'static {
     /// Close the entire QUIC connection with an error code and reason.
     fn close(&self, error_code: u64, reason: &[u8]);
 
-    /// Stop a receive stream, signaling an error code to the peer.
+    /// Stop a unidirectional receive stream, signaling an error code to the peer.
     ///
-    /// Takes ownership of the stream since it cannot be read after stopping.
-    fn stop_stream(&self, stream: Self::RecvStream, error_code: u64);
+    /// Sends STOP_SENDING. Takes ownership of the stream since it cannot be read after stopping.
+    fn stop_uni(&self, stream: Self::RecvStream, error_code: u64);
+
+    /// Stop a bidirectional stream, signaling an error code to the peer.
+    ///
+    /// Sends STOP_SENDING on the receive side and RESET_STREAM on the send side.
+    /// Takes ownership of the stream since it cannot be used after stopping.
+    fn stop_bidi(&self, stream: Self::BidiStream, error_code: u64);
 
     /// Send an unreliable datagram over the QUIC connection.
     ///
@@ -57,13 +75,11 @@ pub trait QuicConnection: Clone + Send + Sync + 'static {
     /// peer or the data is too large.
     fn send_datagram(&self, data: &[u8]) -> io::Result<()>;
 
-    /// Receive the next unreliable datagram from the peer.
-    ///
-    /// The datagram payload is appended to `buf`. Returns the number of bytes received.
-    fn recv_datagram(
+    /// Receive the next unreliable datagram from the peer, passing the raw bytes to `callback`.
+    fn recv_datagram<F: FnOnce(&[u8]) + Send>(
         &self,
-        buf: &mut (impl Extend<u8> + Send),
-    ) -> impl Future<Output = io::Result<usize>> + Send;
+        callback: F,
+    ) -> impl Future<Output = io::Result<()>> + Send;
 
     /// The maximum datagram payload size the peer will accept, if datagrams are supported.
     ///
@@ -113,7 +129,7 @@ impl<S: Server> QuicConfig<S> for () {
 /// the connection accept loop. The `()` implementation accepts no connections (HTTP/3 disabled).
 pub trait QuicBinding: Send + Sync + 'static {
     /// The connection type yielded by this endpoint.
-    type Connection: QuicConnection;
+    type Connection: QuicConnectionTrait;
 
     /// Accept the next QUIC connection, or return `None` if the endpoint is done.
     fn accept(&self) -> impl Future<Output = Option<Self::Connection>> + Send;
@@ -126,20 +142,24 @@ pub trait QuicBinding: Send + Sync + 'static {
 #[derive(Debug, Clone, Copy)]
 pub enum NoQuic {}
 
-impl QuicConnection for NoQuic {
+impl QuicConnectionTrait for NoQuic {
     type BidiStream = NoQuic;
     type RecvStream = NoQuic;
     type SendStream = NoQuic;
 
-    async fn accept_bi(&self) -> io::Result<(u64, Self::BidiStream)> {
+    async fn accept_bidi(&self) -> io::Result<(u64, Self::BidiStream)> {
         match *self {}
     }
 
-    async fn accept_uni(&self) -> io::Result<Self::RecvStream> {
+    async fn accept_uni(&self) -> io::Result<(u64, Self::RecvStream)> {
         match *self {}
     }
 
-    async fn open_uni(&self) -> io::Result<Self::SendStream> {
+    async fn open_uni(&self) -> io::Result<(u64, Self::SendStream)> {
+        match *self {}
+    }
+
+    async fn open_bidi(&self) -> io::Result<(u64, Self::BidiStream)> {
         match *self {}
     }
 
@@ -151,7 +171,11 @@ impl QuicConnection for NoQuic {
         match *self {}
     }
 
-    fn stop_stream(&self, stream: Self::RecvStream, _: u64) {
+    fn stop_uni(&self, stream: Self::RecvStream, _: u64) {
+        match stream {}
+    }
+
+    fn stop_bidi(&self, stream: Self::BidiStream, _: u64) {
         match stream {}
     }
 
@@ -159,7 +183,7 @@ impl QuicConnection for NoQuic {
         match *self {}
     }
 
-    async fn recv_datagram(&self, _: &mut (impl Extend<u8> + Send)) -> io::Result<usize> {
+    async fn recv_datagram<F: FnOnce(&[u8]) + Send>(&self, _: F) -> io::Result<()> {
         match *self {}
     }
 
@@ -199,5 +223,153 @@ impl QuicBinding for () {
 
     async fn accept(&self) -> Option<NoQuic> {
         None
+    }
+}
+
+// -- Type-erased QuicConnection --
+
+type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+type BoxedRecvStream = Box<dyn AsyncRead + Unpin + Send + Sync>;
+type BoxedSendStream = Box<dyn AsyncWrite + Unpin + Send + Sync>;
+
+trait ObjectSafeQuicConnection: Send + Sync {
+    fn accept_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedTransport)>>;
+    fn accept_uni(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedRecvStream)>>;
+    fn open_uni(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedSendStream)>>;
+    fn open_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedTransport)>>;
+    fn remote_address(&self) -> SocketAddr;
+    fn close(&self, error_code: u64, reason: &[u8]);
+    fn send_datagram(&self, data: &[u8]) -> io::Result<()>;
+    fn recv_datagram<'a>(
+        &'a self,
+        callback: Box<dyn FnOnce(&[u8]) + Send + 'a>,
+    ) -> BoxedFuture<'a, io::Result<()>>;
+    fn max_datagram_size(&self) -> Option<usize>;
+}
+
+impl<T: QuicConnectionTrait> ObjectSafeQuicConnection for T {
+    fn accept_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedTransport)>> {
+        Box::pin(async {
+            let (id, stream) = QuicConnectionTrait::accept_bidi(self).await?;
+            Ok((id, BoxedTransport::new(stream)))
+        })
+    }
+
+    fn accept_uni(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedRecvStream)>> {
+        Box::pin(async {
+            let (id, stream) = QuicConnectionTrait::accept_uni(self).await?;
+            Ok((id, Box::new(stream) as BoxedRecvStream))
+        })
+    }
+
+    fn open_uni(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedSendStream)>> {
+        Box::pin(async {
+            let (id, stream) = QuicConnectionTrait::open_uni(self).await?;
+            Ok((id, Box::new(stream) as BoxedSendStream))
+        })
+    }
+
+    fn open_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedTransport)>> {
+        Box::pin(async {
+            let (id, stream) = QuicConnectionTrait::open_bidi(self).await?;
+            Ok((id, BoxedTransport::new(stream)))
+        })
+    }
+
+    fn remote_address(&self) -> SocketAddr {
+        QuicConnectionTrait::remote_address(self)
+    }
+
+    fn close(&self, error_code: u64, reason: &[u8]) {
+        QuicConnectionTrait::close(self, error_code, reason)
+    }
+
+    fn send_datagram(&self, data: &[u8]) -> io::Result<()> {
+        QuicConnectionTrait::send_datagram(self, data)
+    }
+
+    fn recv_datagram<'a>(
+        &'a self,
+        callback: Box<dyn FnOnce(&[u8]) + Send + 'a>,
+    ) -> BoxedFuture<'a, io::Result<()>> {
+        Box::pin(QuicConnectionTrait::recv_datagram(self, callback))
+    }
+
+    fn max_datagram_size(&self) -> Option<usize> {
+        QuicConnectionTrait::max_datagram_size(self)
+    }
+}
+
+/// A type-erased [`QuicConnectionTrait`] implementation.
+///
+/// Think of this as an `Arc<dyn QuicConnectionTrait>`. Cheaply cloneable — cloning
+/// increments a reference count.
+///
+/// Handlers that need QUIC connection access (e.g. WebTransport) retrieve this from
+/// conn state rather than naming the concrete QUIC implementation type.
+#[derive(Clone)]
+pub struct QuicConnection(Arc<dyn ObjectSafeQuicConnection>);
+
+impl Debug for QuicConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QuicConnection")
+            .field("peer", &self.remote_address())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T: QuicConnectionTrait> From<T> for QuicConnection {
+    fn from(connection: T) -> Self {
+        Self(Arc::new(connection))
+    }
+}
+
+impl QuicConnection {
+    /// Accept the next bidirectional stream opened by the peer.
+    pub async fn accept_bidi(&self) -> io::Result<(u64, BoxedTransport)> {
+        self.0.accept_bidi().await
+    }
+
+    /// Accept the next unidirectional stream opened by the peer.
+    pub async fn accept_uni(&self) -> io::Result<(u64, BoxedRecvStream)> {
+        self.0.accept_uni().await
+    }
+
+    /// Open a new unidirectional stream to the peer.
+    pub async fn open_uni(&self) -> io::Result<(u64, BoxedSendStream)> {
+        self.0.open_uni().await
+    }
+
+    /// Open a new bidirectional stream to the peer.
+    pub async fn open_bidi(&self) -> io::Result<(u64, BoxedTransport)> {
+        self.0.open_bidi().await
+    }
+
+    /// The peer's address.
+    pub fn remote_address(&self) -> SocketAddr {
+        self.0.remote_address()
+    }
+
+    /// Close the entire QUIC connection with an error code and reason.
+    pub fn close(&self, error_code: u64, reason: &[u8]) {
+        self.0.close(error_code, reason)
+    }
+
+    /// Send an unreliable datagram over the QUIC connection.
+    pub fn send_datagram(&self, data: &[u8]) -> io::Result<()> {
+        self.0.send_datagram(data)
+    }
+
+    /// Receive the next unreliable datagram from the peer, passing the raw bytes to `callback`.
+    pub async fn recv_datagram<'a, F: FnOnce(&[u8]) + Send + 'a>(
+        &'a self,
+        callback: F,
+    ) -> io::Result<()> {
+        self.0.recv_datagram(Box::new(callback)).await
+    }
+
+    /// The maximum datagram payload size the peer will accept, if datagrams are supported.
+    pub fn max_datagram_size(&self) -> Option<usize> {
+        self.0.max_datagram_size()
     }
 }
