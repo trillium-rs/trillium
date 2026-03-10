@@ -64,7 +64,7 @@ pub struct Upgrade<Transport> {
     /// the :scheme http/3 pseudo-header
     scheme: Option<Cow<'static, str>>,
 
-    /// the [quic connection state](H3Connection) for this peer
+    /// the HTTP/3 connection associated with this upgrade, if this was an HTTP/3 connection
     h3_connection: Option<Arc<H3Connection>>,
 
     /// the :protocol http/3 pseudo-header

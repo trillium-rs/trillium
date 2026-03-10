@@ -56,11 +56,9 @@ pub enum InboundStream {
 pub(crate) type BoxedRecvStream = Box<dyn AsyncRead + Unpin + Send + Sync>;
 type BoxedSendStream = Box<dyn AsyncWrite + Unpin + Send + Sync>;
 
-/// An inbound bidirectional WebTransport stream.
+/// An inbound bidirectional WebTransport stream opened by the client.
 ///
-/// Implements [`AsyncRead`] and [`AsyncWrite`]. Any bytes buffered during
-/// H3 frame parsing are drained before reads delegate to the underlying
-/// transport.
+/// Implements [`AsyncRead`] and [`AsyncWrite`].
 #[derive(AsyncWrite, Debug)]
 pub struct InboundBidiStream {
     buffer: Vec<u8>,
@@ -96,10 +94,9 @@ impl AsyncRead for InboundBidiStream {
     }
 }
 
-/// An inbound unidirectional WebTransport stream.
+/// An inbound unidirectional WebTransport stream opened by the client.
 ///
-/// Implements [`AsyncRead`]. Any bytes buffered during H3 frame parsing
-/// are drained before reads delegate to the underlying stream.
+/// Implements [`AsyncRead`].
 pub struct InboundUniStream {
     buffer: Vec<u8>,
     offset: usize,
@@ -144,8 +141,7 @@ impl AsyncRead for InboundUniStream {
 
 /// A server-initiated bidirectional WebTransport stream.
 ///
-/// Implements [`AsyncRead`] and [`AsyncWrite`]. The WT stream header (0x41 signal +
-/// session ID) has already been written before this is returned to the caller.
+/// Implements [`AsyncRead`] and [`AsyncWrite`].
 #[derive(AsyncRead, AsyncWrite)]
 pub struct OutboundBidiStream(#[async_io] BoxedTransport);
 
@@ -163,8 +159,7 @@ impl OutboundBidiStream {
 
 /// A server-initiated unidirectional WebTransport stream.
 ///
-/// Implements [`AsyncWrite`]. The WT stream header (0x54 type + session ID) has already
-/// been written before this is returned to the caller.
+/// Implements [`AsyncWrite`].
 #[derive(AsyncWrite)]
 pub struct OutboundUniStream(#[async_write] BoxedSendStream);
 
