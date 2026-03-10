@@ -95,10 +95,6 @@ async fn handle(wt: WebTransportConnection) {
 fn main() {
     env_logger::init();
 
-    trillium_rustls::rustls::crypto::ring::default_provider()
-        .install_default()
-        .expect("installing default crypto provider");
-
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 3 {
         eprintln!("Usage: {} <cert.pem> <key.pem>", args[0]);
