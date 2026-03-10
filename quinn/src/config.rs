@@ -19,7 +19,10 @@ use trillium_server_common::{Info, QuicBinding, QuicConfig as QuicConfigTrait, S
 pub struct QuicConfig(quinn::ServerConfig);
 
 impl QuicConfig {
-    /// Build a QUIC config from a single PEM-encoded certificate chain and private key.
+    /// Build a `QuicConfig` from a single PEM-encoded certificate chain and private key.
+    ///
+    /// Automatically configures ALPN for HTTP/3 (`h3`). For a custom TLS setup, use
+    /// [`from_rustls_server_config`](Self::from_rustls_server_config).
     pub fn from_single_cert(cert_pem: &[u8], key_pem: &[u8]) -> Self {
         let certs: Vec<_> = rustls_pemfile::certs(&mut io::BufReader::new(cert_pem))
             .collect::<Result<_, _>>()
@@ -45,7 +48,25 @@ impl QuicConfig {
         Self(quinn::ServerConfig::with_crypto(Arc::new(quic_tls)))
     }
 
-    /// Build a QUIC config from a pre-built [`quinn::ServerConfig`].
+    /// Construct from a pre-built [`rustls::ServerConfig`].
+    ///
+    /// Use this when you need a custom TLS setup (client authentication, custom crypto
+    /// provider, etc.). HTTP/3 ALPN (`h3`) is added automatically if not already present.
+    pub fn from_rustls_server_config(tls_config: rustls::ServerConfig) -> Self {
+        let mut tls_config = tls_config;
+        if !tls_config.alpn_protocols.contains(&b"h3".to_vec()) {
+            tls_config.alpn_protocols.push(b"h3".to_vec());
+        }
+        let quic_tls = quinn::crypto::rustls::QuicServerConfig::try_from(Arc::new(tls_config))
+            .expect("building QUIC TLS config");
+        Self(quinn::ServerConfig::with_crypto(Arc::new(quic_tls)))
+    }
+
+    /// Construct from a pre-built [`quinn::ServerConfig`].
+    ///
+    /// Use this when you also need to customize quinn transport parameters. The caller is
+    /// responsible for configuring ALPN protocols (must include `h3` to support HTTP/3).
+    /// For custom TLS only, prefer [`from_rustls_server_config`](Self::from_rustls_server_config).
     pub fn from_quinn_server_config(config: quinn::ServerConfig) -> Self {
         Self(config)
     }
