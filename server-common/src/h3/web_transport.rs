@@ -14,23 +14,23 @@ type BoxedRecvStream = Box<dyn futures_lite::AsyncRead + Unpin + Send + Sync>;
 #[derive(fieldwork::Fieldwork)]
 #[fieldwork(get)]
 pub enum WebTransportStream {
-    /// A bidirectional stream (signal value 0x41).
+    /// A bidirectional stream.
     Bidi {
         /// The WebTransport session ID (stream ID of the CONNECT request).
         #[field(copy)]
         session_id: u64,
-        /// The transport, with signal value and session ID already consumed.
+        /// The stream transport, ready for application data.
         stream: BoxedTransport,
-        /// Any bytes buffered past the session ID during parsing.
+        /// Any bytes buffered after the session ID during stream negotiation.
         buffer: Vec<u8>,
     },
-    /// A unidirectional stream (stream type 0x54).
+    /// A unidirectional stream.
     Uni {
         /// The WebTransport session ID.
         session_id: u64,
-        /// The receive stream, with stream type and session ID already consumed.
+        /// The receive stream, ready for application data.
         stream: BoxedRecvStream,
-        /// Any bytes buffered past the session ID during parsing.
+        /// Any bytes buffered after the session ID during stream negotiation.
         buffer: Vec<u8>,
     },
 }
@@ -50,11 +50,10 @@ impl Debug for WebTransportStream {
     }
 }
 
-/// Trait for handling dispatched WebTransport streams.
+/// Trait for receiving dispatched WebTransport streams.
 ///
-/// Implementors receive inbound streams via [`dispatch`](WebTransportDispatch::dispatch) and
-/// manage per-session routing. The `Any` supertrait enables the dispatcher to return a
-/// type-erased handler that callers can downcast to their concrete type.
+/// Implementors are registered with [`WebTransportDispatcher`] and receive each inbound stream
+/// via [`dispatch`](WebTransportDispatch::dispatch).
 pub trait WebTransportDispatch: Any + Send + Sync {
     /// Handle an inbound WebTransport stream.
     fn dispatch(&self, stream: WebTransportStream);
@@ -69,13 +68,14 @@ enum DispatchState {
     Active(Arc<dyn WebTransportDispatch>),
 }
 
-/// Per-QUIC-connection dispatcher for inbound WebTransport streams.
+/// Dispatcher for inbound WebTransport streams on a QUIC connection.
 ///
-/// Created by the H3 connection handler when WebTransport is enabled in the server config.
-/// Inserted into each `Conn`'s state so that the WebTransport handler can retrieve it during
-/// upgrade and register itself as the stream consumer.
+/// Bridges the QUIC connection handler, which delivers streams as they arrive, with WebTransport
+/// session handlers that register later via [`get_or_init_with`](Self::get_or_init_with).
+/// Streams that arrive before a handler registers are buffered and delivered when the handler
+/// registers.
 ///
-/// Cheaply cloneable (wraps an `Arc`).
+/// Cheaply cloneable.
 #[derive(Clone)]
 pub struct WebTransportDispatcher(Arc<RwLock<DispatchState>>);
 

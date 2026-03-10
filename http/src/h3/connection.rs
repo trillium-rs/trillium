@@ -16,54 +16,55 @@ use std::{
 };
 use swansong::{ShutdownCompletion, Swansong};
 
-/// The result of reading the first frame on an H3 bidirectional stream.
+/// The result of processing an HTTP/3 bidirectional stream.
 #[derive(Debug)]
 pub enum H3StreamResult<Transport> {
-    /// The stream is a normal H3 request — a HEADERS frame was read and a `Conn` was constructed.
+    /// The stream carried a normal HTTP/3 request.
     Request(Conn<Transport>),
 
-    /// The stream is a WebTransport bidi stream (signal value 0x41). The signal and session ID
-    /// have been consumed; the transport and buffer contain any remaining bytes.
+    /// The stream carries a WebTransport bidirectional data stream. The `session_id` identifies
+    /// the associated WebTransport session.
     WebTransport {
         /// The WebTransport session ID (stream ID of the CONNECT request).
         session_id: u64,
         /// The underlying transport, ready for application data.
         transport: Transport,
-        /// Any bytes buffered past the session ID during parsing.
+        /// Any bytes buffered after the session ID during stream negotiation.
         buffer: Buffer,
     },
 }
 
-/// The result of reading the stream type on an H3 unidirectional stream.
+/// The result of processing an HTTP/3 unidirectional stream.
 #[derive(Debug)]
 pub enum UniStreamResult<T> {
-    /// The stream was handled internally by H3 (control, QPACK encoder/decoder).
+    /// The stream was a known internal type (control, QPACK encoder/decoder) and was handled
+    /// automatically.
     Handled,
 
-    /// WebTransport uni stream (type 0x54). The stream type and session ID have been consumed;
-    /// the stream and buffer contain any remaining bytes.
+    /// A WebTransport unidirectional data stream. The `session_id` identifies the associated
+    /// WebTransport session.
     WebTransport {
         /// The WebTransport session ID.
         session_id: u64,
         /// The receive stream, ready for application data.
         stream: T,
-        /// Any bytes buffered past the session ID during parsing.
+        /// Any bytes buffered after the session ID during stream negotiation.
         buffer: Buffer,
     },
 
-    /// Unknown or unsupported stream type (e.g. Push). The caller should stop this stream.
+    /// An unknown or unsupported stream type (e.g. Push). The caller should close or reset
+    /// this stream without processing it.
     Unknown {
-        /// The raw stream type varint value.
+        /// The raw stream type value.
         stream_type: u64,
-        /// The stream, with the type varint already consumed.
+        /// The stream.
         stream: T,
     },
 }
 
-/// Per-QUIC-connection state, shared across all stream tasks via `Arc`.
+/// Shared state for a single HTTP/3 QUIC connection.
 ///
-/// The runtime adapter is responsible for accepting streams from the QUIC connection and spawning
-/// tasks that call the appropriate method on this type.
+/// Call the appropriate methods on this type for each stream accepted from the QUIC connection.
 #[derive(Debug)]
 pub struct H3Connection {
     /// Shared configuration for the entire server, including tcp-based listeners
@@ -100,7 +101,7 @@ impl H3Connection {
         })
     }
 
-    /// Retrieve the [`Swansong`] concurrency controller. See also [`shut_down`]
+    /// Retrieve the [`Swansong`] shutdown handle for this HTTP/3 connection. See also [`shut_down`]
     pub fn swansong(&self) -> &Swansong {
         &self.swansong
     }
@@ -117,13 +118,13 @@ impl H3Connection {
         self.swansong.shut_down()
     }
 
-    /// Retrieve the [`ServerConfig`] that is shared throughout this trillium server, including tcp
-    /// listeners
+    /// Retrieve the [`ServerConfig`] for this server.
     pub fn server_config(&self) -> Arc<ServerConfig> {
         self.server_config.clone()
     }
 
-    /// Retrieve this http/3 connection's peer settings, if they have been retrieved.
+    /// Returns the peer's HTTP/3 settings, available once the peer's control stream has been
+    /// processed.
     pub fn peer_settings(&self) -> Option<&H3Settings> {
         self.peer_settings.get()
     }
@@ -145,11 +146,11 @@ impl H3Connection {
         }
     }
 
-    /// Run a single http/3 request/response on a bidirectional stream.
+    /// Process a single HTTP/3 request-response cycle on a bidirectional stream.
     ///
-    /// Trillium runtime adapters call this once per accepted bidirectional stream, typically in a
-    /// spawned task. Returns [`H3StreamResult::WebTransport`] if the first frame is a WebTransport
-    /// signal (0x41) instead of HEADERS.
+    /// Call this once per accepted bidirectional stream. Returns
+    /// [`H3StreamResult::WebTransport`] if the stream opens a WebTransport session rather than
+    /// a standard HTTP/3 request.
     ///
     /// # Errors
     ///
@@ -177,14 +178,11 @@ impl H3Connection {
         }
     }
 
-    /// Run this server's http/3 outbound control stream.
+    /// Run this server's HTTP/3 outbound control stream.
     ///
-    /// Writes the control stream type, sends SETTINGS, then sends GOAWAY when the connection
-    /// swansong shuts down. Returns after GOAWAY is sent; the caller should keep the stream open
-    /// until the QUIC connection closes (closing a control stream is a connection error per RFC
-    /// 9114 §6.2.1).
-    ///
-    /// There should only be one of these per peer, but this is not currently enforced
+    /// Sends the initial SETTINGS frame, then sends GOAWAY when the connection shuts down.
+    /// Returns after GOAWAY is sent; keep the stream open until the QUIC connection closes
+    /// (closing a control stream is a connection error per RFC 9114 §6.2.1).
     ///
     /// # Errors
     ///
@@ -217,9 +215,8 @@ impl H3Connection {
         Ok(())
     }
 
-    /// Run this server's outbound QPACK (headers) encoder stream.
-    ///
-    /// Writes the encoder stream type.
+    /// Initialize and hold open the outbound QPACK encoder stream for the duration of the
+    /// connection.
     ///
     /// # Errors
     ///
@@ -240,13 +237,14 @@ impl H3Connection {
         Ok(())
     }
 
-    /// Run this server's outbound QPACK (headers) decoder stream.
+    /// Initialize and hold open the outbound QPACK decoder stream for the duration of the
+    /// connection.
     ///
     /// # Errors
     ///
     /// Returns an `H3Error` in case of io error or http/3 semantic error.
-    // Writes the decoder stream type. Currently idle (static table only); will carry decoder
-    // instructions when dynamic table is added.
+    // Currently idle (static table only); will carry decoder instructions when dynamic table is
+    // added.
     pub async fn run_decoder<T>(&self, mut stream: T) -> Result<(), H3Error>
     where
         T: AsyncWrite + Unpin + Send,
@@ -263,8 +261,8 @@ impl H3Connection {
 
     /// Handle an inbound unidirectional HTTP/3 stream from the peer.
     ///
-    /// Reads the stream type varint and either handles the stream internally (control, QPACK) or
-    /// returns it to the caller via [`UniStreamResult`].
+    /// Internal stream types (control, QPACK encoder/decoder) are handled automatically;
+    /// application streams are returned via [`UniStreamResult`] for the caller to process.
     ///
     /// # Errors
     ///

@@ -1,3 +1,12 @@
+//! WebTransport support for Trillium.
+//!
+//! This crate provides a [`WebTransport`] handler that accepts WebTransport sessions over
+//! HTTP/3, and a [`WebTransportConnection`] handle for sending and receiving streams and
+//! datagrams within each session.
+//!
+//! WebTransport requires an HTTP/3-capable server adapter configured with a QUIC endpoint
+//! and TLS.
+
 mod session_router;
 mod stream;
 
@@ -21,6 +30,11 @@ use trillium_server_common::{
     h3::{StreamId, web_transport::WebTransportDispatcher},
 };
 
+/// A handle to an active WebTransport session.
+///
+/// Passed to your [`WebTransportHandler`] when a client opens a WebTransport session.
+/// Use it to accept streams from the client, open server-initiated streams, and exchange
+/// datagrams.
 pub struct WebTransportConnection {
     session_id: u64,
     bidi_rx: async_channel::Receiver<InboundBidiStream>,
@@ -41,20 +55,25 @@ impl WebTransportConnection {
         self.swansong.interrupt(self.bidi_rx.recv()).await?.ok()
     }
 
-    /// Retrieve a runtime
+    /// Returns the async runtime for this server.
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
     }
 
-    /// Retrieve the H3Connection
+    /// Returns the underlying HTTP/3 connection.
     pub fn h3_connection(&self) -> &H3Connection {
         &self.h3_connection
     }
 
+    /// Returns the HTTP CONNECT upgrade that initiated this WebTransport session.
+    ///
+    /// Provides access to request headers, connection state, and peer information from
+    /// the CONNECT request.
     pub fn upgrade(&self) -> &Upgrade {
         &self.upgrade
     }
 
+    /// Returns a mutable reference to the HTTP CONNECT upgrade that initiated this session.
     pub fn upgrade_mut(&mut self) -> &mut Upgrade {
         &mut self.upgrade
     }
@@ -89,9 +108,10 @@ impl WebTransportConnection {
         .await
     }
 
-    /// Send an unreliable datagram on this session.
+    /// Send an unreliable datagram to the client.
     ///
-    /// Prepends the quarter-stream-ID (session_id / 4) before sending.
+    /// Returns an error if the QUIC connection does not support datagrams or the payload is
+    /// too large.
     pub fn send_datagram(&self, payload: &[u8]) -> io::Result<()> {
         let quarter_id = self.session_id / 4;
         let header_len = quic_varint::encoded_len(quarter_id);
@@ -102,8 +122,6 @@ impl WebTransportConnection {
     }
 
     /// Open a new server-initiated bidirectional stream for this session.
-    ///
-    /// Writes the WT_STREAM signal (0x41) and session ID before returning the stream.
     pub async fn open_bidi(&self) -> io::Result<OutboundBidiStream> {
         let (_stream_id, mut transport) = self.quic_connection.open_bidi().await?;
         transport
@@ -113,8 +131,6 @@ impl WebTransportConnection {
     }
 
     /// Open a new server-initiated unidirectional stream for this session.
-    ///
-    /// Writes the WT uni stream type (0x54) and session ID before returning the stream.
     pub async fn open_uni(&self) -> io::Result<OutboundUniStream> {
         let (_stream_id, mut stream) = self.quic_connection.open_uni().await?;
         stream.write_all(&wt_uni_header(self.session_id)).await?;
@@ -149,13 +165,35 @@ fn wt_uni_header(session_id: u64) -> Vec<u8> {
 
 const DEFAULT_MAX_DATAGRAM_BUFFER: usize = 16;
 
+/// A Trillium [`Handler`] that accepts WebTransport sessions.
+///
+/// Add this to your handler chain and provide a [`WebTransportHandler`] (or a closure) to
+/// process each session.
+///
+/// # Example
+///
+/// ```no_run
+/// use trillium_webtransport::{WebTransport, WebTransportConnection};
+///
+/// let handler = WebTransport::new(|conn: WebTransportConnection| async move {
+///     while let Some(stream) = conn.accept_next_stream().await {
+///         // handle stream...
+///         drop(stream);
+///     }
+/// });
+/// ```
 pub struct WebTransport<H> {
     runtime: OnceLock<Runtime>,
     max_datagram_buffer: usize,
     handler: H,
 }
 
+/// A handler for WebTransport sessions.
+///
+/// Any `Fn(WebTransportConnection) -> impl Future<Output = ()>` automatically implements this
+/// trait, so you can pass a closure or async function directly to [`WebTransport::new`].
 pub trait WebTransportHandler: Send + Sync + 'static {
+    /// Handle a WebTransport session. Called once per client-initiated session.
     fn run(
         &self,
         web_transport_connection: WebTransportConnection,
@@ -176,6 +214,7 @@ impl<H> WebTransport<H>
 where
     H: WebTransportHandler,
 {
+    /// Create a new `WebTransport` handler that passes each session to `handler`.
     pub fn new(handler: H) -> Self {
         Self {
             handler,
