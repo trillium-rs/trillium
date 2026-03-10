@@ -29,10 +29,13 @@ impl QuicConfig {
             .expect("parsing private key PEM")
             .expect("no private key found in PEM");
 
-        let mut tls_config = rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(certs, key)
-            .expect("building TLS config");
+        let mut tls_config =
+            rustls::ServerConfig::builder_with_provider(crate::crypto_provider::crypto_provider())
+                .with_safe_default_protocol_versions()
+                .expect("building TLS config with protocol versions")
+                .with_no_client_auth()
+                .with_single_cert(certs, key)
+                .expect("building TLS config");
 
         tls_config.alpn_protocols = vec![b"h3".to_vec()];
 

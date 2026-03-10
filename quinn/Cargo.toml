@@ -8,15 +8,18 @@ repository = "https://github.com/trillium-rs/trillium"
 keywords = ["trillium", "framework", "async", "quic", "h3"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[features]
+default = ["aws-lc-rs"]
+aws-lc-rs = ["quinn/rustls-aws-lc-rs", "rustls/aws-lc-rs"]
+ring = ["quinn/rustls-ring", "rustls/ring"]
+custom-crypto-provider = ["quinn/rustls"]
+
 [dependencies]
 async-compat = "0.2"
 futures-lite = "2"
 log = "0.4"
-quinn = { version = "0.11", default-features = false, features = [
-        "rustls-ring",
-        "log",
-] }
-rustls = { version = "0.23", features = ["ring"] }
+quinn = { version = "0.11", default-features = false, features = ["log"] }
+rustls = { version = "0.23", default-features = false }
 rustls-pemfile = "2"
 trillium-macros = { path = "../macros", version = "0.0.6" }
 trillium-server-common = { path = "../server-common", version = "0.5.2" }
