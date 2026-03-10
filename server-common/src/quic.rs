@@ -32,8 +32,8 @@ pub trait QuicConnectionTrait: Clone + Send + Sync + 'static {
 
     /// Accept the next bidirectional stream opened by the peer.
     ///
-    /// Returns the QUIC stream ID and a combined read/write transport.
-    /// The stream ID is passed to [`H3Connection::run_request`] for GOAWAY tracking.
+    /// Returns the QUIC stream ID and a combined read/write transport. The stream ID is used
+    /// for GOAWAY tracking and should be passed to [`H3Connection::process_inbound_bidi`].
     fn accept_bidi(&self) -> impl Future<Output = io::Result<(u64, Self::BidiStream)>> + Send;
 
     /// Accept the next unidirectional stream opened by the peer.
@@ -300,13 +300,11 @@ impl<T: QuicConnectionTrait> ObjectSafeQuicConnection for T {
     }
 }
 
-/// A type-erased [`QuicConnectionTrait`] implementation.
+/// A type-erased QUIC connection handle, equivalent to `Arc<dyn QuicConnectionTrait>`.
+/// Cheaply cloneable.
 ///
-/// Think of this as an `Arc<dyn QuicConnectionTrait>`. Cheaply cloneable — cloning
-/// increments a reference count.
-///
-/// Handlers that need QUIC connection access (e.g. WebTransport) retrieve this from
-/// conn state rather than naming the concrete QUIC implementation type.
+/// Handlers retrieve this from conn state to access QUIC features (streams, datagrams)
+/// without depending on the concrete QUIC implementation type.
 #[derive(Clone)]
 pub struct QuicConnection(Arc<dyn ObjectSafeQuicConnection>);
 

@@ -124,7 +124,7 @@ pub struct Conn<Transport> {
     #[field(set, get, into)]
     pub(crate) scheme: Option<Cow<'static, str>>,
 
-    /// the [quic connection state](H3Connection) for this conn's transport
+    /// the [`H3Connection`] for this conn, if this is an HTTP/3 request
     #[field(get)]
     pub(crate) h3_connection: Option<Arc<H3Connection>>,
 
@@ -244,9 +244,6 @@ where
     /// If the client disconnects from the conn's transport, this function will return None. If the
     /// future completes without disconnection, this future will return Some containing the output
     /// of the future.
-    ///
-    /// The use of this method is not advised if your connected http client employs pipelining
-    /// (rarely seen in the wild), as it will buffer an unbounded number of requests
     ///
     /// Note that the inner future cannot borrow conn, so you will need to clone or take any
     /// information needed to execute the future prior to executing this method.
