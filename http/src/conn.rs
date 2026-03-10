@@ -23,8 +23,8 @@ use std::{
     sync::Arc,
     time::Instant,
 };
+mod h1;
 mod h3;
-mod implementation;
 
 /// Default Server header
 pub const SERVER: &str = concat!("trillium-http/", env!("CARGO_PKG_VERSION"));
