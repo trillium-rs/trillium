@@ -1,12 +1,12 @@
 use crate::{
     Buffer,
     body::BodyType,
-    h3::H3BodyWrapper,
+    h3::H3Body,
     http_config::DEFAULT_CONFIG,
     received_body::{H3BodyFrameType, ReceivedBody, ReceivedBodyState},
 };
 use encoding_rs::UTF_8;
-use futures_lite::AsyncReadExt;
+use futures_lite::{AsyncReadExt, io::Cursor};
 use std::net::Shutdown;
 use test_harness::test;
 use trillium_testing::{TestTransport, harness};
@@ -22,12 +22,7 @@ async fn round_trip(body: BodyType, content_length: Option<u64>) -> String {
             DEFAULT_CONFIG.response_header_initial_capacity,
         )),
         reader,
-        ReceivedBodyState::H3Data {
-            remaining_in_frame: 0,
-            total: 0,
-            frame_type: H3BodyFrameType::Start,
-            partial_frame_header: false,
-        },
+        ReceivedBodyState::new_h3(),
         None,
         UTF_8,
         &DEFAULT_CONFIG,
@@ -35,7 +30,7 @@ async fn round_trip(body: BodyType, content_length: Option<u64>) -> String {
 
     let (_, result) = futures_lite::future::zip(
         async {
-            futures_lite::io::copy(H3BodyWrapper::new(body), &mut writer)
+            futures_lite::io::copy(H3Body::from(body), &mut writer)
                 .await
                 .unwrap();
             writer.shutdown(Shutdown::Write);
@@ -71,7 +66,7 @@ async fn round_trip_buf(body: BodyType, content_length: Option<u64>, buf_size: u
 
     let (_, result) = futures_lite::future::zip(
         async {
-            let mut src = H3BodyWrapper::new(body);
+            let mut src = H3Body::from(body);
             let mut buf = vec![0u8; buf_size];
             loop {
                 let n = src.read(&mut buf).await.unwrap();
@@ -113,7 +108,7 @@ async fn streaming_known_length() {
     let body = "hello streaming world";
     let result = round_trip(
         BodyType::Streaming {
-            async_read: Box::pin(futures_lite::io::Cursor::new(body.as_bytes().to_vec())),
+            async_read: Box::pin(Cursor::new(body.as_bytes().to_vec())),
             len: Some(body.len() as u64),
             done: false,
             progress: 0,
@@ -129,7 +124,7 @@ async fn streaming_unknown_length() {
     let body = "hello chunked world";
     let result = round_trip(
         BodyType::Streaming {
-            async_read: Box::pin(futures_lite::io::Cursor::new(body.as_bytes().to_vec())),
+            async_read: Box::pin(Cursor::new(body.as_bytes().to_vec())),
             len: None,
             done: false,
             progress: 0,
@@ -163,7 +158,7 @@ async fn streaming_known_length_various_buf_sizes() {
     for size in 3..=body.len() + 4 {
         let result = round_trip_buf(
             BodyType::Streaming {
-                async_read: Box::pin(futures_lite::io::Cursor::new(body.as_bytes().to_vec())),
+                async_read: Box::pin(Cursor::new(body.as_bytes().to_vec())),
                 len: Some(body.len() as u64),
                 done: false,
                 progress: 0,
@@ -182,7 +177,7 @@ async fn streaming_unknown_length_various_buf_sizes() {
     for size in 3..=body.len() + 4 {
         let result = round_trip_buf(
             BodyType::Streaming {
-                async_read: Box::pin(futures_lite::io::Cursor::new(body.as_bytes().to_vec())),
+                async_read: Box::pin(Cursor::new(body.as_bytes().to_vec())),
                 len: None,
                 done: false,
                 progress: 0,

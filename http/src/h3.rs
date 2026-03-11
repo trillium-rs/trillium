@@ -29,7 +29,13 @@ pub enum H3Error {
     Io(#[from] std::io::Error),
 }
 
-pub(crate) use body_wrapper::H3BodyWrapper;
+#[cfg(feature = "unstable")]
+pub use body_wrapper::H3Body;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use body_wrapper::H3Body;
 pub use connection::{H3Connection, H3StreamResult, UniStreamResult};
 pub use error::H3ErrorCode;
+#[cfg(feature = "unstable")]
+pub use frame::{ActiveFrame, Frame, FrameDecodeError, FrameStream};
+#[cfg(not(feature = "unstable"))]
 pub(crate) use frame::{Frame, FrameDecodeError, FrameStream};

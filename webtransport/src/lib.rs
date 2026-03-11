@@ -15,19 +15,21 @@ pub use crate::stream::{
     Datagram, InboundBidiStream, InboundStream, InboundUniStream, OutboundBidiStream,
     OutboundUniStream,
 };
+use async_channel::Receiver;
 use futures_lite::AsyncWriteExt;
 use std::{
     io,
     sync::{Arc, OnceLock},
 };
-use trillium::{Conn, Handler, Info, Method, Status, Upgrade};
-use trillium_http::{
-    h3::{H3Connection, quic_varint},
-    transport::BoxedTransport,
-};
+use swansong::Swansong;
+use trillium::{Conn, Handler, Info, Method, Status, Transport, Upgrade};
+use trillium_http::h3::{H3Connection, quic_varint};
 use trillium_server_common::{
     QuicConnection, Runtime,
-    h3::{StreamId, web_transport::WebTransportDispatcher},
+    h3::{
+        StreamId,
+        web_transport::{WebTransportDispatcher, WebTransportStream},
+    },
 };
 
 /// A handle to an active WebTransport session.
@@ -37,10 +39,10 @@ use trillium_server_common::{
 /// datagrams.
 pub struct WebTransportConnection {
     session_id: u64,
-    bidi_rx: async_channel::Receiver<InboundBidiStream>,
-    uni_rx: async_channel::Receiver<InboundUniStream>,
-    datagram_rx: async_channel::Receiver<Datagram>,
-    swansong: swansong::Swansong,
+    bidi_rx: Receiver<InboundBidiStream>,
+    uni_rx: Receiver<InboundUniStream>,
+    datagram_rx: Receiver<Datagram>,
+    swansong: Swansong,
     upgrade: Upgrade,
     h3_connection: Arc<H3Connection>,
     quic_connection: QuicConnection,
@@ -139,7 +141,7 @@ impl WebTransportConnection {
 }
 
 enum RoutingAction {
-    Stream(trillium_server_common::h3::web_transport::WebTransportStream),
+    Stream(WebTransportStream),
     Datagram(Vec<u8>),
 }
 
@@ -178,7 +180,7 @@ const DEFAULT_MAX_DATAGRAM_BUFFER: usize = 16;
 /// let handler = WebTransport::new(|conn: WebTransportConnection| async move {
 ///     while let Some(stream) = conn.accept_next_stream().await {
 ///         // handle stream...
-///         drop(stream);
+/// # drop(stream);
 ///     }
 /// });
 /// ```
@@ -252,7 +254,7 @@ where
     H: WebTransportHandler,
 {
     async fn run(&self, conn: Conn) -> Conn {
-        let inner: &trillium_http::Conn<BoxedTransport> = conn.as_ref();
+        let inner: &trillium_http::Conn<Box<dyn Transport>> = conn.as_ref();
         if inner.state().contains::<QuicConnection>() && conn.method() == Method::Connect
         // todo(jbr): try to figure out why chrome isn't sending a protocol
         //            && inner.protocol() == Some("webtransport-h3")
@@ -270,6 +272,7 @@ where
                 .cloned()
                 .expect("webtransport requires a Runtime")
         });
+
         info.http_config_mut()
             .set_h3_datagrams_enabled(true)
             .set_webtransport_enabled(true);

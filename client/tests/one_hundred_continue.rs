@@ -221,6 +221,7 @@ struct TestConnector<R>(Sender<TestTransport>, R);
 impl<R: RuntimeTrait> Connector for TestConnector<R> {
     type Runtime = R;
     type Transport = TestTransport;
+    type Udp = ();
 
     async fn connect(&self, _url: &Url) -> std::io::Result<Self::Transport> {
         let (server, client) = TestTransport::new();

@@ -1,6 +1,6 @@
 /// Errors that can occur during variable-length integer decoding.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub(crate) enum VarIntError {
+#[derive(Debug, thiserror::Error, PartialEq, Eq, Clone, Copy)]
+pub enum VarIntError {
     /// The encoded integer overflows usize.
     #[error("encoded integer overflows usize")]
     Overflow,

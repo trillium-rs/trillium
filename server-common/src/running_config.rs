@@ -1,11 +1,8 @@
 use crate::{Acceptor, ArcHandler, RuntimeTrait, Server};
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use std::{io::ErrorKind, sync::Arc};
-use trillium::Handler;
-use trillium_http::{
-    Error, SERVICE_UNAVAILABLE, ServerConfig,
-    transport::{BoxedTransport, Transport},
-};
+use trillium::{Handler, Transport};
+use trillium_http::{Error, SERVICE_UNAVAILABLE, ServerConfig};
 
 #[derive(Debug)]
 pub struct RunningConfig<ServerType: Server, AcceptorType> {
@@ -75,7 +72,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
 
         match result {
             Ok(Some(upgrade)) => {
-                let upgrade = upgrade.map_transport(BoxedTransport::new);
+                let upgrade = upgrade.map_transport(|t| Box::new(t) as Box<dyn Transport>);
                 if handler.has_upgrade(&upgrade) {
                     log::debug!("upgrading...");
                     handler.upgrade(upgrade).await;

@@ -23,8 +23,7 @@
 //! discovered through docs.rs' reverse dependencies, please open an
 //! issue.
 pub use futures_lite::{AsyncRead, AsyncWrite, Stream};
-pub use trillium::Info;
-pub use trillium_http::transport::Transport;
+pub use trillium::{Info, Transport};
 pub use url::{self, Url};
 
 mod config;
@@ -37,7 +36,7 @@ mod binding;
 pub use binding::Binding;
 
 mod client;
-pub use client::{ArcedConnector, Connector};
+pub use client::{ArcedConnector, ArcedQuicConnector, Connector, QuicConnector};
 
 mod acceptor;
 pub use acceptor::Acceptor;
@@ -53,7 +52,10 @@ mod runtime;
 pub use runtime::{DroppableFuture, Runtime, RuntimeTrait};
 
 mod quic;
-pub use quic::{QuicBinding, QuicConfig, QuicConnection, QuicConnectionTrait};
+pub use quic::{
+    QuicBinding, QuicConfig, QuicConnection, QuicConnectionTrait, QuicTransportBidi,
+    QuicTransportReceive, QuicTransportSend,
+};
 
 mod udp_transport;
 pub use udp_transport::UdpTransport;

@@ -1,16 +1,17 @@
-use crate::{Pool, util::encoding};
+use crate::{Pool, h3::H3ClientState, util::encoding};
 use encoding_rs::Encoding;
 use std::{net::SocketAddr, time::Duration};
 use trillium_http::{
     Body, Buffer, HeaderName, HeaderValues, Headers, Method, ReceivedBody, ReceivedBodyState,
-    Status, TypeSet, Version, transport::BoxedTransport,
+    Status, TypeSet, Version,
 };
 use trillium_server_common::{
     ArcedConnector, Transport,
     url::{Origin, Url},
 };
 
-mod implementation;
+mod h1;
+mod h3;
 mod unexpected_status_error;
 
 pub use unexpected_status_error::UnexpectedStatusError;
@@ -38,10 +39,11 @@ pub struct Conn {
     pub(crate) method: Method,
     pub(crate) request_headers: Headers,
     pub(crate) response_headers: Headers,
-    pub(crate) transport: Option<BoxedTransport>,
+    pub(crate) transport: Option<Box<dyn Transport>>,
     pub(crate) status: Option<Status>,
     pub(crate) request_body: Option<Body>,
-    pub(crate) pool: Option<Pool<Origin, BoxedTransport>>,
+    pub(crate) pool: Option<Pool<Origin, Box<dyn Transport>>>,
+    pub(crate) h3: Option<H3ClientState>,
     pub(crate) buffer: Buffer,
     pub(crate) response_body_state: ReceivedBodyState,
     pub(crate) config: ArcedConnector,
@@ -339,9 +341,8 @@ impl Conn {
     ///     Ok(())
     /// });
     /// ```
-
     #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
-    pub fn response_body(&mut self) -> ReceivedBody<'_, BoxedTransport> {
+    pub fn response_body(&mut self) -> ReceivedBody<'_, Box<dyn Transport>> {
         ReceivedBody::new(
             self.response_content_length(),
             &mut self.buffer,
@@ -475,5 +476,16 @@ impl Conn {
     /// take state
     pub fn take_state<T: Send + Sync + 'static>(&mut self) -> Option<T> {
         self.state.take()
+    }
+
+    async fn exec(&mut self) -> crate::Result<()> {
+        if let Some(h3) = self.h3.clone() {
+            if self.try_exec_h3(&h3).await? {
+                self.update_alt_svc_from_response(&h3);
+                return Ok(());
+            }
+        }
+
+        self.exec_h1().await
     }
 }

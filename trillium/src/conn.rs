@@ -1,13 +1,13 @@
+use crate::Transport;
 use std::{
+    any::Any,
     fmt::{self, Debug, Formatter},
     future::Future,
     net::IpAddr,
 };
 use trillium_http::{
     Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status, Swansong, TypeSet,
-    Version,
-    transport::{BoxedTransport, Transport},
-    type_set::entry::Entry,
+    Version, type_set::entry::Entry,
 };
 
 /// # A Trillium HTTP connection.
@@ -47,24 +47,20 @@ use trillium_http::{
 ///
 /// ## State
 ///
-/// Every trillium Conn contains a state type which is a set that contains
-/// at most one element for each type. State is the primary way that
-/// handlers attach data to a conn as it passes through a tuple
-/// handler. State access should generally be implemented by libraries
-/// using a private type and exposed with a `ConnExt` trait. See [library
-/// patterns](https://trillium.rs/library_patterns.html#state) for more
-/// elaboration and examples.
+/// Every trillium Conn contains a state type which is a set that contains at most one element for
+/// each type. State is the primary way that handlers attach data to a conn as it passes through a
+/// tuple handler. State access should generally be implemented by libraries using a private type
+/// and exposed with a `ConnExt` trait. See [library
+/// patterns](https://trillium.rs/library_patterns.html#state) for more elaboration and examples.
 ///
 /// ## In relation to [`trillium_http::Conn`]
 ///
 /// `trillium::Conn` is currently implemented as an abstraction on top of a
-/// [`trillium_http::Conn`]. In particular, `trillium::Conn` boxes the
-/// transport using a [`BoxedTransport`](trillium_http::transport::BoxedTransport)
-/// so that application code can be written without transport
-/// generics. See [`Transport`](trillium_http::transport::Transport) for further
-/// reading on this.
+/// [`trillium_http::Conn`]. In particular, `trillium::Conn` boxes the transport so that application
+/// code can be written without transport generics. See
+/// [`Transport`](trillium_http::transport::Transport) for further reading on this.
 pub struct Conn {
-    inner: trillium_http::Conn<BoxedTransport>,
+    inner: trillium_http::Conn<Box<dyn Transport>>,
     halted: bool,
     path: Vec<String>,
 }
@@ -82,7 +78,7 @@ impl Debug for Conn {
 impl<T: Transport + 'static> From<trillium_http::Conn<T>> for Conn {
     fn from(inner: trillium_http::Conn<T>) -> Self {
         Self {
-            inner: inner.map_transport(BoxedTransport::new),
+            inner: inner.map_transport(|t| Box::new(t) as Box<dyn Transport>),
             halted: false,
             path: vec![],
         }
@@ -275,7 +271,7 @@ impl Conn {
     /// assert_eq!(request_body.read_string().await.unwrap(), "request body");
     /// # });
     /// ```
-    pub async fn request_body(&mut self) -> ReceivedBody<'_, BoxedTransport> {
+    pub async fn request_body(&mut self) -> ReceivedBody<'_, Box<dyn Transport>> {
         self.inner.request_body().await
     }
 
@@ -471,7 +467,8 @@ impl Conn {
     /// This will panic if you attempt to downcast to the wrong Transport type.
     pub fn into_inner<T: Transport>(self) -> trillium_http::Conn<T> {
         self.inner.map_transport(|t| {
-            *t.downcast()
+            *(t as Box<dyn Any>)
+                .downcast()
                 .expect("attempted to downcast to the wrong transport type")
         })
     }
@@ -577,14 +574,14 @@ impl Conn {
     }
 }
 
-impl AsMut<trillium_http::Conn<BoxedTransport>> for Conn {
-    fn as_mut(&mut self) -> &mut trillium_http::Conn<BoxedTransport> {
+impl AsMut<trillium_http::Conn<Box<dyn Transport>>> for Conn {
+    fn as_mut(&mut self) -> &mut trillium_http::Conn<Box<dyn Transport>> {
         &mut self.inner
     }
 }
 
-impl AsRef<trillium_http::Conn<BoxedTransport>> for Conn {
-    fn as_ref(&self) -> &trillium_http::Conn<BoxedTransport> {
+impl AsRef<trillium_http::Conn<Box<dyn Transport>>> for Conn {
+    fn as_ref(&self) -> &trillium_http::Conn<Box<dyn Transport>> {
         &self.inner
     }
 }

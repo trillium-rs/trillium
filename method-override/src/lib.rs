@@ -26,7 +26,7 @@
 
 use querystrong::QueryStrong;
 use std::{collections::HashSet, fmt::Debug};
-use trillium::{Conn, Handler, Method, conn_unwrap};
+use trillium::{Conn, Handler, Method, Transport, conn_unwrap};
 
 /// Trillium method override handler
 ///
@@ -91,10 +91,7 @@ impl Handler for MethodOverride {
         let method_str = conn_unwrap!(qs.get_str(self.param), conn);
         let method: Method = conn_unwrap!(method_str.try_into().ok(), conn);
         if self.allowed_methods.contains(&method) {
-            AsMut::<trillium_http::Conn<trillium_http::transport::BoxedTransport>>::as_mut(
-                &mut conn,
-            )
-            .set_method(method);
+            AsMut::<trillium_http::Conn<Box<dyn Transport>>>::as_mut(&mut conn).set_method(method);
         }
         conn
     }

@@ -17,6 +17,7 @@ http-compat-1 = ["trillium-http/http-compat-1"]
 serde = ["trillium-http/serde"]
 
 [dependencies]
+futures-lite = "2.1.0"
 log = "0.4.20"
 trillium-http = { path = "../http", version = "0.3.17" }
 

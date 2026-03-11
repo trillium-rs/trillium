@@ -14,7 +14,7 @@ use std::{
     io::IsTerminal,
     sync::Arc,
 };
-use trillium::{Conn, Handler, Info};
+use trillium::{Conn, Handler, Info, Transport};
 /// Components with which common log formats can be constructed
 pub mod formatters;
 
@@ -297,10 +297,8 @@ where
         if conn.state::<LoggerWasRun>().is_some() {
             let target = self.target.clone();
             let output = self.format.format(&conn, self.color_mode.is_enabled());
-            AsMut::<trillium_http::Conn<trillium_http::transport::BoxedTransport>>::as_mut(
-                &mut conn,
-            )
-            .after_send(move |_| target.write(output.to_string()));
+            AsMut::<trillium_http::Conn<Box<dyn Transport>>>::as_mut(&mut conn)
+                .after_send(move |_| target.write(output.to_string()));
         }
 
         conn

@@ -1,7 +1,6 @@
 use crate::{ServerConnector, block_on, config};
 use std::{error::Error, future::Future};
-use trillium::Handler;
-use trillium_http::transport::BoxedTransport;
+use trillium::{Handler, Transport};
 use trillium_server_common::RuntimeTrait;
 use url::Url;
 
@@ -38,11 +37,11 @@ where
 pub fn with_transport<H, Fun, Fut>(handler: H, tests: Fun)
 where
     H: Handler,
-    Fun: FnOnce(BoxedTransport) -> Fut,
+    Fun: FnOnce(Box<dyn Transport>) -> Fut,
     Fut: Future<Output = Result<(), Box<dyn Error>>>,
 {
     block_on(async move {
         let transport = ServerConnector::new(handler).connect(false).await;
-        tests(BoxedTransport::new(transport));
+        tests(Box::new(transport));
     });
 }

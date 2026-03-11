@@ -439,6 +439,17 @@ pub enum ReceivedBodyState {
     End,
 }
 
+impl ReceivedBodyState {
+    pub fn new_h3() -> Self {
+        Self::H3Data {
+            remaining_in_frame: 0,
+            total: 0,
+            frame_type: H3BodyFrameType::Start,
+            partial_frame_header: false,
+        }
+    }
+}
+
 impl<Transport> From<ReceivedBody<'static, Transport>> for Body
 where
     Transport: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
