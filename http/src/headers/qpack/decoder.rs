@@ -1,5 +1,5 @@
 use super::{
-    PseudoHeaders, huffman,
+    FieldSection, PseudoHeaders, huffman,
     static_table::{PseudoHeaderName, StaticHeaderName, static_entry},
     varint,
 };
@@ -8,8 +8,8 @@ use core::convert::TryFrom;
 use std::{borrow::Cow, fmt::Display};
 
 /// Errors that can occur during QPACK decoding.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum DecoderError {
+#[derive(Debug, thiserror::Error, Clone, Copy)]
+pub enum DecoderError {
     #[error(transparent)]
     Huffman(#[from] huffman::HuffmanError),
 
@@ -141,50 +141,53 @@ fn decode_string(input: &[u8], prefix_size: u8) -> Result<(Vec<u8>, &[u8]), Deco
     Ok((decoded, rest))
 }
 
-/// Decode a QPACK-encoded field section into pseudo-headers and headers.
-///
-/// This currently supports only static table references. Dynamic
-/// table references will return an error.
-///
-/// Duplicate pseudo-headers are silently ignored (first value wins).
-/// Unknown pseudo-headers are rejected per RFC 9114 §4.1.1.
-pub(crate) fn decode_field_section(
-    encoded: &[u8],
-) -> Result<(PseudoHeaders<'static>, Headers), DecoderError> {
-    let (required_insert_count, rest) = varint::decode(encoded, 8)?;
-    if required_insert_count != 0 {
-        return Err(DecoderError::NonZeroInsertCount);
-    }
-    let (_delta_base, mut rest) = varint::decode(rest, 7)?;
-
-    let mut pseudos = PseudoHeaders::default();
-    let mut headers = Headers::new();
-
-    while !rest.is_empty() {
-        let first = rest[0];
-        let field_line;
-
-        if first & 0x80 != 0 {
-            (field_line, rest) = decode_indexed(rest)?;
-        } else if first & 0x40 != 0 {
-            (field_line, rest) = decode_literal_with_name_ref(rest)?;
-        } else if first & 0x20 != 0 {
-            (field_line, rest) = decode_literal_with_literal_name(rest)?;
-        } else if first & 0x10 != 0 {
-            return Err(DecoderError::DynamicTableUnsupported);
-        } else {
-            return Err(DecoderError::DynamicTableUnsupported);
+impl FieldSection<'static> {
+    /// Decode a QPACK-encoded field section into pseudo-headers and headers.
+    ///
+    /// This currently supports only static table references. Dynamic
+    /// table references will return an error.
+    ///
+    /// Duplicate pseudo-headers are silently ignored (first value wins).
+    /// Unknown pseudo-headers are rejected per RFC 9114 §4.1.1.
+    pub fn decode(encoded: &[u8]) -> Result<Self, DecoderError> {
+        let (required_insert_count, rest) = varint::decode(encoded, 8)?;
+        if required_insert_count != 0 {
+            return Err(DecoderError::NonZeroInsertCount);
         }
+        let (_delta_base, mut rest) = varint::decode(rest, 7)?;
 
-        match field_line {
-            FieldLine::Header(name, value) => {
-                headers.append(name, value);
+        let mut pseudo_headers = PseudoHeaders::default();
+        let mut headers = Headers::new();
+
+        while !rest.is_empty() {
+            let first = rest[0];
+            let field_line;
+
+            if first & 0x80 != 0 {
+                (field_line, rest) = decode_indexed(rest)?;
+            } else if first & 0x40 != 0 {
+                (field_line, rest) = decode_literal_with_name_ref(rest)?;
+            } else if first & 0x20 != 0 {
+                (field_line, rest) = decode_literal_with_literal_name(rest)?;
+            } else if first & 0x10 != 0 {
+                return Err(DecoderError::DynamicTableUnsupported);
+            } else {
+                return Err(DecoderError::DynamicTableUnsupported);
             }
-            FieldLine::Pseudo(pseudo) => pseudo.apply(&mut pseudos)?,
-        }
-    }
 
-    Ok((pseudos, headers))
+            match field_line {
+                FieldLine::Header(name, value) => {
+                    headers.append(name, value);
+                }
+                FieldLine::Pseudo(pseudo) => pseudo.apply(&mut pseudo_headers)?,
+            }
+        }
+
+        Ok(Self {
+            pseudo_headers,
+            headers: Cow::Owned(headers),
+        })
+    }
 }
 
 /// §4.5.2: Indexed Field Line

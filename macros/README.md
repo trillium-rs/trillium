@@ -148,14 +148,13 @@ To delegate all methods of `AsyncRead` and `AsyncWrite` to the corresponding
 methods on a field, mark that field with `#[async_io]`:
 
 ```rust
-use trillium_http::transport::BoxedTransport;
 use trillium_macros::{AsyncRead, AsyncWrite};
-use trillium_server_common::{AsyncRead, AsyncWrite};
+use trillium_server_common::{AsyncRead, AsyncWrite, Transport};
 
-#[derive(Debug, AsyncRead, AsyncWrite)]
+#[derive(AsyncRead, AsyncWrite)]
 struct TransportWrapper {
     #[async_io]
-    inner: BoxedTransport,
+    inner: Box<dyn Transport>,
     another_field: u32,
 }
 ```
@@ -171,14 +170,13 @@ This crate provides a proc macro to derive the `Transport` type and delegate it
 to a field of the type:
 
 ```rust
-use trillium_http::transport::BoxedTransport;
 use trillium_macros::{AsyncRead, AsyncWrite, Transport};
 use trillium_server_common::{AsyncRead, AsyncWrite, Transport};
 
-#[derive(Debug, AsyncRead, AsyncWrite, Transport)]
+#[derive(AsyncRead, AsyncWrite, Transport)]
 struct TransportWrapper {
     #[transport] #[async_io]
-    inner: BoxedTransport,
+    inner: Box<dyn Transport>,
     another_field: u32,
 }
 ```
@@ -187,14 +185,13 @@ This supports the same mechanism that `derive(Handler)` does for overriding
 individual methods:
 
 ```rust
-use trillium_http::transport::BoxedTransport;
 use trillium_macros::{AsyncRead, AsyncWrite, Transport};
 use trillium_server_common::{AsyncRead, AsyncWrite, Transport};
 
-#[derive(Debug, AsyncRead, AsyncWrite, Transport)]
+#[derive(AsyncRead, AsyncWrite, Transport)]
 struct TransportWrapper {
     #[transport(except = peer_addr)] #[async_io]
-    inner: BoxedTransport,
+    inner: Box<dyn Transport>,
     another_field: u32,
 }
 

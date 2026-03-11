@@ -4,8 +4,8 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use trillium::{Conn, Handler, HeaderName, HeaderValues, Method};
-use trillium_http::{Conn as HttpConn, ServerConfig, Synthetic, transport::BoxedTransport};
+use trillium::{Conn, Handler, HeaderName, HeaderValues, Method, Transport};
+use trillium_http::{Conn as HttpConn, ServerConfig, Synthetic};
 
 type SyntheticConn = HttpConn<Synthetic>;
 
@@ -87,7 +87,7 @@ impl TestConn {
 
     /// set the test conn to be secure
     pub fn secure(mut self) -> Self {
-        AsMut::<trillium_http::Conn<BoxedTransport>>::as_mut(&mut self.0).set_secure(true);
+        AsMut::<trillium_http::Conn<Box<dyn Transport>>>::as_mut(&mut self.0).set_secure(true);
         self
     }
 
@@ -135,7 +135,7 @@ impl TestConn {
     pub async fn run_async(self, handler: &impl Handler) -> Self {
         let conn = handler.run(self.into()).await;
         let mut conn = handler.before_send(conn).await;
-        AsMut::<trillium_http::Conn<BoxedTransport>>::as_mut(&mut conn).finalize_headers();
+        AsMut::<trillium_http::Conn<Box<dyn Transport>>>::as_mut(&mut conn).finalize_headers();
         Self(conn)
     }
 

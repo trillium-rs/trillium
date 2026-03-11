@@ -1,48 +1,51 @@
 use super::{
-    INDEXED_FIELD_LINE, INDEXED_STATIC_FLAG, LITERAL_WITH_LITERAL_NAME, LITERAL_WITH_NAME_REF,
-    NAME_REF_STATIC_FLAG, PseudoHeaders, huffman,
+    FieldSection, INDEXED_FIELD_LINE, INDEXED_STATIC_FLAG, LITERAL_WITH_LITERAL_NAME,
+    LITERAL_WITH_NAME_REF, NAME_REF_STATIC_FLAG, huffman,
     static_table::{StaticLookup, static_table_lookup},
     varint,
 };
-use crate::{Headers, Method, Status};
+use crate::{Method, Status};
 
-/// Encode a QPACK field section from pseudo-headers and headers.
-///
-/// This currently uses only the static table (no dynamic table).
-pub(crate) fn encode_field_section(
-    pseudos: &PseudoHeaders<'_>,
-    headers: &Headers,
-    buf: &mut Vec<u8>,
-) {
-    // §4.5.1: Prefix — required insert count = 0, delta base = 0
-    buf.extend_from_slice(&varint::encode(0, 8));
-    buf.extend_from_slice(&varint::encode(0, 7));
+impl FieldSection<'_> {
+    /// Encode a QPACK field section from pseudo-headers and headers.
+    ///
+    /// This currently uses only the static table (no dynamic table).
+    pub fn encode(&self, buf: &mut Vec<u8>) {
+        let Self {
+            pseudo_headers,
+            headers,
+        } = self;
 
-    if let Some(method) = pseudos.method {
-        encode_method(method, buf);
-    }
-    if let Some(status) = pseudos.status {
-        encode_status(status, buf);
-    }
-    if let Some(path) = &pseudos.path {
-        encode_pseudo_string(b":path", path.as_ref(), 1, buf);
-    }
-    if let Some(scheme) = &pseudos.scheme {
-        encode_pseudo_string(b":scheme", scheme.as_ref(), 22, buf);
-    }
-    if let Some(authority) = &pseudos.authority {
-        encode_pseudo_string(b":authority", authority.as_ref(), 0, buf);
-    }
-    if let Some(protocol) = &pseudos.protocol {
-        encode_literal_with_literal_name(b":protocol", protocol.as_ref().as_bytes(), buf);
-    }
+        // §4.5.1: Prefix — required insert count = 0, delta base = 0
+        buf.extend_from_slice(&varint::encode(0, 8));
+        buf.extend_from_slice(&varint::encode(0, 7));
 
-    for (name, values) in headers {
-        let name_bytes = name.as_ref().as_bytes();
-        for value in values {
-            let value_bytes: &[u8] = value.as_ref();
-            let lookup = static_table_lookup(&name, value);
-            encode_by_lookup(lookup, name_bytes, value_bytes, buf);
+        if let Some(method) = pseudo_headers.method {
+            encode_method(method, buf);
+        }
+        if let Some(status) = pseudo_headers.status {
+            encode_status(status, buf);
+        }
+        if let Some(path) = &pseudo_headers.path {
+            encode_pseudo_string(b":path", path.as_ref(), 1, buf);
+        }
+        if let Some(scheme) = &pseudo_headers.scheme {
+            encode_pseudo_string(b":scheme", scheme.as_ref(), 22, buf);
+        }
+        if let Some(authority) = &pseudo_headers.authority {
+            encode_pseudo_string(b":authority", authority.as_ref(), 0, buf);
+        }
+        if let Some(protocol) = &pseudo_headers.protocol {
+            encode_literal_with_literal_name(b":protocol", protocol.as_ref().as_bytes(), buf);
+        }
+
+        for (name, values) in &**headers {
+            let name_bytes = name.as_ref().as_bytes();
+            for value in values {
+                let value_bytes: &[u8] = value.as_ref();
+                let lookup = static_table_lookup(&name, value);
+                encode_by_lookup(lookup, name_bytes, value_bytes, buf);
+            }
         }
     }
 }

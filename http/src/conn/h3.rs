@@ -2,9 +2,9 @@ use crate::{
     BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, Status, TypeSet, Version,
     after_send::AfterSend,
     copy,
-    h3::{Frame, FrameStream, H3BodyWrapper, H3Connection, H3Error, H3ErrorCode, H3StreamResult},
-    headers::qpack::{PseudoHeaders, decode_field_section, encode_field_section},
-    received_body::{H3BodyFrameType, ReceivedBodyState},
+    h3::{Frame, FrameStream, H3Connection, H3Error, H3ErrorCode, H3StreamResult},
+    headers::qpack::{FieldSection, PseudoHeaders},
+    received_body::ReceivedBodyState,
 };
 use futures_lite::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use std::{
@@ -30,7 +30,7 @@ where
         let start_time = Instant::now();
 
         let mut frame_stream = FrameStream::new(&mut transport, &mut buffer);
-        let (pseudos, request_headers) = loop {
+        let field_section = loop {
             let mut frame = frame_stream
                 .next()
                 .await?
@@ -39,7 +39,7 @@ where
             match frame.frame() {
                 Frame::Headers(_) => {
                     let buffered = frame.buffer_payload().await?;
-                    break decode_field_section(buffered).map_err(|_| H3ErrorCode::MessageError)?;
+                    break FieldSection::decode(buffered).map_err(|_| H3ErrorCode::MessageError)?;
                 }
 
                 Frame::WebTransport(session_id) => {
@@ -61,8 +61,7 @@ where
             h3_connection,
             transport,
             buffer,
-            pseudos,
-            request_headers,
+            field_section,
             start_time,
         )?))
     }
@@ -88,7 +87,7 @@ where
             && let Some(body) = self.response_body.take()
         {
             copy(
-                H3BodyWrapper::new(body.0),
+                body.into_h3(),
                 &mut bufwriter,
                 self.server_config.http_config.copy_loops_per_yield,
             )
@@ -101,14 +100,13 @@ where
     }
 
     fn encode_headers_h3(&mut self, buffer: &mut Vec<u8>) -> io::Result<()> {
-        let pseudos = PseudoHeaders {
-            status: Some(self.status.unwrap_or(Status::NotFound)),
-            ..Default::default()
-        };
+        let pseudo_headers =
+            PseudoHeaders::default().with_status(self.status.unwrap_or(Status::NotFound));
 
         let mut field_section =
             Vec::with_capacity(self.server_config.http_config.request_buffer_initial_len);
-        encode_field_section(&pseudos, &self.response_headers, &mut field_section);
+
+        FieldSection::new(pseudo_headers, &self.response_headers).encode(&mut field_section);
 
         let size = field_section.len() as u64;
         if let Some(max_size) = self.max_peer_field_section_size()
@@ -133,18 +131,18 @@ where
         h3_connection: Arc<H3Connection>,
         transport: Transport,
         buffer: Buffer,
-        pseudos: PseudoHeaders<'static>,
-        request_headers: Headers,
+        mut field_section: FieldSection<'static>,
         start_time: Instant,
     ) -> Result<Self, H3ErrorCode> {
-        let PseudoHeaders {
-            method,
-            path,
-            authority,
-            scheme,
-            status: _,
-            protocol,
-        } = pseudos;
+        let pseudo_headers = field_section.pseudo_headers_mut();
+
+        let method = pseudo_headers.take_method();
+        let path = pseudo_headers.take_path();
+        let authority = pseudo_headers.take_authority();
+        let scheme = pseudo_headers.take_scheme();
+        let protocol = pseudo_headers.take_protocol();
+
+        let request_headers = field_section.into_headers().into_owned();
 
         if let Some(host) = request_headers.get_str(KnownHeaderName::Host)
             && let Some(authority) = &authority
@@ -206,12 +204,7 @@ where
             status: None,
             state: TypeSet::new(),
             response_body: None,
-            request_body_state: ReceivedBodyState::H3Data {
-                remaining_in_frame: 0,
-                total: 0,
-                frame_type: H3BodyFrameType::Start,
-                partial_frame_header: false,
-            },
+            request_body_state: ReceivedBodyState::new_h3(),
             secure: true,
             after_send: AfterSend::default(),
             start_time,

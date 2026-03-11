@@ -41,6 +41,7 @@ impl ClientConfig {
 impl Connector for ClientConfig {
     type Runtime = SmolRuntime;
     type Transport = SmolTransport<TcpStream>;
+    type Udp = crate::SmolUdpSocket;
 
     fn runtime(&self) -> Self::Runtime {
         SmolRuntime::default()
@@ -86,6 +87,7 @@ impl Connector for ClientConfig {
 impl Connector for SmolTransport<async_net::unix::UnixStream> {
     type Runtime = SmolRuntime;
     type Transport = Self;
+    type Udp = crate::SmolUdpSocket;
 
     async fn connect(&self, _url: &Url) -> Result<Self::Transport> {
         Ok(self.clone())

@@ -10,7 +10,21 @@ use std::{
     task::{Context, Poll},
 };
 use trillium::Info;
-use trillium_http::transport::BoxedTransport;
+
+/// Abstraction over the inbound half of a QUIC stream (both bidi and inbound uni)
+pub trait QuicTransportReceive: AsyncRead {
+    /// Stop a receive stream, signaling an error code to the peer.
+    fn stop(&mut self, code: u64);
+}
+
+/// Abstraction over the outbound half of a QUIC stream (both bidi and outbound uni)
+pub trait QuicTransportSend: AsyncWrite {
+    /// Close the send stream immediately with the provided error code.
+    fn reset(&mut self, code: u64);
+}
+
+/// Abstraction over a QUIC bidirectional stream
+pub trait QuicTransportBidi: QuicTransportReceive + QuicTransportSend + Transport {}
 
 /// Abstraction over a single QUIC connection.
 ///
@@ -21,19 +35,18 @@ use trillium_http::transport::BoxedTransport;
 /// Implementations should be cheaply cloneable (typically wrapping an `Arc`-based connection
 /// handle) since the connection handler clones this into spawned tasks.
 pub trait QuicConnectionTrait: Clone + Send + Sync + 'static {
-    /// A bidirectional stream, used for HTTP/3 request/response pairs.
-    type BidiStream: Transport;
+    /// A bidirectional stream
+    type BidiStream: QuicTransportBidi + Unpin + Send + Sync + 'static;
 
-    /// A unidirectional receive stream from the peer (control, QPACK, etc.).
-    type RecvStream: AsyncRead + Unpin + Send + Sync + 'static;
+    /// A unidirectional receive stream from the peer
+    type RecvStream: QuicTransportReceive + Unpin + Send + Sync + 'static;
 
-    /// A unidirectional send stream to the peer (control, QPACK, etc.).
-    type SendStream: AsyncWrite + Unpin + Send + Sync + 'static;
+    /// A unidirectional send stream to the peer
+    type SendStream: QuicTransportSend + Unpin + Send + Sync + 'static;
 
     /// Accept the next bidirectional stream opened by the peer.
     ///
-    /// Returns the QUIC stream ID and a combined read/write transport. The stream ID is used
-    /// for GOAWAY tracking and should be passed to [`H3Connection::process_inbound_bidi`].
+    /// Returns the QUIC stream ID and a combined read/write transport.
     fn accept_bidi(&self) -> impl Future<Output = io::Result<(u64, Self::BidiStream)>> + Send;
 
     /// Accept the next unidirectional stream opened by the peer.
@@ -56,17 +69,6 @@ pub trait QuicConnectionTrait: Clone + Send + Sync + 'static {
 
     /// Close the entire QUIC connection with an error code and reason.
     fn close(&self, error_code: u64, reason: &[u8]);
-
-    /// Stop a unidirectional receive stream, signaling an error code to the peer.
-    ///
-    /// Sends STOP_SENDING. Takes ownership of the stream since it cannot be read after stopping.
-    fn stop_uni(&self, stream: Self::RecvStream, error_code: u64);
-
-    /// Stop a bidirectional stream, signaling an error code to the peer.
-    ///
-    /// Sends STOP_SENDING on the receive side and RESET_STREAM on the send side.
-    /// Takes ownership of the stream since it cannot be used after stopping.
-    fn stop_bidi(&self, stream: Self::BidiStream, error_code: u64);
 
     /// Send an unreliable datagram over the QUIC connection.
     ///
@@ -142,6 +144,20 @@ pub trait QuicBinding: Send + Sync + 'static {
 #[derive(Debug, Clone, Copy)]
 pub enum NoQuic {}
 
+impl QuicTransportSend for NoQuic {
+    fn reset(&mut self, _code: u64) {
+        match *self {}
+    }
+}
+
+impl QuicTransportReceive for NoQuic {
+    fn stop(&mut self, _code: u64) {
+        match *self {}
+    }
+}
+
+impl QuicTransportBidi for NoQuic {}
+
 impl QuicConnectionTrait for NoQuic {
     type BidiStream = NoQuic;
     type RecvStream = NoQuic;
@@ -169,14 +185,6 @@ impl QuicConnectionTrait for NoQuic {
 
     fn close(&self, _: u64, _: &[u8]) {
         match *self {}
-    }
-
-    fn stop_uni(&self, stream: Self::RecvStream, _: u64) {
-        match stream {}
-    }
-
-    fn stop_bidi(&self, stream: Self::BidiStream, _: u64) {
-        match stream {}
     }
 
     fn send_datagram(&self, _: &[u8]) -> io::Result<()> {
@@ -229,14 +237,15 @@ impl QuicBinding for () {
 // -- Type-erased QuicConnection --
 
 type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-type BoxedRecvStream = Box<dyn AsyncRead + Unpin + Send + Sync>;
-type BoxedSendStream = Box<dyn AsyncWrite + Unpin + Send + Sync>;
+pub(crate) type BoxedRecvStream = Box<dyn QuicTransportReceive + Unpin + Send + Sync>;
+pub(crate) type BoxedSendStream = Box<dyn QuicTransportSend + Unpin + Send + Sync>;
+pub(crate) type BoxedBidiStream = Box<dyn QuicTransportBidi + Unpin + Send + Sync>;
 
 trait ObjectSafeQuicConnection: Send + Sync {
-    fn accept_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedTransport)>>;
+    fn accept_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedBidiStream)>>;
     fn accept_uni(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedRecvStream)>>;
     fn open_uni(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedSendStream)>>;
-    fn open_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedTransport)>>;
+    fn open_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedBidiStream)>>;
     fn remote_address(&self) -> SocketAddr;
     fn close(&self, error_code: u64, reason: &[u8]);
     fn send_datagram(&self, data: &[u8]) -> io::Result<()>;
@@ -248,10 +257,10 @@ trait ObjectSafeQuicConnection: Send + Sync {
 }
 
 impl<T: QuicConnectionTrait> ObjectSafeQuicConnection for T {
-    fn accept_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedTransport)>> {
+    fn accept_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedBidiStream)>> {
         Box::pin(async {
             let (id, stream) = QuicConnectionTrait::accept_bidi(self).await?;
-            Ok((id, BoxedTransport::new(stream)))
+            Ok((id, Box::new(stream) as BoxedBidiStream))
         })
     }
 
@@ -269,10 +278,10 @@ impl<T: QuicConnectionTrait> ObjectSafeQuicConnection for T {
         })
     }
 
-    fn open_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedTransport)>> {
+    fn open_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedBidiStream)>> {
         Box::pin(async {
             let (id, stream) = QuicConnectionTrait::open_bidi(self).await?;
-            Ok((id, BoxedTransport::new(stream)))
+            Ok((id, Box::new(stream) as BoxedBidiStream))
         })
     }
 
@@ -324,7 +333,7 @@ impl<T: QuicConnectionTrait> From<T> for QuicConnection {
 
 impl QuicConnection {
     /// Accept the next bidirectional stream opened by the peer.
-    pub async fn accept_bidi(&self) -> io::Result<(u64, BoxedTransport)> {
+    pub async fn accept_bidi(&self) -> io::Result<(u64, BoxedBidiStream)> {
         self.0.accept_bidi().await
     }
 
@@ -339,7 +348,7 @@ impl QuicConnection {
     }
 
     /// Open a new bidirectional stream to the peer.
-    pub async fn open_bidi(&self) -> io::Result<(u64, BoxedTransport)> {
+    pub async fn open_bidi(&self) -> io::Result<(u64, BoxedBidiStream)> {
         self.0.open_bidi().await
     }
 

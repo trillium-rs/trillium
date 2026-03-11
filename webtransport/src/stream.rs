@@ -1,17 +1,18 @@
 use std::{
+    fmt::{self, Debug, Formatter},
     io,
     ops::Deref,
     pin::Pin,
     task::{Context, Poll},
 };
-use trillium_http::transport::BoxedTransport;
 use trillium_macros::{AsyncRead, AsyncWrite};
-use trillium_server_common::{AsyncRead, AsyncWrite};
+use trillium_server_common::{
+    AsyncRead, AsyncWrite, QuicTransportBidi, QuicTransportReceive, QuicTransportSend,
+};
 
 /// A received WebTransport datagram.
 ///
-/// Derefs to `&[u8]` and converts `Into<Vec<u8>>`. The internal representation
-/// is not part of the public API and may change in future versions.
+/// Derefs to `&[u8]` and converts `Into<Vec<u8>>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Datagram(Vec<u8>);
 
@@ -53,27 +54,45 @@ pub enum InboundStream {
     Uni(InboundUniStream),
 }
 
-pub(crate) type BoxedRecvStream = Box<dyn AsyncRead + Unpin + Send + Sync>;
-type BoxedSendStream = Box<dyn AsyncWrite + Unpin + Send + Sync>;
+pub(crate) type BoxedRecvStream = Box<dyn QuicTransportReceive + Unpin + Send + Sync>;
+type BoxedSendStream = Box<dyn QuicTransportSend + Unpin + Send + Sync>;
 
 /// An inbound bidirectional WebTransport stream opened by the client.
 ///
 /// Implements [`AsyncRead`] and [`AsyncWrite`].
-#[derive(AsyncWrite, Debug)]
+#[derive(AsyncWrite)]
 pub struct InboundBidiStream {
     buffer: Vec<u8>,
     offset: usize,
     #[async_write]
-    transport: BoxedTransport,
+    stream: Box<dyn QuicTransportBidi>,
+}
+
+impl Debug for InboundBidiStream {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InboundBidiStream")
+            .field("buffer", &self.buffer)
+            .field("offset", &self.offset)
+            .field("transport", &format_args!("Box<dyn QuicTransportBidi>"))
+            .finish()
+    }
 }
 
 impl InboundBidiStream {
-    pub(crate) fn new(transport: BoxedTransport, buffer: Vec<u8>) -> Self {
+    pub(crate) fn new(transport: Box<dyn QuicTransportBidi>, buffer: Vec<u8>) -> Self {
         Self {
             buffer,
             offset: 0,
-            transport,
+            stream: transport,
         }
+    }
+
+    pub fn reset(&mut self, code: Option<u64>) {
+        self.stream.reset(code.unwrap_or(0));
+    }
+
+    pub fn stop(&mut self, code: Option<u64>) {
+        self.stream.stop(code.unwrap_or(0));
     }
 }
 
@@ -87,7 +106,7 @@ impl AsyncRead for InboundBidiStream {
         read_buffered(
             &mut this.buffer,
             &mut this.offset,
-            &mut this.transport,
+            &mut this.stream,
             cx,
             buf,
         )
@@ -103,8 +122,8 @@ pub struct InboundUniStream {
     stream: BoxedRecvStream,
 }
 
-impl std::fmt::Debug for InboundUniStream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for InboundUniStream {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("InboundUniStream")
             .field("buffer", &self.buffer)
             .field("offset", &self.offset)
@@ -119,6 +138,10 @@ impl InboundUniStream {
             offset: 0,
             stream,
         }
+    }
+
+    pub fn stop(&mut self, code: Option<u64>) {
+        self.stream.stop(code.unwrap_or(0));
     }
 }
 
@@ -143,17 +166,25 @@ impl AsyncRead for InboundUniStream {
 ///
 /// Implements [`AsyncRead`] and [`AsyncWrite`].
 #[derive(AsyncRead, AsyncWrite)]
-pub struct OutboundBidiStream(#[async_io] BoxedTransport);
+pub struct OutboundBidiStream(Box<dyn QuicTransportBidi>);
 
-impl std::fmt::Debug for OutboundBidiStream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for OutboundBidiStream {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("OutboundBidiStream").finish_non_exhaustive()
     }
 }
 
 impl OutboundBidiStream {
-    pub(crate) fn new(transport: BoxedTransport) -> Self {
+    pub(crate) fn new(transport: Box<dyn QuicTransportBidi>) -> Self {
         Self(transport)
+    }
+
+    pub fn stop(&mut self, code: Option<u64>) {
+        self.0.stop(code.unwrap_or(0));
+    }
+
+    pub fn reset(&mut self, code: Option<u64>) {
+        self.0.reset(code.unwrap_or(0));
     }
 }
 
@@ -161,10 +192,10 @@ impl OutboundBidiStream {
 ///
 /// Implements [`AsyncWrite`].
 #[derive(AsyncWrite)]
-pub struct OutboundUniStream(#[async_write] BoxedSendStream);
+pub struct OutboundUniStream(BoxedSendStream);
 
-impl std::fmt::Debug for OutboundUniStream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for OutboundUniStream {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("OutboundUniStream").finish_non_exhaustive()
     }
 }
@@ -172,6 +203,10 @@ impl std::fmt::Debug for OutboundUniStream {
 impl OutboundUniStream {
     pub(crate) fn new(stream: BoxedSendStream) -> Self {
         Self(stream)
+    }
+
+    pub fn reset(&mut self, code: Option<u64>) {
+        self.0.reset(code.unwrap_or(0));
     }
 }
 

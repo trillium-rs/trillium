@@ -30,7 +30,7 @@ pub use forwarded::Forwarded;
 mod parse_utils;
 
 use std::{fmt::Debug, net::IpAddr, ops::Deref};
-use trillium::{Conn, Handler, Status};
+use trillium::{Conn, Handler, Status, Transport};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -158,8 +158,7 @@ impl Handler for Forwarding {
 
         log::debug!("received trusted forwarded {:?}", &forwarded);
 
-        let inner_mut: &mut trillium_http::Conn<trillium_http::transport::BoxedTransport> =
-            conn.as_mut();
+        let inner_mut: &mut trillium_http::Conn<Box<dyn Transport>> = conn.as_mut();
 
         if let Some(host) = forwarded.host() {
             inner_mut.set_host(String::from(host));

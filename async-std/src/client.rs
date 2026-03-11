@@ -41,6 +41,7 @@ impl ClientConfig {
 impl Connector for ClientConfig {
     type Runtime = AsyncStdRuntime;
     type Transport = AsyncStdTransport<TcpStream>;
+    type Udp = crate::AsyncStdUdpSocket;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         if url.scheme() != "http" {

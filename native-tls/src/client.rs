@@ -66,6 +66,7 @@ impl<Config> AsRef<Config> for NativeTlsConfig<Config> {
 impl<T: Connector> Connector for NativeTlsConfig<T> {
     type Runtime = T::Runtime;
     type Transport = NativeTlsClientTransport<T::Transport>;
+    type Udp = T::Udp;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         match url.scheme() {

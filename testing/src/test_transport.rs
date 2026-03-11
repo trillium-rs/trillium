@@ -23,7 +23,7 @@ pub struct TestTransport {
     pub write: Arc<CloseableCursor>,
 }
 
-impl trillium_http::transport::Transport for TestTransport {}
+impl trillium::Transport for TestTransport {}
 
 impl TestTransport {
     /// constructs a new test transport pair, representing two ends of

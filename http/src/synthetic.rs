@@ -1,6 +1,6 @@
 use crate::{
     Conn, Headers, KnownHeaderName, Method, ServerConfig, TypeSet, Version, after_send::AfterSend,
-    http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState, transport::Transport,
+    http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
 use std::{
@@ -56,8 +56,6 @@ impl Synthetic {
         self.closed = true;
     }
 }
-
-impl Transport for Synthetic {}
 
 impl AsyncWrite for Synthetic {
     fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, _buf: &[u8]) -> Poll<Result<usize>> {

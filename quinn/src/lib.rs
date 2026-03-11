@@ -11,9 +11,11 @@
 //! - `custom-crypto-provider` — bring your own provider via
 //!   `rustls::crypto::CryptoProvider::install_default`
 
+mod client;
 mod config;
 mod connection;
 mod crypto_provider;
 mod runtime;
 
+pub use client::ClientQuicConfig;
 pub use config::QuicConfig;

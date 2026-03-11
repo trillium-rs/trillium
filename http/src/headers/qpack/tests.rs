@@ -1,14 +1,16 @@
 use super::PseudoHeaders;
-use crate::{
-    HeaderValue, Headers, KnownHeaderName, Method, Status,
-    headers::qpack::{decoder::decode_field_section, encoder::encode_field_section},
-};
+use crate::{HeaderValue, Headers, KnownHeaderName, Method, Status, headers::qpack::FieldSection};
 use std::borrow::Cow;
 
-fn roundtrip(pseudos: PseudoHeaders<'_>, headers: &Headers) -> (PseudoHeaders<'static>, Headers) {
+fn roundtrip(
+    pseudo_headers: PseudoHeaders<'_>,
+    headers: &Headers,
+) -> (PseudoHeaders<'static>, Headers) {
     let mut buf = Vec::new();
-    encode_field_section(&pseudos, headers, &mut buf);
-    decode_field_section(&buf).expect("decode failed")
+    FieldSection::new(pseudo_headers, headers).encode(&mut buf);
+    FieldSection::decode(&buf)
+        .expect("decode failed")
+        .into_parts()
 }
 
 #[test]
@@ -120,7 +122,9 @@ fn rfc9204_b1_decode() {
         0x51, 0x0b, 0x2f, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x2e, 0x68, 0x74, 0x6d, 0x6c,
     ];
 
-    let (pseudos, headers) = decode_field_section(bytes).expect("decode failed");
+    let (pseudos, headers) = FieldSection::decode(bytes)
+        .expect("decode failed")
+        .into_parts();
     assert_eq!(pseudos.path.as_deref(), Some("/index.html"));
     assert!(headers.is_empty());
 
@@ -233,33 +237,33 @@ fn roundtrip_long_header_value() {
 
 #[test]
 fn decode_empty_input() {
-    assert!(decode_field_section(&[]).is_err());
+    assert!(FieldSection::decode(&[]).is_err());
 }
 
 #[test]
 fn decode_truncated_prefix() {
-    assert!(decode_field_section(&[0x00]).is_err());
+    assert!(FieldSection::decode(&[0x00]).is_err());
 }
 
 #[test]
 fn decode_nonzero_required_insert_count() {
-    assert!(decode_field_section(&[0x01, 0x00]).is_err());
+    assert!(FieldSection::decode(&[0x01, 0x00]).is_err());
 }
 
 #[test]
 fn decode_dynamic_table_indexed() {
-    assert!(decode_field_section(&[0x00, 0x00, 0x10]).is_err());
+    assert!(FieldSection::decode(&[0x00, 0x00, 0x10]).is_err());
 }
 
 #[test]
 fn decode_dynamic_table_name_ref() {
-    assert!(decode_field_section(&[0x00, 0x00, 0x00]).is_err());
+    assert!(FieldSection::decode(&[0x00, 0x00, 0x00]).is_err());
 }
 
 #[test]
 fn decode_static_index_out_of_range() {
     let buf = vec![0x00, 0x00, 0xFF, 0x24];
-    assert!(decode_field_section(&buf).is_err());
+    assert!(FieldSection::decode(&buf).is_err());
 }
 
 #[test]
@@ -270,5 +274,5 @@ fn decode_truncated_string_value() {
         0x05, // string length 5, no huffman
         0x2f, 0x61, // only 2 bytes of the promised 5
     ];
-    assert!(decode_field_section(&buf).is_err());
+    assert!(FieldSection::decode(&buf).is_err());
 }

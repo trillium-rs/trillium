@@ -1,6 +1,6 @@
 /// This file represents representative use cases in order to ensure future changes take them
 /// into consideration
-use std::{future::Future, marker::PhantomData, sync::Arc};
+use std::{future::Future, io, marker::PhantomData, sync::Arc};
 use test_harness::test;
 use trillium_client::{Client, Connector, Url};
 use trillium_http::{Conn, KnownHeaderName, ServerConfig};
@@ -47,8 +47,9 @@ where
 {
     type Runtime = Runtime;
     type Transport = TestTransport;
+    type Udp = ();
 
-    async fn connect(&self, _: &Url) -> std::io::Result<Self::Transport> {
+    async fn connect(&self, _: &Url) -> io::Result<Self::Transport> {
         let (client_transport, server_transport) = TestTransport::new();
 
         let handler = self.handler.clone();

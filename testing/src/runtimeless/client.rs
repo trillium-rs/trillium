@@ -18,6 +18,7 @@ impl RuntimelessClientConfig {
 impl Connector for RuntimelessClientConfig {
     type Runtime = RuntimelessRuntime;
     type Transport = TestTransport;
+    type Udp = ();
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
         let (tx, _) = &*SERVERS

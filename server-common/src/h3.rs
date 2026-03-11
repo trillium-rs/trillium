@@ -1,13 +1,15 @@
 //! HTTP/3 specific exports
 
 pub mod web_transport;
-use crate::{ArcHandler, QuicBinding, QuicConnection, QuicConnectionTrait, Runtime};
+use crate::{
+    ArcHandler, QuicBinding, QuicConnection, QuicConnectionTrait, QuicTransportReceive,
+    QuicTransportSend, Runtime,
+};
 use std::sync::Arc;
-use trillium::Handler;
+use trillium::{Handler, Transport};
 use trillium_http::{
     ServerConfig,
     h3::{H3Connection, H3Error, H3ErrorCode, H3StreamResult, UniStreamResult},
-    transport::BoxedTransport,
 };
 use web_transport::{WebTransportDispatcher, WebTransportStream};
 
@@ -112,8 +114,8 @@ async fn handle_inbound_bidi_streams<QC: QuicConnectionTrait>(
 
             match result {
                 Ok(H3StreamResult::Request(conn)) if conn.should_upgrade() => {
-                    let upgrade =
-                        trillium_http::Upgrade::from(conn).map_transport(BoxedTransport::new);
+                    let upgrade = trillium_http::Upgrade::from(conn)
+                        .map_transport(|t| Box::new(t) as Box<dyn Transport>);
                     if handler.has_upgrade(&upgrade) {
                         log::debug!("upgrading h3 stream");
                         handler.upgrade(upgrade).await;
@@ -124,17 +126,18 @@ async fn handle_inbound_bidi_streams<QC: QuicConnectionTrait>(
                 Ok(H3StreamResult::Request(_)) => {}
                 Ok(H3StreamResult::WebTransport {
                     session_id,
-                    transport,
+                    mut transport,
                     buffer,
                 }) => {
                     if let Some(dispatcher) = &wt_dispatcher {
                         dispatcher.dispatch(WebTransportStream::Bidi {
                             session_id,
-                            stream: BoxedTransport::new(transport),
+                            stream: Box::new(transport),
                             buffer: buffer.into(),
                         });
                     } else {
-                        connection.stop_bidi(transport, H3ErrorCode::StreamCreationError.into());
+                        transport.stop(H3ErrorCode::StreamCreationError.into());
+                        transport.reset(H3ErrorCode::StreamCreationError.into());
                     }
                 }
                 Err(error) => handle_h3_error(error, &connection, &h3).await,
@@ -164,7 +167,7 @@ fn spawn_inbound_uni_streams<QC: QuicConnectionTrait>(
                     Ok(UniStreamResult::Handled) => {}
                     Ok(UniStreamResult::WebTransport {
                         session_id,
-                        stream,
+                        mut stream,
                         buffer,
                     }) => {
                         if let Some(dispatcher) = &wt_dispatcher {
@@ -174,11 +177,11 @@ fn spawn_inbound_uni_streams<QC: QuicConnectionTrait>(
                                 buffer: buffer.into(),
                             });
                         } else {
-                            connection.stop_uni(stream, H3ErrorCode::StreamCreationError.into());
+                            stream.stop(H3ErrorCode::StreamCreationError.into());
                         }
                     }
-                    Ok(UniStreamResult::Unknown { stream, .. }) => {
-                        connection.stop_uni(stream, H3ErrorCode::StreamCreationError.into());
+                    Ok(UniStreamResult::Unknown { mut stream, .. }) => {
+                        stream.stop(H3ErrorCode::StreamCreationError.into());
                     }
                     Err(error) => {
                         handle_h3_error(error, &connection, &h3).await;
