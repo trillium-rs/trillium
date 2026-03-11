@@ -41,7 +41,7 @@ Please enable `ring`, `aws-lc-rs`, or `custom-crypto-provider`.
 
 To use ring or aws-lc-rs, nothing further is needed than enabling the feature.
 To use `custom-crypto-provider`, either configure a `rustls::ServerConfig::builder_with_provider` \
-        and pass it to `trillium_quinn::QuicConfig::from_rustls_server_config`, or use \
-        `rustls::crypto::CryptoProvider::install_default` before building the config.\n\n"
+         and pass it to `trillium_quinn::QuicConfig::from_rustls_server_config`, or use \
+         `rustls::crypto::CryptoProvider::install_default` before building the config.\n\n"
     )
 }
