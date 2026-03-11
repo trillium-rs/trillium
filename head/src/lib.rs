@@ -14,8 +14,7 @@
     unused_qualifications
 )]
 
-use trillium::{Conn, Handler, KnownHeaderName::ContentLength, Method};
-use trillium_http::transport::BoxedTransport;
+use trillium::{Conn, Handler, KnownHeaderName::ContentLength, Method, Transport};
 
 /// Trillium handler for HEAD requests
 ///
@@ -38,7 +37,8 @@ struct RequestWasHead;
 impl Handler for Head {
     async fn run(&self, mut conn: Conn) -> Conn {
         if conn.method() == Method::Head {
-            AsMut::<trillium_http::Conn<BoxedTransport>>::as_mut(&mut conn).set_method(Method::Get);
+            AsMut::<trillium_http::Conn<Box<dyn Transport>>>::as_mut(&mut conn)
+                .set_method(Method::Get);
             conn.insert_state(RequestWasHead);
         }
 
@@ -49,7 +49,8 @@ impl Handler for Head {
         if conn.state::<RequestWasHead>().is_none() {
             return conn;
         }
-        AsMut::<trillium_http::Conn<BoxedTransport>>::as_mut(&mut conn).set_method(Method::Head);
+        AsMut::<trillium_http::Conn<Box<dyn Transport>>>::as_mut(&mut conn)
+            .set_method(Method::Head);
         if let Some(len) = conn.take_response_body().and_then(|body| body.len()) {
             conn.response_headers_mut().insert(ContentLength, len);
         }

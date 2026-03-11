@@ -9,14 +9,15 @@ use futures_util::{
 };
 use std::{
     borrow::Cow,
+    fmt::Debug,
     net::IpAddr,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
 use swansong::{Interrupt, Swansong};
-use trillium::{Headers, Method, TypeSet, Upgrade};
-use trillium_http::{ServerConfig, transport::BoxedTransport, type_set::entry::Entry};
+use trillium::{Headers, Method, Transport, TypeSet, Upgrade};
+use trillium_http::{ServerConfig, type_set::entry::Entry};
 
 /// A struct that represents an specific websocket connection.
 ///
@@ -26,8 +27,6 @@ use trillium_http::{ServerConfig, transport::BoxedTransport, type_set::entry::En
 ///
 /// The WebSocketConn implements `Stream<Item=Result<Message, Error>>`,
 /// and can be polled with `StreamExt::next`
-
-#[derive(Debug)]
 pub struct WebSocketConn {
     request_headers: Headers,
     path: Cow<'static, str>,
@@ -39,7 +38,21 @@ pub struct WebSocketConn {
     stream: Option<WStream>,
 }
 
-type Wss = WebSocketStream<BoxedTransport>;
+impl Debug for WebSocketConn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebSocketConn")
+            .field("request_headers", &self.request_headers)
+            .field("path", &self.path)
+            .field("method", &self.method)
+            .field("state", &self.state)
+            .field("peer_ip", &self.peer_ip)
+            .field("server_config", &self.server_config)
+            .field("stream", &self.stream)
+            .finish_non_exhaustive()
+    }
+}
+
+type Wss = WebSocketStream<Box<dyn Transport>>;
 
 impl WebSocketConn {
     /// send a [`Message::Text`] variant
@@ -195,9 +208,14 @@ impl WebSocketConn {
 
 type MessageResult = std::result::Result<Message, tungstenite::Error>;
 
-#[derive(Debug)]
 pub struct WStream {
     stream: Interrupt<SplitStream<Wss>>,
+}
+
+impl Debug for WStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WStream").finish_non_exhaustive()
+    }
 }
 
 impl Stream for WStream {

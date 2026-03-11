@@ -1,3 +1,4 @@
+use crate::h3::H3Body;
 use BodyType::{Empty, Static, Streaming};
 use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor, ready};
 use std::{
@@ -128,6 +129,18 @@ impl Body {
     /// determine if the this body represents streaming content
     pub fn is_streaming(&self) -> bool {
         matches!(self.0, Streaming { .. })
+    }
+
+    /// Convert this body into an `H3Body` for reading
+    #[cfg(feature = "unstable")]
+    pub fn into_h3(self) -> H3Body {
+        H3Body::new(self)
+    }
+
+    /// Convert this body into an `H3Body` for reading
+    #[cfg(not(feature = "unstable"))]
+    pub(crate) fn into_h3(self) -> H3Body {
+        H3Body::new(self)
     }
 }
 

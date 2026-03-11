@@ -1,10 +1,16 @@
+//! Header types
 mod entry;
 mod header_name;
 mod header_value;
 mod header_values;
 mod known_header_name;
-pub(crate) mod qpack;
 mod unknown_header_name;
+
+#[cfg(feature = "unstable")]
+pub mod qpack;
+
+#[cfg(not(feature = "unstable"))]
+pub(crate) mod qpack;
 
 use crate::headers::entry::{OccupiedEntryInner, VacantEntryInner};
 pub use entry::{Entry, OccupiedEntry, VacantEntry};
@@ -427,6 +433,7 @@ impl<'a> IntoIterator for &'a Headers {
     }
 }
 
+/// An owned iterator for Headers
 #[derive(Debug)]
 pub struct IntoIter {
     known: btree_map::IntoIter<KnownHeaderName, HeaderValues>,
@@ -454,6 +461,7 @@ impl From<Headers> for IntoIter {
     }
 }
 
+/// A borrowed iterator for Headers
 #[derive(Debug)]
 pub struct Iter<'a> {
     known: btree_map::Iter<'a, KnownHeaderName, HeaderValues>,

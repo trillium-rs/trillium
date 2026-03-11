@@ -47,6 +47,9 @@ trillium = { path = "../trillium" }
 trillium-client = { path = ".", features = ["websockets"] }
 trillium-smol = { path = "../smol/" }
 trillium-testing = { path = "../testing" }
+trillium-tokio = { path = "../tokio" }
+trillium-rustls = { path = "../rustls" }
+trillium-quinn = { path = "../quinn", features = ["webpki-roots"] }
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium"]

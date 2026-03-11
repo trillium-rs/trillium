@@ -1,18 +1,19 @@
-use crate::{body::BodyType, h3::Frame};
+use crate::{Body, body::BodyType, h3::Frame};
 use futures_lite::{AsyncRead, ready};
 use std::{io, pin::Pin, task::Poll};
 
-/// This is a temporary wrapper type that will eventually be integrated into Body's AsyncRead
+/// This is a temporary wrapper type that will eventually be integrated into Body's `AsyncRead`
 /// through a Version switch, but for now it's easier to keep it distinct
-pub(crate) struct H3BodyWrapper {
-    pub(crate) body: BodyType,
+#[derive(Debug)]
+pub struct H3Body {
+    body: BodyType,
     /// Whether the DATA frame header has been written for known-length bodies.
     /// Always false for unknown-length (each poll emits its own frame).
     header_written: bool,
 }
 
-impl H3BodyWrapper {
-    pub(crate) fn new(body: BodyType) -> Self {
+impl From<BodyType> for H3Body {
+    fn from(body: BodyType) -> Self {
         Self {
             body,
             header_written: false,
@@ -20,7 +21,13 @@ impl H3BodyWrapper {
     }
 }
 
-impl AsyncRead for H3BodyWrapper {
+impl H3Body {
+    pub(crate) fn new(body: Body) -> Self {
+        body.0.into()
+    }
+}
+
+impl AsyncRead for H3Body {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,

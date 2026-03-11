@@ -3,8 +3,7 @@ use async_tungstenite::{WebSocketStream, client_async};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::pin::Pin;
-use trillium::log_error;
-use trillium_http::transport::BoxedTransport;
+use trillium::{Transport, log_error};
 use trillium_websockets::{JsonWebSocketHandler, Message, Result, WebSocket, WebSocketConn};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -54,7 +53,7 @@ impl JsonWebSocketHandler for SomeJsonChannel {
     }
 }
 async fn send<Out: Serialize, In: DeserializeOwned>(
-    client: &mut WebSocketStream<BoxedTransport>,
+    client: &mut WebSocketStream<Box<dyn Transport>>,
     message: &Out,
 ) -> In {
     client

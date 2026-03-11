@@ -52,7 +52,9 @@ pub use trillium_http::{
 
 mod util;
 
-pub use trillium_server_common::{ArcedConnector, Connector, Url};
+pub use trillium_server_common::{
+    ArcedConnector, ArcedQuicConnector, Connector, QuicConnector, Url,
+};
 
 /// constructs a new [`Client`] -- alias for [`Client::new`]
 pub fn client(connector: impl Connector) -> Client {
@@ -61,3 +63,5 @@ pub fn client(connector: impl Connector) -> Client {
 
 mod into_url;
 pub use into_url::IntoUrl;
+
+mod h3;

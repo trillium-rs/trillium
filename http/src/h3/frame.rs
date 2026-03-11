@@ -5,7 +5,7 @@ use super::{
 };
 
 mod stream;
-pub(crate) use stream::FrameStream;
+pub use stream::{ActiveFrame, FrameStream};
 
 #[cfg(test)]
 mod tests;
@@ -119,7 +119,7 @@ impl FrameHeader {
 
 /// Errors from [`Frame::decode`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FrameDecodeError {
+pub enum FrameDecodeError {
     /// Not enough bytes in the input yet.
     Incomplete,
     /// Protocol violation.
@@ -134,35 +134,44 @@ impl From<H3ErrorCode> for FrameDecodeError {
 
 /// A decoded H3 frame.
 ///
-/// For large-payload frame types (Data, Headers, PushPromise, Unknown),
-/// only the frame header is consumed; the payload bytes remain in the
-/// rest slice for the caller to handle. For control frames (Settings,
-/// Goaway, etc.), the payload is fully parsed and consumed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Frame {
+/// For large-payload frame types (`Data`, `Headers`, `PushPromise`, `Unknown`, and `WebTransport`),
+/// only the frame header is consumed; the payload bytes remain in the rest slice for the caller to
+/// handle. For control frames (Settings, Goaway, etc.), the payload is fully parsed and consumed.
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum Frame {
     /// DATA frame — `payload_length` bytes of body data follow in the rest slice.
     Data(u64),
+
     /// HEADERS frame — `payload_length` bytes of QPACK-encoded field section follow.
     Headers(u64),
-    /// CANCEL_PUSH frame — the push ID to cancel.
+
+    /// `CANCEL_PUSH` frame — the push ID to cancel.
     CancelPush(u64),
+
     /// SETTINGS frame — fully parsed connection settings.
     Settings(H3Settings),
-    /// PUSH_PROMISE frame — push ID, then `field_section_length` bytes of
+
+    /// `PUSH_PROMISE` frame — push ID, then `field_section_length` bytes of
     /// QPACK-encoded field section follow in the rest slice.
     PushPromise {
+        /// The id for this push
         push_id: u64,
+        /// header length
         field_section_length: u64,
     },
-    /// GOAWAY frame — stream or push ID for graceful shutdown.
+
+    /// `GOAWAY` frame — stream or push ID for graceful shutdown.
     Goaway(u64),
-    /// MAX_PUSH_ID frame — maximum push ID the peer will accept.
+
+    /// `MAX_PUSH_ID` frame — maximum push ID the peer will accept.
     MaxPushId(u64),
+
     /// WebTransport bidi stream signal — the session ID.
     ///
     /// Unlike other frames, there is no length-delimited payload. The rest of the
     /// stream is raw application data belonging to the WebTransport session.
     WebTransport(u64),
+
     /// Unknown frame type — `payload_length` bytes to skip follow in the rest slice.
     Unknown(u64),
 }
@@ -171,9 +180,14 @@ impl Frame {
     /// Decode a frame from the front of `input`.
     ///
     /// Returns the decoded frame and the number of bytes consumed.
-    /// For Data, Headers, PushPromise, and Unknown frames, only the frame
+    /// For `Data`, `Headers`, `PushPromise`, and `Unknown` frames, only the frame
     /// header is consumed — the payload remains unconsumed.
     /// For control frames the entire frame (header + payload) is consumed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `FrameDecodeError` if we have not read sufficient content or if we encounter a
+    /// protocol error
     // Note: on incomplete input this re-parses the frame header from
     // scratch, which is fine — frame headers are at most 16 bytes.
     // Revisit if profiling shows this is hot.

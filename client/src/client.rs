@@ -1,11 +1,11 @@
-use crate::{Conn, IntoUrl, Pool, USER_AGENT};
+use crate::{Conn, IntoUrl, Pool, USER_AGENT, h3::H3ClientState};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
     HeaderName, HeaderValues, Headers, KnownHeaderName, Method, ReceivedBodyState, TypeSet,
-    Version::Http1_1, transport::BoxedTransport,
+    Version::Http1_1,
 };
 use trillium_server_common::{
-    ArcedConnector, Connector,
+    ArcedConnector, ArcedQuicConnector, Connector, QuicConnector, Transport,
     url::{Origin, Url},
 };
 
@@ -14,7 +14,8 @@ use trillium_server_common::{
 #[derive(Clone, Debug)]
 pub struct Client {
     config: ArcedConnector,
-    pool: Option<Pool<Origin, BoxedTransport>>,
+    h3: Option<H3ClientState>,
+    pool: Option<Pool<Origin, Box<dyn Transport>>>,
     base: Option<Arc<Url>>,
     default_headers: Arc<Headers>,
     timeout: Option<Duration>,
@@ -79,6 +80,29 @@ impl Client {
     pub fn new(connector: impl Connector) -> Self {
         Self {
             config: ArcedConnector::new(connector),
+            h3: None,
+            pool: None,
+            base: None,
+            default_headers: Arc::new(default_request_headers()),
+            timeout: None,
+        }
+    }
+
+    /// Build a new client with both a TCP connector and a QUIC connector for HTTP/3 support.
+    ///
+    /// The connector's runtime and UDP socket type are bound to the QUIC connector here,
+    /// before type erasure, so that `trillium-quinn` and the runtime adapter remain
+    /// independent crates that neither depends on the other.
+    ///
+    /// When H3 is configured, the client will track `Alt-Svc` headers in responses and
+    /// automatically use HTTP/3 for subsequent requests to origins that advertise it.
+    /// Requests to origins without a cached alt-svc entry continue to use HTTP/1.1.
+    pub fn new_with_quic<C: Connector, Q: QuicConnector<C>>(connector: C, quic: Q) -> Self {
+        // Bind the runtime into the QUIC connector before consuming `connector`.
+        let arced_quic = ArcedQuicConnector::new(&connector, quic);
+        Self {
+            config: ArcedConnector::new(connector),
+            h3: Some(H3ClientState::new(arced_quic)),
             pool: None,
             base: None,
             default_headers: Arc::new(default_request_headers()),
@@ -160,6 +184,7 @@ impl Client {
             status: None,
             request_body: None,
             pool: self.pool.clone(),
+            h3: self.h3.clone(),
             buffer: Vec::with_capacity(128).into(),
             response_body_state: ReceivedBodyState::Start,
             config: self.config.clone(),

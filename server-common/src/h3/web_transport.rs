@@ -1,13 +1,11 @@
 //! WebTransport types
 
+use crate::quic::{BoxedBidiStream, BoxedRecvStream};
 use std::{
     any::Any,
     fmt::{self, Debug},
     sync::{Arc, RwLock},
 };
-use trillium_http::transport::BoxedTransport;
-
-type BoxedRecvStream = Box<dyn futures_lite::AsyncRead + Unpin + Send + Sync>;
 
 /// An inbound WebTransport stream, dispatched by [`WebTransportDispatcher`] to the registered
 /// handler.
@@ -20,7 +18,7 @@ pub enum WebTransportStream {
         #[field(copy)]
         session_id: u64,
         /// The stream transport, ready for application data.
-        stream: BoxedTransport,
+        stream: BoxedBidiStream,
         /// Any bytes buffered after the session ID during stream negotiation.
         buffer: Vec<u8>,
     },

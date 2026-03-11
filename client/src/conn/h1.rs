@@ -12,8 +12,7 @@ use std::{
 use trillium_http::{
     Body, Error,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
-    Method, ReceivedBody, ReceivedBodyState, Result, Status, TypeSet, Upgrade,
-    transport::BoxedTransport,
+    Method, ReceivedBody, ReceivedBodyState, Result, Status, TypeSet, Upgrade, Version,
 };
 use trillium_server_common::{Connector, Transport};
 
@@ -38,12 +37,14 @@ impl Conn {
         match self.body_len() {
             Some(0) => {}
             Some(len) => {
-                self.request_headers.insert(Expect, "100-continue");
-                self.request_headers.insert(ContentLength, len);
+                self.request_headers
+                    .insert(Expect, "100-continue")
+                    .insert(ContentLength, len);
             }
             None => {
-                self.request_headers.insert(Expect, "100-continue");
-                self.request_headers.insert(TransferEncoding, "chunked");
+                self.request_headers
+                    .insert(Expect, "100-continue")
+                    .insert(TransferEncoding, "chunked");
             }
         }
 
@@ -59,7 +60,7 @@ impl Conn {
         }
     }
 
-    async fn find_pool_candidate(&self, head: &[u8]) -> Result<Option<BoxedTransport>> {
+    async fn find_pool_candidate(&self, head: &[u8]) -> Result<Option<Box<dyn Transport>>> {
         let mut byte = [0];
         if let Some(pool) = &self.pool {
             for mut candidate in pool.candidates(&self.url.origin()) {
@@ -148,7 +149,7 @@ impl Conn {
         Ok(buf)
     }
 
-    fn transport(&mut self) -> &mut BoxedTransport {
+    fn transport(&mut self) -> &mut Box<dyn Transport> {
         self.transport.as_mut().unwrap()
     }
 
@@ -321,8 +322,10 @@ impl Conn {
     }
 
     pub(super) fn is_keep_alive(&self) -> bool {
-        self.response_headers
-            .eq_ignore_ascii_case(Connection, "keep-alive")
+        self.http_version() == Version::Http1_1
+            && self
+                .response_headers
+                .eq_ignore_ascii_case(Connection, "keep-alive")
     }
 
     pub(super) async fn finish_reading_body(&mut self) {
@@ -338,13 +341,6 @@ impl Conn {
         }
     }
 
-    async fn exec(&mut self) -> Result<()> {
-        self.finalize_headers()?;
-        self.connect_and_send_head().await?;
-        self.send_body_and_parse_head().await?;
-        Ok(())
-    }
-
     pub(super) fn response_content_length(&self) -> Option<u64> {
         if self.status == Some(Status::NoContent)
             || self.status == Some(Status::NotModified)
@@ -356,6 +352,16 @@ impl Conn {
                 .get_str(ContentLength)
                 .and_then(|c| c.parse().ok())
         }
+    }
+
+    pub(super) async fn exec_h1(&mut self) -> Result<()> {
+        self.finalize_headers()?;
+        self.connect_and_send_head().await?;
+        self.send_body_and_parse_head().await?;
+        if let Some(h3) = &self.h3 {
+            self.update_alt_svc_from_response(h3);
+        }
+        Ok(())
     }
 }
 
@@ -422,7 +428,7 @@ impl From<Conn> for Body {
     }
 }
 
-impl From<Conn> for ReceivedBody<'static, BoxedTransport> {
+impl From<Conn> for ReceivedBody<'static, Box<dyn Transport>> {
     fn from(mut conn: Conn) -> Self {
         let _ = conn.finalize_headers();
         let origin = conn.url.origin();
@@ -430,7 +436,7 @@ impl From<Conn> for ReceivedBody<'static, BoxedTransport> {
         let on_completion =
             conn.pool
                 .take()
-                .map(|pool| -> Box<dyn Fn(BoxedTransport) + Send + Sync> {
+                .map(|pool| -> Box<dyn Fn(Box<dyn Transport>) + Send + Sync> {
                     Box::new(move |transport| {
                         pool.insert(origin.clone(), PoolEntry::new(transport, None));
                     })
@@ -447,7 +453,7 @@ impl From<Conn> for ReceivedBody<'static, BoxedTransport> {
     }
 }
 
-impl From<Conn> for Upgrade<BoxedTransport> {
+impl From<Conn> for Upgrade<Box<dyn Transport>> {
     fn from(mut conn: Conn) -> Self {
         Upgrade::new(
             std::mem::take(&mut conn.request_headers),
@@ -498,6 +504,7 @@ impl Debug for Conn {
             .field("status", &self.status)
             .field("request_body", &self.request_body)
             .field("pool", &self.pool)
+            .field("h3", &self.h3.is_some())
             .field("buffer", &String::from_utf8_lossy(&self.buffer))
             .field("response_body_state", &self.response_body_state)
             .field("config", &self.config)

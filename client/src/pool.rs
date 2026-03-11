@@ -187,6 +187,29 @@ where
     pub fn cleanup(&self) {
         self.connections.retain(|_k, v| !v.is_empty())
     }
+
+    /// Returns a clone of a live candidate for `key` without removing it from the pool.
+    ///
+    /// Unlike [`candidates`](Self::candidates), this does not drain the entry — suitable for
+    /// multiplexed connection types (e.g. QUIC) where the same connection handles concurrent
+    /// requests. Expired entries are discarded as they are encountered.
+    pub fn peek_candidate<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+        V: Clone,
+    {
+        let pool_set = self.connections.get(key)?;
+        while let Some(entry) = pool_set.0.pop() {
+            if entry.is_expired() {
+                continue;
+            }
+            let value = entry.item.clone();
+            pool_set.0.force_push(entry);
+            return Some(value);
+        }
+        None
+    }
 }
 
 #[cfg(test)]

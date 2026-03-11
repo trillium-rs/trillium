@@ -76,7 +76,7 @@
 mod received_body;
 pub use received_body::ReceivedBody;
 #[cfg(feature = "unstable")]
-pub use received_body::ReceivedBodyState;
+pub use received_body::{H3BodyFrameType, ReceivedBodyState};
 
 mod error;
 pub use error::{Error, Result};
@@ -103,7 +103,12 @@ mod body;
 pub use body::Body;
 pub use type_set::{self, TypeSet};
 
+#[cfg(not(feature = "unstable"))]
 mod headers;
+
+#[cfg(feature = "unstable")]
+pub mod headers;
+
 pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName};
 
 mod status;
@@ -114,10 +119,6 @@ pub use method::Method;
 
 mod version;
 pub use version::Version;
-
-/// Types to represent the bidirectional data stream over which the
-/// HTTP protocol is communicated
-pub mod transport;
 
 /// A pre-rendered http response to send when the server is at capacity.
 pub const SERVICE_UNAVAILABLE: &[u8] = b"HTTP/1.1 503 Service Unavailable\r
@@ -155,7 +156,8 @@ pub use copy::copy;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use copy::copy;
 
-pub mod h3;
 mod liveness;
 mod server_config;
 pub use server_config::ServerConfig;
+
+pub mod h3;

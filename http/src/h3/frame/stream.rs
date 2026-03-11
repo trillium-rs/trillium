@@ -11,13 +11,15 @@ use std::io;
 /// A borrowed view over an `AsyncRead` transport that yields H3 frames.
 ///
 /// Unknown/GREASE frames are automatically skipped by [`next`](Self::next).
-pub(crate) struct FrameStream<'a, R> {
+#[derive(Debug)]
+pub struct FrameStream<'a, R> {
     reader: &'a mut R,
     buf: &'a mut Buffer,
     pending_skip: u64,
 }
 
 impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
+    /// Construct a new FrameStream
     pub fn new(reader: &'a mut R, buf: &'a mut Buffer) -> Self {
         Self {
             reader,
@@ -111,7 +113,8 @@ impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
 ///
 /// On drop, any unconsumed payload is recorded on the parent `FrameStream`
 /// and will be skipped at the start of the next [`FrameStream::next`] call.
-pub(crate) struct ActiveFrame<'b, 'a, R> {
+#[derive(Debug)]
+pub struct ActiveFrame<'b, 'a, R> {
     stream: &'b mut FrameStream<'a, R>,
     frame: Frame,
     remaining: u64,

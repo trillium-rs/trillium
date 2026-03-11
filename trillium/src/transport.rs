@@ -1,5 +1,3 @@
-mod boxed_transport;
-pub use boxed_transport::BoxedTransport;
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{any::Any, io::Result, net::SocketAddr, time::Duration};
 
@@ -87,3 +85,5 @@ impl Transport for Box<dyn Transport> {
         (**self).peer_addr()
     }
 }
+
+impl Transport for trillium_http::Synthetic {}
