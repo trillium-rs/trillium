@@ -6,6 +6,7 @@ use crate::{
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use memchr::memmem::Finder;
 use std::{
+    borrow::Cow,
     sync::Arc,
     time::{Instant, SystemTime},
 };
@@ -140,7 +141,6 @@ where
     ) -> Result<Self> {
         use crate::{HeaderName, HeaderValue};
         use httparse::{EMPTY_HEADER, Request};
-        use std::{borrow::Cow, str::FromStr};
 
         let (head_size, start_time) =
             Self::head(&mut transport, &mut buffer, &server_config).await?;
@@ -177,6 +177,8 @@ where
 
         let mut request_headers = Headers::new();
         for header in httparse_req.headers {
+            use std::str::FromStr;
+
             let header_name = HeaderName::from_str(header.name)?;
             let header_value = HeaderValue::from(header.value.to_owned());
             request_headers.append(header_name, header_value);
@@ -249,7 +251,7 @@ where
         let first_space = spaces.next().ok_or(Error::MissingMethod)?;
         let method = Method::parse(&buffer[0..first_space])?;
         let second_space = spaces.next().ok_or(Error::RequestPathMissing)?;
-        let path = Cow::Owned(
+        let mut path: Cow<'static, str> = Cow::Owned(
             std::str::from_utf8(&buffer[first_space + 1..second_space])
                 .map_err(|_| Error::RequestPathMissing)?
                 .to_string(),
