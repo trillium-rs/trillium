@@ -58,7 +58,10 @@ impl serde::Serialize for Headers {
 
 impl Display for Headers {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        for (n, v) in self {
+        // for testing
+        let mut data = self.iter().collect::<Vec<_>>();
+        data.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (n, v) in data {
             for v in v {
                 f.write_fmt(format_args!("{n}: {v}\r\n"))?;
             }

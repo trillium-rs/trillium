@@ -32,12 +32,16 @@ mod parse_utils;
 use std::{fmt::Debug, net::IpAddr, ops::Deref};
 use trillium::{Conn, Handler, Status, Transport};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[non_exhaustive]
 enum TrustProxy {
     Always,
+
+    #[default]
     Never,
+
     Cidr(Vec<cidr::AnyIpCidr>),
+
     Function(TrustFn),
 }
 
@@ -132,12 +136,6 @@ impl Forwarding {
     }
 }
 
-impl Default for TrustProxy {
-    fn default() -> Self {
-        Self::Never
-    }
-}
-
 impl Handler for Forwarding {
     async fn run(&self, mut conn: Conn) -> Conn {
         if !self.0.is_trusted(conn.peer_ip()) {
@@ -168,10 +166,13 @@ impl Handler for Forwarding {
             inner_mut.set_secure(proto == "https");
         }
 
-        if let Some(ip) = forwarded.forwarded_for().first() {
-            if let Ok(ip_addr) = ip.trim_start_matches('[').trim_end_matches(']').parse() {
-                inner_mut.set_peer_ip(Some(ip_addr));
-            }
+        if let Some(ip) = forwarded.forwarded_for().first()
+            && let Ok(ip_addr) = ip
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse::<IpAddr>()
+        {
+            inner_mut.set_peer_ip(Some(ip_addr));
         }
 
         conn.with_state(forwarded)

@@ -211,11 +211,15 @@ fn bulk_header_operations() {
         .without_header("x-Unknown-Header")
         .without_header(ContentLength);
 
-    assert_str_eq!(
-        headers.to_string(),
-        "Host: other-host\r\nServer: server\r\nServer: x\r\nother-Header: 1 + 2 = 3\r\nx-other: \
-         1\r\n"
-    );
+    let expected = indoc! {"
+        Host: other-host\r
+        Server: server\r
+        Server: x\r
+        other-Header: 1 + 2 = 3\r
+        x-other: 1\r
+    "};
+
+    assert_str_eq!(headers.to_string(), expected);
 
     assert_str_eq!(
         headers
@@ -251,11 +255,11 @@ fn combining_headers() {
             Content-Type: also only in b\r
             Server: known\r
             Server: also known\r
-            new-unknown: only in b\r
             a: b\r
             a: E\r
             c: d\r
             c: F\r
+            new-unknown: only in b\r
         "},
         extended.to_string(),
     );
@@ -267,9 +271,9 @@ fn combining_headers() {
             Host: also known\r
             Content-Type: also only in b\r
             Server: also known\r
+            a: E\r
             c: F\r
             new-unknown: only in b\r
-            a: E\r
         "},
         insert_all.to_string(),
     );
@@ -283,11 +287,11 @@ fn combining_headers() {
             Content-Type: also only in b\r
             Server: known\r
             Server: also known\r
-            new-unknown: only in b\r
             a: b\r
             a: E\r
             c: d\r
             c: F\r
+            new-unknown: only in b\r
         "},
         append_all.to_string(),
     );

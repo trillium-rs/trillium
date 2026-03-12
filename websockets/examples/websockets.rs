@@ -1,4 +1,4 @@
-use futures_util::StreamExt;
+use futures_lite::StreamExt;
 use trillium_logger::logger;
 use trillium_websockets::{Message, WebSocketConn, websocket};
 

@@ -15,7 +15,6 @@ pub enum WebTransportStream {
     /// A bidirectional stream.
     Bidi {
         /// The WebTransport session ID (stream ID of the CONNECT request).
-        #[field(copy)]
         session_id: u64,
         /// The stream transport, ready for application data.
         stream: BoxedBidiStream,

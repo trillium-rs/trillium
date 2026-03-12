@@ -11,22 +11,22 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-io = "2.2.2"
-async-std = { version = "1.12.0", features = ["unstable"] }
-futures-lite = "2.3.0"
-log = "0.4.20"
+async-io = "2.6.0"
+async-std = { version = "1.13.2", features = ["unstable"] }
+futures-lite = "2.6.1"
+log = "0.4.29"
 trillium = { path = "../trillium", version = "0.2.20" }
 trillium-http = { path = "../http", version = "0.3.17" }
 trillium-macros = { version = "0.0.6", path = "../macros" }
 trillium-server-common = { path = "../server-common", version = "0.5.2" }
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.3.17"
-signal-hook-async-std = "0.2.2"
+signal-hook = "0.4.3"
+signal-hook-async-std = "0.4.0"
 
 [dev-dependencies]
-env_logger = "0.11.0"
+env_logger = "0.11.9"
 
 [dev-dependencies.async-std]
-version = "1.12.0"
+version = "1.13.2"
 features = ["attributes"]

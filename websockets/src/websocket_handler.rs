@@ -169,7 +169,7 @@ pub trait WebSocketHandler: Send + Sync + Sized + 'static {
     fn disconnect(
         &self,
         conn: &mut WebSocketConn,
-        close_frame: Option<CloseFrame<'static>>,
+        close_frame: Option<CloseFrame>,
     ) -> impl Future<Output = ()> + Send {
         async {}
     }

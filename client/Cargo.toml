@@ -16,20 +16,20 @@ json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
 parse = ["trillium-http/parse"]
 
 [dependencies]
-encoding_rs = "0.8.33"
-futures-lite = "2.1.0"
-httparse = "1.8.0"
-log = "0.4.20"
-size = "0.4.1"
+encoding_rs = "0.8.35"
+futures-lite = "2.6.1"
+httparse = "1.10.1"
+log = "0.4.29"
+size = "0.5.0"
 trillium-server-common = { version = "0.5.2", path = "../server-common" }
 trillium-websockets = { version = "0.6.6", path = "../websockets", optional = true }
 mime = "0.3.17"
-serde_json = { version = "1.0.108", optional = true }
-serde = { version = "1.0.193", optional = true }
-thiserror = { version = "2.0.11", optional = true }
-dashmap = "5.5.3"
-crossbeam-queue = "0.3.10"
-memchr = "2.7.1"
+serde_json = { version = "1.0.149", optional = true }
+serde = { version = "1.0.228", optional = true }
+thiserror = { version = "2.0.18", optional = true }
+dashmap = "6.1.0"
+crossbeam-queue = "0.3.12"
+memchr = "2.8.0"
 
 [dependencies.trillium-http]
 path = "../http"
@@ -37,12 +37,12 @@ features = ["unstable"]
 version = "0.3.17"
 
 [dev-dependencies]
-async-channel = "2.1.1"
-async-global-executor = "2.4.1"
-env_logger = "0.11.0"
-indoc = "2.0.4"
-pretty_assertions = "1.4.0"
-test-harness = "0.2.0"
+async-channel = "2.5.0"
+async-global-executor = "3.1.0"
+env_logger = "0.11.9"
+indoc = "2.0.7"
+pretty_assertions = "1.4.1"
+test-harness = "0.3.1"
 trillium = { path = "../trillium" }
 trillium-client = { path = ".", features = ["websockets"] }
 trillium-smol = { path = "../smol/" }

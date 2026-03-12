@@ -11,10 +11,10 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-log = "0.4.20"
-mime_guess = "2.0.4"
-serde = "1.0.193"
-tera = "1.19.1"
+log = "0.4.29"
+mime_guess = "2.0.5"
+serde = "1.0.228"
+tera = "1.20.1"
 trillium = { path = "../trillium", version = "0.2.20" }
 
 [dev-dependencies]

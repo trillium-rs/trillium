@@ -108,7 +108,7 @@ impl<'a> FieldSection<'a> {
         }
     }
 
-    /// Decompose a FieldSection into pseudo headers and headers
+    /// Decompose a `FieldSection` into pseudo headers and headers
     #[cfg(any(feature = "unstable", test))]
     pub fn into_parts(self) -> (PseudoHeaders<'a>, Headers) {
         (self.pseudo_headers, self.headers.into_owned())

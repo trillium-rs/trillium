@@ -11,19 +11,23 @@ keywords = ["trillium", "framework", "async", "logging"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-colored = "2.1.0"
-log = "0.4.20"
-size = "0.4.1"
-time = { version = "0.3.31", features = ["local-offset", "formatting", "macros"] }
+colored = "3.1.1"
+log = "0.4.29"
+size = "0.5.0"
+time = { version = "0.3.47", features = [
+        "local-offset",
+        "formatting",
+        "macros",
+] }
 trillium = { path = "../trillium", version = "0.2.20" }
 trillium-http = { path = "../http" }
-url = "2.5.0"
+url = "2.5.8"
 
 [dev-dependencies]
-access_log_parser = "0.8.0"
+access_log_parser = "0.11.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
-trillium-http = { path = "../http", features = ["http-compat"] }
+trillium-http = { path = "../http", features = ["http-compat-1"] }
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

@@ -16,27 +16,27 @@ forms = ["serde_urlencoded", "form_urlencoded"]
 url = ["dep:url"]
 
 [dependencies]
-form_urlencoded = { version = "1.2.1", optional = true }
-log = "0.4.20"
+form_urlencoded = { version = "1.2.2", optional = true }
+log = "0.4.29"
 mime = "0.3.17"
-serde = { version = "1.0.193", features = ["derive"] }
-serde_json = "1.0.108"
-serde_path_to_error = "0.1.14"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+serde_path_to_error = "0.1.20"
 serde_urlencoded = { version = "0.7.1", optional = true }
-thiserror = "2.0.11"
+thiserror = "2.0.18"
 trillium = { path = "../trillium", version = "0.2.20" }
 trillium-macros = { version = "0.0.6", path = "../macros" }
-url = { version = "2.5.0", optional = true }
+url = { version = "2.5.8", optional = true }
 
 
 [dev-dependencies]
-async-io = "2.3.1"
-env_logger = "0.11.0"
-serde = { version = "1.0.193", features = ["derive"] }
+async-io = "2.6.0"
+env_logger = "0.11.9"
+serde = { version = "1.0.228", features = ["derive"] }
 trillium-logger = { path = "../logger" }
 trillium-router = { path = "../router" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-api = { path = ".", features = ["url"] }
-test-harness = "0.2.0"
-async-channel = "2.3.1"
+test-harness = "0.3.1"
+async-channel = "2.5.0"

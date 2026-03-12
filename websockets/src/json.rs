@@ -107,7 +107,7 @@ pub trait JsonWebSocketHandler: Send + Sync + 'static {
     fn disconnect(
         &self,
         conn: &mut WebSocketConn,
-        close_frame: Option<CloseFrame<'static>>,
+        close_frame: Option<CloseFrame>,
     ) -> impl Future<Output = ()> + Send {
         async {}
     }
@@ -173,7 +173,7 @@ where
                         None
                     }
                 })
-                .map(Message::Text),
+                .map(Message::text),
         )
     }
 }
@@ -206,7 +206,7 @@ where
             .await;
     }
 
-    async fn disconnect(&self, conn: &mut WebSocketConn, close_frame: Option<CloseFrame<'static>>) {
+    async fn disconnect(&self, conn: &mut WebSocketConn, close_frame: Option<CloseFrame>) {
         self.handler.disconnect(conn, close_frame).await
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    Buffer, Conn, Headers, Method, ServerConfig, TypeSet, h3::H3Connection,
+    Buffer, Conn, Headers, Method, ServerConfig, TypeSet, Version, h3::H3Connection,
     received_body::read_buffered,
 };
 use fieldwork::Fieldwork;
@@ -24,7 +24,7 @@ use trillium_macros::AsyncWrite;
 /// Upgrade, as that [`AsyncRead`] implementation will drain the buffer first before reading from
 /// the transport.
 #[derive(AsyncWrite, Fieldwork)]
-#[fieldwork(get, get_mut, set, with, take, into_field)]
+#[fieldwork(get, get_mut, set, with, take, into_field, rename_predicates)]
 pub struct Upgrade<Transport> {
     /// The http request headers
     request_headers: Headers,
@@ -69,6 +69,13 @@ pub struct Upgrade<Transport> {
 
     /// the :protocol http/3 pseudo-header
     protocol: Option<Cow<'static, str>>,
+
+    /// the http version
+    #[field = "http_version"]
+    version: Version,
+
+    /// whether this connection was deemed secure by the handler stack
+    secure: bool,
 }
 
 impl<Transport> Upgrade<Transport> {
@@ -79,6 +86,7 @@ impl<Transport> Upgrade<Transport> {
         method: Method,
         transport: Transport,
         buffer: Buffer,
+        version: Version,
     ) -> Self {
         Self {
             request_headers,
@@ -93,6 +101,8 @@ impl<Transport> Upgrade<Transport> {
             scheme: None,
             h3_connection: None,
             protocol: None,
+            secure: false,
+            version,
         }
     }
 
@@ -137,6 +147,8 @@ impl<Transport> Upgrade<Transport> {
             scheme: self.scheme,
             h3_connection: self.h3_connection,
             protocol: self.protocol,
+            version: self.version,
+            secure: self.secure,
         }
     }
 }
@@ -152,6 +164,12 @@ impl<Transport> Debug for Upgrade<Transport> {
             .field("state", &self.state)
             .field("transport", &format_args!(".."))
             .field("peer_ip", &self.peer_ip)
+            .field("authority", &self.authority)
+            .field("scheme", &self.scheme)
+            .field("h3_connection", &self.h3_connection)
+            .field("protocol", &self.protocol)
+            .field("version", &self.version)
+            .field("secure", &self.secure)
             .finish()
     }
 }
@@ -171,6 +189,8 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             scheme,
             h3_connection,
             protocol,
+            version,
+            secure,
             ..
         } = conn;
 
@@ -187,6 +207,8 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             scheme,
             h3_connection,
             protocol,
+            version,
+            secure,
         }
     }
 }
