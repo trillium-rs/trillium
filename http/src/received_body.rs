@@ -49,7 +49,7 @@ pub struct ReceivedBody<'conn, Transport> {
     buffer: MutCow<'conn, Buffer>,
     transport: Option<MutCow<'conn, Transport>>,
     state: MutCow<'conn, ReceivedBodyState>,
-    on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
+    on_completion: Option<Box<dyn FnOnce(Transport) + Send + Sync + 'static>>,
     encoding: &'static Encoding,
     /// The maximum length that can be read from this body before error
     ///
@@ -77,7 +77,7 @@ where
         buffer: impl Into<MutCow<'conn, Buffer>>,
         transport: impl Into<MutCow<'conn, Transport>>,
         state: impl Into<MutCow<'conn, ReceivedBodyState>>,
-        on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
+        on_completion: Option<Box<dyn FnOnce(Transport) + Send + Sync + 'static>>,
         encoding: &'static Encoding,
     ) -> Self {
         Self::new_with_config(
@@ -98,7 +98,7 @@ where
         buffer: impl Into<MutCow<'conn, Buffer>>,
         transport: impl Into<MutCow<'conn, Transport>>,
         state: impl Into<MutCow<'conn, ReceivedBodyState>>,
-        on_completion: Option<Box<dyn Fn(Transport) + Send + Sync + 'static>>,
+        on_completion: Option<Box<dyn FnOnce(Transport) + Send + Sync + 'static>>,
         encoding: &'static Encoding,
         config: &HttpConfig,
     ) -> Self {

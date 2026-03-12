@@ -23,7 +23,10 @@ const LITERAL_WITH_LITERAL_NAME: u8 = 0x20;
 
 use crate::{Headers, Method, Status};
 use fieldwork::Fieldwork;
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    fmt::{self, Display, Formatter},
+};
 
 /// The six defined HTTP/3 pseudo-header fields (RFC 9114 §4.3, RFC 9220).
 ///
@@ -53,6 +56,36 @@ pub struct PseudoHeaders<'a> {
     protocol: Option<Cow<'a, str>>,
 }
 
+impl Display for PseudoHeaders<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if let Some(method) = &self.method {
+            writeln!(f, ":method: {method}")?;
+        }
+
+        if let Some(status) = &self.status {
+            writeln!(f, ":status: {status}")?;
+        }
+
+        if let Some(path) = &self.path {
+            writeln!(f, ":path: {path}")?;
+        }
+        if let Some(scheme) = &self.scheme {
+            writeln!(f, ":scheme: {scheme}")?;
+        }
+
+        if let Some(authority) = &self.authority {
+            writeln!(f, ":authority: {authority}")?;
+        }
+
+        if let Some(protocol) = &self.protocol {
+            writeln!(f, ":protocol: {protocol}")?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "unstable")]
 pub use huffman::HuffmanError;
 
 /// Combined [`PseudoHeaders`] and [`Headers`]
@@ -76,7 +109,20 @@ impl<'a> FieldSection<'a> {
     }
 
     /// Decompose a FieldSection into pseudo headers and headers
+    #[cfg(any(feature = "unstable", test))]
     pub fn into_parts(self) -> (PseudoHeaders<'a>, Headers) {
         (self.pseudo_headers, self.headers.into_owned())
+    }
+}
+
+impl Display for FieldSection<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.pseudo_headers)?;
+        for (n, v) in &*self.headers {
+            for v in v {
+                writeln!(f, "{n}: {v}")?;
+            }
+        }
+        Ok(())
     }
 }

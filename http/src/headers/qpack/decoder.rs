@@ -39,9 +39,6 @@ pub enum DecoderError {
 
     #[error("invalid status")]
     InvalidStatus,
-
-    #[error("unknown pseudo-header")]
-    UnknownPseudoHeader,
 }
 
 /// A decoded field line from a QPACK-encoded header block.

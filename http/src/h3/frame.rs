@@ -5,7 +5,9 @@ use super::{
 };
 
 mod stream;
-pub use stream::{ActiveFrame, FrameStream};
+#[cfg(feature = "unstable")]
+pub use stream::ActiveFrame;
+pub use stream::FrameStream;
 
 #[cfg(test)]
 mod tests;

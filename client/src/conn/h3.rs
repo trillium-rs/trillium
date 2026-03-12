@@ -1,7 +1,7 @@
 use super::Conn;
 use crate::h3::H3ClientState;
 use futures_lite::AsyncWriteExt;
-use std::io;
+use std::{borrow::Cow, io};
 use trillium_http::{
     Error, KnownHeaderName, ReceivedBodyState, Result, Version,
     h3::{Frame, FrameStream, H3Error},
@@ -66,30 +66,39 @@ impl Conn {
     async fn send_h3_request(&mut self) -> Result<()> {
         // Build the request path including query string.
         let path = {
-            let mut p = self.url.path().to_string();
-            if let Some(q) = self.url.query() {
-                p.push('?');
-                p.push_str(q);
+            let mut path = self.url.path().to_string();
+            if let Some(query) = self.url.query() {
+                path.push('?');
+                path.push_str(query);
             }
-            p
+            path
         };
+
+        let authority = self
+            .request_headers
+            .remove(KnownHeaderName::Host)
+            .and_then(|h| h.first().map(|x| Cow::Owned(x.to_string())))
+            .or_else(|| self.url.host_str().map(Cow::Borrowed))
+            .ok_or(Error::UnexpectedUriFormat)?;
 
         let pseudo_headers = PseudoHeaders::default()
             .with_method(self.method)
             .with_path(path)
             .with_scheme(self.url.scheme())
-            .with_authority(self.url.host_str().ok_or(Error::UnexpectedUriFormat)?);
+            .with_authority(authority);
 
-        let mut field_section = Vec::new();
-        FieldSection::new(pseudo_headers, &self.request_headers).encode(&mut field_section);
+        let mut field_section_buf = Vec::new();
+        let field_section = FieldSection::new(pseudo_headers, &self.request_headers);
+        log::trace!("sending:\n{field_section}");
+        field_section.encode(&mut field_section_buf);
 
-        let headers_frame = Frame::Headers(field_section.len() as u64);
+        let headers_frame = Frame::Headers(field_section_buf.len() as u64);
         let mut frame_buf = vec![0u8; headers_frame.encoded_len()];
         headers_frame.encode(&mut frame_buf);
 
         let transport = self.transport.as_mut().unwrap();
         transport.write_all(&frame_buf).await?;
-        transport.write_all(&field_section).await?;
+        transport.write_all(&field_section_buf).await?;
 
         if let Some(body) = self.request_body.take() {
             match body.len() {
@@ -136,6 +145,7 @@ impl Conn {
                 break FieldSection::decode(payload).map_err(|_| Error::InvalidHead)?;
             }
         };
+        log::trace!("received:\n{field_section}");
 
         self.status = field_section.pseudo_headers().status();
         self.response_headers = field_section.into_headers().into_owned();
