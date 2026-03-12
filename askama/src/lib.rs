@@ -21,23 +21,18 @@
 //! #[derive(Template)]
 //! #[template(path = "examples/hello.html")]
 //! struct HelloTemplate<'a> {
-//! name: &'a str,
+//!     name: &'a str,
 //! }
 //!
 //! async fn handler(conn: Conn) -> Conn {
-//! conn.render(HelloTemplate { name: "trillium" })
+//!     conn.render(HelloTemplate { name: "trillium" })
 //! }
 //!
 //! use trillium_testing::prelude::*;
-//! assert_ok!(
-//! get("/").on(&handler),
-//! "Hello, trillium!",
-//! "content-type" => "text/html"
-//! );
+//! assert_ok!(get("/").on(&handler), "Hello, trillium!");
 //! ```
-
 pub use askama::{self, Template};
-use trillium::KnownHeaderName::ContentType;
+use trillium::Status;
 
 /// extends trillium conns with the ability to render askama templates
 pub trait AskamaConnExt {
@@ -48,15 +43,14 @@ pub trait AskamaConnExt {
 }
 
 impl AskamaConnExt for trillium::Conn {
-    fn render(mut self, template: impl Template) -> Self {
-        use askama::DynTemplate;
-        let text = template.render().unwrap();
-        if let Some(extension) = template.extension() {
-            if let Some(mime) = mime_guess::from_ext(extension).first_raw() {
-                self.response_headers_mut().try_insert(ContentType, mime);
+    fn render(self, template: impl Template) -> Self {
+        match template.render() {
+            Ok(text) => self.ok(text),
+            Err(error) => {
+                log::error!("Askama render error: {error}");
+                self.with_status(Status::InternalServerError)
+                    .with_state(error)
             }
         }
-
-        self.ok(text)
     }
 }

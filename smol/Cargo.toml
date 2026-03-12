@@ -11,25 +11,25 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-global-executor = {version = "2.4.1", features = ["async-io"] }
-async-io = "2.2.2"
+async-global-executor = {version = "3.1.0", features = ["async-io"] }
+async-io = "2.6.0"
 async-net = "2.0.0"
-async-task = "4.7.0"
-futures-lite = "2.1.0"
-log = "0.4.20"
+async-task = "4.7.1"
+futures-lite = "2.6.1"
+log = "0.4.29"
 trillium = { path = "../trillium", version = "0.2.20" }
 trillium-http = { path = "../http", version = "0.3.17" }
 trillium-macros = { version = "0.0.6", path = "../macros" }
 trillium-server-common = { path = "../server-common", version = "0.5.2" }
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.3.17"
-async-signal = "0.2.8"
+signal-hook = "0.4.3"
+async-signal = "0.2.13"
 
 [dev-dependencies]
-env_logger = "0.11.0"
-tempfile = "3.10.1"
-test-harness = "0.2.0"
+env_logger = "0.11.9"
+tempfile = "3.27.0"
+test-harness = "0.3.1"
 trillium-client = { path = "../client" }
 trillium-logger = { path = "../logger" }
 trillium-testing = { path = "../testing" }

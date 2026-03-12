@@ -16,23 +16,23 @@ upstream-random = ["dep:fastrand"]
 upstream-connection-counting = ["dep:trillium-server-common", "dep:fastrand"]
 
 [dependencies]
-event-listener = "4.0.1"
-fastrand = { version = "2.0.1", optional = true }
+event-listener = "5.4.1"
+fastrand = { version = "2.3.0", optional = true }
 full-duplex-async-copy = "0.1.0"
-futures-lite = "2.1.0"
-log = "0.4.20"
-size = "0.4.1"
-sluice = "0.5.5"
+futures-lite = "2.6.1"
+log = "0.4.29"
+size = "0.5.0"
+sluice = "0.6.0"
 trillium = { path = "../trillium", version = "0.2.20" }
 trillium-client = { path = "../client", version = "0.6.2" }
 trillium-forwarding = { version = "0.2.4", path = "../forwarding" }
 trillium-http = { path = "../http", version = "0.3.17", features = ["unstable"] }
 trillium-server-common = { version = "0.5.2", path = "../server-common", optional = true }
-url = "2.5.0"
+url = "2.5.8"
 
 [dev-dependencies]
-env_logger = "0.11.0"
-querystrong = { version = "0.3.0", features = ["serde"] }
+env_logger = "0.11.9"
+querystrong = { version = "0.4.0", features = ["serde"] }
 trillium-api = { path = "../api" }
 trillium-http = { path = "../http", features = ["serde"] }
 trillium-logger = { path = "../logger" }

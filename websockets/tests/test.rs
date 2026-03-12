@@ -1,5 +1,4 @@
-use futures_lite::stream::{Pending, Stream, pending};
-use futures_util::{SinkExt, StreamExt};
+use futures_lite::stream::{Pending, Stream, StreamExt, pending};
 use std::pin::Pin;
 use trillium::Handler;
 use trillium_websockets::{Message, WebSocket, WebSocketConn, WebSocketHandler};
@@ -41,7 +40,7 @@ fn with_channel() {
             let path = conn.path().to_string();
             let sender: &mut Sender<Message> = conn.state_mut().unwrap();
             if let Message::Text(input) = message {
-                let reply = Message::Text(format!(
+                let reply = Message::text(format!(
                     "received your message: {} at path {}",
                     &input, &path
                 ));
@@ -71,18 +70,22 @@ fn with_stream_only() {
             conn.take_inbound_stream().map(|stream| {
                 (
                     conn,
-                    Box::pin(stream.filter_map(move |message| {
-                        let path = path.clone();
-                        async move {
-                            match message {
-                                Ok(Message::Text(text)) => Some(Message::Text(format!(
-                                    "received your message: {} at path {}",
-                                    &text, &path
-                                ))),
-                                _ => None,
-                            }
-                        }
-                    })) as Self::OutboundStream,
+                    Box::pin(
+                        stream
+                            .then(move |message| {
+                                let path = path.clone();
+                                async move {
+                                    match message {
+                                        Ok(Message::Text(text)) => Some(Message::text(format!(
+                                            "received your message: {} at path {}",
+                                            &text, &path
+                                        ))),
+                                        _ => None,
+                                    }
+                                }
+                            })
+                            .filter_map(|x| x),
+                    ) as Self::OutboundStream,
                 )
             })
         }
@@ -91,7 +94,7 @@ fn with_stream_only() {
             let path = conn.path().to_string();
             let sender: &mut Sender<Message> = conn.state_mut().unwrap();
             if let Message::Text(input) = message {
-                let reply = Message::Text(format!(
+                let reply = Message::text(format!(
                     "received your message: {} at path {}",
                     &input, &path
                 ));
@@ -138,17 +141,17 @@ fn test_handler(handler: impl Handler) {
             async_tungstenite::client_async("ws://localhost/some/route", transport).await?;
 
         client.send(Message::text("hello")).await?;
-        let received_message = client.next().await.unwrap()?.into_text()?;
+        let received_message = client.next().await.unwrap()?;
         assert_eq!(
             "received your message: hello at path /some/route",
-            received_message
+            received_message.to_string()
         );
 
         client.send(Message::text("hey")).await?;
         let received_message = client.next().await.unwrap()?.into_text()?;
         assert_eq!(
             "received your message: hey at path /some/route",
-            received_message
+            received_message.to_string()
         );
 
         Ok(())

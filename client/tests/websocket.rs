@@ -11,7 +11,7 @@ use trillium_websockets::websocket;
 fn test_websockets() {
     let handler = websocket(|mut conn: WebSocketConn| async move {
         while let Some(Ok(Message::Text(input))) = conn.next().await {
-            conn.send_string(format!("Server received your message: {}", &input))
+            conn.send_string(format!("Server received your message: {input}"))
                 .await
                 .expect("send_string");
         }
@@ -28,7 +28,7 @@ fn test_websockets() {
 
         assert_eq!(
             response,
-            Message::Text("Server received your message: Client test message".to_string()),
+            Message::text("Server received your message: Client test message"),
         );
 
         Ok(())

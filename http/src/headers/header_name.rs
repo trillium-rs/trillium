@@ -10,7 +10,7 @@ use std::{
 /// The name of a http header. This can be either a
 /// [`KnownHeaderName`] or a string representation of an unknown
 /// header.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HeaderName<'a>(pub(super) HeaderNameInner<'a>);
 
 impl<'a> Debug for HeaderName<'a> {
@@ -44,7 +44,7 @@ impl serde::Serialize for HeaderName<'_> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) enum HeaderNameInner<'a> {
     /// A `KnownHeaderName`
     KnownHeader(KnownHeaderName),

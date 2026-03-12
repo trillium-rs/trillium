@@ -11,8 +11,9 @@ pub fn main() {
         Logger::new(),
         Forwarding::trust_always(),
         |mut conn: Conn| async move {
-            let query = QueryStrong::parse(conn.querystring()).unwrap_or_default();
+            let query = QueryStrong::parse(conn.querystring()).into_owned();
             let skip_body = query.get("skip_body").is_some();
+
             let body = if skip_body {
                 None
             } else {

@@ -11,16 +11,16 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-futures-lite = "2.1.0"
+futures-lite = "2.6.1"
 trillium = { path = "../trillium", version = "0.2.20" }
-log = "0.4.20"
+log = "0.4.29"
 
 [dependencies.async-compression]
-version = "0.4.5"
+version = "0.4.41"
 features = ["brotli", "gzip", "zstd", "futures-io"]
 
 [dev-dependencies]
-env_logger = "0.11.0"
+env_logger = "0.11.9"
 trillium-logger = { path = "../logger" }
 trillium-router = { path = "../router" }
 trillium-smol = { path = "../smol" }

@@ -24,23 +24,23 @@
     unused_qualifications
 )]
 
-use querystrong::QueryStrong;
+use querystrong::{IndexPath, QueryStrong};
 use std::{collections::HashSet, fmt::Debug};
-use trillium::{Conn, Handler, Method, Transport, conn_unwrap};
+use trillium::{Conn, Handler, Method, Transport};
 
 /// Trillium method override handler
 ///
 /// See crate-level docs for an explanation
 #[derive(Clone, Debug)]
 pub struct MethodOverride {
-    param: &'static str,
+    param: IndexPath<'static>,
     allowed_methods: HashSet<Method>,
 }
 
 impl Default for MethodOverride {
     fn default() -> Self {
         Self {
-            param: "_method",
+            param: IndexPath::parse("_method").unwrap(),
             allowed_methods: HashSet::from_iter([Method::Put, Method::Patch, Method::Delete]),
         }
     }
@@ -77,22 +77,23 @@ impl MethodOverride {
     /// let handler = MethodOverride::new().with_param_name("_http_method");
     /// ```
     pub fn with_param_name(mut self, param_name: &'static str) -> Self {
-        self.param = param_name;
+        self.param = IndexPath::parse(param_name).unwrap();
         self
     }
 }
 
 impl Handler for MethodOverride {
     async fn run(&self, mut conn: Conn) -> Conn {
-        if conn.method() != Method::Post {
-            return conn;
+        if conn.method() == Method::Post
+            && let Some(method_str) =
+                QueryStrong::parse(conn.querystring()).get_str(self.param.clone())
+            && let Ok(method) = Method::try_from(method_str)
+            && self.allowed_methods.contains(&method)
+        {
+            let mut_conn: &mut trillium_http::Conn<Box<dyn Transport>> = conn.as_mut();
+            mut_conn.set_method(method);
         }
-        let qs = conn_unwrap!(QueryStrong::parse(conn.querystring()).ok(), conn);
-        let method_str = conn_unwrap!(qs.get_str(self.param), conn);
-        let method: Method = conn_unwrap!(method_str.try_into().ok(), conn);
-        if self.allowed_methods.contains(&method) {
-            AsMut::<trillium_http::Conn<Box<dyn Transport>>>::as_mut(&mut conn).set_method(method);
-        }
+
         conn
     }
 }

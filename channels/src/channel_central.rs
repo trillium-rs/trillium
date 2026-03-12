@@ -74,10 +74,7 @@ where
         &self,
         mut conn: WebSocketConn,
     ) -> Option<(WebSocketConn, Self::OutboundStream)> {
-        let vsn = match QueryStrong::parse(conn.querystring())
-            .unwrap_or_default()
-            .get_str("vsn")
-        {
+        let vsn = match QueryStrong::parse(conn.querystring()).get_str("vsn") {
             Some(version) => version.into(),
             _ => Version::V1,
         };
@@ -122,11 +119,7 @@ where
         }
     }
 
-    async fn disconnect(
-        &self,
-        conn: &mut WebSocketConn,
-        _close_frame: Option<CloseFrame<'static>>,
-    ) {
+    async fn disconnect(&self, conn: &mut WebSocketConn, _close_frame: Option<CloseFrame>) {
         self.handler.disconnect(ChannelConn { conn }).await
     }
 }
