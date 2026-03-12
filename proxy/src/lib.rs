@@ -28,7 +28,7 @@ use trillium::{
 };
 pub use trillium_client::{Client, Connector};
 use trillium_forwarding::Forwarded;
-use trillium_http::{HeaderName, HeaderValue, Headers, Status, Version};
+use trillium_http::{HeaderName, Headers, Status, Version};
 use upstream::{IntoUpstreamSelector, UpstreamSelector};
 pub use url::Url;
 
@@ -68,9 +68,14 @@ impl<U: UpstreamSelector> Proxy<U> {
     where
         I: IntoUpstreamSelector<UpstreamSelector = U>,
     {
+        let client = client
+            .into()
+            .without_default_header(KnownHeaderName::UserAgent)
+            .without_default_header(KnownHeaderName::Accept);
+
         Self {
             upstream: upstream.into_upstream(),
-            client: client.into(),
+            client,
             pass_through_not_found: true,
             halt: true,
             via_pseudonym: None,
@@ -133,22 +138,25 @@ impl<U: UpstreamSelector> Proxy<U> {
     }
 
     fn set_via_pseudonym(&self, headers: &mut Headers, version: Version) {
-        if let Some(via) = &self.via_pseudonym {
-            let via = match headers.get_values(KnownHeaderName::Via) {
-                Some(old_via) => format!(
-                    "{version} {via}, {}",
-                    old_via
-                        .iter()
-                        .filter_map(HeaderValue::as_str)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
+        if self.via_pseudonym.is_none() {
+            return;
+        }
 
-                None => format!("{version} {via}"),
-            };
+        use std::fmt::Write;
+        let mut via = String::new();
+        let _ = write!(&mut via, "{version}");
 
-            headers.insert(KnownHeaderName::Via, via);
-        };
+        if let Some(pseudonym) = &self.via_pseudonym {
+            let _ = write!(&mut via, " {pseudonym}");
+        }
+
+        if let Some(old_via) = headers.get_values(KnownHeaderName::Via) {
+            for old_via in old_via {
+                let _ = write!(&mut via, ", {old_via}");
+            }
+        }
+
+        headers.insert(KnownHeaderName::Via, via);
     }
 }
 
@@ -199,6 +207,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
                 KnownHeaderName::XforwardedHost,
                 KnownHeaderName::XforwardedProto,
                 KnownHeaderName::XforwardedSsl,
+                KnownHeaderName::AltUsed,
             ])
             .with_inserted_header(KnownHeaderName::Forwarded, forwarded.to_string());
 
@@ -229,6 +238,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
         }
 
         self.set_via_pseudonym(&mut request_headers, conn.http_version());
+
         let content_length = !matches!(
             conn.request_headers()
                 .get_str(KnownHeaderName::ContentLength),
@@ -238,6 +248,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
         let chunked = conn
             .request_headers()
             .eq_ignore_ascii_case(KnownHeaderName::TransferEncoding, "chunked");
+
         let method = conn.method();
         let conn_result = if chunked || content_length {
             let (body_fut, request_body) = stream_body(&mut conn);
@@ -267,6 +278,8 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             }
         };
 
+        let client_conn_version = client_conn.http_version();
+
         let mut conn = match client_conn.status() {
             Some(SwitchingProtocols) => {
                 conn.response_headers_mut()
@@ -282,6 +295,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             }
 
             Some(status) => {
+                conn.response_headers_mut().remove(KnownHeaderName::Server);
                 conn.response_headers_mut()
                     .append_all(client_conn.response_headers().clone());
                 conn.with_body(client_conn).with_status(status)
@@ -316,9 +330,10 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             KnownHeaderName::Te,
             KnownHeaderName::Trailer,
             KnownHeaderName::TransferEncoding,
+            KnownHeaderName::ContentLength, // temporary
         ]);
 
-        self.set_via_pseudonym(conn.response_headers_mut(), Version::Http1_1);
+        self.set_via_pseudonym(conn.response_headers_mut(), client_conn_version);
 
         if self.halt { conn.halt() } else { conn }
     }

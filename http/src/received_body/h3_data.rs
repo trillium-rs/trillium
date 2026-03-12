@@ -21,9 +21,6 @@ where
         frame_type: H3BodyFrameType,
         partial_frame_header: bool,
     ) -> StateOutput {
-        log::trace!(
-            "received body: {remaining_in_frame} {total} {frame_type:?} {partial_frame_header}"
-        );
         if partial_frame_header {
             let transport = self
                 .transport
@@ -61,7 +58,7 @@ where
                 Ok(_err) => {
                     return Ready(Err(io::Error::new(
                         ErrorKind::InvalidData,
-                        "unexpected frame type on request stream",
+                        "Unexpected frame type on request stream",
                     )));
                 }
             };

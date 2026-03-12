@@ -180,6 +180,17 @@ where
             Tls(c) => Pin::new(c).poll_read(cx, buf),
         }
     }
+
+    fn poll_read_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &mut [std::io::IoSliceMut<'_>],
+    ) -> Poll<Result<usize>> {
+        match &mut self.0 {
+            Tcp(c) => Pin::new(c).poll_read_vectored(cx, bufs),
+            Tls(c) => Pin::new(c).poll_read_vectored(cx, bufs),
+        }
+    }
 }
 
 impl<C> AsyncWrite for RustlsClientTransport<C>

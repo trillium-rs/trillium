@@ -361,19 +361,31 @@ impl Conn {
         if let Some(h3) = &self.h3 {
             self.update_alt_svc_from_response(h3);
         }
+
         Ok(())
     }
 }
 
 impl Drop for Conn {
     fn drop(&mut self) {
+        log::trace!("dropping client conn");
+        let Some(mut transport) = self.transport.take() else {
+            log::trace!("no transport, nothing to do");
+
+            return;
+        };
+
         if !self.is_keep_alive() {
+            log::trace!("not keep alive, closing");
+
+            self.config
+                .runtime()
+                .clone()
+                .spawn(async move { transport.close().await });
+
             return;
         }
 
-        let Some(transport) = self.transport.take() else {
-            return;
-        };
         let Ok(Some(peer_addr)) = transport.peer_addr() else {
             return;
         };
@@ -431,23 +443,28 @@ impl From<Conn> for Body {
 impl From<Conn> for ReceivedBody<'static, Box<dyn Transport>> {
     fn from(mut conn: Conn) -> Self {
         let _ = conn.finalize_headers();
+        let runtime = conn.config.runtime();
         let origin = conn.url.origin();
 
-        let on_completion =
-            conn.pool
-                .take()
-                .map(|pool| -> Box<dyn Fn(Box<dyn Transport>) + Send + Sync> {
-                    Box::new(move |transport| {
-                        pool.insert(origin.clone(), PoolEntry::new(transport, None));
-                    })
-                });
+        let on_completion = if conn.is_keep_alive()
+            && let Some(pool) = conn.pool.take()
+        {
+            Box::new(move |transport: Box<dyn Transport>| {
+                log::trace!("body transferred, returning to pool");
+                pool.insert(origin.clone(), PoolEntry::new(transport, None));
+            }) as Box<dyn FnOnce(Box<dyn Transport>) + Send + Sync + 'static>
+        } else {
+            Box::new(move |mut transport: Box<dyn Transport>| {
+                runtime.spawn(async move { transport.close().await });
+            }) as Box<dyn FnOnce(Box<dyn Transport>) + Send + Sync + 'static>
+        };
 
         ReceivedBody::new(
             conn.response_content_length(),
             std::mem::take(&mut conn.buffer),
             conn.transport.take().unwrap(),
             conn.response_body_state,
-            on_completion,
+            Some(on_completion),
             conn.response_encoding(),
         )
     }
