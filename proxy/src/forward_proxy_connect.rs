@@ -27,7 +27,16 @@ impl ForwardProxyConnect {
 impl Handler for ForwardProxyConnect {
     async fn run(&self, conn: Conn) -> Conn {
         if conn.method() == Method::Connect {
-            let Ok(url) = Url::parse(&format!("http://{}", conn.path())) else {
+            let authority = {
+                let conn: &trillium_http::Conn<Box<dyn Transport>> = conn.as_ref();
+                conn.authority()
+            };
+
+            let Some(authority) = authority else {
+                return conn.with_status(Status::BadRequest).halt();
+            };
+
+            let Ok(url) = Url::parse(&format!("http://{}", authority)) else {
                 return conn.with_status(Status::BadRequest).halt();
             };
 
@@ -55,6 +64,7 @@ impl Handler for ForwardProxyConnect {
         let Some(ForwardUpgrade(upstream)) = upgrade.state_mut().take() else {
             return;
         };
+
         let downstream = upgrade;
         match full_duplex_copy(upstream, downstream).await {
             Err(e) => log::error!("upgrade stream error: {:?}", e),

@@ -45,7 +45,6 @@ where
                 Frame::WebTransport(session_id) => {
                     let session_id = *session_id;
                     drop(frame); // release borrow on frame_stream
-                    drop(frame_stream); // release borrows on transport/buffer
                     return Ok(H3StreamResult::WebTransport {
                         session_id,
                         transport,
@@ -103,12 +102,14 @@ where
         let pseudo_headers =
             PseudoHeaders::default().with_status(self.status.unwrap_or(Status::NotFound));
 
-        let mut field_section =
+        let mut field_section_buf =
             Vec::with_capacity(self.server_config.http_config.request_buffer_initial_len);
 
-        FieldSection::new(pseudo_headers, &self.response_headers).encode(&mut field_section);
+        let field_section = FieldSection::new(pseudo_headers, &self.response_headers);
+        log::trace!("sending:\n{field_section}");
+        field_section.encode(&mut field_section_buf);
 
-        let size = field_section.len() as u64;
+        let size = field_section_buf.len() as u64;
         if let Some(max_size) = self.max_peer_field_section_size()
             && size > max_size
         {
@@ -118,11 +119,11 @@ where
             ));
         }
 
-        let frame = Frame::Headers(field_section.len() as u64);
+        let frame = Frame::Headers(field_section_buf.len() as u64);
         let frame_header_len = frame.encoded_len();
         buffer.resize(frame_header_len, 0);
         frame.encode(buffer);
-        buffer.extend_from_slice(&field_section);
+        buffer.extend_from_slice(&field_section_buf);
 
         Ok(())
     }
@@ -134,6 +135,7 @@ where
         mut field_section: FieldSection<'static>,
         start_time: Instant,
     ) -> Result<Self, H3ErrorCode> {
+        log::trace!("received:\n{field_section}");
         let pseudo_headers = field_section.pseudo_headers_mut();
 
         let method = pseudo_headers.take_method();

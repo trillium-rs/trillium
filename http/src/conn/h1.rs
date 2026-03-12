@@ -140,7 +140,7 @@ where
     ) -> Result<Self> {
         use crate::{HeaderName, HeaderValue};
         use httparse::{EMPTY_HEADER, Request};
-        use std::str::FromStr;
+        use std::{borrow::Cow, str::FromStr};
 
         let (head_size, start_time) =
             Self::head(&mut transport, &mut buffer, &server_config).await?;
@@ -184,10 +184,20 @@ where
 
         Self::validate_headers(&request_headers)?;
 
-        let path = httparse_req
-            .path
-            .ok_or(Error::RequestPathMissing)?
-            .to_owned();
+        let mut path = Cow::Owned(
+            httparse_req
+                .path
+                .ok_or(Error::RequestPathMissing)?
+                .to_owned(),
+        );
+
+        let mut authority = None;
+
+        if method == Method::Connect {
+            authority = Some(path);
+            path = Cow::Borrowed("/");
+        }
+
         log::trace!("received:\n{method} {path} {version}\n{request_headers}");
 
         let response_headers = server_config
@@ -203,7 +213,7 @@ where
             request_headers,
             method,
             version,
-            path: path.into(),
+            path,
             buffer,
             response_headers,
             status: None,
@@ -215,7 +225,7 @@ where
             start_time,
             peer_ip: None,
             server_config,
-            authority: None,
+            authority,
             scheme: None,
             h3_connection: None,
             protocol: None,
@@ -239,12 +249,16 @@ where
         let first_space = spaces.next().ok_or(Error::MissingMethod)?;
         let method = Method::parse(&buffer[0..first_space])?;
         let second_space = spaces.next().ok_or(Error::RequestPathMissing)?;
-        let path = std::str::from_utf8(&buffer[first_space + 1..second_space])
-            .map_err(|_| Error::RequestPathMissing)?
-            .to_string();
+        let path = Cow::Owned(
+            std::str::from_utf8(&buffer[first_space + 1..second_space])
+                .map_err(|_| Error::RequestPathMissing)?
+                .to_string(),
+        );
+
         if path.is_empty() {
             return Err(Error::InvalidHead);
         }
+
         let version = Version::parse(&buffer[second_space + 1..first_line_index])?;
         if !matches!(version, Version::Http1_1 | Version::Http1_0) {
             return Err(Error::UnsupportedVersion(version));
@@ -253,6 +267,13 @@ where
         let request_headers = Headers::parse(&buffer[first_line_index + 2..head_size])?;
 
         Self::validate_headers(&request_headers)?;
+
+        let mut authority = None;
+
+        if method == Method::Connect {
+            authority = Some(path);
+            path = Cow::Borrowed("/");
+        }
 
         let response_headers = server_config
             .shared_state()
@@ -268,7 +289,7 @@ where
             request_headers,
             method,
             version,
-            path: path.into(),
+            path,
             buffer,
             response_headers,
             status: None,
@@ -279,7 +300,7 @@ where
             after_send: AfterSend::default(),
             start_time,
             peer_ip: None,
-            authority: None,
+            authority,
             scheme: None,
             h3_connection: None,
             protocol: None,
