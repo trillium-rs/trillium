@@ -2,6 +2,7 @@ use super::{HeaderName, HeaderNameInner::UnknownHeader};
 use hashbrown::Equivalent;
 use smartcow::SmartCow;
 use std::{
+    cmp::Ordering,
     fmt::{self, Debug, Display, Formatter},
     hash::{Hash, Hasher},
     ops::Deref,
@@ -9,6 +10,18 @@ use std::{
 
 #[derive(Clone)]
 pub(super) struct UnknownHeaderName<'a>(SmartCow<'a>);
+
+impl PartialOrd for UnknownHeaderName<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.partial_cmp(&*other.0)
+    }
+}
+
+impl Ord for UnknownHeaderName<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&*other.0)
+    }
+}
 
 impl PartialEq for UnknownHeaderName<'_> {
     fn eq(&self, other: &Self) -> bool {

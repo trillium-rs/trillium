@@ -11,8 +11,8 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-cidr = "0.2.2"
-log = "0.4.20"
+cidr = "0.3.2"
+log = "0.4.29"
 trillium = { path = "../trillium", version = "0.2.20" }
 trillium-http = { version = "0.3.17", path = "../http" }
 

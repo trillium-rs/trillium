@@ -11,15 +11,15 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-log = "0.4.20"
+log = "0.4.29"
 trillium = { path = "../trillium", version = "0.2.20" }
 
 [dependencies.cookie]
-version = "0.18.0"
+version = "0.18.1"
 features = ["percent-encode", "secure"]
 
 [dev-dependencies]
-env_logger = "0.11.0"
+env_logger = "0.11.9"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 

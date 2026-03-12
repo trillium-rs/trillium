@@ -17,20 +17,20 @@ http-compat-1 = ["trillium-http/http-compat-1"]
 serde = ["trillium-http/serde"]
 
 [dependencies]
-futures-lite = "2.1.0"
-log = "0.4.20"
+futures-lite = "2.6.1"
+log = "0.4.29"
 trillium-http = { path = "../http", version = "0.3.17" }
 
 [dev-dependencies]
-futures-lite = "2.1.0"
-async-channel = "2.1.1"
-async-io = "2.3.1"
-fastrand = "2.0.1"
+futures-lite = "2.6.1"
+async-channel = "2.5.0"
+async-io = "2.6.0"
+fastrand = "2.3.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
-env_logger = "0.11.3"
+env_logger = "0.11.9"
 trillium-client = { path = "../client" }
-test-harness = "0.2.0"
+test-harness = "0.3.1"
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

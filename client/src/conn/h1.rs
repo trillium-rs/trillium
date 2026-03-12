@@ -478,6 +478,7 @@ impl From<Conn> for Upgrade<Box<dyn Transport>> {
             conn.method,
             conn.transport.take().unwrap(),
             std::mem::take(&mut conn.buffer),
+            conn.http_version(),
         )
     }
 }

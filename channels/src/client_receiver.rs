@@ -45,7 +45,7 @@ impl Stream for ClientReceiver {
                             &self.version,
                             &text
                         );
-                        break Poll::Ready(Some(Message::Text(text)));
+                        break Poll::Ready(Some(Message::text(text)));
                     }
                 }
                 Poll::Pending => break Poll::Pending,

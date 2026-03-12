@@ -3,18 +3,27 @@ use super::{
     static_table::{PseudoHeaderName, StaticHeaderName, static_entry},
     varint,
 };
-use crate::{HeaderName, HeaderValue, Headers, Method, Status};
+use crate::{
+    HeaderName, HeaderValue, Headers, Method, Status,
+    headers::qpack::{
+        INDEXED_FIELD_LINE, LITERAL_WITH_LITERAL_NAME, LITERAL_WITH_NAME_REF, NAME_REF_STATIC_FLAG,
+        huffman::HuffmanError, varint::VarIntError,
+    },
+};
 use core::convert::TryFrom;
-use std::{borrow::Cow, fmt::Display};
+use std::{
+    borrow::Cow,
+    fmt::{self, Display, Formatter},
+};
 
 /// Errors that can occur during QPACK decoding.
 #[derive(Debug, thiserror::Error, Clone, Copy)]
 pub enum DecoderError {
     #[error(transparent)]
-    Huffman(#[from] huffman::HuffmanError),
+    Huffman(#[from] HuffmanError),
 
     #[error(transparent)]
-    VarInt(#[from] varint::VarIntError),
+    VarInt(#[from] VarIntError),
 
     #[error("static table index {0} out of range (0-98)")]
     InvalidStaticIndex(usize),
@@ -51,7 +60,7 @@ pub(crate) enum FieldLine {
     Pseudo(PseudoHeader),
 }
 impl Display for FieldLine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             FieldLine::Header(header_name, header_value) => {
                 write!(f, "{header_name}: {header_value}")
@@ -70,7 +79,7 @@ pub(crate) enum PseudoHeader {
 }
 impl PseudoHeader {
     /// Set the corresponding field on `PseudoHeaders`. First value wins.
-    fn apply(self, pseudos: &mut PseudoHeaders<'static>) -> Result<(), DecoderError> {
+    fn apply(self, pseudos: &mut PseudoHeaders<'static>) {
         match self {
             PseudoHeader::Method(m) => {
                 pseudos.method.get_or_insert(m);
@@ -89,15 +98,14 @@ impl PseudoHeader {
             }
             // Method and Status with the Other variant shouldn't be constructed,
             // but handle gracefully
-            PseudoHeader::Other(PseudoHeaderName::Method | PseudoHeaderName::Status, _) => {}
-            PseudoHeader::Other(_, None) => {}
+            PseudoHeader::Other(PseudoHeaderName::Method | PseudoHeaderName::Status, _)
+            | PseudoHeader::Other(_, None) => {}
         }
-        Ok(())
     }
 }
 
 impl Display for PseudoHeader {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             PseudoHeader::Method(method) => write!(f, ":method: {method}"),
             PseudoHeader::Status(status) => write!(f, ":status: {status}"),
@@ -146,6 +154,11 @@ impl FieldSection<'static> {
     ///
     /// Duplicate pseudo-headers are silently ignored (first value wins).
     /// Unknown pseudo-headers are rejected per RFC 9114 §4.1.1.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entire content cannot be cleanly parsed as a field section, or
+    /// currently if the field section includes a dynamic table insert
     pub fn decode(encoded: &[u8]) -> Result<Self, DecoderError> {
         let (required_insert_count, rest) = varint::decode(encoded, 8)?;
         if required_insert_count != 0 {
@@ -158,25 +171,25 @@ impl FieldSection<'static> {
 
         while !rest.is_empty() {
             let first = rest[0];
-            let field_line;
 
-            if first & 0x80 != 0 {
-                (field_line, rest) = decode_indexed(rest)?;
-            } else if first & 0x40 != 0 {
-                (field_line, rest) = decode_literal_with_name_ref(rest)?;
-            } else if first & 0x20 != 0 {
-                (field_line, rest) = decode_literal_with_literal_name(rest)?;
-            } else if first & 0x10 != 0 {
-                return Err(DecoderError::DynamicTableUnsupported);
+            let (field_line, rest_) = if first & INDEXED_FIELD_LINE != 0 {
+                decode_indexed(rest)?
+            } else if first & LITERAL_WITH_NAME_REF != 0 {
+                decode_literal_with_name_ref(rest)?
+            } else if first & LITERAL_WITH_LITERAL_NAME != 0 {
+                decode_literal_with_literal_name(rest)?
             } else {
+                // including `if first & NAME_REF_STATIC_FLAG != 0 {`
                 return Err(DecoderError::DynamicTableUnsupported);
-            }
+            };
+
+            rest = rest_;
 
             match field_line {
                 FieldLine::Header(name, value) => {
                     headers.append(name, value);
                 }
-                FieldLine::Pseudo(pseudo) => pseudo.apply(&mut pseudo_headers)?,
+                FieldLine::Pseudo(pseudo) => pseudo.apply(&mut pseudo_headers),
             }
         }
 
@@ -190,7 +203,7 @@ impl FieldSection<'static> {
 /// §4.5.2: Indexed Field Line
 fn decode_indexed(input: &[u8]) -> Result<(FieldLine, &[u8]), DecoderError> {
     let first = input[0];
-    let is_static = first & 0x40 != 0; // T bit
+    let is_static = first & LITERAL_WITH_NAME_REF != 0; // T bit
 
     if !is_static {
         return Err(DecoderError::DynamicTableUnsupported);
@@ -220,8 +233,8 @@ fn decode_indexed(input: &[u8]) -> Result<(FieldLine, &[u8]), DecoderError> {
 /// §4.5.4: Literal Field Line with Name Reference
 fn decode_literal_with_name_ref(input: &[u8]) -> Result<(FieldLine, &[u8]), DecoderError> {
     let first = input[0];
-    let is_static = first & 0x10 != 0; // T bit
-    // N bit (first & 0x20) is for intermediary forwarding — we note
+    let is_static = first & NAME_REF_STATIC_FLAG != 0; // T bit
+    // N bit (first & LITERAL_WITH_LITERAL_NAME) is for intermediary forwarding — we note
     // it but don't act on it yet.
 
     if !is_static {
@@ -262,7 +275,7 @@ fn decode_literal_with_name_ref(input: &[u8]) -> Result<(FieldLine, &[u8]), Deco
 
 /// §4.5.6: Literal Field Line with Literal Name
 fn decode_literal_with_literal_name(input: &[u8]) -> Result<(FieldLine, &[u8]), DecoderError> {
-    // N bit is first & 0x10 — noted but not acted on.
+    // N bit is first & NAME_REF_STATIC_FLAG — noted but not acted on.
     // H bit for name is first & 0x08.
     let (name_bytes, rest) = decode_string(input, 3)?;
     let (value_bytes, rest) = decode_string(rest, 7)?;
@@ -273,6 +286,7 @@ fn decode_literal_with_literal_name(input: &[u8]) -> Result<(FieldLine, &[u8]), 
             .map(|n| n.to_owned())
             .map_err(|_| DecoderError::InvalidHeaderName)
     }?;
+
     let value = {
         let bytes: &[u8] = &value_bytes;
         HeaderValue::parse(bytes)

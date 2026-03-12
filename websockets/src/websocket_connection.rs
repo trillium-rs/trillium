@@ -1,12 +1,9 @@
 use crate::{Result, Role, WebSocketConfig};
 use async_tungstenite::{
-    WebSocketStream,
+    WebSocketReceiver, WebSocketSender, WebSocketStream,
     tungstenite::{self, Message},
 };
-use futures_util::{
-    SinkExt, StreamExt,
-    stream::{SplitSink, SplitStream, Stream},
-};
+use futures_lite::{Stream, StreamExt};
 use std::{
     borrow::Cow,
     fmt::Debug,
@@ -34,7 +31,7 @@ pub struct WebSocketConn {
     state: TypeSet,
     peer_ip: Option<IpAddr>,
     server_config: Arc<ServerConfig>,
-    sink: SplitSink<Wss, Message>,
+    sink: WebSocketSender<Box<dyn Transport>>,
     stream: Option<WStream>,
 }
 
@@ -52,17 +49,15 @@ impl Debug for WebSocketConn {
     }
 }
 
-type Wss = WebSocketStream<Box<dyn Transport>>;
-
 impl WebSocketConn {
     /// send a [`Message::Text`] variant
     pub async fn send_string(&mut self, string: String) -> Result<()> {
-        self.send(Message::Text(string)).await.map_err(Into::into)
+        self.send(Message::text(string)).await.map_err(Into::into)
     }
 
     /// send a [`Message::Binary`] variant
     pub async fn send_bytes(&mut self, bin: Vec<u8>) -> Result<()> {
-        self.send(Message::Binary(bin)).await.map_err(Into::into)
+        self.send(Message::binary(bin)).await.map_err(Into::into)
     }
 
     #[cfg(feature = "json")]
@@ -209,7 +204,7 @@ impl WebSocketConn {
 type MessageResult = std::result::Result<Message, tungstenite::Error>;
 
 pub struct WStream {
-    stream: Interrupt<SplitStream<Wss>>,
+    stream: Interrupt<WebSocketReceiver<Box<dyn Transport>>>,
 }
 
 impl Debug for WStream {
@@ -222,7 +217,7 @@ impl Stream for WStream {
     type Item = MessageResult;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.stream.poll_next_unpin(cx)
+        self.stream.poll_next(cx)
     }
 }
 
@@ -243,7 +238,7 @@ impl Stream for WebSocketConn {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.stream.as_mut() {
-            Some(stream) => stream.poll_next_unpin(cx),
+            Some(stream) => stream.poll_next(cx),
             None => Poll::Ready(None),
         }
     }

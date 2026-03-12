@@ -30,19 +30,16 @@ pub struct H3Settings {
     /// The maximum size of a field section (header block) the peer may send
     ///
     /// Default: unlimited.
-    #[field(copy)]
     max_field_section_size: Option<u64>,
 
     /// The maximum capacity of the QPACK dynamic table
     ///
     /// Default: 0.
-    #[field(copy)]
     qpack_max_table_capacity: Option<u64>,
 
     /// The maximum number of streams that can be blocked on QPACK
     ///
     /// Default: 0.
-    #[field(copy)]
     qpack_blocked_streams: Option<u64>,
 
     /// Whether QUIC DATAGRAM frames are enabled for HTTP/3 (RFC 9297 §2.1).

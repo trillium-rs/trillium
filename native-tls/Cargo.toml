@@ -11,14 +11,14 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-async-native-tls = "0.5.0"
-native-tls = "0.2.11"
+async-native-tls = "0.6.0"
+native-tls = "0.2.18"
 trillium-server-common = { path = "../server-common", version = "0.5.2" }
 
 [dev-dependencies]
-env_logger = "0.11.0"
+env_logger = "0.11.9"
 portpicker = "0.1.1"
-test-harness = "0.2.0"
+test-harness = "0.3.1"
 trillium = { path = "../trillium" }
 trillium-client = { path = "../client" }
 trillium-rustls = { path = "../rustls" }

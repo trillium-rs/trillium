@@ -11,9 +11,9 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-log = "0.4.20"
+log = "0.4.29"
 mime = "0.3.17"
-mime_guess = "2.0.4"
+mime_guess = "2.0.5"
 trillium = { path = "../trillium", version = "0.2.20" }
 httpdate = "1.0.3"
 trillium-static-compiled-macros = { path = "../static-compiled-macros", version = "0.1.2" }
