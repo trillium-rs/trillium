@@ -95,7 +95,6 @@ pub async fn run_async(mut handler: impl Handler) {
 ///
 /// This function will block the current thread until the server shuts
 /// down
-
 pub fn run(handler: impl Handler) {
     runtime::Builder::new_current_thread()
         .enable_all()

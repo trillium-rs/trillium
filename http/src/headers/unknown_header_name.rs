@@ -13,7 +13,7 @@ pub(super) struct UnknownHeaderName<'a>(SmartCow<'a>);
 
 impl PartialOrd for UnknownHeaderName<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.0.partial_cmp(&*other.0)
+        Some(self.cmp(other))
     }
 }
 

@@ -109,6 +109,7 @@ impl<'a> Entry<'a> {
 
     /// Provides in-place mutable access to an occupied entry before any
     /// potential inserts with [`Entry::or_insert`] or [`Entry::or_insert_with`].
+    #[must_use]
     pub fn and_modify(self, f: impl FnOnce(&mut HeaderValues)) -> Self {
         match self {
             Self::Occupied(mut entry) => {

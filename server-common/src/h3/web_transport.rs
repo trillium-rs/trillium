@@ -75,6 +75,11 @@ enum DispatchState {
 /// Cheaply cloneable.
 #[derive(Clone)]
 pub struct WebTransportDispatcher(Arc<RwLock<DispatchState>>);
+impl Default for WebTransportDispatcher {
+    fn default() -> Self {
+        Self(Arc::new(RwLock::new(DispatchState::Buffering(Vec::new()))))
+    }
+}
 
 impl Debug for WebTransportDispatcher {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -94,7 +99,7 @@ impl Debug for WebTransportDispatcher {
 impl WebTransportDispatcher {
     /// Create a new dispatcher in the buffering state.
     pub fn new() -> Self {
-        Self(Arc::new(RwLock::new(DispatchState::Buffering(Vec::new()))))
+        Self::default()
     }
 
     /// Dispatch an inbound WebTransport stream to the registered handler, or buffer it.

@@ -1,5 +1,9 @@
 use crate::parse_utils::{parse_quoted_string, parse_token};
-use std::{borrow::Cow, fmt::Write, net::IpAddr};
+use std::{
+    borrow::Cow,
+    fmt::{Display, Write},
+    net::IpAddr,
+};
 use trillium::{
     Headers,
     KnownHeaderName::{
@@ -60,16 +64,17 @@ impl<'a> Forwarded<'a> {
     /// ```
     ///
     /// ```rust
-
     /// # use trillium::Headers;
     /// # use trillium_forwarding::Forwarded;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     /// let mut headers = Headers::new();
     /// headers.insert("X-Forwarded-For", "192.0.2.43, 2001:db8:cafe::17, unknown");
     /// headers.insert("X-Forwarded-Proto", "https");
     /// let forwarded = Forwarded::from_headers(&headers)?.unwrap();
-    /// assert_eq!(forwarded.forwarded_for(), vec!["192.0.2.43", "[2001:db8:cafe::17]", "unknown"]);
+    /// assert_eq!(
+    ///     forwarded.forwarded_for(),
+    ///     vec!["192.0.2.43", "[2001:db8:cafe::17]", "unknown"]
+    /// );
     /// assert_eq!(forwarded.proto(), Some("https"));
     /// assert_eq!(
     ///     forwarded.to_string(),
@@ -77,7 +82,6 @@ impl<'a> Forwarded<'a> {
     /// );
     /// # Ok(()) }
     /// ```
-
     pub fn from_headers(headers: &'a Headers) -> Result<Option<Self>, ParseError> {
         if let Some(forwarded) = Self::from_forwarded_header(headers)? {
             Ok(Some(forwarded))
@@ -201,15 +205,17 @@ impl<'a> Forwarded<'a> {
     ///
     /// # Examples
     /// ```rust
-
     /// # use trillium::Headers;
     /// # use trillium_forwarding::Forwarded;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///
     /// let forwarded = Forwarded::parse(
-    ///     r#"for=192.0.2.43,         for="[2001:db8:cafe::17]", FOR=unknown;proto=https"#
+    ///     r#"for=192.0.2.43,         for="[2001:db8:cafe::17]", FOR=unknown;proto=https"#,
     /// )?;
-    /// assert_eq!(forwarded.forwarded_for(), vec!["192.0.2.43", "[2001:db8:cafe::17]", "unknown"]);
+    /// assert_eq!(
+    ///     forwarded.forwarded_for(),
+    ///     vec!["192.0.2.43", "[2001:db8:cafe::17]", "unknown"]
+    /// );
     /// assert_eq!(
     ///     forwarded.to_string(),
     ///     r#"for=192.0.2.43, for="[2001:db8:cafe::17]", for=unknown;proto=https"#
@@ -370,7 +376,7 @@ impl<'a> Forwarded<'a> {
     }
 }
 
-impl std::fmt::Display for Forwarded<'_> {
+impl Display for Forwarded<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut needs_semi = false;
         if let Some(by) = self.by() {
@@ -463,7 +469,7 @@ impl ParseError {
 }
 
 impl std::error::Error for ParseError {}
-impl std::fmt::Display for ParseError {
+impl Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "unable to parse forwarded header: {}", self.0)
     }

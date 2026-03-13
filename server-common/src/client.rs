@@ -80,12 +80,13 @@ impl ArcedConnector {
     }
 }
 
+// clippy thinks this is better ¯\(ツ)/¯
+type ConnectResult<'fut> =
+    Pin<Box<dyn Future<Output = io::Result<Box<dyn Transport>>> + Send + 'fut>>;
+
 trait ObjectSafeConnector: Send + Sync + 'static {
     #[must_use]
-    fn connect<'connector, 'url, 'fut>(
-        &'connector self,
-        url: &'url Url,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Box<dyn Transport>>> + Send + 'fut>>
+    fn connect<'connector, 'url, 'fut>(&'connector self, url: &'url Url) -> ConnectResult<'fut>
     where
         'connector: 'fut,
         'url: 'fut,
