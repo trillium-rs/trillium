@@ -39,7 +39,7 @@ impl Server for RuntimelessServer {
         self.channel
             .recv()
             .await
-            .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+            .map_err(|e| Error::other(e.to_string()))
     }
 
     fn from_host_and_port(host: &str, mut port: u16) -> Self {

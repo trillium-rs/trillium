@@ -9,13 +9,13 @@ pub enum MutCow<'a, T> {
     Borrowed(&'a mut T),
 }
 
-impl<'a, T: Debug> Debug for MutCow<'a, T> {
+impl<T: Debug> Debug for MutCow<'_, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(&**self, f)
     }
 }
 
-impl<'a, T> MutCow<'a, T> {
+impl<T> MutCow<'_, T> {
     pub fn is_owned(&self) -> bool {
         matches!(self, MutCow::Owned(_))
     }
@@ -28,7 +28,7 @@ impl<'a, T> MutCow<'a, T> {
     }
 }
 
-impl<'a, T> Deref for MutCow<'a, T> {
+impl<T> Deref for MutCow<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -39,7 +39,7 @@ impl<'a, T> Deref for MutCow<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for MutCow<'a, T> {
+impl<T> DerefMut for MutCow<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             MutCow::Owned(t) => t,

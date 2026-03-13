@@ -469,10 +469,9 @@ impl Handler for Router {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            return conn
-                .with_response_header(KnownHeaderName::Allow, allow)
+            conn.with_response_header(KnownHeaderName::Allow, allow)
                 .with_status(200)
-                .halt();
+                .halt()
         } else {
             log::debug!("{} did not match any route", conn.path());
             conn

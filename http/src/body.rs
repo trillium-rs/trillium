@@ -97,10 +97,7 @@ impl Body {
 
             Empty => Ok(Cow::Borrowed(b"")),
 
-            Streaming { .. } => Err(Error::new(
-                ErrorKind::Other,
-                "body already read to completion",
-            )),
+            Streaming { .. } => Err(Error::other("body already read to completion")),
         }
     }
 
@@ -251,7 +248,7 @@ impl AsyncRead for Body {
                 }
 
                 let start = format!("{bytes:X}\r\n");
-                let start_length = start.as_bytes().len();
+                let start_length = start.len();
                 let total = bytes + start_length + 2;
                 buf.copy_within(..bytes, start_length);
                 buf[..start_length].copy_from_slice(start.as_bytes());

@@ -2,7 +2,7 @@ use super::{
     AsyncRead, Context, End, ErrorKind, FixedLength, Ready, ReceivedBody, StateOutput, io, ready,
 };
 
-impl<'conn, Transport> ReceivedBody<'conn, Transport>
+impl<Transport> ReceivedBody<'_, Transport>
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {

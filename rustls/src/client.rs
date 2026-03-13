@@ -119,12 +119,12 @@ impl<C: Connector> Connector for RustlsConfig<C> {
                 let domain = url
                     .domain()
                     .and_then(|dns_name| ServerName::try_from(dns_name.to_string()).ok())
-                    .ok_or_else(|| Error::new(ErrorKind::Other, "missing domain"))?;
+                    .ok_or_else(|| Error::other("missing domain"))?;
 
                 connector
                     .connect(domain, self.tcp_config.connect(&http).await?)
                     .await
-                    .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+                    .map_err(|e| Error::other(e.to_string()))
                     .map(Into::into)
             }
 

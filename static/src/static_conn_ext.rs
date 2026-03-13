@@ -65,13 +65,13 @@ impl StaticConnExt for Conn {
     async fn send_file_with_options(mut self, file: File, options: &StaticOptions) -> Self {
         let metadata = trillium::conn_try!(file.metadata().await, self.with_status(404));
 
-        if options.modified {
-            if let Ok(last_modified) = metadata.modified() {
-                self.response_headers_mut().try_insert(
-                    KnownHeaderName::LastModified,
-                    httpdate::fmt_http_date(last_modified),
-                );
-            }
+        if options.modified
+            && let Ok(last_modified) = metadata.modified()
+        {
+            self.response_headers_mut().try_insert(
+                KnownHeaderName::LastModified,
+                httpdate::fmt_http_date(last_modified),
+            );
         }
 
         if options.etag {

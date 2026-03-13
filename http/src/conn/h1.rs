@@ -59,15 +59,14 @@ where
 
         if self.method != Method::Head
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
+            && let Some(body) = self.response_body.take()
         {
-            if let Some(body) = self.response_body.take() {
-                copy(
-                    body,
-                    &mut bufwriter,
-                    self.server_config.http_config.copy_loops_per_yield,
-                )
-                .await?;
-            }
+            copy(
+                body,
+                &mut bufwriter,
+                self.server_config.http_config.copy_loops_per_yield,
+            )
+            .await?;
         }
 
         bufwriter.flush().await?;
