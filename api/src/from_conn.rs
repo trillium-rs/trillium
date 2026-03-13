@@ -43,3 +43,9 @@ impl FromConn for trillium::Method {
         Some(conn.method())
     }
 }
+
+impl FromConn for trillium::Version {
+    async fn from_conn(conn: &mut Conn) -> Option<Self> {
+        Some(conn.http_version())
+    }
+}

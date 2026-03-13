@@ -12,8 +12,9 @@ categories = ["web-programming", "web-programming::http-client"]
 
 [features]
 websockets = ["dep:trillium-websockets", "dep:thiserror"]
-json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
 parse = ["trillium-http/parse"]
+sonic-rs = ["dep:sonic-rs", "dep:serde", "dep:thiserror"]
+serde_json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
 
 [dependencies]
 encoding_rs = "0.8.35"
@@ -30,6 +31,7 @@ thiserror = { version = "2.0.18", optional = true }
 dashmap = "6.1.0"
 crossbeam-queue = "0.3.12"
 memchr = "2.8.0"
+sonic-rs = { version = "0.5.7", optional = true }
 
 [dependencies.trillium-http]
 path = "../http"

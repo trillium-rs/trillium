@@ -92,9 +92,7 @@ where
             .state()
             .get::<OutputHandlerWrapper<Self, OutputHandler, <TFC as TryFromConn>::Error>>()
             .cloned()
-            .map_or(false, |OutputHandlerWrapper(handler, _)| {
-                handler.has_upgrade(upgrade)
-            })
+            .is_some_and(|OutputHandlerWrapper(handler, _)| handler.has_upgrade(upgrade))
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {

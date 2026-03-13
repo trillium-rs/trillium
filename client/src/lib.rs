@@ -28,7 +28,7 @@
 //! examples.
 
 mod conn;
-#[cfg(feature = "json")]
+#[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 pub use conn::ClientSerdeError;
 pub use conn::{Conn, USER_AGENT, UnexpectedStatusError};
 

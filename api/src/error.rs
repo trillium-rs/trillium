@@ -1,6 +1,6 @@
+#[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 use crate::ApiConnExt;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::fmt::Display;
 use trillium::{Conn, Handler, Status};
 
@@ -51,8 +51,19 @@ pub enum Error {
     FailureToNegotiateContent,
 }
 
+#[cfg(feature = "serde_json")]
 impl From<serde_json::Error> for Error {
     fn from(value: serde_json::Error) -> Self {
+        Self::ParseError {
+            path: format!("{}:{}", value.line(), value.column()),
+            message: value.to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "sonic-rs")]
+impl From<sonic_rs::Error> for Error {
+    fn from(value: sonic_rs::Error) -> Self {
         Self::ParseError {
             path: format!("{}:{}", value.line(), value.column()),
             message: value.to_string(),
@@ -107,10 +118,20 @@ impl Handler for Error {
         conn.with_state(self.clone()).halt()
     }
 
+    #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
     async fn before_send(&self, mut conn: Conn) -> Conn {
         if let Some(error) = conn.take_state::<Self>() {
-            conn.with_json(&json!({ "error": &error }))
+            conn.with_json(&crate::json!({ "error": &error }))
                 .with_status(&error)
+        } else {
+            conn
+        }
+    }
+
+    #[cfg(not(any(feature = "serde_json", feature = "sonic-rs")))]
+    async fn before_send(&self, mut conn: Conn) -> Conn {
+        if let Some(error) = conn.take_state::<Self>() {
+            conn.with_body(error.to_string()).with_status(&error)
         } else {
             conn
         }
