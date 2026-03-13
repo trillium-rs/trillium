@@ -142,7 +142,7 @@ impl QuicConnectionTrait for QuinnConnection {
     fn send_datagram(&self, data: &[u8]) -> io::Result<()> {
         self.0
             .send_datagram(data.to_vec().into())
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+            .map_err(|e| io::Error::other(e))
     }
 
     async fn recv_datagram<F: FnOnce(&[u8]) + Send>(&self, callback: F) -> io::Result<()> {

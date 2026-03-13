@@ -44,10 +44,10 @@ impl Dir {
                 return Some(entry);
             }
 
-            if let DirEntry::Dir(d) = entry {
-                if let Some(nested) = d.get_entry(path) {
-                    return Some(nested);
-                }
+            if let DirEntry::Dir(d) = entry
+                && let Some(nested) = d.get_entry(path)
+            {
+                return Some(nested);
             }
         }
 

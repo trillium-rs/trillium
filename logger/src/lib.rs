@@ -31,8 +31,10 @@ pub mod formatters;
 
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum ColorMode {
     /// detect if stdout is a tty
+    #[default]
     Auto,
     /// always enable colorful output
     On,
@@ -50,23 +52,19 @@ impl ColorMode {
     }
 }
 
-impl Default for ColorMode {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
-
 /// Specifies where the logger output should be sent
 ///
 /// The default is [`Target::Stdout`].
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum Target {
     /// Send trillium logger output to a log crate backend. See
     /// [`log`] for output options
     Logger(log::Level),
 
     /// Send trillium logger output to stdout
+    #[default]
     Stdout,
 }
 
@@ -97,12 +95,6 @@ where
 {
     fn write(&self, data: String) {
         self(data);
-    }
-}
-
-impl Default for Target {
-    fn default() -> Self {
-        Self::Stdout
     }
 }
 

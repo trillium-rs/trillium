@@ -18,12 +18,11 @@ fn is_required_generic_for_type(ty: &Type, generic: &Ident) -> bool {
     }
     impl<'g, 'ast> Visit<'ast> for PathVisitor<'g> {
         fn visit_type_path(&mut self, node: &'ast TypePath) {
-            if node.qself.is_none() {
-                if let Some(first_segment) = node.path.segments.first() {
-                    if first_segment.ident == *self.generic {
-                        self.generic_is_required = true;
-                    }
-                }
+            if node.qself.is_none()
+                && let Some(first_segment) = node.path.segments.first()
+                && first_segment.ident == *self.generic
+            {
+                self.generic_is_required = true;
             }
             visit_type_path(self, node);
         }

@@ -126,6 +126,6 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
 
     fn over_capacity(&self) -> bool {
         self.max_connections
-            .map_or(false, |m| self.server_config.swansong().guard_count() >= m)
+            .is_some_and(|m| self.server_config.swansong().guard_count() >= m)
     }
 }

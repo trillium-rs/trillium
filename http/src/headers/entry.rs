@@ -20,7 +20,7 @@ pub enum Entry<'a> {
 /// It is part of the [`Entry`] enum.
 pub struct VacantEntry<'a>(pub(super) VacantEntryInner<'a>);
 
-impl<'a> Debug for VacantEntry<'a> {
+impl Debug for VacantEntry<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("VacantEntry")
             .field("name", &self.name())
@@ -38,7 +38,7 @@ pub(super) enum VacantEntryInner<'a> {
 /// It is part of the [`Entry`] enum.
 pub struct OccupiedEntry<'a>(pub(super) OccupiedEntryInner<'a>);
 
-impl<'a> Debug for OccupiedEntry<'a> {
+impl Debug for OccupiedEntry<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("OccupiedEntry")
             .field("name", &self.name())

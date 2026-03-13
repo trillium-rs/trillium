@@ -52,12 +52,12 @@ impl Debug for WebSocketConn {
 impl WebSocketConn {
     /// send a [`Message::Text`] variant
     pub async fn send_string(&mut self, string: String) -> Result<()> {
-        self.send(Message::text(string)).await.map_err(Into::into)
+        self.send(Message::text(string)).await
     }
 
     /// send a [`Message::Binary`] variant
     pub async fn send_bytes(&mut self, bin: Vec<u8>) -> Result<()> {
-        self.send(Message::binary(bin)).await.map_err(Into::into)
+        self.send(Message::binary(bin)).await
     }
 
     #[cfg(feature = "json")]
