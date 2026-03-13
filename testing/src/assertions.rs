@@ -23,7 +23,6 @@
 ///
 /// assert_status!(get("/").on(&handler), 418);
 /// ```
-
 #[macro_export]
 macro_rules! assert_status {
     ($conn:expr_2021, $status:expr_2021) => {{
@@ -65,7 +64,6 @@ macro_rules! assert_status {
 ///
 /// assert_not_handled!(get("/").on(&handler));
 /// ```
-
 #[macro_export]
 macro_rules! assert_not_handled {
     ($conn:expr_2021) => {{
@@ -103,7 +101,6 @@ macro_rules! assert_not_handled {
 /// use trillium_testing::prelude::*;
 /// assert_body!(get("/").on(&"beach body"), "winter body");
 /// ```
-
 #[macro_export]
 macro_rules! assert_body {
     ($conn:expr_2021, $body:expr_2021) => {
@@ -136,7 +133,6 @@ macro_rules! assert_body {
 /// use trillium_testing::prelude::*;
 /// assert_body_contains!(get("/").on(&"just a haystack"), "needle");
 /// ```
-
 #[macro_export]
 macro_rules! assert_body_contains {
     ($conn:expr_2021, $pattern:expr_2021) => {
@@ -181,7 +177,6 @@ macro_rules! assert_body_contains {
 /// "content-length" => "19"
 /// );
 /// ```
-
 #[macro_export]
 macro_rules! assert_response {
     ($conn:expr_2021, $status:expr_2021, $body:expr_2021) => {{
@@ -283,7 +278,6 @@ macro_rules! assert_headers {
 /// "content-length" => "4"
 /// );
 /// ```
-
 #[macro_export]
 macro_rules! assert_ok {
     ($conn:expr_2021) => {

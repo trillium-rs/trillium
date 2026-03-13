@@ -34,6 +34,10 @@ impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
     /// drained before decoding the next frame header.
     ///
     /// Returns `Ok(None)` on clean stream end (FIN before any frame header).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when we are unable to decode a frame.
     pub async fn next(&mut self) -> Result<Option<ActiveFrame<'_, 'a, R>>, H3Error> {
         if self.pending_skip > 0 {
             let skip = self.pending_skip as usize;

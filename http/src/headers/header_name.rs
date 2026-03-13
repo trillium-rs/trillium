@@ -29,7 +29,7 @@ impl<'a> HeaderName<'a> {
     pub(crate) fn as_known(&self) -> Option<KnownHeaderName> {
         match self.0 {
             KnownHeader(k) => Some(k),
-            _ => None,
+            UnknownHeader(_) => None,
         }
     }
 }

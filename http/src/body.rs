@@ -4,7 +4,7 @@ use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor, ready};
 use std::{
     borrow::Cow,
     fmt::Debug,
-    io::{Error, ErrorKind, Result},
+    io::{Error, Result},
     pin::Pin,
     task::{Context, Poll},
 };
@@ -74,7 +74,6 @@ impl Body {
     ///
     /// there is an io error when reading from the underlying transport such as a disconnect
     /// the body has already been read to completion
-    #[allow(clippy::missing_errors_doc)] // false positive
     pub async fn into_bytes(self) -> Result<Cow<'static, [u8]>> {
         match self.0 {
             Static { content, .. } => Ok(content),

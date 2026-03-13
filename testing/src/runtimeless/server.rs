@@ -1,7 +1,7 @@
 use super::SERVERS;
 use crate::{RuntimelessRuntime, TestTransport};
 use async_channel::Receiver;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, Result};
 use trillium::Info;
 use trillium_server_common::Server;
 use url::Url;
@@ -36,10 +36,7 @@ impl Server for RuntimelessServer {
     }
 
     async fn accept(&mut self) -> Result<Self::Transport> {
-        self.channel
-            .recv()
-            .await
-            .map_err(|e| Error::other(e.to_string()))
+        self.channel.recv().await.map_err(Error::other)
     }
 
     fn from_host_and_port(host: &str, mut port: u16) -> Self {

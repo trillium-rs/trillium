@@ -43,7 +43,12 @@ impl StaticFileHandler {
         }
 
         if file_path.starts_with(&self.fs_root) {
-            fs::canonicalize(file_path).await.ok()
+            let path_buf = fs::canonicalize(file_path).await.ok();
+
+            #[cfg(feature = "async-std")]
+            return path_buf.map(Into::into);
+            #[cfg(not(feature = "async-std"))]
+            path_buf
         } else {
             None
         }

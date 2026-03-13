@@ -77,23 +77,23 @@ pub enum H3ErrorCode {
     // -- WebTransport error codes (draft-ietf-webtrans-http3) --
     /// WebTransport data stream rejected due to lack of associated session.
     #[error("WebTransport data stream rejected due to lack of associated session.")]
-    WebTransportBufferedStreamRejected = 0x3994bd84,
+    WebTransportBufferedStreamRejected = 0x3994_bd84,
 
     /// WebTransport data stream or session closed because the associated session is gone.
     #[error("WebTransport session gone.")]
-    WebTransportSessionGone = 0x170d7b68,
+    WebTransportSessionGone = 0x170d_7b68,
 
     /// WebTransport session flow control error.
     #[error("WebTransport flow control error.")]
-    WebTransportFlowControlError = 0x045d4487,
+    WebTransportFlowControlError = 0x045d_4487,
 
     /// WebTransport application protocol negotiation failed.
     #[error("WebTransport ALPN error.")]
-    WebTransportAlpnError = 0x0817b3dd,
+    WebTransportAlpnError = 0x0817_b3dd,
 
     /// Required WebTransport settings or transport parameters not met.
     #[error("WebTransport requirements not met.")]
-    WebTransportRequirementsNotMet = 0x212c0d48,
+    WebTransportRequirementsNotMet = 0x212c_0d48,
 }
 
 impl H3ErrorCode {
@@ -125,11 +125,11 @@ impl From<u64> for H3ErrorCode {
             0x010e => Self::MessageError,
             0x010f => Self::ConnectError,
             0x0110 => Self::VersionFallback,
-            0x3994bd84 => Self::WebTransportBufferedStreamRejected,
-            0x170d7b68 => Self::WebTransportSessionGone,
-            0x045d4487 => Self::WebTransportFlowControlError,
-            0x0817b3dd => Self::WebTransportAlpnError,
-            0x212c0d48 => Self::WebTransportRequirementsNotMet,
+            0x3994_bd84 => Self::WebTransportBufferedStreamRejected,
+            0x170d_7b68 => Self::WebTransportSessionGone,
+            0x045d_4487 => Self::WebTransportFlowControlError,
+            0x0817_b3dd => Self::WebTransportAlpnError,
+            0x212c_0d48 => Self::WebTransportRequirementsNotMet,
             _ => Self::NoError,
         }
     }

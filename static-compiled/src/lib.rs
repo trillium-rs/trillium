@@ -220,7 +220,6 @@ impl Handler for StaticCompiledHandler {
 /// variables set by cargo.
 ///
 /// [env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
-
 #[macro_export]
 macro_rules! static_compiled {
     ($path:tt) => {

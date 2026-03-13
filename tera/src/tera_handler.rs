@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 use tera::{Context, Tera};
 use trillium::{Conn, Handler};
 
-///
+/// A trillium handler for the Tera template engine
 #[derive(Clone, Debug)]
 pub struct TeraHandler(Arc<Tera>);
 
