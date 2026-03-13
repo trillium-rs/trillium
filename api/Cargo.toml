@@ -11,18 +11,21 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [features]
-default = ["forms"]
+default = ["forms", "sonic-rs"]
 forms = ["serde_urlencoded", "form_urlencoded"]
 url = ["dep:url"]
+serde_json = ["dep:serde_json"]
+sonic-rs = ["dep:sonic-rs"]
 
 [dependencies]
 form_urlencoded = { version = "1.2.2", optional = true }
 log = "0.4.29"
 mime = "0.3.17"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = { version = "1.0.149", optional = true }
 serde_path_to_error = "0.1.20"
 serde_urlencoded = { version = "0.7.1", optional = true }
+sonic-rs = { version = "0.5.7", optional = true }
 thiserror = "2.0.18"
 trillium = { path = "../trillium", version = "0.2.20" }
 trillium-macros = { version = "0.0.6", path = "../macros" }

@@ -16,16 +16,22 @@ mod unexpected_status_error;
 
 pub use unexpected_status_error::UnexpectedStatusError;
 
-/// A wrapper error for [`trillium_http::Error`] or
-/// [`serde_json::Error`]. Only available when the `json` crate feature is
-/// enabled.
-#[cfg(feature = "json")]
+/// A wrapper error for [`trillium_http::Error`] or, depending on json serializer feature, either
+/// [`sonic_rs::Error`] or [`serde_json::Error`]. Only available when either the `sonic-rs` or
+/// `serde_json` cargo features are enabled.
+#[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 #[derive(thiserror::Error, Debug)]
 pub enum ClientSerdeError {
     /// A [`trillium_http::Error`]
     #[error(transparent)]
     HttpError(#[from] trillium_http::Error),
 
+    #[cfg(feature = "sonic-rs")]
+    /// A [`serde_json::Error`]
+    #[error(transparent)]
+    JsonError(#[from] sonic_rs::Error),
+
+    #[cfg(feature = "serde_json")]
     /// A [`serde_json::Error`]
     #[error(transparent)]
     JsonError(#[from] serde_json::Error),
@@ -91,7 +97,6 @@ impl Conn {
     ///     Ok(())
     /// })
     /// ```
-
     pub fn with_request_header(
         mut self,
         name: impl Into<HeaderName<'static>>,
@@ -276,13 +281,23 @@ impl Conn {
         self
     }
 
-    /// chainable setter for json body. this requires the `json` crate feature to be enabled.
-    #[cfg(feature = "json")]
+    /// chainable setter for json body. this requires the `serde_json` crate feature to be enabled.
+    #[cfg(feature = "serde_json")]
     pub fn with_json_body(self, body: &impl serde::Serialize) -> serde_json::Result<Self> {
         use trillium_http::KnownHeaderName;
 
         Ok(self
             .with_body(serde_json::to_string(body)?)
+            .with_request_header(KnownHeaderName::ContentType, "application/json"))
+    }
+
+    /// chainable setter for json body. this requires the `sonic-rs` crate feature to be enabled.
+    #[cfg(feature = "sonic-rs")]
+    pub fn with_json_body(self, body: &impl serde::Serialize) -> sonic_rs::Result<Self> {
+        use trillium_http::KnownHeaderName;
+
+        Ok(self
+            .with_body(sonic_rs::to_string(body)?)
             .with_request_header(KnownHeaderName::ContentType, "application/json"))
     }
 
@@ -354,13 +369,23 @@ impl Conn {
     }
 
     /// Attempt to deserialize the response body. Note that this consumes the body content.
-    #[cfg(feature = "json")]
+    #[cfg(feature = "serde_json")]
     pub async fn response_json<T>(&mut self) -> Result<T, ClientSerdeError>
     where
         T: serde::de::DeserializeOwned,
     {
         let body = self.response_body().read_string().await?;
         Ok(serde_json::from_str(&body)?)
+    }
+
+    /// Attempt to deserialize the response body. Note that this consumes the body content.
+    #[cfg(feature = "sonic-rs")]
+    pub async fn response_json<T>(&mut self) -> Result<T, ClientSerdeError>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let body = self.response_body().read_string().await?;
+        Ok(sonic_rs::from_str(&body)?)
     }
 
     /// returns the status code for this conn. if the conn has not yet
@@ -479,11 +504,11 @@ impl Conn {
     }
 
     async fn exec(&mut self) -> crate::Result<()> {
-        if let Some(h3) = self.h3.clone() {
-            if self.try_exec_h3(&h3).await? {
-                self.update_alt_svc_from_response(&h3);
-                return Ok(());
-            }
+        if let Some(h3) = self.h3.clone()
+            && self.try_exec_h3(&h3).await?
+        {
+            self.update_alt_svc_from_response(&h3);
+            return Ok(());
         }
 
         self.exec_h1().await

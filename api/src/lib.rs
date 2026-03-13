@@ -38,6 +38,7 @@ mod cancel_on_disconnect;
 mod error;
 mod from_conn;
 mod halt;
+#[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 mod json;
 mod state;
 mod try_from_conn;
@@ -50,8 +51,16 @@ pub use cancel_on_disconnect::{CancelOnDisconnect, cancel_on_disconnect};
 pub use error::Error;
 pub use from_conn::FromConn;
 pub use halt::Halt;
+#[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 pub use json::Json;
+
+#[cfg(all(feature = "serde_json", feature = "sonic-rs"))]
+compile_error!("cargo features \"serde_json\" and \"sonic-rs\" are mutually exclusive");
+
+#[cfg(feature = "serde_json")]
 pub use serde_json::{Value, json};
+#[cfg(feature = "sonic-rs")]
+pub use sonic_rs::{Value, json};
 pub use state::State;
 pub use try_from_conn::TryFromConn;
 
