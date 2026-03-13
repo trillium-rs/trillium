@@ -123,36 +123,34 @@ where
     C::Runtime: Unpin,
     C::Udp: SocketTransport,
 {
-    fn connect<'a>(
+    async fn connect<'a>(
         &'a self,
         host: &'a str,
         port: u16,
         runtime: &'a C::Runtime,
-    ) -> impl std::future::Future<Output = std_io::Result<QuicConnection>> + Send + 'a {
-        async move {
-            // Blocking DNS resolution. Acceptable here because:
-            // (a) connections are infrequent, (b) results are typically cached by the OS.
-            // TODO: replace with async DNS when RuntimeTrait gains that capability.
-            let addr = (host, port).to_socket_addrs()?.next().ok_or_else(|| {
-                std_io::Error::new(
-                    std_io::ErrorKind::NotFound,
-                    "no addresses resolved for host",
-                )
-            })?;
+    ) -> std_io::Result<QuicConnection> {
+        // Blocking DNS resolution. Acceptable here because:
+        // (a) connections are infrequent, (b) results are typically cached by the OS.
+        // TODO: replace with async DNS when RuntimeTrait gains that capability.
+        let addr = (host, port).to_socket_addrs()?.next().ok_or_else(|| {
+            std_io::Error::new(
+                std_io::ErrorKind::NotFound,
+                "no addresses resolved for host",
+            )
+        })?;
 
-            let endpoint = self.endpoint::<C::Runtime, C::Udp>(addr, runtime)?;
+        let endpoint = self.endpoint::<C::Runtime, C::Udp>(addr, runtime)?;
 
-            let connection = endpoint
-                .connect_with(self.client_config.clone(), addr, host)
-                .map_err(|e| std_io::Error::new(std_io::ErrorKind::InvalidInput, e))?
-                .await
-                .map_err(|e| std_io::Error::new(std_io::ErrorKind::ConnectionRefused, e))?;
+        let connection = endpoint
+            .connect_with(self.client_config.clone(), addr, host)
+            .map_err(|e| std_io::Error::new(std_io::ErrorKind::InvalidInput, e))?
+            .await
+            .map_err(|e| std_io::Error::new(std_io::ErrorKind::ConnectionRefused, e))?;
 
-            let quic_conn = QuinnConnection::new(connection);
-            setup_h3_streams(&quic_conn, runtime).await?;
+        let quic_conn = QuinnConnection::new(connection);
+        setup_h3_streams(&quic_conn, runtime).await?;
 
-            Ok(QuicConnection::from(quic_conn))
-        }
+        Ok(QuicConnection::from(quic_conn))
     }
 }
 
@@ -200,15 +198,10 @@ async fn setup_h3_streams<R: RuntimeTrait>(
     let conn_for_accept = conn.clone();
     let runtime_for_drain = runtime.clone();
     runtime.spawn(async move {
-        loop {
-            match conn_for_accept.accept_uni().await {
-                Ok((_, mut recv)) => {
-                    runtime_for_drain.spawn(async move {
-                        io::copy(&mut recv, &mut io::sink()).await.ok();
-                    });
-                }
-                Err(_) => break,
-            }
+        while let Ok((_, mut recv)) = conn_for_accept.accept_uni().await {
+            runtime_for_drain.spawn(async move {
+                io::copy(&mut recv, &mut io::sink()).await.ok();
+            });
         }
     });
 

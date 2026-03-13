@@ -51,7 +51,6 @@ pub use transport::AsyncStdTransport;
 ///
 /// This function will block the current thread until the server shuts
 /// down
-
 pub fn run(handler: impl Handler) {
     config().run(handler)
 }

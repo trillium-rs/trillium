@@ -25,7 +25,6 @@ pub trait RouterConnExt {
     ///     "you have reached the page named trillium"
     /// );
     /// ```
-
     fn param<'a>(&'a self, param: &str) -> Option<&'a str>;
 
     /// Retrieves the wildcard match from the conn. Note that this will
@@ -48,7 +47,6 @@ pub trait RouterConnExt {
     ///     "the wildcard matched this/is/a/wildcard/match"
     /// );
     /// ```
-
     fn wildcard(&self) -> Option<&str>;
 
     /// Retrieves the matched route specification

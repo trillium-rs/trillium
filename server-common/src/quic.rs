@@ -241,6 +241,8 @@ pub(crate) type BoxedRecvStream = Box<dyn QuicTransportReceive + Unpin + Send + 
 pub(crate) type BoxedSendStream = Box<dyn QuicTransportSend + Unpin + Send + Sync>;
 pub(crate) type BoxedBidiStream = Box<dyn QuicTransportBidi + Unpin + Send + Sync>;
 
+type ReceiveDatagramCallback<'a> = Box<dyn FnOnce(&[u8]) + Send + 'a>;
+
 trait ObjectSafeQuicConnection: Send + Sync {
     fn accept_bidi(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedBidiStream)>>;
     fn accept_uni(&self) -> BoxedFuture<'_, io::Result<(u64, BoxedRecvStream)>>;
@@ -251,7 +253,7 @@ trait ObjectSafeQuicConnection: Send + Sync {
     fn send_datagram(&self, data: &[u8]) -> io::Result<()>;
     fn recv_datagram<'a>(
         &'a self,
-        callback: Box<dyn FnOnce(&[u8]) + Send + 'a>,
+        callback: ReceiveDatagramCallback<'a>,
     ) -> BoxedFuture<'a, io::Result<()>>;
     fn max_datagram_size(&self) -> Option<usize>;
 }
