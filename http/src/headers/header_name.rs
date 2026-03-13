@@ -13,7 +13,7 @@ use std::{
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct HeaderName<'a>(pub(super) HeaderNameInner<'a>);
 
-impl<'a> Debug for HeaderName<'a> {
+impl Debug for HeaderName<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(&self.0, f)
     }
@@ -51,7 +51,7 @@ pub(super) enum HeaderNameInner<'a> {
     UnknownHeader(UnknownHeaderName<'a>),
 }
 
-impl<'a> Debug for HeaderNameInner<'a> {
+impl Debug for HeaderNameInner<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::KnownHeader(known) => Debug::fmt(known, f),

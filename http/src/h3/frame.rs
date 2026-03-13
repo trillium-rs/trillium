@@ -263,8 +263,8 @@ impl Frame {
 
     /// The number of bytes this frame will occupy when encoded.
     ///
-    /// For Data, Headers, and PushPromise this is only the frame header
-    /// (+ push_id for PushPromise) — the payload is the caller's
+    /// For Data, Headers, and `PushPromise` this is only the frame header
+    /// (+ `push_id` for `PushPromise`) — the payload is the caller's
     /// responsibility, matching the decode convention.
     /// Returns 0 for Unknown (we never send unknown frames).
     pub fn encoded_len(&self) -> usize {
@@ -305,8 +305,8 @@ impl Frame {
     /// Returns `None` if `buf` is too small (check [`encoded_len`](Self::encoded_len)
     /// first). Returns `Some(bytes_written)` on success.
     ///
-    /// For Data, Headers, and PushPromise, only the frame header is written
-    /// (+ push_id for PushPromise). The caller writes the payload afterward.
+    /// For Data, Headers, and `PushPromise`, only the frame header is written
+    /// (+ `push_id` for `PushPromise`). The caller writes the payload afterward.
     /// For Unknown, returns `Some(0)` (nothing to send).
     pub fn encode(&self, buf: &mut [u8]) -> Option<usize> {
         let len = self.encoded_len();

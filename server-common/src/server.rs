@@ -47,7 +47,7 @@ pub trait Server: Sized + Send + Sync + 'static {
     /// [`Server::from_unix`].
     fn from_host_and_port(host: &str, port: u16) -> Self {
         #[cfg(unix)]
-        if host.starts_with(|c| c == '/' || c == '.' || c == '~') {
+        if host.starts_with(['/', '.', '~']) {
             log::debug!("using unix listener at {host}");
             return UnixListener::bind(host)
                 .inspect(|unix_listener| {

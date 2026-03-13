@@ -29,7 +29,7 @@ fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
     }
 }
 
-impl<'conn, Transport> ReceivedBody<'conn, Transport>
+impl<Transport> ReceivedBody<'_, Transport>
 where
     Transport: AsyncRead + Unpin + Send + Sync + 'static,
 {

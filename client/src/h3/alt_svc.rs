@@ -69,7 +69,7 @@ impl AltSvcEntry {
     /// Returns `true` if this entry should be used for an H3 request right now.
     pub fn is_usable(&self) -> bool {
         let now = Instant::now();
-        now < self.expires && self.broken_until.map_or(true, |t| now >= t)
+        now < self.expires && self.broken_until.is_none_or(|t| now >= t)
     }
 
     /// Mark this endpoint as temporarily unavailable for `duration`.
@@ -114,10 +114,10 @@ pub fn parse_alt_svc_h3<'a>(
 
 fn parse_max_age(params: &str) -> Option<Duration> {
     for param in params.split(';') {
-        if let Some(val) = param.trim().strip_prefix("ma=") {
-            if let Ok(secs) = val.trim().parse::<u64>() {
-                return Some(Duration::from_secs(secs));
-            }
+        if let Some(val) = param.trim().strip_prefix("ma=")
+            && let Ok(secs) = val.trim().parse::<u64>()
+        {
+            return Some(Duration::from_secs(secs));
         }
     }
     None

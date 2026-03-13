@@ -19,7 +19,7 @@ pub struct FrameStream<'a, R> {
 }
 
 impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
-    /// Construct a new FrameStream
+    /// Construct a new `FrameStream`
     pub fn new(reader: &'a mut R, buf: &'a mut Buffer) -> Self {
         Self {
             reader,

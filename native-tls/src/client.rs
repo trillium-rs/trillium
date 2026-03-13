@@ -79,7 +79,7 @@ impl<T: Connector> Connector for NativeTlsConfig<T> {
                 self.tls_connector
                     .connect(url, inner_stream)
                     .await
-                    .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+                    .map_err(|e| Error::other(e.to_string()))
                     .map(NativeTlsClientTransport::from)
             }
 

@@ -62,11 +62,11 @@ where
     C: Clone,
 {
     fn activate(&mut self) {
-        if let Receiver::Inactive(_) = self {
-            if let Receiver::Inactive(inactive) = mem::replace(self, Self::Activating) {
-                *self = Receiver::Active(inactive.activate());
-            };
-        }
+        if let Receiver::Inactive(_) = self
+            && let Receiver::Inactive(inactive) = mem::replace(self, Self::Activating)
+        {
+            *self = Receiver::Active(inactive.activate());
+        };
     }
 }
 

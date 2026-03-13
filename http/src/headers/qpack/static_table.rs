@@ -83,7 +83,7 @@ pub(crate) fn static_entry(
         .ok_or(DecoderError::InvalidStaticIndex(index))
 }
 
-const STATIC_TABLE: [(StaticHeaderName, &'static str); 99] = [
+const STATIC_TABLE: [(StaticHeaderName, &str); 99] = [
     (Pseudo(Authority), ""),
     (Pseudo(Path), "/"),
     (Header(Age), "0"),

@@ -43,7 +43,7 @@ impl StaticFileHandler {
         }
 
         if file_path.starts_with(&self.fs_root) {
-            fs::canonicalize(file_path).await.ok().map(Into::into)
+            fs::canonicalize(file_path).await.ok()
         } else {
             None
         }

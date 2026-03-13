@@ -60,13 +60,12 @@ impl Server for TokioServer {
     }
 
     async fn clean_up(self) {
-        if let Unix(u) = self.0 {
-            if let Ok(local) = u.local_addr() {
-                if let Some(path) = local.as_pathname() {
-                    log::info!("deleting {:?}", &path);
-                    log_error!(tokio::fs::remove_file(path).await);
-                }
-            }
+        if let Unix(u) = self.0
+            && let Ok(local) = u.local_addr()
+            && let Some(path) = local.as_pathname()
+        {
+            log::info!("deleting {:?}", &path);
+            log_error!(tokio::fs::remove_file(path).await);
         }
     }
 
