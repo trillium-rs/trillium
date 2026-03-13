@@ -1,4 +1,6 @@
-use crate::{ApiConnExt, FromConn};
+#[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
+use crate::ApiConnExt;
+use crate::FromConn;
 use std::future::Future;
 use trillium::{BoxedHandler, Conn, Handler};
 
@@ -19,7 +21,17 @@ pub trait TryFromConn: Send + Sync + Sized + 'static {
     fn try_from_conn(conn: &mut Conn) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
+#[cfg(feature = "serde_json")]
 impl TryFromConn for serde_json::Value {
+    type Error = crate::Error;
+
+    async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
+        conn.deserialize().await
+    }
+}
+
+#[cfg(feature = "sonic-rs")]
+impl TryFromConn for sonic_rs::Value {
     type Error = crate::Error;
 
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {

@@ -2,10 +2,11 @@ use crate::{Error, Result};
 use mime::Mime;
 use serde::{Serialize, de::DeserializeOwned};
 use std::future::Future;
+#[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
+use trillium::Status;
 use trillium::{
     Conn,
     KnownHeaderName::{Accept, ContentType},
-    Status,
 };
 
 /// Extension trait that adds api methods to [`trillium::Conn`]
@@ -20,6 +21,7 @@ pub trait ApiConnExt {
     /// ## Examples
     ///
     /// ```
+    /// # if !cfg!(any(feature = "sonic-rs", feature = "serde_json")) { return }
     /// use trillium_api::{json, ApiConnExt};
     /// async fn handler(conn: trillium::Conn) -> trillium::Conn {
     /// conn.with_json(&json!({ "json macro": "is reexported" }))
@@ -57,6 +59,7 @@ pub trait ApiConnExt {
     /// "content-type" => "application/json"
     /// );
     /// ```
+    #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
     fn with_json(self, response: &impl Serialize) -> Self;
 
     /// Attempts to deserialize a type from the request body, based on the
@@ -78,12 +81,13 @@ pub trait ApiConnExt {
     ///
     /// ### Deserializing to [`Value`]
     ///
-    /// ```
+    /// ```no_run
+    /// # if !cfg!(any(feature = "sonic-rs", feature = "serde_json")) { return }
     /// use trillium_api::{ApiConnExt, Value};
     ///
     /// async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
-    /// let value: Value = trillium::conn_try!(conn.deserialize().await, conn);
-    /// conn.with_json(&value)
+    ///     let value: Value = trillium::conn_try!(conn.deserialize().await, conn);
+    ///     conn.with_json(&value)
     /// }
     ///
     /// # use trillium_testing::prelude::*;
@@ -143,6 +147,7 @@ pub trait ApiConnExt {
         T: DeserializeOwned;
 
     /// Deserializes json without any Accepts header content negotiation
+    #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
     fn deserialize_json<T>(&mut self) -> impl Future<Output = Result<T>> + Send
     where
         T: DeserializeOwned;
@@ -160,8 +165,15 @@ pub trait ApiConnExt {
 }
 
 impl ApiConnExt for Conn {
+    #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
     fn with_json(mut self, response: &impl Serialize) -> Self {
-        match serde_json::to_string(&response) {
+        #[cfg(feature = "serde_json")]
+        let as_string = serde_json::to_string(&response);
+
+        #[cfg(feature = "sonic-rs")]
+        let as_string = sonic_rs::to_string(&response);
+
+        match as_string {
             Ok(body) => {
                 if self.status().is_none() {
                     self.set_status(Status::Ok);
@@ -188,8 +200,15 @@ impl ApiConnExt for Conn {
             .unwrap_or_else(|| content_type.subtype())
             .as_str();
         match suffix_or_subtype {
+            #[cfg(feature = "serde_json")]
             "json" => {
                 let json_deserializer = &mut serde_json::Deserializer::from_str(&body);
+                Ok(serde_path_to_error::deserialize::<_, T>(json_deserializer)?)
+            }
+
+            #[cfg(feature = "sonic-rs")]
+            "json" => {
+                let json_deserializer = &mut sonic_rs::serde::Deserializer::from_str(&body);
                 Ok(serde_path_to_error::deserialize::<_, T>(json_deserializer)?)
             }
 
@@ -200,9 +219,12 @@ impl ApiConnExt for Conn {
                 Ok(serde_path_to_error::deserialize::<_, T>(deserializer)?)
             }
 
-            _ => Err(Error::UnsupportedMimeType {
-                mime_type: content_type.to_string(),
-            }),
+            _ => {
+                drop(body);
+                Err(Error::UnsupportedMimeType {
+                    mime_type: content_type.to_string(),
+                })
+            }
         }
     }
 
@@ -217,6 +239,7 @@ impl ApiConnExt for Conn {
         })
     }
 
+    #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
     async fn deserialize_json<T>(&mut self) -> Result<T>
     where
         T: DeserializeOwned,
@@ -234,7 +257,13 @@ impl ApiConnExt for Conn {
 
         log::debug!("extracting json");
         let body = self.request_body_string().await?;
+
+        #[cfg(feature = "serde_json")]
         let json_deserializer = &mut serde_json::Deserializer::from_str(&body);
+
+        #[cfg(feature = "sonic-rs")]
+        let json_deserializer = &mut sonic_rs::serde::Deserializer::from_str(&body);
+
         Ok(serde_path_to_error::deserialize::<_, T>(json_deserializer)?)
     }
 
@@ -251,8 +280,16 @@ impl ApiConnExt for Conn {
             .find_map(acceptable_mime_type);
 
         match accept {
+            #[cfg(feature = "serde_json")]
             Some(AcceptableMime::Json) => {
                 self.set_body(serde_json::to_string(body)?);
+                self.insert_response_header(ContentType, "application/json");
+                Ok(())
+            }
+
+            #[cfg(feature = "sonic-rs")]
+            Some(AcceptableMime::Json) => {
+                self.set_body(sonic_rs::to_string(body)?);
                 self.insert_response_header(ContentType, "application/json");
                 Ok(())
             }
@@ -264,13 +301,18 @@ impl ApiConnExt for Conn {
                 Ok(())
             }
 
-            None => Err(Error::FailureToNegotiateContent),
+            None => {
+                let _ = body;
+                Err(Error::FailureToNegotiateContent)
+            }
         }
     }
 }
 
 enum AcceptableMime {
+    #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
     Json,
+
     #[cfg(feature = "forms")]
     Form,
 }
@@ -279,6 +321,7 @@ fn acceptable_mime_type(mime: &str) -> Option<AcceptableMime> {
     let mime: Mime = mime.parse().ok()?;
     let suffix_or_subtype = mime.suffix().unwrap_or_else(|| mime.subtype()).as_str();
     match suffix_or_subtype {
+        #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
         "*" | "json" => Some(AcceptableMime::Json),
 
         #[cfg(feature = "forms")]

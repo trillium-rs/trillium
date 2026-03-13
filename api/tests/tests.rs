@@ -45,15 +45,19 @@ fn form_urlencoded_json_response() {
     );
 }
 
+#[cfg(feature = "sonic-rs")]
 #[test]
 fn malformed_json_request() {
-    assert_response!(
-        get("/")
-            .with_request_header("content-type", "application/json")
-            .with_request_body(r#"this is not valid json"#)
-            .on(&app_with_body()),
-        422,
-        r#"{"error":{"message":"expected ident at line 1 column 2","path":".","type":"parse_error"}}"#
+    let mut response = get("/")
+        .with_request_header("content-type", "application/json")
+        .with_request_body(r#"this is not valid json"#)
+        .on(&app_with_body());
+    assert_status!(response, 422);
+    let response_body = response.take_response_body_string().unwrap();
+    let expected = sonic_rs::json!({"error": {"path": ".", "message": "Invalid literal (`true`, `false`, or a `null`) while parsing at line 1 column 4\n\n\tthis is not\n\t...^.......\n","type":"parse_error"}});
+    assert_eq!(
+        sonic_rs::from_str::<sonic_rs::Value>(&response_body).unwrap(),
+        expected
     );
 }
 
