@@ -21,7 +21,6 @@ async fn extra_one_hundred_continue() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        Connection: close\r
         Content-Length: 4\r
         Expect: 100-continue\r
         User-Agent: {USER_AGENT}\r
@@ -75,7 +74,6 @@ async fn one_hundred_continue() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        Connection: close\r
         Content-Length: 4\r
         Expect: 100-continue\r
         User-Agent: {USER_AGENT}\r
@@ -119,7 +117,6 @@ async fn empty_body_no_100_continue() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        Connection: close\r
         User-Agent: {USER_AGENT}\r
         \r
     "};
@@ -129,7 +126,6 @@ async fn empty_body_no_100_continue() -> TestResult {
     transport.write_all(formatdoc! {"
         HTTP/1.1 200 Ok\r
         Date: {TEST_DATE}\r
-        Connection: close\r
         Content-Length: 20\r
         Server: text\r
         \r
@@ -149,7 +145,6 @@ async fn two_small_continues() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        Connection: close\r
         Content-Length: 4\r
         Expect: 100-continue\r
         User-Agent: {USER_AGENT}\r
@@ -169,7 +164,6 @@ async fn two_small_continues() -> TestResult {
     transport.write_all(formatdoc! {"
         HTTP/1.1 200 Ok\r
         Date: {TEST_DATE}\r
-        Connection: close\r
         Content-Length: 0\r
         \r
     "});
@@ -188,7 +182,6 @@ async fn little_continue_big_continue() -> TestResult {
         POST / HTTP/1.1\r
         Host: example.com\r
         Accept: */*\r
-        Connection: close\r
         Content-Length: 4\r
         Expect: 100-continue\r
         User-Agent: {USER_AGENT}\r
