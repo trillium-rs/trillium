@@ -6,6 +6,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Compatible with trillium 0.3
+- `ObjectSafeConnector` replaced by `ArcedConnector`; `config.arced()` → `ArcedConnector::new(config)`
+- Error variants renamed: `MalformedHeader` split into `InvalidHeaderName` and `InvalidHeaderValue`; `PartialHead` merged into `InvalidHead`
+- Maximum head size increased from 2KB to 8KB
+- Previously deprecated `with_header`, `with_headers`, and `without_header` removed
+- `async_trait` re-export removed
+
+### Added
+
+#### HTTP/3
+
+`Client::new_with_quic(connector, quic_connector)` builds a client with HTTP/3 support. The client tracks `Alt-Svc` response headers and automatically uses HTTP/3 for subsequent requests to origins that advertise it. QUIC connections are pooled; if an H3 attempt fails, that endpoint is marked broken and requests fall back to HTTP/1.1 for a backoff period before retrying. Requests to origins without a cached alt-svc entry always use HTTP/1.1.
+
+`QuicConnector` and `ArcedQuicConnector` are re-exported from `trillium-server-common`. The `QuicConnector` type parameter is bound at construction time (before type erasure), keeping `trillium-quinn` and the runtime adapter as independent crates that neither depends on the other.
+
+```rust
+use trillium_client::Client;
+use trillium_rustls::RustlsConfig;
+use trillium_rustls::rustls::client::ClientConfig;
+use trillium_quinn::ClientQuicConfig;
+
+let client = Client::new_with_quic(
+    RustlsConfig::<ClientConfig>::default(),
+    ClientQuicConfig::with_webpki_roots(),
+)
+.with_default_pool();
+```
+
+#### Other additions
+
+- `Conn::http_version() -> Version` — returns the HTTP version used for the request; after the request completes this reflects whether HTTP/3 was negotiated
+- `Client::with_timeout(Duration)` and `Conn::with_timeout(Duration)` — per-request timeouts, returning `Error::TimedOut` on expiry
+- `Client::set_timeout(&mut self, Duration)` and `Conn::set_timeout(&mut self, Duration)` — in-place variants of the above
+- Per-connection state via `TypeSet`: `with_state`, `insert_state`, `state`, `state_mut`, `take_state`
+- `sonic-rs` feature: opt-in alternative to `serde_json` for `with_json_body` and `response_json`. Enable with `features = ["sonic-rs"]`. The two features are mutually exclusive — enable only one. **Note:** unlike `serde_json`, `sonic-rs` does not guarantee stable map key ordering — tests that assert on raw JSON string output may need to parse back to `Value` before comparing. To keep using `serde_json`, use `features = ["serde_json"]`.
+
 ## [0.6.2](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.6.1...trillium-client-v0.6.2) - 2024-05-30
 
 ### Added
