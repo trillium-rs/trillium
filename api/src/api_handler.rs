@@ -28,7 +28,7 @@ where
 /// a body, and supports returning handlers that will be called on the returned conn.
 ///
 /// If [`ApiHandler`] encounters an error of any sort before the user-provided logic is executed, it
-/// will put an [`Error`] into the conn's state. A default error handler is provided.
+/// will put an [`Error`](crate::Error) into the conn's state. A default error handler is provided.
 ///
 /// More documentation for this type is needed, hence the -rc semver on this crate
 #[derive(Debug)]
@@ -45,7 +45,7 @@ where
     OutputHandler: Handler,
     Extracted: TryFromConn,
 {
-    /// constructs a new [`ApiTryFromConnHandler`] from the provided
+    /// constructs a new [`ApiHandler`] from the provided
     /// `async fn(&mut conn, TryFromConn) -> impl Handler`
     pub fn new(api_handler: TryFromConnHandler) -> Self {
         Self::from(api_handler)
@@ -64,10 +64,10 @@ where
     }
 }
 
-/// constructs a new [`ApiTryFromConnHandler`] from the provided
+/// constructs a new [`ApiHandler`] from the provided
 /// `async fn(&mut conn, TryFromConn) -> impl Handler`
 ///
-/// convenience function for [`ApiTryFromConnHandler::new`]
+/// convenience function for [`ApiHandler::new`]
 pub fn api<TryFromConnHandler, OutputHandler, Extracted>(
     api_handler: TryFromConnHandler,
 ) -> ApiHandler<TryFromConnHandler, OutputHandler, Extracted>
