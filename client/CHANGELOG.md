@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Maximum head size increased from 2KB to 8KB
 - Previously deprecated `with_header`, `with_headers`, and `without_header` removed
 - `async_trait` re-export removed
+- `Client::with_default_pool` removed and keepalive is now the default. To opt out, `Client::without_keepalive` was added
 
 ### Added
 
@@ -31,8 +32,7 @@ use trillium_quinn::ClientQuicConfig;
 let client = Client::new_with_quic(
     RustlsConfig::<ClientConfig>::default(),
     ClientQuicConfig::with_webpki_roots(),
-)
-.with_default_pool();
+);
 ```
 
 #### Other additions

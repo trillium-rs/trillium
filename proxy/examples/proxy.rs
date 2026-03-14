@@ -19,10 +19,7 @@ pub fn main() {
 
     trillium_smol::run((
         Logger::new(),
-        Proxy::new(
-            Client::new(ClientConfig::default()).with_default_pool(),
-            upstream,
-        )
-        .with_via_pseudonym("trillium-proxy"),
+        Proxy::new(Client::new(ClientConfig::default()), upstream)
+            .with_via_pseudonym("trillium-proxy"),
     ));
 }

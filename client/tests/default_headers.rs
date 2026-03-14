@@ -1,7 +1,7 @@
 use test_harness::test;
 use trillium_client::{
     Client,
-    KnownHeaderName::{Accept, Connection, Host, UserAgent},
+    KnownHeaderName::{Accept, Host, UserAgent},
 };
 use trillium_http::Headers;
 use trillium_testing::{ServerConnector, TestResult, harness};
@@ -17,10 +17,7 @@ async fn default_headers() -> TestResult {
         .without_request_header(UserAgent)
         .await?;
 
-    assert_eq!(
-        conn.request_headers(),
-        &Headers::from_iter([(Host, "_"), (Connection, "close")])
-    );
+    assert_eq!(conn.request_headers(), &Headers::from_iter([(Host, "_")]));
 
     let conn = client
         .get("http://_")
@@ -29,12 +26,7 @@ async fn default_headers() -> TestResult {
 
     assert_eq!(
         conn.request_headers(),
-        &Headers::from_iter([
-            (UserAgent, "overridden"),
-            (Host, "_"),
-            (Accept, "*/*"),
-            (Connection, "close")
-        ])
+        &Headers::from_iter([(UserAgent, "overridden"), (Host, "_"), (Accept, "*/*"),])
     );
 
     Ok(())

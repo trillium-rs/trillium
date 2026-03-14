@@ -7,9 +7,6 @@ fn main() {
     trillium_smol::run((
         logger(),
         ForwardProxyConnect::new(ClientConfig::default()),
-        proxy(
-            Client::new(ClientConfig::default()).with_default_pool(),
-            ForwardProxy,
-        ),
+        proxy(Client::new(ClientConfig::default()), ForwardProxy),
     ));
 }

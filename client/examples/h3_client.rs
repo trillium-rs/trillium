@@ -25,8 +25,7 @@ fn main() {
         let client = Client::new_with_quic(
             RustlsConfig::<ClientConfig>::default(),
             ClientQuicConfig::with_webpki_roots(),
-        )
-        .with_default_pool();
+        );
 
         for i in 1..=4 {
             match client.get(url.as_str()).await {
