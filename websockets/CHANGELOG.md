@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Compatible with trillium 0.3
+- `WebSocketConn::stopper()` → `WebSocketConn::swansong()` — trillium 0.3 uses [Swansong](https://docs.rs/swansong) instead of Stopper
+- `pub use trillium_websockets::async_trait` removed; if you were importing `async_trait` through this crate, import it from the `async_trait` crate directly (or drop it entirely — `impl WebSocketHandler` no longer requires `#[async_trait]`)
+- Updated to `async-tungstenite` 0.33
+
+### Added
+- `WebSocketConn::state_entry::<T>()` — entry API for connection state, mirrors `HashMap::entry`
+
 ## [0.6.6](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.5...trillium-websockets-v0.6.6) - 2024-05-30
 
 ### Added
