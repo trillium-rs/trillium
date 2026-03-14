@@ -99,6 +99,10 @@ impl<T: Connector> Connector for NativeTlsConfig<T> {
     fn runtime(&self) -> Self::Runtime {
         self.tcp_config.runtime()
     }
+
+    async fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>> {
+        self.tcp_config.resolve(host, port).await
+    }
 }
 
 /// Client [`Transport`] for the native tls connector

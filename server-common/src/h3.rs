@@ -2,7 +2,7 @@
 
 pub mod web_transport;
 use crate::{
-    ArcHandler, QuicBinding, QuicConnection, QuicConnectionTrait, QuicTransportReceive,
+    ArcHandler, QuicConnection, QuicConnectionTrait, QuicEndpoint, QuicTransportReceive,
     QuicTransportSend, Runtime,
 };
 use std::sync::Arc;
@@ -28,8 +28,8 @@ impl From<u64> for StreamId {
     }
 }
 
-pub(crate) async fn run_h3<QB: QuicBinding>(
-    quic_binding: QB,
+pub(crate) async fn run_h3<QE: QuicEndpoint>(
+    quic_binding: QE,
     server_config: Arc<ServerConfig>,
     handler: ArcHandler<impl Handler>,
     runtime: Runtime,

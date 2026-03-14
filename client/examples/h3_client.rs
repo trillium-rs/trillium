@@ -19,11 +19,9 @@ fn main() {
 
     let url = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "https://cloudflare.com/".into());
+        .unwrap_or_else(|| "https://www.cloudflare.com/".into());
 
     TokioRuntime::default().block_on(async move {
-        // TCP connector: tokio + rustls (for HTTPS).
-        // QUIC connector: quinn with webpki roots
         let client = Client::new_with_quic(
             RustlsConfig::<ClientConfig>::default(),
             ClientQuicConfig::with_webpki_roots(),
@@ -32,11 +30,9 @@ fn main() {
 
         for i in 1..=4 {
             match client.get(url.as_str()).await {
-                Ok(mut conn) => {
+                Ok(conn) => {
                     let version = conn.http_version();
                     let status = conn.status().map(|s| s.to_string()).unwrap_or_default();
-                    // Drain the body so the connection can be returned to the pool.
-                    let _ = conn.response_body().read_string().await;
                     println!("request {i}: {status} via {version:?}");
                 }
                 Err(e) => {

@@ -1,5 +1,5 @@
 use crate::{RuntimeType, TestTransport};
-use std::{io, sync::Arc};
+use std::{io, net::SocketAddr, sync::Arc};
 use trillium::Handler;
 use trillium_http::ServerConfig;
 use trillium_server_common::Connector;
@@ -67,6 +67,10 @@ impl<H: Handler> Connector for ServerConnector<H> {
     fn runtime(&self) -> Self::Runtime {
         #[allow(clippy::clone_on_copy)]
         self.runtime.clone()
+    }
+
+    async fn resolve(&self, _host: &str, _port: u16) -> io::Result<Vec<SocketAddr>> {
+        Ok(vec![SocketAddr::from(([0, 0, 0, 0], 0))])
     }
 }
 

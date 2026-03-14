@@ -1,6 +1,9 @@
 use crate::{SmolRuntime, SmolTransport};
 use async_net::TcpStream;
-use std::io::{Error, ErrorKind, Result};
+use std::{
+    io::{Error, ErrorKind, Result},
+    net::SocketAddr,
+};
 use trillium_server_common::{
     Connector, Transport,
     url::{Host, Url},
@@ -81,6 +84,10 @@ impl Connector for ClientConfig {
 
         Ok(tcp)
     }
+
+    async fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>> {
+        async_net::resolve((host, port)).await
+    }
 }
 
 #[cfg(unix)]
@@ -95,5 +102,9 @@ impl Connector for SmolTransport<async_net::unix::UnixStream> {
 
     fn runtime(&self) -> Self::Runtime {
         SmolRuntime::default()
+    }
+
+    async fn resolve(&self, _host: &str, _port: u16) -> Result<Vec<SocketAddr>> {
+        Ok(vec![])
     }
 }
