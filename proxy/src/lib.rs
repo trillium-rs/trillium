@@ -28,7 +28,7 @@ use trillium::{
 };
 pub use trillium_client::{Client, Connector};
 use trillium_forwarding::Forwarded;
-use trillium_http::{HeaderName, Headers, Status, Version};
+use trillium_http::{HeaderName, Headers, ServerConfig, Status, Version};
 use upstream::{IntoUpstreamSelector, UpstreamSelector};
 pub use url::Url;
 
@@ -164,7 +164,14 @@ impl<U: UpstreamSelector> Proxy<U> {
 struct UpstreamUpgrade(Upgrade);
 
 impl<U: UpstreamSelector> Handler for Proxy<U> {
-    async fn init(&mut self, _info: &mut trillium::Info) {
+    async fn init(&mut self, info: &mut trillium::Info) {
+        // this little dance is necessary to set the swansong on the client currently.
+        // this is only necessary because we're not wiring together the client.
+        let old_server_config = self.client.server_config();
+        let new_server_config = ServerConfig::default()
+            .with_http_config(*old_server_config.http_config())
+            .with_swansong(info.swansong().clone());
+        self.client.set_server_config(new_server_config);
         log::info!("proxying to {:?}", self.upstream);
     }
 
@@ -330,7 +337,6 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
             KnownHeaderName::Te,
             KnownHeaderName::Trailer,
             KnownHeaderName::TransferEncoding,
-            KnownHeaderName::ContentLength, // temporary
         ]);
 
         self.set_via_pseudonym(conn.response_headers_mut(), client_conn_version);

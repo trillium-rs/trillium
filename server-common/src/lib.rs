@@ -36,7 +36,7 @@ mod binding;
 pub use binding::Binding;
 
 mod client;
-pub use client::{ArcedConnector, ArcedQuicConnector, Connector, QuicConnector};
+pub use client::{ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig};
 
 mod acceptor;
 pub use acceptor::Acceptor;
@@ -53,8 +53,8 @@ pub use runtime::{DroppableFuture, Runtime, RuntimeTrait};
 
 mod quic;
 pub use quic::{
-    QuicBinding, QuicConfig, QuicConnection, QuicConnectionTrait, QuicTransportBidi,
-    QuicTransportReceive, QuicTransportSend,
+    ArcedQuicEndpoint, QuicConfig, QuicConnection, QuicConnectionTrait, QuicEndpoint,
+    QuicTransportBidi, QuicTransportReceive, QuicTransportSend,
 };
 
 mod udp_transport;

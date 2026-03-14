@@ -167,6 +167,7 @@ known_headers! {
     ("Proxy-Authenticate", ProxyAuthenticate),
     ("Proxy-Authorization", ProxyAuthorization),
     ("Proxy-Connection", ProxyConnection),
+    ("Permissions-Policy", PermissionsPolicy),
     ("Public-Key-Pins", PublicKeyPins),
     ("Public-Key-Pins-Report-Only", PublicKeyPinsReportOnly),
     ("Purpose", Purpose),

@@ -2,6 +2,7 @@ use crate::{TokioRuntime, TokioTransport};
 use async_compat::Compat;
 use std::{
     io::{Error, ErrorKind, Result},
+    net::SocketAddr,
     time::Duration,
 };
 use tokio::net::TcpStream;
@@ -100,5 +101,11 @@ impl Connector for ClientConfig {
 
     fn runtime(&self) -> Self::Runtime {
         TokioRuntime::default()
+    }
+
+    async fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>> {
+        tokio::net::lookup_host((host, port))
+            .await
+            .map(Iterator::collect)
     }
 }

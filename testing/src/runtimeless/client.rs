@@ -1,6 +1,9 @@
 use super::SERVERS;
 use crate::{RuntimelessRuntime, TestTransport};
-use std::io::{Error, ErrorKind, Result};
+use std::{
+    io::{Error, ErrorKind, Result},
+    net::SocketAddr,
+};
 use trillium_server_common::Connector;
 use url::Url;
 
@@ -34,5 +37,9 @@ impl Connector for RuntimelessClientConfig {
 
     fn runtime(&self) -> Self::Runtime {
         RuntimelessRuntime::default()
+    }
+
+    async fn resolve(&self, _host: &str, _port: u16) -> Result<Vec<SocketAddr>> {
+        Ok(vec![])
     }
 }

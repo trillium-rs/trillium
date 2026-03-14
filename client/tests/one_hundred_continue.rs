@@ -2,7 +2,11 @@ use async_channel::Sender;
 use futures_lite::future;
 use indoc::{formatdoc, indoc};
 use pretty_assertions::assert_eq;
-use std::future::{Future, IntoFuture};
+use std::{
+    future::{Future, IntoFuture},
+    io,
+    net::SocketAddr,
+};
 use test_harness::test;
 use trillium_client::{Client, Conn, Error, Status, USER_AGENT};
 use trillium_server_common::{Connector, Url};
@@ -223,7 +227,7 @@ impl<R: RuntimeTrait> Connector for TestConnector<R> {
     type Transport = TestTransport;
     type Udp = ();
 
-    async fn connect(&self, _url: &Url) -> std::io::Result<Self::Transport> {
+    async fn connect(&self, _url: &Url) -> io::Result<Self::Transport> {
         let (server, client) = TestTransport::new();
         let _ = self.0.send(server).await;
         Ok(client)
@@ -231,6 +235,10 @@ impl<R: RuntimeTrait> Connector for TestConnector<R> {
 
     fn runtime(&self) -> Self::Runtime {
         self.1.clone()
+    }
+
+    async fn resolve(&self, _host: &str, _port: u16) -> io::Result<Vec<SocketAddr>> {
+        Ok(vec![])
     }
 }
 

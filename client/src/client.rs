@@ -1,24 +1,37 @@
 use crate::{Conn, IntoUrl, Pool, USER_AGENT, h3::H3ClientState};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
-    HeaderName, HeaderValues, Headers, KnownHeaderName, Method, ReceivedBodyState, TypeSet,
-    Version::Http1_1,
+    HeaderName, HeaderValues, Headers, KnownHeaderName, Method, ReceivedBodyState, ServerConfig,
+    TypeSet, Version::Http1_1,
 };
 use trillium_server_common::{
-    ArcedConnector, ArcedQuicConnector, Connector, QuicConnector, Transport,
+    ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Transport,
     url::{Origin, Url},
 };
 
 /// A client contains a Config and an optional connection pool and builds
 /// conns.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, fieldwork::Fieldwork)]
 pub struct Client {
     config: ArcedConnector,
     h3: Option<H3ClientState>,
     pool: Option<Pool<Origin, Box<dyn Transport>>>,
+
+    /// url base for this client
+    #[field(get)]
     base: Option<Arc<Url>>,
+
+    /// default request headers
+    #[field(get)]
     default_headers: Arc<Headers>,
+
+    /// optional timeout
+    #[field(get, set, with, copy, option_set_some)]
     timeout: Option<Duration>,
+
+    /// configuration
+    #[field(get, get_mut, set, with, into)]
+    server_config: Arc<ServerConfig>,
 }
 
 macro_rules! method {
@@ -85,6 +98,7 @@ impl Client {
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
+            server_config: Default::default(),
         }
     }
 
@@ -97,9 +111,9 @@ impl Client {
     /// When H3 is configured, the client will track `Alt-Svc` headers in responses and
     /// automatically use HTTP/3 for subsequent requests to origins that advertise it.
     /// Requests to origins without a cached alt-svc entry continue to use HTTP/1.1.
-    pub fn new_with_quic<C: Connector, Q: QuicConnector<C>>(connector: C, quic: Q) -> Self {
-        // Bind the runtime into the QUIC connector before consuming `connector`.
-        let arced_quic = ArcedQuicConnector::new(&connector, quic);
+    pub fn new_with_quic<C: Connector, Q: QuicClientConfig<C>>(connector: C, quic: Q) -> Self {
+        // Bind the runtime into the QUIC client config before consuming `connector`.
+        let arced_quic = ArcedQuicClientConfig::new(&connector, quic);
         Self {
             config: ArcedConnector::new(connector),
             h3: Some(H3ClientState::new(arced_quic)),
@@ -107,6 +121,7 @@ impl Client {
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
+            server_config: Default::default(),
         }
     }
 
@@ -124,11 +139,6 @@ impl Client {
     ) -> Self {
         self.default_headers_mut().insert(name, value);
         self
-    }
-
-    /// borrow the default headers
-    pub fn default_headers(&self) -> &Headers {
-        &self.default_headers
     }
 
     /// borrow the default headers mutably
@@ -193,6 +203,7 @@ impl Client {
             http_version: Http1_1,
             max_head_length: 8 * 1024,
             state: TypeSet::new(),
+            server_config: self.server_config.clone(),
         }
     }
 
@@ -217,11 +228,6 @@ impl Client {
         self
     }
 
-    /// retrieve the base for this client, if any
-    pub fn base(&self) -> Option<&Url> {
-        self.base.as_deref()
-    }
-
     /// attempt to build a url from this IntoUrl and the [`Client::base`], if set
     pub fn build_url(&self, url: impl IntoUrl) -> crate::Result<Url> {
         url.into_url(self.base())
@@ -238,21 +244,6 @@ impl Client {
 
         self.base = Some(Arc::new(base));
         Ok(())
-    }
-
-    /// set the timeout for all conns this client builds
-    ///
-    /// this can also be set with [`Conn::set_timeout`] and [`Conn::with_timeout`]
-    pub fn set_timeout(&mut self, timeout: Duration) {
-        self.timeout = Some(timeout);
-    }
-
-    /// set the timeout for all conns this client builds
-    ///
-    /// this can also be set with [`Conn::set_timeout`] and [`Conn::with_timeout`]
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.set_timeout(timeout);
-        self
     }
 }
 

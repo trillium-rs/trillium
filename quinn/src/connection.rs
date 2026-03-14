@@ -56,10 +56,6 @@ impl QuinnConnection {
     pub(crate) fn new(connection: quinn::Connection) -> Self {
         Self(connection)
     }
-
-    pub(crate) fn inner(&self) -> &quinn::Connection {
-        &self.0
-    }
 }
 
 #[derive(AsyncRead)]

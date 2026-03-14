@@ -140,6 +140,10 @@ impl<C: Connector> Connector for RustlsConfig<C> {
     fn runtime(&self) -> Self::Runtime {
         self.tcp_config.runtime()
     }
+
+    async fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>> {
+        self.tcp_config.resolve(host, port).await
+    }
 }
 
 #[derive(Debug)]

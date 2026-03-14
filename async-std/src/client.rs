@@ -1,6 +1,9 @@
 use crate::{AsyncStdRuntime, AsyncStdTransport};
-use async_std::net::TcpStream;
-use std::io::{Error, ErrorKind, Result};
+use async_std::net::{TcpStream, ToSocketAddrs};
+use std::{
+    io::{Error, ErrorKind, Result},
+    net::SocketAddr,
+};
 use trillium_server_common::{
     Connector, Transport,
     url::{Host, Url},
@@ -80,5 +83,9 @@ impl Connector for ClientConfig {
 
     fn runtime(&self) -> Self::Runtime {
         AsyncStdRuntime::default()
+    }
+
+    async fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>> {
+        (host, port).to_socket_addrs().await.map(Iterator::collect)
     }
 }
