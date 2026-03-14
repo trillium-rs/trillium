@@ -18,4 +18,4 @@ mod crypto_provider;
 mod runtime;
 
 pub use client::ClientQuicConfig;
-pub use config::QuicConfig;
+pub use config::{QuicConfig, QuinnEndpoint};

@@ -1,6 +1,6 @@
 /// This file represents representative use cases in order to ensure future changes take them
 /// into consideration
-use std::{future::Future, io, marker::PhantomData, sync::Arc};
+use std::{future::Future, io, marker::PhantomData, net::SocketAddr, sync::Arc};
 use test_harness::test;
 use trillium_client::{Client, Connector, Url};
 use trillium_http::{Conn, KnownHeaderName, ServerConfig};
@@ -63,5 +63,9 @@ where
 
     fn runtime(&self) -> Self::Runtime {
         self.runtime.clone()
+    }
+
+    async fn resolve(&self, _host: &str, _port: u16) -> io::Result<Vec<SocketAddr>> {
+        Ok(vec![])
     }
 }

@@ -100,7 +100,7 @@ pub trait QuicConnectionTrait: Clone + Send + Sync + 'static {
 /// 3. The resulting [`QuicBinding`] is stored on `RunningConfig` and drives the H3 accept loop
 pub trait QuicConfig<S: Server>: Send + 'static {
     /// The bound endpoint type produced by [`bind`](QuicConfig::bind).
-    type Binding: QuicBinding;
+    type Endpoint: QuicEndpoint;
 
     /// Bind a QUIC endpoint to the given address.
     ///
@@ -114,27 +114,40 @@ pub trait QuicConfig<S: Server>: Send + 'static {
         addr: SocketAddr,
         runtime: S::Runtime,
         info: &mut Info,
-    ) -> Option<io::Result<Self::Binding>>;
+    ) -> Option<io::Result<Self::Endpoint>>;
 }
 
 impl<S: Server> QuicConfig<S> for () {
-    type Binding = ();
+    type Endpoint = ();
 
     fn bind(self, _: SocketAddr, _: S::Runtime, _: &mut Info) -> Option<io::Result<()>> {
         None
     }
 }
 
-/// A bound QUIC endpoint that accepts connections.
+/// A bound QUIC endpoint that accepts and initiates connections.
 ///
 /// Analogous to [`Server`](crate::Server) for TCP. QUIC library adapters implement this to provide
-/// the connection accept loop. The `()` implementation accepts no connections (HTTP/3 disabled).
-pub trait QuicBinding: Send + Sync + 'static {
+/// the connection accept loop (server) and outbound connections (client).
+///
+/// The `()` implementation is a no-op (HTTP/3 disabled). Server-only implementations may return
+/// an error from [`connect`](QuicEndpoint::connect); client-only implementations may return
+/// `None` from [`accept`](QuicEndpoint::accept).
+pub trait QuicEndpoint: Send + Sync + 'static {
     /// The connection type yielded by this endpoint.
     type Connection: QuicConnectionTrait;
 
-    /// Accept the next QUIC connection, or return `None` if the endpoint is done.
+    /// Accept the next inbound QUIC connection, or return `None` if the endpoint is done.
     fn accept(&self) -> impl Future<Output = Option<Self::Connection>> + Send;
+
+    /// Initiate a QUIC connection to the given address.
+    ///
+    /// `server_name` is the SNI hostname used for TLS verification.
+    fn connect(
+        &self,
+        addr: SocketAddr,
+        server_name: &str,
+    ) -> impl Future<Output = io::Result<Self::Connection>> + Send;
 }
 
 /// Uninhabited type used by the `()` [`QuicBinding`] implementation.
@@ -226,11 +239,18 @@ impl AsyncWrite for NoQuic {
     }
 }
 
-impl QuicBinding for () {
+impl QuicEndpoint for () {
     type Connection = NoQuic;
 
     async fn accept(&self) -> Option<NoQuic> {
         None
+    }
+
+    async fn connect(&self, _: SocketAddr, _: &str) -> io::Result<NoQuic> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "QUIC not configured",
+        ))
     }
 }
 
@@ -380,5 +400,63 @@ impl QuicConnection {
     /// The maximum datagram payload size the peer will accept, if datagrams are supported.
     pub fn max_datagram_size(&self) -> Option<usize> {
         self.0.max_datagram_size()
+    }
+}
+
+// -- Type-erased QuicEndpoint --
+
+trait ObjectSafeQuicEndpoint: Send + Sync {
+    fn accept(&self) -> BoxedFuture<'_, Option<QuicConnection>>;
+    fn connect<'a>(
+        &'a self,
+        addr: SocketAddr,
+        server_name: &'a str,
+    ) -> BoxedFuture<'a, io::Result<QuicConnection>>;
+}
+
+impl<T: QuicEndpoint> ObjectSafeQuicEndpoint for T {
+    fn accept(&self) -> BoxedFuture<'_, Option<QuicConnection>> {
+        Box::pin(async { QuicEndpoint::accept(self).await.map(QuicConnection::from) })
+    }
+
+    fn connect<'a>(
+        &'a self,
+        addr: SocketAddr,
+        server_name: &'a str,
+    ) -> BoxedFuture<'a, io::Result<QuicConnection>> {
+        Box::pin(async move {
+            QuicEndpoint::connect(self, addr, server_name)
+                .await
+                .map(QuicConnection::from)
+        })
+    }
+}
+
+/// A type-erased QUIC endpoint, equivalent to `Arc<dyn QuicEndpoint>`.
+/// Cheaply cloneable.
+#[derive(Clone)]
+pub struct ArcedQuicEndpoint(Arc<dyn ObjectSafeQuicEndpoint>);
+
+impl Debug for ArcedQuicEndpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ArcedQuicEndpoint").finish()
+    }
+}
+
+impl<T: QuicEndpoint> From<T> for ArcedQuicEndpoint {
+    fn from(endpoint: T) -> Self {
+        Self(Arc::new(endpoint))
+    }
+}
+
+impl ArcedQuicEndpoint {
+    /// Accept the next inbound QUIC connection.
+    pub async fn accept(&self) -> Option<QuicConnection> {
+        self.0.accept().await
+    }
+
+    /// Initiate a QUIC connection to the given address.
+    pub async fn connect(&self, addr: SocketAddr, server_name: &str) -> io::Result<QuicConnection> {
+        self.0.connect(addr, server_name).await
     }
 }

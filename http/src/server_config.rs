@@ -1,4 +1,5 @@
 use crate::{Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade};
+use fieldwork::Fieldwork;
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{future::Future, sync::Arc};
 use swansong::{ShutdownCompletion, Swansong};
@@ -7,10 +8,16 @@ use swansong::{ShutdownCompletion, Swansong};
 /// This currently contains tunable parameters in a [`HttpConfig`], the [`Swansong`] graceful
 /// shutdown control interface, and a shared [`TypeSet`] that contains application-specific
 /// information about the running server
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Fieldwork)]
+#[fieldwork(get, set, get_mut, with)]
 pub struct ServerConfig {
+    /// [`HttpConfig`] performance and security parameters
     pub(crate) http_config: HttpConfig,
+
+    /// [`Swansong`] graceful shutdown interface
     pub(crate) swansong: Swansong,
+
+    /// [`TypeSet`] shared state
     pub(crate) shared_state: TypeSet,
 }
 impl AsRef<TypeSet> for ServerConfig {
@@ -38,41 +45,9 @@ impl AsRef<HttpConfig> for ServerConfig {
 }
 
 impl ServerConfig {
-    /// Modify the [`HttpConfig`] for this server.
-    pub fn http_config_mut(&mut self) -> &mut HttpConfig {
-        &mut self.http_config
-    }
-
-    /// Borrow the [`HttpConfig`] for this server
-    pub fn http_config(&self) -> &HttpConfig {
-        &self.http_config
-    }
-
-    /// Replace the [`Swansong`] graceful shutdown control interface for this server.
-    pub fn set_swansong(&mut self, swansong: Swansong) {
-        self.swansong = swansong;
-    }
-
-    /// Borrow the [`Swansong`] graceful shutdown control interface for this server.
-    pub fn swansong(&self) -> &Swansong {
-        &self.swansong
-    }
-
     /// Construct a new `ServerConfig`
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Borrow the shared state [`TypeSet`] for this server
-    pub fn shared_state(&self) -> &TypeSet {
-        &self.shared_state
-    }
-
-    /// Mutate the shared state [`TypeSet`] for this server.
-    ///
-    /// Types added here will be immutably available on all [`Conn`]s handled by this server.
-    pub fn shared_state_mut(&mut self) -> &mut TypeSet {
-        &mut self.shared_state
     }
 
     /// Perform HTTP on the provided transport, applying the provided `async Conn -> Conn` handler

@@ -34,7 +34,10 @@ impl Conn {
         };
 
         // Get an existing pooled connection or establish a new one.
-        let quic_conn = match h3.get_or_create_quic_conn(&origin, &host, port).await {
+        let quic_conn = match h3
+            .get_or_create_quic_conn(&origin, &host, port, &self.config, &self.server_config)
+            .await
+        {
             Ok(conn) => conn,
             Err(e) => {
                 log::debug!("H3 connect to {host}:{port} failed: {e}, falling back to H1");

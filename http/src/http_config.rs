@@ -27,7 +27,7 @@ pub const DEFAULT_CONFIG: HttpConfig = HttpConfig {
 /// application types. In the distant future, these may turn into initial values and trillium will
 /// tune itself based on values seen at runtime.
 #[derive(Clone, Copy, Debug, Fieldwork)]
-#[fieldwork(get, set, with, without)]
+#[fieldwork(get, get_mut, set, with, without)]
 pub struct HttpConfig {
     /// The maximum length allowed before the http body begins for a given request.
     ///

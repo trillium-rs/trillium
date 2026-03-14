@@ -1,9 +1,10 @@
-use crate::{QuicConnection, Runtime, RuntimeTrait, Transport, UdpTransport, Url};
+use crate::{Runtime, RuntimeTrait, Transport, UdpTransport, Url};
 use std::{
     any::Any,
-    fmt::{self, Debug},
+    fmt::{self, Debug, Formatter},
     future::Future,
     io,
+    net::SocketAddr,
     pin::Pin,
     sync::Arc,
 };
@@ -36,6 +37,13 @@ pub trait Connector: Send + Sync + 'static {
         ArcedConnector(Arc::new(self))
     }
 
+    /// Perform a DNS lookup for a given host-and-port
+    fn resolve(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> impl Future<Output = io::Result<Vec<SocketAddr>>> + Send;
+
     /// Returns the runtime
     fn runtime(&self) -> Self::Runtime;
 }
@@ -45,7 +53,7 @@ pub trait Connector: Send + Sync + 'static {
 pub struct ArcedConnector(Arc<dyn ObjectSafeConnector>);
 
 impl Debug for ArcedConnector {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("ArcedConnector").finish()
     }
 }
@@ -94,6 +102,16 @@ trait ObjectSafeConnector: Send + Sync + 'static {
     fn as_any(&self) -> &dyn Any;
     fn as_mut_any(&mut self) -> &mut dyn Any;
     fn runtime(&self) -> Runtime;
+
+    fn resolve<'connector, 'host, 'fut>(
+        &'connector self,
+        host: &'host str,
+        port: u16,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<SocketAddr>>> + Send + 'fut>>
+    where
+        'connector: 'fut,
+        'host: 'fut,
+        Self: 'fut;
 }
 
 impl<T: Connector> ObjectSafeConnector for T {
@@ -124,6 +142,19 @@ impl<T: Connector> ObjectSafeConnector for T {
     fn runtime(&self) -> Runtime {
         Connector::runtime(self).into()
     }
+
+    fn resolve<'connector, 'host, 'fut>(
+        &'connector self,
+        host: &'host str,
+        port: u16,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Vec<SocketAddr>>> + Send + 'fut>>
+    where
+        'connector: 'fut,
+        'host: 'fut,
+        Self: 'fut,
+    {
+        Box::pin(async move { Connector::resolve(self, host, port).await })
+    }
 }
 
 impl Connector for ArcedConnector {
@@ -142,98 +173,77 @@ impl Connector for ArcedConnector {
     fn runtime(&self) -> Self::Runtime {
         self.0.runtime()
     }
+
+    async fn resolve(&self, host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+        self.0.resolve(host, port).await
+    }
 }
 
-/// Interface for QUIC adapters for the trillium client.
+/// Factory for creating client-side QUIC endpoints.
 ///
 /// Parameterised over `C: Connector` so that the concrete runtime and UDP socket types
 /// are available to the implementation without coupling the QUIC library to any specific
 /// runtime adapter.
 ///
-/// Implementations receive `runtime: &C::Runtime` in [`connect`](QuicConnector::connect) —
-/// the same runtime the TCP connector is using — so spawning and timers use the correct
-/// executor automatically.
-///
-/// Implementations are expected to handle TLS internally (QUIC embeds TLS 1.3) and to
-/// manage the HTTP/3 control and QPACK streams on the connection before returning.
-pub trait QuicConnector<C: Connector>: Send + Sync + 'static {
-    /// Establish a QUIC connection to `host:port`, returning an HTTP/3-ready connection.
+/// Implementations should produce a [`QuicEndpoint`](crate::QuicEndpoint) bound to the
+/// given local address. TLS configuration is embedded in the implementation.
+pub trait QuicClientConfig<C: Connector>: Send + Sync + 'static {
+    /// The endpoint type produced by [`bind`](QuicClientConfig::bind).
+    type Endpoint: crate::QuicEndpoint;
+
+    /// Bind a QUIC endpoint to the given local address.
     ///
-    /// `runtime` is the runtime from the paired [`Connector`]; use it for any spawning
-    /// or timer operations needed during connection setup.
-    fn connect<'a>(
-        &'a self,
-        host: &'a str,
-        port: u16,
-        runtime: &'a C::Runtime,
-    ) -> impl Future<Output = io::Result<QuicConnection>> + Send + 'a;
+    /// `runtime` is the runtime from the paired [`Connector`]; use it for spawning,
+    /// timers, and UDP I/O.
+    fn bind(&self, addr: SocketAddr, runtime: &C::Runtime) -> io::Result<Self::Endpoint>;
 }
 
-// -- Type-erased QuicConnector --
+// -- Type-erased QuicClientConfig --
 
-type BoxedQuicFuture<'a> = Pin<Box<dyn Future<Output = io::Result<QuicConnection>> + Send + 'a>>;
-
-trait ObjectSafeQuicConnector: Send + Sync + 'static {
-    fn connect<'a>(&'a self, host: &'a str, port: u16) -> BoxedQuicFuture<'a>;
-    fn as_any(&self) -> &dyn Any;
+trait ObjectSafeQuicClientConfig: Send + Sync + 'static {
+    fn bind(&self, addr: SocketAddr) -> io::Result<crate::ArcedQuicEndpoint>;
 }
 
-/// Binds a [`QuicConnector<C>`] together with its runtime before type erasure.
-///
-/// Created inside [`Client::new_with_quic`](trillium_client::Client::new_with_quic);
-/// not part of the public API.
-struct BoundQuicConnector<Q, C: Connector> {
-    quic: Q,
+/// Binds a [`QuicClientConfig<C>`] together with its runtime before type erasure.
+struct BoundQuicClientConfig<Q, C: Connector> {
+    config: Q,
     runtime: C::Runtime,
 }
 
-impl<C: Connector, Q: QuicConnector<C>> ObjectSafeQuicConnector for BoundQuicConnector<Q, C> {
-    fn connect<'a>(&'a self, host: &'a str, port: u16) -> BoxedQuicFuture<'a> {
-        Box::pin(self.quic.connect(host, port, &self.runtime))
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
+impl<C: Connector, Q: QuicClientConfig<C>> ObjectSafeQuicClientConfig
+    for BoundQuicClientConfig<Q, C>
+{
+    fn bind(&self, addr: SocketAddr) -> io::Result<crate::ArcedQuicEndpoint> {
+        let endpoint = self.config.bind(addr, &self.runtime)?;
+        Ok(crate::ArcedQuicEndpoint::from(endpoint))
     }
 }
 
-/// An arc-wrapped, type-erased QUIC connector.
+/// An arc-wrapped, type-erased QUIC client config (endpoint factory).
 ///
 /// Created via [`Client::new_with_quic`](trillium_client::Client::new_with_quic), which
-/// binds the connector's runtime into the wrapper before erasure. Not constructed directly.
+/// binds the connector's runtime into the wrapper before erasure.
 #[derive(Clone)]
-pub struct ArcedQuicConnector(Arc<dyn ObjectSafeQuicConnector>);
+pub struct ArcedQuicClientConfig(Arc<dyn ObjectSafeQuicClientConfig>);
 
-impl Debug for ArcedQuicConnector {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ArcedQuicConnector").finish()
+impl Debug for ArcedQuicClientConfig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("ArcedQuicClientConfig").finish()
     }
 }
 
-impl ArcedQuicConnector {
-    /// Binds `quic` to the runtime from `connector` and wraps the result for type erasure.
-    ///
-    /// Called by [`Client::new_with_quic`](trillium_client::Client::new_with_quic).
+impl ArcedQuicClientConfig {
+    /// Binds `config` to the runtime from `connector` and wraps the result for type erasure.
     #[must_use]
-    pub fn new<C: Connector, Q: QuicConnector<C>>(connector: &C, quic: Q) -> Self {
-        Self(Arc::new(BoundQuicConnector {
+    pub fn new<C: Connector, Q: QuicClientConfig<C>>(connector: &C, config: Q) -> Self {
+        Self(Arc::new(BoundQuicClientConfig {
             runtime: connector.runtime(),
-            quic,
+            config,
         }))
     }
 
-    /// Connect to `host:port`, returning an HTTP/3-ready [`QuicConnection`].
-    pub async fn connect(&self, host: &str, port: u16) -> io::Result<QuicConnection> {
-        self.0.connect(host, port).await
-    }
-
-    /// Determine if this `ArcedQuicConnector` wraps the specified concrete type.
-    pub fn is<T: Any + 'static>(&self) -> bool {
-        self.0.as_any().is::<T>()
-    }
-
-    /// Attempt to borrow the inner connector as the provided concrete type.
-    pub fn downcast_ref<T: Any + 'static>(&self) -> Option<&T> {
-        self.0.as_any().downcast_ref()
+    /// Create a type-erased QUIC endpoint bound to the given local address.
+    pub fn bind(&self, addr: SocketAddr) -> io::Result<crate::ArcedQuicEndpoint> {
+        self.0.bind(addr)
     }
 }

@@ -53,7 +53,7 @@ pub use trillium_http::{
 mod util;
 
 pub use trillium_server_common::{
-    ArcedConnector, ArcedQuicConnector, Connector, QuicConnector, Url,
+    ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Url,
 };
 
 /// constructs a new [`Client`] -- alias for [`Client::new`]

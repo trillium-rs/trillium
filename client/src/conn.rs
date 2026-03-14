@@ -1,9 +1,9 @@
 use crate::{Pool, h3::H3ClientState, util::encoding};
 use encoding_rs::Encoding;
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
     Body, Buffer, HeaderName, HeaderValues, Headers, Method, ReceivedBody, ReceivedBodyState,
-    Status, TypeSet, Version,
+    ServerConfig, Status, TypeSet, Version,
 };
 use trillium_server_common::{
     ArcedConnector, Transport,
@@ -58,6 +58,7 @@ pub struct Conn {
     pub(crate) http_version: Version,
     pub(crate) max_head_length: usize,
     pub(crate) state: TypeSet,
+    pub(crate) server_config: Arc<ServerConfig>,
 }
 
 /// default http user-agent header

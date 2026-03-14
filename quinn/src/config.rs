@@ -3,7 +3,7 @@ use crate::{
     runtime::{SocketTransport, TrilliumRuntime},
 };
 use std::{io, net::SocketAddr, sync::Arc};
-use trillium_server_common::{Info, QuicBinding, QuicConfig as QuicConfigTrait, Server};
+use trillium_server_common::{Info, QuicConfig as QuicConfigTrait, QuicEndpoint, Server};
 
 /// User-facing QUIC configuration backed by quinn.
 ///
@@ -78,14 +78,14 @@ where
     S::Runtime: Unpin,
     S::UdpTransport: SocketTransport,
 {
-    type Binding = QuinnBinding;
+    type Endpoint = QuinnEndpoint;
 
     fn bind(
         self,
         addr: SocketAddr,
         runtime: S::Runtime,
         _info: &mut Info,
-    ) -> Option<io::Result<Self::Binding>> {
+    ) -> Option<io::Result<Self::Endpoint>> {
         let quinn_runtime = TrilliumRuntime::<S::Runtime, S::UdpTransport>::new(runtime);
         let socket = match std::net::UdpSocket::bind(addr) {
             Ok(s) => s,
@@ -99,15 +99,22 @@ where
                 socket,
                 quinn_runtime,
             )
-            .map(QuinnBinding),
+            .map(QuinnEndpoint::new),
         )
     }
 }
 
-/// A bound quinn QUIC endpoint that accepts connections.
-pub struct QuinnBinding(quinn::Endpoint);
+/// A bound quinn QUIC endpoint that accepts and initiates connections.
+pub struct QuinnEndpoint(quinn::Endpoint);
 
-impl QuicBinding for QuinnBinding {
+impl QuinnEndpoint {
+    /// Wrap a quinn endpoint.
+    pub(crate) fn new(endpoint: quinn::Endpoint) -> Self {
+        Self(endpoint)
+    }
+}
+
+impl QuicEndpoint for QuinnEndpoint {
     type Connection = QuinnConnection;
 
     async fn accept(&self) -> Option<Self::Connection> {
@@ -118,5 +125,15 @@ impl QuicBinding for QuinnBinding {
                 Err(e) => log::error!("QUIC accept failed: {e}"),
             }
         }
+    }
+
+    async fn connect(&self, addr: SocketAddr, server_name: &str) -> io::Result<Self::Connection> {
+        let connection = self
+            .0
+            .connect(addr, server_name)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, e))?;
+        Ok(QuinnConnection::new(connection))
     }
 }
