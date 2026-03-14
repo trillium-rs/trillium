@@ -43,7 +43,7 @@
 //!     let mut conn = Conn::<TcpConnector>::get(url.clone()).execute().await?;
 //!     assert_eq!(conn.response_body().read_string().await?, "ok");
 //!
-//!     let client = Client::<TcpConnector>::new().with_default_pool();
+//!     let client = Client::<TcpConnector>::new();
 //!     let mut conn = client.get(url);
 //!     conn.send().await?;
 //!     assert_eq!(conn.response_body().read_string().await?, "ok");

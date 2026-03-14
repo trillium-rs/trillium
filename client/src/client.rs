@@ -9,8 +9,8 @@ use trillium_server_common::{
     url::{Origin, Url},
 };
 
-/// A client contains a Config and an optional connection pool and builds
-/// conns.
+/// A HTTP Client supporting HTTP/1.x and, when configured with a quic implementation, HTTP/3. See
+/// [`Client::new`] and [`Client::new_with_quic`] for construction information.
 #[derive(Clone, Debug, fieldwork::Fieldwork)]
 pub struct Client {
     config: ArcedConnector,
@@ -94,7 +94,7 @@ impl Client {
         Self {
             config: ArcedConnector::new(connector),
             h3: None,
-            pool: None,
+            pool: Some(Pool::default()),
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
@@ -117,7 +117,7 @@ impl Client {
         Self {
             config: ArcedConnector::new(connector),
             h3: Some(H3ClientState::new(arced_quic)),
-            pool: None,
+            pool: Some(Pool::default()),
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
@@ -148,18 +148,16 @@ impl Client {
         Arc::make_mut(&mut self.default_headers)
     }
 
-    /// chainable constructor to enable connection pooling. this can be
-    /// combined with [`Client::with_config`]
-    ///
+    /// chainable constructor to disable http/1.1 connection reuse.
     ///
     /// ```
     /// use trillium_client::Client;
     /// use trillium_smol::ClientConfig;
     ///
-    /// let client = Client::new(ClientConfig::default()).with_default_pool();
+    /// let client = Client::new(ClientConfig::default()).without_keepalive();
     /// ```
-    pub fn with_default_pool(mut self) -> Self {
-        self.pool = Some(Pool::default());
+    pub fn without_keepalive(mut self) -> Self {
+        self.pool = None;
         self
     }
 
