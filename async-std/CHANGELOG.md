@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Compatible with trillium 0.3
+- Trillium 0.3 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `config().with_stopper(stopper)` becomes `config().with_swansong(swansong)`
+- Free functions `spawn` and `block_on` removed; use `AsyncStdRuntime::default().spawn(fut)` and `AsyncStdRuntime::default().block_on(fut)` respectively
+- `ClientConfig::spawn(fut)` → `ClientConfig::runtime().spawn(fut)`
+
+### Added
+- `AsyncStdRuntime` implementing `RuntimeTrait`, with methods `spawn`, `block_on`, `delay`, `interval`, and `timeout`
+- `AsyncStdUdpSocket` — UDP transport type implementing `UdpTransport`, used by [`trillium-quinn`](https://docs.rs/trillium-quinn) for HTTP/3
+- `Config::spawn(handler)` now returns a `ServerHandle` that is `Clone` and covers the full server lifecycle: `await` it to wait for shutdown, call `handle.info().await` to wait for the server to finish binding and get a `BoundInfo` (bound address, URL, shared state), and `handle.shut_down()` to initiate graceful shutdown
+- HTTP/3 support: `config().with_quic(trillium_quinn::QuicConfig::from_single_cert(&cert_pem, &key_pem))` — see the [trillium changelog](https://docs.rs/trillium) for details
+
 ## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-async-std-v0.3.3...trillium-async-std-v0.4.0) - 2024-04-04
 
 ### Added

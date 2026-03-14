@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Compatible with trillium 0.3
+- `StateSet` renamed to `TypeSet` and extracted to the [`type-set`](https://docs.rs/type-set) crate; re-exported as `trillium_http::TypeSet`
+- Trillium 0.3 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `Conn::stopper()` → `Conn::swansong()`
+- `Error` variants renamed for consistency: `MalformedHeader` → `InvalidHeaderValue`, `PartialHead` → `InvalidHead`, `MissingVersion` → `InvalidVersion`, `UnrecognizedStatusCode`/`MissingStatusCode` → `InvalidStatus`/`MissingStatus`; `HeaderMissing` and `UnexpectedHeader` now carry `HeaderName<'static>` instead of `&'static str`; `UnsupportedVersion` now carries `Version` instead of `u8`
+- `Version::Http2_0` renamed to `Version::Http2`; `Version::Http3_0` renamed to `Version::Http3`
+- `Upgrade` is now `#[non_exhaustive]`; `Upgrade::buffer` changed from `Option<Vec<u8>>` to `Buffer`; `Upgrade::stopper` renamed to `Upgrade::swansong`; `Upgrade::peer_ip: Option<IpAddr>` added
+- `ReceivedBody` no longer implements `Stream`; use `AsyncRead` instead
+- `Headers::contains_ignore_ascii_case` removed (was deprecated)
+- `Headers::append` and `Headers::try_insert_with` now return `&mut HeaderValues` instead of `()`
+- `set_*` setters on `Conn` (e.g. `set_status`, `set_host`) now return `&mut Self`, enabling chaining
+- Handler futures in `Conn::map` and friends no longer require `Send`
+- `pub mod transport` removed — the `Transport` trait is now at `trillium::Transport`; `BoxedTransport` remains as a type alias
+
+### Added
+- `Headers::entry()` — Entry API for inserting/modifying headers, mirroring `HashMap::entry`
+- `parse` feature — opt-in alternative header parser (bypasses httparse; groundwork for H3)
+- `ServerConfig` is now public — Arc-shared per-server state (Swansong + TypeSet + HttpConfig) passed to every connection
+- `pub mod h3` — HTTP/3 protocol primitives: QPACK encode/decode, H3 framing, `H3Connection`, `H3Body`, `H3Error`; used by [`trillium-quinn`](https://docs.rs/trillium-quinn) and other QUIC adapter crates
+
 ## [0.3.17](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.16...trillium-http-v0.3.17) - 2024-05-30
 
 ### Added

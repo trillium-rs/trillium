@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Compatible with trillium 0.3
+
 ## [0.2.3](https://github.com/trillium-rs/trillium/compare/trillium-head-v0.2.2...trillium-head-v0.2.3) - 2024-05-30
 
 ### Added
