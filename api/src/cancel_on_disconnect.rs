@@ -5,7 +5,8 @@ use trillium::{Conn, Handler, Info, Status, Upgrade};
 /// A struct that cancels a handler if the client disconnects.
 ///
 /// Note that the conn is not available to this handler, and any properties of the request needed
-/// for execution must be extracted through [`FromConn`] or [`TryFromConn`] arguments
+/// for execution must be extracted through [`FromConn`](crate::FromConn) or
+/// [`TryFromConn`](crate::TryFromConn) arguments
 #[derive(Debug)]
 pub struct CancelOnDisconnect<F, OutputHandler, TryFromConn>(
     F,

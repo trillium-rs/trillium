@@ -79,7 +79,7 @@ pub trait ApiConnExt {
     ///
     /// ## Examples
     ///
-    /// ### Deserializing to [`Value`]
+    /// ### Deserializing to `Value`
     ///
     /// ```no_run
     /// # if !cfg!(any(feature = "sonic-rs", feature = "serde_json")) { return }
