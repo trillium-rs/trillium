@@ -1,23 +1,14 @@
 # Conn
 
-Before we explore the concept of a handler further, let's take a look
-at `Conn`. As mentioned above, `Conn` represents both the request and
-response, as well as any data your application associates with that
-request-response cycle.
+`Conn` represents both the HTTP request and response for a single request-response cycle. It also owns the underlying connection — dropping a `Conn` disconnects the client.
 
-> 🧑‍🎓 Advanced aside: Although the naming of Conn is directly
-> borrowed from Elixir's [`plug`](https://github.com/elixir-plug/plug)
-> and therefore also [`Phoenix`](https://www.phoenixframework.org/),
-> it does in fact also own (in the rust sense) the singular
-> `TcpStream` that represents the connection with the http client, and
-> dropping a `Conn` will also disconnect the client as a result.
+> 🧑‍🎓 The name "Conn" is borrowed from Elixir's [Plug](https://github.com/elixir-plug/plug) and [Phoenix](https://www.phoenixframework.org/). Like those, it carries the full lifecycle of one request through the handler chain. Unlike them, a Trillium `Conn` owns the transport (TCP socket, TLS stream, or QUIC stream) directly.
 
-The [rustdocs for Conn](https://docs.trillium.rs/trillium/struct.conn)
-contain the full details for all of the things you can do with a conn.
+The [rustdocs for Conn](https://docs.trillium.rs/trillium/struct.conn) cover every method. Here are the concepts you'll use most.
 
-## Returning Conn
-In general, because you'll be returning `Conn` from handlers, it
-supports a chainable (fluent) interface for setting properties, like:
+## Building a response
+
+`Conn` supports a chainable interface for setting response properties:
 
 ```rust,noplaypen
 conn.with_status(202)
@@ -25,48 +16,40 @@ conn.with_status(202)
     .with_body("this is my custom body")
 ```
 
-## Accessing http request properties
+Convenience methods like `conn.ok("body")` combine common operations. `ok` sets status 200, sets the body, and halts the conn.
 
-Conn also contains read-only properties like request headers, request
-path, and request method, each of which have getter associated
-functions.
+## Default response
 
-## Default Response
+If a handler returns `Conn` without setting anything, the response is `404 Not Found` with no body. This is always a valid thing to return — it's how handlers signal "I didn't handle this; try the next one."
 
-The default response for a Conn is a 404 with no response body, so it
-is always valid to return the Conn from a handler unmodified (`|conn:
-Conn| async move { conn }` is the simplest valid handler).
+## Reading the request
+
+`Conn` provides read access to request properties:
+
+- `conn.method()` — the HTTP method
+- `conn.path()` — the request path
+- `conn.headers()` — request headers
+- `conn.request_body()` — the request body as an async reader
+- `conn.peer_ip()` — the remote address
 
 ## State
 
-In addition to holding the request properties and accumulating the
-response your application is going to send, a Conn also serves as a
-data structure for any information your application needs to associate
-with that request. This is especially valuable for communicating
-between handlers, and most core handlers are implemented using conn
-state. One important caveat to is that each Conn can only contain
-exactly one of each type, so it is highly recommended that you only
-store types that you define in state.
+In addition to request/response data, `Conn` carries an arbitrary state set — a type-indexed map that handlers can use to communicate. Each type can appear at most once:
 
-> 🌊 Comparison with Tide: Tide has three different types of state:
-> Server state, request state, and response state. In Trillium, server
-> state is achieved using the
-> [`trillium::State`](https://docs.trillium.rs/trillium/struct.state)
-> handler, which holds any type that is Clone and puts a clone of it
-> into the state of each Conn that passes through the handler.
+```rust,noplaypen
+// Store a value
+conn.set_state(MyData { user_id: 42 });
 
+// Read it back
+let data: Option<&MyData> = conn.state();
+```
+
+This is how most Trillium libraries work internally: a handler earlier in the chain stores data in the state set, and later handlers retrieve it.
 
 ## Extending Conn
 
-It is a very common pattern in trillium for libraries to extend Conn
-in order to provide additional functionality[^1]. The Conn interface
-does not provide support for sessions, cookies, route params, or many
-other building blocks that other frameworks build into the core
-types. Instead, to use sessions as an example, `trillium_sessions`
-provides a `SessionConnExt` trait which provides associated functions
-for Conn that offer session support. In general, handlers that put
-data into conn state also will provide convenience functions for
-accessing that state, and will export a `[Something]ConnExt` trait.
+Library crates typically expose their functionality through a `[Something]ConnExt` trait rather than adding methods directly to `Conn`. For example, `trillium-sessions` provides `SessionConnExt` with methods like `conn.session()`. You get these methods by importing the trait.
 
-[^1] 🧑‍🎓 see [library_patterns](../library_patterns.md) for an example
-of authoring one of these
+This pattern avoids conflicts between crates — since state is keyed by type, each library uses its own private newtype.
+
+> 🧑‍🎓 See [Patterns for library authors](../library_patterns.md) for a worked example.
