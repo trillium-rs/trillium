@@ -29,6 +29,10 @@
 //! }
 //! ```
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use trillium::Handler;
 pub use trillium_server_common::{Binding, Swansong};
 

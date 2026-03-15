@@ -60,6 +60,10 @@
 //! [`Router::without_options_handling`] or
 //! [`RouterRef::set_options_handling`]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod router;
 pub use router::Router;
 

@@ -11,6 +11,10 @@
 
 //! http reverse and forward proxy trillium handler
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod body_streamer;
 mod forward_proxy_connect;
 pub mod upstream;

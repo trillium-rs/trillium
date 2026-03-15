@@ -57,6 +57,10 @@
 //! trillium-testing = { version = "0.2", features = ["smol"] }
 //! ```
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod assertions;
 
 mod test_transport;

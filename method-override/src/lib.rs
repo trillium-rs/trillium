@@ -24,6 +24,10 @@
     unused_qualifications
 )]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use querystrong::{IndexPath, QueryStrong};
 use std::{collections::HashSet, fmt::Debug};
 use trillium::{Conn, Handler, Method, Transport};

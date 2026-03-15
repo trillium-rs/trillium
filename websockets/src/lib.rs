@@ -51,6 +51,10 @@
 //! usage. In order to use this trait, the `json` cargo feature must be
 //! enabled.
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod bidirectional_stream;
 mod websocket_connection;
 mod websocket_handler;

@@ -8,6 +8,7 @@
     nonstandard_style,
     unused_qualifications
 )]
+
 //! Basic authentication for trillium.rs
 //!
 //! ```rust,no_run
@@ -17,6 +18,11 @@
 //!     |conn: trillium::Conn| async move { conn.ok("authenticated") },
 //! ));
 //! ```
+
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use trillium::{
     Conn, Handler,

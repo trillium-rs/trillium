@@ -15,6 +15,10 @@
 //! trillium_aws_lambda::run(|conn: trillium::Conn| async move { conn.ok("hello lambda") });
 //! ```
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use lamedh_runtime::{Context, Handler as AwsHandler};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::runtime;

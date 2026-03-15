@@ -39,6 +39,10 @@
 //! # Ok(()) }
 //! ```
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod tera_handler;
 pub use tera_handler::TeraHandler;
 
