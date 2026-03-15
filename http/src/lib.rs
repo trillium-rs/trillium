@@ -8,8 +8,12 @@
     unused_qualifications
 )]
 #![warn(missing_docs, clippy::pedantic, clippy::perf, clippy::cargo)]
-#![allow(clippy::must_use_candidate, clippy::module_name_repetitions)]
-//! This crate provides the http 1.x implementation for Trillium.
+#![allow(
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::multiple_crate_versions
+)]
+//! This crate provides the http implementations for Trillium.
 //!
 //! ## Stability
 //!

@@ -53,6 +53,7 @@ const fn build_decode_tree() -> [Node; TREE_CAPACITY] {
 
                 tree[new as usize] = if bit == 0 {
                     if sym < 256 {
+                        #[allow(clippy::cast_possible_truncation)] // sym < 256
                         Node::Leaf(sym as u8)
                     } else {
                         Node::Eos

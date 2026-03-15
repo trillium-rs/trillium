@@ -18,6 +18,7 @@ use swansong::{ShutdownCompletion, Swansong};
 
 /// The result of processing an HTTP/3 bidirectional stream.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // Request is the hot path; boxing it would add an allocation per request
 pub enum H3StreamResult<Transport> {
     /// The stream carried a normal HTTP/3 request.
     Request(Conn<Transport>),

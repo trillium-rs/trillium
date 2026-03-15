@@ -8,7 +8,11 @@
     unused_qualifications
 )]
 #![warn(missing_docs, clippy::pedantic, clippy::nursery, clippy::cargo)]
-#![allow(clippy::must_use_candidate, clippy::module_name_repetitions)]
+#![allow(
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::multiple_crate_versions
+)]
 
 //! # Welcome to the `trillium` crate!
 //!
