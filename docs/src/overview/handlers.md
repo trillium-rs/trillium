@@ -1,20 +1,16 @@
 # Handlers
 
-The simplest form of a handler is any async function that takes a
-`Conn` and returns that `Conn`. This example sets a `200 Ok` status
-and sets a string body.
+The simplest handler is any async function that takes a `Conn` and returns it:
 
 ```rust,noplaypen
 use trillium::Conn;
+
 async fn hello_world(conn: Conn) -> Conn {
     conn.ok("hello world!")
 }
 ```
 
-With no further modification, we can drop this handler into a trillium
-server and it will respond to http requests for us. We're using the
-[`smol`](https://github.com/smol-rs/smol)-runtime based server adapter
-here.
+Drop it into a server and it responds to every request:
 
 ```rust,noplaypen
 pub fn main() {
@@ -22,7 +18,7 @@ pub fn main() {
 }
 ```
 
-We can also define this as a closure:
+Or write it as a closure:
 
 ```rust,noplaypen
 pub fn main() {
@@ -32,73 +28,41 @@ pub fn main() {
 }
 ```
 
-This handler will respond to any request regardless of path, and it
-will always send a `200 Ok` http status with the specified body of
-`"hello world"`.
+This handler responds to any request regardless of path, always with status 200.
 
-## The State Handler
+## The State handler
 
-Trillium offers only one handler in the main `trillium` crate: The
-State handler, which places a clone of any type you provide into the
-state set of each conn that passes through it. See the
-[rustdocs for State](https://docs.trillium.rs/trillium/struct.state)
-for example usage.
+The `trillium` crate exports one handler: `State<T>`, which clones a value into the state set of each `Conn` that passes through it. This is how shared resources (database pools, configuration, broadcast senders) are made available to downstream handlers.
 
-## Tuple Handlers
+See the [rustdocs for State](https://docs.trillium.rs/trillium/struct.state) for usage.
 
-Earlier, we discussed that we can use state to send data between
-handlers and that handlers can always pass along the conn
-unchanged. In order to use this, we need to introduce the notion of
-tuple handlers.
+## Tuple handlers
 
-Each handler in a tuple handler is called from left to right until the
-conn is halted.
-
-> 🔌 Readers familiar with elixir plug will recognize this notion as
-> identical to pipelines, and that the term halt [is ~~stolen from~~
-> inspired by plug](https://hexdocs.pm/plug/Plug.Conn.html#halt/1)
+Multiple handlers compose via tuples, which run left to right:
 
 ```rust,noplaypen
-env_logger::init();
 use trillium_logger::Logger;
-run((
+
+trillium_smol::run((
     Logger::new(),
-    |conn: Conn| async move { conn.ok("tuple!") }
+    |conn: Conn| async move { conn.ok("tuple!") },
 ));
 ```
 
-This snippet adds a http logger to our application, so that if we
-execute our application with `RUST_LOG=info cargo run` and make a
-request to http://localhost:8000, we'll see log output on stdout.
+Each handler in the tuple runs in order until one halts the `Conn`. Halting stops the chain — subsequent handlers are skipped. This is how handlers signal "I've handled this request" or "this request is not authorized."
 
-> 🧑‍🎓❓ Why not vectors or arrays? Rust vectors and arrays are type
-> homogeneous, so in order to store the Logger and closure type in the
-> above example in an array or vector, we'd need to allocate them to
-> the heap and actually store a smart pointer in our homogeneous
-> collection. Trillium initially was built around a notion of
-> "sequences," which were a wrapper around `Vec<Box<dyn Handler +
-> 'static>>`. Because tuples are generic over each of their elements,
-> they can contain heterogeneous elements of different sizes, without
-> heap allocation or smart pointers.
+> 🔌 Readers familiar with Elixir's Plug will recognize this as pipelines, and the term "halt" as [borrowed from Plug](https://hexdocs.pm/plug/Plug.Conn.html#halt/1).
+
+Tuples are used here (rather than `Vec`) because Rust vectors are type-homogeneous — storing different handler types in a vector requires heap allocation and boxing. Tuples are generic over each element, so they can hold heterogeneous types without allocation.
 
 ## Implementing Handler
 
-The [rustdocs for
-Handler](https://docs.trillium.rs/trillium/trait.handler) contains the
-full details of the Handler interface for library authors. For many
-applications, it will not be necessary to use anything other than an
-async function or closure, but Handler can contain its own state and be
-implemented for any type that you author.
+The `Handler` trait provides several lifecycle hooks beyond `run` — notably `init` (called once at startup) and `upgrade` (for WebSocket/WebTransport upgrades). For most applications, async functions and closures are sufficient. The [rustdocs for Handler](https://docs.trillium.rs/trillium/trait.handler) cover the full interface for library authors.
 
-## Assorted implementations provided by the trillium crate
+## Built-in implementations
 
-You may see a few other types used in tests and examples.
-* `()`: the noop handler, identical to `|conn: Conn| async move { conn }`
-* `&'static str` and `String`: This simple handler responds to all
-  conns by halting, setting a 200-ok status, and sending the string
-  content as response body. `trillium_smol::run("hello")` is identical
-  to `trillium_smol::run(|conn: Conn| async move { conn.ok("hello")
-  })`
-* `Option<impl Handler>`: This handler will noop if the option variant
-  is none. This is useful for conditionally including handlers at
-  runtime based on configuration or environment.
+A few types in the `trillium` crate implement `Handler` for convenience:
+
+- `()` — the no-op handler; passes the conn through unchanged
+- `&'static str` and `String` — halts with status 200 and the string as the body
+- `Option<impl Handler>` — no-ops if `None`; useful for conditionally enabling a handler at startup based on configuration
