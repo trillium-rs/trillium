@@ -40,7 +40,7 @@ impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
     /// Returns an error when we are unable to decode a frame.
     pub async fn next(&mut self) -> Result<Option<ActiveFrame<'_, 'a, R>>, H3Error> {
         if self.pending_skip > 0 {
-            let skip = self.pending_skip as usize;
+            let skip = self.pending_skip;
             self.pending_skip = 0;
             self.skip_bytes(skip).await?;
         }
@@ -49,8 +49,7 @@ impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
             match Frame::decode(self.buf) {
                 Ok((Frame::Unknown(len), consumed)) => {
                     log::trace!("skipping unknown frame, payload length {len}");
-                    let skip = consumed + len as usize;
-                    self.skip_bytes(skip).await?;
+                    self.skip_bytes(len + consumed as u64).await?;
                     continue;
                 }
                 Ok((frame, consumed)) => {
@@ -90,10 +89,12 @@ impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
     }
 
     /// Skip `n` bytes from the buffer, reading more from the transport if needed.
-    async fn skip_bytes(&mut self, n: usize) -> io::Result<()> {
-        let from_buf = n.min(self.buf.len());
+    async fn skip_bytes(&mut self, n: u64) -> io::Result<()> {
+        let from_buf = usize::try_from(n)
+            .unwrap_or(self.buf.len())
+            .min(self.buf.len());
         self.buf.ignore_front(from_buf);
-        let remaining = (n - from_buf) as u64;
+        let remaining = n - from_buf as u64;
 
         if remaining > 0 {
             let copied =
@@ -134,8 +135,18 @@ impl<R: AsyncRead + Unpin> ActiveFrame<'_, '_, R> {
     ///
     /// The payload bytes remain in the buffer and are skipped when this
     /// `ActiveFrame` is dropped (or when [`FrameStream::next`] is called).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stream ends before the full payload is
+    /// received or if the payload length exceeds addressable memory.
     pub async fn buffer_payload(&mut self) -> io::Result<&[u8]> {
-        let len = self.remaining as usize;
+        let len = usize::try_from(self.remaining).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "frame payload too large to buffer",
+            )
+        })?;
         while self.stream.buf.len() < len {
             if !self.stream.read_more().await? {
                 return Err(io::Error::new(
@@ -152,7 +163,9 @@ impl<R: AsyncRead + Unpin> ActiveFrame<'_, '_, R> {
 impl<R> Drop for ActiveFrame<'_, '_, R> {
     fn drop(&mut self) {
         // Skip whatever portion of the payload is already in the buffer synchronously.
-        let in_buf = self.stream.buf.len().min(self.remaining as usize);
+        let in_buf = usize::try_from(self.remaining)
+            .unwrap_or(self.stream.buf.len())
+            .min(self.stream.buf.len());
         self.stream.buf.ignore_front(in_buf);
         // Any remainder beyond what's buffered gets deferred to the next next() call.
         self.stream.pending_skip = self.remaining - in_buf as u64;

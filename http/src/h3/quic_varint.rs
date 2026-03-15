@@ -62,6 +62,8 @@ pub fn decode<T: TryFrom<u64>>(input: &[u8]) -> Result<(T, usize), QuicVarIntErr
 
 /// The number of bytes needed to encode `value` as a QUIC varint.
 ///
+/// # Panics
+///
 /// Panics if the value exceeds 2^62 - 1.
 pub fn encoded_len(value: impl Into<u64>) -> usize {
     let value = value.into();
@@ -79,43 +81,32 @@ pub fn encoded_len(value: impl Into<u64>) -> usize {
 
 /// Encode a QUIC variable-length integer into a byte slice.
 ///
-/// Returns the number of bytes written. Panics if the value exceeds
-/// 2^62 - 1 or if `buf` is too small (caller should check with
+/// Returns the number of bytes written, or `None` if the value exceeds
+/// 2^62 - 1 or `buf` is too small (caller should check with
 /// [`encoded_len`] first).
 pub fn encode(value: impl Into<u64>, buf: &mut [u8]) -> Option<usize> {
     let value = value.into();
-    if value < (1 << 6) {
-        let [dest, ..] = buf else { return None };
-        *dest = value as u8;
-        Some(1)
+    let bytes = value.to_be_bytes();
+
+    // The 2-bit length prefix and the byte range within `bytes` are determined
+    // by the magnitude of the value.  After copying the relevant big-endian
+    // tail into `buf`, we OR the prefix into the first byte.
+    let (prefix, start) = if value < (1 << 6) {
+        (0x00_u8, 7)
     } else if value < (1 << 14) {
-        let [a, b, ..] = buf else { return None };
-        *a = 0x40 | (value >> 8) as u8;
-        *b = value as u8;
-        Some(2)
+        (0x40, 6)
     } else if value < (1 << 30) {
-        let [a, b, c, d, ..] = buf else { return None };
-        *a = 0x80 | (value >> 24) as u8;
-        *b = (value >> 16) as u8;
-        *c = (value >> 8) as u8;
-        *d = value as u8;
-        Some(4)
+        (0x80, 4)
     } else if value < (1 << 62) {
-        let [a, b, c, d, e, f, g, h, ..] = buf else {
-            return None;
-        };
-        *a = 0xC0 | (value >> 56) as u8;
-        *b = (value >> 48) as u8;
-        *c = (value >> 40) as u8;
-        *d = (value >> 32) as u8;
-        *e = (value >> 24) as u8;
-        *f = (value >> 16) as u8;
-        *g = (value >> 8) as u8;
-        *h = value as u8;
-        Some(8)
+        (0xC0, 0)
     } else {
-        None // value exceeds 2^62 - 1
-    }
+        return None; // value exceeds 2^62 - 1
+    };
+
+    let dest = buf.get_mut(..8 - start)?;
+    dest.copy_from_slice(&bytes[start..]);
+    dest[0] |= prefix;
+    Some(dest.len())
 }
 
 #[cfg(test)]
