@@ -1,4 +1,4 @@
-use super::*;
+use super::{decode::decode_bitwise, *};
 
 // C.4.1
 #[test]
@@ -157,4 +157,52 @@ fn decode_empty() {
 fn roundtrip_ascii() {
     let input = b"content-type: application/json";
     assert_eq!(decode(&encode(input)).unwrap(), input);
+}
+
+/// Cross-validate the nibble state machine against the bit-at-a-time
+/// tree-walking decoder on random byte sequences.
+///
+/// Random bytes are generally *not* valid Huffman-encoded data, so most
+/// inputs will produce errors (invalid padding, EOS in stream, etc.).
+/// The important thing is that both decoders agree on the result.
+#[test]
+fn nibble_matches_bitwise_on_random_input() {
+    let mut rng = fastrand::Rng::with_seed(0xdead_beef);
+    for _ in 0..10_000 {
+        let len = rng.usize(0..=64);
+        let input: Vec<u8> = (0..len).map(|_| rng.u8(..)).collect();
+
+        let nibble_result = decode(&input);
+        let bitwise_result = decode_bitwise(&input);
+        assert_eq!(
+            nibble_result, bitwise_result,
+            "mismatch on input ({len} bytes): {input:02x?}"
+        );
+    }
+}
+
+/// Same cross-validation but on valid Huffman data (encode random
+/// ASCII, then decode). This exercises the happy path thoroughly.
+#[test]
+fn nibble_matches_bitwise_on_valid_encodings() {
+    let mut rng = fastrand::Rng::with_seed(0xcafe_babe);
+    for _ in 0..10_000 {
+        let len = rng.usize(0..=128);
+        let plaintext: Vec<u8> = (0..len).map(|_| rng.u8(0..=127)).collect();
+        let encoded = encode(&plaintext);
+
+        let nibble_result = decode(&encoded);
+        let bitwise_result = decode_bitwise(&encoded);
+        assert_eq!(
+            nibble_result, bitwise_result,
+            "mismatch on encoded form of {len}-byte plaintext"
+        );
+
+        // Also verify roundtrip correctness
+        assert_eq!(
+            nibble_result.unwrap(),
+            plaintext,
+            "roundtrip failed for {len}-byte plaintext"
+        );
+    }
 }
