@@ -9,6 +9,10 @@
     unused_qualifications
 )]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod api_conn_ext;
 mod api_handler;
 mod before_send;

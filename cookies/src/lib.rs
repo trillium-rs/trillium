@@ -41,6 +41,11 @@
 //! "set-cookie" => "some_cookie=some-cookie-value"
 //! );
 //! ```
+
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod cookies_handler;
 pub use cookies_handler::{CookiesHandler, cookies};
 

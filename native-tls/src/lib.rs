@@ -12,6 +12,10 @@
 //! This crate provides native tls trait implementations for trillium
 //! client ([`NativeTlsConnector`]) and server ([`NativeTlsAcceptor`]).
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 pub use async_native_tls;
 pub use native_tls::{self, Identity};
 

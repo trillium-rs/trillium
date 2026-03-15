@@ -16,6 +16,10 @@
     unused_qualifications
 )]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod etag;
 pub use crate::etag::Etag;
 pub use ::etag::EntityTag;

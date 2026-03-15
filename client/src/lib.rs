@@ -27,6 +27,10 @@
 //! See the documentation for [`Client`] and [`Conn`] for further usage
 //! examples.
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod conn;
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 pub use conn::ClientSerdeError;

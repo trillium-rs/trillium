@@ -104,6 +104,10 @@
 )]
 #![warn(missing_docs)]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod channel_central;
 pub(crate) use channel_central::ChannelCentral;
 

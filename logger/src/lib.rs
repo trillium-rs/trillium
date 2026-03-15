@@ -7,6 +7,10 @@
 )]
 
 //! Welcome to the trillium logger!
+
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
 pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
 use std::{
     convert::AsMut,

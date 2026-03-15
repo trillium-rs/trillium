@@ -16,6 +16,10 @@
     unused_qualifications
 )]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use fastrand::Rng;
 use std::{
     fmt::{Debug, Formatter, Result},

@@ -13,6 +13,10 @@
 //! hygiene is maintained by using a macro_rules macro to import
 //! relevant structs
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use proc_macro::{TokenStream, TokenTree};
 use proc_macro2::Literal;
 use quote::quote;

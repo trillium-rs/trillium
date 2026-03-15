@@ -92,6 +92,10 @@
 //! does not include any notion of range requests or cache headers. It
 //! serves all files from disk every time, with no in-memory caching.
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod fs_shims;
 mod handler;
 mod options;

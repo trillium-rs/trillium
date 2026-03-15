@@ -73,6 +73,10 @@
 //! }
 //! ```
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod received_body;
 pub use received_body::ReceivedBody;
 #[cfg(feature = "unstable")]
