@@ -77,13 +77,13 @@ mod method {
 
     impl PartialEq<crate::Method> for http::Method {
         fn eq(&self, other: &crate::Method) -> bool {
-            TryInto::<crate::Method>::try_into(self).map_or(false, |m| m.eq(other))
+            TryInto::<crate::Method>::try_into(self).is_ok_and(|m| m.eq(other))
         }
     }
 
     impl PartialEq<http::Method> for crate::Method {
         fn eq(&self, other: &http::Method) -> bool {
-            TryInto::<http::Method>::try_into(*self).map_or(false, |m| m.eq(other))
+            TryInto::<http::Method>::try_into(*self).is_ok_and(|m| m.eq(other))
         }
     }
 }

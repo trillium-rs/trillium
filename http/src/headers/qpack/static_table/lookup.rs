@@ -4,6 +4,7 @@ use StaticLookup::{FullMatch, NameMatch, NoMatch};
 
 /// Result of looking up a field line in the QPACK static table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)] // "Match" suffix is descriptive, not redundant
 pub(crate) enum StaticLookup {
     /// Both name and value match a static table entry.
     FullMatch(u8),

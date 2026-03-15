@@ -53,21 +53,22 @@ pub(crate) fn decode(input: &[u8], prefix_size: u8) -> Result<(usize, &[u8]), Va
 /// Returns the encoded bytes. The first byte contains the integer
 /// value in its low `prefix_size` bits; the caller is responsible for
 /// OR-ing in any flags in the high bits.
+#[allow(clippy::cast_possible_truncation)] // all casts are bounded: value < prefix_max <= 255, remaining < 128
 pub(crate) fn encode(value: usize, prefix_size: u8) -> Vec<u8> {
     debug_assert!((1..=8).contains(&prefix_size));
 
-    let prefix_mask = usize::from(u8::MAX >> (8 - prefix_size));
+    let prefix_max = u8::MAX >> (8 - prefix_size);
 
-    if value < prefix_mask {
+    if value < usize::from(prefix_max) {
         return vec![value as u8];
     }
 
-    let mut output = vec![prefix_mask as u8];
-    let mut remaining = value - prefix_mask;
+    let mut output = vec![prefix_max];
+    let mut remaining = value - usize::from(prefix_max);
 
     while remaining >= 128 {
-        output.push((remaining % 128 + 128) as u8);
-        remaining /= 128;
+        output.push(remaining as u8 | 0x80);
+        remaining >>= 7;
     }
 
     output.push(remaining as u8);
