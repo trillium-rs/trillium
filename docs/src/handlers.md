@@ -1,40 +1,59 @@
-# A tour of some of the handlers that exist today
+# A tour of handler libraries
 
-In order for trillium to be a usable web framework, we offer a number
-of core utilities. However, it is my hope that alternative
-implementations for at least some of these will exist in order to
-explore the design space and accommodate different design constraints
-and tradeoffs. Because not every application will need this
-functionality, they are each released as distinct crates from the core
-of trillium.
+Trillium is designed so that every feature is opt-in. The crates below are all official, all live in the same repository, and all follow the same `Handler` interface. Add the ones your application needs.
 
-- [Logger](./handlers/logger.md)
-- [Cookies](./handlers/cookies.md)
-- [Sessions](./handlers/sessions.md)
-- [Template Engines](./handlers/templates.md)
-- [Proxy](./handlers/proxy.md)
-- [Static File Serving](./handlers/static.md)
-- [Websockets](./handlers/websockets.md)
-- [Router](./handlers/router.md)
-- http client
-  * [rustdocs (main)](https://docs.trillium.rs/trillium_client/index.html)
-  * [example](https://github.com/trillium-rs/trillium/blob/main/client/examples/client.rs)
-- reverse proxy
-  * use trillium as a reverse proxy for another server
-  * [rustdocs (main)](https://docs.trillium.rs/trillium_proxy/index.html)
-  * [example](https://github.com/trillium-rs/trillium/blob/main/proxy/examples/proxy.rs)
-- method override
-  * the trillium-method-override crate adds support for using post
-    requests with a query param as a substitute for other http methods
-  * [rustdocs (main)](https://docs.trillium.rs/trillium_method_override/index.html)
-  * [example](https://github.com/trillium-rs/trillium/blob/main/method-override/examples/method-override.rs)
-- head
-  * the trillium-head crate supports responding to head requests
-  * [rustdocs (main)](https://docs.trillium.rs/trillium_head/index.html)
-  * [example](https://github.com/trillium-rs/trillium/blob/main/head/examples/head.rs)
-- forwarding
-  * the trillium-forwarding crate supports setting remote ip and
-    protocol from forwarded/x-forwarded-* headers sent by trusted
-    reverse proxies
-  * [rustdocs (main)](https://docs.trillium.rs/trillium_forwarding/index.html)
-  * [example](https://github.com/trillium-rs/trillium/blob/main/forwarding/examples/forwarding.rs)
+## Request handling
+
+[**Router**](./handlers/router.md) — Pattern-based routing with named parameters (`:name`) and wildcards (`*`). Routers can be nested, so sub-applications can be mounted at a path. Any handler — including tuples and other routers — can be placed inside a route.
+
+[**API Layer**](./handlers/api.md) — Extractor-based handlers for typed APIs. Write async functions that declare what they need from the request; the framework extracts it. Supports JSON bodies, form data, conn state, headers, and more. Return any type that implements `Handler`.
+
+## Logging and observability
+
+[**Logger**](./handlers/logger.md) — Structured HTTP request logging. Configurable format with composable formatters. Integrates with `trillium-conn-id` for per-request identifiers.
+
+[**Conn ID**](./handlers/utilities.md#conn-id) — Assigns a unique identifier to each request, accessible on the conn and usable in log output.
+
+## Auth
+
+[**Basic Auth**](./handlers/utilities.md#basic-auth) — HTTP Basic Authentication. Returns `401 Unauthorized` with a `WWW-Authenticate` challenge for unauthenticated requests.
+
+## Cookies and sessions
+
+[**Cookies**](./handlers/cookies.md) — Parses inbound cookies and accumulates outbound `Set-Cookie` headers. Other handlers that need cookies (like sessions) must be placed after this one in the chain.
+
+[**Sessions**](./handlers/sessions.md) — Server-side sessions keyed by a secure cookie. Pluggable session stores: in-memory and cookie stores are built in; database-backed stores are available via separate crates.
+
+## Content serving
+
+[**Static Files**](./handlers/static.md) — Serve files from disk with `trillium-static`, or embed them in the binary at compile time with `trillium-static-compiled`.
+
+[**Template Engines**](./handlers/templates.md) — Integrations for Askama (compile-time, type-safe), Tera (runtime), and Handlebars (runtime).
+
+[**Compression**](./handlers/utilities.md#compression) — Compresses response bodies with zstd, brotli, or gzip, selected based on the client's `Accept-Encoding` header.
+
+[**Caching Headers**](./handlers/utilities.md#caching-headers) — Adds `ETag` and `Last-Modified` support, automatically returning `304 Not Modified` for unchanged resources.
+
+## Real-time
+
+[**Server-Sent Events**](./handlers/sse.md) — Persistent one-way connections for pushing events from server to browser. Simpler than WebSockets when bidirectional communication isn't needed.
+
+[**WebSockets**](./handlers/websockets.md) — Full-duplex WebSocket connections. The WebSocket handler has access to the original request headers, path, and conn state, so auth and routing decisions made before the upgrade remain available.
+
+[**Channels**](./handlers/channels.md) — Phoenix-style topic-based pub/sub over WebSocket. Clients join topics and receive messages scoped to those topics. Wire-compatible with the Phoenix JavaScript client.
+
+[**WebTransport**](./handlers/webtransport.md) — Multiplexed streams and unreliable datagrams over HTTP/3 and QUIC. Suitable for applications that need lower latency or more transport control than WebSockets. Requires HTTP/3.
+
+## HTTP client and proxying
+
+[**HTTP Client**](./handlers/http_client.md) — A full-featured async HTTP client with connection pooling, TLS, and HTTP/3 support. Can also upgrade to WebSocket. Uses the same conn-based interface as the server.
+
+[**Reverse Proxy**](./handlers/proxy.md) — Forward incoming requests to an upstream server and stream the response back.
+
+## HTTP-level utilities
+
+[**Head**](./handlers/utilities.md#head) — Handles `HEAD` requests correctly by running the handler chain and stripping the response body.
+
+[**Method Override**](./handlers/utilities.md#method-override) — Rewrites the HTTP method based on a `_method` query parameter. Lets HTML forms submit `DELETE`, `PATCH`, and `PUT` requests.
+
+[**Forwarding**](./handlers/utilities.md#forwarding) — Extracts the real remote IP and protocol from `Forwarded` and `X-Forwarded-*` headers when Trillium is behind a trusted reverse proxy.

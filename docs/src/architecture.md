@@ -1,57 +1,33 @@
 # Architectural Overview
 
-## Composition and Substitution
+## Everything is a Handler
 
-Trillium is published as a set of components that can be easily composed
-to create web servers. One of the goals of this design is that to the
-extent possible, all components be replaceable by alternatives.
+The central design decision in Trillium is that **there is no distinction between middleware and endpoints**. A request logger, a cookie extractor, an authentication gate, and a JSON endpoint are all `Handler`s. They compose the same way and obey the same rules.
 
-## Why is substitution so important?
+Handlers compose via tuples, which run left to right:
 
-Async rust web frameworks still have a lot of exciting exploration
-left in the near future. Instead of offering one solution as the best,
-trillium offers a playground in which you can experiment with
-alternatives. I want it to be painless to plug in an alternative
-router, or a different http logger, or anything else you can imagine.
+```rust,noplaypen
+trillium_smol::run((
+    Logger::new(),
+    Cookies::new(),
+    router,
+));
+```
 
-There are a lot of different purposes a web framework might be used
-for, and the core library should not have to adapt in order for
-someone to add support for each of those features.
+Each handler receives the `Conn`, does its work, and either passes it along or halts it. Halting stops the chain — subsequent handlers are skipped. This is how endpoints signal that they've handled a request: calling `.halt()` or a convenience method like `.ok("body")` which halts implicitly.
 
-Although I imagine that for each of the core components there will
-only be one or two options, I think it is an essential aspect of good
-software design that frameworks be modular and composable, as there
-will always be tradeoffs for any given design.
+> 🔌 Readers familiar with Elixir's Plug will recognize this as pipelines. The term "halt" is [directly borrowed from Plug](https://hexdocs.pm/plug/Plug.Conn.html#halt/1).
 
 ## Only compile what you need
 
-Instead of your application depending on a library with a large list
-of reexported dependencies and conditionally including/excluding them
-based on cargo features, trillium tries to apply rust's "only pay for
-what you need" approach both at runtime and compile time.  In
-particular, trillium avoids pulling in runtimes like tokio or
-async-std except in the crates where you explicitly need those,
-preferring instead to depend on small crates like `futures_lite`
-wherever possible. Additionally, and in specific contrast to tide,
-there is minimal default behavior. If you don't need a router, you
-don't need to compile or run a router.
+The core `trillium` crate depends only on `futures-lite` and a small set of lightweight crates. Runtime dependencies like `tokio` or `async-std` only enter the build through the adapter crate you explicitly choose. If you don't need a router, the router crate is never compiled.
 
-Everything is opt-in, instead of opt-out. Trillium uses small crates,
-each of which declares its own dependencies.
+This containment extends to dependency updates: updating `trillium-sessions` can't introduce a conflict in `trillium-router`, because they are entirely separate crates with independent dependency trees.
 
-### Relation to tide, http-types, and async-h1
+## Substitutability
 
-As of trillium-v0.2.0, trillium no longer depends on http-types.
+Every component is designed to be replaceable. The core `trillium` crate defines the `Handler` trait and `Conn` type — everything else is optional. Alternative implementations can plug into the same interface without forking anything. An application built against one router can be nested inside an application using a different one, as long as both depend on a compatible version of `trillium`.
 
-Trillium shares the same session store backends as tide.
+## The transport layer
 
-
-### Relation to Elixir Plug and Phoenix
-
-The general architecture is directly inspired by Plug, and is intended
-to be a hybrid of the best of plug and the best of tide. Eventually, I
-intend to build an opinionated framework like Phoenix on top of the
-components that are Trillium, but I don't expect that to happen for a
-bit. I hope to keep the core feature set of trillium quite small and
-focus on getting the design right and improving performance as much as
-possible. 
+Trillium uses a `BoxedTransport` abstraction so that `Conn` is not generic over transport. TCP, TLS (via rustls or native-tls), and QUIC (for HTTP/3) all implement the same transport trait. Application code operates on `Conn` and never needs to know which transport is in use — a handler processing an HTTP/1.1 connection and the same handler processing an HTTP/3 connection look identical.

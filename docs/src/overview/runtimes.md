@@ -1,64 +1,96 @@
-# Runtime Adapters and TLS
+# Runtime Adapters, TLS, and HTTP/3
 
-## Runtime Adapters
+## Runtime adapters
 
-Let's talk a little more about that `trillium_smol::run` line we've
-been writing. Trillium itself is built on `futures` (`futures-lite`,
-specifically). In order to run it, it needs an adapter to an async
-runtime. There there are four of these
-currently:
+Trillium is built on `futures-lite` and is async-runtime-agnostic. To run a server, pick one adapter crate:
 
-* [`trillium_smol`](https://docs.trillium.rs/trillium_smol)
-* [`trillium_async_std`](https://docs.trillium.rs/trillium_async_std)
-* [`trillium_tokio`](https://docs.trillium.rs/trillium_tokio)
-* [`trillium_aws_lambda`](https://docs.trillium.rs/trillium_aws_lambda)
+- [`trillium_smol`](https://docs.trillium.rs/trillium_smol) — built on `smol`. Lightweight and fast. A good default if you don't have a runtime preference.
+- [`trillium_tokio`](https://docs.trillium.rs/trillium_tokio) — built on `tokio`. Use this if your application already depends on tokio.
+- [`trillium_async_std`](https://docs.trillium.rs/trillium_async_std) — built on `async-std`.
+- [`trillium_aws_lambda`](https://docs.trillium.rs/trillium_aws_lambda) — runs on AWS Lambda. TLS and H3 are handled by the load balancer; no TLS configuration is needed.
 
-Although we've been using the smol adapter in these docs thus far, you
-should use whichever runtime you prefer. If you expect to have a
-dependency on async-std or tokio anyway, you might as well use the
-adapter for that runtime. If you're new to async rust or don't have an
-opinion, I recommend starting with trillium_smol. It is easy to switch
-trillium between runtimes at any point.
+All adapters expose the same `config()` builder and `run()` function, so switching runtimes is a one-line change.
 
-# 12-Factor by default, but overridable
+## Server configuration
 
-Trillium seeks to abide by a [12 factor](https://12factor.net/config) approach to configuration, accepting configuration from the environment wherever possible. The number of configuration points that can be customized through environment variables will likely increase over time.
+By default, Trillium reads `HOST` and `PORT` from the environment. This follows the [12-factor app](https://12factor.net/config) convention.
 
-To run trillium on a different host or port, either provide a `HOST`
-and/or `PORT` environment variables, or compile the specific values
-into the application as follows:
+On Unix systems:
+- If `HOST` begins with `.`, `/`, or `~`, it's treated as a filesystem path and bound as a Unix domain socket.
+- A `LISTEN_FD` environment variable enables socket activation via [catflap](https://crates.io/crates/catflap) or [systemfd](https://github.com/mitsuhiko/systemfd).
+
+To compile specific host/port values in:
 
 ```rust,noplaypen
 {{#include ../../../smol/examples/smol-with-config.rs}}
 ```
 
-In addition to accepting the `HOST` and `PORT` configuration from the environment, on cfg(unix) systems, trillium will also pick up a `LISTEN_FD` environment variable for use with [catflap](https://crates.io/crates/catflap)/[systemfd](https://github.com/mitsuhiko/systemfd). On `cfg(unix)` systems, if the `HOST` begins with `.`, `/`, or `~`, it is interpreted as a path and bound as a unix domain socket.
+See [trillium_server_common::Config](https://docs.trillium.rs/trillium_server_common/struct.config) for the full list of configuration options.
 
-For more documentation on the default values and what configuration can be chained onto config(), see [trillium_server_common::Config](https://docs.trillium.rs/trillium_server_common/struct.config).
+## TLS
 
-###
+All adapters (except `aws_lambda`) can be combined with a TLS acceptor.
 
-## TLS / HTTPS
+### Rustls
 
-With the exception of aws lambda, which provides its own tls
-termination at the load balancer, each of the above servers can be
-combined with either rustls or native-tls, or with `trillium-acme` to register
-a certificate automatically with an ACME certificate provider like Let's
-Encrypt.
-
-### Rustls:
-[rustdocs (main)](https://docs.trillium.rs/trillium_rustls/index.html)
+[rustdocs](https://docs.trillium.rs/trillium_rustls)
 
 ```rust,noplaypen
 {{#include ../../../rustls/examples/rustls.rs}}
 ```
 
-### Native tls:
-[rustdocs (main)](https://docs.trillium.rs/trillium_native_tls/index.html)
+### Native TLS
+
+[rustdocs](https://docs.trillium.rs/trillium_native_tls)
 
 ```rust,noplaypen
 {{#include ../../../native-tls/examples/native-tls.rs}}
 ```
 
-### Automatic HTTPS via Let's Encrypt:
-See the [`trillium-acme` documentation](https://docs.rs/trillium-acme/latest/trillium_acme/) for examples.
+### Automatic HTTPS via Let's Encrypt
+
+See [`trillium-acme`](https://docs.rs/trillium-acme) for automatic certificate provisioning from ACME providers like Let's Encrypt.
+
+## HTTP/3 and QUIC
+
+HTTP/3 is the third major revision of the HTTP protocol. Instead of TCP, it's built on QUIC, a UDP-based transport that was designed with multiplexed HTTP in mind. This gives HTTP/3 several advantages over HTTP/1.x:
+
+- **Faster connection setup** — QUIC combines the transport and TLS handshakes, reducing round trips from three (TCP + TLS 1.3) to one.
+- **No head-of-line blocking** — HTTP/3 sends each request on an independent QUIC stream. A stalled or slow response doesn't delay any other response on the same connection.
+- **Better performance on lossy networks** — particularly relevant for mobile clients where packet loss is common.
+
+### Adding HTTP/3 to a server
+
+The `trillium-quinn` crate adds HTTP/3 support to any Trillium server. It runs a QUIC endpoint alongside the existing TCP listener. Protocol selection happens automatically: browsers use ALPN during the TLS handshake to negotiate HTTP/3, and the server advertises support via `Alt-Svc` headers so clients know to use QUIC on future connections.
+
+```rust,noplaypen
+use trillium::Conn;
+use trillium_quinn::QuicConfig;
+use trillium_rustls::RustlsAcceptor;
+
+fn main() {
+    let cert = std::fs::read("cert.pem").unwrap();
+    let key = std::fs::read("key.pem").unwrap();
+
+    trillium_tokio::config()
+        .with_acceptor(RustlsAcceptor::from_single_cert(&cert, &key))
+        .with_quic(QuicConfig::from_single_cert(&cert, &key))
+        .run(|conn: Conn| async move { conn.ok("hello!") });
+}
+```
+
+The same handler receives `Conn` objects regardless of whether they arrived over HTTP/1.x or HTTP/3. No changes to application logic are required.
+
+> ℹ️ TLS is required for HTTP/3. The `RustlsAcceptor` and `QuicConfig` can be initialized from the same certificate and key files.
+
+### Crypto providers
+
+`trillium-quinn` uses `aws-lc-rs` as its crypto backend by default. To use `ring` instead, enable the `ring` feature and disable `aws-lc-rs`.
+
+### HTTP/3 client
+
+The `trillium-client` HTTP client can upgrade to HTTP/3 automatically when a server advertises support via `Alt-Svc`. See the [HTTP Client](../handlers/http_client.md) page for details.
+
+### WebTransport
+
+WebTransport is a browser API built on top of HTTP/3 that provides multiplexed streams and datagrams for real-time communication. It requires HTTP/3 to be configured. See [WebTransport](../handlers/webtransport.md) for details.

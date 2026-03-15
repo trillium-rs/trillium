@@ -1,12 +1,8 @@
 # Core concepts: Handlers, Conn, and Adapters
 
-The most important concepts when building a trillium application are
-the `Conn` type and the `Handler` trait. Each `Conn` represents a
-single http request/response pair, and a `Handler` is the trait that
-all applications, middleware, and endpoints implement.
+The most important concepts in Trillium are the `Handler` trait and the `Conn` type. Every Trillium application — from a one-liner to a full middleware stack — is a `Handler` that receives a `Conn` and returns a `Conn`.
 
-Let's start with an overview of a simple trillium application and then
-dig into each of those concepts a little more.
+Here's a minimal application:
 
 ```rust,noplaypen
 fn main() {
@@ -16,19 +12,20 @@ fn main() {
 }
 ```
 
-In this example, `trillium_smol::run` is the runtime adapter and the
-closure is a Handler that responds "hello from trillium!" to any web
-request it receives. This is a fully functional example that you can
-run with only the following dependencies:
+In this example:
+- `trillium_smol::run` is the **runtime adapter** — it listens for TCP connections and drives the async executor.
+- The closure is a **Handler** — it receives each incoming `Conn` and returns it with a 200 response and a body.
 
-```toml
-[dependencies]
-trillium = "0.2"
-trillium-smol = "0.2"
+Add this to your `Cargo.toml` with:
+
+```bash
+cargo add trillium trillium-smol
 ```
 
-If we `cargo run` this example, we can then visit
-http://localhost:8080 in a browser or make a curl request against that
-url and see "hello from trillium!" as the response body. Note that we
-won't see any output in the terminal because trillium is silent by
-default.
+Run it with `cargo run`, then visit `http://localhost:8080`. You won't see any output in the terminal because Trillium is silent by default — add a logger if you want request output.
+
+The pages that follow go deeper into each of these concepts:
+
+- [Handlers](./handlers.md) — the trait, tuple composition, and built-in implementations
+- [Conn](./conn.md) — request/response data, state, and the conn extension pattern
+- [Runtime Adapters, TLS, and HTTP/3](./runtimes.md) — choosing a runtime, configuration, TLS, and QUIC
