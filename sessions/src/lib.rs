@@ -115,6 +115,11 @@
 //! assert_ok!(make_request(), "count: 3");
 //! assert_ok!(make_request(), "count: 4");
 //! ```
+
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod session_conn_ext;
 pub use session_conn_ext::SessionConnExt;
 

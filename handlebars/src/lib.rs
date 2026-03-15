@@ -28,6 +28,10 @@
 //! # }
 //! ```
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 pub use handlebars::{self, Handlebars};
 
 mod assigns;

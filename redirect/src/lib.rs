@@ -9,6 +9,10 @@
     unused_qualifications
 )]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use std::borrow::Cow;
 use trillium::{Conn, Handler, KnownHeaderName::Location, Status};
 

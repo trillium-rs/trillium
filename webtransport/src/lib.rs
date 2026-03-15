@@ -7,6 +7,10 @@
 //! WebTransport requires an HTTP/3-capable server adapter configured with a QUIC endpoint
 //! and TLS.
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod session_router;
 mod stream;
 

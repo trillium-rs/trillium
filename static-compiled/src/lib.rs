@@ -81,6 +81,10 @@
 //! assert_not_handled!(get("/subdir_with_no_index").on(&no_index));
 //! ```
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use trillium::{
     Conn, Handler,
     KnownHeaderName::{ContentType, LastModified},

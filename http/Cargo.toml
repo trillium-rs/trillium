@@ -6,7 +6,7 @@ authors = ["Jacob Rothstein <hi@jbr.me>"]
 description = "the http implementation for the trillium toolkit"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
-readme = "../README.md"
+readme = "README.md"
 keywords = ["trillium", "http", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 

@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
 keywords = ["trillium", "framework", "async", "quic", "h3"]
 categories = ["web-programming::http-server", "web-programming"]
-readme = "../README.md"
+readme = "README.md"
 
 [features]
 default = ["aws-lc-rs"]

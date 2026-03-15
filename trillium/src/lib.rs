@@ -25,6 +25,11 @@
 //!
 //! At a minimum to build a trillium app, you'll also need a trillium
 //! [runtime adapter](https://trillium.rs/overview/runtimes.html).
+
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod handler;
 pub use handler::Handler;
 

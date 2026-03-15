@@ -66,6 +66,10 @@
 //! [`rustls-platform-verifier`](https://docs.rs/rustls-platform-verifier/). This feature is enabled by
 //! default. If you disable the feature, [`webpki_roots`] will be used.
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 #[cfg(feature = "client")]
 mod client;
 #[cfg(feature = "client")]

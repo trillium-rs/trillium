@@ -62,6 +62,10 @@
 )]
 #![warn(missing_docs)]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use futures_lite::{AsyncRead, stream::Stream};
 use std::{
     borrow::Cow,

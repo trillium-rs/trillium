@@ -14,6 +14,10 @@
     unused_qualifications
 )]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use trillium::{Conn, Handler, KnownHeaderName::ContentLength, Method, Transport};
 
 /// Trillium handler for HEAD requests

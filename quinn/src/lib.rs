@@ -11,6 +11,10 @@
 //! - `custom-crypto-provider` — bring your own provider via
 //!   `rustls::crypto::CryptoProvider::install_default`
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod client;
 mod config;
 mod connection;

@@ -24,6 +24,11 @@
     nonstandard_style,
     unused_qualifications
 )]
+
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 mod forwarded;
 pub use forwarded::Forwarded;
 

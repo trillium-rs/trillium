@@ -15,6 +15,10 @@
 )]
 #![warn(missing_docs)]
 
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 use async_compression::futures::bufread::{BrotliEncoder, GzipEncoder, ZstdEncoder};
 use futures_lite::{
     AsyncReadExt,

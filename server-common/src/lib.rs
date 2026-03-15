@@ -22,6 +22,11 @@
 //! If you are depending on this crate for private code that cannot be
 //! discovered through docs.rs' reverse dependencies, please open an
 //! issue.
+
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
+
 pub use futures_lite::{AsyncRead, AsyncWrite, Stream};
 pub use trillium::{Info, Transport};
 pub use url::{self, Url};
