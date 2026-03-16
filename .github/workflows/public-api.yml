@@ -84,16 +84,22 @@ jobs:
               [ -f "$head" ] || head=/dev/null
               [ -f "$base" ] || base=/dev/null
 
-              diff_output=$(diff -U0 "$base" "$head" | tail -n +3 | grep -v '^@@') || true
+              diff_output=$(
+                git diff --no-index -U0 --word-diff \
+                  "$base" "$head" 2>/dev/null \
+                | grep -v -E '^(diff --git |index |--- |\+\+\+ |@@)' \
+                | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' \
+                | sed 's/{+/<ins>/g; s/+}/<\/ins>/g; s/\[-/<del>/g; s/-\]/<\/del>/g'
+              ) || true
 
               if [ -n "$diff_output" ]; then
                 has_changes=true
                 echo "<details>"
                 echo "<summary>Changes to <code>${crate}</code></summary>"
                 echo ""
-                echo '```diff'
+                echo "<pre>"
                 echo "$diff_output"
-                echo '```'
+                echo "</pre>"
                 echo ""
                 echo "</details>"
                 echo ""
