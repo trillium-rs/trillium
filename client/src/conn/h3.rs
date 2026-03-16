@@ -3,7 +3,7 @@ use crate::h3::H3ClientState;
 use futures_lite::AsyncWriteExt;
 use std::{borrow::Cow, io};
 use trillium_http::{
-    Error, KnownHeaderName, ReceivedBodyState, Result, Version,
+    Error, KnownHeaderName, Method, ReceivedBodyState, Result, Version,
     h3::{Frame, FrameStream, H3Error},
     headers::qpack::{FieldSection, PseudoHeaders},
 };
@@ -68,15 +68,24 @@ impl Conn {
     }
 
     async fn send_h3_request(&mut self) -> Result<()> {
-        let pseudo_headers = PseudoHeaders::default()
+        let mut pseudo_headers = PseudoHeaders::default()
             .with_method(self.method)
-            .with_path(self.path.as_deref().ok_or(Error::UnexpectedUriFormat)?)
-            .with_scheme(self.scheme.as_deref().ok_or(Error::UnexpectedUriFormat)?)
             .with_authority(
                 self.authority
                     .as_deref()
                     .ok_or(Error::UnexpectedUriFormat)?,
             );
+
+        // CONNECT omits :scheme and :path (RFC 9114 §4.4)
+        if self.method != Method::Connect {
+            pseudo_headers
+                .set_path(Some(
+                    self.path.as_deref().ok_or(Error::UnexpectedUriFormat)?,
+                ))
+                .set_scheme(Some(
+                    self.scheme.as_deref().ok_or(Error::UnexpectedUriFormat)?,
+                ));
+        }
 
         let mut field_section_buf = Vec::new();
         let field_section = FieldSection::new(pseudo_headers, &self.request_headers);
@@ -137,15 +146,28 @@ impl Conn {
             .ok_or(Error::UnexpectedUriFormat)?;
 
         self.authority = Some(authority);
-        self.scheme = Some(Cow::Owned(self.url.scheme().to_string()));
-        self.path = Some(Cow::Owned({
-            let mut path = self.url.path().to_string();
-            if let Some(query) = self.url.query() {
-                path.push('?');
-                path.push_str(query);
-            }
-            path
-        }));
+
+        if let Some(target) = &self.request_target
+            && self.method == Method::Options
+        {
+            // OPTIONS * — :path is the explicit target, :scheme is still needed
+            self.scheme = Some(Cow::Owned(self.url.scheme().to_string()));
+            self.path = Some(target.clone());
+        } else if self.method == Method::Connect {
+            // CONNECT omits :scheme and :path in H3 (RFC 9114 §4.4)
+            self.scheme = None;
+            self.path = None;
+        } else {
+            self.scheme = Some(Cow::Owned(self.url.scheme().to_string()));
+            self.path = Some(Cow::Owned({
+                let mut path = self.url.path().to_string();
+                if let Some(query) = self.url.query() {
+                    path.push('?');
+                    path.push_str(query);
+                }
+                path
+            }));
+        }
 
         // Set Content-Length for known-size bodies.
         if let Some(len) = self.body_len()

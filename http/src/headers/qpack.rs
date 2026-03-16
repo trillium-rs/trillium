@@ -33,7 +33,7 @@ use std::{
 /// Unlike regular headers, pseudo-headers are a fixed set — unknown
 /// pseudo-headers are a protocol error. Each may appear at most once.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Fieldwork)]
-#[fieldwork(get, take, with(into), without, set)]
+#[fieldwork(get, take, with, without, set, into)]
 pub struct PseudoHeaders<'a> {
     /// :method pseudo header
     #[field(copy)]
