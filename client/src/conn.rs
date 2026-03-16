@@ -1,6 +1,6 @@
 use crate::{Pool, h3::H3ClientState, util::encoding};
 use encoding_rs::Encoding;
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
     Body, Buffer, HeaderName, HeaderValues, Headers, Method, ReceivedBody, ReceivedBodyState,
     ServerConfig, Status, TypeSet, Version,
@@ -12,64 +12,150 @@ use trillium_server_common::{
 
 mod h1;
 mod h3;
+mod shared;
 mod unexpected_status_error;
 
-pub use unexpected_status_error::UnexpectedStatusError;
-
-/// A wrapper error for [`trillium_http::Error`] or, depending on json serializer feature, either
-/// [`sonic_rs::Error`] or [`serde_json::Error`]. Only available when either the `sonic-rs` or
-/// `serde_json` cargo features are enabled.
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
-#[derive(thiserror::Error, Debug)]
-pub enum ClientSerdeError {
-    /// A [`trillium_http::Error`]
-    #[error(transparent)]
-    HttpError(#[from] trillium_http::Error),
-
-    #[cfg(feature = "sonic-rs")]
-    /// A [`serde_json::Error`]
-    #[error(transparent)]
-    JsonError(#[from] sonic_rs::Error),
-
-    #[cfg(feature = "serde_json")]
-    /// A [`serde_json::Error`]
-    #[error(transparent)]
-    JsonError(#[from] serde_json::Error),
-}
+pub use shared::ClientSerdeError;
+pub use unexpected_status_error::UnexpectedStatusError;
 
 /// a client connection, representing both an outbound http request and a
 /// http response
 #[must_use]
+#[derive(fieldwork::Fieldwork)]
 pub struct Conn {
-    pub(crate) url: Url,
-    pub(crate) method: Method,
-    pub(crate) request_headers: Headers,
-    pub(crate) response_headers: Headers,
     pub(crate) transport: Option<Box<dyn Transport>>,
-    pub(crate) status: Option<Status>,
-    pub(crate) request_body: Option<Body>,
     pub(crate) pool: Option<Pool<Origin, Box<dyn Transport>>>,
     pub(crate) h3: Option<H3ClientState>,
     pub(crate) buffer: Buffer,
     pub(crate) response_body_state: ReceivedBodyState,
     pub(crate) config: ArcedConnector,
     pub(crate) headers_finalized: bool,
-    pub(crate) timeout: Option<Duration>,
-    pub(crate) http_version: Version,
     pub(crate) max_head_length: usize,
     pub(crate) state: TypeSet,
     pub(crate) server_config: Arc<ServerConfig>,
+
+    /// the url for this conn.
+    ///
+    /// ```
+    /// use trillium_client::Client;
+    /// let client = Client::from(trillium_testing::client_config());
+    ///
+    /// let conn = client.get("http://localhost:9080");
+    ///
+    /// let url = conn.url(); //<-
+    ///
+    /// assert_eq!(url.host_str().unwrap(), "localhost");
+    /// ```
+    #[field(get, set, get_mut)]
+    pub(crate) url: Url,
+
+    /// the method for this conn.
+    ///
+    /// ```
+    /// use trillium_client::Client;
+    /// use trillium_testing::{client_config, prelude::*};
+    ///
+    /// let client = Client::from(client_config());
+    /// let conn = client.get("http://localhost:9080");
+    ///
+    /// let method = conn.method(); //<-
+    ///
+    /// assert_eq!(method, Method::Get);
+    /// ```
+    #[field(get, set, copy)]
+    pub(crate) method: Method,
+
+    /// the request headers
+    #[field(get, get_mut)]
+    pub(crate) request_headers: Headers,
+
+    #[field(get, get_mut)]
+    /// the response headers
+    pub(crate) response_headers: Headers,
+
+    /// the status code for this conn.
+    ///
+    /// If the conn has not yet been sent, this will be None.
+    ///
+    /// ```
+    /// use trillium_client::Client;
+    /// use trillium_testing::{client_config, prelude::*};
+    ///
+    /// async fn handler(conn: trillium::Conn) -> trillium::Conn {
+    ///     conn.with_status(418)
+    /// }
+    ///
+    /// trillium_testing::with_server(handler, |url| async move {
+    ///     let client = Client::new(client_config());
+    ///     let conn = client.get(url).await?;
+    ///     assert_eq!(Status::ImATeapot, conn.status().unwrap());
+    ///     Ok(())
+    /// });
+    /// ```
+    #[field(get, copy)]
+    pub(crate) status: Option<Status>,
+
+    /// the request body
+    ///
+    /// ```
+    /// env_logger::init();
+    /// use trillium_client::Client;
+    /// use trillium_testing::client_config;
+    ///
+    /// let handler = |mut conn: trillium::Conn| async move {
+    ///     let body = conn.request_body_string().await.unwrap();
+    ///     conn.ok(format!("request body was: {}", body))
+    /// };
+    ///
+    /// trillium_testing::with_server(handler, |url| async move {
+    ///     let client = Client::from(client_config());
+    ///     let mut conn = client
+    ///         .post(url)
+    ///         .with_body("body") //<-
+    ///         .await?;
+    ///
+    ///     assert_eq!(
+    ///         conn.response_body().read_string().await?,
+    ///         "request body was: body"
+    ///     );
+    ///     Ok(())
+    /// });
+    /// ```
+    #[field(with = with_body, into, take, option_set_some)]
+    pub(crate) request_body: Option<Body>,
+
+    /// the timeout for this conn
+    ///
+    /// this can also be set on the client with [`Client::set_timeout`] and
+    /// [`Client::with_timeout`]
+    #[field(with, set, get, get_mut, take, copy, option_set_some)]
+    pub(crate) timeout: Option<Duration>,
+
+    /// the http version for this conn
+    ///
+    /// prior to conn execution, this reflects the intended http version that will be sent, and
+    /// after execution this reflects the server-indicated http version
+    #[field(get, set, copy)]
+    pub(crate) http_version: Version,
+
+    /// the :authority pseudo-header, populated during h3 header finalization
+    #[field(get)]
+    pub(crate) authority: Option<Cow<'static, str>>,
+    /// the :scheme pseudo-header, populated during h3 header finalization
+
+    #[field(get)]
+    pub(crate) scheme: Option<Cow<'static, str>>,
+
+    /// the :path pseudo-header, populated during h3 header finalization
+    #[field(get)]
+    pub(crate) path: Option<Cow<'static, str>>,
 }
 
 /// default http user-agent header
 pub const USER_AGENT: &str = concat!("trillium-client/", env!("CARGO_PKG_VERSION"));
 
 impl Conn {
-    /// borrow the request headers
-    pub fn request_headers(&self) -> &Headers {
-        &self.request_headers
-    }
-
     /// chainable setter for [`inserting`](Headers::insert) a request header
     ///
     /// ```
@@ -153,135 +239,6 @@ impl Conn {
         self
     }
 
-    /// ```
-    /// let handler = |conn: trillium::Conn| async move {
-    ///     conn.with_response_header("some-header", "some-value")
-    ///         .with_status(200)
-    /// };
-    ///
-    /// use trillium_client::Client;
-    /// use trillium_testing::client_config;
-    ///
-    /// trillium_testing::with_server(handler, move |url| async move {
-    ///     let client = Client::new(client_config());
-    ///     let conn = client.get(url).await?;
-    ///
-    ///     let headers = conn.response_headers(); //<-
-    ///
-    ///     assert_eq!(headers.get_str("some-header"), Some("some-value"));
-    ///     Ok(())
-    /// })
-    /// ```
-    pub fn response_headers(&self) -> &Headers {
-        &self.response_headers
-    }
-
-    /// retrieves a mutable borrow of the request headers, suitable for
-    /// appending a header. generally, prefer using chainable methods on
-    /// Conn
-    ///
-    /// ```
-    /// use trillium_client::Client;
-    /// use trillium_testing::client_config;
-    ///
-    /// let handler = |conn: trillium::Conn| async move {
-    ///     let header = conn
-    ///         .request_headers()
-    ///         .get_str("some-request-header")
-    ///         .unwrap_or_default();
-    ///     let response = format!("some-request-header was {}", header);
-    ///     conn.ok(response)
-    /// };
-    ///
-    /// let client = Client::new(client_config());
-    ///
-    /// trillium_testing::with_server(handler, move |url| async move {
-    ///     let mut conn = client.get(url);
-    ///
-    ///     conn.request_headers_mut() //<-
-    ///         .insert("some-request-header", "header-value");
-    ///
-    ///     let mut conn = conn.await?;
-    ///
-    ///     assert_eq!(
-    ///         conn.response_body().read_string().await?,
-    ///         "some-request-header was header-value"
-    ///     );
-    ///     Ok(())
-    /// })
-    /// ```
-    pub fn request_headers_mut(&mut self) -> &mut Headers {
-        &mut self.request_headers
-    }
-
-    /// get a mutable borrow of the response headers
-    pub fn response_headers_mut(&mut self) -> &mut Headers {
-        &mut self.response_headers
-    }
-
-    /// sets the request body on a mutable reference. prefer the chainable
-    /// [`Conn::with_body`] wherever possible
-    ///
-    /// ```
-    /// env_logger::init();
-    /// use trillium_client::Client;
-    /// use trillium_testing::client_config;
-    ///
-    /// let handler = |mut conn: trillium::Conn| async move {
-    ///     let body = conn.request_body_string().await.unwrap();
-    ///     conn.ok(format!("request body was: {}", body))
-    /// };
-    ///
-    /// trillium_testing::with_server(handler, move |url| async move {
-    ///     let client = Client::new(client_config());
-    ///     let mut conn = client.post(url);
-    ///
-    ///     conn.set_request_body("body"); //<-
-    ///
-    ///     (&mut conn).await?;
-    ///
-    ///     assert_eq!(
-    ///         conn.response_body().read_string().await?,
-    ///         "request body was: body"
-    ///     );
-    ///     Ok(())
-    /// });
-    /// ```
-    pub fn set_request_body(&mut self, body: impl Into<Body>) {
-        self.request_body = Some(body.into());
-    }
-
-    /// chainable setter for the request body
-    ///
-    /// ```
-    /// env_logger::init();
-    /// use trillium_client::Client;
-    /// use trillium_testing::client_config;
-    ///
-    /// let handler = |mut conn: trillium::Conn| async move {
-    ///     let body = conn.request_body_string().await.unwrap();
-    ///     conn.ok(format!("request body was: {}", body))
-    /// };
-    ///
-    /// trillium_testing::with_server(handler, |url| async move {
-    ///     let client = Client::from(client_config());
-    ///     let mut conn = client
-    ///         .post(url)
-    ///         .with_body("body") //<-
-    ///         .await?;
-    ///
-    ///     assert_eq!(
-    ///         conn.response_body().read_string().await?,
-    ///         "request body was: body"
-    ///     );
-    ///     Ok(())
-    /// });
-    /// ```
-    pub fn with_body(mut self, body: impl Into<Body>) -> Self {
-        self.set_request_body(body);
-        self
-    }
-
     /// chainable setter for json body. this requires the `serde_json` crate feature to be enabled.
     #[cfg(feature = "serde_json")]
     pub fn with_json_body(self, body: &impl serde::Serialize) -> serde_json::Result<Self> {
@@ -304,37 +261,6 @@ impl Conn {
 
     pub(crate) fn response_encoding(&self) -> &'static Encoding {
         encoding(&self.response_headers)
-    }
-
-    /// retrieves the url for this conn.
-    /// ```
-    /// use trillium_client::Client;
-    /// let client = Client::from(trillium_testing::client_config());
-    ///
-    /// let conn = client.get("http://localhost:9080");
-    ///
-    /// let url = conn.url(); //<-
-    ///
-    /// assert_eq!(url.host_str().unwrap(), "localhost");
-    /// ```
-    pub fn url(&self) -> &Url {
-        &self.url
-    }
-
-    /// retrieves the url for this conn.
-    /// ```
-    /// use trillium_client::Client;
-    /// use trillium_testing::{client_config, prelude::*};
-    ///
-    /// let client = Client::from(client_config());
-    /// let conn = client.get("http://localhost:9080");
-    ///
-    /// let method = conn.method(); //<-
-    ///
-    /// assert_eq!(method, Method::Get);
-    /// ```
-    pub fn method(&self) -> Method {
-        self.method
     }
 
     /// returns a [`ReceivedBody`] that borrows the connection inside this conn.
@@ -389,28 +315,6 @@ impl Conn {
         Ok(sonic_rs::from_str(&body)?)
     }
 
-    /// returns the status code for this conn. if the conn has not yet
-    /// been sent, this will be None.
-    ///
-    /// ```
-    /// use trillium_client::Client;
-    /// use trillium_testing::{client_config, prelude::*};
-    ///
-    /// async fn handler(conn: trillium::Conn) -> trillium::Conn {
-    ///     conn.with_status(418)
-    /// }
-    ///
-    /// trillium_testing::with_server(handler, |url| async move {
-    ///     let client = Client::new(client_config());
-    ///     let conn = client.get(url).await?;
-    ///     assert_eq!(Status::ImATeapot, conn.status().unwrap());
-    ///     Ok(())
-    /// });
-    /// ```
-    pub fn status(&self) -> Option<Status> {
-        self.status
-    }
-
     /// Returns the conn or an [`UnexpectedStatusError`] that contains the conn
     ///
     /// ```
@@ -455,29 +359,6 @@ impl Conn {
             .and_then(|t| t.peer_addr().ok().flatten())
     }
 
-    /// set the timeout for this conn
-    ///
-    /// this can also be set on the client with [`Client::set_timeout`] and [`Client::with_timeout`]
-    pub fn set_timeout(&mut self, timeout: Duration) {
-        self.timeout = Some(timeout);
-    }
-
-    /// set the timeout for this conn
-    ///
-    /// this can also be set on the client with [`Client::set_timeout`] and [`Client::with_timeout`]
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.set_timeout(timeout);
-        self
-    }
-
-    /// returns the http version for this conn.
-    ///
-    /// prior to conn execution, this reflects the request http version that will be sent, and after
-    /// execution this reflects the server-indicated http version
-    pub fn http_version(&self) -> Version {
-        self.http_version
-    }
-
     /// add state to the client conn and return self
     pub fn with_state<T: Send + Sync + 'static>(mut self, state: T) -> Self {
         self.insert_state(state);
@@ -502,16 +383,5 @@ impl Conn {
     /// take state
     pub fn take_state<T: Send + Sync + 'static>(&mut self) -> Option<T> {
         self.state.take()
-    }
-
-    async fn exec(&mut self) -> crate::Result<()> {
-        if let Some(h3) = self.h3.clone()
-            && self.try_exec_h3(&h3).await?
-        {
-            self.update_alt_svc_from_response(&h3);
-            return Ok(());
-        }
-
-        self.exec_h1().await
     }
 }
