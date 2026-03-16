@@ -49,7 +49,7 @@ jobs:
           for crate in $CRATES; do
             echo "$crate"
             cargo public-api -p "$crate" --simplified 2>/dev/null \
-              | sort > "/tmp/api/head/${crate}.txt" || true
+              | sort -u > "/tmp/api/head/${crate}.txt" || true
           done
           echo "::endgroup::"
 
@@ -62,7 +62,7 @@ jobs:
           for crate in $BASE_CRATES; do
             echo "$crate"
             cargo public-api -p "$crate" --simplified 2>/dev/null \
-              | sort > "/tmp/api/base/${crate}.txt" || true
+              | sort -u > "/tmp/api/base/${crate}.txt" || true
           done
 
           popd > /dev/null
