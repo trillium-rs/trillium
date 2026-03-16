@@ -84,13 +84,19 @@ jobs:
               [ -f "$head" ] || head=/dev/null
               [ -f "$base" ] || base=/dev/null
 
-              if ! diff_output=$(diff -u "$base" "$head"); then
+              diff_output=$(diff \
+                --old-line-format='-%L' \
+                --new-line-format='+%L' \
+                --unchanged-line-format='' \
+                "$base" "$head") || true
+
+              if [ -n "$diff_output" ]; then
                 has_changes=true
                 echo "<details>"
                 echo "<summary>Changes to <code>${crate}</code></summary>"
                 echo ""
                 echo '```diff'
-                echo "$diff_output" | tail -n +3
+                echo "$diff_output"
                 echo '```'
                 echo ""
                 echo "</details>"
