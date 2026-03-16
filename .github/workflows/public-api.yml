@@ -84,11 +84,7 @@ jobs:
               [ -f "$head" ] || head=/dev/null
               [ -f "$base" ] || base=/dev/null
 
-              diff_output=$(diff \
-                --old-line-format='-%L' \
-                --new-line-format='+%L' \
-                --unchanged-line-format='' \
-                "$base" "$head") || true
+              diff_output=$(diff -U0 "$base" "$head" | tail -n +3 | grep -v '^@@') || true
 
               if [ -n "$diff_output" ]; then
                 has_changes=true
