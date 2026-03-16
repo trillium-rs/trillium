@@ -202,6 +202,9 @@ impl Client {
             max_head_length: 8 * 1024,
             state: TypeSet::new(),
             server_config: self.server_config.clone(),
+            authority: None,
+            scheme: None,
+            path: None,
         }
     }
 

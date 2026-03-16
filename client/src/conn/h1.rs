@@ -1,23 +1,17 @@
 use super::Conn;
-use crate::{pool::PoolEntry, util::encoding};
 use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once, io};
 use memchr::memmem::Finder;
 use size::{Base, Size};
-use std::{
-    fmt::{self, Debug, Formatter},
-    future::{Future, IntoFuture},
-    io::{ErrorKind, Write},
-    pin::Pin,
-};
+use std::io::{ErrorKind, Write};
 use trillium_http::{
-    Body, Error,
+    Error,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
-    Method, ReceivedBody, ReceivedBodyState, Result, Status, TypeSet, Upgrade, Version,
+    Method, ReceivedBodyState, Result, Status, Version,
 };
 use trillium_server_common::{Connector, Transport};
 
 impl Conn {
-    fn finalize_headers(&mut self) -> Result<()> {
+    pub(super) fn finalize_headers_h1(&mut self) -> Result<()> {
         if self.headers_finalized {
             return Ok(());
         }
@@ -50,14 +44,6 @@ impl Conn {
 
         self.headers_finalized = true;
         Ok(())
-    }
-
-    fn body_len(&self) -> Option<u64> {
-        if let Some(ref body) = self.request_body {
-            body.len()
-        } else {
-            Some(0)
-        }
     }
 
     async fn find_pool_candidate(&self, head: &[u8]) -> Result<Option<Box<dyn Transport>>> {
@@ -149,7 +135,7 @@ impl Conn {
         Ok(buf)
     }
 
-    fn transport(&mut self) -> &mut Box<dyn Transport> {
+    fn transport_mut_internal(&mut self) -> &mut Box<dyn Transport> {
         self.transport.as_mut().unwrap()
     }
 
@@ -302,7 +288,7 @@ impl Conn {
 
     async fn send_body(&mut self) -> Result<()> {
         if let Some(mut body) = self.request_body.take() {
-            io::copy(&mut body, self.transport()).await?;
+            io::copy(&mut body, self.transport_mut_internal()).await?;
         }
         Ok(())
     }
@@ -355,7 +341,7 @@ impl Conn {
     }
 
     pub(super) async fn exec_h1(&mut self) -> Result<()> {
-        self.finalize_headers()?;
+        self.finalize_headers_h1()?;
         self.connect_and_send_head().await?;
         self.send_body_and_parse_head().await?;
         if let Some(h3) = &self.h3 {
@@ -363,181 +349,5 @@ impl Conn {
         }
 
         Ok(())
-    }
-}
-
-impl Drop for Conn {
-    fn drop(&mut self) {
-        log::trace!("dropping client conn");
-        let Some(mut transport) = self.transport.take() else {
-            log::trace!("no transport, nothing to do");
-
-            return;
-        };
-
-        if !self.is_keep_alive() {
-            log::trace!("not keep alive, closing");
-
-            self.config
-                .runtime()
-                .clone()
-                .spawn(async move { transport.close().await });
-
-            return;
-        }
-
-        let Ok(Some(peer_addr)) = transport.peer_addr() else {
-            return;
-        };
-        let Some(pool) = self.pool.take() else { return };
-
-        let origin = self.url.origin();
-
-        if self.response_body_state == ReceivedBodyState::End {
-            log::trace!(
-                "response body has been read to completion, checking transport back into pool for \
-                 {}",
-                &peer_addr
-            );
-            pool.insert(origin, PoolEntry::new(transport, None));
-        } else {
-            let content_length = self.response_content_length();
-            let buffer = std::mem::take(&mut self.buffer);
-            let response_body_state = self.response_body_state;
-            let encoding = encoding(&self.response_headers);
-            self.config.runtime().spawn(async move {
-                let mut response_body = ReceivedBody::new(
-                    content_length,
-                    buffer,
-                    transport,
-                    response_body_state,
-                    None,
-                    encoding,
-                );
-
-                match io::copy(&mut response_body, io::sink()).await {
-                    Ok(bytes) => {
-                        let transport = response_body.take_transport().unwrap();
-                        log::trace!(
-                            "read {} bytes in order to recycle conn for {}",
-                            bytes,
-                            &peer_addr
-                        );
-                        pool.insert(origin, PoolEntry::new(transport, None));
-                    }
-
-                    Err(ioerror) => log::error!("unable to recycle conn due to {}", ioerror),
-                };
-            });
-        }
-    }
-}
-
-impl From<Conn> for Body {
-    fn from(conn: Conn) -> Body {
-        let received_body: ReceivedBody<'static, _> = conn.into();
-        received_body.into()
-    }
-}
-
-impl From<Conn> for ReceivedBody<'static, Box<dyn Transport>> {
-    fn from(mut conn: Conn) -> Self {
-        let _ = conn.finalize_headers();
-        let runtime = conn.config.runtime();
-        let origin = conn.url.origin();
-
-        let on_completion = if conn.is_keep_alive()
-            && let Some(pool) = conn.pool.take()
-        {
-            Box::new(move |transport: Box<dyn Transport>| {
-                log::trace!("body transferred, returning to pool");
-                pool.insert(origin.clone(), PoolEntry::new(transport, None));
-            }) as Box<dyn FnOnce(Box<dyn Transport>) + Send + Sync + 'static>
-        } else {
-            Box::new(move |mut transport: Box<dyn Transport>| {
-                runtime.spawn(async move { transport.close().await });
-            }) as Box<dyn FnOnce(Box<dyn Transport>) + Send + Sync + 'static>
-        };
-
-        ReceivedBody::new(
-            conn.response_content_length(),
-            std::mem::take(&mut conn.buffer),
-            conn.transport.take().unwrap(),
-            conn.response_body_state,
-            Some(on_completion),
-            conn.response_encoding(),
-        )
-    }
-}
-
-impl From<Conn> for Upgrade<Box<dyn Transport>> {
-    fn from(mut conn: Conn) -> Self {
-        Upgrade::new(
-            std::mem::take(&mut conn.request_headers),
-            conn.url.path().to_string(),
-            conn.method,
-            conn.transport.take().unwrap(),
-            std::mem::take(&mut conn.buffer),
-            conn.http_version(),
-        )
-    }
-}
-
-impl IntoFuture for Conn {
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'static>>;
-    type Output = Result<Conn>;
-
-    fn into_future(mut self) -> Self::IntoFuture {
-        Box::pin(async move { (&mut self).await.map(|()| self) })
-    }
-}
-
-impl<'conn> IntoFuture for &'conn mut Conn {
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'conn>>;
-    type Output = Result<()>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            if let Some(duration) = self.timeout {
-                self.config
-                    .runtime()
-                    .timeout(duration, self.exec())
-                    .await
-                    .unwrap_or(Err(Error::TimedOut("Conn", duration)))?;
-            } else {
-                self.exec().await?;
-            }
-            Ok(())
-        })
-    }
-}
-
-impl Debug for Conn {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Conn")
-            .field("url", &self.url)
-            .field("method", &self.method)
-            .field("request_headers", &self.request_headers)
-            .field("response_headers", &self.response_headers)
-            .field("status", &self.status)
-            .field("request_body", &self.request_body)
-            .field("pool", &self.pool)
-            .field("h3", &self.h3.is_some())
-            .field("buffer", &String::from_utf8_lossy(&self.buffer))
-            .field("response_body_state", &self.response_body_state)
-            .field("config", &self.config)
-            .field("state", &self.state)
-            .finish()
-    }
-}
-
-impl AsRef<TypeSet> for Conn {
-    fn as_ref(&self) -> &TypeSet {
-        &self.state
-    }
-}
-impl AsMut<TypeSet> for Conn {
-    fn as_mut(&mut self) -> &mut TypeSet {
-        &mut self.state
     }
 }
