@@ -122,7 +122,7 @@ pub struct Conn {
     ///     Ok(())
     /// });
     /// ```
-    #[field(with = with_body, into, take, option_set_some)]
+    #[field(with = with_body, argument = body, set, into, take, option_set_some)]
     pub(crate) request_body: Option<Body>,
 
     /// the timeout for this conn
