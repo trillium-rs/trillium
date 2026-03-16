@@ -58,6 +58,7 @@ impl Conn {
 
         self.transport = Some(transport);
         self.http_version = Version::Http3;
+        self.finalize_headers_h3()?;
 
         // From here on, failures propagate as errors (we've committed to H3).
         self.send_h3_request().await?;
@@ -67,28 +68,15 @@ impl Conn {
     }
 
     async fn send_h3_request(&mut self) -> Result<()> {
-        // Build the request path including query string.
-        let path = {
-            let mut path = self.url.path().to_string();
-            if let Some(query) = self.url.query() {
-                path.push('?');
-                path.push_str(query);
-            }
-            path
-        };
-
-        let authority = self
-            .request_headers
-            .remove(KnownHeaderName::Host)
-            .and_then(|h| h.first().map(|x| Cow::Owned(x.to_string())))
-            .or_else(|| self.url.host_str().map(Cow::Borrowed))
-            .ok_or(Error::UnexpectedUriFormat)?;
-
         let pseudo_headers = PseudoHeaders::default()
             .with_method(self.method)
-            .with_path(path)
-            .with_scheme(self.url.scheme())
-            .with_authority(authority);
+            .with_path(self.path.as_deref().ok_or(Error::UnexpectedUriFormat)?)
+            .with_scheme(self.scheme.as_deref().ok_or(Error::UnexpectedUriFormat)?)
+            .with_authority(
+                self.authority
+                    .as_deref()
+                    .ok_or(Error::UnexpectedUriFormat)?,
+            );
 
         let mut field_section_buf = Vec::new();
         let field_section = FieldSection::new(pseudo_headers, &self.request_headers);
@@ -125,6 +113,59 @@ impl Conn {
         // For QUIC bidi streams this sends a FIN without closing the read side.
         transport.close().await?;
 
+        Ok(())
+    }
+
+    pub(crate) fn finalize_headers_h3(&mut self) -> Result<()> {
+        if self.headers_finalized {
+            return Ok(());
+        }
+
+        // Resolve :authority from explicit Host header (virtual hosting / proxy)
+        // or fall back to the URL.
+        let authority = self
+            .request_headers
+            .remove(KnownHeaderName::Host)
+            .and_then(|h| h.first().map(|v| Cow::Owned(v.to_string())))
+            .or_else(|| {
+                let host = self.url.host_str()?;
+                Some(Cow::Owned(self.url.port().map_or_else(
+                    || host.to_string(),
+                    |port| format!("{host}:{port}"),
+                )))
+            })
+            .ok_or(Error::UnexpectedUriFormat)?;
+
+        self.authority = Some(authority);
+        self.scheme = Some(Cow::Owned(self.url.scheme().to_string()));
+        self.path = Some(Cow::Owned({
+            let mut path = self.url.path().to_string();
+            if let Some(query) = self.url.query() {
+                path.push('?');
+                path.push_str(query);
+            }
+            path
+        }));
+
+        // Set Content-Length for known-size bodies.
+        if let Some(len) = self.body_len()
+            && len > 0
+        {
+            self.request_headers
+                .insert(KnownHeaderName::ContentLength, len);
+        }
+
+        // Strip connection-specific headers prohibited in HTTP/3 (RFC 9114 §4.2).
+        self.request_headers.remove_all([
+            KnownHeaderName::Connection,
+            KnownHeaderName::TransferEncoding,
+            KnownHeaderName::KeepAlive,
+            KnownHeaderName::ProxyConnection,
+            KnownHeaderName::Upgrade,
+            KnownHeaderName::Expect,
+        ]);
+
+        self.headers_finalized = true;
         Ok(())
     }
 
