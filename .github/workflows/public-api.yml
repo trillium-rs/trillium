@@ -1,0 +1,119 @@
+name: Public API Diff
+
+on:
+  pull_request:
+
+permissions:
+  pull-requests: write
+
+jobs:
+  public-api-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: get-cmake
+        uses: lukka/get-cmake@v3.30.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install cargo-public-api
+        run: cargo install cargo-public-api
+
+      - name: Generate API diff
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          BASE="origin/${BASE_REF}"
+
+          # All library crates in the workspace
+          lib_crates() {
+            cargo metadata --no-deps --format-version 1 | \
+              jq -r '.packages[] | select(.targets[] | .kind[] == "lib") | .name' | sort
+          }
+
+          mkdir -p /tmp/api/{head,base}
+
+          # Generate API listings at HEAD
+          echo "::group::API at HEAD"
+          CRATES=$(lib_crates)
+          for crate in $CRATES; do
+            echo "$crate"
+            cargo public-api -p "$crate" --simplified 2>/dev/null \
+              > "/tmp/api/head/${crate}.txt" || true
+          done
+          echo "::endgroup::"
+
+          # Generate API listings at base ref
+          echo "::group::API at ${BASE}"
+          git worktree add /tmp/base "$BASE" --detach
+          pushd /tmp/base > /dev/null
+
+          BASE_CRATES=$(lib_crates)
+          for crate in $BASE_CRATES; do
+            echo "$crate"
+            cargo public-api -p "$crate" --simplified 2>/dev/null \
+              > "/tmp/api/base/${crate}.txt" || true
+          done
+
+          popd > /dev/null
+          git worktree remove /tmp/base
+          echo "::endgroup::"
+
+          # Compute diffs and build comment
+          {
+            echo '<!-- public-api-diff -->'
+            echo '## Public API Changes'
+            echo ''
+
+            has_changes=false
+            all_crates=$(printf '%s\n' $CRATES $BASE_CRATES | sort -u)
+
+            for crate in $all_crates; do
+              head="/tmp/api/head/${crate}.txt"
+              base="/tmp/api/base/${crate}.txt"
+              [ -f "$head" ] || head=/dev/null
+              [ -f "$base" ] || base=/dev/null
+
+              if ! diff_output=$(diff -u "$base" "$head"); then
+                has_changes=true
+                echo "<details>"
+                echo "<summary>Changes to <code>${crate}</code></summary>"
+                echo ""
+                echo '```diff'
+                echo "$diff_output" | tail -n +3
+                echo '```'
+                echo ""
+                echo "</details>"
+                echo ""
+              fi
+            done
+
+            if [ "$has_changes" = false ]; then
+              echo 'No public API changes.'
+            fi
+          } > /tmp/api-diff-comment.md
+
+      - name: Find existing comment
+        uses: peter-evans/find-comment@v3
+        id: fc
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-includes: '<!-- public-api-diff -->'
+
+      - name: Create or update comment
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          body-path: /tmp/api-diff-comment.md
+          edit-mode: replace
