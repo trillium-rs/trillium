@@ -1,5 +1,6 @@
-use crate::{Error, Result};
+use crate::{Error, Method, Result};
 use std::{
+    borrow::Cow,
     net::{IpAddr, SocketAddr},
     str::FromStr,
 };
@@ -9,6 +10,12 @@ use trillium_server_common::url::{ParseError, Url};
 pub trait IntoUrl {
     /// attempt to construct a url, with base if present
     fn into_url(self, base: Option<&Url>) -> Result<Url>;
+
+    /// Returns an explicit request target override for the given method, if this input represents
+    /// a special-form target like `*` (for OPTIONS) or `host:port` (for CONNECT).
+    fn request_target(&self, _method: Method) -> Option<Cow<'static, str>> {
+        None
+    }
 }
 
 impl IntoUrl for Url {
@@ -35,12 +42,27 @@ impl IntoUrl for &str {
             _ => Err(Error::UnexpectedUriFormat),
         }
     }
+
+    fn request_target(&self, method: Method) -> Option<Cow<'static, str>> {
+        match method {
+            Method::Connect if !self.contains('/') => Url::from_str(&format!("http://{self}"))
+                .ok()
+                .map(|_| Cow::Owned(self.to_string())),
+
+            Method::Options if *self == "*" => Some(Cow::Borrowed("*")),
+            _ => None,
+        }
+    }
 }
 
 impl IntoUrl for String {
     #[inline(always)]
     fn into_url(self, base: Option<&Url>) -> Result<Url> {
         self.as_str().into_url(base)
+    }
+
+    fn request_target(&self, method: Method) -> Option<Cow<'static, str>> {
+        self.as_str().request_target(method)
     }
 }
 
@@ -73,6 +95,10 @@ impl IntoUrl for SocketAddr {
     fn into_url(self, base: Option<&Url>) -> Result<Url> {
         let scheme = if self.port() == 443 { "https" } else { "http" };
         format!("{scheme}://{self}").into_url(base)
+    }
+
+    fn request_target(&self, method: Method) -> Option<Cow<'static, str>> {
+        (method == Method::Connect).then(|| self.to_string().into())
     }
 }
 

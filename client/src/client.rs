@@ -46,10 +46,10 @@ macro_rules! method {
                 " http method and the provided url.
 
 ```
-# use trillium_testing::prelude::*;
-# use trillium_smol::ClientConfig;
-# use trillium_client::Client;
-let client = Client::new(ClientConfig::default());
+use trillium_client::{Client, Method};
+use trillium_testing::client_config;
+
+let client = Client::new(client_config());
 let conn = client.",
                 stringify!($fn_name),
                 "(\"http://localhost:8080/some/route\"); //<-
@@ -168,9 +168,8 @@ impl Client {
     /// the new conn will reuse that when it is sent.
     ///
     /// ```
-    /// use trillium_client::Client;
+    /// use trillium_client::{Client, Method};
     /// use trillium_smol::ClientConfig;
-    /// use trillium_testing::prelude::*;
     /// let client = Client::new(ClientConfig::default());
     ///
     /// let conn = client.build_conn("get", "http://trillium.rs"); //<-
@@ -183,9 +182,18 @@ impl Client {
         M: TryInto<Method>,
         <M as TryInto<Method>>::Error: Debug,
     {
+        let method = method.try_into().unwrap();
+        let (url, request_target) = if let Some(base) = &self.base
+            && let Some(request_target) = url.request_target(method)
+        {
+            ((**base).clone(), Some(request_target))
+        } else {
+            (self.build_url(url).unwrap(), None)
+        };
+
         Conn {
-            url: self.build_url(url).unwrap(),
-            method: method.try_into().unwrap(),
+            url,
+            method,
             request_headers: Headers::clone(&self.default_headers),
             response_headers: Headers::new(),
             transport: None,
@@ -205,6 +213,7 @@ impl Client {
             authority: None,
             scheme: None,
             path: None,
+            request_target,
         }
     }
 
@@ -245,6 +254,15 @@ impl Client {
 
         self.base = Some(Arc::new(base));
         Ok(())
+    }
+
+    /// Mutate the url base for this client.
+    ///
+    /// This has "clone-on-write" semantics if there are other clones of this client. If there are
+    /// other clones of this client, they will not be updated.
+    pub fn base_mut(&mut self) -> Option<&mut Url> {
+        let base = self.base.as_mut()?;
+        Some(Arc::make_mut(base))
     }
 }
 

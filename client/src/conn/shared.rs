@@ -223,6 +223,7 @@ impl Debug for Conn {
             .field("authority", &self.authority)
             .field("scheme", &self.scheme)
             .field("path", &self.path)
+            .field("request_target", &self.request_target)
             .finish()
     }
 }

@@ -94,7 +94,11 @@ impl Conn {
         let method = self.method;
         write!(buf, "{method} ")?;
 
-        if method == Method::Connect {
+        if let Some(target) = &self.request_target
+            && matches!(method, Method::Connect | Method::Options)
+        {
+            write!(buf, "{target}")?;
+        } else if method == Method::Connect {
             let host = url.host_str().ok_or(Error::UnexpectedUriFormat)?;
 
             let port = url

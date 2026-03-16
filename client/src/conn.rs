@@ -24,7 +24,6 @@ pub use unexpected_status_error::UnexpectedStatusError;
 #[must_use]
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn {
-    pub(crate) transport: Option<Box<dyn Transport>>,
     pub(crate) pool: Option<Pool<Origin, Box<dyn Transport>>>,
     pub(crate) h3: Option<H3ClientState>,
     pub(crate) buffer: Buffer,
@@ -35,11 +34,21 @@ pub struct Conn {
     pub(crate) state: TypeSet,
     pub(crate) server_config: Arc<ServerConfig>,
 
+    /// the transport for this conn
+    ///
+    /// This should only be used to call your own custom methods on the transport that do not read
+    /// or write any data. Calling any method that reads from or writes to the transport will
+    /// disrupt the HTTP protocol.
+    #[field(get, get_mut)]
+    pub(crate) transport: Option<Box<dyn Transport>>,
+
     /// the url for this conn.
     ///
     /// ```
-    /// use trillium_client::Client;
-    /// let client = Client::from(trillium_testing::client_config());
+    /// use trillium_client::{Client, Method};
+    /// use trillium_testing::client_config;
+    ///
+    /// let client = Client::from(client_config());
     ///
     /// let conn = client.get("http://localhost:9080");
     ///
@@ -53,8 +62,8 @@ pub struct Conn {
     /// the method for this conn.
     ///
     /// ```
-    /// use trillium_client::Client;
-    /// use trillium_testing::{client_config, prelude::*};
+    /// use trillium_client::{Client, Method};
+    /// use trillium_testing::client_config;
     ///
     /// let client = Client::from(client_config());
     /// let conn = client.get("http://localhost:9080");
@@ -79,14 +88,14 @@ pub struct Conn {
     /// If the conn has not yet been sent, this will be None.
     ///
     /// ```
-    /// use trillium_client::Client;
-    /// use trillium_testing::{client_config, prelude::*};
+    /// use trillium_client::{Client, Status};
+    /// use trillium_testing::{client_config, with_server};
     ///
     /// async fn handler(conn: trillium::Conn) -> trillium::Conn {
     ///     conn.with_status(418)
     /// }
     ///
-    /// trillium_testing::with_server(handler, |url| async move {
+    /// with_server(handler, |url| async move {
     ///     let client = Client::new(client_config());
     ///     let conn = client.get(url).await?;
     ///     assert_eq!(Status::ImATeapot, conn.status().unwrap());
@@ -101,14 +110,14 @@ pub struct Conn {
     /// ```
     /// env_logger::init();
     /// use trillium_client::Client;
-    /// use trillium_testing::client_config;
+    /// use trillium_testing::{client_config, with_server};
     ///
     /// let handler = |mut conn: trillium::Conn| async move {
     ///     let body = conn.request_body_string().await.unwrap();
     ///     conn.ok(format!("request body was: {}", body))
     /// };
     ///
-    /// trillium_testing::with_server(handler, |url| async move {
+    /// with_server(handler, |url| async move {
     ///     let client = Client::from(client_config());
     ///     let mut conn = client
     ///         .post(url)
@@ -150,6 +159,13 @@ pub struct Conn {
     /// the :path pseudo-header, populated during h3 header finalization
     #[field(get)]
     pub(crate) path: Option<Cow<'static, str>>,
+
+    /// an explicit request target override, used only for `OPTIONS *` and `CONNECT host:port`
+    ///
+    /// When set and the method is OPTIONS or CONNECT, this value is used as the HTTP request
+    /// target instead of deriving it from the url. For all other methods, this field is ignored.
+    #[field(with, set, get, option_set_some, into)]
+    pub(crate) request_target: Option<Cow<'static, str>>,
 }
 
 /// default http user-agent header
@@ -159,7 +175,8 @@ impl Conn {
     /// chainable setter for [`inserting`](Headers::insert) a request header
     ///
     /// ```
-    /// use trillium_testing::client_config;
+    /// use trillium_client::Client;
+    /// use trillium_testing::{client_config, with_server};
     ///
     /// let handler = |conn: trillium::Conn| async move {
     ///     let header = conn
@@ -170,9 +187,8 @@ impl Conn {
     ///     conn.ok(response)
     /// };
     ///
-    /// let client = trillium_client::Client::new(client_config());
-    ///
-    /// trillium_testing::with_server(handler, |url| async move {
+    /// with_server(handler, |url| async move {
+    ///     let client = Client::new(client_config());
     ///     let mut conn = client
     ///         .get(url)
     ///         .with_request_header("some-request-header", "header-value") // <--
@@ -196,6 +212,9 @@ impl Conn {
     /// chainable setter for `extending` request headers
     ///
     /// ```
+    /// use trillium_client::Client;
+    /// use trillium_testing::{client_config, with_server};
+    ///
     /// let handler = |conn: trillium::Conn| async move {
     ///     let header = conn
     ///         .request_headers()
@@ -205,10 +224,8 @@ impl Conn {
     ///     conn.ok(response)
     /// };
     ///
-    /// use trillium_testing::client_config;
-    /// let client = trillium_client::client(client_config());
-    ///
-    /// trillium_testing::with_server(handler, move |url| async move {
+    /// with_server(handler, move |url| async move {
+    ///     let client = Client::new(client_config());
     ///     let mut conn = client
     ///         .get(url)
     ///         .with_request_headers([
@@ -216,6 +233,7 @@ impl Conn {
     ///             ("some-other-req-header", "other-header-value"),
     ///         ])
     ///         .await?;
+    ///
     ///     assert_eq!(
     ///         conn.response_body().read_string().await?,
     ///         "some-request-header was header-value"
@@ -265,13 +283,12 @@ impl Conn {
 
     /// returns a [`ReceivedBody`] that borrows the connection inside this conn.
     /// ```
-    /// env_logger::init();
     /// use trillium_client::Client;
-    /// use trillium_testing::client_config;
+    /// use trillium_testing::{client_config, with_server};
     ///
     /// let handler = |mut conn: trillium::Conn| async move { conn.ok("hello from trillium") };
     ///
-    /// trillium_testing::with_server(handler, |url| async move {
+    /// with_server(handler, |url| async move {
     ///     let client = Client::from(client_config());
     ///     let mut conn = client.get(url).await?;
     ///
@@ -318,10 +335,11 @@ impl Conn {
     /// Returns the conn or an [`UnexpectedStatusError`] that contains the conn
     ///
     /// ```
-    /// use trillium_testing::client_config;
+    /// use trillium_client::{Client, Status};
+    /// use trillium_testing::{client_config, with_server};
     ///
-    /// trillium_testing::with_server(trillium::Status::NotFound, |url| async move {
-    ///     let client = trillium_client::Client::new(client_config());
+    /// with_server(Status::NotFound, |url| async move {
+    ///     let client = Client::new(client_config());
     ///     assert_eq!(
     ///         client.get(url).await?.success().unwrap_err().to_string(),
     ///         "expected a success (2xx) status code, but got 404 Not Found"
@@ -329,8 +347,8 @@ impl Conn {
     ///     Ok(())
     /// });
     ///
-    /// trillium_testing::with_server(trillium::Status::Ok, |url| async move {
-    ///     let client = trillium_client::Client::new(client_config());
+    /// with_server(Status::Ok, |url| async move {
+    ///     let client = Client::new(client_config());
     ///     assert!(client.get(url).await?.success().is_ok());
     ///     Ok(())
     /// });
