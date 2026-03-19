@@ -14,8 +14,9 @@
 //! this crate is intended to be used as a development dependency.
 //!
 //! ```
-//! use trillium::{conn_try, Conn};
-//! use trillium_testing::prelude::*;
+//! # trillium_testing::block_on(async {
+//! use trillium::{Conn, Status, conn_try};
+//! use trillium_testing::TestHandler;
 //! async fn handler(mut conn: Conn) -> Conn {
 //!     let request_body = conn_try!(conn.request_body_string().await, conn);
 //!     conn.with_body(format!("request body was: {}", request_body))
@@ -23,38 +24,42 @@
 //!         .with_response_header("request-id", "special-request")
 //! }
 //!
-//! assert_response!(
-//!     post("/").with_request_body("hello trillium!").on(&handler),
-//!     Status::ImATeapot,
-//!     "request body was: hello trillium!",
-//!     "request-id" => "special-request",
-//!     "content-length" => "33"
-//! );
+//! let app = TestHandler::new(handler).await;
+//! app.post("/")
+//!     .with_body("hello trillium!")
+//!     .await
+//!     .assert_status(Status::ImATeapot)
+//!     .assert_body("request body was: hello trillium!")
+//!     .assert_headers([("request-id", "special-request"), ("content-length", "33")]);
+//! # });
 //! ```
 //!
 //! ## Features
 //!
-//! You must enable a runtime feature for **trillium testing**
+//! To use the same runtime as your application, enable a runtime feature for **trillium testing**.
+//! Without a runtime feature enabled, trillium testing will approximate a runtime through spawning
+//! a thread per task and blocking on a future. This is fine for simple testing, but you probably
+//! want to enable a server feature.
 //!
 //! ### Tokio:
 //! ```toml
 //! [dev-dependencies]
 //! # ...
-//! trillium-testing = { version = "0.2", features = ["tokio"] }
+//! trillium-testing = { version = "...", features = ["tokio"] }
 //! ```
 //!
 //! ### Async-std:
 //! ```toml
 //! [dev-dependencies]
 //! # ...
-//! trillium-testing = { version = "0.2", features = ["async-std"] }
+//! trillium-testing = { version = "...", features = ["async-std"] }
 //! ```
 //!
 //! ### Smol:
 //! ```toml
 //! [dev-dependencies]
 //! # ...
-//! trillium-testing = { version = "0.2", features = ["smol"] }
+//! trillium-testing = { version = "...", features = ["smol"] }
 //! ```
 
 #[cfg(test)]
@@ -180,6 +185,9 @@ cfg_if::cfg_if! {
 mod with_server;
 pub use with_server::{with_server, with_transport};
 
+mod test_handler;
+pub use test_handler::{ConnTest, TestHandler};
+
 mod runtimeless;
 pub use runtimeless::{RuntimelessClientConfig, RuntimelessRuntime, RuntimelessServer};
 
@@ -209,3 +217,5 @@ where
     let runtime = runtime();
     runtime.clone().block_on(test(runtime.into()))
 }
+
+pub use test_harness::test;

@@ -18,24 +18,32 @@
 //! ```
 //! use trillium::{Conn, conn_unwrap};
 //! use trillium_router::{Router, RouterConnExt};
+//! use trillium_testing::TestHandler;
 //!
-//! let router = Router::new()
-//!     .get("/", |conn: Conn| async move {
-//!         conn.ok("you have reached the index")
-//!     })
-//!     .get("/pages/:page_name", |conn: Conn| async move {
-//!         let page_name = conn_unwrap!(conn.param("page_name"), conn);
-//!         let content = format!("you have reached the page named {}", page_name);
-//!         conn.ok(content)
-//!     });
+//! # trillium_testing::block_on(async {
+//! let app = TestHandler::new(
+//!     Router::new()
+//!         .get("/", |conn: Conn| async move {
+//!             conn.ok("you have reached the index")
+//!         })
+//!         .get("/pages/:page_name", |conn: Conn| async move {
+//!             let page_name = conn_unwrap!(conn.param("page_name"), conn);
+//!             let content = format!("you have reached the page named {}", page_name);
+//!             conn.ok(content)
+//!         }),
+//! )
+//! .await;
 //!
-//! use trillium_testing::prelude::*;
-//! assert_ok!(get("/").on(&router), "you have reached the index");
-//! assert_ok!(
-//!     get("/pages/trillium").on(&router),
-//!     "you have reached the page named trillium"
-//! );
-//! assert_not_handled!(get("/unknown/route").on(&router));
+//! app.get("/")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("you have reached the index");
+//! app.get("/pages/trillium")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("you have reached the page named trillium");
+//! app.get("/unknown/route").await.assert_status(404);
+//! # });
 //! ```
 //!
 //! Although this is currently the only trillium router, it is an
@@ -83,7 +91,9 @@ pub use router_conn_ext::RouterConnExt;
 /// ```
 /// use trillium::{conn_unwrap, Conn};
 /// use trillium_router::{routes, RouterConnExt};
+/// use trillium_testing::TestHandler;
 ///
+/// # trillium_testing::block_on(async {
 /// let router = routes!(
 /// get "/" |conn: Conn| async move { conn.ok("you have reached the index") },
 /// get "/pages/:page_name" |conn: Conn| async move {
@@ -93,10 +103,16 @@ pub use router_conn_ext::RouterConnExt;
 /// }
 /// );
 ///
-/// use trillium_testing::prelude::*;
-/// assert_ok!(get("/").on(&router), "you have reached the index");
-/// assert_ok!(get("/pages/trillium").on(&router), "you have reached the page named trillium");
-/// assert_not_handled!(get("/unknown/route").on(&router));
+/// let app = TestHandler::new(router).await;
+/// app.get("/").await
+///     .assert_ok()
+///     .assert_body("you have reached the index");
+/// app.get("/pages/trillium").await
+///     .assert_ok()
+///     .assert_body("you have reached the page named trillium");
+/// app.get("/unknown/route").await
+///     .assert_status(404);
+/// # });
 /// ```
 #[macro_export]
 macro_rules! routes {

@@ -1,21 +1,41 @@
+use trillium::{Conn, Method};
 use trillium_head::*;
-use trillium_testing::{TestConn, prelude::*};
+use trillium_testing::{TestHandler, harness, test};
 
-#[test]
-fn test() {
-    let app = (Head::new(), |conn: Conn| async move {
+#[test(harness)]
+async fn test() {
+    let app = TestHandler::new((Head::new(), |conn: Conn| async move {
         match (conn.method(), conn.path()) {
             (Method::Get, "/") => conn.ok("ok, this is my body"),
             (Method::Get, _) => conn.with_status(404).with_body("egads i don't have that"),
             _ => conn,
         }
-    });
+    }))
+    .await;
 
-    assert_ok!(TestConn::build(Method::Head, "/", ()).on(&app), "", "content-length" => "19");
-    assert_ok!(get("/").on(&app), "ok, this is my body", "content-length" => "19");
+    app.build(Method::Head, "/")
+        .await
+        .assert_ok()
+        .assert_body("")
+        .assert_header("content-length", "19");
 
-    assert_response!(TestConn::build(Method::Head, "/not_found", ()).on(&app), 404, "", "content-length" => "23");
-    assert_response!(get("/not_found").on(&app), 404, "egads i don't have that", "content-length" => "23");
+    app.get("/")
+        .await
+        .assert_ok()
+        .assert_body("ok, this is my body")
+        .assert_header("content-length", "19");
 
-    assert_not_handled!(post("/").on(&app));
+    app.build(Method::Head, "/not_found")
+        .await
+        .assert_status(404)
+        .assert_body("")
+        .assert_header("content-length", "23");
+
+    app.get("/not_found")
+        .await
+        .assert_status(404)
+        .assert_body("egads i don't have that")
+        .assert_header("content-length", "23");
+
+    app.post("/").await.assert_status(404);
 }

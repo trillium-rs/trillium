@@ -1,14 +1,14 @@
 #![allow(dead_code)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use trillium::{Handler, Info, Status::Ok};
+use trillium::{Conn, Handler, Info, Status::Ok};
 use trillium_macros::Handler;
-use trillium_testing::prelude::*;
+use trillium_testing::{TestHandler, harness, test};
 
 fn assert_handler(_: impl Handler) {}
 
-#[test]
-fn full_lifecycle() {
+#[test(harness)]
+async fn full_lifecycle() {
     struct InnerHandler {
         init: bool,
     }
@@ -35,40 +35,47 @@ fn full_lifecycle() {
     #[derive(Handler)]
     struct OuterHandler<X>(X);
 
-    block_on(async {
-        let mut info = Info::default();
-        let mut handler = OuterHandler(InnerHandler { init: false });
+    let mut info = Info::default();
+    let mut handler = OuterHandler(InnerHandler { init: false });
 
-        handler.init(&mut info).await;
-        assert_eq!(info.state::<&str>().unwrap(), &"inner handler took over");
-        assert!(handler.0.init);
-        assert_ok!(get("/").run_async(&handler).await, "run", "before-send" => "before-send");
-        assert_eq!(handler.name(), "OuterHandler (inner handler)");
-    });
+    handler.init(&mut info).await;
+    assert_eq!(info.state::<&str>().unwrap(), &"inner handler took over");
+    assert!(handler.0.init);
+
+    let app = TestHandler::new(handler).await;
+    app.get("/")
+        .await
+        .assert_ok()
+        .assert_body("run")
+        .assert_header("before-send", "before-send");
+
+    assert_eq!(app.handler().name(), "OuterHandler (inner handler)");
 }
 
-#[test]
-fn unnamed_1() {
+#[test(harness)]
+async fn unnamed_1() {
     #[derive(Handler, Clone)]
     struct Foo(String);
 
     let handler = Foo(String::from("hi"));
+    let app = TestHandler::new(handler).await;
 
-    assert_ok!(get("/").on(&handler), "hi");
+    app.get("/").await.assert_ok().assert_body("hi");
 }
 
-#[test]
-fn unnamed_2() {
+#[test(harness)]
+async fn unnamed_2() {
     #[derive(Handler)]
     struct Foo(&'static str, #[handler] &'static str);
 
     let handler = Foo("not-run", "hi");
+    let app = TestHandler::new(handler).await;
 
-    assert_ok!(get("/").on(&handler), "hi");
+    app.get("/").await.assert_ok().assert_body("hi");
 }
 
-#[test]
-fn named_1() {
+#[test(harness)]
+async fn named_1() {
     #[derive(Handler, Clone)]
     struct Foo {
         handler: String,
@@ -77,12 +84,13 @@ fn named_1() {
     let handler = Foo {
         handler: String::from("hi"),
     };
+    let app = TestHandler::new(handler).await;
 
-    assert_ok!(get("/").on(&handler), "hi");
+    app.get("/").await.assert_ok().assert_body("hi");
 }
 
-#[test]
-fn named_2() {
+#[test(harness)]
+async fn named_2() {
     #[derive(Handler)]
     struct Foo {
         #[handler]
@@ -94,12 +102,13 @@ fn named_2() {
         handler: String::from("hi"),
         not_handler: (),
     };
+    let app = TestHandler::new(handler).await;
 
-    assert_ok!(get("/").on(&handler), "hi");
+    app.get("/").await.assert_ok().assert_body("hi");
 }
 
-#[test]
-fn unnamed_generic() {
+#[test(harness)]
+async fn unnamed_generic() {
     #[derive(Handler)]
     struct Foo<X>(X);
     assert_handler(Foo(Ok));
@@ -110,15 +119,16 @@ fn unnamed_generic() {
     assert_handler(Bar((Ok, "yes")));
     let handler = Bar((Ok, "yes"));
 
-    assert_ok!(get("/").on(&handler));
+    let app = TestHandler::new(handler).await;
+    app.get("/").await.assert_ok();
 
     #[derive(Handler)]
     struct Hard<X: Copy, Y: Clone, Z>(X, #[handler] (Y, Z));
     assert_handler(Hard("hello", (Ok, "world")));
 }
 
-#[test]
-fn named_generic() {
+#[test(harness)]
+async fn named_generic() {
     #[derive(Handler)]
     struct Foo<X> {
         x: X,
@@ -132,7 +142,8 @@ fn named_generic() {
     assert_handler(Bar { thing: (Ok, "yes") });
 
     let handler = Bar { thing: (Ok, "yes") };
-    assert_ok!(get("/").on(&handler));
+    let app = TestHandler::new(handler).await;
+    app.get("/").await.assert_ok();
 
     #[derive(Handler)]
     struct Hard<X: Copy, Y: Clone, Z> {
@@ -147,8 +158,8 @@ fn named_generic() {
     });
 }
 
-#[test]
-fn overriding_name() {
+#[test(harness)]
+async fn overriding_name() {
     #[derive(Handler)]
     struct CustomName {
         #[handler(except = name)]
@@ -166,8 +177,8 @@ fn overriding_name() {
     assert_handler(handler);
 }
 
-#[test]
-fn overriding_run_and_before_send() {
+#[test(harness)]
+async fn overriding_run_and_before_send() {
     #[derive(Handler)]
     struct Counter {
         #[handler(except = [run, before_send])]

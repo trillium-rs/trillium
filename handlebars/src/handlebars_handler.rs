@@ -22,6 +22,9 @@ impl HandlebarsHandler {
     /// # if cfg!(unix) {
     /// # use std::path::PathBuf;
     /// use trillium_handlebars::{HandlebarsConnExt, HandlebarsHandler};
+    /// use trillium_testing::TestHandler;
+    ///
+    /// # trillium_testing::block_on(async {
     /// let handler = (
     ///     HandlebarsHandler::new("**/*.hbs"),
     ///     |mut conn: trillium::Conn| async move {
@@ -30,14 +33,20 @@ impl HandlebarsHandler {
     ///     },
     /// );
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(get("/").on(&handler), "hello handlebars!");
+    /// let app = TestHandler::new(handler).await;
+    /// app.get("/")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("hello handlebars!");
+    /// # });
     /// # }
     /// ```
     /// ## From a [`handlebars::Handlebars`]
     ///
     /// ```
     /// use trillium_handlebars::{HandlebarsHandler, Handlebars, HandlebarsConnExt};
+    /// use trillium_testing::TestHandler;
+    ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// // building a Handlebars directly
     /// let mut handlebars = Handlebars::new();
@@ -50,8 +59,13 @@ impl HandlebarsHandler {
     ///     }
     /// );
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(get("/").on(&handler), "Hello handlebars");
+    /// # trillium_testing::block_on(async {
+    /// let app = TestHandler::new(handler).await;
+    /// app.get("/")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("Hello handlebars");
+    /// # });
     /// # Ok(()) }
     /// ```
     pub fn new(source: impl Into<Self>) -> Self {

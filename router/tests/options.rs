@@ -1,67 +1,96 @@
+use trillium::Method;
 use trillium_router::*;
-use trillium_testing::{TestConn, prelude::*};
+use trillium_testing::{TestHandler, harness, test};
 
-#[test]
-fn options_star_with_a_star_handler() {
-    let router = Router::new()
-        .get("*", "ok")
-        .post("/some/specific/route", "ok");
-    let mut conn = TestConn::build("options", "*", ()).on(&router);
-    assert_status!(&conn, 200);
-    assert_headers!(&mut conn, "allow" => "GET, POST");
+#[test(harness)]
+async fn options_star_with_a_star_handler() {
+    let app = TestHandler::new(
+        Router::new()
+            .get("*", "ok")
+            .post("/some/specific/route", "ok"),
+    )
+    .await;
+
+    app.build(Method::Options, "*")
+        .await
+        .assert_status(200)
+        .assert_header("allow", "GET, POST");
 }
 
-#[test]
-fn options_specific_route_with_several_matching_methods() {
-    let router = Router::new()
-        .get("*", "ok")
-        .post("/some/specific/route", "ok")
-        .delete("/some/specific/:anything", "ok");
+#[test(harness)]
+async fn options_specific_route_with_several_matching_methods() {
+    let app = TestHandler::new(
+        Router::new()
+            .get("*", "ok")
+            .post("/some/specific/route", "ok")
+            .delete("/some/specific/:anything", "ok"),
+    )
+    .await;
 
-    let mut conn = TestConn::build("options", "/some/specific/route", ()).on(&router);
-    assert_status!(&conn, 200);
-    assert_headers!(&mut conn, "allow" => "DELETE, GET, POST");
+    app.build(Method::Options, "/some/specific/route")
+        .await
+        .assert_status(200)
+        .assert_header("allow", "DELETE, GET, POST");
 
-    let mut conn = TestConn::build("options", "/some/specific/other", ()).on(&router);
-    assert_status!(&conn, 200);
-    assert_headers!(&mut conn, "allow" => "DELETE, GET");
+    app.build(Method::Options, "/some/specific/other")
+        .await
+        .assert_status(200)
+        .assert_header("allow", "DELETE, GET");
 
-    let mut conn = TestConn::build("options", "/only-get", ()).on(&router);
-    assert_status!(&conn, 200);
-    assert_headers!(&mut conn, "allow" => "GET");
+    app.build(Method::Options, "/only-get")
+        .await
+        .assert_status(200)
+        .assert_header("allow", "GET");
 }
 
-#[test]
-fn options_specific_route_with_no_matching_routes() {
-    let router = Router::new()
-        .post("/some/specific/route", "ok")
-        .delete("/some/specific/:anything", "ok");
+#[test(harness)]
+async fn options_specific_route_with_no_matching_routes() {
+    let app = TestHandler::new(
+        Router::new()
+            .post("/some/specific/route", "ok")
+            .delete("/some/specific/:anything", "ok"),
+    )
+    .await;
 
-    let mut conn = TestConn::build("options", "/other", ()).on(&router);
-    assert_status!(&conn, 200);
-    assert_headers!(&mut conn, "allow" => "");
+    app.build(Method::Options, "/other")
+        .await
+        .assert_status(200)
+        .assert_header("allow", "");
 }
 
-#[test]
-fn options_any() {
-    let router = Router::new().any(&["delete", "get", "patch"], "/some-route", "ok");
-    let mut conn = TestConn::build("options", "*", ()).on(&router);
-    assert_status!(&conn, 200);
-    assert_headers!(&mut conn, "allow" => "DELETE, GET, PATCH");
+#[test(harness)]
+async fn options_any() {
+    let app =
+        TestHandler::new(Router::new().any(&["delete", "get", "patch"], "/some-route", "ok")).await;
+
+    app.build(Method::Options, "*")
+        .await
+        .assert_status(200)
+        .assert_header("allow", "DELETE, GET, PATCH");
 }
 
-#[test]
-fn when_options_are_disabled() {
-    let router = Router::new().without_options_handling().get("*", "ok");
-    assert_not_handled!(TestConn::build("options", "/", ()).on(&router));
+#[test(harness)]
+async fn when_options_are_disabled() {
+    let app = TestHandler::new(Router::new().without_options_handling().get("*", "ok")).await;
+
+    app.build(Method::Options, "/").await.assert_status(404);
 }
 
-#[test]
-fn nested_router() {
-    let router = Router::new().all(
+#[test(harness)]
+async fn nested_router() {
+    let app = TestHandler::new(Router::new().all(
         "/nested/*",
         Router::new().get("/here", "ok").post("*", "ok"),
-    );
-    assert_headers!(TestConn::build("options", "/nested/here", ()).on(&router), "allow" => "GET, POST");
-    assert_headers!(TestConn::build("options", "*", ()).on(&router), "allow" => "DELETE, GET, PATCH, POST, PUT");
+    ))
+    .await;
+
+    app.build(Method::Options, "/nested/here")
+        .await
+        .assert_status(200)
+        .assert_header("allow", "GET, POST");
+
+    app.build(Method::Options, "*")
+        .await
+        .assert_status(200)
+        .assert_header("allow", "DELETE, GET, PATCH, POST, PUT");
 }

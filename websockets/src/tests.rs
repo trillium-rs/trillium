@@ -1,26 +1,48 @@
 use super::connection_is_upgrade;
-use trillium_testing::prelude::*;
+use trillium::Conn;
+use trillium_testing::{TestHandler, harness, test};
 
-#[test]
-fn test_connection_is_upgrade() {
-    let mut conn = get("/").on(&()).into();
-    assert!(!connection_is_upgrade(&conn));
+#[test(harness)]
+async fn test_connection_is_upgrade() {
+    let handler = |conn: Conn| async move {
+        if connection_is_upgrade(&conn) {
+            conn.ok("upgrade")
+        } else {
+            conn.ok("no-upgrade")
+        }
+    };
 
-    conn.request_headers_mut()
-        .insert("connection", "keep-alive, Upgrade");
-    assert!(connection_is_upgrade(&conn));
+    let app = TestHandler::new(handler).await;
 
-    conn.request_headers_mut().insert("connection", "upgrade");
-    assert!(connection_is_upgrade(&conn));
+    app.get("/").await.assert_ok().assert_body("no-upgrade");
 
-    conn.request_headers_mut().insert("connection", "UPgrAde");
-    assert!(connection_is_upgrade(&conn));
+    app.get("/")
+        .with_request_header("connection", "keep-alive, Upgrade")
+        .await
+        .assert_ok()
+        .assert_body("upgrade");
 
-    conn.request_headers_mut()
-        .insert("connection", "UPgrAde, keep-alive");
-    assert!(connection_is_upgrade(&conn));
+    app.get("/")
+        .with_request_header("connection", "upgrade")
+        .await
+        .assert_ok()
+        .assert_body("upgrade");
 
-    conn.request_headers_mut()
-        .insert("connection", "keep-alive");
-    assert!(!connection_is_upgrade(&conn));
+    app.get("/")
+        .with_request_header("connection", "UPgrAde")
+        .await
+        .assert_ok()
+        .assert_body("upgrade");
+
+    app.get("/")
+        .with_request_header("connection", "UPgrAde, keep-alive")
+        .await
+        .assert_ok()
+        .assert_body("upgrade");
+
+    app.get("/")
+        .with_request_header("connection", "keep-alive")
+        .await
+        .assert_ok()
+        .assert_body("no-upgrade");
 }

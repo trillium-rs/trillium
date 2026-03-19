@@ -17,6 +17,8 @@ macro_rules! method_ref {
 ```
 # use trillium::Conn;
 # use trillium_router::Router;
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
 let router = Router::build(|mut router| {
     router.",
                 stringify!($fn_name),
@@ -25,15 +27,17 @@ let router = Router::build(|mut router| {
     });
 });
 
-use trillium_testing::{methods::",
+let app = TestHandler::new(router).await;
+app.",
                 stringify!($fn_name),
-                ", assert_ok, assert_not_handled};
-assert_ok!(",
+                "(\"/some/route\").await
+    .assert_ok()
+    .assert_body(\"success\");
+app.",
                 stringify!($fn_name),
-                "(\"/some/route\").on(&router), \"success\");
-assert_not_handled!(",
-                stringify!($fn_name),
-                "(\"/other/route\").on(&router));
+                "(\"/other/route\").await
+    .assert_status(404);
+# });
 ```
 "
             )
@@ -74,6 +78,8 @@ impl<'r> RouterRef<'r> {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
+    /// # use trillium_testing::TestHandler;
+    /// # trillium_testing::block_on(async {
     /// let router = Router::build(|mut router| {
     ///     router.all("/any", |conn: Conn| async move {
     ///         let response = format!("you made a {} request to /any", conn.method());
@@ -81,20 +87,29 @@ impl<'r> RouterRef<'r> {
     ///     });
     /// });
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(get("/any").on(&router), "you made a GET request to /any");
-    /// assert_ok!(post("/any").on(&router), "you made a POST request to /any");
-    /// assert_ok!(
-    ///     delete("/any").on(&router),
-    ///     "you made a DELETE request to /any"
-    /// );
-    /// assert_ok!(
-    ///     patch("/any").on(&router),
-    ///     "you made a PATCH request to /any"
-    /// );
-    /// assert_ok!(put("/any").on(&router), "you made a PUT request to /any");
-    ///
-    /// assert_not_handled!(get("/").on(&router));
+    /// let app = TestHandler::new(router).await;
+    /// app.get("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a GET request to /any");
+    /// app.post("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a POST request to /any");
+    /// app.delete("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a DELETE request to /any");
+    /// app.patch("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a PATCH request to /any");
+    /// app.put("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a PUT request to /any");
+    /// app.get("/").await.assert_status(404);
+    /// # });
     /// ```
     pub fn all<R>(&mut self, path: R, handler: impl Handler)
     where
@@ -108,6 +123,8 @@ impl<'r> RouterRef<'r> {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
+    /// # use trillium_testing::TestHandler;
+    /// # trillium_testing::block_on(async {
     /// let router = Router::build(|mut router| {
     ///     router.any(&["get", "post"], "/get_or_post", |conn: Conn| async move {
     ///         let response = format!("you made a {} request to /get_or_post", conn.method());
@@ -115,19 +132,20 @@ impl<'r> RouterRef<'r> {
     ///     });
     /// });
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(
-    ///     get("/get_or_post").on(&router),
-    ///     "you made a GET request to /get_or_post"
-    /// );
-    /// assert_ok!(
-    ///     post("/get_or_post").on(&router),
-    ///     "you made a POST request to /get_or_post"
-    /// );
-    /// assert_not_handled!(delete("/any").on(&router));
-    /// assert_not_handled!(patch("/any").on(&router));
-    /// assert_not_handled!(put("/any").on(&router));
-    /// assert_not_handled!(get("/").on(&router));
+    /// let app = TestHandler::new(router).await;
+    /// app.get("/get_or_post")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a GET request to /get_or_post");
+    /// app.post("/get_or_post")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a POST request to /get_or_post");
+    /// app.delete("/any").await.assert_status(404);
+    /// app.patch("/any").await.assert_status(404);
+    /// app.put("/any").await.assert_status(404);
+    /// app.get("/").await.assert_status(404);
+    /// # });
     /// ```
     pub fn any<IntoMethod, R>(&mut self, methods: &[IntoMethod], path: R, handler: impl Handler)
     where
@@ -153,6 +171,8 @@ impl<'r> RouterRef<'r> {
     /// ```
     /// # use trillium::{Conn, Method};
     /// # use trillium_router::Router;
+    /// # use trillium_testing::TestHandler;
+    /// # trillium_testing::block_on(async {
     /// let router = Router::build(|mut router| {
     ///     router.add_route("OPTIONS", "/some/route", |conn: Conn| async move {
     ///         conn.ok("directly handling options")
@@ -163,15 +183,16 @@ impl<'r> RouterRef<'r> {
     ///     });
     /// });
     ///
-    /// use trillium_testing::{TestConn, prelude::*};
-    /// assert_ok!(
-    ///     TestConn::build(Method::Options, "/some/route", ()).on(&router),
-    ///     "directly handling options"
-    /// );
-    /// assert_ok!(
-    ///     TestConn::build("checkin", "/some/route", ()).on(&router),
-    ///     "checkin??"
-    /// );
+    /// let app = TestHandler::new(router).await;
+    /// app.build(Method::Options, "/some/route")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("directly handling options");
+    /// app.build(Method::Checkin, "/some/route")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("checkin??");
+    /// # });
     /// ```
     pub fn add_route<M, R>(&mut self, method: M, path: R, handler: impl Handler)
     where

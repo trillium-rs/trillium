@@ -14,32 +14,37 @@
 //! ## example
 //! ```
 //! use trillium::Conn;
-//! use trillium_cookies::{cookie::Cookie, CookiesConnExt, CookiesHandler};
-//! async fn handler_that_uses_cookies(conn: Conn) -> Conn {
-//! let content = if let Some(cookie_value) = conn.cookies().get("some_cookie") {
-//! format!("current cookie value: {}", cookie_value.value())
-//! } else {
-//! String::from("no cookie value set")
-//! };
+//! use trillium_cookies::{CookiesConnExt, CookiesHandler, cookie::Cookie};
+//! use trillium_testing::{TestHandler, harness};
 //!
-//! conn.with_cookie(("some_cookie", "some-cookie-value")).ok(content)
+//! # trillium_testing::block_on(async {
+//! async fn handler_that_uses_cookies(conn: Conn) -> Conn {
+//!     let content = if let Some(cookie_value) = conn.cookies().get("some_cookie") {
+//!         format!("current cookie value: {}", cookie_value.value())
+//!     } else {
+//!         String::from("no cookie value set")
+//!     };
+//!
+//!     conn.with_cookie(("some_cookie", "some-cookie-value"))
+//!         .ok(content)
 //! }
 //!
 //! let handler = (CookiesHandler::new(), handler_that_uses_cookies);
+//! let app = TestHandler::new(handler).await;
 //!
-//! use trillium_testing::prelude::*;
+//! app.get("/")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("no cookie value set")
+//!     .assert_header("set-cookie", "some_cookie=some-cookie-value");
 //!
-//! assert_ok!(
-//! get("/").on(&handler),
-//! "no cookie value set",
-//! "set-cookie" => "some_cookie=some-cookie-value"
-//! );
-//!
-//! assert_ok!(
-//! get("/").with_request_header("cookie", "some_cookie=trillium").on(&handler),
-//! "current cookie value: trillium",
-//! "set-cookie" => "some_cookie=some-cookie-value"
-//! );
+//! app.get("/")
+//!     .with_request_header("cookie", "some_cookie=trillium")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("current cookie value: trillium")
+//!     .assert_header("set-cookie", "some_cookie=some-cookie-value");
+//! # });
 //! ```
 
 #[cfg(test)]

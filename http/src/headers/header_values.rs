@@ -208,3 +208,9 @@ impl PartialEq<&str> for HeaderValues {
         self == *other
     }
 }
+
+impl PartialEq<HeaderValue> for HeaderValues {
+    fn eq(&self, other: &HeaderValue) -> bool {
+        self.one().is_some_and(|inner| inner == other)
+    }
+}

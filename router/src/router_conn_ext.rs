@@ -12,18 +12,21 @@ pub trait RouterConnExt {
     /// ```
     /// use trillium::{Conn, conn_unwrap};
     /// use trillium_router::{Router, RouterConnExt};
+    /// use trillium_testing::TestHandler;
     ///
+    /// # trillium_testing::block_on(async {
     /// let router = Router::new().get("/pages/:page_name", |conn: Conn| async move {
     ///     let page_name = conn_unwrap!(conn.param("page_name"), conn);
     ///     let content = format!("you have reached the page named {}", page_name);
     ///     conn.ok(content)
     /// });
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(
-    ///     get("/pages/trillium").on(&router),
-    ///     "you have reached the page named trillium"
-    /// );
+    /// let app = TestHandler::new(router).await;
+    /// app.get("/pages/trillium")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you have reached the page named trillium");
+    /// # });
     /// ```
     fn param<'a>(&'a self, param: &str) -> Option<&'a str>;
 
@@ -34,18 +37,21 @@ pub trait RouterConnExt {
     /// ```
     /// use trillium::{Conn, conn_unwrap};
     /// use trillium_router::{Router, RouterConnExt};
+    /// use trillium_testing::TestHandler;
     ///
+    /// # trillium_testing::block_on(async {
     /// let router = Router::new().get("/pages/*", |conn: Conn| async move {
     ///     let wildcard = conn_unwrap!(conn.wildcard(), conn);
     ///     let content = format!("the wildcard matched {}", wildcard);
     ///     conn.ok(content)
     /// });
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(
-    ///     get("/pages/this/is/a/wildcard/match").on(&router),
-    ///     "the wildcard matched this/is/a/wildcard/match"
-    /// );
+    /// let app = TestHandler::new(router).await;
+    /// app.get("/pages/this/is/a/wildcard/match")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("the wildcard matched this/is/a/wildcard/match");
+    /// # });
     /// ```
     fn wildcard(&self) -> Option<&str>;
 
@@ -53,14 +59,20 @@ pub trait RouterConnExt {
     /// ```
     /// use trillium::{Conn, conn_unwrap};
     /// use trillium_router::{Router, RouterConnExt};
+    /// use trillium_testing::TestHandler;
     ///
+    /// # trillium_testing::block_on(async {
     /// let router = Router::new().get("/pages/:page_id", |conn: Conn| async move {
     ///     let route = conn_unwrap!(conn.route(), conn).to_string();
     ///     conn.ok(format!("route was {route}"))
     /// });
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(get("/pages/12345").on(&router), "route was /pages/:page_id");
+    /// let app = TestHandler::new(router).await;
+    /// app.get("/pages/12345")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("route was /pages/:page_id");
+    /// # });
     /// ```
     fn route(&self) -> Option<&str>;
 }
@@ -78,20 +90,3 @@ impl RouterConnExt for Conn {
         self.state().and_then(|RouteSpecNewType(r)| r.source())
     }
 }
-
-// ```
-// use trillium::{conn_unwrap, Conn};
-// use trillium_router::{Router, RouterConnExt};
-
-// let router = Router::new().get("/pages/*", |conn: Conn| async move {
-//     let wildcard = conn_unwrap!(conn.wildcard(), conn);
-//     let content = format!("the wildcard matched {}", wildcard);
-//     conn.ok(content)
-// });
-
-// use trillium_testing::prelude::*;
-// assert_ok!(
-//     get("/pages/this/is/a/wildcard/match").on(&router),
-//     "the wildcard matched this/is/a/wildcard/match"
-// );
-// ```

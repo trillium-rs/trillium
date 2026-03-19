@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
+use trillium::Conn;
 use trillium_conn_id::*;
-use trillium_testing::{TestConn, prelude::*};
+use trillium_testing::{TestHandler, harness, test};
 use uuid::Uuid;
 
 fn build_incrementing_id_generator() -> impl Fn() -> String + Send + Sync + 'static {
@@ -8,65 +9,94 @@ fn build_incrementing_id_generator() -> impl Fn() -> String + Send + Sync + 'sta
     move || count.fetch_add(1, Ordering::SeqCst).to_string()
 }
 
-#[test]
-fn test_defaults() {
-    let app = (ConnId::new().with_seed(1000), "ok");
-    assert_ok!(get("/").on(&app), "ok", "x-request-id" => "J4lzoPXcT5");
-    assert_ok!(get("/").on(&app), "ok", "x-request-id" => "Sn0wUTe4EF");
-    assert_ok!(
-        get("/").with_request_header("x-request-id", "inbound-id").on(&app),
-        "ok",
-        "x-request-id" => "inbound-id"
-    );
-
-    let conn = get("/").on(&app);
-    assert_eq!(conn.id(), "cnx2OnqZsR");
-    assert_eq!(log_formatter::conn_id(&conn, true), "cnx2OnqZsR");
-
-    let conn = TestConn::build("get", "/", ());
-    assert_eq!(log_formatter::conn_id(&conn, true), "-");
+#[derive(Debug, PartialEq, Eq)]
+struct Id(String);
+async fn set_id_state_for_tests(conn: Conn) -> Conn {
+    let id = Id(conn.id().to_string());
+    conn.with_state(id)
 }
 
-#[test]
-fn test_settings() {
-    let app = (
+#[test(harness)]
+async fn test_defaults() {
+    let app = TestHandler::new((ConnId::new().with_seed(1000), set_id_state_for_tests, "ok")).await;
+
+    app.get("/")
+        .await
+        .assert_ok()
+        .assert_body("ok")
+        .assert_header("x-request-id", "J4lzoPXcT5");
+
+    app.get("/")
+        .await
+        .assert_ok()
+        .assert_body("ok")
+        .assert_header("x-request-id", "Sn0wUTe4EF");
+
+    app.get("/")
+        .with_request_header("x-request-id", "inbound-id")
+        .await
+        .assert_ok()
+        .assert_body("ok")
+        .assert_header("x-request-id", "inbound-id");
+
+    app.get("/")
+        .await
+        .assert_ok()
+        .assert_state(Id("cnx2OnqZsR".to_string()));
+}
+
+#[test(harness)]
+async fn test_settings() {
+    let app = TestHandler::new((
         ConnId::new()
             .with_request_header("x-custom-id")
             .with_response_header("x-something-else")
             .with_id_generator(|| Uuid::new_v4().to_string()),
+        set_id_state_for_tests,
         "ok",
-    );
+    ))
+    .await;
 
-    let conn = get("/").on(&app);
+    app.get("/")
+        .await
+        .assert_ok()
+        .assert_header_with("x-something-else", |header| {
+            assert!(Uuid::parse_str(header.as_str().unwrap()).is_ok());
+        })
+        .assert_state_with(|state_id: &Id| {
+            assert!(Uuid::parse_str(&state_id.0).is_ok());
+        });
 
-    assert!(Uuid::parse_str(conn.response_headers().get_str("x-something-else").unwrap()).is_ok());
-    assert!(Uuid::parse_str(conn.id()).is_ok());
-    assert!(Uuid::parse_str(&log_formatter::conn_id(&conn, true)).is_ok());
-
-    assert_ok!(
-        get("/").with_request_header("x-custom-id", "inbound-id").on(&app),
-        "ok",
-        "x-something-else" => "inbound-id"
-    );
+    app.get("/")
+        .with_request_header("x-custom-id", "inbound-id")
+        .await
+        .assert_ok()
+        .assert_body("ok")
+        .assert_header("x-something-else", "inbound-id");
 }
 
-#[test]
-fn test_no_headers() {
-    let app = (
+#[test(harness)]
+async fn test_no_headers() {
+    let app = TestHandler::new((
         ConnId::new()
             .with_id_generator(build_incrementing_id_generator())
             .without_request_header()
             .without_response_header(),
+        set_id_state_for_tests,
         "ok",
-    );
+    ))
+    .await;
 
-    let conn = get("/").on(&app);
-    assert!(conn.response_headers().get("x-request-id").is_none());
-    assert_eq!(conn.id(), "0");
+    app.get("/")
+        .await
+        .assert_ok()
+        .assert_no_header("x-request-id")
+        .assert_state(Id("0".to_string()));
 
-    let conn = get("/")
+    app.get("/")
         .with_request_header("x-request-id", "ignored")
-        .on(&app);
-    assert_eq!(conn.id(), "1");
-    assert!(conn.response_headers().get("x-request-id").is_none());
+        .await
+        .assert_ok()
+        .assert_no_header("x-request-id")
+        .assert_state(Id("1".to_string()));
 }

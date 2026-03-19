@@ -17,25 +17,26 @@
 //! ```
 //! # fn main() -> tera::Result<()> {
 //! use trillium::Conn;
-//! use trillium_tera::{TeraHandler, Tera, TeraConnExt};
+//! use trillium_tera::{Tera, TeraConnExt, TeraHandler};
+//! use trillium_testing::TestHandler;
 //!
 //! let mut tera = Tera::default();
 //! tera.add_raw_template("hello.html", "hello {{name}} from {{render_engine}}")?;
 //!
 //! let handler = (
-//! TeraHandler::new(tera),
-//! |conn: Conn| async move { conn.assign("render_engine", "tera") },
-//! |conn: Conn| async move {
-//! conn.assign("name", "trillium").render("hello.html")
-//! }
+//!     TeraHandler::new(tera),
+//!     |conn: Conn| async move { conn.assign("render_engine", "tera") },
+//!     |conn: Conn| async move { conn.assign("name", "trillium").render("hello.html") },
 //! );
 //!
-//! use trillium_testing::prelude::*;
-//! assert_ok!(
-//! get("/").on(&handler),
-//! "hello trillium from tera",
-//! "content-type" => "text/html"
-//! );
+//! # trillium_testing::block_on(async {
+//! let app = TestHandler::new(handler).await;
+//! app.get("/")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("hello trillium from tera")
+//!     .assert_header("content-type", "text/html");
+//! # });
 //! # Ok(()) }
 //! ```
 

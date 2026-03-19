@@ -2,20 +2,23 @@
 ///
 /// ```
 /// use trillium::{Conn, conn_try};
-/// use trillium_testing::prelude::*;
+/// use trillium_testing::TestHandler;
 ///
+/// # trillium_testing::block_on(async {
 /// let handler = |mut conn: Conn| async move {
 ///     let request_body_string = conn_try!(conn.request_body_string().await, conn);
 ///     let u8: u8 = conn_try!(request_body_string.parse(), conn);
 ///     conn.ok(format!("received u8 as body: {}", u8))
 /// };
 ///
-/// assert_status!(post("/").with_request_body("not u8").on(&handler), 500);
-///
-/// assert_body!(
-///     post("/").with_request_body("10").on(&handler),
-///     "received u8 as body: 10"
-/// );
+/// let app = TestHandler::new(handler).await;
+/// app.post("/").with_body("not u8").await.assert_status(500);
+/// app.post("/")
+///     .with_body("10")
+///     .await
+///     .assert_ok()
+///     .assert_body("received u8 as body: 10");
+/// # });
 /// ```
 #[macro_export]
 macro_rules! conn_try {
@@ -37,7 +40,7 @@ macro_rules! conn_try {
 ///
 /// ```
 /// use trillium::{Conn, State, conn_unwrap};
-/// use trillium_testing::prelude::*;
+/// use trillium_testing::TestHandler;
 ///
 /// #[derive(Copy, Clone)]
 /// struct MyState(&'static str);
@@ -46,9 +49,13 @@ macro_rules! conn_try {
 ///     conn.ok(important_state.0)
 /// };
 ///
-/// assert_not_handled!(get("/").on(&handler)); // we never reached the conn.ok line.
+/// # trillium_testing::block_on(async {
+/// let app = TestHandler::new(handler).await;
+/// app.get("/").await.assert_status(404); // we never reached the conn.ok line.
 ///
-/// assert_ok!(get("/").on(&(State::new(MyState("hi")), handler)), "hi");
+/// let app2 = TestHandler::new((State::new(MyState("hi")), handler)).await;
+/// app2.get("/").await.assert_ok().assert_body("hi");
+/// # });
 /// ```
 #[macro_export]
 macro_rules! conn_unwrap {
@@ -83,6 +90,7 @@ macro_rules! log_error {
 ///
 /// ```
 /// use trillium::{delegate_handler, State, Conn, conn_unwrap};
+/// use trillium_testing::TestHandler;
 ///
 /// #[derive(Clone, Copy)]
 /// struct MyState(usize);
@@ -94,18 +102,19 @@ macro_rules! log_error {
 /// }
 /// }
 ///
-///
-/// # use trillium_testing::prelude::*;
-///
+/// # trillium_testing::block_on(async {
 /// let handler = (MyHandler::new(5), |conn: Conn| async move {
 /// let MyState(n) = *conn_unwrap!(conn.state(), conn);
 /// conn.ok(n.to_string())
 /// });
-/// assert_ok!(get("/").on(&handler), "5");
+/// let app = TestHandler::new(handler).await;
+/// app.get("/").await.assert_ok().assert_body("5");
+/// # });
 /// ```
 ///
 /// ```
 /// use trillium::{Conn, State, conn_unwrap, delegate_handler};
+/// use trillium_testing::TestHandler;
 ///
 /// #[derive(Clone, Copy)]
 /// struct MyState(usize);
@@ -117,13 +126,14 @@ macro_rules! log_error {
 ///     }
 /// }
 ///
-/// # use trillium_testing::prelude::*;
-///
+/// # trillium_testing::block_on(async {
 /// let handler = (MyHandler::new(5), |conn: Conn| async move {
 ///     let MyState(n) = *conn_unwrap!(conn.state(), conn);
 ///     conn.ok(n.to_string())
 /// });
-/// assert_ok!(get("/").on(&handler), "5");
+/// let app = TestHandler::new(handler).await;
+/// app.get("/").await.assert_ok().assert_body("5");
+/// # });
 /// ```
 #[macro_export]
 macro_rules! delegate_handler {

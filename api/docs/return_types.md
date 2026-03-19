@@ -34,10 +34,17 @@ async fn no_content(_conn: &mut Conn, _: ()) -> Status {
     Status::NoContent
 }
 
-# use trillium_testing::prelude::*;
-# assert_ok!(get("/").on(&api(modify_conn)), "done");
-# assert_ok!(get("/").on(&api(string_body)), "hello");
-# assert_status!(get("/").on(&api(no_content)), Status::NoContent);
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(modify_conn)).await;
+#     app.get("/").await.assert_ok().assert_body("done");
+#
+#     let app = TestHandler::new(api(string_body)).await;
+#     app.get("/").await.assert_ok().assert_body("hello");
+#
+#     let app = TestHandler::new(api(no_content)).await;
+#     app.get("/").await.assert_status(Status::NoContent);
+# });
 ```
 
 ## JSON responses
@@ -64,8 +71,11 @@ async fn as_body(_conn: &mut Conn, _: ()) -> Body<User> {
     Body(User { name: "alice".into() })
 }
 
-# use trillium_testing::prelude::*;
-# assert_ok!(get("/").on(&api(as_json)), r#"{"name":"alice"}"#, "content-type" => "application/json");
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(as_json)).await;
+#     app.get("/").await.assert_ok().assert_body(r#"{"name":"alice"}"#).assert_header("content-type", "application/json");
+# });
 ```
 
 ## Tuples of handlers
@@ -86,10 +96,11 @@ async fn create(_conn: &mut Conn, _: ()) -> (Status, Json<Item>) {
     (Status::Created, Json(Item { id: 42 }))
 }
 
-# use trillium_testing::prelude::*;
-# let mut response = get("/").on(&api(create));
-# assert_status!(&response, Status::Created);
-# assert_eq!(response.take_response_body_string().unwrap(), r#"{"id":42}"#);
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(create)).await;
+#     app.get("/").await.assert_status(Status::Created).assert_body(r#"{"id":42}"#);
+# });
 ```
 
 You can also include [`Headers`](trillium::Headers) in the tuple to set
@@ -128,8 +139,11 @@ async fn might_fail(_conn: &mut Conn, _: ()) -> Result<Json<&'static str>, (Stat
         Err((Status::InternalServerError, Json(ErrorBody { message: "boom".into() })))
     }
 }
-# use trillium_testing::prelude::*;
-# assert_ok!(get("/").on(&api(might_fail)), r#""success""#);
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(might_fail)).await;
+#     app.get("/").await.assert_ok().assert_body(r#""success""#);
+# });
 ```
 
 For the common case of a custom error type, see
@@ -150,8 +164,11 @@ async fn direct(conn: &mut Conn, _: ()) {
     conn.insert_response_header("x-custom", "value");
     conn.set_body("done");
 }
-# use trillium_testing::prelude::*;
-# assert_ok!(get("/").on(&api(direct)), "done", "x-custom" => "value");
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(direct)).await;
+#     app.get("/").await.assert_ok().assert_body("done").assert_header("x-custom", "value");
+# });
 ```
 
 This is useful when you need to modify the conn in ways that don't

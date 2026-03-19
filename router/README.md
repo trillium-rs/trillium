@@ -20,6 +20,7 @@ Route resolution is handled by [routefinder](https://github.com/jbr/routefinder)
 ```rust
 use trillium::{Conn, conn_unwrap};
 use trillium_router::{Router, RouterConnExt};
+use trillium_testing::TestHandler;
 
 let router = Router::new()
     .get("/", |conn: Conn| async move {
@@ -34,11 +35,26 @@ let router = Router::new()
         conn.ok(format!("file: {path}"))
     });
 
-use trillium_testing::prelude::*;
-assert_ok!(get("/").on(&router), "you have reached the index");
-assert_ok!(get("/pages/trillium").on(&router), "page: trillium");
-assert_ok!(get("/files/images/logo.png").on(&router), "file: images/logo.png");
-assert_not_handled!(get("/unknown/route").on(&router));
+# trillium_testing::block_on(async {
+let app = TestHandler::new(router).await;
+
+app.get("/")
+    .await
+    .assert_ok()
+    .assert_body("you have reached the index");
+
+app.get("/pages/trillium")
+    .await
+    .assert_ok()
+    .assert_body("page: trillium");
+
+app.get("/files/images/logo.png")
+    .await
+    .assert_ok()
+    .assert_body("file: images/logo.png");
+
+app.get("/unknown/route").await.assert_status(404);
+# });
 ```
 
 ## Options handling

@@ -17,8 +17,11 @@ use trillium::Conn;
 async fn health(_conn: &mut Conn, _: ()) -> &'static str {
     "ok"
 }
-# use trillium_testing::prelude::*;
-# assert_ok!(get("/").on(&api(health)), "ok");
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(health)).await;
+#     app.get("/").await.assert_ok().assert_body("ok");
+# });
 ```
 
 ## Body deserialization
@@ -45,23 +48,26 @@ async fn with_json(_conn: &mut Conn, Json(post): Json<NewPost>) -> String {
     format!("created: {}", post.title)
 }
 
-# use trillium_testing::prelude::*;
-# // Body accepts form-urlencoded
-# assert_ok!(
-#     post("/")
+# use trillium_testing::TestHandler;
+# use trillium::Status;
+# trillium_testing::block_on(async {
+#     // Body accepts form-urlencoded
+#     let app = TestHandler::new(api(with_body)).await;
+#     app.post("/")
 #         .with_request_header("content-type", "application/x-www-form-urlencoded")
-#         .with_request_body("title=hello")
-#         .on(&api(with_body)),
-#     "created: hello"
-# );
-# // Json rejects form-urlencoded
-# assert_status!(
-#     post("/")
+#         .with_body("title=hello")
+#         .await
+#         .assert_ok()
+#         .assert_body("created: hello");
+#
+#     // Json rejects form-urlencoded
+#     let app = TestHandler::new(api(with_json)).await;
+#     app.post("/")
 #         .with_request_header("content-type", "application/x-www-form-urlencoded")
-#         .with_request_body("title=hello")
-#         .on(&api(with_json)),
-#     Status::UnsupportedMediaType
-# );
+#         .with_body("title=hello")
+#         .await
+#         .assert_status(Status::UnsupportedMediaType);
+# });
 ```
 
 You can also extract the body as a raw `String` or `Vec<u8>`:
@@ -95,12 +101,14 @@ async fn show_config(
     Json(config.name)
 }
 
-# use trillium_testing::prelude::*;
-# let app = (
-#     trillium::State::new(AppConfig { name: "my app".into() }),
-#     api(show_config),
-# );
-# assert_ok!(get("/").on(&app), r#""my app""#);
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new((
+#         trillium::State::new(AppConfig { name: "my app".into() }),
+#         api(show_config),
+#     )).await;
+#     app.get("/").await.assert_ok().assert_body(r#""my app""#);
+# });
 ```
 
 Note: `State<T>` calls [`Conn::take_state`](trillium::Conn::take_state),
@@ -119,9 +127,11 @@ use trillium::{Conn, Headers, Method};
 async fn inspect(_conn: &mut Conn, (method, headers): (Method, Headers)) -> String {
     format!("{} with {} headers", method, headers.len())
 }
-# use trillium_testing::prelude::*;
-# let response = get("/").on(&api(inspect));
-# assert!(response.status().unwrap().is_success());
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(inspect)).await;
+#     app.get("/").await.assert_ok();
+# });
 ```
 
 ## Tuple extraction
@@ -152,15 +162,15 @@ async fn create(
     (Status::Created, Json(Item { id: 1, name: input.name }))
 }
 
-# use trillium_testing::prelude::*;
-# let app = (trillium::State::new(Db), api(create));
-# assert_status!(
-#     post("/")
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new((trillium::State::new(Db), api(create))).await;
+#     app.post("/")
 #         .with_request_header("content-type", "application/json")
-#         .with_request_body(r#"{"name":"widget"}"#)
-#         .on(&app),
-#     Status::Created
-# );
+#         .with_body(r#"{"name":"widget"}"#)
+#         .await
+#         .assert_status(Status::Created);
+# });
 ```
 
 A common pattern for complex handlers is to use a type alias:
@@ -207,9 +217,12 @@ async fn greet(_conn: &mut Conn, user: Option<User>) -> String {
     }
 }
 
-# use trillium_testing::prelude::*;
-# assert_ok!(get("/").with_request_header("x-user", "alice").on(&api(greet)), "hello, alice");
-# assert_ok!(get("/").on(&api(greet)), "hello, stranger");
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(greet)).await;
+#     app.get("/").with_request_header("x-user", "alice").await.assert_ok().assert_body("hello, alice");
+#     app.get("/").await.assert_ok().assert_body("hello, stranger");
+# });
 ```
 
 This is also the basis of the middleware pattern — see
@@ -241,20 +254,24 @@ async fn lenient(
     }
 }
 
-# use trillium_testing::prelude::*;
-# assert_ok!(
-#     post("/")
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(lenient)).await;
+#     app.post("/")
 #         .with_request_header("content-type", "application/json")
-#         .with_request_body(r#"{"name":"alice"}"#)
-#         .on(&api(lenient)),
-#     "got: alice"
-# );
-# let mut response = post("/")
-#     .with_request_header("content-type", "application/json")
-#     .with_request_body("not json")
-#     .on(&api(lenient));
-# let body = response.take_response_body_string().unwrap();
-# assert!(body.starts_with("bad request, but that's ok:"), "{body}");
+#         .with_body(r#"{"name":"alice"}"#)
+#         .await
+#         .assert_ok()
+#         .assert_body("got: alice");
+#
+#     app.post("/")
+#         .with_request_header("content-type", "application/json")
+#         .with_body("not json")
+#         .await
+#         .assert_body_with(|body| {
+#             assert!(body.starts_with("bad request, but that's ok:"), "{body}");
+#         });
+# });
 ```
 
 ## What happens when extraction fails

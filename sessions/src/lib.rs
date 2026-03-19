@@ -81,6 +81,9 @@
 //! use trillium::Conn;
 //! use trillium_cookies::{CookiesHandler, cookie::Cookie};
 //! use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
+//! use trillium_testing::TestHandler;
+//!
+//! # trillium_testing::block_on(async {
 //! # unsafe { std::env::set_var(
 //! #    "TRILLIUM_SESSION_SECRET",
 //! #     "this is just for testing and you should not do this",
@@ -97,23 +100,38 @@
 //!     },
 //! );
 //!
-//! use trillium_testing::prelude::*;
-//! let mut conn = get("/").on(&handler);
-//! assert_ok!(&mut conn, "count: 0");
+//! let app = TestHandler::new(handler).await;
 //!
-//! let set_cookie_header = conn.response_headers().get_str("set-cookie").unwrap();
+//! let response = app.get("/").await;
+//! response.assert_ok().assert_body("count: 0");
+//! let set_cookie_header = response.header("set-cookie").unwrap();
 //! let cookie = Cookie::parse_encoded(set_cookie_header).unwrap();
+//! let cookie_header = format!("{}={}", cookie.name(), cookie.value());
 //!
-//! let make_request = || {
-//!     get("/")
-//!         .with_request_header("cookie", format!("{}={}", cookie.name(), cookie.value()))
-//!         .on(&handler)
-//! };
+//! app.get("/")
+//!     .with_request_header("cookie", cookie_header.clone())
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("count: 1");
 //!
-//! assert_ok!(make_request(), "count: 1");
-//! assert_ok!(make_request(), "count: 2");
-//! assert_ok!(make_request(), "count: 3");
-//! assert_ok!(make_request(), "count: 4");
+//! app.get("/")
+//!     .with_request_header("cookie", cookie_header.clone())
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("count: 2");
+//!
+//! app.get("/")
+//!     .with_request_header("cookie", cookie_header.clone())
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("count: 3");
+//!
+//! app.get("/")
+//!     .with_request_header("cookie", cookie_header.clone())
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("count: 4");
+//! # });
 //! ```
 
 #[cfg(test)]

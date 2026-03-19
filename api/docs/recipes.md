@@ -38,13 +38,15 @@ async fn require_user(
 }
 
 // Place before your router in the handler tuple:
-# use trillium_testing::prelude::*;
-let app = (
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+let app = TestHandler::new((
     api(require_user),
     "hello, authenticated user",
-);
-# assert_status!(get("/").on(&app), Status::Forbidden);
-# assert_ok!(get("/").with_request_header("x-user", "alice").on(&app), "hello, authenticated user");
+)).await;
+# app.get("/").await.assert_status(Status::Forbidden);
+# app.get("/").with_request_header("x-user", "alice").await.assert_ok().assert_body("hello, authenticated user");
+# });
 ```
 
 ## Type aliases for complex extractors

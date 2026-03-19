@@ -1,6 +1,7 @@
+use trillium::Status;
 use trillium_client::Client;
 use trillium_smol::ClientConfig;
-use trillium_testing::{assert_ok, with_server};
+use trillium_testing::with_server;
 
 pub fn main() {
     with_server("ok", |url| async move {
@@ -33,7 +34,8 @@ pub fn main() {
                 .await?
         );
 
-        assert_ok!(client.get(url).await?);
+        let conn = client.get(url).await?;
+        assert_eq!(conn.status(), Some(Status::Ok));
 
         Ok(())
     })

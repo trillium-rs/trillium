@@ -1,5 +1,5 @@
-use trillium::KnownHeaderName::{AcceptEncoding, ContentEncoding, ContentLength, Vary};
-use trillium_testing::prelude::*;
+use trillium::KnownHeaderName::AcceptEncoding;
+use trillium_testing::{TestHandler, harness, test};
 
 static COMPRESSIBLE_CONTENT: &str = r#"
 should be very compressible because it's repeated
@@ -13,77 +13,64 @@ should be very compressible because it's repeated
 should be very compressible because it's repeated
 should be very compressible because it's repeated"#;
 
-#[test]
-fn test() {
-    let handler = (trillium_compression::compression(), COMPRESSIBLE_CONTENT);
+#[test(harness)]
+async fn test() {
+    let app = TestHandler::new((trillium_compression::compression(), COMPRESSIBLE_CONTENT)).await;
 
     assert_eq!(COMPRESSIBLE_CONTENT.len(), 500);
 
-    assert_headers!(
-        get("/")
-            .with_request_header(AcceptEncoding, "zstd")
-            .on(&handler),
-        ContentLength => "68",
-        Vary => "Accept-Encoding",
-        ContentEncoding => "zstd",
-    );
+    app.get("/")
+        .with_request_header(AcceptEncoding, "zstd")
+        .await
+        .assert_header("content-length", "68")
+        .assert_header("vary", "Accept-Encoding")
+        .assert_header("content-encoding", "zstd");
 
-    assert_headers!(
-        get("/")
-            .with_request_header(AcceptEncoding, "br")
-            .on(&handler),
-        ContentLength => "51",
-        Vary => "Accept-Encoding",
-        ContentEncoding => "br",
-    );
+    app.get("/")
+        .with_request_header(AcceptEncoding, "br")
+        .await
+        .assert_header("content-length", "51")
+        .assert_header("vary", "Accept-Encoding")
+        .assert_header("content-encoding", "br");
 
-    assert_headers!(
-        get("/")
-            .with_request_header(AcceptEncoding, "gzip")
-            .on(&handler),
-        ContentLength => "77",
-        Vary => "Accept-Encoding",
-        ContentEncoding => "gzip"
-    );
+    app.get("/")
+        .with_request_header(AcceptEncoding, "gzip")
+        .await
+        .assert_header("content-length", "77")
+        .assert_header("vary", "Accept-Encoding")
+        .assert_header("content-encoding", "gzip");
 
-    assert_headers!(
-        get("/")
-            .with_request_header(AcceptEncoding, "deflate")
-            .on(&handler),
-        ContentLength => "500",
-        Vary => None,
-        ContentEncoding => None
-    );
+    app.get("/")
+        .with_request_header(AcceptEncoding, "deflate")
+        .await
+        .assert_header("content-length", "500")
+        .assert_no_header("vary")
+        .assert_no_header("content-encoding");
 
-    assert_headers!(
-        get("/")
-            .with_request_header(AcceptEncoding, "br;q=0.5, gzip;q=0.75")
-            .on(&handler),
-        ContentLength => "77",
-        ContentEncoding => "gzip"
-    );
+    app.get("/")
+        .with_request_header(AcceptEncoding, "br;q=0.5, gzip;q=0.75")
+        .await
+        .assert_header("content-length", "77")
+        .assert_header("content-encoding", "gzip");
 
-    assert_headers!(
-        get("/")
-            .with_request_header(AcceptEncoding, "gzip;q=0.75, br;q=0.5, deflate")
-            .on(&handler),
-        ContentLength => "77",
-        ContentEncoding => "gzip"
-    );
+    app.get("/")
+        .with_request_header(AcceptEncoding, "gzip;q=0.75, br;q=0.5, deflate")
+        .await
+        .assert_header("content-length", "77")
+        .assert_header("content-encoding", "gzip");
 
-    assert_headers!(
-        get("/")
-            .with_request_header(AcceptEncoding, "deflate, gzip;q=0.75, br;q=0.95")
-            .on(&handler),
-        ContentLength => "51",
-        ContentEncoding => "br"
-    );
+    app.get("/")
+        .with_request_header(AcceptEncoding, "deflate, gzip;q=0.75, br;q=0.95")
+        .await
+        .assert_header("content-length", "51")
+        .assert_header("content-encoding", "br");
 
-    assert_headers!(
-        get("/")
-            .with_request_header(AcceptEncoding, "deflate, gzip;q=0.75, zstd;q=0.95, br;q=0.85")
-            .on(&handler),
-        ContentLength => "68",
-        ContentEncoding => "zstd"
-    );
+    app.get("/")
+        .with_request_header(
+            AcceptEncoding,
+            "deflate, gzip;q=0.75, zstd;q=0.95, br;q=0.85",
+        )
+        .await
+        .assert_header("content-length", "68")
+        .assert_header("content-encoding", "zstd");
 }

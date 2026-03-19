@@ -77,21 +77,21 @@ impl StaticFileHandler {
     /// ```
     /// # #[cfg(not(unix))] fn main() {}
     /// # #[cfg(unix)] fn main() {
-    /// # use trillium::Handler;
+    /// # use trillium::{Handler, Status};
     /// # trillium_testing::block_on(async {
     /// use trillium_static::{StaticFileHandler, crate_relative_path};
-    /// use trillium_testing::prelude::*;
+    /// use trillium_testing::TestHandler;
     ///
     /// let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"));
-    /// # init(&mut handler);
+    /// let app = TestHandler::new(handler).await;
     ///
-    /// assert_not_handled!(get("/").run_async(&handler).await); // no index file configured
+    /// app.get("/").await.assert_status(Status::NotFound); // no index file configured
     ///
-    /// assert_ok!(
-    /// get("/index.html").run_async(&handler).await,
-    /// "<h1>hello world</h1>",
-    /// "content-type" => "text/html; charset=utf-8"
-    /// );
+    /// app.get("/index.html")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("<h1>hello world</h1>\n")
+    ///     .assert_header("content-type", "text/html; charset=utf-8");
     /// # }); }
     /// ```
     pub fn new(fs_root: impl AsRef<Path>) -> Self {
@@ -121,19 +121,20 @@ impl StaticFileHandler {
     /// # #[cfg(not(unix))] fn main() {}
     /// # #[cfg(unix)] fn main() {
     /// # use trillium::Handler;
+    /// # use trillium_testing::TestHandler;
     /// # trillium_testing::block_on(async {
     ///
     /// use trillium_static::{StaticFileHandler, crate_relative_path};
     ///
-    /// let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
-    /// .with_index_file("index.html");
-    /// # init(&mut handler);
+    /// let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
+    ///     .with_index_file("index.html");
+    /// let app = TestHandler::new(handler).await;
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(
-    /// get("/").run_async(&handler).await,
-    /// "<h1>hello world</h1>", "content-type" => "text/html; charset=utf-8"
-    /// );
+    /// app.get("/")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("<h1>hello world</h1>\n")
+    ///     .assert_header("content-type", "text/html; charset=utf-8");
     /// # }); }
     /// ```
     pub fn with_index_file(mut self, file: &str) -> Self {

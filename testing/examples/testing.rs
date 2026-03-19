@@ -23,36 +23,35 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{application, teapot};
-    use trillium_testing::prelude::*;
+    use trillium_testing::{Status, TestHandler, harness, test};
 
-    #[test]
-    fn handler_sends_correct_headers_and_is_a_teapot() {
-        let application = application();
-        assert_response!(
-            post("/").with_request_body("hello trillium!").on(&application),
-            Status::ImATeapot,
-            "request body was: hello trillium!",
-            "server" => "zojirushi",
-            "content-length" => "33"
+    #[test(harness)]
+    async fn handler_sends_correct_headers_and_is_a_teapot() {
+        let app = TestHandler::new(application()).await;
 
-        );
+        app.post("/")
+            .with_body("hello trillium!")
+            .await
+            .assert_status(Status::ImATeapot)
+            .assert_body("request body was: hello trillium!")
+            .assert_headers([("server", "zojirushi"), ("content-length", "33")]);
     }
 
-    #[test]
-    fn we_can_also_test_the_individual_handler() {
-        assert_body!(
-            post("/").with_request_body("a different body").on(&teapot),
-            "request body was: a different body"
-        );
+    #[test(harness)]
+    async fn we_can_also_test_the_individual_handler() {
+        let app = TestHandler::new(teapot).await;
+        app.post("/")
+            .with_body("a different body")
+            .await
+            .assert_body("request body was: a different body");
     }
 
-    #[test]
-    fn application_is_lemongrab_when_body_is_empty() {
-        let application = application();
-        assert_response!(
-            post("/").on(&application),
-            Status::NotAcceptable,
-            "unacceptable!"
-        );
+    #[test(harness)]
+    async fn application_is_lemongrab_when_body_is_empty() {
+        let app = TestHandler::new(application()).await;
+        app.post("/")
+            .await
+            .assert_status(Status::NotAcceptable)
+            .assert_body("unacceptable!");
     }
 }

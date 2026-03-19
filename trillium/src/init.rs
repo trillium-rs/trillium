@@ -6,6 +6,7 @@ use std::{future::Future, mem};
 ///
 /// ```
 /// use trillium::{Conn, Init, State};
+/// use trillium_testing::TestHandler;
 ///
 /// #[derive(Debug, Clone)]
 /// struct MyDatabaseConnection(String);
@@ -19,31 +20,25 @@ use std::{future::Future, mem};
 ///     }
 /// }
 ///
-/// let mut handler = (
+/// # trillium_testing::block_on(async {
+/// let handler = (
 ///     Init::new(|mut info| async move {
 ///         let db = MyDatabaseConnection::connect("db://db").await.expect("1");
 ///         info.with_state(db)
 ///     }),
 ///     |conn: Conn| async move {
-///         dbg!(&conn);
 ///         let db = conn.shared_state::<MyDatabaseConnection>().expect("2");
 ///         let response = db.query("select * from users limit 1").await;
 ///         conn.ok(response)
 ///     },
 /// );
 ///
-/// use trillium_testing::prelude::*;
-///
-/// block_on(async move {
-///     let server_config = init(&mut handler).await;
-///     assert_ok!(
-///         get("/")
-///             .with_server_config(server_config)
-///             .run_async(&handler)
-///             .await,
-///         "you queried `select * from users limit 1` against db://db"
-///     );
-/// });
+/// let app = TestHandler::new(handler).await;
+/// app.get("/")
+///     .await
+///     .assert_ok()
+///     .assert_body("you queried `select * from users limit 1` against db://db");
+/// # });
 /// ```
 #[derive(Debug)]
 pub struct Init<F>(Option<F>);
