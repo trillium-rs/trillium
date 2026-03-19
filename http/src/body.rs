@@ -8,6 +8,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use sync_wrapper::SyncWrapper;
 
 /// The trillium representation of a http body. This can contain
 /// either `&'static [u8]` content, `Vec<u8>` content, or a boxed
@@ -19,12 +20,9 @@ impl Body {
     /// Construct a new body from a streaming [`AsyncRead`] source. If
     /// you have the body content in memory already, prefer
     /// [`Body::new_static`] or one of the From conversions.
-    pub fn new_streaming(
-        async_read: impl AsyncRead + Send + Sync + 'static,
-        len: Option<u64>,
-    ) -> Self {
+    pub fn new_streaming(async_read: impl AsyncRead + Send + 'static, len: Option<u64>) -> Self {
         Self(Streaming {
-            async_read: Box::pin(async_read),
+            async_read: SyncWrapper::new(Box::pin(async_read)),
             len,
             done: false,
             progress: 0,
@@ -50,13 +48,13 @@ impl Body {
         }
     }
 
-    /// Transform this Body into a dyn `AsyncRead`. This will wrap
+    /// Transform this Body into a dyn [`AsyncRead`]. This will wrap
     /// static content in a [`Cursor`]. Note that this is different
     /// from reading directly from the Body, which includes chunked
     /// encoding.
-    pub fn into_reader(self) -> Pin<Box<dyn AsyncRead + Send + Sync>> {
+    pub fn into_reader(self) -> Pin<Box<dyn AsyncRead + Send + Sync + 'static>> {
         match self.0 {
-            Streaming { async_read, .. } => async_read,
+            Streaming { async_read, .. } => Box::pin(SyncAsyncReader(async_read)),
             Static { content, .. } => Box::pin(Cursor::new(content)),
             Empty => Box::pin(Cursor::new("")),
         }
@@ -79,11 +77,12 @@ impl Body {
             Static { content, .. } => Ok(content),
 
             Streaming {
-                mut async_read,
+                async_read,
                 len,
                 progress: 0,
                 done: false,
             } => {
+                let mut async_read = async_read.into_inner();
                 let mut buf = len
                     .and_then(|c| c.try_into().ok())
                     .map(Vec::with_capacity)
@@ -209,6 +208,7 @@ impl AsyncRead for Body {
 
                 let bytes = ready!(
                     async_read
+                        .get_mut()
                         .as_mut()
                         .poll_read(cx, &mut buf[..max_bytes_to_read])
                 )?;
@@ -236,6 +236,7 @@ impl AsyncRead for Body {
 
                 let bytes = ready!(
                     async_read
+                        .get_mut()
                         .as_mut()
                         .poll_read(cx, &mut buf[..max_bytes_to_read])
                 )?;
@@ -258,6 +259,17 @@ impl AsyncRead for Body {
     }
 }
 
+struct SyncAsyncReader(SyncWrapper<Pin<Box<dyn AsyncRead + Send + 'static>>>);
+impl AsyncRead for SyncAsyncReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<Result<usize>> {
+        self.get_mut().0.get_mut().as_mut().poll_read(cx, buf)
+    }
+}
+
 #[derive(Default)]
 pub(crate) enum BodyType {
     #[default]
@@ -269,7 +281,7 @@ pub(crate) enum BodyType {
     },
 
     Streaming {
-        async_read: Pin<Box<dyn AsyncRead + Send + Sync + 'static>>,
+        async_read: SyncWrapper<Pin<Box<dyn AsyncRead + Send + 'static>>>,
         progress: u64,
         len: Option<u64>,
         done: bool,

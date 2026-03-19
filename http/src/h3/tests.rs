@@ -6,8 +6,9 @@ use crate::{
     received_body::{H3BodyFrameType, ReceivedBody, ReceivedBodyState},
 };
 use encoding_rs::UTF_8;
-use futures_lite::{AsyncReadExt, io::Cursor};
-use std::net::Shutdown;
+use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
+use std::{net::Shutdown, pin::Pin};
+use sync_wrapper::SyncWrapper;
 use test_harness::test;
 use trillium_testing::{TestTransport, harness};
 
@@ -108,7 +109,9 @@ async fn streaming_known_length() {
     let body = "hello streaming world";
     let result = round_trip(
         BodyType::Streaming {
-            async_read: Box::pin(Cursor::new(body.as_bytes().to_vec())),
+            async_read: SyncWrapper::new(
+                Box::pin(Cursor::new(body.as_bytes().to_vec())) as Pin<Box<dyn AsyncRead + Send>>
+            ),
             len: Some(body.len() as u64),
             done: false,
             progress: 0,
@@ -124,7 +127,9 @@ async fn streaming_unknown_length() {
     let body = "hello chunked world";
     let result = round_trip(
         BodyType::Streaming {
-            async_read: Box::pin(Cursor::new(body.as_bytes().to_vec())),
+            async_read: SyncWrapper::new(
+                Box::pin(Cursor::new(body.as_bytes().to_vec())) as Pin<Box<dyn AsyncRead + Send>>
+            ),
             len: None,
             done: false,
             progress: 0,
@@ -158,7 +163,8 @@ async fn streaming_known_length_various_buf_sizes() {
     for size in 3..=body.len() + 4 {
         let result = round_trip_buf(
             BodyType::Streaming {
-                async_read: Box::pin(Cursor::new(body.as_bytes().to_vec())),
+                async_read: SyncWrapper::new(Box::pin(Cursor::new(body.as_bytes().to_vec()))
+                    as Pin<Box<dyn AsyncRead + Send>>),
                 len: Some(body.len() as u64),
                 done: false,
                 progress: 0,
@@ -177,7 +183,8 @@ async fn streaming_unknown_length_various_buf_sizes() {
     for size in 3..=body.len() + 4 {
         let result = round_trip_buf(
             BodyType::Streaming {
-                async_read: Box::pin(Cursor::new(body.as_bytes().to_vec())),
+                async_read: SyncWrapper::new(Box::pin(Cursor::new(body.as_bytes().to_vec()))
+                    as Pin<Box<dyn AsyncRead + Send>>),
                 len: None,
                 done: false,
                 progress: 0,
