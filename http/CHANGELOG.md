@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `set_*` setters on `Conn` (e.g. `set_status`, `set_host`) now return `&mut Self`, enabling chaining
 - Handler futures in `Conn::map` and friends no longer require `Send`
 - `pub mod transport` removed — the `Transport` trait is now at `trillium::Transport`; `BoxedTransport` remains as a type alias
+- `Body::new_streaming` no longer requires a `Sync` reader.
 
 ### Added
 - `Headers::entry()` — Entry API for inserting/modifying headers, mirroring `HashMap::entry`

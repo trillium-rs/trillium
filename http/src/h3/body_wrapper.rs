@@ -84,6 +84,7 @@ impl AsyncRead for H3Body {
 
                 let bytes = ready!(
                     async_read
+                        .get_mut()
                         .as_mut()
                         .poll_read(cx, &mut buf[header_len..header_len + max_bytes])
                 )?;
@@ -120,7 +121,12 @@ impl AsyncRead for H3Body {
                     )));
                 }
 
-                let bytes = ready!(async_read.as_mut().poll_read(cx, &mut buf[reserved..]))?;
+                let bytes = ready!(
+                    async_read
+                        .get_mut()
+                        .as_mut()
+                        .poll_read(cx, &mut buf[reserved..])
+                )?;
 
                 if bytes == 0 {
                     *done = true;
