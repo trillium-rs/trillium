@@ -15,6 +15,9 @@
 //! # if cfg!(unix) {
 //! # use std::path::PathBuf;
 //! use trillium_handlebars::{HandlebarsConnExt, HandlebarsHandler};
+//! use trillium_testing::TestHandler;
+//!
+//! # trillium_testing::block_on(async {
 //! let handler = (
 //!     HandlebarsHandler::new("**/*.hbs"),
 //!     |mut conn: trillium::Conn| async move {
@@ -23,8 +26,12 @@
 //!     },
 //! );
 //!
-//! use trillium_testing::prelude::*;
-//! assert_ok!(get("/").on(&handler), "hello handlebars!");
+//! let app = TestHandler::new(handler).await;
+//! app.get("/")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("hello handlebars!");
+//! # });
 //! # }
 //! ```
 

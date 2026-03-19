@@ -28,6 +28,7 @@ access_log_parser = "0.11.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-http = { path = "../http", features = ["http-compat-1"] }
+async-channel = "2.5.0"
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

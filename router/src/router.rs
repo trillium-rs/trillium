@@ -156,21 +156,25 @@ macro_rules! method {
 ```
 # use trillium::Conn;
 # use trillium_router::Router;
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
 let router = Router::new().",
                 stringify!($fn_name),
                 "(\"/some/route\", |conn: Conn| async move {
   conn.ok(\"success\")
 });
 
-use trillium_testing::{methods::",
+let app = TestHandler::new(router).await;
+app.",
                 stringify!($fn_name),
-                ", assert_ok, assert_not_handled};
-assert_ok!(",
+                "(\"/some/route\").await
+    .assert_ok()
+    .assert_body(\"success\");
+app.",
                 stringify!($fn_name),
-                "(\"/some/route\").on(&router), \"success\");
-assert_not_handled!(",
-                stringify!($fn_name),
-                "(\"/other/route\").on(&router));
+                "(\"/other/route\").await
+    .assert_status(404);
+# });
 ```
 "
             )
@@ -210,7 +214,9 @@ impl Router {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
+    /// # use trillium_testing::TestHandler;
     ///
+    /// # trillium_testing::block_on(async {
     /// let router = Router::new()
     ///     .get("/", |conn: Conn| async move {
     ///         conn.ok("you have reached the index")
@@ -220,13 +226,17 @@ impl Router {
     ///     })
     ///     .post("/", |conn: Conn| async move { conn.ok("post!") });
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(get("/").on(&router), "you have reached the index");
-    /// assert_ok!(
-    ///     get("/some/route").on(&router),
-    ///     "you have reached /some/:param"
-    /// );
-    /// assert_ok!(post("/").on(&router), "post!");
+    /// let app = TestHandler::new(router).await;
+    /// app.get("/")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you have reached the index");
+    /// app.get("/some/route")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you have reached /some/:param");
+    /// app.post("/").await.assert_ok().assert_body("post!");
+    /// # });
     /// ```
     pub fn new() -> Self {
         Self::default()
@@ -243,8 +253,9 @@ impl Router {
     /// methods at given path.
     ///
     /// default: enabled
-    pub(crate) fn set_options_handling(&mut self, options_enabled: bool) {
+    pub(crate) fn set_options_handling(&mut self, options_enabled: bool) -> &mut Self {
         self.handle_options = options_enabled;
+        self
     }
 
     /// Another way to build a router, if you don't like the chainable
@@ -254,6 +265,8 @@ impl Router {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
+    /// # use trillium_testing::TestHandler;
+    /// # trillium_testing::block_on(async {
     /// let router = Router::build(|mut router| {
     ///     router.get("/", |conn: Conn| async move {
     ///         conn.ok("you have reached the index")
@@ -266,13 +279,17 @@ impl Router {
     ///     router.post("/", |conn: Conn| async move { conn.ok("post!") });
     /// });
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(get("/").on(&router), "you have reached the index");
-    /// assert_ok!(
-    ///     get("/some/route").on(&router),
-    ///     "you have reached /some/:param"
-    /// );
-    /// assert_ok!(post("/").on(&router), "post!");
+    /// let app = TestHandler::new(router).await;
+    /// app.get("/")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you have reached the index");
+    /// app.get("/some/route")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you have reached /some/:param");
+    /// app.post("/").await.assert_ok().assert_body("post!");
+    /// # });
     /// ```
     pub fn build(builder: impl Fn(RouterRef)) -> Router {
         let mut router = Router::new();
@@ -293,6 +310,8 @@ impl Router {
     /// ```
     /// # use trillium::{Conn, Method};
     /// # use trillium_router::Router;
+    /// # use trillium_testing::TestHandler;
+    /// # trillium_testing::block_on(async {
     /// let router = Router::new()
     ///     .with_route("OPTIONS", "/some/route", |conn: Conn| async move {
     ///         conn.ok("directly handling options")
@@ -301,15 +320,16 @@ impl Router {
     ///         conn.ok("checkin??")
     ///     });
     ///
-    /// use trillium_testing::{TestConn, prelude::*};
-    /// assert_ok!(
-    ///     TestConn::build(Method::Options, "/some/route", ()).on(&router),
-    ///     "directly handling options"
-    /// );
-    /// assert_ok!(
-    ///     TestConn::build("checkin", "/some/route", ()).on(&router),
-    ///     "checkin??"
-    /// );
+    /// let app = TestHandler::new(router).await;
+    /// app.build(Method::Options, "/some/route")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("directly handling options");
+    /// app.build(Method::Checkin, "/some/route")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("checkin??");
+    /// # });
     /// ```
     pub fn with_route<M, R>(mut self, method: M, path: R, handler: impl Handler) -> Self
     where
@@ -350,25 +370,42 @@ impl Router {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
+    /// # use trillium_testing::TestHandler;
     /// let router = Router::new().all("/any", |conn: Conn| async move {
     ///     let response = format!("you made a {} request to /any", conn.method());
     ///     conn.ok(response)
     /// });
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(get("/any").on(&router), "you made a GET request to /any");
-    /// assert_ok!(post("/any").on(&router), "you made a POST request to /any");
-    /// assert_ok!(
-    ///     delete("/any").on(&router),
-    ///     "you made a DELETE request to /any"
-    /// );
-    /// assert_ok!(
-    ///     patch("/any").on(&router),
-    ///     "you made a PATCH request to /any"
-    /// );
-    /// assert_ok!(put("/any").on(&router), "you made a PUT request to /any");
+    /// # trillium_testing::block_on(async {
+    /// let app = TestHandler::new(router).await;
     ///
-    /// assert_not_handled!(get("/").on(&router));
+    /// app.get("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a GET request to /any");
+    ///
+    /// app.post("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a POST request to /any");
+    ///
+    /// app.delete("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a DELETE request to /any");
+    ///
+    /// app.patch("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a PATCH request to /any");
+    ///
+    /// app.put("/any")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a PUT request to /any");
+    ///
+    /// app.get("/").await.assert_status(404);
+    /// # });
     /// ```
     pub fn all<R>(mut self, path: R, handler: impl Handler) -> Self
     where
@@ -383,24 +420,30 @@ impl Router {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
+    /// # use trillium_testing::TestHandler;
     /// let router = Router::new().any(&["get", "post"], "/get_or_post", |conn: Conn| async move {
     ///     let response = format!("you made a {} request to /get_or_post", conn.method());
     ///     conn.ok(response)
     /// });
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(
-    ///     get("/get_or_post").on(&router),
-    ///     "you made a GET request to /get_or_post"
-    /// );
-    /// assert_ok!(
-    ///     post("/get_or_post").on(&router),
-    ///     "you made a POST request to /get_or_post"
-    /// );
-    /// assert_not_handled!(delete("/any").on(&router));
-    /// assert_not_handled!(patch("/any").on(&router));
-    /// assert_not_handled!(put("/any").on(&router));
-    /// assert_not_handled!(get("/").on(&router));
+    /// # trillium_testing::block_on(async {
+    /// let app = TestHandler::new(router).await;
+    ///
+    /// app.get("/get_or_post")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a GET request to /get_or_post");
+    ///
+    /// app.post("/get_or_post")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("you made a POST request to /get_or_post");
+    ///
+    /// app.delete("/any").await.assert_status(404);
+    /// app.patch("/any").await.assert_status(404);
+    /// app.put("/any").await.assert_status(404);
+    /// app.get("/").await.assert_status(404);
+    /// # });
     /// ```
     pub fn any<IntoMethod, R>(
         mut self,
@@ -461,6 +504,8 @@ impl Handler for Router {
             }
             new_conn
         } else if method == Method::Options && self.handle_options {
+            dbg!(&self);
+
             let allow = self
                 .routefinder
                 .methods_matching(path)
@@ -468,6 +513,8 @@ impl Handler for Router {
                 .map(|m| m.as_ref())
                 .collect::<Vec<_>>()
                 .join(", ");
+
+            dbg!(&allow);
 
             conn.with_response_header(KnownHeaderName::Allow, allow)
                 .with_status(200)

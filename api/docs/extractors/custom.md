@@ -121,10 +121,13 @@ use trillium_api::{api, Json};
 async fn show_todo(_conn: &mut Conn, TodoId(id): TodoId) -> String {
     format!("Todo #{id}")
 }
-# use trillium_testing::prelude::*;
+# use trillium_testing::TestHandler;
 # use trillium_router::router;
-# assert_ok!(get("/todos/42").on(&router().get("/todos/:todo_id", api(show_todo))), "Todo #42");
-# assert_status!(get("/todos/abc").on(&router().get("/todos/:todo_id", api(show_todo))), Status::BadRequest);
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(router().get("/todos/:todo_id", api(show_todo))).await;
+#     app.get("/todos/42").await.assert_ok().assert_body("Todo #42");
+#     app.get("/todos/abc").await.assert_status(Status::BadRequest);
+# });
 ```
 
 Using [`Status`](trillium::Status) as the error type is the simplest

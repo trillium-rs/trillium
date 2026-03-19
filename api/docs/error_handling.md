@@ -54,12 +54,16 @@ async fn handler(_conn: &mut Conn, Body(input): Body<Input>) -> String {
 }
 
 // Sending invalid JSON returns a structured error response:
-# use trillium_testing::prelude::*;
-# let mut response = post("/")
-#     .with_request_header("content-type", "application/json")
-#     .with_request_body("not json")
-#     .on(&api(handler));
-# assert_status!(&response, Status::UnprocessableEntity);
+# use trillium_testing::TestHandler;
+# use trillium::Status;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(handler)).await;
+#     app.post("/")
+#         .with_request_header("content-type", "application/json")
+#         .with_body("not json")
+#         .await
+#         .assert_status(Status::UnprocessableEntity);
+# });
 // Response body: {"error":{"type":"parse_error","path":".","message":"..."}}
 ```
 
@@ -92,8 +96,11 @@ async fn create(_conn: &mut Conn, _: ()) -> Result<Json<String>, ApiError> {
     }
 }
 # use trillium_api::ApiConnExt;
-# use trillium_testing::prelude::*;
-# assert_ok!(get("/").on(&api(create)));
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(create)).await;
+#     app.get("/").await.assert_ok().assert_body(r#""created""#);
+# });
 ```
 
 ## Custom error types

@@ -1,42 +1,77 @@
 use access_log_parser::{LogEntry, LogType, RequestResult, parse};
-use std::sync::{Arc, Mutex};
+use std::{net::IpAddr, sync::Arc};
 use time::OffsetDateTime;
 use trillium::{
     KnownHeaderName::{Referer, UserAgent},
-    Version,
+    Status, Version,
 };
-use trillium_logger::{ColorMode, apache_combined, apache_common, logger};
-use trillium_testing::prelude::*;
+use trillium_logger::{ColorMode, Targetable, apache_combined, apache_common, logger};
+use trillium_testing::{TestHandler, harness, test};
 
 async fn teapot(conn: trillium::Conn) -> trillium::Conn {
     conn.with_status(Status::ImATeapot).with_body("ok")
 }
 
-#[test]
-fn test_apache_combined() {
-    let s = Arc::new(Mutex::new(String::new()));
+#[derive(Clone, Debug)]
+struct TestTarget(
+    Arc<(
+        async_channel::Sender<String>,
+        async_channel::Receiver<String>,
+    )>,
+);
+
+impl Default for TestTarget {
+    fn default() -> Self {
+        Self(Arc::new(async_channel::unbounded()))
+    }
+}
+
+impl Targetable for TestTarget {
+    fn write(&self, data: String) {
+        let sender = &self.0.0;
+        sender.send_blocking(data).unwrap();
+    }
+}
+
+impl TestTarget {
+    async fn next(&self) -> String {
+        self.0.1.recv().await.unwrap()
+    }
+}
+
+#[test(harness)]
+async fn test_apache_combined() {
+    let target = TestTarget::default();
     let logger = logger()
         .with_formatter(apache_combined("request-id", "user"))
-        .with_target({
-            let s = s.clone();
-            move |line: String| s.lock().unwrap().push_str(&line)
-        })
+        .with_target(target.clone())
         .with_color_mode(ColorMode::Off);
 
-    let ip = "1.2.3.4".parse().unwrap();
+    let ip = IpAddr::from([1, 2, 3, 4]);
     let handler = (logger, teapot);
-    get("/some/path?query")
-        .with_peer_ip(ip)
+
+    let app = TestHandler::new(handler).await;
+
+    let _ = target.next().await; // startup message
+
+    app.get("/some/path?query")
         .with_request_header(Referer, "http://example.com")
         .with_request_header(UserAgent, "secret agent")
-        .on(&handler);
-    let s = s.lock().unwrap();
-    let Ok(LogEntry::CombinedLog(log)) = parse(LogType::CombinedLog, &s) else {
+        .with_peer_ip(ip)
+        .await
+        .assert_status(Status::ImATeapot)
+        .assert_body("ok");
+
+    let log_entry = target.next().await;
+
+    let LogEntry::CombinedLog(log) = parse(LogType::CombinedLog, &log_entry).unwrap() else {
         panic!()
     };
+
     let RequestResult::Valid(request) = log.request else {
         panic!()
     };
+
     assert_eq!(log.ip, ip);
     assert!(OffsetDateTime::now_utc().unix_timestamp() - log.timestamp.timestamp() < 2);
     assert_eq!(request.uri(), "/some/path?query");
@@ -49,27 +84,32 @@ fn test_apache_combined() {
     assert_eq!(log.user_agent, Some("secret agent"));
 }
 
-#[test]
-fn test_apache_common() {
-    let s = Arc::new(Mutex::new(String::new()));
+#[test(harness)]
+async fn test_apache_common() {
+    let target = TestTarget::default();
     let logger = logger()
         .with_formatter(apache_common("request-id", "user"))
-        .with_target({
-            let s = s.clone();
-            move |line: String| s.lock().unwrap().push_str(&line)
-        })
+        .with_target(target.clone())
         .with_color_mode(ColorMode::Off);
 
-    let ip = "1.2.3.4".parse().unwrap();
+    let ip = IpAddr::from([1, 2, 3, 4]);
     let handler = (logger, teapot);
-    get("/some/path?query")
-        .with_peer_ip(ip)
+    let app = TestHandler::new(handler).await;
+    let _ = target.next().await;
+
+    app.get("/some/path?query")
         .with_request_header(Referer, "http://example.com")
         .with_request_header(UserAgent, "secret agent")
-        .on(&handler);
-    let s = s.lock().unwrap();
-    let Ok(LogEntry::CommonLog(log)) = parse(LogType::CommonLog, &s) else {
-        panic!()
+        .with_peer_ip(ip)
+        .await
+        .assert_status(Status::ImATeapot)
+        .assert_body("ok");
+
+    let log_entry = target.next().await;
+
+    let log = match parse(LogType::CommonLog, &log_entry).unwrap() {
+        LogEntry::CommonLog(log) => log,
+        other => panic!("unexpectd log type {other:?}"),
     };
     let RequestResult::Valid(request) = log.request else {
         panic!()

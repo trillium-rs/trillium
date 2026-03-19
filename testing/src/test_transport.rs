@@ -4,26 +4,45 @@ use std::{
     fmt::{Debug, Display},
     future::Future,
     io,
-    net::Shutdown,
+    net::{IpAddr, Shutdown, SocketAddr},
     pin::Pin,
     sync::RwLock,
     task::{Context, Poll, Waker},
 };
+use trillium::TypeSet;
 use trillium_macros::{AsyncRead, AsyncWrite};
 
 /// a readable and writable transport for testing
-#[derive(Default, Clone, Debug, AsyncRead, AsyncWrite)]
+#[derive(Default, Clone, Debug, AsyncRead, AsyncWrite, fieldwork::Fieldwork)]
 pub struct TestTransport {
     /// the read side of this transport
     #[async_read]
-    pub read: Arc<CloseableCursor>,
+    #[field(get = read_side)]
+    read: Arc<CloseableCursor>,
 
     /// the write side of this transport
     #[async_write]
-    pub write: Arc<CloseableCursor>,
+    #[field(get = write_side)]
+    write: Arc<CloseableCursor>,
+
+    /// State that can be shared with the other side of this transport
+    #[field(vis = "pub(crate)", get)]
+    state: Arc<RwLock<TypeSet>>,
+
+    /// peer ip for the read side
+    #[field(get, set, option_set_some)]
+    peer_ip: Option<IpAddr>,
 }
 
-impl trillium::Transport for TestTransport {}
+impl trillium::Transport for TestTransport {
+    fn peer_addr(&self) -> io::Result<Option<SocketAddr>> {
+        if let Some(ip) = self.peer_ip {
+            Ok(Some(SocketAddr::from((ip, 0))))
+        } else {
+            Ok(None)
+        }
+    }
+}
 
 impl TestTransport {
     /// constructs a new test transport pair, representing two ends of
@@ -33,19 +52,23 @@ impl TestTransport {
     pub fn new() -> (TestTransport, TestTransport) {
         let a = Arc::new(CloseableCursor::default());
         let b = Arc::new(CloseableCursor::default());
+        let state: Arc<RwLock<TypeSet>> = Default::default();
 
         (
             TestTransport {
                 read: a.clone(),
                 write: b.clone(),
+                state: state.clone(),
+                peer_ip: None,
             },
-            TestTransport { read: b, write: a },
+            TestTransport {
+                read: b,
+                write: a,
+                state,
+                peer_ip: None,
+            },
         )
     }
-
-    // pub fn all_read(&self) -> bool {
-    //     self.write.current()
-    // }
 
     /// close this transport, representing a disconnection
     pub fn close(&mut self) {

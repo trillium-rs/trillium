@@ -12,7 +12,7 @@ use std::fmt::Debug;
 ///     atomic::{AtomicBool, Ordering},
 /// };
 /// use trillium::{Conn, State};
-/// use trillium_testing::prelude::*;
+/// use trillium_testing::TestHandler;
 ///
 /// #[derive(Clone, Default)] // Clone is mandatory
 /// struct MyFeatureFlag(Arc<AtomicBool>);
@@ -27,6 +27,7 @@ use std::fmt::Debug;
 ///     }
 /// }
 ///
+/// # trillium_testing::block_on(async {
 /// let feature_flag = MyFeatureFlag::default();
 ///
 /// let handler = (State::new(feature_flag.clone()), |conn: Conn| async move {
@@ -37,13 +38,22 @@ use std::fmt::Debug;
 ///     }
 /// });
 ///
+/// let app = TestHandler::new(handler).await;
+///
 /// assert!(!feature_flag.is_enabled());
-/// assert_ok!(get("/").on(&handler), "not enabled");
-/// assert_ok!(get("/").on(&handler), "not enabled");
+/// app.get("/").await.assert_ok().assert_body("not enabled");
+/// app.get("/").await.assert_ok().assert_body("not enabled");
 /// feature_flag.toggle();
 /// assert!(feature_flag.is_enabled());
-/// assert_ok!(get("/").on(&handler), "feature enabled");
-/// assert_ok!(get("/").on(&handler), "feature enabled");
+/// app.get("/")
+///     .await
+///     .assert_ok()
+///     .assert_body("feature enabled");
+/// app.get("/")
+///     .await
+///     .assert_ok()
+///     .assert_body("feature enabled");
+/// # });
 /// ```
 ///
 /// Please note that as with the above contrived example, if your state

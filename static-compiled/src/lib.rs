@@ -27,7 +27,9 @@
 //!
 //! ```
 //! use trillium_static_compiled::static_compiled;
+//! use trillium_testing::TestHandler;
 //!
+//! # trillium_testing::block_on(async {
 //! let handler = static_compiled!("./examples/files").with_index_file("index.html");
 //!
 //! // given the following directory layout
@@ -39,46 +41,60 @@
 //! // └── subdir_with_no_index
 //! //    └── plaintext.txt
 //!
-//! use trillium_testing::prelude::*;
+//! let app = TestHandler::new(handler).await;
 //!
 //! let index = include_str!("../examples/files/index.html");
-//! assert_ok!(
-//!     get("/").on(&handler),
-//!     index,
-//!     "content-type" => "text/html"
-//! );
-//! assert_not_handled!(get("/file_that_does_not_exist.txt").on(&handler));
-//! assert_ok!(get("/index.html").on(&handler));
-//! assert_ok!(
-//!     get("/subdir/index.html").on(&handler),
-//!     "subdir index.html 🎈",
-//!     "content-type" => "text/html; charset=utf-8"
-//! );
-//! assert_ok!(get("/subdir").on(&handler), "subdir index.html 🎈");
-//! assert_not_handled!(get("/subdir_with_no_index").on(&handler));
-//! assert_ok!(
-//!     get("/subdir_with_no_index/plaintext.txt").on(&handler),
-//!     "plaintext file",
-//!     "content-type" => "text/plain"
-//! );
+//! app.get("/")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body(index)
+//!     .assert_header("content-type", "text/html");
+//!
+//! app.get("/file_that_does_not_exist.txt")
+//!     .await
+//!     .assert_status(404);
+//! app.get("/index.html").await.assert_ok();
+//!
+//! app.get("/subdir/index.html")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("subdir index.html 🎈\n")
+//!     .assert_header("content-type", "text/html; charset=utf-8");
+//!
+//! app.get("/subdir")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("subdir index.html 🎈\n");
+//!
+//! app.get("/subdir_with_no_index").await.assert_status(404);
+//!
+//! app.get("/subdir_with_no_index/plaintext.txt")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("plaintext file\n")
+//!     .assert_header("content-type", "text/plain");
 //!
 //! // with a different index file
 //! let plaintext_index = static_compiled!("./examples/files").with_index_file("plaintext.txt");
+//! let app2 = TestHandler::new(plaintext_index).await;
 //!
-//! assert_not_handled!(get("/").on(&plaintext_index));
-//! assert_not_handled!(get("/subdir").on(&plaintext_index));
-//! assert_ok!(
-//!     get("/subdir_with_no_index").on(&plaintext_index),
-//!     "plaintext file",
-//!     "content-type" => "text/plain"
-//! );
+//! app2.get("/").await.assert_status(404);
+//! app2.get("/subdir").await.assert_status(404);
+//!
+//! app2.get("/subdir_with_no_index")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("plaintext file\n")
+//!     .assert_header("content-type", "text/plain");
 //!
 //! // with no index file
 //! let no_index = static_compiled!("./examples/files");
+//! let app3 = TestHandler::new(no_index).await;
 //!
-//! assert_not_handled!(get("/").on(&no_index));
-//! assert_not_handled!(get("/subdir").on(&no_index));
-//! assert_not_handled!(get("/subdir_with_no_index").on(&no_index));
+//! app3.get("/").await.assert_status(404);
+//! app3.get("/subdir").await.assert_status(404);
+//! app3.get("/subdir_with_no_index").await.assert_status(404);
+//! # });
 //! ```
 
 #[cfg(test)]

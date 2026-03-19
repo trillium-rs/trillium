@@ -23,41 +23,50 @@ pub trait ApiConnExt {
     /// ```
     /// # if !cfg!(any(feature = "sonic-rs", feature = "serde_json")) { return }
     /// use trillium_api::{json, ApiConnExt};
+    /// use trillium_testing::TestHandler;
+    ///
     /// async fn handler(conn: trillium::Conn) -> trillium::Conn {
     /// conn.with_json(&json!({ "json macro": "is reexported" }))
     /// }
     ///
-    /// # use trillium_testing::prelude::*;
-    /// assert_ok!(
-    /// get("/").on(&handler),
-    /// r#"{"json macro":"is reexported"}"#,
-    /// "content-type" => "application/json"
-    /// );
+    /// # trillium_testing::block_on(async {
+    /// let app = TestHandler::new(handler).await;
+    /// app.get("/")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body(r#"{"json macro":"is reexported"}"#)
+    ///     .assert_header("content-type", "application/json");
+    /// # });
     /// ```
     ///
     /// ### overriding status code
     /// ```
-    /// use trillium_api::ApiConnExt;
     /// use serde::Serialize;
+    /// use trillium_api::ApiConnExt;
+    /// use trillium_testing::TestHandler;
     ///
     /// #[derive(Serialize)]
     /// struct ApiResponse {
-    /// string: &'static str,
-    /// number: usize
+    ///     string: &'static str,
+    ///     number: usize,
     /// }
     ///
     /// async fn handler(conn: trillium::Conn) -> trillium::Conn {
-    /// conn.with_json(&ApiResponse { string: "not the most creative example", number: 100 })
-    /// .with_status(201)
+    ///     conn.with_json(&ApiResponse {
+    ///         string: "not the most creative example",
+    ///         number: 100,
+    ///     })
+    ///     .with_status(201)
     /// }
     ///
-    /// # use trillium_testing::prelude::*;
-    /// assert_response!(
-    /// get("/").on(&handler),
-    /// Status::Created,
-    /// r#"{"string":"not the most creative example","number":100}"#,
-    /// "content-type" => "application/json"
-    /// );
+    /// # trillium_testing::block_on(async {
+    /// let app = TestHandler::new(handler).await;
+    /// app.get("/")
+    ///     .await
+    ///     .assert_status(201)
+    ///     .assert_body(r#"{"string":"not the most creative example","number":100}"#)
+    ///     .assert_header("content-type", "application/json");
+    /// # });
     /// ```
     #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
     fn with_json(self, response: &impl Serialize) -> Self;
@@ -86,25 +95,31 @@ pub trait ApiConnExt {
     /// use trillium_api::{ApiConnExt, Value};
     ///
     /// async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
-    ///     let value: Value = trillium::conn_try!(conn.deserialize().await, conn);
+    ///     let value: Value = match conn.deserialize().await {
+    ///         Ok(v) => v,
+    ///         Err(_) => return conn.with_status(400),
+    ///     };
     ///     conn.with_json(&value)
     /// }
     ///
-    /// # use trillium_testing::prelude::*;
-    /// assert_ok!(
-    /// post("/")
-    /// .with_request_body(r#"key=value"#)
-    /// .with_request_header("content-type", "application/x-www-form-urlencoded")
-    /// .on(&handler),
-    /// r#"{"key":"value"}"#,
-    /// "content-type" => "application/json"
-    /// );
+    /// # use trillium_testing::TestHandler;
+    /// # trillium_testing::block_on(async {
+    /// let app = TestHandler::new(handler).await;
+    /// app.post("/")
+    ///     .with_body(r#"key=value"#)
+    ///     .with_request_header("content-type", "application/x-www-form-urlencoded")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body(r#"{"key":"value"}"#)
+    ///     .assert_header("content-type", "application/json");
+    /// # });
     /// ```
     ///
     /// ### Deserializing a concrete type
     ///
     /// ```
     /// use trillium_api::ApiConnExt;
+    /// use trillium_testing::TestHandler;
     ///
     /// #[derive(serde::Deserialize)]
     /// struct KvPair {
@@ -123,24 +138,23 @@ pub trait ApiConnExt {
     ///     }
     /// }
     ///
-    /// # use trillium_testing::prelude::*;
-    /// assert_response!(
-    ///     post("/")
-    ///         .with_request_body(r#"key=name&value=trillium"#)
-    ///         .with_request_header("content-type", "application/x-www-form-urlencoded")
-    ///         .on(&handler),
-    ///     Status::Created,
-    ///     r#"name is trillium"#,
-    /// );
+    /// # trillium_testing::block_on(async {
+    /// let app = TestHandler::new(handler).await;
     ///
-    /// assert_response!(
-    ///     post("/")
-    ///         .with_request_body(r#"name=trillium"#)
-    ///         .with_request_header("content-type", "application/x-www-form-urlencoded")
-    ///         .on(&handler),
-    ///     Status::UnprocessableEntity,
-    ///     r#"nope"#,
-    /// );
+    /// app.post("/")
+    ///     .with_body(r#"key=name&value=trillium"#)
+    ///     .with_request_header("content-type", "application/x-www-form-urlencoded")
+    ///     .await
+    ///     .assert_status(201)
+    ///     .assert_body(r#"name is trillium"#);
+    ///
+    /// app.post("/")
+    ///     .with_body(r#"name=trillium"#)
+    ///     .with_request_header("content-type", "application/x-www-form-urlencoded")
+    ///     .await
+    ///     .assert_status(422)
+    ///     .assert_body(r#"nope"#);
+    /// # });
     /// ```
     fn deserialize<T>(&mut self) -> impl Future<Output = Result<T>> + Send
     where

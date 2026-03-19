@@ -22,24 +22,31 @@ use std::{borrow::Cow, future::Future};
 /// blanket implementation for any such Fn.
 ///
 /// ```
+/// # use trillium_testing::TestHandler;
 /// // as a closure
 /// let handler = |conn: trillium::Conn| async move { conn.ok("trillium!") };
 ///
-/// use trillium_testing::prelude::*;
-/// assert_ok!(get("/").on(&handler), "trillium!");
+/// # trillium_testing::block_on(async {
+/// let app = TestHandler::new(handler).await;
+/// app.get("/").await.assert_ok().assert_body("trillium!");
+/// # });
 /// ```
 ///
 /// ```
+/// # use trillium_testing::TestHandler;
 /// // as an async function
 /// async fn handler(conn: trillium::Conn) -> trillium::Conn {
 ///     conn.ok("trillium!")
 /// }
-/// use trillium_testing::prelude::*;
-/// assert_ok!(get("/").on(&handler), "trillium!");
+/// # trillium_testing::block_on(async {
+/// let app = TestHandler::new(handler).await;
+/// app.get("/").await.assert_ok().assert_body("trillium!");
+/// # });
 /// ```
 ///
 /// The simplest implementation of Handler for a named type looks like this:
 /// ```
+/// # use trillium_testing::TestHandler;
 /// pub struct MyHandler;
 /// impl trillium::Handler for MyHandler {
 ///     async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
@@ -47,8 +54,11 @@ use std::{borrow::Cow, future::Future};
 ///     }
 /// }
 ///
-/// use trillium_testing::prelude::*;
-/// assert_not_handled!(get("/").on(&MyHandler)); // we did not halt or set a body status
+/// # trillium_testing::block_on(async {
+/// let app = TestHandler::new(MyHandler).await;
+/// app.get("/").await.assert_status(404); // we did not halt or set a body status
+/// //
+/// # });
 /// ```
 ///
 /// See each of the function definitions below for advanced implementation.

@@ -17,6 +17,8 @@ pub trait HandlebarsConnExt {
     ///
     /// ```
     /// use trillium_handlebars::{Handlebars, HandlebarsConnExt, HandlebarsHandler};
+    /// use trillium_testing::TestHandler;
+    ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///
     /// #[derive(serde::Serialize)]
@@ -34,8 +36,13 @@ pub trait HandlebarsConnExt {
     ///     },
     /// );
     ///
-    /// use trillium_testing::prelude::*;
-    /// assert_ok!(get("/").on(&handler), "Hello handlebars");
+    /// # trillium_testing::block_on(async {
+    /// let app = TestHandler::new(handler).await;
+    /// app.get("/")
+    ///     .await
+    ///     .assert_ok()
+    ///     .assert_body("Hello handlebars");
+    /// # });
     /// # Ok(()) }
     /// ```
     fn render_with(self, template: &str, data: &impl Serialize) -> Self;

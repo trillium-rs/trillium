@@ -17,6 +17,7 @@
 //! ```
 //! use trillium::Conn;
 //! use trillium_askama::{AskamaConnExt, Template};
+//! use trillium_testing::TestHandler;
 //!
 //! #[derive(Template)]
 //! #[template(path = "examples/hello.html")]
@@ -28,8 +29,13 @@
 //!     conn.render(HelloTemplate { name: "trillium" })
 //! }
 //!
-//! use trillium_testing::prelude::*;
-//! assert_ok!(get("/").on(&handler), "Hello, trillium!");
+//! # trillium_testing::block_on(async {
+//! let app = TestHandler::new(handler).await;
+//! app.get("/")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("Hello, trillium!\n");
+//! # });
 //! ```
 
 pub use askama::{self, Template};

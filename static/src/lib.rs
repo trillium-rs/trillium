@@ -14,10 +14,11 @@
 //! ```
 //! # #[cfg(not(unix))] fn main() {}
 //! # #[cfg(unix)] fn main() {
-//! use trillium_static::{crate_relative_path, StaticFileHandler};
+//! use trillium_static::{StaticFileHandler, crate_relative_path};
+//! use trillium_testing::TestHandler;
 //!
 //! # trillium_testing::block_on(async {
-//! let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
+//! let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
 //!     .with_index_file("index.html");
 //!
 //! // given the following directory layout
@@ -29,49 +30,52 @@
 //! // └── subdir_with_no_index
 //! //    └── plaintext.txt
 //!
-//! use trillium_testing::prelude::*;
+//! let app = TestHandler::new(handler).await;
 //!
-//! init(&mut handler).await;
+//! app.get("/")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("<h1>hello world</h1>\n")
+//!     .assert_header("content-type", "text/html; charset=utf-8");
 //!
-//! assert_ok!(
-//!     get("/").run_async(&handler).await,
-//!     "<h1>hello world</h1>",
-//!     "content-type" => "text/html; charset=utf-8"
-//! );
-//! assert_not_handled!(
-//!     get("/file_that_does_not_exist.txt")
-//!         .run_async(&handler)
-//!         .await
-//! );
-//! assert_ok!(get("/index.html").run_async(&handler).await);
-//! assert_ok!(
-//!     get("/subdir/index.html").run_async(&handler).await,
-//!     "subdir index.html"
-//! );
-//! assert_ok!(
-//!     get("/subdir").run_async(&handler).await,
-//!     "subdir index.html"
-//! );
-//! assert_not_handled!(get("/subdir_with_no_index").run_async(&handler).await);
-//! assert_ok!(
-//!     get("/subdir_with_no_index/plaintext.txt").run_async(&handler).await,
-//!     "plaintext file",
-//!     "content-type" => "text/plain; charset=utf-8"
-//! );
+//! app.get("/file_that_does_not_exist.txt")
+//!     .await
+//!     .assert_status(404);
+//!
+//! app.get("/index.html").await.assert_ok();
+//!
+//! app.get("/subdir/index.html")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("subdir index.html\n");
+//!
+//! app.get("/subdir")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("subdir index.html\n");
+//!
+//! app.get("/subdir_with_no_index").await.assert_status(404);
+//!
+//! app.get("/subdir_with_no_index/plaintext.txt")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("plaintext file\n")
+//!     .assert_header("content-type", "text/plain; charset=utf-8");
 //!
 //! // with a different index file
 //! let plaintext_index = StaticFileHandler::new(crate_relative_path!("examples/files"))
 //!     .with_index_file("plaintext.txt");
 //!
-//! init(&mut handler).await;
+//! let app2 = TestHandler::new(plaintext_index).await;
 //!
-//! assert_not_handled!(get("/").run_async(&plaintext_index).await);
-//! assert_not_handled!(get("/subdir").run_async(&plaintext_index).await);
-//! assert_ok!(
-//!     get("/subdir_with_no_index").run_async(&plaintext_index).await,
-//!     "plaintext file",
-//!     "content-type" => "text/plain; charset=utf-8"
-//! );
+//! app2.get("/").await.assert_status(404);
+//! app2.get("/subdir").await.assert_status(404);
+//!
+//! app2.get("/subdir_with_no_index")
+//!     .await
+//!     .assert_ok()
+//!     .assert_body("plaintext file\n")
+//!     .assert_header("content-type", "text/plain; charset=utf-8");
 //! # });
 //! # }
 //! ```

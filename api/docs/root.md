@@ -19,15 +19,19 @@ async fn echo(_conn: &mut Conn, Json(body): Json<trillium_api::Value>) -> Json<t
     Json(body)
 }
 
-# use trillium_testing::prelude::*;
-# assert_ok!(get("/").on(&api(hello)), r#""hello, world""#);
-# assert_ok!(
-#     post("/")
+# use trillium_testing::TestHandler;
+# trillium_testing::block_on(async {
+#     let app = TestHandler::new(api(hello)).await;
+#     app.get("/").await.assert_ok().assert_body(r#""hello, world""#);
+#
+#     let app = TestHandler::new(api(echo)).await;
+#     app.post("/")
+#         .with_body(r#"{"key":"value"}"#)
 #         .with_request_header("content-type", "application/json")
-#         .with_request_body(r#"{"key":"value"}"#)
-#         .on(&api(echo)),
-#     r#"{"key":"value"}"#
-# );
+#         .await
+#         .assert_ok()
+#         .assert_body(r#"{"key":"value"}"#);
+# });
 ```
 
 ## How it works

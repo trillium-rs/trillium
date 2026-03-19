@@ -42,9 +42,13 @@ pub struct BasicAuth {
 }
 
 /// basic auth username-password credentials
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, fieldwork::Fieldwork)]
+#[fieldwork(get)]
 pub struct Credentials {
+    /// username
     username: String,
+
+    /// password
     password: String,
 }
 

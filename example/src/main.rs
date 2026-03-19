@@ -100,42 +100,49 @@ fn main() {
 #[cfg(test)]
 mod test {
     use super::app;
-    use trillium_testing::prelude::*;
+    use trillium_testing::{TestHandler, harness, test};
 
-    #[test]
-    fn test_index() {
-        let app = app();
-        let mut conn = get("/").on(&app);
-        assert_ok!(&conn);
-        assert_body_contains!(&mut conn, "<h1>Welcome to trillium!</h1>");
+    #[test(harness)]
+    async fn test_index() {
+        let test_app = TestHandler::new(app()).await;
+        test_app
+            .get("/")
+            .await
+            .assert_ok()
+            .assert_body_contains("<h1>Welcome to trillium!</h1>");
     }
 
-    #[test]
-    fn test_hello_hi() {
-        let app = app();
-        assert_ok!(get("/hello").on(&app), "hi");
+    #[test(harness)]
+    async fn test_hello_hi() {
+        let test_app = TestHandler::new(app()).await;
+        test_app.get("/hello").await.assert_ok().assert_body("hi");
     }
 
-    #[test]
-    fn test_post_index() {
-        let app = app();
-        assert_ok!(
-            post("/").with_request_body("hey").on(&app),
-            "request body: hey"
-        );
+    #[test(harness)]
+    async fn test_post_index() {
+        let test_app = TestHandler::new(app()).await;
+        test_app
+            .post("/")
+            .with_body("hey")
+            .await
+            .assert_ok()
+            .assert_body("request body: hey");
     }
 
-    #[test]
-    fn test_askama_templating() {
-        let app = app();
-        assert_body_contains!(
-            get("/template/trillium").on(&app),
-            "<h1>hi there, trillium</h1>"
-        );
+    #[test(harness)]
+    async fn test_askama_templating() {
+        let test_app = TestHandler::new(app()).await;
 
-        assert_body_contains!(
-            get("/template/dear-reader").on(&app),
-            "<h1>hi there, dear-reader</h1>"
-        );
+        test_app
+            .get("/template/trillium")
+            .await
+            .assert_ok()
+            .assert_body_contains("<h1>hi there, trillium</h1>");
+
+        test_app
+            .get("/template/dear-reader")
+            .await
+            .assert_ok()
+            .assert_body_contains("<h1>hi there, dear-reader</h1>");
     }
 }
