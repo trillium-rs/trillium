@@ -32,6 +32,15 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           editUrl:
             'https://github.com/trillium-rs/trillium/edit/main/docs/',
+          lastVersion: 'current',
+          versions: {
+            current: {
+              label: '0.3.x',
+            },
+            '0.2': {
+              label: '0.2',
+            },
+          },
         },
         blog: {
           showReadingTime: true,
@@ -63,6 +72,10 @@ const config: Config = {
           label: 'Guide',
         },
         {to: '/blog', label: 'Blog', position: 'left'},
+        {
+          type: 'docsVersionDropdown',
+          position: 'right',
+        },
         {
           href: 'https://docs.trillium.rs',
           label: 'API Docs',
