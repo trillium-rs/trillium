@@ -1,0 +1,41 @@
+{
+  "guideSidebar": [
+    "welcome",
+    "conventions",
+    {
+      "type": "category",
+      "label": "Architecture",
+      "link": {
+        "type": "doc",
+        "id": "architecture"
+      },
+      "items": [
+        "overview/core_concepts",
+        "overview/handlers",
+        "overview/conn",
+        "overview/runtimes"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Handler Libraries",
+      "link": {
+        "type": "doc",
+        "id": "handlers"
+      },
+      "items": [
+        "handlers/router",
+        "handlers/templates",
+        "handlers/logger",
+        "handlers/cookies",
+        "handlers/sessions",
+        "handlers/proxy",
+        "handlers/static",
+        "handlers/websockets"
+      ]
+    },
+    "testing",
+    "library_patterns",
+    "contributing"
+  ]
+}
