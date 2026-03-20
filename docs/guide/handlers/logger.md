@@ -7,6 +7,11 @@ The `trillium-logger` crate logs each HTTP request after the response is sent. I
 ## Basic usage
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+#
 use trillium_logger::Logger;
 
 fn main() {
@@ -41,9 +46,20 @@ The `formatters` module provides building blocks for common log formats:
 Both Apache formats require two arguments: a request identifier placeholder and a user identifier placeholder. These can be string literals or custom formatter functions:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+#
+# fn main() {
+# use trillium::Conn;
 use trillium_logger::{Logger, apache_combined};
 
-Logger::new().with_formatter(apache_combined("-", "-"))
+trillium_smol::run((
+    Logger::new().with_formatter(apache_combined("-", "-")),
+    |conn: Conn| async move { conn.ok("other handler here") }
+));
+# }
 ```
 
 ## Custom formatters
@@ -51,6 +67,12 @@ Logger::new().with_formatter(apache_combined("-", "-"))
 Formatters are composable. Tuple formatters concatenate their parts, and any `fn(&Conn, bool) -> impl Display` works as a formatter component. The `bool` argument indicates whether color output is enabled.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+#
+# fn main() {
 use trillium::{Conn, State};
 use trillium_logger::{Logger, apache_combined, formatters};
 
@@ -62,15 +84,26 @@ fn user_id(conn: &Conn, _color: bool) -> &'static str {
 }
 
 // Include a custom user field in the log line
-Logger::new().with_formatter(apache_combined("-", user_id))
+trillium_smol::run((
+    Logger::new().with_formatter(apache_combined("-", user_id)),
+    |conn: Conn| async move { conn.ok("other handler here") }
+));
+# }
 ```
 
 Individual formatter components from the `formatters` module can be assembled into a tuple for a fully custom format:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+#
+# fn main() {
+# use trillium::Conn;
 use trillium_logger::{Logger, formatters};
 
-Logger::new().with_formatter((
+let logger = Logger::new().with_formatter((
     "-> ",
     formatters::method,
     " ",
@@ -79,7 +112,13 @@ Logger::new().with_formatter((
     formatters::status,
     " ",
     formatters::body_len_human,
-))
+));
+
+trillium_smol::run((
+    logger,
+    |conn: Conn| async move { conn.ok("other handler here") }
+));
+# }
 ```
 
 Available components include: `method`, `url`, `status`, `ip`, `timestamp`, `body_len_human`, `bytes`, `request_header(name)`, `response_header(name)`.
@@ -89,9 +128,17 @@ Available components include: `method`, `url`, `status`, `ip`, `timestamp`, `bod
 By default, log lines go to stdout. To route them to the `log` crate instead (for integration with `env_logger`, `tracing`, etc.):
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+# log = "*"
+#
+# fn main() {
 use trillium_logger::{Logger, Target};
-
-Logger::new().with_target(Target::Logger(log::Level::Info))
+let logger = Logger::new().with_target(Target::Logger(log::Level::Info));
+# trillium_smol::run(logger);
+# }
 ```
 
 You can also supply any `Fn(String) + Send + Sync + 'static` as a custom target.
@@ -101,14 +148,27 @@ You can also supply any `Fn(String) + Send + Sync + 'static` as a custom target.
 Color output is auto-detected based on whether stdout is a TTY. Override with:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+#
+# fn main() {
 use trillium_logger::{ColorMode, Logger};
 
-Logger::new().with_color_mode(ColorMode::Off) // always off
+let logger = Logger::new().with_color_mode(ColorMode::Off); // always off
+# trillium_smol::run(logger);
+# }
 ```
 
 ## Full example
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+#
 use trillium::{Conn, State};
 use trillium_logger::{Logger, apache_combined};
 

@@ -5,6 +5,10 @@ Trillium is a modular async Rust web framework. It runs on stable Rust and suppo
 The simplest Trillium server:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
 fn main() {
     trillium_smol::run(|conn: trillium::Conn| async move {
         conn.ok("hello from trillium!")

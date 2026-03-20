@@ -17,6 +17,11 @@ WebTransport requires an HTTP/3-capable server. See [Runtime Adapters, TLS, and 
 Add `WebTransport` to your handler chain. It intercepts incoming WebTransport CONNECT requests and hands each session to your function:
 
 ```rust
+# [dependencies]
+# trillium-webtransport = { path = "../webtransport" }
+# trillium-smol = { path = "../smol" }
+#
+# fn main() {
 use trillium_webtransport::{WebTransport, WebTransportConnection};
 
 let app = WebTransport::new(|wt: WebTransportConnection| async move {
@@ -25,6 +30,8 @@ let app = WebTransport::new(|wt: WebTransportConnection| async move {
         drop(stream);
     }
 });
+# trillium_smol::run(app);
+# }
 ```
 
 Other handlers in the chain that precede `WebTransport` run normally for non-WebTransport requests, so you can serve HTTP and WebTransport from the same handler tuple.
@@ -50,6 +57,13 @@ Streams implement `AsyncRead` and `AsyncWrite` (bidi) or just `AsyncRead` (uni i
 ## Full server example
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-quinn = { path = "../quinn" }
+# trillium-rustls = { path = "../rustls" }
+# trillium-webtransport = { path = "../webtransport" }
+# futures-lite = "*"
+#
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use trillium_quinn::QuicConfig;
 use trillium_rustls::RustlsAcceptor;
@@ -85,12 +99,11 @@ async fn handle(wt: WebTransportConnection) {
 }
 
 fn main() {
-    let cert = std::fs::read("cert.pem").unwrap();
-    let key = std::fs::read("key.pem").unwrap();
-
+#     const CERT: &[u8] = b"";
+#     const KEY: &[u8] = b"";
     trillium_smol::config()
-        .with_acceptor(RustlsAcceptor::from_single_cert(&cert, &key))
-        .with_quic(QuicConfig::from_single_cert(&cert, &key))
+        .with_acceptor(RustlsAcceptor::from_single_cert(CERT, KEY))
+        .with_quic(QuicConfig::from_single_cert(CERT, KEY))
         .run(WebTransport::new(handle));
 }
 ```
@@ -100,6 +113,16 @@ fn main() {
 By default, up to 16 datagrams are buffered per session. When the buffer is full, the oldest datagram is dropped to make room for the newest. Adjust this with `with_max_datagram_buffer`:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-webtransport = { path = "../webtransport" }
+#
+# async fn handler(wt: trillium_webtransport::WebTransportConnection) {}
+# use trillium_webtransport::WebTransport;
+# fn main() {
+#     trillium_smol::run(
 // "latest-only" semantics: only the most recent datagram is kept
 WebTransport::new(handler).with_max_datagram_buffer(1)
+#     );
+# }
 ```

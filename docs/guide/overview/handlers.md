@@ -3,24 +3,46 @@
 The simplest handler is any async function that takes a `Conn` and returns it:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
+# fn main() {
 use trillium::Conn;
 
 async fn hello_world(conn: Conn) -> Conn {
     conn.ok("hello world!")
 }
+#
+#     trillium_smol::run(hello_world);
+# }
 ```
 
 Drop it into a server and it responds to every request:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-tokio = { path = "../tokio" }
+#
+# use trillium::Conn;
+#
+# async fn hello_world(conn: Conn) -> Conn {
+#     conn.ok("hello world!")
+# }
+#
 pub fn main() {
-    trillium_smol::run(hello_world);
+    trillium_tokio::run(hello_world);
 }
 ```
 
 Or write it as a closure:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
 pub fn main() {
     trillium_smol::run(|conn: trillium::Conn| async move {
         conn.ok("hello world")
@@ -41,12 +63,20 @@ See the [rustdocs for State](https://docs.trillium.rs/trillium/struct.state) for
 Multiple handlers compose via tuples, which run left to right:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+#
+# fn main() {
 use trillium_logger::Logger;
+# use trillium::Conn;
 
 trillium_smol::run((
     Logger::new(),
     |conn: Conn| async move { conn.ok("tuple!") },
 ));
+# }
 ```
 
 Each handler in the tuple runs in order until one halts the `Conn`. Halting stops the chain — subsequent handlers are skipped. This is how handlers signal "I've handled this request" or "this request is not authorized."

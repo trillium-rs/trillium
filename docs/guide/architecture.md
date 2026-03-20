@@ -7,11 +7,23 @@ The central design decision in Trillium is that **there is no distinction betwee
 Handlers compose via tuples, which run left to right:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+# trillium-cookies = { path = "../cookies" }
+# trillium-router = { path = "../router" }
+# trillium = { path = "../trillium" }
+#
+# fn main() {
+# use trillium_logger::Logger;
+# use trillium_cookies::CookiesHandler;
+# async fn router(conn: trillium::Conn) -> trillium::Conn { conn }
 trillium_smol::run((
     Logger::new(),
-    Cookies::new(),
+    CookiesHandler::new(),
     router,
 ));
+# }
 ```
 
 Each handler receives the `Conn`, does its work, and either passes it along or halts it. Halting stops the chain — subsequent handlers are skipped. This is how endpoints signal that they've handled a request: calling `.halt()` or a convenience method like `.ok("body")` which halts implicitly.

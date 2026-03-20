@@ -11,9 +11,17 @@ The [rustdocs for Conn](https://docs.trillium.rs/trillium/struct.conn) cover eve
 `Conn` supports a chainable interface for setting response properties:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
+# fn main() {
+#     trillium_smol::run(|conn: trillium::Conn| async move {
 conn.with_status(202)
     .with_response_header("content-type", "application/something-custom")
     .with_body("this is my custom body")
+#     });
+# }
 ```
 
 Convenience methods like `conn.ok("body")` combine common operations. `ok` sets status 200, sets the body, and halts the conn.
@@ -34,14 +42,33 @@ If a handler returns `Conn` without setting anything, the response is `404 Not F
 
 ## State
 
-In addition to request/response data, `Conn` carries an arbitrary state set — a type-indexed map that handlers can use to communicate. Each type can appear at most once:
+In addition to request/response data, `Conn` carries an arbitrary state set — a [type-indexed
+map](https://docs.rs/type-set) that handlers can use to store state on the conn. Each type can
+appear at most once:
 
 ```rust
-// Store a value
-conn.set_state(MyData { user_id: 42 });
-
-// Read it back
-let data: Option<&MyData> = conn.state();
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
+# struct MyData {
+#     user_id: usize,
+# }
+#
+# use trillium::{Status, Conn};
+# fn main() {
+trillium_smol::run((
+    |conn: Conn| async move { conn.with_state(MyData { user_id: 42 }) },
+    |conn: Conn| async move {     // read it back in another handler
+        if let Some(MyData { user_id }) = conn.state() {
+            let response_body = format!("user id: {user_id}");
+            conn.ok(response_body)
+        } else {
+            conn.with_status(Status::NotFound).halt()
+        }
+     }
+));
+# }
 ```
 
 This is how most Trillium libraries work internally: a handler earlier in the chain stores data in the state set, and later handlers retrieve it.

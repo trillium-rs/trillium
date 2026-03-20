@@ -9,6 +9,11 @@ The client is runtime-agnostic and uses the same connector pattern as the server
 ## Basic usage
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-testing = { path = "../testing" }
+#
 use trillium_client::Client;
 use trillium_smol::ClientConfig;
 
@@ -27,6 +32,10 @@ async fn fetch() {
 
     println!("{body}");
 }
+
+# fn main() {
+#     trillium_testing::block_on(fetch());
+# }
 ```
 
 `ClientConfig` comes from your chosen runtime crate. The `success()` method returns an error if the status is not 2xx.
@@ -36,21 +45,39 @@ async fn fetch() {
 Wrap `ClientConfig` with a TLS config:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-rustls = { path = "../rustls" }
+# trillium-testing = { path = "../testing" }
+#
+# fn main() { trillium_testing::block_on(async {
 use trillium_client::Client;
 use trillium_rustls::RustlsConfig;
 use trillium_smol::ClientConfig;
 
 let client = Client::new(RustlsConfig::<ClientConfig>::default());
 let conn = client.get("https://example.com/").await.unwrap();
+# }) }
 ```
 
 `trillium-native-tls` can be used instead of `trillium-rustls` with the same pattern.
 
 ## HTTP/3
 
-The client upgrades to HTTP/3 automatically when a server advertises support via `Alt-Svc`. The first request to a host uses HTTP/1.1; if the response includes `Alt-Svc: h3=...`, subsequent requests to that host use HTTP/3.
+When build using `Client::new_with_quic`, the client upgrades to HTTP/3 automatically when a server
+advertises support via `Alt-Svc`. The first request to a host uses HTTP/1.1; if the response
+includes `Alt-Svc: h3=...`, subsequent requests to that host use HTTP/3.
 
 ```rust
+# [dependencies]
+# trillium-tokio = { path = "../tokio" }
+# trillium-client = { path = "../client" }
+# trillium-quinn = { path = "../quinn", features = ["webpki-roots"] }
+# trillium-rustls = { path = "../rustls" }
+# trillium-testing = { path = "../testing" }
+#
+# fn main() { trillium_testing::block_on(async {
 use trillium_client::Client;
 use trillium_quinn::ClientQuicConfig;
 use trillium_rustls::RustlsConfig;
@@ -67,6 +94,7 @@ for _ in 0..3 {
     let conn = client.get("https://cloudflare.com/").await.unwrap();
     println!("{:?}", conn.http_version());
 }
+# }); }
 ```
 
 ## Making requests
@@ -74,14 +102,24 @@ for _ in 0..3 {
 The client has methods for each HTTP verb. Each returns a `Conn` that you can configure before sending:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-testing = { path = "../testing" }
+#
+# fn main() { trillium_testing::block_on(async {
+# use trillium_client::Client;
+# use trillium_smol::ClientConfig;
+# let client = Client::new(ClientConfig::default());
 let conn = client
     .post("https://api.example.com/items")
     .with_request_header("content-type", "application/json")
-    .with_request_body(r#"{"name":"widget"}"#)
+    .with_body(r#"{"name":"widget"}"#)
     .await
     .unwrap();
 
 println!("status: {}", conn.status().unwrap());
+# }); }
 ```
 
 ## Connection pooling
@@ -93,6 +131,15 @@ Connections are pooled and reused automatically across requests to the same host
 With the `websockets` feature, the client can upgrade a connection to WebSocket:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client", features = ["websockets"] }
+# trillium-testing = { path = "../testing" }
+#
+# fn main() { trillium_testing::block_on(async {
+# use trillium_client::Client;
+# use trillium_smol::ClientConfig;
+# let client = Client::new(ClientConfig::default());
 let ws_conn = client
     .get("wss://example.com/ws")
     .await
@@ -100,6 +147,7 @@ let ws_conn = client
     .into_websocket()
     .await
     .unwrap();
+# }); }
 ```
 
 The resulting `WebSocketConn` exposes the same send/receive interface as the server-side WebSocket handler.
