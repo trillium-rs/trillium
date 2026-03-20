@@ -22,6 +22,10 @@ On Unix systems:
 To compile specific host/port values in:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
 pub fn main() {
     trillium_smol::config()
         .with_port(1337)
@@ -41,11 +45,17 @@ All adapters (except `aws_lambda`) can be combined with a TLS acceptor.
 [rustdocs](https://docs.trillium.rs/trillium_rustls)
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-rustls = { path = "../rustls" }
+# env_logger = "*"
+#
 use trillium::Conn;
 use trillium_rustls::RustlsAcceptor;
 
-const KEY: &[u8] = include_bytes!("./key.pem");
-const CERT: &[u8] = include_bytes!("./cert.pem");
+# const KEY: &[u8] = b"";
+# const CERT: &[u8] = b"";
 
 pub fn main() {
     env_logger::init();
@@ -60,12 +70,18 @@ pub fn main() {
 [rustdocs](https://docs.trillium.rs/trillium_native_tls)
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-native-tls = { path = "../native-tls" }
+# env_logger = "*"
+#
 use trillium::Conn;
 use trillium_native_tls::NativeTlsAcceptor;
 
 pub fn main() {
     env_logger::init();
-    let acceptor = NativeTlsAcceptor::from_pkcs12(include_bytes!("./identity.p12"), "changeit");
+#     let acceptor = NativeTlsAcceptor::from_pkcs12(b"", "changeit");
     trillium_smol::config()
         .with_acceptor(acceptor)
         .run(|conn: Conn| async move { conn.ok("ok") });
@@ -89,17 +105,23 @@ HTTP/3 is the third major revision of the HTTP protocol. Instead of TCP, it's bu
 The `trillium-quinn` crate adds HTTP/3 support to any Trillium server. It runs a QUIC endpoint alongside the existing TCP listener. Protocol selection happens automatically: browsers use ALPN during the TLS handshake to negotiate HTTP/3, and the server advertises support via `Alt-Svc` headers so clients know to use QUIC on future connections.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-tokio = { path = "../tokio" }
+# trillium-quinn = { path = "../quinn" }
+# trillium-rustls = { path = "../rustls" }
+#
 use trillium::Conn;
 use trillium_quinn::QuicConfig;
 use trillium_rustls::RustlsAcceptor;
 
 fn main() {
-    let cert = std::fs::read("cert.pem").unwrap();
-    let key = std::fs::read("key.pem").unwrap();
+#     let cert = b"";
+#     let key = b"";
 
     trillium_tokio::config()
-        .with_acceptor(RustlsAcceptor::from_single_cert(&cert, &key))
-        .with_quic(QuicConfig::from_single_cert(&cert, &key))
+        .with_acceptor(RustlsAcceptor::from_single_cert(cert, key))
+        .with_quic(QuicConfig::from_single_cert(cert, key))
         .run(|conn: Conn| async move { conn.ok("hello!") });
 }
 ```

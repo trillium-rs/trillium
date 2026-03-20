@@ -100,3 +100,7 @@ pub trait ChannelHandler: Sized + Send + Sync + 'static {
         async {}
     }
 }
+
+impl ChannelHandler for () {
+    async fn join_channel(&self, _conn: ChannelConn<'_>, _event: ChannelEvent) {}
+}

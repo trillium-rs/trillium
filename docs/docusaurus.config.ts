@@ -1,6 +1,7 @@
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
+import remarkRustHiddenLines from './src/remark/rust-hidden-lines.mjs';
 
 const config: Config = {
   title: 'trillium',
@@ -30,6 +31,7 @@ const config: Config = {
           path: 'guide',
           routeBasePath: 'guide',
           sidebarPath: './sidebars.ts',
+          remarkPlugins: [remarkRustHiddenLines],
           editUrl:
             'https://github.com/trillium-rs/trillium/edit/main/docs/',
           lastVersion: 'current',

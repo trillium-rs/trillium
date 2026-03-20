@@ -7,6 +7,13 @@ Sessions associate server-side data with a browser client using a secure cookie 
 > ❗ The session handler depends on cookies. Place `Cookies::new()` earlier in the handler chain, before `Sessions`.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-cookies = { path = "../cookies" }
+# trillium-sessions = { path = "../sessions" }
+# env_logger = "*"
+#
 use trillium::Conn;
 use trillium_cookies::CookiesHandler;
 use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};

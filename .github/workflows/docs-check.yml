@@ -1,0 +1,25 @@
+name: docs check
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/guide/**', '**/*.rs', '**/Cargo.toml']
+  pull_request:
+    paths: ['docs/guide/**', '**/*.rs', '**/Cargo.toml']
+
+jobs:
+  check:
+    name: check docs examples compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: npm ci
+        working-directory: docs
+      - run: npm run check-docs
+        working-directory: docs

@@ -11,6 +11,13 @@ SSE is unidirectional: the server sends, the client receives. Use SSE when you n
 The `SseConnExt` trait adds a `with_sse_stream` method to `Conn`. Pass it any `Stream` of items that implement `Eventable`:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-sse = { path = "../sse" }
+# futures-lite = "*"
+#
+# fn main() {
 use futures_lite::stream;
 use trillium_sse::SseConnExt;
 
@@ -18,6 +25,7 @@ trillium_smol::run(|conn: trillium::Conn| async move {
     let events = stream::iter(["one", "two", "three"]);
     conn.with_sse_stream(events)
 });
+# }
 ```
 
 `with_sse_stream` sets the `Content-Type: text/event-stream` and `Cache-Control: no-cache` headers, sets the status to 200, and halts the conn.
@@ -27,6 +35,15 @@ trillium_smol::run(|conn: trillium::Conn| async move {
 For finer-grained control, use the `Event` type which supports typed event names:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-sse = { path = "../sse" }
+# futures-lite = "*"
+#
+# use futures_lite::stream;
+# fn main() {
+#     trillium_smol::run(|conn: trillium::Conn| async move {
 use trillium_sse::{Event, SseConnExt};
 
 let events = stream::iter([
@@ -35,6 +52,8 @@ let events = stream::iter([
 ]);
 
 conn.with_sse_stream(events)
+#     });
+# }
 ```
 
 The `Eventable` trait is also implemented for `String` and `&'static str`, so simple text streams work without wrapping.
@@ -44,9 +63,24 @@ The `Eventable` trait is also implemented for `String` and `&'static str`, so si
 In practice, SSE is most useful paired with a broadcast channel so that server-side events reach all connected clients. The exact channel type is up to you — any `Stream` works:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-sse = { path = "../sse" }
+# futures-lite = "*"
+#
 use trillium::State;
 use trillium_sse::SseConnExt;
 
+# #[derive(Clone)]
+# struct Broadcaster;
+# impl futures_lite::stream::Stream for Broadcaster {
+#     type Item = String;
+#     fn poll_next(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+#         std::task::Poll::Pending
+#     }
+# }
+#
 // Assume `Broadcaster` is a channel type from your preferred library
 // that implements Clone (for State) and Stream<Item = String> (for SSE).
 fn app(broadcaster: Broadcaster) -> impl trillium::Handler {
@@ -58,6 +92,10 @@ fn app(broadcaster: Broadcaster) -> impl trillium::Handler {
         },
     )
 }
+
+# fn main() {
+#     trillium_smol::run(app(Broadcaster));
+# }
 ```
 
 The `conn.swansong()` mechanism ensures the SSE stream is terminated when the server shuts down — `with_sse_stream` wraps the stream in a shutdown interrupt automatically.

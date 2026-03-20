@@ -9,6 +9,13 @@ The `trillium-proxy` crate provides both reverse proxy and forward proxy modes, 
 A reverse proxy forwards incoming requests to a fixed upstream and streams the response back. Pass a `Client` and an upstream URL to `Proxy::new`:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-logger = { path = "../logger" }
+# trillium-proxy = { path = "../proxy" }
+# env_logger = "*"
+#
 use trillium_client::Client;
 use trillium_logger::Logger;
 use trillium_proxy::{
@@ -41,11 +48,26 @@ pub fn main() {
 By default, a `404 Not Found` from the upstream is not forwarded — the conn is left unhalted so the next handler in the chain can respond. This makes it easy to proxy some paths while serving others locally:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-proxy = { path = "../proxy" }
+# trillium-router = { path = "../router" }
+#
+# use trillium_router::router;
+# use trillium_proxy::Proxy;
+# use trillium_client::Client;
+# use trillium_smol::ClientConfig;
+# fn main() {
+# let client = Client::new(ClientConfig::default());
+# async fn static_files(conn: trillium::Conn) -> trillium::Conn { conn }
 trillium_smol::run((
     router()
         .get("/api/*", Proxy::new(client.clone(), "http://api-server/api/")),
     static_files,
 ));
+# }
 ```
 
 Call `.proxy_not_found()` to forward 404 responses from the upstream as-is instead.
@@ -55,6 +77,14 @@ Call `.proxy_not_found()` to forward 404 responses from the upstream as-is inste
 When multiple upstream addresses are provided, the proxy distributes requests across them. The `RoundRobin` selector is built in; `ConnectionCounting` and `RandomSelector` are available via cargo features:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-proxy = { path = "../proxy" }
+#
+# fn main() {
+# use trillium_client::Client;
+# use trillium_smol::ClientConfig;
 use trillium_proxy::{Proxy, upstream::{ConnectionCounting, IntoUpstreamSelector}};
 
 let upstream = ["http://app1:8080", "http://app2:8080", "http://app3:8080"]
@@ -62,6 +92,8 @@ let upstream = ["http://app1:8080", "http://app2:8080", "http://app3:8080"]
     .collect::<ConnectionCounting<_>>();
 
 Proxy::new(Client::new(ClientConfig::default()), upstream)
+# ;
+# }
 ```
 
 You can also supply a closure as a custom upstream selector: `fn(&mut Conn) -> Option<Url>`.
@@ -71,7 +103,19 @@ You can also supply a closure as a custom upstream selector: `fn(&mut Conn) -> O
 Add a `Via` header to forwarded requests to identify the proxy in the request chain:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-proxy = { path = "../proxy" }
+#
+# fn main() {
+# use trillium_client::Client;
+# use trillium_smol::ClientConfig;
+# use trillium_proxy::Proxy;
+# let client = Client::new(ClientConfig::default());
 Proxy::new(client, "http://upstream/").with_via_pseudonym("my-proxy")
+# ;
+# }
 ```
 
 ### WebSocket proxying
@@ -79,7 +123,19 @@ Proxy::new(client, "http://upstream/").with_via_pseudonym("my-proxy")
 WebSocket upgrade requests are not proxied by default. Enable with:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-proxy = { path = "../proxy" }
+#
+# fn main() {
+# use trillium_client::Client;
+# use trillium_smol::ClientConfig;
+# use trillium_proxy::Proxy;
+# let client = Client::new(ClientConfig::default());
 Proxy::new(client, "http://upstream/").with_websocket_upgrades()
+# ;
+# }
 ```
 
 ### HTTP/3 upstream connections
@@ -87,17 +143,27 @@ Proxy::new(client, "http://upstream/").with_websocket_upgrades()
 To proxy over HTTP/3 to the upstream, initialize the client with `new_with_quic`. The proxy will upgrade connections automatically when the upstream advertises H3 support via `Alt-Svc`:
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-proxy = { path = "../proxy" }
+# trillium-quinn = { path = "../quinn", features = ["webpki-roots"] }
+# trillium-rustls = { path = "../rustls" }
+#
+# fn main() {
 use trillium_client::Client;
 use trillium_quinn::ClientQuicConfig;
 use trillium_rustls::RustlsConfig;
-use trillium_tokio::ClientConfig;
+use trillium_smol::ClientConfig;
+use trillium_proxy::Proxy;
 
 let client = Client::new_with_quic(
     RustlsConfig::<ClientConfig>::default(),
     ClientQuicConfig::with_webpki_roots(),
 );
 
-Proxy::new(client, "https://upstream/")
+trillium_smol::run(Proxy::new(client, "https://upstream/"));
+# }
 ```
 
 ## Forward proxy
@@ -107,6 +173,12 @@ A forward proxy acts as an intermediary for clients making requests to arbitrary
 Use `ForwardProxy` as the upstream selector to read the destination from the request itself, and add `ForwardProxyConnect` to handle `CONNECT` tunnel requests (needed for HTTPS through a forward proxy):
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-logger = { path = "../logger" }
+# trillium-proxy = { path = "../proxy" }
+#
 use trillium_client::Client;
 use trillium_logger::logger;
 use trillium_proxy::{ForwardProxyConnect, proxy, upstream::ForwardProxy};

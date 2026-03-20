@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
         "api",
+        "docs-check",
         "askama",
         "async-std",
         "aws-lambda",

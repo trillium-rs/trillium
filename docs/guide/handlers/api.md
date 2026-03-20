@@ -9,6 +9,11 @@ The `trillium-api` crate provides an extractor-based handler interface for build
 Wrap an async function with `api()` to turn it into a `Handler`:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-api = { path = "../api" }
+#
 use trillium::Conn;
 use trillium_api::{Json, api};
 
@@ -43,8 +48,15 @@ The function signature drives behavior:
 ## JSON request and response
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-api = { path = "../api" }
+# serde = { version = "*", features = ["derive"] }
+#
 use serde::{Deserialize, Serialize};
-use trillium_api::{Json, api};
+use trillium_api::Json;
+use trillium::Conn;
 
 #[derive(Deserialize)]
 struct CreatePost { title: String, body: String }
@@ -56,6 +68,7 @@ async fn create_post(_conn: &mut Conn, Json(input): Json<CreatePost>) -> Json<Po
     // In a real app you'd persist this somewhere
     Json(Post { id: 1, title: input.title, body: input.body })
 }
+# fn main() {}
 ```
 
 ## Error handling
@@ -77,8 +90,14 @@ These are handled automatically — if a client sends malformed JSON to a handle
 Your handler can return `Result<T, E>` where both `T` and `E` implement `Handler`. The idiomatic pattern is to define an error type for your application:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-api = { path = "../api" }
+# serde = { version = "*", features = ["derive"] }
+#
 use trillium::{Conn, Handler, Status};
-use trillium_api::{Json, api};
+use trillium_api::{Json, ApiConnExt};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -99,11 +118,18 @@ async fn divide(_conn: &mut Conn, Json((a, b)): Json<(f64, f64)>) -> Result<Json
         Ok(Json(a / b))
     }
 }
+# fn main() {}
 ```
 
 For extraction errors specifically, `Status` alone is a valid and simple error type — it sets the status code when run as a handler:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-api = { path = "../api" }
+# trillium-router = { path = "../router" }
+#
 use trillium::{Conn, Status};
 use trillium_api::TryFromConn;
 use trillium_router::RouterConnExt;
@@ -120,6 +146,7 @@ impl TryFromConn for UserId {
             .ok_or(Status::BadRequest)
     }
 }
+# fn main() {}
 ```
 
 ## Combining with the router
@@ -127,6 +154,17 @@ impl TryFromConn for UserId {
 `api()` returns a `Handler`, so it composes naturally with the router:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-router = { path = "../router" }
+# trillium-api = { path = "../api" }
+#
+# use trillium::Conn;
+# async fn list_posts(conn: &mut Conn, _: ()) { conn; }
+# async fn create_post(conn: &mut Conn, _: ()) { conn; }
+# async fn get_post(conn: &mut Conn, _: ()) { conn; }
+# fn main() {
 use trillium_router::router;
 use trillium_api::api;
 
@@ -134,6 +172,8 @@ let app = router()
     .get("/posts", api(list_posts))
     .post("/posts", api(create_post))
     .get("/posts/:id", api(get_post));
+# trillium_smol::run(app);
+# }
 ```
 
 ## JSON serialization backend

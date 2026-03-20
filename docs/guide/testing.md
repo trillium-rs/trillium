@@ -8,6 +8,11 @@ applications.
 
 Given a totally-contrived application like this:
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+#
 use trillium::{Conn, Handler, KnownHeaderName, conn_try};
 use trillium_logger::Logger;
 
@@ -34,6 +39,29 @@ fn main() {
 Here's what some simple tests would look like:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+# trillium-testing = { path = "../testing" }
+#
+# use trillium::{Conn, Handler, KnownHeaderName, conn_try};
+# use trillium_logger::Logger;
+# async fn teapot(mut conn: Conn) -> Conn {
+#     let request_body = conn_try!(conn.request_body_string().await, conn);
+#     if request_body.is_empty() {
+#         conn.with_status(406).with_body("unacceptable!").halt()
+#     } else {
+#         conn.with_body(format!("request body was: {request_body}"))
+#             .with_status(418)
+#             .with_response_header(KnownHeaderName::Server, "zojirushi")
+#     }
+# }
+# fn application() -> impl Handler {
+#     (Logger::new(), teapot)
+# }
+#
+# fn main() {}
 #[cfg(test)]
 mod tests {
     use super::{application, teapot};

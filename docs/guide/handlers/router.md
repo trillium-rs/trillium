@@ -21,6 +21,11 @@ http://localhost:8000/greet/mars with "hello mars" and responds to
 http://localhost:8000 with "hello everyone"
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-router = { path = "../router" }
+#
 use trillium::Conn;
 use trillium_router::{Router, RouterConnExt};
 
@@ -49,6 +54,13 @@ inside of another router as long as they depend on a compatible
 version of the `trillium` crate.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+# trillium-router = { path = "../router" }
+# env_logger = "*"
+#
 use trillium::{Conn, Handler, conn_try, conn_unwrap};
 use trillium_logger::Logger;
 use trillium_router::{Router, RouterConnExt};

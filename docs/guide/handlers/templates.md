@@ -14,8 +14,16 @@ Hello, {{ name }}!
 ```
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-askama = { path = "../askama" }
+# askama = "0.15"
+# file: askama/templates
+#
 use trillium::Conn;
-use trillium_askama::{AskamaConnExt, Template};
+use trillium_askama::AskamaConnExt;
+use askama::Template;
 
 #[derive(Template)]
 #[template(path = "examples/hello.html")]
@@ -48,12 +56,18 @@ Hello, {{ name }}!
 ```
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-tera = { path = "../tera" }
+# file: tera/examples/hello.html
+#
 use trillium::Conn;
 use trillium_tera::{TeraConnExt, TeraHandler};
 
 fn main() {
     trillium_smol::run((TeraHandler::new("**/*.html"), |conn: Conn| async move {
-        conn.assign("name", "hi").render("examples/hello.html")
+        conn.assign("name", "hi").render("hello.html")
     }));
 }
 ```
@@ -69,16 +83,23 @@ hello {{name}}!
 ```
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-handlebars = { path = "../handlebars" }
+# env_logger = "*"
+# file: handlebars/examples/templates
+#
 use trillium::Conn;
 use trillium_handlebars::{HandlebarsConnExt, HandlebarsHandler};
 
 fn main() {
     env_logger::init();
     trillium_smol::run((
-        HandlebarsHandler::new("./examples/templates/*.hbs"),
+        HandlebarsHandler::new("templates/*.hbs"),
         |conn: Conn| async move {
             conn.assign("name", "world")
-                .render("examples/templates/hello.hbs")
+                .render("templates/hello.hbs")
         },
     ));
 }
