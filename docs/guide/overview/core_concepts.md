@@ -5,11 +5,15 @@ The most important concepts in Trillium are the `Handler` trait and the `Conn` t
 Here's a minimal application:
 
 ```rust
-fn main() {
-    trillium_smol::run(|conn: trillium::Conn| async move {
-        conn.ok("hello from trillium!")
-    });
-}
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
+# fn main() {
+trillium_smol::run(|conn: trillium::Conn| async move {
+    conn.ok("hello from trillium!")
+});
+# }
 ```
 
 In this example:

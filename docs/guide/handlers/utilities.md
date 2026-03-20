@@ -9,12 +9,19 @@ These smaller crates handle HTTP-level concerns that most applications encounter
 Compresses response bodies using zstd, brotli, or gzip (in that preference order), selected based on the client's `Accept-Encoding` header. Place it early in your handler chain so it wraps all downstream responses.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-compression = { path = "../compression" }
+#
+# fn main() {
 use trillium_compression::Compression;
 
 trillium_smol::run((
     Compression::new(),
     |conn: trillium::Conn| async move { conn.ok("this body will be compressed") },
 ));
+# }
 ```
 
 ## Caching headers
@@ -24,12 +31,20 @@ trillium_smol::run((
 Handles `ETag`, `Last-Modified`, `If-None-Match`, and `If-Modified-Since` headers. When a downstream handler sets an etag or last-modified timestamp, this handler automatically returns `304 Not Modified` for unchanged resources.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-caching-headers = { path = "../caching-headers" }
+#
+# fn main() {
 use trillium_caching_headers::CachingHeaders;
 
 trillium_smol::run((
     CachingHeaders::new(),
     // downstream handlers set ETags or Last-Modified values
+#     |conn: trillium::Conn| async move { conn.ok("ok") },
 ));
+# }
 ```
 
 ## Conn ID
@@ -39,15 +54,25 @@ trillium_smol::run((
 Assigns each request a unique identifier. The ID is accessible via the `ConnIdExt` trait extension on `Conn`, and can be added to log output via a formatter for `trillium-logger`.
 
 ```rust
-use trillium_conn_id::{ConnId, ConnIdExt};
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-conn-id = { path = "../conn-id" }
+# trillium-logger = { path = "../logger" }
+#
+# fn main() {
+use trillium_conn_id::{ConnId, ConnIdExt, log_formatter::conn_id};
+use trillium_logger::{Logger, apache_combined};
 
 trillium_smol::run((
+    Logger::new().with_formatter(apache_combined(conn_id, "-")),
     ConnId::new(),
     |conn: trillium::Conn| async move {
-        let id = conn.conn_id().to_string();
+        let id = conn.id().to_string();
         conn.ok(format!("request id: {id}"))
     },
 ));
+# }
 ```
 
 ## Head
@@ -57,9 +82,17 @@ trillium_smol::run((
 Handles `HEAD` requests by running the full handler chain as if it were a `GET`, then stripping the response body before sending. Without this, `HEAD` requests return a 404 unless a handler explicitly checks for them.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-head = { path = "../head" }
+#
+# fn main() {
+# async fn my_handler(conn: trillium::Conn) -> trillium::Conn { conn }
 use trillium_head::Head;
 
 trillium_smol::run((Head::new(), my_handler));
+# }
 ```
 
 ## Method override
@@ -69,10 +102,18 @@ trillium_smol::run((Head::new(), my_handler));
 Rewrites the HTTP method based on a `_method` query parameter. HTML forms only support `GET` and `POST`; this handler lets them submit `DELETE`, `PATCH`, and `PUT` requests.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-method-override = { path = "../method-override" }
+#
+# fn main() {
+# async fn my_handler(conn: trillium::Conn) -> trillium::Conn { conn }
 use trillium_method_override::MethodOverride;
 
 trillium_smol::run((MethodOverride::new(), my_handler));
 // POST /items/42?_method=DELETE arrives at my_handler as DELETE /items/42
+# }
 ```
 
 ## Forwarding
@@ -82,12 +123,20 @@ trillium_smol::run((MethodOverride::new(), my_handler));
 When Trillium runs behind a reverse proxy, the remote IP and protocol in `Conn` reflect the proxy, not the actual client. This handler reads `Forwarded` and `X-Forwarded-*` headers from trusted proxies and corrects those values.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-forwarding = { path = "../forwarding" }
+#
+# fn main() {
+# async fn my_handler(conn: trillium::Conn) -> trillium::Conn { conn }
 use trillium_forwarding::Forwarding;
 
 trillium_smol::run((
     Forwarding::trust_always(), // or configure trusted IP ranges
     my_handler,
 ));
+# }
 ```
 
 ## Basic auth
@@ -97,10 +146,17 @@ trillium_smol::run((
 Enforces HTTP Basic Authentication. Requests without valid credentials receive a `401 Unauthorized` response with a `WWW-Authenticate: Basic` challenge.
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-basic-auth = { path = "../basic-auth" }
+#
+# fn main() {
 use trillium_basic_auth::BasicAuth;
 
 trillium_smol::run((
     BasicAuth::new("admin", "s3cr3t").with_realm("My App"),
     |conn: trillium::Conn| async move { conn.ok("authenticated") },
 ));
+# }
 ```

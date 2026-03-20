@@ -13,6 +13,10 @@ The wire protocol is compatible with the [Phoenix JavaScript client](https://hex
 ## Example: chat room
 
 ```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-channels = { path = "../channels" }
+#
 use trillium_channels::{ChannelConn, ChannelEvent, ChannelHandler, channel};
 
 struct ChatChannel;
@@ -24,7 +28,9 @@ impl ChannelHandler for ChatChannel {
                 conn.allow_join(&event, &()).await;
                 conn.broadcast(("rooms:lobby", "user:entered"));
             }
-            _ => conn.reject_join(&event).await,
+            _ => {
+                conn.reply_error(&event, &"unexpected topic join");
+            }
         }
     }
 
@@ -48,10 +54,15 @@ fn main() {
 The `event!` macro builds `ChannelEvent` values with an optional JSON payload:
 
 ```rust
+# [dependencies]
+# trillium-channels = { path = "../channels" }
+#
+# fn main() {
 use trillium_channels::event;
 
 let ping = event!("heartbeat", "ping");
 let msg  = event!("rooms:lobby", "new:msg", { "body": "hello everyone" });
+# }
 ```
 
 ## Broadcasting outside handlers
@@ -59,10 +70,17 @@ let msg  = event!("rooms:lobby", "new:msg", { "body": "hello everyone" });
 `Channel::broadcaster()` returns a `ChannelBroadcaster` that can be cloned and shared across tasks. Use it to push events from background jobs, timers, or any other code that doesn't have access to a `ChannelConn`:
 
 ```rust
+# [dependencies]
+# trillium-channels = { path = "../channels" }
+#
+# fn main() {
+#     use trillium_channels::event;
+#     let channel_handler = trillium_channels::channel(());
 let broadcaster = channel_handler.broadcaster();
 
 // In a background task:
 broadcaster.broadcast(event!("system", "announcement", { "text": "Server restarting soon" }));
+# }
 ```
 
 ## Current limitations

@@ -14,6 +14,11 @@ Here's a worked example: a handler that numbers each conn in order and makes tha
 ### The library implementation
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
+# fn main() {
 mod conn_counter {
     use std::sync::{
         Arc,
@@ -51,11 +56,38 @@ mod conn_counter {
         }
     }
 }
+# }
 ```
 
 ### Usage
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-testing = { path = "../testing" }
+#
+# use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+# struct ConnNumber(u64);
+# #[derive(Default)]
+# pub struct ConnCounterHandler(Arc<AtomicU64>);
+# impl ConnCounterHandler {
+#     pub fn new() -> Self { Self::default() }
+# }
+# impl trillium::Handler for ConnCounterHandler {
+#     async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
+#         let number = self.0.fetch_add(1, Ordering::SeqCst);
+#         conn.with_state(ConnNumber(number))
+#     }
+# }
+# pub trait ConnCounterConnExt {
+#     fn conn_number(&self) -> u64;
+# }
+# impl ConnCounterConnExt for trillium::Conn {
+#     fn conn_number(&self) -> u64 {
+#         self.state::<ConnNumber>().expect("conn_number must be called after the handler").0
+#     }
+# }
 use std::time::Instant;
 use trillium::{Conn, Handler, Init};
 
@@ -102,7 +134,15 @@ mod test {
 For data that lives at the server level (database pools, configuration, shared counters), use the `State<T>` handler from the `trillium` crate. It clones a value into the state of every `Conn` that passes through:
 
 ```rust
-use trillium::State;
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
+# #[derive(Clone)]
+# struct MyDbPool;
+# fn main() {
+# let my_db_pool = MyDbPool;
+use trillium::{State, Conn};
 
 trillium_smol::run((
     State::new(my_db_pool.clone()),
@@ -112,6 +152,7 @@ trillium_smol::run((
         conn.ok("done")
     },
 ));
+# }
 ```
 
 The `Init` handler (also from `trillium`) runs an async setup function once at startup and can store data in the server-level shared state, which is then available on every `Conn` via `conn.shared_state::<T>()`. See the state.rs example above for usage.

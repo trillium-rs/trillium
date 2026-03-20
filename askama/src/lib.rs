@@ -32,10 +32,6 @@
 //! assert_ok!(get("/").on(&handler), "Hello, trillium!");
 //! ```
 
-#[cfg(test)]
-#[doc = include_str!("../README.md")]
-mod readme {}
-
 pub use askama::{self, Template};
 use trillium::Status;
 
@@ -59,3 +55,7 @@ impl AskamaConnExt for trillium::Conn {
         }
     }
 }
+
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}

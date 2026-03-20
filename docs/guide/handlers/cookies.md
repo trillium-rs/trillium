@@ -7,6 +7,11 @@ The `trillium-cookies` crate parses inbound `Cookie` request headers and accumul
 ## Setup
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-cookies = { path = "../cookies" }
+#
 use trillium_cookies::{CookiesConnExt, CookiesHandler};
 
 fn main() {
@@ -27,8 +32,14 @@ fn main() {
 `conn.cookies()` returns a reference to the `CookieJar` for the current request:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-cookies = { path = "../cookies" }
+#
 use trillium_cookies::CookiesConnExt;
 
+# fn main() {
 async fn handler(conn: trillium::Conn) -> trillium::Conn {
     let greeting = if let Some(name) = conn.cookies().get("user_name") {
         format!("welcome back, {}!", name.value())
@@ -37,6 +48,8 @@ async fn handler(conn: trillium::Conn) -> trillium::Conn {
     };
     conn.ok(greeting)
 }
+# trillium_smol::run(handler);
+# }
 ```
 
 ## Setting cookies
@@ -44,43 +57,71 @@ async fn handler(conn: trillium::Conn) -> trillium::Conn {
 `conn.with_cookie(cookie)` queues a `Set-Cookie` header for the response. The simplest form takes a `(name, value)` tuple:
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-cookies = { path = "../cookies" }
+#
+use trillium_cookies::CookiesConnExt;
+// ...
+# fn main() {
+#     trillium_smol::run(|conn: trillium::Conn| async move {
 conn.with_cookie(("session_id", "abc123"))
+#     });
+# }
 ```
 
 For cookies with attributes, use `Cookie::build` from the re-exported `cookie` crate:
 
 ```rust
-use trillium_cookies::{CookiesConnExt, cookie::Cookie};
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-cookies = { path = "../cookies" }
+#
+# fn main() {
+#     trillium_smol::run(|conn: trillium::Conn| async move {
+use trillium_cookies::{CookiesConnExt, cookie::{Cookie, SameSite}};
 
 let cookie = Cookie::build(("preferences", "theme=dark"))
     .path("/")
     .secure(true)
     .http_only(true)
-    .same_site(cookie::SameSite::Strict)
+    .same_site(SameSite::Strict)
     .build();
 
 conn.with_cookie(cookie)
+#     });
+# }
 ```
 
 ## Removing cookies
 
-To delete a cookie, set it with an empty value and a past expiry:
+To delete a cookie, build a removal cookie.
 
 ```rust
-use trillium_cookies::cookie::Cookie;
-use time::OffsetDateTime;
-
-let expired = Cookie::build("session_id")
-    .value("")
-    .expires(OffsetDateTime::UNIX_EPOCH)
-    .build();
-
-conn.with_cookie(expired)
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-cookies = { path = "../cookies" }
+#
+# use trillium_cookies::{CookiesConnExt, cookie::Cookie};
+# fn main() {
+#     trillium_smol::run(|conn: trillium::Conn| async move {
+conn.with_cookie(Cookie::build("session_id").removal().build())
+#     });
+# }
 ```
 
 ## Full example
 
 ```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-cookies = { path = "../cookies" }
+# env_logger = "*"
+#
 use trillium::Conn;
 use trillium_cookies::{CookiesConnExt, CookiesHandler};
 
