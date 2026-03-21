@@ -57,7 +57,7 @@ async fn is_disconnected() -> TestResult {
             async move {
                 delay_receiver.recv().await.unwrap();
                 disconnected_sender
-                    .send(dbg!(conn.is_disconnected().await))
+                    .send(conn.is_disconnected().await)
                     .await
                     .unwrap();
                 conn.ok("ok")

@@ -504,8 +504,6 @@ impl Handler for Router {
             }
             new_conn
         } else if method == Method::Options && self.handle_options {
-            dbg!(&self);
-
             let allow = self
                 .routefinder
                 .methods_matching(path)
@@ -513,8 +511,6 @@ impl Handler for Router {
                 .map(|m| m.as_ref())
                 .collect::<Vec<_>>()
                 .join(", ");
-
-            dbg!(&allow);
 
             conn.with_response_header(KnownHeaderName::Allow, allow)
                 .with_status(200)

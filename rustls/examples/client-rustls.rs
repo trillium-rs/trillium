@@ -6,6 +6,7 @@ pub fn main() {
     block_on(async {
         let client = Client::new(RustlsConfig::<ClientConfig>::default());
 
-        let _ = dbg!(client.get("https://localhost:8080").await.unwrap());
+        let conn = client.get("https://localhost:8080").await.unwrap();
+        println!("{conn:?}");
     });
 }
