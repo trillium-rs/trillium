@@ -12,7 +12,7 @@ Wrap an async function with `api()` to turn it into a `Handler`:
 # [dependencies]
 # trillium = { path = "../trillium" }
 # trillium-smol = { path = "../smol" }
-# trillium-api = { path = "../api" }
+# trillium-api = { path = "../api", features = ["sonic-rs"] }
 #
 use trillium::Conn;
 use trillium_api::{Json, api};
@@ -93,7 +93,7 @@ Your handler can return `Result<T, E>` where both `T` and `E` implement `Handler
 # [dependencies]
 # trillium = { path = "../trillium" }
 # trillium-smol = { path = "../smol" }
-# trillium-api = { path = "../api" }
+# trillium-api = { path = "../api", features = ["sonic-rs"] }
 # serde = { version = "*", features = ["derive"] }
 #
 use trillium::{Conn, Handler, Status};
@@ -178,12 +178,8 @@ let app = router()
 
 ## JSON serialization backend
 
-By default, `trillium-api` uses `sonic-rs` for JSON. To use `serde_json` instead:
+trillium-api does not enable any default features, but you likely want to select either `serde_json`
+or `sonic-rs` to get the most out of this crate. The two features are mutually exclusive.
 
-```toml
-trillium-api = { version = "...", default-features = false, features = ["serde_json"] }
-```
-
-The two features are mutually exclusive. The crate re-exports whichever library is active as `trillium_api::json!` and `trillium_api::Value`.
-
-See the [rustdocs](https://docs.trillium.rs/trillium_api) for the full extractor API, custom extractor implementation, and return type details.
+See the [rustdocs](https://docs.trillium.rs/trillium_api) for the full extractor API, custom
+extractor implementation, and return type details.

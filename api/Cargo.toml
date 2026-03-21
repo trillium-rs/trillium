@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [features]
-default = ["forms", "sonic-rs"]
+default = []
 forms = ["serde_urlencoded", "form_urlencoded"]
 url = ["dep:url"]
 serde_json = ["dep:serde_json"]
@@ -31,7 +31,6 @@ trillium = { path = "../trillium", version = "0.2.20" }
 trillium-macros = { version = "0.0.6", path = "../macros" }
 url = { version = "2.5.8", optional = true }
 
-
 [dev-dependencies]
 async-io = "2.6.0"
 env_logger = "0.11.9"
@@ -40,6 +39,10 @@ trillium-logger = { path = "../logger" }
 trillium-router = { path = "../router" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
-trillium-api = { path = ".", features = ["url"] }
+trillium-api = { path = ".", features = ["url", "sonic-rs", "forms"] }
 test-harness = "0.3.1"
 async-channel = "2.5.0"
+
+[package.metadata.docs.rs]
+features = ["forms", "url", "sonic-rs"]
+rustdoc-args = ["--cfg", "docsrs"]

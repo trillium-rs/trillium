@@ -69,6 +69,7 @@ pub trait ApiConnExt {
     /// # });
     /// ```
     #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "sonic-rs", feature = "serde_json"))))]
     fn with_json(self, response: &impl Serialize) -> Self;
 
     /// Attempts to deserialize a type from the request body, based on the
@@ -162,6 +163,7 @@ pub trait ApiConnExt {
 
     /// Deserializes json without any Accepts header content negotiation
     #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "sonic-rs", feature = "serde_json"))))]
     fn deserialize_json<T>(&mut self) -> impl Future<Output = Result<T>> + Send
     where
         T: DeserializeOwned;
@@ -180,6 +182,7 @@ pub trait ApiConnExt {
 
 impl ApiConnExt for Conn {
     #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "sonic-rs", feature = "serde_json"))))]
     fn with_json(mut self, response: &impl Serialize) -> Self {
         #[cfg(feature = "serde_json")]
         let as_string = serde_json::to_string(&response);
@@ -254,6 +257,7 @@ impl ApiConnExt for Conn {
     }
 
     #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "sonic-rs", feature = "serde_json"))))]
     async fn deserialize_json<T>(&mut self) -> Result<T>
     where
         T: DeserializeOwned,
@@ -324,10 +328,12 @@ impl ApiConnExt for Conn {
 }
 
 enum AcceptableMime {
+    #[cfg_attr(docsrs, doc(cfg(any(feature = "sonic-rs", feature = "serde_json"))))]
     #[cfg(any(feature = "sonic-rs", feature = "serde_json"))]
     Json,
 
     #[cfg(feature = "forms")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "forms")))]
     Form,
 }
 

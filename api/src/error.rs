@@ -52,6 +52,7 @@ pub enum Error {
 }
 
 #[cfg(feature = "serde_json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde_json")))]
 impl From<serde_json::Error> for Error {
     fn from(value: serde_json::Error) -> Self {
         Self::ParseError {
@@ -62,6 +63,7 @@ impl From<serde_json::Error> for Error {
 }
 
 #[cfg(feature = "sonic-rs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sonic-rs")))]
 impl From<sonic_rs::Error> for Error {
     fn from(value: sonic_rs::Error) -> Self {
         Self::ParseError {
@@ -96,6 +98,7 @@ impl<E: Display> From<serde_path_to_error::Error<E>> for Error {
 }
 
 #[cfg(feature = "forms")]
+#[cfg_attr(docsrs, doc(cfg(feature = "forms")))]
 impl From<serde_urlencoded::ser::Error> for Error {
     fn from(value: serde_urlencoded::ser::Error) -> Self {
         Error::Other {

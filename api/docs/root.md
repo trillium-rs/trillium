@@ -76,11 +76,23 @@ run on the conn, typically setting an error status.
 
 ## Formats supported
 
-This crate supports *receiving* `application/json` and
-`application/x-www-form-urlencoded` by default. To disable form support,
-use `default-features = false`. Response serialization uses
-`Accept` header negotiation.
+This crate supports *receiving* `application/json` and `application/x-www-form-urlencoded`, gated on
+cargo features. Response serialization uses `Accept` header negotiation when `Body<T>` is used.
 
-JSON serialization defaults to `sonic-rs`. To use `serde_json`
-instead, set `default-features = false, features = ["serde_json"]`.
-The two features are mutually exclusive.
+trillium-api does not enable any default features, but you likely want to select either `serde_json`
+or `sonic-rs` to get the most out of this crate. sonic-rs is faster, and the serde_json feature
+exists mostly for backwards compatability or for applications that cannot avoid compiling
+serde_json.
+
+It is quite easy to add additional negotiated content types to this crate, so please open an issue
+if you need that.
+
+
+### cargo features
+
+* `forms`: enable form-urlencoded content negotiation (request/response bodies)
+* `url`: implement TryFromConn for [`url::Url`](https://docs.rs/url)
+* `serde_json`: use [`serde_json`](https://docs.rs/serde_json) for json bodies
+* `sonic-rs`: use [`sonic-rs`](https://docs.rs/sonic-rs) for json bodies
+
+> _note that rustdocs on docs.rs are generated with the following features enabled: forms, url, sonic-rs_

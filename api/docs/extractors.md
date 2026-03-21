@@ -1,4 +1,4 @@
-# Extractors — pulling data out of requests
+# Extractors — pulling data out of Conns
 
 The second parameter of an [`api`](crate::api) handler is the *extractor*
 — a type that implements [`TryFromConn`](crate::TryFromConn) (or its
@@ -38,7 +38,7 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 struct NewPost { title: String }
 
-/// Accepts JSON or form-urlencoded
+/// Accepts JSON or form-urlencoded (cargo-feature dependent)
 async fn with_body(_conn: &mut Conn, Body(post): Body<NewPost>) -> String {
     format!("created: {}", post.title)
 }

@@ -13,7 +13,7 @@ use trillium::{BoxedHandler, Conn, Handler};
 ///
 /// If extraction is infallible, implement [`FromConn`].
 pub trait TryFromConn: Send + Sync + Sized + 'static {
-    /// The Error type. Tf this is a Handler, you can extract Self directly in a ApiHandler
+    /// The Error type. If this is a Handler, you can extract Self directly in a ApiHandler
     /// signature, and Error will be called on Conn if try_from_conn fails.
     type Error: Send + Sync + Sized + 'static;
 
@@ -22,6 +22,7 @@ pub trait TryFromConn: Send + Sync + Sized + 'static {
 }
 
 #[cfg(feature = "serde_json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde_json")))]
 impl TryFromConn for serde_json::Value {
     type Error = crate::Error;
 
@@ -31,6 +32,7 @@ impl TryFromConn for serde_json::Value {
 }
 
 #[cfg(feature = "sonic-rs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sonic-rs")))]
 impl TryFromConn for sonic_rs::Value {
     type Error = crate::Error;
 
@@ -68,6 +70,7 @@ impl TryFromConn for String {
 }
 
 #[cfg(feature = "url")]
+#[cfg_attr(docsrs, doc(cfg(feature = "url")))]
 impl TryFromConn for url::Url {
     type Error = trillium::Status;
 

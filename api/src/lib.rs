@@ -1,4 +1,3 @@
-#![doc = include_str!("../docs/root.md")]
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
@@ -8,10 +7,8 @@
     nonstandard_style,
     unused_qualifications
 )]
-
-#[cfg(test)]
-#[doc = include_str!("../README.md")]
-mod readme {}
+#![doc = include_str!("../docs/root.md")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod api_conn_ext;
 mod api_handler;
@@ -35,14 +32,17 @@ pub use error::Error;
 pub use from_conn::FromConn;
 pub use halt::Halt;
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "serde_json", feature = "sonic-rs"))))]
 pub use json::Json;
 
 #[cfg(all(feature = "serde_json", feature = "sonic-rs"))]
 compile_error!("cargo features \"serde_json\" and \"sonic-rs\" are mutually exclusive");
 
 #[cfg(feature = "serde_json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde_json")))]
 pub use serde_json::{Value, json};
 #[cfg(feature = "sonic-rs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sonic-rs")))]
 pub use sonic_rs::{Value, json};
 pub use state::State;
 pub use try_from_conn::TryFromConn;
@@ -68,3 +68,7 @@ pub mod error_handling {}
 #[cfg(doc)]
 #[doc = include_str!("../docs/recipes.md")]
 pub mod recipes {}
+
+#[cfg(test)]
+#[doc = include_str!("../README.md")]
+mod readme {}
