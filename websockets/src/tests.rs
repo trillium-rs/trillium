@@ -1,6 +1,6 @@
 use super::connection_is_upgrade;
 use trillium::Conn;
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 #[test(harness)]
 async fn test_connection_is_upgrade() {
@@ -12,7 +12,7 @@ async fn test_connection_is_upgrade() {
         }
     };
 
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
 
     app.get("/").await.assert_ok().assert_body("no-upgrade");
 

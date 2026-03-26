@@ -34,15 +34,15 @@ async fn no_content(_conn: &mut Conn, _: ()) -> Status {
     Status::NoContent
 }
 
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(modify_conn)).await;
+#     let app = TestServer::new(api(modify_conn)).await;
 #     app.get("/").await.assert_ok().assert_body("done");
 #
-#     let app = TestHandler::new(api(string_body)).await;
+#     let app = TestServer::new(api(string_body)).await;
 #     app.get("/").await.assert_ok().assert_body("hello");
 #
-#     let app = TestHandler::new(api(no_content)).await;
+#     let app = TestServer::new(api(no_content)).await;
 #     app.get("/").await.assert_status(Status::NoContent);
 # });
 ```
@@ -71,9 +71,9 @@ async fn as_body(_conn: &mut Conn, _: ()) -> Body<User> {
     Body(User { name: "alice".into() })
 }
 
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(as_json)).await;
+#     let app = TestServer::new(api(as_json)).await;
 #     app.get("/").await.assert_ok().assert_body(r#"{"name":"alice"}"#).assert_header("content-type", "application/json");
 # });
 ```
@@ -96,9 +96,9 @@ async fn create(_conn: &mut Conn, _: ()) -> (Status, Json<Item>) {
     (Status::Created, Json(Item { id: 42 }))
 }
 
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(create)).await;
+#     let app = TestServer::new(api(create)).await;
 #     app.get("/").await.assert_status(Status::Created).assert_body(r#"{"id":42}"#);
 # });
 ```
@@ -139,9 +139,9 @@ async fn might_fail(_conn: &mut Conn, _: ()) -> Result<Json<&'static str>, (Stat
         Err((Status::InternalServerError, Json(ErrorBody { message: "boom".into() })))
     }
 }
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(might_fail)).await;
+#     let app = TestServer::new(api(might_fail)).await;
 #     app.get("/").await.assert_ok().assert_body(r#""success""#);
 # });
 ```
@@ -164,9 +164,9 @@ async fn direct(conn: &mut Conn, _: ()) {
     conn.insert_response_header("x-custom", "value");
     conn.set_body("done");
 }
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(direct)).await;
+#     let app = TestServer::new(api(direct)).await;
 #     app.get("/").await.assert_ok().assert_body("done").assert_header("x-custom", "value");
 # });
 ```

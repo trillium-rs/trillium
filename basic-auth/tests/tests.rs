@@ -1,6 +1,6 @@
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use trillium_basic_auth::{BasicAuth, Credentials};
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 fn auth_header(username: &str, password: &str) -> String {
     format!("Basic {}", BASE64.encode(format!("{username}:{password}")))
@@ -8,7 +8,7 @@ fn auth_header(username: &str, password: &str) -> String {
 
 #[test(harness)]
 async fn correct_auth() {
-    let app = TestHandler::new((BasicAuth::new("jacob", "7r1ll1um"), "ok")).await;
+    let app = TestServer::new((BasicAuth::new("jacob", "7r1ll1um"), "ok")).await;
 
     app.get("/")
         .with_request_header("Authorization", auth_header("jacob", "7r1ll1um"))
@@ -23,7 +23,7 @@ async fn correct_auth() {
 
 #[test(harness)]
 async fn incorrect_auth() {
-    let app = TestHandler::new((BasicAuth::new("jacob", "7r1ll1um"), "ok")).await;
+    let app = TestServer::new((BasicAuth::new("jacob", "7r1ll1um"), "ok")).await;
 
     app.get("/")
         .with_request_header("Authorization", auth_header("jacob", "wrong"))
@@ -35,7 +35,7 @@ async fn incorrect_auth() {
 
 #[test(harness)]
 async fn incorrect_auth_with_realm() {
-    let app = TestHandler::new((
+    let app = TestServer::new((
         BasicAuth::new("gunter", "quack").with_realm("kingdom of ooo"),
         "ok",
     ))
@@ -51,7 +51,7 @@ async fn incorrect_auth_with_realm() {
 
 #[test(harness)]
 async fn reuses_handler_across_requests() {
-    let app = TestHandler::new((BasicAuth::new("jacob", "7r1ll1um"), "ok")).await;
+    let app = TestServer::new((BasicAuth::new("jacob", "7r1ll1um"), "ok")).await;
 
     app.get("/")
         .with_request_header("Authorization", auth_header("jacob", "7r1ll1um"))

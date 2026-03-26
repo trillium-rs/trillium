@@ -11,6 +11,8 @@ use std::{
 /// # Errors
 ///
 /// This returns any io error encountered in reading or writing
+#[doc(hidden)]
+#[cfg(feature = "unstable")]
 pub async fn copy<R, W>(reader: R, writer: W, loops_per_yield: usize) -> Result<u64>
 where
     R: AsyncRead + Unpin,

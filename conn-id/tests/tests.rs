@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use trillium::Conn;
 use trillium_conn_id::*;
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 use uuid::Uuid;
 
 fn build_incrementing_id_generator() -> impl Fn() -> String + Send + Sync + 'static {
@@ -18,7 +18,7 @@ async fn set_id_state_for_tests(conn: Conn) -> Conn {
 
 #[test(harness)]
 async fn test_defaults() {
-    let app = TestHandler::new((ConnId::new().with_seed(1000), set_id_state_for_tests, "ok")).await;
+    let app = TestServer::new((ConnId::new().with_seed(1000), set_id_state_for_tests, "ok")).await;
 
     app.get("/")
         .await
@@ -47,7 +47,7 @@ async fn test_defaults() {
 
 #[test(harness)]
 async fn test_settings() {
-    let app = TestHandler::new((
+    let app = TestServer::new((
         ConnId::new()
             .with_request_header("x-custom-id")
             .with_response_header("x-something-else")
@@ -77,7 +77,7 @@ async fn test_settings() {
 
 #[test(harness)]
 async fn test_no_headers() {
-    let app = TestHandler::new((
+    let app = TestServer::new((
         ConnId::new()
             .with_id_generator(build_incrementing_id_generator())
             .without_request_header()

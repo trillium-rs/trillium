@@ -38,9 +38,9 @@ async fn require_user(
 }
 
 // Place before your router in the handler tuple:
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-let app = TestHandler::new((
+let app = TestServer::new((
     api(require_user),
     "hello, authenticated user",
 )).await;

@@ -1,10 +1,10 @@
 use trillium::{Conn, Method};
 use trillium_head::*;
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 #[test(harness)]
 async fn test() {
-    let app = TestHandler::new((Head::new(), |conn: Conn| async move {
+    let app = TestServer::new((Head::new(), |conn: Conn| async move {
         match (conn.method(), conn.path()) {
             (Method::Get, "/") => conn.ok("ok, this is my body"),
             (Method::Get, _) => conn.with_status(404).with_body("egads i don't have that"),

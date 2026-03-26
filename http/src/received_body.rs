@@ -17,17 +17,22 @@ mod h3_data;
 
 /// A received http body
 ///
-/// This type represents a body that will be read from the underlying
-/// transport, which it may either borrow from a [`Conn`](crate::Conn) or
-/// own.
+/// This type represents a body that will be read from the underlying transport, which it may either
+/// borrow from a [`Conn`](crate::Conn) or own.
 ///
 /// ```rust
-/// # trillium_testing::block_on(async {
-/// # use trillium_http::{Method, Conn};
-/// let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
-/// let body = conn.request_body().await;
-/// assert_eq!(body.read_string().await?, "hello");
-/// # trillium_http::Result::Ok(()) }).unwrap();
+/// # use trillium_testing::HttpTest;
+/// let app = HttpTest::new(|mut conn| async move {
+///     let body = conn.request_body().await; // send 100-continue if needed
+///     let body_string = body.read_string().await.unwrap();
+///     conn.with_response_body(format!("received: {body_string}"))
+/// });
+///
+/// app.get("/").block().assert_body("received: ");
+/// app.post("/")
+///     .with_body("hello")
+///     .block()
+///     .assert_body("received: hello");
 /// ```
 ///
 /// ## Bounds checking
@@ -45,19 +50,65 @@ mod h3_data;
 /// result in an error. This limitation is temporary.
 #[derive(fieldwork::Fieldwork)]
 pub struct ReceivedBody<'conn, Transport> {
+    /// The content-length of this body, if available. This
+    /// usually is derived from the content-length header. If the http
+    /// request or response that this body is attached to uses
+    /// transfer-encoding chunked, this will be None.
+    ///
+    /// ```rust
+    /// # use trillium_testing::HttpTest;
+    /// HttpTest::new(|mut conn| async move {
+    ///     let body = conn.request_body().await;
+    ///     assert_eq!(body.content_length(), Some(5));
+    ///     let body_string = body.read_string().await.unwrap();
+    ///     conn.with_status(200)
+    ///         .with_response_body(format!("received: {body_string}"))
+    /// })
+    /// .post("/")
+    /// .with_body("hello")
+    /// .block()
+    /// .assert_ok()
+    /// .assert_body("received: hello");
+    /// ```
+    #[field(get)]
     content_length: Option<u64>,
+
     buffer: MutCow<'conn, Buffer>,
+
     transport: Option<MutCow<'conn, Transport>>,
+
     state: MutCow<'conn, ReceivedBodyState>,
+
     on_completion: Option<Box<dyn FnOnce(Transport) + Send + Sync + 'static>>,
+
+    /// the character encoding of this body, usually determined from the content type
+    /// (mime-type) of the associated Conn.
+    #[field(get)]
     encoding: &'static Encoding,
+
     /// The maximum length that can be read from this body before error
     ///
-    /// See also [`HttpConfig::set_received_body_max_len`]
-    #[field(with, get)]
+    /// See also [`HttpConfig::received_body_max_len`]
+    #[field(with, get, set)]
     max_len: u64,
+
+    /// The initial buffer capacity allocated when reading the body to bytes or a string
+    ///
+    /// See [`HttpConfig::received_body_initial_len`]
+    #[field(with, get, set)]
     initial_len: usize,
+
+    /// The maximum number of read loops that reading this received body will perform before
+    /// yielding back to the runtime
+    ///
+    /// See [`HttpConfig::copy_loops_per_yield`]
+    #[field(with, get, set)]
     copy_loops_per_yield: usize,
+
+    /// Maximum size to pre-allocate based on content-length for buffering this received body
+    ///
+    /// See [`HttpConfig::received_body_max_preallocate`]
+    #[field(with, get, set)]
     max_preallocate: usize,
 }
 
@@ -116,22 +167,9 @@ where
         }
     }
 
-    /// Returns the content-length of this body, if available. This
-    /// usually is derived from the content-length header. If the http
-    /// request or response that this body is attached to uses
-    /// transfer-encoding chunked, this will be None.
-    ///
-    /// ```rust
-    /// # trillium_testing::block_on(async {
-    /// # use trillium_http::{Method, Conn};
-    /// let mut conn = Conn::new_synthetic(Method::Get, "/", "hello");
-    /// let body = conn.request_body().await;
-    /// assert_eq!(body.content_length(), Some(5));
-    /// # trillium_http::Result::Ok(()) }).unwrap();
-    /// ```
-    pub fn content_length(&self) -> Option<u64> {
-        self.content_length
-    }
+    // pub fn content_length(&self) -> Option<u64> {
+    //     self.content_length
+    // }
 
     /// # Reads entire body to String.
     ///
@@ -194,11 +232,9 @@ where
         Ok(vec)
     }
 
-    /// returns the character encoding of this body, usually determined from the content type
-    /// (mime-type) of the associated Conn.
-    pub fn encoding(&self) -> &'static Encoding {
-        self.encoding
-    }
+    // pub fn encoding(&self) -> &'static Encoding {
+    //     self.encoding
+    // }
 
     fn read_raw(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         if let Some(transport) = self.transport.as_deref_mut() {

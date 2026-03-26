@@ -16,7 +16,7 @@
 //! ```
 //! # trillium_testing::block_on(async {
 //! use trillium::{Conn, Status, conn_try};
-//! use trillium_testing::TestHandler;
+//! use trillium_testing::TestServer;
 //! async fn handler(mut conn: Conn) -> Conn {
 //!     let request_body = conn_try!(conn.request_body_string().await, conn);
 //!     conn.with_body(format!("request body was: {}", request_body))
@@ -24,7 +24,7 @@
 //!         .with_response_header("request-id", "special-request")
 //! }
 //!
-//! let app = TestHandler::new(handler).await;
+//! let app = TestServer::new(handler).await;
 //! app.post("/")
 //!     .with_body("hello trillium!")
 //!     .await
@@ -129,7 +129,6 @@ cfg_if::cfg_if! {
         pub fn runtime() -> impl RuntimeTrait {
             trillium_smol::SmolRuntime::default()
         }
-        pub(crate) use trillium_smol::SmolRuntime as RuntimeType;
     } else if #[cfg(feature = "async-std")] {
         /// runtime server config
         pub fn config() -> Config<impl Server, ()> {
@@ -143,8 +142,6 @@ cfg_if::cfg_if! {
         pub fn runtime() -> impl RuntimeTrait {
             trillium_async_std::AsyncStdRuntime::default()
         }
-        pub(crate) use trillium_async_std::AsyncStdRuntime as RuntimeType;
-
     } else if #[cfg(feature = "tokio")] {
         /// runtime server config
         pub fn config() -> Config<impl Server, ()> {
@@ -160,8 +157,6 @@ cfg_if::cfg_if! {
         pub fn runtime() -> impl RuntimeTrait {
             trillium_tokio::TokioRuntime::default()
         }
-
-        pub(crate) use trillium_tokio::TokioRuntime as RuntimeType;
    } else {
         /// runtime server config
         pub fn config() -> Config<impl Server, ()> {
@@ -177,16 +172,14 @@ cfg_if::cfg_if! {
        pub fn runtime() -> impl RuntimeTrait {
            RuntimelessRuntime::default()
        }
-
-       pub(crate) use RuntimelessRuntime as RuntimeType;
    }
 }
 
 mod with_server;
 pub use with_server::{with_server, with_transport};
 
-mod test_handler;
-pub use test_handler::{ConnTest, TestHandler};
+mod test_server;
+pub use test_server::{ConnTest, TestServer};
 
 mod runtimeless;
 pub use runtimeless::{RuntimelessClientConfig, RuntimelessRuntime, RuntimelessServer};
@@ -219,3 +212,17 @@ where
 }
 
 pub use test_harness::test;
+
+mod http_test;
+#[doc(hidden)]
+pub use http_test::HttpTest;
+
+#[cfg(all(feature = "serde_json", feature = "sonic-rs"))]
+compile_error!("cargo features \"serde_json\" and \"sonic-rs\" are mutually exclusive");
+
+#[cfg(feature = "serde_json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde_json")))]
+pub use serde_json::{Value, from_str as from_json_str, json, to_string as to_json_string};
+#[cfg(feature = "sonic-rs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sonic-rs")))]
+pub use sonic_rs::{Value, from_str as from_json_str, json, to_string as to_json_string};

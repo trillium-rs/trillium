@@ -66,11 +66,11 @@ Here's what some simple tests would look like:
 mod tests {
     use super::{handler, teapot};
     use trillium::Status;
-    use trillium_testing::{TestHandler, test, harness};
+    use trillium_testing::{TestServer, test, harness};
 
     #[test(harness)]
     async fn handler_sends_correct_headers_and_is_a_teapot() {
-        let app = TestHandler::new(handler()).await;
+        let app = TestServer::new(handler()).await;
         app.post("/")
             .with_body("hello trillium!")
             .await
@@ -84,7 +84,7 @@ mod tests {
 
     #[test(harness)]
     async fn we_can_also_test_the_individual_handler() {
-        let app = TestHandler::new(teapot).await;
+        let app = TestServer::new(teapot).await;
         app.post("/")
             .with_body("a different body")
             .await
@@ -94,7 +94,7 @@ mod tests {
 
     #[test(harness)]
     async fn response_is_lemongrab_when_body_is_empty() {
-        let app = TestHandler::new(handler()).await;
+        let app = TestServer::new(handler()).await;
         app.post("/")
             .await
             .assert_status(Status::NotAcceptable)

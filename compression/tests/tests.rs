@@ -1,5 +1,5 @@
 use trillium::KnownHeaderName::AcceptEncoding;
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 static COMPRESSIBLE_CONTENT: &str = r#"
 should be very compressible because it's repeated
@@ -15,7 +15,7 @@ should be very compressible because it's repeated"#;
 
 #[test(harness)]
 async fn test() {
-    let app = TestHandler::new((trillium_compression::compression(), COMPRESSIBLE_CONTENT)).await;
+    let app = TestServer::new((trillium_compression::compression(), COMPRESSIBLE_CONTENT)).await;
 
     assert_eq!(COMPRESSIBLE_CONTENT.len(), 500);
 

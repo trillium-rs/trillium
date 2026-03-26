@@ -1,10 +1,10 @@
 use trillium::Method;
 use trillium_router::*;
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 #[test(harness)]
 async fn options_star_with_a_star_handler() {
-    let app = TestHandler::new(
+    let app = TestServer::new(
         Router::new()
             .get("*", "ok")
             .post("/some/specific/route", "ok"),
@@ -19,7 +19,7 @@ async fn options_star_with_a_star_handler() {
 
 #[test(harness)]
 async fn options_specific_route_with_several_matching_methods() {
-    let app = TestHandler::new(
+    let app = TestServer::new(
         Router::new()
             .get("*", "ok")
             .post("/some/specific/route", "ok")
@@ -45,7 +45,7 @@ async fn options_specific_route_with_several_matching_methods() {
 
 #[test(harness)]
 async fn options_specific_route_with_no_matching_routes() {
-    let app = TestHandler::new(
+    let app = TestServer::new(
         Router::new()
             .post("/some/specific/route", "ok")
             .delete("/some/specific/:anything", "ok"),
@@ -61,7 +61,7 @@ async fn options_specific_route_with_no_matching_routes() {
 #[test(harness)]
 async fn options_any() {
     let app =
-        TestHandler::new(Router::new().any(&["delete", "get", "patch"], "/some-route", "ok")).await;
+        TestServer::new(Router::new().any(&["delete", "get", "patch"], "/some-route", "ok")).await;
 
     app.build(Method::Options, "*")
         .await
@@ -71,14 +71,14 @@ async fn options_any() {
 
 #[test(harness)]
 async fn when_options_are_disabled() {
-    let app = TestHandler::new(Router::new().without_options_handling().get("*", "ok")).await;
+    let app = TestServer::new(Router::new().without_options_handling().get("*", "ok")).await;
 
     app.build(Method::Options, "/").await.assert_status(404);
 }
 
 #[test(harness)]
 async fn nested_router() {
-    let app = TestHandler::new(Router::new().all(
+    let app = TestServer::new(Router::new().all(
         "/nested/*",
         Router::new().get("/here", "ok").post("*", "ok"),
     ))

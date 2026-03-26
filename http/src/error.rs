@@ -64,7 +64,7 @@ pub enum Error {
     #[error("Missing status code")]
     MissingStatus,
 
-    /// we were unable to parse a [`Status`]
+    /// we were unable to parse a [`Status`](crate::Status)
     #[error("Invalid status code")]
     InvalidStatus,
 

@@ -18,7 +18,7 @@
 //! # fn main() -> tera::Result<()> {
 //! use trillium::Conn;
 //! use trillium_tera::{Tera, TeraConnExt, TeraHandler};
-//! use trillium_testing::TestHandler;
+//! use trillium_testing::TestServer;
 //!
 //! let mut tera = Tera::default();
 //! tera.add_raw_template("hello.html", "hello {{name}} from {{render_engine}}")?;
@@ -30,7 +30,7 @@
 //! );
 //!
 //! # trillium_testing::block_on(async {
-//! let app = TestHandler::new(handler).await;
+//! let app = TestServer::new(handler).await;
 //! app.get("/")
 //!     .await
 //!     .assert_ok()

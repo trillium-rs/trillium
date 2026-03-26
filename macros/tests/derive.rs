@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use trillium::{Conn, Handler, Info, Status::Ok};
 use trillium_macros::Handler;
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 fn assert_handler(_: impl Handler) {}
 
@@ -42,7 +42,7 @@ async fn full_lifecycle() {
     assert_eq!(info.state::<&str>().unwrap(), &"inner handler took over");
     assert!(handler.0.init);
 
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
     app.get("/")
         .await
         .assert_ok()
@@ -58,7 +58,7 @@ async fn unnamed_1() {
     struct Foo(String);
 
     let handler = Foo(String::from("hi"));
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
 
     app.get("/").await.assert_ok().assert_body("hi");
 }
@@ -69,7 +69,7 @@ async fn unnamed_2() {
     struct Foo(&'static str, #[handler] &'static str);
 
     let handler = Foo("not-run", "hi");
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
 
     app.get("/").await.assert_ok().assert_body("hi");
 }
@@ -84,7 +84,7 @@ async fn named_1() {
     let handler = Foo {
         handler: String::from("hi"),
     };
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
 
     app.get("/").await.assert_ok().assert_body("hi");
 }
@@ -102,7 +102,7 @@ async fn named_2() {
         handler: String::from("hi"),
         not_handler: (),
     };
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
 
     app.get("/").await.assert_ok().assert_body("hi");
 }
@@ -119,7 +119,7 @@ async fn unnamed_generic() {
     assert_handler(Bar((Ok, "yes")));
     let handler = Bar((Ok, "yes"));
 
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
     app.get("/").await.assert_ok();
 
     #[derive(Handler)]
@@ -142,7 +142,7 @@ async fn named_generic() {
     assert_handler(Bar { thing: (Ok, "yes") });
 
     let handler = Bar { thing: (Ok, "yes") };
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
     app.get("/").await.assert_ok();
 
     #[derive(Handler)]

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use trillium::{Conn, Handler, Headers, KnownHeaderName, Status};
 use trillium_api::*;
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Struct {
@@ -25,7 +25,7 @@ fn app_with_body() -> impl Handler {
 
 #[test(harness)]
 async fn json_request_json_response() {
-    let app = TestHandler::new(app_with_body()).await;
+    let app = TestServer::new(app_with_body()).await;
 
     app.post("/")
         .with_request_header("content-type", "application/json")
@@ -37,7 +37,7 @@ async fn json_request_json_response() {
 
 #[test(harness)]
 async fn form_urlencoded_json_response() {
-    let app = TestHandler::new(app_with_body()).await;
+    let app = TestServer::new(app_with_body()).await;
 
     app.post("/")
         .with_request_header("content-type", "application/x-www-form-urlencoded")
@@ -50,7 +50,7 @@ async fn form_urlencoded_json_response() {
 #[cfg(feature = "sonic-rs")]
 #[test(harness)]
 async fn malformed_json_request() {
-    let app = TestHandler::new(app_with_body()).await;
+    let app = TestServer::new(app_with_body()).await;
 
     let response = app
         .post("/")
@@ -73,7 +73,7 @@ fn app_without_body() -> impl Handler {
 
 #[test(harness)]
 async fn get_json_response() {
-    let app = TestHandler::new(app_without_body()).await;
+    let app = TestServer::new(app_without_body()).await;
 
     app.get("/")
         .await
@@ -88,7 +88,7 @@ async fn get_custom_content_type() {
         Headers::from_iter([(KnownHeaderName::ContentType, "application/custom+json")]),
         Json(json!({"health": "ok"})),
     );
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
 
     app.get("/")
         .await
@@ -103,7 +103,7 @@ fn app_with_json() -> impl Handler {
 
 #[test(harness)]
 async fn json_try_from_conn_checks_content_type() {
-    let app = TestHandler::new(app_with_json()).await;
+    let app = TestServer::new(app_with_json()).await;
 
     app.post("/")
         .with_request_header("content-type", "application/x-www-form-urlencoded")
@@ -133,7 +133,7 @@ fn app_with_error_handler() -> impl Handler {
 #[test(harness)]
 async fn error_handler_works() {
     let _ = env_logger::builder().is_test(true).try_init();
-    let app = TestHandler::new(app_with_error_handler()).await;
+    let app = TestServer::new(app_with_error_handler()).await;
 
     app.post("/")
         .with_request_header("content-type", "application/x-www-form-urlencoded")

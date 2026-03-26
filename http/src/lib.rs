@@ -84,6 +84,7 @@ mod readme {}
 mod received_body;
 pub use received_body::ReceivedBody;
 #[cfg(feature = "unstable")]
+#[doc(hidden)]
 pub use received_body::{H3BodyFrameType, ReceivedBodyState};
 
 mod error;
@@ -95,7 +96,11 @@ pub use conn::{Conn, SERVER};
 mod connection_status;
 pub use connection_status::ConnectionStatus;
 
+#[doc(hidden)]
+#[cfg(feature = "unstable")]
 mod synthetic;
+#[doc(hidden)]
+#[cfg(feature = "unstable")]
 pub use synthetic::Synthetic;
 
 mod upgrade;
@@ -141,9 +146,6 @@ pub mod http_compat1;
 #[cfg(feature = "http-compat")]
 pub mod http_compat0;
 
-#[cfg(feature = "http-compat")]
-pub use http_compat0 as http_compat; // for semver
-
 mod bufwriter;
 pub(crate) use bufwriter::BufWriter;
 
@@ -154,12 +156,14 @@ pub(crate) mod after_send;
 
 mod buffer;
 #[cfg(feature = "unstable")]
+#[doc(hidden)]
 pub use buffer::Buffer;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use buffer::Buffer;
 
 mod copy;
 #[cfg(feature = "unstable")]
+#[doc(hidden)]
 pub use copy::copy;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use copy::copy;

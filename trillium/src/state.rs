@@ -12,7 +12,7 @@ use std::fmt::Debug;
 ///     atomic::{AtomicBool, Ordering},
 /// };
 /// use trillium::{Conn, State};
-/// use trillium_testing::TestHandler;
+/// use trillium_testing::TestServer;
 ///
 /// #[derive(Clone, Default)] // Clone is mandatory
 /// struct MyFeatureFlag(Arc<AtomicBool>);
@@ -38,7 +38,7 @@ use std::fmt::Debug;
 ///     }
 /// });
 ///
-/// let app = TestHandler::new(handler).await;
+/// let app = TestServer::new(handler).await;
 ///
 /// assert!(!feature_flag.is_enabled());
 /// app.get("/").await.assert_ok().assert_body("not enabled");

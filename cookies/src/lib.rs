@@ -15,7 +15,7 @@
 //! ```
 //! use trillium::Conn;
 //! use trillium_cookies::{CookiesConnExt, CookiesHandler, cookie::Cookie};
-//! use trillium_testing::{TestHandler, harness};
+//! use trillium_testing::{TestServer, harness};
 //!
 //! # trillium_testing::block_on(async {
 //! async fn handler_that_uses_cookies(conn: Conn) -> Conn {
@@ -30,7 +30,7 @@
 //! }
 //!
 //! let handler = (CookiesHandler::new(), handler_that_uses_cookies);
-//! let app = TestHandler::new(handler).await;
+//! let app = TestServer::new(handler).await;
 //!
 //! app.get("/")
 //!     .await

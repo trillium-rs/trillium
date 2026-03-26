@@ -69,3 +69,13 @@ mod into_url;
 pub use into_url::IntoUrl;
 
 mod h3;
+
+#[cfg(all(feature = "serde_json", feature = "sonic-rs"))]
+compile_error!("cargo features \"serde_json\" and \"sonic-rs\" are mutually exclusive");
+
+#[cfg(feature = "serde_json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde_json")))]
+pub use serde_json::{Value, json};
+#[cfg(feature = "sonic-rs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sonic-rs")))]
+pub use sonic_rs::{Value, json};

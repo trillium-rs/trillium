@@ -19,12 +19,12 @@ async fn echo(_conn: &mut Conn, Json(body): Json<trillium_api::Value>) -> Json<t
     Json(body)
 }
 
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(hello)).await;
+#     let app = TestServer::new(api(hello)).await;
 #     app.get("/").await.assert_ok().assert_body(r#""hello, world""#);
 #
-#     let app = TestHandler::new(api(echo)).await;
+#     let app = TestServer::new(api(echo)).await;
 #     app.post("/")
 #         .with_body(r#"{"key":"value"}"#)
 #         .with_request_header("content-type", "application/json")

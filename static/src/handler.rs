@@ -80,10 +80,10 @@ impl StaticFileHandler {
     /// # use trillium::{Handler, Status};
     /// # trillium_testing::block_on(async {
     /// use trillium_static::{StaticFileHandler, crate_relative_path};
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// let mut handler = StaticFileHandler::new(crate_relative_path!("examples/files"));
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     ///
     /// app.get("/").await.assert_status(Status::NotFound); // no index file configured
     ///
@@ -121,14 +121,14 @@ impl StaticFileHandler {
     /// # #[cfg(not(unix))] fn main() {}
     /// # #[cfg(unix)] fn main() {
     /// # use trillium::Handler;
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// # trillium_testing::block_on(async {
     ///
     /// use trillium_static::{StaticFileHandler, crate_relative_path};
     ///
     /// let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
     ///     .with_index_file("index.html");
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     ///
     /// app.get("/")
     ///     .await
