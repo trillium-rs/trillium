@@ -18,10 +18,10 @@
 //! ```
 //! use trillium::{Conn, conn_unwrap};
 //! use trillium_router::{Router, RouterConnExt};
-//! use trillium_testing::TestHandler;
+//! use trillium_testing::TestServer;
 //!
 //! # trillium_testing::block_on(async {
-//! let app = TestHandler::new(
+//! let app = TestServer::new(
 //!     Router::new()
 //!         .get("/", |conn: Conn| async move {
 //!             conn.ok("you have reached the index")
@@ -91,7 +91,7 @@ pub use router_conn_ext::RouterConnExt;
 /// ```
 /// use trillium::{conn_unwrap, Conn};
 /// use trillium_router::{routes, RouterConnExt};
-/// use trillium_testing::TestHandler;
+/// use trillium_testing::TestServer;
 ///
 /// # trillium_testing::block_on(async {
 /// let router = routes!(
@@ -103,7 +103,7 @@ pub use router_conn_ext::RouterConnExt;
 /// }
 /// );
 ///
-/// let app = TestHandler::new(router).await;
+/// let app = TestServer::new(router).await;
 /// app.get("/").await
 ///     .assert_ok()
 ///     .assert_body("you have reached the index");

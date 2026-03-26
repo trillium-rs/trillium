@@ -22,7 +22,7 @@ impl HandlebarsHandler {
     /// # if cfg!(unix) {
     /// # use std::path::PathBuf;
     /// use trillium_handlebars::{HandlebarsConnExt, HandlebarsHandler};
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = (
@@ -33,7 +33,7 @@ impl HandlebarsHandler {
     ///     },
     /// );
     ///
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/")
     ///     .await
     ///     .assert_ok()
@@ -45,7 +45,7 @@ impl HandlebarsHandler {
     ///
     /// ```
     /// use trillium_handlebars::{HandlebarsHandler, Handlebars, HandlebarsConnExt};
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// // building a Handlebars directly
@@ -60,7 +60,7 @@ impl HandlebarsHandler {
     /// );
     ///
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/")
     ///     .await
     ///     .assert_ok()

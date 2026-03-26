@@ -17,9 +17,9 @@ use trillium::Conn;
 async fn health(_conn: &mut Conn, _: ()) -> &'static str {
     "ok"
 }
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(health)).await;
+#     let app = TestServer::new(api(health)).await;
 #     app.get("/").await.assert_ok().assert_body("ok");
 # });
 ```
@@ -48,11 +48,11 @@ async fn with_json(_conn: &mut Conn, Json(post): Json<NewPost>) -> String {
     format!("created: {}", post.title)
 }
 
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # use trillium::Status;
 # trillium_testing::block_on(async {
 #     // Body accepts form-urlencoded
-#     let app = TestHandler::new(api(with_body)).await;
+#     let app = TestServer::new(api(with_body)).await;
 #     app.post("/")
 #         .with_request_header("content-type", "application/x-www-form-urlencoded")
 #         .with_body("title=hello")
@@ -61,7 +61,7 @@ async fn with_json(_conn: &mut Conn, Json(post): Json<NewPost>) -> String {
 #         .assert_body("created: hello");
 #
 #     // Json rejects form-urlencoded
-#     let app = TestHandler::new(api(with_json)).await;
+#     let app = TestServer::new(api(with_json)).await;
 #     app.post("/")
 #         .with_request_header("content-type", "application/x-www-form-urlencoded")
 #         .with_body("title=hello")
@@ -101,9 +101,9 @@ async fn show_config(
     Json(config.name)
 }
 
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new((
+#     let app = TestServer::new((
 #         trillium::State::new(AppConfig { name: "my app".into() }),
 #         api(show_config),
 #     )).await;
@@ -127,9 +127,9 @@ use trillium::{Conn, Headers, Method};
 async fn inspect(_conn: &mut Conn, (method, headers): (Method, Headers)) -> String {
     format!("{} with {} headers", method, headers.len())
 }
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(inspect)).await;
+#     let app = TestServer::new(api(inspect)).await;
 #     app.get("/").await.assert_ok();
 # });
 ```
@@ -162,9 +162,9 @@ async fn create(
     (Status::Created, Json(Item { id: 1, name: input.name }))
 }
 
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new((trillium::State::new(Db), api(create))).await;
+#     let app = TestServer::new((trillium::State::new(Db), api(create))).await;
 #     app.post("/")
 #         .with_request_header("content-type", "application/json")
 #         .with_body(r#"{"name":"widget"}"#)
@@ -217,9 +217,9 @@ async fn greet(_conn: &mut Conn, user: Option<User>) -> String {
     }
 }
 
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(greet)).await;
+#     let app = TestServer::new(api(greet)).await;
 #     app.get("/").with_request_header("x-user", "alice").await.assert_ok().assert_body("hello, alice");
 #     app.get("/").await.assert_ok().assert_body("hello, stranger");
 # });
@@ -254,9 +254,9 @@ async fn lenient(
     }
 }
 
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(lenient)).await;
+#     let app = TestServer::new(api(lenient)).await;
 #     app.post("/")
 #         .with_request_header("content-type", "application/json")
 #         .with_body(r#"{"name":"alice"}"#)

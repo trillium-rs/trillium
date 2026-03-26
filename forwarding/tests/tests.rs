@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 use trillium::{Conn, KnownHeaderName};
 use trillium_forwarding::*;
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 fn app(forwarding: Forwarding) -> impl trillium::Handler {
     (forwarding, |conn: Conn| async move {
@@ -17,7 +17,7 @@ fn app(forwarding: Forwarding) -> impl trillium::Handler {
 
 #[test(harness)]
 async fn test_always() {
-    let app = TestHandler::new(app(Forwarding::trust_always()))
+    let app = TestServer::new(app(Forwarding::trust_always()))
         .await
         .with_host("original");
 
@@ -51,7 +51,7 @@ async fn test_always() {
 
 #[test(harness)]
 async fn test_loopback() {
-    let app = TestHandler::new(app(Forwarding::trust_fn(IpAddr::is_loopback)))
+    let app = TestServer::new(app(Forwarding::trust_fn(IpAddr::is_loopback)))
         .await
         .with_host("original");
 
@@ -80,7 +80,7 @@ async fn test_loopback() {
 
 #[test(harness)]
 async fn test_ipranges() {
-    let app = TestHandler::new(app(Forwarding::trust_ips([
+    let app = TestServer::new(app(Forwarding::trust_ips([
         "10.10.10.10",
         "192.168.0.0/16",
     ])))

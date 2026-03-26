@@ -156,7 +156,7 @@ macro_rules! method {
 ```
 # use trillium::Conn;
 # use trillium_router::Router;
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
 let router = Router::new().",
                 stringify!($fn_name),
@@ -164,7 +164,7 @@ let router = Router::new().",
   conn.ok(\"success\")
 });
 
-let app = TestHandler::new(router).await;
+let app = TestServer::new(router).await;
 app.",
                 stringify!($fn_name),
                 "(\"/some/route\").await
@@ -214,7 +214,7 @@ impl Router {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let router = Router::new()
@@ -226,7 +226,7 @@ impl Router {
     ///     })
     ///     .post("/", |conn: Conn| async move { conn.ok("post!") });
     ///
-    /// let app = TestHandler::new(router).await;
+    /// let app = TestServer::new(router).await;
     /// app.get("/")
     ///     .await
     ///     .assert_ok()
@@ -265,7 +265,7 @@ impl Router {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// # trillium_testing::block_on(async {
     /// let router = Router::build(|mut router| {
     ///     router.get("/", |conn: Conn| async move {
@@ -279,7 +279,7 @@ impl Router {
     ///     router.post("/", |conn: Conn| async move { conn.ok("post!") });
     /// });
     ///
-    /// let app = TestHandler::new(router).await;
+    /// let app = TestServer::new(router).await;
     /// app.get("/")
     ///     .await
     ///     .assert_ok()
@@ -310,7 +310,7 @@ impl Router {
     /// ```
     /// # use trillium::{Conn, Method};
     /// # use trillium_router::Router;
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// # trillium_testing::block_on(async {
     /// let router = Router::new()
     ///     .with_route("OPTIONS", "/some/route", |conn: Conn| async move {
@@ -320,7 +320,7 @@ impl Router {
     ///         conn.ok("checkin??")
     ///     });
     ///
-    /// let app = TestHandler::new(router).await;
+    /// let app = TestServer::new(router).await;
     /// app.build(Method::Options, "/some/route")
     ///     .await
     ///     .assert_ok()
@@ -370,14 +370,14 @@ impl Router {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// let router = Router::new().all("/any", |conn: Conn| async move {
     ///     let response = format!("you made a {} request to /any", conn.method());
     ///     conn.ok(response)
     /// });
     ///
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new(router).await;
+    /// let app = TestServer::new(router).await;
     ///
     /// app.get("/any")
     ///     .await
@@ -420,14 +420,14 @@ impl Router {
     /// ```
     /// # use trillium::Conn;
     /// # use trillium_router::Router;
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// let router = Router::new().any(&["get", "post"], "/get_or_post", |conn: Conn| async move {
     ///     let response = format!("you made a {} request to /get_or_post", conn.method());
     ///     conn.ok(response)
     /// });
     ///
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new(router).await;
+    /// let app = TestServer::new(router).await;
     ///
     /// app.get("/get_or_post")
     ///     .await

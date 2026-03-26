@@ -6,9 +6,9 @@ use std::{future::Future, mem};
 ///
 /// ```
 /// use trillium::{Conn, Init, State};
-/// use trillium_testing::TestHandler;
+/// use trillium_testing::TestServer;
 ///
-/// #[derive(Debug, Clone)]
+/// #[derive(Debug, Clone, PartialEq)]
 /// struct MyDatabaseConnection(String);
 /// impl MyDatabaseConnection {
 ///     async fn connect(uri: &str) -> std::io::Result<Self> {
@@ -33,7 +33,8 @@ use std::{future::Future, mem};
 ///     },
 /// );
 ///
-/// let app = TestHandler::new(handler).await;
+/// let app = TestServer::new(handler).await;
+/// app.assert_shared_state(MyDatabaseConnection("db://db".into()));
 /// app.get("/")
 ///     .await
 ///     .assert_ok()

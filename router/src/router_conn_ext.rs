@@ -12,7 +12,7 @@ pub trait RouterConnExt {
     /// ```
     /// use trillium::{Conn, conn_unwrap};
     /// use trillium_router::{Router, RouterConnExt};
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let router = Router::new().get("/pages/:page_name", |conn: Conn| async move {
@@ -21,7 +21,7 @@ pub trait RouterConnExt {
     ///     conn.ok(content)
     /// });
     ///
-    /// let app = TestHandler::new(router).await;
+    /// let app = TestServer::new(router).await;
     /// app.get("/pages/trillium")
     ///     .await
     ///     .assert_ok()
@@ -37,7 +37,7 @@ pub trait RouterConnExt {
     /// ```
     /// use trillium::{Conn, conn_unwrap};
     /// use trillium_router::{Router, RouterConnExt};
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let router = Router::new().get("/pages/*", |conn: Conn| async move {
@@ -46,7 +46,7 @@ pub trait RouterConnExt {
     ///     conn.ok(content)
     /// });
     ///
-    /// let app = TestHandler::new(router).await;
+    /// let app = TestServer::new(router).await;
     /// app.get("/pages/this/is/a/wildcard/match")
     ///     .await
     ///     .assert_ok()
@@ -59,7 +59,7 @@ pub trait RouterConnExt {
     /// ```
     /// use trillium::{Conn, conn_unwrap};
     /// use trillium_router::{Router, RouterConnExt};
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let router = Router::new().get("/pages/:page_id", |conn: Conn| async move {
@@ -67,7 +67,7 @@ pub trait RouterConnExt {
     ///     conn.ok(format!("route was {route}"))
     /// });
     ///
-    /// let app = TestHandler::new(router).await;
+    /// let app = TestServer::new(router).await;
     /// app.get("/pages/12345")
     ///     .await
     ///     .assert_ok()

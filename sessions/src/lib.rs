@@ -81,7 +81,7 @@
 //! use trillium::Conn;
 //! use trillium_cookies::{CookiesHandler, cookie::Cookie};
 //! use trillium_sessions::{MemoryStore, SessionConnExt, SessionHandler};
-//! use trillium_testing::TestHandler;
+//! use trillium_testing::TestServer;
 //!
 //! # trillium_testing::block_on(async {
 //! # unsafe { std::env::set_var(
@@ -100,7 +100,7 @@
 //!     },
 //! );
 //!
-//! let app = TestHandler::new(handler).await;
+//! let app = TestServer::new(handler).await;
 //!
 //! let response = app.get("/").await;
 //! response.assert_ok().assert_body("count: 0");

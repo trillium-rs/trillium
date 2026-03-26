@@ -1,6 +1,6 @@
 use trillium::{Conn, Method};
 use trillium_method_override::*;
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 async fn test_handler(conn: Conn) -> Conn {
     match (conn.method(), conn.path()) {
@@ -14,7 +14,7 @@ async fn test_handler(conn: Conn) -> Conn {
 
 #[test(harness)]
 async fn test() {
-    let app = TestHandler::new((MethodOverride::new(), test_handler)).await;
+    let app = TestServer::new((MethodOverride::new(), test_handler)).await;
 
     app.post("/?_method=delete")
         .await
@@ -41,7 +41,7 @@ async fn test() {
 
 #[test(harness)]
 async fn with_limited_allowed_methods() {
-    let app = TestHandler::new((
+    let app = TestServer::new((
         MethodOverride::new().with_allowed_methods(["put", "patch"]),
         test_handler,
     ))
@@ -65,7 +65,7 @@ async fn with_limited_allowed_methods() {
 
 #[test(harness)]
 async fn with_a_different_param_name() {
-    let app = TestHandler::new((MethodOverride::new().with_param_name("verb"), test_handler)).await;
+    let app = TestServer::new((MethodOverride::new().with_param_name("verb"), test_handler)).await;
 
     app.post("/?verb=delete")
         .await

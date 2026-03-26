@@ -1,4 +1,4 @@
-use crate::{RuntimeType, TestTransport};
+use crate::{Runtime, TestTransport};
 use async_channel::Receiver;
 use std::{
     io,
@@ -11,13 +11,34 @@ use trillium_server_common::Connector;
 use url::Url;
 
 /// a bridge between trillium servers and clients
-#[derive(Debug)]
+#[derive(Debug, fieldwork::Fieldwork)]
 pub struct ServerConnector<H> {
+    /// the handler
+    #[field(get, deref = false)]
     handler: Arc<H>,
-    runtime: RuntimeType,
+
+    /// the runtime
+    #[field(with, set, get, into)]
+    runtime: Runtime,
+
+    /// the server config
+    #[field(with, set, get(deref = false), into)]
     server_config: Arc<ServerConfig>,
+
     pub(crate) client_peer_ips_receiver: Option<Receiver<IpAddr>>,
     pub(crate) server_peer_ips_receiver: Option<Receiver<IpAddr>>,
+}
+
+impl<H> Clone for ServerConnector<H> {
+    fn clone(&self) -> Self {
+        Self {
+            handler: self.handler.clone(),
+            runtime: self.runtime.clone(),
+            server_config: self.server_config.clone(),
+            client_peer_ips_receiver: self.client_peer_ips_receiver.clone(),
+            server_peer_ips_receiver: self.server_peer_ips_receiver.clone(),
+        }
+    }
 }
 
 impl<H: Handler> ServerConnector<H> {
@@ -25,44 +46,11 @@ impl<H: Handler> ServerConnector<H> {
     pub fn new(handler: H) -> Self {
         Self {
             handler: Arc::new(handler),
-            runtime: RuntimeType::default(),
+            runtime: crate::runtime().into(),
             server_config: Arc::default(),
             client_peer_ips_receiver: None,
             server_peer_ips_receiver: None,
         }
-    }
-
-    /// Borrow the handler
-    pub fn handler(&self) -> &Arc<H> {
-        &self.handler
-    }
-
-    /// Borrow the server config
-    pub fn server_config(&self) -> &Arc<ServerConfig> {
-        &self.server_config
-    }
-
-    /// retrieve the runtime
-    pub fn runtime(&self) -> &RuntimeType {
-        &self.runtime
-    }
-
-    /// builds a new ServerConnector, running [`init`](crate::init) on the handler first
-    pub async fn new_with_init(mut handler: H) -> Self {
-        let server_config = crate::init(&mut handler).await;
-        Self {
-            handler: Arc::new(handler),
-            runtime: RuntimeType::default(),
-            server_config,
-            client_peer_ips_receiver: None,
-            server_peer_ips_receiver: None,
-        }
-    }
-
-    /// use a specific server config
-    pub fn with_server_config(mut self, server_config: ServerConfig) -> Self {
-        self.server_config = Arc::new(server_config);
-        self
     }
 
     /// opens a new connection to this virtual server, returning the client transport
@@ -116,7 +104,7 @@ impl<H: Handler> ServerConnector<H> {
 }
 
 impl<H: Handler> Connector for ServerConnector<H> {
-    type Runtime = RuntimeType;
+    type Runtime = Runtime;
     type Transport = TestTransport;
     type Udp = ();
 

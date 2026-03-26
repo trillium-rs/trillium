@@ -27,7 +27,7 @@
 //!
 //! ```
 //! use trillium_static_compiled::static_compiled;
-//! use trillium_testing::TestHandler;
+//! use trillium_testing::TestServer;
 //!
 //! # trillium_testing::block_on(async {
 //! let handler = static_compiled!("./examples/files").with_index_file("index.html");
@@ -41,7 +41,7 @@
 //! // └── subdir_with_no_index
 //! //    └── plaintext.txt
 //!
-//! let app = TestHandler::new(handler).await;
+//! let app = TestServer::new(handler).await;
 //!
 //! let index = include_str!("../examples/files/index.html");
 //! app.get("/")
@@ -76,7 +76,7 @@
 //!
 //! // with a different index file
 //! let plaintext_index = static_compiled!("./examples/files").with_index_file("plaintext.txt");
-//! let app2 = TestHandler::new(plaintext_index).await;
+//! let app2 = TestServer::new(plaintext_index).await;
 //!
 //! app2.get("/").await.assert_status(404);
 //! app2.get("/subdir").await.assert_status(404);
@@ -89,7 +89,7 @@
 //!
 //! // with no index file
 //! let no_index = static_compiled!("./examples/files");
-//! let app3 = TestHandler::new(no_index).await;
+//! let app3 = TestServer::new(no_index).await;
 //!
 //! app3.get("/").await.assert_status(404);
 //! app3.get("/subdir").await.assert_status(404);

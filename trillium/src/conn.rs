@@ -23,7 +23,7 @@ use trillium_http::{
 /// the attribute and return the conn, enabling chained calls like:
 ///
 /// ```
-/// use trillium_testing::TestHandler;
+/// use trillium_testing::TestServer;
 ///
 /// struct MyState(&'static str);
 /// async fn handler(mut conn: trillium::Conn) -> trillium::Conn {
@@ -34,7 +34,7 @@ use trillium_http::{
 /// }
 ///
 /// # trillium_testing::block_on(async {
-/// let app = TestHandler::new(handler).await;
+/// let app = TestServer::new(handler).await;
 /// app.get("/")
 ///     .await
 ///     .assert_status(418)
@@ -93,11 +93,11 @@ impl Conn {
     /// identical to `conn.with_status(200).with_body(body).halt()`
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |conn: Conn| async move { conn.ok("hello") };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_ok().assert_body("hello");
     /// # });
     /// ```
@@ -109,7 +109,7 @@ impl Conn {
     /// returns the response status for this `Conn`, if it has been set.
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |mut conn: Conn| async move {
@@ -118,7 +118,7 @@ impl Conn {
     ///     assert_eq!(conn.status().unwrap(), trillium_http::Status::Ok);
     ///     conn.ok("pass")
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_ok();
     /// # });
     /// ```
@@ -137,11 +137,11 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |conn: Conn| async move { conn.with_status(418) };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_status(418);
     /// # });
     /// ```
@@ -158,11 +158,11 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |conn: Conn| async move { conn.with_body("hello") };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_body_contains("hello");
     /// # });
     /// ```
@@ -177,7 +177,7 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |mut conn: Conn| async move {
@@ -185,7 +185,7 @@ impl Conn {
     ///     assert_eq!(conn.response_len(), Some(5));
     ///     conn.ok("pass")
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_ok();
     /// # });
     /// ```
@@ -198,7 +198,7 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |mut conn: Conn| async move {
@@ -208,7 +208,7 @@ impl Conn {
     ///     assert_eq!(conn.response_len(), None);
     ///     conn.ok("pass")
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_ok();
     /// # });
     /// ```
@@ -220,7 +220,7 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |mut conn: Conn| async move {
@@ -231,7 +231,7 @@ impl Conn {
     ///     assert_eq!(body.static_bytes(), Some(&b"hello"[..]));
     ///     conn.ok("pass")
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_ok();
     /// # });
     /// ```
@@ -243,7 +243,7 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// struct Hello;
     /// # trillium_testing::block_on(async {
@@ -253,7 +253,7 @@ impl Conn {
     ///     assert!(conn.state::<Hello>().is_some());
     ///     conn.ok("pass")
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_ok();
     /// # });
     /// ```
@@ -311,7 +311,7 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |mut conn: Conn| async move {
@@ -320,7 +320,7 @@ impl Conn {
     ///     assert_eq!(request_body.read_string().await.unwrap(), "request body");
     ///     conn.ok("pass")
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.post("/").with_body("request body").await.assert_ok();
     /// # });
     /// ```
@@ -340,14 +340,14 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |mut conn: Conn| async move {
     ///     assert_eq!(conn.request_body_string().await.unwrap(), "request body");
     ///     conn.ok("pass")
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.post("/").with_body("request body").await.assert_ok();
     /// # });
     /// ```
@@ -361,11 +361,11 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |conn: Conn| async move { conn.with_body("hello") };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_body_contains("hello");
     /// # });
     /// ```
@@ -377,14 +377,14 @@ impl Conn {
     /// ```
     /// use trillium::Conn;
     /// use trillium_http::Method;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |conn: Conn| async move {
     ///     assert_eq!(conn.method(), Method::Get);
     ///     conn.ok("pass")
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_ok();
     /// # });
     /// ```
@@ -453,7 +453,7 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |conn: Conn| async move {
@@ -464,7 +464,7 @@ impl Conn {
     ///         conn.ok("no query")
     ///     }
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/a/b?c&d=e").await.assert_body("has query");
     /// app.get("/a/b").await.assert_body("no query");
     /// # });
@@ -490,11 +490,11 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |conn: Conn| async move { conn.halt() };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_status(404);
     /// # });
     /// ```
@@ -508,7 +508,7 @@ impl Conn {
     ///
     /// ```
     /// use trillium::Conn;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |mut conn: Conn| async move {
@@ -517,7 +517,7 @@ impl Conn {
     ///     assert!(conn.is_halted());
     ///     conn.ok("pass")
     /// };
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/").await.assert_ok();
     /// # });
     /// ```

@@ -17,7 +17,7 @@
 //! ```
 //! use trillium::Conn;
 //! use trillium_askama::{AskamaConnExt, Template};
-//! use trillium_testing::TestHandler;
+//! use trillium_testing::TestServer;
 //!
 //! #[derive(Template)]
 //! #[template(path = "examples/hello.html")]
@@ -30,7 +30,7 @@
 //! }
 //!
 //! # trillium_testing::block_on(async {
-//! let app = TestHandler::new(handler).await;
+//! let app = TestServer::new(handler).await;
 //! app.get("/")
 //!     .await
 //!     .assert_ok()

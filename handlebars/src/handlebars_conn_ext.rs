@@ -17,7 +17,7 @@ pub trait HandlebarsConnExt {
     ///
     /// ```
     /// use trillium_handlebars::{Handlebars, HandlebarsConnExt, HandlebarsHandler};
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///
@@ -37,7 +37,7 @@ pub trait HandlebarsConnExt {
     /// );
     ///
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/")
     ///     .await
     ///     .assert_ok()

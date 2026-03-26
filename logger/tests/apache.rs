@@ -6,7 +6,7 @@ use trillium::{
     Status, Version,
 };
 use trillium_logger::{ColorMode, Targetable, apache_combined, apache_common, logger};
-use trillium_testing::{TestHandler, harness, test};
+use trillium_testing::{TestServer, harness, test};
 
 async fn teapot(conn: trillium::Conn) -> trillium::Conn {
     conn.with_status(Status::ImATeapot).with_body("ok")
@@ -50,7 +50,7 @@ async fn test_apache_combined() {
     let ip = IpAddr::from([1, 2, 3, 4]);
     let handler = (logger, teapot);
 
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
 
     let _ = target.next().await; // startup message
 
@@ -94,7 +94,7 @@ async fn test_apache_common() {
 
     let ip = IpAddr::from([1, 2, 3, 4]);
     let handler = (logger, teapot);
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
     let _ = target.next().await;
 
     app.get("/some/path?query")

@@ -65,11 +65,11 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use trillium_testing::{TestHandler, harness, test};
+    use trillium_testing::{TestServer, harness, test};
 
     #[test(harness)]
     async fn test_conn_counter() {
-        let handler = TestHandler::new(super::handler()).await;
+        let handler = TestServer::new(super::handler()).await;
         handler.get("/").await.assert_body("conn number was 0");
         handler.get("/").await.assert_body("conn number was 1");
         handler.get("/").await.assert_body("conn number was 2");

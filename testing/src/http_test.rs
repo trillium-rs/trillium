@@ -1,59 +1,89 @@
-use crate::{ServerConnector, TestTransport};
-use async_channel::Sender;
+#![allow(clippy::missing_panics_doc)]
+use crate::TestTransport;
 use std::{
     any::{Any, type_name},
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},
-    net::IpAddr,
+    net::SocketAddr,
     pin::Pin,
     str,
     sync::Arc,
 };
-use trillium::{Handler, KnownHeaderName};
-use trillium_client::{Client, IntoUrl};
-use trillium_http::{HeaderName, HeaderValues, Headers, Method, ServerConfig, Status};
+use trillium_client::{Client, Connector, IntoUrl};
+use trillium_http::{
+    Conn, HeaderName, HeaderValues, Headers, KnownHeaderName, Method, ServerConfig, Status,
+};
 
-/// A testing interface that wraps a trillium handler, providing a high-level API for making
-/// requests and asserting on responses.
+/// A test server for the http crate that runs a http/1.1 client over a virtual in-memory transport,
+/// similar to [`crate::TestServer`].
 ///
-/// ```
-/// use test_harness::test;
-/// use trillium::Status;
-/// use trillium_testing::{TestHandler, TestResult, harness};
-///
-/// # #[test(harness)]
-/// async fn basic_test() -> TestResult {
-///     let app = TestHandler::new(|conn: trillium::Conn| async move { conn.ok("hello") }).await;
-///
-///     app.get("/").await.assert_ok().assert_body("hello");
-///
-///     Ok(())
-/// }
-/// ```
+/// Note that this is not intended to be used outside of testing the `trillium-http` crate and you
+/// probably want to use [`TestServer`](crate::TestServer)
 #[derive(Clone, Debug)]
-pub struct TestHandler<H> {
+pub struct HttpTest<H> {
     client: Client,
-    handler: Arc<H>,
-    server_config: Arc<ServerConfig>,
-    peer_ip_sender: Sender<IpAddr>,
+    connector: TestConnector<H>,
 }
 
-impl<H: Handler> TestHandler<H> {
-    /// Creates a new [`TestHandler`], running [`init`](crate::init) on the handler.
-    pub async fn new(handler: H) -> Self {
-        let mut connector = ServerConnector::new_with_init(handler).await;
-        let (peer_ip_sender, receive) = async_channel::unbounded();
-        connector.server_peer_ips_receiver = Some(receive);
-        let handler = connector.handler().clone();
-        let server_config = connector.server_config().clone();
-        let client = Client::new(connector).with_base("http://trillium.test/");
+#[derive(Debug)]
+struct TestConnector<H>(Arc<ServerConfig>, Arc<H>, crate::Runtime);
 
-        Self {
-            client,
-            handler,
-            server_config,
-            peer_ip_sender,
-        }
+impl<H> Clone for TestConnector<H> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), self.1.clone(), self.2.clone())
+    }
+}
+
+impl<Fun, Fut> Connector for TestConnector<Fun>
+where
+    Fun: Fn(Conn<TestTransport>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Conn<TestTransport>> + Send + 'static,
+{
+    type Runtime = crate::Runtime;
+    type Transport = TestTransport;
+    type Udp = ();
+
+    async fn connect(&self, url: &trillium_client::Url) -> std::io::Result<Self::Transport> {
+        let secure = url.scheme() == "https";
+        let (client_transport, server_transport) = TestTransport::new();
+        let TestConnector(server_config, handler, runtime) = self.clone();
+
+        runtime.spawn(async move {
+            server_config
+                .run(server_transport, |mut conn| async {
+                    conn.set_secure(secure);
+                    (handler)(conn).await
+                })
+                .await
+                .unwrap();
+        });
+        Ok(client_transport)
+    }
+
+    fn runtime(&self) -> Self::Runtime {
+        self.2.clone()
+    }
+
+    async fn resolve(&self, _host: &str, _port: u16) -> std::io::Result<Vec<SocketAddr>> {
+        Ok(vec![SocketAddr::from(([0, 0, 0, 0], 0))])
+    }
+}
+
+impl<Fun, Fut> HttpTest<Fun>
+where
+    Fun: Fn(Conn<TestTransport>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Conn<TestTransport>> + Send + 'static,
+{
+    /// Creates a new [`TestServer`], running [`init`](crate::init) on the handler.
+    pub fn new(handler: Fun) -> Self {
+        let connector = TestConnector(
+            Arc::new(ServerConfig::new()),
+            Arc::new(handler),
+            crate::runtime().into(),
+        );
+        let client = Client::new(connector.clone()).with_base("http://trillium.test/");
+
+        Self { client, connector }
     }
 
     /// Build a new [`ConnTest`]
@@ -64,23 +94,23 @@ impl<H: Handler> TestHandler<H> {
         ConnTest {
             inner: self.client.build_conn(method, path),
             body: None,
-            peer_ip_sender: self.peer_ip_sender.clone(),
-            peer_ip: None,
+            runtime: self.connector.2.clone(),
         }
     }
 
     /// borrow from shared state configured by the handler
     pub fn shared_state<T: Send + Sync + 'static>(&self) -> Option<&T> {
-        self.server_config.shared_state().get()
+        self.connector.0.shared_state().get()
     }
 
     /// Borrow the handler
-    pub fn handler(&self) -> &H {
-        &self.handler
+    pub fn handler(&self) -> &Fun {
+        &self.connector.1
     }
 
     /// Add a default host/authority for this virtual server (eg pretend this server is running at
     /// "example.com" with `.with_host("example.com")`
+    #[must_use]
     pub fn with_host(mut self, host: &str) -> Self {
         self.set_host(host);
         self
@@ -89,19 +119,22 @@ impl<H: Handler> TestHandler<H> {
     /// Set the default host/authority for this virtual server (eg pretend this server is running at
     /// "example.com" with `.set_host("example.com")`
     pub fn set_host(&mut self, host: &str) -> &mut Self {
-        let _ = self.client.base_mut().unwrap().set_host(Some(host));
+        if let Some(base) = self.client.base_mut() {
+            let _ = base.set_host(Some(host));
+        };
         self
     }
 
     /// Set the url for this virtual server (eg pretend this server is running at
-    /// "https://example.com" with `.with_base("https://example.com")`
+    /// `https://example.com` with `.with_base("https://example.com")`
+    #[must_use]
     pub fn with_base(mut self, base: impl IntoUrl) -> Self {
         self.set_base(base);
         self
     }
 
     /// Set the url for this virtual server (eg pretend this server is running at
-    /// "https://example.com" with `.set_base("https://example.com")`
+    /// `https://example.com` with `.set_base("https://example.com")`
     pub fn set_base(&mut self, base: impl IntoUrl) -> &mut Self {
         self.client
             .set_base(base)
@@ -135,17 +168,10 @@ impl<H: Handler> TestHandler<H> {
     }
 }
 
-/// Represents both an outbound HTTP request being built and the received HTTP response.
-///
-/// Before `.await`, use the request-building methods to configure the request.
-/// After `.await`, use the accessor and assertion methods to inspect the response.
-///
-/// The response body is read eagerly on `.await`, so all accessors are synchronous.
 pub struct ConnTest {
     inner: trillium_client::Conn,
     body: Option<Vec<u8>>,
-    peer_ip_sender: Sender<IpAddr>,
-    peer_ip: Option<IpAddr>,
+    runtime: crate::Runtime,
 }
 
 impl Debug for ConnTest {
@@ -189,12 +215,6 @@ impl ConnTest {
     /// Sets the request body.
     pub fn with_body(mut self, body: impl Into<trillium_http::Body>) -> Self {
         self.inner.set_request_body(body);
-        self
-    }
-
-    /// Sets a test-double ip that represents the *client's* ip, available to the server as peer ip.
-    pub fn with_peer_ip(mut self, peer_ip: impl Into<IpAddr>) -> Self {
-        self.peer_ip = Some(peer_ip.into());
         self
     }
 }
@@ -396,18 +416,9 @@ impl ConnTest {
         self
     }
 
-    /// Parses the response body as JSON and runs the provided closure with the parsed value.
-    #[cfg(feature = "serde_json")]
-    #[track_caller]
-    pub fn assert_json_body_with<T, F>(&self, f: F) -> &Self
-    where
-        T: serde::de::DeserializeOwned,
-        F: FnOnce(&T),
-    {
-        let parsed: T =
-            serde_json::from_str(self.body()).expect("failed to parse response body as JSON");
-        f(&parsed);
-        self
+    /// Execute the conn in a blocking manner
+    pub fn block(self) -> Self {
+        self.runtime.clone().block_on(self.into_future())
     }
 }
 
@@ -417,10 +428,6 @@ impl IntoFuture for ConnTest {
 
     fn into_future(mut self) -> Self::IntoFuture {
         Box::pin(async move {
-            if let Some(peer_ip) = self.peer_ip.take() {
-                let _ = self.peer_ip_sender.send(peer_ip).await;
-            }
-
             if let Some(host) = self
                 .inner
                 .request_headers()

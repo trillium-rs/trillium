@@ -15,7 +15,7 @@
 //! # #[cfg(not(unix))] fn main() {}
 //! # #[cfg(unix)] fn main() {
 //! use trillium_static::{StaticFileHandler, crate_relative_path};
-//! use trillium_testing::TestHandler;
+//! use trillium_testing::TestServer;
 //!
 //! # trillium_testing::block_on(async {
 //! let handler = StaticFileHandler::new(crate_relative_path!("examples/files"))
@@ -30,7 +30,7 @@
 //! // └── subdir_with_no_index
 //! //    └── plaintext.txt
 //!
-//! let app = TestHandler::new(handler).await;
+//! let app = TestServer::new(handler).await;
 //!
 //! app.get("/")
 //!     .await
@@ -66,7 +66,7 @@
 //! let plaintext_index = StaticFileHandler::new(crate_relative_path!("examples/files"))
 //!     .with_index_file("plaintext.txt");
 //!
-//! let app2 = TestHandler::new(plaintext_index).await;
+//! let app2 = TestServer::new(plaintext_index).await;
 //!
 //! app2.get("/").await.assert_status(404);
 //! app2.get("/subdir").await.assert_status(404);

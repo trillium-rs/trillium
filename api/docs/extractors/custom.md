@@ -121,10 +121,10 @@ use trillium_api::{api, Json};
 async fn show_todo(_conn: &mut Conn, TodoId(id): TodoId) -> String {
     format!("Todo #{id}")
 }
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # use trillium_router::router;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(router().get("/todos/:todo_id", api(show_todo))).await;
+#     let app = TestServer::new(router().get("/todos/:todo_id", api(show_todo))).await;
 #     app.get("/todos/42").await.assert_ok().assert_body("Todo #42");
 #     app.get("/todos/abc").await.assert_status(Status::BadRequest);
 # });

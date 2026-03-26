@@ -100,11 +100,11 @@ fn main() {
 #[cfg(test)]
 mod test {
     use super::app;
-    use trillium_testing::{TestHandler, harness, test};
+    use trillium_testing::{TestServer, harness, test};
 
     #[test(harness)]
     async fn test_index() {
-        let test_app = TestHandler::new(app()).await;
+        let test_app = TestServer::new(app()).await;
         test_app
             .get("/")
             .await
@@ -114,13 +114,13 @@ mod test {
 
     #[test(harness)]
     async fn test_hello_hi() {
-        let test_app = TestHandler::new(app()).await;
+        let test_app = TestServer::new(app()).await;
         test_app.get("/hello").await.assert_ok().assert_body("hi");
     }
 
     #[test(harness)]
     async fn test_post_index() {
-        let test_app = TestHandler::new(app()).await;
+        let test_app = TestServer::new(app()).await;
         test_app
             .post("/")
             .with_body("hey")
@@ -131,7 +131,7 @@ mod test {
 
     #[test(harness)]
     async fn test_askama_templating() {
-        let test_app = TestHandler::new(app()).await;
+        let test_app = TestServer::new(app()).await;
 
         test_app
             .get("/template/trillium")

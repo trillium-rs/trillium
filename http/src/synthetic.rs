@@ -11,11 +11,11 @@ use std::{
     time::Instant,
 };
 
-/// Synthetic represents a simple transport that contains fixed
-/// content. This is exclusively useful for testing or for server
-/// implementations that are not read from an io connection, such as a
-/// faas function, in which the entire body may be available immediately
-/// on invocation.
+/// Synthetic represents a simple transport that contains fixed content. This is exclusively useful
+/// for testing or for server implementations that are not read from an io connection, such as a
+/// faas function, in which the entire body may be available immediately on invocation.
+#[doc(hidden)]
+#[cfg(feature = "unstable")]
 #[derive(Debug)]
 pub struct Synthetic {
     data: Cursor<Vec<u8>>,
@@ -42,16 +42,22 @@ impl AsyncRead for Synthetic {
 
 impl Synthetic {
     /// the length of this synthetic transport's body
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
     pub fn len(&self) -> usize {
         self.data.get_ref().len()
     }
 
     /// predicate to determine if this synthetic contains no content
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
     pub fn is_empty(&self) -> bool {
         self.data.get_ref().is_empty()
     }
 
     /// close this connection
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
     pub fn close(&mut self) {
         self.closed = true;
     }
@@ -124,6 +130,8 @@ impl Conn<Synthetic> {
     /// assert_eq!(conn.method(), Method::Get);
     /// assert_eq!(conn.path(), "/");
     /// ```
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
     pub fn new_synthetic(
         method: Method,
         path: impl Into<String>,
@@ -158,11 +166,15 @@ impl Conn<Synthetic> {
     }
 
     /// use a particular shared server config for this synthetic conn
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
     pub fn set_server_config(&mut self, server_config: Arc<ServerConfig>) {
         self.server_config = server_config;
     }
 
     /// chainable setter for server config
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
     #[must_use]
     pub fn with_server_config(mut self, server_config: Arc<ServerConfig>) -> Self {
         self.set_server_config(server_config);
@@ -170,11 +182,15 @@ impl Conn<Synthetic> {
     }
 
     /// simulate closing the transport
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
     pub fn close(&mut self) {
         self.transport.close();
     }
 
     /// Replaces the synthetic body. This is intended for testing use.
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
     pub fn replace_body(&mut self, body: impl Into<Synthetic>) {
         let transport = body.into();
         self.request_headers_mut()

@@ -23,14 +23,14 @@ pub trait ApiConnExt {
     /// ```
     /// # if !cfg!(any(feature = "sonic-rs", feature = "serde_json")) { return }
     /// use trillium_api::{json, ApiConnExt};
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// async fn handler(conn: trillium::Conn) -> trillium::Conn {
     /// conn.with_json(&json!({ "json macro": "is reexported" }))
     /// }
     ///
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/")
     ///     .await
     ///     .assert_ok()
@@ -43,7 +43,7 @@ pub trait ApiConnExt {
     /// ```
     /// use serde::Serialize;
     /// use trillium_api::ApiConnExt;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// #[derive(Serialize)]
     /// struct ApiResponse {
@@ -60,7 +60,7 @@ pub trait ApiConnExt {
     /// }
     ///
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.get("/")
     ///     .await
     ///     .assert_status(201)
@@ -103,9 +103,9 @@ pub trait ApiConnExt {
     ///     conn.with_json(&value)
     /// }
     ///
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     /// app.post("/")
     ///     .with_body(r#"key=value"#)
     ///     .with_request_header("content-type", "application/x-www-form-urlencoded")
@@ -120,7 +120,7 @@ pub trait ApiConnExt {
     ///
     /// ```
     /// use trillium_api::ApiConnExt;
-    /// use trillium_testing::TestHandler;
+    /// use trillium_testing::TestServer;
     ///
     /// #[derive(serde::Deserialize)]
     /// struct KvPair {
@@ -140,7 +140,7 @@ pub trait ApiConnExt {
     /// }
     ///
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new(handler).await;
+    /// let app = TestServer::new(handler).await;
     ///
     /// app.post("/")
     ///     .with_body(r#"key=name&value=trillium"#)

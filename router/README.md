@@ -20,7 +20,7 @@ Route resolution is handled by [routefinder](https://github.com/jbr/routefinder)
 ```rust
 use trillium::{Conn, conn_unwrap};
 use trillium_router::{Router, RouterConnExt};
-use trillium_testing::TestHandler;
+use trillium_testing::TestServer;
 
 let router = Router::new()
     .get("/", |conn: Conn| async move {
@@ -36,7 +36,7 @@ let router = Router::new()
     });
 
 # trillium_testing::block_on(async {
-let app = TestHandler::new(router).await;
+let app = TestServer::new(router).await;
 
 app.get("/")
     .await

@@ -61,8 +61,8 @@ impl ServerConfig {
     ///
     /// # Errors
     ///
-    /// This function will return an [`Error`] if any of the http requests is irrecoverably
-    /// malformed or otherwise noncompliant.
+    /// This function will return an [`Error`](crate::Error) if any of the http requests is
+    /// irrecoverably malformed or otherwise noncompliant.
     pub async fn run<Transport, Handler, Fut>(
         self: Arc<Self>,
         transport: Transport,

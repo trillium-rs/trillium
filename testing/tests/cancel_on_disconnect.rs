@@ -1,6 +1,6 @@
 use test_harness::test;
 use trillium::Conn;
-use trillium_testing::{TestHandler, harness};
+use trillium_testing::{TestServer, harness};
 
 #[test(harness)]
 async fn body_does_not_report_closure() {
@@ -22,7 +22,7 @@ async fn body_does_not_report_closure() {
         conn.ok("ok").with_body(body)
     };
 
-    let app = TestHandler::new(handler).await;
+    let app = TestServer::new(handler).await;
 
     app.post("/")
         .with_body("body")

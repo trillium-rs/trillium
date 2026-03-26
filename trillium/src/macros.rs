@@ -2,7 +2,7 @@
 ///
 /// ```
 /// use trillium::{Conn, conn_try};
-/// use trillium_testing::TestHandler;
+/// use trillium_testing::TestServer;
 ///
 /// # trillium_testing::block_on(async {
 /// let handler = |mut conn: Conn| async move {
@@ -11,7 +11,7 @@
 ///     conn.ok(format!("received u8 as body: {}", u8))
 /// };
 ///
-/// let app = TestHandler::new(handler).await;
+/// let app = TestServer::new(handler).await;
 /// app.post("/").with_body("not u8").await.assert_status(500);
 /// app.post("/")
 ///     .with_body("10")
@@ -40,7 +40,7 @@ macro_rules! conn_try {
 ///
 /// ```
 /// use trillium::{Conn, State, conn_unwrap};
-/// use trillium_testing::TestHandler;
+/// use trillium_testing::TestServer;
 ///
 /// #[derive(Copy, Clone)]
 /// struct MyState(&'static str);
@@ -50,10 +50,10 @@ macro_rules! conn_try {
 /// };
 ///
 /// # trillium_testing::block_on(async {
-/// let app = TestHandler::new(handler).await;
+/// let app = TestServer::new(handler).await;
 /// app.get("/").await.assert_status(404); // we never reached the conn.ok line.
 ///
-/// let app2 = TestHandler::new((State::new(MyState("hi")), handler)).await;
+/// let app2 = TestServer::new((State::new(MyState("hi")), handler)).await;
 /// app2.get("/").await.assert_ok().assert_body("hi");
 /// # });
 /// ```
@@ -90,7 +90,7 @@ macro_rules! log_error {
 ///
 /// ```
 /// use trillium::{delegate_handler, State, Conn, conn_unwrap};
-/// use trillium_testing::TestHandler;
+/// use trillium_testing::TestServer;
 ///
 /// #[derive(Clone, Copy)]
 /// struct MyState(usize);
@@ -107,14 +107,14 @@ macro_rules! log_error {
 /// let MyState(n) = *conn_unwrap!(conn.state(), conn);
 /// conn.ok(n.to_string())
 /// });
-/// let app = TestHandler::new(handler).await;
+/// let app = TestServer::new(handler).await;
 /// app.get("/").await.assert_ok().assert_body("5");
 /// # });
 /// ```
 ///
 /// ```
 /// use trillium::{Conn, State, conn_unwrap, delegate_handler};
-/// use trillium_testing::TestHandler;
+/// use trillium_testing::TestServer;
 ///
 /// #[derive(Clone, Copy)]
 /// struct MyState(usize);
@@ -131,7 +131,7 @@ macro_rules! log_error {
 ///     let MyState(n) = *conn_unwrap!(conn.state(), conn);
 ///     conn.ok(n.to_string())
 /// });
-/// let app = TestHandler::new(handler).await;
+/// let app = TestServer::new(handler).await;
 /// app.get("/").await.assert_ok().assert_body("5");
 /// # });
 /// ```

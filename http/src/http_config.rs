@@ -115,7 +115,8 @@ pub struct HttpConfig {
     /// fixed-length bodies larger than this, but the memory allocation will grow as with
     /// chunked bodies. Note that this has no impact on chunked bodies. If this is set higher
     /// than the `received_body_max_len`, this parameter has no effect. This parameter only
-    /// impacts [`ReceivedBody::read_string`] and [`ReceivedBody::read_bytes`].
+    /// impacts [`ReceivedBody::read_string`](crate::ReceivedBody::read_string) and
+    /// [`ReceivedBody::read_bytes`](crate::ReceivedBody::read_bytes).
     ///
     /// **Default**: `1mb` in bytes
     ///

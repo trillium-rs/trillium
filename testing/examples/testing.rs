@@ -23,11 +23,11 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{application, teapot};
-    use trillium_testing::{Status, TestHandler, harness, test};
+    use trillium_testing::{Status, TestServer, harness, test};
 
     #[test(harness)]
     async fn handler_sends_correct_headers_and_is_a_teapot() {
-        let app = TestHandler::new(application()).await;
+        let app = TestServer::new(application()).await;
 
         app.post("/")
             .with_body("hello trillium!")
@@ -39,7 +39,7 @@ mod tests {
 
     #[test(harness)]
     async fn we_can_also_test_the_individual_handler() {
-        let app = TestHandler::new(teapot).await;
+        let app = TestServer::new(teapot).await;
         app.post("/")
             .with_body("a different body")
             .await
@@ -48,7 +48,7 @@ mod tests {
 
     #[test(harness)]
     async fn application_is_lemongrab_when_body_is_empty() {
-        let app = TestHandler::new(application()).await;
+        let app = TestServer::new(application()).await;
         app.post("/")
             .await
             .assert_status(Status::NotAcceptable)

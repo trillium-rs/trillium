@@ -54,10 +54,10 @@ async fn handler(_conn: &mut Conn, Body(input): Body<Input>) -> String {
 }
 
 // Sending invalid JSON returns a structured error response:
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # use trillium::Status;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(handler)).await;
+#     let app = TestServer::new(api(handler)).await;
 #     app.post("/")
 #         .with_request_header("content-type", "application/json")
 #         .with_body("not json")
@@ -96,9 +96,9 @@ async fn create(_conn: &mut Conn, _: ()) -> Result<Json<String>, ApiError> {
     }
 }
 # use trillium_api::ApiConnExt;
-# use trillium_testing::TestHandler;
+# use trillium_testing::TestServer;
 # trillium_testing::block_on(async {
-#     let app = TestHandler::new(api(create)).await;
+#     let app = TestServer::new(api(create)).await;
 #     app.get("/").await.assert_ok().assert_body(r#""created""#);
 # });
 ```

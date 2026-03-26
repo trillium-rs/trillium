@@ -83,10 +83,10 @@ impl Default for ConnId {
 impl ConnId {
     /// Constructs a new ConnId handler
     /// ```
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// # use trillium_conn_id::ConnId;
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new((ConnId::new().with_seed(1000), "ok")).await;
+    /// let app = TestServer::new((ConnId::new().with_seed(1000), "ok")).await;
     /// app.get("/")
     ///     .await
     ///     .assert_ok()
@@ -109,10 +109,10 @@ impl ConnId {
     /// this behavior, see [`ConnId::without_request_header`]
     ///
     /// ```
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// # use trillium_conn_id::ConnId;
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new((ConnId::new().with_request_header("x-custom-id"), "ok")).await;
+    /// let app = TestServer::new((ConnId::new().with_request_header("x-custom-id"), "ok")).await;
     ///
     /// app.get("/")
     ///     .with_request_header("x-custom-id", "inbound")
@@ -138,10 +138,10 @@ impl ConnId {
     /// [`ConnId::without_response_header`]
     ///
     /// ```
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// # use trillium_conn_id::ConnId;
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new((
+    /// let app = TestServer::new((
     ///     ConnId::new()
     ///         .with_seed(1000)
     ///         .with_response_header("x-custom-header"),
@@ -173,11 +173,11 @@ impl ConnId {
     /// is a ten-character alphanumeric random sequence.
     ///
     /// ```
-    /// # use trillium_testing::TestHandler;
+    /// # use trillium_testing::TestServer;
     /// # use trillium_conn_id::ConnId;
     /// # use uuid::Uuid;
     /// # trillium_testing::block_on(async {
-    /// let app = TestHandler::new((
+    /// let app = TestServer::new((
     ///     ConnId::new().with_id_generator(|| Uuid::new_v4().to_string()),
     ///     "ok",
     /// ))

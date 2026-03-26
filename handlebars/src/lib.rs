@@ -15,7 +15,7 @@
 //! # if cfg!(unix) {
 //! # use std::path::PathBuf;
 //! use trillium_handlebars::{HandlebarsConnExt, HandlebarsHandler};
-//! use trillium_testing::TestHandler;
+//! use trillium_testing::TestServer;
 //!
 //! # trillium_testing::block_on(async {
 //! let handler = (
@@ -26,7 +26,7 @@
 //!     },
 //! );
 //!
-//! let app = TestHandler::new(handler).await;
+//! let app = TestServer::new(handler).await;
 //! app.get("/")
 //!     .await
 //!     .assert_ok()
