@@ -156,9 +156,7 @@ impl TestConn {
         self.run(handler)
     }
 
-    /// Reads the response body to string and returns it, if set. This is
-    /// used internally to [`assert_body`] which is the preferred
-    /// interface
+    /// Reads the response body to string and returns it, if set.
     pub fn take_response_body_string(&mut self) -> Option<String> {
         match self.take_response_body() {
             Some(body) => String::from_utf8(

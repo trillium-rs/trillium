@@ -61,7 +61,7 @@ pub fn method(conn: &Conn, _color: bool) -> Method {
 ///
 /// composed of
 ///
-/// `"`[`method`] [`url`] [`response_time`] [`status`]`"`
+/// `"`[`method`] [`url()`] [`response_time`] [`status`]`"`
 pub fn dev_formatter(conn: &Conn, color: bool) -> impl Display + Send + 'static + use<> {
     (
         version,
@@ -247,8 +247,8 @@ pub fn body_len_human(conn: &Conn, _color: bool) -> Cow<'static, str> {
 ///
 /// This is defined as follows:
 ///
-/// [`ip`] `request_id` `user_id` `\[`[`timestamp`]`\]` "[`method`] [`url`] [`version`]" [`status`]
-/// [`bytes`]
+/// [`ip`] `request_id` `user_id` `\[`[`timestamp`]`\]` "[`method`] [`url()`] [`version`]"
+/// [`status`] [`bytes`]
 ///
 /// where `request_id` and `user_id` are mandatory formatters provided at time of usage.
 ///

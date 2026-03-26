@@ -15,7 +15,7 @@ use std::{
 /// [`trillium_client`](https://docs.trillium.rs/trillium_client) for more
 /// information on usage.
 pub trait Connector: Send + Sync + 'static {
-    /// the [`Transport`] that [`connect`] returns
+    /// the [`Transport`] that [`connect`](Connector::connect) returns
     type Transport: Transport;
 
     /// The [`RuntimeTrait`] for this Connector
@@ -221,7 +221,7 @@ impl<C: Connector, Q: QuicClientConfig<C>> ObjectSafeQuicClientConfig
 
 /// An arc-wrapped, type-erased QUIC client config (endpoint factory).
 ///
-/// Created via [`Client::new_with_quic`](trillium_client::Client::new_with_quic), which
+/// Created via [`Client::new_with_quic`](https://docs.rs/trillium-client/latest/trillium_client/struct.Client.html#method.new_with_quic), which
 /// binds the connector's runtime into the wrapper before erasure.
 #[derive(Clone)]
 pub struct ArcedQuicClientConfig(Arc<dyn ObjectSafeQuicClientConfig>);

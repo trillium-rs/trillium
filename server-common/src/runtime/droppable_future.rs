@@ -18,7 +18,7 @@ pin_project! {
     }
 }
 impl<T: Future> DroppableFuture<T> {
-    /// Removes the #[must_use] for a future.
+    /// Removes the `#[must_use]` for a future.
     ///
     /// This must only be called with a join-handle type future that does not depend on polling to
     /// execute.

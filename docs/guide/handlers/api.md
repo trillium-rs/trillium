@@ -51,7 +51,7 @@ The function signature drives behavior:
 # [dependencies]
 # trillium = { path = "../trillium" }
 # trillium-smol = { path = "../smol" }
-# trillium-api = { path = "../api" }
+# trillium-api = { path = "../api", features = ["sonic-rs"] }
 # serde = { version = "*", features = ["derive"] }
 #
 use serde::{Deserialize, Serialize};

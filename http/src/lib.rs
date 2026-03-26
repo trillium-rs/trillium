@@ -81,56 +81,62 @@
 #[doc = include_str!("../README.md")]
 mod readme {}
 
+pub(crate) mod after_send;
+mod body;
+mod buffer;
+mod bufwriter;
+mod conn;
+mod connection_status;
+mod copy;
+mod error;
+pub mod h3;
+pub mod headers;
+#[cfg(feature = "http-compat")]
+pub mod http_compat0;
+#[cfg(feature = "http-compat-1")]
+pub mod http_compat1;
+mod http_config;
+mod liveness;
+mod method;
+mod mut_cow;
 mod received_body;
+mod server_config;
+mod status;
+mod synthetic;
+mod upgrade;
+mod util;
+mod version;
+
+pub use body::Body;
+#[cfg(feature = "unstable")]
+#[doc(hidden)]
+pub use buffer::Buffer;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use buffer::Buffer;
+pub(crate) use bufwriter::BufWriter;
+pub use conn::{Conn, SERVER};
+pub use connection_status::ConnectionStatus;
+#[cfg(feature = "unstable")]
+#[doc(hidden)]
+pub use copy::copy;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use copy::copy;
+pub use error::{Error, Result};
+pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName};
+pub use http_config::HttpConfig;
+pub use method::Method;
+pub(crate) use mut_cow::MutCow;
 pub use received_body::ReceivedBody;
 #[cfg(feature = "unstable")]
 #[doc(hidden)]
 pub use received_body::{H3BodyFrameType, ReceivedBodyState};
-
-mod error;
-pub use error::{Error, Result};
-
-mod conn;
-pub use conn::{Conn, SERVER};
-
-mod connection_status;
-pub use connection_status::ConnectionStatus;
-
-#[doc(hidden)]
-#[cfg(feature = "unstable")]
-mod synthetic;
-#[doc(hidden)]
-#[cfg(feature = "unstable")]
-pub use synthetic::Synthetic;
-
-mod upgrade;
-pub use swansong::Swansong;
-pub use upgrade::Upgrade;
-
-mod mut_cow;
-pub(crate) use mut_cow::MutCow;
-
-mod util;
-
-mod body;
-pub use body::Body;
-pub use type_set::{self, TypeSet};
-
-#[cfg(not(feature = "unstable"))]
-mod headers;
-
-#[cfg(feature = "unstable")]
-pub mod headers;
-
-pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName};
-
-mod status;
+pub use server_config::ServerConfig;
 pub use status::Status;
-
-mod method;
-pub use method::Method;
-
-mod version;
+pub use swansong::Swansong;
+#[doc(hidden)]
+pub use synthetic::Synthetic;
+pub use type_set::{self, TypeSet};
+pub use upgrade::Upgrade;
 pub use version::Version;
 
 /// A pre-rendered http response to send when the server is at capacity.
@@ -139,37 +145,3 @@ Connection: close\r
 Content-Length: 0\r
 Retry-After: 60\r
 \r\n";
-
-#[cfg(feature = "http-compat-1")]
-pub mod http_compat1;
-
-#[cfg(feature = "http-compat")]
-pub mod http_compat0;
-
-mod bufwriter;
-pub(crate) use bufwriter::BufWriter;
-
-mod http_config;
-pub use http_config::HttpConfig;
-
-pub(crate) mod after_send;
-
-mod buffer;
-#[cfg(feature = "unstable")]
-#[doc(hidden)]
-pub use buffer::Buffer;
-#[cfg(not(feature = "unstable"))]
-pub(crate) use buffer::Buffer;
-
-mod copy;
-#[cfg(feature = "unstable")]
-#[doc(hidden)]
-pub use copy::copy;
-#[cfg(not(feature = "unstable"))]
-pub(crate) use copy::copy;
-
-mod liveness;
-mod server_config;
-pub use server_config::ServerConfig;
-
-pub mod h3;

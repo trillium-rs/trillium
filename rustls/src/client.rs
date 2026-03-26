@@ -254,7 +254,7 @@ impl<T> AsRef<T> for RustlsClientTransport<T> {
 }
 
 impl<T> RustlsClientTransport<T> {
-    /// Retrieve the tls [`CommonState`] if this transport is Tls
+    /// Retrieve the tls [`ClientConnection`] if this transport is Tls
     pub fn tls_state_mut(&mut self) -> Option<&mut ClientConnection> {
         match &mut self.0 {
             Tls(x) => Some(x.get_mut().1),
@@ -262,7 +262,7 @@ impl<T> RustlsClientTransport<T> {
         }
     }
 
-    /// Retrieve the tls [`CommonState`] if this transport is Tls
+    /// Retrieve the tls [`ClientConnection`] if this transport is Tls
     pub fn tls_state(&self) -> Option<&ClientConnection> {
         match &self.0 {
             Tls(x) => Some(x.get_ref().1),

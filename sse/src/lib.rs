@@ -1,9 +1,9 @@
 //! # Trillium tools for server sent events
 //!
-//! This primarily provides [`SseConnExt`](crate::SseConnExt), an
+//! This primarily provides [`SseConnExt`], an
 //! extension trait for [`trillium::Conn`] that has a
 //! [`with_sse_stream`](crate::SseConnExt::with_sse_stream) chainable
-//! method that takes a [`Stream`](futures_lite::Stream) where the `Item`
+//! method that takes a [`Stream`] where the `Item`
 //! implements [`Eventable`].
 //!
 //! Often, you will want this stream to be something like a channel, but
@@ -167,8 +167,8 @@ pub trait SseConnExt {
     /// builds and sets a streaming response body that conforms to the
     /// [server-sent-events
     /// spec](https://html.spec.whatwg.org/multipage/server-sent-events.html#server-sent-events)
-    /// from a Stream of any [`Eventable`](crate::Eventable) type (such as
-    /// [`Event`](crate::Event), as well as setting appropiate headers for
+    /// from a Stream of any [`Eventable`] type (such as
+    /// [`Event`], as well as setting appropiate headers for
     /// this response.
     fn with_sse_stream<S, E>(self, sse_stream: S) -> Self
     where

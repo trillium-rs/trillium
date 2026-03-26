@@ -1,7 +1,7 @@
 use crate::CacheControlHeader;
 use etag::EntityTag;
 use std::{str::FromStr, time::SystemTime};
-use trillium::{HeaderName, KnownHeaderName};
+use trillium::{Conn, HeaderName, KnownHeaderName};
 
 /// Provides an extension trait for both [`trillium::Headers`] and
 /// also [`trillium::Conn`] for setting and getting various parsed
@@ -9,19 +9,21 @@ use trillium::{HeaderName, KnownHeaderName};
 pub trait CachingHeadersExt: Sized {
     /// returns an [`EntityTag`] if these headers contain an `Etag` header.
     fn etag(&self) -> Option<EntityTag>;
+
     /// sets an etag header from an EntityTag.
     fn set_etag(&mut self, entity_tag: &EntityTag);
 
     /// returns a parsed timestamp if these headers contain a `Last-Modified` header.
     fn last_modified(&self) -> Option<SystemTime>;
+
     /// sets a formatted `Last-Modified` header from a timestamp.
     fn set_last_modified(&mut self, system_time: SystemTime);
 
-    /// returns a parsed [`CacheControlHeader`] if these headers
-    /// include a `Cache-Control` header. Note that if this is called
-    /// on a [`Conn`], it returns the request [`Cache-Control`]
-    /// header.
+    /// Returns a parsed [`CacheControlHeader`] if these headers include a `Cache-Control`
+    /// header. Note that if this is called on a [`Conn`], it returns the *request's*
+    /// [`Cache-Control`](CacheControlHeader) header.
     fn cache_control(&self) -> Option<CacheControlHeader>;
+
     /// sets a `Cache-Control` header on these headers. Note that this
     /// is valid in both request and response contexts, and specific
     /// directives have different meanings.
@@ -29,10 +31,11 @@ pub trait CachingHeadersExt: Sized {
 
     /// returns a parsed `If-Modified-Since` header if one exists
     fn if_modified_since(&self) -> Option<SystemTime>;
+
     /// returns a parsed [`EntityTag`] header if there is an `If-None-Match` header.
     fn if_none_match(&self) -> Option<EntityTag>;
 
-    /// sets the Vary header to a collection of Into<HeaderName>
+    /// sets the Vary header to a collection of `Into<HeaderName>`
     fn set_vary<I, N>(&mut self, vary: I)
     where
         I: IntoIterator<Item = N>,
@@ -67,7 +70,7 @@ pub trait CachingHeadersExt: Sized {
     }
 }
 
-impl CachingHeadersExt for trillium::Conn {
+impl CachingHeadersExt for Conn {
     fn etag(&self) -> Option<EntityTag> {
         self.response_headers().etag()
     }

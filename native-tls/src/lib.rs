@@ -10,7 +10,7 @@
 )]
 
 //! This crate provides native tls trait implementations for trillium
-//! client ([`NativeTlsConnector`]) and server ([`NativeTlsAcceptor`]).
+//! client ([`NativeTlsConfig`]) and server ([`NativeTlsAcceptor`]).
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]

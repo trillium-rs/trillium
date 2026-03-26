@@ -69,7 +69,7 @@ run on the conn, typically setting an error status.
 | `String` | Request body as a string | Yes |
 | `Vec<u8>` | Request body as raw bytes | Yes |
 | `Headers` | Clone of request headers | No |
-| `Method` | The HTTP method | No |
+| [`Method`](trillium::Method) | The HTTP method | No |
 | `(A, B, ...)` | Multiple extractors as a tuple (up to 12) | Depends |
 
 *`State<T>` returns `None` (halting the conn) if the state is missing.

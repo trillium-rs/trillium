@@ -97,7 +97,7 @@ pub trait QuicConnectionTrait: Clone + Send + Sync + 'static {
 /// The generic flow is:
 /// 1. User provides a `QuicConfig` via [`Config::with_quic`](crate::Config)
 /// 2. During server startup, `bind` is called with the TCP listener's address and runtime
-/// 3. The resulting [`QuicBinding`] is stored on `RunningConfig` and drives the H3 accept loop
+/// 3. The resulting [`QuicEndpoint`] is stored on `RunningConfig` and drives the H3 accept loop
 pub trait QuicConfig<S: Server>: Send + 'static {
     /// The bound endpoint type produced by [`bind`](QuicConfig::bind).
     type Endpoint: QuicEndpoint;

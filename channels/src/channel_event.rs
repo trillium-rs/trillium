@@ -10,8 +10,10 @@ use std::borrow::Cow;
 /// this event.
 ///
 /// Most interfaces in this crate take an `Into<ChannelEvent>` instead of a ChannelEvent directly,
-/// so that you can either implement Into<ChannelEvent> for relevant types, or use these tuple From
-/// implementations: ```
+/// so that you can either implement `Into<ChannelEvent>` for relevant types, or use these tuple
+/// From implementations:
+///
+/// ```
 /// use trillium_channels::ChannelEvent;
 /// use serde_json::{json, Value, to_string};
 /// let event: ChannelEvent = ("topic", "event").into();

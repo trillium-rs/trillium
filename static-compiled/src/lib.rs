@@ -11,7 +11,7 @@
 
 //! Serves static file assets from memory, as included in the binary at
 //! compile time. Because this includes file system content at compile
-//! time, it requires a macro interface, [`static_compiled`](crate::static_compiled).
+//! time, it requires a macro interface, [`static_compiled`].
 //!
 //! If the root is a directory, it will recursively serve any files
 //! relative to the path that this handler is mounted at, or an index file

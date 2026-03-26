@@ -9,7 +9,7 @@
     unused_qualifications
 )]
 
-//!  This crate provides rustls trait implementations for trillium client ([`RustlsConnector`]) and
+//!  This crate provides rustls trait implementations for trillium client ([`RustlsConfig`]) and
 //! server ([`RustlsAcceptor`]).
 //!
 //! # Cargo Features

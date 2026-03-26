@@ -26,13 +26,16 @@ jobs:
       - name: get-cmake
         uses: lukka/get-cmake@v3.30.0
             
+      - uses: dtolnay/install@cargo-docs-rs
       - name: Build Documentation
-        run: >-
-          RUSTDOCFLAGS="-Z unstable-options --enable-index-page"
-          cargo +nightly doc
-          --no-deps
-          --features smol,trillium-testing/smol
-          --all
+        run: |
+          cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.targets[].kind[] == "lib") | .name' \
+            | xargs -I{} cargo docs-rs -p {}
+          cp -r "target/$(rustc -vV | sed -n 's/host: //p')/doc/." target/doc/
+          python3 .github/workflows/generate_doc_index.py
+        env:
+          RUSTDOCFLAGS: -D warnings
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Fix permissions

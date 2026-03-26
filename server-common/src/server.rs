@@ -92,7 +92,7 @@ pub trait Server: Sized + Send + Sync + 'static {
     }
 
     /// Build a Self::Listener from a tcp listener. This is called by
-    /// the [`Server::build_listener`] default implementation, and
+    /// the [`Server::from_host_and_port`] default implementation, and
     /// is mandatory if the default implementation is used.
     fn from_tcp(tcp_listener: TcpListener) -> Self {
         let _ = tcp_listener;
@@ -100,8 +100,8 @@ pub trait Server: Sized + Send + Sync + 'static {
     }
 
     /// Build a Self::Listener from a tcp listener. This is called by
-    /// the [`Server::build_listener`] default implementation. You
-    /// will want to tag an implementation of this with #[cfg(unix)].
+    /// the [`Server::from_host_and_port`] default implementation. You
+    /// will want to tag an implementation of this with `#[cfg(unix)]`.
     #[cfg(unix)]
     fn from_unix(unix_listener: UnixListener) -> Self {
         let _ = unix_listener;
@@ -110,7 +110,7 @@ pub trait Server: Sized + Send + Sync + 'static {
 
     /// Implementation hook for listening for any os signals and
     /// stopping the provided [`Swansong`]. The returned future will be
-    /// spawned using [`Server::spawn`]
+    /// spawned using [`RuntimeTrait::spawn`]
     fn handle_signals(_swansong: Swansong) -> impl Future<Output = ()> + Send {
         async {}
     }
