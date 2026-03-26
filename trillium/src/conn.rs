@@ -4,6 +4,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     future::Future,
     net::IpAddr,
+    time::Instant,
 };
 use trillium_http::{
     Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status, Swansong, TypeSet,
@@ -60,7 +61,7 @@ use trillium_http::{
 /// `trillium::Conn` is currently implemented as an abstraction on top of a
 /// [`trillium_http::Conn`]. In particular, `trillium::Conn` boxes the transport so that application
 /// code can be written without transport generics. See
-/// [`Transport`](trillium_http::transport::Transport) for further reading on this.
+/// [`Transport`] for further reading on this.
 pub struct Conn {
     inner: trillium_http::Conn<Box<dyn Transport>>,
     halted: bool,
@@ -543,7 +544,7 @@ impl Conn {
 
     /// The [`Instant`] that the first header bytes for this conn were
     /// received, before any processing or parsing has been performed.
-    pub fn start_time(&self) -> std::time::Instant {
+    pub fn start_time(&self) -> Instant {
         self.inner.start_time()
     }
 

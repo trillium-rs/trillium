@@ -87,5 +87,11 @@ jobs:
         with:
           version: latest
           args: --all-targets
+      - uses: dtolnay/install@cargo-docs-rs
       - name: Docs
-        run: cargo doc --no-deps
+        run: |
+          cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.targets[].kind[] == "lib") | .name' \
+            | xargs -I{} cargo docs-rs -p {}
+        env:
+          RUSTDOCFLAGS: -D warnings

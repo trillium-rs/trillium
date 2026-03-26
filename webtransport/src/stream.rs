@@ -42,9 +42,12 @@ impl From<Datagram> for Vec<u8> {
     }
 }
 
-/// An inbound WebTransport stream, yielded by [`WebTransportConnection::accept_next_stream`].
+/// An inbound WebTransport stream, yielded by
+/// [`WebTransportConnection::accept_next_stream`](crate::WebTransportConnection::accept_next_stream).
 ///
-/// Datagrams are handled separately via [`WebTransportConnection::recv_datagram`], as they
+///
+/// Datagrams are handled separately via
+/// [`WebTransportConnection::recv_datagram`](crate::WebTransportConnection::recv_datagram), as they
 /// typically require a dedicated low-latency loop rather than sharing one with stream acceptance.
 #[derive(Debug)]
 pub enum InboundStream {

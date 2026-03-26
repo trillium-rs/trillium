@@ -13,7 +13,7 @@
 //!
 //! There are three primary ways to use this crate
 //!
-//! ## With an async function that receives a [`WebSocketConn`](crate::WebSocketConn)
+//! ## With an async function that receives a [`WebSocketConn`]
 //!
 //! This is the simplest way to use trillium websockets, but does not
 //! provide any of the affordances that implementing the
@@ -37,13 +37,13 @@
 //! ```
 //!
 //!
-//! ## Implementing [`WebSocketHandler`](crate::WebSocketHandler)
+//! ## Implementing [`WebSocketHandler`]
 //!
 //! [`WebSocketHandler`] provides support for sending outbound messages as a
 //! stream, and simplifies common patterns like executing async code on
 //! received messages.
 //!
-//! ## Using [`JsonWebSocketHandler`](crate::JsonWebSocketHandler)
+//! ## Using [`JsonWebSocketHandler`]
 //!
 //! [`JsonWebSocketHandler`] provides a thin serialization and
 //! deserialization layer on top of [`WebSocketHandler`] for this common

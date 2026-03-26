@@ -50,12 +50,6 @@ use url::Url;
 /// immediate shutdown on a subsequent signal. This behavior may change as
 /// trillium matures. To disable this behavior, use
 /// [`Config::without_signals`].
-///
-/// ## For runtime adapter authors
-///
-/// In order to use this to _implement_ a trillium server, see
-/// [`trillium_server_common::ConfigExt`](crate::ConfigExt)
-
 #[derive(Debug)]
 pub struct Config<ServerType: Server, AcceptorType, QuicType: QuicConfig<ServerType> = ()> {
     pub(crate) acceptor: AcceptorType,
@@ -221,7 +215,7 @@ where
     /// Spawns the server onto the async runtime, returning a
     /// ServerHandle that can be awaited directly to return an
     /// [`Info`] or used with [`ServerHandle::info`] and
-    /// [`ServerHandle::stop`]
+    /// [`ServerHandle::shut_down`]
     pub fn spawn(self, handler: impl Handler) -> ServerHandle {
         let server_handle = self.handle();
         self.runtime.clone().spawn(self.run_async(handler));

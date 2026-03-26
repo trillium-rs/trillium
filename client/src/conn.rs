@@ -136,8 +136,8 @@ pub struct Conn {
 
     /// the timeout for this conn
     ///
-    /// this can also be set on the client with [`Client::set_timeout`] and
-    /// [`Client::with_timeout`]
+    /// this can also be set on the client with [`Client::set_timeout`](crate::Client::set_timeout)
+    /// and [`Client::with_timeout`](crate::Client::with_timeout)
     #[field(with, set, get, get_mut, take, copy, option_set_some)]
     pub(crate) timeout: Option<Duration>,
 

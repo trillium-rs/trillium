@@ -100,7 +100,9 @@ impl From<TrustProxy> for Forwarding {
 
 impl Forwarding {
     /// builds a Forwarding handler that trusts a list of strings that represent either specific IPs
-    /// or a CIDR range. ```
+    /// or a CIDR range.
+    ///
+    /// ```
     /// # use trillium_forwarding::Forwarding;
     /// let forwarding = Forwarding::trust_ips(["10.1.10.1"]);
     /// let forwarding = Forwarding::trust_ips(["10.1.10.1", "192.168.0.0/16"]);

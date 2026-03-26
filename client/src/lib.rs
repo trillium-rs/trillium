@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![forbid(unsafe_code)]
 #![deny(
     clippy::dbg_macro,
@@ -15,7 +16,7 @@
 //!
 //! ## Connector
 //!
-//! [`trillium_client::Client`] is built with a Connector. Each runtime crate
+//! [`trillium_client::Client`](Client) is built with a [`Connector`]. Each runtime crate
 //! ([`trillium_smol`](https://docs.trillium.rs/trillium_smol),
 //! [`trillium_tokio`](https://docs.trillium.rs/trillium_tokio),
 //! [`trillium_async_std`](https://docs.trillium.rs/trillium_tokio)) offers

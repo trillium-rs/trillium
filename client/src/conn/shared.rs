@@ -10,7 +10,7 @@ use std::{
 use trillium_http::Upgrade;
 
 /// A wrapper error for [`trillium_http::Error`] or, depending on json serializer feature, either
-/// [`sonic_rs::Error`] or [`serde_json::Error`]. Only available when either the `sonic-rs` or
+/// `sonic_rs::Error` or `serde_json::Error`. Only available when either the `sonic-rs` or
 /// `serde_json` cargo features are enabled.
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 #[derive(thiserror::Error, Debug)]
@@ -20,7 +20,7 @@ pub enum ClientSerdeError {
     HttpError(#[from] Error),
 
     #[cfg(feature = "sonic-rs")]
-    /// A [`serde_json::Error`]
+    /// A [`sonic_rs::Error`]
     #[error(transparent)]
     JsonError(#[from] sonic_rs::Error),
 

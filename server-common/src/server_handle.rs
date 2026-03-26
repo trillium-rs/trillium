@@ -45,7 +45,7 @@ impl BoundInfo {
 }
 
 impl ServerHandle {
-    /// await server start and retrieve the server's [`Info`]
+    /// await server start and retrieve the server's [`Info`](trillium::Info)
     pub async fn info(&self) -> BoundInfo {
         if let Some(server_config) = self.received_server_config.get().cloned() {
             return BoundInfo(server_config);

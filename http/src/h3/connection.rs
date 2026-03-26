@@ -102,7 +102,8 @@ impl H3Connection {
         })
     }
 
-    /// Retrieve the [`Swansong`] shutdown handle for this HTTP/3 connection. See also [`shut_down`]
+    /// Retrieve the [`Swansong`] shutdown handle for this HTTP/3 connection. See also
+    /// [`H3Connection::shut_down`]
     pub fn swansong(&self) -> &Swansong {
         &self.swansong
     }

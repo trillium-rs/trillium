@@ -1,4 +1,4 @@
-use crate::{Runtime, ServerConnector, TestTransport, runtime};
+use crate::{Runtime, RuntimeTrait, ServerConnector, TestTransport, runtime};
 use async_channel::Sender;
 use std::{
     any::{Any, type_name},
@@ -12,7 +12,7 @@ use std::{
 use trillium::{Handler, Info, KnownHeaderName};
 use trillium_client::{Client, IntoUrl};
 use trillium_http::{HeaderName, HeaderValues, Headers, Method, ServerConfig, Status};
-
+#[allow(clippy::test_attr_in_doctest, reason = "demonstrating test usage")]
 /// A testing interface that wraps a trillium handler, providing a high-level API for making
 /// requests and asserting on responses.
 ///
@@ -64,18 +64,21 @@ impl<H: Handler> TestServer<H> {
     /// Creates a new [`TestServer`].
     ///
     /// Note that this is **async** because it initializes the handler with [`Handler::init`].
-    pub async fn new(mut handler: H) -> Self {
+    pub async fn new(handler: H) -> Self {
+        Self::new_with_runtime(handler, runtime()).await
+    }
+
+    async fn new_with_runtime(mut handler: H, rt: impl RuntimeTrait) -> Self {
         let url = "http://trillium.test".into_url(None).unwrap();
         let mut info = Info::from(ServerConfig::default());
-        let runtime = runtime();
-        info.insert_state(runtime.clone());
-        info.insert_state(runtime.clone().into());
+        info.insert_state(rt.clone());
+        info.insert_state(Runtime::new(rt.clone()));
         info.insert_state(url.clone());
         handler.init(&mut info).await;
         let server_config: Arc<ServerConfig> = Arc::new(info.into());
         let mut connector = ServerConnector::new(handler)
             .with_server_config(server_config.clone())
-            .with_runtime(runtime.clone());
+            .with_runtime(rt);
         let (peer_ip_sender, receive) = async_channel::unbounded();
         connector.server_peer_ips_receiver = Some(receive);
         let client = Client::new(connector.clone()).with_base(url);
@@ -89,7 +92,12 @@ impl<H: Handler> TestServer<H> {
 
     /// construct a new TestServer and block on initialization
     pub fn new_blocking(handler: H) -> Self {
-        crate::block_on(Self::new(handler))
+        // Create the runtime before block_on so it is stored as an owned (not borrowed) runtime
+        // in the connector. If we used crate::block_on here, runtime() inside new_with_runtime
+        // would detect the current tokio handle and store AlreadyRunning — pointing at the
+        // temporary block_on runtime — which is shut down before block() is ever called.
+        let rt = runtime();
+        rt.clone().block_on(Self::new_with_runtime(handler, rt))
     }
 
     /// Build a new [`ConnTest`]
@@ -149,28 +157,28 @@ impl<H: Handler> TestServer<H> {
     }
 
     /// Add a default host/authority for this virtual server (eg pretend this server is running at
-    /// "example.com" with `.with_host("example.com")`
+    /// `example.com` with `.with_host("example.com")`
     pub fn with_host(mut self, host: &str) -> Self {
         self.set_host(host);
         self
     }
 
     /// Set the default host/authority for this virtual server (eg pretend this server is running at
-    /// "example.com" with `.set_host("example.com")`
+    /// `example.com` with `.set_host("example.com")`
     pub fn set_host(&mut self, host: &str) -> &mut Self {
         let _ = self.client.base_mut().unwrap().set_host(Some(host));
         self
     }
 
     /// Set the url for this virtual server (eg pretend this server is running at
-    /// "https://example.com" with `.with_base("https://example.com")`
+    /// `https://example.com` with `.with_base("https://example.com")`
     pub fn with_base(mut self, base: impl IntoUrl) -> Self {
         self.set_base(base);
         self
     }
 
     /// Set the url for this virtual server (eg pretend this server is running at
-    /// "https://example.com" with `.set_base("https://example.com")`
+    /// `https://example.com` with `.set_base("https://example.com")`
     pub fn set_base(&mut self, base: impl IntoUrl) -> &mut Self {
         self.client
             .set_base(base)
