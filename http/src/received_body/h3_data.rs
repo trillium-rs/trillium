@@ -2,7 +2,7 @@ use super::{
     AsyncRead, Buffer, Context, End, ErrorKind, H3BodyFrameType, Pin, Ready, ReceivedBody,
     ReceivedBodyState, StateOutput, io, ready,
 };
-use crate::h3::{Frame, FrameDecodeError};
+use crate::h3::{Frame, FrameDecodeError, H3ErrorCode};
 
 #[cfg(test)]
 mod tests;
@@ -64,6 +64,13 @@ where
             };
 
             self.buffer.ignore_front(consumed);
+
+            if frame_type == H3BodyFrameType::Trailers
+                && remaining_in_frame > self.h3_max_field_section_size
+            {
+                return Ready(Err(io::Error::other(H3ErrorCode::MessageError)));
+            }
+
             let leftover = self.buffer.len();
 
             if leftover == 0 {
@@ -91,6 +98,7 @@ where
                 &mut buf[..leftover],
                 self.content_length,
                 self.max_len,
+                self.h3_max_field_section_size,
             ))
         } else {
             let bytes = ready!(self.read_raw(cx, buf)?);
@@ -115,6 +123,7 @@ where
                 &mut buf[..bytes],
                 self.content_length,
                 self.max_len,
+                self.h3_max_field_section_size,
             ))
         }
     }
@@ -128,6 +137,7 @@ fn h3_frame_decode(
     buf: &mut [u8],
     content_length: Option<u64>,
     max_len: u64,
+    max_trailer_size: u64,
 ) -> io::Result<(ReceivedBodyState, usize)> {
     if buf.is_empty() {
         return Err(io::Error::from(ErrorKind::UnexpectedEof));
@@ -209,6 +219,9 @@ fn h3_frame_decode(
             }
 
             Ok((Frame::Headers(len), consumed)) => {
+                if len > max_trailer_size {
+                    return Err(io::Error::other(H3ErrorCode::MessageError));
+                }
                 pos += consumed;
                 remaining_in_frame = len;
                 frame_type = H3BodyFrameType::Trailers;

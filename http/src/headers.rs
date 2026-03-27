@@ -131,7 +131,7 @@ impl Headers {
                 value_start += 1;
             }
 
-            let header_value = HeaderValue::parse(&bytes[value_start..newline]);
+            let header_value = HeaderValue::parse(bytes[value_start..newline].trim_ascii_end());
             self.append(header_name, header_value);
             new_header_count += 1;
             last_line = newline + 2;

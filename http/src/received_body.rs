@@ -110,6 +110,8 @@ pub struct ReceivedBody<'conn, Transport> {
     /// See [`HttpConfig::received_body_max_preallocate`]
     #[field(with, get, set)]
     max_preallocate: usize,
+
+    h3_max_field_section_size: u64,
 }
 
 fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
@@ -164,6 +166,7 @@ where
             initial_len: config.received_body_initial_len,
             copy_loops_per_yield: config.copy_loops_per_yield,
             max_preallocate: config.received_body_max_preallocate,
+            h3_max_field_section_size: config.h3_max_field_section_size,
         }
     }
 
@@ -318,7 +321,7 @@ where
             match self.content_length {
                 Some(0) => End,
 
-                Some(total_length) if total_length < self.max_len => FixedLength {
+                Some(total_length) if total_length <= self.max_len => FixedLength {
                     current_index: 0,
                     total: total_length,
                 },

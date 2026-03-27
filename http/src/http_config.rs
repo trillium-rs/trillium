@@ -12,9 +12,10 @@ pub const DEFAULT_CONFIG: HttpConfig = HttpConfig {
     received_body_max_len: 500 * 1024 * 1024,
     received_body_initial_len: 128,
     received_body_max_preallocate: 1024 * 1024,
-    h3_max_field_section_size: None,
+    h3_max_field_section_size: 8 * 1024,
     h3_datagrams_enabled: false,
     webtransport_enabled: false,
+    panic_on_invalid_response_headers: cfg!(debug_assertions),
 };
 
 /// # Performance and security parameters for trillium-http.
@@ -127,22 +128,39 @@ pub struct HttpConfig {
     ///
     /// This is a protocol-level setting and is communicated to the peer.
     ///
-    /// **Default**: unlimited
-    pub(crate) h3_max_field_section_size: Option<u64>,
-
-    /// whether datagrams are enabled for HTTP/3
+    /// **Default**: 8kb
     ///
-    /// This is a protocol-level setting and is communicated to the peer.
+    /// **Unit**: Byte count
+    pub(crate) h3_max_field_section_size: u64,
+
+    /// whether [datagrams](https://www.rfc-editor.org/rfc/rfc9297.html) are enabled for HTTP/3
+    ///
+    /// This is a protocol-level setting and is communicated to the peer as well as enforced.
     ///
     /// **Default**: false
     pub(crate) h3_datagrams_enabled: bool,
 
-    /// whether webtransport (`draft-ietf-webtrans-http3`) is enabled for HTTP/3
+    /// whether [webtransport](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3)
+    /// (`draft-ietf-webtrans-http3`) is enabled for HTTP/3
     ///
-    /// This is a protocol-level setting and is communicated to the peer.
+    /// This is a protocol-level setting and is communicated to the peer. You do not need to
+    /// manually configure this if using
+    /// [`trillium-webtransport`](https://docs.rs/trillium-webtransport)
     ///
     /// **Default**: false
     pub(crate) webtransport_enabled: bool,
+
+    /// whether to panic when a response header with an invalid value (containing `\r`, `\n`, or
+    /// `\0`) is encountered.
+    ///
+    /// Invalid header values are always skipped to prevent header injection. When this is `true`,
+    /// Trillium will additionally panic, surfacing the bug loudly. When `false`, the skip is only
+    /// logged (to the `log` backend) at error level.
+    ///
+    /// **Default**: `true` when compiled with `debug_assertions` (i.e. debug builds), `false` in
+    /// release builds. Override to `true` in release if you want strict production behavior, or to
+    /// `false` in debug if you prefer not to panic during development.
+    pub(crate) panic_on_invalid_response_headers: bool,
 }
 
 impl Default for HttpConfig {

@@ -71,6 +71,10 @@ where
 
         self.buffer.extend_from_slice(&buf[..bytes]);
 
+        if self.buffer.len() > 256 {
+            return Ready(Err(io::Error::new(InvalidData, "chunk header too long")));
+        }
+
         Ready(match parse_chunk_size(&self.buffer) {
             Ok(Some((used, remaining))) => {
                 self.buffer.ignore_front(used);
@@ -364,6 +368,59 @@ mod tests {
             (None, "_", "next request"),
         );
         assert_decoded((7, "hello\r\n0;\r\n\r\n"), (None, "hello", ""));
+    }
+
+    #[test(harness)]
+    async fn test_fixed_length_exactly_at_max_len() {
+        // A body of exactly max_len bytes must succeed (not be rejected).
+        // Previously handle_start used `<` instead of `<=`, so a body of exactly
+        // max_len was incorrectly rejected before reading a single byte.
+        let body = "x".repeat(50);
+        let config = HttpConfig::default().with_received_body_max_len(50);
+        let result = ReceivedBody::new_with_config(
+            Some(50),
+            Buffer::default(),
+            Cursor::new(body.clone()),
+            ReceivedBodyState::Start,
+            None,
+            UTF_8,
+            &config,
+        )
+        .read_string()
+        .await;
+        assert!(
+            result.is_ok(),
+            "exact-max-len body should succeed: {result:?}"
+        );
+        assert_eq!(result.unwrap(), body);
+
+        // One byte over must still fail.
+        let over = "x".repeat(51);
+        let err = ReceivedBody::new_with_config(
+            Some(51),
+            Buffer::default(),
+            Cursor::new(over),
+            ReceivedBodyState::Start,
+            None,
+            UTF_8,
+            &config,
+        )
+        .read_string()
+        .await;
+        assert!(err.is_err(), "over-max-len body should fail");
+    }
+
+    #[test(harness)]
+    async fn test_chunk_header_too_long() {
+        // Build a chunk size line that is valid so far but never terminates:
+        // 16 hex digits + CR, then 300 arbitrary non-LF bytes.
+        // The buffer cap (256 bytes) should fire before we ever see a complete
+        // size line, returning an error rather than growing forever.
+        // 16 hex digits + CR, then 300 arbitrary non-LF bytes. The buffer cap
+        // (256 bytes) should fire before a complete size line arrives.
+        let mut input = "FFFFFFFFFFFFFFFF\r".to_string();
+        input.extend(std::iter::repeat('x').take(300));
+        assert!(decode(input, 1).await.is_err());
     }
 
     #[test(harness)]
