@@ -382,6 +382,17 @@ fn header_names_are_case_insensitive_for_access_but_retain_initial_case_in_heade
     assert!(headers.is_empty());
 }
 
+#[cfg(feature = "parse")]
+#[test]
+fn parse_strips_trailing_ows() {
+    let headers = Headers::parse(b"Content-Length: 42  \r\nHost: example.com\t\r\n\r\n").unwrap();
+    assert_str_eq!(headers.get_str(ContentLength).unwrap(), "42");
+    assert_str_eq!(
+        headers.get_str(KnownHeaderName::Host).unwrap(),
+        "example.com"
+    );
+}
+
 #[test]
 fn value_case_insensitive_comparison() {
     let mut headers = Headers::new();

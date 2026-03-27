@@ -1,0 +1,7 @@
+GET /1 HTTP/1.1\r\n
+Host: example.com\r\n
+Connection: Transfer-Encoding, close\r\n
+\r\n
+GET /2 HTTP/1.1\r\n
+Host: example.com\r\n
+\r\n

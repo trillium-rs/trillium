@@ -77,7 +77,7 @@ impl std::fmt::Debug for H3Settings {
 impl From<&HttpConfig> for H3Settings {
     fn from(value: &HttpConfig) -> Self {
         Self {
-            max_field_section_size: value.h3_max_field_section_size,
+            max_field_section_size: Some(value.h3_max_field_section_size),
             enable_webtransport: value.webtransport_enabled,
             h3_datagram: value.h3_datagrams_enabled,
             ..Self::default()

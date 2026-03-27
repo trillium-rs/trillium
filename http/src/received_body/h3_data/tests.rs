@@ -98,6 +98,26 @@ fn decode_with_max_len(
     content_length: Option<u64>,
     max_len: u64,
 ) -> io::Result<(ReceivedBodyState, Vec<u8>)> {
+    decode_with_limits(
+        remaining_in_frame,
+        total,
+        frame_type,
+        input,
+        content_length,
+        max_len,
+        u64::MAX,
+    )
+}
+
+fn decode_with_limits(
+    remaining_in_frame: u64,
+    total: u64,
+    frame_type: H3BodyFrameType,
+    input: &[u8],
+    content_length: Option<u64>,
+    max_len: u64,
+    max_trailer_size: u64,
+) -> io::Result<(ReceivedBodyState, Vec<u8>)> {
     let mut buf = input.to_vec();
     let mut self_buffer = Buffer::default();
     let (state, bytes) = h3_frame_decode(
@@ -108,6 +128,7 @@ fn decode_with_max_len(
         &mut buf,
         content_length,
         max_len,
+        max_trailer_size,
     )?;
     Ok((state, buf[..bytes].to_vec()))
 }
@@ -332,6 +353,36 @@ fn trailers_with_content_length_mismatch() {
     input.extend_from_slice(b"trail");
     let err = decode(0, 0, H3BodyFrameType::Start, &input, Some(10)).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidData);
+}
+
+#[test]
+fn trailers_exceed_max_trailer_size() {
+    // Trailer HEADERS frame declaring 100 bytes of payload, limit is 50 bytes.
+    let mut input = data_frame(b"body");
+    input.extend_from_slice(&headers_frame(100));
+    input.extend_from_slice(&[0u8; 100]); // fake QPACK payload
+
+    let err = decode_with_limits(0, 0, H3BodyFrameType::Start, &input, None, 1024 * 1024, 50)
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Other);
+    // Verify we embedded the right H3 error code for the QUIC layer to surface.
+    let h3_code = err
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<H3ErrorCode>())
+        .copied();
+    assert_eq!(h3_code, Some(H3ErrorCode::MessageError));
+}
+
+#[test]
+fn trailers_at_max_trailer_size_allowed() {
+    // Exactly at the limit must succeed.
+    let mut input = data_frame(b"body");
+    input.extend_from_slice(&headers_frame(50));
+    input.extend_from_slice(&[0u8; 50]);
+    let (state, body) =
+        decode_with_limits(0, 0, H3BodyFrameType::Start, &input, None, 1024 * 1024, 50).unwrap();
+    assert_eq!(body, b"body");
+    assert_eq!(state, End);
 }
 
 #[test]

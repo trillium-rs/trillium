@@ -1,0 +1,6 @@
+POST / HTTP/1.1\r\n
+Host: example.com\r\n
+Transfer-Encoding: chunked\r\n
+Transfer-Encoding: identity\r\n
+Connection: close\r\n
+\r\n

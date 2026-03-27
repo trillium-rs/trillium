@@ -96,17 +96,35 @@ where
     }
 
     fn validate_headers(request_headers: &Headers) -> Result<()> {
-        let content_length = request_headers.has_header(KnownHeaderName::ContentLength);
-        let transfer_encoding_chunked =
-            request_headers.eq_ignore_ascii_case(KnownHeaderName::TransferEncoding, "chunked");
-
-        if content_length && transfer_encoding_chunked {
-            Err(Error::UnexpectedHeader(
+        if request_headers
+            .get_values(KnownHeaderName::ContentLength)
+            .is_some_and(|v| v.len() > 1)
+        {
+            return Err(Error::UnexpectedHeader(
                 KnownHeaderName::ContentLength.into(),
-            ))
-        } else {
-            Ok(())
+            ));
         }
+
+        if let Some(te) = request_headers.get_values(KnownHeaderName::TransferEncoding) {
+            if !te
+                .as_str()
+                .is_some_and(|s| s.eq_ignore_ascii_case("chunked"))
+            {
+                return Err(Error::UnexpectedHeader(
+                    KnownHeaderName::TransferEncoding.into(),
+                ));
+            }
+        }
+
+        if request_headers.has_header(KnownHeaderName::ContentLength)
+            && request_headers.has_header(KnownHeaderName::TransferEncoding)
+        {
+            return Err(Error::UnexpectedHeader(
+                KnownHeaderName::ContentLength.into(),
+            ));
+        }
+
+        Ok(())
     }
 
     // /// # Create a new `Conn`
@@ -378,16 +396,20 @@ where
     }
 
     fn should_close(&self) -> bool {
-        let request_connection = self.request_headers.get_lower(KnownHeaderName::Connection);
-        let response_connection = self.response_headers.get_lower(KnownHeaderName::Connection);
+        let has_token = |headers: &Headers, token: &str| {
+            headers
+                .get_lower(KnownHeaderName::Connection)
+                .is_some_and(|v| v.split(',').any(|t| t.trim() == token))
+        };
 
-        match (
-            request_connection.as_deref(),
-            response_connection.as_deref(),
-        ) {
-            (Some("keep-alive"), Some("keep-alive")) => false,
-            (Some("close"), _) | (_, Some("close")) => true,
-            _ => self.version == Version::Http1_0,
+        if has_token(&self.request_headers, "close") || has_token(&self.response_headers, "close") {
+            true
+        } else if has_token(&self.request_headers, "keep-alive")
+            && has_token(&self.response_headers, "keep-alive")
+        {
+            false
+        } else {
+            self.version == Version::Http1_0
         }
     }
 
@@ -411,7 +433,7 @@ where
     fn request_content_length(&self) -> Result<Option<u64>> {
         if self
             .request_headers
-            .eq_ignore_ascii_case(KnownHeaderName::TransferEncoding, "chunked")
+            .has_header(KnownHeaderName::TransferEncoding)
         {
             Ok(None)
         } else if let Some(cl) = self.request_headers.get_str(KnownHeaderName::ContentLength) {
@@ -453,6 +475,11 @@ where
             &self.response_headers
         );
 
+        let panic_on_invalid = self
+            .server_config
+            .http_config
+            .panic_on_invalid_response_headers;
+
         for (name, values) in &self.response_headers {
             if name.is_valid() {
                 for value in values {
@@ -460,10 +487,14 @@ where
                         write!(output_buffer, "{name}: ")?;
                         output_buffer.extend_from_slice(value.as_ref());
                         write!(output_buffer, "\r\n")?;
+                    } else if panic_on_invalid {
+                        panic!("invalid response header value {value:?} for header {name}");
                     } else {
                         log::error!("skipping invalid header value {value:?} for header {name}");
                     }
                 }
+            } else if panic_on_invalid {
+                panic!("invalid response header name {name:?}");
             } else {
                 log::error!("skipping invalid header with name {name:?}");
             }

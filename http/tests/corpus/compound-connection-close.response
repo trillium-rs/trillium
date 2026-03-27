@@ -1,0 +1,15 @@
+HTTP/1.1 200 OK\r\n
+Date: Tue, 21 Nov 2023 21:27:21 GMT\r\n
+Content-Length: 137\r\n
+Server: corpus-test\r\n
+\r\n
+===request===\n
+method: GET\n
+path: /1\n
+version: HTTP/1.1\n
+\n
+===headers===\n
+Host: example.com\r\n
+Connection: Transfer-Encoding, close\r\n
+\n
+===body===\n
