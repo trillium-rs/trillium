@@ -2,7 +2,7 @@ use futures_lite::{AsyncBufRead, AsyncRead, AsyncWrite, io::BufReader, ready};
 use std::{
     future::Future,
     io::{ErrorKind, Result},
-    pin::Pin,
+    pin::{Pin, pin},
     task::{Context, Poll},
 };
 
@@ -14,20 +14,20 @@ use std::{
 #[doc(hidden)]
 pub async fn copy<R, W>(reader: R, writer: W, loops_per_yield: usize) -> Result<u64>
 where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead,
+    W: AsyncWrite,
 {
-    struct CopyFuture<R, W> {
-        reader: BufReader<R>,
-        writer: W,
+    struct CopyFuture<'r, 'w, R, W> {
+        reader: BufReader<Pin<&'r mut R>>,
+        writer: Pin<&'w mut W>,
         amt: u64,
         loops_per_yield: usize,
     }
 
-    impl<R, W> Future for CopyFuture<R, W>
+    impl<R, W> Future for CopyFuture<'_, '_, R, W>
     where
-        R: AsyncRead + Unpin,
-        W: AsyncWrite + Unpin,
+        R: AsyncRead,
+        W: AsyncWrite,
     {
         type Output = Result<u64>;
 
@@ -61,6 +61,9 @@ where
             Poll::Pending
         }
     }
+
+    let reader = pin!(reader);
+    let writer = pin!(writer);
 
     let future = CopyFuture {
         reader: BufReader::new(reader),

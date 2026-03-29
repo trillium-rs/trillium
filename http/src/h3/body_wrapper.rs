@@ -1,4 +1,4 @@
-use crate::{Body, body::BodyType, h3::Frame};
+use crate::{Body, Headers, body::BodyType, h3::Frame};
 use futures_lite::{AsyncRead, ready};
 use std::{io, pin::Pin, task::Poll};
 
@@ -24,6 +24,18 @@ impl From<BodyType> for H3Body {
 impl H3Body {
     pub(crate) fn new(body: Body) -> Self {
         body.0.into()
+    }
+
+    /// Returns trailers from the body source, if any.
+    ///
+    /// Only meaningful after the body has been fully read (`done == true`).
+    pub fn trailers(&mut self) -> Option<Headers> {
+        match &mut self.body {
+            BodyType::Streaming {
+                async_read, done, ..
+            } if *done => async_read.get_mut().as_mut().trailers(),
+            _ => None,
+        }
     }
 }
 

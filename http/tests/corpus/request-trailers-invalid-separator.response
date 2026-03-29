@@ -1,0 +1,16 @@
+HTTP/1.1 500 Internal Server Error\r\n
+Date: Tue, 21 Nov 2023 21:27:21 GMT\r\n
+Content-Length: 163\r\n
+Server: corpus-test\r\n
+\r\n
+===request===\n
+method: POST\n
+path: /trailer-test\n
+version: HTTP/1.1\n
+\n
+===headers===\n
+Connection: close\r\n
+Transfer-Encoding: chunked\r\n
+\n
+===error===\n
+invalid trailer headers

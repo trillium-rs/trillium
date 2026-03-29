@@ -141,6 +141,10 @@ pub struct Conn<Transport> {
     /// the :protocol http/3 pseudo-header
     #[field(set, get, into)]
     pub(crate) protocol: Option<Cow<'static, str>>,
+
+    /// request trailers, populated after the request body has been fully read
+    #[field(get, get_mut)]
+    pub(crate) request_trailers: Option<Headers>,
 }
 
 impl<Transport> Debug for Conn<Transport> {
@@ -166,6 +170,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("scheme", &self.scheme)
             .field("protocol", &self.protocol)
             .field("h3_connection", &self.h3_connection)
+            .field("request_trailers", &self.request_trailers)
             .finish()
     }
 }
@@ -457,6 +462,7 @@ where
             scheme: self.scheme,
             h3_connection: self.h3_connection,
             protocol: self.protocol,
+            request_trailers: self.request_trailers,
         }
     }
 

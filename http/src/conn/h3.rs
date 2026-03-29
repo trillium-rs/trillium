@@ -1,7 +1,6 @@
 use crate::{
     BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, Status, TypeSet, Version,
     after_send::AfterSend,
-    copy,
     h3::{Frame, FrameStream, H3Connection, H3Error, H3ErrorCode, H3StreamResult},
     headers::qpack::{FieldSection, PseudoHeaders},
     received_body::ReceivedBodyState,
@@ -79,18 +78,30 @@ where
 
         self.encode_headers_h3(&mut output_buffer)?;
 
-        let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport);
+        let loops_per_yield = self.server_config.http_config.copy_loops_per_yield;
+        let max_peer_field_section_size = self.max_peer_field_section_size();
+        let initial_cap = self.server_config.http_config.request_buffer_initial_len;
+
+        let max_buf = self.server_config.http_config.response_buffer_max_len;
+        let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
 
         if self.method != Method::Head
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
             && let Some(body) = self.response_body.take()
         {
-            copy(
-                body.into_h3(),
-                &mut bufwriter,
-                self.server_config.http_config.copy_loops_per_yield,
-            )
-            .await?;
+            let mut body = body.into_h3();
+
+            bufwriter.copy_from(&mut body, loops_per_yield).await?;
+
+            if let Some(trailers) = body.trailers() {
+                log::trace!("sending trailers: {trailers}");
+                encode_field_section_h3(
+                    &FieldSection::new(PseudoHeaders::default(), &trailers),
+                    max_peer_field_section_size,
+                    initial_cap,
+                    bufwriter.buffer_mut(),
+                )?;
+            }
         }
 
         bufwriter.flush().await?;
@@ -102,30 +113,14 @@ where
         let pseudo_headers =
             PseudoHeaders::default().with_status(self.status.unwrap_or(Status::NotFound));
 
-        let mut field_section_buf =
-            Vec::with_capacity(self.server_config.http_config.request_buffer_initial_len);
-
         let field_section = FieldSection::new(pseudo_headers, &self.response_headers);
         log::trace!("sending:\n{field_section}");
-        field_section.encode(&mut field_section_buf);
-
-        let size = field_section_buf.len() as u64;
-        if let Some(max_size) = self.max_peer_field_section_size()
-            && size > max_size
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("headers would be longer than peer allows ({size} > {max_size})"),
-            ));
-        }
-
-        let frame = Frame::Headers(field_section_buf.len() as u64);
-        let frame_header_len = frame.encoded_len();
-        buffer.resize(frame_header_len, 0);
-        frame.encode(buffer);
-        buffer.extend_from_slice(&field_section_buf);
-
-        Ok(())
+        encode_field_section_h3(
+            &field_section,
+            self.max_peer_field_section_size(),
+            self.server_config.http_config.request_buffer_initial_len,
+            buffer,
+        )
     }
 
     fn build_h3(
@@ -215,6 +210,7 @@ where
             scheme,
             h3_connection: Some(h3_connection),
             protocol,
+            request_trailers: None,
         })
     }
 
@@ -239,4 +235,32 @@ where
             KnownHeaderName::Upgrade,
         ]);
     }
+}
+
+fn encode_field_section_h3(
+    field_section: &FieldSection<'_>,
+    max_peer_field_section_size: Option<u64>,
+    initial_cap: usize,
+    buffer: &mut Vec<u8>,
+) -> io::Result<()> {
+    let mut field_section_buf = Vec::with_capacity(initial_cap);
+    field_section.encode(&mut field_section_buf);
+
+    let size = field_section_buf.len() as u64;
+    if let Some(max_size) = max_peer_field_section_size
+        && size > max_size
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("field section would be longer than peer allows ({size} > {max_size})"),
+        ));
+    }
+
+    let frame = Frame::Headers(field_section_buf.len() as u64);
+    let frame_header_len = frame.encoded_len();
+    buffer.resize(frame_header_len, 0);
+    frame.encode(buffer);
+    buffer.extend_from_slice(&field_section_buf);
+
+    Ok(())
 }

@@ -214,6 +214,8 @@ impl Client {
             scheme: None,
             path: None,
             request_target,
+            request_trailers: None,
+            response_trailers: None,
         }
     }
 

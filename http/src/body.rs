@@ -1,18 +1,58 @@
-use crate::h3::H3Body;
+use crate::{Headers, h3::H3Body};
 use BodyType::{Empty, Static, Streaming};
 use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor, ready};
+use pin_project_lite::pin_project;
 use std::{
     borrow::Cow,
-    fmt::Debug,
+    fmt::{self, Debug, Formatter},
     io::{Error, Result},
     pin::Pin,
     task::{Context, Poll},
 };
 use sync_wrapper::SyncWrapper;
 
+/// Trait for streaming body sources that can optionally produce trailers.
+///
+/// Implement this on types that compute trailer headers dynamically as the body
+/// is read — for example, a hashing wrapper that produces a `Digest` trailer
+/// after all bytes have been streamed.
+///
+/// For plain [`AsyncRead`] sources with no trailers, use [`Body::new_streaming`].
+/// `BodySource` is only needed when trailers must be produced.
+pub trait BodySource: AsyncRead + Send + 'static {
+    /// Returns the trailers for this body, called after the body has been fully read.
+    ///
+    /// Implementations may clear internal state on this call; the result is
+    /// only meaningful after [`AsyncRead::poll_read`] has returned `Ok(0)`.
+    fn trailers(self: Pin<&mut Self>) -> Option<Headers>;
+}
+
+pin_project! {
+    struct PlainBody<T> {
+        #[pin]
+        async_read: T,
+    }
+}
+
+impl<T: AsyncRead> AsyncRead for PlainBody<T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<Result<usize>> {
+        self.project().async_read.poll_read(cx, buf)
+    }
+}
+
+impl<T: AsyncRead + Send + 'static> BodySource for PlainBody<T> {
+    fn trailers(self: Pin<&mut Self>) -> Option<Headers> {
+        None
+    }
+}
+
 /// The trillium representation of a http body. This can contain
 /// either `&'static [u8]` content, `Vec<u8>` content, or a boxed
-/// `AsyncRead` type.
+/// [`AsyncRead`]/[`BodySource`] type.
 #[derive(Debug, Default)]
 pub struct Body(pub(crate) BodyType);
 
@@ -21,12 +61,36 @@ impl Body {
     /// you have the body content in memory already, prefer
     /// [`Body::new_static`] or one of the From conversions.
     pub fn new_streaming(async_read: impl AsyncRead + Send + 'static, len: Option<u64>) -> Self {
+        Self::new_with_trailers(PlainBody { async_read }, len)
+    }
+
+    /// Construct a new body from a [`BodySource`] that can produce trailers after
+    /// the body has been fully read.
+    ///
+    /// Use this when trailers must be computed dynamically from the body bytes,
+    /// for example to append a content hash.
+    pub fn new_with_trailers(body: impl BodySource, len: Option<u64>) -> Self {
         Self(Streaming {
-            async_read: SyncWrapper::new(Box::pin(async_read)),
+            async_read: SyncWrapper::new(Box::pin(body)),
             len,
             done: false,
             progress: 0,
         })
+    }
+
+    /// Returns trailers from the body source, if any.
+    ///
+    /// Only meaningful after the body has been fully read (i.e., [`AsyncRead::poll_read`]
+    /// has returned `Ok(0)`). Returns `None` for bodies constructed with
+    /// [`Body::new_streaming`] or [`Body::new_static`].
+    #[doc(hidden)] // this isn't really a user-facing interface
+    pub fn trailers(&mut self) -> Option<Headers> {
+        match &mut self.0 {
+            Streaming {
+                async_read, done, ..
+            } if *done => async_read.get_mut().as_mut().trailers(),
+            _ => None,
+        }
     }
 
     /// Construct a fixed-length Body from a `Vec<u8>` or `&'static
@@ -243,9 +307,13 @@ impl AsyncRead for Body {
 
                 if bytes == 0 {
                     *done = true;
-                } else {
-                    *progress += bytes as u64;
+                    // Write only the last-chunk marker; the caller must write the
+                    // trailer-section (possibly empty) followed by the terminating CRLF.
+                    buf[..3].copy_from_slice(b"0\r\n");
+                    return Poll::Ready(Ok(3));
                 }
+
+                *progress += bytes as u64;
 
                 let start = format!("{bytes:X}\r\n");
                 let start_length = start.len();
@@ -259,7 +327,12 @@ impl AsyncRead for Body {
     }
 }
 
-struct SyncAsyncReader(SyncWrapper<Pin<Box<dyn AsyncRead + Send + 'static>>>);
+struct SyncAsyncReader(SyncWrapper<Pin<Box<dyn BodySource>>>);
+impl Debug for SyncAsyncReader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SyncAsyncReader").finish()
+    }
+}
 impl AsyncRead for SyncAsyncReader {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -281,7 +354,7 @@ pub(crate) enum BodyType {
     },
 
     Streaming {
-        async_read: SyncWrapper<Pin<Box<dyn AsyncRead + Send + 'static>>>,
+        async_read: SyncWrapper<Pin<Box<dyn BodySource>>>,
         progress: u64,
         len: Option<u64>,
         done: bool,
@@ -289,7 +362,7 @@ pub(crate) enum BodyType {
 }
 
 impl Debug for BodyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Empty => f.debug_tuple("BodyType::Empty").finish(),
             Static { content, cursor } => f

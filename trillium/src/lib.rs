@@ -46,8 +46,8 @@ pub use conn::Conn;
 mod state;
 pub use state::{State, state};
 pub use trillium_http::{
-    Body, Error, HeaderName, HeaderValue, HeaderValues, Headers, HttpConfig, KnownHeaderName,
-    Method, Status, Swansong, TypeSet, Version,
+    Body, BodySource, Error, HeaderName, HeaderValue, HeaderValues, Headers, HttpConfig,
+    KnownHeaderName, Method, Status, Swansong, TypeSet, Version,
 };
 
 mod transport;

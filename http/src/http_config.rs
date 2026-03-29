@@ -4,6 +4,7 @@ use fieldwork::Fieldwork;
 
 pub const DEFAULT_CONFIG: HttpConfig = HttpConfig {
     response_buffer_len: 512,
+    response_buffer_max_len: 2 * 1024 * 1024,
     request_buffer_initial_len: 128,
     head_max_len: 8 * 1024,
     max_headers: 128,
@@ -62,6 +63,18 @@ pub struct HttpConfig {
     ///
     /// **Unit**: byte count
     pub(crate) response_buffer_len: usize,
+
+    /// Maximum size the response buffer may grow to absorb backpressure.
+    ///
+    /// When the transport cannot accept data as fast as the response body is produced, the buffer
+    /// absorbs the remainder up to this limit. Once the limit is reached, writes apply
+    /// backpressure to the body source. This prevents a slow client from causing unbounded memory
+    /// growth.
+    ///
+    /// **Default**: `2mb` in bytes
+    ///
+    /// **Unit**: byte count
+    pub(crate) response_buffer_max_len: usize,
 
     /// The initial buffer allocated for the request headers.
     ///

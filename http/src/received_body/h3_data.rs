@@ -2,7 +2,11 @@ use super::{
     AsyncRead, Buffer, Context, End, ErrorKind, H3BodyFrameType, Pin, Ready, ReceivedBody,
     ReceivedBodyState, StateOutput, io, ready,
 };
-use crate::h3::{Frame, FrameDecodeError, H3ErrorCode};
+use crate::{
+    Headers,
+    h3::{Frame, FrameDecodeError, H3ErrorCode},
+    headers::qpack::FieldSection,
+};
 
 #[cfg(test)]
 mod tests;
@@ -99,6 +103,7 @@ where
                 self.content_length,
                 self.max_len,
                 self.h3_max_field_section_size,
+                &mut self.trailers,
             ))
         } else {
             let bytes = ready!(self.read_raw(cx, buf)?);
@@ -124,6 +129,7 @@ where
                 self.content_length,
                 self.max_len,
                 self.h3_max_field_section_size,
+                &mut self.trailers,
             ))
         }
     }
@@ -138,6 +144,7 @@ fn h3_frame_decode(
     content_length: Option<u64>,
     max_len: u64,
     max_trailer_size: u64,
+    trailers: &mut Option<Headers>,
 ) -> io::Result<(ReceivedBodyState, usize)> {
     if buf.is_empty() {
         return Err(io::Error::from(ErrorKind::UnexpectedEof));
@@ -187,7 +194,17 @@ fn h3_frame_decode(
 
             // If we finished a trailers frame, body is done
             if remaining_in_frame == 0 && frame_type == H3BodyFrameType::Trailers {
-                // TODO: QPACK-decode self_buffer into conn trailers
+                // RFC 9114 §4.1.1: pseudo-headers MUST NOT appear in trailers.
+                // We permissively ignore them rather than failing the request.
+                *trailers = Some(
+                    FieldSection::decode(&self_buffer[..])
+                        .map_err(|_| {
+                            io::Error::new(ErrorKind::InvalidData, "invalid trailer field section")
+                        })?
+                        .into_headers()
+                        .into_owned(),
+                );
+                self_buffer.truncate(0);
                 if let Some(expected) = content_length
                     && total != expected
                 {

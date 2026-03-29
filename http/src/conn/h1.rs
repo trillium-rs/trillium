@@ -1,12 +1,13 @@
 use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, KnownHeaderName, Method,
     ReceivedBody, Result, ServerConfig, Status, TypeSet, Version, after_send::AfterSend,
-    conn::ReceivedBodyState, copy, util::encoding,
+    conn::ReceivedBodyState, util::encoding,
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use memchr::memmem::Finder;
 use std::{
     borrow::Cow,
+    io::Write,
     sync::Arc,
     time::{Instant, SystemTime},
 };
@@ -55,21 +56,32 @@ where
             Vec::with_capacity(self.server_config.http_config.response_buffer_len);
         self.write_headers(&mut output_buffer)?;
 
-        let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport);
+        let max_buf = self.server_config.http_config.response_buffer_max_len;
+        let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
 
         if self.method != Method::Head
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
-            && let Some(body) = self.response_body.take()
+            && let Some(mut body) = self.response_body.take()
         {
-            copy(
-                body,
-                &mut bufwriter,
-                self.server_config.http_config.copy_loops_per_yield,
-            )
-            .await?;
+            let chunked = body.len().is_none();
+
+            let loops_per_yield = self.server_config.http_config.copy_loops_per_yield;
+
+            bufwriter.copy_from(&mut body, loops_per_yield).await?;
+
+            if let Some(trailers) = body.trailers() {
+                log::trace!("sending trailers:\n{trailers}");
+                write_headers_or_trailers(bufwriter.buffer_mut(), &trailers, &self.server_config)?;
+                // we don't store the trailers anywhere because the conn is about to be dropped
+            }
+
+            if chunked {
+                write!(bufwriter.buffer_mut(), "\r\n")?;
+            }
         }
 
         bufwriter.flush().await?;
+
         self.after_send.call(true.into());
         self.finish().await
     }
@@ -93,6 +105,7 @@ where
             encoding(&self.request_headers),
             &self.server_config.http_config,
         )
+        .with_trailers(&mut self.request_trailers)
     }
 
     fn validate_headers(request_headers: &Headers) -> Result<()> {
@@ -248,6 +261,7 @@ where
             scheme: None,
             h3_connection: None,
             protocol: None,
+            request_trailers: None,
         })
     }
 
@@ -323,6 +337,7 @@ where
             scheme: None,
             h3_connection: None,
             protocol: None,
+            request_trailers: None,
         })
     }
 
@@ -455,7 +470,6 @@ where
     }
 
     fn write_headers(&mut self, output_buffer: &mut Vec<u8>) -> Result<()> {
-        use std::io::Write;
         let status = self.status().unwrap_or(Status::NotFound);
 
         write!(
@@ -475,32 +489,40 @@ where
             &self.response_headers
         );
 
-        let panic_on_invalid = self
-            .server_config
-            .http_config
-            .panic_on_invalid_response_headers;
-
-        for (name, values) in &self.response_headers {
-            if name.is_valid() {
-                for value in values {
-                    if value.is_valid() {
-                        write!(output_buffer, "{name}: ")?;
-                        output_buffer.extend_from_slice(value.as_ref());
-                        write!(output_buffer, "\r\n")?;
-                    } else if panic_on_invalid {
-                        panic!("invalid response header value {value:?} for header {name}");
-                    } else {
-                        log::error!("skipping invalid header value {value:?} for header {name}");
-                    }
-                }
-            } else if panic_on_invalid {
-                panic!("invalid response header name {name:?}");
-            } else {
-                log::error!("skipping invalid header with name {name:?}");
-            }
-        }
+        write_headers_or_trailers(output_buffer, &self.response_headers, &self.server_config)?;
 
         write!(output_buffer, "\r\n")?;
+
         Ok(())
     }
+}
+
+/// Writes the HTTP/1.1 chunked header or trailer section + terminating CRLF to `writer`.
+fn write_headers_or_trailers(
+    output_buffer: &mut Vec<u8>,
+    headers: &Headers,
+    server_config: &ServerConfig,
+) -> Result<()> {
+    let panic_on_invalid = server_config.http_config.panic_on_invalid_response_headers;
+
+    for (name, values) in headers {
+        if name.is_valid() {
+            for value in values {
+                if value.is_valid() {
+                    write!(output_buffer, "{name}: ")?;
+                    output_buffer.extend_from_slice(value.as_ref());
+                    write!(output_buffer, "\r\n")?;
+                } else if panic_on_invalid {
+                    panic!("invalid response header value {value:?} for header {name}");
+                } else {
+                    log::error!("skipping invalid header value {value:?} for header {name}");
+                }
+            }
+        } else if panic_on_invalid {
+            panic!("invalid response header name {name:?}");
+        } else {
+            log::error!("skipping invalid header with name {name:?}");
+        }
+    }
+    Ok(())
 }
