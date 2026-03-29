@@ -63,9 +63,56 @@ macro_rules! known_headers {
             type Err = ();
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 if !s.is_ascii() { return Err(()); }
+                let len = s.len();
 
-                $( if s.eq_ignore_ascii_case($capitalized) { Ok(Self::$variant) } else )+
-                { Err(()) }
+                $( if len == $capitalized.len() && s.eq_ignore_ascii_case($capitalized) { return Ok(Self::$variant); } )+
+                Err(())
+            }
+        }
+
+        #[cfg(test)]
+        mod known_header_name_tests {
+            use super::*;
+
+            #[test]
+            fn roundtrip_all_variants() {
+                $(
+                    let parsed: KnownHeaderName = $capitalized.parse()
+                        .unwrap_or_else(|_| panic!("failed to parse {:?}", $capitalized));
+                    assert_eq!(
+                        parsed,
+                        KnownHeaderName::$variant,
+                        "parse({:?}) returned wrong variant",
+                        $capitalized,
+                    );
+                    assert_eq!(
+                        parsed.as_str(),
+                        $capitalized,
+                        "as_str() mismatch for {:?}",
+                        stringify!($variant),
+                    );
+                )+
+            }
+
+            #[test]
+            fn case_insensitive_roundtrip() {
+                $(
+                    let lower: KnownHeaderName = $capitalized.to_lowercase().parse()
+                        .unwrap_or_else(|_| panic!("failed to parse lowercase {:?}", $capitalized));
+                    assert_eq!(lower, KnownHeaderName::$variant);
+
+                    let upper: KnownHeaderName = $capitalized.to_uppercase().parse()
+                        .unwrap_or_else(|_| panic!("failed to parse uppercase {:?}", $capitalized));
+                    assert_eq!(upper, KnownHeaderName::$variant);
+                )+
+            }
+
+            #[test]
+            fn unknown_headers_return_err() {
+                assert!("X-Unknown-Custom-Header".parse::<KnownHeaderName>().is_err());
+                assert!("".parse::<KnownHeaderName>().is_err());
+                assert!("Hostt".parse::<KnownHeaderName>().is_err());
+                assert!("Hos".parse::<KnownHeaderName>().is_err());
             }
         }
     }

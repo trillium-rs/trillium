@@ -413,8 +413,8 @@ where
     fn should_close(&self) -> bool {
         let has_token = |headers: &Headers, token: &str| {
             headers
-                .get_lower(KnownHeaderName::Connection)
-                .is_some_and(|v| v.split(',').any(|t| t.trim() == token))
+                .get_str(KnownHeaderName::Connection)
+                .is_some_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case(token)))
         };
 
         if has_token(&self.request_headers, "close") || has_token(&self.response_headers, "close") {
