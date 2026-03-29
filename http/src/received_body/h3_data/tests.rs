@@ -1,5 +1,10 @@
 use super::*;
-use crate::{HttpConfig, h3::Frame, http_config::DEFAULT_CONFIG};
+use crate::{
+    HttpConfig, KnownHeaderName,
+    h3::Frame,
+    headers::qpack::{FieldSection, PseudoHeaders},
+    http_config::DEFAULT_CONFIG,
+};
 use encoding_rs::UTF_8;
 use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
 use test_harness::test;
@@ -129,6 +134,7 @@ fn decode_with_limits(
         content_length,
         max_len,
         max_trailer_size,
+        &mut None,
     )?;
     Ok((state, buf[..bytes].to_vec()))
 }
@@ -329,8 +335,8 @@ fn zero_length_unknown_frame() {
 #[test]
 fn trailers_end_body() {
     let mut input = data_frame(b"body");
-    input.extend_from_slice(&headers_frame(5));
-    input.extend_from_slice(b"trail"); // fake QPACK payload
+    let (_sent_trailers, trailers_buf) = build_trailers();
+    input.extend_from_slice(&trailers_buf);
     let (state, body) = decode(0, 0, H3BodyFrameType::Start, &input, None).unwrap();
     assert_eq!(body, b"body");
     assert_eq!(state, End);
@@ -339,8 +345,8 @@ fn trailers_end_body() {
 #[test]
 fn trailers_with_content_length_match() {
     let mut input = data_frame(b"body");
-    input.extend_from_slice(&headers_frame(5));
-    input.extend_from_slice(b"trail");
+    let (_sent_trailers, trailers_buf) = build_trailers();
+    input.extend_from_slice(&trailers_buf);
     let (state, body) = decode(0, 0, H3BodyFrameType::Start, &input, Some(4)).unwrap();
     assert_eq!(body, b"body");
     assert_eq!(state, End);
@@ -350,7 +356,8 @@ fn trailers_with_content_length_match() {
 fn trailers_with_content_length_mismatch() {
     let mut input = data_frame(b"body");
     input.extend_from_slice(&headers_frame(5));
-    input.extend_from_slice(b"trail");
+    let (_sent_trailers, trailers_buf) = build_trailers();
+    input.extend_from_slice(&trailers_buf);
     let err = decode(0, 0, H3BodyFrameType::Start, &input, Some(10)).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidData);
 }
@@ -359,10 +366,9 @@ fn trailers_with_content_length_mismatch() {
 fn trailers_exceed_max_trailer_size() {
     // Trailer HEADERS frame declaring 100 bytes of payload, limit is 50 bytes.
     let mut input = data_frame(b"body");
-    input.extend_from_slice(&headers_frame(100));
-    input.extend_from_slice(&[0u8; 100]); // fake QPACK payload
-
-    let err = decode_with_limits(0, 0, H3BodyFrameType::Start, &input, None, 1024 * 1024, 50)
+    let (_sent_trailers, trailers_buf) = build_trailers();
+    input.extend_from_slice(&trailers_buf);
+    let err = decode_with_limits(0, 0, H3BodyFrameType::Start, &input, None, 1024 * 1024, 10)
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Other);
     // Verify we embedded the right H3 error code for the QUIC layer to surface.
@@ -373,14 +379,73 @@ fn trailers_exceed_max_trailer_size() {
     assert_eq!(h3_code, Some(H3ErrorCode::MessageError));
 }
 
+fn build_trailers() -> (Headers, Vec<u8>) {
+    let mut trailers = Headers::new();
+    trailers.insert(KnownHeaderName::Trailer, "x-checksum");
+    trailers.insert("x-checksum", "abc123");
+
+    let mut qpack_buf = Vec::new();
+    FieldSection::new(PseudoHeaders::default(), &trailers).encode(&mut qpack_buf);
+    let mut input = vec![];
+    input.extend_from_slice(&headers_frame(qpack_buf.len() as u64));
+    input.extend_from_slice(&qpack_buf);
+    (trailers, input)
+}
+
+#[test]
+fn trailers_decoded_into_destination() {
+    let mut input = data_frame(b"body");
+    let (sent_trailers, trailers_buf) = build_trailers();
+    input.extend_from_slice(&trailers_buf);
+    let mut buf = input.clone();
+    let mut self_buffer = Buffer::default();
+    let mut trailers: Option<Headers> = None;
+
+    let (state, bytes) = h3_frame_decode(
+        &mut self_buffer,
+        0,
+        0,
+        H3BodyFrameType::Start,
+        &mut buf,
+        None,
+        1024 * 1024,
+        u64::MAX,
+        &mut trailers,
+    )
+    .unwrap();
+
+    assert_eq!(&buf[..bytes], b"body");
+    assert_eq!(state, End);
+    let received_trailers = trailers.expect("trailers should be populated");
+    assert_eq!(received_trailers.get_str("x-checksum"), Some("abc123"));
+    assert_eq!(sent_trailers, received_trailers);
+}
+
 #[test]
 fn trailers_at_max_trailer_size_allowed() {
     // Exactly at the limit must succeed.
     let mut input = data_frame(b"body");
-    input.extend_from_slice(&headers_frame(50));
-    input.extend_from_slice(&[0u8; 50]);
-    let (state, body) =
-        decode_with_limits(0, 0, H3BodyFrameType::Start, &input, None, 1024 * 1024, 50).unwrap();
+
+    let mut trailers = Headers::new();
+    trailers.insert(KnownHeaderName::Trailer, "x-checksum");
+    trailers.insert("x-checksum", "abc123");
+
+    let mut qpack_buf = Vec::new();
+    FieldSection::new(PseudoHeaders::default(), &trailers).encode(&mut qpack_buf);
+    let payload_len = qpack_buf.len() as u64;
+    input.extend_from_slice(&headers_frame(payload_len));
+    input.extend_from_slice(&qpack_buf);
+
+    let (state, body) = decode_with_limits(
+        0,
+        0,
+        H3BodyFrameType::Start,
+        &input,
+        None,
+        1024 * 1024,
+        payload_len,
+    )
+    .unwrap();
     assert_eq!(body, b"body");
     assert_eq!(state, End);
 }

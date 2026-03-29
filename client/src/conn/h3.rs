@@ -1,9 +1,12 @@
 use super::Conn;
 use crate::h3::H3ClientState;
 use futures_lite::AsyncWriteExt;
-use std::{borrow::Cow, io};
+use std::{
+    borrow::Cow,
+    io::{self, ErrorKind},
+};
 use trillium_http::{
-    Error, KnownHeaderName, Method, ReceivedBodyState, Result, Version,
+    BufWriter, Error, KnownHeaderName, Method, ReceivedBodyState, Result, Version,
     h3::{Frame, FrameStream, H3Error},
     headers::qpack::{FieldSection, PseudoHeaders},
 };
@@ -11,7 +14,7 @@ use trillium_http::{
 fn h3_to_io(e: H3Error) -> io::Error {
     match e {
         H3Error::Io(io) => io,
-        H3Error::Protocol(code) => io::Error::new(io::ErrorKind::InvalidData, code.to_string()),
+        H3Error::Protocol(code) => io::Error::new(ErrorKind::InvalidData, code.to_string()),
     }
 }
 
@@ -87,40 +90,53 @@ impl Conn {
                 ));
         }
 
-        let mut field_section_buf = Vec::new();
+        let transport = self.transport.as_mut().ok_or(Error::Closed)?;
+        let max_buf = self.server_config.http_config().response_buffer_max_len();
+        let mut bufwriter = BufWriter::new_with_buffer(
+            Vec::with_capacity(self.server_config.http_config().response_buffer_len()),
+            transport,
+            max_buf,
+        );
+
+        let initial_cap = self
+            .server_config
+            .http_config()
+            .request_buffer_initial_len();
+        let max_peer_field_section_size = None;
+
         let field_section = FieldSection::new(pseudo_headers, &self.request_headers);
-        log::trace!("sending:\n{field_section}");
-        field_section.encode(&mut field_section_buf);
+        log::trace!("sending headers:\n{field_section}");
 
-        let headers_frame = Frame::Headers(field_section_buf.len() as u64);
-        let mut frame_buf = vec![0u8; headers_frame.encoded_len()];
-        headers_frame.encode(&mut frame_buf);
+        encode_field_section_h3(
+            &field_section,
+            max_peer_field_section_size,
+            initial_cap,
+            bufwriter.buffer_mut(),
+        )?;
 
-        let transport = self.transport.as_mut().unwrap();
-        transport.write_all(&frame_buf).await?;
-        transport.write_all(&field_section_buf).await?;
+        let copy_loops_per_yield = self.server_config.http_config().copy_loops_per_yield();
 
         if let Some(body) = self.request_body.take() {
-            match body.len() {
-                Some(0) => {}
-
-                Some(len) => {
-                    let data_frame = Frame::Data(len);
-                    let mut data_buf = vec![0u8; data_frame.encoded_len()];
-                    data_frame.encode(&mut data_buf);
-                    transport.write_all(&data_buf).await?;
-                    futures_lite::io::copy(body, &mut *transport).await?;
-                }
-
-                None => {
-                    futures_lite::io::copy(body.into_h3(), &mut *transport).await?;
-                }
+            let mut body = body.into_h3();
+            bufwriter.copy_from(&mut body, copy_loops_per_yield).await?;
+            self.request_trailers = body.trailers();
+            if let Some(trailers) = &self.request_trailers {
+                let field_section = FieldSection::new(PseudoHeaders::default(), trailers);
+                log::trace!("sending trailers:\n{field_section}");
+                encode_field_section_h3(
+                    &field_section,
+                    max_peer_field_section_size,
+                    initial_cap,
+                    bufwriter.buffer_mut(),
+                )?;
             }
         }
 
+        bufwriter.flush().await?;
+
         // Half-close the write side to signal end of request (RFC 9114 §4.1).
         // For QUIC bidi streams this sends a FIN without closing the read side.
-        transport.close().await?;
+        bufwriter.close().await?;
 
         Ok(())
     }
@@ -229,4 +245,32 @@ impl Conn {
             h3.update_alt_svc(alt_svc, &self.url);
         }
     }
+}
+
+fn encode_field_section_h3(
+    field_section: &FieldSection<'_>,
+    max_peer_field_section_size: Option<u64>,
+    initial_cap: usize,
+    buffer: &mut Vec<u8>,
+) -> io::Result<()> {
+    let mut field_section_buf = Vec::with_capacity(initial_cap);
+    field_section.encode(&mut field_section_buf);
+
+    let size = field_section_buf.len() as u64;
+    if let Some(max_size) = max_peer_field_section_size
+        && size > max_size
+    {
+        return Err(io::Error::new(
+            ErrorKind::InvalidData,
+            format!("field section would be longer than peer allows ({size} > {max_size})"),
+        ));
+    }
+
+    let frame = Frame::Headers(field_section_buf.len() as u64);
+    let frame_header_len = frame.encoded_len();
+    buffer.resize(frame_header_len, 0);
+    frame.encode(buffer);
+    buffer.extend_from_slice(&field_section_buf);
+
+    Ok(())
 }

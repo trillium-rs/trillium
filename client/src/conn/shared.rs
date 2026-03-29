@@ -224,6 +224,8 @@ impl Debug for Conn {
             .field("scheme", &self.scheme)
             .field("path", &self.path)
             .field("request_target", &self.request_target)
+            .field("request_trailers", &self.request_trailers)
+            .field("response_trailers", &self.response_trailers)
             .finish()
     }
 }

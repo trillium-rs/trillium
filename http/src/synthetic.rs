@@ -157,6 +157,7 @@ impl Conn<Synthetic> {
             scheme: None,
             h3_connection: None,
             protocol: None,
+            request_trailers: None,
         }
     }
 

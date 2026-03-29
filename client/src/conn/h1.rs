@@ -1,10 +1,10 @@
 use super::Conn;
-use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once, io};
+use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once};
 use memchr::memmem::Finder;
 use size::{Base, Size};
 use std::io::{ErrorKind, Write};
 use trillium_http::{
-    Error,
+    BufWriter, Error,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBodyState, Result, Status, Version,
 };
@@ -137,10 +137,6 @@ impl Conn {
         );
 
         Ok(buf)
-    }
-
-    fn transport_mut_internal(&mut self) -> &mut Box<dyn Transport> {
-        self.transport.as_mut().unwrap()
     }
 
     async fn read_head(&mut self) -> Result<usize> {
@@ -292,7 +288,50 @@ impl Conn {
 
     async fn send_body(&mut self) -> Result<()> {
         if let Some(mut body) = self.request_body.take() {
-            io::copy(&mut body, self.transport_mut_internal()).await?;
+            let copy_loops_per_yield = self.server_config.http_config().copy_loops_per_yield();
+            let Self {
+                transport,
+                request_trailers,
+                ..
+            } = self;
+
+            let transport = transport.as_mut().ok_or(Error::Closed)?;
+
+            let max_buf = self.server_config.http_config().response_buffer_max_len();
+            let mut bufwriter = BufWriter::new_with_buffer(
+                Vec::with_capacity(self.server_config.http_config().response_buffer_len()),
+                transport,
+                max_buf,
+            );
+
+            bufwriter.copy_from(&mut body, copy_loops_per_yield).await?;
+
+            *request_trailers = body.trailers();
+            if let Some(trailers) = &*request_trailers {
+                let buf = bufwriter.buffer_mut();
+                for (name, values) in trailers {
+                    if !name.is_valid() {
+                        return Err(Error::InvalidHeaderName);
+                    }
+
+                    for value in values {
+                        if !value.is_valid() {
+                            return Err(Error::InvalidHeaderValue(name.to_owned()));
+                        }
+                        write!(buf, "{name}: ")?;
+                        buf.extend_from_slice(value.as_ref());
+                        write!(buf, "\r\n")?;
+                    }
+                }
+
+                log::trace!("sending request trailers: {trailers:?}");
+            }
+
+            if body.len().is_none() {
+                write!(bufwriter.buffer_mut(), "\r\n")?;
+            }
+
+            bufwriter.flush().await?;
         }
         Ok(())
     }

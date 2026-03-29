@@ -30,7 +30,14 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
     match conn.request_body().await.read_string().await {
         Ok(request_body) => {
             conn.set_status(200);
-            conn.set_response_body(format!("{response_body}===body===\n{request_body}"));
+            let trailer_section = conn
+                .request_trailers()
+                .as_ref()
+                .map(|t| format!("\n===trailers===\n{t}\n"))
+                .unwrap_or_default();
+            conn.set_response_body(format!(
+                "{response_body}===body===\n{request_body}{trailer_section}"
+            ));
         }
 
         Err(e) => {

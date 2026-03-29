@@ -166,6 +166,22 @@ pub struct Conn {
     /// target instead of deriving it from the url. For all other methods, this field is ignored.
     #[field(with, set, get, option_set_some, into)]
     pub(crate) request_target: Option<Cow<'static, str>>,
+
+    /// trailers sent with the request body, populated after the body has been fully sent.
+    ///
+    /// Only present when the request body was constructed with [`Body::new_with_trailers`] and
+    /// the body has been fully sent. For H3, this is populated after `send_h3_request`; for H1,
+    /// after `send_body` with a chunked body.
+    #[field(get)]
+    pub(crate) request_trailers: Option<Headers>,
+
+    /// trailers received with the response body, populated after the response body has been fully
+    /// read.
+    ///
+    /// For H3, these are decoded from the trailing HEADERS frame. For H1, from chunked trailers
+    /// (once H1 trailer receive is implemented).
+    #[field(get)]
+    pub(crate) response_trailers: Option<Headers>,
 }
 
 /// default http user-agent header
@@ -310,6 +326,7 @@ impl Conn {
             None,
             encoding(&self.response_headers),
         )
+        .with_trailers(&mut self.response_trailers)
     }
 
     /// Attempt to deserialize the response body. Note that this consumes the body content.

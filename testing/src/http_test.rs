@@ -286,6 +286,15 @@ impl ConnTest {
         self.inner.response_headers()
     }
 
+    /// Returns response trailers, if any were received.
+    ///
+    /// Only populated after the response body has been fully read (i.e., after `.await` or
+    /// `.block()`). Returns `None` when the server sent no trailers or the response was not
+    /// chunked.
+    pub fn response_trailers(&self) -> Option<&Headers> {
+        self.inner.response_trailers()
+    }
+
     /// Returns the value of a response header by name, if present.
     pub fn header<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<&str> {
         self.inner.response_headers().get_str(name)

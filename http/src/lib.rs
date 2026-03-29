@@ -107,12 +107,15 @@ mod upgrade;
 mod util;
 mod version;
 
-pub use body::Body;
+pub use body::{Body, BodySource};
 #[cfg(feature = "unstable")]
 #[doc(hidden)]
 pub use buffer::Buffer;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use buffer::Buffer;
+#[cfg(feature = "unstable")]
+pub use bufwriter::BufWriter;
+#[cfg(not(feature = "unstable"))]
 pub(crate) use bufwriter::BufWriter;
 pub use conn::{Conn, SERVER};
 pub use connection_status::ConnectionStatus;

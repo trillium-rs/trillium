@@ -92,6 +92,10 @@ impl Conn {
     /// `Conn::ok` is a convenience function for the common pattern of
     /// setting a body and a 200 status in one call. It is exactly
     /// identical to `conn.with_status(200).with_body(body).halt()`
+    ///
+    /// See [`Body::new_streaming`] and [`Body::new_with_trailers`] to construct a body from an
+    /// [`AsyncRead`](futures_lite::AsyncRead) or [`BodySource`](crate::BodySource)
+    ///
     /// ```
     /// use trillium::Conn;
     /// use trillium_testing::TestServer;
@@ -157,6 +161,9 @@ impl Conn {
     /// status or halted. See [`Conn::ok`] for a function that does both
     /// of those.
     ///
+    /// See [`Body::new_streaming`] and [`Body::new_with_trailers`] to construct a body from an
+    /// [`AsyncRead`](futures_lite::AsyncRead) or [`BodySource`](crate::BodySource)
+    ///
     /// ```
     /// use trillium::Conn;
     /// use trillium_testing::TestServer;
@@ -175,6 +182,9 @@ impl Conn {
 
     /// Sets the response body from any `impl Into<Body>`. Note that this does not set the response
     /// status or halted.
+    ///
+    /// See [`Body::new_streaming`] and [`Body::new_with_trailers`] to construct a body from an
+    /// [`AsyncRead`](futures_lite::AsyncRead) or [`BodySource`](crate::BodySource)
     ///
     /// ```
     /// use trillium::Conn;
@@ -393,24 +403,32 @@ impl Conn {
         self.inner.method()
     }
 
-    /// borrow the response headers
+    /// Borrow the response headers
     pub fn response_headers(&self) -> &Headers {
         self.inner.response_headers()
     }
 
-    /// mutably borrow the response headers
+    /// Mutably borrow the response headers
     pub fn response_headers_mut(&mut self) -> &mut Headers {
         self.inner.response_headers_mut()
     }
 
-    /// borrow the request headers
+    /// Borrow the request headers
     pub fn request_headers(&self) -> &Headers {
         self.inner.request_headers()
     }
 
-    /// mutably borrow request headers
+    /// Mutably borrow request headers
     pub fn request_headers_mut(&mut self) -> &mut Headers {
         self.inner.request_headers_mut()
+    }
+
+    /// Borrow the request trailers, if any
+    ///
+    /// Trailers are only populated after reading a request body that includes trailers to
+    /// completion.
+    pub fn request_trailers(&self) -> Option<&Headers> {
+        self.inner.request_trailers()
     }
 
     /// Insert a header name and value/values into the response headers and return the conn.

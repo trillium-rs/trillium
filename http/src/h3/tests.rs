@@ -1,14 +1,13 @@
 use crate::{
-    Buffer,
+    Body, Buffer,
     body::BodyType,
     h3::H3Body,
     http_config::DEFAULT_CONFIG,
     received_body::{H3BodyFrameType, ReceivedBody, ReceivedBodyState},
 };
 use encoding_rs::UTF_8;
-use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
-use std::{net::Shutdown, pin::Pin};
-use sync_wrapper::SyncWrapper;
+use futures_lite::{AsyncReadExt, io::Cursor};
+use std::net::Shutdown;
 use test_harness::test;
 use trillium_testing::{TestTransport, harness};
 
@@ -19,9 +18,7 @@ async fn round_trip(body: BodyType, content_length: Option<u64>) -> String {
 
     let rb = ReceivedBody::new_with_config(
         content_length,
-        Buffer::from(Vec::with_capacity(
-            DEFAULT_CONFIG.response_header_initial_capacity,
-        )),
+        Buffer::with_capacity(DEFAULT_CONFIG.response_header_initial_capacity),
         reader,
         ReceivedBodyState::new_h3(),
         None,
@@ -29,7 +26,7 @@ async fn round_trip(body: BodyType, content_length: Option<u64>) -> String {
         &DEFAULT_CONFIG,
     );
 
-    let (_, result) = futures_lite::future::zip(
+    let ((), result) = futures_lite::future::zip(
         async {
             futures_lite::io::copy(H3Body::from(body), &mut writer)
                 .await
@@ -108,14 +105,11 @@ async fn static_body() {
 async fn streaming_known_length() {
     let body = "hello streaming world";
     let result = round_trip(
-        BodyType::Streaming {
-            async_read: SyncWrapper::new(
-                Box::pin(Cursor::new(body.as_bytes().to_vec())) as Pin<Box<dyn AsyncRead + Send>>
-            ),
-            len: Some(body.len() as u64),
-            done: false,
-            progress: 0,
-        },
+        Body::new_streaming(
+            Cursor::new(body.as_bytes().to_vec()),
+            Some(body.len() as u64),
+        )
+        .0,
         Some(body.len() as u64),
     )
     .await;
@@ -126,14 +120,7 @@ async fn streaming_known_length() {
 async fn streaming_unknown_length() {
     let body = "hello chunked world";
     let result = round_trip(
-        BodyType::Streaming {
-            async_read: SyncWrapper::new(
-                Box::pin(Cursor::new(body.as_bytes().to_vec())) as Pin<Box<dyn AsyncRead + Send>>
-            ),
-            len: None,
-            done: false,
-            progress: 0,
-        },
+        Body::new_streaming(Cursor::new(body.as_bytes().to_vec()), None).0,
         None,
     )
     .await;
@@ -162,13 +149,11 @@ async fn streaming_known_length_various_buf_sizes() {
     let body = "hello streaming world";
     for size in 3..=body.len() + 4 {
         let result = round_trip_buf(
-            BodyType::Streaming {
-                async_read: SyncWrapper::new(Box::pin(Cursor::new(body.as_bytes().to_vec()))
-                    as Pin<Box<dyn AsyncRead + Send>>),
-                len: Some(body.len() as u64),
-                done: false,
-                progress: 0,
-            },
+            Body::new_streaming(
+                Cursor::new(body.as_bytes().to_vec()),
+                Some(body.len() as u64),
+            )
+            .0,
             Some(body.len() as u64),
             size,
         )
@@ -182,13 +167,7 @@ async fn streaming_unknown_length_various_buf_sizes() {
     let body = "hello chunked world";
     for size in 3..=body.len() + 4 {
         let result = round_trip_buf(
-            BodyType::Streaming {
-                async_read: SyncWrapper::new(Box::pin(Cursor::new(body.as_bytes().to_vec()))
-                    as Pin<Box<dyn AsyncRead + Send>>),
-                len: None,
-                done: false,
-                progress: 0,
-            },
+            Body::new_streaming(Cursor::new(body.as_bytes().to_vec()), None).0,
             None,
             size,
         )

@@ -360,9 +360,26 @@ impl ConnTest {
         self.inner.response_headers()
     }
 
+    /// Returns the response headers.
+    pub fn response_trailers(&self) -> Option<&Headers> {
+        self.inner.response_trailers()
+    }
+
+    /// Returns the response headers.
+    pub fn request_trailers(&self) -> Option<&Headers> {
+        self.inner.request_trailers()
+    }
+
     /// Returns the value of a response header by name, if present.
     pub fn header<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<&str> {
         self.inner.response_headers().get_str(name)
+    }
+
+    /// Returns the value of a response trailer by name, if present.
+    pub fn trailer<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<&str> {
+        self.inner
+            .response_trailers()
+            .and_then(|trailers| trailers.get_str(name))
     }
 
     /// Asserts that the response status equals `expected`.
@@ -514,6 +531,74 @@ impl ConnTest {
         let parsed: T =
             crate::from_json_str(self.body()).expect("failed to parse response body as JSON");
         assert_eq!(&parsed, body);
+        self
+    }
+
+    /// Asserts that the response has a trailer `name` with value `value`.
+    #[track_caller]
+    pub fn assert_trailer<'a, HV, HN>(&self, name: HN, expected: HV) -> &Self
+    where
+        HeaderValues: PartialEq<HV>,
+        HV: Debug,
+        HN: Into<HeaderName<'a>>,
+    {
+        let name = name.into();
+
+        match self
+            .inner
+            .response_trailers()
+            .and_then(|trailers| trailers.get_values(name.clone()))
+        {
+            Some(actual) => assert_eq!(*actual, expected, "for trailer {name:?}"),
+            None => panic!("trailer {name} not set"),
+        };
+
+        self
+    }
+
+    /// Asserts that the response has a trailer `name` with value `value`.
+    #[track_caller]
+    pub fn assert_trailers<'a, I, HN, HV>(&self, trailers: I) -> &Self
+    where
+        I: IntoIterator<Item = (HN, HV)> + Send,
+        HN: Into<HeaderName<'a>>,
+        HV: Debug,
+        HeaderValues: PartialEq<HV>,
+    {
+        for (name, expected) in trailers {
+            self.assert_trailer(name, expected);
+        }
+
+        self
+    }
+
+    /// Asserts that the response has no trailer named `name`.
+    #[track_caller]
+    pub fn assert_no_trailer(&self, name: &str) -> &Self {
+        let actual = self.trailer(name);
+        assert!(
+            actual.is_none(),
+            "expected no trailer {name:?}, but found {actual:?}"
+        );
+        self
+    }
+
+    /// Asserts that a trailer with the given name exists and runs the provided closure with its
+    /// value.
+    #[track_caller]
+    pub fn assert_trailer_with<'a, F>(&self, name: impl Into<HeaderName<'a>>, f: F) -> &Self
+    where
+        F: FnOnce(&HeaderValues),
+    {
+        let name = name.into();
+        match self
+            .response_trailers()
+            .and_then(|trailers| trailers.get_values(name.clone()))
+        {
+            Some(values) => f(values),
+            None => panic!("expected trailer {name:?}, but it was not found"),
+        }
+
         self
     }
 }

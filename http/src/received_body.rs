@@ -1,4 +1,4 @@
-use crate::{Body, Buffer, Error, HttpConfig, MutCow, copy, http_config::DEFAULT_CONFIG};
+use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, copy, http_config::DEFAULT_CONFIG};
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 use encoding_rs::Encoding;
@@ -112,6 +112,8 @@ pub struct ReceivedBody<'conn, Transport> {
     max_preallocate: usize,
 
     h3_max_field_section_size: u64,
+
+    trailers: MutCow<'conn, Option<Headers>>,
 }
 
 fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
@@ -167,7 +169,18 @@ where
             copy_loops_per_yield: config.copy_loops_per_yield,
             max_preallocate: config.received_body_max_preallocate,
             h3_max_field_section_size: config.h3_max_field_section_size,
+            trailers: None.into(),
         }
+    }
+
+    /// Sets the destination for trailers decoded from the request body.
+    ///
+    /// When the body is fully read, any trailers will be written to the provided storage.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_trailers(mut self, trailers: impl Into<MutCow<'conn, Option<Headers>>>) -> Self {
+        self.trailers = trailers.into();
+        self
     }
 
     // pub fn content_length(&self) -> Option<u64> {
@@ -374,6 +387,9 @@ where
                     frame_type,
                     partial_frame_header
                 ),
+                ReceivedBodyState::ReadingH1Trailers { total } => {
+                    self.handle_reading_h1_trailers(cx, buf, total)
+                }
                 End => Ready(Ok((End, 0))),
             })?;
 
@@ -472,6 +488,15 @@ pub enum ReceivedBodyState {
         /// when true, a partial frame header is sitting in `self.buffer` and needs more bytes
         /// before we can decode it.
         partial_frame_header: bool,
+    },
+
+    /// accumulating the HTTP/1.1 chunked trailer-section after the last-chunk (`0\r\n`).
+    ///
+    /// The trailer bytes (including any partially-received trailer headers) live in
+    /// `ReceivedBody::buffer` until a final empty line (`\r\n\r\n` or bare `\r\n`) is found.
+    ReadingH1Trailers {
+        /// total body bytes read across all chunks (for bounds-checking)
+        total: u64,
     },
 
     /// the terminal read state

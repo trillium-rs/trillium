@@ -1,5 +1,5 @@
 use super::{
-    AsyncRead, Buffer, Chunked, Context, End, ErrorKind, PartialChunkSize, Pin, Ready,
+    AsyncRead, Buffer, Chunked, Context, End, ErrorKind, Headers, PartialChunkSize, Pin, Ready,
     ReceivedBody, ReceivedBodyState, StateOutput, io, ready, slice_from,
 };
 use std::io::ErrorKind::InvalidData;
@@ -49,6 +49,7 @@ where
             total,
             &mut buf[..bytes],
             self.max_len,
+            &mut self.trailers,
         ))
     }
 
@@ -79,7 +80,8 @@ where
             Ok(Some((used, remaining))) => {
                 self.buffer.ignore_front(used);
                 if remaining == 2 {
-                    Ok((End, 0))
+                    // terminal chunk — trailer section begins here (in self.buffer)
+                    finish_terminal_chunk(&mut self.buffer, &[], total, &mut self.trailers)
                 } else {
                     Ok((Chunked { remaining, total }, 0))
                 }
@@ -90,12 +92,48 @@ where
     }
 }
 
+impl<Transport> ReceivedBody<'_, Transport>
+where
+    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+{
+    /// Handler for [`ReceivedBodyState::ReadingH1Trailers`].
+    ///
+    /// We're past the terminal `0\r\n` and need to collect the trailer-section + final CRLF.
+    /// Partial bytes accumulate in `self.buffer`; once a complete trailer terminator is found the
+    /// trailers are decoded and we transition to `End`.
+    #[inline]
+    pub(super) fn handle_reading_h1_trailers(
+        &mut self,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+        total: u64,
+    ) -> StateOutput {
+        let transport = self
+            .transport
+            .as_deref_mut()
+            .ok_or_else(|| io::Error::from(ErrorKind::NotConnected))?;
+        let bytes = ready!(Pin::new(transport).poll_read(cx, buf))?;
+
+        if bytes == 0 {
+            return Ready(Err(io::Error::from(ErrorKind::UnexpectedEof)));
+        }
+
+        Ready(finish_terminal_chunk(
+            &mut self.buffer,
+            &buf[..bytes],
+            total,
+            &mut self.trailers,
+        ))
+    }
+}
+
 pub(super) fn chunk_decode(
     self_buffer: &mut Buffer,
     remaining: u64,
     mut total: u64,
     buf: &mut [u8],
     max_len: u64,
+    trailers: &mut Option<Headers>,
 ) -> io::Result<(ReceivedBodyState, usize)> {
     if buf.is_empty() {
         return Err(io::Error::from(ErrorKind::ConnectionAborted));
@@ -140,10 +178,15 @@ pub(super) fn chunk_decode(
                     .ok_or_else(|| io::Error::new(InvalidData, "chunk size too long"))?;
 
                 if chunk_size == 2 {
-                    if let Some(buf) = slice_from(chunk_end, buf) {
-                        self_buffer.extend_from_slice(buf);
-                    }
-                    break End;
+                    // terminal chunk — `chunk_start` is the start of the trailer-section.
+                    // The 2 bytes already "consumed" by chunk_size may be real trailer data,
+                    // so scan from chunk_start (not chunk_end) for the trailer terminator.
+                    let trailer_start = usize::try_from(chunk_start)
+                        .unwrap_or(buf.len())
+                        .min(buf.len());
+                    let (state, _) =
+                        finish_terminal_chunk(self_buffer, &buf[trailer_start..], total, trailers)?;
+                    break state;
                 }
             }
 
@@ -169,10 +212,111 @@ pub(super) fn chunk_decode(
     Ok((request_body_state, bytes))
 }
 
+/// Called when we've just read the terminal last-chunk (`0\r\n`). `trailer_bytes` contains
+/// whatever bytes from the current read buffer follow the `0\r\n`.
+///
+/// Looks for the end of the trailer-section (a bare `\r\n` for no trailers, or `\r\n\r\n`
+/// after one or more header fields). Returns `(End, 0)` when complete, or
+/// `(ReadingH1Trailers { total }, 0)` when we need more bytes.
+///
+/// Bytes that belong to the next request (after the trailer terminator) are placed in
+/// `self_buffer`.
+fn finish_terminal_chunk(
+    self_buffer: &mut Buffer,
+    trailer_bytes: &[u8],
+    total: u64,
+    trailers: &mut Option<Headers>,
+) -> io::Result<(ReceivedBodyState, usize)> {
+    // Combine any previously buffered partial trailer bytes with the new bytes.
+    let combined: Vec<u8> = if self_buffer.is_empty() {
+        trailer_bytes.to_vec()
+    } else {
+        let mut v = self_buffer.to_vec();
+        v.extend_from_slice(trailer_bytes);
+        self_buffer.truncate(0);
+        v
+    };
+
+    if let Some((trailer_header_end, consumed)) = find_trailer_end(&combined) {
+        if trailer_header_end > 0 {
+            *trailers = Some(parse_h1_trailers(&combined[..trailer_header_end])?);
+        }
+        // anything after the trailer terminator is the start of the next request
+        let leftover = &combined[consumed..];
+        if !leftover.is_empty() {
+            self_buffer.extend_from_slice(leftover);
+        }
+        Ok((End, 0))
+    } else {
+        // Need more bytes — stash what we have and wait
+        self_buffer.extend_from_slice(&combined);
+        Ok((ReceivedBodyState::ReadingH1Trailers { total }, 0))
+    }
+}
+
+/// Returns `Some((trailer_header_end, consumed))` when the end of the trailer-section is found
+/// in `bytes` (bytes starting right after the terminal `0\r\n`):
+///
+/// - `trailer_header_end`: how many bytes of actual trailer headers are present (0 = no trailers)
+/// - `consumed`: how many total bytes to consume (includes the terminating CRLF)
+///
+/// Returns `None` if more bytes are needed.
+fn find_trailer_end(bytes: &[u8]) -> Option<(usize, usize)> {
+    if bytes.len() >= 2 && bytes.starts_with(b"\r\n") {
+        // No trailers — just the empty-line terminator
+        Some((0, 2))
+    } else {
+        // Trailers present — look for \r\n\r\n (last header's CRLF + empty line)
+        memchr::memmem::find(bytes, b"\r\n\r\n").map(|pos| (pos + 2, pos + 4))
+    }
+}
+
+/// Parse HTTP/1.1 trailer header bytes into a [`Headers`] value.
+///
+/// `bytes` must contain only the header fields, each terminated with `\r\n`, with no leading
+/// or trailing empty line (e.g. `"Name: Value\r\nOther: X\r\n"`).
+fn parse_h1_trailers(bytes: &[u8]) -> io::Result<Headers> {
+    #[cfg(feature = "parse")]
+    {
+        Headers::parse(bytes).map_err(|_| io::Error::new(InvalidData, "invalid trailer headers"))
+    }
+
+    #[cfg(not(feature = "parse"))]
+    {
+        use crate::{HeaderName, HeaderValue};
+        use std::str::FromStr;
+
+        // httparse::parse_headers expects the header section to be terminated by a blank line
+        // (\r\n\r\n). Our `bytes` contains only the field lines (each ending with \r\n) with no
+        // terminating blank line, so we append one before handing off to httparse.
+        let mut input = bytes.to_vec();
+        input.extend_from_slice(b"\r\n");
+
+        const MAX_HEADERS: usize = 64;
+        let mut raw = [httparse::EMPTY_HEADER; MAX_HEADERS];
+        let mut headers = Headers::new();
+        match httparse::parse_headers(&input, &mut raw) {
+            Ok(httparse::Status::Complete((_, parsed))) => {
+                for h in parsed {
+                    if h.name.is_empty() {
+                        break;
+                    }
+                    let name = HeaderName::from_str(h.name)
+                        .map_err(|_| io::Error::new(InvalidData, "invalid trailer header name"))?;
+                    let value = HeaderValue::from(h.value.to_owned());
+                    headers.append(name, value);
+                }
+                Ok(headers)
+            }
+            _ => Err(io::Error::new(InvalidData, "invalid trailer headers")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ReceivedBody, ReceivedBodyState, chunk_decode};
-    use crate::{Buffer, HttpConfig, http_config::DEFAULT_CONFIG};
+    use crate::{Buffer, Headers, HttpConfig, http_config::DEFAULT_CONFIG};
     use encoding_rs::UTF_8;
     use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
     use test_harness::test;
@@ -192,6 +336,7 @@ mod tests {
             0,
             &mut buf,
             DEFAULT_CONFIG.received_body_max_len,
+            &mut None,
         )
         .unwrap();
 
@@ -252,7 +397,7 @@ mod tests {
     #[test(harness)]
     async fn test_full_decode() {
         for size in 1..50 {
-            let input = "5\r\n12345\r\n1\r\na\r\n2\r\nbc\r\n3\r\ndef\r\n0\r\n";
+            let input = "5\r\n12345\r\n1\r\na\r\n2\r\nbc\r\n3\r\ndef\r\n0\r\n\r\n";
             let output = decode(input.into(), size).await.unwrap();
             assert_eq!(output, "12345abcdef", "size: {size}");
 
@@ -276,6 +421,9 @@ mod tests {
         .unwrap();
 
         output.truncate(len.try_into().unwrap());
+        // The last-chunk (`0\r\n`) is emitted by Body::poll_read; the caller (server/client
+        // send path) appends the trailer-section terminator. Mimic that here.
+        output.extend_from_slice(b"\r\n");
         String::from_utf8(output).unwrap()
     }
 
@@ -479,5 +627,60 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[test(harness)]
+    async fn trailers_decoded_into_destination() {
+        let input = "5\r\nhello\r\n0\r\nx-checksum: abc123\r\n\r\n";
+        let mut trailers: Option<Headers> = None;
+        let mut rb = ReceivedBody::new_with_config(
+            None,
+            Buffer::default(),
+            Cursor::new(input),
+            ReceivedBodyState::Start,
+            None,
+            UTF_8,
+            &DEFAULT_CONFIG,
+        )
+        .with_trailers(&mut trailers);
+
+        for size in [1, 3, 7, 32, 256] {
+            let body = read_with_buffers_of_size(&mut rb, size).await.unwrap();
+            assert_eq!(body, "hello", "size={size}");
+            let t = trailers.take().expect("trailers should be populated");
+            assert_eq!(t.get_str("x-checksum"), Some("abc123"), "size={size}");
+
+            // reset for next iteration
+            rb = ReceivedBody::new_with_config(
+                None,
+                Buffer::default(),
+                Cursor::new(input),
+                ReceivedBodyState::Start,
+                None,
+                UTF_8,
+                &DEFAULT_CONFIG,
+            )
+            .with_trailers(&mut trailers);
+        }
+    }
+
+    #[test(harness)]
+    async fn trailers_with_no_trailers_section() {
+        // Body with no trailers — just the bare empty-line terminator
+        let input = "5\r\nhello\r\n0\r\n\r\n";
+        let mut trailers: Option<Headers> = None;
+        let rb = ReceivedBody::new_with_config(
+            None,
+            Buffer::default(),
+            Cursor::new(input),
+            ReceivedBodyState::Start,
+            None,
+            UTF_8,
+            &DEFAULT_CONFIG,
+        )
+        .with_trailers(&mut trailers);
+        let body = rb.read_string().await.unwrap();
+        assert_eq!(body, "hello");
+        assert!(trailers.is_none(), "no trailers expected");
     }
 }
