@@ -23,7 +23,6 @@ use header_name::HeaderNameInner;
 pub use header_value::HeaderValue;
 pub use header_values::HeaderValues;
 pub use known_header_name::KnownHeaderName;
-use smartcow::SmartCow;
 use std::{
     collections::{
         BTreeMap,
@@ -71,56 +70,24 @@ impl Display for Headers {
 }
 
 #[cfg(feature = "parse")]
-fn is_tchar(c: u8) -> bool {
-    matches!(
-        c,
-        b'a'..=b'z'
-        | b'A'..=b'Z'
-        | b'0'..=b'9'
-        | b'!'
-        | b'#'
-        | b'$'
-        | b'%'
-        | b'&'
-        | b'\''
-        | b'*'
-        | b'+'
-        | b'-'
-        | b'.'
-        | b'^'
-        | b'_'
-        | b'`'
-        | b'|'
-        | b'~'
-    )
-}
-
-#[cfg(feature = "parse")]
 impl Headers {
     #[doc(hidden)]
     pub fn extend_parse(&mut self, bytes: &[u8]) -> Result<usize, crate::Error> {
         use memchr::memmem::Finder;
 
-        let newlines = Finder::new(b"\r\n").find_iter(bytes).collect::<Vec<_>>();
-        //        self.reserve(newlines.len().saturating_sub(1));
         let mut new_header_count = 0;
         let mut last_line = 0;
-        for newline in newlines {
+        for newline in Finder::new(b"\r\n").find_iter(bytes) {
             if newline == last_line {
                 continue;
             }
 
-            let token_start = last_line;
-            let mut token_end = token_start;
-            while is_tchar(bytes[token_end]) {
-                token_end += 1;
-            }
+            let line = &bytes[last_line..newline];
+            let colon = memchr::memchr(b':', line).ok_or(crate::Error::InvalidHead)?;
 
-            let header_name = HeaderName::parse(&bytes[token_start..token_end])?.to_owned();
+            let header_name = HeaderName::parse(&line[..colon])?.to_owned();
 
-            if bytes[token_end] != b':' {
-                return Err(crate::Error::InvalidHead);
-            }
+            let token_end = last_line + colon;
 
             let mut value_start = token_end + 1;
 
@@ -295,10 +262,6 @@ impl Headers {
     /// the provided header name.
     pub fn get_str<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<&str> {
         self.get_values(name).and_then(HeaderValues::as_str)
-    }
-
-    pub(crate) fn get_lower<'a>(&self, name: impl Into<HeaderName<'a>>) -> Option<SmartCow<'_>> {
-        self.get_values(name).and_then(HeaderValues::as_lower)
     }
 
     /// Retrieves a singular header value from this header map. If there are several headers with

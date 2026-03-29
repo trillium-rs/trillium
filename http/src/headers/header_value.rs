@@ -72,16 +72,6 @@ impl HeaderValue {
             Bytes(_) => None,
         }
     }
-
-    pub(crate) fn as_lower(&self) -> Option<SmartCow<'_>> {
-        self.as_str().map(|s| {
-            if s.chars().all(|c| c.is_ascii_lowercase()) {
-                SmartCow::Borrowed(s)
-            } else {
-                SmartCow::Owned(s.chars().map(|c| c.to_ascii_lowercase()).collect())
-            }
-        })
-    }
 }
 
 impl HeaderValue {

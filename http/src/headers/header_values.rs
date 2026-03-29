@@ -1,6 +1,5 @@
 use crate::HeaderValue;
 use smallvec::{SmallVec, smallvec};
-use smartcow::SmartCow;
 use std::{
     borrow::Cow,
     fmt::{Debug, Formatter, Result},
@@ -101,10 +100,6 @@ impl HeaderValues {
     /// `as_str` returns None.
     pub fn as_str(&self) -> Option<&str> {
         self.one().and_then(HeaderValue::as_str)
-    }
-
-    pub(crate) fn as_lower(&self) -> Option<SmartCow<'_>> {
-        self.one().and_then(HeaderValue::as_lower)
     }
 
     /// If there is only a single `HeaderValue` inside this
