@@ -1,6 +1,11 @@
 use crate::{Conn, Upgrade};
 /// This represents the next state after a response on a conn transport.
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "ConnectionStatus::Conn is the hot path, boxing it would add an allocation per \
+              request"
+)]
 pub enum ConnectionStatus<Transport> {
     /// The transport has been closed, either by the client or by us
     Close,

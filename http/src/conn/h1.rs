@@ -118,15 +118,13 @@ where
             ));
         }
 
-        if let Some(te) = request_headers.get_values(KnownHeaderName::TransferEncoding) {
-            if !te
-                .as_str()
-                .is_some_and(|s| s.eq_ignore_ascii_case("chunked"))
-            {
-                return Err(Error::UnexpectedHeader(
-                    KnownHeaderName::TransferEncoding.into(),
-                ));
-            }
+        if let Some(te) = request_headers.get_values(KnownHeaderName::TransferEncoding)
+            && let Some(te_str) = te.as_str()
+            && te_str.eq_ignore_ascii_case("chunked")
+        {
+            return Err(Error::UnexpectedHeader(
+                KnownHeaderName::TransferEncoding.into(),
+            ));
         }
 
         if request_headers.has_header(KnownHeaderName::ContentLength)

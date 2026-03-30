@@ -285,6 +285,7 @@ fn parse_h1_trailers(bytes: &[u8]) -> io::Result<Headers> {
     {
         use crate::{HeaderName, HeaderValue};
         use std::str::FromStr;
+        const MAX_HEADERS: usize = 64;
 
         // httparse::parse_headers expects the header section to be terminated by a blank line
         // (\r\n\r\n). Our `bytes` contains only the field lines (each ending with \r\n) with no
@@ -292,7 +293,6 @@ fn parse_h1_trailers(bytes: &[u8]) -> io::Result<Headers> {
         let mut input = bytes.to_vec();
         input.extend_from_slice(b"\r\n");
 
-        const MAX_HEADERS: usize = 64;
         let mut raw = [httparse::EMPTY_HEADER; MAX_HEADERS];
         let mut headers = Headers::new();
         match httparse::parse_headers(&input, &mut raw) {

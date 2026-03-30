@@ -125,17 +125,18 @@ fn decode_with_limits(
 ) -> io::Result<(ReceivedBodyState, Vec<u8>)> {
     let mut buf = input.to_vec();
     let mut self_buffer = Buffer::default();
-    let (state, bytes) = h3_frame_decode(
-        &mut self_buffer,
+    let (state, bytes) = H3Frame {
+        self_buffer: &mut self_buffer,
         remaining_in_frame,
         total,
         frame_type,
-        &mut buf,
+        buf: &mut buf,
         content_length,
         max_len,
         max_trailer_size,
-        &mut None,
-    )?;
+        trailers: &mut None,
+    }
+    .decode()?;
     Ok((state, buf[..bytes].to_vec()))
 }
 
@@ -401,17 +402,18 @@ fn trailers_decoded_into_destination() {
     let mut self_buffer = Buffer::default();
     let mut trailers: Option<Headers> = None;
 
-    let (state, bytes) = h3_frame_decode(
-        &mut self_buffer,
-        0,
-        0,
-        H3BodyFrameType::Start,
-        &mut buf,
-        None,
-        1024 * 1024,
-        u64::MAX,
-        &mut trailers,
-    )
+    let (state, bytes) = H3Frame {
+        self_buffer: &mut self_buffer,
+        remaining_in_frame: 0,
+        total: 0,
+        frame_type: H3BodyFrameType::Start,
+        buf: &mut buf,
+        content_length: None,
+        max_len: 1024 * 1024,
+        max_trailer_size: u64::MAX,
+        trailers: &mut trailers,
+    }
+    .decode()
     .unwrap();
 
     assert_eq!(&buf[..bytes], b"body");
