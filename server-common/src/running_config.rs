@@ -91,6 +91,14 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                 log::debug!("closing connection");
             }
 
+            Err(Error::Io(ref e))
+                if e.kind() == ErrorKind::UnexpectedEof
+                    && e.get_ref()
+                        .is_some_and(|inner| inner.to_string().contains("TLS close_notify")) =>
+            {
+                log::debug!("closing connection (tls client did not close notify)");
+            }
+
             Err(e) => {
                 log::error!("http error: {:?}", e);
             }
