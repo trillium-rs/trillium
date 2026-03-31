@@ -119,8 +119,9 @@ where
         }
 
         if let Some(te) = request_headers.get_values(KnownHeaderName::TransferEncoding)
-            && let Some(te_str) = te.as_str()
-            && te_str.eq_ignore_ascii_case("chunked")
+            && te
+                .as_str()
+                .is_none_or(|te_str| !te_str.eq_ignore_ascii_case("chunked"))
         {
             return Err(Error::UnexpectedHeader(
                 KnownHeaderName::TransferEncoding.into(),
@@ -137,29 +138,6 @@ where
 
         Ok(())
     }
-
-    // /// # Create a new `Conn`
-    // ///
-    // /// This function creates a new conn from the provided
-    // /// [`Transport`][crate::transport::Transport], as well as any
-    // /// bytes that have already been read from the transport, and a
-    // /// [`Swansong`] instance that will be used to signal graceful
-    // /// shutdown.
-    // ///
-    // /// # Errors
-    // ///
-    // /// This will return an error variant if:
-    // ///
-    // /// * there is an io error when reading from the underlying transport
-    // /// * headers are too long
-    // /// * we are unable to parse some aspect of the request
-    // /// * the request is an unsupported http version
-    // /// * we cannot make sense of the headers, such as if there is a
-    // /// `content-length` header as well as a `transfer-encoding: chunked`
-    // /// header.
-    // pub async fn new(transport: Transport, bytes: Vec<u8>, swansong: Swansong) -> Result<Self> {
-    //     Self::new_internal(DEFAULT_CONFIG, transport, bytes.into(), swansong, None).await
-    // }
 
     #[cfg(not(feature = "parse"))]
     pub(crate) async fn new_internal(
