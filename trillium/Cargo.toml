@@ -28,7 +28,7 @@ async-io = "2.6.0"
 fastrand = "2.3.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
-env_logger = "0.11.9"
+env_logger = "0.11.10"
 trillium-client = { path = "../client" }
 test-harness = "0.3.1"
 
