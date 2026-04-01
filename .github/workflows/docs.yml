@@ -37,7 +37,7 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Fix permissions
         run: |
           chmod -c -R +rX "./target/doc" | while read line; do
