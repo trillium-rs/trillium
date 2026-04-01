@@ -1,11 +1,11 @@
-import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import remarkRustHiddenLines from './src/remark/rust-hidden-lines.mjs';
+import {lightTheme, darkTheme} from './src/prismTheme';
 
 const config: Config = {
   title: 'trillium',
-  tagline: 'A modular async web framework for Rust',
+  tagline: 'Composition as Configuration',
   url: 'https://trillium.rs',
   baseUrl: '/',
   organizationName: 'trillium-rs',
@@ -37,7 +37,7 @@ const config: Config = {
           lastVersion: 'current',
           versions: {
             current: {
-              label: '0.3.x',
+              label: '1.0',
             },
             '0.2': {
               label: '0.2',
@@ -124,8 +124,8 @@ const config: Config = {
       copyright: `Copyright © ${new Date().getFullYear()} Jacob Rothstein. Built with Docusaurus.`,
     },
     prism: {
-      theme: prismThemes.github,
-      darkTheme: prismThemes.dracula,
+      theme: lightTheme,
+      darkTheme: darkTheme,
       additionalLanguages: ['rust', 'toml', 'bash'],
     },
   } satisfies Preset.ThemeConfig,
