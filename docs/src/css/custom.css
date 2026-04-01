@@ -1,22 +1,131 @@
-:root {
-  --ifm-color-primary: #7c3aed;
-  --ifm-color-primary-dark: #6d28d9;
-  --ifm-color-primary-darker: #5b21b6;
-  --ifm-color-primary-darkest: #4c1d95;
-  --ifm-color-primary-light: #8b5cf6;
-  --ifm-color-primary-lighter: #a78bfa;
-  --ifm-color-primary-lightest: #c4b5fd;
-  --ifm-code-font-size: 95%;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Victor+Mono:ital,wght@1,400&display=swap');
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-weight: 300;
 }
 
+[data-theme='dark'] body {
+  font-weight: 400;
+}
+
+/* ── Light mode — forest floor / parchment ───────────────────────────── */
+:root {
+  --ifm-font-family-base: 'Fira Sans', sans-serif;
+
+  /* Forest green primary scale */
+  --ifm-color-primary:          #2d6a4f;
+  --ifm-color-primary-dark:     #245c43;
+  --ifm-color-primary-darker:   #1b4332;
+  --ifm-color-primary-darkest:  #143527;
+  --ifm-color-primary-light:    #40916c;
+  --ifm-color-primary-lighter:  #52b788;
+  --ifm-color-primary-lightest: #74c69d;
+
+  /* Parchment backgrounds */
+  --ifm-background-color:         #f9f4ec;
+  --ifm-background-surface-color: #f9f4ec;
+
+  /* Warm emphasis scale (alternate-band sections, borders, etc.) */
+  --ifm-color-emphasis-100: #ede3cf;
+  --ifm-color-emphasis-200: #dfd3b6;
+  --ifm-color-emphasis-300: #c8ba98;
+
+  /* Navbar */
+  --ifm-navbar-background-color: #f9f4ec;
+  --ifm-navbar-shadow: 0 1px 2px 0 rgba(45, 35, 15, 0.10);
+
+  /* Footer */
+  --ifm-footer-background-color: #1b4332;
+  --ifm-footer-color:            #d8edd9;
+  --ifm-footer-link-color:       #95d5b2;
+  --ifm-footer-link-hover-color: #b7e4c7;
+  --ifm-footer-title-color:      #f0e6d8;
+
+  /* Inline code */
+  --ifm-code-background: #f0e8d8;
+  --ifm-code-color:      #2a1a0a;
+
+  /* Code blocks */
+  --ifm-code-font-size: 95%;
+  --ifm-pre-background:     #f0e8d8;
+  --prism-background-color: #f0e8d8;
+  --docusaurus-highlighted-code-line-bg: rgba(45, 106, 79, 0.12);
+}
+
+/* ── Dark mode — forest night ────────────────────────────────────────── */
 [data-theme='dark'] {
-  --ifm-color-primary: #a78bfa;
-  --ifm-color-primary-dark: #8b5cf6;
-  --ifm-color-primary-darker: #7c3aed;
-  --ifm-color-primary-darkest: #6d28d9;
-  --ifm-color-primary-light: #c4b5fd;
-  --ifm-color-primary-lighter: #ddd6fe;
-  --ifm-color-primary-lightest: #ede9fe;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  /* Forest green primary scale — warm yellow-green, not minty */
+  --ifm-color-primary:          #4a9252;
+  --ifm-color-primary-dark:     #3a7e42;
+  --ifm-color-primary-darker:   #2c6834;
+  --ifm-color-primary-darkest:  #1e5225;
+  --ifm-color-primary-light:    #5ea864;
+  --ifm-color-primary-lighter:  #7bbf80;
+  --ifm-color-primary-lightest: #9dd4a0;
+
+  /* Dark forest green backgrounds */
+  --ifm-background-color:         #111a14;
+  --ifm-background-surface-color: #111a14;
+
+  /* Forest dark emphasis scale — visible steps */
+  --ifm-color-emphasis-100: #1a2a1e;
+  --ifm-color-emphasis-200: #243626;
+  --ifm-color-emphasis-300: #2e4832;
+
+  /* Navbar */
+  --ifm-navbar-background-color: #111a14;
+  --ifm-navbar-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.40);
+
+  /* Footer */
+  --ifm-footer-background-color: #0a1410;
+  --ifm-footer-color:            #c8b89a;
+  --ifm-footer-link-color:       #66b07e;
+  --ifm-footer-link-hover-color: #85c498;
+  --ifm-footer-title-color:      #f0e6d8;
+
+  /* Text — warm off-white */
+  --ifm-font-color-base:      #f0e6d8;
+  --ifm-font-color-secondary: #c8b49a;
+  --ifm-heading-color:        #d4c8b0;
+
+  /* Inline code */
+  --ifm-code-background: #1e3024;
+  --ifm-code-color:      #f0e6d8;
+
+  /* Code blocks */
+  --ifm-pre-background:     #0d1a10;
+  --prism-background-color: #0d1a10;
+  --docusaurus-highlighted-code-line-bg: rgba(74, 146, 82, 0.15);
+}
+
+/* ── Secondary buttons — warm green-tinted outline ───────────────────── */
+.button--secondary {
+  border-color: rgba(45, 106, 79, 0.40);
+  color: #245c43;
+}
+.button--secondary:hover {
+  border-color: #2d6a4f;
+  color: #1b4332;
+  background-color: rgba(45, 106, 79, 0.07);
+}
+
+[data-theme='dark'] .button--secondary {
+  border-color: rgba(74, 146, 82, 0.35);
+  color: #5ea864;
+}
+[data-theme='dark'] .button--secondary:hover {
+  border-color: #4a9252;
+  color: #7bbf80;
+  background-color: rgba(74, 146, 82, 0.09);
+}
+
+/* ── Victor Mono cursive italics for keywords ────────────────────────── */
+/* fn, impl, async, await, let, use, pub, etc. render in Victor Mono's   */
+/* distinctive script italic — the grammar of the language, set apart.   */
+.token.keyword,
+.token.atrule {
+  font-family: 'Victor Mono', 'Fira Code', monospace;
+  font-style: italic;
 }

@@ -21,9 +21,16 @@
 }
 
 .heroSubtitle {
+  font-family: 'Fira Code', monospace;
   font-size: 1.2rem;
-  margin-bottom: 2rem;
+  margin-bottom: 0.5rem;
   opacity: 0.85;
+}
+
+.heroDescription {
+  font-size: 1rem;
+  margin-bottom: 2rem;
+  opacity: 0.75;
 }
 
 .buttons {
@@ -46,6 +53,93 @@
   padding: 1.5rem 1rem;
 }
 
+.feature h3 {
+  font-family: 'Fira Code', monospace;
+  font-weight: 600;
+}
+
+.ecosystem {
+  padding: 4rem 0;
+}
+
+.ecosystemHeading {
+  margin-bottom: 2.5rem;
+}
+
+.ecosystemGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2.5rem 3rem;
+  margin-bottom: 2.5rem;
+}
+
+.ecosystemCategory {
+}
+
+.ecosystemCategoryTitle {
+  font-family: 'Fira Code', monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.75rem;
+  opacity: 0.5;
+}
+
+.ecosystemList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ecosystemList li {
+  margin-bottom: 0.4rem;
+  font-size: 0.95rem;
+}
+
+.ecosystemItemName {
+  font-weight: 500;
+}
+
+.ecosystemItemDesc {
+  opacity: 0.65;
+}
+
+.ecosystemCta {
+  font-size: 0.95rem;
+  opacity: 0.7;
+}
+
+.statement {
+  padding: 5rem 0;
+  background: var(--ifm-color-emphasis-100);
+}
+
+.statementInner {
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.statementHeading {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.statementText {
+  font-size: 1rem;
+  line-height: 1.75;
+  margin-bottom: 1.25rem;
+  opacity: 0.85;
+}
+
+.statementButtons {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 2.5rem;
+}
+
 @media (max-width: 966px) {
   .heroInner {
     flex-direction: column;
@@ -57,5 +151,9 @@
 
   .heroTitle {
     font-size: 2.5rem;
+  }
+
+  .ecosystemGrid {
+    grid-template-columns: 1fr;
   }
 }
