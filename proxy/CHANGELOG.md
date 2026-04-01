@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/trillium-rs/trillium/compare/trillium-proxy-v0.5.6...trillium-proxy-v0.6.0) - 2026-04-01
+
+### Added
+
+- *(client)* [**breaking**] with_default_pool is now actually the default
+- further improvements on client and proxy for h3
+- [**breaking**] add h3 support to client
+- [**breaking**] hypertext transfer protocol, three
+- [**breaking**] remove Conn::inner and Conn::inner_mut
+- [**breaking**] use swansong instead of stopper + clone counter
+- [**breaking**] eliminate async_trait
+
+### Fixed
+
+- client now is appropriately factored, uses H3Connection
+
+### Other
+
+- Add readmes
+- update all changelogs to reflect current status
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+
 ### Changed
 - Compatible with trillium 0.3
 

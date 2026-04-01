@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-askama-v0.3.2...trillium-askama-v0.4.0) - 2026-04-01
+
+### Added
+
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- update all crates for new style of testing
+
+### Other
+
+- compile fenced samples in guide
+- Add readmes
+- update all changelogs to reflect current status
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- add a rustfmt.toml and reformat
+- release
+- release
+- release
+- release
+
 ### Changed
 - Compatible with trillium 0.3
 

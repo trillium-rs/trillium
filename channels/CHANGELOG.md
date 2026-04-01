@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-channels-v0.3.2...trillium-channels-v0.4.0) - 2026-04-01
+
+### Added
+
+- [**breaking**] use the extracted `type-set` crate instead of trillium_http::StateSet
+- [**breaking**] eliminate async_trait
+
+### Other
+
+- fix up broken docs links
+- compile fenced samples in guide
+- Add readmes
+- update all changelogs to reflect current status
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- add a rustfmt.toml and reformat
+
 ### Changed
 - Compatible with trillium 0.3
 - `ChannelHandler` no longer uses `#[async_trait]`; remove the attribute from any implementations in your code

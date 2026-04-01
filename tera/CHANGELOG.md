@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-tera-v0.3.2...trillium-tera-v0.4.0) - 2026-04-01
+
+### Added
+
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- update all crates for new style of testing
+- [**breaking**] introduce ServerConfig
+- [**breaking**] eliminate async_trait
+
+### Other
+
+- Add readmes
+- update all changelogs to reflect current status
+- some manual clippy fixes
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- add a rustfmt.toml and reformat
+- release
+- release
+- release
+- release
+- *(clippy)* fix two clippies
+
 ### Changed
 - Compatible with trillium 0.3
 

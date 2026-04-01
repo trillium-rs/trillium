@@ -6,6 +6,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.17...trillium-http-v0.4.0) - 2026-04-01
+
+### Added
+
+- small perf improvements
+- http trailers
+- add some more known header names
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- update all crates for new style of testing
+- *(client)* add support for special form request targets
+- drop `Sync` found from Body::new_streaming
+- further improvements on client and proxy for h3
+- [**breaking**] add h3 support to client
+- [**breaking**] webtransport and some tidying of h3/quic
+- auto-populate alt-svc response header
+- [**breaking**] hypertext transfer protocol, three
+- [**breaking**] remove Conn::inner and Conn::inner_mut
+- [**breaking**] introduce ServerConfig
+- *(http)* [**breaking**] remove deprecated Headers::contains_ignore_ascii_case
+- add Headers::entry interface
+- [**breaking**] use the extracted `type-set` crate instead of trillium_http::StateSet
+- [**breaking**] introduce Runtime
+- parse directly into trillium::Headers
+- [**breaking**] use swansong instead of stopper + clone counter
+- *(client)* [**breaking**] add support for client timeouts
+- *(http)* [**breaking**] support !Send handler functions
+- [**breaking**] eliminate async_trait
+- *(http)* [**breaking**] remove Stream for ReceivedBody
+- *(http)* [**breaking**] make Upgrade #[non_exhaustive], use Buffer, and add peer_ip
+- *(http)* [**breaking**] remove reexported httparse error type
+- *(http)* [**breaking**] synthetic len returns usize
+- *(http)* add Conn::shared_state
+- *(http)* add StateSet::merge
+
+### Fixed
+
+- address failing test
+- address some straggling security/correctness issues in 0.3
+- client now is appropriately factored, uses H3Connection
+- nonparse
+- update tests to reflect how Server header is set now
+- http trillium-macros dep version
+
+### Other
+
+- resolve clippy
+- fix up broken docs links
+- *(http)* use a nibble-based huffman decoder instead of bitwise
+- clippy fixes in http
+- Add readmes
+- update all changelogs to reflect current status
+- some manual clippy fixes
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- mv conn/implementation to conn/h1
+- readd FrameHeader::encode, which was used by tests
+- documentation pass
+- edition 2024
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+- add two more corpus tests
+- add httparse tests and make errors identical
+- Upgrade thiserror
+
 ### Changed
 - Compatible with trillium 0.3
 - `StateSet` renamed to `TypeSet` and extracted to the [`type-set`](https://docs.rs/type-set) crate; re-exported as `trillium_http::TypeSet`

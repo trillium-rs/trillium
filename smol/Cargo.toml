@@ -1,6 +1,6 @@
 [package]
 name = "trillium-smol"
-version = "0.4.2"
+version = "0.5.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "smol runtime adapter for trillium.rs"
@@ -17,10 +17,10 @@ async-net = "2.0.0"
 async-task = "4.7.1"
 futures-lite = "2.6.1"
 log = "0.4.29"
-trillium = { path = "../trillium", version = "0.2.20" }
-trillium-http = { path = "../http", version = "0.3.17" }
-trillium-macros = { version = "0.0.6", path = "../macros" }
-trillium-server-common = { path = "../server-common", version = "0.5.2" }
+trillium = { path = "../trillium", version = "0.3.0" }
+trillium-http = { path = "../http", version = "0.4.0" }
+trillium-macros = { version = "0.0.7", path = "../macros" }
+trillium-server-common = { path = "../server-common", version = "0.6.0" }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.4.3"

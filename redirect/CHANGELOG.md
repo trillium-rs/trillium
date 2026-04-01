@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/trillium-rs/trillium/compare/trillium-redirect-v0.1.2...trillium-redirect-v0.2.0) - 2026-04-01
+
+### Added
+
+- [**breaking**] eliminate async_trait
+
+### Other
+
+- Add readmes
+- update all changelogs to reflect current status
+- edition 2024
+- switch over to `///` from `/** */` comments
+- release
+
 ### Changed
 - Compatible with trillium 0.3
 

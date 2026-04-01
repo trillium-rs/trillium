@@ -6,6 +6,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-rc.13](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.12...trillium-api-v0.2.0-rc.13) - 2026-04-01
+
+### Added
+
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- *(api)* remove default features
+- update all crates for new style of testing
+- [**breaking**] allow client and api to use sonic-rs instead of serde_json
+- [**breaking**] fix up the straggling -> () setters
+- [**breaking**] introduce ServerConfig
+- [**breaking**] eliminate async_trait
+- [**breaking**] make all conn header apis specify request or response
+
+### Other
+
+- fix up broken docs links
+- Add readmes
+- document trillium-api
+- update all changelogs to reflect current status
+- *(deps)* [**breaking**] update all deps
+- *(api)* small updates for 0.3
+- edition 2024
+- tidying
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+- fix disconnect-body test
+- Upgrade thiserror
+
 ### Changed
 - Compatible with trillium 0.3
 - `FromConn` and `TryFromConn` no longer use `#[async_trait]`; remove the attribute from any implementations in your code

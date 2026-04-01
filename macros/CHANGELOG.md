@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.7](https://github.com/trillium-rs/trillium/compare/trillium-macros-v0.0.6...trillium-macros-v0.0.7) - 2026-04-01
+
+### Added
+
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- update all crates for new style of testing
+- [**breaking**] add h3 support to client
+- [**breaking**] introduce ServerConfig
+- [**breaking**] eliminate async_trait
+
+### Other
+
+- update all changelogs to reflect current status
+- some manual clippy fixes
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+
 ### Changed
 - Compatible with trillium 0.3
 

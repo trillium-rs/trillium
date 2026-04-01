@@ -6,6 +6,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.20...trillium-v0.3.0) - 2026-04-01
+
+### Added
+
+- http trailers
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- update all crates for new style of testing
+- Support trailing commas in `conn_try!` and `conn_unwrap!`
+- [**breaking**] add h3 support to client
+- auto-populate alt-svc response header
+- [**breaking**] hypertext transfer protocol, three
+- [**breaking**] fix up the straggling -> () setters
+- [**breaking**] remove Conn::inner and Conn::inner_mut
+- [**breaking**] introduce ServerConfig
+- [**breaking**] use the extracted `type-set` crate instead of trillium_http::StateSet
+- [**breaking**] introduce Runtime
+- [**breaking**] remove deprecated set_state functions
+- [**breaking**] use swansong instead of stopper + clone counter
+- [**breaking**] eliminate async_trait
+- [**breaking**] remove `impl Handler for Arc<impl Handler>`
+- [**breaking**] make all conn header apis specify request or response
+- *(trillium)* [**breaking**] remove Clone for Info
+- *(trillium)* [**breaking**] remove trillium::init and trillium::Init
+- *(trillium)* add a StateSet to Info
+- *(trillium)* add Conn::shared_state
+
+### Other
+
+- fix up broken docs links
+- remove some straggling dbg! macros
+- clippy fixes in http
+- Add readmes
+- update all changelogs to reflect current status
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+
 ### Changed
 
 - `impl Handler` no longer requires `#[async_trait]` — remove the attribute from all Handler implementations; `async_trait` can likely be removed from your dependencies entirely

@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/trillium-rs/trillium/compare/trillium-sse-v0.1.2...trillium-sse-v0.2.0) - 2026-04-01
+
+### Added
+
+- [**breaking**] remove Conn::inner and Conn::inner_mut
+- [**breaking**] use swansong instead of stopper + clone counter
+
+### Other
+
+- fix up broken docs links
+- Add readmes
+- update all changelogs to reflect current status
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- release
+
 ### Changed
 - Compatible with trillium 0.3
 
