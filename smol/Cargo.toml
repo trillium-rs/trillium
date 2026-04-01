@@ -27,7 +27,7 @@ signal-hook = "0.4.3"
 async-signal = "0.2.13"
 
 [dev-dependencies]
-env_logger = "0.11.9"
+env_logger = "0.11.10"
 tempfile = "3.27.0"
 test-harness = "0.3.1"
 trillium-client = { path = "../client" }
