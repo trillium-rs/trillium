@@ -28,7 +28,7 @@ jobs:
       - name: Generate code coverage
         run: cargo +nightly tarpaulin
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v6
         with:
           token: ${{secrets.CODECOV_TOKEN}}
           fail_ci_if_error: false
