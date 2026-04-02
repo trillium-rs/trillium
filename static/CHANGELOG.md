@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- path traversal issues on windows ([#754](https://github.com/trillium-rs/trillium/pull/754))
+
 ### Changed
 - Compatible with trillium 0.3
 
