@@ -40,6 +40,7 @@ package = "tokio"
 version = "1.50.0"
 
 [dev-dependencies]
+tempfile = "3"
 trillium-testing = { path = "../testing" }
 trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }
