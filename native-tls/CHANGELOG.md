@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
-- Trillium 0.3 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `config().with_stopper(stopper)` becomes `config().with_swansong(swansong)`
+- Compatible with trillium 1.0
+- Trillium 1.0 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `config().with_stopper(stopper)` becomes `config().with_swansong(swansong)`
 - `NativeTlsConfig::spawn(fut)` → `NativeTlsConfig::runtime().spawn(fut)`
 
 ## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-native-tls-v0.3.3...trillium-native-tls-v0.4.0) - 2024-04-04

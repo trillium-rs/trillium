@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 
 ## [0.5.6](https://github.com/trillium-rs/trillium/compare/trillium-proxy-v0.5.5...trillium-proxy-v0.5.6) - 2026-02-27
 
@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.4](https://github.com/trillium-rs/trillium/compare/trillium-proxy-v0.5.3...trillium-proxy-v0.5.4) - 2024-04-07
 
 ### Added
-- add deprecation warnings to 0.2 branch in preparation for 0.3
+- add deprecation warnings to 0.2 branch in preparation for 1.0
 
 ### Other
 - release

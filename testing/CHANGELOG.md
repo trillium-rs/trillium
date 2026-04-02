@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 - `init(&mut handler)` is now async and returns `Arc<ServerConfig>`: `init(&mut handler).await`; capture the returned value if you need to pass it to `TestConn::with_server_config()`
 - `ClientConfig` struct removed; use the `client_config()` function or `RuntimelessClientConfig` directly
 - `SpawnHandle<F>` removed; background task handles are now `DroppableFuture` from `trillium-server-common`
@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.1](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.6.0...trillium-testing-v0.6.1) - 2024-04-07
 
 ### Added
-- add deprecation warnings to 0.2 branch in preparation for 0.3
+- add deprecation warnings to 0.2 branch in preparation for 1.0
 
 ### Fixed
 - *(trillium)* fix the flaky liveness test

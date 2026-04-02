@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 
 ## [0.1.3](https://github.com/trillium-rs/trillium/compare/trillium-compression-v0.1.2...trillium-compression-v0.1.3) - 2024-05-30
 
@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.2](https://github.com/trillium-rs/trillium/compare/trillium-compression-v0.1.1...trillium-compression-v0.1.2) - 2024-04-07
 
 ### Added
-- add deprecation warnings to 0.2 branch in preparation for 0.3
+- add deprecation warnings to 0.2 branch in preparation for 1.0
 
 ### Other
 - release

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 
 ## [0.3.2](https://github.com/trillium-rs/trillium/compare/trillium-askama-v0.3.1...trillium-askama-v0.3.2) - 2024-01-19
 
