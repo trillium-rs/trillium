@@ -10,9 +10,9 @@
     unused_qualifications
 )]
 
-//! testing utilities for trillium applications.
+//! Testing utilities for trillium applications.
 //!
-//! this crate is intended to be used as a development dependency.
+//! This crate is intended to be used as a development dependency.
 //!
 //! ```
 //! # trillium_testing::block_on(async {

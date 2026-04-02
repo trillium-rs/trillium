@@ -13,9 +13,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SpawnHandle<F>` removed; background task handles are now `DroppableFuture` from `trillium-server-common`
 
 ### Added
-- The assertion macros (`assert_ok!`, `assert_status!`, `assert_not_handled!`, etc.) and request builders are unchanged for the vast majority of users
+- Introduce new testing approach described at `TestHandler`:
+
+```rust
+use trillium::{Conn, Status, conn_try};
+use trillium_testing::TestServer;
+
+async fn handler(mut conn: Conn) -> Conn {
+    let Ok(request_body) = conn.request_body_string().await else {
+        return conn.with_status(500).halt();
+    };
+
+    conn.with_body(format!("request body was: {}", request_body))
+        .with_status(418)
+        .with_response_header("request-id", "special-request")
+}
+
+let app = TestServer::new(handler).await;
+app.post("/")
+    .with_body("hello trillium!")
+    .await
+    .assert_status(Status::ImATeapot)
+    .assert_body("request body was: hello trillium!")
+    .assert_headers([
+        ("request-id", "special-request"),
+        ("content-length", "33")
+    ]);
+
+```
+
+- The assertion macros (`assert_ok!`, `assert_status!`, `assert_not_handled!`, etc.) and request builders are unchanged
 - Zero-dependency testing: when no runtime feature is enabled, `RuntimelessRuntime`, `RuntimelessServer`, and `RuntimelessClientConfig` provide fully in-memory test infrastructure without requiring tokio, smol, or async-std
-- `with_runtime(|runtime| async { ... })` — test harness that injects a `Runtime` into the test closure
+- `with_runtime(|runtime| async { ... })` — test harness that injects a `Runtime` into the test closure, also usable as a test harness
 - `TestConn::with_server_config(Arc<ServerConfig>)` — pass a server config (including shared state initialized by `init`) to a test connection
 
 ## [0.7.0](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.6.1...trillium-testing-v0.7.0) - 2024-05-30
