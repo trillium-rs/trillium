@@ -37,7 +37,7 @@ mod readme {}
 mod handler;
 pub use handler::Handler;
 
-/// Server header
+/// Server header. Somewhat definitionally not constrained by semver.
 pub const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
 
 mod conn;
