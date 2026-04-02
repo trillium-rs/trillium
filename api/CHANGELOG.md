@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 - `FromConn` and `TryFromConn` no longer use `#[async_trait]`; remove the attribute from any implementations in your code
 - `sonic-rs` is now the default JSON library, replacing `serde_json`. The two are mutually exclusive features — `sonic-rs` is active by default. If `serde_json` is already a direct dependency in your project, you can keep it via `default-features = false, features = ["forms", "serde_json"]`; otherwise we recommend switching for substantial JSON parsing performance improvements. **Note:** unlike `serde_json`, `sonic-rs` does not guarantee stable map key ordering — tests that assert on raw JSON string output may need to parse back to `Value` before comparing.
 
@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0-rc.11](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.10...trillium-api-v0.2.0-rc.11) - 2024-04-07
 
 ### Added
-- add deprecation warnings to 0.2 branch in preparation for 0.3
+- add deprecation warnings to 0.2 branch in preparation for 1.0
 
 ### Other
 - release

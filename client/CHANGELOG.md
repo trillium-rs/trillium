@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 - `ObjectSafeConnector` replaced by `ArcedConnector`; `config.arced()` → `ArcedConnector::new(config)`
 - Error variants renamed: `MalformedHeader` split into `InvalidHeaderName` and `InvalidHeaderValue`; `PartialHead` merged into `InvalidHead`
 - Maximum head size increased from 2KB to 8KB
@@ -52,7 +52,7 @@ let client = Client::new_with_quic(
 ## [0.6.1](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.6.0...trillium-client-v0.6.1) - 2024-04-07
 
 ### Added
-- add deprecation warnings to 0.2 branch in preparation for 0.3
+- add deprecation warnings to 0.2 branch in preparation for 1.0
 
 ### Fixed
 - *(client)* re-add Conn::without_header

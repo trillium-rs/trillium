@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
-- Trillium 0.3 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `config().with_stopper(stopper)` becomes `config().with_swansong(swansong)`
+- Compatible with trillium 1.0
+- Trillium 1.0 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `config().with_stopper(stopper)` becomes `config().with_swansong(swansong)`
 - `CloneCounter` and `CloneCounterObserver` removed; connection lifecycle tracking is now managed by Swansong guards
 - `ServerHandle::stop()` → `ServerHandle::shut_down()` which returns `ShutdownCompletion` that can be awaited
 - `ServerHandle::is_running()` removed

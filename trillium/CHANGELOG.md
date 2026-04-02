@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `conn.with_header(name, val)` → `conn.with_response_header(name, val)` (builder) or `conn.insert_response_header(name, val)` (in-place)
 - `conn.set_state(val)` → `conn.insert_state(val)` (was deprecated in 0.2.20)
 - `conn.mut_state_or_insert_with(f)` → `conn.state_entry().or_insert_with(f)`
-- `conn.stopper()` → `conn.swansong()` — trillium 0.3 uses [Swansong](https://docs.rs/swansong) instead of Stopper
+- `conn.stopper()` → `conn.swansong()` — trillium 1.0 uses [Swansong](https://docs.rs/swansong) instead of Stopper
 - `conn.inner()` / `conn.inner_mut()` removed — methods previously accessed via `inner()` are now directly on `Conn`; if you find a method that's no longer accessible this way, please open an issue
 - State types stored on connections now require `Send + Sync + 'static` (previously only `'static`)
 - `Info` no longer implements `Clone` — it now wraps a shared `Arc`-backed `TypeSet` (see Added)
@@ -71,7 +71,7 @@ This makes it straightforward to spawn a server in the background and then wait 
 
 ### HTTP/3
 
-Trillium 0.3 introduces HTTP/3 support via the new [`trillium-quinn`](https://docs.rs/trillium-quinn) crate. No changes to existing handlers are required — HTTP/3 connections run the same `Handler` pipeline as HTTP/1.1. Enable alongside your existing server by adding a QUIC config:
+Trillium 1.0 introduces HTTP/3 support via the new [`trillium-quinn`](https://docs.rs/trillium-quinn) crate. No changes to existing handlers are required — HTTP/3 connections run the same `Handler` pipeline as HTTP/1.1. Enable alongside your existing server by adding a QUIC config:
 
 ```rust
 trillium_tokio::config()
@@ -88,7 +88,7 @@ trillium_tokio::config()
 ## [0.2.19](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.18...trillium-v0.2.19) - 2024-04-07
 
 ### Added
-- add deprecation warnings to 0.2 branch in preparation for 0.3
+- add deprecation warnings to 0.2 branch in preparation for 1.0
 
 ### Fixed
 - *(trillium)* fix the flaky liveness test

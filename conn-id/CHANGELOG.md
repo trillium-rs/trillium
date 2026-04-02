@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 
 ## [0.2.3](https://github.com/trillium-rs/trillium/compare/trillium-conn-id-v0.2.2...trillium-conn-id-v0.2.3) - 2024-04-07
 

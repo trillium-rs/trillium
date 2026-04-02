@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 
 ## [0.2.1](https://github.com/trillium-rs/trillium/compare/trillium-method-override-v0.2.0...trillium-method-override-v0.2.1) - 2024-01-02
 

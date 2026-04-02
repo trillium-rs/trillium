@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 - `formatters::header()` removed (was deprecated); use `formatters::request_header()` instead
 - `dev_formatter` output now includes HTTP version as the first field: format changed from `METHOD URL TIME STATUS` to `VERSION METHOD URL TIME STATUS`
 
@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.5](https://github.com/trillium-rs/trillium/compare/trillium-logger-v0.4.4...trillium-logger-v0.4.5) - 2024-04-07
 
 ### Added
-- add deprecation warnings to 0.2 branch in preparation for 0.3
+- add deprecation warnings to 0.2 branch in preparation for 1.0
 
 ### Other
 - release

@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Compatible with trillium 0.3
+- Compatible with trillium 1.0
 - `StateSet` renamed to `TypeSet` and extracted to the [`type-set`](https://docs.rs/type-set) crate; re-exported as `trillium_http::TypeSet`
-- Trillium 0.3 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `Conn::stopper()` → `Conn::swansong()`
+- Trillium 1.0 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `Conn::stopper()` → `Conn::swansong()`
 - `Error` variants renamed for consistency: `MalformedHeader` → `InvalidHeaderValue`, `PartialHead` → `InvalidHead`, `MissingVersion` → `InvalidVersion`, `UnrecognizedStatusCode`/`MissingStatusCode` → `InvalidStatus`/`MissingStatus`; `HeaderMissing` and `UnexpectedHeader` now carry `HeaderName<'static>` instead of `&'static str`; `UnsupportedVersion` now carries `Version` instead of `u8`
 - `Version::Http2_0` renamed to `Version::Http2`; `Version::Http3_0` renamed to `Version::Http3`
 - `Upgrade` is now `#[non_exhaustive]`; `Upgrade::buffer` changed from `Option<Vec<u8>>` to `Buffer`; `Upgrade::stopper` renamed to `Upgrade::swansong`; `Upgrade::peer_ip: Option<IpAddr>` added
