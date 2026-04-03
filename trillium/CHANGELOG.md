@@ -7,7 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-
 - `impl Handler` no longer requires `#[async_trait]` — remove the attribute from all Handler implementations; `async_trait` can likely be removed from your dependencies entirely
 - `Box<dyn Handler>` is no longer valid for type-erased handlers; use `BoxedHandler::new(handler)` instead (see Added)
 - `conn.headers()` / `conn.headers_mut()` disambiguated: use `conn.request_headers()` / `conn.request_headers_mut()` to read request headers, and `conn.response_headers()` / `conn.response_headers_mut()` for response headers
@@ -16,11 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `conn.mut_state_or_insert_with(f)` → `conn.state_entry().or_insert_with(f)`
 - `conn.stopper()` → `conn.swansong()` — trillium 1.0 uses [Swansong](https://docs.rs/swansong) instead of Stopper
 - `conn.inner()` / `conn.inner_mut()` removed — methods previously accessed via `inner()` are now directly on `Conn`; if you find a method that's no longer accessible this way, please open an issue
-- State types stored on connections now require `Send + Sync + 'static` (previously only `'static`)
 - `Info` no longer implements `Clone` — it now wraps a shared `Arc`-backed `TypeSet` (see Added)
 - `Info::listener_description()` and `Info::server_description()` removed — store custom descriptions in shared state if needed
 - `Init` has completely new semantics: `Init<T: Handler>` (a handler wrapper) is replaced by `Init<F: FnOnce(Info) -> Future<Output = Info>>` (a closure-based startup initializer) — see Added
 - `Transport` moved from `trillium_http::transport::Transport` to `trillium::Transport`
+- `trillium::Conn::request_body` now returns a `trillium::request_body::RequestBody` instead of a `trillium_http::ReceivedBody`
+- `trillium::Upgrade` is no longer a reexport of `trillium_http::Upgrade` and has a new interface.
 
 ### Added
 

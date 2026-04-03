@@ -296,8 +296,10 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
                 conn.response_headers_mut()
                     .extend(std::mem::take(client_conn.response_headers_mut()));
 
-                conn.with_state(UpstreamUpgrade(Upgrade::from(client_conn)))
-                    .with_status(SwitchingProtocols)
+                conn.with_state(UpstreamUpgrade(
+                    trillium_http::Upgrade::from(client_conn).into(),
+                ))
+                .with_status(SwitchingProtocols)
             }
 
             Some(NotFound) if self.pass_through_not_found => {

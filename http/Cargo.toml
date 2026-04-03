@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [features]
 unstable = []
-http-compat = ["dep:http0"]
+http-compat-0 = ["dep:http0"]
 http-compat-1 = ["dep:http1"]
 serde = ["dep:serde"]
 parse = []
@@ -50,7 +50,6 @@ smol = "2.0.2"
 trillium-client = { path = "../client" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
-trillium-http = { path = ".", features = ["http-compat"] }
 futures-lite = "2"
 pretty_assertions = "1.4.1"
 test-harness = "0.3.1"

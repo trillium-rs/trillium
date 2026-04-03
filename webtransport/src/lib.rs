@@ -287,7 +287,7 @@ where
     }
 
     async fn upgrade(&self, mut upgrade: Upgrade) {
-        let Some(h3_connection) = upgrade.take_h3_connection() else {
+        let Some(h3_connection) = upgrade.h3_connection() else {
             log::error!("missing H3Connection in upgrade state");
             return;
         };

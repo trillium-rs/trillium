@@ -77,20 +77,24 @@ impl WebSocketConn {
     /// You should not typically need to call this; the trillium client and server both provide
     /// your code with a `WebSocketConn`.
     #[doc(hidden)]
-    pub async fn new(mut upgrade: Upgrade, config: Option<WebSocketConfig>, role: Role) -> Self {
-        let request_headers = std::mem::take(upgrade.request_headers_mut());
-        let path = std::mem::take(upgrade.path_mut());
+    pub async fn new(
+        upgrade: impl Into<Upgrade>,
+        config: Option<WebSocketConfig>,
+        role: Role,
+    ) -> Self {
+        let mut upgrade = upgrade.into();
+        let request_headers = upgrade.take_request_headers();
+        let path = upgrade.path().to_string().into();
         let method = upgrade.method();
-        let state = std::mem::take(upgrade.state_mut());
-        let buffer = std::mem::take(upgrade.buffer_mut());
+        let state = upgrade.take_state();
         let server_config = upgrade.server_config().clone();
-        let peer_ip = upgrade.take_peer_ip();
-        let transport = upgrade.into_transport();
+        let peer_ip = upgrade.peer_ip();
+        let (buffer, transport) = upgrade.into_transport();
 
         let wss = if buffer.is_empty() {
             WebSocketStream::from_raw_socket(transport, role, config).await
         } else {
-            WebSocketStream::from_partially_read(transport, buffer.to_owned(), role, config).await
+            WebSocketStream::from_partially_read(transport, buffer, role, config).await
         };
 
         let (sink, stream) = wss.split();
