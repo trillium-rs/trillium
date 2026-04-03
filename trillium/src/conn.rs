@@ -1,14 +1,13 @@
-use crate::Transport;
+use crate::{
+    Body, HeaderName, HeaderValues, Headers, Method, Status, Swansong, Transport, TypeSet, Version,
+    request_body::RequestBody, type_set::Entry,
+};
 use std::{
     any::Any,
     fmt::{self, Debug, Formatter},
     future::Future,
     net::IpAddr,
     time::Instant,
-};
-use trillium_http::{
-    Body, HeaderName, HeaderValues, Headers, Method, ReceivedBody, Status, Swansong, TypeSet,
-    Version, type_set::entry::Entry,
 };
 
 /// # A Trillium HTTP connection.
@@ -63,7 +62,7 @@ use trillium_http::{
 /// code can be written without transport generics. See
 /// [`Transport`] for further reading on this.
 pub struct Conn {
-    inner: trillium_http::Conn<Box<dyn Transport>>,
+    pub(crate) inner: trillium_http::Conn<Box<dyn Transport>>,
     halted: bool,
     path: Vec<String>,
 }
@@ -310,9 +309,9 @@ impl Conn {
         self.inner.shared_state().get()
     }
 
-    /// Returns a [`ReceivedBody`] that references this `Conn`. The `Conn`
+    /// Returns a [`RequestBody`] that references this `Conn`. The `Conn`
     /// retains all data and holds the singular transport, but the
-    /// [`ReceivedBody`] provides an interface to read body content.
+    /// [`RequestBody`] provides an interface to read body content.
     ///
     /// See also: [`Conn::request_body_string`] for a convenience function
     /// when the content is expected to be utf8.
@@ -335,8 +334,8 @@ impl Conn {
     /// app.post("/").with_body("request body").await.assert_ok();
     /// # });
     /// ```
-    pub async fn request_body(&mut self) -> ReceivedBody<'_, Box<dyn Transport>> {
-        self.inner.request_body().await
+    pub async fn request_body(&mut self) -> RequestBody<'_> {
+        self.inner.request_body().await.into()
     }
 
     /// Convenience function to read the content of a request body as a `String`.

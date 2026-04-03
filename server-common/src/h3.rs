@@ -6,7 +6,7 @@ use crate::{
     QuicTransportSend, Runtime,
 };
 use std::sync::Arc;
-use trillium::{Handler, Transport};
+use trillium::{Handler, Upgrade};
 use trillium_http::{
     ServerConfig,
     h3::{H3Connection, H3Error, H3ErrorCode, H3StreamResult, UniStreamResult},
@@ -114,8 +114,7 @@ async fn handle_inbound_bidi_streams<QC: QuicConnectionTrait>(
 
             match result {
                 Ok(H3StreamResult::Request(conn)) if conn.should_upgrade() => {
-                    let upgrade = trillium_http::Upgrade::from(conn)
-                        .map_transport(|t| Box::new(t) as Box<dyn Transport>);
+                    let upgrade = Upgrade::from(conn);
                     if handler.has_upgrade(&upgrade) {
                         log::debug!("upgrading h3 stream");
                         handler.upgrade(upgrade).await;

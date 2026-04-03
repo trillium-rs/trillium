@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [features]
 unstable = ["trillium-http/unstable"]
-http-compat = ["trillium-http/http-compat"]
+http-compat-0 = ["trillium-http/http-compat-0"]
 http-compat-1 = ["trillium-http/http-compat-1"]
 serde = ["trillium-http/serde"]
 
@@ -20,6 +20,7 @@ serde = ["trillium-http/serde"]
 futures-lite = "2.6.1"
 log = "0.4.29"
 trillium-http = { path = "../http", version = "0.3.17" }
+trillium-macros = { version = "0.0.6", path = "../macros" }
 
 [dev-dependencies]
 futures-lite = "2.6.1"

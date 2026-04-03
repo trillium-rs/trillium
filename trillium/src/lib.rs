@@ -37,7 +37,9 @@ mod readme {}
 mod handler;
 pub use handler::Handler;
 
-/// Server header. Somewhat definitionally not constrained by semver.
+/// Server header.
+///
+/// The contents of this constant are necessarily unconstrained by semver.
 pub const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
 
 mod conn;
@@ -47,14 +49,14 @@ mod state;
 pub use state::{State, state};
 pub use trillium_http::{
     Body, BodySource, Error, HeaderName, HeaderValue, HeaderValues, Headers, HttpConfig,
-    KnownHeaderName, Method, Status, Swansong, TypeSet, Version,
+    KnownHeaderName, Method, ServerConfig, Status, Swansong, TypeSet, Version,
 };
 
 mod transport;
 pub use transport::Transport;
 
-/// # A HTTP protocol upgrade
-pub type Upgrade = trillium_http::Upgrade<Box<dyn Transport>>;
+mod upgrade;
+pub use upgrade::Upgrade;
 
 mod macros;
 
@@ -68,3 +70,16 @@ pub use boxed_handler::BoxedHandler;
 
 mod init;
 pub use init::{Init, init};
+
+/// Types for interacting with [`Headers`]
+pub mod headers {
+    pub use trillium_http::headers::{Entry, IntoIter, Iter};
+}
+
+/// Types for interacting with [`TypeSet`]
+pub mod type_set {
+    pub use trillium_http::type_set::entry::Entry;
+}
+
+mod request_body;
+pub use request_body::RequestBody;

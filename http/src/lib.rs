@@ -91,7 +91,7 @@ mod copy;
 mod error;
 pub mod h3;
 pub mod headers;
-#[cfg(feature = "http-compat")]
+#[cfg(feature = "http-compat-0")]
 pub mod http_compat0;
 #[cfg(feature = "http-compat-1")]
 pub mod http_compat1;

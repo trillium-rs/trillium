@@ -48,6 +48,7 @@ pub struct Upgrade<Transport> {
     ///
     /// It is your responsibility to process these bytes before reading directly from the
     /// transport.
+    #[field(deref = "[u8]", into_field = false, set = false, with = false)]
     buffer: Buffer,
 
     /// The [`ServerConfig`] shared for this server
@@ -65,6 +66,7 @@ pub struct Upgrade<Transport> {
     scheme: Option<Cow<'static, str>>,
 
     /// the HTTP/3 connection associated with this upgrade, if this was an HTTP/3 connection
+    #[field(get(deref = false))]
     h3_connection: Option<Arc<H3Connection>>,
 
     /// the :protocol http/3 pseudo-header
@@ -104,6 +106,16 @@ impl<Transport> Upgrade<Transport> {
             secure: false,
             version,
         }
+    }
+
+    /// Take any buffered bytes
+    pub fn take_buffer(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.buffer).into()
+    }
+
+    #[doc(hidden)]
+    pub fn buffer_and_transport_mut(&mut self) -> (&mut Buffer, &mut Transport) {
+        (&mut self.buffer, &mut self.transport)
     }
 
     /// borrow the shared state [`TypeSet`] for this application

@@ -72,7 +72,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
 
         match result {
             Ok(Some(upgrade)) => {
-                let upgrade = upgrade.map_transport(|t| Box::new(t) as Box<dyn Transport>);
+                let upgrade = upgrade.into();
                 if handler.has_upgrade(&upgrade) {
                     log::debug!("upgrading...");
                     handler.upgrade(upgrade).await;
