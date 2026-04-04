@@ -1,7 +1,7 @@
 use crate::{
     Body, Buffer, Headers,
     KnownHeaderName::Host,
-    Method, ReceivedBody, ServerConfig, Status, Swansong, TypeSet, Version,
+    Method, ReceivedBody, HttpContext, Status, Swansong, TypeSet, Version,
     after_send::{AfterSend, SendStatus},
     h3::H3Connection,
     liveness::{CancelOnDisconnect, LivenessFut},
@@ -37,8 +37,8 @@ pub const SERVER: &str = concat!("trillium-http/", env!("CARGO_PKG_VERSION"));
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn<Transport> {
     #[field(get)]
-    /// the shared [`ServerConfig`]
-    pub(crate) server_config: Arc<ServerConfig>,
+    /// the shared [`HttpContext`]
+    pub(crate) context: Arc<HttpContext>,
 
     /// request [headers](Headers)
     #[field(get, get_mut)]
@@ -150,7 +150,7 @@ pub struct Conn<Transport> {
 impl<Transport> Debug for Conn<Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Conn")
-            .field("server_config", &self.server_config)
+            .field("context", &self.context)
             .field("request_headers", &self.request_headers)
             .field("response_headers", &self.response_headers)
             .field("path", &self.path)
@@ -181,7 +181,7 @@ where
 {
     /// Returns the shared state on this conn, if set
     pub fn shared_state(&self) -> &TypeSet {
-        &self.server_config.shared_state
+        &self.context.shared_state
     }
 
     /// sets the http status code from any `TryInto<Status>`.
@@ -410,7 +410,7 @@ where
     /// inside of handler functions
     pub fn swansong(&self) -> Swansong {
         self.h3_connection.as_ref().map_or_else(
-            || self.server_config.swansong.clone(),
+            || self.context.swansong.clone(),
             |h| h.swansong().clone(),
         )
     }
@@ -442,7 +442,7 @@ where
         NewTransport: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     {
         Conn {
-            server_config: self.server_config,
+            context: self.context,
             request_headers: self.request_headers,
             response_headers: self.response_headers,
             method: self.method,

@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 use trillium_http::{
-    ServerConfig,
+    HttpContext,
     h3::{H3Connection, H3Error, H3ErrorCode, UniStreamResult},
 };
 use trillium_server_common::{
@@ -62,7 +62,7 @@ impl H3ClientState {
         host: &str,
         port: u16,
         connector: &ArcedConnector,
-        server_config: &Arc<ServerConfig>,
+        context: &Arc<HttpContext>,
     ) -> io::Result<QuicConnection> {
         if let Some(conn) = self.pool.peek_candidate(origin) {
             return Ok(conn);
@@ -77,7 +77,7 @@ impl H3ClientState {
         let endpoint = self.endpoint_for(addr)?;
         let conn = endpoint.connect(addr, host).await?;
 
-        setup_h3_connection(&conn, server_config, &connector.runtime());
+        setup_h3_connection(&conn, context, &connector.runtime());
 
         self.pool
             .insert(origin.clone(), PoolEntry::new(conn.clone(), None));
@@ -124,10 +124,10 @@ impl H3ClientState {
 /// using the same `H3Connection` from trillium-http for wire-protocol handling.
 fn setup_h3_connection(
     quic_conn: &QuicConnection,
-    server_config: &Arc<ServerConfig>,
+    context: &Arc<HttpContext>,
     runtime: &Runtime,
 ) {
-    let h3 = H3Connection::new(server_config.clone());
+    let h3 = H3Connection::new(context.clone());
 
     // Outbound control stream — sends SETTINGS, then GOAWAY on shutdown.
     spawn_outbound_control_stream(quic_conn, &h3, runtime);

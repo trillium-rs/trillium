@@ -88,7 +88,7 @@ pub mod prelude {
 
 use trillium::{Handler, Info};
 pub use trillium::{Method, Status};
-use trillium_http::ServerConfig;
+use trillium_http::HttpContext;
 pub use url::Url;
 
 /// runs the future to completion on the current thread
@@ -97,8 +97,8 @@ pub fn block_on<Fut: Future>(fut: Fut) -> Fut::Output {
 }
 
 /// initialize a handler
-pub async fn init(handler: &mut impl Handler) -> Arc<ServerConfig> {
-    let mut info = Info::from(ServerConfig::default());
+pub async fn init(handler: &mut impl Handler) -> Arc<HttpContext> {
+    let mut info = Info::from(HttpContext::default());
     info.insert_state(runtime());
     info.insert_state(runtime().into());
     handler.init(&mut info).await;

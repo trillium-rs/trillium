@@ -33,18 +33,18 @@
 //!         use async_net::TcpListener;
 //!         use futures_lite::StreamExt;
 //!         use std::sync::Arc;
-//!         use trillium_http::ServerConfig;
+//!         use trillium_http::HttpContext;
 //!
-//!         let server_config = Arc::new(ServerConfig::default());
+//!         let context = Arc::new(HttpContext::default());
 //!         let listener = TcpListener::bind(("localhost", 0)).await?;
 //!         let local_addr = listener.local_addr().unwrap();
 //!         let server_handle = smol::spawn({
-//!             let server_config = server_config.clone();
+//!             let context = context.clone();
 //!             async move {
-//!                 let mut incoming = server_config.swansong().interrupt(listener.incoming());
+//!                 let mut incoming = context.swansong().interrupt(listener.incoming());
 //!
 //!                 while let Some(Ok(stream)) = incoming.next().await {
-//!                     smol::spawn(server_config.clone().run(stream, |mut conn| async move {
+//!                     smol::spawn(context.clone().run(stream, |mut conn| async move {
 //!                         conn.set_response_body("hello world");
 //!                         conn.set_status(200);
 //!                         conn
@@ -70,7 +70,7 @@
 //!             "hello world"
 //!         );
 //!
-//!         server_config.shut_down().await; // stop the server after one request
+//!         context.shut_down().await; // stop the server after one request
 //!         server_handle.await; // wait for the server to shut down
 //!         Ok(())
 //!     })
@@ -96,11 +96,11 @@ pub mod http_compat0;
 #[cfg(feature = "http-compat-1")]
 pub mod http_compat1;
 mod http_config;
+mod http_context;
 mod liveness;
 mod method;
 mod mut_cow;
 mod received_body;
-mod server_config;
 mod status;
 mod synthetic;
 mod upgrade;
@@ -127,13 +127,13 @@ pub(crate) use copy::copy;
 pub use error::{Error, Result};
 pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName};
 pub use http_config::HttpConfig;
+pub use http_context::HttpContext;
 pub use method::Method;
 pub(crate) use mut_cow::MutCow;
 pub use received_body::ReceivedBody;
 #[cfg(feature = "unstable")]
 #[doc(hidden)]
 pub use received_body::{H3BodyFrameType, ReceivedBodyState};
-pub use server_config::ServerConfig;
 pub use status::Status;
 pub use swansong::Swansong;
 #[doc(hidden)]

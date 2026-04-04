@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 use trillium::{Conn, Handler, HeaderName, HeaderValues, Method, Transport};
-use trillium_http::{Conn as HttpConn, ServerConfig, Synthetic};
+use trillium_http::{Conn as HttpConn, HttpContext, Synthetic};
 
 type SyntheticConn = HttpConn<Synthetic>;
 
@@ -33,11 +33,11 @@ impl TestConn {
     }
 
     /// assigns a shared server config to this test conn
-    pub fn with_server_config(self, server_config: Arc<ServerConfig>) -> Self {
+    pub fn with_context(self, context: Arc<HttpContext>) -> Self {
         let inner = self
             .0
             .into_inner::<Synthetic>()
-            .with_server_config(server_config)
+            .with_context(context)
             .into();
 
         Self(inner)

@@ -8,7 +8,7 @@ use crate::{
 use std::sync::Arc;
 use trillium::{Handler, Upgrade};
 use trillium_http::{
-    ServerConfig,
+    HttpContext,
     h3::{H3Connection, H3Error, H3ErrorCode, H3StreamResult, UniStreamResult},
 };
 use web_transport::{WebTransportDispatcher, WebTransportStream};
@@ -30,13 +30,13 @@ impl From<u64> for StreamId {
 
 pub(crate) async fn run_h3<QE: QuicEndpoint>(
     quic_binding: QE,
-    server_config: Arc<ServerConfig>,
+    context: Arc<HttpContext>,
     handler: ArcHandler<impl Handler>,
     runtime: Runtime,
 ) {
-    let swansong = server_config.swansong();
+    let swansong = context.swansong();
     while let Some(connection) = swansong.interrupt(quic_binding.accept()).await.flatten() {
-        let h3 = H3Connection::new(server_config.clone());
+        let h3 = H3Connection::new(context.clone());
         let handler = handler.clone();
         let runtime = runtime.clone();
         runtime
@@ -52,7 +52,7 @@ async fn run_h3_connection<QC: QuicConnectionTrait>(
     runtime: Runtime,
 ) {
     let wt_dispatcher = h3
-        .server_config()
+        .context()
         .http_config()
         .webtransport_enabled()
         .then(WebTransportDispatcher::new);

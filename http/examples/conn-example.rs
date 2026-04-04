@@ -1,21 +1,21 @@
 fn main() {
     use smol::{net::TcpListener, stream::StreamExt};
     use std::sync::Arc;
-    use trillium_http::ServerConfig;
+    use trillium_http::HttpContext;
 
     smol::block_on(async {
-        let server_config = Arc::new(ServerConfig::default());
+        let context = Arc::new(HttpContext::default());
         let listener = TcpListener::bind("localhost:0").await.unwrap();
         let local_addr = listener.local_addr().unwrap();
         println!("listening on http://{local_addr}");
 
         let server = smol::spawn({
-            let server_config = server_config.clone();
+            let context = context.clone();
             async move {
-                let mut incoming = server_config.swansong().interrupt(listener.incoming());
+                let mut incoming = context.swansong().interrupt(listener.incoming());
 
                 while let Some(Ok(stream)) = incoming.next().await {
-                    smol::spawn(server_config.clone().run(stream, |mut conn| async move {
+                    smol::spawn(context.clone().run(stream, |mut conn| async move {
                         conn.set_response_body("hello world");
                         conn.set_status(200);
                         conn
@@ -38,6 +38,6 @@ fn main() {
 
         server.await;
 
-        // server_config.shut_down().await; // stop the server after one request
+        // context.shut_down().await; // stop the server after one request
     })
 }

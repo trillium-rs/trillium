@@ -23,7 +23,7 @@ use lamedh_runtime::{Context, Handler as AwsHandler};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::runtime;
 use trillium::{Conn, Handler};
-use trillium_http::{Conn as HttpConn, ServerConfig, Synthetic};
+use trillium_http::{Conn as HttpConn, HttpContext as HttpContext, Synthetic};
 
 mod context;
 pub use context::LambdaConnExt;
@@ -36,7 +36,7 @@ mod response;
 use response::{AlbMultiHeadersResponse, AlbResponse, LambdaResponse};
 
 #[derive(Debug)]
-struct HandlerWrapper<H>(Arc<H>, Arc<ServerConfig>);
+struct HandlerWrapper<H>(Arc<H>, Arc<HttpContext>);
 
 impl<H: Handler> AwsHandler<LambdaRequest, LambdaResponse> for HandlerWrapper<H> {
     type Error = std::io::Error;
@@ -61,18 +61,18 @@ async fn handler_fn(
     request: LambdaRequest,
     context: Context,
     handler: Arc<impl Handler>,
-    server_config: Arc<ServerConfig>,
+    trillium_context: Arc<HttpContext>,
 ) -> std::io::Result<LambdaResponse> {
     match request {
         LambdaRequest::Alb(request) => {
-            let mut conn = request.into_conn().await.with_server_config(server_config);
+            let mut conn = request.into_conn().await.with_context(trillium_context);
             conn.state_mut().insert(LambdaContext::new(context));
             let conn = run_handler(conn, handler).await;
             Ok(LambdaResponse::Alb(AlbResponse::from_conn(conn).await))
         }
 
         LambdaRequest::AlbMultiHeaders(request) => {
-            let mut conn = request.into_conn().await.with_server_config(server_config);
+            let mut conn = request.into_conn().await.with_context(trillium_context);
             conn.state_mut().insert(LambdaContext::new(context));
             let conn = run_handler(conn, handler).await;
             Ok(LambdaResponse::AlbMultiHeaders(
@@ -85,7 +85,7 @@ async fn handler_fn(
 ///
 /// This function will poll pending until the server shuts down.
 pub async fn run_async(mut handler: impl Handler) {
-    let mut info = ServerConfig::default().into();
+    let mut info = HttpContext::default().into();
     handler.init(&mut info).await;
     lamedh_runtime::run(HandlerWrapper(Arc::new(handler), Arc::new(info.into())))
         .await

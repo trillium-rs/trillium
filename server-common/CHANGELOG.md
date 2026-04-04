@@ -20,10 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `RuntimeTrait` — unified runtime abstraction with `spawn`, `block_on`, `delay`, `interval`, `timeout`, and signal hooks; implemented by `TokioRuntime`, `SmolRuntime`, `AsyncStdRuntime`
 - `ArcedConnector` — type-erased connector wrapping an `Arc`, with downcast support
-- `ServerConfig` — Arc-shared per-server state (Swansong + TypeSet + HttpConfig) accessible from connections via `conn.shared_state()`
+- `HttpContext` — Arc-shared per-server state (Swansong + TypeSet + HttpConfig) accessible from connections via `conn.shared_state()`
 - `ServerHandle` is now `Clone`; awaiting it waits for server shutdown (`IntoFuture` impl)
 - `ServerHandle::info().await` — async; waits for the server to finish binding and initialization, then returns a `BoundInfo`
-- `BoundInfo` — immutable snapshot of server state after init: `tcp_socket_addr()`, `url()`, `unix_socket_addr()`, `state::<T>()`, `server_config()`
+- `BoundInfo` — immutable snapshot of server state after init: `tcp_socket_addr()`, `url()`, `unix_socket_addr()`, `state::<T>()`, `context()`
 - `ServerHandle::runtime()` — retrieve the server's `Runtime`
 - `Config::with_quic(q)` — attach a QUIC config for HTTP/3 support; takes any `impl QuicConfig`
 - `QuicConfig`, `QuicBinding`, `QuicConnection` traits — the three-layer abstraction for QUIC support (config → binding → connection); `()` impls disable H3 (the default)

@@ -10,11 +10,11 @@ use std::{
     net::IpAddr,
     pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
+    task::{self, Poll},
 };
 use swansong::{Interrupt, Swansong};
 use trillium::{Headers, Method, Transport, TypeSet, Upgrade};
-use trillium_http::{ServerConfig, type_set::entry::Entry};
+use trillium_http::{HttpContext, type_set::entry::Entry};
 
 /// A struct that represents an specific websocket connection.
 ///
@@ -30,7 +30,7 @@ pub struct WebSocketConn {
     method: Method,
     state: TypeSet,
     peer_ip: Option<IpAddr>,
-    server_config: Arc<ServerConfig>,
+    context: Arc<HttpContext>,
     sink: WebSocketSender<Box<dyn Transport>>,
     stream: Option<WStream>,
 }
@@ -43,7 +43,7 @@ impl Debug for WebSocketConn {
             .field("method", &self.method)
             .field("state", &self.state)
             .field("peer_ip", &self.peer_ip)
-            .field("server_config", &self.server_config)
+            .field("context", &self.context)
             .field("stream", &self.stream)
             .finish_non_exhaustive()
     }
@@ -87,7 +87,7 @@ impl WebSocketConn {
         let path = upgrade.path().to_string().into();
         let method = upgrade.method();
         let state = upgrade.take_state();
-        let server_config = upgrade.server_config().clone();
+        let context = upgrade.context().clone();
         let peer_ip = upgrade.peer_ip();
         let (buffer, transport) = upgrade.into_transport();
 
@@ -99,7 +99,7 @@ impl WebSocketConn {
 
         let (sink, stream) = wss.split();
         let stream = Some(WStream {
-            stream: server_config.swansong().interrupt(stream),
+            stream: context.swansong().interrupt(stream),
         });
 
         Self {
@@ -110,13 +110,13 @@ impl WebSocketConn {
             peer_ip,
             sink,
             stream,
-            server_config,
+            context,
         }
     }
 
     /// retrieve a clone of the server's [`Swansong`]
     pub fn swansong(&self) -> Swansong {
-        self.server_config.swansong().clone()
+        self.context.swansong().clone()
     }
 
     /// close the websocket connection gracefully
@@ -220,7 +220,7 @@ impl Debug for WStream {
 impl Stream for WStream {
     type Item = MessageResult;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         self.stream.poll_next(cx)
     }
 }
@@ -240,7 +240,7 @@ impl AsRef<TypeSet> for WebSocketConn {
 impl Stream for WebSocketConn {
     type Item = MessageResult;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         match self.stream.as_mut() {
             Some(stream) => stream.poll_next(cx),
             None => Poll::Ready(None),

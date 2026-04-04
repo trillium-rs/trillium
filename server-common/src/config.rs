@@ -6,7 +6,7 @@ use async_cell::sync::AsyncCell;
 use futures_lite::StreamExt;
 use std::{cell::OnceCell, net::SocketAddr, pin::pin, sync::Arc};
 use trillium::{Handler, Headers, HttpConfig, Info, KnownHeaderName, SERVER, Swansong, TypeSet};
-use trillium_http::ServerConfig;
+use trillium_http::HttpContext;
 use url::Url;
 
 /// # Primary entrypoint for configuring and running a trillium server
@@ -56,13 +56,13 @@ pub struct Config<ServerType: Server, AcceptorType, QuicType: QuicConfig<ServerT
     pub(crate) quic: QuicType,
     pub(crate) binding: Option<ServerType>,
     pub(crate) host: Option<String>,
-    pub(crate) server_config_cell: Arc<AsyncCell<Arc<ServerConfig>>>,
+    pub(crate) context_cell: Arc<AsyncCell<Arc<HttpContext>>>,
     pub(crate) max_connections: Option<usize>,
     pub(crate) nodelay: bool,
     pub(crate) port: Option<u16>,
     pub(crate) register_signals: bool,
     pub(crate) runtime: ServerType::Runtime,
-    pub(crate) server_config: ServerConfig,
+    pub(crate) context: HttpContext,
 }
 
 impl<ServerType, AcceptorType, QuicType> Config<ServerType, AcceptorType, QuicType>
@@ -97,8 +97,8 @@ where
             host,
             port,
             register_signals,
-            server_config,
-            server_config_cell,
+            context,
+            context_cell,
         } = self;
 
         #[cfg(unix)]
@@ -126,9 +126,9 @@ where
             .inspect(|_| log::debug!("taking prebound listener"))
             .unwrap_or_else(|| ServerType::from_host_and_port(&host, port));
 
-        let swansong = server_config.swansong().clone();
+        let swansong = context.swansong().clone();
 
-        let mut info = Info::from(server_config)
+        let mut info = Info::from(context)
             .with_state(runtime.clone().into())
             .with_state(runtime.clone());
 
@@ -160,9 +160,9 @@ where
 
         handler.init(&mut info).await;
 
-        let server_config = Arc::new(ServerConfig::from(info));
+        let context = Arc::new(HttpContext::from(info));
 
-        server_config_cell.set(server_config.clone());
+        context_cell.set(context.clone());
 
         if register_signals {
             let runtime = runtime.clone();
@@ -190,12 +190,12 @@ where
         let handler = ArcHandler::new(handler);
 
         if let Some(quic_binding) = quic_binding {
-            let server_config = server_config.clone();
+            let context = context.clone();
             let handler = handler.clone();
             let runtime: crate::Runtime = runtime.clone().into();
             runtime.clone().spawn(crate::h3::run_h3(
                 quic_binding,
-                server_config,
+                context,
                 handler,
                 runtime,
             ));
@@ -204,7 +204,7 @@ where
         let running_config = Arc::new(RunningConfig {
             acceptor,
             max_connections,
-            server_config,
+            context,
             runtime,
             nodelay,
         });
@@ -226,9 +226,9 @@ where
     /// when spawning the server onto a runtime.
     pub fn handle(&self) -> ServerHandle {
         ServerHandle {
-            swansong: self.server_config.swansong().clone(),
-            server_config: self.server_config_cell.clone(),
-            received_server_config: OnceCell::new(),
+            swansong: self.context.swansong().clone(),
+            context: self.context_cell.clone(),
+            received_context: OnceCell::new(),
             runtime: self.runtime().into(),
         }
     }
@@ -298,8 +298,8 @@ where
             nodelay: self.nodelay,
             register_signals: self.register_signals,
             max_connections: self.max_connections,
-            server_config_cell: self.server_config_cell,
-            server_config: self.server_config,
+            context_cell: self.context_cell,
+            context: self.context,
             binding: self.binding,
             runtime: self.runtime,
         }
@@ -318,8 +318,8 @@ where
             nodelay: self.nodelay,
             register_signals: self.register_signals,
             max_connections: self.max_connections,
-            server_config_cell: self.server_config_cell,
-            server_config: self.server_config,
+            context_cell: self.context_cell,
+            context: self.context,
             binding: self.binding,
             runtime: self.runtime,
         }
@@ -327,7 +327,7 @@ where
 
     /// use the specific [`Swansong`] provided
     pub fn with_swansong(mut self, swansong: Swansong) -> Self {
-        self.server_config.set_swansong(swansong);
+        self.context.set_swansong(swansong);
         self
     }
 
@@ -343,7 +343,7 @@ where
     ///
     /// See [`HttpConfig`] for documentation
     pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
-        *self.server_config.http_config_mut() = http_config;
+        *self.context.http_config_mut() = http_config;
         self
     }
 
@@ -414,10 +414,10 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
             nodelay: false,
             register_signals: cfg!(unix),
             max_connections: None,
-            server_config_cell: AsyncCell::shared(),
+            context_cell: AsyncCell::shared(),
             binding: None,
             runtime: ServerType::runtime(),
-            server_config: Default::default(),
+            context: Default::default(),
         }
     }
 }

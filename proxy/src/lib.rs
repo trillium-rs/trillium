@@ -32,7 +32,7 @@ use trillium::{
 };
 pub use trillium_client::{Client, Connector};
 use trillium_forwarding::Forwarded;
-use trillium_http::{HeaderName, Headers, ServerConfig, Status, Version};
+use trillium_http::{HeaderName, Headers, HttpContext, Status, Version};
 use upstream::{IntoUpstreamSelector, UpstreamSelector};
 pub use url::Url;
 
@@ -171,11 +171,11 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
     async fn init(&mut self, info: &mut trillium::Info) {
         // this little dance is necessary to set the swansong on the client currently.
         // this is only necessary because we're not wiring together the client.
-        let old_server_config = self.client.server_config();
-        let new_server_config = ServerConfig::default()
-            .with_http_config(*old_server_config.http_config())
+        let old_context = self.client.context();
+        let new_context = HttpContext::default()
+            .with_http_config(*old_context.http_config())
             .with_swansong(info.swansong().clone());
-        self.client.set_server_config(new_server_config);
+        self.client.set_context(new_context);
         log::info!("proxying to {:?}", self.upstream);
     }
 

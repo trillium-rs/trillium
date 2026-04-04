@@ -1,5 +1,5 @@
 use crate::{
-    Conn, Headers, KnownHeaderName, Method, ServerConfig, TypeSet, Version, after_send::AfterSend,
+    Conn, Headers, HttpContext, KnownHeaderName, Method, TypeSet, Version, after_send::AfterSend,
     http_config::DEFAULT_CONFIG, received_body::ReceivedBodyState,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
@@ -137,7 +137,7 @@ impl Conn<Synthetic> {
         request_headers.insert(KnownHeaderName::ContentLength, transport.len().to_string());
 
         Self {
-            server_config: Arc::default(),
+            context: Arc::default(),
             transport,
             request_headers,
             response_headers: Headers::new(),
@@ -163,15 +163,15 @@ impl Conn<Synthetic> {
 
     /// use a particular shared server config for this synthetic conn
     #[doc(hidden)]
-    pub fn set_server_config(&mut self, server_config: Arc<ServerConfig>) {
-        self.server_config = server_config;
+    pub fn set_context(&mut self, context: Arc<HttpContext>) {
+        self.context = context;
     }
 
     /// chainable setter for server config
     #[doc(hidden)]
     #[must_use]
-    pub fn with_server_config(mut self, server_config: Arc<ServerConfig>) -> Self {
-        self.set_server_config(server_config);
+    pub fn with_context(mut self, context: Arc<HttpContext>) -> Self {
+        self.set_context(context);
         self
     }
 

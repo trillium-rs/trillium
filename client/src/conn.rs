@@ -3,7 +3,7 @@ use encoding_rs::Encoding;
 use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
     Body, Buffer, HeaderName, HeaderValues, Headers, Method, ReceivedBody, ReceivedBodyState,
-    ServerConfig, Status, TypeSet, Version,
+    HttpContext, Status, TypeSet, Version,
 };
 use trillium_server_common::{
     ArcedConnector, Transport,
@@ -32,7 +32,7 @@ pub struct Conn {
     pub(crate) headers_finalized: bool,
     pub(crate) max_head_length: usize,
     pub(crate) state: TypeSet,
-    pub(crate) server_config: Arc<ServerConfig>,
+    pub(crate) context: Arc<HttpContext>,
 
     /// the transport for this conn
     ///

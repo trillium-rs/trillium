@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Compatible with trillium 1.0
-- `init(&mut handler)` is now async and returns `Arc<ServerConfig>`: `init(&mut handler).await`; capture the returned value if you need to pass it to `TestConn::with_server_config()`
+- `init(&mut handler)` is now async and returns `Arc<HttpContext>`: `init(&mut handler).await`; capture the returned value if you need to pass it to `TestConn::with_context()`
 - `ClientConfig` struct removed; use the `client_config()` function or `RuntimelessClientConfig` directly
 - `SpawnHandle<F>` removed; background task handles are now `DroppableFuture` from `trillium-server-common`
 
@@ -45,7 +45,7 @@ app.post("/")
 - The assertion macros (`assert_ok!`, `assert_status!`, `assert_not_handled!`, etc.) and request builders are unchanged
 - Zero-dependency testing: when no runtime feature is enabled, `RuntimelessRuntime`, `RuntimelessServer`, and `RuntimelessClientConfig` provide fully in-memory test infrastructure without requiring tokio, smol, or async-std
 - `with_runtime(|runtime| async { ... })` — test harness that injects a `Runtime` into the test closure, also usable as a test harness
-- `TestConn::with_server_config(Arc<ServerConfig>)` — pass a server config (including shared state initialized by `init`) to a test connection
+- `TestConn::with_context(Arc<HttpContext>)` — pass a server config (including shared state initialized by `init`) to a test connection
 
 ## [0.7.0](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.6.1...trillium-testing-v0.7.0) - 2024-05-30
 

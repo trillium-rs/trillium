@@ -10,7 +10,7 @@ use swansong::{ShutdownCompletion, Swansong};
 /// information about the running server
 #[derive(Default, Debug, Fieldwork)]
 #[fieldwork(get, set, get_mut, with)]
-pub struct ServerConfig {
+pub struct HttpContext {
     /// [`HttpConfig`] performance and security parameters
     pub(crate) http_config: HttpConfig,
 
@@ -20,32 +20,32 @@ pub struct ServerConfig {
     /// [`TypeSet`] shared state
     pub(crate) shared_state: TypeSet,
 }
-impl AsRef<TypeSet> for ServerConfig {
+impl AsRef<TypeSet> for HttpContext {
     fn as_ref(&self) -> &TypeSet {
         &self.shared_state
     }
 }
 
-impl AsMut<TypeSet> for ServerConfig {
+impl AsMut<TypeSet> for HttpContext {
     fn as_mut(&mut self) -> &mut TypeSet {
         &mut self.shared_state
     }
 }
 
-impl AsRef<Swansong> for ServerConfig {
+impl AsRef<Swansong> for HttpContext {
     fn as_ref(&self) -> &Swansong {
         &self.swansong
     }
 }
 
-impl AsRef<HttpConfig> for ServerConfig {
+impl AsRef<HttpConfig> for HttpContext {
     fn as_ref(&self) -> &HttpConfig {
         &self.http_config
     }
 }
 
-impl ServerConfig {
-    /// Construct a new `ServerConfig`
+impl HttpContext {
+    /// Construct a new `HttpContext`
     pub fn new() -> Self {
         Self::default()
     }
@@ -53,10 +53,10 @@ impl ServerConfig {
     /// Perform HTTP on the provided transport, applying the provided `async Conn -> Conn` handler
     /// function for every distinct http request-response.
     ///
-    /// For any given invocation of `ServerConfig::run`, the handler function may run any number of
+    /// For any given invocation of `HttpContext::run`, the handler function may run any number of
     /// times, depending on whether the connection is reused by the client.
     ///
-    /// This can only be called on an `Arc<ServerConfig>` because an arc clone is moved into the
+    /// This can only be called on an `Arc<HttpContext>` because an arc clone is moved into the
     /// Conn.
     ///
     /// # Errors

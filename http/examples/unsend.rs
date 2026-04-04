@@ -1,7 +1,7 @@
 use async_net::{TcpListener, TcpStream};
 use futures_lite::prelude::*;
 use std::{sync::Arc, thread};
-use trillium_http::{Conn, ServerConfig, Swansong};
+use trillium_http::{Conn, HttpContext, Swansong};
 
 async fn handler(mut conn: Conn<TcpStream>) -> Conn<TcpStream> {
     let rc = std::rc::Rc::new(());
@@ -14,7 +14,7 @@ async fn handler(mut conn: Conn<TcpStream>) -> Conn<TcpStream> {
 
 pub fn main() {
     env_logger::init();
-    let server_config = Arc::new(ServerConfig::new());
+    let context = Arc::new(HttpContext::new());
     let (send, receive) = async_channel::unbounded();
     let core_ids = core_affinity::get_core_ids().unwrap();
 
@@ -22,7 +22,7 @@ pub fn main() {
     let handles = core_ids
         .into_iter()
         .map(|id| {
-            let server_config = server_config.clone();
+            let context = context.clone();
             let receive = receive.clone();
             thread::spawn(move || {
                 if !core_affinity::set_for_current(id) {
@@ -32,9 +32,9 @@ pub fn main() {
 
                 async_io::block_on(executor.run(async {
                     while let Ok(transport) = receive.recv().await {
-                        let server_config = server_config.clone();
+                        let context = context.clone();
                         let future = async move {
-                            match server_config.run(transport, handler).await {
+                            match context.run(transport, handler).await {
                                 Ok(_) => {}
                                 Err(e) => log::error!("{e}"),
                             }

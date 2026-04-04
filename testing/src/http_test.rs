@@ -11,7 +11,7 @@ use std::{
 };
 use trillium_client::{Client, Connector, IntoUrl};
 use trillium_http::{
-    Conn, HeaderName, HeaderValues, Headers, KnownHeaderName, Method, ServerConfig, Status,
+    Conn, HeaderName, HeaderValues, Headers, KnownHeaderName, Method, HttpContext, Status,
 };
 
 /// A test server for the http crate that runs a http/1.1 client over a virtual in-memory transport,
@@ -26,7 +26,7 @@ pub struct HttpTest<H> {
 }
 
 #[derive(Debug)]
-struct TestConnector<H>(Arc<ServerConfig>, Arc<H>, crate::Runtime);
+struct TestConnector<H>(Arc<HttpContext>, Arc<H>, crate::Runtime);
 
 impl<H> Clone for TestConnector<H> {
     fn clone(&self) -> Self {
@@ -46,10 +46,10 @@ where
     async fn connect(&self, url: &trillium_client::Url) -> std::io::Result<Self::Transport> {
         let secure = url.scheme() == "https";
         let (client_transport, server_transport) = TestTransport::new();
-        let TestConnector(server_config, handler, runtime) = self.clone();
+        let TestConnector(context, handler, runtime) = self.clone();
 
         runtime.spawn(async move {
-            server_config
+            context
                 .run(server_transport, |mut conn| async {
                     conn.set_secure(secure);
                     (handler)(conn).await
@@ -77,7 +77,7 @@ where
     /// Creates a new [`TestServer`], running [`init`](crate::init) on the handler.
     pub fn new(handler: Fun) -> Self {
         let connector = TestConnector(
-            Arc::new(ServerConfig::new()),
+            Arc::new(HttpContext::new()),
             Arc::new(handler),
             crate::runtime().into(),
         );

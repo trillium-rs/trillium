@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `Headers::entry()` — Entry API for inserting/modifying headers, mirroring `HashMap::entry`
 - `parse` feature — opt-in alternative header parser (bypasses httparse; groundwork for H3)
-- `ServerConfig` is now public — Arc-shared per-server state (Swansong + TypeSet + HttpConfig) passed to every connection
+- `HttpContext` is now public — Arc-shared per-server state (Swansong + TypeSet + HttpConfig) passed to every connection
 - `pub mod h3` — HTTP/3 protocol primitives: QPACK encode/decode, H3 framing, `H3Connection`, `H3Body`, `H3Error`; used by [`trillium-quinn`](https://docs.rs/trillium-quinn) and other QUIC adapter crates
 
 ## [0.3.17](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.16...trillium-http-v0.3.17) - 2024-05-30

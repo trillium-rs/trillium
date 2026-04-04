@@ -11,14 +11,14 @@
 [docs-badge]: https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square
 [docs]: https://docs.rs/trillium-http
 
-Low-level HTTP/1.x and HTTP/3 implementation for Trillium. Provides `Conn` for managing a single request/response lifecycle, `ServerConfig` for shared server settings, header types (`Headers`, `KnownHeaderName`, `HeaderValue`), and body types. This crate is primarily intended for use by the higher-level [`trillium`](https://docs.rs/trillium) crate and runtime adapters — most users should depend on those instead.
+Low-level HTTP/1.x and HTTP/3 implementation for Trillium. Provides `Conn` for managing a single request/response lifecycle, `HttpContext` for shared server settings, header types (`Headers`, `KnownHeaderName`, `HeaderValue`), and body types. This crate is primarily intended for use by the higher-level [`trillium`](https://docs.rs/trillium) crate and runtime adapters — most users should depend on those instead.
 
 ## Example
 
 ```rust,no_run
-use trillium_http::{ServerConfig, KnownHeaderName, Status};
+use trillium_http::{HttpContext, KnownHeaderName, Status};
 
-let config = ServerConfig::default();
+let config = HttpContext::default();
 // Use `config.run(transport, handler_fn)` to process a connection
 // over any AsyncRead + AsyncWrite transport.
 ```

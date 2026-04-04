@@ -2,7 +2,7 @@ use indoc::formatdoc;
 use pretty_assertions::assert_str_eq;
 use std::{env, net::Shutdown, path::PathBuf, sync::Arc};
 use test_harness::test;
-use trillium_http::{Conn, KnownHeaderName, ServerConfig, Swansong};
+use trillium_http::{Conn, KnownHeaderName, HttpContext, Swansong};
 use trillium_testing::{RuntimeTrait, TestTransport, harness};
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
@@ -75,10 +75,10 @@ async fn corpus_test() {
 
         let (client, server) = TestTransport::new();
         let swansong = Swansong::new();
-        let server_config = Arc::new(ServerConfig::new());
+        let context = Arc::new(HttpContext::new());
         let res = runtime.spawn({
-            let server_config = server_config.clone();
-            async move { server_config.run(server, handler).await }
+            let context = context.clone();
+            async move { context.run(server, handler).await }
         });
 
         client.write_all(request);

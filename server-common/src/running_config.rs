@@ -2,7 +2,7 @@ use crate::{Acceptor, ArcHandler, RuntimeTrait, Server};
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use std::{io::ErrorKind, sync::Arc};
 use trillium::{Handler, Transport};
-use trillium_http::{Error, SERVICE_UNAVAILABLE, ServerConfig};
+use trillium_http::{Error, SERVICE_UNAVAILABLE, HttpContext};
 
 #[derive(Debug)]
 pub struct RunningConfig<ServerType: Server, AcceptorType> {
@@ -10,7 +10,7 @@ pub struct RunningConfig<ServerType: Server, AcceptorType> {
     pub(crate) max_connections: Option<usize>,
     pub(crate) nodelay: bool,
     pub(crate) runtime: ServerType::Runtime,
-    pub(crate) server_config: Arc<ServerConfig>,
+    pub(crate) context: Arc<HttpContext>,
 }
 
 impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
@@ -19,7 +19,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         mut listener: S,
         handler: ArcHandler<impl Handler>,
     ) {
-        let swansong = self.server_config.as_ref().swansong();
+        let swansong = self.context.as_ref().swansong();
         let runtime = self.runtime.clone();
         while let Some(transport) = swansong.interrupt(listener.accept()).await {
             match transport {
@@ -32,7 +32,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
             }
         }
 
-        self.server_config.swansong().shut_down().await;
+        self.context.swansong().shut_down().await;
         listener.clean_up().await;
     }
 
@@ -59,7 +59,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         let handler = &handler;
 
         let result = self
-            .server_config
+            .context
             .clone()
             .run(transport, |mut conn| async {
                 conn.set_peer_ip(peer_ip);
@@ -134,6 +134,6 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
 
     fn over_capacity(&self) -> bool {
         self.max_connections
-            .is_some_and(|m| self.server_config.swansong().guard_count() >= m)
+            .is_some_and(|m| self.context.swansong().guard_count() >= m)
     }
 }

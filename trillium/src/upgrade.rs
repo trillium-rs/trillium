@@ -1,4 +1,4 @@
-use crate::{Headers, Method, ServerConfig, Transport, TypeSet, Version};
+use crate::{Headers, Method, HttpContext, Transport, TypeSet, Version};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{net::IpAddr, sync::Arc};
 use trillium_http::Swansong;
@@ -127,12 +127,12 @@ impl Upgrade {
 
     /// Retrieves a cloned [`Swansong`] graceful shutdown controller
     pub fn swansong(&self) -> Swansong {
-        self.0.server_config().swansong().clone()
+        self.0.context().swansong().clone()
     }
 
-    /// Retrieves a clone of the [`ServerConfig`] for this upgrade
-    pub fn server_config(&self) -> Arc<ServerConfig> {
-        self.0.server_config().clone()
+    /// Retrieves a clone of the [`HttpContext`] for this upgrade
+    pub fn context(&self) -> Arc<HttpContext> {
+        self.0.context().clone()
     }
 
     /// Returns a clone of the H3 connection, if any
