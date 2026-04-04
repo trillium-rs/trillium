@@ -1,5 +1,5 @@
 use crate::{
-    Buffer, Conn, HttpContext, Headers, Method, TypeSet, Version, h3::H3Connection,
+    Buffer, Conn, Headers, HttpContext, Method, TypeSet, Version, h3::H3Connection,
     received_body::read_buffered,
 };
 use fieldwork::Fieldwork;

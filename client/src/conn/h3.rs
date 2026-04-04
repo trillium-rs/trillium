@@ -91,17 +91,14 @@ impl Conn {
         }
 
         let transport = self.transport.as_mut().ok_or(Error::Closed)?;
-        let max_buf = self.context.http_config().response_buffer_max_len();
+        let max_buf = self.context.config().response_buffer_max_len();
         let mut bufwriter = BufWriter::new_with_buffer(
-            Vec::with_capacity(self.context.http_config().response_buffer_len()),
+            Vec::with_capacity(self.context.config().response_buffer_len()),
             transport,
             max_buf,
         );
 
-        let initial_cap = self
-            .context
-            .http_config()
-            .request_buffer_initial_len();
+        let initial_cap = self.context.config().request_buffer_initial_len();
         let max_peer_field_section_size = None;
 
         let field_section = FieldSection::new(pseudo_headers, &self.request_headers);
@@ -114,7 +111,7 @@ impl Conn {
             bufwriter.buffer_mut(),
         )?;
 
-        let copy_loops_per_yield = self.context.http_config().copy_loops_per_yield();
+        let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
 
         if let Some(body) = self.request_body.take() {
             let mut body = body.into_h3();

@@ -1,23 +1,4 @@
-#![allow(dead_code)]
-
 use fieldwork::Fieldwork;
-
-pub const DEFAULT_CONFIG: HttpConfig = HttpConfig {
-    response_buffer_len: 512,
-    response_buffer_max_len: 2 * 1024 * 1024,
-    request_buffer_initial_len: 128,
-    head_max_len: 8 * 1024,
-    max_headers: 128,
-    response_header_initial_capacity: 16,
-    copy_loops_per_yield: 16,
-    received_body_max_len: 500 * 1024 * 1024,
-    received_body_initial_len: 128,
-    received_body_max_preallocate: 1024 * 1024,
-    h3_max_field_section_size: 8 * 1024,
-    h3_datagrams_enabled: false,
-    webtransport_enabled: false,
-    panic_on_invalid_response_headers: cfg!(debug_assertions),
-};
 
 /// # Performance and security parameters for trillium-http.
 ///
@@ -176,8 +157,28 @@ pub struct HttpConfig {
     pub(crate) panic_on_invalid_response_headers: bool,
 }
 
+impl HttpConfig {
+    /// Default Config
+    pub const DEFAULT: Self = HttpConfig {
+        response_buffer_len: 512,
+        response_buffer_max_len: 2 * 1024 * 1024,
+        request_buffer_initial_len: 128,
+        head_max_len: 8 * 1024,
+        max_headers: 128,
+        response_header_initial_capacity: 16,
+        copy_loops_per_yield: 16,
+        received_body_max_len: 500 * 1024 * 1024,
+        received_body_initial_len: 128,
+        received_body_max_preallocate: 1024 * 1024,
+        h3_max_field_section_size: 8 * 1024,
+        h3_datagrams_enabled: false,
+        webtransport_enabled: false,
+        panic_on_invalid_response_headers: cfg!(debug_assertions),
+    };
+}
+
 impl Default for HttpConfig {
     fn default() -> Self {
-        DEFAULT_CONFIG
+        HttpConfig::DEFAULT
     }
 }

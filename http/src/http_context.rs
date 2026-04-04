@@ -12,7 +12,7 @@ use swansong::{ShutdownCompletion, Swansong};
 #[fieldwork(get, set, get_mut, with)]
 pub struct HttpContext {
     /// [`HttpConfig`] performance and security parameters
-    pub(crate) http_config: HttpConfig,
+    pub(crate) config: HttpConfig,
 
     /// [`Swansong`] graceful shutdown interface
     pub(crate) swansong: Swansong,
@@ -40,7 +40,7 @@ impl AsRef<Swansong> for HttpContext {
 
 impl AsRef<HttpConfig> for HttpContext {
     fn as_ref(&self) -> &HttpConfig {
-        &self.http_config
+        &self.config
     }
 }
 
@@ -74,7 +74,7 @@ impl HttpContext {
         Fut: Future<Output = Conn<Transport>>,
     {
         let _guard = self.swansong.guard();
-        let buffer = Vec::with_capacity(self.http_config.request_buffer_initial_len).into();
+        let buffer = Vec::with_capacity(self.config.request_buffer_initial_len).into();
 
         let mut conn = Conn::new_internal(self, transport, buffer).await?;
 

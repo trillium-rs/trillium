@@ -2,7 +2,7 @@ use crate::{Acceptor, ArcHandler, RuntimeTrait, Server};
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use std::{io::ErrorKind, sync::Arc};
 use trillium::{Handler, Transport};
-use trillium_http::{Error, SERVICE_UNAVAILABLE, HttpContext};
+use trillium_http::{Error, HttpContext, SERVICE_UNAVAILABLE};
 
 #[derive(Debug)]
 pub struct RunningConfig<ServerType: Server, AcceptorType> {

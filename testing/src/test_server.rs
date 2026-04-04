@@ -11,7 +11,7 @@ use std::{
 };
 use trillium::{Handler, Info, KnownHeaderName};
 use trillium_client::{Client, IntoUrl};
-use trillium_http::{HeaderName, HeaderValues, Headers, Method, HttpContext, Status};
+use trillium_http::{HeaderName, HeaderValues, Headers, HttpContext, Method, Status};
 #[allow(clippy::test_attr_in_doctest, reason = "demonstrating test usage")]
 /// A testing interface that wraps a trillium handler, providing a high-level API for making
 /// requests and asserting on responses.

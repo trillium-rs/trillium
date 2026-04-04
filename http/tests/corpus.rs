@@ -2,7 +2,7 @@ use indoc::formatdoc;
 use pretty_assertions::assert_str_eq;
 use std::{env, net::Shutdown, path::PathBuf, sync::Arc};
 use test_harness::test;
-use trillium_http::{Conn, KnownHeaderName, HttpContext, Swansong};
+use trillium_http::{Conn, HttpContext, KnownHeaderName, Swansong};
 use trillium_testing::{RuntimeTrait, TestTransport, harness};
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 

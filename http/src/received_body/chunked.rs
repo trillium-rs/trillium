@@ -316,7 +316,7 @@ fn parse_h1_trailers(bytes: &[u8]) -> io::Result<Headers> {
 #[cfg(test)]
 mod tests {
     use super::{ReceivedBody, ReceivedBodyState, chunk_decode};
-    use crate::{Buffer, Headers, HttpConfig, http_config::DEFAULT_CONFIG};
+    use crate::{Buffer, Headers, HttpConfig};
     use encoding_rs::UTF_8;
     use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
     use test_harness::test;
@@ -335,7 +335,7 @@ mod tests {
             remaining,
             0,
             &mut buf,
-            DEFAULT_CONFIG.received_body_max_len,
+            HttpConfig::DEFAULT.received_body_max_len,
             &mut None,
         )
         .unwrap();
@@ -391,7 +391,7 @@ mod tests {
     }
 
     async fn decode(input: String, poll_size: usize) -> crate::Result<String> {
-        decode_with_config(input, poll_size, &DEFAULT_CONFIG).await
+        decode_with_config(input, poll_size, &HttpConfig::DEFAULT).await
     }
 
     #[test(harness)]
@@ -575,7 +575,7 @@ mod tests {
     async fn read_string_and_read_bytes() {
         let content = build_chunked_body("test ".repeat(100)).await;
         assert_eq!(
-            new_with_config(content.clone(), &DEFAULT_CONFIG)
+            new_with_config(content.clone(), &HttpConfig::DEFAULT)
                 .read_string()
                 .await
                 .unwrap()
@@ -584,7 +584,7 @@ mod tests {
         );
 
         assert_eq!(
-            new_with_config(content.clone(), &DEFAULT_CONFIG)
+            new_with_config(content.clone(), &HttpConfig::DEFAULT)
                 .read_bytes()
                 .await
                 .unwrap()
@@ -595,7 +595,7 @@ mod tests {
         assert!(
             new_with_config(
                 content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(400)
+                &HttpConfig::DEFAULT.with_received_body_max_len(400)
             )
             .read_string()
             .await
@@ -605,7 +605,7 @@ mod tests {
         assert!(
             new_with_config(
                 content.clone(),
-                &DEFAULT_CONFIG.with_received_body_max_len(400)
+                &HttpConfig::DEFAULT.with_received_body_max_len(400)
             )
             .read_bytes()
             .await
@@ -613,7 +613,7 @@ mod tests {
         );
 
         assert!(
-            new_with_config(content.clone(), &DEFAULT_CONFIG)
+            new_with_config(content.clone(), &HttpConfig::DEFAULT)
                 .with_max_len(400)
                 .read_bytes()
                 .await
@@ -621,7 +621,7 @@ mod tests {
         );
 
         assert!(
-            new_with_config(content.clone(), &DEFAULT_CONFIG)
+            new_with_config(content.clone(), &HttpConfig::DEFAULT)
                 .with_max_len(400)
                 .read_string()
                 .await
@@ -640,7 +640,7 @@ mod tests {
             ReceivedBodyState::Start,
             None,
             UTF_8,
-            &DEFAULT_CONFIG,
+            &HttpConfig::DEFAULT,
         )
         .with_trailers(&mut trailers);
 
@@ -658,7 +658,7 @@ mod tests {
                 ReceivedBodyState::Start,
                 None,
                 UTF_8,
-                &DEFAULT_CONFIG,
+                &HttpConfig::DEFAULT,
             )
             .with_trailers(&mut trailers);
         }
@@ -676,7 +676,7 @@ mod tests {
             ReceivedBodyState::Start,
             None,
             UTF_8,
-            &DEFAULT_CONFIG,
+            &HttpConfig::DEFAULT,
         )
         .with_trailers(&mut trailers);
         let body = rb.read_string().await.unwrap();

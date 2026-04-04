@@ -193,12 +193,9 @@ where
             let context = context.clone();
             let handler = handler.clone();
             let runtime: crate::Runtime = runtime.clone().into();
-            runtime.clone().spawn(crate::h3::run_h3(
-                quic_binding,
-                context,
-                handler,
-                runtime,
-            ));
+            runtime
+                .clone()
+                .spawn(crate::h3::run_h3(quic_binding, context, handler, runtime));
         }
 
         let running_config = Arc::new(RunningConfig {
@@ -342,8 +339,8 @@ where
     /// configures trillium-http performance and security tuning parameters.
     ///
     /// See [`HttpConfig`] for documentation
-    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
-        *self.context.http_config_mut() = http_config;
+    pub fn with_config(mut self, config: HttpConfig) -> Self {
+        *self.context.config_mut() = config;
         self
     }
 

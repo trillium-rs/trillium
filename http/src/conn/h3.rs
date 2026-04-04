@@ -73,16 +73,15 @@ where
     pub(crate) async fn send_h3(mut self) -> io::Result<Self> {
         self.finalize_response_headers_h3();
 
-        let mut output_buffer =
-            Vec::with_capacity(self.context.http_config.response_buffer_len);
+        let mut output_buffer = Vec::with_capacity(self.context.config.response_buffer_len);
 
         self.encode_headers_h3(&mut output_buffer)?;
 
-        let loops_per_yield = self.context.http_config.copy_loops_per_yield;
+        let loops_per_yield = self.context.config.copy_loops_per_yield;
         let max_peer_field_section_size = self.max_peer_field_section_size();
-        let initial_cap = self.context.http_config.request_buffer_initial_len;
+        let initial_cap = self.context.config.request_buffer_initial_len;
 
-        let max_buf = self.context.http_config.response_buffer_max_len;
+        let max_buf = self.context.config.response_buffer_max_len;
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
 
         if self.method != Method::Head
@@ -118,7 +117,7 @@ where
         encode_field_section_h3(
             &field_section,
             self.max_peer_field_section_size(),
-            self.context.http_config.request_buffer_initial_len,
+            self.context.config.request_buffer_initial_len,
             buffer,
         )
     }

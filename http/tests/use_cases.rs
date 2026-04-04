@@ -3,7 +3,7 @@
 use std::{future::Future, io, marker::PhantomData, net::SocketAddr, sync::Arc};
 use test_harness::test;
 use trillium_client::{Client, Connector, Url};
-use trillium_http::{Conn, KnownHeaderName, HttpContext};
+use trillium_http::{Conn, HttpContext, KnownHeaderName};
 use trillium_testing::{Runtime, TestResult, TestTransport, harness};
 
 #[test(harness)]

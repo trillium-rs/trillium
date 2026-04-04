@@ -1,7 +1,7 @@
 use crate::{Conn, IntoUrl, Pool, USER_AGENT, h3::H3ClientState};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
-    HeaderName, HeaderValues, Headers, KnownHeaderName, Method, ReceivedBodyState, HttpContext,
+    HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method, ReceivedBodyState,
     TypeSet, Version::Http1_1,
 };
 use trillium_server_common::{
