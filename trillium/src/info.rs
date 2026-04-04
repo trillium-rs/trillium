@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use trillium_http::{HttpConfig, ServerConfig, Swansong, TypeSet, type_set::entry::Entry};
+use trillium_http::{HttpConfig, HttpContext, Swansong, TypeSet, type_set::entry::Entry};
 
 /// This struct represents information about the currently connected
 /// server.
@@ -7,13 +7,13 @@ use trillium_http::{HttpConfig, ServerConfig, Swansong, TypeSet, type_set::entry
 /// It is passed to [`Handler::init`](crate::Handler::init).
 
 #[derive(Debug, Default)]
-pub struct Info(ServerConfig);
-impl From<ServerConfig> for Info {
-    fn from(value: ServerConfig) -> Self {
+pub struct Info(HttpContext);
+impl From<HttpContext> for Info {
+    fn from(value: HttpContext) -> Self {
         Self(value)
     }
 }
-impl From<Info> for ServerConfig {
+impl From<Info> for HttpContext {
     fn from(value: Info) -> Self {
         value.0
     }

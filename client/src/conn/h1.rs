@@ -288,7 +288,7 @@ impl Conn {
 
     async fn send_body(&mut self) -> Result<()> {
         if let Some(mut body) = self.request_body.take() {
-            let copy_loops_per_yield = self.server_config.http_config().copy_loops_per_yield();
+            let copy_loops_per_yield = self.context.http_config().copy_loops_per_yield();
             let Self {
                 transport,
                 request_trailers,
@@ -297,9 +297,9 @@ impl Conn {
 
             let transport = transport.as_mut().ok_or(Error::Closed)?;
 
-            let max_buf = self.server_config.http_config().response_buffer_max_len();
+            let max_buf = self.context.http_config().response_buffer_max_len();
             let mut bufwriter = BufWriter::new_with_buffer(
-                Vec::with_capacity(self.server_config.http_config().response_buffer_len()),
+                Vec::with_capacity(self.context.http_config().response_buffer_len()),
                 transport,
                 max_buf,
             );

@@ -1,7 +1,7 @@
 use crate::{Conn, IntoUrl, Pool, USER_AGENT, h3::H3ClientState};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
-    HeaderName, HeaderValues, Headers, KnownHeaderName, Method, ReceivedBodyState, ServerConfig,
+    HeaderName, HeaderValues, Headers, KnownHeaderName, Method, ReceivedBodyState, HttpContext,
     TypeSet, Version::Http1_1,
 };
 use trillium_server_common::{
@@ -31,7 +31,7 @@ pub struct Client {
 
     /// configuration
     #[field(get, get_mut, set, with, into)]
-    server_config: Arc<ServerConfig>,
+    context: Arc<HttpContext>,
 }
 
 macro_rules! method {
@@ -98,7 +98,7 @@ impl Client {
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
-            server_config: Default::default(),
+            context: Default::default(),
         }
     }
 
@@ -121,7 +121,7 @@ impl Client {
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
-            server_config: Default::default(),
+            context: Default::default(),
         }
     }
 
@@ -209,7 +209,7 @@ impl Client {
             http_version: Http1_1,
             max_head_length: 8 * 1024,
             state: TypeSet::new(),
-            server_config: self.server_config.clone(),
+            context: self.context.clone(),
             authority: None,
             scheme: None,
             path: None,

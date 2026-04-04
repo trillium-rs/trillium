@@ -4,7 +4,7 @@ use super::{
     quic_varint::{self, QuicVarIntError},
     settings::H3Settings,
 };
-use crate::{Buffer, Conn, ServerConfig, h3::H3ErrorCode};
+use crate::{Buffer, Conn, HttpContext, h3::H3ErrorCode};
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::{
     future::Future,
@@ -69,7 +69,7 @@ pub enum UniStreamResult<T> {
 #[derive(Debug)]
 pub struct H3Connection {
     /// Shared configuration for the entire server, including tcp-based listeners
-    server_config: Arc<ServerConfig>,
+    context: Arc<HttpContext>,
 
     /// Connection-scoped shutdown signal. Shut down when we receive GOAWAY from the peer or when
     /// the server-level Swansong shuts down.  Request stream tasks use this to interrupt
@@ -91,10 +91,10 @@ pub struct H3Connection {
 
 impl H3Connection {
     /// Construct a new `H3Connection` to manage HTTP/3 for a given peer.
-    pub fn new(server_config: Arc<ServerConfig>) -> Arc<Self> {
-        let swansong = server_config.swansong.child();
+    pub fn new(context: Arc<HttpContext>) -> Arc<Self> {
+        let swansong = context.swansong.child();
         Arc::new(Self {
-            server_config,
+            context,
             swansong,
             peer_settings: OnceLock::new(),
             max_accepted_stream_id: AtomicU64::new(0),
@@ -115,14 +115,14 @@ impl H3Connection {
     /// blocking context
     ///
     /// Note that this will NOT shut down the server. To shut down the whole server, use
-    /// [`ServerConfig::shut_down`]
+    /// [`HttpContext::shut_down`]
     pub fn shut_down(&self) -> ShutdownCompletion {
         self.swansong.shut_down()
     }
 
-    /// Retrieve the [`ServerConfig`] for this server.
-    pub fn server_config(&self) -> Arc<ServerConfig> {
-        self.server_config.clone()
+    /// Retrieve the [`HttpContext`] for this server.
+    pub fn context(&self) -> Arc<HttpContext> {
+        self.context.clone()
     }
 
     /// Returns the peer's HTTP/3 settings, available once the peer's control stream has been
@@ -171,7 +171,7 @@ impl H3Connection {
         self.record_accepted_stream(stream_id);
         let _guard = self.swansong.guard();
         let buffer =
-            Vec::with_capacity(self.server_config.http_config.request_buffer_initial_len).into();
+            Vec::with_capacity(self.context.http_config.request_buffer_initial_len).into();
         match Conn::new_h3(self, transport, buffer).await? {
             H3StreamResult::Request(conn) => Ok(H3StreamResult::Request(
                 handler(conn).await.send_h3().await?,
@@ -196,7 +196,7 @@ impl H3Connection {
         let mut buf = vec![0; 128];
 
         // Stream type + SETTINGS frame
-        let settings = Frame::Settings(H3Settings::from(&self.server_config.http_config));
+        let settings = Frame::Settings(H3Settings::from(&self.context.http_config));
 
         write(&mut buf, &mut stream, |buf| {
             let mut written = quic_varint::encode(UniStreamType::Control, buf)?;

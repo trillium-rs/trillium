@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 use trillium::{Handler, Transport};
-use trillium_http::ServerConfig;
+use trillium_http::HttpContext;
 use trillium_server_common::Connector;
 use url::Url;
 
@@ -23,7 +23,7 @@ pub struct ServerConnector<H> {
 
     /// the server config
     #[field(with, set, get(deref = false), into)]
-    server_config: Arc<ServerConfig>,
+    context: Arc<HttpContext>,
 
     pub(crate) client_peer_ips_receiver: Option<Receiver<IpAddr>>,
     pub(crate) server_peer_ips_receiver: Option<Receiver<IpAddr>>,
@@ -34,7 +34,7 @@ impl<H> Clone for ServerConnector<H> {
         Self {
             handler: self.handler.clone(),
             runtime: self.runtime.clone(),
-            server_config: self.server_config.clone(),
+            context: self.context.clone(),
             client_peer_ips_receiver: self.client_peer_ips_receiver.clone(),
             server_peer_ips_receiver: self.server_peer_ips_receiver.clone(),
         }
@@ -47,7 +47,7 @@ impl<H: Handler> ServerConnector<H> {
         Self {
             handler: Arc::new(handler),
             runtime: crate::runtime().into(),
-            server_config: Arc::default(),
+            context: Arc::default(),
             client_peer_ips_receiver: None,
             server_peer_ips_receiver: None,
         }
@@ -73,7 +73,7 @@ impl<H: Handler> ServerConnector<H> {
         }
 
         let handler = Arc::clone(&self.handler);
-        let server_config = Arc::clone(&self.server_config);
+        let context = Arc::clone(&self.context);
 
         let peer_ip = server_transport
             .peer_addr()
@@ -82,7 +82,7 @@ impl<H: Handler> ServerConnector<H> {
             .map(|addr| addr.ip());
 
         self.runtime.spawn(async move {
-            server_config
+            context
                 .run(server_transport, |mut conn| {
                     let handler = Arc::clone(&handler);
                     async move {

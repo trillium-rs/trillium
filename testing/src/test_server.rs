@@ -11,7 +11,7 @@ use std::{
 };
 use trillium::{Handler, Info, KnownHeaderName};
 use trillium_client::{Client, IntoUrl};
-use trillium_http::{HeaderName, HeaderValues, Headers, Method, ServerConfig, Status};
+use trillium_http::{HeaderName, HeaderValues, Headers, Method, HttpContext, Status};
 #[allow(clippy::test_attr_in_doctest, reason = "demonstrating test usage")]
 /// A testing interface that wraps a trillium handler, providing a high-level API for making
 /// requests and asserting on responses.
@@ -70,14 +70,14 @@ impl<H: Handler> TestServer<H> {
 
     async fn new_with_runtime(mut handler: H, rt: impl RuntimeTrait) -> Self {
         let url = "http://trillium.test".into_url(None).unwrap();
-        let mut info = Info::from(ServerConfig::default());
+        let mut info = Info::from(HttpContext::default());
         info.insert_state(rt.clone());
         info.insert_state(Runtime::new(rt.clone()));
         info.insert_state(url.clone());
         handler.init(&mut info).await;
-        let server_config: Arc<ServerConfig> = Arc::new(info.into());
+        let context: Arc<HttpContext> = Arc::new(info.into());
         let mut connector = ServerConnector::new(handler)
-            .with_server_config(server_config.clone())
+            .with_context(context.clone())
             .with_runtime(rt);
         let (peer_ip_sender, receive) = async_channel::unbounded();
         connector.server_peer_ips_receiver = Some(receive);
@@ -116,7 +116,7 @@ impl<H: Handler> TestServer<H> {
 
     /// borrow from shared state configured by the handler
     pub fn shared_state<T: Send + Sync + 'static>(&self) -> Option<&T> {
-        self.connector.server_config().shared_state().get()
+        self.connector.context().shared_state().get()
     }
 
     /// assert that a given type is in shared state

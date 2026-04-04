@@ -1,5 +1,5 @@
 use crate::{
-    Buffer, Conn, Headers, Method, ServerConfig, TypeSet, Version, h3::H3Connection,
+    Buffer, Conn, HttpContext, Headers, Method, TypeSet, Version, h3::H3Connection,
     received_body::read_buffered,
 };
 use fieldwork::Fieldwork;
@@ -12,7 +12,7 @@ use std::{
     pin::Pin,
     str,
     sync::Arc,
-    task::{Context, Poll},
+    task::{self, Poll},
 };
 use trillium_macros::AsyncWrite;
 
@@ -51,9 +51,9 @@ pub struct Upgrade<Transport> {
     #[field(deref = "[u8]", into_field = false, set = false, with = false)]
     buffer: Buffer,
 
-    /// The [`ServerConfig`] shared for this server
+    /// The [`HttpContext`] shared for this server
     #[field(deref = false)]
-    server_config: Arc<ServerConfig>,
+    context: Arc<HttpContext>,
 
     /// the ip address of the connection, if available
     #[field(copy)]
@@ -97,7 +97,7 @@ impl<Transport> Upgrade<Transport> {
             transport,
             buffer,
             state: TypeSet::new(),
-            server_config: Arc::default(),
+            context: Arc::default(),
             peer_ip: None,
             authority: None,
             scheme: None,
@@ -120,7 +120,7 @@ impl<Transport> Upgrade<Transport> {
 
     /// borrow the shared state [`TypeSet`] for this application
     pub fn shared_state(&self) -> &TypeSet {
-        self.server_config.shared_state()
+        self.context.shared_state()
     }
 
     /// the http request path up to but excluding any query component
@@ -153,7 +153,7 @@ impl<Transport> Upgrade<Transport> {
             state: self.state,
             buffer: self.buffer,
             request_headers: self.request_headers,
-            server_config: self.server_config,
+            context: self.context,
             peer_ip: self.peer_ip,
             authority: self.authority,
             scheme: self.scheme,
@@ -172,7 +172,7 @@ impl<Transport> Debug for Upgrade<Transport> {
             .field("path", &self.path)
             .field("method", &self.method)
             .field("buffer", &self.buffer)
-            .field("server_config", &self.server_config)
+            .field("context", &self.context)
             .field("state", &self.state)
             .field("transport", &format_args!(".."))
             .field("peer_ip", &self.peer_ip)
@@ -195,7 +195,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             state,
             transport,
             buffer,
-            server_config,
+            context,
             peer_ip,
             authority,
             scheme,
@@ -213,7 +213,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             state,
             transport,
             buffer,
-            server_config,
+            context,
             peer_ip,
             authority,
             scheme,
@@ -228,7 +228,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
 impl<Transport: AsyncRead + Unpin> AsyncRead for Upgrade<Transport> {
     fn poll_read(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        cx: &mut task::Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         let Self {

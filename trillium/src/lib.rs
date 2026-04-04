@@ -49,7 +49,7 @@ mod state;
 pub use state::{State, state};
 pub use trillium_http::{
     Body, BodySource, Error, HeaderName, HeaderValue, HeaderValues, Headers, HttpConfig,
-    KnownHeaderName, Method, ServerConfig, Status, Swansong, TypeSet, Version,
+    KnownHeaderName, Method, HttpContext, Status, Swansong, TypeSet, Version,
 };
 
 mod transport;

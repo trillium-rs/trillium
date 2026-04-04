@@ -1,6 +1,6 @@
 use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, KnownHeaderName, Method,
-    ReceivedBody, Result, ServerConfig, Status, TypeSet, Version, after_send::AfterSend,
+    ReceivedBody, Result, HttpContext, Status, TypeSet, Version, after_send::AfterSend,
     conn::ReceivedBodyState, util::encoding,
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -45,7 +45,7 @@ where
             }
         }
 
-        if self.server_config.swansong.state().is_shutting_down() {
+        if self.context.swansong.state().is_shutting_down() {
             self.response_headers
                 .insert(KnownHeaderName::Connection, "close");
         }
@@ -53,10 +53,10 @@ where
 
     pub(crate) async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
         let mut output_buffer =
-            Vec::with_capacity(self.server_config.http_config.response_buffer_len);
+            Vec::with_capacity(self.context.http_config.response_buffer_len);
         self.write_headers(&mut output_buffer)?;
 
-        let max_buf = self.server_config.http_config.response_buffer_max_len;
+        let max_buf = self.context.http_config.response_buffer_max_len;
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
 
         if self.method != Method::Head
@@ -65,13 +65,13 @@ where
         {
             let chunked = body.len().is_none();
 
-            let loops_per_yield = self.server_config.http_config.copy_loops_per_yield;
+            let loops_per_yield = self.context.http_config.copy_loops_per_yield;
 
             bufwriter.copy_from(&mut body, loops_per_yield).await?;
 
             if let Some(trailers) = body.trailers() {
                 log::trace!("sending trailers:\n{trailers}");
-                write_headers_or_trailers(bufwriter.buffer_mut(), &trailers, &self.server_config)?;
+                write_headers_or_trailers(bufwriter.buffer_mut(), &trailers, &self.context)?;
                 // we don't store the trailers anywhere because the conn is about to be dropped
             }
 
@@ -103,7 +103,7 @@ where
             &mut self.request_body_state,
             None,
             encoding(&self.request_headers),
-            &self.server_config.http_config,
+            &self.context.http_config,
         )
         .with_trailers(&mut self.request_trailers)
     }
@@ -141,7 +141,7 @@ where
 
     #[cfg(not(feature = "parse"))]
     pub(crate) async fn new_internal(
-        server_config: Arc<ServerConfig>,
+        context: Arc<HttpContext>,
         mut transport: Transport,
         mut buffer: Buffer,
     ) -> Result<Self> {
@@ -149,9 +149,9 @@ where
         use httparse::{EMPTY_HEADER, Request};
 
         let (head_size, start_time) =
-            Self::head(&mut transport, &mut buffer, &server_config).await?;
+            Self::head(&mut transport, &mut buffer, &context).await?;
 
-        let mut headers = vec![EMPTY_HEADER; server_config.http_config.max_headers];
+        let mut headers = vec![EMPTY_HEADER; context.http_config.max_headers];
         let mut httparse_req = Request::new(&mut headers);
 
         let status = httparse_req.parse(&buffer[..]).map_err(|e| match e {
@@ -208,7 +208,7 @@ where
 
         log::trace!("received:\n{method} {path} {version}\n{request_headers}");
 
-        let response_headers = server_config
+        let response_headers = context
             .shared_state()
             .get::<Headers>()
             .cloned()
@@ -232,7 +232,7 @@ where
             after_send: AfterSend::default(),
             start_time,
             peer_ip: None,
-            server_config,
+            context,
             authority,
             scheme: None,
             h3_connection: None,
@@ -243,12 +243,12 @@ where
 
     #[cfg(feature = "parse")]
     pub(crate) async fn new_internal(
-        server_config: Arc<ServerConfig>,
+        context: Arc<HttpContext>,
         mut transport: Transport,
         mut buffer: Buffer,
     ) -> Result<Self> {
         let (head_size, start_time) =
-            Self::head(&mut transport, &mut buffer, &server_config).await?;
+            Self::head(&mut transport, &mut buffer, &context).await?;
 
         let first_line_index = Finder::new(b"\r\n")
             .find(&buffer)
@@ -284,7 +284,7 @@ where
             path = Cow::Borrowed("/");
         }
 
-        let response_headers = server_config
+        let response_headers = context
             .shared_state()
             .get::<Headers>()
             .cloned()
@@ -293,7 +293,7 @@ where
         buffer.ignore_front(head_size);
 
         Ok(Self {
-            server_config,
+            context,
             transport,
             request_headers,
             method,
@@ -328,21 +328,21 @@ where
     async fn head(
         transport: &mut Transport,
         buf: &mut Buffer,
-        server_config: &ServerConfig,
+        context: &HttpContext,
     ) -> Result<(usize, Instant)> {
         let mut len = 0;
         let mut start_with_read = buf.is_empty();
         let mut instant = None;
         let finder = Finder::new(b"\r\n\r\n");
         loop {
-            if len >= server_config.http_config.head_max_len {
+            if len >= context.http_config.head_max_len {
                 return Err(Error::HeadersTooLong);
             }
 
             let bytes = if start_with_read {
                 buf.expand();
                 if len == 0 {
-                    server_config
+                    context
                         .swansong
                         .interrupt(transport.read(buf))
                         .await
@@ -383,7 +383,7 @@ where
         if !self.needs_100_continue() || self.request_body_state != ReceivedBodyState::Start {
             self.build_request_body().drain().await?;
         }
-        Conn::new_internal(self.server_config, self.transport, self.buffer).await
+        Conn::new_internal(self.context, self.transport, self.buffer).await
     }
 
     fn should_close(&self) -> bool {
@@ -465,7 +465,7 @@ where
             &self.response_headers
         );
 
-        write_headers_or_trailers(output_buffer, &self.response_headers, &self.server_config)?;
+        write_headers_or_trailers(output_buffer, &self.response_headers, &self.context)?;
 
         write!(output_buffer, "\r\n")?;
 
@@ -477,9 +477,9 @@ where
 fn write_headers_or_trailers(
     output_buffer: &mut Vec<u8>,
     headers: &Headers,
-    server_config: &ServerConfig,
+    context: &HttpContext,
 ) -> Result<()> {
-    let panic_on_invalid = server_config.http_config.panic_on_invalid_response_headers;
+    let panic_on_invalid = context.http_config.panic_on_invalid_response_headers;
 
     for (name, values) in headers {
         if name.is_valid() {

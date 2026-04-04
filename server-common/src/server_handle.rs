@@ -2,7 +2,7 @@ use crate::Runtime;
 use async_cell::sync::AsyncCell;
 use std::{cell::OnceCell, future::IntoFuture, net::SocketAddr, sync::Arc};
 use swansong::{ShutdownCompletion, Swansong};
-use trillium_http::ServerConfig;
+use trillium_http::HttpContext;
 
 /// A handle for a spawned trillium server. Returned by
 /// [`Config::handle`][crate::Config::handle] and
@@ -10,13 +10,13 @@ use trillium_http::ServerConfig;
 #[derive(Clone, Debug)]
 pub struct ServerHandle {
     pub(crate) swansong: Swansong,
-    pub(crate) server_config: Arc<AsyncCell<Arc<ServerConfig>>>,
-    pub(crate) received_server_config: OnceCell<Arc<ServerConfig>>,
+    pub(crate) context: Arc<AsyncCell<Arc<HttpContext>>>,
+    pub(crate) received_context: OnceCell<Arc<HttpContext>>,
     pub(crate) runtime: Runtime,
 }
 
 #[derive(Debug)]
-pub struct BoundInfo(Arc<ServerConfig>);
+pub struct BoundInfo(Arc<HttpContext>);
 
 impl BoundInfo {
     /// Borrow a type from the [`TypeSet`] on this `BoundInfo`.
@@ -39,7 +39,7 @@ impl BoundInfo {
         self.state()
     }
 
-    pub fn server_config(&self) -> Arc<ServerConfig> {
+    pub fn context(&self) -> Arc<HttpContext> {
         self.0.clone()
     }
 }
@@ -47,15 +47,15 @@ impl BoundInfo {
 impl ServerHandle {
     /// await server start and retrieve the server's [`Info`](trillium::Info)
     pub async fn info(&self) -> BoundInfo {
-        if let Some(server_config) = self.received_server_config.get().cloned() {
-            return BoundInfo(server_config);
+        if let Some(context) = self.received_context.get().cloned() {
+            return BoundInfo(context);
         }
-        let arc_server_config = self.server_config.get().await;
-        let server_config = self
-            .received_server_config
-            .get_or_init(|| arc_server_config);
+        let arc_context = self.context.get().await;
+        let context = self
+            .received_context
+            .get_or_init(|| arc_context);
 
-        BoundInfo(Arc::clone(server_config))
+        BoundInfo(Arc::clone(context))
     }
 
     /// stop server and return a future that can be awaited for it to shut down gracefully

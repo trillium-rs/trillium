@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Shared server-level state
 
-`Info` now wraps a shared `TypeSet` (backed by `ServerConfig`) that persists for the lifetime of the server. Handlers insert values into this set during `Handler::init` or by placing an `Init` handler first in the tuple:
+`Info` now wraps a shared `TypeSet` (backed by `HttpContext`) that persists for the lifetime of the server. Handlers insert values into this set during `Handler::init` or by placing an `Init` handler first in the tuple:
 
 ```rust
 Init::new(|mut info| async move {
