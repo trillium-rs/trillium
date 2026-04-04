@@ -3,7 +3,6 @@ use crate::{
     HttpConfig, KnownHeaderName,
     h3::Frame,
     headers::qpack::{FieldSection, PseudoHeaders},
-    http_config::DEFAULT_CONFIG,
 };
 use encoding_rs::UTF_8;
 use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
@@ -547,7 +546,7 @@ fn frame_body_chunked(body: &str, chunk_size: usize) -> Vec<u8> {
 }
 
 async fn h3_decode(input: Vec<u8>, poll_size: usize) -> crate::Result<String> {
-    let mut rb = new_h3_body(input, None, &DEFAULT_CONFIG);
+    let mut rb = new_h3_body(input, None, &HttpConfig::DEFAULT);
     read_with_buffers_of_size(&mut rb, poll_size).await
 }
 
@@ -589,7 +588,7 @@ async fn async_with_unknown_frames_interspersed() {
 async fn async_content_length_valid() {
     let body = "test ".repeat(50);
     let framed = frame_body(&body);
-    let rb = new_h3_body(framed, Some(body.len() as u64), &DEFAULT_CONFIG);
+    let rb = new_h3_body(framed, Some(body.len() as u64), &HttpConfig::DEFAULT);
     let output = rb.read_string().await.unwrap();
     assert_eq!(output, body);
 }
@@ -599,7 +598,7 @@ async fn async_content_length_mismatch() {
     let body = "test ".repeat(50);
     let framed = frame_body(&body);
     // Claim content-length is shorter than actual
-    let rb = new_h3_body(framed, Some(10), &DEFAULT_CONFIG);
+    let rb = new_h3_body(framed, Some(10), &HttpConfig::DEFAULT);
     assert!(rb.read_string().await.is_err());
 }
 
@@ -609,11 +608,11 @@ async fn async_max_len() {
     let framed = frame_body(&body);
 
     // Should succeed with default max_len
-    let rb = new_h3_body(framed.clone(), None, &DEFAULT_CONFIG);
+    let rb = new_h3_body(framed.clone(), None, &HttpConfig::DEFAULT);
     assert!(rb.read_string().await.is_ok());
 
     // Should fail with small max_len
-    let config = DEFAULT_CONFIG.with_received_body_max_len(100);
+    let config = HttpConfig::DEFAULT.with_received_body_max_len(100);
     let rb = new_h3_body(framed, None, &config);
     assert!(rb.read_string().await.is_err());
 }
@@ -622,7 +621,7 @@ async fn async_max_len() {
 async fn async_empty_body() {
     // No DATA frames at all — just an empty stream
     let framed = vec![];
-    let rb = new_h3_body(framed, None, &DEFAULT_CONFIG);
+    let rb = new_h3_body(framed, None, &HttpConfig::DEFAULT);
     let output = rb.read_string().await.unwrap();
     assert_eq!(output, "");
 }

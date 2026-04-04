@@ -1,8 +1,7 @@
 use crate::{
-    Body, Buffer,
+    Body, Buffer, HttpConfig,
     body::BodyType,
     h3::H3Body,
-    http_config::DEFAULT_CONFIG,
     received_body::{H3BodyFrameType, ReceivedBody, ReceivedBodyState},
 };
 use encoding_rs::UTF_8;
@@ -18,12 +17,12 @@ async fn round_trip(body: BodyType, content_length: Option<u64>) -> String {
 
     let rb = ReceivedBody::new_with_config(
         content_length,
-        Buffer::with_capacity(DEFAULT_CONFIG.response_header_initial_capacity),
+        Buffer::with_capacity(HttpConfig::DEFAULT.response_header_initial_capacity),
         reader,
         ReceivedBodyState::new_h3(),
         None,
         UTF_8,
-        &DEFAULT_CONFIG,
+        &HttpConfig::DEFAULT,
     );
 
     let ((), result) = futures_lite::future::zip(
@@ -48,7 +47,7 @@ async fn round_trip_buf(body: BodyType, content_length: Option<u64>, buf_size: u
     let rb = ReceivedBody::new_with_config(
         content_length,
         Buffer::from(Vec::with_capacity(
-            DEFAULT_CONFIG.response_header_initial_capacity,
+            HttpConfig::DEFAULT.response_header_initial_capacity,
         )),
         reader,
         ReceivedBodyState::H3Data {
@@ -59,7 +58,7 @@ async fn round_trip_buf(body: BodyType, content_length: Option<u64>, buf_size: u
         },
         None,
         UTF_8,
-        &DEFAULT_CONFIG,
+        &HttpConfig::DEFAULT,
     );
 
     let (_, result) = futures_lite::future::zip(

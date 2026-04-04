@@ -37,7 +37,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{Buffer, HttpConfig, ReceivedBody, ReceivedBodyState, http_config::DEFAULT_CONFIG};
+    use crate::{Buffer, HttpConfig, ReceivedBody, ReceivedBodyState};
     use encoding_rs::UTF_8;
     use futures_lite::{AsyncRead, AsyncReadExt, future::block_on, io::Cursor};
 
@@ -84,21 +84,21 @@ mod tests {
     fn test() {
         for size in 3..50 {
             let input = "12345abcdef";
-            let output = decode_with_config(input.into(), size, &DEFAULT_CONFIG).unwrap();
+            let output = decode_with_config(input.into(), size, &HttpConfig::DEFAULT).unwrap();
             assert_eq!(output, "12345abcdef", "size: {size}");
 
             let input = "MozillaDeveloperNetwork";
-            let output = decode_with_config(input.into(), size, &DEFAULT_CONFIG).unwrap();
+            let output = decode_with_config(input.into(), size, &HttpConfig::DEFAULT).unwrap();
             assert_eq!(output, "MozillaDeveloperNetwork", "size: {size}");
 
-            assert!(decode_with_config(String::new(), size, &DEFAULT_CONFIG).is_ok());
+            assert!(decode_with_config(String::new(), size, &HttpConfig::DEFAULT).is_ok());
 
             let input = "MozillaDeveloperNetwork";
             assert!(
                 decode_with_config(
                     input.into(),
                     size,
-                    &DEFAULT_CONFIG.with_received_body_max_len(5)
+                    &HttpConfig::DEFAULT.with_received_body_max_len(5)
                 )
                 .is_err()
             );
@@ -110,7 +110,7 @@ mod tests {
         block_on(async {
             let content = "test ".repeat(1000);
             assert_eq!(
-                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                new_with_config(content.clone(), &HttpConfig::DEFAULT)
                     .read_string()
                     .await
                     .unwrap()
@@ -119,7 +119,7 @@ mod tests {
             );
 
             assert_eq!(
-                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                new_with_config(content.clone(), &HttpConfig::DEFAULT)
                     .read_bytes()
                     .await
                     .unwrap()
@@ -130,7 +130,7 @@ mod tests {
             assert!(
                 new_with_config(
                     content.clone(),
-                    &DEFAULT_CONFIG.with_received_body_max_len(750)
+                    &HttpConfig::DEFAULT.with_received_body_max_len(750)
                 )
                 .read_string()
                 .await
@@ -140,7 +140,7 @@ mod tests {
             assert!(
                 new_with_config(
                     content.clone(),
-                    &DEFAULT_CONFIG.with_received_body_max_len(750)
+                    &HttpConfig::DEFAULT.with_received_body_max_len(750)
                 )
                 .read_bytes()
                 .await
@@ -148,7 +148,7 @@ mod tests {
             );
 
             assert!(
-                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                new_with_config(content.clone(), &HttpConfig::DEFAULT)
                     .with_max_len(750)
                     .read_bytes()
                     .await
@@ -156,7 +156,7 @@ mod tests {
             );
 
             assert!(
-                new_with_config(content.clone(), &DEFAULT_CONFIG)
+                new_with_config(content.clone(), &HttpConfig::DEFAULT)
                     .with_max_len(750)
                     .read_string()
                     .await

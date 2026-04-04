@@ -53,7 +53,7 @@ async fn run_h3_connection<QC: QuicConnectionTrait>(
 ) {
     let wt_dispatcher = h3
         .context()
-        .http_config()
+        .config()
         .webtransport_enabled()
         .then(WebTransportDispatcher::new);
 

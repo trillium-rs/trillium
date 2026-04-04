@@ -1,4 +1,4 @@
-use crate::{Headers, Method, HttpContext, Transport, TypeSet, Version};
+use crate::{Headers, HttpContext, Method, Transport, TypeSet, Version};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{net::IpAddr, sync::Arc};
 use trillium_http::Swansong;

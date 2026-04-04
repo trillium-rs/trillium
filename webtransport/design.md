@@ -81,7 +81,7 @@ returning. The stream and buffer contain only application payload bytes.
 
 ### WebTransportDispatcher (server-common)
 
-Per-QUIC-connection dispatcher, created when `http_config().webtransport_enabled()`.
+Per-QUIC-connection dispatcher, created when `config().webtransport_enabled()`.
 Lives in `server-common/src/h3/web_transport.rs`.
 
 ```rust

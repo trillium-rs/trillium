@@ -173,7 +173,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
         // this is only necessary because we're not wiring together the client.
         let old_context = self.client.context();
         let new_context = HttpContext::default()
-            .with_http_config(*old_context.http_config())
+            .with_config(*old_context.config())
             .with_swansong(info.swansong().clone());
         self.client.set_context(new_context);
         log::info!("proxying to {:?}", self.upstream);

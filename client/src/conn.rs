@@ -2,8 +2,8 @@ use crate::{Pool, h3::H3ClientState, util::encoding};
 use encoding_rs::Encoding;
 use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
-    Body, Buffer, HeaderName, HeaderValues, Headers, Method, ReceivedBody, ReceivedBodyState,
-    HttpContext, Status, TypeSet, Version,
+    Body, Buffer, HeaderName, HeaderValues, Headers, HttpContext, Method, ReceivedBody,
+    ReceivedBodyState, Status, TypeSet, Version,
 };
 use trillium_server_common::{
     ArcedConnector, Transport,

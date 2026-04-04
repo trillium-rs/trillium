@@ -170,8 +170,7 @@ impl H3Connection {
     {
         self.record_accepted_stream(stream_id);
         let _guard = self.swansong.guard();
-        let buffer =
-            Vec::with_capacity(self.context.http_config.request_buffer_initial_len).into();
+        let buffer = Vec::with_capacity(self.context.config.request_buffer_initial_len).into();
         match Conn::new_h3(self, transport, buffer).await? {
             H3StreamResult::Request(conn) => Ok(H3StreamResult::Request(
                 handler(conn).await.send_h3().await?,
@@ -196,7 +195,7 @@ impl H3Connection {
         let mut buf = vec![0; 128];
 
         // Stream type + SETTINGS frame
-        let settings = Frame::Settings(H3Settings::from(&self.context.http_config));
+        let settings = Frame::Settings(H3Settings::from(&self.context.config));
 
         write(&mut buf, &mut stream, |buf| {
             let mut written = quic_varint::encode(UniStreamType::Control, buf)?;

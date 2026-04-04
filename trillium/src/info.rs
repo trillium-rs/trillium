@@ -72,13 +72,13 @@ impl Info {
     }
 
     /// borrow the http config
-    pub fn http_config(&self) -> &HttpConfig {
-        self.0.http_config()
+    pub fn config(&self) -> &HttpConfig {
+        self.0.config()
     }
 
     /// mutate the http config
-    pub fn http_config_mut(&mut self) -> &mut HttpConfig {
-        self.0.http_config_mut()
+    pub fn config_mut(&mut self) -> &mut HttpConfig {
+        self.0.config_mut()
     }
 
     /// Borrow the [`Swansong`] graceful shutdown interface for this server

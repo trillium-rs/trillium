@@ -122,11 +122,7 @@ impl H3ClientState {
 ///
 /// This mirrors the server-side `run_h3_connection` in trillium-server-common,
 /// using the same `H3Connection` from trillium-http for wire-protocol handling.
-fn setup_h3_connection(
-    quic_conn: &QuicConnection,
-    context: &Arc<HttpContext>,
-    runtime: &Runtime,
-) {
+fn setup_h3_connection(quic_conn: &QuicConnection, context: &Arc<HttpContext>, runtime: &Runtime) {
     let h3 = H3Connection::new(context.clone());
 
     // Outbound control stream — sends SETTINGS, then GOAWAY on shutdown.

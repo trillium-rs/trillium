@@ -23,7 +23,7 @@ use lamedh_runtime::{Context, Handler as AwsHandler};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::runtime;
 use trillium::{Conn, Handler};
-use trillium_http::{Conn as HttpConn, HttpContext as HttpContext, Synthetic};
+use trillium_http::{Conn as HttpConn, HttpContext, Synthetic};
 
 mod context;
 pub use context::LambdaConnExt;

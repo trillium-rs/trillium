@@ -1,6 +1,6 @@
 use crate::{
-    BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, KnownHeaderName, Method,
-    ReceivedBody, Result, HttpContext, Status, TypeSet, Version, after_send::AfterSend,
+    BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
+    Method, ReceivedBody, Result, Status, TypeSet, Version, after_send::AfterSend,
     conn::ReceivedBodyState, util::encoding,
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -52,11 +52,10 @@ where
     }
 
     pub(crate) async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
-        let mut output_buffer =
-            Vec::with_capacity(self.context.http_config.response_buffer_len);
+        let mut output_buffer = Vec::with_capacity(self.context.config.response_buffer_len);
         self.write_headers(&mut output_buffer)?;
 
-        let max_buf = self.context.http_config.response_buffer_max_len;
+        let max_buf = self.context.config.response_buffer_max_len;
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
 
         if self.method != Method::Head
@@ -65,7 +64,7 @@ where
         {
             let chunked = body.len().is_none();
 
-            let loops_per_yield = self.context.http_config.copy_loops_per_yield;
+            let loops_per_yield = self.context.config.copy_loops_per_yield;
 
             bufwriter.copy_from(&mut body, loops_per_yield).await?;
 
@@ -103,7 +102,7 @@ where
             &mut self.request_body_state,
             None,
             encoding(&self.request_headers),
-            &self.context.http_config,
+            &self.context.config,
         )
         .with_trailers(&mut self.request_trailers)
     }
@@ -148,10 +147,9 @@ where
         use crate::{HeaderName, HeaderValue};
         use httparse::{EMPTY_HEADER, Request};
 
-        let (head_size, start_time) =
-            Self::head(&mut transport, &mut buffer, &context).await?;
+        let (head_size, start_time) = Self::head(&mut transport, &mut buffer, &context).await?;
 
-        let mut headers = vec![EMPTY_HEADER; context.http_config.max_headers];
+        let mut headers = vec![EMPTY_HEADER; context.config.max_headers];
         let mut httparse_req = Request::new(&mut headers);
 
         let status = httparse_req.parse(&buffer[..]).map_err(|e| match e {
@@ -247,8 +245,7 @@ where
         mut transport: Transport,
         mut buffer: Buffer,
     ) -> Result<Self> {
-        let (head_size, start_time) =
-            Self::head(&mut transport, &mut buffer, &context).await?;
+        let (head_size, start_time) = Self::head(&mut transport, &mut buffer, &context).await?;
 
         let first_line_index = Finder::new(b"\r\n")
             .find(&buffer)
@@ -335,7 +332,7 @@ where
         let mut instant = None;
         let finder = Finder::new(b"\r\n\r\n");
         loop {
-            if len >= context.http_config.head_max_len {
+            if len >= context.config.head_max_len {
                 return Err(Error::HeadersTooLong);
             }
 
@@ -479,7 +476,7 @@ fn write_headers_or_trailers(
     headers: &Headers,
     context: &HttpContext,
 ) -> Result<()> {
-    let panic_on_invalid = context.http_config.panic_on_invalid_response_headers;
+    let panic_on_invalid = context.config.panic_on_invalid_response_headers;
 
     for (name, values) in headers {
         if name.is_valid() {

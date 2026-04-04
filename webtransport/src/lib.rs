@@ -277,7 +277,7 @@ where
                 .expect("webtransport requires a Runtime")
         });
 
-        info.http_config_mut()
+        info.config_mut()
             .set_h3_datagrams_enabled(true)
             .set_webtransport_enabled(true);
     }

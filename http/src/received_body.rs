@@ -1,4 +1,4 @@
-use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, copy, http_config::DEFAULT_CONFIG};
+use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, copy};
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 use encoding_rs::Encoding;
@@ -142,7 +142,7 @@ where
             state,
             on_completion,
             encoding,
-            &DEFAULT_CONFIG,
+            &HttpConfig::DEFAULT,
         )
     }
 

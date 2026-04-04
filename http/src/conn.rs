@@ -1,7 +1,7 @@
 use crate::{
-    Body, Buffer, Headers,
+    Body, Buffer, Headers, HttpContext,
     KnownHeaderName::Host,
-    Method, ReceivedBody, HttpContext, Status, Swansong, TypeSet, Version,
+    Method, ReceivedBody, Status, Swansong, TypeSet, Version,
     after_send::{AfterSend, SendStatus},
     h3::H3Connection,
     liveness::{CancelOnDisconnect, LivenessFut},
@@ -409,10 +409,9 @@ where
     /// this to gracefully stop long-running futures and streams
     /// inside of handler functions
     pub fn swansong(&self) -> Swansong {
-        self.h3_connection.as_ref().map_or_else(
-            || self.context.swansong.clone(),
-            |h| h.swansong().clone(),
-        )
+        self.h3_connection
+            .as_ref()
+            .map_or_else(|| self.context.swansong.clone(), |h| h.swansong().clone())
     }
 
     /// Registers a function to call after the http response has been

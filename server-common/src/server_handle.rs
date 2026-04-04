@@ -51,9 +51,7 @@ impl ServerHandle {
             return BoundInfo(context);
         }
         let arc_context = self.context.get().await;
-        let context = self
-            .received_context
-            .get_or_init(|| arc_context);
+        let context = self.received_context.get_or_init(|| arc_context);
 
         BoundInfo(Arc::clone(context))
     }

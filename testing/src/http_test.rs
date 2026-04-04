@@ -11,7 +11,7 @@ use std::{
 };
 use trillium_client::{Client, Connector, IntoUrl};
 use trillium_http::{
-    Conn, HeaderName, HeaderValues, Headers, KnownHeaderName, Method, HttpContext, Status,
+    Conn, HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method, Status,
 };
 
 /// A test server for the http crate that runs a http/1.1 client over a virtual in-memory transport,
