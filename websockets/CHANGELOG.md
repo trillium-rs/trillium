@@ -6,6 +6,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.6...trillium-websockets-v0.7.0) - 2026-04-04
+
+### Added
+
+- [**breaking**] rename ServerConfig to HttpContext
+- *(trillium)* introduce façade types for Upgrade and RequestBody
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- update all crates for new style of testing
+- [**breaking**] add h3 support to client
+- [**breaking**] hypertext transfer protocol, three
+- [**breaking**] remove Conn::inner and Conn::inner_mut
+- [**breaking**] introduce ServerConfig
+- [**breaking**] use the extracted `type-set` crate instead of trillium_http::StateSet
+- [**breaking**] remove deprecated set_state functions
+- [**breaking**] use swansong instead of stopper + clone counter
+- [**breaking**] eliminate async_trait
+- *(http)* [**breaking**] make Upgrade #[non_exhaustive], use Buffer, and add peer_ip
+
+### Other
+
+- replace references to 0.3 with 1.0 in changelogs
+- *(deps)* upgrade async-tungstenite
+- fix up broken docs links
+- Add readmes
+- update all changelogs to reflect current status
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+- Upgrade thiserror
+- *(deps)* update async-tungstenite requirement from 0.25.0 to 0.26.0
+
 ### Changed
 - Compatible with trillium 1.0
 - `WebSocketConn::stopper()` → `WebSocketConn::swansong()` — trillium 1.0 uses [Swansong](https://docs.rs/swansong) instead of Stopper
