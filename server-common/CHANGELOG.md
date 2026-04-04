@@ -6,6 +6,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.5.2...trillium-server-common-v0.6.0) - 2026-04-04
+
+### Added
+
+- [**breaking**] rename http_config to config
+- [**breaking**] rename ServerConfig to HttpContext
+- *(trillium)* introduce façade types for Upgrade and RequestBody
+- [**breaking**] add h3 support to client
+- [**breaking**] webtransport and some tidying of h3/quic
+- auto-populate alt-svc response header
+- [**breaking**] hypertext transfer protocol, three
+- use `From<Arc<impl RuntimeTrait>>` to create a `Runtime`
+- [**breaking**] introduce ServerConfig
+- [**breaking**] introduce Runtime
+- *(server-common)* [**breaking**] remove Clone for Config
+- [**breaking**] use swansong instead of stopper + clone counter
+- *(client)* [**breaking**] add support for client timeouts
+- [**breaking**] eliminate async_trait
+- [**breaking**] remove `impl Handler for Arc<impl Handler>`
+- *(server-common)* [**breaking**] put Info in an Arc for now
+
+### Fixed
+
+- client now is appropriately factored, uses H3Connection
+
+### Other
+
+- replace references to 0.3 with 1.0 in changelogs
+- silence the log error when rustls emits an unexpected eof
+- fix up broken docs links
+- Add readmes
+- update all changelogs to reflect current status
+- some manual clippy fixes
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- documentation pass
+- edition 2024
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+- release
+- release
+- release
+
 ### Changed
 - Compatible with trillium 1.0
 - Trillium 1.0 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `config().with_stopper(stopper)` becomes `config().with_swansong(swansong)`

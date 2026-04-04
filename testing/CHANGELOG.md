@@ -6,6 +6,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.7.0...trillium-testing-v0.8.0) - 2026-04-04
+
+### Added
+
+- [**breaking**] rename http_config to config
+- [**breaking**] rename ServerConfig to HttpContext
+- http trailers
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- update all crates for new style of testing
+- [**breaking**] allow client and api to use sonic-rs instead of serde_json
+- [**breaking**] add h3 support to client
+- [**breaking**] hypertext transfer protocol, three
+- [**breaking**] remove Conn::inner and Conn::inner_mut
+- use `From<Arc<impl RuntimeTrait>>` to create a `Runtime`
+- [**breaking**] introduce ServerConfig
+- [**breaking**] introduce Runtime
+- [**breaking**] use swansong instead of stopper + clone counter
+- *(client)* [**breaking**] add support for client timeouts
+- [**breaking**] eliminate async_trait
+
+### Fixed
+
+- client now is appropriately factored, uses H3Connection
+
+### Other
+
+- *(testing)* describe TestHandler in testing changelog
+- replace references to 0.3 with 1.0 in changelogs
+- *(deps)* upgrade async-tungstenite
+- fix up broken docs links
+- Add readmes
+- update all changelogs to reflect current status
+- some manual clippy fixes
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- *(testing)* use Conn::response_headers directly
+- edition 2024
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+- add httparse tests and make errors identical
+- release
+
 ### Changed
 - Compatible with trillium 1.0
 - `init(&mut handler)` is now async and returns `Arc<HttpContext>`: `init(&mut handler).await`; capture the returned value if you need to pass it to `TestConn::with_context()`

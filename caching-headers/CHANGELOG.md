@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/trillium-rs/trillium/compare/trillium-caching-headers-v0.2.3...trillium-caching-headers-v0.3.0) - 2026-04-04
+
+### Added
+
+- [**breaking**] remove Conn::inner and Conn::inner_mut
+- [**breaking**] eliminate async_trait
+
+### Other
+
+- replace references to 0.3 with 1.0 in changelogs
+- fix up broken docs links
+- Add readmes
+- update all changelogs to reflect current status
+- edition 2024
+- switch over to `///` from `/** */` comments
+- add a rustfmt.toml and reformat
+- release
+
 ### Changed
 - Compatible with trillium 1.0
 

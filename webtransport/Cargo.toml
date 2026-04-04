@@ -13,15 +13,15 @@ categories = ["web-programming::http-server", "web-programming"]
 async-channel = "2"
 async-lock = "3"
 log = "0.4.29"
-trillium = { path = "../trillium", version = "0.2.20" }
-trillium-http = { path = "../http", version = "0.3.17", features = [
+trillium = { path = "../trillium", version = "0.3.0" }
+trillium-http = { path = "../http", version = "0.4.0", features = [
         "unstable",
 ] }
 swansong = "0.3"
-trillium-macros = { path = "../macros", version = "0.0.6" }
-trillium-server-common = { version = "0.5.2", path = "../server-common" }
+trillium-macros = { path = "../macros", version = "0.0.7" }
+trillium-server-common = { version = "0.6.0", path = "../server-common" }
 futures-lite = "2.6.1"
-trillium-logger = { version = "0.4.5", path = "../logger" }
+trillium-logger = { version = "0.5.0", path = "../logger" }
 
 [dev-dependencies]
 env_logger = "0.11.10"

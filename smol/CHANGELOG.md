@@ -6,6 +6,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/trillium-rs/trillium/compare/trillium-smol-v0.4.2...trillium-smol-v0.5.0) - 2026-04-04
+
+### Added
+
+- update all crates for new style of testing
+- *(client)* [**breaking**] with_default_pool is now actually the default
+- [**breaking**] add h3 support to client
+- [**breaking**] hypertext transfer protocol, three
+- use `From<Arc<impl RuntimeTrait>>` to create a `Runtime`
+- [**breaking**] introduce ServerConfig
+- [**breaking**] introduce Runtime
+- [**breaking**] use swansong instead of stopper + clone counter
+- *(client)* [**breaking**] add support for client timeouts
+- [**breaking**] eliminate async_trait
+
+### Fixed
+
+- client now is appropriately factored, uses H3Connection
+- don't even compile unreachable types
+- remove unused imports
+
+### Other
+
+- replace references to 0.3 with 1.0 in changelogs
+- *(deps)* upgrade async-tungstenite
+- Add readmes
+- update all changelogs to reflect current status
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- *(smol)* update how smol hooks signals
+- edition 2024
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+
 ### Changed
 - Compatible with trillium 1.0
 - Trillium 1.0 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `config().with_stopper(stopper)` becomes `config().with_swansong(swansong)`
