@@ -26,9 +26,6 @@ use std::{
 mod h1;
 mod h3;
 
-/// Default Server header
-pub const SERVER: &str = concat!("trillium-http/", env!("CARGO_PKG_VERSION"));
-
 /// A http connection
 ///
 /// Unlike in other rust http implementations, this struct represents both
