@@ -117,7 +117,7 @@ pub(crate) use buffer::Buffer;
 pub use bufwriter::BufWriter;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use bufwriter::BufWriter;
-pub use conn::{Conn, SERVER};
+pub use conn::Conn;
 pub use connection_status::ConnectionStatus;
 #[cfg(feature = "unstable")]
 #[doc(hidden)]
@@ -125,7 +125,7 @@ pub use copy::copy;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use copy::copy;
 pub use error::{Error, Result};
-pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName};
+pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, SERVER_HEADER};
 pub use http_config::HttpConfig;
 pub use http_context::HttpContext;
 pub use method::Method;
@@ -148,3 +148,6 @@ Connection: close\r
 Content-Length: 0\r
 Retry-After: 60\r
 \r\n";
+
+/// The version of this crate
+pub const CRATE_VERSION: &str = env!("CARGO_PKG_VERSION");

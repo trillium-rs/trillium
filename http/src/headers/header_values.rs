@@ -90,8 +90,13 @@ impl HeaderValues {
     /// Builds an empty `HeaderValues`. This is not generally necessary
     /// in application code. Using a `From` implementation is preferable.
     #[must_use]
-    pub fn new() -> Self {
-        Self(SmallVec::with_capacity(1))
+    pub const fn new() -> Self {
+        Self(SmallVec::new_const())
+    }
+
+    /// Builds a `HeaderValues` from a &'static str at compile time
+    pub const fn const_new(value: &'static str) -> Self {
+        Self(SmallVec::from_const([HeaderValue::const_new(value)]))
     }
 
     /// If there is only a single value, returns that header as a

@@ -2,7 +2,7 @@ use indoc::{formatdoc, indoc};
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 use test_harness::test;
-use trillium_http::{Conn, HttpConfig, HttpContext, KnownHeaderName, SERVER};
+use trillium_http::{Conn, HttpConfig, HttpContext, KnownHeaderName, SERVER_HEADER};
 use trillium_testing::{RuntimeTrait, TestResult, TestTransport, harness};
 
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
@@ -16,7 +16,7 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
             KnownHeaderName::Connection,
             "close\r\nGET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
         )
-        .insert(KnownHeaderName::Server, SERVER)
+        .insert(KnownHeaderName::Server, SERVER_HEADER)
         .insert("Bad\r\nHeader", "true");
     conn
 }
@@ -42,7 +42,7 @@ async fn bad_headers() -> TestResult {
         HTTP/1.1 200 OK\r
         Date: {TEST_DATE}\r
         Content-Length: 20\r
-        Server: {SERVER}\r
+        Server: {SERVER_HEADER}\r
         \r
         response: 0123456789\
     "};

@@ -5,7 +5,7 @@ use crate::{
 use async_cell::sync::AsyncCell;
 use futures_lite::StreamExt;
 use std::{cell::OnceCell, net::SocketAddr, pin::pin, sync::Arc};
-use trillium::{Handler, Headers, HttpConfig, Info, KnownHeaderName, SERVER, Swansong, TypeSet};
+use trillium::{Handler, Headers, HttpConfig, Info, KnownHeaderName, Swansong, TypeSet};
 use trillium_http::HttpContext;
 use url::Url;
 
@@ -134,7 +134,7 @@ where
 
         info.state_entry::<Headers>()
             .or_default()
-            .try_insert(KnownHeaderName::Server, SERVER);
+            .try_insert(KnownHeaderName::Server, trillium::headers::server_header());
 
         listener.init(&mut info);
 

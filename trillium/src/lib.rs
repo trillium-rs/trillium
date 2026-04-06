@@ -37,11 +37,6 @@ mod readme {}
 mod handler;
 pub use handler::Handler;
 
-/// Server header.
-///
-/// The contents of this constant are necessarily unconstrained by semver.
-pub const SERVER: &str = concat!("trillium/", env!("CARGO_PKG_VERSION"));
-
 mod conn;
 pub use conn::Conn;
 
@@ -73,7 +68,24 @@ pub use init::{Init, init};
 
 /// Types for interacting with [`Headers`]
 pub mod headers {
+    use crate::{CRATE_VERSION, HeaderValue};
+    use std::sync::LazyLock;
+    use trillium_http::CRATE_VERSION as HTTP_CRATE_VERSION;
     pub use trillium_http::headers::{Entry, IntoIter, Iter};
+
+    /// Returns the default server header value for trillium, including both the
+    /// `trillium` and `trillium-http` crate versions.
+    ///
+    /// The contents are necessarily unconstrained by semver.
+    pub fn server_header() -> HeaderValue {
+        static SERVER_HEADER: LazyLock<HeaderValue> = LazyLock::new(|| {
+            let s: &'static str =
+                format!("trillium/{CRATE_VERSION} trillium-http/{HTTP_CRATE_VERSION}").leak();
+            s.into()
+        });
+
+        SERVER_HEADER.clone()
+    }
 }
 
 /// Types for interacting with [`TypeSet`]
@@ -83,3 +95,6 @@ pub mod type_set {
 
 mod request_body;
 pub use request_body::RequestBody;
+
+/// The version of this crate
+pub const CRATE_VERSION: &str = env!("CARGO_PKG_VERSION");

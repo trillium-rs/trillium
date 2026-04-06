@@ -40,6 +40,10 @@ pub struct Headers {
     unknown: HashMap<UnknownHeaderName<'static>, HeaderValues>,
 }
 
+/// Default Server header
+pub const SERVER_HEADER: HeaderValue =
+    HeaderValue::const_new(concat!("trillium-http/", env!("CARGO_PKG_VERSION")));
+
 #[cfg(feature = "serde")]
 impl serde::Serialize for Headers {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

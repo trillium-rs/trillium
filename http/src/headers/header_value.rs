@@ -54,6 +54,11 @@ impl Debug for HeaderValue {
 }
 
 impl HeaderValue {
+    /// Build a new header value from a &'static str at compile time
+    pub const fn const_new(value: &'static str) -> Self {
+        Self(Utf8(SmartCow::Borrowed(value)))
+    }
+
     /// determine if this header contains no unsafe characters (\r, \n, \0)
     ///
     /// since 0.3.12
