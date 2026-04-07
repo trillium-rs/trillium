@@ -67,6 +67,8 @@ impl Server for RuntimelessServer {
     }
 
     fn init(&self, info: &mut Info) {
-        info.insert_state(Url::parse(&format!("http://{}:{}", &self.host, self.port)).unwrap());
+        info.insert_shared_state(
+            Url::parse(&format!("http://{}:{}", &self.host, self.port)).unwrap(),
+        );
     }
 }

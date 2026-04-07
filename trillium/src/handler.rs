@@ -90,7 +90,7 @@ pub trait Handler: Send + Sync + 'static {
     /// code.
     ///
     /// **❗IMPORTANT NOTE FOR LIBRARY AUTHORS:** Please note that this will run __whether or not
-    /// the conn has was halted before [`Handler::run`] was called on a given conn__. This means
+    /// the conn was halted before [`Handler::run`] was called on a given conn__. This means
     /// that if you want to make your `before_send` callback conditional on whether `run` was
     /// called, you need to put a unit type into the conn's state and check for that.
     ///

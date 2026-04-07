@@ -7,15 +7,10 @@ use std::{any::Any, io::Result, net::SocketAddr, time::Duration};
 /// streams, but also can be implemented for other stream types. All trait
 /// functions are currently optional.
 ///
-/// **Note:** `Transport` is currently designed around
-/// [`AsyncWrite`](https://docs.rs/futures/0.3.15/futures/io/trait.AsyncWrite.html)
-/// and
-/// [`AsyncRead`](https://docs.rs/futures/0.3.15/futures/io/trait.AsyncRead.html)
-/// from the futures crate, which are different from the tokio
-/// [`AsyncRead`](https://docs.rs/tokio/1.6.0/tokio/io/trait.AsyncRead.html) and
-/// [`AsyncWrite`](https://docs.rs/tokio/1.6.0/tokio/io/trait.AsyncWrite.html) traits.
-/// Hopefully this is a temporary
-/// situation.
+/// **Note:** `Transport` uses the [`AsyncWrite`](futures_lite::AsyncWrite) and
+/// [`AsyncRead`](futures_lite::AsyncRead) traits from [`futures-lite`](futures_lite), which differ
+/// from the tokio `AsyncRead` / `AsyncWrite` traits. Runtime adapters handle bridging these at the
+/// boundary.
 #[allow(unused)]
 pub trait Transport: Any + AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static {
     /// # Sets the linger duration of this transport by setting the `SO_LINGER` option

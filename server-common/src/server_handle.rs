@@ -15,30 +15,36 @@ pub struct ServerHandle {
     pub(crate) runtime: Runtime,
 }
 
+/// Immutable snapshot of server state after initialization.
+///
+/// Returned by [`ServerHandle::info`]. Contains the bound address, derived URL, and any
+/// values inserted into shared state during [`Handler::init`](trillium::Handler::init).
 #[derive(Debug)]
 pub struct BoundInfo(Arc<HttpContext>);
 
 impl BoundInfo {
-    /// Borrow a type from the [`TypeSet`] on this `BoundInfo`.
-    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
+    /// Borrow a type from the [`TypeSet`](trillium::TypeSet) on this `BoundInfo`.
+    pub fn shared_state<T: Send + Sync + 'static>(&self) -> Option<&T> {
         self.0.shared_state().get()
     }
 
     /// Returns the `local_addr` of a bound tcp listener, if such a thing exists for this server
     pub fn tcp_socket_addr(&self) -> Option<&SocketAddr> {
-        self.state()
+        self.shared_state()
     }
 
+    /// Returns the URL of this server, derived from the bound address, if available
     pub fn url(&self) -> Option<&url::Url> {
-        self.state()
+        self.shared_state()
     }
 
     /// Returns the `local_addr` of a bound unix listener, if such a thing exists for this server
     #[cfg(unix)]
     pub fn unix_socket_addr(&self) -> Option<&std::os::unix::net::SocketAddr> {
-        self.state()
+        self.shared_state()
     }
 
+    /// Returns a clone of the underlying [`HttpContext`] for this server
     pub fn context(&self) -> Arc<HttpContext> {
         self.0.clone()
     }

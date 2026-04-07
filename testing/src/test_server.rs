@@ -71,9 +71,9 @@ impl<H: Handler> TestServer<H> {
     async fn new_with_runtime(mut handler: H, rt: impl RuntimeTrait) -> Self {
         let url = "http://trillium.test".into_url(None).unwrap();
         let mut info = Info::from(HttpContext::default());
-        info.insert_state(rt.clone());
-        info.insert_state(Runtime::new(rt.clone()));
-        info.insert_state(url.clone());
+        info.insert_shared_state(rt.clone());
+        info.insert_shared_state(Runtime::new(rt.clone()));
+        info.insert_shared_state(url.clone());
         handler.init(&mut info).await;
         let context: Arc<HttpContext> = Arc::new(info.into());
         let mut connector = ServerConnector::new(handler)

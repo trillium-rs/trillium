@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 `Client::new_with_quic(connector, quic_connector)` builds a client with HTTP/3 support. The client tracks `Alt-Svc` response headers and automatically uses HTTP/3 for subsequent requests to origins that advertise it. QUIC connections are pooled; if an H3 attempt fails, that endpoint is marked broken and requests fall back to HTTP/1.1 for a backoff period before retrying. Requests to origins without a cached alt-svc entry always use HTTP/1.1.
 
-`QuicConnector` and `ArcedQuicConnector` are re-exported from `trillium-server-common`. The `QuicConnector` type parameter is bound at construction time (before type erasure), keeping `trillium-quinn` and the runtime adapter as independent crates that neither depends on the other.
+`QuicClientConfig` and `ArcedQuicClientConfig` are re-exported from `trillium-server-common`. The `QuicClientConfig` type parameter is bound at construction time (before type erasure), keeping `trillium-quinn` and the runtime adapter as independent crates that neither depends on the other.
 
 ```rust
 use trillium_client::Client;

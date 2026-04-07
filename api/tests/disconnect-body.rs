@@ -101,7 +101,7 @@ async fn establish_server(handler: impl Handler) -> (ServerHandle, impl AsyncWri
 
     let handle = trillium_testing::config().with_port(0).spawn(handler);
     let info = handle.info().await;
-    let url: &Url = info.state().unwrap();
+    let url: &Url = info.shared_state().unwrap();
 
     let client = ArcedConnector::new(client_config())
         .connect(url)

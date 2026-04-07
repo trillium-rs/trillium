@@ -19,9 +19,7 @@
 //! This crate is the primary dependency for building a trillium app or
 //! library. It contains a handful of core types and reexports a few
 //! others that you will necessarily need, but otherwise tries to stay
-//! small and focused. This crate will hopefully be the most stable within
-//! the trillium ecosystem. That said, trillium is still pre 1.0 and
-//! should be expected to evolve over time.
+//! small and focused.
 //!
 //! To get started with this crate, first take a look at [the
 //! guide](https://trillium.rs), then browse the docs for

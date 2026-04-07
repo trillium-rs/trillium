@@ -55,7 +55,7 @@ Because `Info` now wraps a shared `Arc`, it can no longer implement `Clone`. The
 - `server_handle.shut_down()` — initiates graceful shutdown and returns a `ShutdownCompletion` that can be awaited
 - `server_handle.swansong()` — retrieves a `Swansong` for coordinating shutdown manually
 
-`BoundInfo` provides an immutable snapshot of the server's shared state after initialization: `bound_info.tcp_socket_addr()`, `bound_info.url()`, `bound_info.state::<T>()`.
+`BoundInfo` provides an immutable snapshot of the server's shared state after initialization: `bound_info.tcp_socket_addr()`, `bound_info.url()`, `bound_info.shared_state::<T>()`.
 
 This makes it straightforward to spawn a server in the background and then wait for it to be ready before sending requests — useful for integration tests and for programs that need to know the bound port when using `PORT=0`.
 

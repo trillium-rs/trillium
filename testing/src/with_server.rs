@@ -23,7 +23,7 @@ where
     runtime.block_on(async move {
         let handle = config.spawn(handler);
         let info = handle.info().await;
-        let url = info.state().cloned().unwrap_or_else(|| {
+        let url = info.shared_state().cloned().unwrap_or_else(|| {
             let port = info.tcp_socket_addr().map(|t| t.port()).unwrap_or(0);
             format!("http://localhost:{port}").parse().unwrap()
         });
@@ -33,7 +33,7 @@ where
 }
 
 /// open an in-memory connection to this handler and call an async
-/// function with an open BoxedTransport
+/// function with an open `Box<dyn Transport>`
 pub fn with_transport<H, Fun, Fut>(handler: H, tests: Fun)
 where
     H: Handler,

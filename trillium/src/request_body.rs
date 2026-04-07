@@ -76,6 +76,7 @@ impl RequestBody<'_> {
     ///
     /// This will also return an error if the length exceeds the maximum length. To configure the
     /// value on this specific request body, use [`RequestBody::with_max_len`] or
+    /// [`RequestBody::set_max_len`].
     pub async fn read_string(self) -> Result<String, Error> {
         self.0.read_string().await
     }

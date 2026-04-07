@@ -272,7 +272,7 @@ where
 
     async fn init(&mut self, info: &mut Info) {
         self.runtime.get_or_init(|| {
-            info.state::<Runtime>()
+            info.shared_state::<Runtime>()
                 .cloned()
                 .expect("webtransport requires a Runtime")
         });

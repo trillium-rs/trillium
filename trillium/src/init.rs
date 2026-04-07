@@ -24,7 +24,7 @@ use std::{future::Future, mem};
 /// let handler = (
 ///     Init::new(|mut info| async move {
 ///         let db = MyDatabaseConnection::connect("db://db").await.expect("1");
-///         info.with_state(db)
+///         info.with_shared_state(db)
 ///     }),
 ///     |conn: Conn| async move {
 ///         let db = conn.shared_state::<MyDatabaseConnection>().expect("2");

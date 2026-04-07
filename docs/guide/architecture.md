@@ -42,4 +42,4 @@ Every component is designed to be replaceable. The core `trillium` crate defines
 
 ## The transport layer
 
-Trillium uses a `BoxedTransport` abstraction so that `Conn` is not generic over transport. TCP, TLS (via rustls or native-tls), and QUIC (for HTTP/3) all implement the same transport trait. Application code operates on `Conn` and never needs to know which transport is in use — a handler processing an HTTP/1.1 connection and the same handler processing an HTTP/3 connection look identical.
+Trillium uses a `Box<dyn Transport>` abstraction so that `Conn` is not generic over transport. TCP, TLS (via rustls or native-tls), and QUIC (for HTTP/3) all implement the same transport trait. Application code operates on `Conn` and never needs to know which transport is in use — a handler processing an HTTP/1.1 connection and the same handler processing an HTTP/3 connection look identical.

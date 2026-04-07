@@ -5,29 +5,22 @@ use trillium_http::ReceivedBody;
 use trillium_macros::AsyncRead;
 use trillium_server_common::Transport;
 
-/// A received request body
+/// A response body received from a server
 ///
 /// This type represents a body that will be read from the underlying transport
 ///
 /// ```rust
-/// # use trillium_testing::TestServer;
-/// # trillium_testing::block_on(async move {
-/// let app = TestServer::new(|mut conn: trillium::Conn| async move {
-///     let body = conn.request_body(); // 100-continue sent lazily on first read if needed
-///     let Ok(body_string) = body.with_max_len(1024).read_string().await else {
-///         return conn.with_status(500);
-///     };
+/// use trillium_client::Client;
+/// use trillium_testing::{client_config, with_server};
 ///
-///     conn.with_body(format!("received: {body_string}"))
-/// })
-/// .await;
-///
-/// app.get("/").await.assert_body("received: ");
-/// app.post("/")
-///     .with_body("hello")
-///     .await
-///     .assert_body("received: hello");
-/// # });
+/// with_server("hello from trillium", |url| async move {
+///     let client = Client::new(client_config());
+///     let mut conn = client.get(url).await?;
+///     let body = conn.response_body(); //<-
+///     assert_eq!(Some(19), body.content_length());
+///     assert_eq!("hello from trillium", body.read_string().await?);
+///     Ok(())
+/// });
 /// ```
 ///
 /// ## Bounds checking
@@ -77,7 +70,8 @@ impl ResponseBody<'_> {
     ///
     ///
     /// This will also return an error if the length exceeds the maximum length. To configure the
-    /// value on this specific request body, use [`ResponseBody::with_max_len`] or
+    /// value on this specific response body, use [`ResponseBody::with_max_len`] or
+    /// [`ResponseBody::set_max_len`].
     pub async fn read_string(self) -> Result<String, Error> {
         self.0.read_string().await
     }

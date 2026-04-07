@@ -129,10 +129,10 @@ where
         let swansong = context.swansong().clone();
 
         let mut info = Info::from(context)
-            .with_state(runtime.clone().into())
-            .with_state(runtime.clone());
+            .with_shared_state(runtime.clone().into())
+            .with_shared_state(runtime.clone());
 
-        info.state_entry::<Headers>()
+        info.shared_state_entry::<Headers>()
             .or_default()
             .try_insert(KnownHeaderName::Server, trillium::headers::server_header());
 
@@ -144,7 +144,7 @@ where
                 .map(|r| r.expect("failed to bind QUIC endpoint"));
 
             if quic_binding.is_some() {
-                info.state_entry::<Headers>()
+                info.shared_state_entry::<Headers>()
                     .or_default()
                     .try_insert_with(KnownHeaderName::AltSvc, || {
                         format!("h3=\":{}\"", socket_addr.port())
@@ -209,10 +209,12 @@ where
         running_config.run_async(listener, handler).await;
     }
 
-    /// Spawns the server onto the async runtime, returning a
-    /// ServerHandle that can be awaited directly to return an
-    /// [`Info`] or used with [`ServerHandle::info`] and
-    /// [`ServerHandle::shut_down`]
+    /// Spawns the server onto the async runtime, returning a [`ServerHandle`].
+    ///
+    /// - `await server_handle` — waits for the server to shut down (output: `()`)
+    /// - `server_handle.info().await` — waits for the server to finish binding, then returns
+    ///   [`BoundInfo`](crate::server_handle::BoundInfo)
+    /// - `server_handle.shut_down()` — initiates graceful shutdown
     pub fn spawn(self, handler: impl Handler) -> ServerHandle {
         let server_handle = self.handle();
         self.runtime.clone().spawn(self.run_async(handler));
@@ -234,9 +236,9 @@ where
     /// the PORT environment variable or 8080
     pub fn with_port(mut self, port: u16) -> Self {
         if self.has_binding() {
-            eprintln!(
+            log::warn!(
                 "constructing a config with both a port and a pre-bound listener will ignore the \
-                 port. this may be a panic in the future"
+                 port"
             );
         }
         self.port = Some(port);
@@ -248,9 +250,9 @@ where
     /// "localhost"
     pub fn with_host(mut self, host: &str) -> Self {
         if self.has_binding() {
-            eprintln!(
+            log::warn!(
                 "constructing a config with both a host and a pre-bound listener will ignore the \
-                 host. this may be a panic in the future"
+                 host"
             );
         }
         self.host = Some(host.into());
@@ -330,7 +332,7 @@ where
 
     /// Configures the maximum number of connections to accept. The
     /// default is 75% of the soft rlimit_nofile (`ulimit -n`) on unix
-    /// systems, and None on other sytems.
+    /// systems, and None on other systems.
     pub fn with_max_connections(mut self, max_connections: Option<usize>) -> Self {
         self.max_connections = max_connections;
         self
@@ -339,7 +341,7 @@ where
     /// configures trillium-http performance and security tuning parameters.
     ///
     /// See [`HttpConfig`] for documentation
-    pub fn with_config(mut self, config: HttpConfig) -> Self {
+    pub fn with_http_config(mut self, config: HttpConfig) -> Self {
         *self.context.config_mut() = config;
         self
     }
@@ -357,16 +359,16 @@ where
     /// Additionally, cloning this config will not clone the listener.
     pub fn with_prebound_server(mut self, server: impl Into<ServerType>) -> Self {
         if self.host.is_some() {
-            eprintln!(
+            log::warn!(
                 "constructing a config with both a host and a pre-bound listener will ignore the \
-                 host. this may be a panic in the future"
+                 host"
             );
         }
 
         if self.port.is_some() {
-            eprintln!(
+            log::warn!(
                 "constructing a config with both a port and a pre-bound listener will ignore the \
-                 port. this may be a panic in the future"
+                 port"
             );
         }
 
@@ -391,6 +393,38 @@ where
     /// return the configured host
     pub fn host(&self) -> Option<&str> {
         self.host.as_deref()
+    }
+
+    /// add arbitrary state to the [`HttpContext`]'s [`TypeSet`](trillium::TypeSet) that will be
+    /// available in the following places:
+    ///
+    /// - mutably on [`Info`](trillium::Info) as
+    ///   [`Info::shared_state`](trillium::Info::shared_state) within
+    ///   [`Handler::init`](trillium::Handler::init)
+    /// - immutably on every [`Conn`](trillium::Conn) as
+    ///   [`Conn::shared_state`](trillium::Conn::shared_state)
+    /// - immutably on the [`BoundInfo`](crate::BoundInfo) as
+    ///   [`BoundInfo::shared_state`](crate::BoundInfo::shared_state) returned by
+    ///   [`ServerHandle::info`](crate::ServerHandle::info)
+    pub fn with_shared_state<T: Send + Sync + 'static>(mut self, state: T) -> Self {
+        self.context.shared_state_mut().insert(state);
+        self
+    }
+
+    /// add arbitrary state to the [`HttpContext`]'s [`TypeSet`](trillium::TypeSet) that will be
+    /// available in the following places:
+    ///
+    /// - mutably on [`Info`](trillium::Info) as
+    ///   [`Info::shared_state`](trillium::Info::shared_state) within
+    ///   [`Handler::init`](trillium::Handler::init)
+    /// - immutably on every [`Conn`](trillium::Conn) as
+    ///   [`Conn::shared_state`](trillium::Conn::shared_state)
+    /// - immutably on the [`BoundInfo`](crate::BoundInfo) as
+    ///   [`BoundInfo::shared_state`](crate::BoundInfo::shared_state) returned by
+    ///   [`ServerHandle::info`](crate::ServerHandle::info)
+    pub fn set_shared_state<T: Send + Sync + 'static>(&mut self, state: T) -> &mut Self {
+        self.context.shared_state_mut().insert(state);
+        self
     }
 }
 
