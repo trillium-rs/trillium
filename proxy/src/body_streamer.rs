@@ -57,7 +57,7 @@ pub(crate) fn stream_body(conn: &mut Conn) -> (impl Future<Output = ()> + Send +
             started_clone.0.listen().await;
             if started_clone.1.load(Ordering::SeqCst) {
                 log::trace!("started to stream request body");
-                let received_body = conn.request_body().await;
+                let received_body = conn.request_body();
                 match trillium_http::copy(received_body, writer, 4).await {
                     Ok(streamed) => {
                         log::trace!("streamed {} request body bytes", bytes(streamed))

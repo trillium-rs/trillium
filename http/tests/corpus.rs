@@ -27,7 +27,7 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
     conn.response_headers_mut()
         .insert(KnownHeaderName::Server, "corpus-test");
 
-    match conn.request_body().await.read_string().await {
+    match conn.request_body().read_string().await {
         Ok(request_body) => {
             conn.set_status(200);
             let trailer_section = conn

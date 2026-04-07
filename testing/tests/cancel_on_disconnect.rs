@@ -5,7 +5,7 @@ use trillium_testing::{TestServer, harness};
 #[test(harness)]
 async fn body_does_not_report_closure() {
     let handler = |mut conn: Conn| async move {
-        let body = conn.request_body().await.read_string().await.unwrap();
+        let body = conn.request_body().read_string().await.unwrap();
 
         if conn.is_disconnected().await {
             return conn.with_status(500);

@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Info::listener_description()` and `Info::server_description()` removed — store custom descriptions in shared state if needed
 - `Init` has completely new semantics: `Init<T: Handler>` (a handler wrapper) is replaced by `Init<F: FnOnce(Info) -> Future<Output = Info>>` (a closure-based startup initializer) — see Added
 - `Transport` moved from `trillium_http::transport::Transport` to `trillium::Transport`
-- `trillium::Conn::request_body` now returns a `trillium::request_body::RequestBody` instead of a `trillium_http::ReceivedBody`
+- `trillium::Conn::request_body` now returns a `trillium::request_body::RequestBody` instead of a `trillium_http::ReceivedBody` and is synchronous. 100-continue is sent on first read from the request body instead of at the `trillium::Conn::request_body` await point.
 - `trillium::Upgrade` is no longer a reexport of `trillium_http::Upgrade` and has a new interface.
 
 ### Added

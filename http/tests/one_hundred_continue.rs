@@ -9,7 +9,7 @@ const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
 async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
     conn.set_status(200);
-    let request_body = conn.request_body().await.read_string().await.unwrap();
+    let request_body = conn.request_body().read_string().await.unwrap();
     conn.set_response_body(format!("response: {request_body}"));
     conn.response_headers_mut()
         .insert(KnownHeaderName::Connection, "close")

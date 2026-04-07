@@ -1,10 +1,11 @@
 use super::{
-    AsyncRead, Context, End, ErrorKind, FixedLength, Ready, ReceivedBody, StateOutput, io, ready,
+    AsyncRead, AsyncWrite, Context, End, ErrorKind, FixedLength, Ready, ReceivedBody, StateOutput,
+    io, ready,
 };
 
 impl<Transport> ReceivedBody<'_, Transport>
 where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     #[inline]
     pub(super) fn handle_fixed_length(
@@ -44,11 +45,11 @@ mod tests {
     fn new_with_config(
         input: String,
         config: &HttpConfig,
-    ) -> ReceivedBody<'static, Cursor<String>> {
+    ) -> ReceivedBody<'static, Cursor<Vec<u8>>> {
         ReceivedBody::new_with_config(
             Some(input.len() as u64),
             Buffer::with_capacity(100),
-            Cursor::new(input),
+            Cursor::new(input.into_bytes()),
             ReceivedBodyState::Start,
             None,
             UTF_8,

@@ -4,7 +4,7 @@ use tokio::net::{TcpListener, TcpStream};
 use trillium_http::{Conn, HttpContext};
 
 async fn handler(mut conn: Conn<Compat<TcpStream>>) -> Conn<Compat<TcpStream>> {
-    let body = conn.request_body().await.read_string().await.unwrap();
+    let body = conn.request_body().read_string().await.unwrap();
 
     conn.set_response_body(format!("Hello world:\n\n{body}"));
     conn.response_headers_mut()

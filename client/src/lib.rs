@@ -31,45 +31,35 @@
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
 mod readme {}
-
+mod client;
 mod conn;
+mod h3;
+mod into_url;
+mod pool;
+mod response_body;
+mod util;
+#[cfg(feature = "websockets")]
+pub mod websocket;
+
+pub use client::Client;
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 pub use conn::ClientSerdeError;
 pub use conn::{Conn, USER_AGENT, UnexpectedStatusError};
-
-#[cfg(feature = "websockets")]
-pub mod websocket;
-#[cfg(feature = "websockets")]
-pub use trillium_websockets::{WebSocketConfig, WebSocketConn, async_tungstenite, tungstenite};
-#[cfg(feature = "websockets")]
-pub use websocket::WebSocketUpgradeError;
-
-mod pool;
+pub use into_url::IntoUrl;
 // open an issue if you have a reason for pool to be public
 pub(crate) use pool::Pool;
-
-mod client;
-pub use client::Client;
+pub use response_body::ResponseBody;
 pub use trillium_http::{
     Body, Error, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, Method, Result,
     Status, Version,
 };
-
-mod util;
-
 pub use trillium_server_common::{
     ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Url,
 };
-
-/// constructs a new [`Client`] -- alias for [`Client::new`]
-pub fn client(connector: impl Connector) -> Client {
-    Client::new(connector)
-}
-
-mod into_url;
-pub use into_url::IntoUrl;
-
-mod h3;
+#[cfg(feature = "websockets")]
+pub use trillium_websockets::{WebSocketConfig, WebSocketConn, async_tungstenite, tungstenite};
+#[cfg(feature = "websockets")]
+pub use websocket::WebSocketUpgradeError;
 
 #[cfg(all(feature = "serde_json", feature = "sonic-rs"))]
 compile_error!("cargo features \"serde_json\" and \"sonic-rs\" are mutually exclusive");
@@ -80,3 +70,8 @@ pub use serde_json::{Value, json};
 #[cfg(feature = "sonic-rs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sonic-rs")))]
 pub use sonic_rs::{Value, json};
+
+/// constructs a new [`Client`] -- alias for [`Client::new`]
+pub fn client(connector: impl Connector) -> Client {
+    Client::new(connector)
+}

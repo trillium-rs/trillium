@@ -1,6 +1,6 @@
 use super::{
-    AsyncRead, Buffer, Context, End, ErrorKind, H3BodyFrameType, Pin, Ready, ReceivedBody,
-    ReceivedBodyState, StateOutput, io, ready,
+    AsyncRead, AsyncWrite, Buffer, Context, End, ErrorKind, H3BodyFrameType, Pin, Ready,
+    ReceivedBody, ReceivedBodyState, StateOutput, io, ready,
 };
 use crate::{
     Headers,
@@ -13,7 +13,7 @@ mod tests;
 
 impl<Transport> ReceivedBody<'_, Transport>
 where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     #[inline]
     #[allow(

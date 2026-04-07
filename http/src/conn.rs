@@ -382,11 +382,14 @@ where
 
     /// returns a [`ReceivedBody`] that references this conn. the conn
     /// retains all data and holds the singular transport, but the
-    /// `ReceivedBody` provides an interface to read body content
+    /// `ReceivedBody` provides an interface to read body content.
+    ///
+    /// If the request included an `Expect: 100-continue` header, the 100 Continue response is sent
+    /// lazily on the first read from the returned [`ReceivedBody`].
     /// ```
     /// # use trillium_testing::HttpTest;
     /// let server = HttpTest::new(|mut conn| async move {
-    ///     let request_body = conn.request_body().await;
+    ///     let request_body = conn.request_body();
     ///     assert_eq!(request_body.content_length(), Some(5));
     ///     assert_eq!(request_body.read_string().await.unwrap(), "hello");
     ///     conn.with_status(200)
@@ -394,12 +397,14 @@ where
     ///
     /// server.post("/").with_body("hello").block().assert_ok();
     /// ```
-    pub async fn request_body(&mut self) -> ReceivedBody<'_, Transport> {
-        if self.needs_100_continue() {
-            self.send_100_continue().await.ok();
+    pub fn request_body(&mut self) -> ReceivedBody<'_, Transport> {
+        let needs_100_continue = self.needs_100_continue();
+        let body = self.build_request_body();
+        if needs_100_continue {
+            body.with_send_100_continue()
+        } else {
+            body
         }
-
-        self.build_request_body()
     }
 
     /// returns a clone of the [`swansong::Swansong`] for this Conn. use

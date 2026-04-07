@@ -314,14 +314,6 @@ where
         })
     }
 
-    pub(super) async fn send_100_continue(&mut self) -> Result<()> {
-        log::trace!("sending 100-continue");
-        Ok(self
-            .transport
-            .write_all(b"HTTP/1.1 100 Continue\r\n\r\n")
-            .await?)
-    }
-
     async fn head(
         transport: &mut Transport,
         buf: &mut Buffer,

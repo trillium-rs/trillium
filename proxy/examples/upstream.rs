@@ -17,7 +17,7 @@ pub fn main() {
             let body = if skip_body {
                 None
             } else {
-                match conn.request_body().await.read_string().await {
+                match conn.request_body().read_string().await {
                     Ok(body) => Some(body),
                     Err(e) => {
                         return conn

@@ -1,7 +1,9 @@
-use crate::{Error, Transport};
+use crate::Error;
 use futures_lite::AsyncRead;
+use std::pin::Pin;
 use trillium_http::ReceivedBody;
 use trillium_macros::AsyncRead;
+use trillium_server_common::Transport;
 
 /// A received request body
 ///
@@ -30,18 +32,18 @@ use trillium_macros::AsyncRead;
 ///
 /// ## Bounds checking
 ///
-/// Every `RequestBody` has a maximum length beyond which it will return an error, expressed as a
-/// u64. To override this on the specific `RequestBody`, use [`RequestBody::with_max_len`] or
-/// [`RequestBody::set_max_len`]
+/// Every `ResponseBody` has a maximum length beyond which it will return an error, expressed as a
+/// u64. To override this on the specific `ResponseBody`, use [`ResponseBody::with_max_len`] or
+/// [`ResponseBody::set_max_len`]
 #[derive(AsyncRead, Debug)]
-pub struct RequestBody<'a>(ReceivedBody<'a, Box<dyn Transport>>);
+pub struct ResponseBody<'a>(ReceivedBody<'a, Box<dyn Transport>>);
 
-impl RequestBody<'_> {
-    /// Similar to [`RequestBody::read_string`], but returns the raw bytes. This is useful for
+impl ResponseBody<'_> {
+    /// Similar to [`ResponseBody::read_string`], but returns the raw bytes. This is useful for
     /// bodies that are not text.
     ///
     /// You can use this in conjunction with `encoding` if you need different handling of malformed
-    /// character encoding than the lossy conversion provided by [`RequestBody::read_string`].
+    /// character encoding than the lossy conversion provided by [`ResponseBody::read_string`].
     ///
     /// An empty or nonexistent body will yield an empty Vec, not an error.
     ///
@@ -51,8 +53,8 @@ impl RequestBody<'_> {
     /// disconnect
     ///
     /// This will also return an error if the length exceeds the maximum length. To configure the
-    /// value on this specific request body, use [`RequestBody::with_max_len`] or
-    /// [`RequestBody::set_max_len`]
+    /// value on this specific request body, use [`ResponseBody::with_max_len`] or
+    /// [`ResponseBody::set_max_len`]
     pub async fn read_bytes(self) -> Result<Vec<u8>, Error> {
         self.0.read_bytes().await
     }
@@ -60,7 +62,7 @@ impl RequestBody<'_> {
     /// # Reads the entire body to `String`.
     ///
     /// This uses the encoding determined by the content-type (mime) charset. If an encoding problem
-    /// is encountered, the String returned by [`RequestBody::read_string`] will contain utf8
+    /// is encountered, the String returned by [`ResponseBody::read_string`] will contain utf8
     /// replacement characters.
     ///
     /// Note that this can only be performed once per Conn, as the underlying data is not cached
@@ -75,7 +77,7 @@ impl RequestBody<'_> {
     ///
     ///
     /// This will also return an error if the length exceeds the maximum length. To configure the
-    /// value on this specific request body, use [`RequestBody::with_max_len`] or
+    /// value on this specific request body, use [`ResponseBody::with_max_len`] or
     pub async fn read_string(self) -> Result<String, Error> {
         self.0.read_string().await
     }
@@ -84,7 +86,7 @@ impl RequestBody<'_> {
     ///
     /// This protects against an memory-use denial-of-service attack wherein an untrusted peer sends
     /// an unbounded request body. This is especially important when using
-    /// [`RequestBody::read_string`] and [`RequestBody::read_bytes`] instead of streaming with
+    /// [`ResponseBody::read_string`] and [`ResponseBody::read_bytes`] instead of streaming with
     /// `AsyncRead`.
     ///
     /// The default value can be found documented [in the trillium-http
@@ -99,7 +101,7 @@ impl RequestBody<'_> {
     ///
     /// This protects against an memory-use denial-of-service attack wherein an untrusted peer sends
     /// an unbounded request body. This is especially important when using
-    /// [`RequestBody::read_string`] and [`RequestBody::read_bytes`] instead of streaming with
+    /// [`ResponseBody::read_string`] and [`ResponseBody::read_bytes`] instead of streaming with
     /// `AsyncRead`.
     ///
     /// The default value can be found documented [in the trillium-http
@@ -116,16 +118,29 @@ impl RequestBody<'_> {
     pub fn content_length(&self) -> Option<u64> {
         self.0.content_length()
     }
+
+    pub(crate) async fn drain(self) -> std::io::Result<u64> {
+        self.0.drain().await
+    }
 }
 
-impl<'a> From<RequestBody<'a>> for ReceivedBody<'a, Box<dyn Transport>> {
-    fn from(value: RequestBody<'a>) -> Self {
+impl<'a> From<ReceivedBody<'a, Box<dyn Transport>>> for ResponseBody<'a> {
+    fn from(received_body: ReceivedBody<'a, Box<dyn Transport>>) -> Self {
+        Self(received_body)
+    }
+}
+
+impl<'a> From<ResponseBody<'a>> for ReceivedBody<'a, Box<dyn Transport>> {
+    fn from(value: ResponseBody<'a>) -> Self {
         value.0
     }
 }
 
-impl<'a> From<ReceivedBody<'a, Box<dyn Transport>>> for RequestBody<'a> {
-    fn from(received_body: ReceivedBody<'a, Box<dyn Transport>>) -> Self {
-        Self(received_body)
+impl<'a> IntoFuture for ResponseBody<'a> {
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+    type Output = trillium_http::Result<String>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move { self.read_string().await })
     }
 }
