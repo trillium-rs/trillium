@@ -125,10 +125,10 @@ impl Body {
     }
 
     /// Consume this body and return the full content. If the body was
-    /// constructed with `[Body::new_streaming`], this will read the
+    /// constructed with [`Body::new_streaming`], this will read the
     /// entire streaming body into memory, awaiting the streaming
     /// source's completion. This function will return an error if a
-    /// streaming body has already been read to completion.
+    /// streaming body has already been partially or fully read.
     ///
     /// # Errors
     ///

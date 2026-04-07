@@ -13,7 +13,7 @@ use trillium_http::{
 };
 use web_transport::{WebTransportDispatcher, WebTransportStream};
 
-/// A quic stream identifier
+/// A QUIC stream identifier
 #[derive(Clone, Copy, Debug)]
 pub struct StreamId(u64);
 impl From<StreamId> for u64 {

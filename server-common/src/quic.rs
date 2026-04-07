@@ -150,7 +150,7 @@ pub trait QuicEndpoint: Send + Sync + 'static {
     ) -> impl Future<Output = io::Result<Self::Connection>> + Send;
 }
 
-/// Uninhabited type used by the `()` [`QuicBinding`] implementation.
+/// Uninhabited type used by the `()` [`QuicEndpoint`] implementation.
 ///
 /// Since `()` never produces connections, this type is never constructed and its trait
 /// implementations are never exercised.

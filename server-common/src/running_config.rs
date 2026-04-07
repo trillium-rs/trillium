@@ -105,33 +105,6 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         };
     }
 
-    // fn build_listener<Listener>(&self) -> Listener
-    // where
-    //     Listener: TryFrom<TcpListener>,
-    //     <Listener as TryFrom<TcpListener>>::Error: std::fmt::Debug,
-    // {
-    //     #[cfg(unix)]
-    //     let listener = {
-    //         use std::os::unix::prelude::FromRawFd;
-
-    //         if let Some(fd) = std::env::var("LISTEN_FD")
-    //             .ok()
-    //             .and_then(|fd| fd.parse().ok())
-    //         {
-    //             log::debug!("using fd {} from LISTEN_FD", fd);
-    //             unsafe { TcpListener::from_raw_fd(fd) }
-    //         } else {
-    //             TcpListener::bind((self.host(), self.port())).unwrap()
-    //         }
-    //     };
-
-    //     #[cfg(not(unix))]
-    //     let listener = TcpListener::bind((self.host(), self.port())).unwrap();
-
-    //     listener.set_nonblocking(true).unwrap();
-    //     listener.try_into().unwrap()
-    // }
-
     fn over_capacity(&self) -> bool {
         self.max_connections
             .is_some_and(|m| self.context.swansong().guard_count() >= m)

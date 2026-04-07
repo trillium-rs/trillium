@@ -24,8 +24,8 @@ pub trait Server: Sized + Send + Sync + 'static {
     /// `Self::Listener`. Must be implemented.
     fn accept(&mut self) -> impl Future<Output = Result<Self::Transport>> + Send;
 
-    /// Build an [`Info`] from the Self::Listener type. See [`Info`]
-    /// for more details.
+    /// Populate [`Info`] with data from this server, such as the bound socket address.
+    /// Called during server startup before any connections are accepted.
     fn init(&self, info: &mut Info) {
         let _ = info;
     }
@@ -99,7 +99,7 @@ pub trait Server: Sized + Send + Sync + 'static {
         unimplemented!()
     }
 
-    /// Build a Self::Listener from a tcp listener. This is called by
+    /// Build a `Self` from a unix listener. This is called by
     /// the [`Server::from_host_and_port`] default implementation. You
     /// will want to tag an implementation of this with `#[cfg(unix)]`.
     #[cfg(unix)]

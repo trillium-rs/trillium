@@ -376,9 +376,14 @@ impl Conn {
     /// use trillium_testing::TestServer;
     ///
     /// # trillium_testing::block_on(async {
-    /// let handler = |conn: Conn| async move { conn.with_body("hello") };
+    /// let handler = |mut conn: Conn| async move {
+    ///     assert_eq!(conn.response_len(), None); // no body set yet
+    ///     conn.set_body("hello");
+    ///     assert_eq!(conn.response_len(), Some(5));
+    ///     conn.ok("pass")
+    /// };
     /// let app = TestServer::new(handler).await;
-    /// app.get("/").await.assert_body_contains("hello");
+    /// app.get("/").await.assert_ok();
     /// # });
     /// ```
     pub fn response_len(&self) -> Option<u64> {

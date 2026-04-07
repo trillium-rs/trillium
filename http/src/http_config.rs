@@ -21,10 +21,11 @@ pub struct HttpConfig {
 
     /// The maximum length of a received body
     ///
-    /// This applies to both chunked and fixed-length request bodies, and the correct value will be
-    /// application dependent.
+    /// This limit applies regardless of whether the body is read all at once or streamed
+    /// incrementally, and regardless of transfer encoding (chunked or fixed-length). The correct
+    /// value will be application dependent.
     ///
-    /// **Default**: `500mb` in bytes
+    /// **Default**: `10mb` in bytes
     ///
     /// **Unit**: Byte count
     pub(crate) received_body_max_len: u64,
@@ -167,7 +168,7 @@ impl HttpConfig {
         max_headers: 128,
         response_header_initial_capacity: 16,
         copy_loops_per_yield: 16,
-        received_body_max_len: 500 * 1024 * 1024,
+        received_body_max_len: 10 * 1024 * 1024,
         received_body_initial_len: 128,
         received_body_max_preallocate: 1024 * 1024,
         h3_max_field_section_size: 8 * 1024,

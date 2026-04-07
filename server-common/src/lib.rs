@@ -47,7 +47,7 @@ mod acceptor;
 pub use acceptor::Acceptor;
 
 mod server_handle;
-pub use server_handle::ServerHandle;
+pub use server_handle::{BoundInfo, ServerHandle};
 
 mod arc_handler;
 pub(crate) use arc_handler::ArcHandler;

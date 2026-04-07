@@ -28,7 +28,7 @@ impl Server for SmolTcpServer {
 
     fn init(&self, info: &mut Info) {
         if let Ok(socket_addr) = self.0.local_addr() {
-            info.insert_state(socket_addr);
+            info.insert_shared_state(socket_addr);
         }
     }
 

@@ -99,8 +99,8 @@ pub fn block_on<Fut: Future>(fut: Fut) -> Fut::Output {
 /// initialize a handler
 pub async fn init(handler: &mut impl Handler) -> Arc<HttpContext> {
     let mut info = Info::from(HttpContext::default());
-    info.insert_state(runtime());
-    info.insert_state(runtime().into());
+    info.insert_shared_state(runtime());
+    info.insert_shared_state(runtime().into());
     handler.init(&mut info).await;
     Arc::new(info.into())
 }

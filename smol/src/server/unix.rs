@@ -54,12 +54,12 @@ impl Server for SmolServer {
         match &self.0 {
             Tcp(t) => {
                 if let Ok(socket_addr) = t.local_addr() {
-                    info.insert_state(socket_addr);
+                    info.insert_shared_state(socket_addr);
                 }
             }
             Unix(u) => {
                 if let Ok(socket_addr) = u.local_addr() {
-                    info.insert_state(socket_addr);
+                    info.insert_shared_state(socket_addr);
                 }
             }
         }

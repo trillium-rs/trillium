@@ -19,7 +19,7 @@
 //! [`trillium_client::Client`](Client) is built with a [`Connector`]. Each runtime crate
 //! ([`trillium_smol`](https://docs.trillium.rs/trillium_smol),
 //! [`trillium_tokio`](https://docs.trillium.rs/trillium_tokio),
-//! [`trillium_async_std`](https://docs.trillium.rs/trillium_tokio)) offers
+//! [`trillium_async_std`](https://docs.trillium.rs/trillium_async_std)) offers
 //! a Connector implementation, which can optionally be combined with a
 //! tls crate such as
 //! [`trillium_rustls`](https://docs.trillium.rs/trillium_rustls) or

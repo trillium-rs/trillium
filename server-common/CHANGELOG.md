@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `BoundInfo` — immutable snapshot of server state after init: `tcp_socket_addr()`, `url()`, `unix_socket_addr()`, `state::<T>()`, `context()`
 - `ServerHandle::runtime()` — retrieve the server's `Runtime`
 - `Config::with_quic(q)` — attach a QUIC config for HTTP/3 support; takes any `impl QuicConfig`
-- `QuicConfig`, `QuicBinding`, `QuicConnection` traits — the three-layer abstraction for QUIC support (config → binding → connection); `()` impls disable H3 (the default)
+- `QuicConfig`, `QuicEndpoint`, `QuicConnectionTrait`, `QuicConnection` — the three-layer abstraction for QUIC support (config → endpoint → connection); `()` impls disable H3 (the default)
 - `UdpTransport` trait — async UDP socket abstraction for QUIC; implemented by `TokioUdpSocket`, `SmolUdpSocket`, `AsyncStdUdpSocket`
 - `NoQuic` — uninhabited type implementing `QuicConnection` for the `()` disabled case
 

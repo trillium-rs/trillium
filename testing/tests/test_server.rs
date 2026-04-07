@@ -557,7 +557,7 @@ async fn shared_state() {
         }
 
         async fn init(&mut self, info: &mut Info) {
-            info.insert_state("shared value".to_string());
+            info.insert_shared_state("shared value".to_string());
         }
     }
 

@@ -95,7 +95,7 @@ struct ServerStart(Instant);
 
 fn handler() -> impl Handler {
     (
-        Init::new(|info| async move { info.with_state(ServerStart(Instant::now())) }),
+        Init::new(|info| async move { info.with_shared_state(ServerStart(Instant::now())) }),
         ConnCounterHandler::new(),
         |conn: Conn| async move {
             let uptime = conn

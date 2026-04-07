@@ -297,7 +297,8 @@ impl Conn {
         encoding(&self.response_headers)
     }
 
-    /// returns a [`ReceivedBody`] that borrows the connection inside this conn.
+    /// returns a [`ResponseBody`](crate::ResponseBody) that borrows the connection inside this
+    /// conn.
     /// ```
     /// use trillium_client::Client;
     /// use trillium_testing::{client_config, with_server};

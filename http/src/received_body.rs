@@ -40,13 +40,13 @@ mod h3_data;
 /// u64. To override this on the specific `ReceivedBody`, use [`ReceivedBody::with_max_len`] or
 /// [`ReceivedBody::set_max_len`]
 ///
-/// The default maximum length is currently set to 500mb. In the next semver-minor release, this
-/// value will decrease substantially.
+/// The default maximum length is 10mb; see [`HttpConfig::received_body_max_len`] to configure
+/// this server-wide.
 ///
 /// ## Large chunks, small read buffers
 ///
 /// Attempting to read a chunked body with a buffer that is shorter than the chunk size in hex will
-/// result in an error. This limitation is temporary.
+/// result in an error.
 #[derive(fieldwork::Fieldwork)]
 pub struct ReceivedBody<'conn, Transport> {
     /// The content-length of this body, if available. This
@@ -436,7 +436,7 @@ where
 
 impl<Transport> Debug for ReceivedBody<'_, Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RequestBody")
+        f.debug_struct("ReceivedBody")
             .field("state", &*self.state)
             .field("content_length", &self.content_length)
             .field("buffer", &format_args!(".."))

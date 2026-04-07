@@ -34,40 +34,40 @@ impl Info {
     /// Returns the `local_addr` of a bound tcp listener, if such a
     /// thing exists for this server
     pub fn tcp_socket_addr(&self) -> Option<&SocketAddr> {
-        self.state()
+        self.shared_state()
     }
 
     /// Returns the `local_addr` of a bound unix listener, if such a
     /// thing exists for this server
     #[cfg(unix)]
     pub fn unix_socket_addr(&self) -> Option<&std::os::unix::net::SocketAddr> {
-        self.state()
+        self.shared_state()
     }
 
     /// Borrow a type from the shared state [`TypeSet`] on this `Info`.
-    pub fn state<T: Send + Sync + 'static>(&self) -> Option<&T> {
+    pub fn shared_state<T: Send + Sync + 'static>(&self) -> Option<&T> {
         self.0.shared_state().get()
     }
 
     /// Insert a type into the shared state typeset, returning the previous value if any
-    pub fn insert_state<T: Send + Sync + 'static>(&mut self, value: T) -> Option<T> {
+    pub fn insert_shared_state<T: Send + Sync + 'static>(&mut self, value: T) -> Option<T> {
         self.0.shared_state_mut().insert(value)
     }
 
     /// Mutate a type in the shared state typeset
-    pub fn state_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
+    pub fn shared_state_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
         self.0.shared_state_mut().get_mut()
     }
 
     /// Returns an [`Entry`] into the shared state typeset.
-    pub fn state_entry<T: Send + Sync + 'static>(&mut self) -> Entry<'_, T> {
+    pub fn shared_state_entry<T: Send + Sync + 'static>(&mut self) -> Entry<'_, T> {
         self.0.shared_state_mut().entry()
     }
 
     /// chainable interface to insert a type into the shared state typeset
     #[must_use]
-    pub fn with_state<T: Send + Sync + 'static>(mut self, value: T) -> Self {
-        self.insert_state(value);
+    pub fn with_shared_state<T: Send + Sync + 'static>(mut self, value: T) -> Self {
+        self.insert_shared_state(value);
         self
     }
 

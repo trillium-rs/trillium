@@ -266,7 +266,7 @@ where
     async fn init(&mut self, info: &mut Info) {
         let mut string = "\nTrillium started\n".to_string();
 
-        if let Some(url) = info.state::<url::Url>() {
+        if let Some(url) = info.shared_state::<url::Url>() {
             writeln!(string, "✾ Listening at {}", url.as_str()).unwrap();
         }
 
@@ -282,7 +282,7 @@ where
         writeln!(string, "Control-c to quit").unwrap();
 
         self.target.write(string);
-        info.insert_state(LogTarget(Arc::clone(&self.target)));
+        info.insert_shared_state(LogTarget(Arc::clone(&self.target)));
     }
 
     async fn run(&self, conn: Conn) -> Conn {
@@ -293,8 +293,8 @@ where
         if conn.state::<LoggerWasRun>().is_some() {
             let target = self.target.clone();
             let output = self.format.format(&conn, self.color_mode.is_enabled());
-            AsMut::<trillium_http::Conn<Box<dyn Transport>>>::as_mut(&mut conn)
-                .after_send(move |_| target.write(output.to_string()));
+            let inner: &mut trillium_http::Conn<Box<dyn Transport>> = conn.as_mut();
+            inner.after_send(move |_| target.write(output.to_string()));
         }
 
         conn
