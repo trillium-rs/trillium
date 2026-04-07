@@ -313,9 +313,11 @@ impl Conn {
     /// retains all data and holds the singular transport, but the
     /// [`RequestBody`] provides an interface to read body content.
     ///
+    /// If the request included an `Expect: 100-continue` header, the 100 Continue response is sent
+    /// lazily on the first read from the returned [`RequestBody`].
+    ///
     /// See also: [`Conn::request_body_string`] for a convenience function
     /// when the content is expected to be utf8.
-    ///
     ///
     /// # Examples
     ///
@@ -325,7 +327,7 @@ impl Conn {
     ///
     /// # trillium_testing::block_on(async {
     /// let handler = |mut conn: Conn| async move {
-    ///     let request_body = conn.request_body().await;
+    ///     let request_body = conn.request_body();
     ///     assert_eq!(request_body.content_length(), Some(12));
     ///     assert_eq!(request_body.read_string().await.unwrap(), "request body");
     ///     conn.ok("pass")
@@ -334,8 +336,8 @@ impl Conn {
     /// app.post("/").with_body("request body").await.assert_ok();
     /// # });
     /// ```
-    pub async fn request_body(&mut self) -> RequestBody<'_> {
-        self.inner.request_body().await.into()
+    pub fn request_body(&mut self) -> RequestBody<'_> {
+        self.inner.request_body().into()
     }
 
     /// Convenience function to read the content of a request body as a `String`.
@@ -363,7 +365,7 @@ impl Conn {
     /// ```
     #[allow(clippy::missing_errors_doc)] // this is a false positive
     pub async fn request_body_string(&mut self) -> trillium_http::Result<String> {
-        self.request_body().await.read_string().await
+        self.request_body().read_string().await
     }
 
     /// if there is a response body for this conn and it has a known

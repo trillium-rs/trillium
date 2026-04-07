@@ -1,4 +1,4 @@
-use crate::{Pool, h3::H3ClientState, util::encoding};
+use crate::{Pool, ResponseBody, h3::H3ClientState, util::encoding};
 use encoding_rs::Encoding;
 use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
@@ -317,7 +317,7 @@ impl Conn {
     /// });
     /// ```
     #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
-    pub fn response_body(&mut self) -> ReceivedBody<'_, Box<dyn Transport>> {
+    pub fn response_body(&mut self) -> ResponseBody<'_> {
         ReceivedBody::new(
             self.response_content_length(),
             &mut self.buffer,
@@ -327,6 +327,7 @@ impl Conn {
             encoding(&self.response_headers),
         )
         .with_trailers(&mut self.response_trailers)
+        .into()
     }
 
     /// Attempt to deserialize the response body. Note that this consumes the body content.

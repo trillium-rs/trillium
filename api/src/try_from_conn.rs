@@ -53,11 +53,7 @@ impl TryFromConn for Vec<u8> {
     type Error = crate::Error;
 
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
-        conn.request_body()
-            .await
-            .read_bytes()
-            .await
-            .map_err(Into::into)
+        conn.request_body().read_bytes().await.map_err(Into::into)
     }
 }
 

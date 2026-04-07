@@ -36,6 +36,7 @@ crossbeam-queue = "0.3.12"
 memchr = "2.8.0"
 sonic-rs = { version = "0.5.8", optional = true }
 fieldwork = "0.5.0"
+trillium-macros = { version = "0.0.6", path = "../macros" }
 
 [dependencies.trillium-http]
 path = "../http"

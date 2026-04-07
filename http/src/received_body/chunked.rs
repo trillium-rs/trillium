@@ -1,6 +1,6 @@
 use super::{
-    AsyncRead, Buffer, Chunked, Context, End, ErrorKind, Headers, PartialChunkSize, Pin, Ready,
-    ReceivedBody, ReceivedBodyState, StateOutput, io, ready, slice_from,
+    AsyncRead, AsyncWrite, Buffer, Chunked, Context, End, ErrorKind, Headers, PartialChunkSize,
+    Pin, Ready, ReceivedBody, ReceivedBodyState, StateOutput, io, ready, slice_from,
 };
 use std::io::ErrorKind::InvalidData;
 
@@ -31,7 +31,7 @@ fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
 
 impl<Transport> ReceivedBody<'_, Transport>
 where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     #[inline]
     pub(super) fn handle_chunked(
@@ -94,7 +94,7 @@ where
 
 impl<Transport> ReceivedBody<'_, Transport>
 where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     /// Handler for [`ReceivedBodyState::ReadingH1Trailers`].
     ///
@@ -369,11 +369,14 @@ mod tests {
         }
     }
 
-    fn new_with_config(input: String, config: &HttpConfig) -> ReceivedBody<'_, Cursor<String>> {
+    fn new_with_config(
+        input: String,
+        config: &HttpConfig,
+    ) -> ReceivedBody<'static, Cursor<Vec<u8>>> {
         ReceivedBody::new_with_config(
             None,
             Buffer::from(Vec::with_capacity(config.response_header_initial_capacity)),
-            Cursor::new(input),
+            Cursor::new(input.into_bytes()),
             ReceivedBodyState::Start,
             None,
             UTF_8,
@@ -528,7 +531,7 @@ mod tests {
         let result = ReceivedBody::new_with_config(
             Some(50),
             Buffer::default(),
-            Cursor::new(body.clone()),
+            Cursor::new(body.clone().into_bytes()),
             ReceivedBodyState::Start,
             None,
             UTF_8,
@@ -547,7 +550,7 @@ mod tests {
         let err = ReceivedBody::new_with_config(
             Some(51),
             Buffer::default(),
-            Cursor::new(over),
+            Cursor::new(over.into_bytes()),
             ReceivedBodyState::Start,
             None,
             UTF_8,
@@ -636,7 +639,7 @@ mod tests {
         let mut rb = ReceivedBody::new_with_config(
             None,
             Buffer::default(),
-            Cursor::new(input),
+            Cursor::new(input.as_bytes().to_vec()),
             ReceivedBodyState::Start,
             None,
             UTF_8,
@@ -654,7 +657,7 @@ mod tests {
             rb = ReceivedBody::new_with_config(
                 None,
                 Buffer::default(),
-                Cursor::new(input),
+                Cursor::new(input.as_bytes().to_vec()),
                 ReceivedBodyState::Start,
                 None,
                 UTF_8,
@@ -672,7 +675,7 @@ mod tests {
         let rb = ReceivedBody::new_with_config(
             None,
             Buffer::default(),
-            Cursor::new(input),
+            Cursor::new(input.as_bytes().to_vec()),
             ReceivedBodyState::Start,
             None,
             UTF_8,

@@ -50,7 +50,7 @@ fn one_trailer(name: &'static str, value: &'static str) -> Headers {
 #[test(harness)]
 async fn server_receives_request_trailers() {
     let test = HttpTest::new(|mut conn: Conn<TestTransport>| async move {
-        conn.request_body().await.read_string().await.unwrap();
+        conn.request_body().read_string().await.unwrap();
         let checksum = conn
             .request_trailers()
             .and_then(|t| t.get_str("x-checksum"))
@@ -97,7 +97,7 @@ async fn server_sends_response_trailers() {
 #[test(harness)]
 async fn bidirectional_trailers() {
     let test = HttpTest::new(|mut conn: Conn<TestTransport>| async move {
-        conn.request_body().await.read_string().await.unwrap();
+        conn.request_body().read_string().await.unwrap();
         let ping = conn
             .request_trailers()
             .and_then(|t| t.get_str("x-ping"))

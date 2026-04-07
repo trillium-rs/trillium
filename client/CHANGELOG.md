@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Previously deprecated `with_header`, `with_headers`, and `without_header` removed
 - `async_trait` re-export removed
 - `Client::with_default_pool` removed and keepalive is now the default. To opt out, `Client::without_keepalive` was added
+- `Conn::response_body` now returns a `trillium_client::ResponseBody` instead of a `trillium_http::ReceivedBody`
 
 ### Added
 

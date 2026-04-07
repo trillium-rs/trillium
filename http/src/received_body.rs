@@ -5,7 +5,6 @@ use encoding_rs::Encoding;
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, ready};
 use std::{
     fmt::{self, Debug, Formatter},
-    future::{Future, IntoFuture},
     io::{self, ErrorKind},
     pin::Pin,
     task::{Context, Poll},
@@ -23,7 +22,7 @@ mod h3_data;
 /// ```rust
 /// # use trillium_testing::HttpTest;
 /// let app = HttpTest::new(|mut conn| async move {
-///     let body = conn.request_body().await; // send 100-continue if needed
+///     let body = conn.request_body();
 ///     let body_string = body.read_string().await.unwrap();
 ///     conn.with_response_body(format!("received: {body_string}"))
 /// });
@@ -58,7 +57,7 @@ pub struct ReceivedBody<'conn, Transport> {
     /// ```rust
     /// # use trillium_testing::HttpTest;
     /// HttpTest::new(|mut conn| async move {
-    ///     let body = conn.request_body().await;
+    ///     let body = conn.request_body();
     ///     assert_eq!(body.content_length(), Some(5));
     ///     let body_string = body.read_string().await.unwrap();
     ///     conn.with_status(200)
@@ -114,6 +113,10 @@ pub struct ReceivedBody<'conn, Transport> {
     h3_max_field_section_size: u64,
 
     trailers: MutCow<'conn, Option<Headers>>,
+
+    /// Byte offset into `b"HTTP/1.1 100 Continue\r\n\r\n"` that remains to be written before the
+    /// first read. `None` means no pending write.
+    send_100_continue_offset: Option<usize>,
 }
 
 fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
@@ -123,7 +126,7 @@ fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
 
 impl<'conn, Transport> ReceivedBody<'conn, Transport>
 where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     #[allow(missing_docs)]
     #[doc(hidden)]
@@ -170,6 +173,7 @@ where
             max_preallocate: config.received_body_max_preallocate,
             h3_max_field_section_size: config.h3_max_field_section_size,
             trailers: None.into(),
+            send_100_continue_offset: None,
         }
     }
 
@@ -180,6 +184,14 @@ where
     #[must_use]
     pub fn with_trailers(mut self, trailers: impl Into<MutCow<'conn, Option<Headers>>>) -> Self {
         self.trailers = trailers.into();
+        self
+    }
+
+    /// Arranges for `HTTP/1.1 100 Continue\r\n\r\n` to be written to the transport before the
+    /// first body read. Used to implement lazy 100-continue for HTTP/1.1 request bodies.
+    #[must_use]
+    pub(crate) fn with_send_100_continue(mut self) -> Self {
+        self.send_100_continue_offset = Some(0);
         self
     }
 
@@ -275,18 +287,6 @@ where
     }
 }
 
-impl<'a, Transport> IntoFuture for ReceivedBody<'a, Transport>
-where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
-{
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
-    type Output = crate::Result<String>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move { self.read_string().await })
-    }
-}
-
 impl<T> ReceivedBody<'static, T> {
     /// takes the static transport from this received body
     pub fn take_transport(&mut self) -> Option<T> {
@@ -326,7 +326,7 @@ type StateOutput = Poll<io::Result<(ReceivedBodyState, usize)>>;
 
 impl<Transport> ReceivedBody<'_, Transport>
 where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     #[inline]
     fn handle_start(&mut self) -> StateOutput {
@@ -358,13 +358,35 @@ where
 
 impl<Transport> AsyncRead for ReceivedBody<'_, Transport>
 where
-    Transport: AsyncRead + Unpin + Send + Sync + 'static,
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
+        const CONTINUE: &[u8] = b"HTTP/1.1 100 Continue\r\n\r\n";
+        while let Some(offset) = self.send_100_continue_offset {
+            let n = {
+                let Some(transport) = self.transport.as_deref_mut() else {
+                    return Ready(Err(ErrorKind::NotConnected.into()));
+                };
+                if offset == 0 {
+                    log::trace!("sending 100-continue");
+                }
+                ready!(Pin::new(transport).poll_write(cx, &CONTINUE[offset..]))?
+            };
+            if n == 0 {
+                return Ready(Err(ErrorKind::WriteZero.into()));
+            }
+            let new_offset = offset + n;
+            self.send_100_continue_offset = if new_offset >= CONTINUE.len() {
+                None
+            } else {
+                Some(new_offset)
+            };
+        }
+
         for _ in 0..self.copy_loops_per_yield {
             let (new_body_state, bytes) = ready!(match *self.state {
                 Start => self.handle_start(),

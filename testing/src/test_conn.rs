@@ -171,9 +171,7 @@ impl TestConn {
 
     /// Reads the request body to string and returns it
     pub fn take_request_body_string(&mut self) -> String {
-        futures_lite::future::block_on(async {
-            self.request_body().await.read_string().await.unwrap()
-        })
+        futures_lite::future::block_on(async { self.request_body().read_string().await.unwrap() })
     }
 }
 
