@@ -1,6 +1,6 @@
 [package]
 name = "trillium-quinn"
-version = "0.2.0-rc.1"
+version = "0.1.0-rc.1"
 edition = "2024"
 description = "quinn QUIC adapter for trillium.rs HTTP/3 support"
 license = "MIT OR Apache-2.0"
