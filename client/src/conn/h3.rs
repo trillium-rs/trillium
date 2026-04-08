@@ -24,11 +24,23 @@ impl Conn {
     /// Returns `Ok(true)` if the request was sent and response headers received via H3.
     /// Returns `Ok(false)` if H3 is unavailable or failed pre-stream, signalling the caller
     /// to fall back to HTTP/1.1. Mid-stream failures are returned as `Err`.
-    pub(super) async fn try_exec_h3(&mut self, h3: &H3ClientState) -> Result<bool> {
+    pub(super) async fn try_exec_h3(&mut self, h3: &H3ClientState, h3_hint: bool) -> Result<bool> {
         let origin = self.url.origin();
 
-        // Check whether we have a usable alt-svc entry for this origin.
-        let (host, port) = if let Some(entry) = h3.alt_svc.get(&origin)
+        // Check whether we have a usable alt-svc entry for this origin, or whether the caller
+        // has hinted that the server supports H3 (skipping the alt-svc dance).
+        let (host, port) = if h3_hint {
+            let host = self
+                .url
+                .host_str()
+                .ok_or(Error::UnexpectedUriFormat)?
+                .to_string();
+            let port = self
+                .url
+                .port_or_known_default()
+                .ok_or(Error::UnexpectedUriFormat)?;
+            (host, port)
+        } else if let Some(entry) = h3.alt_svc.get(&origin)
             && entry.is_usable()
         {
             (entry.host.clone(), entry.port)
