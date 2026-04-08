@@ -1,6 +1,6 @@
 [package]
 name = "trillium-async-std"
-version = "0.4.0"
+version = "0.5.0-rc.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "async-std runtime adapter for trillium.rs"
@@ -15,10 +15,10 @@ async-io = "2.6.0"
 async-std = { version = "1.13.2", features = ["unstable"] }
 futures-lite = "2.6.1"
 log = "0.4.29"
-trillium = { path = "../trillium", version = "0.2.20" }
-trillium-http = { path = "../http", version = "0.3.17" }
-trillium-macros = { version = "0.0.6", path = "../macros" }
-trillium-server-common = { path = "../server-common", version = "0.5.2" }
+trillium = { path = "../trillium", version = "1.0.0-rc.1" }
+trillium-http = { path = "../http", version = "1.0.0-rc.1" }
+trillium-macros = { version = "0.1.0-rc.1", path = "../macros" }
+trillium-server-common = { path = "../server-common", version = "0.6.0-rc.1" }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.4.3"

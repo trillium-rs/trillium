@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-04-08
 
 ### Changed
 - Compatible with trillium 1.0
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `WebSocketConn::state_entry::<T>()` — entry API for connection state, mirrors `HashMap::entry`
 
-## [0.6.6](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.5...trillium-websockets-v0.6.6) - 2024-05-30
+## [0.7.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.5...trillium-websockets-v0.7.0-rc.1) - 2024-05-30
 
 ### Added
 - deprecate set_state for insert_state

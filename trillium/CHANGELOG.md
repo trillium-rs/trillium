@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-04-08
 
 ### Changed
 - `impl Handler` no longer requires `#[async_trait]` — remove the attribute from all Handler implementations; `async_trait` can likely be removed from your dependencies entirely
@@ -80,7 +80,7 @@ trillium_tokio::config()
     .run(handler);
 ```
 
-## [0.2.20](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.19...trillium-v0.2.20) - 2024-05-30
+## [1.0.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.19...trillium-v1.0.0-rc.1) - 2024-05-30
 
 ### Added
 - deprecate set_state for insert_state

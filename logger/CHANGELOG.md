@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-04-08
 
 ### Changed
 - Compatible with trillium 1.0
@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `LogTarget` — accessible via `conn.shared_state::<LogTarget>()`, allowing any handler to emit messages to the configured logger target
 
-## [0.4.5](https://github.com/trillium-rs/trillium/compare/trillium-logger-v0.4.4...trillium-logger-v0.4.5) - 2024-04-07
+## [0.5.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-logger-v0.4.4...trillium-logger-v0.5.0-rc.1) - 2024-04-07
 
 ### Added
 - add deprecation warnings to 0.2 branch in preparation for 1.0

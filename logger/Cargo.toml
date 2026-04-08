@@ -1,6 +1,6 @@
 [package]
 name = "trillium-logger"
-version = "0.4.5"
+version = "0.5.0-rc.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "logger for trillium.rs"
@@ -19,7 +19,7 @@ time = { version = "0.3.47", features = [
         "formatting",
         "macros",
 ] }
-trillium = { path = "../trillium", version = "0.2.20" }
+trillium = { path = "../trillium", version = "1.0.0-rc.1" }
 trillium-http = { path = "../http" }
 url = "2.5.8"
 

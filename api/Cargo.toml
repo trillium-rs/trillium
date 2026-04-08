@@ -1,6 +1,6 @@
 [package]
 name = "trillium-api"
-version = "0.2.0-rc.12"
+version = "0.3.0-rc.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "an api handler for trillium.rs"
@@ -27,8 +27,8 @@ serde_path_to_error = "0.1.20"
 serde_urlencoded = { version = "0.7.1", optional = true }
 sonic-rs = { version = "0.5.8", optional = true }
 thiserror = "2.0.18"
-trillium = { path = "../trillium", version = "0.2.20" }
-trillium-macros = { version = "0.0.6", path = "../macros" }
+trillium = { path = "../trillium", version = "1.0.0-rc.1" }
+trillium-macros = { version = "0.1.0-rc.1", path = "../macros" }
 url = { version = "2.5.8", optional = true }
 
 [dev-dependencies]

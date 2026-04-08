@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-04-08
 
 ### Changed
 - Compatible with trillium 1.0
@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HttpContext` is now public — Arc-shared per-server state (Swansong + TypeSet + HttpConfig) passed to every connection
 - `pub mod h3` — HTTP/3 protocol primitives: QPACK encode/decode, H3 framing, `H3Connection`, `H3Body`, `H3Error`; used by [`trillium-quinn`](https://docs.rs/trillium-quinn) and other QUIC adapter crates
 
-## [0.3.17](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.16...trillium-http-v0.3.17) - 2024-05-30
+## [1.0.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.16...trillium-http-v1.0.0-rc.1) - 2024-05-30
 
 ### Added
 - deprecate Headers::contains_ignore_ascii_case
