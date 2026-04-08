@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-04-08
 
 ### Changed
 - Compatible with trillium 1.0
@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Config::spawn(handler)` now returns a `ServerHandle` that is `Clone` and covers the full server lifecycle: `await` it to wait for shutdown, call `handle.info().await` to wait for the server to finish binding and get a `BoundInfo` (bound address, URL, shared state), and `handle.shut_down()` to initiate graceful shutdown
 - HTTP/3 support: `config().with_quic(trillium_quinn::QuicConfig::from_single_cert(&cert_pem, &key_pem))` — see the [trillium changelog](https://docs.rs/trillium) for details
 
-## [0.4.2](https://github.com/trillium-rs/trillium/compare/trillium-smol-v0.4.1...trillium-smol-v0.4.2) - 2024-07-03
+## [0.5.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-smol-v0.4.1...trillium-smol-v0.5.0-rc.1) - 2024-07-03
 
 ### Added
 - *(smol)* use async_signal instead of signal_hook_async_std

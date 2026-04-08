@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-04-08
 
 ### Changed
 - Compatible with trillium 1.0
@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `impl FromConn for trillium_http::Version` — HTTP version is now extractable as an API handler parameter
 
-## [0.2.0-rc.12](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.11...trillium-api-v0.2.0-rc.12) - 2024-05-30
+## [0.3.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.11...trillium-api-v0.3.0-rc.1) - 2024-05-30
 
 ### Added
 - *(api)* [**breaking**] make IoErrors respond with BadRequest

@@ -1,6 +1,6 @@
 [package]
 name = "trillium"
-version = "0.2.20"
+version = "1.0.0-rc.1"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "a modular toolkit for building async web apps"
@@ -19,8 +19,8 @@ serde = ["trillium-http/serde"]
 [dependencies]
 futures-lite = "2.6.1"
 log = "0.4.29"
-trillium-http = { path = "../http", version = "0.3.17" }
-trillium-macros = { version = "0.0.6", path = "../macros" }
+trillium-http = { path = "../http", version = "1.0.0-rc.1" }
+trillium-macros = { version = "0.1.0-rc.1", path = "../macros" }
 
 [dev-dependencies]
 futures-lite = "2.6.1"

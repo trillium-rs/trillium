@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-04-08
 
 ### Changed
 - Compatible with trillium 1.0
@@ -47,7 +47,7 @@ app.post("/")
 - `with_runtime(|runtime| async { ... })` — test harness that injects a `Runtime` into the test closure, also usable as a test harness
 - `TestConn::with_context(Arc<HttpContext>)` — pass a server config (including shared state initialized by `init`) to a test connection
 
-## [0.7.0](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.6.1...trillium-testing-v0.7.0) - 2024-05-30
+## [0.8.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.6.1...trillium-testing-v0.8.0-rc.1) - 2024-05-30
 
 ### Added
 - *(api)* [**breaking**] make IoErrors respond with BadRequest

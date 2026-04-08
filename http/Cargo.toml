@@ -1,6 +1,6 @@
 [package]
 name = "trillium-http"
-version = "0.3.17"
+version = "1.0.0-rc.1"
 edition = "2024"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 description = "the http implementation for the trillium toolkit"
@@ -33,7 +33,7 @@ smallvec = { version = "1.15.1", features = ["const_new"] }
 smartcow = "0.2.1"
 smartstring = "1.0.1"
 thiserror = "2.0.18"
-trillium-macros = { version = "0.0.6", path = "../macros" }
+trillium-macros = { version = "0.1.0-rc.1", path = "../macros" }
 swansong = "0.3.3"
 type-set = "0.3.2"
 fastrand = "2.3.0"
