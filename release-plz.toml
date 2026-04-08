@@ -1,10 +1,2 @@
 [workspace]
 release_commits = "^(feat|fix|deps)"
-
-[[package]]
-name = "trillium-quinn"
-release = false
-
-[[package]]
-name = "trillium-webtransport"
-release = false
