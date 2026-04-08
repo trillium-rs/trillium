@@ -145,7 +145,7 @@ pub struct Conn {
     ///
     /// prior to conn execution, this reflects the intended http version that will be sent, and
     /// after execution this reflects the server-indicated http version
-    #[field(get, set, copy)]
+    #[field(get, set, with, copy)]
     pub(crate) http_version: Version,
 
     /// the :authority pseudo-header, populated during h3 header finalization

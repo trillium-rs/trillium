@@ -32,8 +32,17 @@ pub enum ClientSerdeError {
 
 impl Conn {
     pub(crate) async fn exec(&mut self) -> Result<()> {
+        match self.http_version {
+            Version::Http0_9 | Version::Http2 => {
+                return Err(Error::UnsupportedVersion(self.http_version));
+            }
+            _ => {}
+        }
+
         if let Some(h3) = self.h3.clone()
-            && self.try_exec_h3(&h3).await?
+            && self
+                .try_exec_h3(&h3, self.http_version == Version::Http3)
+                .await?
         {
             self.update_alt_svc_from_response(&h3);
             return Ok(());
@@ -52,7 +61,7 @@ impl Conn {
 
     pub(crate) fn finalize_headers(&mut self) -> Result<()> {
         match self.http_version {
-            Version::Http0_9 | Version::Http1_0 | Version::Http1_1 => self.finalize_headers_h1(),
+            Version::Http1_0 | Version::Http1_1 => self.finalize_headers_h1(),
             Version::Http3 if self.h3.is_some() => self.finalize_headers_h3(),
             other => Err(Error::UnsupportedVersion(other)),
         }
@@ -208,24 +217,25 @@ impl<'conn> IntoFuture for &'conn mut Conn {
 impl Debug for Conn {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Conn")
-            .field("url", &self.url)
-            .field("method", &self.method)
-            .field("request_headers", &self.request_headers)
-            .field("response_headers", &self.response_headers)
-            .field("status", &self.status)
-            .field("request_body", &self.request_body)
-            .field("pool", &self.pool)
-            .field("h3", &self.h3.is_some())
-            .field("buffer", &String::from_utf8_lossy(&self.buffer))
-            .field("response_body_state", &self.response_body_state)
-            .field("config", &self.config)
-            .field("state", &self.state)
             .field("authority", &self.authority)
-            .field("scheme", &self.scheme)
+            .field("buffer", &String::from_utf8_lossy(&self.buffer))
+            .field("config", &self.config)
+            .field("h3", &self.h3.is_some())
+            .field("http_version", &self.http_version)
+            .field("method", &self.method)
             .field("path", &self.path)
+            .field("pool", &self.pool)
+            .field("request_body", &self.request_body)
+            .field("request_headers", &self.request_headers)
             .field("request_target", &self.request_target)
             .field("request_trailers", &self.request_trailers)
+            .field("response_body_state", &self.response_body_state)
+            .field("response_headers", &self.response_headers)
             .field("response_trailers", &self.response_trailers)
+            .field("scheme", &self.scheme)
+            .field("state", &self.state)
+            .field("status", &self.status)
+            .field("url", &self.url)
             .finish()
     }
 }

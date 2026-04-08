@@ -1,5 +1,5 @@
 use super::Conn;
-use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once};
+use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once, io};
 use memchr::memmem::Finder;
 use size::{Base, Size};
 use std::io::{ErrorKind, Write};
@@ -31,14 +31,19 @@ impl Conn {
         match self.body_len() {
             Some(0) => {}
             Some(len) => {
-                self.request_headers
-                    .insert(Expect, "100-continue")
-                    .insert(ContentLength, len);
+                if self.http_version >= Version::Http1_1 {
+                    self.request_headers.insert(Expect, "100-continue");
+                }
+                self.request_headers.insert(ContentLength, len);
             }
             None => {
-                self.request_headers
-                    .insert(Expect, "100-continue")
-                    .insert(TransferEncoding, "chunked");
+                if self.http_version >= Version::Http1_1 {
+                    self.request_headers
+                        .insert(Expect, "100-continue")
+                        .insert(TransferEncoding, "chunked");
+                }
+                // HTTP/1.0: no chunked encoding; raw bytes are sent and connection close
+                // signals end-of-body
             }
         }
 
@@ -113,7 +118,7 @@ impl Conn {
             }
         }
 
-        write!(buf, " HTTP/1.1\r\n")?;
+        write!(buf, " {}\r\n", self.http_version)?;
 
         for (name, values) in &self.request_headers {
             if !name.is_valid() {
@@ -287,52 +292,62 @@ impl Conn {
     }
 
     async fn send_body(&mut self) -> Result<()> {
-        if let Some(mut body) = self.request_body.take() {
-            let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
-            let Self {
-                transport,
-                request_trailers,
-                ..
-            } = self;
+        let Some(mut body) = self.request_body.take() else {
+            return Ok(());
+        };
 
-            let transport = transport.as_mut().ok_or(Error::Closed)?;
+        // HTTP/1.0 doesn't support chunked transfer encoding. Stream raw bytes directly;
+        // connection close signals end-of-body to the server.
+        if self.http_version < Version::Http1_1 && body.len().is_none() {
+            let transport = self.transport.as_mut().ok_or(Error::Closed)?;
+            io::copy(&mut body.into_reader(), transport).await?;
+            return Ok(());
+        }
 
-            let max_buf = self.context.config().response_buffer_max_len();
-            let mut bufwriter = BufWriter::new_with_buffer(
-                Vec::with_capacity(self.context.config().response_buffer_len()),
-                transport,
-                max_buf,
-            );
+        let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
+        let Self {
+            transport,
+            request_trailers,
+            ..
+        } = self;
 
-            bufwriter.copy_from(&mut body, copy_loops_per_yield).await?;
+        let transport = transport.as_mut().ok_or(Error::Closed)?;
 
-            *request_trailers = body.trailers();
-            if let Some(trailers) = &*request_trailers {
-                let buf = bufwriter.buffer_mut();
-                for (name, values) in trailers {
-                    if !name.is_valid() {
-                        return Err(Error::InvalidHeaderName);
-                    }
+        let max_buf = self.context.config().response_buffer_max_len();
+        let mut bufwriter = BufWriter::new_with_buffer(
+            Vec::with_capacity(self.context.config().response_buffer_len()),
+            transport,
+            max_buf,
+        );
 
-                    for value in values {
-                        if !value.is_valid() {
-                            return Err(Error::InvalidHeaderValue(name.to_owned()));
-                        }
-                        write!(buf, "{name}: ")?;
-                        buf.extend_from_slice(value.as_ref());
-                        write!(buf, "\r\n")?;
-                    }
+        bufwriter.copy_from(&mut body, copy_loops_per_yield).await?;
+
+        *request_trailers = body.trailers();
+        if let Some(trailers) = &*request_trailers {
+            let buf = bufwriter.buffer_mut();
+            for (name, values) in trailers {
+                if !name.is_valid() {
+                    return Err(Error::InvalidHeaderName);
                 }
 
-                log::trace!("sending request trailers: {trailers:?}");
+                for value in values {
+                    if !value.is_valid() {
+                        return Err(Error::InvalidHeaderValue(name.to_owned()));
+                    }
+                    write!(buf, "{name}: ")?;
+                    buf.extend_from_slice(value.as_ref());
+                    write!(buf, "\r\n")?;
+                }
             }
 
-            if body.len().is_none() {
-                write!(bufwriter.buffer_mut(), "\r\n")?;
-            }
-
-            bufwriter.flush().await?;
+            log::trace!("sending request trailers: {trailers:?}");
         }
+
+        if body.len().is_none() {
+            write!(bufwriter.buffer_mut(), "\r\n")?;
+        }
+
+        bufwriter.flush().await?;
         Ok(())
     }
 
