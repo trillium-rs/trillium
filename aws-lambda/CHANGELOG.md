@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/trillium-rs/trillium/compare/trillium-aws-lambda-v0.2.2...trillium-aws-lambda-v0.3.0) - 2026-04-08
+
+### Added
+
+- [**breaking**] rename http_config to config
+- [**breaking**] rename ServerConfig to HttpContext
+- [**breaking**] remove Conn::inner and Conn::inner_mut
+- [**breaking**] introduce ServerConfig
+
+### Other
+
+- replace references to 0.3 with 1.0 in changelogs
+- Add readmes
+- update all changelogs to reflect current status
+- some manual clippy fixes
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- release
+- release
+- release
+- release
+- *(deps)* update base64 requirement from 0.21.5 to 0.22.0
+
 ### Changed
 - Compatible with trillium 1.0
 

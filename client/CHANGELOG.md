@@ -6,6 +6,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.6.2...trillium-client-v0.7.0) - 2026-04-08
+
+### Added
+
+- normalization pass
+- [**breaking**] Conn::request_body does not require an await.
+- [**breaking**] rename http_config to config
+- [**breaking**] rename ServerConfig to HttpContext
+- http trailers
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- *(client)* add support for special form request targets
+- *(client)* [**breaking**] with_default_pool is now actually the default
+- [**breaking**] allow client and api to use sonic-rs instead of serde_json
+- further improvements on client and proxy for h3
+- [**breaking**] add h3 support to client
+- [**breaking**] introduce ServerConfig
+- [**breaking**] introduce Runtime
+- parse directly into trillium::Headers
+- *(client)* [**breaking**] remove deprecated 0.2.x placeholders
+- *(client)* [**breaking**] add support for client timeouts
+- [**breaking**] eliminate async_trait
+- *(http)* [**breaking**] make Upgrade #[non_exhaustive], use Buffer, and add peer_ip
+- *(http)* [**breaking**] remove reexported httparse error type
+
+### Fixed
+
+- minimize differences between fieldwork generated methods and previous
+- client header finalization for h3
+- client now is appropriately factored, uses H3Connection
+
+### Other
+
+- replace references to 0.3 with 1.0 in changelogs
+- *(deps)* upgrade async-tungstenite
+- fix up broken docs links
+- *(client)* Add docs.rs metadata to enable features
+- Add readmes
+- update all changelogs to reflect current status
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+- Upgrade thiserror
+
 ### Changed
 - Compatible with trillium 1.0
 - `ObjectSafeConnector` replaced by `ArcedConnector`; `config.arced()` → `ArcedConnector::new(config)`

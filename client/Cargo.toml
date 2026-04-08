@@ -1,6 +1,6 @@
 [package]
 name = "trillium-client"
-version = "0.6.2"
+version = "0.7.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "http/1.x client for trillium.rs"
@@ -25,8 +25,8 @@ futures-lite = "2.6.1"
 httparse = "1.10.1"
 log = "0.4.29"
 size = "0.5.0"
-trillium-server-common = { version = "0.5.2", path = "../server-common" }
-trillium-websockets = { version = "0.6.6", path = "../websockets", optional = true }
+trillium-server-common = { version = "0.6.0", path = "../server-common" }
+trillium-websockets = { version = "0.7.0", path = "../websockets", optional = true }
 mime = "0.3.17"
 serde_json = { version = "1.0.149", optional = true }
 serde = { version = "1.0.228", optional = true }
@@ -36,12 +36,12 @@ crossbeam-queue = "0.3.12"
 memchr = "2.8.0"
 sonic-rs = { version = "0.5.8", optional = true }
 fieldwork = "0.5.0"
-trillium-macros = { version = "0.0.6", path = "../macros" }
+trillium-macros = { version = "0.0.7", path = "../macros" }
 
 [dependencies.trillium-http]
 path = "../http"
 features = ["unstable"]
-version = "0.3.17"
+version = "0.4.0"
 
 [dev-dependencies]
 async-channel = "2.5.0"

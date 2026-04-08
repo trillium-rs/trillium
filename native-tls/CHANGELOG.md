@@ -6,6 +6,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/trillium-rs/trillium/compare/trillium-native-tls-v0.4.0...trillium-native-tls-v0.5.0) - 2026-04-08
+
+### Added
+
+- [**breaking**] add h3 support to client
+- [**breaking**] introduce ServerConfig
+- [**breaking**] introduce Runtime
+- [**breaking**] use swansong instead of stopper + clone counter
+- *(client)* [**breaking**] add support for client timeouts
+- [**breaking**] eliminate async_trait
+
+### Fixed
+
+- client now is appropriately factored, uses H3Connection
+
+### Other
+
+- replace references to 0.3 with 1.0 in changelogs
+- *(deps)* upgrade async-tungstenite
+- fix up broken docs links
+- Add readmes
+- update all changelogs to reflect current status
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- further improvements to format settings
+- add a rustfmt.toml and reformat
+
 ### Changed
 - Compatible with trillium 1.0
 - Trillium 1.0 uses [Swansong](https://docs.rs/swansong) instead of Stopper; `config().with_stopper(stopper)` becomes `config().with_swansong(swansong)`

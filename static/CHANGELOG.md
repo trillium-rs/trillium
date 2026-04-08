@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/trillium-rs/trillium/compare/trillium-static-v0.4.2...trillium-static-v0.5.0) - 2026-04-08
+
+### Added
+
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- update all crates for new style of testing
+- [**breaking**] introduce ServerConfig
+- [**breaking**] eliminate async_trait
+
+### Fixed
+
+- *(static)* path traversal handling on windows
+
+### Other
+
+- replace references to 0.3 with 1.0 in changelogs
+- update changelog
+- add tests for static file traversal
+- Add readmes
+- update all changelogs to reflect current status
+- some manual clippy fixes
+- clippy auto fix
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+- release
+
 ### Fixed
 - path traversal issues on windows ([#754](https://github.com/trillium-rs/trillium/pull/754))
 

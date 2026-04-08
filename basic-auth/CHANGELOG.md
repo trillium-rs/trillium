@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/trillium-rs/trillium/compare/trillium-basic-auth-v0.1.1...trillium-basic-auth-v0.2.0) - 2026-04-08
+
+### Added
+
+- *(testing)* rename TestHandler to TestServer and misc testing improvements
+- update all crates for new style of testing
+- [**breaking**] eliminate async_trait
+
+### Other
+
+- replace references to 0.3 with 1.0 in changelogs
+- Add readmes
+- update all changelogs to reflect current status
+- *(deps)* [**breaking**] update all deps
+- edition 2024
+- switch over to `///` from `/** */` comments
+
 ### Changed
 - Compatible with trillium 1.0
 
