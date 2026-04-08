@@ -30,7 +30,7 @@ Trillium is designed so that every feature is opt-in. The crates below are all o
 
 [**Template Engines**](./handlers/templates.md) — Integrations for Askama (compile-time, type-safe), Tera (runtime), and Handlebars (runtime).
 
-[**Compression**](./handlers/utilities.md#compression) — Compresses response bodies with zstd, brotli, or gzip, selected based on the client's `Accept-Encoding` header.
+[**Compression**](./handlers/compression.md) — Compresses response bodies with zstd, brotli, or gzip, selected based on the client's `Accept-Encoding` header.
 
 [**Caching Headers**](./handlers/utilities.md#caching-headers) — Adds `ETag` and `Last-Modified` support, automatically returning `304 Not Modified` for unchanged resources.
 

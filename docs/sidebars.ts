@@ -6,10 +6,8 @@ const sidebars: SidebarsConfig = {
     'conventions',
     {
       type: 'category',
-      label: 'Architecture',
-      link: {type: 'doc', id: 'architecture'},
+      label: 'Core Concepts',
       items: [
-        'overview/core_concepts',
         'overview/handlers',
         'overview/conn',
         'overview/runtimes',

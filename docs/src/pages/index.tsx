@@ -412,7 +412,7 @@ export default function Home(): React.JSX.Element {
               <div className={styles.statementButtons}>
                 <Link
                   className="button button--primary button--lg"
-                  to="/guide/architecture"
+                  to="/guide/welcome"
                 >
                   Learn more
                 </Link>
