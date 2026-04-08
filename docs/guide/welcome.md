@@ -1,8 +1,12 @@
 # Welcome
 
-Trillium is a modular async Rust web framework. It runs on stable Rust and supports HTTP/1.x and HTTP/3 over QUIC.
+Trillium is a modular async Rust web framework. Features such as routing, sessions, compression,
+WebSockets, [and many more](./handlers) are published as separate opt-in crates, and the unifying
+abstraction is the [`Handler`](https://docs.trillium.rs/trillium/trait.handler) trait.
 
-The simplest Trillium server:
+## Handlers
+
+The simplest handler is an async function or closure that takes a `Conn` and returns it:
 
 ```rust
 # [dependencies]
@@ -16,39 +20,80 @@ fn main() {
 }
 ```
 
-Add it to a project:
-
 ```bash
 cargo add trillium trillium-smol
 ```
 
-Visit `http://localhost:8080` and you'll see the response. No configuration needed.
+Run it and visit `http://localhost:8080`.
 
-## What's included
+A logger, a cookie extractor, an authentication gate, and a JSON endpoint are all `Handler`s. They
+compose via tuples, which run left to right:
 
-Trillium is published as a collection of small, independent crates. The core handles the `Conn` type, the `Handler` trait, and HTTP parsing. Everything else — routing, sessions, websockets, templates — is opt-in and lives in a separate crate. You only compile what you use.
+```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-logger = { path = "../logger" }
+# trillium-cookies = { path = "../cookies" }
+#
+# fn main() {
+# use trillium_logger::Logger;
+# use trillium_cookies::CookiesHandler;
+# async fn router(conn: trillium::Conn) -> trillium::Conn { conn }
+trillium_smol::run((
+    Logger::new(),
+    CookiesHandler::new(),
+    router,
+));
+# }
+```
 
-Official crates in this repository:
+Each handler receives the `Conn`, does its work, and either passes it along or halts. Halting stops
+the chain — subsequent handlers are skipped. A handler signals "I've handled this" by calling
+`.halt()`, or a convenience method like `.ok("body")` that halts implicitly. There is no distinction
+between middleware and endpoints — they're all handlers.
 
-- **Router** — pattern-based routing with named params and wildcards
-- **API layer** — extractor-based handlers with JSON serialization, similar to axum's approach
-- **Logger** — configurable HTTP request logging
-- **Cookies and sessions** — signed cookies and pluggable session stores
-- **Static file serving** — from disk, or baked into the binary at compile time
-- **Compression** — gzip, brotli, and zstd based on `Accept-Encoding`
-- **WebSockets** — upgrade connections to WebSocket, with access to the original request context
-- **Server-sent events** — lightweight server-to-client event streaming
-- **Channels** — Phoenix-style topic-based pub/sub over WebSocket
-- **WebTransport** — bidirectional streams and datagrams over HTTP/3
-- **HTTP client** — a full HTTP client with connection pooling and HTTP/3 support
-- **Reverse proxy** — forward requests to upstream servers
-- **Template engines** — integrations for Askama, Tera, and Handlebars
-- **TLS** — rustls or native-tls, plus automatic certificate provisioning via ACME
-- **HTTP/3 over QUIC** — add H3 to any server with `trillium-quinn`
+## Conn
+
+`Conn` carries the HTTP request and response through the handler chain. It also owns the underlying
+connection — dropping a `Conn` disconnects the client.
+
+Response building is chainable:
+
+```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+#
+# fn main() {
+#     trillium_smol::run(|conn: trillium::Conn| async move {
+conn.with_status(202)
+    .with_response_header("content-type", "text/plain")
+    .with_body("hello")
+    .halt()
+#     });
+# }
+```
+
+If a handler returns `Conn` without halting, the response defaults to 404 and the next handler in
+the chain runs. This is always valid — it means "I didn't handle this."
+
+`Conn` also carries a type-indexed state set. Handlers use it to pass data down the chain: an auth
+handler early in the tuple stores the current user in state, and later handlers retrieve it by type.
+
+## Runtime adapters
+
+`trillium_smol::run` in the examples above is a **runtime adapter** — it binds a port, listens for
+TCP connections, and drives the async executor. Adapters are available for smol, tokio, async-std,
+and AWS Lambda. TLS and HTTP/3 are also configured at this layer.
+
+See [Runtime Adapters, TLS, and HTTP/3](./overview/runtimes.md) for the full picture.
 
 ## Where to go next
 
-- [Architectural Overview](./architecture.md) — understand how Trillium works
-- [A tour of handler libraries](./handlers.md) — all the official crates with descriptions
-- [docs.trillium.rs](https://docs.trillium.rs) — rustdocs for all official crates
-- [github.com/trillium-rs/trillium](https://github.com/trillium-rs/trillium) — source code
+- [Handlers in depth](./overview/handlers.md) — the trait, built-in implementations, and the `init`
+  lifecycle
+- [Conn in depth](./overview/conn.md) — request access, state, and the conn extension pattern
+- [Runtime Adapters, TLS, and HTTP/3](./overview/runtimes.md) — runtime selection, configuration,
+  TLS, and QUIC
+- [Handler Libraries](./handlers.md) — a tour of all official handler crates
