@@ -102,6 +102,27 @@ impl H3ErrorCode {
         // eventually this probably should either be &'static str or callsite-specific
         Cow::Owned(format!("{self}"))
     }
+
+    /// Returns `true` if this error code represents a connection-level error that requires
+    /// closing the entire QUIC connection (via `CONNECTION_CLOSE`).
+    ///
+    /// Returns `false` for stream-level errors such as [`Self::MessageError`] or
+    /// [`Self::RequestIncomplete`], which should reset the individual stream rather than
+    /// tear down the whole connection.
+    pub fn is_connection_error(&self) -> bool {
+        matches!(
+            self,
+            Self::GeneralProtocolError
+                | Self::InternalError
+                | Self::ClosedCriticalStream
+                | Self::FrameUnexpected
+                | Self::FrameError
+                | Self::ExcessiveLoad
+                | Self::IdError
+                | Self::SettingsError
+                | Self::MissingSettings
+        )
+    }
 }
 
 impl From<u64> for H3ErrorCode {
