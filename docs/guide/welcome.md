@@ -2,7 +2,7 @@
 
 Trillium is a modular async Rust web framework. Features such as routing, sessions, compression,
 WebSockets, [and many more](./handlers) are published as separate opt-in crates, and the unifying
-abstraction is the [`Handler`](https://docs.trillium.rs/trillium/trait.handler) trait.
+abstraction is the [`Handler`](https://docs.trillium.rs/trillium/trait.Handler.html) trait.
 
 ## Handlers
 
