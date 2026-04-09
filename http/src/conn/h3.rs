@@ -25,11 +25,14 @@ where
         h3_connection: Arc<H3Connection>,
         mut transport: Transport,
         mut buffer: Buffer,
+        stream_id: u64,
     ) -> Result<H3StreamResult<Transport>, H3Error> {
+        log::trace!("H3 bidi stream {stream_id}: started");
         let start_time = Instant::now();
 
         let mut frame_stream = FrameStream::new(&mut transport, &mut buffer);
         let field_section = loop {
+            log::trace!("H3 bidi stream {stream_id}: waiting for next frame");
             let mut frame = frame_stream
                 .next()
                 .await?
@@ -37,8 +40,20 @@ where
 
             match frame.frame() {
                 Frame::Headers(_) => {
+                    log::trace!("H3 bidi stream {stream_id}: decoding HEADERS frame");
                     let buffered = frame.buffer_payload().await?;
-                    break FieldSection::decode(buffered).map_err(|_| H3ErrorCode::MessageError)?;
+                    let result = FieldSection::decode_with_dynamic_table(
+                        buffered,
+                        h3_connection.inbound_dynamic_table(),
+                        stream_id,
+                    )
+                    .await
+                    .map_err(|e| {
+                        log::debug!("H3 bidi stream {stream_id}: HEADERS decode error: {e:?}");
+                        H3ErrorCode::MessageError
+                    })?;
+                    log::trace!("H3 bidi stream {stream_id}: HEADERS decoded:\n{result}");
+                    break result;
                 }
 
                 Frame::WebTransport(session_id) => {
@@ -51,7 +66,9 @@ where
                     });
                 }
 
-                _ => {}
+                other => {
+                    log::trace!("H3 bidi stream {stream_id}: skipping frame {other:?}");
+                }
             }
         };
 
