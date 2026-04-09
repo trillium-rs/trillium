@@ -29,8 +29,18 @@ trillium-server-common = { path = "../server-common", version = "0.6.0-rc.1" }
 
 
 [dev-dependencies]
+bytes = "1.11.1"
 env_logger = "0.11.10"
+h3 = "0.0.8"
+h3-quinn = "0.0.10"
+h3i = "0.6.0"
+http = "1.4.0"
+quinn = "0.11"
+rcgen = "0.14.7"
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
+tokio = { version = "1.51.1", features = ["rt", "macros"] }
 trillium = { version = "1.0.0-rc.1", path = "../trillium" }
+trillium-client = { path = "../client" }
 trillium-logger = { version = "0.5.0-rc.1", path = "../logger" }
 trillium-rustls = { version = "0.10.0-rc.1", path = "../rustls" }
 trillium-tokio = { version = "0.5.0-rc.1", path = "../tokio" }

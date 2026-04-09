@@ -245,7 +245,15 @@ fn spawn_outbound_control_stream<QC: QuicConnectionTrait>(
 async fn handle_h3_error(error: H3Error, connection: &impl QuicConnectionTrait, h3: &H3Connection) {
     log::debug!("H3 error: {error}");
     if let H3Error::Protocol(code) = error {
-        connection.close(code.into(), code.reason().as_bytes());
+        if code.is_connection_error() {
+            // Connection-level protocol error: close the QUIC connection and signal all
+            // in-progress tasks to stop.
+            connection.close(code.into(), code.reason().as_bytes());
+            h3.shut_down().await;
+        }
+        // Stream-level protocol errors (MessageError, RequestIncomplete, StreamCreationError,
+        // NoError, etc.) affect only the individual stream; the connection stays open.
     }
-    h3.shut_down().await;
+    // I/O errors (e.g. stream reset by peer) are stream-level; do not shut down the
+    // whole connection. The connection lifecycle cleans itself up when accept_bidi() fails.
 }
