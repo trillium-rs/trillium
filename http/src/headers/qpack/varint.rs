@@ -18,7 +18,10 @@ pub enum VarIntError {
 /// caller (flags, type indicators, etc.).
 ///
 /// Returns the decoded value and the unconsumed remainder of the input.
-pub(crate) fn decode(input: &[u8], prefix_size: u8) -> Result<(usize, &[u8]), VarIntError> {
+pub(in crate::headers) fn decode(
+    input: &[u8],
+    prefix_size: u8,
+) -> Result<(usize, &[u8]), VarIntError> {
     debug_assert!((1..=8).contains(&prefix_size));
 
     let [first, rest @ ..] = input else {
@@ -54,7 +57,7 @@ pub(crate) fn decode(input: &[u8], prefix_size: u8) -> Result<(usize, &[u8]), Va
 /// value in its low `prefix_size` bits; the caller is responsible for
 /// OR-ing in any flags in the high bits.
 #[allow(clippy::cast_possible_truncation)] // all casts are bounded: value < prefix_max <= 255, remaining < 128
-pub(crate) fn encode(value: usize, prefix_size: u8) -> Vec<u8> {
+pub(in crate::headers) fn encode(value: usize, prefix_size: u8) -> Vec<u8> {
     debug_assert!((1..=8).contains(&prefix_size));
 
     let prefix_max = u8::MAX >> (8 - prefix_size);

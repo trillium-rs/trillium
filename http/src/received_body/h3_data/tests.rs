@@ -124,6 +124,8 @@ fn decode_with_limits(
 ) -> io::Result<(ReceivedBodyState, Vec<u8>)> {
     let mut buf = input.to_vec();
     let mut self_buffer = Buffer::default();
+    let h3 = H3Connection::new(Default::default());
+    let stream_id = 1;
     let (state, bytes) = H3Frame {
         self_buffer: &mut self_buffer,
         remaining_in_frame,
@@ -133,7 +135,8 @@ fn decode_with_limits(
         content_length,
         max_len,
         max_trailer_size,
-        trailers: &mut None,
+        connection: Some(&(h3, stream_id)),
+        trailers_future: &mut None,
     }
     .decode()?;
     Ok((state, buf[..bytes].to_vec()))
@@ -385,7 +388,13 @@ fn build_trailers() -> (Headers, Vec<u8>) {
     trailers.insert("x-checksum", "abc123");
 
     let mut qpack_buf = Vec::new();
-    FieldSection::new(PseudoHeaders::default(), &trailers).encode(&mut qpack_buf);
+    H3Connection::new(Default::default())
+        .encode_field_section(
+            &FieldSection::new(PseudoHeaders::default(), &trailers),
+            &mut qpack_buf,
+            1,
+        )
+        .unwrap();
     let mut input = vec![];
     input.extend_from_slice(&headers_frame(qpack_buf.len() as u64));
     input.extend_from_slice(&qpack_buf);
@@ -399,7 +408,9 @@ fn trailers_decoded_into_destination() {
     input.extend_from_slice(&trailers_buf);
     let mut buf = input.clone();
     let mut self_buffer = Buffer::default();
-    let mut trailers: Option<Headers> = None;
+    let mut trailers_fut = None;
+    let stream_id = 1;
+    let h3 = H3Connection::new(Default::default());
 
     let (state, bytes) = H3Frame {
         self_buffer: &mut self_buffer,
@@ -410,14 +421,15 @@ fn trailers_decoded_into_destination() {
         content_length: None,
         max_len: 1024 * 1024,
         max_trailer_size: u64::MAX,
-        trailers: &mut trailers,
+        connection: Some(&(h3, stream_id)),
+        trailers_future: &mut trailers_fut,
     }
     .decode()
     .unwrap();
 
     assert_eq!(&buf[..bytes], b"body");
     assert_eq!(state, End);
-    let received_trailers = trailers.expect("trailers should be populated");
+    let received_trailers = trillium_testing::block_on(trailers_fut.unwrap()).unwrap();
     assert_eq!(received_trailers.get_str("x-checksum"), Some("abc123"));
     assert_eq!(sent_trailers, received_trailers);
 }
@@ -432,7 +444,13 @@ fn trailers_at_max_trailer_size_allowed() {
     trailers.insert("x-checksum", "abc123");
 
     let mut qpack_buf = Vec::new();
-    FieldSection::new(PseudoHeaders::default(), &trailers).encode(&mut qpack_buf);
+    H3Connection::new(Default::default())
+        .encode_field_section(
+            &FieldSection::new(PseudoHeaders::default(), &trailers),
+            &mut qpack_buf,
+            1,
+        )
+        .unwrap();
     let payload_len = qpack_buf.len() as u64;
     input.extend_from_slice(&headers_frame(payload_len));
     input.extend_from_slice(&qpack_buf);

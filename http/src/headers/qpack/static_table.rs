@@ -1,4 +1,4 @@
-use super::decoder::DecoderError;
+use super::QpackError;
 use crate::KnownHeaderName::{
     self, Accept, AcceptEncoding, AcceptLanguage, AcceptRanges, AccessControlAllowCredentials,
     AccessControlAllowHeaders, AccessControlAllowMethods, AccessControlAllowOrigin,
@@ -10,17 +10,17 @@ use crate::KnownHeaderName::{
     UpgradeInsecureRequests, UserAgent, Vary, XcontentTypeOptions, XforwardedFor, XframeOptions,
     XxssProtection,
 };
-use PseudoHeaderName::{Authority, Method, Path, Scheme, Status};
+use PseudoHeaderName::{Authority, Method, Path, Protocol, Scheme, Status};
 use StaticHeaderName::{Header, Pseudo};
-use core::{
+use std::{
     convert::AsRef,
     fmt::{self, Display, Formatter},
 };
 mod lookup;
-pub(super) use lookup::{StaticLookup, static_table_lookup};
+pub(super) use lookup::{StaticLookup, first_match, static_table_lookup};
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
-pub(crate) enum StaticHeaderName {
+pub(in crate::headers) enum StaticHeaderName {
     Header(KnownHeaderName),
     Pseudo(PseudoHeaderName),
 }
@@ -48,23 +48,63 @@ impl Display for StaticHeaderName {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
-pub(crate) enum PseudoHeaderName {
+pub(in crate::headers) enum PseudoHeaderName {
     Authority,
     Method,
     Path,
+    Protocol,
     Scheme,
     Status,
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::headers::qpack::static_table::PseudoHeaderName;
+
+    #[test]
+    fn round_trip() {
+        for phn in PseudoHeaderName::VARIANTS.into_iter().copied() {
+            assert_eq!(
+                PseudoHeaderName::lowercase_byte_match(phn.as_bytes()),
+                Some(phn)
+            );
+        }
+
+        assert!(PseudoHeaderName::lowercase_byte_match(b":other").is_none());
+    }
+}
+
 impl PseudoHeaderName {
+    #[cfg(test)]
+    pub(in crate::headers) const VARIANTS: &[PseudoHeaderName] =
+        &[Authority, Method, Path, Protocol, Scheme, Status];
+
     /// Retrieve a 'static str representation
     pub fn as_str(self) -> &'static str {
         match self {
             Authority => ":authority",
             Method => ":method",
             Path => ":path",
+            Protocol => ":protocol",
             Scheme => ":scheme",
             Status => ":status",
+        }
+    }
+
+    /// retrieve a static byte representation including leading :
+    pub fn as_bytes(self) -> &'static [u8] {
+        self.as_str().as_bytes()
+    }
+
+    pub(in crate::headers) fn lowercase_byte_match(bytes: &[u8]) -> Option<Self> {
+        match bytes {
+            b":authority" => Some(Authority),
+            b":method" => Some(Method),
+            b":path" => Some(Path),
+            b":protocol" => Some(Protocol),
+            b":scheme" => Some(Scheme),
+            b":status" => Some(Status),
+            _ => None,
         }
     }
 }
@@ -75,12 +115,12 @@ impl Display for PseudoHeaderName {
     }
 }
 
-pub(crate) fn static_entry(
+pub(in crate::headers) fn static_entry(
     index: usize,
-) -> Result<&'static (StaticHeaderName, &'static str), DecoderError> {
+) -> Result<&'static (StaticHeaderName, &'static str), QpackError> {
     STATIC_TABLE
         .get(index)
-        .ok_or(DecoderError::InvalidStaticIndex(index))
+        .ok_or(QpackError::InvalidStaticIndex(index))
 }
 
 const STATIC_TABLE: [(StaticHeaderName, &str); 99] = [
@@ -136,18 +176,18 @@ const STATIC_TABLE: [(StaticHeaderName, &str); 99] = [
     (Header(ContentType), "image/jpeg"),
     (Header(ContentType), "image/png"),
     (Header(ContentType), "text/css"),
-    (Header(ContentType), "text/html;charset=utf-8"),
+    (Header(ContentType), "text/html; charset=utf-8"),
     (Header(ContentType), "text/plain"),
     (Header(ContentType), "text/plain;charset=utf-8"),
     (Header(Range), "bytes=0-"),
     (Header(StrictTransportSecurity), "max-age=31536000"),
     (
         Header(StrictTransportSecurity),
-        "max-age=31536000;includesubdomains",
+        "max-age=31536000; includesubdomains",
     ),
     (
         Header(StrictTransportSecurity),
-        "max-age=31536000;includesubdomains;preload",
+        "max-age=31536000; includesubdomains; preload",
     ),
     (Header(Vary), "accept-encoding"),
     (Header(Vary), "origin"),
@@ -177,7 +217,7 @@ const STATIC_TABLE: [(StaticHeaderName, &str); 99] = [
     (Header(Authorization), ""),
     (
         Header(ContentSecurityPolicy),
-        "script-src 'none';object-src 'none';base-uri 'none'",
+        "script-src 'none'; object-src 'none'; base-uri 'none'",
     ),
     (Header(EarlyData), "1"),
     (Header(ExpectCt), ""),
