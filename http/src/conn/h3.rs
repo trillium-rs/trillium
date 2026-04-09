@@ -25,11 +25,14 @@ where
         h3_connection: Arc<H3Connection>,
         mut transport: Transport,
         mut buffer: Buffer,
+        stream_id: u64,
     ) -> Result<H3StreamResult<Transport>, H3Error> {
+        log::trace!("H3 bidi stream {stream_id}: started");
         let start_time = Instant::now();
 
         let mut frame_stream = FrameStream::new(&mut transport, &mut buffer);
         let field_section = loop {
+            log::trace!("H3 bidi stream {stream_id}: waiting for next frame");
             let mut frame = frame_stream
                 .next()
                 .await?
@@ -37,8 +40,17 @@ where
 
             match frame.frame() {
                 Frame::Headers(_) => {
-                    let buffered = frame.buffer_payload().await?;
-                    break FieldSection::decode(buffered).map_err(|_| H3ErrorCode::MessageError)?;
+                    log::trace!("H3 bidi stream {stream_id}: decoding HEADERS frame");
+                    let encoded = frame.buffer_payload().await?;
+                    let result = h3_connection
+                        .decode_field_section(encoded, stream_id)
+                        .await
+                        .map_err(|e| {
+                            log::debug!("H3 bidi stream {stream_id}: HEADERS decode error: {e:?}");
+                            H3ErrorCode::MessageError
+                        })?;
+                    log::trace!("H3 bidi stream {stream_id}: HEADERS decoded:\n{result}");
+                    break result;
                 }
 
                 Frame::WebTransport(session_id) => {
@@ -51,7 +63,9 @@ where
                     });
                 }
 
-                _ => {}
+                other => {
+                    log::trace!("H3 bidi stream {stream_id}: skipping frame {other:?}");
+                }
             }
         };
 
@@ -61,6 +75,7 @@ where
             buffer,
             field_section,
             start_time,
+            stream_id,
         )?))
     }
 
@@ -72,7 +87,6 @@ where
 
     pub(crate) async fn send_h3(mut self) -> io::Result<Self> {
         self.finalize_response_headers_h3();
-
         let mut output_buffer = Vec::with_capacity(self.context.config.response_buffer_len);
 
         self.encode_headers_h3(&mut output_buffer)?;
@@ -93,12 +107,21 @@ where
             bufwriter.copy_from(&mut body, loops_per_yield).await?;
 
             if let Some(trailers) = body.trailers() {
+                let Some(h3) = &self.h3_connection else {
+                    return Err(io::ErrorKind::NotConnected.into());
+                };
+                let Some(stream_id) = self.h3_stream_id else {
+                    return Err(io::ErrorKind::NotConnected.into());
+                };
+
                 log::trace!("sending trailers: {trailers}");
                 encode_field_section_h3(
+                    h3,
                     &FieldSection::new(PseudoHeaders::default(), &trailers),
                     max_peer_field_section_size,
                     initial_cap,
                     bufwriter.buffer_mut(),
+                    stream_id,
                 )?;
             }
         }
@@ -114,11 +137,20 @@ where
 
         let field_section = FieldSection::new(pseudo_headers, &self.response_headers);
         log::trace!("sending:\n{field_section}");
+        let Some(h3) = &self.h3_connection else {
+            return Err(io::ErrorKind::NotConnected.into());
+        };
+        let Some(stream_id) = self.h3_stream_id else {
+            return Err(io::ErrorKind::NotConnected.into());
+        };
+
         encode_field_section_h3(
+            h3,
             &field_section,
             self.max_peer_field_section_size(),
             self.context.config.request_buffer_initial_len,
             buffer,
+            stream_id,
         )
     }
 
@@ -128,6 +160,7 @@ where
         buffer: Buffer,
         mut field_section: FieldSection<'static>,
         start_time: Instant,
+        stream_id: u64,
     ) -> Result<Self, H3ErrorCode> {
         log::trace!("received:\n{field_section}");
         let pseudo_headers = field_section.pseudo_headers_mut();
@@ -188,6 +221,8 @@ where
             .cloned()
             .unwrap_or_default();
 
+        let request_body_state = ReceivedBodyState::new_h3();
+
         Ok(Conn {
             context: h3_connection.context(),
             transport,
@@ -200,7 +235,7 @@ where
             status: None,
             state: TypeSet::new(),
             response_body: None,
-            request_body_state: ReceivedBodyState::new_h3(),
+            request_body_state,
             secure: true,
             after_send: AfterSend::default(),
             start_time,
@@ -208,6 +243,7 @@ where
             authority,
             scheme,
             h3_connection: Some(h3_connection),
+            h3_stream_id: Some(stream_id),
             protocol,
             request_trailers: None,
         })
@@ -237,13 +273,19 @@ where
 }
 
 fn encode_field_section_h3(
+    h3: &H3Connection,
     field_section: &FieldSection<'_>,
     max_peer_field_section_size: Option<u64>,
     initial_cap: usize,
     buffer: &mut Vec<u8>,
+    stream_id: u64,
 ) -> io::Result<()> {
     let mut field_section_buf = Vec::with_capacity(initial_cap);
-    field_section.encode(&mut field_section_buf);
+    h3.encode_field_section(field_section, &mut field_section_buf, stream_id)
+        .map_err(|error| {
+            log::error!("encode error: {error:?}");
+            io::Error::other(error)
+        })?;
 
     let size = field_section_buf.len() as u64;
     if let Some(max_size) = max_peer_field_section_size

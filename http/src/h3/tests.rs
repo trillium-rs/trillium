@@ -61,7 +61,7 @@ async fn round_trip_buf(body: BodyType, content_length: Option<u64>, buf_size: u
         &HttpConfig::DEFAULT,
     );
 
-    let (_, result) = futures_lite::future::zip(
+    let ((), result) = futures_lite::future::zip(
         async {
             let mut src = H3Body::from(body);
             let mut buf = vec![0u8; buf_size];

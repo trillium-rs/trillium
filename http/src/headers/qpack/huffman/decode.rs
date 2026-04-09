@@ -312,7 +312,7 @@ pub(super) fn decode_bitwise(input: &[u8]) -> Result<Vec<u8>, HuffmanError> {
 /// Uses a precomputed nibble-indexed state machine: each input byte
 /// requires exactly two table lookups (high nibble, low nibble),
 /// processing 4 bits per step instead of the naive 1 bit at a time.
-pub(crate) fn decode(input: &[u8]) -> Result<Vec<u8>, HuffmanError> {
+pub(in crate::headers) fn decode(input: &[u8]) -> Result<Vec<u8>, HuffmanError> {
     let mut output = Vec::with_capacity(input.len());
     let mut state = 0_usize; // state 0 = root
 

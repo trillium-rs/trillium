@@ -1,5 +1,11 @@
 use super::{decode::decode_bitwise, *};
 
+fn encode(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    encode_into(input, &mut out);
+    out
+}
+
 // C.4.1
 #[test]
 fn encode_www_example_com() {
@@ -156,7 +162,7 @@ fn decode_empty() {
 #[test]
 fn roundtrip_ascii() {
     let input = b"content-type: application/json";
-    assert_eq!(decode(&encode(input)).unwrap(), input);
+    assert_eq!(decode(&encode(input)).unwrap(), input.as_slice());
 }
 
 /// Cross-validate the nibble state machine against the bit-at-a-time
@@ -203,6 +209,52 @@ fn nibble_matches_bitwise_on_valid_encodings() {
             nibble_result.unwrap(),
             plaintext,
             "roundtrip failed for {len}-byte plaintext"
+        );
+    }
+}
+
+#[test]
+fn encoded_length_if_shorter_agrees_with_encode() {
+    // For any input where Huffman is strictly shorter, the length function must return the
+    // actual encoded length; where it isn't, it must return None.
+    let cases: &[&[u8]] = &[
+        b"",
+        b"x",
+        b"ab",
+        b"www.example.com",
+        b"no-cache",
+        b"custom-key",
+        b"custom-value",
+        b"302",
+        b"307",
+        b"private",
+        b"gzip",
+        b"Mon, 21 Oct 2013 20:13:21 GMT",
+        b"https://www.example.com",
+    ];
+    for input in cases {
+        let encoded = encode(input);
+        let expected = (encoded.len() < input.len()).then_some(encoded.len());
+        assert_eq!(
+            encoded_length_if_shorter(input),
+            expected,
+            "input={input:?}"
+        );
+    }
+}
+
+#[test]
+fn encoded_length_if_shorter_random() {
+    let mut rng = fastrand::Rng::with_seed(0x1234_5678);
+    for _ in 0..1_000 {
+        let len = rng.usize(0..=128);
+        let plaintext: Vec<u8> = (0..len).map(|_| rng.u8(0..=127)).collect();
+        let encoded = encode(&plaintext);
+        let expected = (encoded.len() < plaintext.len()).then_some(encoded.len());
+        assert_eq!(
+            encoded_length_if_shorter(&plaintext),
+            expected,
+            "plaintext={plaintext:?}"
         );
     }
 }

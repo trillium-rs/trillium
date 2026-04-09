@@ -19,18 +19,12 @@ impl Debug for HeaderName<'_> {
     }
 }
 
+#[cfg(feature = "parse")]
 impl<'a> HeaderName<'a> {
     pub(crate) fn parse(bytes: &'a [u8]) -> Result<Self, Error> {
         std::str::from_utf8(bytes)
             .map_err(|_| Error::InvalidHeaderName)
             .map(HeaderName::from)
-    }
-
-    pub(crate) fn as_known(&self) -> Option<KnownHeaderName> {
-        match self.0 {
-            KnownHeader(k) => Some(k),
-            UnknownHeader(_) => None,
-        }
     }
 }
 
@@ -70,6 +64,15 @@ impl<'a> HeaderName<'a> {
             UnknownHeader(uhn) => UnknownHeader(uhn.into_owned()),
         })
     }
+
+    // /// Convert a header name into a lowercase variant suitable for use in http/2-3
+    // #[must_use]
+    // pub fn into_lower(self) -> HeaderName<'a> {
+    //     HeaderName(match self.0 {
+    //         KnownHeader(known) => KnownHeader(known),
+    //         UnknownHeader(uhn) => UnknownHeader(uhn.into_lower()),
+    //     })
+    // }
 
     /// Turn a `&'b HeaderName<'a>` into a `HeaderName<'b>`
     pub fn reborrow<'b: 'a>(&'b self) -> HeaderName<'b> {
@@ -145,6 +148,12 @@ impl<'a> From<&'a str> for HeaderName<'a> {
             Ok(khn) => KnownHeader(khn),
             Err(_e) => UnknownHeader(UnknownHeaderName::from(s)),
         })
+    }
+}
+
+impl<'a> From<&'a HeaderName<'_>> for HeaderName<'a> {
+    fn from(value: &'a HeaderName<'_>) -> Self {
+        value.reborrow()
     }
 }
 

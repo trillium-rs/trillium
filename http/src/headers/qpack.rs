@@ -1,28 +1,52 @@
 //! QPACK types
 //!
 //! Please note that this interface is likely to change
-
-mod decoder;
-mod encoder;
-mod huffman;
-mod static_table;
+#[cfg(test)]
+mod decoder_corpus_tests;
+mod decoder_dynamic_table;
+#[cfg(test)]
+mod encoder_corpus_tests;
+mod encoder_dynamic_table;
+mod entry_name;
+mod header_observer;
+pub(crate) mod huffman;
+mod instruction;
+#[cfg(test)]
+mod qif;
+#[cfg(test)]
+mod reference_out;
+pub(crate) mod static_table;
 #[cfg(test)]
 mod tests;
-mod varint;
+pub(crate) mod varint;
 
-// §4.5.2: Indexed Field Line — first byte pattern 1xxxxxxx
-const INDEXED_FIELD_LINE: u8 = 0x80;
-const INDEXED_STATIC_FLAG: u8 = 0x40; // T bit
-
-// §4.5.4: Literal Field Line with Name Reference — first byte pattern 01xxxxxx
-const LITERAL_WITH_NAME_REF: u8 = 0x40;
-const NAME_REF_STATIC_FLAG: u8 = 0x10; // T bit
-
-// §4.5.6: Literal Field Line with Literal Name — first byte pattern 001xxxxx
-const LITERAL_WITH_LITERAL_NAME: u8 = 0x20;
-
-use crate::{Headers, Method, Status};
+// Wire-format constants for §4.5 field sections live in `instruction::field_section`.
+// Encoder-stream instruction constants (§3.2) live in `instruction::encoder`.
+// Decoder-stream instruction constants (§4.4) live in `instruction::decoder`.
+// §4.1.2 string-literal encoding helpers live in `instruction` (module-level).
+use super::header_value::HeaderValueInner;
+use crate::{
+    Headers, Method, Status,
+    h3::{H3Error, H3ErrorCode},
+    headers::qpack::{
+        entry_name::QpackEntryName, static_table::PseudoHeaderName, varint::VarIntError,
+    },
+};
+#[cfg(not(feature = "unstable"))]
+pub(crate) use decoder_dynamic_table::DecoderDynamicTable;
+#[cfg(feature = "unstable")]
+pub use decoder_dynamic_table::DecoderDynamicTable;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use encoder_dynamic_table::EncoderDynamicTable;
+#[cfg(feature = "unstable")]
+pub use encoder_dynamic_table::EncoderDynamicTable;
 use fieldwork::Fieldwork;
+pub(crate) use header_observer::{ConnectionAccumulator, HeaderObserver};
+#[cfg(feature = "unstable")]
+pub use huffman::HuffmanError;
+#[cfg(not(feature = "unstable"))]
+use huffman::HuffmanError;
+use smartcow::SmartCow;
 use std::{
     borrow::Cow,
     fmt::{self, Display, Formatter},
@@ -85,9 +109,6 @@ impl Display for PseudoHeaders<'_> {
     }
 }
 
-#[cfg(feature = "unstable")]
-pub use huffman::HuffmanError;
-
 /// Combined [`PseudoHeaders`] and [`Headers`]
 #[derive(Debug, Clone, Fieldwork)]
 #[fieldwork(get, get_mut, into_field)]
@@ -99,8 +120,92 @@ pub struct FieldSection<'a> {
     headers: Cow<'a, Headers>,
 }
 
+/// A type so that we keep track of whether we're borrowing content from a local lifetime (borrowed
+/// headers), have a static vec, or directly own the content.  This type exists specifically to
+/// defer cloning/allocating until we're absolutely sure we're going to need to do so (there are
+/// many paths that only ever need a borrowed slice). If we pass &[u8], we lose track of whether the
+/// livetime is static, in which case we wouldn't need to clone at all. This is effectively a
+/// Cow<'a, Cow<'static, [u8]>>
+#[derive(Clone)]
+pub(crate) enum FieldLineValue<'a> {
+    Static(&'static [u8]),
+    Borrowed(&'a [u8]),
+    Owned(Vec<u8>),
+}
+
+impl std::ops::Deref for FieldLineValue<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_bytes()
+    }
+}
+
+/// Equality delegates to [`as_bytes`](Self::as_bytes): `Static(b"x")`, `Borrowed(b"x")`, and
+/// `Owned(b"x".to_vec())` all compare equal. Provenance (static / borrowed / owned) is a
+/// storage detail, not a semantic distinction.
+impl PartialEq for FieldLineValue<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for FieldLineValue<'_> {}
+
+/// Consistent with [`PartialEq`]: hash by the underlying bytes so the three provenance variants
+/// hash the same.
+impl std::hash::Hash for FieldLineValue<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_bytes().hash(state);
+    }
+}
+
+impl fmt::Debug for FieldLineValue<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Static(arg0) => f
+                .debug_tuple("Static")
+                .field(&String::from_utf8_lossy(arg0))
+                .finish(),
+            Self::Borrowed(arg0) => f
+                .debug_tuple("Borrowed")
+                .field(&String::from_utf8_lossy(arg0))
+                .finish(),
+            Self::Owned(arg0) => f
+                .debug_tuple("Owned")
+                .field(&String::from_utf8_lossy(arg0))
+                .finish(),
+        }
+    }
+}
+
+impl FieldLineValue<'_> {
+    fn into_static(self) -> Cow<'static, [u8]> {
+        match self {
+            FieldLineValue::Static(b) => Cow::Borrowed(b),
+            FieldLineValue::Borrowed(b) => Cow::Owned(b.to_vec()),
+            FieldLineValue::Owned(b) => Cow::Owned(b),
+        }
+    }
+
+    fn reborrow(&self) -> FieldLineValue<'_> {
+        match self {
+            FieldLineValue::Static(items) => FieldLineValue::Static(items),
+            FieldLineValue::Borrowed(items) => FieldLineValue::Borrowed(items),
+            FieldLineValue::Owned(items) => FieldLineValue::Borrowed(items),
+        }
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            FieldLineValue::Static(items) | FieldLineValue::Borrowed(items) => items,
+            FieldLineValue::Owned(items) => items,
+        }
+    }
+}
+
 impl<'a> FieldSection<'a> {
-    /// Construct a new borrowed`FieldSection` for encoding
+    /// Construct a new borrowed `FieldSection` for encoding
     pub fn new(pseudo_headers: PseudoHeaders<'a>, headers: &'a Headers) -> Self {
         Self {
             pseudo_headers,
@@ -108,8 +213,92 @@ impl<'a> FieldSection<'a> {
         }
     }
 
+    fn field_lines(&self) -> Vec<(QpackEntryName<'_>, FieldLineValue<'_>)> {
+        fn field_line_value_from(v: &crate::HeaderValue) -> FieldLineValue<'_> {
+            if let HeaderValueInner::Utf8(SmartCow::Borrowed(b)) = &v.0 {
+                FieldLineValue::Static(b.as_bytes())
+            } else {
+                FieldLineValue::Borrowed(v.as_ref())
+            }
+        }
+
+        let mut lines = Vec::with_capacity(self.headers.len() + 6);
+        if let Some(method) = &self.pseudo_headers.method {
+            lines.push((
+                PseudoHeaderName::Method.into(),
+                FieldLineValue::Static(method.as_str().as_bytes()),
+            ));
+        }
+
+        if let Some(status) = &self.pseudo_headers.status {
+            lines.push((
+                PseudoHeaderName::Status.into(),
+                FieldLineValue::Static(status.code().as_bytes()),
+            ));
+        }
+
+        if let Some(path) = &self.pseudo_headers.path {
+            lines.push((
+                PseudoHeaderName::Path.into(),
+                FieldLineValue::Borrowed(path.as_bytes()),
+            ));
+        }
+        if let Some(scheme) = &self.pseudo_headers.scheme {
+            lines.push((
+                PseudoHeaderName::Scheme.into(),
+                FieldLineValue::Borrowed(scheme.as_bytes()),
+            ));
+        }
+
+        if let Some(authority) = &self.pseudo_headers.authority {
+            lines.push((
+                PseudoHeaderName::Authority.into(),
+                FieldLineValue::Borrowed(authority.as_bytes()),
+            ));
+        }
+
+        if let Some(protocol) = &self.pseudo_headers.protocol {
+            lines.push((
+                PseudoHeaderName::Protocol.into(),
+                FieldLineValue::Borrowed(protocol.as_bytes()),
+            ));
+        }
+
+        // Iterate the inner maps directly (rather than the public `Iter`) so the
+        // `UnknownHeaderName<'static>` inner lifetime is preserved on each item;
+        // `Iter` erases it to the iterator's borrow lifetime, which would prevent
+        // calling `into_lower_static`.
+        for (k, hv) in &self.headers.known {
+            for v in hv {
+                let value = field_line_value_from(v);
+                lines.push((QpackEntryName::Known(*k), value));
+            }
+        }
+
+        for (uhn, hv) in &self.headers.unknown {
+            for v in hv {
+                let value = field_line_value_from(v);
+                // Headers stores `UnknownHeaderName<'static>`, so route the clone
+                // through the lowercase interner — uppercase literals get
+                // interned to a canonical `&'static str` and uppercase Owned
+                // names allocate a lowercased copy. The resulting
+                // `&'static str` (when present) survives lifetime erasure into
+                // `Vec<(QpackEntryName<'_>, _)>` via the `UnknownStatic`
+                // variant tag, regardless of what '_ is.
+                let lowered = uhn.clone().into_lower_static();
+                let name = match lowered.as_static_str() {
+                    Some(s) => QpackEntryName::UnknownStatic(s),
+                    None => QpackEntryName::Unknown(lowered),
+                };
+                lines.push((name, value));
+            }
+        }
+
+        lines
+    }
+
     /// Decompose a `FieldSection` into pseudo headers and headers
-    #[cfg(any(feature = "unstable", test))]
+    #[cfg(test)]
     pub fn into_parts(self) -> (PseudoHeaders<'a>, Headers) {
         (self.pseudo_headers, self.headers.into_owned())
     }
@@ -124,5 +313,30 @@ impl Display for FieldSection<'_> {
             }
         }
         Ok(())
+    }
+}
+
+/// Errors that can occur during QPACK decoding.
+#[derive(Debug, thiserror::Error, Clone, Copy)]
+pub(crate) enum QpackError {
+    #[error(transparent)]
+    Huffman(#[from] HuffmanError),
+
+    #[error(transparent)]
+    VarInt(#[from] VarIntError),
+
+    #[error("static table index {0} out of range (0-98)")]
+    InvalidStaticIndex(usize),
+
+    #[error("unexpected end of field section")]
+    UnexpectedEnd,
+
+    #[error("invalid header name")]
+    InvalidHeaderName,
+}
+
+impl From<QpackError> for H3Error {
+    fn from(_: QpackError) -> Self {
+        H3ErrorCode::QpackDecompressionFailed.into()
     }
 }

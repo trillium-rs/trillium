@@ -570,7 +570,7 @@ mod tests {
         // 16 hex digits + CR, then 300 arbitrary non-LF bytes. The buffer cap
         // (256 bytes) should fire before a complete size line arrives.
         let mut input = "FFFFFFFFFFFFFFFF\r".to_string();
-        input.extend(std::iter::repeat('x').take(300));
+        input.extend(std::iter::repeat_n('x', 300));
         assert!(decode(input, 1).await.is_err());
     }
 

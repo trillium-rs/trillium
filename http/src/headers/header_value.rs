@@ -9,10 +9,26 @@ use std::{
 
 /// A `HeaderValue` represents the right hand side of a single `name:
 /// value` pair.
-#[derive(Eq, PartialEq, Clone, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
 pub struct HeaderValue(pub(crate) HeaderValueInner);
 
-#[derive(Eq, PartialEq, Clone)]
+impl From<Cow<'static, [u8]>> for HeaderValue {
+    fn from(value: Cow<'static, [u8]>) -> Self {
+        match value {
+            Cow::Borrowed(bytes) => match std::str::from_utf8(bytes) {
+                Ok(s) => Self(Utf8(SmartCow::Borrowed(s))),
+                Err(_) => Self(Bytes(bytes.into())),
+            },
+
+            Cow::Owned(bytes) => match String::from_utf8(bytes) {
+                Ok(s) => Self(Utf8(SmartCow::Owned(s.into()))),
+                Err(e) => Self(Bytes(e.into_bytes().into())),
+            },
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Clone, Hash)]
 pub(crate) enum HeaderValueInner {
     Utf8(SmartCow<'static>),
     Bytes(SmallVec<[u8; 32]>),
@@ -79,6 +95,7 @@ impl HeaderValue {
     }
 }
 
+#[cfg(feature = "parse")]
 impl HeaderValue {
     pub(crate) fn parse(bytes: &[u8]) -> Self {
         match std::str::from_utf8(bytes) {
