@@ -36,8 +36,8 @@ use unknown_header_name::UnknownHeaderName;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[must_use]
 pub struct Headers {
-    known: BTreeMap<KnownHeaderName, HeaderValues>,
-    unknown: HashMap<UnknownHeaderName<'static>, HeaderValues>,
+    pub(crate) known: BTreeMap<KnownHeaderName, HeaderValues>,
+    pub(crate) unknown: HashMap<UnknownHeaderName<'static>, HeaderValues>,
 }
 
 /// Default Server header

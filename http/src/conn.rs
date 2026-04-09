@@ -135,6 +135,9 @@ pub struct Conn<Transport> {
     #[field(get)]
     pub(crate) h3_connection: Option<Arc<H3Connection>>,
 
+    /// stream id
+    pub(crate) h3_stream_id: Option<u64>,
+
     /// the :protocol http/3 pseudo-header
     #[field(set, get, into)]
     pub(crate) protocol: Option<Cow<'static, str>>,
@@ -167,6 +170,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("scheme", &self.scheme)
             .field("protocol", &self.protocol)
             .field("h3_connection", &self.h3_connection)
+            .field("h3_stream_id", &self.h3_stream_id)
             .field("request_trailers", &self.request_trailers)
             .finish()
     }
@@ -464,6 +468,7 @@ where
             h3_connection: self.h3_connection,
             protocol: self.protocol,
             request_trailers: self.request_trailers,
+            h3_stream_id: self.h3_stream_id,
         }
     }
 

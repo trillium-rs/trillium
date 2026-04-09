@@ -105,6 +105,7 @@ where
             &self.context.config,
         )
         .with_trailers(&mut self.request_trailers)
+        .with_h3_connection(self.h3_connection.clone().zip(self.h3_stream_id))
     }
 
     fn validate_headers(request_headers: &Headers) -> Result<()> {
@@ -236,6 +237,7 @@ where
             h3_connection: None,
             protocol: None,
             request_trailers: None,
+            h3_stream_id: None,
         })
     }
 
@@ -311,6 +313,7 @@ where
             h3_connection: None,
             protocol: None,
             request_trailers: None,
+            h3_stream_id: None,
         })
     }
 
