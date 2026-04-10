@@ -37,7 +37,7 @@ jobs:
           override: true
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.3
+        uses: Swatinem/rust-cache@v2.9.1
 
       - name: Run tests
         uses: actions-rs/cargo@v1
@@ -79,7 +79,7 @@ jobs:
         with:
           components: rustfmt
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.3
+        uses: Swatinem/rust-cache@v2.9.1
       - name: Format
         run: cargo fmt --all -- --check
       - name: Run cargo-udeps
