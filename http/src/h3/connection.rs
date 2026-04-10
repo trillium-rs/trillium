@@ -5,16 +5,11 @@ use super::{
     settings::H3Settings,
 };
 use crate::{
-    Buffer, Conn, HeaderName, HeaderValue, HttpContext,
+    Buffer, Conn, HttpContext,
     h3::H3ErrorCode,
     headers::qpack::{
-        DEC_INSTR_INSERT_COUNT_INC, DEC_INSTR_SECTION_ACK, ENC_INSTR_INSERT_WITH_LITERAL_NAME,
-        ENC_INSTR_INSERT_WITH_NAME_REF, ENC_INSTR_LITERAL_NAME_HUFFMAN_FLAG,
-        ENC_INSTR_NAME_REF_STATIC_FLAG, ENC_INSTR_SET_DYNAMIC_TABLE_CAPACITY, STRING_HUFFMAN_FLAG,
-        dynamic_table::DynamicTable,
-        huffman,
-        static_table::{StaticHeaderName, static_entry},
-        varint,
+        DEC_INSTR_INSERT_COUNT_INC, DEC_INSTR_SECTION_ACK, dynamic_table::DynamicTable,
+        encoder_stream::process_encoder_stream, varint,
     },
 };
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -199,7 +194,14 @@ impl H3Connection {
         }
     }
 
+    #[cfg(not(feature = "unstable"))]
     pub(crate) fn inbound_dynamic_table(&self) -> &DynamicTable {
+        &self.inbound_dynamic_table
+    }
+
+    /// Retrieve the dynamic table
+    #[cfg(feature = "unstable")]
+    pub fn inbound_dynamic_table(&self) -> &DynamicTable {
         &self.inbound_dynamic_table
     }
 
@@ -213,95 +215,31 @@ impl H3Connection {
     /// # Errors
     ///
     /// Returns an `H3Error` on I/O failure or protocol error.
-    pub async fn run_inbound_encoder<T>(&self, mut stream: T) -> Result<(), H3Error>
+    async fn run_inbound_encoder<T>(&self, mut stream: T) -> Result<(), H3Error>
     where
         T: AsyncRead + Unpin + Send,
     {
         log::trace!("QPACK encoder stream: started");
-        let result = self.run_inbound_encoder_inner(&mut stream).await;
+        let result = process_encoder_stream(&mut stream, &self.inbound_dynamic_table).await;
+
         match &result {
             Err(H3Error::Protocol(code)) => {
                 log::debug!("QPACK encoder stream: protocol error: {code}");
                 self.inbound_dynamic_table.fail(*code);
             }
+
             Err(H3Error::Io(e)) => {
                 log::debug!("QPACK encoder stream: I/O error: {e}");
                 self.inbound_dynamic_table
                     .fail(H3ErrorCode::QpackEncoderStreamError);
             }
+
             Ok(()) => {
                 log::trace!("QPACK encoder stream: closed cleanly");
             }
         }
+
         result
-    }
-
-    async fn run_inbound_encoder_inner<T>(&self, stream: &mut T) -> Result<(), H3Error>
-    where
-        T: AsyncRead + Unpin + Send,
-    {
-        loop {
-            let Some(first) = enc_read_first_byte(stream).await? else {
-                log::trace!("QPACK encoder stream: EOF");
-                return Ok(());
-            };
-
-            if first & ENC_INSTR_INSERT_WITH_NAME_REF != 0 {
-                // Insert With Name Reference (RFC 9204 §3.2.2): 1Txxxxxx
-                let is_static = first & ENC_INSTR_NAME_REF_STATIC_FLAG != 0;
-                let name_index = enc_read_varint(first, 6, stream).await?;
-                let name: HeaderName<'static> = if is_static {
-                    let (static_name, _) = static_entry(name_index)
-                        .map_err(|_| H3ErrorCode::QpackEncoderStreamError)?;
-                    match static_name {
-                        StaticHeaderName::Header(k) => HeaderName::from(*k),
-                        StaticHeaderName::Pseudo(p) => HeaderName::from(p.as_str().to_owned()),
-                    }
-                } else {
-                    self.inbound_dynamic_table
-                        .name_at_relative(name_index)
-                        .ok_or(H3ErrorCode::QpackEncoderStreamError)?
-                };
-                let value = enc_read_string(stream).await?;
-                log::trace!(
-                    "QPACK encoder: Insert With Name Reference [{name}: {}]",
-                    String::from_utf8_lossy(&value)
-                );
-                self.inbound_dynamic_table
-                    .insert(name, HeaderValue::from(value))?;
-            } else if first & ENC_INSTR_INSERT_WITH_LITERAL_NAME != 0 {
-                // Insert With Literal Name (RFC 9204 §3.2.3): 01HXXXxx
-                let is_huffman = first & ENC_INSTR_LITERAL_NAME_HUFFMAN_FLAG != 0;
-                let name_len = enc_read_varint(first, 5, stream).await?;
-                let name_bytes = enc_read_exact(name_len, stream).await?;
-                let name_bytes = if is_huffman {
-                    huffman::decode(&name_bytes)
-                        .map_err(|_| H3ErrorCode::QpackEncoderStreamError)?
-                } else {
-                    name_bytes
-                };
-                let name = HeaderName::parse(&name_bytes)
-                    .map_err(|_| H3ErrorCode::QpackEncoderStreamError)?
-                    .into_owned();
-                let value = enc_read_string(stream).await?;
-                log::trace!(
-                    "QPACK encoder: Insert With Literal Name [{name}: {}]",
-                    String::from_utf8_lossy(&value)
-                );
-                self.inbound_dynamic_table
-                    .insert(name, HeaderValue::from(value))?;
-            } else if first & ENC_INSTR_SET_DYNAMIC_TABLE_CAPACITY != 0 {
-                // Set Dynamic Table Capacity (RFC 9204 §3.2.1): 001XXXXX
-                let capacity = enc_read_varint(first, 5, stream).await?;
-                log::trace!("QPACK encoder: Set Dynamic Table Capacity {capacity}");
-                self.inbound_dynamic_table.set_capacity(capacity)?;
-            } else {
-                // Duplicate (RFC 9204 §3.2.4): 000XXXXX
-                let relative_index = enc_read_varint(first, 5, stream).await?;
-                log::trace!("QPACK encoder: Duplicate index {relative_index}");
-                self.inbound_dynamic_table.duplicate(relative_index)?;
-            }
-        }
     }
 
     /// Run this server's HTTP/3 outbound control stream.
@@ -398,9 +336,17 @@ impl H3Connection {
             let (pending_acks, insert_count) = table.drain_pending_acks_and_count();
 
             let mut instructions = Vec::new();
-            for stream_id in pending_acks {
-                log::trace!("QPACK decoder: Section Acknowledgement for stream {stream_id}");
-                encode_section_ack(stream_id, &mut instructions);
+            for ack in pending_acks {
+                log::trace!(
+                    "QPACK decoder: Section Acknowledgement for stream {}",
+                    ack.stream_id
+                );
+                encode_section_ack(ack.stream_id, &mut instructions);
+                // A Section Acknowledgement implicitly tells the encoder KRC >=
+                // required_insert_count, so those inserts must not also be counted
+                // in ICI (RFC 9204 §4.4.3).
+                last_reported_insert_count =
+                    last_reported_insert_count.max(ack.required_insert_count);
             }
             let increment = insert_count - last_reported_insert_count;
             if increment > 0 {
@@ -647,94 +593,6 @@ fn encode_insert_count_increment(increment: u64, buf: &mut Vec<u8>) {
     let mut encoded = varint::encode(usize::try_from(increment).unwrap_or(usize::MAX), 6);
     encoded[0] |= DEC_INSTR_INSERT_COUNT_INC; // 0x00 — no-op, but makes the intent explicit
     buf.extend_from_slice(&encoded);
-}
-
-// --- QPACK encoder stream helpers ---
-// These read directly from the stream byte by byte; the encoder stream carries low-volume
-// instructions, so individual read_exact calls are fine.
-
-/// Read the first byte of an encoder instruction, returning `None` on clean EOF.
-///
-/// A clean EOF here is not an error — it means the peer closed the encoder stream
-/// (e.g., during QUIC connection teardown). Any mid-instruction EOF propagated by
-/// [`enc_read_byte`] is still an error.
-async fn enc_read_first_byte(stream: &mut (impl AsyncRead + Unpin)) -> Result<Option<u8>, H3Error> {
-    let mut b = [0u8; 1];
-    match stream.read(&mut b).await {
-        Ok(0) => Ok(None),
-        Ok(_) => Ok(Some(b[0])),
-        Err(e) => Err(H3Error::Io(e)),
-    }
-}
-
-/// Read a single byte from the encoder stream.
-async fn enc_read_byte(stream: &mut (impl AsyncRead + Unpin)) -> Result<u8, H3Error> {
-    let mut b = [0u8; 1];
-    stream
-        .read_exact(&mut b)
-        .await
-        .map_err(|_| H3ErrorCode::QpackEncoderStreamError)?;
-    Ok(b[0])
-}
-
-/// Read a QPACK prefix-coded integer where the first byte has already been read.
-///
-/// `first` is the first byte; `prefix_size` is the number of low bits in it that
-/// belong to the value. Reads continuation bytes from `stream` as needed.
-async fn enc_read_varint(
-    first: u8,
-    prefix_size: u8,
-    stream: &mut (impl AsyncRead + Unpin),
-) -> Result<usize, H3Error> {
-    let prefix_mask = u8::MAX >> (8 - prefix_size);
-    let mut value = usize::from(first & prefix_mask);
-    if value < usize::from(prefix_mask) {
-        return Ok(value);
-    }
-    let mut shift = 0u32;
-    loop {
-        let byte = enc_read_byte(stream).await?;
-        let payload = usize::from(byte & 0x7F);
-        let increment = payload
-            .checked_shl(shift)
-            .ok_or(H3ErrorCode::QpackEncoderStreamError)?;
-        value = value
-            .checked_add(increment)
-            .ok_or(H3ErrorCode::QpackEncoderStreamError)?;
-        shift += 7;
-        if byte & 0x80 == 0 {
-            return Ok(value);
-        }
-    }
-}
-
-/// Read exactly `len` bytes from the encoder stream.
-async fn enc_read_exact(
-    len: usize,
-    stream: &mut (impl AsyncRead + Unpin),
-) -> Result<Vec<u8>, H3Error> {
-    let mut buf = vec![0u8; len];
-    stream
-        .read_exact(&mut buf)
-        .await
-        .map_err(|_| H3ErrorCode::QpackEncoderStreamError)?;
-    Ok(buf)
-}
-
-/// Read a QPACK string literal from the encoder stream.
-///
-/// Reads the first byte (H flag + 7-bit length prefix), then the string body.
-/// Huffman-decodes if the H flag is set.
-async fn enc_read_string(stream: &mut (impl AsyncRead + Unpin)) -> Result<Vec<u8>, H3Error> {
-    let first = enc_read_byte(stream).await?;
-    let is_huffman = first & STRING_HUFFMAN_FLAG != 0;
-    let len = enc_read_varint(first, 7, stream).await?;
-    let raw = enc_read_exact(len, stream).await?;
-    if is_huffman {
-        huffman::decode(&raw).map_err(|_| H3ErrorCode::QpackEncoderStreamError.into())
-    } else {
-        Ok(raw)
-    }
 }
 
 /// An `AsyncRead` adapter that drains a byte slice before reading from an inner stream.

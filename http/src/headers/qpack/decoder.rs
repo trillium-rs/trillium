@@ -163,7 +163,7 @@ impl FieldSection<'static> {
     /// # Errors
     ///
     /// Returns an error if the encoded bytes cannot be parsed as a valid field section.
-    pub(crate) async fn decode_with_dynamic_table(
+    pub async fn decode_with_dynamic_table(
         encoded: &[u8],
         table: &DynamicTable,
         stream_id: u64,
@@ -268,7 +268,7 @@ impl FieldSection<'static> {
         }
 
         if required_insert_count > 0 {
-            table.acknowledge_section(stream_id);
+            table.acknowledge_section(stream_id, required_insert_count);
         }
 
         Ok(Self {

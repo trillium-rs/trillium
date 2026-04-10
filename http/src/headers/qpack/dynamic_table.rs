@@ -12,7 +12,7 @@ use std::{collections::VecDeque, sync::Mutex};
 /// [`get`](DynamicTable::get) and await it — it resolves once the required number
 /// of inserts have arrived.
 #[derive(Debug)]
-pub(crate) struct DynamicTable {
+pub struct DynamicTable {
     inner: Mutex<DynamicTableInner>,
     /// Notified on every insert and on failure, waking blocked `get` calls.
     event: Event,
@@ -34,10 +34,17 @@ struct DynamicTableInner {
     insert_count: u64,
     /// Set when the encoder stream fails, to propagate the error to blocked waiters.
     failed: Option<H3ErrorCode>,
-    /// Stream IDs of request streams whose header blocks have been successfully decoded with
-    /// a non-zero Required Insert Count. Drained by `run_decoder` to send Section
-    /// Acknowledgement instructions to the peer encoder.
-    pending_section_acks: Vec<u64>,
+    /// Pending Section Acknowledgements for streams whose header blocks have been successfully
+    /// decoded with a non-zero Required Insert Count. Drained by `run_decoder` to send Section
+    /// Acknowledgement instructions; the `required_insert_count` is needed so `run_decoder`
+    /// can avoid double-counting inserts that the SA already covers via Known Received Count.
+    pending_section_acks: Vec<PendingSectionAck>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PendingSectionAck {
+    pub(crate) stream_id: u64,
+    pub(crate) required_insert_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -175,18 +182,21 @@ impl DynamicTable {
 
     /// Record that a request stream's header block has been successfully decoded and requires
     /// a Section Acknowledgement. Wakes `run_decoder` to send the instruction.
-    pub(crate) fn acknowledge_section(&self, stream_id: u64) {
+    pub(crate) fn acknowledge_section(&self, stream_id: u64, required_insert_count: u64) {
         self.inner
             .lock()
             .unwrap()
             .pending_section_acks
-            .push(stream_id);
+            .push(PendingSectionAck {
+                stream_id,
+                required_insert_count,
+            });
         self.event.notify(usize::MAX);
     }
 
-    /// Drain all pending Section Acknowledgement stream IDs and return the current insert
-    /// count. Called by `run_decoder` on each wakeup.
-    pub(crate) fn drain_pending_acks_and_count(&self) -> (Vec<u64>, u64) {
+    /// Drain all pending Section Acknowledgements and return the current insert count.
+    /// Called by `run_decoder` on each wakeup.
+    pub(crate) fn drain_pending_acks_and_count(&self) -> (Vec<PendingSectionAck>, u64) {
         let mut inner = self.inner.lock().unwrap();
         let acks = inner.pending_section_acks.drain(..).collect();
         let count = inner.insert_count;

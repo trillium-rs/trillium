@@ -5,11 +5,17 @@
 mod decoder;
 pub(crate) mod dynamic_table;
 mod encoder;
+pub(crate) mod encoder_stream;
 pub(crate) mod huffman;
 pub(crate) mod static_table;
 #[cfg(test)]
 mod tests;
 pub(crate) mod varint;
+
+#[cfg(feature = "unstable")]
+pub use dynamic_table::DynamicTable;
+#[cfg(feature = "unstable")]
+pub use huffman::HuffmanError;
 
 // --- Field section representation (RFC 9204 §4.5) ---
 
@@ -129,9 +135,6 @@ impl Display for PseudoHeaders<'_> {
         Ok(())
     }
 }
-
-#[cfg(feature = "unstable")]
-pub use huffman::HuffmanError;
 
 /// Combined [`PseudoHeaders`] and [`Headers`]
 #[derive(Debug, Clone, Fieldwork)]
