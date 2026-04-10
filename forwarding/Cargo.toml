@@ -1,6 +1,6 @@
 [package]
 name = "trillium-forwarding"
-version = "0.3.0-rc.1"
+version = "0.3.0-rc.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "handler for trillium.rs that rewrites host/scheme from forwarded/x-forwarded headers"
@@ -13,8 +13,8 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 cidr = "0.3.2"
 log = "0.4.29"
-trillium = { path = "../trillium", version = "1.0.0-rc.1" }
-trillium-http = { version = "1.0.0-rc.1", path = "../http" }
+trillium = { path = "../trillium", version = "1.0.0-rc.2" }
+trillium-http = { version = "1.0.0-rc.2", path = "../http" }
 
 [dev-dependencies]
 trillium-logger = { path = "../logger" }
