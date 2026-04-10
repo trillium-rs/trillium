@@ -1,6 +1,6 @@
 [package]
 name = "trillium-quinn"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 edition = "2024"
 description = "quinn QUIC adapter for trillium.rs HTTP/3 support"
 license = "MIT OR Apache-2.0"
@@ -25,7 +25,7 @@ rustls = { version = "0.23", default-features = false }
 rustls-pemfile = "2"
 webpki-roots = { version = "1.0", optional = true }
 trillium-macros = { path = "../macros", version = "0.1.0-rc.1" }
-trillium-server-common = { path = "../server-common", version = "0.6.0-rc.1" }
+trillium-server-common = { path = "../server-common", version = "0.6.0-rc.2" }
 
 
 [dev-dependencies]
@@ -39,8 +39,8 @@ quinn = "0.11"
 rcgen = "0.14.7"
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 tokio = { version = "1.51.1", features = ["rt", "macros"] }
-trillium = { version = "1.0.0-rc.1", path = "../trillium" }
+trillium = { version = "1.0.0-rc.2", path = "../trillium" }
 trillium-client = { path = "../client" }
-trillium-logger = { version = "0.5.0-rc.1", path = "../logger" }
-trillium-rustls = { version = "0.10.0-rc.1", path = "../rustls" }
-trillium-tokio = { version = "0.5.0-rc.1", path = "../tokio" }
+trillium-logger = { version = "0.5.0-rc.2", path = "../logger" }
+trillium-rustls = { version = "0.10.0-rc.2", path = "../rustls" }
+trillium-tokio = { version = "0.5.0-rc.2", path = "../tokio" }
