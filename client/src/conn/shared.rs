@@ -39,13 +39,16 @@ impl Conn {
             _ => {}
         }
 
-        if let Some(h3) = self.h3.clone()
-            && self
+        if let Some(h3) = self.h3.clone() {
+            if self
                 .try_exec_h3(&h3, self.http_version == Version::Http3)
                 .await?
-        {
-            self.update_alt_svc_from_response(&h3);
-            return Ok(());
+            {
+                self.update_alt_svc_from_response(&h3);
+                return Ok(());
+            } else {
+                self.http_version = Version::Http1_1;
+            }
         }
 
         self.exec_h1().await
