@@ -1,6 +1,6 @@
 //! Outbound QPACK dynamic table (RFC 9204 §3.2).
 //!
-//! Mirror of [`DynamicTable`](super::dynamic_table::DynamicTable) for the *encoder* side of a
+//! Mirror of [`DecoderDynamicTable`](super::decoder_dynamic_table::DecoderDynamicTable) for the *encoder* side of a
 //! connection. Mutations are enqueued as already-encoded encoder-stream instructions and
 //! drained by
 //! [`run_encoder_stream_writer`](super::encoder_stream_writer::run_encoder_stream_writer).
@@ -365,7 +365,7 @@ fn encode_insert_literal(name: &[u8], value: &[u8]) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::headers::qpack::{
-        ENC_INSTR_INSERT_WITH_NAME_REF, dynamic_table::DynamicTable,
+        ENC_INSTR_INSERT_WITH_NAME_REF, decoder_dynamic_table::DecoderDynamicTable,
         encoder_stream::process_encoder_stream,
     };
 
@@ -386,7 +386,7 @@ mod tests {
         // First byte should have the 0x20 prefix bits set.
         assert_eq!(ops[0][0] & 0xE0, ENC_INSTR_SET_DYNAMIC_TABLE_CAPACITY);
         // Round-trip through the decoder-side processor to verify format.
-        let decoder_table = DynamicTable::new(4096, 0);
+        let decoder_table = DecoderDynamicTable::new(4096, 0);
         decoder_table.set_capacity(4096).unwrap(); // decoder needs room to accept
         let mut stream = &ops[0][..];
         futures_lite::future::block_on(process_encoder_stream(&mut stream, &decoder_table))
@@ -417,7 +417,7 @@ mod tests {
         for op in ops {
             wire.extend(op);
         }
-        let decoder_table = DynamicTable::new(4096, 0);
+        let decoder_table = DecoderDynamicTable::new(4096, 0);
         let mut stream = &wire[..];
         futures_lite::future::block_on(process_encoder_stream(&mut stream, &decoder_table))
             .unwrap();

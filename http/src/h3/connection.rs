@@ -9,7 +9,7 @@ use crate::{
     h3::H3ErrorCode,
     headers::qpack::{
         DEC_INSTR_INSERT_COUNT_INC, DEC_INSTR_SECTION_ACK,
-        decoder_stream_reader::run_decoder_stream_reader, dynamic_table::DynamicTable,
+        decoder_stream_reader::run_decoder_stream_reader, decoder_dynamic_table::DecoderDynamicTable,
         encoder_dynamic_table::EncoderDynamicTable, encoder_stream::process_encoder_stream,
         encoder_stream_writer::run_encoder_stream_writer, varint,
     },
@@ -101,7 +101,7 @@ pub struct H3Connection {
 
     /// The QPACK dynamic table for this connection. Entries are inserted by
     /// `run_inbound_encoder` and read (with async waiting) by the request decode path.
-    inbound_dynamic_table: DynamicTable,
+    inbound_dynamic_table: DecoderDynamicTable,
 
     /// The encoder-side QPACK dynamic table. Mutations are enqueued by the outbound encode
     /// path (once policy integration lands) and drained to the peer by
@@ -122,7 +122,7 @@ impl H3Connection {
             peer_settings: OnceLock::new(),
             max_accepted_stream_id: AtomicU64::new(0),
             has_accepted_stream: AtomicBool::new(false),
-            inbound_dynamic_table: DynamicTable::new(max_table_capacity, blocked_streams),
+            inbound_dynamic_table: DecoderDynamicTable::new(max_table_capacity, blocked_streams),
             encoder_dynamic_table: EncoderDynamicTable::new(max_table_capacity),
         })
     }
@@ -205,13 +205,13 @@ impl H3Connection {
     }
 
     #[cfg(not(feature = "unstable"))]
-    pub(crate) fn inbound_dynamic_table(&self) -> &DynamicTable {
+    pub(crate) fn inbound_dynamic_table(&self) -> &DecoderDynamicTable {
         &self.inbound_dynamic_table
     }
 
     /// Retrieve the dynamic table
     #[cfg(feature = "unstable")]
-    pub fn inbound_dynamic_table(&self) -> &DynamicTable {
+    pub fn inbound_dynamic_table(&self) -> &DecoderDynamicTable {
         &self.inbound_dynamic_table
     }
 

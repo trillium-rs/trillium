@@ -77,7 +77,7 @@ mod tests {
     use crate::{
         HeaderName, HeaderValue,
         h3::{H3ErrorCode, UniStreamType},
-        headers::qpack::{dynamic_table::DynamicTable, encoder_stream::process_encoder_stream},
+        headers::qpack::{decoder_dynamic_table::DecoderDynamicTable, encoder_stream::process_encoder_stream},
     };
     use futures_lite::{
         AsyncRead,
@@ -97,7 +97,7 @@ mod tests {
 
     /// An in-memory duplex: a writer feeds bytes into a shared buffer that a reader consumes.
     /// Used to test `run_encoder_stream_writer` by feeding its output into
-    /// `process_encoder_stream` running against a decoder-side `DynamicTable`.
+    /// `process_encoder_stream` running against a decoder-side `DecoderDynamicTable`.
     #[derive(Clone)]
     struct Duplex {
         inner: Arc<Mutex<DuplexInner>>,
@@ -216,7 +216,7 @@ mod tests {
             assert_eq!(stream_type_byte[0], UniStreamType::QpackEncoder as u8);
 
             // Feed the rest into process_encoder_stream against a decoder table.
-            let decoder_table = DynamicTable::new(4096, 0);
+            let decoder_table = DecoderDynamicTable::new(4096, 0);
             // We have exactly two instructions queued; once they're consumed, closing the
             // duplex lets process_encoder_stream see EOF and return Ok.
             let processed = async {
