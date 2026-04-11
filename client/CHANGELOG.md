@@ -22,6 +22,31 @@ let client = Client::new(RustlsConfig::default()); // h2 advertised in ALPN auto
 - `Client::with_h2_idle_timeout` / `with_h2_idle_ping_threshold` / `with_h2_idle_ping_timeout` (and `set_*` / `without_*` variants) — h2 connection idle and health-check tuning
 - `Conn::protocol() -> Option<&str>` — the negotiated protocol (`Some("h2")` once the response has been received over h2)
 
+#### WebTransport client (RFC 9220 + draft-ietf-webtrans-http3)
+
+Behind the new `webtransport` cargo feature, `Client::webtransport(url)` builds a [`Conn`] preconfigured for an extended-CONNECT WebTransport handshake (method=CONNECT, `:protocol = webtransport`, http_version=HTTP/3). Set headers as usual, then call `Conn::into_webtransport().await` to complete the upgrade and obtain a [`WebTransportConnection`](trillium_webtransport::WebTransportConnection) — the same type the server-side handler receives, so any code that handles streams + datagrams works on either side.
+
+Multiple sessions to the same origin coalesce onto a single underlying QUIC connection. Each `into_webtransport` call opens a new bidi stream for the CONNECT and registers a new session with the connection's per-origin router, mirroring how HTTP/3 request multiplexing already worked. Most servers don't coalesce on the client side; this client does.
+
+```rust,ignore
+let client = trillium_client::Client::new_with_quic(connector, quic);
+let wt = client
+    .webtransport("https://example.com/echo")
+    .with_request_header("origin", "https://example.com")
+    .into_webtransport()
+    .await?;
+
+let mut stream = wt.open_bidi().await?;
+stream.write_all(b"hi").await?;
+stream.close().await?;
+```
+
+The peer-capability gate (RFC 9220 §3 — server must advertise `SETTINGS_ENABLE_CONNECT_PROTOCOL`, `SETTINGS_ENABLE_WEBTRANSPORT`, and `SETTINGS_H3_DATAGRAM`) is enforced before any HEADERS go on the wire; if the server doesn't advertise the required settings the upgrade fails with `ErrorKind::ExtendedConnectUnsupported` rather than getting stuck.
+
+#### `:protocol` pseudo-header for HTTP/3 extended CONNECT
+
+The HTTP/3 send path now honors `Conn::protocol`, mirroring the HTTP/2 extended-CONNECT path added in this release cycle. Required for WebTransport-over-h3; available for any future protocol that bootstraps over extended CONNECT (RFC 9220).
+
 #### Other additions
 
 - `Client::without_timeout()` — builder counterpart to `with_timeout`

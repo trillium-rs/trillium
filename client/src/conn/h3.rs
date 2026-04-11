@@ -53,11 +53,11 @@ impl Conn {
         };
 
         // Get an existing pooled connection or establish a new one.
-        let (quic_conn, connection) = match h3
+        let entry = match h3
             .get_or_create_quic_conn(&origin, &host, port, &self.config, &self.context)
             .await
         {
-            Ok(conn) => conn,
+            Ok(entry) => entry,
             Err(e) => {
                 log::debug!("H3 connect to {host}:{port} failed: {e}, falling back to H1");
                 h3.mark_broken(&origin);
@@ -65,8 +65,34 @@ impl Conn {
             }
         };
 
+        // Extended-CONNECT precondition (RFC 9220 §3): the peer must have advertised
+        // SETTINGS_ENABLE_CONNECT_PROTOCOL before we send a `:protocol` HEADERS. Park on the
+        // peer's first SETTINGS, then check.
+        if self.protocol.is_some() {
+            let Some(settings) = entry.h3.peer_settings_ready().await else {
+                return Err(Error::Closed);
+            };
+            if !settings.enable_connect_protocol() {
+                return Err(Error::ExtendedConnectUnsupported);
+            }
+
+            // For webtransport, also verify the WT-specific settings and lazy-init the
+            // per-connection dispatcher *before* sending the CONNECT, so any server-initiated
+            // WT streams that arrive during the round-trip land in the dispatcher's
+            // Buffering state rather than being rejected by the inbound bidi/uni accept task.
+            #[cfg(feature = "webtransport")]
+            if self.protocol.as_deref() == Some("webtransport") {
+                if !settings.enable_webtransport() || !settings.h3_datagram() {
+                    return Err(Error::ExtendedConnectUnsupported);
+                }
+                let _ = entry.dispatcher.get_or_init(
+                    trillium_server_common::h3::web_transport::WebTransportDispatcher::new,
+                );
+            }
+        }
+
         // Open a bidirectional stream for this request/response pair.
-        let (stream_id, transport) = match quic_conn.open_bidi().await {
+        let (stream_id, transport) = match entry.quic_conn.open_bidi().await {
             Ok(t) => t,
             Err(e) => {
                 log::debug!("H3 open_bidi failed: {e}, falling back to H1");
@@ -79,9 +105,16 @@ impl Conn {
         self.http_version = Version::Http3;
         self.finalize_headers_h3()?;
         self.protocol_session = ProtocolSession::Http3 {
-            connection: connection.clone(),
+            connection: entry.h3.clone(),
             stream_id,
         };
+
+        // Retain the pool entry on the conn for `into_webtransport`: it needs the dispatcher
+        // OnceLock and the QUIC connection to set up the multiplexed session after the 200 OK.
+        #[cfg(feature = "webtransport")]
+        if self.protocol.as_deref() == Some("webtransport") {
+            self.wt_pool_entry = Some(entry.clone());
+        }
 
         // From here on, failures propagate as errors (we've committed to H3).
         self.send_h3_request().await?;
@@ -104,7 +137,8 @@ impl Conn {
                     .ok_or(Error::UnexpectedUriFormat)?,
             );
 
-        // CONNECT omits :scheme and :path (RFC 9114 §4.4)
+        // Plain CONNECT omits :scheme and :path (RFC 9114 §4.4); extended CONNECT (RFC 9220)
+        // keeps both alongside the :protocol pseudo-header.
         if self.method != Method::Connect {
             pseudo_headers
                 .set_path(Some(
@@ -113,6 +147,19 @@ impl Conn {
                 .set_scheme(Some(
                     self.scheme.as_deref().ok_or(Error::UnexpectedUriFormat)?,
                 ));
+        }
+
+        if let Some(protocol) = &self.protocol {
+            pseudo_headers.set_protocol(Some(protocol.as_ref()));
+            if self.method == Method::Connect {
+                pseudo_headers
+                    .set_path(Some(
+                        self.path.as_deref().ok_or(Error::UnexpectedUriFormat)?,
+                    ))
+                    .set_scheme(Some(
+                        self.scheme.as_deref().ok_or(Error::UnexpectedUriFormat)?,
+                    ));
+            }
         }
 
         let transport = self.transport.as_mut().ok_or(Error::Closed)?;
@@ -195,8 +242,9 @@ impl Conn {
             // OPTIONS * — :path is the explicit target, :scheme is still needed
             self.scheme = Some(Cow::Owned(self.url.scheme().to_string()));
             self.path = Some(target.clone());
-        } else if self.method == Method::Connect {
-            // CONNECT omits :scheme and :path in H3 (RFC 9114 §4.4)
+        } else if self.method == Method::Connect && self.protocol.is_none() {
+            // Plain CONNECT: :scheme and :path are omitted (RFC 9114 §4.4).
+            // Extended CONNECT (RFC 9220) keeps both — falls through to the else below.
             self.scheme = None;
             self.path = None;
         } else {

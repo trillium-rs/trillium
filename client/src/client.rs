@@ -154,6 +154,22 @@ impl Client {
     pub fn new_with_quic<C: Connector, Q: QuicClientConfig<C>>(connector: C, quic: Q) -> Self {
         // Bind the runtime into the QUIC client config before consuming `connector`.
         let arced_quic = ArcedQuicClientConfig::new(&connector, quic);
+
+        #[cfg_attr(not(feature = "webtransport"), allow(unused_mut))]
+        let mut context = HttpContext::default();
+        #[cfg(feature = "webtransport")]
+        {
+            // Advertise WebTransport-over-h3 capability on outbound SETTINGS so a server can
+            // open server-initiated WT streams to us once a session is established.
+            // ENABLE_CONNECT_PROTOCOL is included for symmetry with the server side; harmless
+            // when the client never receives extended-CONNECT from the peer.
+            context
+                .config_mut()
+                .set_h3_datagrams_enabled(true)
+                .set_webtransport_enabled(true)
+                .set_extended_connect_enabled(true);
+        }
+
         Self {
             config: ArcedConnector::new(connector),
             h3: Some(H3ClientState::new(arced_quic)),
@@ -165,7 +181,7 @@ impl Client {
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
-            context: Default::default(),
+            context: Arc::new(context),
         }
     }
 
@@ -251,6 +267,8 @@ impl Client {
             h2_idle_ping_timeout: self.h2_idle_ping_timeout,
             h3_client_state: self.h3.clone(),
             protocol_session: ProtocolSession::Http1,
+            #[cfg(feature = "webtransport")]
+            wt_pool_entry: None,
             buffer: Vec::with_capacity(128).into(),
             response_body_state: ReceivedBodyState::Start,
             config: self.config.clone(),

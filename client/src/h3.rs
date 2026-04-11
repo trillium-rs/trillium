@@ -8,14 +8,29 @@ use std::{
 };
 use trillium_http::{
     HttpContext,
-    h3::{H3Connection, H3Error, H3ErrorCode, UniStreamResult},
+    h3::{H3Connection, H3Error, H3ErrorCode, H3StreamResult, UniStreamResult},
 };
+#[cfg(feature = "webtransport")]
+use trillium_server_common::h3::web_transport::{WebTransportDispatcher, WebTransportStream};
 use trillium_server_common::{
     ArcedConnector, ArcedQuicClientConfig, ArcedQuicEndpoint, Connector, QuicConnection, Runtime,
     url::{Origin, Url},
 };
 
 mod alt_svc;
+
+/// A pooled HTTP/3 connection: the QUIC connection, the H3 wrapper, and (when the
+/// `webtransport` feature is enabled) a slot for a lazily-created
+/// [`WebTransportDispatcher`]. The slot stays empty until the first `webtransport_connect`
+/// on this origin; until then, server-initiated WT streams are rejected outright. Cheaply
+/// cloneable.
+#[derive(Clone, Debug)]
+pub(crate) struct H3PoolEntry {
+    pub(crate) quic_conn: QuicConnection,
+    pub(crate) h3: Arc<H3Connection>,
+    #[cfg(feature = "webtransport")]
+    pub(crate) dispatcher: Arc<OnceLock<WebTransportDispatcher>>,
+}
 
 /// Shared state for HTTP/3 support on a [`Client`].
 ///
@@ -24,7 +39,7 @@ mod alt_svc;
 #[derive(Clone, Debug)]
 pub(crate) struct H3ClientState {
     pub(crate) config: ArcedQuicClientConfig,
-    pub(crate) pool: Pool<Origin, (QuicConnection, Arc<H3Connection>)>,
+    pub(crate) pool: Pool<Origin, H3PoolEntry>,
     pub(crate) alt_svc: AltSvcCache,
     pub(crate) broken_duration: Duration,
     endpoint_v4: OnceLockEndpoint,
@@ -63,9 +78,9 @@ impl H3ClientState {
         port: u16,
         connector: &ArcedConnector,
         context: &Arc<HttpContext>,
-    ) -> io::Result<(QuicConnection, Arc<H3Connection>)> {
-        if let Some(conn) = self.pool.peek_candidate(origin) {
-            return Ok(conn);
+    ) -> io::Result<H3PoolEntry> {
+        if let Some(entry) = self.pool.peek_candidate(origin) {
+            return Ok(entry);
         }
 
         let addr = *connector
@@ -77,13 +92,11 @@ impl H3ClientState {
         let endpoint = self.endpoint_for(addr)?;
         let conn = endpoint.connect(addr, host).await?;
 
-        let h3 = setup_h3_connection(&conn, context, &connector.runtime());
+        let entry = setup_h3_connection(conn, context, &connector.runtime());
 
-        self.pool.insert(
-            origin.clone(),
-            PoolEntry::new((conn.clone(), h3.clone()), None),
-        );
-        Ok((conn, h3))
+        self.pool
+            .insert(origin.clone(), PoolEntry::new(entry.clone(), None));
+        Ok(entry)
     }
 
     /// Get or create the endpoint for the given peer address family.
@@ -125,26 +138,47 @@ impl H3ClientState {
 /// This mirrors the server-side `run_h3_connection` in trillium-server-common,
 /// using the same `H3Connection` from trillium-http for wire-protocol handling.
 fn setup_h3_connection(
-    quic_conn: &QuicConnection,
+    quic_conn: QuicConnection,
     context: &Arc<HttpContext>,
     runtime: &Runtime,
-) -> Arc<H3Connection> {
+) -> H3PoolEntry {
     let h3 = H3Connection::new(context.clone());
+    #[cfg(feature = "webtransport")]
+    let dispatcher = Arc::new(OnceLock::new());
 
     // Outbound control stream — sends SETTINGS, then GOAWAY on shutdown.
-    spawn_outbound_control_stream(quic_conn, &h3, runtime);
+    spawn_outbound_control_stream(&quic_conn, &h3, runtime);
 
     // Outbound QPACK encoder/decoder streams — held open for the connection lifetime.
-    spawn_qpack_encoder_stream(quic_conn, &h3, runtime);
-    spawn_qpack_decoder_stream(quic_conn, &h3, runtime);
+    spawn_qpack_encoder_stream(&quic_conn, &h3, runtime);
+    spawn_qpack_decoder_stream(&quic_conn, &h3, runtime);
 
-    // Inbound uni streams — handles the server's control, QPACK, and unknown streams.
-    spawn_inbound_uni_streams(quic_conn, &h3, runtime);
+    // Inbound uni streams — handles the server's control, QPACK, and (when WT is enabled and
+    // a session has been opened) routes WT uni streams to the dispatcher.
+    spawn_inbound_uni_streams(
+        &quic_conn,
+        &h3,
+        runtime,
+        #[cfg(feature = "webtransport")]
+        &dispatcher,
+    );
 
-    // Reject inbound bidi streams — servers must not open client-initiated streams (RFC 9114 §6.1).
-    spawn_reject_inbound_bidi_streams(quic_conn, runtime);
+    // Inbound bidi streams: only valid for WebTransport (RFC 9114 §6.1 forbids server-initiated
+    // request bidi). Rejects everything else.
+    spawn_inbound_bidi_streams(
+        &quic_conn,
+        &h3,
+        runtime,
+        #[cfg(feature = "webtransport")]
+        &dispatcher,
+    );
 
-    h3
+    H3PoolEntry {
+        quic_conn,
+        h3,
+        #[cfg(feature = "webtransport")]
+        dispatcher,
+    }
 }
 
 fn spawn_outbound_control_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, runtime: &Runtime) {
@@ -181,32 +215,113 @@ fn spawn_qpack_decoder_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, run
     });
 }
 
-fn spawn_reject_inbound_bidi_streams(conn: &QuicConnection, runtime: &Runtime) {
-    let conn = conn.clone();
-    runtime.spawn(async move {
-        while let Ok((_stream_id, mut transport)) = conn.accept_bidi().await {
-            log::debug!("rejecting unexpected inbound bidi stream from server");
-            let code = H3ErrorCode::StreamCreationError;
-            transport.stop(code.into());
-            transport.reset(code.into());
+fn spawn_inbound_bidi_streams(
+    conn: &QuicConnection,
+    h3: &Arc<H3Connection>,
+    runtime: &Runtime,
+    #[cfg(feature = "webtransport")] dispatcher: &Arc<OnceLock<WebTransportDispatcher>>,
+) {
+    let (conn, h3, runtime) = (conn.clone(), h3.clone(), runtime.clone());
+    #[cfg(feature = "webtransport")]
+    let dispatcher = dispatcher.clone();
+
+    runtime.clone().spawn(async move {
+        while let Ok((stream_id, transport)) = conn.accept_bidi().await {
+            #[cfg(feature = "webtransport")]
+            let dispatcher = dispatcher.clone();
+            let h3 = h3.clone();
+
+            runtime.spawn(async move {
+                let result = h3
+                    .clone()
+                    .process_inbound_bidi(transport, |conn| async move { conn }, stream_id)
+                    .await;
+
+                match result {
+                    Ok(H3StreamResult::WebTransport {
+                        session_id,
+                        mut transport,
+                        buffer,
+                    }) => {
+                        #[cfg(feature = "webtransport")]
+                        if let Some(dispatcher) = dispatcher.get() {
+                            dispatcher.dispatch(WebTransportStream::Bidi {
+                                session_id,
+                                stream: transport,
+                                buffer: buffer.into(),
+                            });
+                            return;
+                        }
+                        let _ = (session_id, &buffer);
+                        log::debug!(
+                            "inbound WT bidi stream before any WT session opened on this \
+                             connection, rejecting"
+                        );
+                        transport.stop(H3ErrorCode::StreamCreationError.into());
+                        transport.reset(H3ErrorCode::StreamCreationError.into());
+                    }
+                    Ok(H3StreamResult::Request(_)) => {
+                        // RFC 9114 §6.1: servers must not open request bidi streams to clients.
+                        // process_inbound_bidi already invoked our identity handler, which
+                        // results in a default response being sent back. Log the violation.
+                        log::warn!(
+                            "server opened a request bidi stream to client (RFC 9114 §6.1 \
+                             violation)"
+                        );
+                    }
+                    Err(error) => {
+                        log::debug!("client H3 inbound bidi stream error: {error}");
+                    }
+                }
+            });
         }
     });
 }
 
-fn spawn_inbound_uni_streams(conn: &QuicConnection, h3: &Arc<H3Connection>, runtime: &Runtime) {
+fn spawn_inbound_uni_streams(
+    conn: &QuicConnection,
+    h3: &Arc<H3Connection>,
+    runtime: &Runtime,
+    #[cfg(feature = "webtransport")] dispatcher: &Arc<OnceLock<WebTransportDispatcher>>,
+) {
     let (conn, h3, runtime) = (conn.clone(), h3.clone(), runtime.clone());
+    #[cfg(feature = "webtransport")]
+    let dispatcher = dispatcher.clone();
+
     runtime.clone().spawn(async move {
         while let Ok((_stream_id, recv)) = conn.accept_uni().await {
             let (conn_for_error, h3) = (conn.clone(), h3.clone());
+            #[cfg(feature = "webtransport")]
+            let dispatcher = dispatcher.clone();
+
             runtime.spawn(async move {
                 match h3.process_inbound_uni(recv).await {
                     Ok(UniStreamResult::Handled) => {}
-                    Ok(
-                        UniStreamResult::WebTransport { mut stream, .. }
-                        | UniStreamResult::Unknown { mut stream, .. },
-                    ) => {
-                        // Client doesn't expect WebTransport or unknown uni streams from server.
-                        log::debug!("ignoring unexpected inbound uni stream");
+
+                    Ok(UniStreamResult::WebTransport {
+                        session_id,
+                        mut stream,
+                        buffer,
+                    }) => {
+                        #[cfg(feature = "webtransport")]
+                        if let Some(dispatcher) = dispatcher.get() {
+                            dispatcher.dispatch(WebTransportStream::Uni {
+                                session_id,
+                                stream,
+                                buffer: buffer.into(),
+                            });
+                            return;
+                        }
+                        let _ = (session_id, &buffer);
+                        log::debug!(
+                            "inbound WT uni stream before any WT session opened on this \
+                             connection, rejecting"
+                        );
+                        stream.stop(H3ErrorCode::StreamCreationError.into());
+                    }
+
+                    Ok(UniStreamResult::Unknown { mut stream, .. }) => {
+                        log::debug!("ignoring unknown inbound uni stream");
                         stream.stop(H3ErrorCode::StreamCreationError.into());
                     }
                     Err(error) => {

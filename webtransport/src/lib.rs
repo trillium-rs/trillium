@@ -6,6 +6,15 @@
 //!
 //! WebTransport requires an HTTP/3-capable server adapter configured with a QUIC endpoint
 //! and TLS.
+//!
+//! # Client
+//!
+//! [`WebTransportConnection`] is also the type returned by `trillium_client`'s
+//! `Client::webtransport(url).into_webtransport().await` (cargo feature `webtransport` on
+//! [trillium-client](https://docs.rs/trillium-client)). The client API is symmetric with the
+//! server: the same `accept_bidi` / `accept_uni` / `recv_datagram` / `open_bidi` /
+//! `open_uni` / `send_datagram` methods work on either side. Multiple client sessions to the
+//! same origin coalesce onto a single underlying QUIC connection.
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
@@ -14,7 +23,11 @@ mod readme {}
 mod session_router;
 mod stream;
 
-use crate::session_router::Router;
+/// Internal multiplexing primitives shared with `trillium-client` to coalesce multiple
+/// WebTransport sessions over a single QUIC connection. Not part of the stable API; users
+/// should not depend on these.
+#[doc(hidden)]
+pub use crate::session_router::{Router, SessionRouter};
 pub use crate::stream::{
     Datagram, InboundBidiStream, InboundStream, InboundUniStream, OutboundBidiStream,
     OutboundUniStream,
@@ -22,18 +35,20 @@ pub use crate::stream::{
 use async_channel::Receiver;
 use futures_lite::AsyncWriteExt;
 use std::{
+    borrow::Cow,
     io,
+    net::SocketAddr,
     sync::{Arc, OnceLock},
 };
 use swansong::Swansong;
 use trillium::{Conn, Handler, Info, Method, Status, Transport, Upgrade};
-use trillium_http::h3::{H3Connection, quic_varint};
+use trillium_http::{
+    Headers, TypeSet,
+    h3::{H3Connection, quic_varint},
+};
 use trillium_server_common::{
     QuicConnection, Runtime,
-    h3::{
-        StreamId,
-        web_transport::{WebTransportDispatcher, WebTransportStream},
-    },
+    h3::{StreamId, web_transport::WebTransportDispatcher},
 };
 
 /// A handle to an active WebTransport session.
@@ -47,13 +62,54 @@ pub struct WebTransportConnection {
     uni_rx: Receiver<InboundUniStream>,
     datagram_rx: Receiver<Datagram>,
     swansong: Swansong,
-    upgrade: Upgrade,
+    request_headers: Headers,
+    response_headers: Headers,
+    state: TypeSet,
+    path: Option<Cow<'static, str>>,
+    authority: Option<Cow<'static, str>>,
     h3_connection: Arc<H3Connection>,
     quic_connection: QuicConnection,
     runtime: Runtime,
 }
 
 impl WebTransportConnection {
+    /// Construct a new `WebTransportConnection`. Internal API used by trillium-client and the
+    /// trillium-webtransport server handler to assemble a session from its parts. Not for
+    /// downstream use.
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        session_id: u64,
+        bidi_rx: Receiver<InboundBidiStream>,
+        uni_rx: Receiver<InboundUniStream>,
+        datagram_rx: Receiver<Datagram>,
+        swansong: Swansong,
+        request_headers: Headers,
+        response_headers: Headers,
+        state: TypeSet,
+        path: Option<Cow<'static, str>>,
+        authority: Option<Cow<'static, str>>,
+        h3_connection: Arc<H3Connection>,
+        quic_connection: QuicConnection,
+        runtime: Runtime,
+    ) -> Self {
+        Self {
+            session_id,
+            bidi_rx,
+            uni_rx,
+            datagram_rx,
+            swansong,
+            request_headers,
+            response_headers,
+            state,
+            path,
+            authority,
+            h3_connection,
+            quic_connection,
+            runtime,
+        }
+    }
+
     /// Accept the next inbound bidirectional stream for this session.
     ///
     /// Returns `None` when the session is shutting down or the QUIC connection has closed.
@@ -71,17 +127,55 @@ impl WebTransportConnection {
         &self.h3_connection
     }
 
-    /// Returns the HTTP CONNECT upgrade that initiated this WebTransport session.
-    ///
-    /// Provides access to request headers, connection state, and peer information from
-    /// the CONNECT request.
-    pub fn upgrade(&self) -> &Upgrade {
-        &self.upgrade
+    /// The headers from the CONNECT request that established this WebTransport session.
+    pub fn request_headers(&self) -> &Headers {
+        &self.request_headers
     }
 
-    /// Returns a mutable reference to the HTTP CONNECT upgrade that initiated this session.
-    pub fn upgrade_mut(&mut self) -> &mut Upgrade {
-        &mut self.upgrade
+    /// Mutably borrow the CONNECT request headers.
+    pub fn request_headers_mut(&mut self) -> &mut Headers {
+        &mut self.request_headers
+    }
+
+    /// The headers from the CONNECT response that established this WebTransport session.
+    ///
+    /// On the client side, these are the headers the server sent alongside its `200` response
+    /// to the extended CONNECT (e.g. server identification, custom extension hints,
+    /// CDN-injected headers, `Set-Cookie`). On the server side this is empty — by the time the
+    /// handler runs, the response has already been sent.
+    pub fn response_headers(&self) -> &Headers {
+        &self.response_headers
+    }
+
+    /// Mutably borrow the CONNECT response headers.
+    pub fn response_headers_mut(&mut self) -> &mut Headers {
+        &mut self.response_headers
+    }
+
+    /// Borrow the [`TypeSet`] of state accumulated by the handler chain before the upgrade.
+    pub fn state(&self) -> &TypeSet {
+        &self.state
+    }
+
+    /// Mutably borrow the [`TypeSet`] of state.
+    pub fn state_mut(&mut self) -> &mut TypeSet {
+        &mut self.state
+    }
+
+    /// The `:path` of the CONNECT request that established this session, identifying which
+    /// WebTransport endpoint the peer asked for.
+    pub fn path(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+
+    /// The `:authority` of the CONNECT request that established this session.
+    pub fn authority(&self) -> Option<&str> {
+        self.authority.as_deref()
+    }
+
+    /// The peer's socket address.
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.quic_connection.remote_address()
     }
 
     /// Accept the next inbound unidirectional stream for this session.
@@ -144,11 +238,6 @@ impl WebTransportConnection {
     }
 }
 
-enum RoutingAction {
-    Stream(WebTransportStream),
-    Datagram(Vec<u8>),
-}
-
 /// Encode the bidi stream header: signal value 0x41 + session_id.
 fn wt_bidi_header(session_id: u64) -> Vec<u8> {
     let mut buf =
@@ -169,7 +258,9 @@ fn wt_uni_header(session_id: u64) -> Vec<u8> {
     buf
 }
 
-const DEFAULT_MAX_DATAGRAM_BUFFER: usize = 16;
+/// Default datagram buffer cap per session: 16 datagrams. See
+/// [`WebTransport::with_max_datagram_buffer`] for tuning semantics.
+pub const DEFAULT_MAX_DATAGRAM_BUFFER: usize = 16;
 
 /// A Trillium [`Handler`] that accepts WebTransport sessions.
 ///
@@ -310,42 +401,24 @@ where
             return;
         };
 
-        // Spawn the routing task if we're the first session on this connection.
-        if let Some(routing_rx) = router.take_routing_rx() {
-            let router = router.clone();
-            let quic = quic_connection.clone();
-            self.runtime().clone().spawn(async move {
-                loop {
-                    let action = futures_lite::future::race(
-                        async { routing_rx.recv().await.ok().map(RoutingAction::Stream) },
-                        async {
-                            let mut data = Vec::new();
-                            quic.recv_datagram(|d| data.extend_from_slice(d))
-                                .await
-                                .ok()
-                                .map(|()| RoutingAction::Datagram(data))
-                        },
-                    )
-                    .await;
-                    match action {
-                        Some(RoutingAction::Stream(stream)) => {
-                            router.sessions.lock().await.route(stream);
-                        }
-                        Some(RoutingAction::Datagram(data)) => {
-                            router.sessions.lock().await.route_datagram(&data);
-                        }
-                        None => break,
-                    }
-                }
-            });
-        }
+        // No-op if a previous session on this connection already started the task.
+        router
+            .clone()
+            .spawn_routing_task(quic_connection.clone(), self.runtime().clone());
 
         let session_id = stream_id.into();
         log::trace!("starting webtransport session {session_id}");
         let session_swansong = h3_connection.swansong().child();
-        let (bidi_rx, uni_rx, datagram_rx) = router.sessions.lock().await.register(session_id);
+        let (bidi_rx, uni_rx, datagram_rx) = router.sessions().lock().await.register(session_id);
 
         let runtime = self.runtime().clone();
+
+        let inner = upgrade.as_mut();
+        let request_headers = std::mem::take(inner.request_headers_mut());
+        let response_headers = std::mem::take(inner.response_headers_mut());
+        let state = std::mem::take(inner.state_mut());
+        let authority = inner.take_authority();
+        let path = Some(std::mem::take(inner.path_mut()));
 
         self.handler
             .run(WebTransportConnection {
@@ -354,7 +427,11 @@ where
                 uni_rx,
                 datagram_rx,
                 swansong: session_swansong.clone(),
-                upgrade,
+                request_headers,
+                response_headers,
+                state,
+                path,
+                authority,
                 h3_connection,
                 quic_connection,
                 runtime,
@@ -364,6 +441,6 @@ where
         log::trace!("finished handler, cleaning up");
 
         session_swansong.shut_down().await;
-        router.sessions.lock().await.unregister(session_id);
+        router.sessions().lock().await.unregister(session_id);
     }
 }
