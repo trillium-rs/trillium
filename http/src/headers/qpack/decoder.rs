@@ -1,6 +1,6 @@
 use super::{
     FieldSection, PseudoHeaders,
-    dynamic_table::DynamicTable,
+    decoder_dynamic_table::DecoderDynamicTable,
     huffman,
     static_table::{PseudoHeaderName, StaticHeaderName, static_entry},
     varint,
@@ -165,7 +165,7 @@ impl FieldSection<'static> {
     /// Returns an error if the encoded bytes cannot be parsed as a valid field section.
     pub async fn decode_with_dynamic_table(
         encoded: &[u8],
-        table: &DynamicTable,
+        table: &DecoderDynamicTable,
         stream_id: u64,
     ) -> Result<Self, H3Error> {
         let err = || H3ErrorCode::QpackDecompressionFailed;

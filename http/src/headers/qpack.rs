@@ -5,8 +5,8 @@
 #[cfg(test)]
 mod corpus_tests;
 mod decoder;
+pub(crate) mod decoder_dynamic_table;
 pub(crate) mod decoder_stream_reader;
-pub(crate) mod dynamic_table;
 mod encoder;
 pub(crate) mod encoder_dynamic_table;
 pub(crate) mod encoder_stream;
@@ -18,7 +18,9 @@ mod tests;
 pub(crate) mod varint;
 
 #[cfg(feature = "unstable")]
-pub use dynamic_table::DynamicTable;
+pub use decoder_dynamic_table::DecoderDynamicTable;
+#[cfg(feature = "unstable")]
+pub use encoder_dynamic_table::EncoderDynamicTable;
 #[cfg(feature = "unstable")]
 pub use huffman::HuffmanError;
 

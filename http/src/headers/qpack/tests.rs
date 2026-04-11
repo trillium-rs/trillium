@@ -1,7 +1,7 @@
 use super::PseudoHeaders;
 use crate::{
     HeaderName, HeaderValue, Headers, KnownHeaderName, Method, Status,
-    headers::qpack::{FieldSection, dynamic_table::DynamicTable},
+    headers::qpack::{FieldSection, decoder_dynamic_table::DecoderDynamicTable},
 };
 use std::borrow::Cow;
 use test_harness::test;
@@ -286,21 +286,21 @@ fn decode_truncated_string_value() {
 
 #[test]
 fn blocked_streams_not_triggered_for_zero_ric() {
-    let table = DynamicTable::new(4096, 0);
+    let table = DecoderDynamicTable::new(4096, 0);
     // RIC=0 means static-only; no blocking regardless of limit
     assert!(table.try_reserve_blocked_stream(0).unwrap().is_none());
 }
 
 #[test]
 fn blocked_streams_enforced_at_limit() {
-    let table = DynamicTable::new(4096, 0);
+    let table = DecoderDynamicTable::new(4096, 0);
     // max_blocked=0, insert_count=0 < RIC=1 → at limit immediately
     assert!(table.try_reserve_blocked_stream(1).is_err());
 }
 
 #[test]
 fn blocked_stream_guard_releases_slot_on_drop() {
-    let table = DynamicTable::new(4096, 1);
+    let table = DecoderDynamicTable::new(4096, 1);
     let guard = table.try_reserve_blocked_stream(1).unwrap();
     assert!(guard.is_some());
     // Limit reached: second reservation fails
@@ -312,7 +312,7 @@ fn blocked_stream_guard_releases_slot_on_drop() {
 
 #[test]
 fn blocked_streams_not_triggered_when_ric_already_met() {
-    let table = DynamicTable::new(4096, 0);
+    let table = DecoderDynamicTable::new(4096, 0);
     table.set_capacity(200).unwrap();
     // "server"(6) + "v"(1) + 32 = 39 bytes — fits easily
     table
@@ -334,7 +334,7 @@ async fn decode_rejects_blocked_stream_when_at_limit() {
     //   0x80 — indexed field line (bit7=1), dynamic (bit6=0), relative_index=0
     //          → absolute_index = base-1-0 = 0, would block waiting for insert_count>=1
     let encoded = [0x02u8, 0x00, 0x80];
-    let table = DynamicTable::new(4096, 0); // max_blocked_streams=0
+    let table = DecoderDynamicTable::new(4096, 0); // max_blocked_streams=0
     let result = FieldSection::decode_with_dynamic_table(&encoded, &table, 0).await;
     assert!(result.is_err());
 }
@@ -344,7 +344,7 @@ async fn decode_rejects_blocked_stream_when_at_limit() {
 #[test(harness)]
 async fn dynamic_table_evicts_oldest_entry() {
     // Entry size: "server"(6) + "val"(3) + 32 = 41 bytes; capacity=80 holds exactly one.
-    let table = DynamicTable::new(200, usize::MAX);
+    let table = DecoderDynamicTable::new(200, usize::MAX);
     table.set_capacity(80).unwrap();
     let name = || HeaderName::from(KnownHeaderName::Server);
     table
@@ -364,7 +364,7 @@ async fn dynamic_table_evicts_multiple_entries_for_large_insert() {
     // Two small entries (41 bytes each = 82 bytes), then a larger entry (72 bytes) that
     // requires evicting both to fit within capacity=100.
     //   "x-big-name"(10) + "x"*30(30) + 32 = 72 bytes
-    let table = DynamicTable::new(4096, usize::MAX);
+    let table = DecoderDynamicTable::new(4096, usize::MAX);
     table.set_capacity(100).unwrap();
     let small_name = || HeaderName::from(KnownHeaderName::Server);
     let big_name = HeaderName::from("x-big-name".to_owned());

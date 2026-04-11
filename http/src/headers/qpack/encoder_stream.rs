@@ -8,7 +8,7 @@ use super::{
     ENC_INSTR_INSERT_WITH_LITERAL_NAME, ENC_INSTR_INSERT_WITH_NAME_REF,
     ENC_INSTR_LITERAL_NAME_HUFFMAN_FLAG, ENC_INSTR_NAME_REF_STATIC_FLAG,
     ENC_INSTR_SET_DYNAMIC_TABLE_CAPACITY, STRING_HUFFMAN_FLAG,
-    dynamic_table::DynamicTable,
+    decoder_dynamic_table::DecoderDynamicTable,
     huffman,
     static_table::{StaticHeaderName, static_entry},
 };
@@ -24,7 +24,7 @@ use futures_lite::io::{AsyncRead, AsyncReadExt};
 /// concurrently with header block decoding for the lifetime of the QUIC connection.
 pub(crate) async fn process_encoder_stream<T>(
     stream: &mut T,
-    table: &DynamicTable,
+    table: &DecoderDynamicTable,
 ) -> Result<(), H3Error>
 where
     T: AsyncRead + Unpin + Send,
