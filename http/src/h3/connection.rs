@@ -1,3 +1,5 @@
+mod peer_settings_wait;
+
 use super::{
     H3Error,
     frame::{Frame, FrameDecodeError, UniStreamType},
@@ -9,6 +11,7 @@ use crate::{
     h3::{H3ErrorCode, MAX_BUFFER_SIZE},
     headers::qpack::{DecoderDynamicTable, EncoderDynamicTable, FieldSection},
 };
+use event_listener::Event;
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::{
     future::Future,
@@ -108,7 +111,12 @@ pub struct H3Connection {
 
     /// The peer's H3 settings, received on their control stream.  Request streams may need to
     /// consult these (e.g. max field section size).
-    peer_settings: OnceLock<H3Settings>,
+    pub(super) peer_settings: OnceLock<H3Settings>,
+
+    /// Multi-listener wake source for [`PeerSettings`]. Notified by `run_inbound_control` after
+    /// applying peer SETTINGS, and again on connection close, so any number of concurrently-
+    /// parked `PeerSettings` futures all unblock together.
+    pub(super) peer_settings_event: Event,
 
     /// The highest bidirectional stream ID we have accepted.  Used to compute the GOAWAY value
     /// (this + 4) to tell the peer which requests we saw. None until the first stream is accepted.
@@ -136,6 +144,7 @@ impl H3Connection {
             context,
             swansong,
             peer_settings: OnceLock::new(),
+            peer_settings_event: Event::new(),
             max_accepted_stream_id: AtomicU64::new(0),
             has_accepted_stream: AtomicBool::new(false),
             decoder_dynamic_table: DecoderDynamicTable::new(max_table_capacity, blocked_streams),
@@ -165,6 +174,7 @@ impl H3Connection {
         // mutations after shutdown are no longer wire-relevant.
         self.decoder_dynamic_table.fail(H3ErrorCode::NoError);
         self.encoder_dynamic_table.fail(H3ErrorCode::NoError);
+        self.wake_peer_settings_waiters();
         self.swansong.shut_down()
     }
 
@@ -516,6 +526,7 @@ impl H3Connection {
         self.peer_settings
             .set(settings)
             .map_err(|_| H3ErrorCode::FrameUnexpected)?;
+        self.wake_peer_settings_waiters();
 
         self.encoder_dynamic_table
             .initialize_from_peer_settings(settings);

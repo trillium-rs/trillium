@@ -18,6 +18,7 @@ websockets = ["dep:trillium-websockets", "dep:thiserror"]
 parse = ["trillium-http/parse"]
 sonic-rs = ["dep:sonic-rs", "dep:serde", "dep:thiserror"]
 serde_json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
+webtransport = ["dep:trillium-webtransport", "dep:thiserror"]
 
 [dependencies]
 encoding_rs = "0.8.35"
@@ -37,6 +38,7 @@ memchr = "2.8.0"
 sonic-rs = { version = "0.5.8", optional = true }
 fieldwork = "0.5.0"
 trillium-macros = { version = "0.1.0-rc.1", path = "../macros" }
+trillium-webtransport = { version = "0.1.0-rc.1", path = "../webtransport", optional = true }
 
 [dependencies.trillium-http]
 path = "../http"

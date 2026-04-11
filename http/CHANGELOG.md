@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Conn::h2_connection()`, `Conn::h2_stream_id()` — for handlers that want to interact with the underlying h2 stream
 - `Upgrade::h2_connection`, `Upgrade::h2_stream_id` (and `_mut` / `set_` / `with_` / `take_` variants) — used by `trillium-websockets` for WS-over-h2 (RFC 8441)
 - Various `HttpConfig::h2_*` tuning knobs (window sizes, max concurrent streams, max frame/header size, HPACK table capacity)
+- `Upgrade::response_headers: Headers` — the response headers that had been set on the underlying `Conn` before the upgrade was negotiated. These have already been sent to the peer; preserved here so post-upgrade code can inspect what was sent.
+- `H3Connection::peer_settings_ready() -> PeerSettingsReady<'_>` (gated on the `unstable` feature) — async future that resolves to `Some(H3Settings)` once the inbound control stream has applied the peer's SETTINGS frame, or `None` if the connection shut down before SETTINGS arrived. Required for senders of extended-CONNECT requests (RFC 9220 §3 — the spec forbids sending a `:protocol` HEADERS until the peer has advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL`). On a pooled connection that has already exchanged SETTINGS, the future resolves on the first poll. Multiple awaiters on the same connection are supported.
+
+The existing sync `H3Connection::peer_settings(&self) -> Option<&H3Settings>` accessor is unchanged.
 
 ## [1.0.0] - 2026-04-08
 

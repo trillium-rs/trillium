@@ -26,6 +26,18 @@ impl From<crate::Conn> for Upgrade {
     }
 }
 
+impl AsRef<trillium_http::Upgrade<Box<dyn Transport>>> for Upgrade {
+    fn as_ref(&self) -> &trillium_http::Upgrade<Box<dyn Transport>> {
+        &self.0
+    }
+}
+
+impl AsMut<trillium_http::Upgrade<Box<dyn Transport>>> for Upgrade {
+    fn as_mut(&mut self) -> &mut trillium_http::Upgrade<Box<dyn Transport>> {
+        &mut self.0
+    }
+}
+
 impl Upgrade {
     /// Borrows the HTTP request headers
     pub fn request_headers(&self) -> &Headers {

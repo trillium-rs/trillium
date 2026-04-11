@@ -33,6 +33,12 @@ pub struct Conn {
     pub(crate) h2_idle_ping_timeout: Duration,
     pub(crate) h3_client_state: Option<H3ClientState>,
     pub(crate) protocol_session: ProtocolSession,
+    /// QUIC-connection WebTransport dispatcher slot (lazy-init) and the QUIC connection
+    /// itself, retained on extended-CONNECT-with-`:protocol = webtransport` requests so
+    /// `into_webtransport` can install the router and hand the QUIC connection to the
+    /// returned [`WebTransportConnection`][trillium_webtransport::WebTransportConnection].
+    #[cfg(feature = "webtransport")]
+    pub(crate) wt_pool_entry: Option<crate::h3::H3PoolEntry>,
     pub(crate) buffer: Buffer,
     pub(crate) response_body_state: ReceivedBodyState,
     pub(crate) config: ArcedConnector,

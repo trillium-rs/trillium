@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `Transport::negotiated_alpn() -> Option<Cow<'_, [u8]>>` — optional trait method (defaults to `None`); runtime adapters use the result to dispatch between HTTP/1.1 and HTTP/2 on the same TLS listener
+- `trillium::Upgrade` now implements `AsRef<trillium_http::Upgrade<Box<dyn Transport>>>` and `AsMut<...>`, exposing the full underlying fieldwork accessor surface to downstream callers (e.g. `trillium-webtransport`) without `Upgrade` having to enumerate every accessor up front.
 
 ## [1.0.0] - 2026-04-08
 

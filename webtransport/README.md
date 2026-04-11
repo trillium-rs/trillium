@@ -13,6 +13,8 @@
 
 WebTransport session handler for Trillium. Accepts WebTransport sessions over HTTP/3 (QUIC) and exposes bidirectional streams, unidirectional streams, and datagrams per session. Requires an HTTP/3-capable adapter such as [`trillium-quinn`](https://docs.rs/trillium-quinn).
 
+The same `WebTransportConnection` type — and the same `accept_bidi` / `accept_uni` / `recv_datagram` / `open_bidi` / `open_uni` / `send_datagram` API — is available client-side via [`trillium-client`](https://docs.rs/trillium-client) with its `webtransport` cargo feature: `client.webtransport(url).into_webtransport().await`. Multiple client sessions to the same origin coalesce onto a single underlying QUIC connection.
+
 ## Example
 
 ```rust,no_run

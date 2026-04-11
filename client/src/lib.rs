@@ -74,6 +74,15 @@
 //! [`RustlsConfig::without_http2()`](https://docs.trillium.rs/trillium_rustls/struct.RustlsConfig.html#method.without_http2)
 //! (or the equivalent on whichever TLS crate you're using) when constructing the
 //! [`Client`].
+//!
+//! ## WebSockets and WebTransport
+//!
+//! With the `websockets` cargo feature, `Conn::into_websocket` transforms a built conn into
+//! a `WebSocketConn` (RFC 6455 over h1, RFC 8441 extended CONNECT over h2). With the
+//! `webtransport` cargo feature, `Client::webtransport(url)` + `Conn::into_webtransport()`
+//! open a multiplexed WebTransport-over-h3 session (RFC 9220 +
+//! draft-ietf-webtrans-http3). Multiple WebTransport sessions to the same origin coalesce
+//! onto a single underlying QUIC connection — see the `webtransport` module for details.
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
@@ -87,6 +96,8 @@ mod response_body;
 mod util;
 #[cfg(feature = "websockets")]
 pub mod websocket;
+#[cfg(feature = "webtransport")]
+pub mod webtransport;
 
 pub use client::Client;
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
