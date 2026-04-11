@@ -8,8 +8,10 @@ use crate::{
     Buffer, Conn, HttpContext,
     h3::H3ErrorCode,
     headers::qpack::{
-        DEC_INSTR_INSERT_COUNT_INC, DEC_INSTR_SECTION_ACK, dynamic_table::DynamicTable,
-        encoder_stream::process_encoder_stream, varint,
+        DEC_INSTR_INSERT_COUNT_INC, DEC_INSTR_SECTION_ACK,
+        decoder_stream_reader::run_decoder_stream_reader, dynamic_table::DynamicTable,
+        encoder_dynamic_table::EncoderDynamicTable, encoder_stream::process_encoder_stream,
+        encoder_stream_writer::run_encoder_stream_writer, varint,
     },
 };
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -100,6 +102,12 @@ pub struct H3Connection {
     /// The QPACK dynamic table for this connection. Entries are inserted by
     /// `run_inbound_encoder` and read (with async waiting) by the request decode path.
     inbound_dynamic_table: DynamicTable,
+
+    /// The encoder-side QPACK dynamic table. Mutations are enqueued by the outbound encode
+    /// path (once policy integration lands) and drained to the peer by
+    /// `run_encoder_stream_writer`; acknowledgements from the peer's decoder stream are fed
+    /// in by `run_decoder_stream_reader`.
+    encoder_dynamic_table: EncoderDynamicTable,
 }
 
 impl H3Connection {
@@ -115,6 +123,7 @@ impl H3Connection {
             max_accepted_stream_id: AtomicU64::new(0),
             has_accepted_stream: AtomicBool::new(false),
             inbound_dynamic_table: DynamicTable::new(max_table_capacity, blocked_streams),
+            encoder_dynamic_table: EncoderDynamicTable::new(max_table_capacity),
         })
     }
 
@@ -285,28 +294,20 @@ impl H3Connection {
         Ok(())
     }
 
-    /// Initialize and hold open the outbound QPACK encoder stream for the duration of the
-    /// connection.
+    /// Run the outbound QPACK encoder stream for the duration of the connection.
+    ///
+    /// Writes the stream type byte, then drains encoder-stream instructions from the encoder
+    /// dynamic table as they are enqueued. Returns when the connection shuts down or the table is
+    /// marked failed.
     ///
     /// # Errors
     ///
-    /// Returns an `H3Error` in case of io error or http/3 semantic error.
-    // Currently idle (static table only); will carry encoder instructions when dynamic table is
-    // added.
-    pub async fn run_encoder<T>(&self, mut stream: T) -> Result<(), H3Error>
+    /// Returns an `H3Error` in case of io error.
+    pub async fn run_encoder<T>(&self, stream: T) -> Result<(), H3Error>
     where
         T: AsyncWrite + Unpin + Send,
     {
-        log::trace!("H3 outbound encoder stream: opening");
-        let mut buf = vec![0; 8];
-        write(&mut buf, &mut stream, |buf| {
-            quic_varint::encode(UniStreamType::QpackEncoder, buf)
-        })
-        .await?;
-        log::trace!("H3 outbound encoder stream: type byte sent");
-
-        self.swansong.clone().await;
-        Ok(())
+        run_encoder_stream_writer(&self.encoder_dynamic_table, stream, self.swansong.clone()).await
     }
 
     /// Run the outbound QPACK decoder stream for the duration of the connection.
@@ -436,9 +437,12 @@ impl H3Connection {
             }
 
             Ok(UniStreamType::QpackDecoder) => {
-                log::trace!("H3 inbound uni: QPACK decoder stream (holding open)");
-                // Outbound-only for now; hold the inbound stream open until shutdown.
-                self.swansong.clone().await;
+                log::trace!("H3 inbound uni: QPACK decoder stream ({filled} bytes pre-read)");
+                let mut reader = Prepended {
+                    head: &buf[..filled],
+                    tail: stream,
+                };
+                run_decoder_stream_reader(&mut reader, &self.encoder_dynamic_table).await?;
                 Ok(UniStreamResult::Handled)
             }
 
