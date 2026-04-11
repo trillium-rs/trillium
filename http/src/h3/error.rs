@@ -5,6 +5,7 @@ use std::borrow::Cow;
 /// Used when closing connections or resetting streams.
 /// Unknown error codes are mapped to `NoError` per spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum H3ErrorCode {
     /// No error. Used when closing without an error to signal.
     #[error("No error. Used when closing without an error to signal.")]
