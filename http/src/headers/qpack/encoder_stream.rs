@@ -40,52 +40,86 @@ where
             let is_static = first & ENC_INSTR_NAME_REF_STATIC_FLAG != 0;
             let name_index = read_varint(first, 6, stream).await?;
             let name: HeaderName<'static> = if is_static {
-                let (static_name, _) =
-                    static_entry(name_index).map_err(|_| H3ErrorCode::QpackEncoderStreamError)?;
+                let (static_name, _) = static_entry(name_index).map_err(|e| {
+                    log::error!("QPACK encoder: static_entry({name_index}) failed: {e:?}");
+                    H3ErrorCode::QpackEncoderStreamError
+                })?;
                 match static_name {
                     StaticHeaderName::Header(k) => HeaderName::from(*k),
                     StaticHeaderName::Pseudo(p) => HeaderName::from(p.as_str().to_owned()),
                 }
             } else {
-                table
-                    .name_at_relative(name_index)
-                    .ok_or(H3ErrorCode::QpackEncoderStreamError)?
+                table.name_at_relative(name_index).ok_or_else(|| {
+                    log::error!("QPACK encoder: name_at_relative({name_index}) returned None");
+                    H3ErrorCode::QpackEncoderStreamError
+                })?
             };
             let value = read_string(stream).await?;
             log::trace!(
                 "QPACK encoder: Insert With Name Reference [{name}: {}]",
                 String::from_utf8_lossy(&value)
             );
-            table.insert(name, HeaderValue::from(value))?;
+            let name_for_log = name.clone();
+            let value_for_log = value.clone();
+            table
+                .insert(name, HeaderValue::from(value))
+                .inspect_err(|e| {
+                    log::error!(
+                        "QPACK encoder: insert (name ref) failed for [{name_for_log}: {}]: {e:?}",
+                        String::from_utf8_lossy(&value_for_log)
+                    );
+                })?;
         } else if first & ENC_INSTR_INSERT_WITH_LITERAL_NAME != 0 {
             // Insert With Literal Name (RFC 9204 §3.2.3): 01HXXXxx
             let is_huffman = first & ENC_INSTR_LITERAL_NAME_HUFFMAN_FLAG != 0;
             let name_len = read_varint(first, 5, stream).await?;
             let name_bytes = read_exact(name_len, stream).await?;
             let name_bytes = if is_huffman {
-                huffman::decode(&name_bytes).map_err(|_| H3ErrorCode::QpackEncoderStreamError)?
+                huffman::decode(&name_bytes).map_err(|e| {
+                    log::error!("QPACK encoder: huffman name decode failed: {e:?}");
+                    H3ErrorCode::QpackEncoderStreamError
+                })?
             } else {
                 name_bytes
             };
             let name = HeaderName::parse(&name_bytes)
-                .map_err(|_| H3ErrorCode::QpackEncoderStreamError)?
+                .map_err(|e| {
+                    log::error!(
+                        "QPACK encoder: HeaderName::parse({:?}) failed: {e:?}",
+                        String::from_utf8_lossy(&name_bytes)
+                    );
+                    H3ErrorCode::QpackEncoderStreamError
+                })?
                 .into_owned();
             let value = read_string(stream).await?;
             log::trace!(
                 "QPACK encoder: Insert With Literal Name [{name}: {}]",
                 String::from_utf8_lossy(&value)
             );
-            table.insert(name, HeaderValue::from(value))?;
+            let name_for_log = name.clone();
+            let value_for_log = value.clone();
+            table
+                .insert(name, HeaderValue::from(value))
+                .inspect_err(|e| {
+                    log::error!(
+                        "QPACK encoder: insert (literal) failed for [{name_for_log}: {}]: {e:?}",
+                        String::from_utf8_lossy(&value_for_log)
+                    );
+                })?;
         } else if first & ENC_INSTR_SET_DYNAMIC_TABLE_CAPACITY != 0 {
             // Set Dynamic Table Capacity (RFC 9204 §3.2.1): 001XXXXX
             let capacity = read_varint(first, 5, stream).await?;
             log::trace!("QPACK encoder: Set Dynamic Table Capacity {capacity}");
-            table.set_capacity(capacity)?;
+            table.set_capacity(capacity).inspect_err(|e| {
+                log::error!("QPACK encoder: set_capacity({capacity}) failed: {e:?}");
+            })?;
         } else {
             // Duplicate (RFC 9204 §3.2.4): 000XXXXX
             let relative_index = read_varint(first, 5, stream).await?;
             log::trace!("QPACK encoder: Duplicate index {relative_index}");
-            table.duplicate(relative_index)?;
+            table.duplicate(relative_index).inspect_err(|e| {
+                log::error!("QPACK encoder: duplicate({relative_index}) failed: {e:?}");
+            })?;
         }
     }
 }
@@ -105,10 +139,10 @@ async fn read_first_byte(stream: &mut (impl AsyncRead + Unpin)) -> Result<Option
 
 async fn read_byte(stream: &mut (impl AsyncRead + Unpin)) -> Result<u8, H3Error> {
     let mut b = [0u8; 1];
-    stream
-        .read_exact(&mut b)
-        .await
-        .map_err(|_| H3ErrorCode::QpackEncoderStreamError)?;
+    stream.read_exact(&mut b).await.map_err(|e| {
+        log::error!("QPACK encoder: read_byte io error: {e:?}");
+        H3ErrorCode::QpackEncoderStreamError
+    })?;
     Ok(b[0])
 }
 
@@ -127,12 +161,18 @@ async fn read_varint(
     loop {
         let byte = read_byte(stream).await?;
         let payload = usize::from(byte & 0x7F);
-        let increment = payload
-            .checked_shl(shift)
-            .ok_or(H3ErrorCode::QpackEncoderStreamError)?;
-        value = value
-            .checked_add(increment)
-            .ok_or(H3ErrorCode::QpackEncoderStreamError)?;
+        let increment = payload.checked_shl(shift).ok_or_else(|| {
+            log::error!(
+                "QPACK encoder: varint checked_shl overflow (payload={payload}, shift={shift})"
+            );
+            H3ErrorCode::QpackEncoderStreamError
+        })?;
+        value = value.checked_add(increment).ok_or_else(|| {
+            log::error!(
+                "QPACK encoder: varint checked_add overflow (value={value}, increment={increment})"
+            );
+            H3ErrorCode::QpackEncoderStreamError
+        })?;
         shift += 7;
         if byte & 0x80 == 0 {
             return Ok(value);
@@ -142,10 +182,10 @@ async fn read_varint(
 
 async fn read_exact(len: usize, stream: &mut (impl AsyncRead + Unpin)) -> Result<Vec<u8>, H3Error> {
     let mut buf = vec![0u8; len];
-    stream
-        .read_exact(&mut buf)
-        .await
-        .map_err(|_| H3ErrorCode::QpackEncoderStreamError)?;
+    stream.read_exact(&mut buf).await.map_err(|e| {
+        log::error!("QPACK encoder: read_exact({len}) io error: {e:?}");
+        H3ErrorCode::QpackEncoderStreamError
+    })?;
     Ok(buf)
 }
 
@@ -156,7 +196,10 @@ async fn read_string(stream: &mut (impl AsyncRead + Unpin)) -> Result<Vec<u8>, H
     let len = read_varint(first, 7, stream).await?;
     let raw = read_exact(len, stream).await?;
     if is_huffman {
-        huffman::decode(&raw).map_err(|_| H3ErrorCode::QpackEncoderStreamError.into())
+        huffman::decode(&raw).map_err(|e| {
+            log::error!("QPACK encoder: huffman string decode failed ({len} bytes): {e:?}");
+            H3ErrorCode::QpackEncoderStreamError.into()
+        })
     } else {
         Ok(raw)
     }

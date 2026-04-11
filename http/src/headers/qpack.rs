@@ -2,6 +2,8 @@
 //!
 //! Please note that this interface is likely to change
 
+#[cfg(test)]
+mod corpus_tests;
 mod decoder;
 pub(crate) mod dynamic_table;
 mod encoder;
