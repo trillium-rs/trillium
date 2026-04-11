@@ -176,6 +176,7 @@ impl FieldSection<'static> {
             "QPACK decode stream {stream_id}: encoded_ric={encoded_ric} \
              required_insert_count={required_insert_count}"
         );
+        let _blocked_guard = table.try_reserve_blocked_stream(required_insert_count)?;
 
         // The S bit is bit 7 of the first byte of the delta-base field.
         let [delta_base_byte, ..] = rest else {

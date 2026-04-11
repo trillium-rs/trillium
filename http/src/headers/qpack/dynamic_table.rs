@@ -39,6 +39,10 @@ struct DynamicTableInner {
     /// Acknowledgement instructions; the `required_insert_count` is needed so `run_decoder`
     /// can avoid double-counting inserts that the SA already covers via Known Received Count.
     pending_section_acks: Vec<PendingSectionAck>,
+    /// `SETTINGS_QPACK_BLOCKED_STREAMS` — what we advertised; fixed for the connection.
+    max_blocked_streams: usize,
+    /// Number of streams currently blocked waiting for dynamic table entries.
+    currently_blocked_streams: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -55,8 +59,19 @@ struct DynamicEntry {
     size: usize,
 }
 
+/// RAII guard that holds a blocked-stream slot in the [`DynamicTable`] for the duration of a
+/// field-section decode. The slot is released automatically on drop.
+#[derive(Debug)]
+pub(crate) struct BlockedStreamGuard<'a>(&'a DynamicTable);
+
+impl Drop for BlockedStreamGuard<'_> {
+    fn drop(&mut self) {
+        self.0.decrement_blocked_streams();
+    }
+}
+
 impl DynamicTable {
-    pub(crate) fn new(max_capacity: usize) -> Self {
+    pub(crate) fn new(max_capacity: usize, max_blocked_streams: usize) -> Self {
         Self {
             inner: Mutex::new(DynamicTableInner {
                 entries: VecDeque::new(),
@@ -66,9 +81,35 @@ impl DynamicTable {
                 insert_count: 0,
                 failed: None,
                 pending_section_acks: Vec::new(),
+                max_blocked_streams,
+                currently_blocked_streams: 0,
             }),
             event: Event::new(),
         }
+    }
+
+    /// If this header block's `required_insert_count` is not yet met, attempt to reserve a
+    /// blocked-stream slot. Returns a [`BlockedStreamGuard`] that releases the slot on drop.
+    ///
+    /// Returns `None` if the table already has enough entries (no blocking needed).
+    /// Returns `Err(QpackDecompressionFailed)` if the blocked-stream limit would be exceeded.
+    pub(crate) fn try_reserve_blocked_stream(
+        &self,
+        required_insert_count: u64,
+    ) -> Result<Option<BlockedStreamGuard<'_>>, H3ErrorCode> {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.insert_count >= required_insert_count {
+            return Ok(None);
+        }
+        if inner.currently_blocked_streams >= inner.max_blocked_streams {
+            return Err(H3ErrorCode::QpackDecompressionFailed);
+        }
+        inner.currently_blocked_streams += 1;
+        Ok(Some(BlockedStreamGuard(self)))
+    }
+
+    fn decrement_blocked_streams(&self) {
+        self.inner.lock().unwrap().currently_blocked_streams -= 1;
     }
 
     /// Reconstruct the Required Insert Count from its encoded form per RFC 9204 §4.5.1.

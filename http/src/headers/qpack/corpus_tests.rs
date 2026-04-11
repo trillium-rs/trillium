@@ -188,7 +188,7 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
         return;
     }
 
-    let table = Arc::new(DynamicTable::new(capacity));
+    let table = Arc::new(DynamicTable::new(capacity, usize::MAX));
     // Interop-format convention: the offline-interop wiki states that "for historical
     // reasons, the initial dynamic table capacity is the maximum dynamic table capacity."
     // This contradicts RFC 9204 (initial capacity is zero; encoder MUST send a Set

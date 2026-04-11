@@ -107,13 +107,14 @@ impl H3Connection {
     pub fn new(context: Arc<HttpContext>) -> Arc<Self> {
         let swansong = context.swansong.child();
         let max_table_capacity = context.config.h3_max_table_capacity;
+        let blocked_streams = context.config.h3_blocked_streams;
         Arc::new(Self {
             context,
             swansong,
             peer_settings: OnceLock::new(),
             max_accepted_stream_id: AtomicU64::new(0),
             has_accepted_stream: AtomicBool::new(false),
-            inbound_dynamic_table: DynamicTable::new(max_table_capacity),
+            inbound_dynamic_table: DynamicTable::new(max_table_capacity, blocked_streams),
         })
     }
 
