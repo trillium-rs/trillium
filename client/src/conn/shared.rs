@@ -39,19 +39,11 @@ impl Conn {
             _ => {}
         }
 
-        if let Some(h3) = self.h3.clone() {
-            if self
-                .try_exec_h3(&h3, self.http_version == Version::Http3)
-                .await?
-            {
-                self.update_alt_svc_from_response(&h3);
-                return Ok(());
-            } else {
-                self.http_version = Version::Http1_1;
-            }
+        if !self.try_exec_h3().await? {
+            self.exec_h1().await?;
         }
 
-        self.exec_h1().await
+        Ok(())
     }
 
     pub(crate) fn body_len(&self) -> Option<u64> {

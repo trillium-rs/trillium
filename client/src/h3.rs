@@ -24,7 +24,7 @@ mod alt_svc;
 #[derive(Clone, Debug)]
 pub(crate) struct H3ClientState {
     pub(crate) config: ArcedQuicClientConfig,
-    pub(crate) pool: Pool<Origin, QuicConnection>,
+    pub(crate) pool: Pool<Origin, (QuicConnection, Arc<H3Connection>)>,
     pub(crate) alt_svc: AltSvcCache,
     pub(crate) broken_duration: Duration,
     endpoint_v4: OnceLockEndpoint,
@@ -63,7 +63,7 @@ impl H3ClientState {
         port: u16,
         connector: &ArcedConnector,
         context: &Arc<HttpContext>,
-    ) -> io::Result<QuicConnection> {
+    ) -> io::Result<(QuicConnection, Arc<H3Connection>)> {
         if let Some(conn) = self.pool.peek_candidate(origin) {
             return Ok(conn);
         }
@@ -77,11 +77,13 @@ impl H3ClientState {
         let endpoint = self.endpoint_for(addr)?;
         let conn = endpoint.connect(addr, host).await?;
 
-        setup_h3_connection(&conn, context, &connector.runtime());
+        let h3 = setup_h3_connection(&conn, context, &connector.runtime());
 
-        self.pool
-            .insert(origin.clone(), PoolEntry::new(conn.clone(), None));
-        Ok(conn)
+        self.pool.insert(
+            origin.clone(),
+            PoolEntry::new((conn.clone(), h3.clone()), None),
+        );
+        Ok((conn, h3))
     }
 
     /// Get or create the endpoint for the given peer address family.
@@ -122,7 +124,11 @@ impl H3ClientState {
 ///
 /// This mirrors the server-side `run_h3_connection` in trillium-server-common,
 /// using the same `H3Connection` from trillium-http for wire-protocol handling.
-fn setup_h3_connection(quic_conn: &QuicConnection, context: &Arc<HttpContext>, runtime: &Runtime) {
+fn setup_h3_connection(
+    quic_conn: &QuicConnection,
+    context: &Arc<HttpContext>,
+    runtime: &Runtime,
+) -> Arc<H3Connection> {
     let h3 = H3Connection::new(context.clone());
 
     // Outbound control stream — sends SETTINGS, then GOAWAY on shutdown.
@@ -137,6 +143,8 @@ fn setup_h3_connection(quic_conn: &QuicConnection, context: &Arc<HttpContext>, r
 
     // Reject inbound bidi streams — servers must not open client-initiated streams (RFC 9114 §6.1).
     spawn_reject_inbound_bidi_streams(quic_conn, runtime);
+
+    h3
 }
 
 fn spawn_outbound_control_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, runtime: &Runtime) {

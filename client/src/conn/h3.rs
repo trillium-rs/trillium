@@ -7,7 +7,7 @@ use std::{
 };
 use trillium_http::{
     BufWriter, Error, KnownHeaderName, Method, ReceivedBodyState, Result, Version,
-    h3::{Frame, FrameStream, H3Error},
+    h3::{Frame, FrameStream, H3Connection, H3Error},
     headers::qpack::{FieldSection, PseudoHeaders},
 };
 
@@ -24,12 +24,16 @@ impl Conn {
     /// Returns `Ok(true)` if the request was sent and response headers received via H3.
     /// Returns `Ok(false)` if H3 is unavailable or failed pre-stream, signalling the caller
     /// to fall back to HTTP/1.1. Mid-stream failures are returned as `Err`.
-    pub(super) async fn try_exec_h3(&mut self, h3: &H3ClientState, h3_hint: bool) -> Result<bool> {
+    pub(super) async fn try_exec_h3(&mut self) -> Result<bool> {
+        let Some(h3) = self.h3.clone() else {
+            return Ok(false);
+        };
+
         let origin = self.url.origin();
 
         // Check whether we have a usable alt-svc entry for this origin, or whether the caller
         // has hinted that the server supports H3 (skipping the alt-svc dance).
-        let (host, port) = if h3_hint {
+        let (host, port) = if self.http_version == Version::Http3 {
             let host = self
                 .url
                 .host_str()
@@ -49,7 +53,7 @@ impl Conn {
         };
 
         // Get an existing pooled connection or establish a new one.
-        let quic_conn = match h3
+        let (quic_conn, connection) = match h3
             .get_or_create_quic_conn(&origin, &host, port, &self.config, &self.context)
             .await
         {
@@ -62,7 +66,7 @@ impl Conn {
         };
 
         // Open a bidirectional stream for this request/response pair.
-        let (_, transport) = match quic_conn.open_bidi().await {
+        let (stream_id, transport) = match quic_conn.open_bidi().await {
             Ok(t) => t,
             Err(e) => {
                 log::debug!("H3 open_bidi failed: {e}, falling back to H1");
@@ -77,7 +81,10 @@ impl Conn {
 
         // From here on, failures propagate as errors (we've committed to H3).
         self.send_h3_request().await?;
-        self.recv_h3_response_headers().await?;
+        self.recv_h3_response_headers(&connection, stream_id)
+            .await?;
+
+        self.update_alt_svc_from_response(&h3);
 
         Ok(true)
     }
@@ -216,7 +223,7 @@ impl Conn {
         Ok(())
     }
 
-    async fn recv_h3_response_headers(&mut self) -> Result<()> {
+    async fn recv_h3_response_headers(&mut self, h3: &H3Connection, stream_id: u64) -> Result<()> {
         let transport = self.transport.as_mut().ok_or(Error::Closed)?;
         let mut frame_stream = FrameStream::new(transport, &mut self.buffer);
         let field_section = loop {
@@ -233,7 +240,14 @@ impl Conn {
             // we skip it rather than hard-failing to be tolerant of future frame types.
             if matches!(frame.frame(), Frame::Headers(_)) {
                 let payload = frame.buffer_payload().await?;
-                break FieldSection::decode(payload).map_err(|_| Error::InvalidHead)?;
+
+                break FieldSection::decode_with_dynamic_table(
+                    payload,
+                    h3.inbound_dynamic_table(),
+                    stream_id,
+                )
+                .await
+                .map_err(|_| Error::InvalidHead)?;
             }
         };
         log::trace!("received:\n{field_section}");

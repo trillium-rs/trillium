@@ -5,6 +5,7 @@ use std::borrow::Cow;
 /// Used when closing connections or resetting streams.
 /// Unknown error codes are mapped to `NoError` per spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum H3ErrorCode {
     /// No error. Used when closing without an error to signal.
     #[error("No error. Used when closing without an error to signal.")]
@@ -94,6 +95,19 @@ pub enum H3ErrorCode {
     /// Required WebTransport settings or transport parameters not met.
     #[error("WebTransport requirements not met.")]
     WebTransportRequirementsNotMet = 0x212c_0d48,
+
+    // -- QPACK error codes (RFC 9204 §6) --
+    /// The decoder failed to interpret a header block.
+    #[error("QPACK decompression failed.")]
+    QpackDecompressionFailed = 0x200,
+
+    /// The decoder failed to interpret an encoder stream instruction.
+    #[error("QPACK encoder stream error.")]
+    QpackEncoderStreamError = 0x201,
+
+    /// The encoder failed to interpret a decoder stream instruction.
+    #[error("QPACK decoder stream error.")]
+    QpackDecoderStreamError = 0x202,
 }
 
 impl H3ErrorCode {
@@ -151,6 +165,9 @@ impl From<u64> for H3ErrorCode {
             0x045d_4487 => Self::WebTransportFlowControlError,
             0x0817_b3dd => Self::WebTransportAlpnError,
             0x212c_0d48 => Self::WebTransportRequirementsNotMet,
+            0x200 => Self::QpackDecompressionFailed,
+            0x201 => Self::QpackEncoderStreamError,
+            0x202 => Self::QpackDecoderStreamError,
             _ => Self::NoError,
         }
     }
@@ -199,6 +216,9 @@ mod tests {
             H3ErrorCode::WebTransportFlowControlError,
             H3ErrorCode::WebTransportAlpnError,
             H3ErrorCode::WebTransportRequirementsNotMet,
+            H3ErrorCode::QpackDecompressionFailed,
+            H3ErrorCode::QpackEncoderStreamError,
+            H3ErrorCode::QpackDecoderStreamError,
         ] {
             let wire: u64 = code.into();
             let decoded = H3ErrorCode::from(wire);
