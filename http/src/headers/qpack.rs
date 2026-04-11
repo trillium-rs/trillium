@@ -5,9 +5,12 @@
 #[cfg(test)]
 mod corpus_tests;
 mod decoder;
+pub(crate) mod decoder_stream_reader;
 pub(crate) mod dynamic_table;
 mod encoder;
+pub(crate) mod encoder_dynamic_table;
 pub(crate) mod encoder_stream;
+pub(crate) mod encoder_stream_writer;
 pub(crate) mod huffman;
 pub(crate) mod static_table;
 #[cfg(test)]

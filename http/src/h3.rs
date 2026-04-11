@@ -35,6 +35,7 @@ pub use body_wrapper::H3Body;
 pub(crate) use body_wrapper::H3Body;
 pub use connection::{H3Connection, H3StreamResult, UniStreamResult};
 pub use error::H3ErrorCode;
+pub(crate) use frame::UniStreamType;
 #[cfg(feature = "unstable")]
 pub use frame::{ActiveFrame, Frame, FrameDecodeError, FrameStream};
 #[cfg(not(feature = "unstable"))]
