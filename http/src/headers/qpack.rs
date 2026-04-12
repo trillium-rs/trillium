@@ -8,6 +8,7 @@ mod decoder;
 mod decoder_dynamic_table;
 mod encoder;
 mod encoder_dynamic_table;
+mod entry_name;
 pub(crate) mod huffman;
 pub(crate) mod static_table;
 #[cfg(test)]
@@ -61,7 +62,9 @@ pub(crate) const ENC_INSTR_LITERAL_NAME_HUFFMAN_FLAG: u8 = 0x20; // H bit for na
 pub(crate) const ENC_INSTR_SET_DYNAMIC_TABLE_CAPACITY: u8 = 0x20;
 
 // §3.2.4: Duplicate — first byte pattern 000xxxxx
-// (no constant needed; it is the else case after all above patterns are checked)
+// On decode this is the else-case after other patterns are checked; on encode we use the
+// constant for symmetry with the other instructions.
+pub(crate) const ENC_INSTR_DUPLICATE: u8 = 0x00;
 
 // --- Decoder stream instructions (RFC 9204 §4.4) ---
 

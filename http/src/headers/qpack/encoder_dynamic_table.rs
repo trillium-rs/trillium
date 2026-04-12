@@ -16,8 +16,10 @@ use crate::{
     HeaderName, HeaderValue,
     h3::{H3Error, H3ErrorCode},
     headers::qpack::{
-        ENC_INSTR_INSERT_WITH_LITERAL_NAME, ENC_INSTR_LITERAL_NAME_HUFFMAN_FLAG,
-        ENC_INSTR_SET_DYNAMIC_TABLE_CAPACITY, STRING_HUFFMAN_FLAG, huffman, varint,
+        ENC_INSTR_DUPLICATE, ENC_INSTR_INSERT_WITH_LITERAL_NAME, ENC_INSTR_INSERT_WITH_NAME_REF,
+        ENC_INSTR_LITERAL_NAME_HUFFMAN_FLAG, ENC_INSTR_NAME_REF_STATIC_FLAG,
+        ENC_INSTR_SET_DYNAMIC_TABLE_CAPACITY, STRING_HUFFMAN_FLAG, entry_name::QpackEntryName,
+        huffman, static_table::static_entry, varint,
     },
 };
 use event_listener::{Event, EventListener};
@@ -76,7 +78,7 @@ struct Inner {
 #[derive(Debug, Clone)]
 struct Entry {
     #[allow(dead_code)] // used once policy integration lands
-    name: HeaderName<'static>,
+    name: QpackEntryName,
     #[allow(dead_code)]
     value: HeaderValue,
     /// `name.len() + value.len() + 32` per RFC 9204 §3.2.1.
@@ -151,20 +153,14 @@ impl EncoderDynamicTable {
     pub(crate) fn enqueue_set_capacity(&self, new_capacity: usize) -> Result<(), H3Error> {
         let mut inner = self.inner.lock().unwrap();
         if new_capacity > inner.max_capacity {
+            log::error!(
+                "qpack encoder: set_capacity {} exceeds max_capacity {}",
+                new_capacity,
+                inner.max_capacity
+            );
             return Err(H3ErrorCode::QpackEncoderStreamError.into());
         }
-        let floor = inner.eviction_floor();
-        // Evict as needed to fit the new capacity.
-        while inner.current_size > new_capacity {
-            // The next entry we would evict is the oldest — absolute index `insert_count -
-            // entries.len()`.
-            let oldest_abs = inner.insert_count - inner.entries.len() as u64;
-            if floor.is_some_and(|min_pinned| oldest_abs <= min_pinned) {
-                return Err(H3ErrorCode::QpackEncoderStreamError.into());
-            }
-            let evicted = inner.entries.pop_back().expect("current_size > 0");
-            inner.current_size -= evicted.size;
-        }
+        inner.evict_down_to(new_capacity)?;
         inner.capacity = new_capacity;
         inner
             .pending_ops
@@ -190,17 +186,66 @@ impl EncoderDynamicTable {
 
         let mut inner = self.inner.lock().unwrap();
         if entry_size > inner.capacity {
+            log::error!(
+                "qpack encoder: insert_literal entry_size {} exceeds capacity {}",
+                entry_size,
+                inner.capacity
+            );
             return Err(H3ErrorCode::QpackEncoderStreamError.into());
         }
-        let floor = inner.eviction_floor();
-        while inner.current_size + entry_size > inner.capacity {
-            let oldest_abs = inner.insert_count - inner.entries.len() as u64;
-            if floor.is_some_and(|min_pinned| oldest_abs <= min_pinned) {
-                return Err(H3ErrorCode::QpackEncoderStreamError.into());
-            }
-            let evicted = inner.entries.pop_back().expect("entries non-empty");
-            inner.current_size -= evicted.size;
+        let target = inner.capacity - entry_size;
+        inner.evict_down_to(target)?;
+        inner.entries.push_front(Entry {
+            name: name.into(),
+            value,
+            size: entry_size,
+        });
+        inner.current_size += entry_size;
+        let abs_idx = inner.insert_count;
+        inner.insert_count += 1;
+        inner.pending_ops.push_back(wire);
+        drop(inner);
+        self.event.notify(usize::MAX);
+        Ok(abs_idx)
+    }
+
+    /// Enqueue an Insert With Name Reference instruction against the QPACK static table
+    /// (RFC 9204 §3.2.2). Mirrors [`enqueue_insert_literal`](Self::enqueue_insert_literal)
+    /// but borrows the name from a static-table slot instead of sending it on the wire.
+    ///
+    /// Returns an error if `static_name_index` is out of range, if the resulting entry does
+    /// not fit under the current capacity, or if eviction would require dropping a pinned
+    /// entry.
+    #[allow(dead_code)] // wired into encode path in a follow-up commit
+    pub(crate) fn enqueue_insert_with_name_ref_static(
+        &self,
+        static_name_index: u8,
+        value: HeaderValue,
+    ) -> Result<u64, H3Error> {
+        let (static_name, _default_value) =
+            static_entry(usize::from(static_name_index)).map_err(|_| {
+                log::error!(
+                    "qpack encoder: insert_with_name_ref_static index {} out of range",
+                    static_name_index
+                );
+                H3ErrorCode::QpackEncoderStreamError
+            })?;
+        let name = QpackEntryName::from(*static_name);
+        let entry_size = name.len() + value.as_ref().len() + 32;
+        let wire =
+            encode_insert_with_name_ref(usize::from(static_name_index), true, value.as_ref());
+
+        let mut inner = self.inner.lock().unwrap();
+        if entry_size > inner.capacity {
+            log::error!(
+                "qpack encoder: insert_with_name_ref_static entry_size {} exceeds capacity {}",
+                entry_size,
+                inner.capacity
+            );
+            return Err(H3ErrorCode::QpackEncoderStreamError.into());
         }
+        let target = inner.capacity - entry_size;
+        inner.evict_down_to(target)?;
         inner.entries.push_front(Entry {
             name,
             value,
@@ -213,6 +258,109 @@ impl EncoderDynamicTable {
         drop(inner);
         self.event.notify(usize::MAX);
         Ok(abs_idx)
+    }
+
+    /// Enqueue an Insert With Name Reference instruction against an existing dynamic-table
+    /// entry (RFC 9204 §3.2.2, T=0). The new entry copies the referenced entry's name.
+    ///
+    /// Returns an error if `name_abs_idx` is no longer live (already evicted), if the
+    /// resulting entry does not fit under the current capacity, or if eviction would
+    /// require dropping either a pinned entry or the referenced entry itself.
+    #[allow(dead_code)] // wired into encode path in a follow-up commit
+    pub(crate) fn enqueue_insert_with_name_ref_dynamic(
+        &self,
+        name_abs_idx: u64,
+        value: HeaderValue,
+    ) -> Result<u64, H3Error> {
+        let mut inner = self.inner.lock().unwrap();
+        let name = match inner.entry_at_abs(name_abs_idx) {
+            Some(entry) => entry.name.clone(),
+            None => {
+                log::error!(
+                    "qpack encoder: insert_with_name_ref_dynamic references evicted abs_idx {}",
+                    name_abs_idx
+                );
+                return Err(H3ErrorCode::QpackEncoderStreamError.into());
+            }
+        };
+        let entry_size = name.len() + value.as_ref().len() + 32;
+        if entry_size > inner.capacity {
+            log::error!(
+                "qpack encoder: insert_with_name_ref_dynamic entry_size {} exceeds capacity {}",
+                entry_size,
+                inner.capacity
+            );
+            return Err(H3ErrorCode::QpackEncoderStreamError.into());
+        }
+        // Relative index is computed against `insert_count` at the moment this instruction
+        // will be applied by the peer. Eviction does not advance `insert_count`, so this
+        // value is stable across the upcoming `evict_down_to_preserving` call.
+        let relative_index = inner.insert_count - 1 - name_abs_idx;
+        let wire = encode_insert_with_name_ref(
+            usize::try_from(relative_index).unwrap_or(usize::MAX),
+            false,
+            value.as_ref(),
+        );
+        let target = inner.capacity - entry_size;
+        inner.evict_down_to_preserving(target, name_abs_idx)?;
+        inner.entries.push_front(Entry {
+            name,
+            value,
+            size: entry_size,
+        });
+        inner.current_size += entry_size;
+        let abs_idx = inner.insert_count;
+        inner.insert_count += 1;
+        inner.pending_ops.push_back(wire);
+        drop(inner);
+        self.event.notify(usize::MAX);
+        Ok(abs_idx)
+    }
+
+    /// Enqueue a Duplicate instruction (RFC 9204 §3.2.4). Re-inserts a copy of an existing
+    /// dynamic-table entry at the head of the table, keeping a hot entry alive across
+    /// eviction.
+    ///
+    /// Returns an error if `abs_idx` is no longer live, if the resulting entry does not fit
+    /// under the current capacity, or if eviction would require dropping either a pinned
+    /// entry or the source entry itself.
+    #[allow(dead_code)] // wired into encode path in a follow-up commit
+    pub(crate) fn enqueue_duplicate(&self, abs_idx: u64) -> Result<u64, H3Error> {
+        let mut inner = self.inner.lock().unwrap();
+        let (name, value, entry_size) = match inner.entry_at_abs(abs_idx) {
+            Some(entry) => (entry.name.clone(), entry.value.clone(), entry.size),
+            None => {
+                log::error!(
+                    "qpack encoder: duplicate references evicted abs_idx {}",
+                    abs_idx
+                );
+                return Err(H3ErrorCode::QpackEncoderStreamError.into());
+            }
+        };
+        if entry_size > inner.capacity {
+            log::error!(
+                "qpack encoder: duplicate entry_size {} exceeds capacity {}",
+                entry_size,
+                inner.capacity
+            );
+            return Err(H3ErrorCode::QpackEncoderStreamError.into());
+        }
+        let relative_index = inner.insert_count - 1 - abs_idx;
+        let wire = encode_duplicate(usize::try_from(relative_index).unwrap_or(usize::MAX));
+        let target = inner.capacity - entry_size;
+        inner.evict_down_to_preserving(target, abs_idx)?;
+        inner.entries.push_front(Entry {
+            name,
+            value,
+            size: entry_size,
+        });
+        inner.current_size += entry_size;
+        let new_abs_idx = inner.insert_count;
+        inner.insert_count += 1;
+        inner.pending_ops.push_back(wire);
+        drop(inner);
+        self.event.notify(usize::MAX);
+        Ok(new_abs_idx)
     }
 
     /// Take all currently-queued encoder-stream instructions. Called by the writer task
@@ -330,15 +478,82 @@ impl EncoderDynamicTable {
 }
 
 impl Inner {
+    /// Look up a currently-live entry by its absolute index. Returns `None` if the entry
+    /// has already been evicted or the index is past `insert_count`.
+    fn entry_at_abs(&self, abs_idx: u64) -> Option<&Entry> {
+        let oldest_abs = self.insert_count.checked_sub(self.entries.len() as u64)?;
+        if abs_idx < oldest_abs || abs_idx >= self.insert_count {
+            return None;
+        }
+        let pos = (self.insert_count - 1 - abs_idx) as usize;
+        self.entries.get(pos)
+    }
+
     /// The smallest absolute index currently pinned by an outstanding section, or `None` if
     /// no outstanding section references any dynamic entry.
-    #[allow(dead_code)] // called from enqueue paths wired in a follow-up commit
     fn eviction_floor(&self) -> Option<u64> {
         self.outstanding_sections
             .values()
             .flat_map(|sections| sections.iter())
             .filter_map(|s| s.min_ref_abs_idx)
             .min()
+    }
+
+    /// Evict oldest entries until `current_size <= target_size`, respecting the eviction
+    /// floor from outstanding pinned sections. Returns an error without mutating if a pinned
+    /// entry would have to be evicted.
+    ///
+    /// Callers hold the `Inner` lock for the entire operation, so intermediate state is not
+    /// observable to other threads. The caller is responsible for any preconditions on
+    /// `target_size` (e.g. that a new entry of a given size will actually fit under the
+    /// current `capacity`).
+    fn evict_down_to(&mut self, target_size: usize) -> Result<(), H3Error> {
+        let floor = self.eviction_floor();
+        self.evict_down_to_with_floor(target_size, floor)
+    }
+
+    /// Like [`evict_down_to`](Self::evict_down_to), but also protects the entry at
+    /// `preserve_abs_idx` from eviction. Used when enqueueing an Insert With Name Reference
+    /// (dynamic) or a Duplicate instruction, where the new entry references an existing
+    /// entry and that existing entry must still be live when the peer processes the
+    /// instruction.
+    fn evict_down_to_preserving(
+        &mut self,
+        target_size: usize,
+        preserve_abs_idx: u64,
+    ) -> Result<(), H3Error> {
+        let floor = match self.eviction_floor() {
+            Some(pin_floor) => Some(pin_floor.min(preserve_abs_idx)),
+            None => Some(preserve_abs_idx),
+        };
+        self.evict_down_to_with_floor(target_size, floor)
+    }
+
+    /// Inner eviction loop. Private — callers go through [`evict_down_to`](Self::evict_down_to)
+    /// or [`evict_down_to_preserving`](Self::evict_down_to_preserving), which compute the
+    /// appropriate floor.
+    fn evict_down_to_with_floor(
+        &mut self,
+        target_size: usize,
+        floor: Option<u64>,
+    ) -> Result<(), H3Error> {
+        while self.current_size > target_size {
+            let oldest_abs = self.insert_count - self.entries.len() as u64;
+            if floor.is_some_and(|min_live| oldest_abs <= min_live) {
+                log::error!(
+                    "qpack encoder: eviction blocked (current_size={}, target_size={}, \
+                     oldest_abs={}, floor={:?})",
+                    self.current_size,
+                    target_size,
+                    oldest_abs,
+                    floor
+                );
+                return Err(H3ErrorCode::QpackEncoderStreamError.into());
+            }
+            let evicted = self.entries.pop_back().expect("current_size > 0");
+            self.current_size -= evicted.size;
+        }
+        Ok(())
     }
 }
 
@@ -370,7 +585,42 @@ fn encode_insert_literal(name: &[u8], value: &[u8]) -> Vec<u8> {
     buf[start] |= ENC_INSTR_INSERT_WITH_LITERAL_NAME | name_h;
     buf.extend_from_slice(name_bytes);
 
-    // Value string (standard 7-bit prefix literal).
+    append_value_string_literal(&mut buf, value);
+
+    buf
+}
+
+/// Insert With Name Reference (§3.2.2): `1THNNNNN...` — 6-bit prefix integer for the name
+/// index (T selects static vs dynamic), followed by a string literal for the value.
+#[allow(dead_code)] // wired into encode path in a follow-up commit
+fn encode_insert_with_name_ref(name_index: usize, is_static: bool, value: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(value.len() + 4);
+
+    let start = buf.len();
+    buf.extend_from_slice(&varint::encode(name_index, 6));
+    buf[start] |= ENC_INSTR_INSERT_WITH_NAME_REF
+        | if is_static {
+            ENC_INSTR_NAME_REF_STATIC_FLAG
+        } else {
+            0
+        };
+
+    append_value_string_literal(&mut buf, value);
+
+    buf
+}
+
+/// Duplicate (§3.2.4): `000xxxxx` — 5-bit prefix integer for the relative index.
+#[allow(dead_code)] // wired into encode path in a follow-up commit
+fn encode_duplicate(relative_index: usize) -> Vec<u8> {
+    let mut bytes = varint::encode(relative_index, 5);
+    bytes[0] |= ENC_INSTR_DUPLICATE;
+    bytes
+}
+
+/// Append a standard 7-bit-prefix string literal with Huffman flag to `buf`. Used for the
+/// value half of Insert With Literal Name and Insert With Name Reference.
+fn append_value_string_literal(buf: &mut Vec<u8>, value: &[u8]) {
     let huffman_value = huffman::encode(value);
     let (value_bytes, value_h) = if huffman_value.len() < value.len() {
         (&huffman_value[..], STRING_HUFFMAN_FLAG)
@@ -381,16 +631,12 @@ fn encode_insert_literal(name: &[u8], value: &[u8]) -> Vec<u8> {
     buf.extend_from_slice(&varint::encode(value_bytes.len(), 7));
     buf[start] |= value_h;
     buf.extend_from_slice(value_bytes);
-
-    buf
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::headers::qpack::{
-        ENC_INSTR_INSERT_WITH_NAME_REF, decoder_dynamic_table::DecoderDynamicTable,
-    };
+    use crate::headers::qpack::decoder_dynamic_table::DecoderDynamicTable;
 
     fn hv(s: &str) -> HeaderValue {
         HeaderValue::from(s.as_bytes().to_vec())
@@ -590,9 +836,176 @@ mod tests {
     }
 
     #[test]
-    fn unused_instruction_constant_is_referenced() {
-        // Silences an unused-import warning until the next commit wires in
-        // Insert With Name Reference.
-        let _ = ENC_INSTR_INSERT_WITH_NAME_REF;
+    fn insert_with_name_ref_static_applies_and_encodes() {
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
+        // Static index 31 is `accept-encoding: "gzip, deflate, br"`; send a custom value.
+        let abs = table
+            .enqueue_insert_with_name_ref_static(31, hv("identity"))
+            .unwrap();
+        assert_eq!(abs, 0);
+        assert_eq!(table.insert_count(), 1);
+
+        // Round-trip the SetCapacity + Insert through the decoder.
+        let ops = table.drain_pending_ops();
+        let mut wire = Vec::new();
+        for op in ops {
+            wire.extend(op);
+        }
+        let decoder_table = DecoderDynamicTable::new(4096, 0);
+        let mut stream = &wire[..];
+        futures_lite::future::block_on(decoder_table.run_reader(&mut stream)).unwrap();
+        assert_eq!(
+            decoder_table.name_at_relative(0).unwrap().as_ref(),
+            "Accept-Encoding"
+        );
+    }
+
+    #[test]
+    fn insert_with_name_ref_static_accepts_pseudo_header() {
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
+        // Static index 1 is `:path "/"`. The encoder side just needs to store and emit it;
+        // verifying the decoder-side representation is out of scope for this test (see the
+        // decoder pseudo-header follow-up task).
+        let abs = table
+            .enqueue_insert_with_name_ref_static(1, hv("/api/users"))
+            .unwrap();
+        assert_eq!(abs, 0);
+        assert_eq!(table.entry_count(), 1);
+        // Two ops queued: the SetCapacity from initialization and the InsertWithNameRef.
+        let ops = table.drain_pending_ops();
+        assert_eq!(ops.len(), 2);
+        // Instruction byte: type=1 (bit 0x80), T=1 static (bit 0x40), 6-bit index=1.
+        assert_eq!(ops[1][0], 0xC1);
+    }
+
+    #[test]
+    fn insert_with_name_ref_static_out_of_range_errors() {
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
+        // Static table has 99 entries (indices 0..=98); 200 is out of range.
+        assert!(
+            table
+                .enqueue_insert_with_name_ref_static(200, hv("x"))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn insert_with_name_ref_static_rejects_oversize() {
+        let table = EncoderDynamicTable::default();
+        // accept-encoding is 15 bytes; entry_size = 15 + value + 32 > 40.
+        table.initialize_from_peer_settings(40, 40);
+        assert!(
+            table
+                .enqueue_insert_with_name_ref_static(31, hv("identity"))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn insert_with_name_ref_dynamic_applies_and_encodes() {
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
+        let base = table
+            .enqueue_insert_literal(hn("x-custom"), hv("first"))
+            .unwrap();
+        let new_abs = table
+            .enqueue_insert_with_name_ref_dynamic(base, hv("second"))
+            .unwrap();
+        assert_eq!(new_abs, 1);
+        assert_eq!(table.insert_count(), 2);
+
+        // Round-trip through the decoder: both entries should land.
+        let ops = table.drain_pending_ops();
+        let mut wire = Vec::new();
+        for op in ops {
+            wire.extend(op);
+        }
+        let decoder_table = DecoderDynamicTable::new(4096, 0);
+        let mut stream = &wire[..];
+        futures_lite::future::block_on(decoder_table.run_reader(&mut stream)).unwrap();
+        // Newest entry is at relative 0.
+        assert_eq!(
+            decoder_table.name_at_relative(0).unwrap().as_ref(),
+            "x-custom"
+        );
+        assert_eq!(
+            decoder_table.name_at_relative(1).unwrap().as_ref(),
+            "x-custom"
+        );
+    }
+
+    #[test]
+    fn insert_with_name_ref_dynamic_rejects_evicted_abs_idx() {
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
+        // No inserts yet — abs_idx 0 is not live.
+        assert!(
+            table
+                .enqueue_insert_with_name_ref_dynamic(0, hv("v"))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn insert_with_name_ref_dynamic_preserves_referenced_entry() {
+        let table = EncoderDynamicTable::default();
+        // Capacity exactly fits one entry of size 34 ("a"+"1"+32). A second entry would
+        // require evicting the first — which is the one we're referencing.
+        table.initialize_from_peer_settings(34, 34);
+        let base = table.enqueue_insert_literal(hn("a"), hv("1")).unwrap();
+        assert!(
+            table
+                .enqueue_insert_with_name_ref_dynamic(base, hv("2"))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn duplicate_applies_and_encodes() {
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
+        let base = table
+            .enqueue_insert_literal(hn("x-custom"), hv("hello"))
+            .unwrap();
+        let dup = table.enqueue_duplicate(base).unwrap();
+        assert_eq!(dup, 1);
+        assert_eq!(table.insert_count(), 2);
+        assert_eq!(table.entry_count(), 2);
+
+        // Round-trip through the decoder: both entries should land with the same name/value.
+        let ops = table.drain_pending_ops();
+        let mut wire = Vec::new();
+        for op in ops {
+            wire.extend(op);
+        }
+        let decoder_table = DecoderDynamicTable::new(4096, 0);
+        let mut stream = &wire[..];
+        futures_lite::future::block_on(decoder_table.run_reader(&mut stream)).unwrap();
+        assert_eq!(
+            decoder_table.name_at_relative(0).unwrap().as_ref(),
+            "x-custom"
+        );
+        assert_eq!(
+            decoder_table.name_at_relative(1).unwrap().as_ref(),
+            "x-custom"
+        );
+    }
+
+    #[test]
+    fn duplicate_rejects_evicted_abs_idx() {
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
+        assert!(table.enqueue_duplicate(0).is_err());
+    }
+
+    #[test]
+    fn duplicate_preserves_referenced_entry() {
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(34, 34);
+        let base = table.enqueue_insert_literal(hn("a"), hv("1")).unwrap();
+        assert!(table.enqueue_duplicate(base).is_err());
     }
 }
