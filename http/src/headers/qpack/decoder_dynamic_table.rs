@@ -5,21 +5,24 @@ use crate::{
 use event_listener::{Event, EventListener};
 use std::{collections::VecDeque, sync::Mutex};
 
+mod reader;
+mod writer;
+
 /// The QPACK dynamic table for a single HTTP/3 connection (decoder side).
 ///
 /// Entries are added by `run_inbound_encoder` as it processes the peer's encoder stream.
 /// Request streams that reference the dynamic table call
-/// [`get`](DynamicTable::get) and await it — it resolves once the required number
+/// [`get`](DecoderDynamicTable::get) and await it — it resolves once the required number
 /// of inserts have arrived.
 #[derive(Debug)]
-pub struct DynamicTable {
-    inner: Mutex<DynamicTableInner>,
+pub struct DecoderDynamicTable {
+    inner: Mutex<DecoderDynamicTableInner>,
     /// Notified on every insert and on failure, waking blocked `get` calls.
     event: Event,
 }
 
 #[derive(Debug)]
-struct DynamicTableInner {
+struct DecoderDynamicTableInner {
     /// Entries in insertion order, newest first. `entries[0]` has absolute index
     /// `insert_count - 1`; `entries[i]` has absolute index `insert_count - 1 - i`.
     entries: VecDeque<DynamicEntry>,
@@ -59,10 +62,10 @@ struct DynamicEntry {
     size: usize,
 }
 
-/// RAII guard that holds a blocked-stream slot in the [`DynamicTable`] for the duration of a
+/// RAII guard that holds a blocked-stream slot in the [`DecoderDynamicTable`] for the duration of a
 /// field-section decode. The slot is released automatically on drop.
 #[derive(Debug)]
-pub(crate) struct BlockedStreamGuard<'a>(&'a DynamicTable);
+pub(crate) struct BlockedStreamGuard<'a>(&'a DecoderDynamicTable);
 
 impl Drop for BlockedStreamGuard<'_> {
     fn drop(&mut self) {
@@ -70,10 +73,10 @@ impl Drop for BlockedStreamGuard<'_> {
     }
 }
 
-impl DynamicTable {
+impl DecoderDynamicTable {
     pub(crate) fn new(max_capacity: usize, max_blocked_streams: usize) -> Self {
         Self {
-            inner: Mutex::new(DynamicTableInner {
+            inner: Mutex::new(DecoderDynamicTableInner {
                 entries: VecDeque::new(),
                 max_capacity,
                 capacity: 0,
@@ -300,7 +303,7 @@ impl DynamicTable {
     }
 }
 
-impl DynamicTableInner {
+impl DecoderDynamicTableInner {
     fn get(&self, absolute_index: u64) -> Option<(HeaderName<'static>, HeaderValue)> {
         // entries[0] = newest = absolute index (insert_count - 1)
         // entries[i] = absolute index (insert_count - 1 - i)

@@ -406,7 +406,7 @@ impl Conn {
         self.finalize_headers_h1()?;
         self.connect_and_send_head().await?;
         self.send_body_and_parse_head().await?;
-        if let Some(h3) = &self.h3 {
+        if let Some(h3) = &self.h3_client_state {
             self.update_alt_svc_from_response(h3);
         }
 

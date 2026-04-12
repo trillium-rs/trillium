@@ -1,8 +1,5 @@
 use super::{FieldSection, PseudoHeaders};
-use crate::{
-    Status,
-    headers::qpack::{dynamic_table::DynamicTable, encoder_stream::process_encoder_stream},
-};
+use crate::{Status, headers::qpack::decoder_dynamic_table::DecoderDynamicTable};
 use futures_lite::{future, io::Cursor};
 use std::{path::Path, sync::Arc, time::Duration};
 use trillium_testing::RuntimeTrait as _;
@@ -152,7 +149,7 @@ fn status_code_str(s: Status) -> String {
 ///   synchronously over an in-memory cursor.
 /// * Header-block records are pushed as futures into a `FuturesUnordered` and run concurrently with
 ///   the driver. A header block that references not-yet-inserted entries will suspend on
-///   [`DynamicTable::get`], register an event-listener waker, and resume once a later
+///   [`DecoderDynamicTable::get`], register an event-listener waker, and resume once a later
 ///   encoder-stream record inserts those entries.
 ///
 /// After each record we opportunistically drain any now-ready futures, then drain
@@ -188,7 +185,7 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
         return;
     }
 
-    let table = Arc::new(DynamicTable::new(capacity, usize::MAX));
+    let table = Arc::new(DecoderDynamicTable::new(capacity, usize::MAX));
     // Interop-format convention: the offline-interop wiki states that "for historical
     // reasons, the initial dynamic table capacity is the maximum dynamic table capacity."
     // This contradicts RFC 9204 (initial capacity is zero; encoder MUST send a Set
@@ -217,11 +214,9 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
         for record in &records {
             if record.stream_id == 0 {
                 let mut cursor = Cursor::new(&record.data[..]);
-                process_encoder_stream(&mut cursor, &table)
-                    .await
-                    .unwrap_or_else(|e| {
-                        panic!("encoder stream error in {}: {e}", out_path.display())
-                    });
+                table.run_reader(&mut cursor).await.unwrap_or_else(|e| {
+                    panic!("encoder stream error in {}: {e}", out_path.display())
+                });
             } else {
                 let table = Arc::clone(&table);
                 let stream_id = record.stream_id;
@@ -264,8 +259,8 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
         if runtime.timeout(FILE_TIMEOUT, drive).await.is_none() {
             panic!(
                 "{}: timed out after {FILE_TIMEOUT:?} — some stream is hung (likely a \
-                 wake-plumbing bug in DynamicTable::get). Rerun with RUST_LOG=trace to narrow \
-                 down which stream id never resolved.",
+                 wake-plumbing bug in DecoderDynamicTable::get). Rerun with RUST_LOG=trace to \
+                 narrow down which stream id never resolved.",
                 out_path.display()
             );
         }

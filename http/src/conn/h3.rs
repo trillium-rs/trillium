@@ -41,17 +41,14 @@ where
             match frame.frame() {
                 Frame::Headers(_) => {
                     log::trace!("H3 bidi stream {stream_id}: decoding HEADERS frame");
-                    let buffered = frame.buffer_payload().await?;
-                    let result = FieldSection::decode_with_dynamic_table(
-                        buffered,
-                        h3_connection.inbound_dynamic_table(),
-                        stream_id,
-                    )
-                    .await
-                    .map_err(|e| {
-                        log::debug!("H3 bidi stream {stream_id}: HEADERS decode error: {e:?}");
-                        H3ErrorCode::MessageError
-                    })?;
+                    let encoded = frame.buffer_payload().await?;
+                    let result = h3_connection
+                        .decode_field_section(encoded, stream_id)
+                        .await
+                        .map_err(|e| {
+                            log::debug!("H3 bidi stream {stream_id}: HEADERS decode error: {e:?}");
+                            H3ErrorCode::MessageError
+                        })?;
                     log::trace!("H3 bidi stream {stream_id}: HEADERS decoded:\n{result}");
                     break result;
                 }
@@ -78,6 +75,7 @@ where
             buffer,
             field_section,
             start_time,
+            stream_id,
         )?))
     }
 
@@ -145,6 +143,7 @@ where
         buffer: Buffer,
         mut field_section: FieldSection<'static>,
         start_time: Instant,
+        stream_id: u64,
     ) -> Result<Self, H3ErrorCode> {
         log::trace!("received:\n{field_section}");
         let pseudo_headers = field_section.pseudo_headers_mut();
@@ -205,6 +204,8 @@ where
             .cloned()
             .unwrap_or_default();
 
+        let request_body_state = ReceivedBodyState::new_h3();
+
         Ok(Conn {
             context: h3_connection.context(),
             transport,
@@ -217,7 +218,7 @@ where
             status: None,
             state: TypeSet::new(),
             response_body: None,
-            request_body_state: ReceivedBodyState::new_h3(),
+            request_body_state,
             secure: true,
             after_send: AfterSend::default(),
             start_time,
@@ -225,6 +226,7 @@ where
             authority,
             scheme,
             h3_connection: Some(h3_connection),
+            h3_stream_id: Some(stream_id),
             protocol,
             request_trailers: None,
         })
