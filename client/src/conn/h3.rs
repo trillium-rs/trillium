@@ -239,15 +239,12 @@ impl Conn {
             // FrameStream auto-skips Unknown frames; anything else here is unexpected but
             // we skip it rather than hard-failing to be tolerant of future frame types.
             if matches!(frame.frame(), Frame::Headers(_)) {
-                let payload = frame.buffer_payload().await?;
+                let encoded = frame.buffer_payload().await?;
 
-                break FieldSection::decode_with_dynamic_table(
-                    payload,
-                    h3.inbound_dynamic_table(),
-                    stream_id,
-                )
-                .await
-                .map_err(|_| Error::InvalidHead)?;
+                break h3
+                    .decode_field_section(encoded, stream_id)
+                    .await
+                    .map_err(|_| Error::InvalidHead)?;
             }
         };
         log::trace!("received:\n{field_section}");

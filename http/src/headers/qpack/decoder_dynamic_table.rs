@@ -5,6 +5,9 @@ use crate::{
 use event_listener::{Event, EventListener};
 use std::{collections::VecDeque, sync::Mutex};
 
+mod reader;
+mod writer;
+
 /// The QPACK dynamic table for a single HTTP/3 connection (decoder side).
 ///
 /// Entries are added by `run_inbound_encoder` as it processes the peer's encoder stream.

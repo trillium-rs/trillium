@@ -41,17 +41,14 @@ where
             match frame.frame() {
                 Frame::Headers(_) => {
                     log::trace!("H3 bidi stream {stream_id}: decoding HEADERS frame");
-                    let buffered = frame.buffer_payload().await?;
-                    let result = FieldSection::decode_with_dynamic_table(
-                        buffered,
-                        h3_connection.inbound_dynamic_table(),
-                        stream_id,
-                    )
-                    .await
-                    .map_err(|e| {
-                        log::debug!("H3 bidi stream {stream_id}: HEADERS decode error: {e:?}");
-                        H3ErrorCode::MessageError
-                    })?;
+                    let encoded = frame.buffer_payload().await?;
+                    let result = h3_connection
+                        .decode_field_section(encoded, stream_id)
+                        .await
+                        .map_err(|e| {
+                            log::debug!("H3 bidi stream {stream_id}: HEADERS decode error: {e:?}");
+                            H3ErrorCode::MessageError
+                        })?;
                     log::trace!("H3 bidi stream {stream_id}: HEADERS decoded:\n{result}");
                     break result;
                 }
