@@ -25,7 +25,7 @@ impl Conn {
     /// Returns `Ok(false)` if H3 is unavailable or failed pre-stream, signalling the caller
     /// to fall back to HTTP/1.1. Mid-stream failures are returned as `Err`.
     pub(super) async fn try_exec_h3(&mut self) -> Result<bool> {
-        let Some(h3) = self.h3.clone() else {
+        let Some(h3) = self.h3_client_state.clone() else {
             return Ok(false);
         };
 
@@ -78,11 +78,11 @@ impl Conn {
         self.transport = Some(transport);
         self.http_version = Version::Http3;
         self.finalize_headers_h3()?;
+        self.h3_connection = Some((connection.clone(), stream_id));
 
         // From here on, failures propagate as errors (we've committed to H3).
         self.send_h3_request().await?;
-        self.recv_h3_response_headers(&connection, stream_id)
-            .await?;
+        self.recv_h3_response_headers().await?;
 
         self.update_alt_svc_from_response(&h3);
 
@@ -90,6 +90,9 @@ impl Conn {
     }
 
     async fn send_h3_request(&mut self) -> Result<()> {
+        let Some((h3, stream_id)) = self.h3_connection.as_ref() else {
+            return Err(Error::Closed);
+        };
         let mut pseudo_headers = PseudoHeaders::default()
             .with_method(self.method)
             .with_authority(
@@ -124,11 +127,14 @@ impl Conn {
         log::trace!("sending headers:\n{field_section}");
 
         encode_field_section_h3(
+            h3,
             &field_section,
             max_peer_field_section_size,
             initial_cap,
             bufwriter.buffer_mut(),
-        )?;
+            *stream_id,
+        )
+        .await?;
 
         let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
 
@@ -140,11 +146,14 @@ impl Conn {
                 let field_section = FieldSection::new(PseudoHeaders::default(), trailers);
                 log::trace!("sending trailers:\n{field_section}");
                 encode_field_section_h3(
+                    h3,
                     &field_section,
                     max_peer_field_section_size,
                     initial_cap,
                     bufwriter.buffer_mut(),
-                )?;
+                    *stream_id,
+                )
+                .await?;
             }
         }
 
@@ -223,7 +232,11 @@ impl Conn {
         Ok(())
     }
 
-    async fn recv_h3_response_headers(&mut self, h3: &H3Connection, stream_id: u64) -> Result<()> {
+    async fn recv_h3_response_headers(&mut self) -> Result<()> {
+        let Some((h3, stream_id)) = &self.h3_connection else {
+            return Err(Error::Closed);
+        };
+
         let transport = self.transport.as_mut().ok_or(Error::Closed)?;
         let mut frame_stream = FrameStream::new(transport, &mut self.buffer);
         let field_section = loop {
@@ -242,7 +255,7 @@ impl Conn {
                 let encoded = frame.buffer_payload().await?;
 
                 break h3
-                    .decode_field_section(encoded, stream_id)
+                    .decode_field_section(encoded, *stream_id)
                     .await
                     .map_err(|_| Error::InvalidHead)?;
             }
@@ -267,14 +280,21 @@ impl Conn {
     }
 }
 
-fn encode_field_section_h3(
+async fn encode_field_section_h3(
+    h3: &H3Connection,
     field_section: &FieldSection<'_>,
     max_peer_field_section_size: Option<u64>,
     initial_cap: usize,
     buffer: &mut Vec<u8>,
+    stream_id: u64,
 ) -> io::Result<()> {
     let mut field_section_buf = Vec::with_capacity(initial_cap);
-    field_section.encode(&mut field_section_buf);
+    h3.encode_field_section(field_section, &mut field_section_buf, stream_id)
+        .await
+        .map_err(|error| {
+            log::error!("encode error: {error:?}");
+            io::Error::other(error)
+        })?;
 
     let size = field_section_buf.len() as u64;
     if let Some(max_size) = max_peer_field_section_size

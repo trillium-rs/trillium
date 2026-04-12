@@ -36,9 +36,6 @@ pub enum DecoderError {
     #[error("unexpected end of field section")]
     UnexpectedEnd,
 
-    #[error("required insert count must be zero without dynamic table")]
-    NonZeroInsertCount,
-
     #[error("invalid header name")]
     InvalidHeaderName,
 
@@ -275,54 +272,54 @@ impl FieldSection<'static> {
             headers: Cow::Owned(headers),
         })
     }
-
-    /// Decode a static-only QPACK field section (no dynamic table).
-    ///
-    /// Returns an error if the field section references the dynamic table.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the bytes cannot be parsed as a valid field section or if the
-    /// field section references the dynamic table.
-    pub fn decode(encoded: &[u8]) -> Result<Self, DecoderError> {
-        let (required_insert_count, rest) = varint::decode(encoded, 8)?;
-        if required_insert_count != 0 {
-            return Err(DecoderError::NonZeroInsertCount);
-        }
-        let (_delta_base, mut rest) = varint::decode(rest, 7)?;
-
-        let mut pseudo_headers = PseudoHeaders::default();
-        let mut headers = Headers::new();
-
-        while !rest.is_empty() {
-            let first = rest[0];
-
-            let (field_line, rest_) = if first & INDEXED_FIELD_LINE != 0 {
-                decode_indexed(rest)?
-            } else if first & LITERAL_WITH_NAME_REF != 0 {
-                decode_literal_with_name_ref(rest)?
-            } else if first & LITERAL_WITH_LITERAL_NAME != 0 {
-                decode_literal_with_literal_name(rest)?
-            } else {
-                return Err(DecoderError::DynamicTableUnsupported);
-            };
-
-            rest = rest_;
-
-            match field_line {
-                FieldLine::Header(name, value) => {
-                    headers.append(name, value);
-                }
-                FieldLine::Pseudo(pseudo) => pseudo.apply(&mut pseudo_headers),
-            }
-        }
-
-        Ok(Self {
-            pseudo_headers,
-            headers: Cow::Owned(headers),
-        })
-    }
 }
+
+//     /// Decode a static-only QPACK field section (no dynamic table).
+//     ///
+//     /// Returns an error if the field section references the dynamic table.
+//     ///
+//     /// # Errors
+//     ///
+//     /// Returns an error if the bytes cannot be parsed as a valid field section or if the
+//     /// field section references the dynamic table.
+//     pub fn decode(encoded: &[u8]) -> Result<Self, DecoderError> {
+//         let (required_insert_count, rest) = varint::decode(encoded, 8)?;
+//         if required_insert_count != 0 {
+//             return Err(DecoderError::NonZeroInsertCount);
+//         }
+//         let (_delta_base, mut rest) = varint::decode(rest, 7)?;
+
+//         let mut pseudo_headers = PseudoHeaders::default();
+//         let mut headers = Headers::new();
+
+//         while !rest.is_empty() {
+//             let first = rest[0];
+
+//             let (field_line, rest_) = if first & INDEXED_FIELD_LINE != 0 {
+//                 decode_indexed(rest)?
+//             } else if first & LITERAL_WITH_NAME_REF != 0 {
+//                 decode_literal_with_name_ref(rest)?
+//             } else if first & LITERAL_WITH_LITERAL_NAME != 0 {
+//                 decode_literal_with_literal_name(rest)?
+//             } else {
+//                 return Err(DecoderError::DynamicTableUnsupported);
+//             };
+
+//             rest = rest_;
+
+//             match field_line {
+//                 FieldLine::Header(name, value) => {
+//                     headers.append(name, value);
+//                 }
+//                 FieldLine::Pseudo(pseudo) => pseudo.apply(&mut pseudo_headers),
+//             }
+//         }
+
+//         Ok(Self {
+//             pseudo_headers,
+//             headers: Cow::Owned(headers),
+//         })
+//     }
 
 /// §4.5.2: Indexed Field Line
 fn decode_indexed(input: &[u8]) -> Result<(FieldLine, &[u8]), DecoderError> {
