@@ -1,7 +1,5 @@
 use super::{
-    FieldSection, PseudoHeaders,
-    decoder_dynamic_table::DecoderDynamicTable,
-    huffman,
+    DecoderDynamicTable, FieldSection, PseudoHeaders, huffman,
     static_table::{PseudoHeaderName, StaticHeaderName, static_entry},
     varint,
 };
@@ -163,7 +161,7 @@ impl FieldSection<'static> {
     /// # Errors
     ///
     /// Returns an error if the encoded bytes cannot be parsed as a valid field section.
-    pub async fn decode_with_dynamic_table(
+    pub(crate) async fn decode_with_dynamic_table(
         encoded: &[u8],
         table: &DecoderDynamicTable,
         stream_id: u64,

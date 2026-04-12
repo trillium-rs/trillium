@@ -1,8 +1,5 @@
 use super::{FieldSection, PseudoHeaders};
-use crate::{
-    Status,
-    headers::qpack::{decoder_dynamic_table::DecoderDynamicTable, encoder_stream::process_encoder_stream},
-};
+use crate::{Status, headers::qpack::decoder_dynamic_table::DecoderDynamicTable};
 use futures_lite::{future, io::Cursor};
 use std::{path::Path, sync::Arc, time::Duration};
 use trillium_testing::RuntimeTrait as _;
@@ -217,11 +214,9 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
         for record in &records {
             if record.stream_id == 0 {
                 let mut cursor = Cursor::new(&record.data[..]);
-                process_encoder_stream(&mut cursor, &table)
-                    .await
-                    .unwrap_or_else(|e| {
-                        panic!("encoder stream error in {}: {e}", out_path.display())
-                    });
+                table.run_reader(&mut cursor).await.unwrap_or_else(|e| {
+                    panic!("encoder stream error in {}: {e}", out_path.display())
+                });
             } else {
                 let table = Arc::clone(&table);
                 let stream_id = record.stream_id;
@@ -264,8 +259,8 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
         if runtime.timeout(FILE_TIMEOUT, drive).await.is_none() {
             panic!(
                 "{}: timed out after {FILE_TIMEOUT:?} — some stream is hung (likely a \
-                 wake-plumbing bug in DecoderDynamicTable::get). Rerun with RUST_LOG=trace to narrow \
-                 down which stream id never resolved.",
+                 wake-plumbing bug in DecoderDynamicTable::get). Rerun with RUST_LOG=trace to \
+                 narrow down which stream id never resolved.",
                 out_path.display()
             );
         }

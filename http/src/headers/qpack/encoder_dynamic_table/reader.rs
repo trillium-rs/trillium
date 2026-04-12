@@ -5,8 +5,10 @@
 //! [`EncoderDynamicTable`]. Returns on clean EOF, shutdown, I/O error, or protocol error;
 //! on protocol/I/O error the table is marked failed so the encoder-stream writer exits too.
 
-use super::encoder_dynamic_table::EncoderDynamicTable;
-use crate::h3::{H3Error, H3ErrorCode};
+use crate::{
+    h3::{H3Error, H3ErrorCode},
+    headers::qpack::EncoderDynamicTable,
+};
 use futures_lite::io::{AsyncRead, AsyncReadExt};
 
 // Section Acknowledgement: `1xxxxxxx` with a 7-bit prefix integer stream ID.
@@ -16,35 +18,34 @@ const DEC_INSTR_STREAM_CANCEL: u8 = 0x40;
 // Insert Count Increment: `00xxxxxx` with a 6-bit prefix integer increment.
 // (High bits are zero; no constant needed for matching.)
 
-/// Process the peer's decoder-stream instructions and apply them to `table`.
-///
-/// Reads until EOF (clean stream close) or a protocol / I/O error. On any error, marks the
-/// table as failed so that the encoder-stream writer task also exits.
-///
-/// # Errors
-///
-/// Returns an `H3Error` on I/O or protocol failure.
-pub(crate) async fn run_decoder_stream_reader<T>(
-    stream: &mut T,
-    table: &EncoderDynamicTable,
-) -> Result<(), H3Error>
-where
-    T: AsyncRead + Unpin + Send,
-{
-    log::trace!("QPACK decoder stream reader: started");
-    let result = process(stream, table).await;
-    match &result {
-        Ok(()) => log::trace!("QPACK decoder stream reader: clean EOF"),
-        Err(H3Error::Protocol(code)) => {
-            log::debug!("QPACK decoder stream reader: protocol error: {code}");
-            table.fail(*code);
+impl EncoderDynamicTable {
+    /// Process the peer's decoder-stream instructions and apply them to `table`.
+    ///
+    /// Reads until EOF (clean stream close) or a protocol / I/O error. On any error, marks the
+    /// table as failed so that the encoder-stream writer task also exits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `H3Error` on I/O or protocol failure.
+    pub(crate) async fn run_reader<T>(&self, stream: &mut T) -> Result<(), H3Error>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        log::trace!("QPACK decoder stream reader: started");
+        let result = process(stream, self).await;
+        match &result {
+            Ok(()) => log::trace!("QPACK decoder stream reader: clean EOF"),
+            Err(H3Error::Protocol(code)) => {
+                log::debug!("QPACK decoder stream reader: protocol error: {code}");
+                self.fail(*code);
+            }
+            Err(H3Error::Io(e)) => {
+                log::debug!("QPACK decoder stream reader: I/O error: {e}");
+                self.fail(H3ErrorCode::QpackDecoderStreamError);
+            }
         }
-        Err(H3Error::Io(e)) => {
-            log::debug!("QPACK decoder stream reader: I/O error: {e}");
-            table.fail(H3ErrorCode::QpackDecoderStreamError);
-        }
+        result
     }
-    result
 }
 
 async fn process<T>(stream: &mut T, table: &EncoderDynamicTable) -> Result<(), H3Error>
@@ -158,7 +159,7 @@ mod tests {
         push_section(&table, 4, 2, Some(0));
         // Section Ack for stream ID 4: 0x80 | 4 = 0x84
         let mut wire: &[u8] = &[0x84];
-        block_on(run_decoder_stream_reader(&mut wire, &table)).unwrap();
+        block_on(table.run_reader(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 2);
     }
 
@@ -167,7 +168,7 @@ mod tests {
         let table = make_table_with_two_entries();
         // ICI increment=1: 0x00 | 1 = 0x01
         let mut wire: &[u8] = &[0x01];
-        block_on(run_decoder_stream_reader(&mut wire, &table)).unwrap();
+        block_on(table.run_reader(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 1);
     }
 
@@ -177,7 +178,7 @@ mod tests {
         push_section(&table, 4, 2, Some(0));
         // Stream Cancel stream_id=4: 0x40 | 4 = 0x44
         let mut wire: &[u8] = &[0x44];
-        block_on(run_decoder_stream_reader(&mut wire, &table)).unwrap();
+        block_on(table.run_reader(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 0);
     }
 
@@ -187,7 +188,7 @@ mod tests {
         push_section(&table, 4, 1, Some(0));
         // Section Ack stream 4, then ICI +1: expects total known_received = 2.
         let mut wire: &[u8] = &[0x84, 0x01];
-        block_on(run_decoder_stream_reader(&mut wire, &table)).unwrap();
+        block_on(table.run_reader(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 2);
     }
 
@@ -199,7 +200,7 @@ mod tests {
         // Section Ack for stream 200 needs a multi-byte varint.
         // 7-bit prefix: first byte = 0x80 | 0x7F = 0xFF, then 200 - 127 = 73 = 0x49.
         let mut wire: &[u8] = &[0xFF, 0x49];
-        block_on(run_decoder_stream_reader(&mut wire, &table)).unwrap();
+        block_on(table.run_reader(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 2);
     }
 
@@ -208,7 +209,7 @@ mod tests {
         let table = EncoderDynamicTable::new(4096);
         // Section Ack with no outstanding section is a protocol error.
         let mut wire: &[u8] = &[0x84];
-        let err = block_on(run_decoder_stream_reader(&mut wire, &table));
+        let err = block_on(table.run_reader(&mut wire));
         assert!(err.is_err());
         assert!(table.failed().is_some());
     }
@@ -217,7 +218,7 @@ mod tests {
     fn clean_eof_returns_ok() {
         let table = EncoderDynamicTable::new(4096);
         let mut wire: &[u8] = &[];
-        block_on(run_decoder_stream_reader(&mut wire, &table)).unwrap();
+        block_on(table.run_reader(&mut wire)).unwrap();
         assert!(table.failed().is_none());
     }
 }

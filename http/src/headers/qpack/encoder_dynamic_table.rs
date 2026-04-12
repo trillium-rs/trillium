@@ -1,8 +1,8 @@
 //! Outbound QPACK dynamic table (RFC 9204 §3.2).
 //!
-//! Mirror of [`DecoderDynamicTable`](super::decoder_dynamic_table::DecoderDynamicTable) for the *encoder* side of a
-//! connection. Mutations are enqueued as already-encoded encoder-stream instructions and
-//! drained by
+//! Mirror of [`DecoderDynamicTable`](super::decoder_dynamic_table::DecoderDynamicTable) for the
+//! *encoder* side of a connection. Mutations are enqueued as already-encoded encoder-stream
+//! instructions and drained by
 //! [`run_encoder_stream_writer`](super::encoder_stream_writer::run_encoder_stream_writer).
 //! Acknowledgements read from the peer's decoder stream by
 //! [`run_decoder_stream_reader`](super::decoder_stream_reader::run_decoder_stream_reader)
@@ -25,6 +25,9 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::Mutex,
 };
+
+mod reader;
+mod writer;
 
 /// The encoder-side QPACK dynamic table for a single HTTP/3 connection.
 ///
@@ -366,7 +369,6 @@ mod tests {
     use super::*;
     use crate::headers::qpack::{
         ENC_INSTR_INSERT_WITH_NAME_REF, decoder_dynamic_table::DecoderDynamicTable,
-        encoder_stream::process_encoder_stream,
     };
 
     fn hv(s: &str) -> HeaderValue {
@@ -389,8 +391,7 @@ mod tests {
         let decoder_table = DecoderDynamicTable::new(4096, 0);
         decoder_table.set_capacity(4096).unwrap(); // decoder needs room to accept
         let mut stream = &ops[0][..];
-        futures_lite::future::block_on(process_encoder_stream(&mut stream, &decoder_table))
-            .unwrap();
+        futures_lite::future::block_on(decoder_table.run_reader(&mut stream)).unwrap();
     }
 
     #[test]
@@ -419,8 +420,7 @@ mod tests {
         }
         let decoder_table = DecoderDynamicTable::new(4096, 0);
         let mut stream = &wire[..];
-        futures_lite::future::block_on(process_encoder_stream(&mut stream, &decoder_table))
-            .unwrap();
+        futures_lite::future::block_on(decoder_table.run_reader(&mut stream)).unwrap();
         // Mirror assertion: the decoder side observed one insert.
         let name = decoder_table.name_at_relative(0).unwrap();
         assert_eq!(name.as_ref(), "x-custom");

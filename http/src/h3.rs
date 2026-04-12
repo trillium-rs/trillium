@@ -7,7 +7,7 @@ mod frame;
 #[cfg(feature = "unstable")]
 pub mod quic_varint;
 #[cfg(not(feature = "unstable"))]
-mod quic_varint;
+pub(crate) mod quic_varint;
 mod settings;
 
 #[cfg(test)]
@@ -40,3 +40,5 @@ pub(crate) use frame::UniStreamType;
 pub use frame::{ActiveFrame, Frame, FrameDecodeError, FrameStream};
 #[cfg(not(feature = "unstable"))]
 pub(crate) use frame::{Frame, FrameDecodeError, FrameStream};
+
+pub(crate) const MAX_BUFFER_SIZE: usize = 1024 * 10;
