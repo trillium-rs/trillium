@@ -189,8 +189,8 @@ mod tests {
 
     #[test]
     fn writes_stream_type_and_drains_ops() {
-        let table = Arc::new(EncoderDynamicTable::new(4096));
-        table.enqueue_set_capacity(4096).unwrap();
+        let table = Arc::new(EncoderDynamicTable::default());
+        table.initialize_from_peer_settings(4096, 4096);
         table
             .enqueue_insert_literal(hn("x-custom"), hv("v"))
             .unwrap();
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn exits_on_swansong_with_no_ops() {
-        let table = Arc::new(EncoderDynamicTable::new(4096));
+        let table = Arc::new(EncoderDynamicTable::default());
         let swansong = Swansong::new();
         let duplex = Duplex::new();
 
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn exits_on_table_failure() {
-        let table = Arc::new(EncoderDynamicTable::new(4096));
+        let table = Arc::new(EncoderDynamicTable::default());
         let swansong = Swansong::new();
         let mut duplex = Duplex::new();
 

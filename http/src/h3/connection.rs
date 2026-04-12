@@ -114,7 +114,7 @@ impl H3Connection {
             max_accepted_stream_id: AtomicU64::new(0),
             has_accepted_stream: AtomicBool::new(false),
             decoder_dynamic_table: DecoderDynamicTable::new(max_table_capacity, blocked_streams),
-            encoder_dynamic_table: EncoderDynamicTable::new(max_table_capacity),
+            encoder_dynamic_table: EncoderDynamicTable::default(),
         })
     }
 
@@ -236,6 +236,7 @@ impl H3Connection {
     ///
     /// Returns an `H3Error` in case of http/3 semantic error.
     #[cfg(feature = "unstable")]
+    #[allow(unused)]
     pub async fn encode_field_section(
         &self,
         field_section: &FieldSection<'_>,
@@ -249,6 +250,7 @@ impl H3Connection {
     }
 
     #[cfg(not(feature = "unstable"))]
+    #[allow(unused)]
     pub(crate) async fn encode_field_section(
         &self,
         field_section: &FieldSection<'_>,
@@ -458,10 +460,18 @@ impl H3Connection {
         })
         .await?;
 
+        let peer_max = settings.qpack_max_table_capacity().unwrap_or(0);
+        let our_max = self.context.config.h3_max_table_capacity;
+        let our_max_usize = usize::try_from(our_max).unwrap_or(usize::MAX);
+        let peer_max_usize = usize::try_from(peer_max).unwrap_or(usize::MAX);
+
         self.peer_settings
             .set(settings)
             .map_err(|_| H3ErrorCode::FrameUnexpected)?;
         log::trace!("H3 peer settings: {:?}", self.peer_settings.get());
+
+        self.encoder_dynamic_table
+            .initialize_from_peer_settings(our_max_usize, peer_max_usize);
 
         // Read subsequent frames, watching for GOAWAY
         loop {

@@ -136,8 +136,8 @@ mod tests {
     }
 
     fn make_table_with_two_entries() -> EncoderDynamicTable {
-        let table = EncoderDynamicTable::new(4096);
-        table.enqueue_set_capacity(4096).unwrap();
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
         table.enqueue_insert_literal(hn("a"), hv("1")).unwrap();
         table.enqueue_insert_literal(hn("b"), hv("2")).unwrap();
         table
@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn protocol_error_marks_table_failed() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
         // Section Ack with no outstanding section is a protocol error.
         let mut wire: &[u8] = &[0x84];
         let err = block_on(table.run_reader(&mut wire));
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn clean_eof_returns_ok() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
         let mut wire: &[u8] = &[];
         block_on(table.run_reader(&mut wire)).unwrap();
         assert!(table.failed().is_none());

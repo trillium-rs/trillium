@@ -97,18 +97,15 @@ pub(crate) struct SectionRefs {
     pub(crate) min_ref_abs_idx: Option<u64>,
 }
 
-impl EncoderDynamicTable {
-    /// Construct an empty encoder dynamic table with the given maximum capacity.
-    ///
-    /// `max_capacity` is the hard upper bound — typically the minimum of what we're willing
-    /// to allocate and what the peer advertised as its `SETTINGS_QPACK_MAX_TABLE_CAPACITY`.
-    /// The initial working capacity is 0; enqueue a Set Dynamic Table Capacity instruction
-    /// via [`enqueue_set_capacity`](Self::enqueue_set_capacity) before any inserts.
-    pub(crate) fn new(max_capacity: usize) -> Self {
+impl Default for EncoderDynamicTable {
+    /// Construct an empty encoder dynamic table. `max_capacity` and the working `capacity`
+    /// both start at 0; call [`initialize_from_peer_settings`](Self::initialize_from_peer_settings)
+    /// once the peer's `SETTINGS_QPACK_MAX_TABLE_CAPACITY` is known before any inserts.
+    fn default() -> Self {
         Self {
             inner: Mutex::new(Inner {
                 entries: VecDeque::new(),
-                max_capacity,
+                max_capacity: 0,
                 capacity: 0,
                 current_size: 0,
                 insert_count: 0,
@@ -120,13 +117,37 @@ impl EncoderDynamicTable {
             event: Event::new(),
         }
     }
+}
+
+impl EncoderDynamicTable {
+    /// Initialize the table from peer settings. Sets both `max_capacity` and the working
+    /// `capacity` to `min(our_max, peer_max)` and, if that value is non-zero, enqueues a
+    /// Set Dynamic Table Capacity instruction (RFC 9204 §3.2.1, §4.3.1).
+    ///
+    /// Must be called exactly once, immediately after the peer's `SETTINGS` frame is parsed
+    /// on the control stream.
+    pub(crate) fn initialize_from_peer_settings(&self, our_max: usize, peer_max: usize) {
+        let chosen = our_max.min(peer_max);
+        let mut inner = self.inner.lock().unwrap();
+        debug_assert_eq!(
+            inner.max_capacity, 0,
+            "initialize_from_peer_settings called twice"
+        );
+        inner.max_capacity = chosen;
+        inner.capacity = chosen;
+        if chosen > 0 {
+            inner.pending_ops.push_back(encode_set_capacity(chosen));
+            drop(inner);
+            self.event.notify(usize::MAX);
+        }
+    }
 
     /// Enqueue a Set Dynamic Table Capacity instruction (RFC 9204 §3.2.1, §4.3.1).
     ///
     /// Evicts oldest entries that no longer fit under the new capacity, respecting the
     /// eviction floor imposed by outstanding pinned sections. Returns an error if
     /// `new_capacity > max_capacity` or if eviction would require dropping a pinned entry.
-    #[allow(dead_code)] // wired into encode path in a follow-up commit
+    #[allow(dead_code)] // exercised by tests; first production caller lands with policy integration
     pub(crate) fn enqueue_set_capacity(&self, new_capacity: usize) -> Result<(), H3Error> {
         let mut inner = self.inner.lock().unwrap();
         if new_capacity > inner.max_capacity {
@@ -381,7 +402,10 @@ mod tests {
 
     #[test]
     fn set_capacity_encodes_wire_bytes() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
+        // Initialization emitted a SetCapacity(4096); drop it and test a subsequent shrink.
+        let _ = table.drain_pending_ops();
         table.enqueue_set_capacity(1024).unwrap();
         let ops = table.drain_pending_ops();
         assert_eq!(ops.len(), 1);
@@ -396,14 +420,15 @@ mod tests {
 
     #[test]
     fn set_capacity_rejects_above_max() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
         assert!(table.enqueue_set_capacity(8192).is_err());
     }
 
     #[test]
     fn insert_literal_applies_and_encodes() {
-        let table = EncoderDynamicTable::new(4096);
-        table.enqueue_set_capacity(4096).unwrap();
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
         let abs = table
             .enqueue_insert_literal(hn("x-custom"), hv("hello"))
             .unwrap();
@@ -428,8 +453,8 @@ mod tests {
 
     #[test]
     fn insert_literal_rejects_oversize() {
-        let table = EncoderDynamicTable::new(4096);
-        table.enqueue_set_capacity(64).unwrap();
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(64, 64);
         // entry_size = name + value + 32; a 64-byte value forces entry_size > 64.
         let big = hv("x".repeat(64).as_str());
         assert!(table.enqueue_insert_literal(hn("n"), big).is_err());
@@ -437,10 +462,10 @@ mod tests {
 
     #[test]
     fn insert_literal_evicts_oldest_when_unpinned() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
         // Capacity 70 bytes fits exactly one entry of size 64 (1+1+32 = 34 per entry? let me size
         // it explicitly): "a":"v" → 1+1+32 = 34. Two entries = 68, third would evict first.
-        table.enqueue_set_capacity(70).unwrap();
+        table.initialize_from_peer_settings(70, 70);
         table.enqueue_insert_literal(hn("a"), hv("1")).unwrap();
         table.enqueue_insert_literal(hn("b"), hv("2")).unwrap();
         assert_eq!(table.entry_count(), 2);
@@ -452,8 +477,8 @@ mod tests {
 
     #[test]
     fn section_ack_advances_known_received() {
-        let table = EncoderDynamicTable::new(4096);
-        table.enqueue_set_capacity(4096).unwrap();
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
         table.enqueue_insert_literal(hn("a"), hv("1")).unwrap();
         table.enqueue_insert_literal(hn("b"), hv("2")).unwrap();
         // Simulate a request-stream task registering a section that referenced both entries.
@@ -474,13 +499,13 @@ mod tests {
 
     #[test]
     fn section_ack_without_outstanding_errors() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
         assert!(table.on_section_ack(4).is_err());
     }
 
     #[test]
     fn stream_cancel_drops_sections_without_advancing() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
         {
             let mut inner = table.inner.lock().unwrap();
             inner
@@ -499,8 +524,8 @@ mod tests {
 
     #[test]
     fn insert_count_increment_advances_and_bounds() {
-        let table = EncoderDynamicTable::new(4096);
-        table.enqueue_set_capacity(4096).unwrap();
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
         table.enqueue_insert_literal(hn("a"), hv("1")).unwrap();
         table.enqueue_insert_literal(hn("b"), hv("2")).unwrap();
         table.on_insert_count_increment(1).unwrap();
@@ -513,14 +538,14 @@ mod tests {
 
     #[test]
     fn insert_count_increment_rejects_zero() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
         assert!(table.on_insert_count_increment(0).is_err());
     }
 
     #[test]
     fn pinned_entry_blocks_eviction() {
-        let table = EncoderDynamicTable::new(4096);
-        table.enqueue_set_capacity(70).unwrap();
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(70, 70);
         table.enqueue_insert_literal(hn("a"), hv("1")).unwrap();
         table.enqueue_insert_literal(hn("b"), hv("2")).unwrap();
         // Pin abs index 0.
@@ -541,23 +566,27 @@ mod tests {
 
     #[test]
     fn fail_sets_failed_state() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
         table.fail(H3ErrorCode::QpackEncoderStreamError);
         assert_eq!(table.failed(), Some(H3ErrorCode::QpackEncoderStreamError));
     }
 
     #[test]
     fn drain_is_fifo() {
-        let table = EncoderDynamicTable::new(4096);
+        let table = EncoderDynamicTable::default();
+        table.initialize_from_peer_settings(4096, 4096);
+        // Initialization emits SetCapacity(4096); add two more to verify FIFO ordering.
         table.enqueue_set_capacity(256).unwrap();
         table.enqueue_set_capacity(1024).unwrap();
         let ops = table.drain_pending_ops();
-        assert_eq!(ops.len(), 2);
+        assert_eq!(ops.len(), 3);
         // Verify order by re-parsing the 5-bit capacity value.
         let (first, _) = varint::decode(&ops[0], 5).unwrap();
         let (second, _) = varint::decode(&ops[1], 5).unwrap();
-        assert_eq!(first, 256);
-        assert_eq!(second, 1024);
+        let (third, _) = varint::decode(&ops[2], 5).unwrap();
+        assert_eq!(first, 4096);
+        assert_eq!(second, 256);
+        assert_eq!(third, 1024);
     }
 
     #[test]
