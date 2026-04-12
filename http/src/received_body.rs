@@ -1,4 +1,4 @@
-use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, copy};
+use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, copy, h3::H3Connection};
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 use encoding_rs::Encoding;
@@ -7,6 +7,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     io::{self, ErrorKind},
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -117,6 +118,13 @@ pub struct ReceivedBody<'conn, Transport> {
     /// Byte offset into `b"HTTP/1.1 100 Continue\r\n\r\n"` that remains to be written before the
     /// first read. `None` means no pending write.
     send_100_continue_offset: Option<usize>,
+
+    /// holds connection and stream id
+    h3_connection: Option<(Arc<H3Connection>, u64)>,
+
+    /// a boxed future that handles decoding trailers
+    h3_trailer_future:
+        Option<Pin<Box<dyn Future<Output = io::Result<Headers>> + Send + Sync + 'static>>>,
 }
 
 fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
@@ -174,6 +182,8 @@ where
             h3_max_field_section_size: config.h3_max_field_section_size,
             trailers: None.into(),
             send_100_continue_offset: None,
+            h3_connection: None,
+            h3_trailer_future: None,
         }
     }
 
@@ -184,6 +194,26 @@ where
     #[must_use]
     pub fn with_trailers(mut self, trailers: impl Into<MutCow<'conn, Option<Headers>>>) -> Self {
         self.trailers = trailers.into();
+        self
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    #[cfg(feature = "unstable")]
+    pub fn with_h3_connection(mut self, h3_connection: Arc<H3Connection>, stream_id: u64) -> Self {
+        self.h3_connection = Some((h3_connection, stream_id));
+        self
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    #[cfg(not(feature = "unstable"))]
+    pub(crate) fn with_h3_connection(
+        mut self,
+        h3_connection: Arc<H3Connection>,
+        stream_id: u64,
+    ) -> Self {
+        self.h3_connection = Some((h3_connection, stream_id));
         self
     }
 
@@ -407,7 +437,7 @@ where
                     remaining_in_frame,
                     total,
                     frame_type,
-                    partial_frame_header
+                    partial_frame_header,
                 ),
                 ReceivedBodyState::ReadingH1Trailers { total } => {
                     self.handle_reading_h1_trailers(cx, buf, total)
@@ -418,6 +448,14 @@ where
             *self.state = new_body_state;
 
             if *self.state == End {
+                if bytes == 0
+                    && let Some(h3_trailer_future) = &mut self.h3_trailer_future
+                {
+                    let trailers = ready!(h3_trailer_future.as_mut().poll(cx))?;
+                    *self.trailers = Some(trailers);
+                    self.h3_trailer_future = None;
+                }
+
                 if self.on_completion.is_some() && self.owns_transport() {
                     let transport = self.transport.take().unwrap().unwrap_owned();
                     let on_completion = self.on_completion.take().unwrap();

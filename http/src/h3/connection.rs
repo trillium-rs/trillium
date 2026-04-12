@@ -4,12 +4,10 @@ use super::{
     quic_varint::{self, QuicVarIntError},
     settings::H3Settings,
 };
-#[cfg(feature = "unstable")]
-use crate::headers::qpack::FieldSection;
 use crate::{
     Buffer, Conn, HttpContext,
     h3::{H3ErrorCode, MAX_BUFFER_SIZE},
-    headers::qpack::{DecoderDynamicTable, EncoderDynamicTable},
+    headers::qpack::{DecoderDynamicTable, EncoderDynamicTable, FieldSection},
 };
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::{
@@ -217,6 +215,50 @@ impl H3Connection {
     ) -> Result<FieldSection<'static>, H3Error> {
         FieldSection::decode_with_dynamic_table(encoded, &self.decoder_dynamic_table, stream_id)
             .await
+    }
+
+    #[cfg(not(feature = "unstable"))]
+    pub(crate) async fn decode_field_section(
+        &self,
+        encoded: &[u8],
+        stream_id: u64,
+    ) -> Result<FieldSection<'static>, H3Error> {
+        FieldSection::decode_with_dynamic_table(encoded, &self.decoder_dynamic_table, stream_id)
+            .await
+    }
+
+    /// Encode a QPACK field section from pseudo-headers and headers.
+    ///
+    /// This currently uses only the static table (no dynamic table).
+    /// Decode a QPACK-encoded field section, consulting the dynamic table as needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `H3Error` in case of http/3 semantic error.
+    #[cfg(feature = "unstable")]
+    pub async fn encode_field_section(
+        &self,
+        field_section: &FieldSection<'_>,
+        buf: &mut Vec<u8>,
+        stream_id: u64,
+    ) -> Result<(), H3Error> {
+        std::future::ready(()).await;
+        let _ = stream_id;
+        field_section.encode(buf);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "unstable"))]
+    pub(crate) async fn encode_field_section(
+        &self,
+        field_section: &FieldSection<'_>,
+        buf: &mut Vec<u8>,
+        stream_id: u64,
+    ) -> Result<(), H3Error> {
+        std::future::ready(()).await;
+        let _ = stream_id;
+        field_section.encode(buf);
+        Ok(())
     }
 
     /// Run this server's HTTP/3 outbound control stream.

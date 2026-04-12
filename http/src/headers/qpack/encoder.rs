@@ -10,7 +10,7 @@ impl FieldSection<'_> {
     /// Encode a QPACK field section from pseudo-headers and headers.
     ///
     /// This currently uses only the static table (no dynamic table).
-    pub fn encode(&self, buf: &mut Vec<u8>) {
+    pub(crate) fn encode(&self, buf: &mut Vec<u8>) {
         let Self {
             pseudo_headers,
             headers,

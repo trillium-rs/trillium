@@ -95,7 +95,7 @@ where
 
     #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
     pub(super) fn build_request_body(&mut self) -> ReceivedBody<'_, Transport> {
-        ReceivedBody::new_with_config(
+        let body = ReceivedBody::new_with_config(
             self.request_content_length().ok().flatten(),
             &mut self.buffer,
             &mut self.transport,
@@ -104,7 +104,15 @@ where
             encoding(&self.request_headers),
             &self.context.config,
         )
-        .with_trailers(&mut self.request_trailers)
+        .with_trailers(&mut self.request_trailers);
+
+        if let Some(h3_connection) = self.h3_connection.clone()
+            && let Some(stream_id) = self.h3_stream_id
+        {
+            body.with_h3_connection(h3_connection, stream_id)
+        } else {
+            body
+        }
     }
 
     fn validate_headers(request_headers: &Headers) -> Result<()> {
@@ -236,6 +244,7 @@ where
             h3_connection: None,
             protocol: None,
             request_trailers: None,
+            h3_stream_id: None,
         })
     }
 
@@ -311,6 +320,7 @@ where
             h3_connection: None,
             protocol: None,
             request_trailers: None,
+            h3_stream_id: None,
         })
     }
 
