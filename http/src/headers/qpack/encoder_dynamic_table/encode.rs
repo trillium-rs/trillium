@@ -58,6 +58,7 @@ use super::{
         BudgetCtx, DynRef, EncStreamAction, EncoderProgram, HeaderBlockAction, MatchState,
         TableAction, select_program,
     },
+    predictor::MnemonicPredictor,
     state::TableState,
 };
 use crate::{
@@ -255,17 +256,27 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         name: &'lines QpackEntryName<'names>,
         value: FieldLineValue<'lines>,
     ) {
-        // `allow_indexing` fuses two vetoes:
+        // Two pre-decision vetoes shape `allow_indexing`:
         //
         // 1. Sensitive-header skip — current stand-in for the RFC 9204 §4.5.4 N bit (see
-        //    `qpack-n-bit-gap` memory). Short-circuits before the predictor so sensitive `(name,
-        //    value)` pairs don't pollute the predictor's ring.
-        // 2. Mnemonic predictor — phase-3 indexing policy. When enabled, inserts only on the
-        //    second-plus sighting of a `(name, value)` pair within the recent history window
-        //    (typical traffic: ~last 28 distinct pairs). See `predictor.rs`. When disabled, every
-        //    non-sensitive header is eligible for indexing — the old phase-2 eager behavior.
-        let allow_indexing = !is_sensitive_header_name(name)
-            && (!self.state.mnemonic_indexing || self.state.predictor.index(name, &value));
+        //    `qpack-n-bit-gap` memory). Short-circuits before any predictor interaction so
+        //    sensitive `(name, value)` pairs never pollute the ring.
+        // 2. Mnemonic predictor — phase-3 indexing policy. When enabled, insert only on the
+        //    second-plus sighting of a `(name, value)` pair within the recent history window (~last
+        //    28 distinct pairs). See `predictor.rs`. When disabled, every non-sensitive header is
+        //    eligible for indexing — the phase-2 eager behavior, preserved as a config knob.
+        //
+        // Hashes are computed once per header and threaded through both the `seen` read and
+        // the `remember` write, matching ls-qpack's compute-once pattern. `name_seen` is read
+        // but unused — phase 4's name-only-insert strategy will be its first consumer.
+        let is_sensitive = is_sensitive_header_name(name);
+        let use_predictor = self.state.mnemonic_indexing && !is_sensitive;
+        let hashes =
+            use_predictor.then(|| MnemonicPredictor::hash(name.as_bytes(), value.as_bytes()));
+        let nameval_seen = hashes.is_some_and(|h| self.state.predictor.seen(h).nameval);
+
+        let allow_indexing = !is_sensitive && (!use_predictor || nameval_seen);
+
         // Source for `never_indexed` is hardcoded `false` until `FieldLine` carries the bit
         // end-to-end. Threading it through `EncoderProgram` and `Emission` now keeps the
         // structural change minimal when the source lands.
@@ -273,6 +284,16 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
 
         let emission = self.plan_with_indexing(name, value, allow_indexing, never_indexed);
         self.emissions.push(emission);
+
+        // Defer the history write until after planning — matches ls-qpack's invariant that a
+        // header is never visible to its own earlier `seen` query. Phase 3's combined
+        // `index()` happened to preserve this by reading before writing within one call; the
+        // split API makes the ordering explicit and also means the predictor sees the same
+        // ordering across retry loops in `plan_with_indexing` (write happens once, at the
+        // end, regardless of retries).
+        if let Some(h) = hashes {
+            self.state.predictor.remember(h);
+        }
     }
 
     /// Inner planning loop. Selects and executes a program; on table-mutation failure,
