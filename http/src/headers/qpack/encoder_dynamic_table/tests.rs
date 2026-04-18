@@ -1306,13 +1306,91 @@ mod encode_tests {
     }
 
     #[test]
-    fn dynamic_name_ref_budget_zero_falls_back_to_literal() {
+    fn budget_zero_warming_inserts_when_no_full_match() {
+        // KRC=0 and budget=0 mean any dynamic reference would block. With no full match
+        // available, the warming-insert branch fires: the new entry is added to the encoder
+        // stream now (referenceable in *future* sections after the peer acks) and this
+        // section emits a literal — costing nothing toward RIC or the blocked-streams budget.
         let encoder = new_table_with_blocked_streams(4096, 0);
         encoder.insert(qen("x-custom"), fv("hello")).unwrap();
-        // KRC=0 → any dynamic reference would block.
+        // Drain the priming Insert so we can isolate the warming-insert op.
+        let _ = drain_instructions(&encoder);
 
         let mut headers = Headers::new();
         headers.insert("x-custom", "world");
+        let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+
+        let (prefix, lines) = parse_section(&bytes);
+        assert_eq!(
+            prefix,
+            FieldSectionPrefix::default(),
+            "warming insert must not register a RIC for this section",
+        );
+        assert!(
+            matches!(
+                lines.as_slice(),
+                [FieldLineInstruction::LiteralLiteralName { .. }]
+            ),
+            "expected literal-with-literal-name in the section, got {lines:?}",
+        );
+        assert!(
+            outstanding(&encoder, 1).is_empty(),
+            "warming insert must not register an outstanding section",
+        );
+
+        // The encoder stream got the warming Insert — `x-custom` had no static slot but did
+        // have a dynamic name match, so the smart-pick chose Insert With Name Reference T=0.
+        let instrs = drain_instructions(&encoder);
+        assert!(
+            matches!(
+                instrs.as_slice(),
+                [EncoderInstruction::InsertWithDynamicNameRef { value, .. }] if value == b"world"
+            ),
+            "expected warming Insert With Name Reference T=0 for x-custom: world, got {instrs:?}",
+        );
+    }
+
+    #[test]
+    fn budget_zero_warming_inserts_unknown_header_with_no_name_match() {
+        // Empty table, budget=0, header has no dynamic name match and no static slot.
+        // Warming insert: encoder stream gets Insert With Literal Name; section emits a
+        // literal-with-literal-name.
+        let encoder = new_table_with_blocked_streams(4096, 0);
+        let _ = drain_instructions(&encoder); // drain SetCapacity
+
+        let mut headers = Headers::new();
+        headers.insert("x-fresh", "v1");
+        let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+
+        let (prefix, lines) = parse_section(&bytes);
+        assert_eq!(prefix, FieldSectionPrefix::default());
+        assert!(matches!(
+            lines.as_slice(),
+            [FieldLineInstruction::LiteralLiteralName { .. }]
+        ));
+        assert!(outstanding(&encoder, 1).is_empty());
+
+        let instrs = drain_instructions(&encoder);
+        assert!(
+            matches!(
+                instrs.as_slice(),
+                [EncoderInstruction::InsertWithLiteralName { name, value }]
+                    if name == &qen("x-fresh") && value == b"v1"
+            ),
+            "expected warming Insert With Literal Name, got {instrs:?}",
+        );
+    }
+
+    #[test]
+    fn budget_zero_warming_inserts_known_header_uses_static_name_ref() {
+        // Empty table, budget=0, header has a static name slot but no full match.
+        // Warming insert: encoder stream gets Insert With Name Reference T=1 (static);
+        // section emits literal-with-static-name-ref.
+        let encoder = new_table_with_blocked_streams(4096, 0);
+        let _ = drain_instructions(&encoder);
+
+        let mut headers = Headers::new();
+        headers.insert("content-type", "application/x-trillium-test");
         let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 1);
 
         let (prefix, lines) = parse_section(&bytes);
@@ -1320,11 +1398,82 @@ mod encode_tests {
         assert!(
             matches!(
                 lines.as_slice(),
-                [FieldLineInstruction::LiteralLiteralName { .. }]
+                [FieldLineInstruction::LiteralStaticNameRef { .. }]
             ),
-            "expected fallback to literal-with-literal-name, got {lines:?}",
+            "expected literal-with-static-name-ref, got {lines:?}",
         );
         assert!(outstanding(&encoder, 1).is_empty());
+
+        let instrs = drain_instructions(&encoder);
+        assert!(
+            matches!(
+                instrs.as_slice(),
+                [EncoderInstruction::InsertWithStaticNameRef { value, .. }]
+                    if value == b"application/x-trillium-test"
+            ),
+            "expected warming Insert With Static Name Reference, got {instrs:?}",
+        );
+    }
+
+    #[test]
+    fn warming_insert_referenceable_in_next_section_after_ack() {
+        // Section 1 warming-inserts x-fresh: v1. After we apply the encoder stream and ack
+        // the entry (advances KRC), section 2 references it non-blockingly even though the
+        // blocked-streams budget remains zero.
+        let encoder = new_table_with_blocked_streams(4096, 0);
+        let _ = drain_instructions(&encoder);
+
+        // Section 1: warming insert.
+        let mut h1 = Headers::new();
+        h1.insert("x-fresh", "v1");
+        let bytes1 = encode(&encoder, PseudoHeaders::default(), &h1, 1);
+        let (p1, _) = parse_section(&bytes1);
+        assert_eq!(p1, FieldSectionPrefix::default(), "section 1 should not RIC");
+        // Drain the warming Insert and pretend the peer acked it (advances KRC).
+        let _ = drain_instructions(&encoder);
+        encoder.on_insert_count_increment(1).unwrap();
+
+        // Section 2: full match with KRC=1 → non-blocking IndexedDynamic.
+        let bytes2 = encode(&encoder, PseudoHeaders::default(), &h1, 2);
+        let (p2, lines2) = parse_section(&bytes2);
+        assert_ne!(
+            p2.encoded_required_insert_count, 0,
+            "section 2 should reference the warmed entry"
+        );
+        assert!(
+            matches!(
+                lines2.as_slice(),
+                [FieldLineInstruction::IndexedDynamic { .. }]
+            ),
+            "expected indexed dynamic ref, got {lines2:?}",
+        );
+    }
+
+    #[test]
+    fn sensitive_header_does_not_warming_insert() {
+        // `authorization` is on the sensitive-header skip list (the current stand-in for the
+        // RFC 9204 §4.5.4 N bit). Even with budget=0 and a fresh header, the warming-insert
+        // branch must not fire — emit a literal with no encoder-stream activity.
+        let encoder = new_table_with_blocked_streams(4096, 0);
+        let _ = drain_instructions(&encoder);
+
+        let mut headers = Headers::new();
+        headers.insert("authorization", "Bearer secret");
+        let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+
+        let (prefix, lines) = parse_section(&bytes);
+        assert_eq!(prefix, FieldSectionPrefix::default());
+        assert!(matches!(
+            lines.as_slice(),
+            [FieldLineInstruction::LiteralStaticNameRef { .. }]
+        ));
+        assert!(outstanding(&encoder, 1).is_empty());
+
+        let instrs = drain_instructions(&encoder);
+        assert!(
+            instrs.is_empty(),
+            "sensitive-header skip must not produce a warming insert, got {instrs:?}",
+        );
     }
 
     #[test]

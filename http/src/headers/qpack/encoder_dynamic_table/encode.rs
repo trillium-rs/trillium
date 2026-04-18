@@ -6,9 +6,10 @@
 //!    the per-line decide-then-commit pipeline (lookup → [`select_program`] →
 //!    `execute_program`), tracks the section's Required Insert Count and min-referenced
 //!    `abs_idx`, enforces the blocked-streams budget at the first transition from
-//!    non-blocking to blocking, and registers the outstanding section with the table — all
-//!    before dropping the lock. Registration happens inside the critical section so the
-//!    budget check and slot consumption are atomic.
+//!    non-blocking to blocking, applies any encoder-stream side effect (Insert or
+//!    Duplicate) directly under the lock, and registers the outstanding section with the
+//!    table. Registration happens inside the critical section so the budget check and slot
+//!    consumption are atomic.
 //!
 //! 2. **Emit phase** runs lock-free. It converts the planned [`Emission`] list into wire bytes
 //!    using the §4.5 wire helpers.
@@ -28,15 +29,24 @@
 //!   format internally), records the dynamic ref in the section's RIC/min-floor accounting,
 //!   commits to the blocked-streams slot if needed, and returns the [`Emission`].
 //!
-//! Strategies emitted today (phase 1; warming-insert and policy-driven Duplicate land in
-//! phase 2):
+//! Strategies emitted today:
 //!
 //! 1. Dynamic full match (§4.5.2, T=0)
 //! 2. Static full match (§4.5.2, T=1)
 //! 3. Insert-then-reference (§3.2 insert + §4.5.2 T=0 ref in the same section)
-//! 4. Static name reference (§4.5.4, T=1)
-//! 5. Dynamic name reference (§4.5.4, T=0) — only when no static name match exists
-//! 6. Literal with literal name (§4.5.6)
+//! 4. Warming insert (§3.2 insert + §4.5.4 / §4.5.6 literal in the section) — when indexing
+//!    is allowed but no blocking slot is available and there's no full match to reference.
+//!    The new entry is referenceable in *future* sections after the peer acks; this section
+//!    pays the literal cost but contributes nothing to RIC or the blocked-streams budget.
+//! 5. Static name reference (§4.5.4, T=1)
+//! 6. Dynamic name reference (§4.5.4, T=0) — only when no static name match exists
+//! 7. Literal with literal name (§4.5.6)
+//!
+//! Policy-driven Duplicate (§3.2.4 Duplicate of a specific live entry, regardless of the
+//! field line being encoded) is wired through `EncoderProgram` and `plan_with_indexing` but
+//! has no trigger in the current strategy chain — phase 4's draining-refresh pass will be
+//! the first caller to emit it. The `Insert` smart-picker still auto-emits a Duplicate when
+//! `(name, value)` already matches a live entry; that path is independent.
 //!
 //! The ordering is a deliberately simple starting point, not a tuned policy. The sensitive-
 //! header skip list below is the only indexing veto today; the planned `IndexingPolicy`
@@ -46,8 +56,8 @@
 use super::{
     EncoderDynamicTable, SectionRefs,
     policy::{
-        BudgetCtx, DynRef, EncoderProgram, HeaderBlockAction, MatchState, TableAction,
-        select_program,
+        BudgetCtx, DynRef, EncStreamAction, EncoderProgram, HeaderBlockAction, MatchState,
+        TableAction, select_program,
     },
     state::TableState,
 };
@@ -259,10 +269,20 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         self.emissions.push(emission);
     }
 
-    /// Inner planning loop. Selects and executes a program; on insert failure, re-selects
-    /// with `allow_indexing = false` and tries again.
+    /// Inner planning loop. Selects and executes a program; on table-mutation failure,
+    /// re-selects with `allow_indexing = false` and tries again.
     ///
-    /// `TableState::insert` can fail on capacity/eviction in ways `select_program` cannot
+    /// Dispatches on `program.enc_stream`:
+    /// - [`EncStreamAction::None`] — no table mutation, hand off to the executor with no
+    ///   newly-inserted index.
+    /// - [`EncStreamAction::Insert`] — call [`TableState::insert`](super::state::TableState::insert),
+    ///   which smart-picks the §3.2 wire variant (Insert With Name Reference, Insert With
+    ///   Literal Name, or Duplicate when `(name, value)` already matches) and returns the
+    ///   new entry's absolute index.
+    /// - [`EncStreamAction::Duplicate`] — call [`TableState::duplicate`](super::state::TableState::duplicate)
+    ///   on the named `abs_idx`. Emits §3.2.4 Duplicate regardless of `(name, value)`.
+    ///
+    /// Either table mutation can fail on capacity/eviction in ways `select_program` cannot
     /// pre-check from `MatchState` alone (entry size, pin floor, in-progress
     /// `min_ref_abs_idx`). The retry path mirrors the old `try_*` chain's `.ok()?`
     /// fallthrough — and recomputes `MatchState`, since a partial eviction inside `insert`
@@ -278,23 +298,48 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         let budget = self.budget_ctx();
         let program = select_program(&match_state, allow_indexing, &budget, never_indexed);
 
-        if !matches!(program.table, TableAction::InsertNew) {
-            return self.execute_program(program, name, value, None);
-        }
+        let table_op_result = match program.enc_stream {
+            EncStreamAction::None => {
+                debug_assert!(
+                    matches!(program.table, TableAction::None),
+                    "EncStreamAction::None must pair with TableAction::None"
+                );
+                Ok(None)
+            }
+            EncStreamAction::Insert => {
+                debug_assert!(
+                    matches!(program.table, TableAction::InsertNew),
+                    "EncStreamAction::Insert must pair with TableAction::InsertNew"
+                );
+                self.state
+                    .insert(name.reborrow(), value.reborrow(), self.min_ref_abs_idx)
+                    .map(Some)
+            }
+            EncStreamAction::Duplicate(abs_idx) => {
+                debug_assert!(
+                    matches!(program.table, TableAction::InsertNew),
+                    "EncStreamAction::Duplicate must pair with TableAction::InsertNew"
+                );
+                self.state.duplicate(abs_idx, self.min_ref_abs_idx).map(Some)
+            }
+        };
 
-        if let Ok(new_abs_idx) =
-            self.state
-                .insert(name.reborrow(), value.reborrow(), self.min_ref_abs_idx)
-        {
-            self.made_inserts = true;
-            self.execute_program(program, name, value, Some(new_abs_idx))
-        } else {
-            debug_assert!(
-                allow_indexing,
-                "select_program only emits InsertNew when allow_indexing is true"
-            );
-            self.plan_with_indexing(name, value, false, never_indexed)
-        }
+        let new_abs_idx = match table_op_result {
+            Ok(None) => None,
+            Ok(Some(idx)) => {
+                self.made_inserts = true;
+                Some(idx)
+            }
+            Err(_) => {
+                debug_assert!(
+                    allow_indexing,
+                    "select_program only emits a table mutation when allow_indexing is true"
+                );
+                return self.plan_with_indexing(name, value, false, never_indexed);
+            }
+        };
+
+        self.execute_program(program, name, value, new_abs_idx)
     }
 
     /// Read the static and dynamic tables for `(name, value)` and report what matches. Pure

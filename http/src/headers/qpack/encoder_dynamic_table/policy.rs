@@ -24,10 +24,14 @@
 //! ## Action triple
 //!
 //! An [`EncoderProgram`] is split into three orthogonal axes — `enc_stream`, `table`, and
-//! `header_block` — even though phase 1 only emits two `(enc_stream, table)` pairs. The
-//! split anticipates phase 2's warming insert (`Insert` + `InsertNew` + `LiteralLiteralName`,
-//! i.e. an insert without an in-section reference) and policy-driven `Duplicate`. Carrying
-//! the structure now keeps phase-2 code arms additive rather than restructuring.
+//! `header_block`. The currently-emitted `(enc_stream, table)` pairs:
+//!
+//! | enc_stream         | table       | header_block (typical)                  | name              |
+//! |--------------------|-------------|-----------------------------------------|-------------------|
+//! | `None`             | `None`      | any reference / literal                 | reference / literal |
+//! | `Insert`           | `InsertNew` | `IndexedDynamic(NewlyInserted)`         | insert-then-reference |
+//! | `Insert`           | `InsertNew` | `LiteralStaticNameRef` / `LiteralDynamicNameRef(Existing)` / `LiteralLiteralName` | warming insert |
+//! | `Duplicate(idx)`   | `InsertNew` | `IndexedDynamic(NewlyInserted)`         | policy-driven duplicate (mechanism only — no trigger until phase 4) |
 
 /// What an entry at `(name, value)` matches in the static and dynamic tables. Pure read of
 /// table state — `Planner::compute_match_state` produces it without consulting the budget
@@ -46,8 +50,7 @@ pub(super) struct MatchState {
     pub(super) static_name: Option<u8>,
 }
 
-/// Encoder-stream side effect for one field line. Phase 1 only emits `None` or `Insert`;
-/// phase 2 will add `Duplicate(abs_idx)` for policy-driven Duplicate.
+/// Encoder-stream side effect for one field line.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum EncStreamAction {
     /// No encoder-stream bytes for this line.
@@ -57,10 +60,17 @@ pub(super) enum EncStreamAction {
     /// [`TableState::insert`](super::state::TableState::insert) from the table's contents
     /// at insert time.
     Insert,
+    /// Append a §3.2.4 Duplicate of the live entry at `abs_idx` to the encoder stream.
+    /// Distinct from `Insert` because it bypasses the smart-pick — the planner names a
+    /// specific entry to refresh regardless of the current `(name, value)`. Reserved for
+    /// policy-driven refreshes (phase 4's draining pass); the `Insert` smart-picker still
+    /// auto-emits a Duplicate when the caller's `(name, value)` already matches.
+    Duplicate(u64),
 }
 
-/// Dynamic-table side effect for one field line. Always paired with the matching
-/// [`EncStreamAction`] — `Insert` ↔ `InsertNew`. Phase 2 will add `Duplicate(abs_idx)`.
+/// Dynamic-table side effect for one field line. Always paired with a matching
+/// [`EncStreamAction`]: both `Insert` and `Duplicate(abs_idx)` pair with `InsertNew`,
+/// and `None` pairs with `None`.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum TableAction {
     /// Table state is unchanged for this line.
@@ -102,9 +112,9 @@ pub(super) enum HeaderBlockAction {
 /// Per-line plan: encoder-stream action × table action × header-block action × N bit. The
 /// product of [`select_program`]; consumed by the executor in [`super::encode`].
 ///
-/// Today only two `(enc_stream, table)` pairs are valid: `(None, None)` and
-/// `(Insert, InsertNew)`. Phase 2 adds `(Insert, InsertNew)` paired with
-/// `LiteralLiteralName` (warming insert) and a `Duplicate(abs_idx)` pair.
+/// Valid `(enc_stream, table)` pairs: `(None, None)`, `(Insert, InsertNew)`, and
+/// `(Duplicate(abs_idx), InsertNew)`. The header-block axis varies independently — see the
+/// table in the module-level docs for the combinations the strategy chain emits today.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct EncoderProgram {
     pub(super) enc_stream: EncStreamAction,
@@ -155,15 +165,21 @@ impl BudgetCtx {
 /// Pure decision: pick the [`EncoderProgram`] for one field line given what the entry
 /// matches, whether indexing is allowed, and the current budget snapshot.
 ///
-/// Phase 1 strategy chain (hardcoded; the planned `IndexingPolicy` trait will replace the
-/// caller's `allow_indexing` decision in phase 3):
+/// Strategy chain (the planned `IndexingPolicy` trait will replace the caller's
+/// `allow_indexing` decision in phase 3):
 ///
 /// 1. Dynamic full match if budget allows the ref.
 /// 2. Static full match.
 /// 3. Insert-then-reference if `allow_indexing` and a blocking slot is available.
-/// 4. Static name ref (preferred over dynamic name ref).
-/// 5. Dynamic name ref (only when no static name match and budget allows).
-/// 6. Literal name + literal value.
+/// 4. **Warming insert** — `allow_indexing` is true but no blocking slot is available, and
+///    no full match exists to reference. Emit an Insert to the encoder stream and pick the
+///    best literal form for this section's header block. The new entry is referenceable in
+///    future sections once the peer acks; this section pays the literal cost.
+/// 5. Static name ref (preferred over dynamic name ref).
+/// 6. Dynamic name ref (only when no static name match and budget allows).
+/// 7. Literal name + literal value.
+///
+/// Steps 5–7 also serve as the literal-form picker for step 4's header block.
 pub(super) fn select_program(
     match_state: &MatchState,
     allow_indexing: bool,
@@ -196,17 +212,39 @@ pub(super) fn select_program(
         };
     }
 
-    if let Some(name_index) = match_state.static_name {
-        return mk(HeaderBlockAction::LiteralStaticNameRef { name_index });
+    // Warming insert: indexing is allowed but we couldn't take a blocking slot, and there's
+    // no full match to reuse. Insert now, reference in a future section. The header block
+    // for *this* section uses the best available literal form.
+    //
+    // Skips when `dynamic_full` matches (re-inserting via Duplicate would bloat the table
+    // without helping this section — phase 4's draining pass owns that case).
+    // `static_full` is guaranteed `None` at this point by step 2's short-circuit.
+    if allow_indexing && match_state.dynamic_full.is_none() {
+        return EncoderProgram {
+            enc_stream: EncStreamAction::Insert,
+            table: TableAction::InsertNew,
+            header_block: pick_literal_action(match_state, budget),
+            never_indexed,
+        };
     }
 
+    mk(pick_literal_action(match_state, budget))
+}
+
+/// Pick the smallest literal-form header-block action available given the current matches
+/// and budget. Shared between the fall-through tail of [`select_program`] and the
+/// warming-insert branch — both need to emit a literal in the section, and the form
+/// choice is identical.
+fn pick_literal_action(match_state: &MatchState, budget: &BudgetCtx) -> HeaderBlockAction {
+    if let Some(name_index) = match_state.static_name {
+        return HeaderBlockAction::LiteralStaticNameRef { name_index };
+    }
     if let Some(abs_idx) = match_state.dynamic_name
         && budget.allows_ref(abs_idx)
     {
-        return mk(HeaderBlockAction::LiteralDynamicNameRef {
+        return HeaderBlockAction::LiteralDynamicNameRef {
             dyn_ref: DynRef::Existing(abs_idx),
-        });
+        };
     }
-
-    mk(HeaderBlockAction::LiteralLiteralName)
+    HeaderBlockAction::LiteralLiteralName
 }

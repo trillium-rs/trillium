@@ -186,15 +186,23 @@ impl TableState {
         Ok(self.insert_entry(name, value, entry_size, wire))
     }
 
-    /// §3.2.4 Duplicate fast-path for [`insert`](Self::insert). Called only when the smart
-    /// picker has already confirmed `abs_idx` is the live entry matching the caller's
-    /// `(name, value)` — the source's stored name+value are cloned (cheap `Cow` clones for
-    /// the common `'static` case) rather than allocating fresh owned copies from the
-    /// caller's borrowed inputs.
+    /// §3.2.4 Duplicate. Two callers:
+    ///
+    /// - [`insert`](Self::insert)'s smart-pick fast-path, when the caller's `(name, value)`
+    ///   already matches a live entry. The source's stored name+value are cloned (cheap
+    ///   `Cow` clones for the common `'static` case) rather than allocating fresh owned
+    ///   copies from the borrowed inputs.
+    /// - The encode-phase planner, when policy decides to refresh a specific live entry
+    ///   into a fresh table position (e.g. phase 4's draining-refresh) regardless of the
+    ///   field line being encoded.
     ///
     /// The source `abs_idx` is added to the eviction floor for the duration of
     /// `make_room_for` so it remains live for the post-eviction clone.
-    fn duplicate(&mut self, abs_idx: u64, extra_floor: Option<u64>) -> Result<u64, H3Error> {
+    pub(in crate::headers::qpack::encoder_dynamic_table) fn duplicate(
+        &mut self,
+        abs_idx: u64,
+        extra_floor: Option<u64>,
+    ) -> Result<u64, H3Error> {
         let entry_size = self
             .entry_at_abs(abs_idx)
             .expect("insert's by_value lookup guarantees abs_idx is live")

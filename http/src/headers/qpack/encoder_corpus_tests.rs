@@ -23,12 +23,23 @@
 //!
 //! ## Ack policy
 //!
-//! The test simulates an "always-ack" peer: after each successful decode, we call
-//! [`EncoderDynamicTable::on_section_ack`] on the stream if the encoded section had a
-//! non-zero Required Insert Count. This is deliberate — the metric substrate must be stable
-//! for the compression numbers to be a useful baseline as policy changes are made. A
-//! randomized-ack variant (fastrand-seeded, high-probability ack) is a reasonable follow-up
-//! once this test is known to pass, but must stay out of the compression-metric path.
+//! The test simulates a "fully-acking" peer: it acks both axes of decoder→encoder
+//! signaling that a healthy peer would emit.
+//!
+//! 1. **Section ack** (§4.4.1): after each successful decode, we call
+//!    [`EncoderDynamicTable::on_section_ack`] on the stream if the encoded section had a
+//!    non-zero Required Insert Count.
+//! 2. **Insert count increment** (§4.4.3): after applying encoder-stream ops to the
+//!    decoder, we advance the encoder's Known Received Count to its current `insert_count`
+//!    via [`EncoderDynamicTable::on_insert_count_increment`]. Without this, warming
+//!    inserts (which produce RIC=0 sections so the section-ack path doesn't fire) would
+//!    pile up unreferenceable forever, and the metric would punish phase-2+ policies that
+//!    insert without referencing in the same section.
+//!
+//! Together these are the upper bound on what a healthy peer would do — both
+//! deterministic, so the compression metric is a stable baseline as policy changes are
+//! made. A randomized-ack variant (fastrand-seeded, high-probability ack) is a reasonable
+//! follow-up but must stay out of the compression-metric path.
 //!
 //! ## Compression metric
 //!
@@ -159,6 +170,20 @@ fn run_qif_at_config(qif_path: &Path, groups: &[qif::QifGroup], config: Config) 
                     qif_path.display()
                 )
             });
+
+            // Mimic the §4.4.3 Insert Count Increment a real peer's decoder would send
+            // after processing those Inserts — without it, KRC stays stuck at 0 for any
+            // section whose RIC is also 0 (the warming-insert pattern), starving every
+            // subsequent encode of references to entries the decoder already has.
+            let increment = encoder.insert_count() - encoder.known_received_count();
+            if increment > 0 {
+                encoder.on_insert_count_increment(increment).unwrap_or_else(|e| {
+                    panic!(
+                        "{}: group {i}: encoder rejected insert count increment {increment}: {e}",
+                        qif_path.display()
+                    )
+                });
+            }
         }
 
         let field_section = future::block_on(decoder.decode(&buf, stream_id))
