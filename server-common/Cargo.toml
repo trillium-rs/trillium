@@ -1,6 +1,6 @@
 [package]
 name = "trillium-server-common"
-version = "0.6.0-rc.1"
+version = "0.6.0-rc.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "server utilities for trillium.rs"
@@ -19,8 +19,8 @@ listenfd = "1.0.2"
 log = "0.4.29"
 pin-project-lite = "0.2.17"
 swansong = "0.3.3"
-trillium = { path = "../trillium", version = "1.0.0-rc.1" }
-trillium-http = { path = "../http", version = "1.0.0-rc.1" }
+trillium = { path = "../trillium", version = "1.0.0-rc.2" }
+trillium-http = { path = "../http", version = "1.0.0-rc.2" }
 url = "2.5.8"
 
 [target.'cfg(unix)'.dependencies]

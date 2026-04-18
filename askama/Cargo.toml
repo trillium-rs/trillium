@@ -1,6 +1,6 @@
 [package]
 name = "trillium-askama"
-version = "0.4.0-rc.1"
+version = "0.4.0-rc.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "askama templates for trillium.rs"
@@ -13,7 +13,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 askama = "0.15.6"
 log = "0.4.29"
-trillium = { path = "../trillium", version = "1.0.0-rc.1" }
+trillium = { path = "../trillium", version = "1.0.0-rc.2" }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }
