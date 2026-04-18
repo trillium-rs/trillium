@@ -276,6 +276,11 @@ fn qpack_encoder_corpus() {
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|e| e == "qif"))
+        // `draft-examples.qif` is the RFC 9204 Appendix B illustrative file. None of the
+        // reference encoders publish outputs for it at the configs we test, so it has
+        // nothing to contribute to the compression comparison and would only show up as
+        // an unmatched-file artifact in the aggregate report.
+        .filter(|p| p.file_stem().is_none_or(|s| s != "draft-examples"))
         .collect();
     entries.sort();
 

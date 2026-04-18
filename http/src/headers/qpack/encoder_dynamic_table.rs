@@ -27,6 +27,7 @@ use state::TableState;
 use std::sync::Mutex;
 
 mod encode;
+mod policy;
 mod reader;
 mod state;
 #[cfg(test)]

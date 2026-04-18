@@ -2,17 +2,34 @@
 //!
 //! Two-phase design:
 //!
-//! 1. **Plan phase** runs under the `TableState` mutex. It walks the field section, picks a
-//!    strategy per field line (dynamic full match → static full match → static name ref → literal
-//!    name), tracks the section's Required Insert Count and min-referenced `abs_idx`, enforces the
-//!    blocked-streams budget at the first transition from non-blocking to blocking, and registers
-//!    the outstanding section with the table — all before dropping the lock. Registration happens
-//!    inside the critical section so the budget check and slot consumption are atomic.
+//! 1. **Plan phase** runs under the `TableState` mutex. It walks the field section and runs
+//!    the per-line decide-then-commit pipeline (lookup → [`select_program`] →
+//!    `execute_program`), tracks the section's Required Insert Count and min-referenced
+//!    `abs_idx`, enforces the blocked-streams budget at the first transition from
+//!    non-blocking to blocking, and registers the outstanding section with the table — all
+//!    before dropping the lock. Registration happens inside the critical section so the
+//!    budget check and slot consumption are atomic.
 //!
 //! 2. **Emit phase** runs lock-free. It converts the planned [`Emission`] list into wire bytes
 //!    using the §4.5 wire helpers.
 //!
-//! Supported strategies in this revision:
+//! ## Per-line pipeline
+//!
+//! Each field line runs through three stages designed to keep selection pure and side
+//! effects narrow:
+//!
+//! - **Lookup** — `Planner::compute_match_state` reads static and dynamic tables; produces a
+//!   [`MatchState`]. No mutation, no budget logic.
+//! - **Select** — [`select_program`] is a pure function over `(MatchState, allow_indexing,
+//!   BudgetCtx, never_indexed)` that returns an [`EncoderProgram`]: which encoder-stream
+//!   action, which dynamic-table action, and which header-block emission to perform.
+//! - **Execute** — `Planner::execute_program` applies the table mutation (calling
+//!   [`TableState::insert`](super::state::TableState::insert) which picks the §3.2 wire
+//!   format internally), records the dynamic ref in the section's RIC/min-floor accounting,
+//!   commits to the blocked-streams slot if needed, and returns the [`Emission`].
+//!
+//! Strategies emitted today (phase 1; warming-insert and policy-driven Duplicate land in
+//! phase 2):
 //!
 //! 1. Dynamic full match (§4.5.2, T=0)
 //! 2. Static full match (§4.5.2, T=1)
@@ -21,13 +38,19 @@
 //! 5. Dynamic name reference (§4.5.4, T=0) — only when no static name match exists
 //! 6. Literal with literal name (§4.5.6)
 //!
-//! The ordering is a deliberately simple starting point, not a tuned policy. Eventually the
-//! strategy selection should live in a dedicated policy module that can consult table state,
-//! per-peer statistics, and field-section hints (see qpack-n-bit-gap memory and the planned
-//! litespeed-style policy work). Until then, the chain is static and the sensitive-header
-//! skip list below is the only policy knob.
+//! The ordering is a deliberately simple starting point, not a tuned policy. The sensitive-
+//! header skip list below is the only indexing veto today; the planned `IndexingPolicy`
+//! trait (phase 3) will replace the hardcoded `should_index = true` seam in
+//! `plan_header_line`.
 
-use super::{EncoderDynamicTable, SectionRefs, state::TableState};
+use super::{
+    EncoderDynamicTable, SectionRefs,
+    policy::{
+        BudgetCtx, DynRef, EncoderProgram, HeaderBlockAction, MatchState, TableAction,
+        select_program,
+    },
+    state::TableState,
+};
 use crate::{
     KnownHeaderName,
     headers::qpack::{
@@ -127,6 +150,10 @@ impl EncoderDynamicTable {
 ///
 /// Borrows name/value slices from the caller's `FieldSection` — the plan lives only for the
 /// duration of one `encode()` call, so the lifetime is always trivially satisfied.
+///
+/// The literal variants carry a `never_indexed` flag (RFC 9204 §4.5.4 N bit). Hardcoded
+/// `false` today because the source signal is not yet plumbed through `FieldLine` — see
+/// `qpack-n-bit-gap` memory.
 #[derive(Debug)]
 enum Emission<'lines, 'names> {
     /// §4.5.2: Indexed Field Line referencing the QPACK static table (T=1).
@@ -140,6 +167,7 @@ enum Emission<'lines, 'names> {
     LiteralStaticNameRef {
         name_index: u8,
         value: FieldLineValue<'lines>,
+        never_indexed: bool,
     },
 
     /// §4.5.4: Literal Field Line with Name Reference, against the dynamic table (T=0),
@@ -148,12 +176,14 @@ enum Emission<'lines, 'names> {
     LiteralDynamicNameRefPreBase {
         abs_idx: u64,
         value: FieldLineValue<'lines>,
+        never_indexed: bool,
     },
 
     /// §4.5.6: Literal Field Line with Literal Name.
     LiteralLiteralName {
         name: &'lines QpackEntryName<'names>,
         value: FieldLineValue<'lines>,
+        never_indexed: bool,
     },
 }
 
@@ -164,13 +194,12 @@ struct Plan<'lines, 'names> {
     min_ref_abs_idx: Option<u64>,
 }
 
-/// Planning-phase state. Holds a mutable reference to `TableState` and accumulates decisions
-/// as the field section is walked. The plan phase runs entirely under the `TableState` lock.
-/// Mutable access is required because the insert-then-reference strategy inserts new
+/// Planning-phase state. Holds a mutable reference to `TableState` and accumulates
+/// decisions as the field section is walked. The plan phase runs entirely under the
+/// `TableState` lock. Mutable access is required because some programs insert new
 /// dynamic-table entries during planning.
 struct Planner<'state, 'lines, 'names> {
     state: &'state mut TableState,
-    stream_id: u64,
     emissions: Vec<Emission<'lines, 'names>>,
     section_ric: u64,
     min_ref_abs_idx: Option<u64>,
@@ -178,6 +207,10 @@ struct Planner<'state, 'lines, 'names> {
     /// blocking reference succeeded the budget check). Subsequent blocking references
     /// within the same section inherit the commitment and skip the re-check.
     committed_to_blocking: bool,
+    /// Cached at planner construction: was this stream already blocking when we entered
+    /// the section? Stable while we hold the `TableState` lock; lets `BudgetCtx` skip a
+    /// repeated `is_stream_blocking` query per line.
+    stream_already_blocking: bool,
     /// Set when the plan phase has enqueued at least one encoder-stream insert. The caller
     /// uses this flag after dropping the lock to notify the encoder-stream writer.
     made_inserts: bool,
@@ -185,13 +218,14 @@ struct Planner<'state, 'lines, 'names> {
 
 impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     fn new(state: &'state mut TableState, stream_id: u64) -> Self {
+        let stream_already_blocking = state.is_stream_blocking(stream_id);
         Self {
             state,
-            stream_id,
             emissions: Vec::new(),
             section_ric: 0,
             min_ref_abs_idx: None,
             committed_to_blocking: false,
+            stream_already_blocking,
             made_inserts: false,
         }
     }
@@ -204,147 +238,167 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         }
     }
 
+    /// Plan a single field line through the decide-then-commit pipeline:
+    /// `compute_match_state` (read) → [`select_program`] (pure decision) → `execute_program`
+    /// (side effects + emission).
     fn plan_header_line(
         &mut self,
         name: &'lines QpackEntryName<'names>,
         value: FieldLineValue<'lines>,
     ) {
-        if let Some(e) = self.try_dynamic_full_match(name, &value) {
-            self.emissions.push(e);
-            return;
-        }
+        // PHASE-3-SEAM: replace this with `policy.should_index(...)` once `IndexingPolicy`
+        // lands. The sensitive-header skip is a stand-in for the eventual N-bit signal
+        // (see `qpack-n-bit-gap` memory).
+        let allow_indexing = !is_sensitive_header_name(name);
+        // Source for `never_indexed` is hardcoded `false` until `FieldLine` carries the bit
+        // end-to-end. Threading it through `EncoderProgram` and `Emission` now keeps the
+        // structural change minimal when the source lands.
+        let never_indexed = false;
 
-        let static_name_hint = match static_table_lookup(name, Some(&*value)) {
-            StaticLookup::FullMatch(i) => {
-                self.emissions.push(Emission::IndexedStatic(i));
-                return;
-            }
-            StaticLookup::NameMatch(i) => Some(i),
-            StaticLookup::NoMatch => None,
-        };
-
-        if let Some(e) = self.try_insert_then_reference(name, &value) {
-            self.emissions.push(e);
-            return;
-        }
-
-        let emission = if let Some(name_index) = static_name_hint {
-            Some(Emission::LiteralStaticNameRef {
-                name_index,
-                value: value.clone(),
-            })
-        } else {
-            self.try_dynamic_name_ref(name, value.clone())
-        }
-        .unwrap_or(Emission::LiteralLiteralName { name, value });
-
+        let emission = self.plan_with_indexing(name, value, allow_indexing, never_indexed);
         self.emissions.push(emission);
     }
 
-    /// Try to emit `(name, value)` as a dynamic-table full match. Returns `None` if no such
-    /// entry exists, or if the match would exceed the blocked-streams budget.
-    fn try_dynamic_full_match(
+    /// Inner planning loop. Selects and executes a program; on insert failure, re-selects
+    /// with `allow_indexing = false` and tries again.
+    ///
+    /// `TableState::insert` can fail on capacity/eviction in ways `select_program` cannot
+    /// pre-check from `MatchState` alone (entry size, pin floor, in-progress
+    /// `min_ref_abs_idx`). The retry path mirrors the old `try_*` chain's `.ok()?`
+    /// fallthrough — and recomputes `MatchState`, since a partial eviction inside `insert`
+    /// may have changed which dynamic entries are live.
+    fn plan_with_indexing(
         &mut self,
         name: &'lines QpackEntryName<'names>,
-        value: &FieldLineValue<'lines>,
-    ) -> Option<Emission<'lines, 'names>> {
-        let abs_idx = self
-            .state
-            .by_name
-            .get(name)
-            .and_then(|idx| idx.by_value.get(value.as_bytes()).copied())?;
-
-        if !self.authorize_dynamic_ref(abs_idx) {
-            return None;
-        }
-
-        self.record_ref(abs_idx);
-        Some(Emission::IndexedDynamicPreBase(abs_idx))
-    }
-
-    /// Try to insert `(name, value)` into the dynamic table and emit an indexed reference to
-    /// the freshly-inserted entry in the same section.
-    ///
-    /// Returns `None` when: the name is on the sensitive-header skip list, the
-    /// blocked-streams budget is exhausted, or `TableState::insert` fails (entry wouldn't
-    /// fit under `capacity`, or eviction under the combined pin floor + in-progress
-    /// `min_ref_abs_idx` cannot free enough room).
-    ///
-    /// `insert` picks the §3.2 wire format internally based on the table's contents at the
-    /// moment of insert.
-    fn try_insert_then_reference(
-        &mut self,
-        entry_name: &'lines QpackEntryName<'names>,
-        value_bytes: &FieldLineValue<'lines>,
-    ) -> Option<Emission<'lines, 'names>> {
-        if is_sensitive_header_name(entry_name) {
-            return None;
-        }
-
-        // An insert-then-reference produces an abs_idx >= insert_count > known_received_count,
-        // so the reference is always blocking. Consult the same authorization path as
-        // dynamic refs — covers the committed_to_blocking dedup.
-        if !self.committed_to_blocking
-            && !self.state.is_stream_blocking(self.stream_id)
-            && self.state.currently_blocked_streams() >= self.state.max_blocked_streams
-        {
-            return None;
-        }
-
-        let abs_idx = self
-            .state
-            .insert(
-                entry_name.reborrow(),
-                value_bytes.reborrow(),
-                self.min_ref_abs_idx,
-            )
-            .ok()?;
-
-        self.made_inserts = true;
-        self.committed_to_blocking = true;
-        self.record_ref(abs_idx);
-        Some(Emission::IndexedDynamicPreBase(abs_idx))
-    }
-
-    /// Try to emit `(name, value)` as a literal field line with a dynamic-table name
-    /// reference (§4.5.4, T=0). Used when the dynamic table has any entry matching `name` but
-    /// none matching the full `(name, value)` pair, and the static table offers no name match.
-    /// Returns `None` if no dynamic name entry exists, or if the reference would exceed the
-    /// blocked-streams budget.
-    fn try_dynamic_name_ref(
-        &mut self,
-        name: &QpackEntryName<'_>,
         value: FieldLineValue<'lines>,
-    ) -> Option<Emission<'lines, 'names>> {
-        let abs_idx = self.state.by_name.get(name).map(|idx| idx.latest_any)?;
+        allow_indexing: bool,
+        never_indexed: bool,
+    ) -> Emission<'lines, 'names> {
+        let match_state = self.compute_match_state(name, &value);
+        let budget = self.budget_ctx();
+        let program = select_program(&match_state, allow_indexing, &budget, never_indexed);
 
-        if !self.authorize_dynamic_ref(abs_idx) {
-            return None;
+        if !matches!(program.table, TableAction::InsertNew) {
+            return self.execute_program(program, name, value, None);
         }
 
-        self.record_ref(abs_idx);
-        Some(Emission::LiteralDynamicNameRefPreBase { abs_idx, value })
+        if let Ok(new_abs_idx) =
+            self.state
+                .insert(name.reborrow(), value.reborrow(), self.min_ref_abs_idx)
+        {
+            self.made_inserts = true;
+            self.execute_program(program, name, value, Some(new_abs_idx))
+        } else {
+            debug_assert!(
+                allow_indexing,
+                "select_program only emits InsertNew when allow_indexing is true"
+            );
+            self.plan_with_indexing(name, value, false, never_indexed)
+        }
     }
 
-    /// Decide whether the current section may reference the entry at `abs_idx`. Returns
-    /// false if the reference would push the section over the blocked-streams budget.
-    fn authorize_dynamic_ref(&mut self, abs_idx: u64) -> bool {
-        // Non-blocking: the peer has already processed this entry.
-        if abs_idx < self.state.known_received_count {
-            return true;
+    /// Read the static and dynamic tables for `(name, value)` and report what matches. Pure
+    /// — no mutation, no budget logic.
+    fn compute_match_state(
+        &self,
+        name: &QpackEntryName<'_>,
+        value: &FieldLineValue<'_>,
+    ) -> MatchState {
+        let dyn_name_idx = self.state.by_name.get(name);
+        let dynamic_full = dyn_name_idx.and_then(|idx| idx.by_value.get(value.as_bytes()).copied());
+        let dynamic_name = dyn_name_idx.map(|idx| idx.latest_any);
+
+        let (static_full, static_name) = match static_table_lookup(name, Some(value.as_bytes())) {
+            StaticLookup::FullMatch(i) => (Some(i), Some(i)),
+            StaticLookup::NameMatch(i) => (None, Some(i)),
+            StaticLookup::NoMatch => (None, None),
+        };
+
+        MatchState {
+            dynamic_full,
+            static_full,
+            dynamic_name,
+            static_name,
         }
-        // Already committed: an earlier reference in this encode consumed the slot.
-        if self.committed_to_blocking {
-            return true;
+    }
+
+    /// Snapshot the blocked-streams budget for the next [`select_program`] call.
+    fn budget_ctx(&self) -> BudgetCtx {
+        BudgetCtx {
+            krc: self.state.known_received_count,
+            committed_to_blocking: self.committed_to_blocking,
+            stream_already_blocking: self.stream_already_blocking,
+            blocked_slot_available: self.state.currently_blocked_streams()
+                < self.state.max_blocked_streams,
         }
-        // First blocking reference on this stream in this encode: check the budget.
-        if self.state.is_stream_blocking(self.stream_id)
-            || self.state.currently_blocked_streams() < self.state.max_blocked_streams
+    }
+
+    /// Build the [`Emission`] for `program`, given any `new_abs_idx` produced by a preceding
+    /// `TableAction::InsertNew` performed by [`plan_with_indexing`]. Records the dynamic ref
+    /// in the section's RIC and min-floor accounting and commits to a blocked-streams slot
+    /// when the ref is the first blocking one in this section.
+    fn execute_program(
+        &mut self,
+        program: EncoderProgram,
+        name: &'lines QpackEntryName<'names>,
+        value: FieldLineValue<'lines>,
+        new_abs_idx: Option<u64>,
+    ) -> Emission<'lines, 'names> {
+        debug_assert_eq!(
+            new_abs_idx.is_some(),
+            matches!(program.table, TableAction::InsertNew),
+            "new_abs_idx presence must match TableAction::InsertNew"
+        );
+
+        match program.header_block {
+            HeaderBlockAction::IndexedStatic(i) => Emission::IndexedStatic(i),
+            HeaderBlockAction::IndexedDynamic(dyn_ref) => {
+                let abs_idx = self.resolve_and_record_dyn_ref(dyn_ref, new_abs_idx);
+                Emission::IndexedDynamicPreBase(abs_idx)
+            }
+            HeaderBlockAction::LiteralStaticNameRef { name_index } => {
+                Emission::LiteralStaticNameRef {
+                    name_index,
+                    value,
+                    never_indexed: program.never_indexed,
+                }
+            }
+            HeaderBlockAction::LiteralDynamicNameRef { dyn_ref } => {
+                let abs_idx = self.resolve_and_record_dyn_ref(dyn_ref, new_abs_idx);
+                Emission::LiteralDynamicNameRefPreBase {
+                    abs_idx,
+                    value,
+                    never_indexed: program.never_indexed,
+                }
+            }
+            HeaderBlockAction::LiteralLiteralName => Emission::LiteralLiteralName {
+                name,
+                value,
+                never_indexed: program.never_indexed,
+            },
+        }
+    }
+
+    /// Convert a [`DynRef`] into its absolute index, then update the section's RIC,
+    /// min-floor, and blocked-slot commitment to account for the reference.
+    fn resolve_and_record_dyn_ref(
+        &mut self,
+        dyn_ref: DynRef,
+        new_abs_idx: Option<u64>,
+    ) -> u64 {
+        let abs_idx = match dyn_ref {
+            DynRef::Existing(i) => i,
+            DynRef::NewlyInserted => new_abs_idx
+                .expect("NewlyInserted requires a preceding TableAction::InsertNew"),
+        };
+        if abs_idx >= self.state.known_received_count
+            && !self.committed_to_blocking
+            && !self.stream_already_blocking
         {
             self.committed_to_blocking = true;
-            return true;
         }
-        false
+        self.record_ref(abs_idx);
+        abs_idx
     }
 
     fn record_ref(&mut self, abs_idx: u64) {
@@ -380,9 +434,9 @@ fn emit_section_prefix(section_ric: u64, max_capacity: usize, buf: &mut Vec<u8>)
 /// encoding to `buf`. Pre-base dynamic references are translated from absolute to relative
 /// indices using `base = section_ric` (so relative index is `section_ric - 1 - abs_idx`).
 ///
-/// TODO(n-bit): `never_indexed` is hardcoded to `false`. Preserving the N bit for
-/// trillium-proxy reverse-proxy correctness requires threading it through `FieldLine` →
-/// `FieldSection` → `Emission` first. See `qpack-n-bit-gap` memory.
+/// `never_indexed` is now carried per-emission. Phase 1 still sources it as `false` from
+/// `Planner::plan_header_line` because `FieldLine` does not yet thread the bit through —
+/// see `qpack-n-bit-gap` memory.
 fn emit(emission: &Emission<'_, '_>, section_ric: u64, buf: &mut Vec<u8>) {
     let instruction = match emission {
         Emission::IndexedStatic(index) => FieldLineInstruction::IndexedStatic {
@@ -399,15 +453,21 @@ fn emit(emission: &Emission<'_, '_>, section_ric: u64, buf: &mut Vec<u8>) {
             }
         }
 
-        Emission::LiteralStaticNameRef { name_index, value } => {
-            FieldLineInstruction::LiteralStaticNameRef {
-                name_index: usize::from(*name_index),
-                value: value.reborrow(),
-                never_indexed: false,
-            }
-        }
+        Emission::LiteralStaticNameRef {
+            name_index,
+            value,
+            never_indexed,
+        } => FieldLineInstruction::LiteralStaticNameRef {
+            name_index: usize::from(*name_index),
+            value: value.reborrow(),
+            never_indexed: *never_indexed,
+        },
 
-        Emission::LiteralDynamicNameRefPreBase { abs_idx, value } => {
+        Emission::LiteralDynamicNameRefPreBase {
+            abs_idx,
+            value,
+            never_indexed,
+        } => {
             debug_assert!(
                 *abs_idx < section_ric,
                 "LiteralDynamicNameRefPreBase: abs_idx {abs_idx} >= base {section_ric}"
@@ -415,14 +475,18 @@ fn emit(emission: &Emission<'_, '_>, section_ric: u64, buf: &mut Vec<u8>) {
             FieldLineInstruction::LiteralDynamicNameRef {
                 relative_index: usize::try_from(section_ric - 1 - *abs_idx).unwrap_or(usize::MAX),
                 value: value.reborrow(),
-                never_indexed: false,
+                never_indexed: *never_indexed,
             }
         }
 
-        Emission::LiteralLiteralName { name, value } => FieldLineInstruction::LiteralLiteralName {
+        Emission::LiteralLiteralName {
+            name,
+            value,
+            never_indexed,
+        } => FieldLineInstruction::LiteralLiteralName {
             name: name.reborrow(),
             value: value.reborrow(),
-            never_indexed: false,
+            never_indexed: *never_indexed,
         },
     };
     instruction.encode(buf);
