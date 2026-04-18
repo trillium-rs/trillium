@@ -48,6 +48,11 @@ fn fvo(v: Vec<u8>) -> FieldLineValue<'static> {
 /// Construct a fresh encoder table at the given capacity and initialize it from peer
 /// settings.
 ///
+/// Mnemonic indexing is **off** by default in these helpers so that phase-2 mechanism
+/// tests (eager insert, warming insert, blocked-stream paths) are not gated on the
+/// predictor latching. Phase-3 tests that want predictor-driven behavior use
+/// [`new_table_with_mnemonic`].
+///
 /// The initialization `SetDynamicTableCapacity` is left in `pending_ops` as it would be on
 /// the wire — tests that drain for variant assertions see it as the leading op, and
 /// [`apply_ops_to_decoder`] consumes it naturally to prime the decoder's capacity.
@@ -59,12 +64,30 @@ fn new_table_with_blocked_streams(
     max_capacity: u64,
     max_blocked_streams: u64,
 ) -> EncoderDynamicTable {
+    new_table_configured(max_capacity, max_blocked_streams, false)
+}
+
+/// Phase-3 variant — mnemonic indexing enabled. Used by tests that exercise the predictor's
+/// effect on indexing decisions. A non-zero blocked-streams budget is the default so the
+/// insert-then-reference path is exercised on a predictor hit; tests that want warming-
+/// insert behavior instead can call [`new_table_configured`] directly with
+/// `max_blocked_streams = 0`.
+fn new_table_with_mnemonic(max_capacity: u64) -> EncoderDynamicTable {
+    new_table_configured(max_capacity, 100, true)
+}
+
+fn new_table_configured(
+    max_capacity: u64,
+    max_blocked_streams: u64,
+    mnemonic_indexing: bool,
+) -> EncoderDynamicTable {
     let table = EncoderDynamicTable::default();
     table.initialize_from_peer_settings(
         max_capacity as usize,
         H3Settings::default()
             .with_qpack_max_table_capacity(max_capacity)
             .with_qpack_blocked_streams(max_blocked_streams),
+        mnemonic_indexing,
     );
     table
 }
@@ -112,5 +135,6 @@ mod encode_dynamic;
 mod encode_refs;
 mod encode_static;
 mod insert;
+mod mnemonic;
 mod pinning;
 mod reverse_index;

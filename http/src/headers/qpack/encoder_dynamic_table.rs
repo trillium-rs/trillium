@@ -28,6 +28,7 @@ use std::sync::Mutex;
 
 mod encode;
 mod policy;
+mod predictor;
 mod reader;
 mod state;
 #[cfg(test)]
@@ -64,9 +65,10 @@ impl Default for EncoderDynamicTable {
 impl EncoderDynamicTable {
     /// Initialize the table from peer settings. Sets `max_capacity` (and the working
     /// `capacity`) to `min(our_max_capacity, peer_qpack_max_table_capacity)`, records
-    /// `max_blocked_streams` from the peer's settings, and, if the chosen capacity is
-    /// non-zero, enqueues a Set Dynamic Table Capacity instruction (RFC 9204 §3.2.1,
-    /// §4.3.1).
+    /// `max_blocked_streams` from the peer's settings, stores the local
+    /// `mnemonic_indexing` policy choice (from `HttpConfig::h3_qpack_mnemonic_indexing`),
+    /// and, if the chosen capacity is non-zero, enqueues a Set Dynamic Table Capacity
+    /// instruction (RFC 9204 §3.2.1, §4.3.1).
     ///
     /// Must be called exactly once, immediately after the peer's `SETTINGS` frame is parsed
     /// on the control stream.
@@ -74,6 +76,7 @@ impl EncoderDynamicTable {
         &self,
         our_max_capacity: usize,
         peer_settings: H3Settings,
+        mnemonic_indexing: bool,
     ) {
         let peer_max_capacity =
             usize::try_from(peer_settings.qpack_max_table_capacity().unwrap_or(0))
@@ -89,6 +92,7 @@ impl EncoderDynamicTable {
         );
         state.max_capacity = chosen;
         state.max_blocked_streams = max_blocked_streams;
+        state.mnemonic_indexing = mnemonic_indexing;
         if chosen > 0 {
             state
                 .set_capacity(chosen)

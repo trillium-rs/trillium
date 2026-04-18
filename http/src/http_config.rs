@@ -11,6 +11,10 @@ use fieldwork::Fieldwork;
 /// tune itself based on values seen at runtime.
 #[derive(Clone, Copy, Debug, Fieldwork)]
 #[fieldwork(get, get_mut, set, with, without)]
+// `HttpConfig` is a user-facing tuning struct with documented per-field setters; the natural
+// shape is one field per knob. Bundling bools into an enum or bitflags would make the getter/
+// setter surface worse for callers.
+#[allow(clippy::struct_excessive_bools)]
 pub struct HttpConfig {
     /// The maximum length allowed before the http body begins for a given request.
     ///
@@ -151,6 +155,22 @@ pub struct HttpConfig {
     /// **Unit**: Stream count
     pub(crate) h3_blocked_streams: usize,
 
+    /// Whether the QPACK encoder uses a mnemonic predictor to decide which headers to
+    /// insert into the dynamic table.
+    ///
+    /// When `true` (the default), the encoder inserts a `(name, value)` pair only if it has
+    /// seen the same pair recently — on the theory that repeat-prone headers are worth
+    /// indexing and one-shot headers aren't. When `false`, every non-sensitive header is
+    /// eagerly indexed up to the blocked-streams budget.
+    ///
+    /// Disable only for diagnostic or pathological traffic where the predictor thrashes; the
+    /// default is a measurable compression win for typical web traffic. Orthogonal to
+    /// [`h3_max_table_capacity`](Self::h3_max_table_capacity) — set that to `0` to disable
+    /// dynamic indexing entirely.
+    ///
+    /// **Default**: `true`
+    pub(crate) h3_qpack_mnemonic_indexing: bool,
+
     /// whether [datagrams](https://www.rfc-editor.org/rfc/rfc9297.html) are enabled for HTTP/3
     ///
     /// This is a protocol-level setting and is communicated to the peer as well as enforced.
@@ -198,6 +218,7 @@ impl HttpConfig {
         h3_max_field_section_size: 8 * 1024,
         h3_max_table_capacity: 4096,
         h3_blocked_streams: 100,
+        h3_qpack_mnemonic_indexing: true,
         h3_datagrams_enabled: false,
         webtransport_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),

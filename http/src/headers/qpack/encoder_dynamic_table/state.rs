@@ -13,6 +13,7 @@
 //! in the parent module. This file does no I/O — wire bytes are pushed onto `pending_ops`
 //! for the writer task to drain.
 
+use super::predictor::MnemonicPredictor;
 use crate::{
     h3::{H3Error, H3ErrorCode},
     headers::qpack::{
@@ -66,6 +67,14 @@ pub(super) struct TableState {
     /// [`NameIndex`] holds a per-value map (for full-match lookups) and the latest `abs_idx`
     /// across all live entries with this name (for name-only lookups).
     pub(super) by_name: HashMap<QpackEntryName<'static>, NameIndex>,
+    /// Whether the planner should consult [`predictor`](Self::predictor) when deciding
+    /// `allow_indexing`. When `false`, every non-sensitive header is considered indexable
+    /// (phase-2 eager behavior). Sourced from `HttpConfig::h3_qpack_mnemonic_indexing`.
+    pub(super) mnemonic_indexing: bool,
+    /// Mnemonic predictor state. Always present so the struct has a single shape; the
+    /// [`mnemonic_indexing`](Self::mnemonic_indexing) flag gates whether the planner
+    /// actually consults it.
+    pub(super) predictor: MnemonicPredictor,
 }
 
 #[derive(Debug, Default)]
@@ -116,6 +125,10 @@ impl TableState {
             failed: None,
             max_blocked_streams: 0,
             by_name: HashMap::new(),
+            // Set by `EncoderDynamicTable::initialize_from_peer_settings` from
+            // `HttpConfig::h3_qpack_mnemonic_indexing`.
+            mnemonic_indexing: false,
+            predictor: MnemonicPredictor::new(),
         }
     }
 
@@ -188,13 +201,13 @@ impl TableState {
 
     /// §3.2.4 Duplicate. Two callers:
     ///
-    /// - [`insert`](Self::insert)'s smart-pick fast-path, when the caller's `(name, value)`
-    ///   already matches a live entry. The source's stored name+value are cloned (cheap
-    ///   `Cow` clones for the common `'static` case) rather than allocating fresh owned
-    ///   copies from the borrowed inputs.
-    /// - The encode-phase planner, when policy decides to refresh a specific live entry
-    ///   into a fresh table position (e.g. phase 4's draining-refresh) regardless of the
-    ///   field line being encoded.
+    /// - [`insert`](Self::insert)'s smart-pick fast-path, when the caller's `(name, value)` already
+    ///   matches a live entry. The source's stored name+value are cloned (cheap `Cow` clones for
+    ///   the common `'static` case) rather than allocating fresh owned copies from the borrowed
+    ///   inputs.
+    /// - The encode-phase planner, when policy decides to refresh a specific live entry into a
+    ///   fresh table position (e.g. phase 4's draining-refresh) regardless of the field line being
+    ///   encoded.
     ///
     /// The source `abs_idx` is added to the eviction floor for the duration of
     /// `make_room_for` so it remains live for the post-eviction clone.

@@ -2,14 +2,13 @@
 //!
 //! Two-phase design:
 //!
-//! 1. **Plan phase** runs under the `TableState` mutex. It walks the field section and runs
-//!    the per-line decide-then-commit pipeline (lookup → [`select_program`] →
-//!    `execute_program`), tracks the section's Required Insert Count and min-referenced
-//!    `abs_idx`, enforces the blocked-streams budget at the first transition from
-//!    non-blocking to blocking, applies any encoder-stream side effect (Insert or
-//!    Duplicate) directly under the lock, and registers the outstanding section with the
-//!    table. Registration happens inside the critical section so the budget check and slot
-//!    consumption are atomic.
+//! 1. **Plan phase** runs under the `TableState` mutex. It walks the field section and runs the
+//!    per-line decide-then-commit pipeline (lookup → [`select_program`] → `execute_program`),
+//!    tracks the section's Required Insert Count and min-referenced `abs_idx`, enforces the
+//!    blocked-streams budget at the first transition from non-blocking to blocking, applies any
+//!    encoder-stream side effect (Insert or Duplicate) directly under the lock, and registers the
+//!    outstanding section with the table. Registration happens inside the critical section so the
+//!    budget check and slot consumption are atomic.
 //!
 //! 2. **Emit phase** runs lock-free. It converts the planned [`Emission`] list into wire bytes
 //!    using the §4.5 wire helpers.
@@ -22,22 +21,22 @@
 //! - **Lookup** — `Planner::compute_match_state` reads static and dynamic tables; produces a
 //!   [`MatchState`]. No mutation, no budget logic.
 //! - **Select** — [`select_program`] is a pure function over `(MatchState, allow_indexing,
-//!   BudgetCtx, never_indexed)` that returns an [`EncoderProgram`]: which encoder-stream
-//!   action, which dynamic-table action, and which header-block emission to perform.
+//!   BudgetCtx, never_indexed)` that returns an [`EncoderProgram`]: which encoder-stream action,
+//!   which dynamic-table action, and which header-block emission to perform.
 //! - **Execute** — `Planner::execute_program` applies the table mutation (calling
-//!   [`TableState::insert`](super::state::TableState::insert) which picks the §3.2 wire
-//!   format internally), records the dynamic ref in the section's RIC/min-floor accounting,
-//!   commits to the blocked-streams slot if needed, and returns the [`Emission`].
+//!   [`TableState::insert`](super::state::TableState::insert) which picks the §3.2 wire format
+//!   internally), records the dynamic ref in the section's RIC/min-floor accounting, commits to the
+//!   blocked-streams slot if needed, and returns the [`Emission`].
 //!
 //! Strategies emitted today:
 //!
 //! 1. Dynamic full match (§4.5.2, T=0)
 //! 2. Static full match (§4.5.2, T=1)
 //! 3. Insert-then-reference (§3.2 insert + §4.5.2 T=0 ref in the same section)
-//! 4. Warming insert (§3.2 insert + §4.5.4 / §4.5.6 literal in the section) — when indexing
-//!    is allowed but no blocking slot is available and there's no full match to reference.
-//!    The new entry is referenceable in *future* sections after the peer acks; this section
-//!    pays the literal cost but contributes nothing to RIC or the blocked-streams budget.
+//! 4. Warming insert (§3.2 insert + §4.5.4 / §4.5.6 literal in the section) — when indexing is
+//!    allowed but no blocking slot is available and there's no full match to reference. The new
+//!    entry is referenceable in *future* sections after the peer acks; this section pays the
+//!    literal cost but contributes nothing to RIC or the blocked-streams budget.
 //! 5. Static name reference (§4.5.4, T=1)
 //! 6. Dynamic name reference (§4.5.4, T=0) — only when no static name match exists
 //! 7. Literal with literal name (§4.5.6)
@@ -256,10 +255,17 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         name: &'lines QpackEntryName<'names>,
         value: FieldLineValue<'lines>,
     ) {
-        // PHASE-3-SEAM: replace this with `policy.should_index(...)` once `IndexingPolicy`
-        // lands. The sensitive-header skip is a stand-in for the eventual N-bit signal
-        // (see `qpack-n-bit-gap` memory).
-        let allow_indexing = !is_sensitive_header_name(name);
+        // `allow_indexing` fuses two vetoes:
+        //
+        // 1. Sensitive-header skip — current stand-in for the RFC 9204 §4.5.4 N bit (see
+        //    `qpack-n-bit-gap` memory). Short-circuits before the predictor so sensitive `(name,
+        //    value)` pairs don't pollute the predictor's ring.
+        // 2. Mnemonic predictor — phase-3 indexing policy. When enabled, inserts only on the
+        //    second-plus sighting of a `(name, value)` pair within the recent history window
+        //    (typical traffic: ~last 28 distinct pairs). See `predictor.rs`. When disabled, every
+        //    non-sensitive header is eligible for indexing — the old phase-2 eager behavior.
+        let allow_indexing = !is_sensitive_header_name(name)
+            && (!self.state.mnemonic_indexing || self.state.predictor.index(name, &value));
         // Source for `never_indexed` is hardcoded `false` until `FieldLine` carries the bit
         // end-to-end. Threading it through `EncoderProgram` and `Emission` now keeps the
         // structural change minimal when the source lands.
@@ -275,12 +281,13 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     /// Dispatches on `program.enc_stream`:
     /// - [`EncStreamAction::None`] — no table mutation, hand off to the executor with no
     ///   newly-inserted index.
-    /// - [`EncStreamAction::Insert`] — call [`TableState::insert`](super::state::TableState::insert),
-    ///   which smart-picks the §3.2 wire variant (Insert With Name Reference, Insert With
-    ///   Literal Name, or Duplicate when `(name, value)` already matches) and returns the
-    ///   new entry's absolute index.
-    /// - [`EncStreamAction::Duplicate`] — call [`TableState::duplicate`](super::state::TableState::duplicate)
-    ///   on the named `abs_idx`. Emits §3.2.4 Duplicate regardless of `(name, value)`.
+    /// - [`EncStreamAction::Insert`] — call
+    ///   [`TableState::insert`](super::state::TableState::insert), which smart-picks the §3.2 wire
+    ///   variant (Insert With Name Reference, Insert With Literal Name, or Duplicate when `(name,
+    ///   value)` already matches) and returns the new entry's absolute index.
+    /// - [`EncStreamAction::Duplicate`] — call
+    ///   [`TableState::duplicate`](super::state::TableState::duplicate) on the named `abs_idx`.
+    ///   Emits §3.2.4 Duplicate regardless of `(name, value)`.
     ///
     /// Either table mutation can fail on capacity/eviction in ways `select_program` cannot
     /// pre-check from `MatchState` alone (entry size, pin floor, in-progress
@@ -320,7 +327,9 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
                     matches!(program.table, TableAction::InsertNew),
                     "EncStreamAction::Duplicate must pair with TableAction::InsertNew"
                 );
-                self.state.duplicate(abs_idx, self.min_ref_abs_idx).map(Some)
+                self.state
+                    .duplicate(abs_idx, self.min_ref_abs_idx)
+                    .map(Some)
             }
         };
 
@@ -426,15 +435,12 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
 
     /// Convert a [`DynRef`] into its absolute index, then update the section's RIC,
     /// min-floor, and blocked-slot commitment to account for the reference.
-    fn resolve_and_record_dyn_ref(
-        &mut self,
-        dyn_ref: DynRef,
-        new_abs_idx: Option<u64>,
-    ) -> u64 {
+    fn resolve_and_record_dyn_ref(&mut self, dyn_ref: DynRef, new_abs_idx: Option<u64>) -> u64 {
         let abs_idx = match dyn_ref {
             DynRef::Existing(i) => i,
-            DynRef::NewlyInserted => new_abs_idx
-                .expect("NewlyInserted requires a preceding TableAction::InsertNew"),
+            DynRef::NewlyInserted => {
+                new_abs_idx.expect("NewlyInserted requires a preceding TableAction::InsertNew")
+            }
         };
         if abs_idx >= self.state.known_received_count
             && !self.committed_to_blocking

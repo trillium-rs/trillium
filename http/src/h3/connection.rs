@@ -462,8 +462,11 @@ impl H3Connection {
             .set(settings)
             .map_err(|_| H3ErrorCode::FrameUnexpected)?;
 
-        self.encoder_dynamic_table
-            .initialize_from_peer_settings(self.context.config.h3_max_table_capacity, settings);
+        self.encoder_dynamic_table.initialize_from_peer_settings(
+            self.context.config.h3_max_table_capacity,
+            settings,
+            self.context.config.h3_qpack_mnemonic_indexing,
+        );
 
         // Read subsequent frames, watching for GOAWAY
         loop {

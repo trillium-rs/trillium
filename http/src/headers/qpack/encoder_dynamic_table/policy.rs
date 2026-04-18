@@ -171,10 +171,10 @@ impl BudgetCtx {
 /// 1. Dynamic full match if budget allows the ref.
 /// 2. Static full match.
 /// 3. Insert-then-reference if `allow_indexing` and a blocking slot is available.
-/// 4. **Warming insert** — `allow_indexing` is true but no blocking slot is available, and
-///    no full match exists to reference. Emit an Insert to the encoder stream and pick the
-///    best literal form for this section's header block. The new entry is referenceable in
-///    future sections once the peer acks; this section pays the literal cost.
+/// 4. **Warming insert** — `allow_indexing` is true but no blocking slot is available, and no full
+///    match exists to reference. Emit an Insert to the encoder stream and pick the best literal
+///    form for this section's header block. The new entry is referenceable in future sections once
+///    the peer acks; this section pays the literal cost.
 /// 5. Static name ref (preferred over dynamic name ref).
 /// 6. Dynamic name ref (only when no static name match and budget allows).
 /// 7. Literal name + literal value.

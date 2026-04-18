@@ -99,6 +99,7 @@ mod tests {
         table.initialize_from_peer_settings(
             4096,
             H3Settings::default().with_qpack_max_table_capacity(4096),
+            false,
         );
         table.insert(qen("a"), fv("1")).unwrap();
         table.insert(qen("b"), fv("2")).unwrap();

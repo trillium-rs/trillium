@@ -220,7 +220,11 @@ fn warming_insert_referenceable_in_next_section_after_ack() {
     h1.insert("x-fresh", "v1");
     let bytes1 = encode(&encoder, PseudoHeaders::default(), &h1, 1);
     let (p1, _) = parse_section(&bytes1);
-    assert_eq!(p1, FieldSectionPrefix::default(), "section 1 should not RIC");
+    assert_eq!(
+        p1,
+        FieldSectionPrefix::default(),
+        "section 1 should not RIC"
+    );
     // Drain the warming Insert and pretend the peer acked it (advances KRC).
     let _ = drain_instructions(&encoder);
     encoder.on_insert_count_increment(1).unwrap();

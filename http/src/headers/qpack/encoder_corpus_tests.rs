@@ -27,14 +27,14 @@
 //! signaling that a healthy peer would emit.
 //!
 //! 1. **Section ack** (§4.4.1): after each successful decode, we call
-//!    [`EncoderDynamicTable::on_section_ack`] on the stream if the encoded section had a
-//!    non-zero Required Insert Count.
-//! 2. **Insert count increment** (§4.4.3): after applying encoder-stream ops to the
-//!    decoder, we advance the encoder's Known Received Count to its current `insert_count`
-//!    via [`EncoderDynamicTable::on_insert_count_increment`]. Without this, warming
-//!    inserts (which produce RIC=0 sections so the section-ack path doesn't fire) would
-//!    pile up unreferenceable forever, and the metric would punish phase-2+ policies that
-//!    insert without referencing in the same section.
+//!    [`EncoderDynamicTable::on_section_ack`] on the stream if the encoded section had a non-zero
+//!    Required Insert Count.
+//! 2. **Insert count increment** (§4.4.3): after applying encoder-stream ops to the decoder, we
+//!    advance the encoder's Known Received Count to its current `insert_count` via
+//!    [`EncoderDynamicTable::on_insert_count_increment`]. Without this, warming inserts (which
+//!    produce RIC=0 sections so the section-ack path doesn't fire) would pile up unreferenceable
+//!    forever, and the metric would punish phase-2+ policies that insert without referencing in the
+//!    same section.
 //!
 //! Together these are the upper bound on what a healthy peer would do — both
 //! deterministic, so the compression metric is a stable baseline as policy changes are
@@ -131,6 +131,9 @@ fn run_qif_at_config(qif_path: &Path, groups: &[qif::QifGroup], config: Config) 
         H3Settings::default()
             .with_qpack_max_table_capacity(config.capacity)
             .with_qpack_blocked_streams(config.max_blocked),
+        // Match the production `HttpConfig` default so corpus numbers reflect shipped
+        // behavior. Flip this to `false` temporarily when doing phase A/B comparisons.
+        true,
     );
     let decoder = DecoderDynamicTable::new(config.capacity as usize, config.max_blocked as usize);
 
@@ -177,12 +180,15 @@ fn run_qif_at_config(qif_path: &Path, groups: &[qif::QifGroup], config: Config) 
             // subsequent encode of references to entries the decoder already has.
             let increment = encoder.insert_count() - encoder.known_received_count();
             if increment > 0 {
-                encoder.on_insert_count_increment(increment).unwrap_or_else(|e| {
-                    panic!(
-                        "{}: group {i}: encoder rejected insert count increment {increment}: {e}",
-                        qif_path.display()
-                    )
-                });
+                encoder
+                    .on_insert_count_increment(increment)
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "{}: group {i}: encoder rejected insert count increment {increment}: \
+                             {e}",
+                            qif_path.display()
+                        )
+                    });
             }
         }
 

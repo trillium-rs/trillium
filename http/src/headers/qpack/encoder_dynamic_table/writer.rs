@@ -184,6 +184,7 @@ mod tests {
         table.initialize_from_peer_settings(
             4096,
             H3Settings::default().with_qpack_max_table_capacity(4096),
+            false,
         );
         table.insert(qen("x-custom"), fv("v")).unwrap();
 
