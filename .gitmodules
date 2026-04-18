@@ -1,0 +1,3 @@
+[submodule "http/tests/qifs"]
+	path = http/tests/qifs
+	url = git@github.com:qpackers/qifs.git

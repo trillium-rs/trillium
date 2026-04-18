@@ -4,15 +4,21 @@ use super::{
     quic_varint::{self, QuicVarIntError},
     settings::H3Settings,
 };
-use crate::{Buffer, Conn, HttpContext, h3::H3ErrorCode};
+use crate::{
+    Buffer, Conn, HttpContext,
+    h3::{H3ErrorCode, MAX_BUFFER_SIZE},
+    headers::qpack::{DecoderDynamicTable, EncoderDynamicTable, FieldSection},
+};
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::{
     future::Future,
     io::{self, ErrorKind},
+    pin::Pin,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    task::{Context, Poll},
 };
 use swansong::{ShutdownCompletion, Swansong};
 
@@ -87,18 +93,28 @@ pub struct H3Connection {
 
     /// Whether we have accepted any streams yet.
     has_accepted_stream: AtomicBool,
+
+    /// The decoder-side QPACK dynamic table for this connection.
+    decoder_dynamic_table: DecoderDynamicTable,
+
+    /// The encoder-side QPACK dynamic table for this connection.
+    encoder_dynamic_table: EncoderDynamicTable,
 }
 
 impl H3Connection {
     /// Construct a new `H3Connection` to manage HTTP/3 for a given peer.
     pub fn new(context: Arc<HttpContext>) -> Arc<Self> {
         let swansong = context.swansong.child();
+        let max_table_capacity = context.config.h3_max_table_capacity;
+        let blocked_streams = context.config.h3_blocked_streams;
         Arc::new(Self {
             context,
             swansong,
             peer_settings: OnceLock::new(),
             max_accepted_stream_id: AtomicU64::new(0),
             has_accepted_stream: AtomicBool::new(false),
+            decoder_dynamic_table: DecoderDynamicTable::new(max_table_capacity, blocked_streams),
+            encoder_dynamic_table: EncoderDynamicTable::default(),
         })
     }
 
@@ -171,12 +187,76 @@ impl H3Connection {
         self.record_accepted_stream(stream_id);
         let _guard = self.swansong.guard();
         let buffer = Vec::with_capacity(self.context.config.request_buffer_initial_len).into();
-        match Conn::new_h3(self, transport, buffer).await? {
+        match Conn::new_h3(self, transport, buffer, stream_id).await? {
             H3StreamResult::Request(conn) => Ok(H3StreamResult::Request(
                 handler(conn).await.send_h3().await?,
             )),
             wt @ H3StreamResult::WebTransport { .. } => Ok(wt),
         }
+    }
+
+    /// Decode a QPACK-encoded field section, consulting the dynamic table as needed.
+    ///
+    /// If the field section's Required Insert Count is greater than zero, waits until the
+    /// dynamic table has received enough entries. Returns an error on protocol violations or
+    /// if the encoder stream fails while waiting.
+    ///
+    /// Duplicate pseudo-headers are silently ignored (first value wins).
+    /// Unknown pseudo-headers are rejected per RFC 9114 §4.1.1.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the encoded bytes cannot be parsed as a valid field section.
+    #[cfg(feature = "unstable")]
+    pub async fn decode_field_section(
+        &self,
+        encoded: &[u8],
+        stream_id: u64,
+    ) -> Result<FieldSection<'static>, H3Error> {
+        self.decoder_dynamic_table.decode(encoded, stream_id).await
+    }
+
+    #[cfg(not(feature = "unstable"))]
+    pub(crate) async fn decode_field_section(
+        &self,
+        encoded: &[u8],
+        stream_id: u64,
+    ) -> Result<FieldSection<'static>, H3Error> {
+        self.decoder_dynamic_table.decode(encoded, stream_id).await
+    }
+
+    /// Encode a QPACK field section from pseudo-headers and headers.
+    ///
+    /// This currently uses only the static table (no dynamic table).
+    /// Decode a QPACK-encoded field section, consulting the dynamic table as needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `H3Error` in case of http/3 semantic error.
+    #[cfg(feature = "unstable")]
+    #[allow(clippy::unnecessary_wraps, reason = "future-proofing api")]
+    pub fn encode_field_section(
+        &self,
+        field_section: &FieldSection<'_>,
+        buf: &mut Vec<u8>,
+        stream_id: u64,
+    ) -> Result<(), H3Error> {
+        self.encoder_dynamic_table
+            .encode(field_section, buf, stream_id);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "unstable"))]
+    #[allow(clippy::unnecessary_wraps, reason = "future-proofing api")]
+    pub(crate) fn encode_field_section(
+        &self,
+        field_section: &FieldSection<'_>,
+        buf: &mut Vec<u8>,
+        stream_id: u64,
+    ) -> Result<(), H3Error> {
+        self.encoder_dynamic_table
+            .encode(field_section, buf, stream_id);
+        Ok(())
     }
 
     /// Run this server's HTTP/3 outbound control stream.
@@ -196,6 +276,10 @@ impl H3Connection {
 
         // Stream type + SETTINGS frame
         let settings = Frame::Settings(H3Settings::from(&self.context.config));
+        log::trace!(
+            "H3 outbound control: sending SETTINGS: {:?}",
+            H3Settings::from(&self.context.config)
+        );
 
         write(&mut buf, &mut stream, |buf| {
             let mut written = quic_varint::encode(UniStreamType::Control, buf)?;
@@ -203,6 +287,7 @@ impl H3Connection {
             Some(written)
         })
         .await?;
+        log::trace!("H3 outbound control: SETTINGS sent");
 
         // Wait for shutdown
         self.swansong.clone().await;
@@ -216,48 +301,40 @@ impl H3Connection {
         Ok(())
     }
 
-    /// Initialize and hold open the outbound QPACK encoder stream for the duration of the
-    /// connection.
+    /// Run the outbound QPACK encoder stream for the duration of the connection.
+    ///
+    /// Writes the stream type byte, then drains encoder-stream instructions from the encoder
+    /// dynamic table as they are enqueued. Returns when the connection shuts down or the table is
+    /// marked failed.
     ///
     /// # Errors
     ///
-    /// Returns an `H3Error` in case of io error or http/3 semantic error.
-    // Currently idle (static table only); will carry encoder instructions when dynamic table is
-    // added.
+    /// Returns an `H3Error` in case of io error.
     pub async fn run_encoder<T>(&self, mut stream: T) -> Result<(), H3Error>
     where
         T: AsyncWrite + Unpin + Send,
     {
-        let mut buf = vec![0; 8];
-        write(&mut buf, &mut stream, |buf| {
-            quic_varint::encode(UniStreamType::QpackEncoder, buf)
-        })
-        .await?;
-
-        self.swansong.clone().await;
-        Ok(())
+        self.encoder_dynamic_table
+            .run_writer(&mut stream, self.swansong.clone())
+            .await
     }
 
-    /// Initialize and hold open the outbound QPACK decoder stream for the duration of the
-    /// connection.
+    /// Run the outbound QPACK decoder stream for the duration of the connection.
+    ///
+    /// Writes the stream type byte, then loops sending Section Acknowledgement and Insert
+    /// Count Increment instructions as they become needed. Returns when the connection
+    /// shuts down.
     ///
     /// # Errors
     ///
     /// Returns an `H3Error` in case of io error or http/3 semantic error.
-    // Currently idle (static table only); will carry decoder instructions when dynamic table is
-    // added.
     pub async fn run_decoder<T>(&self, mut stream: T) -> Result<(), H3Error>
     where
         T: AsyncWrite + Unpin + Send,
     {
-        let mut buf = vec![0; 8];
-        write(&mut buf, &mut stream, |buf| {
-            quic_varint::encode(UniStreamType::QpackDecoder, buf)
-        })
-        .await?;
-
-        self.swansong.clone().await;
-        Ok(())
+        self.decoder_dynamic_table
+            .run_writer(&mut stream, self.swansong.clone())
+            .await
     }
 
     /// Handle an inbound unidirectional HTTP/3 stream from the peer.
@@ -291,18 +368,37 @@ impl H3Connection {
 
         match UniStreamType::try_from(stream_type) {
             Ok(UniStreamType::Control) => {
+                log::trace!("H3 inbound uni: control stream");
                 self.run_inbound_control(&mut buf, &mut filled, &mut stream)
                     .await?;
                 Ok(UniStreamResult::Handled)
             }
 
-            Ok(UniStreamType::QpackEncoder | UniStreamType::QpackDecoder) => {
-                // Static table only — hold stream open until shutdown
-                self.swansong.clone().await;
+            Ok(UniStreamType::QpackEncoder) => {
+                log::trace!("H3 inbound uni: QPACK encoder stream ({filled} bytes pre-read)");
+                let mut reader = Prepended {
+                    head: &buf[..filled],
+                    tail: stream,
+                };
+
+                log::trace!("QPACK encoder stream: started");
+                self.decoder_dynamic_table.run_reader(&mut reader).await?;
+
+                Ok(UniStreamResult::Handled)
+            }
+
+            Ok(UniStreamType::QpackDecoder) => {
+                log::trace!("H3 inbound uni: QPACK decoder stream ({filled} bytes pre-read)");
+                let mut reader = Prepended {
+                    head: &buf[..filled],
+                    tail: stream,
+                };
+                self.encoder_dynamic_table.run_reader(&mut reader).await?;
                 Ok(UniStreamResult::Handled)
             }
 
             Ok(UniStreamType::WebTransport) => {
+                log::trace!("H3 inbound uni: WebTransport stream");
                 let session_id =
                     read(
                         &mut buf,
@@ -325,10 +421,13 @@ impl H3Connection {
                 })
             }
 
-            Ok(UniStreamType::Push) | Err(_) => Ok(UniStreamResult::Unknown {
-                stream_type,
-                stream,
-            }),
+            Ok(UniStreamType::Push) | Err(_) => {
+                log::trace!("H3 inbound uni: unknown stream type {stream_type:#x}");
+                Ok(UniStreamResult::Unknown {
+                    stream_type,
+                    stream,
+                })
+            }
         }
     }
 
@@ -357,9 +456,14 @@ impl H3Connection {
         })
         .await?;
 
+        log::trace!("H3 peer settings: {settings:?}");
+
         self.peer_settings
             .set(settings)
             .map_err(|_| H3ErrorCode::FrameUnexpected)?;
+
+        self.encoder_dynamic_table
+            .initialize_from_peer_settings(self.context.config.h3_max_table_capacity, settings);
 
         // Read subsequent frames, watching for GOAWAY
         loop {
@@ -371,21 +475,43 @@ impl H3Connection {
             .await?;
 
             match frame {
-                Frame::Goaway(_) => {
+                Frame::Goaway(id) => {
+                    log::trace!("H3 control stream: peer sent GOAWAY(stream_id={id})");
                     self.swansong.shut_down();
                     return Ok(());
                 }
                 Frame::Settings(_) => {
                     return Err(H3ErrorCode::FrameUnexpected.into());
                 }
-
-                _ => { /* MAX_PUSH_ID, CANCEL_PUSH, unknown — ignored for now */ }
+                Frame::Unknown(n) => {
+                    // RFC 9114 §7.2.8: unknown frame types MUST be ignored.
+                    // We must also consume the payload bytes so the stream stays synchronized.
+                    log::trace!("H3 control stream: skipping unknown frame (payload {n} bytes)");
+                    let n = usize::try_from(n).unwrap_or(usize::MAX);
+                    let in_buf = n.min(*filled);
+                    buf.copy_within(in_buf..*filled, 0);
+                    *filled -= in_buf;
+                    let mut todo = n - in_buf;
+                    let mut scratch = [0u8; 256];
+                    while todo > 0 {
+                        let to_read = todo.min(scratch.len());
+                        let n = stream
+                            .read(&mut scratch[..to_read])
+                            .await
+                            .map_err(H3Error::Io)?;
+                        if n == 0 {
+                            return Err(H3ErrorCode::ClosedCriticalStream.into());
+                        }
+                        todo -= n;
+                    }
+                }
+                other => {
+                    log::trace!("H3 control stream: ignoring {other:?}");
+                }
             }
         }
     }
 }
-
-const MAX_BUFFER_SIZE: usize = 1024 * 10;
 
 async fn write(
     buf: &mut Vec<u8>,
@@ -405,6 +531,32 @@ async fn write(
     stream.write_all(&buf[..written]).await?;
     stream.flush().await?;
     Ok(written)
+}
+
+/// An `AsyncRead` adapter that drains a byte slice before reading from an inner stream.
+///
+/// Used in `process_inbound_uni` to replay bytes that were read ahead while
+/// parsing the stream-type varint before dispatching to `run_inbound_encoder`.
+struct Prepended<'a, T> {
+    head: &'a [u8],
+    tail: T,
+}
+
+impl<T: AsyncRead + Unpin> AsyncRead for Prepended<'_, T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        out: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        if !this.head.is_empty() {
+            let n = this.head.len().min(out.len());
+            out[..n].copy_from_slice(&this.head[..n]);
+            this.head = &this.head[n..];
+            return Poll::Ready(Ok(n));
+        }
+        Pin::new(&mut this.tail).poll_read(cx, out)
+    }
 }
 
 /// Read from `stream` into `buf` until `f` can decode a value.

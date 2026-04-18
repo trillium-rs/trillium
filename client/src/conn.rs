@@ -3,7 +3,7 @@ use encoding_rs::Encoding;
 use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
     Body, Buffer, HeaderName, HeaderValues, Headers, HttpContext, Method, ReceivedBody,
-    ReceivedBodyState, Status, TypeSet, Version,
+    ReceivedBodyState, Status, TypeSet, Version, h3::H3Connection,
 };
 use trillium_server_common::{
     ArcedConnector, Transport,
@@ -25,7 +25,8 @@ pub use unexpected_status_error::UnexpectedStatusError;
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn {
     pub(crate) pool: Option<Pool<Origin, Box<dyn Transport>>>,
-    pub(crate) h3: Option<H3ClientState>,
+    pub(crate) h3_client_state: Option<H3ClientState>,
+    pub(crate) h3_connection: Option<(Arc<H3Connection>, u64)>,
     pub(crate) buffer: Buffer,
     pub(crate) response_body_state: ReceivedBodyState,
     pub(crate) config: ArcedConnector,
@@ -319,7 +320,7 @@ impl Conn {
     /// ```
     #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
     pub fn response_body(&mut self) -> ResponseBody<'_> {
-        ReceivedBody::new(
+        let received_body = ReceivedBody::new(
             self.response_content_length(),
             &mut self.buffer,
             self.transport.as_mut().unwrap(),
@@ -327,8 +328,14 @@ impl Conn {
             None,
             encoding(&self.response_headers),
         )
-        .with_trailers(&mut self.response_trailers)
-        .into()
+        .with_trailers(&mut self.response_trailers);
+        if let Some((h3_connection, stream_id)) = self.h3_connection.clone() {
+            received_body
+                .with_h3_connection(h3_connection, stream_id)
+                .into()
+        } else {
+            received_body.into()
+        }
     }
 
     /// Attempt to deserialize the response body. Note that this consumes the body content.

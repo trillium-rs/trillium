@@ -1,113 +1,154 @@
-use super::STATIC_TABLE;
-use crate::{HeaderName, HeaderValue, KnownHeaderName as K};
+use super::{PseudoHeaderName as P, STATIC_TABLE};
+use crate::{KnownHeaderName as K, headers::qpack::entry_name::QpackEntryName};
 use StaticLookup::{FullMatch, NameMatch, NoMatch};
 
 /// Result of looking up a field line in the QPACK static table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, fieldwork::Fieldwork)]
 #[allow(clippy::enum_variant_names)] // "Match" suffix is descriptive, not redundant
-pub(crate) enum StaticLookup {
+#[fieldwork(get)]
+pub(in crate::headers) enum StaticLookup {
     /// Both name and value match a static table entry.
-    FullMatch(u8),
+    FullMatch(#[field = "full_match"] u8),
     /// Name matches but value doesn't.
-    NameMatch(u8),
+    NameMatch(#[field = "name_match"] u8),
     /// Name not in the static table.
     NoMatch,
 }
 
-/// Look up a regular (non-pseudo) header in the QPACK static table.
-pub(crate) fn static_table_lookup(name: &HeaderName<'_>, value: &HeaderValue) -> StaticLookup {
-    let indices: &[u8] = match name.as_known() {
-        Some(K::Accept) => &[29, 30],
-        Some(K::AcceptEncoding) => &[31],
-        Some(K::AcceptLanguage) => &[72],
-        Some(K::AcceptRanges) => &[32],
-        Some(K::AccessControlAllowCredentials) => &[73, 74],
-        Some(K::AccessControlAllowHeaders) => &[33, 34, 75],
-        Some(K::AccessControlAllowMethods) => &[76, 77, 78],
-        Some(K::AccessControlAllowOrigin) => &[35],
-        Some(K::AccessControlExposeHeaders) => &[79],
-        Some(K::AccessControlRequestHeaders) => &[80],
-        Some(K::AccessControlRequestMethod) => &[81, 82],
-        Some(K::Age) => &[2],
-        Some(K::AltSvc) => &[83],
-        Some(K::Authorization) => &[84],
-        Some(K::CacheControl) => &[36, 37, 38, 39, 40, 41],
-        Some(K::ContentDisposition) => &[3],
-        Some(K::ContentEncoding) => &[42, 43],
-        Some(K::ContentLength) => &[4],
-        Some(K::ContentSecurityPolicy) => &[85],
-        Some(K::ContentType) => &[44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54],
-        Some(K::Cookie) => &[5],
-        Some(K::Date) => &[6],
-        Some(K::EarlyData) => &[86],
-        Some(K::Etag) => &[7],
-        Some(K::ExpectCt) => &[87],
-        Some(K::Forwarded) => &[88],
-        Some(K::IfModifiedSince) => &[8],
-        Some(K::IfNoneMatch) => &[9],
-        Some(K::IfRange) => &[89],
-        Some(K::LastModified) => &[10],
-        Some(K::Link) => &[11],
-        Some(K::Location) => &[12],
-        Some(K::Origin) => &[90],
-        Some(K::Purpose) => &[91],
-        Some(K::Range) => &[55],
-        Some(K::Referer) => &[13],
-        Some(K::Server) => &[92],
-        Some(K::SetCookie) => &[14],
-        Some(K::StrictTransportSecurity) => &[56, 57, 58],
-        Some(K::TimingAllowOrigin) => &[93],
-        Some(K::UpgradeInsecureRequests) => &[94],
-        Some(K::UserAgent) => &[95],
-        Some(K::Vary) => &[59, 60],
-        Some(K::XcontentTypeOptions) => &[61],
-        Some(K::XforwardedFor) => &[96],
-        Some(K::XframeOptions) => &[97, 98],
-        Some(K::XxssProtection) => &[62],
-        _ => return NoMatch,
+pub(in crate::headers) const fn static_lookup_name(name: &QpackEntryName) -> Option<&'static [u8]> {
+    match name {
+        QpackEntryName::Pseudo(P::Authority) => Some(&[0]),
+        QpackEntryName::Pseudo(P::Path) => Some(&[1]),
+        QpackEntryName::Pseudo(P::Method) => Some(&[15, 16, 17, 18, 19, 20, 21]),
+        QpackEntryName::Pseudo(P::Scheme) => Some(&[22, 23]),
+        QpackEntryName::Pseudo(P::Status) => {
+            Some(&[24, 25, 26, 27, 28, 63, 64, 65, 66, 67, 68, 69, 70, 71])
+        }
+        QpackEntryName::Known(K::Accept) => Some(&[29, 30]),
+        QpackEntryName::Known(K::AcceptEncoding) => Some(&[31]),
+        QpackEntryName::Known(K::AcceptLanguage) => Some(&[72]),
+        QpackEntryName::Known(K::AcceptRanges) => Some(&[32]),
+        QpackEntryName::Known(K::AccessControlAllowCredentials) => Some(&[73, 74]),
+        QpackEntryName::Known(K::AccessControlAllowHeaders) => Some(&[33, 34, 75]),
+        QpackEntryName::Known(K::AccessControlAllowMethods) => Some(&[76, 77, 78]),
+        QpackEntryName::Known(K::AccessControlAllowOrigin) => Some(&[35]),
+        QpackEntryName::Known(K::AccessControlExposeHeaders) => Some(&[79]),
+        QpackEntryName::Known(K::AccessControlRequestHeaders) => Some(&[80]),
+        QpackEntryName::Known(K::AccessControlRequestMethod) => Some(&[81, 82]),
+        QpackEntryName::Known(K::Age) => Some(&[2]),
+        QpackEntryName::Known(K::AltSvc) => Some(&[83]),
+        QpackEntryName::Known(K::Authorization) => Some(&[84]),
+        QpackEntryName::Known(K::CacheControl) => Some(&[36, 37, 38, 39, 40, 41]),
+        QpackEntryName::Known(K::ContentDisposition) => Some(&[3]),
+        QpackEntryName::Known(K::ContentEncoding) => Some(&[42, 43]),
+        QpackEntryName::Known(K::ContentLength) => Some(&[4]),
+        QpackEntryName::Known(K::ContentSecurityPolicy) => Some(&[85]),
+        QpackEntryName::Known(K::ContentType) => {
+            Some(&[44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54])
+        }
+        QpackEntryName::Known(K::Cookie) => Some(&[5]),
+        QpackEntryName::Known(K::Date) => Some(&[6]),
+        QpackEntryName::Known(K::EarlyData) => Some(&[86]),
+        QpackEntryName::Known(K::Etag) => Some(&[7]),
+        QpackEntryName::Known(K::ExpectCt) => Some(&[87]),
+        QpackEntryName::Known(K::Forwarded) => Some(&[88]),
+        QpackEntryName::Known(K::IfModifiedSince) => Some(&[8]),
+        QpackEntryName::Known(K::IfNoneMatch) => Some(&[9]),
+        QpackEntryName::Known(K::IfRange) => Some(&[89]),
+        QpackEntryName::Known(K::LastModified) => Some(&[10]),
+        QpackEntryName::Known(K::Link) => Some(&[11]),
+        QpackEntryName::Known(K::Location) => Some(&[12]),
+        QpackEntryName::Known(K::Origin) => Some(&[90]),
+        QpackEntryName::Known(K::Purpose) => Some(&[91]),
+        QpackEntryName::Known(K::Range) => Some(&[55]),
+        QpackEntryName::Known(K::Referer) => Some(&[13]),
+        QpackEntryName::Known(K::Server) => Some(&[92]),
+        QpackEntryName::Known(K::SetCookie) => Some(&[14]),
+        QpackEntryName::Known(K::StrictTransportSecurity) => Some(&[56, 57, 58]),
+        QpackEntryName::Known(K::TimingAllowOrigin) => Some(&[93]),
+        QpackEntryName::Known(K::UpgradeInsecureRequests) => Some(&[94]),
+        QpackEntryName::Known(K::UserAgent) => Some(&[95]),
+        QpackEntryName::Known(K::Vary) => Some(&[59, 60]),
+        QpackEntryName::Known(K::XcontentTypeOptions) => Some(&[61]),
+        QpackEntryName::Known(K::XforwardedFor) => Some(&[96]),
+        QpackEntryName::Known(K::XframeOptions) => Some(&[97, 98]),
+        QpackEntryName::Known(K::XxssProtection) => Some(&[62]),
+        _ => None,
+    }
+}
+
+pub(in crate::headers) const fn first_match(name: &QpackEntryName) -> Option<u8> {
+    if let Some(indices) = static_lookup_name(name) {
+        Some(indices[0])
+    } else {
+        None
+    }
+}
+
+/// Look up a field name (regular header or pseudo-header) in the QPACK static table.
+pub(in crate::headers) fn static_table_lookup(
+    name: &QpackEntryName,
+    value: Option<&[u8]>,
+) -> StaticLookup {
+    let Some(indices) = static_lookup_name(name) else {
+        return NoMatch;
     };
 
-    for &i in indices {
-        if value == STATIC_TABLE[i as usize].1 {
-            return FullMatch(i);
+    if let Some(value) = value {
+        for &i in indices {
+            if value == STATIC_TABLE[i as usize].1.as_bytes() {
+                return FullMatch(i);
+            }
         }
     }
+
     NameMatch(indices[0])
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        super::{STATIC_TABLE, StaticHeaderName},
-        *,
+    use crate::headers::qpack::{
+        entry_name::QpackEntryName,
+        static_table::{STATIC_TABLE, StaticLookup, static_entry, static_table_lookup},
     };
 
     #[test]
-    fn lookup_matches_every_header_entry() {
-        for (index, (name, value)) in STATIC_TABLE.iter().enumerate() {
+    fn lookup_matches_every_entry() {
+        for (index, (name, value)) in STATIC_TABLE.into_iter().enumerate() {
             let index = index as u8;
-            let StaticHeaderName::Header(known) = name else {
-                continue; // skip pseudo-headers — tested via encoder round-trips
-            };
-            let header_name = HeaderName::from(*known);
-            let header_value = HeaderValue::from(*value);
-            let lookup = static_table_lookup(&header_name, &header_value);
+            let header_name = QpackEntryName::from(name);
+            let lookup = static_table_lookup(&header_name, Some(value.as_bytes()));
+            assert_eq!(lookup, StaticLookup::FullMatch(index));
 
-            if value.is_empty() {
-                match lookup {
-                    NameMatch(i) => assert_eq!(
-                        STATIC_TABLE[i as usize].0, *name,
-                        "index {index} ({name}): NameMatch({i}) points to wrong name",
-                    ),
-                    FullMatch(_) => {}
-                    NoMatch => panic!("index {index} ({name}): expected NameMatch, got NoMatch"),
-                }
-            } else {
-                assert!(
-                    matches!(lookup, FullMatch(i) if i == index),
-                    "index {index} ({name}:{value}): expected FullMatch({index}), got {lookup:?}",
-                );
-            }
+            let lookup = static_table_lookup(&header_name, Some(b"other value".as_slice()));
+            assert!(matches!(lookup, StaticLookup::NameMatch(_)));
+
+            let matched_name = QpackEntryName::from(
+                static_entry(lookup.name_match().unwrap() as usize)
+                    .unwrap()
+                    .0,
+            );
+
+            assert_eq!(matched_name, header_name);
+
+            let lookup = static_table_lookup(&header_name, None);
+            assert!(matches!(lookup, StaticLookup::NameMatch(_)));
+
+            let matched_name = QpackEntryName::from(
+                static_entry(lookup.name_match().unwrap() as usize)
+                    .unwrap()
+                    .0,
+            );
+
+            assert_eq!(matched_name, header_name);
         }
+
+        assert_eq!(
+            StaticLookup::NoMatch,
+            static_table_lookup(
+                &QpackEntryName::try_from(b"x-custom".as_slice()).unwrap(),
+                Some(b"other".as_slice())
+            )
+        );
     }
 }

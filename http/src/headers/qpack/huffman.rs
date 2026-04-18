@@ -4,8 +4,8 @@ mod table;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use decode::decode;
-pub(crate) use encode::encode;
+pub(in crate::headers) use decode::decode;
+pub(in crate::headers) use encode::encode;
 use table::TABLE;
 
 /// Errors that can occur during Huffman decoding.

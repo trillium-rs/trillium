@@ -30,6 +30,7 @@ pub struct HttpConfig {
     /// **Unit**: Byte count
     pub(crate) received_body_max_len: u64,
 
+    #[cfg(not(feature = "parse"))]
     #[field = false] // this one is private for now
     pub(crate) max_headers: usize,
 
@@ -128,6 +129,28 @@ pub struct HttpConfig {
     /// **Unit**: Byte count
     pub(crate) h3_max_field_section_size: u64,
 
+    /// Maximum capacity of the QPACK dynamic table for HTTP/3 header compression.
+    ///
+    /// Advertised to peers as `SETTINGS_QPACK_MAX_TABLE_CAPACITY`. Peers may use a dynamic table
+    /// up to this size to compress request headers. Set to `0` to disable dynamic table
+    /// compression entirely.
+    ///
+    /// **Default**: 4096 bytes
+    ///
+    /// **Unit**: Byte count
+    pub(crate) h3_max_table_capacity: usize,
+
+    /// Maximum number of HTTP/3 request streams that may be blocked waiting for dynamic table
+    /// updates.
+    ///
+    /// Advertised to peers as `SETTINGS_QPACK_BLOCKED_STREAMS`. A value of `0` prevents peers
+    /// from sending header blocks that reference table entries not yet seen by this decoder.
+    ///
+    /// **Default**: 100
+    ///
+    /// **Unit**: Stream count
+    pub(crate) h3_blocked_streams: usize,
+
     /// whether [datagrams](https://www.rfc-editor.org/rfc/rfc9297.html) are enabled for HTTP/3
     ///
     /// This is a protocol-level setting and is communicated to the peer as well as enforced.
@@ -165,6 +188,7 @@ impl HttpConfig {
         response_buffer_max_len: 2 * 1024 * 1024,
         request_buffer_initial_len: 128,
         head_max_len: 8 * 1024,
+        #[cfg(not(feature = "parse"))]
         max_headers: 128,
         response_header_initial_capacity: 16,
         copy_loops_per_yield: 16,
@@ -172,6 +196,8 @@ impl HttpConfig {
         received_body_initial_len: 128,
         received_body_max_preallocate: 1024 * 1024,
         h3_max_field_section_size: 8 * 1024,
+        h3_max_table_capacity: 4096,
+        h3_blocked_streams: 100,
         h3_datagrams_enabled: false,
         webtransport_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),

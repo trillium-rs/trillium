@@ -39,19 +39,11 @@ impl Conn {
             _ => {}
         }
 
-        if let Some(h3) = self.h3.clone() {
-            if self
-                .try_exec_h3(&h3, self.http_version == Version::Http3)
-                .await?
-            {
-                self.update_alt_svc_from_response(&h3);
-                return Ok(());
-            } else {
-                self.http_version = Version::Http1_1;
-            }
+        if !self.try_exec_h3().await? {
+            self.exec_h1().await?;
         }
 
-        self.exec_h1().await
+        Ok(())
     }
 
     pub(crate) fn body_len(&self) -> Option<u64> {
@@ -65,7 +57,7 @@ impl Conn {
     pub(crate) fn finalize_headers(&mut self) -> Result<()> {
         match self.http_version {
             Version::Http1_0 | Version::Http1_1 => self.finalize_headers_h1(),
-            Version::Http3 if self.h3.is_some() => self.finalize_headers_h3(),
+            Version::Http3 if self.h3_client_state.is_some() => self.finalize_headers_h3(),
             other => Err(Error::UnsupportedVersion(other)),
         }
     }
@@ -223,7 +215,8 @@ impl Debug for Conn {
             .field("authority", &self.authority)
             .field("buffer", &String::from_utf8_lossy(&self.buffer))
             .field("config", &self.config)
-            .field("h3", &self.h3.is_some())
+            .field("h3_client_state", &self.h3_client_state)
+            .field("h3_connection", &self.h3_connection)
             .field("http_version", &self.http_version)
             .field("method", &self.method)
             .field("path", &self.path)

@@ -11,6 +11,61 @@ use std::{
 #[derive(Clone)]
 pub(super) struct UnknownHeaderName<'a>(SmartCow<'a>);
 
+impl UnknownHeaderName<'_> {
+    pub(crate) fn is_valid_lower(&self) -> bool {
+        // Lowercase tchar per RFC 9110 §5.6.2 — the uppercase-letter branch is dropped
+        // because HTTP/2 and HTTP/3 require field names to be lowercase on the wire
+        // (RFC 9113 §8.2.1, RFC 9114 §4.2). The set otherwise matches `is_tchar`.
+        !self.is_empty()
+            && self.chars().all(|c| {
+                matches!(c,
+                    'a'..='z'
+                    | '0'..='9'
+                    | '!'
+                    | '#'
+                    | '$'
+                    | '%'
+                    | '&'
+                    | '\''
+                    | '*'
+                    | '+'
+                    | '-'
+                    | '.'
+                    | '^'
+                    | '_'
+                    | '`'
+                    | '|'
+                    | '~',
+                )
+            })
+    }
+
+    pub(crate) fn into_lower(self) -> Self {
+        match self.0 {
+            SmartCow::Borrowed(borrowed) => {
+                if let Some(first_upper) = borrowed.chars().position(|c| c.is_ascii_uppercase()) {
+                    Self(SmartCow::Owned(
+                        borrowed[..first_upper]
+                            .chars()
+                            .chain(
+                                borrowed[first_upper..]
+                                    .chars()
+                                    .map(|c| c.to_ascii_lowercase()),
+                            )
+                            .collect(),
+                    ))
+                } else {
+                    Self(SmartCow::Borrowed(borrowed))
+                }
+            }
+            SmartCow::Owned(mut smart_string) => {
+                smart_string.make_ascii_lowercase();
+                Self(SmartCow::Owned(smart_string))
+            }
+        }
+    }
+}
+
 impl PartialOrd for UnknownHeaderName<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -54,6 +109,12 @@ impl Display for UnknownHeaderName<'_> {
 impl<'a> From<UnknownHeaderName<'a>> for HeaderName<'a> {
     fn from(value: UnknownHeaderName<'a>) -> Self {
         HeaderName(UnknownHeader(value))
+    }
+}
+
+impl<'a> From<&'a UnknownHeaderName<'_>> for HeaderName<'a> {
+    fn from(value: &'a UnknownHeaderName<'_>) -> Self {
+        HeaderName(UnknownHeader(value.reborrow()))
     }
 }
 

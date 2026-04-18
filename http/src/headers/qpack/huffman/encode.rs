@@ -1,7 +1,7 @@
 use super::TABLE;
 
 /// Huffman-encode a byte string per RFC 7541 §5.2.
-pub(crate) fn encode(input: &[u8]) -> Vec<u8> {
+pub(in crate::headers) fn encode(input: &[u8]) -> Vec<u8> {
     let mut output = Vec::with_capacity(input.len()); // encoded is usually shorter
     let mut accumulator: u64 = 0;
     let mut bits_used: u8 = 0;
