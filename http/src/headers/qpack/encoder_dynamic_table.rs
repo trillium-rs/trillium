@@ -99,6 +99,10 @@ impl EncoderDynamicTable {
         state.max_blocked_streams = max_blocked_streams;
         state.mnemonic_indexing = mnemonic_indexing;
         state.inflation_ratio_max = inflation_ratio_max;
+        // Seed the mnemonic predictor's ring size from the negotiated capacity, matching
+        // ls-qpack's `enc_init` formula. Larger tables see more distinct entries over their
+        // lifetime, so the ring needs more slots to catch repeats before they rotate out.
+        state.predictor.initialize_for_capacity(chosen);
         if chosen > 0 {
             state
                 .set_capacity(chosen)

@@ -214,7 +214,23 @@ fn run_qif_at_config(
         // our emission sequence to the reference encoder's for this same group.
         if let Some(ctx) = dump.as_mut() {
             let their_group = ctx.their_groups.get(i);
-            dump_group(ctx.writer, i, stream_id, group, &enc_ops, &buf, their_group);
+            let our_snapshot = OurStateSnapshot {
+                insert_count: encoder.insert_count(),
+                entry_count: encoder.entry_count(),
+                current_size: encoder.current_size(),
+                capacity: encoder.capacity(),
+                draining_frontier: encoder.draining_frontier_abs_idx(),
+            };
+            dump_group(
+                ctx.writer,
+                i,
+                stream_id,
+                group,
+                &enc_ops,
+                &buf,
+                their_group,
+                &our_snapshot,
+            );
         }
         if !enc_ops.is_empty() {
             let mut cursor = Cursor::new(&enc_ops[..]);
@@ -278,6 +294,17 @@ fn run_qif_at_config(
     (stats, counters, wire)
 }
 
+/// Post-section state snapshot on our side. Captured after encoding the section and
+/// included in the per-group dump so we can compare fill levels / draining frontier to
+/// what ls-qpack is doing in parallel.
+struct OurStateSnapshot {
+    insert_count: u64,
+    entry_count: usize,
+    current_size: usize,
+    capacity: usize,
+    draining_frontier: u64,
+}
+
 /// Write one group's ours-vs-theirs dump to `writer`. Classifies both sides' raw bytes
 /// into a compact one-line-per-instruction format suitable for terminal diffing or for
 /// feeding to an LLM session hunting for patterns.
@@ -289,10 +316,26 @@ fn dump_group(
     our_enc: &[u8],
     our_hdr: &[u8],
     their_group: Option<&OutGroup>,
+    our_snapshot: &OurStateSnapshot,
 ) {
     let _ = writeln!(
         writer,
         "==== group {group_index} (stream_id={stream_id}) ===="
+    );
+    let fill_pct = if our_snapshot.capacity == 0 {
+        0.0
+    } else {
+        (our_snapshot.current_size as f64) * 100.0 / (our_snapshot.capacity as f64)
+    };
+    let _ = writeln!(
+        writer,
+        "  our_state_after: insert_count={} entry_count={} used={}/{} ({:.1}%) frontier={}",
+        our_snapshot.insert_count,
+        our_snapshot.entry_count,
+        our_snapshot.current_size,
+        our_snapshot.capacity,
+        fill_pct,
+        our_snapshot.draining_frontier,
     );
     let _ = writeln!(writer, "  input:");
     for (name, value) in input {

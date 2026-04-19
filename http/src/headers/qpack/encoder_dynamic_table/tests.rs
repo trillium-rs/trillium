@@ -24,6 +24,23 @@ impl EncoderDynamicTable {
     pub(in crate::headers) fn entry_count(&self) -> usize {
         self.state.lock().unwrap().entries.len()
     }
+
+    /// Current total bytes used in the dynamic table. Diagnostic accessor for the
+    /// per-group state snapshot in the corpus ASCII dump.
+    pub(in crate::headers) fn current_size(&self) -> usize {
+        self.state.lock().unwrap().current_size
+    }
+
+    /// Current maximum capacity (bytes). Diagnostic accessor for the corpus ASCII dump.
+    pub(in crate::headers) fn capacity(&self) -> usize {
+        self.state.lock().unwrap().capacity
+    }
+
+    /// Current draining-frontier `abs_idx` — the smallest non-draining index under our
+    /// `capacity/4` threshold. Diagnostic accessor for the corpus ASCII dump.
+    pub(in crate::headers) fn draining_frontier_abs_idx(&self) -> u64 {
+        self.state.lock().unwrap().draining_frontier_abs_idx()
+    }
 }
 
 // Test helpers — kept small and explicit.

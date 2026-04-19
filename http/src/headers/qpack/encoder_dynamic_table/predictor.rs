@@ -53,12 +53,21 @@
 use smallvec::{SmallVec, smallvec};
 use std::hash::{DefaultHasher, Hasher};
 
-/// Inline capacity / initial ring length for the mnemonic predictor. ls-qpack starts at
-/// ~28 entries and re-tunes from there. We match that as the inline capacity of the
-/// backing [`SmallVec`]: typical post-resize sizes hover in the same range, so the ring
-/// stays stack-allocated in the common case and only spills to heap on outliers. Step 4
-/// will start exercising the resize path.
-const MNEMONIC_HISTORY_SIZE: usize = 28;
+/// Inline capacity of the backing [`SmallVec`]. 28 is a sweet spot for the typical
+/// small-capacity post-resize target (the EMA resize target at (256,*) stays around
+/// 6-12). Connections with larger dynamic-table capacities spill to heap — that's fine;
+/// the ring's hot-path cost is dominated by the hash comparison, not the allocation.
+const MNEMONIC_INLINE_CAPACITY: usize = 28;
+
+/// Initial ring length. Overridden per-connection by
+/// [`MnemonicPredictor::initialize_for_capacity`] once the peer-negotiated table
+/// capacity is known; `TableState::new()` uses this as a placeholder.
+const MNEMONIC_INITIAL_SIZE_PLACEHOLDER: usize = 12;
+
+/// Floor for the capacity-derived initial ring size. Mirrors ls-qpack's
+/// `GUESS_N_HEADER_FIELDS = 12`: with no historical signal a dozen slots is the
+/// conservative lower bound that still catches repeats inside a single section.
+const MNEMONIC_INITIAL_SIZE_FLOOR: usize = 12;
 
 // EMA tuning constants. Mirror ls-qpack; not exposed as user knobs because the values
 // are meaningful only against the resize logic that consumes them. Adjust here if
@@ -118,8 +127,8 @@ pub(super) struct Seen {
 /// [`TableState`]: super::state::TableState
 #[derive(Debug)]
 pub(super) struct MnemonicPredictor {
-    name_hashes: SmallVec<[u32; MNEMONIC_HISTORY_SIZE]>,
-    nameval_hashes: SmallVec<[u32; MNEMONIC_HISTORY_SIZE]>,
+    name_hashes: SmallVec<[u32; MNEMONIC_INLINE_CAPACITY]>,
+    nameval_hashes: SmallVec<[u32; MNEMONIC_INLINE_CAPACITY]>,
     cursor: usize,
     table_nelem_ema: Option<f32>,
     header_count_ema: Option<f32>,
@@ -147,8 +156,8 @@ pub(super) struct MnemonicPredictor {
 impl MnemonicPredictor {
     pub(super) fn new() -> Self {
         Self {
-            name_hashes: smallvec![0; MNEMONIC_HISTORY_SIZE],
-            nameval_hashes: smallvec![0; MNEMONIC_HISTORY_SIZE],
+            name_hashes: smallvec![0; MNEMONIC_INITIAL_SIZE_PLACEHOLDER],
+            nameval_hashes: smallvec![0; MNEMONIC_INITIAL_SIZE_PLACEHOLDER],
             cursor: 0,
             table_nelem_ema: None,
             header_count_ema: None,
@@ -161,6 +170,20 @@ impl MnemonicPredictor {
             diag_saturation_grow_events: 0,
             #[cfg(test)]
             section_saturated: false,
+        }
+    }
+
+    /// Size the ring for a connection whose negotiated dynamic-table capacity is
+    /// `table_capacity` bytes. Matches ls-qpack's initial-guess formula
+    /// `max(capacity / ENTRY_OVERHEAD / 3, GUESS_N_HEADER_FIELDS)` at `enc_init`. Called
+    /// from `EncoderDynamicTable::initialize_from_peer_settings` once the peer's
+    /// `SETTINGS_QPACK_MAX_TABLE_CAPACITY` is known. No-op if the ring is already at
+    /// least this large (e.g. saturation-grow already expanded it).
+    pub(super) fn initialize_for_capacity(&mut self, table_capacity: usize) {
+        let per_capacity = table_capacity / 32 / 3;
+        let initial = per_capacity.max(MNEMONIC_INITIAL_SIZE_FLOOR);
+        if initial > self.name_hashes.len() {
+            self.resize_ring(initial);
         }
     }
 
@@ -294,8 +317,8 @@ impl MnemonicPredictor {
         if new_size == old_size || new_size == 0 {
             return;
         }
-        let mut new_name: SmallVec<[u32; MNEMONIC_HISTORY_SIZE]> = smallvec![0; new_size];
-        let mut new_nameval: SmallVec<[u32; MNEMONIC_HISTORY_SIZE]> = smallvec![0; new_size];
+        let mut new_name: SmallVec<[u32; MNEMONIC_INLINE_CAPACITY]> = smallvec![0; new_size];
+        let mut new_nameval: SmallVec<[u32; MNEMONIC_INLINE_CAPACITY]> = smallvec![0; new_size];
         let count = old_size.min(new_size);
         for j in 0..count {
             let src = (self.cursor + j) % old_size;
@@ -395,7 +418,7 @@ mod tests {
         let mut p = MnemonicPredictor::new();
         assert!(!check_nameval(&mut p, b"x-target", b"v"));
         p.sample_header_count();
-        for i in 0..MNEMONIC_HISTORY_SIZE {
+        for i in 0..MNEMONIC_INLINE_CAPACITY {
             let name = format!("pad-{i}");
             assert!(!check_nameval(&mut p, name.as_bytes(), b"v"));
             p.sample_header_count();
@@ -486,18 +509,19 @@ mod tests {
         // exceed ema_header to fire), so this test isolates EMA bookkeeping from the
         // resize side effect.
         let mut p = MnemonicPredictor::new();
+        p.resize_ring(28);
         p.sample_table_size(5);
         for _ in 0..10 {
             let h = MnemonicPredictor::hash(b"x", b"v");
             p.remember(h);
         }
-        // n_added_in_section is now 10. Ring size after 10 remembers from initial 28 is
-        // still 28 (saturation grow only fires at >= ring_len, and 10 < 28).
+        // n_added_in_section is now 10. Ring size after 10 remembers stays 28 (saturation
+        // grow only fires at >= ring_len, and 10 < 28).
         p.sample_header_count();
         assert_eq!(p.table_nelem_ema, Some(5.0));
         assert_eq!(p.header_count_ema, Some(10.0));
         // Resize gate: ema_table (5) ≤ ema_header (10), so no resize fired.
-        assert_eq!(p.name_hashes.len(), MNEMONIC_HISTORY_SIZE);
+        assert_eq!(p.name_hashes.len(), 28);
     }
 
     #[test]
@@ -516,19 +540,17 @@ mod tests {
         // A single section adds enough headers to fill the ring. Eager grow should kick
         // in before the cursor wraps and overwrites the oldest in-section entry.
         let mut p = MnemonicPredictor::new();
-        for i in 0..MNEMONIC_HISTORY_SIZE {
+        let initial = p.name_hashes.len();
+        for i in 0..initial {
             let v = format!("v-{i}");
             p.remember(MnemonicPredictor::hash(b"x", v.as_bytes()));
         }
-        // Ring is full but not yet grown — `n_added_in_section` is now 28, which equals
-        // the ring length. The next `remember` call must trigger the grow before the
-        // write so entry 0 isn't overwritten.
-        assert_eq!(p.name_hashes.len(), MNEMONIC_HISTORY_SIZE);
-        p.remember(MnemonicPredictor::hash(b"x", b"v-28"));
-        assert_eq!(
-            p.name_hashes.len(),
-            MNEMONIC_HISTORY_SIZE + SATURATION_GROW_BY,
-        );
+        // Ring is full but not yet grown — `n_added_in_section` equals the ring length.
+        // The next `remember` call must trigger the grow before the write so entry 0
+        // isn't overwritten.
+        assert_eq!(p.name_hashes.len(), initial);
+        p.remember(MnemonicPredictor::hash(b"x", b"v-next"));
+        assert_eq!(p.name_hashes.len(), initial + SATURATION_GROW_BY);
         // The first in-section header (`v-0`) should still be findable — the grow
         // preserved it before the would-be overwrite.
         let h0 = MnemonicPredictor::hash(b"x", b"v-0");
@@ -537,9 +559,10 @@ mod tests {
 
     #[test]
     fn ema_resize_shrinks_ring_when_table_smaller_than_initial() {
-        // ema_table (10) > ema_header (3) and well below current ring size (28). Resize
-        // should target round(ema_table) = 10.
+        // Start from a 28-slot baseline so we can exercise the shrink path. ema_table (10)
+        // > ema_header (3) and below current ring size (28); resize targets round(10) = 10.
         let mut p = MnemonicPredictor::new();
+        p.resize_ring(28);
         // Seed the ring with distinguishable entries so we can verify oldest-first
         // preservation across the shrink.
         for i in 0..15u32 {
@@ -555,16 +578,10 @@ mod tests {
         }
         p.sample_header_count();
         assert_eq!(p.name_hashes.len(), 10);
-        // Oldest 10 of the 18 remembered entries (15 seed + 3 real) should survive,
-        // walked oldest-first from the post-seed cursor. The 5 newest are dropped.
-        // Concretely: seeds 1..=15 then 3 real remembers means 18 logical entries in a
-        // 28-slot ring (no wrap yet, since 18 < 28). Oldest preserved entry is seed `1`
-        // — but wait: the ring is treated as always-wrapped, so "oldest" is at cursor.
-        // After 18 writes, cursor=18; "oldest" walking from cursor wraps through
-        // [18..28] (zeros) then [0..18] (real). The first 10 of those are the 10 zeros
-        // followed by the 0 zeros ... actually 28 - 18 = 10 zeros at [18..28], then we
-        // need 0 more from the wrap. So the new ring is exactly the 10 zero slots.
-        // Cursor lands at 0 (count == new_size).
+        // 18 logical entries in a 28-slot ring (no wrap yet, since 18 < 28). After 18
+        // writes, cursor=18; walking oldest-first from cursor wraps through [18..28]
+        // (zeros) then [0..18] (real). The new ring picks the 10 oldest = the 10 zero
+        // slots at [18..28]. Cursor lands at 0 (count == new_size).
         assert_eq!(p.cursor, 0);
         assert!(p.name_hashes.iter().all(|&x| x == 0));
     }
@@ -572,11 +589,12 @@ mod tests {
     #[test]
     fn ema_resize_does_not_fire_when_table_smaller_than_header_avg() {
         let mut p = MnemonicPredictor::new();
+        let initial = p.name_hashes.len();
         p.sample_table_size(5);
         // Seed n_added_in_section large enough to dominate; ema_header will be 20.
         p.n_added_in_section = 20;
         p.sample_header_count();
-        assert_eq!(p.name_hashes.len(), MNEMONIC_HISTORY_SIZE);
+        assert_eq!(p.name_hashes.len(), initial);
     }
 
     #[test]
@@ -584,10 +602,11 @@ mod tests {
         // cur=28, ema_table=27.0 (rounds to 27): diff=1.0, 1.0/27 ≈ 0.037. Both below
         // their thresholds (1.5 and 0.1), so no resize.
         let mut p = MnemonicPredictor::new();
+        p.resize_ring(28);
         p.table_nelem_ema = Some(27.0);
         p.header_count_ema = Some(5.0);
         p.maybe_resize_to_ema();
-        assert_eq!(p.name_hashes.len(), MNEMONIC_HISTORY_SIZE);
+        assert_eq!(p.name_hashes.len(), 28);
     }
 
     #[test]
