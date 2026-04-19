@@ -19,6 +19,27 @@ fn pinned_entry_blocks_eviction() {
 }
 
 #[test]
+fn eviction_walks_past_older_unpinned_entries_to_reach_target() {
+    // Pin abs 1 but leave abs 0 unpinned. A third insert needs to evict the oldest entry
+    // to fit — abs 0 is free to go, and the pin at abs 1 protects only itself. Regression
+    // guard against the historical `evicted_abs <= min_live` check, which over-protected
+    // abs 0 (strictly older than the pin) and rejected otherwise-legal evictions.
+    let table = new_table(70);
+    table.insert(qen("a"), fv("1")).unwrap();
+    table.insert(qen("b"), fv("2")).unwrap();
+    table.register_outstanding_section(
+        4,
+        SectionRefs {
+            required_insert_count: 2,
+            min_ref_abs_idx: Some(1),
+        },
+    );
+    assert!(table.insert(qen("c"), fv("3")).is_ok());
+    // abs 0 was evicted; the pinned abs 1 and newly-inserted abs 2 remain.
+    assert_eq!(table.entry_count(), 2);
+}
+
+#[test]
 fn section_ack_advances_known_received() {
     let table = new_table(4096);
     table.insert(qen("a"), fv("1")).unwrap();

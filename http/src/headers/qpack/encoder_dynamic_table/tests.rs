@@ -130,11 +130,14 @@ fn blocking_section(ric: u64) -> SectionRefs {
 }
 
 mod budgets_and_capacity;
+mod draining;
+mod dup_draining;
 mod encode_blocked;
 mod encode_dynamic;
 mod encode_refs;
 mod encode_static;
 mod insert;
 mod mnemonic;
+mod name_only;
 mod pinning;
 mod reverse_index;

@@ -374,42 +374,38 @@ fn dynamic_name_ref_protocol_pseudo() {
 
 #[test]
 fn committed_to_blocking_covers_full_match_then_name_ref() {
-    // Capacity for exactly two entries so insert-then-reference for the second ref would
-    // need to evict the pinned abs 0 — blocked, falls through to dynamic name-ref.
+    // Capacity for exactly two entries. Encoding order is forced (x-a first, then x-b) so
+    // that by the time x-b's insert is attempted, the section has already pinned abs 0 —
+    // the insert's eviction attempt hits the pin and falls through to dynamic name-ref.
     //
-    // `Headers` iterates its unknown-name HashMap in non-deterministic order, so we
-    // assert on the set of field-line kinds observed rather than their position.
+    // Uses `encode_field_lines` directly rather than `FieldSection::new` + `Headers` to
+    // sidestep the HashMap-iteration non-determinism: the reverse order (x-b first) would
+    // legitimately evict the unpinned x-a and produce different (but also correct) wire
+    // bytes, defeating the specific assertion this test wants to make.
     let encoder = new_table_with_blocked_streams(72, 1); // 2 × (3 + 1 + 32)
     encoder.insert(qen("x-a"), fv("1")).unwrap();
     encoder.insert(qen("x-b"), fv("1")).unwrap();
 
-    let mut headers = Headers::new();
-    headers.insert("x-a", "1");
-    headers.insert("x-b", "2");
-    let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+    let field_lines = [
+        (qen("x-a"), fv("1")),
+        (qen("x-b"), fv("2")),
+    ];
+    let mut bytes = Vec::new();
+    encoder.encode_field_lines(&field_lines, &mut bytes, 1);
 
     let (prefix, lines) = parse_section(&bytes);
     // max_capacity=72 → max_entries=2; RIC=2 → encoded_ric = (2 % 4) + 1 = 3.
     assert_eq!(prefix.encoded_required_insert_count, 3);
 
-    // Exactly one indexed-dynamic-pre-base (x-a:1 full match) and one
-    // literal-with-dynamic-name-ref (x-b:2 falls through after insert fails). Order is
-    // not deterministic because `Headers` iterates its unknown-name HashMap arbitrarily.
-    let has_indexed_dynamic = lines
-        .iter()
-        .any(|l| matches!(l, FieldLineInstruction::IndexedDynamic { .. }));
-    let has_dynamic_name_ref = lines
-        .iter()
-        .any(|l| matches!(l, FieldLineInstruction::LiteralDynamicNameRef { .. }));
-    assert!(
-        has_indexed_dynamic,
-        "expected an indexed dynamic in {lines:?}"
-    );
-    assert!(
-        has_dynamic_name_ref,
-        "expected a dynamic name-ref in {lines:?}",
-    );
-    assert_eq!(lines.len(), 2);
+    let [
+        FieldLineInstruction::IndexedDynamic { .. },
+        FieldLineInstruction::LiteralDynamicNameRef { .. },
+    ] = lines.as_slice()
+    else {
+        panic!(
+            "expected indexed-dynamic + literal-dynamic-name-ref, got {lines:?}"
+        );
+    };
 
     let os = outstanding(&encoder, 1);
     assert_eq!(os.len(), 1);

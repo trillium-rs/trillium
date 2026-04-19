@@ -68,12 +68,15 @@ pub(super) struct HashPair {
 /// Per-dimension result of a [`MnemonicPredictor::seen`] query.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Seen {
-    /// True if any slot matches the query's `name_hash`. Drives the name-only insert
-    /// branch — "I've seen this name with some value; cache just the name." Plumbed
-    /// today; consumed starting in phase 4.
-    #[allow(dead_code)] // consumed by phase-4 name-only insert branch
+    /// True if any slot matches the query's `name_hash`. Drives the
+    /// [`IndexingAllowance::NameOnly`] branch — "I've seen this name with some value;
+    /// cache just the name." Paired with `nameval` in the allowance computation: a true
+    /// `nameval` promotes the allowance to `Full` regardless of `name`.
+    ///
+    /// [`IndexingAllowance::NameOnly`]: super::policy::IndexingAllowance::NameOnly
     pub(super) name: bool,
-    /// True if any slot matches the query's `nameval_hash`. Drives insert-then-reference.
+    /// True if any slot matches the query's `nameval_hash`. Drives the `Full` allowance,
+    /// unlocking insert-then-reference, warming insert, and draining-refresh Duplicate.
     pub(super) nameval: bool,
 }
 

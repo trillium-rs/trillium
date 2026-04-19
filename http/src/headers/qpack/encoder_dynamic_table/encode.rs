@@ -55,8 +55,8 @@
 use super::{
     EncoderDynamicTable, SectionRefs,
     policy::{
-        BudgetCtx, DynRef, EncStreamAction, EncoderProgram, HeaderBlockAction, MatchState,
-        TableAction, select_program,
+        BudgetCtx, DynRef, EncStreamAction, EncoderProgram, HeaderBlockAction, IndexingAllowance,
+        MatchState, TableAction, select_program,
     },
     predictor::MnemonicPredictor,
     state::TableState,
@@ -70,6 +70,11 @@ use crate::{
         static_table::{StaticLookup, static_table_lookup},
     },
 };
+
+/// Empty value passed to [`TableState::insert`](super::state::TableState::insert) for the
+/// name-only insert strategy. Shared between callers so the `FieldLineValue::Static`
+/// borrow lifetime is trivially satisfied.
+const EMPTY_FIELD_VALUE: FieldLineValue<'static> = FieldLineValue::Static(b"");
 
 /// Header names that must never be inserted into the QPACK dynamic table.
 ///
@@ -130,7 +135,7 @@ impl EncoderDynamicTable {
             for (name, value) in field_lines {
                 planner.plan_header_line(name, value.reborrow());
             }
-            made_inserts = planner.made_inserts;
+            let planner_made_inserts = planner.made_inserts;
             plan = planner.finish();
             if plan.section_ric > 0 {
                 state
@@ -142,6 +147,11 @@ impl EncoderDynamicTable {
                         min_ref_abs_idx: plan.min_ref_abs_idx,
                     });
             }
+            // Phase-4 step-5: post-encode refresh pass. Runs after section registration so
+            // the eviction floor protects any refs this section took. Only meaningful
+            // under mnemonic indexing — it's a no-op otherwise.
+            let dup_pass_inserts = state.dup_draining_pass();
+            made_inserts = planner_made_inserts || dup_pass_inserts;
         }
 
         // Wake the encoder-stream writer if the plan enqueued any inserts.
@@ -256,33 +266,45 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         name: &'lines QpackEntryName<'names>,
         value: FieldLineValue<'lines>,
     ) {
-        // Two pre-decision vetoes shape `allow_indexing`:
+        // Two pre-decision vetoes shape the [`IndexingAllowance`]:
         //
         // 1. Sensitive-header skip — current stand-in for the RFC 9204 §4.5.4 N bit (see
         //    `qpack-n-bit-gap` memory). Short-circuits before any predictor interaction so
         //    sensitive `(name, value)` pairs never pollute the ring.
-        // 2. Mnemonic predictor — phase-3 indexing policy. When enabled, insert only on the
-        //    second-plus sighting of a `(name, value)` pair within the recent history window (~last
-        //    28 distinct pairs). See `predictor.rs`. When disabled, every non-sensitive header is
-        //    eligible for indexing — the phase-2 eager behavior, preserved as a config knob.
+        // 2. Mnemonic predictor — phase-3 indexing policy. When enabled, the predictor's
+        //    two signals map to the three-state allowance: `nameval_seen → Full`,
+        //    `name_seen` only `→ NameOnly`, neither `→ None`. When disabled, every
+        //    non-sensitive header gets `Full` — the phase-2 eager behavior, preserved as a
+        //    config knob. See `predictor.rs` for the ring's structure.
         //
         // Hashes are computed once per header and threaded through both the `seen` read and
-        // the `remember` write, matching ls-qpack's compute-once pattern. `name_seen` is read
-        // but unused — phase 4's name-only-insert strategy will be its first consumer.
+        // the `remember` write, matching ls-qpack's compute-once pattern.
         let is_sensitive = is_sensitive_header_name(name);
         let use_predictor = self.state.mnemonic_indexing && !is_sensitive;
         let hashes =
             use_predictor.then(|| MnemonicPredictor::hash(name.as_bytes(), value.as_bytes()));
-        let nameval_seen = hashes.is_some_and(|h| self.state.predictor.seen(h).nameval);
 
-        let allow_indexing = !is_sensitive && (!use_predictor || nameval_seen);
+        let indexing = if is_sensitive {
+            IndexingAllowance::None
+        } else if let Some(h) = hashes {
+            let seen = self.state.predictor.seen(h);
+            if seen.nameval {
+                IndexingAllowance::Full
+            } else if seen.name {
+                IndexingAllowance::NameOnly
+            } else {
+                IndexingAllowance::None
+            }
+        } else {
+            IndexingAllowance::Full
+        };
 
         // Source for `never_indexed` is hardcoded `false` until `FieldLine` carries the bit
         // end-to-end. Threading it through `EncoderProgram` and `Emission` now keeps the
         // structural change minimal when the source lands.
         let never_indexed = false;
 
-        let emission = self.plan_with_indexing(name, value, allow_indexing, never_indexed);
+        let emission = self.plan_with_indexing(name, value, indexing, never_indexed);
         self.emissions.push(emission);
 
         // Defer the history write until after planning — matches ls-qpack's invariant that a
@@ -297,7 +319,7 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     }
 
     /// Inner planning loop. Selects and executes a program; on table-mutation failure,
-    /// re-selects with `allow_indexing = false` and tries again.
+    /// re-selects with [`IndexingAllowance::None`] and tries again.
     ///
     /// Dispatches on `program.enc_stream`:
     /// - [`EncStreamAction::None`] — no table mutation, hand off to the executor with no
@@ -319,12 +341,12 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         &mut self,
         name: &'lines QpackEntryName<'names>,
         value: FieldLineValue<'lines>,
-        allow_indexing: bool,
+        indexing: IndexingAllowance,
         never_indexed: bool,
     ) -> Emission<'lines, 'names> {
         let match_state = self.compute_match_state(name, &value);
         let budget = self.budget_ctx();
-        let program = select_program(&match_state, allow_indexing, &budget, never_indexed);
+        let program = select_program(&match_state, indexing, &budget, never_indexed);
 
         let table_op_result = match program.enc_stream {
             EncStreamAction::None => {
@@ -341,6 +363,19 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
                 );
                 self.state
                     .insert(name.reborrow(), value.reborrow(), self.min_ref_abs_idx)
+                    .map(Some)
+            }
+            EncStreamAction::InsertNameOnly => {
+                debug_assert!(
+                    matches!(program.table, TableAction::InsertNew),
+                    "EncStreamAction::InsertNameOnly must pair with TableAction::InsertNew"
+                );
+                // Insert with an empty value — produces a name-only dynamic-table entry.
+                // TableState::insert's smart-pick routes this to Insert With Name Reference
+                // (static or dynamic) or Insert With Literal Name depending on whether the
+                // name is otherwise available; either way the wire `value_len` is 0.
+                self.state
+                    .insert(name.reborrow(), EMPTY_FIELD_VALUE, self.min_ref_abs_idx)
                     .map(Some)
             }
             EncStreamAction::Duplicate(abs_idx) => {
@@ -362,10 +397,15 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             }
             Err(_) => {
                 debug_assert!(
-                    allow_indexing,
-                    "select_program only emits a table mutation when allow_indexing is true"
+                    indexing != IndexingAllowance::None,
+                    "select_program only emits a table mutation when indexing allows it"
                 );
-                return self.plan_with_indexing(name, value, false, never_indexed);
+                return self.plan_with_indexing(
+                    name,
+                    value,
+                    IndexingAllowance::None,
+                    never_indexed,
+                );
             }
         };
 
@@ -374,6 +414,13 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
 
     /// Read the static and dynamic tables for `(name, value)` and report what matches. Pure
     /// — no mutation, no budget logic.
+    ///
+    /// Draining-aware: when `dynamic_full` falls inside the draining region (per
+    /// [`TableState::draining_frontier_abs_idx`](super::state::TableState::draining_frontier_abs_idx)),
+    /// also populates `dynamic_full_safe_to_dup` with a
+    /// [`TableState::safe_to_dup`](super::state::TableState::safe_to_dup) pre-check
+    /// against the current preserve floor (the planner's in-progress `min_ref_abs_idx`).
+    /// These fields are consumed by phase 4's main-path DUP-on-draining policy.
     fn compute_match_state(
         &self,
         name: &QpackEntryName<'_>,
@@ -383,6 +430,13 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         let dynamic_full = dyn_name_idx.and_then(|idx| idx.by_value.get(value.as_bytes()).copied());
         let dynamic_name = dyn_name_idx.map(|idx| idx.latest_any);
 
+        let (dynamic_full_is_draining, dynamic_full_safe_to_dup) = match dynamic_full {
+            Some(idx) if idx < self.state.draining_frontier_abs_idx() => {
+                (true, self.state.safe_to_dup(idx, self.min_ref_abs_idx))
+            }
+            _ => (false, false),
+        };
+
         let (static_full, static_name) = match static_table_lookup(name, Some(value.as_bytes())) {
             StaticLookup::FullMatch(i) => (Some(i), Some(i)),
             StaticLookup::NameMatch(i) => (None, Some(i)),
@@ -391,6 +445,8 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
 
         MatchState {
             dynamic_full,
+            dynamic_full_is_draining,
+            dynamic_full_safe_to_dup,
             static_full,
             dynamic_name,
             static_name,

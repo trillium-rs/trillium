@@ -314,6 +314,157 @@ impl TableState {
         abs_idx
     }
 
+    /// Post-encode refresh pass: walk the draining region of the table and duplicate
+    /// entries that the mnemonic predictor has recently seen, biggest-first. Continues
+    /// until no more eligible candidates remain. Returns `true` when at least one
+    /// Duplicate was enqueued onto the encoder stream.
+    ///
+    /// Candidate criteria (all must hold):
+    /// - Absolute index is in the draining region (see
+    ///   [`draining_frontier_abs_idx`](Self::draining_frontier_abs_idx)).
+    /// - The entry's `nameval_hash` appears in the predictor ring — i.e. the encoder has
+    ///   recently observed this `(name, value)` pair, so refreshing it is likely to pay off.
+    /// - No newer live entry shares the same `(name, value)` pair (checked via the
+    ///   `by_name` reverse index) — if a fresher copy exists, this one is redundant.
+    /// - [`safe_to_dup`](Self::safe_to_dup) is true with no extra floor (the caller's
+    ///   section refs are already in `outstanding_sections` and picked up by
+    ///   `eviction_floor()`).
+    ///
+    /// The caller must have registered the just-encoded section in `outstanding_sections`
+    /// before calling this, so the eviction floor protects any refs that section took.
+    ///
+    /// Skipped entirely when the mnemonic predictor is disabled: without the predictor
+    /// the "recently seen" signal is unavailable, so there is no basis for choosing
+    /// candidates. Mirrors ls-qpack's `qenc_dup_draining` at `lsqpack.c:1554-1617`.
+    pub(super) fn dup_draining_pass(&mut self) -> bool {
+        if !self.mnemonic_indexing {
+            return false;
+        }
+        let mut any = false;
+        while let Some(abs_idx) = self.pick_dup_draining_candidate() {
+            if self.duplicate(abs_idx, None).is_err() {
+                // Defensive: `safe_to_dup` gated the choice, but the loop mutates state
+                // between iterations and a rare edge case could reject the duplicate.
+                // Stop rather than spin.
+                break;
+            }
+            any = true;
+        }
+        any
+    }
+
+    /// Scan the draining region for the largest entry eligible for a policy-driven
+    /// Duplicate. See [`dup_draining_pass`](Self::dup_draining_pass) for the full
+    /// criteria; this helper just picks one candidate per call.
+    fn pick_dup_draining_candidate(&self) -> Option<u64> {
+        let frontier = self.draining_frontier_abs_idx();
+        if frontier == 0 {
+            return None;
+        }
+        let oldest_abs = self.insert_count.saturating_sub(self.entries.len() as u64);
+        let mut best: Option<(u64, usize)> = None;
+        for (rev_i, entry) in self.entries.iter().rev().enumerate() {
+            let abs = oldest_abs + rev_i as u64;
+            if abs >= frontier {
+                break;
+            }
+            // Biggest-first tie-break matches ls-qpack: only consider entries strictly
+            // larger than the current best. Duplicates consume capacity, so refreshing the
+            // biggest draining entry first maximises the retained value per remaining slot.
+            if best.is_some_and(|(_, best_size)| best_size >= entry.size) {
+                continue;
+            }
+            let h = MnemonicPredictor::hash(entry.name.as_bytes(), entry.value.as_ref());
+            if !self.predictor.seen(h).nameval {
+                continue;
+            }
+            let latest = self
+                .by_name
+                .get(&entry.name)
+                .and_then(|idx| idx.by_value.get(entry.value.as_ref()).copied());
+            if latest != Some(abs) {
+                continue;
+            }
+            if !self.safe_to_dup(abs, None) {
+                continue;
+            }
+            best = Some((abs, entry.size));
+        }
+        best.map(|(abs, _)| abs)
+    }
+
+    /// Smallest absolute index whose entry is *not* draining, per ls-qpack's mnemonic
+    /// heuristic (`qenc_entry_is_draining`). Entries with `abs_idx < frontier` are
+    /// considered draining — close enough to the oldest end of a near-full table that
+    /// referencing them risks pinning an entry the encoder is about to evict. Returns `0`
+    /// when no live entry is draining (e.g. a mostly-empty table).
+    ///
+    /// The per-entry ls-qpack formula is
+    /// `dist = (bytes still-live that are at-or-older-than me) + (free space); draining iff
+    /// dist < capacity / 4`. This walks entries oldest-first, accumulating size atop the
+    /// starting free-space, and returns the first `abs_idx` whose running cumulative
+    /// crosses the `capacity / 4` threshold. Equivalent to ls-qpack's check applied per
+    /// entry, without needing per-entry `when_added_used` / `when_added_dropped` counters.
+    ///
+    /// O(draining-region size). Typically a small handful of entries even on a full table;
+    /// bounded by `entries.len()`.
+    pub(super) fn draining_frontier_abs_idx(&self) -> u64 {
+        let threshold = self.capacity / 4;
+        let mut cumulative = self.capacity.saturating_sub(self.current_size);
+        if cumulative >= threshold {
+            return 0;
+        }
+        let oldest_abs = self.insert_count.saturating_sub(self.entries.len() as u64);
+        for (rev_i, entry) in self.entries.iter().rev().enumerate() {
+            cumulative = cumulative.saturating_add(entry.size);
+            if cumulative >= threshold {
+                return oldest_abs + rev_i as u64;
+            }
+        }
+        0
+    }
+
+    /// Would a [`duplicate`](Self::duplicate) of `src_abs_idx` succeed against the current
+    /// table without touching the source or any entry protected by a floor? Pure read —
+    /// does not mutate, does not allocate.
+    ///
+    /// Mirrors ls-qpack's `qenc_safe_to_dup` intuition: simulate the new copy (cost
+    /// `src.size`) and greedily evict oldest entries until the table fits, stopping short
+    /// of the source itself or the combined eviction floor. `extra_floor` threads the
+    /// planner's in-progress `min_ref_abs_idx` through so the pre-check reflects the same
+    /// preserve-floor [`duplicate`](Self::duplicate) would see if invoked now.
+    ///
+    /// Returns `false` when `src_abs_idx` is not currently live.
+    pub(super) fn safe_to_dup(&self, src_abs_idx: u64, extra_floor: Option<u64>) -> bool {
+        let Some(src) = self.entry_at_abs(src_abs_idx) else {
+            return false;
+        };
+        let src_size = src.size;
+        if self.current_size + src_size <= self.capacity {
+            return true;
+        }
+        let floor = combine_floor(self.eviction_floor(), extra_floor);
+        let oldest_abs = self.insert_count.saturating_sub(self.entries.len() as u64);
+        let mut simulated_used = self.current_size;
+        for (rev_i, entry) in self.entries.iter().rev().enumerate() {
+            let abs = oldest_abs + rev_i as u64;
+            if abs == src_abs_idx {
+                return false;
+            }
+            // Same pin semantics as [`evict_down_to_with_floor`]: block once the simulated
+            // eviction reaches the pinned `abs_idx`; entries strictly older than the pin are
+            // unpinned and may be evicted to make room.
+            if floor.is_some_and(|pin| abs >= pin) {
+                return false;
+            }
+            simulated_used = simulated_used.saturating_sub(entry.size);
+            if simulated_used + src_size <= self.capacity {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Look up a currently-live entry by its absolute index. Returns `None` if the entry
     /// has already been evicted or the index is past `insert_count`.
     pub(super) fn entry_at_abs(&self, abs_idx: u64) -> Option<&Entry> {
@@ -377,7 +528,12 @@ impl TableState {
     ) -> Result<(), H3Error> {
         while self.current_size > target_size {
             let evicted_abs = self.insert_count - self.entries.len() as u64;
-            if floor.is_some_and(|min_live| evicted_abs <= min_live) {
+            // `floor` is the smallest pinned `abs_idx`. Entries strictly older (lower abs)
+            // are unpinned and FIFO-evictable; the loop walks through them unharmed. Block
+            // when the next eviction would touch the pin itself. `>=` (rather than `==`) is
+            // defensive — if we ever observe `evicted_abs > pin` we've already evicted a
+            // pinned entry, a bug the error here surfaces instead of silently continuing.
+            if floor.is_some_and(|pin| evicted_abs >= pin) {
                 log::error!(
                     "qpack encoder: eviction blocked (current_size={}, target_size={target_size}, \
                      evicted_abs={evicted_abs}, floor={floor:?})",
