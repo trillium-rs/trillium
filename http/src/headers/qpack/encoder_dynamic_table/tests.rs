@@ -142,6 +142,7 @@ mod encode_refs;
 mod encode_static;
 mod inflation;
 mod insert;
+mod insert_budget;
 mod mnemonic;
 mod name_only;
 mod pinning;

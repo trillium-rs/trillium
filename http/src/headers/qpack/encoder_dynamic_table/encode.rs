@@ -275,7 +275,18 @@ struct Planner<'state, 'lines, 'names> {
     /// / `Duplicate` / `InsertNameOnly` wire sizes). Dup-draining bytes are added
     /// separately by the post-encode pass. Consumed by the phase-5 inflation counter.
     enc_stream_bytes: u32,
+    /// Total dynamic-table entry size inserted by this section so far. Phase-7 budget
+    /// gate: once this reaches `capacity / INSERT_BUDGET_DENOMINATOR`, further lines in
+    /// the section stop using the dynamic table entirely (no inserts, no refs). Mirrors
+    /// ls-qpack's `qhi_bytes_inserted` tracked on the per-header-info struct.
+    bytes_inserted_in_section: u32,
 }
+
+/// Per-section insert budget = `capacity / INSERT_BUDGET_DENOMINATOR`. ls-qpack's
+/// `enc_use_dynamic_table` uses 2 (i.e. half the table). Stops a single section from
+/// monopolizing the dynamic table — both via wire-byte cost and via long-lived section
+/// references that pin entries against eviction.
+const INSERT_BUDGET_DENOMINATOR: u32 = 2;
 
 impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     fn new(state: &'state mut TableState, stream_id: u64) -> Self {
@@ -290,10 +301,28 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             made_inserts: false,
             name_value_bytes: 0,
             enc_stream_bytes: 0,
+            bytes_inserted_in_section: 0,
         }
     }
 
+    /// Phase-7 gate: whether further dynamic-table use is allowed in this section. False
+    /// once `bytes_inserted_in_section` has reached `capacity / INSERT_BUDGET_DENOMINATOR`.
+    /// At capacity 0 the dynamic table is unusable anyway, so we return false there too;
+    /// nothing else would call this in that state but the explicit handling avoids a
+    /// `0 / 2 = 0` budget that would falsely allow on the first call.
+    fn dyn_table_allowed(&self) -> bool {
+        let capacity = u32::try_from(self.state.capacity).unwrap_or(u32::MAX);
+        capacity > 0 && self.bytes_inserted_in_section < capacity / INSERT_BUDGET_DENOMINATOR
+    }
+
     fn finish(self) -> Plan<'lines, 'names> {
+        // Section-close sample for `header_count_ema`. Predictor tracks the per-section
+        // remember-count internally; we just signal the section boundary here. Always
+        // call (empty sections still inform the EMA), only when the predictor is in use
+        // — matches ls-qpack's `qenc_sample_header_count` gate on `qpe_hist_els`.
+        if self.state.mnemonic_indexing {
+            self.state.predictor.sample_header_count();
+        }
         Plan {
             emissions: self.emissions,
             section_ric: self.section_ric,
@@ -392,7 +421,21 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         indexing: IndexingAllowance,
         never_indexed: bool,
     ) -> Emission<'lines, 'names> {
-        let match_state = self.compute_match_state(name, &value);
+        let mut match_state = self.compute_match_state(name, &value);
+        let mut indexing = indexing;
+        // Phase-7 per-encode budget: once this section has inserted ≥ capacity/2 bytes
+        // worth of new dynamic-table entries, stop using the dynamic table for the rest
+        // of the section — no inserts AND no references. Mirrors ls-qpack's
+        // `enc_use_dynamic_table` gate. Suppression is applied by zeroing the dynamic
+        // fields of `match_state` (so `select_program` naturally falls through static
+        // and literal paths) and forcing `indexing` to `None`.
+        if !self.dyn_table_allowed() {
+            match_state.dynamic_full = None;
+            match_state.dynamic_full_is_draining = false;
+            match_state.dynamic_full_safe_to_dup = false;
+            match_state.dynamic_name = None;
+            indexing = IndexingAllowance::None;
+        }
         let budget = self.budget_ctx();
         let program = select_program(&match_state, indexing, &budget, never_indexed);
 
@@ -462,6 +505,14 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
                 if let Some(wire) = self.state.pending_ops.back() {
                     self.enc_stream_bytes =
                         self.enc_stream_bytes.saturating_add(to_u32(wire.len()));
+                }
+                // Phase-7 budget accounting: charge the new entry's table size against
+                // this section's per-encode insert budget. Mirrors ls-qpack's
+                // `qhi_bytes_inserted += ETE_SIZE(new_entry)`.
+                if let Some(entry) = self.state.entry_at_abs(idx) {
+                    self.bytes_inserted_in_section = self
+                        .bytes_inserted_in_section
+                        .saturating_add(to_u32(entry.size));
                 }
                 Some(idx)
             }

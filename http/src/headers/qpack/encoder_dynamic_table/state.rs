@@ -435,6 +435,12 @@ impl TableState {
         if !self.mnemonic_indexing {
             return 0;
         }
+        // EMA gate: when the dynamic table is smaller than the typical section length,
+        // duplicates can't be referenced before they're re-evicted. Mirrors the
+        // suppression at the top of ls-qpack's `qenc_dup_draining`.
+        if !self.predictor.allow_dup_draining() {
+            return 0;
+        }
         let mut added_bytes: u32 = 0;
         while let Some(abs_idx) = self.pick_dup_draining_candidate() {
             if self.duplicate(abs_idx, None).is_err() {
@@ -623,6 +629,8 @@ impl TableState {
         target_size: usize,
         floor: Option<u64>,
     ) -> Result<(), H3Error> {
+        let pre_count = self.entries.len();
+        let mut result = Ok(());
         while self.current_size > target_size {
             let evicted_abs = self.insert_count - self.entries.len() as u64;
             // `floor` is the smallest pinned `abs_idx`. Entries strictly older (lower abs)
@@ -636,14 +644,30 @@ impl TableState {
                      evicted_abs={evicted_abs}, floor={floor:?})",
                     self.current_size,
                 );
-                return Err(H3ErrorCode::QpackEncoderStreamError.into());
+                result = Err(H3ErrorCode::QpackEncoderStreamError.into());
+                break;
             }
             let Entry { name, value, size } = self.entries.pop_back().expect("current_size > 0");
             self.current_size -= size;
             self.remove_from_reverse_index(&name, value.as_ref(), evicted_abs);
             log::trace!("qpack encoder: evicted entry abs_idx={evicted_abs} size={size}");
         }
-        Ok(())
+        // Sample even on the error path — anything we evicted before hitting the pin is
+        // real. Helper no-ops when nothing dropped, matching ls-qpack's
+        // `if (dropped && qpe_hist_els)` gate in `qenc_remove_overflow_entries`.
+        self.sample_table_size_if_evictions(pre_count);
+        result
+    }
+
+    /// Funnel for predictor table-size sampling. Call after any code path that may
+    /// shrink `self.entries`, passing the entry count from before the operation. Single
+    /// place to evolve gating logic (e.g. dropped-bytes weighting) without revisiting
+    /// each call site.
+    fn sample_table_size_if_evictions(&mut self, pre_count: usize) {
+        if pre_count > self.entries.len() {
+            let nelem = u32::try_from(self.entries.len()).unwrap_or(u32::MAX);
+            self.predictor.sample_table_size(nelem);
+        }
     }
 
     /// Remove an evicted entry's reverse-index slot, respecting the staleness rule: the
