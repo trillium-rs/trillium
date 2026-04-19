@@ -226,7 +226,7 @@ impl BudgetCtx {
     /// True iff this section is permitted to take a fresh blocking slot. An insert-then-
     /// reference always produces an `abs_idx >= insert_count > krc`, so the new ref is
     /// unconditionally blocking.
-    fn can_take_blocking_slot(&self) -> bool {
+    pub(super) fn can_take_blocking_slot(&self) -> bool {
         self.committed_to_blocking || self.stream_already_blocking || self.blocked_slot_available
     }
 }

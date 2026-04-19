@@ -32,6 +32,8 @@ mod predictor;
 mod reader;
 mod state;
 #[cfg(test)]
+pub(in crate::headers::qpack) mod strategy_counters;
+#[cfg(test)]
 mod tests;
 mod writer;
 
@@ -307,5 +309,34 @@ impl EncoderDynamicTable {
     /// Returns `Some(code)` if the table has been marked failed.
     pub(in crate::headers) fn failed(&self) -> Option<H3ErrorCode> {
         self.state.lock().unwrap().failed
+    }
+
+    /// Enable per-line strategy counting. Development-time scaffolding used by the corpus
+    /// test to see which planner strategies fire at what rates. No-op if already enabled.
+    /// Tears out before release; see
+    /// [`strategy_counters`](self::strategy_counters) for the full rationale.
+    #[cfg(test)]
+    pub(in crate::headers::qpack) fn enable_strategy_counters(&self) {
+        let mut state = self.state.lock().unwrap();
+        if state.strategy_counters.is_none() {
+            state.strategy_counters = Some(Default::default());
+        }
+    }
+
+    /// Snapshot the current strategy counters, leaving counting enabled with zeroed
+    /// buckets. Returns `None` if counting was never enabled on this table. Folds the
+    /// predictor-side diagnostic fields into the returned snapshot so the corpus report
+    /// can display them alongside the planner buckets.
+    #[cfg(test)]
+    pub(in crate::headers::qpack) fn take_strategy_counters(
+        &self,
+    ) -> Option<strategy_counters::StrategyCounters> {
+        let mut state = self.state.lock().unwrap();
+        let mut snapshot = state.strategy_counters.as_mut().map(std::mem::take)?;
+        snapshot.n_sections = state.predictor.diag_n_sections;
+        snapshot.n_saturating_sections = state.predictor.diag_n_saturating_sections;
+        snapshot.saturation_grow_events = state.predictor.diag_saturation_grow_events;
+        snapshot.final_ring_size = state.predictor.ring_size() as u64;
+        Some(snapshot)
     }
 }

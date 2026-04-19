@@ -155,8 +155,8 @@ impl EncoderDynamicTable {
             for (name, value) in field_lines {
                 planner.plan_header_line(name, value.reborrow());
             }
-            let planner_made_inserts = planner.made_inserts;
-            let planner_enc_bytes = planner.enc_stream_bytes;
+            made_inserts = planner.made_inserts;
+            enc_stream_bytes = planner.enc_stream_bytes;
             name_value_bytes = planner.name_value_bytes;
             plan = planner.finish();
             if plan.section_ric > 0 {
@@ -169,12 +169,12 @@ impl EncoderDynamicTable {
                         min_ref_abs_idx: plan.min_ref_abs_idx,
                     });
             }
-            // Phase-4 step-5: post-encode refresh pass. Runs after section registration so
-            // the eviction floor protects any refs this section took. Only meaningful
-            // under mnemonic indexing — it's a no-op otherwise.
-            let dup_pass_bytes = state.dup_draining_pass();
-            enc_stream_bytes = planner_enc_bytes.saturating_add(dup_pass_bytes);
-            made_inserts = planner_made_inserts || dup_pass_bytes > 0;
+            // Note: the dup_draining refresh pass now runs per-header inside
+            // `plan_header_line` rather than once at section end — see
+            // `Planner::run_dup_draining`. Mirrors ls-qpack's per-header invocation at
+            // `lsqpack.c:2175`. Moving it inside the loop dramatically increased the
+            // number of refreshes taken (per-header evictions create transient draining
+            // candidates that a single end-of-section pass missed).
         }
 
         // Wake the encoder-stream writer if the plan enqueued any inserts.
@@ -393,6 +393,25 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         if let Some(h) = hashes {
             self.state.predictor.remember(h);
         }
+
+        // Per-header dup-draining refresh: runs after each header's main encode, matching
+        // ls-qpack's `qenc_dup_draining` invocation at the bottom of `lsqpack_enc_encode`.
+        // Per-header (vs once-per-section) captures transient draining candidates that
+        // would otherwise be evicted entirely before the section ends.
+        self.run_dup_draining();
+    }
+
+    /// Wrap [`TableState::dup_draining_pass`] with the Planner's per-section accounting:
+    /// passes `self.min_ref_abs_idx` as the extra eviction floor (the section isn't yet
+    /// registered in `outstanding_sections` at mid-section call time), folds the returned
+    /// wire bytes into `enc_stream_bytes` for the phase-5 inflation counter, and sets
+    /// `made_inserts` so the writer task is woken on section completion.
+    fn run_dup_draining(&mut self) {
+        let bytes = self.state.dup_draining_pass(self.min_ref_abs_idx);
+        if bytes > 0 {
+            self.made_inserts = true;
+            self.enc_stream_bytes = self.enc_stream_bytes.saturating_add(bytes);
+        }
     }
 
     /// Inner planning loop. Selects and executes a program; on table-mutation failure,
@@ -435,6 +454,10 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             match_state.dynamic_full_safe_to_dup = false;
             match_state.dynamic_name = None;
             indexing = IndexingAllowance::None;
+            #[cfg(test)]
+            if let Some(c) = self.state.strategy_counters.as_mut() {
+                c.insert_budget_blocked += 1;
+            }
         }
         let budget = self.budget_ctx();
         let program = select_program(&match_state, indexing, &budget, never_indexed);
@@ -451,7 +474,19 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         if is_double_literal_program(&program)
             && self.state.would_inflate(name.as_bytes(), value.as_bytes())
         {
+            #[cfg(test)]
+            if let Some(c) = self.state.strategy_counters.as_mut() {
+                c.inflation_retry += 1;
+            }
             return self.plan_with_indexing(name, value, IndexingAllowance::None, never_indexed);
+        }
+
+        #[cfg(test)]
+        {
+            use super::strategy_counters::classify_program;
+            if let Some(c) = self.state.strategy_counters.as_mut() {
+                classify_program(&match_state, indexing, &budget, &program, c);
+            }
         }
 
         let table_op_result = match program.enc_stream {

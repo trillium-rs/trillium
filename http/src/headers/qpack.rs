@@ -18,6 +18,8 @@ pub(crate) mod huffman;
 mod instruction;
 #[cfg(test)]
 mod qif;
+#[cfg(test)]
+mod reference_out;
 pub(crate) mod static_table;
 #[cfg(test)]
 mod tests;

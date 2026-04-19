@@ -127,6 +127,21 @@ pub(super) struct MnemonicPredictor {
     /// the saturation-grow check inside `remember` and the section-close sample in
     /// [`sample_header_count`](Self::sample_header_count). Reset to 0 by the latter.
     n_added_in_section: u32,
+    /// Development-time counters (scaffolding; tears out with `strategy_counters.rs`).
+    /// Always maintained regardless of whether counters are enabled — the cost is three
+    /// integer increments per section. If this becomes measurable on real workloads we'd
+    /// gate behind the same `cfg(test)` as the counters module.
+    #[cfg(test)]
+    pub(super) diag_n_sections: u64,
+    #[cfg(test)]
+    pub(super) diag_n_saturating_sections: u64,
+    #[cfg(test)]
+    pub(super) diag_saturation_grow_events: u64,
+    /// Flipped to true the first time saturation-grow fires in the current section;
+    /// reset by `sample_header_count`. Lets us count a long section as one saturating
+    /// section even if it triggers multiple grow events.
+    #[cfg(test)]
+    section_saturated: bool,
 }
 
 impl MnemonicPredictor {
@@ -138,7 +153,22 @@ impl MnemonicPredictor {
             table_nelem_ema: None,
             header_count_ema: None,
             n_added_in_section: 0,
+            #[cfg(test)]
+            diag_n_sections: 0,
+            #[cfg(test)]
+            diag_n_saturating_sections: 0,
+            #[cfg(test)]
+            diag_saturation_grow_events: 0,
+            #[cfg(test)]
+            section_saturated: false,
         }
+    }
+
+    /// Current backing-ring length. Diagnostic accessor — external callers use this as a
+    /// readout of where the EMA-driven resize converged on this connection.
+    #[cfg(test)]
+    pub(super) fn ring_size(&self) -> usize {
+        self.name_hashes.len()
     }
 
     /// Sample the dynamic table's current entry count into `table_nelem_ema`. ls-qpack
@@ -156,6 +186,14 @@ impl MnemonicPredictor {
     pub(super) fn sample_header_count(&mut self) {
         let n_added = self.n_added_in_section;
         self.n_added_in_section = 0;
+        #[cfg(test)]
+        {
+            self.diag_n_sections += 1;
+            if self.section_saturated {
+                self.diag_n_saturating_sections += 1;
+                self.section_saturated = false;
+            }
+        }
         update_ema(&mut self.header_count_ema, n_added);
         self.maybe_resize_to_ema();
     }
@@ -207,6 +245,11 @@ impl MnemonicPredictor {
         if self.n_added_in_section as usize >= self.name_hashes.len() {
             let new_size = self.name_hashes.len() + SATURATION_GROW_BY;
             self.resize_ring(new_size);
+            #[cfg(test)]
+            {
+                self.diag_saturation_grow_events += 1;
+                self.section_saturated = true;
+            }
         }
         self.name_hashes[self.cursor] = h.name;
         self.nameval_hashes[self.cursor] = h.nameval;

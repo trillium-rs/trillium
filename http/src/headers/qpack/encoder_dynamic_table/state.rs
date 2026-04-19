@@ -14,6 +14,8 @@
 //! for the writer task to drain.
 
 use super::predictor::MnemonicPredictor;
+#[cfg(test)]
+use super::strategy_counters::StrategyCounters;
 
 /// Saturating `usize` → `u32` conversion. Wire byte sizes and header lengths never
 /// meaningfully exceed `u32::MAX` in practice; clamping at the boundary keeps the
@@ -96,6 +98,11 @@ pub(super) struct TableState {
     /// with indexing disabled. `1.0` or higher disables the guard. Sourced from
     /// `HttpConfig::h3_qpack_inflation_ratio_max`.
     pub(super) inflation_ratio_max: f32,
+    /// Development-time strategy counters. `Some` only when the corpus test opts in via
+    /// [`EncoderDynamicTable::enable_strategy_counters`](super::EncoderDynamicTable::enable_strategy_counters).
+    /// Always `None` in production (the field itself is `cfg(test)`-gated).
+    #[cfg(test)]
+    pub(super) strategy_counters: Option<StrategyCounters>,
 }
 
 #[derive(Debug, Default)]
@@ -155,6 +162,8 @@ impl TableState {
             // `1.0` disables the guard; the real default is re-applied by
             // `initialize_from_peer_settings`.
             inflation_ratio_max: 1.0,
+            #[cfg(test)]
+            strategy_counters: None,
         }
     }
 
@@ -431,7 +440,13 @@ impl TableState {
     ///
     /// Returns the total encoder-stream bytes enqueued by this pass — consumed by the
     /// phase-5 inflation-ratio counter to account for the cost of background refreshes.
-    pub(super) fn dup_draining_pass(&mut self) -> u32 {
+    ///
+    /// `extra_floor` is an additional eviction-floor `abs_idx` that combines with the
+    /// outstanding-sections floor. The per-header caller passes the in-progress section's
+    /// current `min_ref_abs_idx` here, because the section isn't yet registered in
+    /// `outstanding_sections` during mid-section invocations — without this the pass
+    /// could dup into a position that evicts an entry the section is already referencing.
+    pub(super) fn dup_draining_pass(&mut self, extra_floor: Option<u64>) -> u32 {
         if !self.mnemonic_indexing {
             return 0;
         }
@@ -442,8 +457,8 @@ impl TableState {
             return 0;
         }
         let mut added_bytes: u32 = 0;
-        while let Some(abs_idx) = self.pick_dup_draining_candidate() {
-            if self.duplicate(abs_idx, None).is_err() {
+        while let Some(abs_idx) = self.pick_dup_draining_candidate(extra_floor) {
+            if self.duplicate(abs_idx, extra_floor).is_err() {
                 // Defensive: `safe_to_dup` gated the choice, but the loop mutates state
                 // between iterations and a rare edge case could reject the duplicate.
                 // Stop rather than spin.
@@ -452,14 +467,20 @@ impl TableState {
             if let Some(wire) = self.pending_ops.back() {
                 added_bytes = added_bytes.saturating_add(to_u32(wire.len()));
             }
+            #[cfg(test)]
+            if let Some(c) = self.strategy_counters.as_mut() {
+                c.dup_draining_pass_emits += 1;
+            }
         }
         added_bytes
     }
 
     /// Scan the draining region for the largest entry eligible for a policy-driven
     /// Duplicate. See [`dup_draining_pass`](Self::dup_draining_pass) for the full
-    /// criteria; this helper just picks one candidate per call.
-    fn pick_dup_draining_candidate(&self) -> Option<u64> {
+    /// criteria; this helper just picks one candidate per call. `extra_floor` is
+    /// forwarded to [`safe_to_dup`](Self::safe_to_dup) so mid-section callers preserve
+    /// their own in-progress refs during the dup safety check.
+    fn pick_dup_draining_candidate(&self, extra_floor: Option<u64>) -> Option<u64> {
         let frontier = self.draining_frontier_abs_idx();
         if frontier == 0 {
             return None;
@@ -488,7 +509,7 @@ impl TableState {
             if latest != Some(abs) {
                 continue;
             }
-            if !self.safe_to_dup(abs, None) {
+            if !self.safe_to_dup(abs, extra_floor) {
                 continue;
             }
             best = Some((abs, entry.size));
@@ -503,11 +524,22 @@ impl TableState {
     /// when no live entry is draining (e.g. a mostly-empty table).
     ///
     /// The per-entry ls-qpack formula is
-    /// `dist = (bytes still-live that are at-or-older-than me) + (free space); draining iff
-    /// dist < capacity / 4`. This walks entries oldest-first, accumulating size atop the
-    /// starting free-space, and returns the first `abs_idx` whose running cumulative
-    /// crosses the `capacity / 4` threshold. Equivalent to ls-qpack's check applied per
-    /// entry, without needing per-entry `when_added_used` / `when_added_dropped` counters.
+    /// `dist = when_added_used + (capacity - current_used); draining iff dist < capacity/4`,
+    /// where `when_added_used` is the `current_used` value captured right *before* the entry
+    /// was inserted (ls-qpack/lsqpack.c:1060) — i.e. the sum of sizes of entries strictly
+    /// older than this one (still live, since no evictions have happened in the absence of
+    /// dropped bytes).
+    ///
+    /// We walk oldest-first, maintaining `cumulative = free_space + sum_of_entry_sizes_so_far`.
+    /// After adding entry E's size, `cumulative` equals the `dist` value for the *next*
+    /// entry (E+1) — so the first time `cumulative >= threshold`, entry E+1 is the smallest
+    /// non-draining abs_idx. Return `abs(E) + 1`.
+    ///
+    /// Off-by-one history: the original implementation returned `abs(E)` here, which is the
+    /// *last draining* entry — so `pick_dup_draining_candidate`'s `abs < frontier` check
+    /// excluded the largest candidate in the draining region. This was a significant source
+    /// of the dup-rate gap vs ls-qpack on fb-resp at (4096,100); see the project memory
+    /// entry for details.
     ///
     /// O(draining-region size). Typically a small handful of entries even on a full table;
     /// bounded by `entries.len()`.
@@ -521,10 +553,12 @@ impl TableState {
         for (rev_i, entry) in self.entries.iter().rev().enumerate() {
             cumulative = cumulative.saturating_add(entry.size);
             if cumulative >= threshold {
-                return oldest_abs + rev_i as u64;
+                return oldest_abs + rev_i as u64 + 1;
             }
         }
-        0
+        // All live entries are draining — frontier sits just past the newest entry so
+        // every abs_idx in the table is `< frontier`.
+        self.insert_count
     }
 
     /// Would a [`duplicate`](Self::duplicate) of `src_abs_idx` succeed against the current

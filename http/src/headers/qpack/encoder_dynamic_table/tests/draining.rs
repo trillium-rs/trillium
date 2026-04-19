@@ -42,13 +42,16 @@ fn draining_frontier_with_plenty_of_free_space_is_zero() {
 fn draining_frontier_marks_prefix_on_full_table() {
     // Capacity 400, 11 entries of 34 bytes = 374 used, 26 free. Threshold = 100.
     //
-    // For entry at position i (oldest = 0), cumulative = free_space + (i+1) * size. Draining
-    // when cumulative < 100:
-    //   i=0: 26 + 34 = 60  < 100 → draining
-    //   i=1: 26 + 68 = 94  < 100 → draining
-    //   i=2: 26 + 102 = 128 ≥ 100 → frontier
+    // Per ls-qpack's formula, entry N is draining iff
+    //   dist(N) = when_added_used(N) + (capacity - current_used) < threshold
+    //   when_added_used(N) = sum of sizes of entries strictly older than N
     //
-    // Expected frontier abs_idx = 2 (abs 0 and 1 draining; 2..10 not).
+    //   dist(0) = 0  + 26 = 26  < 100 → draining
+    //   dist(1) = 34 + 26 = 60  < 100 → draining
+    //   dist(2) = 68 + 26 = 94  < 100 → draining
+    //   dist(3) = 102 + 26 = 128 ≥ 100 → not draining ← frontier
+    //
+    // Frontier is the smallest non-draining abs_idx, so expected = 3.
     let table = new_table(400);
     // 11 entries, each 34 bytes (single-char name + single-char value + 32 overhead). Share
     // name `"x"`; distinct value chars make each `(name, value)` unique.
@@ -58,26 +61,25 @@ fn draining_frontier_marks_prefix_on_full_table() {
     let state = table.state.lock().unwrap();
     assert_eq!(state.entries.len(), 11);
     assert_eq!(state.current_size, 11 * SMALL_ENTRY);
-    assert_eq!(state.draining_frontier_abs_idx(), 2);
+    assert_eq!(state.draining_frontier_abs_idx(), 3);
 }
 
 #[test]
 fn draining_frontier_exact_threshold_is_non_draining() {
-    // Capacity chosen so the second-oldest entry sits exactly at the threshold. `dist <
-    // threshold` is a strict inequality: equal-to-threshold is NOT draining.
+    // Capacity chosen so one entry sits exactly at the threshold. `dist < threshold` is
+    // strict: equal-to-threshold is NOT draining.
     //
-    // Target: (i+1) * 34 + free_space == capacity/4 at i=1 (second-oldest).
-    // capacity/4 = 68 + free_space; capacity = 272 + 4*free_space.
-    //
-    // Pick free_space = 0 → capacity = 272, which fits 8 entries (272 bytes). Check:
-    //   threshold = 68. i=0: cumulative=34 < 68 draining. i=1: 68 >= 68 → frontier at 1.
+    // Capacity 272, 8 entries of 34 bytes = 272 used, 0 free. Threshold = 68.
+    //   dist(0) = 0  + 0 = 0  < 68 → draining
+    //   dist(1) = 34 + 0 = 34 < 68 → draining
+    //   dist(2) = 68 + 0 = 68 NOT < 68 → not draining ← frontier
     let table = new_table(272);
     for name in ["a", "b", "c", "d", "e", "f", "g", "h"] {
         table.insert(qen(name), fv("v")).unwrap();
     }
     let state = table.state.lock().unwrap();
     assert_eq!(state.current_size, 8 * SMALL_ENTRY);
-    assert_eq!(state.draining_frontier_abs_idx(), 1);
+    assert_eq!(state.draining_frontier_abs_idx(), 2);
 }
 
 #[test]
@@ -182,7 +184,7 @@ fn encode(
 }
 
 /// Fill the table to 11 × 34-byte entries at capacity 400. With free space 26 bytes and
-/// threshold `capacity/4 = 100`, abs 0 and abs 1 are draining; abs 2..10 are not.
+/// threshold `capacity/4 = 100`, abs 0, 1, and 2 are draining; abs 3..10 are not (frontier = 3).
 /// Duplicating abs 1 is safe — evicting abs 0 frees enough room.
 fn fill_with_draining_prefix(table: &EncoderDynamicTable) {
     for name in ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"] {
