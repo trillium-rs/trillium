@@ -271,11 +271,11 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         // 1. Sensitive-header skip — current stand-in for the RFC 9204 §4.5.4 N bit (see
         //    `qpack-n-bit-gap` memory). Short-circuits before any predictor interaction so
         //    sensitive `(name, value)` pairs never pollute the ring.
-        // 2. Mnemonic predictor — phase-3 indexing policy. When enabled, the predictor's
-        //    two signals map to the three-state allowance: `nameval_seen → Full`,
-        //    `name_seen` only `→ NameOnly`, neither `→ None`. When disabled, every
-        //    non-sensitive header gets `Full` — the phase-2 eager behavior, preserved as a
-        //    config knob. See `predictor.rs` for the ring's structure.
+        // 2. Mnemonic predictor — phase-3 indexing policy. When enabled, the predictor's two
+        //    signals map to the three-state allowance: `nameval_seen → Full`, `name_seen` only `→
+        //    NameOnly`, neither `→ None`. When disabled, every non-sensitive header gets `Full` —
+        //    the phase-2 eager behavior, preserved as a config knob. See `predictor.rs` for the
+        //    ring's structure.
         //
         // Hashes are computed once per header and threaded through both the `seen` read and
         // the `remember` write, matching ls-qpack's compute-once pattern.

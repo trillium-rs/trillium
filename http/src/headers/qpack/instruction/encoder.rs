@@ -146,9 +146,10 @@ async fn parse_inner(
 
 /// Set Dynamic Table Capacity (§3.2.1): `001xxxxx` with a 5-bit prefix integer.
 pub(in crate::headers) fn encode_set_capacity(capacity: usize) -> Vec<u8> {
-    let mut bytes = varint::encode(capacity, 5);
-    bytes[0] |= SET_DYNAMIC_TABLE_CAPACITY;
-    bytes
+    let mut buf = Vec::with_capacity(varint::encoded_length(capacity, 5));
+    varint::encode_into(capacity, 5, &mut buf);
+    buf[0] |= SET_DYNAMIC_TABLE_CAPACITY;
+    buf
 }
 
 /// Insert With Literal Name (§3.2.3): `01HNNNNN` with a 5-bit name-length prefix, followed
@@ -171,7 +172,7 @@ pub(in crate::headers) fn encode_insert_with_name_ref(
 ) -> Vec<u8> {
     let mut buf = Vec::with_capacity(value.len() + 4);
     let start = buf.len();
-    buf.extend_from_slice(&varint::encode(name_index, 6));
+    varint::encode_into(name_index, 6, &mut buf);
     buf[start] |= INSERT_WITH_NAME_REF | if is_static { NAME_REF_STATIC_FLAG } else { 0 };
     encode_string(value, 7, &mut buf);
     buf
@@ -179,9 +180,10 @@ pub(in crate::headers) fn encode_insert_with_name_ref(
 
 /// Duplicate (§3.2.4): `000xxxxx` — 5-bit prefix integer for the relative index.
 pub(in crate::headers) fn encode_duplicate(relative_index: usize) -> Vec<u8> {
-    let mut bytes = varint::encode(relative_index, 5);
-    bytes[0] |= DUPLICATE;
-    bytes
+    let mut buf = Vec::with_capacity(varint::encoded_length(relative_index, 5));
+    varint::encode_into(relative_index, 5, &mut buf);
+    buf[0] |= DUPLICATE;
+    buf
 }
 
 #[cfg(test)]

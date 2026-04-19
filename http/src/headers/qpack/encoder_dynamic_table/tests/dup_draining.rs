@@ -4,12 +4,12 @@
 //! are delicate:
 //!
 //! - The candidate entry must be in the draining region (oldest end of a near-full table).
-//! - Its `nameval_hash` must be in the predictor ring — so something must have encoded
-//!   that exact `(name, value)` through the planner (not a direct `table.insert`).
-//! - `safe_to_dup` must succeed — no outstanding section may pin the candidate at or below
-//!   its `abs_idx`, and there must be room for the new copy (free space or older-evictable).
-//! - The candidate must still be the latest copy of its `(name, value)` pair (the pass
-//!   skips entries whose `by_value` entry already points elsewhere).
+//! - Its `nameval_hash` must be in the predictor ring — so something must have encoded that exact
+//!   `(name, value)` through the planner (not a direct `table.insert`).
+//! - `safe_to_dup` must succeed — no outstanding section may pin the candidate at or below its
+//!   `abs_idx`, and there must be room for the new copy (free space or older-evictable).
+//! - The candidate must still be the latest copy of its `(name, value)` pair (the pass skips
+//!   entries whose `by_value` entry already points elsewhere).
 //!
 //! The test helpers below set up a canonical shape: a draining single-entry target at abs
 //! 0 (its predictor slot primed via a real encode pair), plus filler pushing the table
@@ -94,9 +94,7 @@ fn fill_directly(table: &EncoderDynamicTable, count: usize) {
         };
         table.insert(qen("z"), fv(v)).unwrap();
     }
-    table
-        .on_insert_count_increment(count as u64)
-        .unwrap();
+    table.on_insert_count_increment(count as u64).unwrap();
     let _ = drain_instructions(table);
 }
 
@@ -193,8 +191,8 @@ fn dup_draining_skips_entry_with_newer_copy() {
         !instrs
             .iter()
             .any(|i| matches!(i, EncoderInstruction::Duplicate { .. })),
-        "no Duplicate expected — abs 0 has a newer copy, no other draining entry has a \
-         predictor hit. Got {instrs:?}",
+        "no Duplicate expected — abs 0 has a newer copy, no other draining entry has a predictor \
+         hit. Got {instrs:?}",
     );
     assert_eq!(
         table.insert_count(),
@@ -242,9 +240,9 @@ fn dup_draining_picks_biggest_first() {
 
     // Pass makes one Duplicate per loop iteration. Expected two:
     //   1. abs 0 picked first (bigger). insert_count before dup = 14 → relative = 13.
-    //   2. abs 1 picked next (abs 0 now has a newer copy so it's skipped). insert_count
-    //      before second dup = 15 → relative = 15 - 1 - 1 = 13 as well (different entry,
-    //      same relative offset because the new entry from step 1 shifted everything).
+    //   2. abs 1 picked next (abs 0 now has a newer copy so it's skipped). insert_count before
+    //      second dup = 15 → relative = 15 - 1 - 1 = 13 as well (different entry, same relative
+    //      offset because the new entry from step 1 shifted everything).
     // Match on the sequence to catch both order and count.
     assert_eq!(
         dups,

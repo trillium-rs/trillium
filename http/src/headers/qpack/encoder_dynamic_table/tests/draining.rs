@@ -2,9 +2,9 @@
 //!
 //! - Step 1 (below, "table-state helpers"): `TableState::draining_frontier_abs_idx` and
 //!   `TableState::safe_to_dup` — raw computations that the policy depends on.
-//! - Step 2 (below, "main-path DUP-on-draining"): planner behaviour when a full match lands
-//!   on a draining entry. Each test constructs a near-full table, makes abs 0 draining, and
-//!   then drives an encode that matches that entry.
+//! - Step 2 (below, "main-path DUP-on-draining"): planner behaviour when a full match lands on a
+//!   draining entry. Each test constructs a near-full table, makes abs 0 draining, and then drives
+//!   an encode that matches that entry.
 
 use super::*;
 use crate::{
@@ -185,9 +185,7 @@ fn encode(
 /// threshold `capacity/4 = 100`, abs 0 and abs 1 are draining; abs 2..10 are not.
 /// Duplicating abs 1 is safe — evicting abs 0 frees enough room.
 fn fill_with_draining_prefix(table: &EncoderDynamicTable) {
-    for name in [
-        "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k",
-    ] {
+    for name in ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"] {
         table.insert(qen(name), fv("v")).unwrap();
     }
 }
@@ -208,11 +206,17 @@ fn non_draining_full_match_takes_fast_path_without_duplicate() {
 
     let (_prefix, lines) = parse_section(&bytes);
     assert!(
-        matches!(lines.as_slice(), [FieldLineInstruction::IndexedDynamic { .. }]),
+        matches!(
+            lines.as_slice(),
+            [FieldLineInstruction::IndexedDynamic { .. }]
+        ),
         "expected IndexedDynamic, got {lines:?}",
     );
     let instrs = drain_instructions(&table);
-    assert!(instrs.is_empty(), "fast path should emit nothing, got {instrs:?}");
+    assert!(
+        instrs.is_empty(),
+        "fast path should emit nothing, got {instrs:?}"
+    );
 }
 
 #[test]
@@ -232,7 +236,10 @@ fn draining_full_match_emits_duplicate_with_existing_reference() {
 
     let (_prefix, lines) = parse_section(&bytes);
     assert!(
-        matches!(lines.as_slice(), [FieldLineInstruction::IndexedDynamic { .. }]),
+        matches!(
+            lines.as_slice(),
+            [FieldLineInstruction::IndexedDynamic { .. }]
+        ),
         "expected IndexedDynamic, got {lines:?}",
     );
 
@@ -271,7 +278,10 @@ fn draining_full_match_without_safe_to_dup_plain_reference() {
 
     let (_prefix, lines) = parse_section(&bytes);
     assert!(
-        matches!(lines.as_slice(), [FieldLineInstruction::IndexedDynamic { .. }]),
+        matches!(
+            lines.as_slice(),
+            [FieldLineInstruction::IndexedDynamic { .. }]
+        ),
         "expected IndexedDynamic, got {lines:?}",
     );
     let instrs = drain_instructions(&table);

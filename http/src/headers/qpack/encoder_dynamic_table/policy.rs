@@ -238,24 +238,23 @@ impl BudgetCtx {
 ///
 /// 1. **Draining dynamic full match with refresh** — when the matched entry is draining,
 ///    duplicating it is safe, and indexing + the budget allow referencing it, emit
-///    `Duplicate(abs_idx)` as an encoder-stream side-effect and reference the *existing*
-///    entry in this section. The section pays only the cheap existing-ref cost (same as
-///    the fast path) while the duplicate seeds a fresh copy for future sections. Mirrors
-///    ls-qpack's `DUP + EHA_INDEXED_DYN` (`EPF_REF_FOUND`) branch at `lsqpack.c:1772-1778`.
+///    `Duplicate(abs_idx)` as an encoder-stream side-effect and reference the *existing* entry in
+///    this section. The section pays only the cheap existing-ref cost (same as the fast path) while
+///    the duplicate seeds a fresh copy for future sections. Mirrors ls-qpack's `DUP +
+///    EHA_INDEXED_DYN` (`EPF_REF_FOUND`) branch at `lsqpack.c:1772-1778`.
 /// 2. **Fresh dynamic full match** — fast path: reference directly, no refresh. Also the
-///    fall-through for draining matches that couldn't be duplicated (unsafe, or indexing
-///    disabled). Referencing a draining entry pins it via the section's min-ref floor
-///    until ack — cheaper for this section than a literal, and strictly non-regressing
-///    against the pre-phase-4 behavior.
+///    fall-through for draining matches that couldn't be duplicated (unsafe, or indexing disabled).
+///    Referencing a draining entry pins it via the section's min-ref floor until ack — cheaper for
+///    this section than a literal, and strictly non-regressing against the pre-phase-4 behavior.
 /// 3. Static full match.
 /// 4. **Insert-then-reference** — `indexing.full()` and a blocking slot is available.
-/// 5. **Warming insert** — `indexing.full()` is true but no blocking slot is available, and
-///    no full match exists to reference. Emit an Insert to the encoder stream and pick the
-///    best literal form for this section's header block.
+/// 5. **Warming insert** — `indexing.full()` is true but no blocking slot is available, and no full
+///    match exists to reference. Emit an Insert to the encoder stream and pick the best literal
+///    form for this section's header block.
 /// 6. **Name-only insert** — `indexing` is [`NameOnly`](IndexingAllowance::NameOnly), no
-///    static/dynamic name ref is already available, and a blocking slot is available.
-///    Seed a `(name, "")` dynamic-table entry so future sections with this name get cheap
-///    name refs; this section uses `LiteralDynamicNameRef(NewlyInserted)`.
+///    static/dynamic name ref is already available, and a blocking slot is available. Seed a
+///    `(name, "")` dynamic-table entry so future sections with this name get cheap name refs; this
+///    section uses `LiteralDynamicNameRef(NewlyInserted)`.
 /// 7. Static name ref (preferred over dynamic name ref).
 /// 8. Dynamic name ref (only when no static name match and budget allows).
 /// 9. Literal name + literal value.

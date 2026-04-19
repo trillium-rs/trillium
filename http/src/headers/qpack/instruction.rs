@@ -142,20 +142,31 @@ pub(super) fn validate_value(value: &[u8]) -> Result<(), ()> {
 
 /// Encode a string literal per RFC 9204 §4.1.2.
 ///
-/// Tries Huffman encoding and uses it when shorter. The H flag is placed at bit
+/// Tries Huffman encoding and uses it when strictly shorter. The H flag is placed at bit
 /// `prefix_size` of the first byte; the length occupies the low `prefix_size` bits as a
 /// varint. The caller is responsible for OR-ing any additional flags into the byte at
 /// `buf.len()` prior to the call after this returns. Shared between the §3.2 encoder-stream
 /// insert instructions and the §4.5 field-section emitter.
+///
+/// No intermediate allocation: the Huffman-vs-raw decision is made from
+/// [`huffman::encoded_length_if_shorter`] without materializing the encoded form, and the
+/// chosen encoding is written directly into `buf`.
 pub(in crate::headers) fn encode_string(value: &[u8], prefix_size: u8, buf: &mut Vec<u8>) {
-    let huffman_encoded = huffman::encode(value);
-    let (bytes, huffman_flag) = if huffman_encoded.len() < value.len() {
-        (huffman_encoded.as_slice(), 1_u8 << prefix_size)
-    } else {
-        (value, 0)
-    };
     let start = buf.len();
-    buf.extend_from_slice(&varint::encode(bytes.len(), prefix_size));
-    buf[start] |= huffman_flag;
-    buf.extend_from_slice(bytes);
+    if let Some(huffman_len) = huffman::encoded_length_if_shorter(value) {
+        varint::encode_into(huffman_len, prefix_size, buf);
+        buf[start] |= 1_u8 << prefix_size;
+        huffman::encode_into(value, buf);
+    } else {
+        varint::encode_into(value.len(), prefix_size, buf);
+        buf.extend_from_slice(value);
+    }
+}
+
+/// Projected wire-size of [`encode_string`] for the same `(value, prefix_size)`, without
+/// writing anything. Used by the phase-5 inflation guard to decide whether a program would
+/// dilute compression below the configured ratio.
+pub(in crate::headers) fn encode_string_length(value: &[u8], prefix_size: u8) -> usize {
+    let payload_len = huffman::encoded_length_if_shorter(value).unwrap_or(value.len());
+    varint::encoded_length(payload_len, prefix_size) + payload_len
 }

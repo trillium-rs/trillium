@@ -176,17 +176,17 @@ impl<'a> FieldLineInstruction<'a> {
         match *self {
             FieldLineInstruction::IndexedStatic { index } => {
                 let start = buf.len();
-                buf.extend_from_slice(&varint::encode(index, 6));
+                varint::encode_into(index, 6, buf);
                 buf[start] |= INDEXED_FIELD_LINE | INDEXED_STATIC_FLAG;
             }
             FieldLineInstruction::IndexedDynamic { relative_index } => {
                 let start = buf.len();
-                buf.extend_from_slice(&varint::encode(relative_index, 6));
+                varint::encode_into(relative_index, 6, buf);
                 buf[start] |= INDEXED_FIELD_LINE;
             }
             FieldLineInstruction::IndexedPostBase { post_base_index } => {
                 let start = buf.len();
-                buf.extend_from_slice(&varint::encode(post_base_index, 4));
+                varint::encode_into(post_base_index, 4, buf);
                 buf[start] |= POST_BASE_INDEXED;
             }
             FieldLineInstruction::LiteralStaticNameRef {
@@ -195,7 +195,7 @@ impl<'a> FieldLineInstruction<'a> {
                 never_indexed,
             } => {
                 let start = buf.len();
-                buf.extend_from_slice(&varint::encode(name_index, 4));
+                varint::encode_into(name_index, 4, buf);
                 buf[start] |= LITERAL_WITH_NAME_REF
                     | NAME_REF_STATIC_FLAG
                     | if never_indexed {
@@ -211,7 +211,7 @@ impl<'a> FieldLineInstruction<'a> {
                 never_indexed,
             } => {
                 let start = buf.len();
-                buf.extend_from_slice(&varint::encode(relative_index, 4));
+                varint::encode_into(relative_index, 4, buf);
                 buf[start] |= LITERAL_WITH_NAME_REF
                     | if never_indexed {
                         NAME_REF_NEVER_INDEXED_FLAG
@@ -226,7 +226,7 @@ impl<'a> FieldLineInstruction<'a> {
                 never_indexed,
             } => {
                 let start = buf.len();
-                buf.extend_from_slice(&varint::encode(post_base_index, 3));
+                varint::encode_into(post_base_index, 3, buf);
                 buf[start] |= if never_indexed {
                     POST_BASE_NAME_REF_NEVER_INDEXED_FLAG
                 } else {
@@ -288,9 +288,9 @@ impl FieldSectionPrefix {
     }
 
     pub(in crate::headers) fn encode(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&varint::encode(self.encoded_required_insert_count, 8));
+        varint::encode_into(self.encoded_required_insert_count, 8, buf);
         let start = buf.len();
-        buf.extend_from_slice(&varint::encode(self.delta_base, 7));
+        varint::encode_into(self.delta_base, 7, buf);
         if self.base_is_negative {
             buf[start] |= BASE_DELTA_SIGN;
         }

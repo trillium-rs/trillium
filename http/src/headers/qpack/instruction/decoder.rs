@@ -76,14 +76,14 @@ async fn parse_inner(
 
 /// Section Acknowledgement (§4.4.1): `1XXXXXXX` with a 7-bit prefix integer for the stream ID.
 pub(in crate::headers) fn encode_section_ack(stream_id: u64, buf: &mut Vec<u8>) {
-    let mut encoded = varint::encode(usize::try_from(stream_id).unwrap_or(usize::MAX), 7);
-    encoded[0] |= SECTION_ACK;
-    buf.extend_from_slice(&encoded);
+    let start = buf.len();
+    varint::encode_into(usize::try_from(stream_id).unwrap_or(usize::MAX), 7, buf);
+    buf[start] |= SECTION_ACK;
 }
 
 /// Insert Count Increment (§4.4.3): `00XXXXXX` with a 6-bit prefix integer for the increment.
 pub(in crate::headers) fn encode_insert_count_increment(increment: u64, buf: &mut Vec<u8>) {
-    let mut encoded = varint::encode(usize::try_from(increment).unwrap_or(usize::MAX), 6);
-    encoded[0] |= INSERT_COUNT_INC; // 0x00 — no-op, but makes the intent explicit
-    buf.extend_from_slice(&encoded);
+    let start = buf.len();
+    varint::encode_into(usize::try_from(increment).unwrap_or(usize::MAX), 6, buf);
+    buf[start] |= INSERT_COUNT_INC; // 0x00 — no-op, but makes the intent explicit
 }

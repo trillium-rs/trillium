@@ -60,12 +60,7 @@ fn name_seen_without_pair_triggers_name_only_insert() {
     let bytes = encode_headers(&encoder, PseudoHeaders::default(), &h2, 2);
 
     let (_prefix, lines) = parse_section(&bytes);
-    let [
-        FieldLineInstruction::LiteralDynamicNameRef {
-            value, ..
-        },
-    ] = lines.as_slice()
-    else {
+    let [FieldLineInstruction::LiteralDynamicNameRef { value, .. }] = lines.as_slice() else {
         panic!("expected LiteralDynamicNameRef referencing the new entry, got {lines:?}");
     };
     assert_eq!(value.as_bytes(), b"v2");

@@ -5,7 +5,7 @@ mod table;
 mod tests;
 
 pub(in crate::headers) use decode::decode;
-pub(in crate::headers) use encode::encode;
+pub(in crate::headers) use encode::{encode_into, encoded_length_if_shorter};
 use table::TABLE;
 
 /// Errors that can occur during Huffman decoding.

@@ -51,31 +51,51 @@ pub(in crate::headers) fn decode(
     Err(VarIntError::UnexpectedEnd)
 }
 
-/// Encode a prefix-coded integer per RFC 7541 §5.1.
-///
-/// Returns the encoded bytes. The first byte contains the integer
-/// value in its low `prefix_size` bits; the caller is responsible for
-/// OR-ing in any flags in the high bits.
-#[allow(clippy::cast_possible_truncation)] // all casts are bounded: value < prefix_max <= 255, remaining < 128
-pub(in crate::headers) fn encode(value: usize, prefix_size: u8) -> Vec<u8> {
+/// Encoded length of `value` under a prefix-coded integer with `prefix_size`-bit prefix
+/// (RFC 7541 §5.1), in bytes. Used to project wire sizes without materializing the
+/// encoding — notably by the phase-5 inflation guard.
+pub(in crate::headers) fn encoded_length(value: usize, prefix_size: u8) -> usize {
     debug_assert!((1..=8).contains(&prefix_size));
 
     let prefix_max = u8::MAX >> (8 - prefix_size);
 
     if value < usize::from(prefix_max) {
-        return vec![value as u8];
+        return 1;
     }
 
-    let mut output = vec![prefix_max];
+    // Prefix byte plus `ceil(bits_needed / 7)` continuation bytes (each carrying 7 value
+    // bits), where `bits_needed` is the bit-width of `remaining = value - prefix_max`. A
+    // `remaining` of 0 still needs one terminating byte, so round-up with a clamp to 1.
+    let remaining = value - usize::from(prefix_max);
+    let bits_needed = usize::BITS - remaining.leading_zeros();
+    let continuation = (bits_needed.div_ceil(7)).max(1) as usize;
+    1 + continuation
+}
+
+/// Encode a prefix-coded integer per RFC 7541 §5.1, appending the encoded bytes to `buf`.
+///
+/// The first byte appended contains the integer value in its low `prefix_size` bits; the
+/// caller is responsible for OR-ing in any flags in the high bits.
+#[allow(clippy::cast_possible_truncation)] // all casts are bounded: value < prefix_max <= 255, remaining < 128
+pub(in crate::headers) fn encode_into(value: usize, prefix_size: u8, buf: &mut Vec<u8>) {
+    debug_assert!((1..=8).contains(&prefix_size));
+
+    let prefix_max = u8::MAX >> (8 - prefix_size);
+
+    if value < usize::from(prefix_max) {
+        buf.push(value as u8);
+        return;
+    }
+
+    buf.push(prefix_max);
     let mut remaining = value - usize::from(prefix_max);
 
     while remaining >= 128 {
-        output.push(remaining as u8 | 0x80);
+        buf.push(remaining as u8 | 0x80);
         remaining >>= 7;
     }
 
-    output.push(remaining as u8);
-    output
+    buf.push(remaining as u8);
 }
 
 #[cfg(test)]
@@ -133,6 +153,12 @@ mod tests {
         assert_eq!(decode(&[0b000_11111], 5), Err(VarIntError::UnexpectedEnd));
     }
 
+    fn encode(value: usize, prefix_size: u8) -> Vec<u8> {
+        let mut buf = Vec::new();
+        encode_into(value, prefix_size, &mut buf);
+        buf
+    }
+
     // RFC 7541 C.1.1: encoding 10 with 5-bit prefix
     #[test]
     fn encode_10_prefix_5() {
@@ -149,6 +175,51 @@ mod tests {
     #[test]
     fn encode_42_prefix_8() {
         assert_eq!(encode(42, 8), vec![42]);
+    }
+
+    #[test]
+    fn encode_into_appends() {
+        let mut buf = vec![0xAA, 0xBB];
+        encode_into(42, 8, &mut buf);
+        assert_eq!(buf, vec![0xAA, 0xBB, 42]);
+    }
+
+    #[test]
+    fn encoded_length_matches_encode() {
+        for n in [1u8, 5, 7, 8] {
+            for value in 0..300 {
+                assert_eq!(
+                    encoded_length(value, n),
+                    encode(value, n).len(),
+                    "prefix_size={n}, value={value}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn encoded_length_matches_encode_large() {
+        for &value in &[
+            0usize,
+            1,
+            126,
+            127,
+            128,
+            255,
+            256,
+            16383,
+            16384,
+            1_000_000,
+            usize::MAX >> 1,
+        ] {
+            for n in [1u8, 5, 7, 8] {
+                assert_eq!(
+                    encoded_length(value, n),
+                    encode(value, n).len(),
+                    "prefix_size={n}, value={value}",
+                );
+            }
+        }
     }
 
     #[test]

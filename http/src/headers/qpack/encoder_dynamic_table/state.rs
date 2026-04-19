@@ -322,13 +322,12 @@ impl TableState {
     /// Candidate criteria (all must hold):
     /// - Absolute index is in the draining region (see
     ///   [`draining_frontier_abs_idx`](Self::draining_frontier_abs_idx)).
-    /// - The entry's `nameval_hash` appears in the predictor ring — i.e. the encoder has
-    ///   recently observed this `(name, value)` pair, so refreshing it is likely to pay off.
-    /// - No newer live entry shares the same `(name, value)` pair (checked via the
-    ///   `by_name` reverse index) — if a fresher copy exists, this one is redundant.
-    /// - [`safe_to_dup`](Self::safe_to_dup) is true with no extra floor (the caller's
-    ///   section refs are already in `outstanding_sections` and picked up by
-    ///   `eviction_floor()`).
+    /// - The entry's `nameval_hash` appears in the predictor ring — i.e. the encoder has recently
+    ///   observed this `(name, value)` pair, so refreshing it is likely to pay off.
+    /// - No newer live entry shares the same `(name, value)` pair (checked via the `by_name`
+    ///   reverse index) — if a fresher copy exists, this one is redundant.
+    /// - [`safe_to_dup`](Self::safe_to_dup) is true with no extra floor (the caller's section refs
+    ///   are already in `outstanding_sections` and picked up by `eviction_floor()`).
     ///
     /// The caller must have registered the just-encoded section in `outstanding_sections`
     /// before calling this, so the eviction floor protects any refs that section took.
