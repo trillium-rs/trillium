@@ -156,7 +156,7 @@ fn name_only_insert_skipped_without_blocking_slot() {
     // (no stream can become blocking). The name-only branch falls through to the literal
     // tail. Without a static or dynamic name match, the emission is literal-literal and
     // no encoder-stream op fires.
-    let encoder = new_table_configured(4096, 0, true);
+    let encoder = new_table_configured(4096, 0, true, 1.0);
     let _ = drain_instructions(&encoder);
 
     let mut h1 = Headers::new();

@@ -59,7 +59,7 @@ use super::{
         MatchState, TableAction, select_program,
     },
     predictor::MnemonicPredictor,
-    state::TableState,
+    state::{TableState, to_u32},
 };
 use crate::{
     KnownHeaderName,
@@ -98,6 +98,24 @@ fn is_sensitive_header_name(name: &QpackEntryName) -> bool {
     )
 }
 
+/// True iff `program` pairs an encoder-stream Insert (or name-only Insert) with a literal
+/// header-block emission — the "double literal" cost that the phase-5 inflation guard is
+/// designed to suppress. Insert-then-reference is excluded because its indexed ref earns
+/// the encoder-stream bytes back in the same section. Duplicate is excluded because
+/// ls-qpack's guard explicitly omits it (see `lsqpack.c:1933-1943`); our strategy chain
+/// doesn't emit Duplicate-with-literal today anyway.
+fn is_double_literal_program(program: &EncoderProgram) -> bool {
+    matches!(
+        program.enc_stream,
+        EncStreamAction::Insert | EncStreamAction::InsertNameOnly
+    ) && matches!(
+        program.header_block,
+        HeaderBlockAction::LiteralStaticNameRef { .. }
+            | HeaderBlockAction::LiteralDynamicNameRef { .. }
+            | HeaderBlockAction::LiteralLiteralName
+    )
+}
+
 impl EncoderDynamicTable {
     /// Encode `field_section` onto `buf` for transmission on `stream_id`.
     ///
@@ -128,6 +146,8 @@ impl EncoderDynamicTable {
         let plan;
         let max_capacity;
         let made_inserts;
+        let name_value_bytes;
+        let enc_stream_bytes;
         {
             let mut state = self.state.lock().unwrap();
             max_capacity = state.max_capacity;
@@ -136,6 +156,8 @@ impl EncoderDynamicTable {
                 planner.plan_header_line(name, value.reborrow());
             }
             let planner_made_inserts = planner.made_inserts;
+            let planner_enc_bytes = planner.enc_stream_bytes;
+            name_value_bytes = planner.name_value_bytes;
             plan = planner.finish();
             if plan.section_ric > 0 {
                 state
@@ -150,8 +172,9 @@ impl EncoderDynamicTable {
             // Phase-4 step-5: post-encode refresh pass. Runs after section registration so
             // the eviction floor protects any refs this section took. Only meaningful
             // under mnemonic indexing — it's a no-op otherwise.
-            let dup_pass_inserts = state.dup_draining_pass();
-            made_inserts = planner_made_inserts || dup_pass_inserts;
+            let dup_pass_bytes = state.dup_draining_pass();
+            enc_stream_bytes = planner_enc_bytes.saturating_add(dup_pass_bytes);
+            made_inserts = planner_made_inserts || dup_pass_bytes > 0;
         }
 
         // Wake the encoder-stream writer if the plan enqueued any inserts.
@@ -159,10 +182,21 @@ impl EncoderDynamicTable {
             self.event.notify(usize::MAX);
         }
 
+        let section_start = buf.len();
         emit_section_prefix(plan.section_ric, max_capacity, buf);
         for emission in &plan.emissions {
             emit(emission, plan.section_ric, buf);
         }
+
+        // Phase-5 inflation counter: re-lock to fold this section's actual wire bytes
+        // (encoder-stream + header-block) into the running ratio counters. Mirrors
+        // ls-qpack's end-of-encode bookkeeping at `lsqpack.c:2182-2191`.
+        let header_block_bytes = u32::try_from(buf.len() - section_start).unwrap_or(u32::MAX);
+        let wire_bytes = enc_stream_bytes.saturating_add(header_block_bytes);
+        self.state
+            .lock()
+            .unwrap()
+            .add_compression_counters(name_value_bytes, wire_bytes);
     }
 }
 
@@ -234,6 +268,13 @@ struct Planner<'state, 'lines, 'names> {
     /// Set when the plan phase has enqueued at least one encoder-stream insert. The caller
     /// uses this flag after dropping the lock to notify the encoder-stream writer.
     made_inserts: bool,
+    /// Running total of raw `name.len() + value.len()` across lines planned so far.
+    /// Consumed by the phase-5 inflation counter after the section finishes emitting.
+    name_value_bytes: u32,
+    /// Running total of encoder-stream bytes enqueued during planning (per-line `Insert`
+    /// / `Duplicate` / `InsertNameOnly` wire sizes). Dup-draining bytes are added
+    /// separately by the post-encode pass. Consumed by the phase-5 inflation counter.
+    enc_stream_bytes: u32,
 }
 
 impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
@@ -247,6 +288,8 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             committed_to_blocking: false,
             stream_already_blocking,
             made_inserts: false,
+            name_value_bytes: 0,
+            enc_stream_bytes: 0,
         }
     }
 
@@ -304,6 +347,11 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         // structural change minimal when the source lands.
         let never_indexed = false;
 
+        self.name_value_bytes = self
+            .name_value_bytes
+            .saturating_add(to_u32(name.as_bytes().len()))
+            .saturating_add(to_u32(value.as_bytes().len()));
+
         let emission = self.plan_with_indexing(name, value, indexing, never_indexed);
         self.emissions.push(emission);
 
@@ -347,6 +395,21 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         let match_state = self.compute_match_state(name, &value);
         let budget = self.budget_ctx();
         let program = select_program(&match_state, indexing, &budget, never_indexed);
+
+        // Phase-5 inflation guard: Insert-paired-with-literal programs (warming insert,
+        // name-only insert) pay encoder-stream bytes AND emit a literal in this section —
+        // the "double literal" cost. When the running `bytes_out / bytes_in` ratio is
+        // already high, suppressing these programs and falling back to a plain literal is
+        // strictly cheaper. Mirrors ls-qpack's `restart:` re-plan at `lsqpack.c:1951-1957`.
+        //
+        // Duplicate-paired-with-literal isn't a program our strategy chain emits today;
+        // the guard still only matches Insert/InsertNameOnly with a literal header block.
+        // Insert-then-reference pays its own way via the indexed ref and is never gated.
+        if is_double_literal_program(&program)
+            && self.state.would_inflate(name.as_bytes(), value.as_bytes())
+        {
+            return self.plan_with_indexing(name, value, IndexingAllowance::None, never_indexed);
+        }
 
         let table_op_result = match program.enc_stream {
             EncStreamAction::None => {
@@ -393,6 +456,13 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             Ok(None) => None,
             Ok(Some(idx)) => {
                 self.made_inserts = true;
+                // Record the enc-stream bytes just pushed onto `pending_ops` for the
+                // phase-5 inflation counter. `insert` and `duplicate` both push exactly one
+                // op on success.
+                if let Some(wire) = self.state.pending_ops.back() {
+                    self.enc_stream_bytes =
+                        self.enc_stream_bytes.saturating_add(to_u32(wire.len()));
+                }
                 Some(idx)
             }
             Err(_) => {

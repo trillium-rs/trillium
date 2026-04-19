@@ -466,6 +466,7 @@ impl H3Connection {
             self.context.config.h3_max_table_capacity,
             settings,
             self.context.config.h3_qpack_mnemonic_indexing,
+            self.context.config.h3_qpack_inflation_ratio_max,
         );
 
         // Read subsequent frames, watching for GOAWAY

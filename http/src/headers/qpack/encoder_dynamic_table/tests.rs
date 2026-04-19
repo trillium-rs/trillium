@@ -64,22 +64,25 @@ fn new_table_with_blocked_streams(
     max_capacity: u64,
     max_blocked_streams: u64,
 ) -> EncoderDynamicTable {
-    new_table_configured(max_capacity, max_blocked_streams, false)
+    new_table_configured(max_capacity, max_blocked_streams, false, 1.0)
 }
 
 /// Phase-3 variant — mnemonic indexing enabled. Used by tests that exercise the predictor's
 /// effect on indexing decisions. A non-zero blocked-streams budget is the default so the
 /// insert-then-reference path is exercised on a predictor hit; tests that want warming-
 /// insert behavior instead can call [`new_table_configured`] directly with
-/// `max_blocked_streams = 0`.
+/// `max_blocked_streams = 0`. The inflation guard is disabled (`1.0`) so predictor-only
+/// tests don't conflate with phase-5 behavior; phase-5 tests call
+/// [`new_table_configured`] directly with a real ratio.
 fn new_table_with_mnemonic(max_capacity: u64) -> EncoderDynamicTable {
-    new_table_configured(max_capacity, 100, true)
+    new_table_configured(max_capacity, 100, true, 1.0)
 }
 
 fn new_table_configured(
     max_capacity: u64,
     max_blocked_streams: u64,
     mnemonic_indexing: bool,
+    inflation_ratio_max: f32,
 ) -> EncoderDynamicTable {
     let table = EncoderDynamicTable::default();
     table.initialize_from_peer_settings(
@@ -88,6 +91,7 @@ fn new_table_configured(
             .with_qpack_max_table_capacity(max_capacity)
             .with_qpack_blocked_streams(max_blocked_streams),
         mnemonic_indexing,
+        inflation_ratio_max,
     );
     table
 }
@@ -136,6 +140,7 @@ mod encode_blocked;
 mod encode_dynamic;
 mod encode_refs;
 mod encode_static;
+mod inflation;
 mod insert;
 mod mnemonic;
 mod name_only;

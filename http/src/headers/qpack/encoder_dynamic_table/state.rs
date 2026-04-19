@@ -14,6 +14,13 @@
 //! for the writer task to drain.
 
 use super::predictor::MnemonicPredictor;
+
+/// Saturating `usize` → `u32` conversion. Wire byte sizes and header lengths never
+/// meaningfully exceed `u32::MAX` in practice; clamping at the boundary keeps the
+/// inflation counter arithmetic honest without adding a panic on pathological inputs.
+pub(super) fn to_u32(n: usize) -> u32 {
+    u32::try_from(n).unwrap_or(u32::MAX)
+}
 use crate::{
     h3::{H3Error, H3ErrorCode},
     headers::qpack::{
@@ -75,6 +82,20 @@ pub(super) struct TableState {
     /// [`mnemonic_indexing`](Self::mnemonic_indexing) flag gates whether the planner
     /// actually consults it.
     pub(super) predictor: MnemonicPredictor,
+    /// Running sum of raw `name.len() + value.len()` across all header lines encoded on
+    /// this connection. Paired with [`bytes_out`](Self::bytes_out) to drive the phase-5
+    /// inflation guard. Periodically rescaled by
+    /// [`rescale_compression_counters`](Self::rescale_compression_counters) to prevent
+    /// `u32` overflow; rescaling preserves the ratio.
+    pub(super) bytes_in: u32,
+    /// Running sum of wire bytes (encoder stream + header block) emitted for this
+    /// connection.
+    pub(super) bytes_out: u32,
+    /// Inflation guard threshold: when a planned Insert-paired-with-literal would project
+    /// the running ratio `bytes_out / bytes_in` above this value, the line is re-planned
+    /// with indexing disabled. `1.0` or higher disables the guard. Sourced from
+    /// `HttpConfig::h3_qpack_inflation_ratio_max`.
+    pub(super) inflation_ratio_max: f32,
 }
 
 #[derive(Debug, Default)]
@@ -126,9 +147,14 @@ impl TableState {
             max_blocked_streams: 0,
             by_name: HashMap::new(),
             // Set by `EncoderDynamicTable::initialize_from_peer_settings` from
-            // `HttpConfig::h3_qpack_mnemonic_indexing`.
+            // `HttpConfig::h3_qpack_mnemonic_indexing` / `h3_qpack_inflation_ratio_max`.
             mnemonic_indexing: false,
             predictor: MnemonicPredictor::new(),
+            bytes_in: 0,
+            bytes_out: 0,
+            // `1.0` disables the guard; the real default is re-applied by
+            // `initialize_from_peer_settings`.
+            inflation_ratio_max: 1.0,
         }
     }
 
@@ -314,6 +340,73 @@ impl TableState {
         abs_idx
     }
 
+    /// Phase-5 inflation guard: would indexing this `(name, value)` pair at the current
+    /// running ratio push `bytes_out / bytes_in` above the configured threshold?
+    ///
+    /// Matches ls-qpack's projection (`lsqpack.c:1945-1957`): the incremental `bytes_out`
+    /// cost is approximated as `huffman_or_raw_length(name) + huffman_or_raw_length(value)`
+    /// — i.e. the string bytes alone, ignoring varint prefixes. This is a heuristic check,
+    /// not a precise projection: a miss just means the guard fires one line early or late,
+    /// and the strategy-chain fallback (retry with indexing disabled) is strictly
+    /// non-regressing. Exact wire-byte accounting happens in
+    /// [`add_compression_counters`](Self::add_compression_counters) after the line is
+    /// planned.
+    ///
+    /// The guard is disabled (always returns `false`) when `inflation_ratio_max >= 1.0`.
+    pub(super) fn would_inflate(&self, name: &[u8], value: &[u8]) -> bool {
+        if self.inflation_ratio_max >= 1.0 {
+            return false;
+        }
+        let name_out = to_u32(
+            crate::headers::qpack::huffman::encoded_length_if_shorter(name).unwrap_or(name.len()),
+        );
+        let value_out = to_u32(
+            crate::headers::qpack::huffman::encoded_length_if_shorter(value).unwrap_or(value.len()),
+        );
+        let projected_out = self
+            .bytes_out
+            .saturating_add(name_out)
+            .saturating_add(value_out);
+        let projected_in = self
+            .bytes_in
+            .saturating_add(to_u32(name.len()))
+            .saturating_add(to_u32(value.len()));
+        if projected_in == 0 {
+            return false;
+        }
+        // f32 precision loss at large counter values is irrelevant here — the rescale
+        // caps `bytes_out` at 1000 long before precision degrades, and the ratio threshold
+        // tolerates order-of-epsilon noise.
+        #[allow(clippy::cast_precision_loss)]
+        {
+            (projected_out as f32) / (projected_in as f32) > self.inflation_ratio_max
+        }
+    }
+
+    /// Fold `(name_value_bytes, wire_bytes)` into the running inflation counters for this
+    /// connection, rescaling if `bytes_out` is approaching `u32::MAX / 2`. Rescaling
+    /// preserves the ratio and keeps the EMA-like memory finite. Called once per header
+    /// line from the planner.
+    ///
+    /// Mirrors ls-qpack's post-encode update (`lsqpack.c:2182-2191`), including the
+    /// rescale to 1000 when `bytes_out` crosses the halfway point.
+    pub(super) fn add_compression_counters(&mut self, name_value_bytes: u32, wire_bytes: u32) {
+        self.bytes_in = self.bytes_in.saturating_add(name_value_bytes);
+        self.bytes_out = self.bytes_out.saturating_add(wire_bytes);
+        if self.bytes_out > (1u32 << 31) {
+            // Rescale to `bytes_out = 1000`, scaling `bytes_in` by the same factor to
+            // preserve the ratio. f64 avoids precision loss at large `bytes_out`; the
+            // result is a small positive integer so the cast back is safe.
+            let ratio = f64::from(self.bytes_in) / f64::from(self.bytes_out);
+            let scaled = (ratio * 1000.0).round().clamp(0.0, f64::from(u32::MAX));
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            {
+                self.bytes_in = scaled as u32;
+            }
+            self.bytes_out = 1000;
+        }
+    }
+
     /// Post-encode refresh pass: walk the draining region of the table and duplicate
     /// entries that the mnemonic predictor has recently seen, biggest-first. Continues
     /// until no more eligible candidates remain. Returns `true` when at least one
@@ -335,11 +428,14 @@ impl TableState {
     /// Skipped entirely when the mnemonic predictor is disabled: without the predictor
     /// the "recently seen" signal is unavailable, so there is no basis for choosing
     /// candidates. Mirrors ls-qpack's `qenc_dup_draining` at `lsqpack.c:1554-1617`.
-    pub(super) fn dup_draining_pass(&mut self) -> bool {
+    ///
+    /// Returns the total encoder-stream bytes enqueued by this pass — consumed by the
+    /// phase-5 inflation-ratio counter to account for the cost of background refreshes.
+    pub(super) fn dup_draining_pass(&mut self) -> u32 {
         if !self.mnemonic_indexing {
-            return false;
+            return 0;
         }
-        let mut any = false;
+        let mut added_bytes: u32 = 0;
         while let Some(abs_idx) = self.pick_dup_draining_candidate() {
             if self.duplicate(abs_idx, None).is_err() {
                 // Defensive: `safe_to_dup` gated the choice, but the loop mutates state
@@ -347,9 +443,11 @@ impl TableState {
                 // Stop rather than spin.
                 break;
             }
-            any = true;
+            if let Some(wire) = self.pending_ops.back() {
+                added_bytes = added_bytes.saturating_add(to_u32(wire.len()));
+            }
         }
-        any
+        added_bytes
     }
 
     /// Scan the draining region for the largest entry eligible for a policy-driven

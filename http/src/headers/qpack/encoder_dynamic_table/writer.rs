@@ -185,6 +185,7 @@ mod tests {
             4096,
             H3Settings::default().with_qpack_max_table_capacity(4096),
             false,
+            1.0,
         );
         table.insert(qen("x-custom"), fv("v")).unwrap();
 

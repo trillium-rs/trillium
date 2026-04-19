@@ -131,9 +131,11 @@ fn run_qif_at_config(qif_path: &Path, groups: &[qif::QifGroup], config: Config) 
         H3Settings::default()
             .with_qpack_max_table_capacity(config.capacity)
             .with_qpack_blocked_streams(config.max_blocked),
-        // Match the production `HttpConfig` default so corpus numbers reflect shipped
-        // behavior. Flip this to `false` temporarily when doing phase A/B comparisons.
+        // Match the production `HttpConfig` defaults so corpus numbers reflect shipped
+        // behavior. Flip `mnemonic_indexing` to `false` or the inflation ratio to `1.0`
+        // temporarily when doing phase A/B comparisons.
         true,
+        0.95,
     );
     let decoder = DecoderDynamicTable::new(config.capacity as usize, config.max_blocked as usize);
 
