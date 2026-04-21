@@ -53,6 +53,17 @@
 //!
 //! `QPACK_ENCODER_CORPUS_FILTER=substring` restricts the run to qif files whose path contains
 //! that substring. Mirrors `QPACK_CORPUS_FILTER` on the decoder side.
+//!
+//! ## Chunking (phase-1 benchmark harness)
+//!
+//! `QPACK_CHUNK_SIZES=n1,n2,...` simulates "one .qif = many short connections" by resetting
+//! the encoder + decoder every N groups. Values are comma-separated positive integers plus
+//! the literal `inf` for "don't reset" (today's behavior). Example:
+//! `QPACK_CHUNK_SIZES=1,5,20,100,inf`. When unset, the runner behaves exactly as before (one
+//! connection per .qif, full reference-comparison report). When set, the reference-comparison
+//! report is replaced by a curve report showing total bytes per (config, chunk size) — the
+//! reference `.out` files are unchunked, so a like-for-like comparison at N<∞ would need
+//! ls-qpack run through the same chunking harness (not yet implemented).
 
 use super::{
     DecoderDynamicTable, EncoderDynamicTable,
@@ -147,151 +158,186 @@ struct DumpCtx<'a> {
 /// wire-level histogram of our own output classified through the same parser we use on
 /// reference `.out` files — for apples-to-apples comparison.
 ///
+/// `chunk_size` = `None` is today's behavior (one encoder + decoder for the whole file, one
+/// long connection). `Some(n)` simulates a fleet of n-group connections: the encoder and
+/// decoder are torn down and reconstructed every n groups, and the returned stats sum
+/// bytes across all chunks. Stream ids are 1-based within each chunk.
+///
 /// If `dump` is `Some`, a side-by-side instruction-level dump of ours-vs-ls-qpack is
-/// appended to `dump.writer` for each group.
+/// appended to `dump.writer` for each group. In chunked mode, the reference `.out` file
+/// that `dump.their_groups` came from is unchunked, so the their-side of the dump is
+/// nonsensical past the first chunk boundary — dumping is intended for debugging the
+/// unchunked case.
 fn run_qif_at_config(
     qif_path: &Path,
     groups: &[qif::QifGroup],
     config: Config,
+    chunk_size: Option<usize>,
     mut dump: Option<DumpCtx<'_>>,
 ) -> (EncodeStats, StrategyCounters, WireHistogram) {
-    let encoder = EncoderDynamicTable::default();
-    encoder.initialize_from_peer_settings(
-        config.capacity as usize,
-        H3Settings::default()
-            .with_qpack_max_table_capacity(config.capacity)
-            .with_qpack_blocked_streams(config.max_blocked),
-        // Match the production `HttpConfig` defaults so corpus numbers reflect shipped
-        // behavior. Flip `mnemonic_indexing` to `false` or the inflation ratio to `1.0`
-        // temporarily when doing phase A/B comparisons.
-        true,
-        0.95,
-    );
-    // Development-time scaffolding: attach per-line strategy counters so the aggregate
-    // report below can show which planner paths fire at what rates. Zero runtime overhead
-    // in production (field is `cfg(test)`-gated).
-    encoder.enable_strategy_counters();
-    let decoder = DecoderDynamicTable::new(config.capacity as usize, config.max_blocked as usize);
-
-    // Drain the initial Set Dynamic Table Capacity instruction (if any) into the decoder so
-    // that subsequent Insert instructions are accepted.
-    let initial_ops: Vec<u8> = encoder.drain_pending_ops().into_iter().flatten().collect();
     let mut stats = EncodeStats::default();
+    let mut total_counters = StrategyCounters::default();
     let mut wire = WireHistogram::default();
-    stats.encoder_stream_bytes += initial_ops.len();
-    wire.encoder_stream_bytes += initial_ops.len() as u64;
-    classify_encoder_stream(&initial_ops, &mut wire);
-    if !initial_ops.is_empty() {
-        let mut cursor = Cursor::new(&initial_ops[..]);
-        future::block_on(decoder.run_reader(&mut cursor)).unwrap_or_else(|e| {
-            panic!(
-                "{}: decoder rejected initial SetDynamicTableCapacity: {e}",
-                qif_path.display()
-            )
-        });
+    if groups.is_empty() {
+        return (stats, total_counters, wire);
     }
+    let effective_chunk_size = chunk_size.unwrap_or(groups.len()).max(1);
 
-    for (i, group) in groups.iter().enumerate() {
-        // Interop convention: stream ids start at 1 and increase monotonically.
-        let stream_id = (i as u64) + 1;
-        let field_lines = qif::build_field_lines(group)
-            .unwrap_or_else(|e| panic!("{}: group {i}: {e}", qif_path.display()));
+    let mut chunk_start = 0;
+    while chunk_start < groups.len() {
+        let chunk_end = (chunk_start + effective_chunk_size).min(groups.len());
+        let chunk = &groups[chunk_start..chunk_end];
 
-        let mut buf = Vec::new();
-        encoder.encode_field_lines(&field_lines, &mut buf, stream_id);
-        stats.section_bytes += buf.len();
-        wire.section_bytes += buf.len() as u64;
-        wire.n_sections += 1;
-        classify_header_block(&buf, &mut wire);
+        let encoder = EncoderDynamicTable::default();
+        encoder.initialize_from_peer_settings(
+            config.capacity as usize,
+            H3Settings::default()
+                .with_qpack_max_table_capacity(config.capacity)
+                .with_qpack_blocked_streams(config.max_blocked),
+            // Match the production `HttpConfig` defaults so corpus numbers reflect shipped
+            // behavior. Flip `mnemonic_indexing` to `false` or the inflation ratio to `1.0`
+            // temporarily when doing phase A/B comparisons.
+            true,
+            0.95,
+        );
+        // Development-time scaffolding: attach per-line strategy counters so the aggregate
+        // report below can show which planner paths fire at what rates. Zero runtime overhead
+        // in production (field is `cfg(test)`-gated).
+        encoder.enable_strategy_counters();
+        let decoder =
+            DecoderDynamicTable::new(config.capacity as usize, config.max_blocked as usize);
 
-        // Drain encoder-stream ops so the decoder has them when it decodes the header block.
-        let enc_ops: Vec<u8> = encoder.drain_pending_ops().into_iter().flatten().collect();
-        stats.encoder_stream_bytes += enc_ops.len();
-        wire.encoder_stream_bytes += enc_ops.len() as u64;
-        classify_encoder_stream(&enc_ops, &mut wire);
-
-        // Per-group ASCII dump. Appended to the writer if `dump` was provided — compares
-        // our emission sequence to the reference encoder's for this same group.
-        if let Some(ctx) = dump.as_mut() {
-            let their_group = ctx.their_groups.get(i);
-            let our_snapshot = OurStateSnapshot {
-                insert_count: encoder.insert_count(),
-                entry_count: encoder.entry_count(),
-                current_size: encoder.current_size(),
-                capacity: encoder.capacity(),
-                draining_frontier: encoder.draining_frontier_abs_idx(),
-            };
-            dump_group(
-                ctx.writer,
-                i,
-                stream_id,
-                group,
-                &enc_ops,
-                &buf,
-                their_group,
-                &our_snapshot,
-            );
-        }
-        if !enc_ops.is_empty() {
-            let mut cursor = Cursor::new(&enc_ops[..]);
+        // Drain the initial Set Dynamic Table Capacity instruction (if any) into the decoder
+        // so that subsequent Insert instructions are accepted.
+        let initial_ops: Vec<u8> = encoder.drain_pending_ops().into_iter().flatten().collect();
+        stats.encoder_stream_bytes += initial_ops.len();
+        wire.encoder_stream_bytes += initial_ops.len() as u64;
+        classify_encoder_stream(&initial_ops, &mut wire);
+        if !initial_ops.is_empty() {
+            let mut cursor = Cursor::new(&initial_ops[..]);
             future::block_on(decoder.run_reader(&mut cursor)).unwrap_or_else(|e| {
                 panic!(
-                    "{}: group {i}: decoder run_reader failed: {e}",
+                    "{}: decoder rejected initial SetDynamicTableCapacity: {e}",
                     qif_path.display()
                 )
             });
+        }
 
-            // Mimic the §4.4.3 Insert Count Increment a real peer's decoder would send
-            // after processing those Inserts — without it, KRC stays stuck at 0 for any
-            // section whose RIC is also 0 (the warming-insert pattern), starving every
-            // subsequent encode of references to entries the decoder already has.
-            let increment = encoder.insert_count() - encoder.known_received_count();
-            if increment > 0 {
-                encoder
-                    .on_insert_count_increment(increment)
-                    .unwrap_or_else(|e| {
-                        panic!(
-                            "{}: group {i}: encoder rejected insert count increment {increment}: \
-                             {e}",
-                            qif_path.display()
-                        )
-                    });
+        for (i, group) in chunk.iter().enumerate() {
+            // Interop convention: stream ids start at 1 and increase monotonically within
+            // a connection. In chunked mode each chunk is a fresh connection, so ids restart.
+            let stream_id = (i as u64) + 1;
+            let global_index = chunk_start + i;
+            let field_lines = qif::build_field_lines(group).unwrap_or_else(|e| {
+                panic!("{}: group {global_index}: {e}", qif_path.display())
+            });
+
+            let mut buf = Vec::new();
+            encoder.encode_field_lines(&field_lines, &mut buf, stream_id);
+            stats.section_bytes += buf.len();
+            wire.section_bytes += buf.len() as u64;
+            wire.n_sections += 1;
+            classify_header_block(&buf, &mut wire);
+
+            // Drain encoder-stream ops so the decoder has them when it decodes the header
+            // block.
+            let enc_ops: Vec<u8> = encoder.drain_pending_ops().into_iter().flatten().collect();
+            stats.encoder_stream_bytes += enc_ops.len();
+            wire.encoder_stream_bytes += enc_ops.len() as u64;
+            classify_encoder_stream(&enc_ops, &mut wire);
+
+            // Per-group ASCII dump. Appended to the writer if `dump` was provided — compares
+            // our emission sequence to the reference encoder's for this same group.
+            if let Some(ctx) = dump.as_mut() {
+                let their_group = ctx.their_groups.get(global_index);
+                let our_snapshot = OurStateSnapshot {
+                    insert_count: encoder.insert_count(),
+                    entry_count: encoder.entry_count(),
+                    current_size: encoder.current_size(),
+                    capacity: encoder.capacity(),
+                    draining_frontier: encoder.draining_frontier_abs_idx(),
+                };
+                dump_group(
+                    ctx.writer,
+                    global_index,
+                    stream_id,
+                    group,
+                    &enc_ops,
+                    &buf,
+                    their_group,
+                    &our_snapshot,
+                );
+            }
+            if !enc_ops.is_empty() {
+                let mut cursor = Cursor::new(&enc_ops[..]);
+                future::block_on(decoder.run_reader(&mut cursor)).unwrap_or_else(|e| {
+                    panic!(
+                        "{}: group {global_index}: decoder run_reader failed: {e}",
+                        qif_path.display()
+                    )
+                });
+
+                // Mimic the §4.4.3 Insert Count Increment a real peer's decoder would send
+                // after processing those Inserts — without it, KRC stays stuck at 0 for any
+                // section whose RIC is also 0 (the warming-insert pattern), starving every
+                // subsequent encode of references to entries the decoder already has.
+                let increment = encoder.insert_count() - encoder.known_received_count();
+                if increment > 0 {
+                    encoder.on_insert_count_increment(increment).unwrap_or_else(
+                        |e| {
+                            panic!(
+                                "{}: group {global_index}: encoder rejected insert count \
+                                 increment {increment}: {e}",
+                                qif_path.display()
+                            )
+                        },
+                    );
+                }
+            }
+
+            let field_section =
+                future::block_on(decoder.decode(&buf, stream_id)).unwrap_or_else(|e| {
+                    panic!(
+                        "{}: group {global_index}: decode failed: {e}",
+                        qif_path.display()
+                    )
+                });
+
+            let mut got = qif::field_section_to_pairs(field_section);
+            let mut want = group.clone();
+            got.sort();
+            want.sort();
+            assert!(
+                got == want,
+                "{}: group {global_index} mismatch (section {} bytes, enc-stream {} bytes)\n  \
+                 want: {:?}\n  got:  {:?}",
+                qif_path.display(),
+                buf.len(),
+                enc_ops.len(),
+                want,
+                got,
+            );
+
+            // Always-ack: if the section emitted a non-zero prefix it registered an
+            // outstanding section (see `emit_section_prefix` — section_ric=0 produces
+            // exactly `[0x00, 0x00]`, any RIC>0 produces a non-zero first byte).
+            // Acknowledging advances KRC so the next group can reference entries
+            // non-blockingly and pinned entries can be evicted.
+            if !buf.starts_with(&[0x00, 0x00]) {
+                encoder.on_section_ack(stream_id).unwrap_or_else(|e| {
+                    panic!(
+                        "{}: group {global_index}: encoder rejected section ack: {e}",
+                        qif_path.display()
+                    )
+                });
             }
         }
 
-        let field_section = future::block_on(decoder.decode(&buf, stream_id))
-            .unwrap_or_else(|e| panic!("{}: group {i}: decode failed: {e}", qif_path.display()));
-
-        let mut got = qif::field_section_to_pairs(field_section);
-        let mut want = group.clone();
-        got.sort();
-        want.sort();
-        assert!(
-            got == want,
-            "{}: group {i} mismatch (section {} bytes, enc-stream {} bytes)\n  want: {:?}\n  got:  {:?}",
-            qif_path.display(),
-            buf.len(),
-            enc_ops.len(),
-            want,
-            got,
-        );
-
-        // Always-ack: if the section emitted a non-zero prefix it registered an outstanding
-        // section (see `emit_section_prefix` — section_ric=0 produces exactly `[0x00, 0x00]`,
-        // any RIC>0 produces a non-zero first byte). Acknowledging advances KRC so the next
-        // group can reference entries non-blockingly and pinned entries can be evicted.
-        if !buf.starts_with(&[0x00, 0x00]) {
-            encoder.on_section_ack(stream_id).unwrap_or_else(|e| {
-                panic!(
-                    "{}: group {i}: encoder rejected section ack: {e}",
-                    qif_path.display()
-                )
-            });
-        }
+        total_counters.add(&encoder.take_strategy_counters().unwrap_or_default());
+        chunk_start = chunk_end;
     }
 
-    let counters = encoder.take_strategy_counters().unwrap_or_default();
-    (stats, counters, wire)
+    (stats, total_counters, wire)
 }
 
 /// Post-section state snapshot on our side. Captured after encoding the section and
@@ -478,6 +524,27 @@ fn reference_stats_for(
 
 // --- Test entry point ---
 
+/// Parse `QPACK_CHUNK_SIZES`. Returns `vec![None]` when unset (today's behavior — one
+/// connection per qif). Comma-separated integers become `Some(n)`; `inf` (or empty token)
+/// becomes `None`. Panics on a malformed integer so a typo fails the test loudly.
+fn parse_chunk_sizes() -> Vec<Option<usize>> {
+    match std::env::var("QPACK_CHUNK_SIZES").ok() {
+        None => vec![None],
+        Some(s) => s
+            .split(',')
+            .map(|tok| tok.trim())
+            .filter(|tok| !tok.is_empty())
+            .map(|tok| match tok {
+                "inf" | "∞" => None,
+                n => Some(
+                    n.parse::<usize>()
+                        .unwrap_or_else(|_| panic!("QPACK_CHUNK_SIZES: invalid token {n:?}")),
+                ),
+            })
+            .collect(),
+    }
+}
+
 #[test]
 fn qpack_encoder_corpus() {
     let _ = env_logger::try_init();
@@ -492,9 +559,13 @@ fn qpack_encoder_corpus() {
 
     let filter = std::env::var("QPACK_ENCODER_CORPUS_FILTER").ok();
     let stats_enabled = std::env::var("QPACK_ENCODER_STATS").is_ok_and(|v| v == "1");
+    let chunk_sizes = parse_chunk_sizes();
+    let chunked_mode = chunk_sizes.iter().any(Option::is_some);
     // When set, dump per-group ours-vs-ls-qpack ASCII to `target/qpack-dump/`. Value is a
     // substring filter over qif stems — e.g. `QPACK_ENCODER_DUMP=fb-resp` writes dumps
-    // only for fb-resp / fb-resp-hq at each config. Scaffolding; tears out.
+    // only for fb-resp / fb-resp-hq at each config. Scaffolding; tears out. Only fires at
+    // `chunk_size = None` (the reference `.out` files are unchunked, so any chunked
+    // their-side would be misaligned past the first chunk boundary).
     let dump_filter = std::env::var("QPACK_ENCODER_DUMP").ok();
     let dump_dir: Option<PathBuf> = dump_filter.as_ref().map(|_| {
         let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/qpack-dump");
@@ -502,9 +573,12 @@ fn qpack_encoder_corpus() {
         d
     });
 
-    // Collected (qif stem, config) -> (ours, per-encoder reference totals + histograms,
-    // strategy counters, our wire histogram). Only populated when stats are enabled.
+    // Collected (chunk_size, qif stem, config) -> (ours, per-encoder reference totals +
+    // histograms, strategy counters, our wire histogram). Only populated when stats are
+    // enabled. `chunk_size = None` means one connection per qif (unchunked); `Some(n)`
+    // means the qif was replayed as many n-group connections.
     type MetricRow = (
+        Option<usize>,
         String,
         Config,
         EncodeStats,
@@ -549,61 +623,86 @@ fn qpack_encoder_corpus() {
             .unwrap_or("")
             .to_owned();
 
-        for &config in CONFIGS {
-            eprintln!(
-                "testing {} @ ({}, {})",
-                qif_path.display(),
-                config.capacity,
-                config.max_blocked
-            );
-            // Construct the per-qif dump writer if enabled and this qif matches.
-            let dump_file = dump_filter.as_deref().and_then(|needle| {
-                if !stem.contains(needle) {
-                    return None;
-                }
-                let path = dump_dir.as_ref()?.join(format!(
-                    "{stem}_{}_{}.txt",
-                    config.capacity, config.max_blocked
-                ));
-                let file = File::create(&path).ok()?;
-                Some((path, BufWriter::new(file)))
-            });
-            let (their_groups, mut dump_writer) = match dump_file {
-                Some((path, mut w)) => {
-                    // Preload ls-qpack's .out so we can diff per group.
-                    let reference_path = encoded_dir.join(format!(
-                        "ls-qpack/{stem}.out.{}.{}.1",
-                        config.capacity, config.max_blocked
-                    ));
-                    let groups = parse_out_groups(&reference_path).unwrap_or_default();
-                    let _ = writeln!(
-                        &mut w,
-                        "# {} @ ({},{}) — ours vs ls-qpack, one line per instruction",
-                        qif_path.display(),
-                        config.capacity,
-                        config.max_blocked
-                    );
-                    let _ = writeln!(&mut w, "# reference: {}", reference_path.display());
-                    let _ = writeln!(&mut w);
-                    eprintln!("    (dumping to {})", path.display());
-                    (Some(groups), Some(w))
-                }
-                None => (None, None),
-            };
-            let dump_ctx = match (their_groups.as_deref(), dump_writer.as_mut()) {
-                (Some(g), Some(w)) => Some(DumpCtx {
-                    writer: w,
-                    their_groups: g,
-                }),
-                _ => None,
-            };
-            let (stats, counters, our_wire) =
-                run_qif_at_config(&qif_path, &groups, config, dump_ctx);
-            tested += 1;
+        for &chunk_size in &chunk_sizes {
+            for &config in CONFIGS {
+                eprintln!(
+                    "testing {} @ ({}, {}) chunk={}",
+                    qif_path.display(),
+                    config.capacity,
+                    config.max_blocked,
+                    chunk_size
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "inf".to_string()),
+                );
+                // Dump writer only opens when unchunked — avoids a meaningless
+                // their-side diff in chunked runs.
+                let dump_file = if chunk_size.is_none() {
+                    dump_filter.as_deref().and_then(|needle| {
+                        if !stem.contains(needle) {
+                            return None;
+                        }
+                        let path = dump_dir.as_ref()?.join(format!(
+                            "{stem}_{}_{}.txt",
+                            config.capacity, config.max_blocked
+                        ));
+                        let file = File::create(&path).ok()?;
+                        Some((path, BufWriter::new(file)))
+                    })
+                } else {
+                    None
+                };
+                let (their_groups, mut dump_writer) = match dump_file {
+                    Some((path, mut w)) => {
+                        // Preload ls-qpack's .out so we can diff per group.
+                        let reference_path = encoded_dir.join(format!(
+                            "ls-qpack/{stem}.out.{}.{}.1",
+                            config.capacity, config.max_blocked
+                        ));
+                        let groups = parse_out_groups(&reference_path).unwrap_or_default();
+                        let _ = writeln!(
+                            &mut w,
+                            "# {} @ ({},{}) — ours vs ls-qpack, one line per instruction",
+                            qif_path.display(),
+                            config.capacity,
+                            config.max_blocked
+                        );
+                        let _ = writeln!(&mut w, "# reference: {}", reference_path.display());
+                        let _ = writeln!(&mut w);
+                        eprintln!("    (dumping to {})", path.display());
+                        (Some(groups), Some(w))
+                    }
+                    None => (None, None),
+                };
+                let dump_ctx = match (their_groups.as_deref(), dump_writer.as_mut()) {
+                    (Some(g), Some(w)) => Some(DumpCtx {
+                        writer: w,
+                        their_groups: g,
+                    }),
+                    _ => None,
+                };
+                let (stats, counters, our_wire) =
+                    run_qif_at_config(&qif_path, &groups, config, chunk_size, dump_ctx);
+                tested += 1;
 
-            if stats_enabled {
-                let refs = reference_stats_for(&encoded_dir, &stem, config);
-                metric.push((stem.clone(), config, stats, refs, counters, our_wire));
+                if stats_enabled {
+                    // Reference files are unchunked, so per-encoder refs are only
+                    // meaningful when chunk_size is None. Skip the lookup for chunked
+                    // rows — they render through the curve report which ignores refs.
+                    let refs = if chunk_size.is_none() {
+                        reference_stats_for(&encoded_dir, &stem, config)
+                    } else {
+                        BTreeMap::new()
+                    };
+                    metric.push((
+                        chunk_size,
+                        stem.clone(),
+                        config,
+                        stats,
+                        refs,
+                        counters,
+                        our_wire,
+                    ));
+                }
             }
         }
     }
@@ -618,8 +717,132 @@ fn qpack_encoder_corpus() {
     );
 
     if stats_enabled {
-        print_metric_report(&metric);
+        if chunked_mode {
+            print_curve_report(&metric, &chunk_sizes);
+        } else {
+            // Unchunked rows still flow through the legacy report verbatim.
+            let unchunked: Vec<_> = metric
+                .iter()
+                .filter(|row| row.0.is_none())
+                .map(|(_, stem, c, s, r, sc, w)| {
+                    (stem.clone(), *c, *s, r.clone(), sc.clone(), w.clone())
+                })
+                .collect();
+            print_metric_report(&unchunked);
+        }
     }
+}
+
+/// Curve report: total encoded bytes per `(qif, config, chunk_size)` plus an aggregate
+/// across qifs. Rendered when `QPACK_CHUNK_SIZES` is set (replaces the reference-comparison
+/// report, which would be meaningless at `chunk_size < ∞` since reference `.out` files are
+/// unchunked). Chunk sizes are rendered in the order the user supplied them so the curve
+/// reads left-to-right in whatever direction is intuitive for the sweep being run.
+fn print_curve_report(
+    metric: &[(
+        Option<usize>,
+        String,
+        Config,
+        EncodeStats,
+        BTreeMap<String, (usize, Option<WireHistogram>)>,
+        StrategyCounters,
+        WireHistogram,
+    )],
+    chunk_sizes: &[Option<usize>],
+) {
+    eprintln!("\n=== QPACK Encoder Curve — total bytes by chunk size ===");
+    eprintln!(
+        "(bytes = section_bytes + encoder_stream_bytes; chunk_size = simulated connection \
+         length in header blocks; inf = one connection per qif)\n"
+    );
+
+    let fmt_cs = |cs: Option<usize>| -> String {
+        cs.map(|n| format!("N={n}")).unwrap_or_else(|| "N=inf".into())
+    };
+
+    // Build: (stem, cap, blk) -> chunk_size -> total bytes.
+    let mut per_qif: BTreeMap<(String, u64, u64), BTreeMap<Option<usize>, usize>> =
+        BTreeMap::new();
+    let mut agg: BTreeMap<(u64, u64), BTreeMap<Option<usize>, usize>> = BTreeMap::new();
+    for (cs, stem, config, stats, _, _, _) in metric {
+        *per_qif
+            .entry((stem.clone(), config.capacity, config.max_blocked))
+            .or_default()
+            .entry(*cs)
+            .or_default() += stats.total();
+        *agg.entry((config.capacity, config.max_blocked))
+            .or_default()
+            .entry(*cs)
+            .or_default() += stats.total();
+    }
+
+    // Header row, per-qif.
+    let mut header = format!("{:<20} {:<12}", "qif", "config");
+    for &cs in chunk_sizes {
+        header.push_str(&format!(" {:>12}", fmt_cs(cs)));
+    }
+    eprintln!("{header}");
+    for ((stem, cap, blk), by_chunk) in &per_qif {
+        let config_str = format!("({cap},{blk})");
+        let mut row = format!("{stem:<20} {config_str:<12}");
+        for &cs in chunk_sizes {
+            let val = by_chunk.get(&cs).copied().unwrap_or(0);
+            row.push_str(&format!(" {val:>12}"));
+        }
+        eprintln!("{row}");
+    }
+
+    eprintln!("\n--- aggregate across qifs ---");
+    let mut header = format!("{:<12}", "config");
+    for &cs in chunk_sizes {
+        header.push_str(&format!(" {:>12}", fmt_cs(cs)));
+    }
+    eprintln!("{header}");
+    for ((cap, blk), by_chunk) in &agg {
+        let config_str = format!("({cap},{blk})");
+        let mut row = format!("{config_str:<12}");
+        for &cs in chunk_sizes {
+            let val = by_chunk.get(&cs).copied().unwrap_or(0);
+            row.push_str(&format!(" {val:>12}"));
+        }
+        eprintln!("{row}");
+    }
+
+    // Ratio view: bytes at each chunk size as a % of the rightmost-available chunk size
+    // (typically N=inf if supplied). Makes "how much does chunking cost us?" legible at a
+    // glance without mental arithmetic.
+    let baseline = chunk_sizes
+        .iter()
+        .rev()
+        .copied()
+        .find(|cs| agg.values().any(|m| m.contains_key(cs)));
+    if let Some(base_cs) = baseline {
+        eprintln!(
+            "\n--- aggregate ratio to {} (lower is better; >100% = chunking costs bytes) ---",
+            fmt_cs(base_cs)
+        );
+        let mut header = format!("{:<12}", "config");
+        for &cs in chunk_sizes {
+            header.push_str(&format!(" {:>10}", fmt_cs(cs)));
+        }
+        eprintln!("{header}");
+        for ((cap, blk), by_chunk) in &agg {
+            let config_str = format!("({cap},{blk})");
+            let mut row = format!("{config_str:<12}");
+            let base = by_chunk.get(&base_cs).copied().unwrap_or(0);
+            for &cs in chunk_sizes {
+                let val = by_chunk.get(&cs).copied().unwrap_or(0);
+                let cell = if base == 0 {
+                    "  —".to_string()
+                } else {
+                    format!("{:.1}%", (val as f64) * 100.0 / (base as f64))
+                };
+                row.push_str(&format!(" {cell:>10}"));
+            }
+            eprintln!("{row}");
+        }
+    }
+    eprintln!();
 }
 
 fn print_metric_report(
