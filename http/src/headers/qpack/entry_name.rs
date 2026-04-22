@@ -82,9 +82,9 @@ impl QpackEntryName<'_> {
     /// trillium-proxy; see the `qpack-n-bit-gap` memory note for the full story.
     ///
     /// This predicate is a *ban* — callers that additionally want to skip names whose
-    /// caching is merely *unprofitable* (e.g. `date`, which the adaptive mnemonic predictor
-    /// correctly decides at runtime) should add their own check on top rather than widening
-    /// this list.
+    /// caching is merely *unprofitable* (e.g. `date`, whose rapidly-changing value the
+    /// header observer filters on the cost-model side) should add their own check on top
+    /// rather than widening this list.
     pub(in crate::headers) fn has_uncacheable_value(&self) -> bool {
         matches!(
             self,

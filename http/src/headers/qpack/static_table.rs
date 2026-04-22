@@ -65,7 +65,7 @@ mod tests {
     fn round_trip() {
         for phn in PseudoHeaderName::VARIANTS.into_iter().copied() {
             assert_eq!(
-                PseudoHeaderName::lowercase_byte_match(phn.as_bytes()),
+                PseudoHeaderName::lowercase_byte_match(phn.as_str().as_bytes()),
                 Some(phn)
             );
         }
@@ -89,11 +89,6 @@ impl PseudoHeaderName {
             Scheme => ":scheme",
             Status => ":status",
         }
-    }
-
-    /// retrieve a static byte representation including leading :
-    pub fn as_bytes(self) -> &'static [u8] {
-        self.as_str().as_bytes()
     }
 
     pub(in crate::headers) fn lowercase_byte_match(bytes: &[u8]) -> Option<Self> {

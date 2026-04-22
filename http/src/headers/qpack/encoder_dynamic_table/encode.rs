@@ -2,28 +2,27 @@
 //!
 //! Two-phase design:
 //!
-//! 1. **Plan phase** runs under the `TableState` mutex. It walks the field section, decides
-//!    each line's encoding (static ref / dynamic ref / literal, with optional warming insert),
-//!    accumulates a list of [`Emission`]s, and updates the section's Required Insert Count
-//!    and min-referenced `abs_idx`. Section registration happens inside the same critical
-//!    section so the blocked-streams accounting is atomic.
+//! 1. **Plan phase** runs under the `TableState` mutex. It walks the field section, decides each
+//!    line's encoding (static ref / dynamic ref / literal, with optional warming insert),
+//!    accumulates a list of [`Emission`]s, and updates the section's Required Insert Count and
+//!    min-referenced `abs_idx`. Section registration happens inside the same critical section so
+//!    the blocked-streams accounting is atomic.
 //!
-//! 2. **Emit phase** runs lock-free. It converts the planned [`Emission`] list into wire
-//!    bytes using the §4.5 wire helpers.
+//! 2. **Emit phase** runs lock-free. It converts the planned [`Emission`] list into wire bytes
+//!    using the §4.5 wire helpers.
 //!
 //! ## Per-line decision
 //!
 //! Direct chain inside [`Planner::plan_header_line`]:
 //!
 //! 1. **Static full match** — `IndexedStatic`, the cheapest possible encoding.
-//! 2. **Dynamic full match** — `IndexedDynamic` if the entry is referenceable
-//!    (already-acked, or this section is permitted to block).
-//! 3. **Warming insert** — when the predictor reports we've seen this `(name, value)` pair
-//!    before. Insert the entry now so future sections can `IndexedDynamic` against it; this
-//!    section emits a literal regardless. We never reference a freshly-inserted entry in
-//!    the same section.
-//! 4. **Literal form** — `LiteralStaticNameRef` → `LiteralDynamicNameRef` (when the
-//!    pre-insert dyn-name lookup is still live and the budget allows) → `LiteralLiteralName`.
+//! 2. **Dynamic full match** — `IndexedDynamic` if the entry is referenceable (already-acked, or
+//!    this section is permitted to block).
+//! 3. **Warming insert** — when the predictor reports we've seen this `(name, value)` pair before.
+//!    Insert the entry now so future sections can `IndexedDynamic` against it; this section emits a
+//!    literal regardless. We never reference a freshly-inserted entry in the same section.
+//! 4. **Literal form** — `LiteralStaticNameRef` → `LiteralDynamicNameRef` (when the pre-insert
+//!    dyn-name lookup is still live and the budget allows) → `LiteralLiteralName`.
 //!
 //! ## Blocking budget
 //!
@@ -43,7 +42,7 @@
 
 use super::{EncoderDynamicTable, SectionRefs, recent_pairs::RecentPairs, state::TableState};
 use crate::headers::qpack::{
-    FieldLineValue, FieldSection,
+    FieldLineValue, FieldSection, HeaderObserver,
     entry_name::QpackEntryName,
     instruction::field_section::{FieldLineInstruction, FieldSectionPrefix},
     static_table::{StaticLookup, static_table_lookup},
@@ -92,7 +91,7 @@ impl EncoderDynamicTable {
             let mut state = self.state.lock().unwrap();
             max_capacity = state.max_capacity;
             krc_at_encode = state.known_received_count;
-            let mut planner = Planner::new(&mut state, stream_id);
+            let mut planner = Planner::new(&mut state, stream_id, &self.observer);
             for (name, value) in field_lines {
                 planner.plan_header_line(name, value.reborrow());
             }
@@ -121,10 +120,8 @@ impl EncoderDynamicTable {
         // protocol already gives us (each header line is its own pair).
         self.observer.record_section_start();
         for (name, value) in field_lines {
-            self.observer.record_observation(
-                name.reborrow().into_owned(),
-                value.reborrow().into_owned(),
-            );
+            self.observer
+                .record_observation(name.reborrow().into_owned(), value.reborrow().into_owned());
         }
 
         let section_start = buf.len();
@@ -210,6 +207,10 @@ struct Plan<'lines, 'names> {
 /// decisions as the field section is walked. Runs entirely under the `TableState` lock.
 struct Planner<'state, 'lines, 'names> {
     state: &'state mut TableState,
+    /// Cross-connection header observer, consulted by the dup-drain refresh pass to
+    /// decide whether an about-to-be-pressed-off tail entry is still hot enough to
+    /// warrant a Duplicate instruction.
+    observer: &'state HeaderObserver,
     emissions: Vec<Emission<'lines, 'names>>,
     section_ric: u64,
     min_ref_abs_idx: Option<u64>,
@@ -230,11 +231,16 @@ struct Planner<'state, 'lines, 'names> {
 }
 
 impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
-    fn new(state: &'state mut TableState, stream_id: u64) -> Self {
+    fn new(
+        state: &'state mut TableState,
+        stream_id: u64,
+        observer: &'state HeaderObserver,
+    ) -> Self {
         let can_block_section = state.is_stream_blocking(stream_id)
             || state.currently_blocked_streams() < state.max_blocked_streams;
         Self {
             state,
+            observer,
             emissions: Vec::new(),
             section_ric: 0,
             min_ref_abs_idx: None,
@@ -262,8 +268,7 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         // so they never enter the ring). Computed once and threaded through both `seen`
         // (read for the indexing decision) and `remember` (write at the end of planning).
         let uncacheable = name.has_uncacheable_value();
-        let hash = (!uncacheable)
-            .then(|| RecentPairs::hash(name.as_bytes(), value.as_bytes()));
+        let hash = (!uncacheable).then(|| RecentPairs::hash(name.as_bytes(), value.as_bytes()));
 
         // Indexing decision: a non-sensitive header is eligible for warm insertion the
         // second (and subsequent) time the encoder sees it on this connection.
@@ -298,14 +303,12 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             return Emission::IndexedStatic(i);
         }
 
-        // 2. Dynamic full match: reference directly when budget allows. Pre-insert lookup
-        //    — we never reference an entry that the upcoming warming insert would create
-        //    in this same section.
-        let dyn_full = self
-            .state
-            .by_name
-            .get(name)
-            .and_then(|i| i.by_value.get(value.as_bytes()).copied());
+        let name_lookup = self.state.by_name.get(name);
+
+        // 2. Dynamic full match: reference directly when budget allows. Pre-insert lookup — we
+        //    never reference an entry that the upcoming warming insert would create in this same
+        //    section.
+        let dyn_full = name_lookup.and_then(|i| i.by_value.get(value.as_bytes()).copied());
         if let Some(abs_idx) = dyn_full
             && self.can_ref(abs_idx)
         {
@@ -313,17 +316,19 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             return Emission::IndexedDynamicPreBase(abs_idx);
         }
 
-        // 3. Pre-insert dyn-name lookup. Captured before the warming insert so the
-        //    literal-form picker uses the existing entry rather than the freshly-inserted
-        //    one (which would amount to insert-then-reference; we don't do that). Validity
-        //    is re-checked post-insert via `entry_at_abs` because the warming insert may
-        //    evict older entries to make room.
-        let dyn_name_pre = self.state.by_name.get(name).map(|i| i.latest_any);
+        // 3. Pre-insert dyn-name lookup. Captured before the warming insert so the literal-form
+        //    picker uses the existing entry rather than the freshly-inserted one (which would
+        //    amount to insert-then-reference; we don't do that). Validity is re-checked post-insert
+        //    via `entry_at_abs` because the warming insert may evict older entries to make room.
+        let dyn_name_pre = name_lookup.map(|i| i.latest_any);
 
-        // 4. Warming insert: predictor saw this pair (or eager mode). Seeds a future-
-        //    section reference; emission for *this* section is always a literal. Failure
-        //    is silently ignored — we just fall through to the literal form picker below.
+        // 4. Warming insert: predictor saw this pair (or eager mode). Seeds a future- section
+        //    reference; emission for *this* section is always a literal. Failure is silently
+        //    ignored — we just fall through to the literal form picker below. Before the insert,
+        //    give the dup-drain pass a chance to refresh a hot tail entry that's at risk of
+        //    eviction.
         if should_index {
+            self.refresh_hot_tail();
             let pre_count = self.state.pending_ops.len();
             let _ = self
                 .state
@@ -337,9 +342,8 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             }
         }
 
-        // 5. Literal form: static name ref → pre-insert dyn name ref (still live and
-        //    referenceable) → literal-literal. Section never references the freshly-
-        //    inserted entry from step 4.
+        // 5. Literal form: static name ref → pre-insert dyn name ref (still live and referenceable)
+        //    → literal-literal. Section never references the freshly- inserted entry from step 4.
         if let StaticLookup::NameMatch(i) = static_match {
             return Emission::LiteralStaticNameRef {
                 name_index: i,
@@ -362,6 +366,79 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             name,
             value,
             never_indexed,
+        }
+    }
+
+    /// If the table is close enough to full that the oldest entry is at risk of being
+    /// evicted by an upcoming warming insert, and the observer still considers it hot,
+    /// emit a Duplicate so the next section can still reference it.
+    ///
+    /// ## Gate
+    ///
+    /// Fires only when `headroom < primed_bytes` — i.e. the remaining room is less than
+    /// the initial priming footprint. With no priming, `primed_bytes` is 0 and the gate
+    /// never opens, which cleanly disables dup-drain for connections where the structural
+    /// hot-at-the-tail shape doesn't apply.
+    ///
+    /// Early-refreshing at this threshold (rather than "right before eviction") preserves
+    /// the ability to duplicate at all: a Duplicate of the oldest entry needs enough room
+    /// to add its own size, and that's impossible once the table is already full — the
+    /// source entry is its own pin, so nothing older can be evicted to make room.
+    ///
+    /// ## Budget
+    ///
+    /// At most one attempted Duplicate per warming insert. In a burst of N warming
+    /// inserts, up to N refresh attempts fire — each cycles the (then-)oldest hot entry
+    /// to the head, so a sustained burst naturally drains the full priming list to the
+    /// front without an explicit counter.
+    ///
+    /// ## Failure
+    ///
+    /// Silently dropped. The most likely reason is "not enough headroom to add another
+    /// entry" (the dup needs its own size free), which is already the worst-case we
+    /// designed the gate to avoid — if we hit it anyway, the warming insert still
+    /// proceeds and evicts the oldest entry normally.
+    fn refresh_hot_tail(&mut self) {
+        if self.state.primed_bytes == 0 {
+            return;
+        }
+        let headroom = self.state.capacity.saturating_sub(self.state.current_size);
+        if headroom >= self.state.primed_bytes {
+            return;
+        }
+
+        let (oldest_abs, name, value_opt) = {
+            let Some(oldest) = self.state.entries.back() else {
+                return;
+            };
+            let oldest_abs = self
+                .state
+                .insert_count
+                .saturating_sub(self.state.entries.len() as u64);
+            let name = oldest.name.clone();
+            let value_opt = if oldest.value.is_empty() {
+                None
+            } else {
+                Some(FieldLineValue::Owned(oldest.value.to_vec()))
+            };
+            (oldest_abs, name, value_opt)
+        };
+
+        if !self.observer.is_hot(&name, value_opt.as_ref()) {
+            return;
+        }
+
+        let pre_count = self.state.pending_ops.len();
+        if self
+            .state
+            .duplicate(oldest_abs, self.min_ref_abs_idx)
+            .is_ok()
+            && self.state.pending_ops.len() > pre_count
+        {
+            self.made_inserts = true;
+            if let Some(wire) = self.state.pending_ops.back() {
+                self.enc_stream_bytes = self.enc_stream_bytes.saturating_add(to_u32(wire.len()));
+            }
         }
     }
 

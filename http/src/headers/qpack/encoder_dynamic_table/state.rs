@@ -71,6 +71,12 @@ pub(super) struct TableState {
     /// Per-connection ring of recently-seen `(name, value)` pair hashes. Consulted by
     /// the planner before each warming insert.
     pub(super) recent_pairs: RecentPairs,
+    /// Running total of §3.2.1 entry sizes for priming inserts that succeeded at
+    /// connection start. Read by the encode-path dup-drain gate: refresh kicks in when
+    /// `headroom < primed_bytes` — i.e. when the table is close enough to full that the
+    /// oldest (by construction of initial inserts, the primed) entries are at risk.
+    /// `0` means no priming ran, which naturally disables dup-drain for this connection.
+    pub(super) primed_bytes: usize,
 }
 
 #[derive(Debug, Default)]
@@ -122,6 +128,7 @@ impl TableState {
             max_blocked_streams: 0,
             by_name: HashMap::new(),
             recent_pairs,
+            primed_bytes: 0,
         }
     }
 
@@ -136,9 +143,9 @@ impl TableState {
     ///
     /// `extra_floor` is an additional eviction-floor `abs_idx` that must be preserved across
     /// any eviction performed by this insert (combined with the outstanding-sections pin
-    /// floor and any variant-specific preserve floor). The encode-path planner uses this to
-    /// hold an in-progress section's smallest referenced `abs_idx` alive across an
-    /// insert-then-reference; everywhere else it's `None`.
+    /// floor and any variant-specific preserve floor). The encode-path planner passes the
+    /// in-progress section's smallest referenced `abs_idx` so that a warming insert late in
+    /// the section cannot evict an entry the section has already referenced.
     ///
     /// The Duplicate and dynamic-name-ref paths add the referenced entry's `abs_idx` to the
     /// eviction floor for the duration of `make_room_for`, so eviction can't drop the entry
@@ -192,15 +199,14 @@ impl TableState {
         Ok(self.insert_entry(name, value, entry_size, wire))
     }
 
-    /// §3.2.4 Duplicate. Two callers:
+    /// §3.2.4 Duplicate. Called by [`insert`](Self::insert)'s smart-pick fast-path when the
+    /// caller's `(name, value)` already matches a live entry: the source's stored
+    /// name+value are cloned (cheap `Cow` clones in the common `'static` case) rather than
+    /// allocating fresh owned copies from the borrowed inputs.
     ///
-    /// - [`insert`](Self::insert)'s smart-pick fast-path, when the caller's `(name, value)` already
-    ///   matches a live entry. The source's stored name+value are cloned (cheap `Cow` clones for
-    ///   the common `'static` case) rather than allocating fresh owned copies from the borrowed
-    ///   inputs.
-    /// - The encode-phase planner, when policy decides to refresh a specific live entry into a
-    ///   fresh table position (e.g. phase 4's draining-refresh) regardless of the field line being
-    ///   encoded.
+    /// Reserved as the underlying primitive for a future dup-draining refresh pass — the
+    /// wire form (a Duplicate instruction referencing the source by relative index)
+    /// doesn't care whether the caller is servicing a field line or refreshing the tail.
     ///
     /// The source `abs_idx` is added to the eviction floor for the duration of
     /// `make_room_for` so it remains live for the post-eviction clone.

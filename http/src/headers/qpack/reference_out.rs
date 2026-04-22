@@ -8,18 +8,14 @@
 //! instruction into a [`WireHistogram`] that can be compared, bucket for bucket, against
 //! a histogram derived from our own encoder output.
 //!
-//! Development-time scaffolding (tears out alongside `strategy_counters.rs`). The
-//! corpus test is the only caller.
+//! Development-time scaffolding. The corpus test is the only caller.
 //!
 //! ## Why wire-level rather than policy-level comparison
 //!
-//! Our [`StrategyCounters`](super::encoder_dynamic_table::strategy_counters::StrategyCounters)
-//! records internal planner decisions that aren't visible on the wire — allowance
-//! distribution, saturation events, guard firings. We can't derive those from a reference
-//! encoder's output. Going in the other direction, many strategy-level distinctions
-//! collapse to identical wire shapes (e.g. insert-then-reference and warming-insert both
-//! emit `Insert` on the encoder stream). A wire-level histogram is the common denominator
-//! — what any two encoders produce for the same input, in the same shape.
+//! Different encoders can arrive at identical wire output via very different internal
+//! decisions, and any internal counters we might keep on our side are not derivable from
+//! a reference encoder's output. A wire-level histogram is the common denominator —
+//! what any two encoders produce for the same input, in the same shape.
 //!
 //! ## Wire-shape divergences to expect
 //!

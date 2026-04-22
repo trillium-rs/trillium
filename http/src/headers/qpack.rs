@@ -1,12 +1,6 @@
 //! QPACK types
 //!
 //! Please note that this interface is likely to change
-
-// The outbound dynamic-table encode path is under active construction: several helpers and
-// policy building blocks are intentionally present ahead of their first call site. Suppress
-// dead-code warnings for the whole module until the encode strategies land.
-#![allow(dead_code)]
-
 #[cfg(test)]
 mod decoder_corpus_tests;
 mod decoder_dynamic_table;
@@ -46,8 +40,8 @@ pub use decoder_dynamic_table::DecoderDynamicTable;
 pub(crate) use encoder_dynamic_table::EncoderDynamicTable;
 #[cfg(feature = "unstable")]
 pub use encoder_dynamic_table::EncoderDynamicTable;
-pub(crate) use header_observer::HeaderObserver;
 use fieldwork::Fieldwork;
+pub(crate) use header_observer::HeaderObserver;
 #[cfg(feature = "unstable")]
 pub use huffman::HuffmanError;
 #[cfg(not(feature = "unstable"))]
@@ -84,19 +78,6 @@ pub struct PseudoHeaders<'a> {
 
     /// :protocol pseudo header
     protocol: Option<Cow<'a, str>>,
-}
-
-impl PseudoHeaders<'_> {
-    fn get(&self, pseudo_header_name: PseudoHeaderName) -> Option<&str> {
-        match pseudo_header_name {
-            PseudoHeaderName::Authority => self.authority.as_deref(),
-            PseudoHeaderName::Method => self.method.map(|m| m.as_str()),
-            PseudoHeaderName::Path => self.path.as_deref(),
-            PseudoHeaderName::Protocol => self.protocol.as_deref(),
-            PseudoHeaderName::Scheme => self.scheme.as_deref(),
-            PseudoHeaderName::Status => self.status.map(|s| s.code()),
-        }
-    }
 }
 
 impl Display for PseudoHeaders<'_> {
@@ -185,14 +166,6 @@ impl FieldLineValue<'_> {
             FieldLineValue::Static(b) => Cow::Borrowed(b),
             FieldLineValue::Borrowed(b) => Cow::Owned(b.to_vec()),
             FieldLineValue::Owned(b) => Cow::Owned(b),
-        }
-    }
-
-    fn as_static(&self) -> Cow<'static, [u8]> {
-        match self {
-            FieldLineValue::Static(b) => Cow::Borrowed(b),
-            FieldLineValue::Borrowed(b) => Cow::Owned(b.to_vec()),
-            FieldLineValue::Owned(b) => Cow::Owned(b.clone()),
         }
     }
 
@@ -292,13 +265,6 @@ impl<'a> FieldSection<'a> {
         (self.pseudo_headers, self.headers.into_owned())
     }
 
-    fn get(&self, entry_name: &QpackEntryName) -> Option<&str> {
-        match entry_name {
-            QpackEntryName::Known(k) => self.headers.get_str(*k),
-            QpackEntryName::Unknown(u) => self.headers.get_str(u),
-            QpackEntryName::Pseudo(p) => self.pseudo_headers.get(*p),
-        }
-    }
 }
 
 impl Display for FieldSection<'_> {
@@ -330,15 +296,6 @@ pub(crate) enum QpackError {
 
     #[error("invalid header name")]
     InvalidHeaderName,
-
-    #[error("invalid header value")]
-    InvalidHeaderValue,
-
-    #[error("method not recongized")]
-    UnrecognizedMethod,
-
-    #[error("invalid status")]
-    InvalidStatus,
 }
 
 impl From<QpackError> for H3Error {

@@ -10,18 +10,15 @@
 //!
 //! - [`state`] — `TableState`, `insert`, eviction and reverse-index helpers. Single insert entry
 //!   point; smart wire-format selection lives here, not in callers.
-//! - [`encode`](self::encode) — §4.5 field-section planner and emit phase.
+//! - [`encode`](self::encode) — §4.5 field-section planner and emit phase. Plans entries and drives
+//!   `TableState::insert` directly under the state lock; there is no public per-insert entry point
+//!   on [`EncoderDynamicTable`].
 //! - [`reader`](self::reader), [`writer`](self::writer) — encoder/decoder stream tasks.
-//!
-//! Policy code drives the table through [`EncoderDynamicTable::insert`] and
-//! [`EncoderDynamicTable::set_capacity`]. The choice of §3.2 wire format (duplicate /
-//! literal name / static name ref / dynamic name ref) is internal to `insert` — callers
-//! describe intent, not encoding.
 
 use crate::{
     HttpContext,
     h3::{H3Error, H3ErrorCode, H3Settings},
-    headers::qpack::{FieldLineValue, HeaderObserver, entry_name::QpackEntryName},
+    headers::qpack::{FieldLineValue, HeaderObserver},
 };
 use event_listener::{Event, EventListener};
 use recent_pairs::RecentPairs;
@@ -38,7 +35,6 @@ mod tests;
 mod writer;
 
 use connection_metrics::ConnectionMetrics;
-
 pub(in crate::headers) use state::SectionRefs;
 
 /// The encoder-side QPACK dynamic table for a single HTTP/3 connection.
@@ -67,13 +63,6 @@ pub struct EncoderDynamicTable {
     /// `trillium_http::qpack_metrics` target. See
     /// [`connection_metrics`](self::connection_metrics) for the rationale.
     metrics: ConnectionMetrics,
-}
-
-impl Drop for EncoderDynamicTable {
-    fn drop(&mut self) {
-        log::info!(target: "qpack_metrics", "EncoderDynamicTable dropped");
-        self.metrics.log_summary_with_prefix("connection final");
-    }
 }
 
 impl Default for EncoderDynamicTable {
@@ -126,17 +115,14 @@ impl EncoderDynamicTable {
             usize::try_from(peer_settings.qpack_blocked_streams().unwrap_or(0))
                 .unwrap_or(usize::MAX);
 
-        // Compute priming entries outside the encoder-state critical section. The observer
-        // ticks per *section*, not per connection, so we don't bump it here — the first
-        // `encode_field_lines` call for this connection will do that.
         let prime_entries = if chosen > 0 {
             let cap = u32::try_from(chosen).unwrap_or(u32::MAX);
             self.observer.prime(cap)
         } else {
             Vec::new()
         };
+
         log::info!(
-            target: "qpack_metrics",
             "initialize_from_peer_settings: chosen_capacity={chosen} prime_entries={}",
             prime_entries.len(),
         );
@@ -165,9 +151,15 @@ impl EncoderDynamicTable {
                 let count = candidate.count;
                 let total_ema = candidate.total_ema;
                 let score = candidate.score;
-                let kind = if candidate.value.is_some() { "full-pair" } else { "name-only" };
+                let kind = if candidate.value.is_some() {
+                    "full-pair"
+                } else {
+                    "name-only"
+                };
+                let entry_size = candidate.name.len() + value_for_insert.as_bytes().len() + 32;
                 match state.insert(candidate.name, value_for_insert, None) {
                     Ok(abs_idx) => {
+                        state.primed_bytes = state.primed_bytes.saturating_add(entry_size);
                         let wire_bytes = state
                             .pending_ops
                             .back()
@@ -178,8 +170,7 @@ impl EncoderDynamicTable {
                             0.0
                         };
                         log::info!(
-                            target: "qpack_metrics",
-                            "  priming insert ({kind}): abs_idx={abs_idx} wire_bytes={wire_bytes} \
+                            "priming insert ({kind}): abs_idx={abs_idx} wire_bytes={wire_bytes} \
                              count={count:.2} total_ema={total_ema:.2} fraction={fraction:.2} \
                              score={score:.1} name={:?} value={:?}",
                             name_for_metrics,
@@ -201,124 +192,6 @@ impl EncoderDynamicTable {
             drop(state);
             self.event.notify(usize::MAX);
         }
-    }
-
-    /// Insert `(name, value)` into the dynamic table.
-    ///
-    /// Single insertion entry point. The §3.2 wire format (Duplicate when the entry already
-    /// matches a live entry / static name ref / dynamic name ref / literal name) is chosen
-    /// inside [`TableState::insert`] based on current state; callers describe intent only.
-    ///
-    /// Returns the absolute index of the freshly-inserted entry.
-    ///
-    /// # Errors
-    ///
-    /// Returns `H3Error` if the entry doesn't fit under capacity or eviction would drop a
-    /// pinned entry.
-    #[allow(dead_code)] // wired into encode path in a follow-up commit
-    pub(super) fn insert(
-        &self,
-        name: QpackEntryName<'_>,
-        value: FieldLineValue<'_>,
-    ) -> Result<u64, H3Error> {
-        let mut state = self.state.lock().unwrap();
-        let abs_idx = state.insert(name, value, None)?;
-        drop(state);
-        self.event.notify(usize::MAX);
-        Ok(abs_idx)
-    }
-
-    /// Enqueue a Set Dynamic Table Capacity instruction (RFC 9204 §3.2.1, §4.3.1).
-    ///
-    /// Evicts oldest entries that no longer fit under the new capacity, respecting the
-    /// outstanding-sections pin floor. Returns an error if `new_capacity > max_capacity`
-    /// or if eviction would require dropping a pinned entry.
-    #[allow(dead_code)] // exercised by tests; first production caller lands with policy integration
-    pub(in crate::headers) fn set_capacity(&self, new_capacity: usize) -> Result<(), H3Error> {
-        let mut state = self.state.lock().unwrap();
-        state.set_capacity(new_capacity)?;
-        drop(state);
-        self.event.notify(usize::MAX);
-        Ok(())
-    }
-
-    /// Look up a dynamic-table entry whose name and value both match. Returns the absolute
-    /// index of the latest such entry, or `None` if no live entry has this `(name, value)`.
-    ///
-    /// `value` is taken as `&[u8]` so the encode path can probe the map with
-    /// `FieldSection`-sourced `&str` bytes without allocating a `HeaderValue`.
-    pub(in crate::headers) fn find_full_match(
-        &self,
-        name: &QpackEntryName,
-        value: &[u8],
-    ) -> Option<u64> {
-        let state = self.state.lock().unwrap();
-        state
-            .by_name
-            .get(name)
-            .and_then(|index| index.by_value.get(value).copied())
-    }
-
-    /// Look up a dynamic-table entry whose name matches (value may differ). Returns the
-    /// absolute index of the latest such entry, or `None` if no live entry has this name.
-    pub(in crate::headers) fn find_name_match(&self, name: &QpackEntryName) -> Option<u64> {
-        let state = self.state.lock().unwrap();
-        state.by_name.get(name).map(|index| index.latest_any)
-    }
-
-    /// Number of distinct streams with at least one outstanding section whose Required
-    /// Insert Count exceeds the current Known Received Count (RFC 9204 §2.1.2). Counts
-    /// *streams*, not sections: a stream with three blocking sections contributes one.
-    ///
-    /// The returned value is a snapshot — by the time the caller acts on it, an
-    /// acknowledgement or Insert Count Increment may have reduced the true count.
-    pub(in crate::headers) fn currently_blocked_streams(&self) -> usize {
-        self.state.lock().unwrap().currently_blocked_streams()
-    }
-
-    /// Whether `stream_id` currently has at least one outstanding section with
-    /// `required_insert_count > known_received_count`. A `true` result means the encoder
-    /// may emit additional blocking references on `stream_id` without consuming a new
-    /// blocked-streams budget slot (the stream is already counted).
-    pub(in crate::headers) fn is_stream_blocking(&self, stream_id: u64) -> bool {
-        self.state.lock().unwrap().is_stream_blocking(stream_id)
-    }
-
-    /// Ask whether the encoder is allowed to transition `stream_id` into the blocked set
-    /// (RFC 9204 §2.1.2). Returns `true` if either `stream_id` is already blocking (free —
-    /// no new slot consumed), or a free slot is available under the peer's
-    /// `SETTINGS_QPACK_BLOCKED_STREAMS`.
-    ///
-    /// Intended to be called at most once per outbound section, at the point where
-    /// `encode()` is about to commit to emitting its first reference that would push the
-    /// section's RIC above KRC. Subsequent references within the same section inherit the
-    /// commitment and do not need to re-query.
-    pub(in crate::headers) fn can_block_another_stream(&self, stream_id: u64) -> bool {
-        let state = self.state.lock().unwrap();
-        if state.is_stream_blocking(stream_id) {
-            return true;
-        }
-        state.currently_blocked_streams() < state.max_blocked_streams
-    }
-
-    /// Record a header section just emitted on `stream_id`, so that its pinned entries are
-    /// protected from eviction and its Required Insert Count can advance
-    /// `known_received_count` when the peer acknowledges it (RFC 9204 §2.1.1, §4.4.1).
-    ///
-    /// The caller is responsible for ensuring that any blocked-streams budget check has
-    /// already been made; this method unconditionally records the section.
-    pub(in crate::headers) fn register_outstanding_section(
-        &self,
-        stream_id: u64,
-        refs: SectionRefs,
-    ) {
-        self.state
-            .lock()
-            .unwrap()
-            .outstanding_sections
-            .entry(stream_id)
-            .or_default()
-            .push_back(refs);
     }
 
     /// Take all currently-queued encoder-stream instructions. Called by the writer task
@@ -405,5 +278,4 @@ impl EncoderDynamicTable {
     pub(in crate::headers) fn failed(&self) -> Option<H3ErrorCode> {
         self.state.lock().unwrap().failed
     }
-
 }

@@ -6,10 +6,6 @@
 //! Cross-connection priming is handled separately by the observer; this ring catches
 //! per-connection repetition that priming missed.
 //!
-//! Single-dimension `(name, value)` hash. The previous two-dimension `name` / `nameval`
-//! split (ls-qpack's mnemonic technique) supported a name-only insert path that moved to
-//! the observer's prime-candidate ranking.
-//!
 //! ## Sizing
 //!
 //! Sized once per connection at construction by [`RecentPairs::with_size`]. Caller

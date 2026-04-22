@@ -247,6 +247,31 @@ impl HeaderObserver {
         }
     }
 
+    /// Whether the observer currently considers `(name, value)` — or the name-only entry
+    /// `(name, None)` — hot by the same [`MIN_PRIMING_FRACTION`] threshold that
+    /// [`prime`](Self::prime) uses for ranking candidates. Consulted by the encoder's
+    /// dup-draining refresh pass to decide whether an oldest-in-table entry is worth
+    /// preserving via a Duplicate instruction instead of letting it evict.
+    ///
+    /// Returns `false` during warm-up (`tick < WARMUP_MIN_TICKS`) or when no observations
+    /// exist yet. The HashMap lookup requires an owned key; the clone is one small
+    /// allocation on the value side (zero for `Static` / `Borrowed` variants).
+    pub(in crate::headers) fn is_hot(
+        &self,
+        name: &QpackEntryName<'static>,
+        value: Option<&FieldLineValue<'static>>,
+    ) -> bool {
+        let inner = self.inner.lock().expect("observer mutex poisoned");
+        if inner.tick < WARMUP_MIN_TICKS || inner.total_ema <= 0.0 {
+            return false;
+        }
+        let min_count = inner.total_ema * MIN_PRIMING_FRACTION;
+        let key = (name.clone(), value.cloned());
+        inner.entries.get(&key).is_some_and(|stats| {
+            stats.effective_count_at(inner.tick, self.config.decay_per_tick) >= min_count
+        })
+    }
+
     /// Return priming-insert candidates ranked by expected net byte savings, fitting
     /// under `capacity` bytes (sum of RFC 9204 §3.2.1 entry sizes). Each candidate carries
     /// its EMA count, the observer's total EMA at ranking time, and the computed rank

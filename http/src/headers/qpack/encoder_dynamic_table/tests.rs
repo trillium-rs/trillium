@@ -1,14 +1,21 @@
 use super::{encode::encode_required_insert_count, *};
 use crate::{
     HttpContext, KnownHeaderName,
+    h3::H3Error,
     headers::qpack::{
         decoder_dynamic_table::DecoderDynamicTable,
+        entry_name::QpackEntryName,
         instruction::encoder::{EncoderInstruction, parse},
         static_table::PseudoHeaderName,
     },
 };
 use futures_lite::future::block_on;
 
+/// Test-only inspection and mutation helpers on [`EncoderDynamicTable`]. Production code
+/// drives the table through the `encode` / `initialize_from_peer_settings` surface and the
+/// ack/cancel/increment handlers; these wrappers exist so unit tests can exercise the
+/// state-layer primitives directly (insert, set_capacity, reverse-index lookup, blocked-
+/// streams accounting) without having to stand up a full field-section flow.
 impl EncoderDynamicTable {
     /// The current `insert_count` — total entries ever inserted.
     pub(in crate::headers) fn insert_count(&self) -> u64 {
@@ -36,6 +43,90 @@ impl EncoderDynamicTable {
         self.state.lock().unwrap().capacity
     }
 
+    /// Insert `(name, value)` into the dynamic table, picking the §3.2 wire format inside
+    /// [`TableState::insert`]. Returns the absolute index of the freshly-inserted entry.
+    pub(in crate::headers) fn insert(
+        &self,
+        name: QpackEntryName<'_>,
+        value: FieldLineValue<'_>,
+    ) -> Result<u64, H3Error> {
+        let mut state = self.state.lock().unwrap();
+        let abs_idx = state.insert(name, value, None)?;
+        drop(state);
+        self.event.notify(usize::MAX);
+        Ok(abs_idx)
+    }
+
+    /// Enqueue a Set Dynamic Table Capacity instruction (RFC 9204 §3.2.1, §4.3.1).
+    pub(in crate::headers) fn set_capacity(&self, new_capacity: usize) -> Result<(), H3Error> {
+        let mut state = self.state.lock().unwrap();
+        state.set_capacity(new_capacity)?;
+        drop(state);
+        self.event.notify(usize::MAX);
+        Ok(())
+    }
+
+    /// Look up a dynamic-table entry whose name and value both match. Returns the absolute
+    /// index of the latest such entry, or `None` if no live entry has this `(name, value)`.
+    pub(in crate::headers) fn find_full_match(
+        &self,
+        name: &QpackEntryName,
+        value: &[u8],
+    ) -> Option<u64> {
+        let state = self.state.lock().unwrap();
+        state
+            .by_name
+            .get(name)
+            .and_then(|index| index.by_value.get(value).copied())
+    }
+
+    /// Look up a dynamic-table entry whose name matches (value may differ). Returns the
+    /// absolute index of the latest such entry, or `None` if no live entry has this name.
+    pub(in crate::headers) fn find_name_match(&self, name: &QpackEntryName) -> Option<u64> {
+        let state = self.state.lock().unwrap();
+        state.by_name.get(name).map(|index| index.latest_any)
+    }
+
+    /// Number of distinct streams with at least one outstanding section whose Required
+    /// Insert Count exceeds the current Known Received Count (RFC 9204 §2.1.2).
+    pub(in crate::headers) fn currently_blocked_streams(&self) -> usize {
+        self.state.lock().unwrap().currently_blocked_streams()
+    }
+
+    /// Whether `stream_id` currently has at least one outstanding section with
+    /// `required_insert_count > known_received_count`.
+    pub(in crate::headers) fn is_stream_blocking(&self, stream_id: u64) -> bool {
+        self.state.lock().unwrap().is_stream_blocking(stream_id)
+    }
+
+    /// Whether the encoder is allowed to transition `stream_id` into the blocked set
+    /// (RFC 9204 §2.1.2): either `stream_id` is already blocking (free — no new slot
+    /// consumed), or a free slot is available under the peer's
+    /// `SETTINGS_QPACK_BLOCKED_STREAMS`.
+    pub(in crate::headers) fn can_block_another_stream(&self, stream_id: u64) -> bool {
+        let state = self.state.lock().unwrap();
+        if state.is_stream_blocking(stream_id) {
+            return true;
+        }
+        state.currently_blocked_streams() < state.max_blocked_streams
+    }
+
+    /// Record an outstanding header section pinning a set of entries, without actually
+    /// emitting the corresponding field-section bytes. Used by tests that want to drive
+    /// eviction-floor / blocked-streams bookkeeping directly.
+    pub(in crate::headers) fn register_outstanding_section(
+        &self,
+        stream_id: u64,
+        refs: SectionRefs,
+    ) {
+        self.state
+            .lock()
+            .unwrap()
+            .outstanding_sections
+            .entry(stream_id)
+            .or_default()
+            .push_back(refs);
+    }
 }
 
 // Test helpers — kept small and explicit.
@@ -120,6 +211,7 @@ fn blocking_section(ric: u64) -> SectionRefs {
 }
 
 mod budgets_and_capacity;
+mod dup_drain;
 mod encode_blocked;
 mod encode_dynamic;
 mod encode_refs;
