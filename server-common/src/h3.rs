@@ -139,7 +139,7 @@ async fn handle_inbound_bidi_streams<QC: QuicConnectionTrait>(
                         transport.reset(H3ErrorCode::StreamCreationError.into());
                     }
                 }
-                Err(error) => handle_h3_error(error, &connection, &h3).await,
+                Err(error) => handle_h3_error(error, &connection, &h3),
             }
         });
     }
@@ -157,10 +157,14 @@ fn spawn_inbound_uni_streams<QC: QuicConnectionTrait>(
         runtime.clone(),
         wt_dispatcher.clone(),
     );
+
     runtime.clone().spawn(async move {
-        while let Ok((_stream_id, recv)) = connection.accept_uni().await {
+        while let Some(Ok((_stream_id, recv))) =
+            h3.swansong().interrupt(connection.accept_uni()).await
+        {
             let (connection, h3, wt_dispatcher) =
                 (connection.clone(), h3.clone(), wt_dispatcher.clone());
+
             runtime.spawn(async move {
                 match h3.process_inbound_uni(recv).await {
                     Ok(UniStreamResult::Handled) => {}
@@ -183,7 +187,7 @@ fn spawn_inbound_uni_streams<QC: QuicConnectionTrait>(
                         stream.stop(H3ErrorCode::StreamCreationError.into());
                     }
                     Err(error) => {
-                        handle_h3_error(error, &connection, &h3).await;
+                        handle_h3_error(error, &connection, &h3);
                     }
                 }
             });
@@ -198,10 +202,19 @@ fn spawn_qpack_decoder_stream<QC: QuicConnectionTrait>(
 ) {
     let (connection, h3) = (connection.clone(), h3.clone());
     runtime.spawn(async move {
-        let result: Result<(), H3Error> =
-            async { h3.run_decoder(connection.open_uni().await?.1).await }.await;
+        let (_stream_id, stream) = match connection.open_uni().await {
+            Ok((stream_id, stream)) => (stream_id, stream),
+            Err(err) => {
+                log::error!("{err:?}");
+                h3.shut_down();
+                return;
+            }
+        };
+
+        let result = h3.run_decoder(stream).await;
+
         if let Err(error) = result {
-            handle_h3_error(error, &connection, &h3).await;
+            handle_h3_error(error, &connection, &h3);
         }
     });
 }
@@ -213,10 +226,19 @@ fn spawn_qpack_encoder_stream<QC: QuicConnectionTrait>(
 ) {
     let (connection, h3) = (connection.clone(), h3.clone());
     runtime.spawn(async move {
-        let result: Result<(), H3Error> =
-            async { h3.run_encoder(connection.open_uni().await?.1).await }.await;
+        let (_stream_id, stream) = match connection.open_uni().await {
+            Ok((stream_id, stream)) => (stream_id, stream),
+            Err(err) => {
+                log::error!("{err:?}");
+                h3.shut_down();
+                return;
+            }
+        };
+
+        let result = h3.run_encoder(stream).await;
+
         if let Err(error) = result {
-            handle_h3_error(error, &connection, &h3).await;
+            handle_h3_error(error, &connection, &h3);
         }
     });
 }
@@ -228,32 +250,37 @@ fn spawn_outbound_control_stream<QC: QuicConnectionTrait>(
 ) {
     let (connection, h3) = (connection.clone(), h3.clone());
     runtime.spawn(async move {
-        let guard = h3.swansong().guard();
+        let (_stream_id, stream) = match connection.open_uni().await {
+            Ok((stream_id, stream)) => (stream_id, stream),
+            Err(err) => {
+                log::error!("{err:?}");
+                h3.shut_down();
+                return;
+            }
+        };
 
-        let result: Result<(), H3Error> = async {
-            h3.run_outbound_control(connection.open_uni().await?.1)
-                .await
-        }
-        .await;
-        drop(guard);
+        let result = h3.run_outbound_control(stream).await;
+
         if let Err(error) = result {
-            handle_h3_error(error, &connection, &h3).await;
+            handle_h3_error(error, &connection, &h3);
         }
+
+        h3.shut_down();
     });
 }
 
-async fn handle_h3_error(error: H3Error, connection: &impl QuicConnectionTrait, h3: &H3Connection) {
+fn handle_h3_error(error: H3Error, connection: &impl QuicConnectionTrait, h3: &H3Connection) {
     log::debug!("H3 error: {error}");
-    if let H3Error::Protocol(code) = error {
-        if code.is_connection_error() {
-            // Connection-level protocol error: close the QUIC connection and signal all
-            // in-progress tasks to stop.
-            connection.close(code.into(), code.reason().as_bytes());
-            h3.shut_down().await;
-        }
-        // Stream-level protocol errors (MessageError, RequestIncomplete, StreamCreationError,
-        // NoError, etc.) affect only the individual stream; the connection stays open.
+    if let H3Error::Protocol(code) = error
+        && code.is_connection_error()
+    {
+        // Connection-level protocol error: close the QUIC connection and signal all
+        // in-progress tasks to stop.
+        connection.close(code.into(), code.reason().as_bytes());
+        h3.shut_down();
     }
+    // Stream-level protocol errors (MessageError, RequestIncomplete, StreamCreationError,
+    // NoError, etc.) affect only the individual stream; the connection stays open.
     // I/O errors (e.g. stream reset by peer) are stream-level; do not shut down the
     // whole connection. The connection lifecycle cleans itself up when accept_bidi() fails.
 }

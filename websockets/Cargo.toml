@@ -27,7 +27,7 @@ pin-project-lite = "0.2.17"
 serde = { version = "1.0.228", optional = true }
 serde_json = { version = "1.0.149", optional = true }
 sha-1 = "0.10.1"
-swansong = "0.3.3"
+swansong = "0.3.4"
 thiserror = "2.0.18"
 trillium = { path = "../trillium", version = "1.0.0-rc.1" }
 trillium-http = { path = "../http", version = "1.0.0-rc.1" }
