@@ -205,7 +205,7 @@ impl H3Connection {
         .await?;
 
         // Wait for shutdown
-        self.swansong.clone().await;
+        self.swansong.shutting_down().await;
 
         // Send GOAWAY
         write(&mut buf, &mut stream, |buf| {
@@ -234,7 +234,7 @@ impl H3Connection {
         })
         .await?;
 
-        self.swansong.clone().await;
+        self.swansong.shutting_down().await;
         Ok(())
     }
 
@@ -256,7 +256,7 @@ impl H3Connection {
         })
         .await?;
 
-        self.swansong.clone().await;
+        self.swansong.shutting_down().await;
         Ok(())
     }
 
@@ -298,7 +298,7 @@ impl H3Connection {
 
             Ok(UniStreamType::QpackEncoder | UniStreamType::QpackDecoder) => {
                 // Static table only — hold stream open until shutdown
-                self.swansong.clone().await;
+                self.swansong.shutting_down().await;
                 Ok(UniStreamResult::Handled)
             }
 
@@ -363,19 +363,24 @@ impl H3Connection {
 
         // Read subsequent frames, watching for GOAWAY
         loop {
-            let frame = read(buf, filled, stream, |data| match Frame::decode(data) {
-                Ok((frame, consumed)) => Ok(Some((frame, consumed))),
-                Err(FrameDecodeError::Incomplete) => Ok(None),
-                Err(FrameDecodeError::Error(code)) => Err(code),
-            })
-            .await?;
+            let frame = self
+                .swansong
+                .interrupt(read(buf, filled, stream, |data| {
+                    match Frame::decode(data) {
+                        Ok((frame, consumed)) => Ok(Some((frame, consumed))),
+                        Err(FrameDecodeError::Incomplete) => Ok(None),
+                        Err(FrameDecodeError::Error(code)) => Err(code),
+                    }
+                }))
+                .await
+                .transpose()?;
 
             match frame {
-                Frame::Goaway(_) => {
+                Some(Frame::Goaway(_)) => {
                     self.swansong.shut_down();
                     return Ok(());
                 }
-                Frame::Settings(_) => {
+                Some(Frame::Settings(_)) => {
                     return Err(H3ErrorCode::FrameUnexpected.into());
                 }
 
