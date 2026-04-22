@@ -1,6 +1,6 @@
 use super::{encode::encode_required_insert_count, *};
 use crate::{
-    KnownHeaderName,
+    HttpContext, KnownHeaderName,
     headers::qpack::{
         decoder_dynamic_table::DecoderDynamicTable,
         instruction::encoder::{EncoderInstruction, parse},
@@ -36,11 +36,6 @@ impl EncoderDynamicTable {
         self.state.lock().unwrap().capacity
     }
 
-    /// Current draining-frontier `abs_idx` — the smallest non-draining index under our
-    /// `capacity/4` threshold. Diagnostic accessor for the corpus ASCII dump.
-    pub(in crate::headers) fn draining_frontier_abs_idx(&self) -> u64 {
-        self.state.lock().unwrap().draining_frontier_abs_idx()
-    }
 }
 
 // Test helpers — kept small and explicit.
@@ -65,11 +60,6 @@ fn fvo(v: Vec<u8>) -> FieldLineValue<'static> {
 /// Construct a fresh encoder table at the given capacity and initialize it from peer
 /// settings.
 ///
-/// Mnemonic indexing is **off** by default in these helpers so that phase-2 mechanism
-/// tests (eager insert, warming insert, blocked-stream paths) are not gated on the
-/// predictor latching. Phase-3 tests that want predictor-driven behavior use
-/// [`new_table_with_mnemonic`].
-///
 /// The initialization `SetDynamicTableCapacity` is left in `pending_ops` as it would be on
 /// the wire — tests that drain for variant assertions see it as the leading op, and
 /// [`apply_ops_to_decoder`] consumes it naturally to prime the decoder's capacity.
@@ -81,34 +71,13 @@ fn new_table_with_blocked_streams(
     max_capacity: u64,
     max_blocked_streams: u64,
 ) -> EncoderDynamicTable {
-    new_table_configured(max_capacity, max_blocked_streams, false, 1.0)
-}
-
-/// Phase-3 variant — mnemonic indexing enabled. Used by tests that exercise the predictor's
-/// effect on indexing decisions. A non-zero blocked-streams budget is the default so the
-/// insert-then-reference path is exercised on a predictor hit; tests that want warming-
-/// insert behavior instead can call [`new_table_configured`] directly with
-/// `max_blocked_streams = 0`. The inflation guard is disabled (`1.0`) so predictor-only
-/// tests don't conflate with phase-5 behavior; phase-5 tests call
-/// [`new_table_configured`] directly with a real ratio.
-fn new_table_with_mnemonic(max_capacity: u64) -> EncoderDynamicTable {
-    new_table_configured(max_capacity, 100, true, 1.0)
-}
-
-fn new_table_configured(
-    max_capacity: u64,
-    max_blocked_streams: u64,
-    mnemonic_indexing: bool,
-    inflation_ratio_max: f32,
-) -> EncoderDynamicTable {
-    let table = EncoderDynamicTable::default();
+    let context = HttpContext::default()
+        .with_config(crate::HttpConfig::default().with_h3_max_table_capacity(max_capacity as usize));
+    let table = EncoderDynamicTable::new(&context);
     table.initialize_from_peer_settings(
-        max_capacity as usize,
         H3Settings::default()
             .with_qpack_max_table_capacity(max_capacity)
             .with_qpack_blocked_streams(max_blocked_streams),
-        mnemonic_indexing,
-        inflation_ratio_max,
     );
     table
 }
@@ -151,16 +120,10 @@ fn blocking_section(ric: u64) -> SectionRefs {
 }
 
 mod budgets_and_capacity;
-mod draining;
-mod dup_draining;
 mod encode_blocked;
 mod encode_dynamic;
 mod encode_refs;
 mod encode_static;
-mod inflation;
 mod insert;
-mod insert_budget;
-mod mnemonic;
-mod name_only;
 mod pinning;
 mod reverse_index;

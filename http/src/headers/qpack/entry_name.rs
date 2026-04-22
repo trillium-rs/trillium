@@ -73,6 +73,30 @@ impl QpackEntryName<'_> {
             QpackEntryName::Pseudo(p) => QpackEntryName::Pseudo(p),
         }
     }
+
+    /// True if the *value* under this name must never reach a QPACK dynamic table for
+    /// privacy reasons — caching would let a CRIME-style length side-channel against a
+    /// shared dynamic table learn secret values.
+    ///
+    /// Current stand-in for propagating the RFC 9204 §4.5.4 N ("Never Indexed") bit through
+    /// trillium-proxy; see the `qpack-n-bit-gap` memory note for the full story.
+    ///
+    /// This predicate is a *ban* — callers that additionally want to skip names whose
+    /// caching is merely *unprofitable* (e.g. `date`, which the adaptive mnemonic predictor
+    /// correctly decides at runtime) should add their own check on top rather than widening
+    /// this list.
+    pub(in crate::headers) fn has_uncacheable_value(&self) -> bool {
+        matches!(
+            self,
+            QpackEntryName::Known(
+                KnownHeaderName::Authorization
+                    | KnownHeaderName::Cookie
+                    | KnownHeaderName::SetCookie
+                    | KnownHeaderName::ProxyAuthorization
+                    | KnownHeaderName::AuthenticationInfo
+            )
+        )
+    }
 }
 
 impl QpackEntryName<'static> {

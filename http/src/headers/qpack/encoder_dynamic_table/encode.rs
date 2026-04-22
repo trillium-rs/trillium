@@ -2,118 +2,58 @@
 //!
 //! Two-phase design:
 //!
-//! 1. **Plan phase** runs under the `TableState` mutex. It walks the field section and runs the
-//!    per-line decide-then-commit pipeline (lookup → [`select_program`] → `execute_program`),
-//!    tracks the section's Required Insert Count and min-referenced `abs_idx`, enforces the
-//!    blocked-streams budget at the first transition from non-blocking to blocking, applies any
-//!    encoder-stream side effect (Insert or Duplicate) directly under the lock, and registers the
-//!    outstanding section with the table. Registration happens inside the critical section so the
-//!    budget check and slot consumption are atomic.
+//! 1. **Plan phase** runs under the `TableState` mutex. It walks the field section, decides
+//!    each line's encoding (static ref / dynamic ref / literal, with optional warming insert),
+//!    accumulates a list of [`Emission`]s, and updates the section's Required Insert Count
+//!    and min-referenced `abs_idx`. Section registration happens inside the same critical
+//!    section so the blocked-streams accounting is atomic.
 //!
-//! 2. **Emit phase** runs lock-free. It converts the planned [`Emission`] list into wire bytes
-//!    using the §4.5 wire helpers.
+//! 2. **Emit phase** runs lock-free. It converts the planned [`Emission`] list into wire
+//!    bytes using the §4.5 wire helpers.
 //!
-//! ## Per-line pipeline
+//! ## Per-line decision
 //!
-//! Each field line runs through three stages designed to keep selection pure and side
-//! effects narrow:
+//! Direct chain inside [`Planner::plan_header_line`]:
 //!
-//! - **Lookup** — `Planner::compute_match_state` reads static and dynamic tables; produces a
-//!   [`MatchState`]. No mutation, no budget logic.
-//! - **Select** — [`select_program`] is a pure function over `(MatchState, allow_indexing,
-//!   BudgetCtx, never_indexed)` that returns an [`EncoderProgram`]: which encoder-stream action,
-//!   which dynamic-table action, and which header-block emission to perform.
-//! - **Execute** — `Planner::execute_program` applies the table mutation (calling
-//!   [`TableState::insert`](super::state::TableState::insert) which picks the §3.2 wire format
-//!   internally), records the dynamic ref in the section's RIC/min-floor accounting, commits to the
-//!   blocked-streams slot if needed, and returns the [`Emission`].
+//! 1. **Static full match** — `IndexedStatic`, the cheapest possible encoding.
+//! 2. **Dynamic full match** — `IndexedDynamic` if the entry is referenceable
+//!    (already-acked, or this section is permitted to block).
+//! 3. **Warming insert** — when the predictor reports we've seen this `(name, value)` pair
+//!    before. Insert the entry now so future sections can `IndexedDynamic` against it; this
+//!    section emits a literal regardless. We never reference a freshly-inserted entry in
+//!    the same section.
+//! 4. **Literal form** — `LiteralStaticNameRef` → `LiteralDynamicNameRef` (when the
+//!    pre-insert dyn-name lookup is still live and the budget allows) → `LiteralLiteralName`.
 //!
-//! Strategies emitted today:
+//! ## Blocking budget
 //!
-//! 1. Dynamic full match (§4.5.2, T=0)
-//! 2. Static full match (§4.5.2, T=1)
-//! 3. Insert-then-reference (§3.2 insert + §4.5.2 T=0 ref in the same section)
-//! 4. Warming insert (§3.2 insert + §4.5.4 / §4.5.6 literal in the section) — when indexing is
-//!    allowed but no blocking slot is available and there's no full match to reference. The new
-//!    entry is referenceable in *future* sections after the peer acks; this section pays the
-//!    literal cost but contributes nothing to RIC or the blocked-streams budget.
-//! 5. Static name reference (§4.5.4, T=1)
-//! 6. Dynamic name reference (§4.5.4, T=0) — only when no static name match exists
-//! 7. Literal with literal name (§4.5.6)
+//! Captured once at planner construction: `can_block_section = is_stream_blocking ||
+//! currently_blocked_streams < max_blocked_streams`. Stable for the duration of the section
+//! because we hold the `TableState` lock the whole time.
 //!
-//! Policy-driven Duplicate (§3.2.4 Duplicate of a specific live entry, regardless of the
-//! field line being encoded) is wired through `EncoderProgram` and `plan_with_indexing` but
-//! has no trigger in the current strategy chain — phase 4's draining-refresh pass will be
-//! the first caller to emit it. The `Insert` smart-picker still auto-emits a Duplicate when
-//! `(name, value)` already matches a live entry; that path is independent.
+//! Per-line, a dynamic reference is allowed iff `abs_idx < KRC || can_block_section` —
+//! already-acked refs are always free, unacked refs are gated by the snapshot.
 //!
-//! The ordering is a deliberately simple starting point, not a tuned policy. The sensitive-
-//! header skip list below is the only indexing veto today; the planned `IndexingPolicy`
-//! trait (phase 3) will replace the hardcoded `should_index = true` seam in
-//! `plan_header_line`.
+//! ## Sensitive headers
+//!
+//! Headers whose name marks the value uncacheable
+//! ([`QpackEntryName::has_uncacheable_value`]) are excluded from the predictor and never
+//! warm-inserted. This is a conservative stand-in for the RFC 9204 §4.5.4 N bit until
+//! `FieldLine` carries the bit through end-to-end (see `qpack-n-bit-gap` memory).
 
-use super::{
-    EncoderDynamicTable, SectionRefs,
-    policy::{
-        BudgetCtx, DynRef, EncStreamAction, EncoderProgram, HeaderBlockAction, IndexingAllowance,
-        MatchState, TableAction, select_program,
-    },
-    predictor::MnemonicPredictor,
-    state::{TableState, to_u32},
-};
-use crate::{
-    KnownHeaderName,
-    headers::qpack::{
-        FieldLineValue, FieldSection,
-        entry_name::QpackEntryName,
-        instruction::field_section::{FieldLineInstruction, FieldSectionPrefix},
-        static_table::{StaticLookup, static_table_lookup},
-    },
+use super::{EncoderDynamicTable, SectionRefs, recent_pairs::RecentPairs, state::TableState};
+use crate::headers::qpack::{
+    FieldLineValue, FieldSection,
+    entry_name::QpackEntryName,
+    instruction::field_section::{FieldLineInstruction, FieldSectionPrefix},
+    static_table::{StaticLookup, static_table_lookup},
 };
 
-/// Empty value passed to [`TableState::insert`](super::state::TableState::insert) for the
-/// name-only insert strategy. Shared between callers so the `FieldLineValue::Static`
-/// borrow lifetime is trivially satisfied.
-const EMPTY_FIELD_VALUE: FieldLineValue<'static> = FieldLineValue::Static(b"");
-
-/// Header names that must never be inserted into the QPACK dynamic table.
-///
-/// This is the current stand-in for propagating the RFC 9204 §4.5.4 N ("Never Indexed") bit
-/// through trillium-proxy. Values under these names are emitted as literals without being
-/// indexed, so a CRIME-style length side-channel against a shared dynamic table cannot learn
-/// them. See `qpack-n-bit-gap` memory for the full N-bit story and the plan for a real fix.
-///
-/// Lowercase ASCII byte strings. HTTP/3 header names are required to be lowercase
-/// (RFC 9114 §4.1.1), so no case folding is needed on lookup.
-fn is_sensitive_header_name(name: &QpackEntryName) -> bool {
-    matches!(
-        name,
-        QpackEntryName::Known(
-            KnownHeaderName::Authorization
-                | KnownHeaderName::Cookie
-                | KnownHeaderName::SetCookie
-                | KnownHeaderName::ProxyAuthorization
-                | KnownHeaderName::AuthenticationInfo
-        )
-    )
-}
-
-/// True iff `program` pairs an encoder-stream Insert (or name-only Insert) with a literal
-/// header-block emission — the "double literal" cost that the phase-5 inflation guard is
-/// designed to suppress. Insert-then-reference is excluded because its indexed ref earns
-/// the encoder-stream bytes back in the same section. Duplicate is excluded because
-/// ls-qpack's guard explicitly omits it (see `lsqpack.c:1933-1943`); our strategy chain
-/// doesn't emit Duplicate-with-literal today anyway.
-fn is_double_literal_program(program: &EncoderProgram) -> bool {
-    matches!(
-        program.enc_stream,
-        EncStreamAction::Insert | EncStreamAction::InsertNameOnly
-    ) && matches!(
-        program.header_block,
-        HeaderBlockAction::LiteralStaticNameRef { .. }
-            | HeaderBlockAction::LiteralDynamicNameRef { .. }
-            | HeaderBlockAction::LiteralLiteralName
-    )
+/// Saturating `usize` → `u32` conversion. Wire byte sizes never meaningfully exceed
+/// `u32::MAX`; clamping at the boundary keeps the metrics arithmetic honest without
+/// adding a panic on pathological inputs.
+fn to_u32(n: usize) -> u32 {
+    u32::try_from(n).unwrap_or(u32::MAX)
 }
 
 impl EncoderDynamicTable {
@@ -146,18 +86,18 @@ impl EncoderDynamicTable {
         let plan;
         let max_capacity;
         let made_inserts;
-        let name_value_bytes;
         let enc_stream_bytes;
+        let krc_at_encode;
         {
             let mut state = self.state.lock().unwrap();
             max_capacity = state.max_capacity;
+            krc_at_encode = state.known_received_count;
             let mut planner = Planner::new(&mut state, stream_id);
             for (name, value) in field_lines {
                 planner.plan_header_line(name, value.reborrow());
             }
             made_inserts = planner.made_inserts;
             enc_stream_bytes = planner.enc_stream_bytes;
-            name_value_bytes = planner.name_value_bytes;
             plan = planner.finish();
             if plan.section_ric > 0 {
                 state
@@ -169,17 +109,22 @@ impl EncoderDynamicTable {
                         min_ref_abs_idx: plan.min_ref_abs_idx,
                     });
             }
-            // Note: the dup_draining refresh pass now runs per-header inside
-            // `plan_header_line` rather than once at section end — see
-            // `Planner::run_dup_draining`. Mirrors ls-qpack's per-header invocation at
-            // `lsqpack.c:2175`. Moving it inside the loop dramatically increased the
-            // number of refreshes taken (per-header evictions create transient draining
-            // candidates that a single end-of-section pass missed).
         }
 
         // Wake the encoder-stream writer if the plan enqueued any inserts.
         if made_inserts {
             self.event.notify(usize::MAX);
+        }
+
+        // Feed the cross-connection header observer. One section = one tick; every header
+        // in the section bumps its pair's count. No per-section dedup beyond what the
+        // protocol already gives us (each header line is its own pair).
+        self.observer.record_section_start();
+        for (name, value) in field_lines {
+            self.observer.record_observation(
+                name.reborrow().into_owned(),
+                value.reborrow().into_owned(),
+            );
         }
 
         let section_start = buf.len();
@@ -188,15 +133,28 @@ impl EncoderDynamicTable {
             emit(emission, plan.section_ric, buf);
         }
 
-        // Phase-5 inflation counter: re-lock to fold this section's actual wire bytes
-        // (encoder-stream + header-block) into the running ratio counters. Mirrors
-        // ls-qpack's end-of-encode bookkeeping at `lsqpack.c:2182-2191`.
         let header_block_bytes = u32::try_from(buf.len() - section_start).unwrap_or(u32::MAX);
-        let wire_bytes = enc_stream_bytes.saturating_add(header_block_bytes);
-        self.state
-            .lock()
-            .unwrap()
-            .add_compression_counters(name_value_bytes, wire_bytes);
+
+        // Research-mode observer/priming metrics (see
+        // `encoder_dynamic_table::connection_metrics`). Field-section bytes are
+        // load-bearing for response latency; encoder-stream inserts enqueued here are
+        // load-bearing too (they gate the client's decoder on this section). Priming
+        // bytes (eager) were accounted separately in `initialize_from_peer_settings`.
+        let dynamic_refs: Vec<u64> = plan
+            .emissions
+            .iter()
+            .filter_map(|emission| match emission {
+                Emission::IndexedDynamicPreBase(abs_idx)
+                | Emission::LiteralDynamicNameRefPreBase { abs_idx, .. } => Some(*abs_idx),
+                _ => None,
+            })
+            .collect();
+        self.metrics.record_section(
+            header_block_bytes,
+            enc_stream_bytes,
+            &dynamic_refs,
+            krc_at_encode,
+        );
     }
 }
 
@@ -249,80 +207,44 @@ struct Plan<'lines, 'names> {
 }
 
 /// Planning-phase state. Holds a mutable reference to `TableState` and accumulates
-/// decisions as the field section is walked. The plan phase runs entirely under the
-/// `TableState` lock. Mutable access is required because some programs insert new
-/// dynamic-table entries during planning.
+/// decisions as the field section is walked. Runs entirely under the `TableState` lock.
 struct Planner<'state, 'lines, 'names> {
     state: &'state mut TableState,
     emissions: Vec<Emission<'lines, 'names>>,
     section_ric: u64,
     min_ref_abs_idx: Option<u64>,
-    /// Set when this encode has already consumed its blocked-streams slot (the first
-    /// blocking reference succeeded the budget check). Subsequent blocking references
-    /// within the same section inherit the commitment and skip the re-check.
-    committed_to_blocking: bool,
-    /// Cached at planner construction: was this stream already blocking when we entered
-    /// the section? Stable while we hold the `TableState` lock; lets `BudgetCtx` skip a
-    /// repeated `is_stream_blocking` query per line.
-    stream_already_blocking: bool,
+    /// True iff this section may take dynamic references whose `abs_idx >= KRC`. Snapshot
+    /// at planner construction; doesn't change mid-section because we hold the
+    /// `TableState` lock throughout planning. Either the stream is already blocking (its
+    /// slot is already counted) or a fresh slot is available under the peer's
+    /// `SETTINGS_QPACK_BLOCKED_STREAMS`.
+    can_block_section: bool,
     /// Set when the plan phase has enqueued at least one encoder-stream insert. The caller
     /// uses this flag after dropping the lock to notify the encoder-stream writer.
     made_inserts: bool,
-    /// Running total of raw `name.len() + value.len()` across lines planned so far.
-    /// Consumed by the phase-5 inflation counter after the section finishes emitting.
-    name_value_bytes: u32,
-    /// Running total of encoder-stream bytes enqueued during planning (per-line `Insert`
-    /// / `Duplicate` / `InsertNameOnly` wire sizes). Dup-draining bytes are added
-    /// separately by the post-encode pass. Consumed by the phase-5 inflation counter.
+    /// Running total of encoder-stream bytes enqueued during planning. Consumed by the
+    /// per-section research-mode metrics in [`ConnectionMetrics::record_section`].
+    ///
+    /// [`ConnectionMetrics::record_section`]: super::connection_metrics::ConnectionMetrics::record_section
     enc_stream_bytes: u32,
-    /// Total dynamic-table entry size inserted by this section so far. Phase-7 budget
-    /// gate: once this reaches `capacity / INSERT_BUDGET_DENOMINATOR`, further lines in
-    /// the section stop using the dynamic table entirely (no inserts, no refs). Mirrors
-    /// ls-qpack's `qhi_bytes_inserted` tracked on the per-header-info struct.
-    bytes_inserted_in_section: u32,
 }
-
-/// Per-section insert budget = `capacity / INSERT_BUDGET_DENOMINATOR`. ls-qpack's
-/// `enc_use_dynamic_table` uses 2 (i.e. half the table). Stops a single section from
-/// monopolizing the dynamic table — both via wire-byte cost and via long-lived section
-/// references that pin entries against eviction.
-const INSERT_BUDGET_DENOMINATOR: u32 = 2;
 
 impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     fn new(state: &'state mut TableState, stream_id: u64) -> Self {
-        let stream_already_blocking = state.is_stream_blocking(stream_id);
+        let can_block_section = state.is_stream_blocking(stream_id)
+            || state.currently_blocked_streams() < state.max_blocked_streams;
         Self {
             state,
             emissions: Vec::new(),
             section_ric: 0,
             min_ref_abs_idx: None,
-            committed_to_blocking: false,
-            stream_already_blocking,
+            can_block_section,
             made_inserts: false,
-            name_value_bytes: 0,
             enc_stream_bytes: 0,
-            bytes_inserted_in_section: 0,
         }
-    }
-
-    /// Phase-7 gate: whether further dynamic-table use is allowed in this section. False
-    /// once `bytes_inserted_in_section` has reached `capacity / INSERT_BUDGET_DENOMINATOR`.
-    /// At capacity 0 the dynamic table is unusable anyway, so we return false there too;
-    /// nothing else would call this in that state but the explicit handling avoids a
-    /// `0 / 2 = 0` budget that would falsely allow on the first call.
-    fn dyn_table_allowed(&self) -> bool {
-        let capacity = u32::try_from(self.state.capacity).unwrap_or(u32::MAX);
-        capacity > 0 && self.bytes_inserted_in_section < capacity / INSERT_BUDGET_DENOMINATOR
     }
 
     fn finish(self) -> Plan<'lines, 'names> {
-        // Section-close sample for `header_count_ema`. Predictor tracks the per-section
-        // remember-count internally; we just signal the section boundary here. Always
-        // call (empty sections still inform the EMA), only when the predictor is in use
-        // — matches ls-qpack's `qenc_sample_header_count` gate on `qpe_hist_els`.
-        if self.state.mnemonic_indexing {
-            self.state.predictor.sample_header_count();
-        }
         Plan {
             emissions: self.emissions,
             section_ric: self.section_ric,
@@ -330,359 +252,124 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         }
     }
 
-    /// Plan a single field line through the decide-then-commit pipeline:
-    /// `compute_match_state` (read) → [`select_program`] (pure decision) → `execute_program`
-    /// (side effects + emission).
+    /// Plan a single field line — decide encoding and apply any encoder-stream side effect.
     fn plan_header_line(
         &mut self,
         name: &'lines QpackEntryName<'names>,
         value: FieldLineValue<'lines>,
     ) {
-        // Two pre-decision vetoes shape the [`IndexingAllowance`]:
-        //
-        // 1. Sensitive-header skip — current stand-in for the RFC 9204 §4.5.4 N bit (see
-        //    `qpack-n-bit-gap` memory). Short-circuits before any predictor interaction so
-        //    sensitive `(name, value)` pairs never pollute the ring.
-        // 2. Mnemonic predictor — phase-3 indexing policy. When enabled, the predictor's two
-        //    signals map to the three-state allowance: `nameval_seen → Full`, `name_seen` only `→
-        //    NameOnly`, neither `→ None`. When disabled, every non-sensitive header gets `Full` —
-        //    the phase-2 eager behavior, preserved as a config knob. See `predictor.rs` for the
-        //    ring's structure.
-        //
-        // Hashes are computed once per header and threaded through both the `seen` read and
-        // the `remember` write, matching ls-qpack's compute-once pattern.
-        let is_sensitive = is_sensitive_header_name(name);
-        let use_predictor = self.state.mnemonic_indexing && !is_sensitive;
-        let hashes =
-            use_predictor.then(|| MnemonicPredictor::hash(name.as_bytes(), value.as_bytes()));
+        // Pre-decision: hash for the recent-pairs ring (sensitive headers are excluded
+        // so they never enter the ring). Computed once and threaded through both `seen`
+        // (read for the indexing decision) and `remember` (write at the end of planning).
+        let uncacheable = name.has_uncacheable_value();
+        let hash = (!uncacheable)
+            .then(|| RecentPairs::hash(name.as_bytes(), value.as_bytes()));
 
-        let indexing = if is_sensitive {
-            IndexingAllowance::None
-        } else if let Some(h) = hashes {
-            let seen = self.state.predictor.seen(h);
-            if seen.nameval {
-                IndexingAllowance::Full
-            } else if seen.name {
-                IndexingAllowance::NameOnly
-            } else {
-                IndexingAllowance::None
-            }
-        } else {
-            IndexingAllowance::Full
-        };
+        // Indexing decision: a non-sensitive header is eligible for warm insertion the
+        // second (and subsequent) time the encoder sees it on this connection.
+        let should_index = hash.is_some_and(|h| self.state.recent_pairs.seen(h));
 
-        // Source for `never_indexed` is hardcoded `false` until `FieldLine` carries the bit
-        // end-to-end. Threading it through `EncoderProgram` and `Emission` now keeps the
-        // structural change minimal when the source lands.
-        let never_indexed = false;
-
-        self.name_value_bytes = self
-            .name_value_bytes
-            .saturating_add(to_u32(name.as_bytes().len()))
-            .saturating_add(to_u32(value.as_bytes().len()));
-
-        let emission = self.plan_with_indexing(name, value, indexing, never_indexed);
+        let emission = self.plan_emission(name, value, should_index);
         self.emissions.push(emission);
 
-        // Defer the history write until after planning — matches ls-qpack's invariant that a
-        // header is never visible to its own earlier `seen` query. Phase 3's combined
-        // `index()` happened to preserve this by reading before writing within one call; the
-        // split API makes the ordering explicit and also means the predictor sees the same
-        // ordering across retry loops in `plan_with_indexing` (write happens once, at the
-        // end, regardless of retries).
-        if let Some(h) = hashes {
-            self.state.predictor.remember(h);
-        }
-
-        // Per-header dup-draining refresh: runs after each header's main encode, matching
-        // ls-qpack's `qenc_dup_draining` invocation at the bottom of `lsqpack_enc_encode`.
-        // Per-header (vs once-per-section) captures transient draining candidates that
-        // would otherwise be evicted entirely before the section ends.
-        self.run_dup_draining();
-    }
-
-    /// Wrap [`TableState::dup_draining_pass`] with the Planner's per-section accounting:
-    /// passes `self.min_ref_abs_idx` as the extra eviction floor (the section isn't yet
-    /// registered in `outstanding_sections` at mid-section call time), folds the returned
-    /// wire bytes into `enc_stream_bytes` for the phase-5 inflation counter, and sets
-    /// `made_inserts` so the writer task is woken on section completion.
-    fn run_dup_draining(&mut self) {
-        let bytes = self.state.dup_draining_pass(self.min_ref_abs_idx);
-        if bytes > 0 {
-            self.made_inserts = true;
-            self.enc_stream_bytes = self.enc_stream_bytes.saturating_add(bytes);
+        // Defer the ring write until after planning — a header is never visible to its
+        // own earlier `seen` query.
+        if let Some(h) = hash {
+            self.state.recent_pairs.remember(h);
         }
     }
 
-    /// Inner planning loop. Selects and executes a program; on table-mutation failure,
-    /// re-selects with [`IndexingAllowance::None`] and tries again.
-    ///
-    /// Dispatches on `program.enc_stream`:
-    /// - [`EncStreamAction::None`] — no table mutation, hand off to the executor with no
-    ///   newly-inserted index.
-    /// - [`EncStreamAction::Insert`] — call
-    ///   [`TableState::insert`](super::state::TableState::insert), which smart-picks the §3.2 wire
-    ///   variant (Insert With Name Reference, Insert With Literal Name, or Duplicate when `(name,
-    ///   value)` already matches) and returns the new entry's absolute index.
-    /// - [`EncStreamAction::Duplicate`] — call
-    ///   [`TableState::duplicate`](super::state::TableState::duplicate) on the named `abs_idx`.
-    ///   Emits §3.2.4 Duplicate regardless of `(name, value)`.
-    ///
-    /// Either table mutation can fail on capacity/eviction in ways `select_program` cannot
-    /// pre-check from `MatchState` alone (entry size, pin floor, in-progress
-    /// `min_ref_abs_idx`). The retry path mirrors the old `try_*` chain's `.ok()?`
-    /// fallthrough — and recomputes `MatchState`, since a partial eviction inside `insert`
-    /// may have changed which dynamic entries are live.
-    fn plan_with_indexing(
+    /// The per-line decision chain. Mutates `self` (records refs, possibly inserts a new
+    /// entry, accumulates wire bytes).
+    fn plan_emission(
         &mut self,
         name: &'lines QpackEntryName<'names>,
         value: FieldLineValue<'lines>,
-        indexing: IndexingAllowance,
-        never_indexed: bool,
+        should_index: bool,
     ) -> Emission<'lines, 'names> {
-        let mut match_state = self.compute_match_state(name, &value);
-        let mut indexing = indexing;
-        // Phase-7 per-encode budget: once this section has inserted ≥ capacity/2 bytes
-        // worth of new dynamic-table entries, stop using the dynamic table for the rest
-        // of the section — no inserts AND no references. Mirrors ls-qpack's
-        // `enc_use_dynamic_table` gate. Suppression is applied by zeroing the dynamic
-        // fields of `match_state` (so `select_program` naturally falls through static
-        // and literal paths) and forcing `indexing` to `None`.
-        if !self.dyn_table_allowed() {
-            match_state.dynamic_full = None;
-            match_state.dynamic_full_is_draining = false;
-            match_state.dynamic_full_safe_to_dup = false;
-            match_state.dynamic_name = None;
-            indexing = IndexingAllowance::None;
-            #[cfg(test)]
-            if let Some(c) = self.state.strategy_counters.as_mut() {
-                c.insert_budget_blocked += 1;
-            }
-        }
-        let budget = self.budget_ctx();
-        let program = select_program(&match_state, indexing, &budget, never_indexed);
+        // Hardcoded `false` until `FieldLine` carries the §4.5.4 N bit — see
+        // `qpack-n-bit-gap` memory.
+        let never_indexed = false;
 
-        // Phase-5 inflation guard: Insert-paired-with-literal programs (warming insert,
-        // name-only insert) pay encoder-stream bytes AND emit a literal in this section —
-        // the "double literal" cost. When the running `bytes_out / bytes_in` ratio is
-        // already high, suppressing these programs and falling back to a plain literal is
-        // strictly cheaper. Mirrors ls-qpack's `restart:` re-plan at `lsqpack.c:1951-1957`.
-        //
-        // Duplicate-paired-with-literal isn't a program our strategy chain emits today;
-        // the guard still only matches Insert/InsertNameOnly with a literal header block.
-        // Insert-then-reference pays its own way via the indexed ref and is never gated.
-        if is_double_literal_program(&program)
-            && self.state.would_inflate(name.as_bytes(), value.as_bytes())
+        let static_match = static_table_lookup(name, Some(value.as_bytes()));
+
+        // 1. Static full match: cheapest possible encoding, no dynamic-table interaction.
+        if let StaticLookup::FullMatch(i) = static_match {
+            return Emission::IndexedStatic(i);
+        }
+
+        // 2. Dynamic full match: reference directly when budget allows. Pre-insert lookup
+        //    — we never reference an entry that the upcoming warming insert would create
+        //    in this same section.
+        let dyn_full = self
+            .state
+            .by_name
+            .get(name)
+            .and_then(|i| i.by_value.get(value.as_bytes()).copied());
+        if let Some(abs_idx) = dyn_full
+            && self.can_ref(abs_idx)
         {
-            #[cfg(test)]
-            if let Some(c) = self.state.strategy_counters.as_mut() {
-                c.inflation_retry += 1;
-            }
-            return self.plan_with_indexing(name, value, IndexingAllowance::None, never_indexed);
+            self.record_ref(abs_idx);
+            return Emission::IndexedDynamicPreBase(abs_idx);
         }
 
-        #[cfg(test)]
-        {
-            use super::strategy_counters::classify_program;
-            if let Some(c) = self.state.strategy_counters.as_mut() {
-                classify_program(&match_state, indexing, &budget, &program, c);
-            }
-        }
+        // 3. Pre-insert dyn-name lookup. Captured before the warming insert so the
+        //    literal-form picker uses the existing entry rather than the freshly-inserted
+        //    one (which would amount to insert-then-reference; we don't do that). Validity
+        //    is re-checked post-insert via `entry_at_abs` because the warming insert may
+        //    evict older entries to make room.
+        let dyn_name_pre = self.state.by_name.get(name).map(|i| i.latest_any);
 
-        let table_op_result = match program.enc_stream {
-            EncStreamAction::None => {
-                debug_assert!(
-                    matches!(program.table, TableAction::None),
-                    "EncStreamAction::None must pair with TableAction::None"
-                );
-                Ok(None)
-            }
-            EncStreamAction::Insert => {
-                debug_assert!(
-                    matches!(program.table, TableAction::InsertNew),
-                    "EncStreamAction::Insert must pair with TableAction::InsertNew"
-                );
-                self.state
-                    .insert(name.reborrow(), value.reborrow(), self.min_ref_abs_idx)
-                    .map(Some)
-            }
-            EncStreamAction::InsertNameOnly => {
-                debug_assert!(
-                    matches!(program.table, TableAction::InsertNew),
-                    "EncStreamAction::InsertNameOnly must pair with TableAction::InsertNew"
-                );
-                // Insert with an empty value — produces a name-only dynamic-table entry.
-                // TableState::insert's smart-pick routes this to Insert With Name Reference
-                // (static or dynamic) or Insert With Literal Name depending on whether the
-                // name is otherwise available; either way the wire `value_len` is 0.
-                self.state
-                    .insert(name.reborrow(), EMPTY_FIELD_VALUE, self.min_ref_abs_idx)
-                    .map(Some)
-            }
-            EncStreamAction::Duplicate(abs_idx) => {
-                debug_assert!(
-                    matches!(program.table, TableAction::InsertNew),
-                    "EncStreamAction::Duplicate must pair with TableAction::InsertNew"
-                );
-                self.state
-                    .duplicate(abs_idx, self.min_ref_abs_idx)
-                    .map(Some)
-            }
-        };
-
-        let new_abs_idx = match table_op_result {
-            Ok(None) => None,
-            Ok(Some(idx)) => {
+        // 4. Warming insert: predictor saw this pair (or eager mode). Seeds a future-
+        //    section reference; emission for *this* section is always a literal. Failure
+        //    is silently ignored — we just fall through to the literal form picker below.
+        if should_index {
+            let pre_count = self.state.pending_ops.len();
+            let _ = self
+                .state
+                .insert(name.reborrow(), value.reborrow(), self.min_ref_abs_idx);
+            if self.state.pending_ops.len() > pre_count {
                 self.made_inserts = true;
-                // Record the enc-stream bytes just pushed onto `pending_ops` for the
-                // phase-5 inflation counter. `insert` and `duplicate` both push exactly one
-                // op on success.
                 if let Some(wire) = self.state.pending_ops.back() {
                     self.enc_stream_bytes =
                         self.enc_stream_bytes.saturating_add(to_u32(wire.len()));
                 }
-                // Phase-7 budget accounting: charge the new entry's table size against
-                // this section's per-encode insert budget. Mirrors ls-qpack's
-                // `qhi_bytes_inserted += ETE_SIZE(new_entry)`.
-                if let Some(entry) = self.state.entry_at_abs(idx) {
-                    self.bytes_inserted_in_section = self
-                        .bytes_inserted_in_section
-                        .saturating_add(to_u32(entry.size));
-                }
-                Some(idx)
             }
-            Err(_) => {
-                debug_assert!(
-                    indexing != IndexingAllowance::None,
-                    "select_program only emits a table mutation when indexing allows it"
-                );
-                return self.plan_with_indexing(
-                    name,
-                    value,
-                    IndexingAllowance::None,
-                    never_indexed,
-                );
-            }
-        };
-
-        self.execute_program(program, name, value, new_abs_idx)
-    }
-
-    /// Read the static and dynamic tables for `(name, value)` and report what matches. Pure
-    /// — no mutation, no budget logic.
-    ///
-    /// Draining-aware: when `dynamic_full` falls inside the draining region (per
-    /// [`TableState::draining_frontier_abs_idx`](super::state::TableState::draining_frontier_abs_idx)),
-    /// also populates `dynamic_full_safe_to_dup` with a
-    /// [`TableState::safe_to_dup`](super::state::TableState::safe_to_dup) pre-check
-    /// against the current preserve floor (the planner's in-progress `min_ref_abs_idx`).
-    /// These fields are consumed by phase 4's main-path DUP-on-draining policy.
-    fn compute_match_state(
-        &self,
-        name: &QpackEntryName<'_>,
-        value: &FieldLineValue<'_>,
-    ) -> MatchState {
-        let dyn_name_idx = self.state.by_name.get(name);
-        let dynamic_full = dyn_name_idx.and_then(|idx| idx.by_value.get(value.as_bytes()).copied());
-        let dynamic_name = dyn_name_idx.map(|idx| idx.latest_any);
-
-        let (dynamic_full_is_draining, dynamic_full_safe_to_dup) = match dynamic_full {
-            Some(idx) if idx < self.state.draining_frontier_abs_idx() => {
-                (true, self.state.safe_to_dup(idx, self.min_ref_abs_idx))
-            }
-            _ => (false, false),
-        };
-
-        let (static_full, static_name) = match static_table_lookup(name, Some(value.as_bytes())) {
-            StaticLookup::FullMatch(i) => (Some(i), Some(i)),
-            StaticLookup::NameMatch(i) => (None, Some(i)),
-            StaticLookup::NoMatch => (None, None),
-        };
-
-        MatchState {
-            dynamic_full,
-            dynamic_full_is_draining,
-            dynamic_full_safe_to_dup,
-            static_full,
-            dynamic_name,
-            static_name,
         }
-    }
 
-    /// Snapshot the blocked-streams budget for the next [`select_program`] call.
-    fn budget_ctx(&self) -> BudgetCtx {
-        BudgetCtx {
-            krc: self.state.known_received_count,
-            committed_to_blocking: self.committed_to_blocking,
-            stream_already_blocking: self.stream_already_blocking,
-            blocked_slot_available: self.state.currently_blocked_streams()
-                < self.state.max_blocked_streams,
-        }
-    }
-
-    /// Build the [`Emission`] for `program`, given any `new_abs_idx` produced by a preceding
-    /// `TableAction::InsertNew` performed by [`plan_with_indexing`]. Records the dynamic ref
-    /// in the section's RIC and min-floor accounting and commits to a blocked-streams slot
-    /// when the ref is the first blocking one in this section.
-    fn execute_program(
-        &mut self,
-        program: EncoderProgram,
-        name: &'lines QpackEntryName<'names>,
-        value: FieldLineValue<'lines>,
-        new_abs_idx: Option<u64>,
-    ) -> Emission<'lines, 'names> {
-        debug_assert_eq!(
-            new_abs_idx.is_some(),
-            matches!(program.table, TableAction::InsertNew),
-            "new_abs_idx presence must match TableAction::InsertNew"
-        );
-
-        match program.header_block {
-            HeaderBlockAction::IndexedStatic(i) => Emission::IndexedStatic(i),
-            HeaderBlockAction::IndexedDynamic(dyn_ref) => {
-                let abs_idx = self.resolve_and_record_dyn_ref(dyn_ref, new_abs_idx);
-                Emission::IndexedDynamicPreBase(abs_idx)
-            }
-            HeaderBlockAction::LiteralStaticNameRef { name_index } => {
-                Emission::LiteralStaticNameRef {
-                    name_index,
-                    value,
-                    never_indexed: program.never_indexed,
-                }
-            }
-            HeaderBlockAction::LiteralDynamicNameRef { dyn_ref } => {
-                let abs_idx = self.resolve_and_record_dyn_ref(dyn_ref, new_abs_idx);
-                Emission::LiteralDynamicNameRefPreBase {
-                    abs_idx,
-                    value,
-                    never_indexed: program.never_indexed,
-                }
-            }
-            HeaderBlockAction::LiteralLiteralName => Emission::LiteralLiteralName {
-                name,
+        // 5. Literal form: static name ref → pre-insert dyn name ref (still live and
+        //    referenceable) → literal-literal. Section never references the freshly-
+        //    inserted entry from step 4.
+        if let StaticLookup::NameMatch(i) = static_match {
+            return Emission::LiteralStaticNameRef {
+                name_index: i,
                 value,
-                never_indexed: program.never_indexed,
-            },
+                never_indexed,
+            };
+        }
+        if let Some(abs_idx) = dyn_name_pre
+            && self.state.entry_at_abs(abs_idx).is_some()
+            && self.can_ref(abs_idx)
+        {
+            self.record_ref(abs_idx);
+            return Emission::LiteralDynamicNameRefPreBase {
+                abs_idx,
+                value,
+                never_indexed,
+            };
+        }
+        Emission::LiteralLiteralName {
+            name,
+            value,
+            never_indexed,
         }
     }
 
-    /// Convert a [`DynRef`] into its absolute index, then update the section's RIC,
-    /// min-floor, and blocked-slot commitment to account for the reference.
-    fn resolve_and_record_dyn_ref(&mut self, dyn_ref: DynRef, new_abs_idx: Option<u64>) -> u64 {
-        let abs_idx = match dyn_ref {
-            DynRef::Existing(i) => i,
-            DynRef::NewlyInserted => {
-                new_abs_idx.expect("NewlyInserted requires a preceding TableAction::InsertNew")
-            }
-        };
-        if abs_idx >= self.state.known_received_count
-            && !self.committed_to_blocking
-            && !self.stream_already_blocking
-        {
-            self.committed_to_blocking = true;
-        }
-        self.record_ref(abs_idx);
-        abs_idx
+    /// True iff a header-block reference to `abs_idx` is allowed under the section's
+    /// blocking budget. Already-acked entries (`abs_idx < KRC`) are always referenceable;
+    /// unacked entries require the section to be permitted to block.
+    fn can_ref(&self, abs_idx: u64) -> bool {
+        abs_idx < self.state.known_received_count || self.can_block_section
     }
 
     fn record_ref(&mut self, abs_idx: u64) {
@@ -717,10 +404,6 @@ fn emit_section_prefix(section_ric: u64, max_capacity: usize, buf: &mut Vec<u8>)
 /// Convert a planned [`Emission`] into a [`FieldLineInstruction`] and append its wire
 /// encoding to `buf`. Pre-base dynamic references are translated from absolute to relative
 /// indices using `base = section_ric` (so relative index is `section_ric - 1 - abs_idx`).
-///
-/// `never_indexed` is now carried per-emission. Phase 1 still sources it as `false` from
-/// `Planner::plan_header_line` because `FieldLine` does not yet thread the bit through —
-/// see `qpack-n-bit-gap` memory.
 fn emit(emission: &Emission<'_, '_>, section_ric: u64, buf: &mut Vec<u8>) {
     let instruction = match emission {
         Emission::IndexedStatic(index) => FieldLineInstruction::IndexedStatic {

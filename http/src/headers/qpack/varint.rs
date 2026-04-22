@@ -53,7 +53,7 @@ pub(in crate::headers) fn decode(
 
 /// Encoded length of `value` under a prefix-coded integer with `prefix_size`-bit prefix
 /// (RFC 7541 §5.1), in bytes. Used to project wire sizes without materializing the
-/// encoding — notably by the phase-5 inflation guard.
+/// encoding.
 pub(in crate::headers) fn encoded_length(value: usize, prefix_size: u8) -> usize {
     debug_assert!((1..=8).contains(&prefix_size));
 

@@ -163,10 +163,3 @@ pub(in crate::headers) fn encode_string(value: &[u8], prefix_size: u8, buf: &mut
     }
 }
 
-/// Projected wire-size of [`encode_string`] for the same `(value, prefix_size)`, without
-/// writing anything. Used by the phase-5 inflation guard to decide whether a program would
-/// dilute compression below the configured ratio.
-pub(in crate::headers) fn encode_string_length(value: &[u8], prefix_size: u8) -> usize {
-    let payload_len = huffman::encoded_length_if_shorter(value).unwrap_or(value.len());
-    varint::encoded_length(payload_len, prefix_size) + payload_len
-}

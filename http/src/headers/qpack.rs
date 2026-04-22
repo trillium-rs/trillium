@@ -14,6 +14,7 @@ mod decoder_dynamic_table;
 mod encoder_corpus_tests;
 mod encoder_dynamic_table;
 mod entry_name;
+mod header_observer;
 pub(crate) mod huffman;
 mod instruction;
 #[cfg(test)]
@@ -45,6 +46,7 @@ pub use decoder_dynamic_table::DecoderDynamicTable;
 pub(crate) use encoder_dynamic_table::EncoderDynamicTable;
 #[cfg(feature = "unstable")]
 pub use encoder_dynamic_table::EncoderDynamicTable;
+pub(crate) use header_observer::HeaderObserver;
 use fieldwork::Fieldwork;
 #[cfg(feature = "unstable")]
 pub use huffman::HuffmanError;
@@ -169,6 +171,14 @@ impl PartialEq for FieldLineValue<'_> {
 
 impl Eq for FieldLineValue<'_> {}
 
+/// Consistent with [`PartialEq`]: hash by the underlying bytes so the three provenance variants
+/// hash the same.
+impl std::hash::Hash for FieldLineValue<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_bytes().hash(state);
+    }
+}
+
 impl FieldLineValue<'_> {
     fn into_static(self) -> Cow<'static, [u8]> {
         match self {
@@ -191,6 +201,14 @@ impl FieldLineValue<'_> {
             FieldLineValue::Static(items) => FieldLineValue::Static(items),
             FieldLineValue::Borrowed(items) => FieldLineValue::Borrowed(items),
             FieldLineValue::Owned(items) => FieldLineValue::Borrowed(items),
+        }
+    }
+
+    fn into_owned(self) -> FieldLineValue<'static> {
+        match self {
+            FieldLineValue::Static(items) => FieldLineValue::Static(items),
+            FieldLineValue::Borrowed(items) => FieldLineValue::Owned(items.to_vec()),
+            FieldLineValue::Owned(items) => FieldLineValue::Owned(items),
         }
     }
 

@@ -107,6 +107,7 @@ impl H3Connection {
         let swansong = context.swansong.child();
         let max_table_capacity = context.config.h3_max_table_capacity;
         let blocked_streams = context.config.h3_blocked_streams;
+        let encoder_dynamic_table = EncoderDynamicTable::new(&context);
         Arc::new(Self {
             context,
             swansong,
@@ -114,7 +115,7 @@ impl H3Connection {
             max_accepted_stream_id: AtomicU64::new(0),
             has_accepted_stream: AtomicBool::new(false),
             decoder_dynamic_table: DecoderDynamicTable::new(max_table_capacity, blocked_streams),
-            encoder_dynamic_table: EncoderDynamicTable::default(),
+            encoder_dynamic_table,
         })
     }
 
@@ -462,12 +463,8 @@ impl H3Connection {
             .set(settings)
             .map_err(|_| H3ErrorCode::FrameUnexpected)?;
 
-        self.encoder_dynamic_table.initialize_from_peer_settings(
-            self.context.config.h3_max_table_capacity,
-            settings,
-            self.context.config.h3_qpack_mnemonic_indexing,
-            self.context.config.h3_qpack_inflation_ratio_max,
-        );
+        self.encoder_dynamic_table
+            .initialize_from_peer_settings(settings);
 
         // Read subsequent frames, watching for GOAWAY
         loop {

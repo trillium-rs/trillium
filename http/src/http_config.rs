@@ -155,40 +155,33 @@ pub struct HttpConfig {
     /// **Unit**: Stream count
     pub(crate) h3_blocked_streams: usize,
 
-    /// Whether the QPACK encoder uses a mnemonic predictor to decide which headers to
-    /// insert into the dynamic table.
+    /// Half-life (in observed sections) of the QPACK header observer's exponential
+    /// moving average.
     ///
-    /// When `true` (the default), the encoder inserts a `(name, value)` pair only if it has
-    /// seen the same pair recently — on the theory that repeat-prone headers are worth
-    /// indexing and one-shot headers aren't. When `false`, every non-sensitive header is
-    /// eagerly indexed up to the blocked-streams budget.
+    /// Controls how fast the observer's per-pair frequency counts decay as the server's
+    /// header vocabulary shifts. At the half-life, a pair seen consistently in the past but
+    /// not observed since contributes half as much to the priming decision as a pair
+    /// observed right now. Longer half-lives favor slowly-shifting, deploy-stable vocabulary
+    /// (e.g. `server:` header); shorter half-lives track rapidly-changing traffic patterns.
     ///
-    /// Disable only for diagnostic or pathological traffic where the predictor thrashes; the
-    /// default is a measurable compression win for typical web traffic. Orthogonal to
-    /// [`h3_max_table_capacity`](Self::h3_max_table_capacity) — set that to `0` to disable
-    /// dynamic indexing entirely.
+    /// "Sections" here means encoded response field sections — i.e. one tick per response,
+    /// regardless of how those responses are distributed across QUIC connections. This makes
+    /// the observer's notion of "frequency" robust to upstream connection-pooling and reverse
+    /// proxies (where one connection can carry traffic from many distinct logical peers).
     ///
-    /// **Default**: `true`
-    pub(crate) h3_qpack_mnemonic_indexing: bool,
+    /// **Default**: `10_000`
+    pub(crate) h3_qpack_header_observer_half_life_sections: u32,
 
-    /// Maximum QPACK encode-output-to-input ratio above which warming and name-only inserts
-    /// are suppressed.
+    /// Upper bound on the number of `(name, value)` pairs the QPACK header observer
+    /// retains in memory.
     ///
-    /// Tracked as a running `bytes_out / bytes_in` ratio across all header lines on a
-    /// connection. When a would-be Insert-paired-with-literal program (warming insert or
-    /// name-only insert) would project the running ratio above this threshold, the encoder
-    /// re-plans the line without indexing — preventing a death spiral where every header
-    /// both costs an encoder-stream insert AND emits a literal in the section, bloating
-    /// the wire without delivering compression.
+    /// When the observer's entry count exceeds this, least-frequently-used entries are
+    /// evicted. This bounds per-listener observer memory: each entry is roughly a few dozen
+    /// bytes plus the stored name/value, so 10_000 entries is on the order of hundreds of
+    /// kilobytes.
     ///
-    /// The guard is narrow: it applies only to Insert-paired-with-literal programs.
-    /// Insert-then-reference (where the section indexes the newly inserted entry) pays its
-    /// own way and is never gated. Duplicate programs are also exempt.
-    ///
-    /// Set to `1.0` or higher to disable the guard. Mirrors ls-qpack's `0.95` default.
-    ///
-    /// **Default**: `0.95`
-    pub(crate) h3_qpack_inflation_ratio_max: f32,
+    /// **Default**: `10_000`
+    pub(crate) h3_qpack_header_observer_max_entries: u32,
 
     /// whether [datagrams](https://www.rfc-editor.org/rfc/rfc9297.html) are enabled for HTTP/3
     ///
@@ -237,8 +230,8 @@ impl HttpConfig {
         h3_max_field_section_size: 8 * 1024,
         h3_max_table_capacity: 4096,
         h3_blocked_streams: 100,
-        h3_qpack_mnemonic_indexing: true,
-        h3_qpack_inflation_ratio_max: 0.95,
+        h3_qpack_header_observer_half_life_sections: 10_000,
+        h3_qpack_header_observer_max_entries: 10_000,
         h3_datagrams_enabled: false,
         webtransport_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),

@@ -143,7 +143,13 @@ fn dynamic_full_match_regular_header() {
 }
 
 #[test]
-fn dynamic_full_match_preferred_over_static() {
+fn static_full_match_preferred_over_dynamic() {
+    // When the same `(name, value)` pair is in both the static table and the dynamic
+    // table, the encoder picks the static reference. Static refs cost no RIC, no pinning,
+    // no blocked-stream slot — strictly cheaper than the equivalent dynamic ref. The
+    // dynamic copy of a static-matchable pair only ever exists in pathological cases
+    // (something inserted it directly); the planner's own warm-insert path short-circuits
+    // on static_full and never adds such an entry.
     let encoder = new_table(4096);
     encoder
         .insert(KnownHeaderName::ContentType.into(), fv("application/json"))
@@ -155,10 +161,10 @@ fn dynamic_full_match_preferred_over_static() {
     let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 1);
 
     let (prefix, lines) = parse_section(&bytes);
-    assert_ne!(prefix.encoded_required_insert_count, 0);
-    assert_eq!(
-        lines,
-        vec![FieldLineInstruction::IndexedDynamic { relative_index: 0 }]
+    assert_eq!(prefix.encoded_required_insert_count, 0);
+    assert!(
+        matches!(lines.as_slice(), [FieldLineInstruction::IndexedStatic { .. }]),
+        "expected IndexedStatic, got {lines:?}"
     );
 }
 

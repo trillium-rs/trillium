@@ -66,8 +66,7 @@
 //! ls-qpack run through the same chunking harness (not yet implemented).
 
 use super::{
-    DecoderDynamicTable, EncoderDynamicTable,
-    encoder_dynamic_table::strategy_counters::StrategyCounters, qif,
+    DecoderDynamicTable, EncoderDynamicTable, qif,
     reference_out::{
         OutGroup, WireHistogram, classify_encoder_stream, classify_header_block,
         histogram_from_out_file, parse_encoder_stream_for_dump, parse_header_block_for_dump,
@@ -91,7 +90,7 @@ use std::{
 // baseline that policy changes can be measured against.
 
 /// A `(max_capacity, max_blocked_streams)` pair. `u64` to match `H3Settings` units.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Config {
     capacity: u64,
     max_blocked: u64,
@@ -173,13 +172,13 @@ fn run_qif_at_config(
     groups: &[qif::QifGroup],
     config: Config,
     chunk_size: Option<usize>,
+    observer: std::sync::Arc<super::HeaderObserver>,
     mut dump: Option<DumpCtx<'_>>,
-) -> (EncodeStats, StrategyCounters, WireHistogram) {
+) -> (EncodeStats, WireHistogram) {
     let mut stats = EncodeStats::default();
-    let mut total_counters = StrategyCounters::default();
     let mut wire = WireHistogram::default();
     if groups.is_empty() {
-        return (stats, total_counters, wire);
+        return (stats, wire);
     }
     let effective_chunk_size = chunk_size.unwrap_or(groups.len()).max(1);
 
@@ -188,22 +187,18 @@ fn run_qif_at_config(
         let chunk_end = (chunk_start + effective_chunk_size).min(groups.len());
         let chunk = &groups[chunk_start..chunk_end];
 
-        let encoder = EncoderDynamicTable::default();
+        // Build an HttpContext that holds this cell's shared observer (so cross-
+        // connection priming works) and the cell's max table capacity (the encoder reads
+        // it at construction).
+        let mut context = crate::HttpContext::default();
+        context.observer = observer.clone();
+        context.config.h3_max_table_capacity = config.capacity as usize;
+        let encoder = EncoderDynamicTable::new(&context);
         encoder.initialize_from_peer_settings(
-            config.capacity as usize,
             H3Settings::default()
                 .with_qpack_max_table_capacity(config.capacity)
                 .with_qpack_blocked_streams(config.max_blocked),
-            // Match the production `HttpConfig` defaults so corpus numbers reflect shipped
-            // behavior. Flip `mnemonic_indexing` to `false` or the inflation ratio to `1.0`
-            // temporarily when doing phase A/B comparisons.
-            true,
-            0.95,
         );
-        // Development-time scaffolding: attach per-line strategy counters so the aggregate
-        // report below can show which planner paths fire at what rates. Zero runtime overhead
-        // in production (field is `cfg(test)`-gated).
-        encoder.enable_strategy_counters();
         let decoder =
             DecoderDynamicTable::new(config.capacity as usize, config.max_blocked as usize);
 
@@ -255,7 +250,6 @@ fn run_qif_at_config(
                     entry_count: encoder.entry_count(),
                     current_size: encoder.current_size(),
                     capacity: encoder.capacity(),
-                    draining_frontier: encoder.draining_frontier_abs_idx(),
                 };
                 dump_group(
                     ctx.writer,
@@ -333,22 +327,20 @@ fn run_qif_at_config(
             }
         }
 
-        total_counters.add(&encoder.take_strategy_counters().unwrap_or_default());
         chunk_start = chunk_end;
     }
 
-    (stats, total_counters, wire)
+    (stats, wire)
 }
 
 /// Post-section state snapshot on our side. Captured after encoding the section and
-/// included in the per-group dump so we can compare fill levels / draining frontier to
-/// what ls-qpack is doing in parallel.
+/// included in the per-group dump so we can compare fill levels to what ls-qpack is doing
+/// in parallel.
 struct OurStateSnapshot {
     insert_count: u64,
     entry_count: usize,
     current_size: usize,
     capacity: usize,
-    draining_frontier: u64,
 }
 
 /// Write one group's ours-vs-theirs dump to `writer`. Classifies both sides' raw bytes
@@ -375,13 +367,12 @@ fn dump_group(
     };
     let _ = writeln!(
         writer,
-        "  our_state_after: insert_count={} entry_count={} used={}/{} ({:.1}%) frontier={}",
+        "  our_state_after: insert_count={} entry_count={} used={}/{} ({:.1}%)",
         our_snapshot.insert_count,
         our_snapshot.entry_count,
         our_snapshot.current_size,
         our_snapshot.capacity,
         fill_pct,
-        our_snapshot.draining_frontier,
     );
     let _ = writeln!(writer, "  input:");
     for (name, value) in input {
@@ -574,19 +565,26 @@ fn qpack_encoder_corpus() {
     });
 
     // Collected (chunk_size, qif stem, config) -> (ours, per-encoder reference totals +
-    // histograms, strategy counters, our wire histogram). Only populated when stats are
-    // enabled. `chunk_size = None` means one connection per qif (unchunked); `Some(n)`
-    // means the qif was replayed as many n-group connections.
+    // histograms, our wire histogram). Only populated when stats are enabled. `chunk_size
+    // = None` means one connection per qif (unchunked); `Some(n)` means the qif was
+    // replayed as many n-group connections.
     type MetricRow = (
         Option<usize>,
         String,
         Config,
         EncodeStats,
         BTreeMap<String, (usize, Option<WireHistogram>)>,
-        StrategyCounters,
         WireHistogram,
     );
     let mut metric: Vec<MetricRow> = Vec::new();
+
+    // One header observer per (chunk_size, config) cell — accumulates across all qifs at
+    // that config, matching the "single listener sees all this traffic" model and giving
+    // the observer enough ticks to pass its warmup threshold. Lazily populated.
+    let mut observers: std::collections::HashMap<
+        (Option<usize>, Config),
+        std::sync::Arc<super::HeaderObserver>,
+    > = std::collections::HashMap::new();
 
     let mut tested = 0usize;
 
@@ -680,8 +678,22 @@ fn qpack_encoder_corpus() {
                     }),
                     _ => None,
                 };
-                let (stats, counters, our_wire) =
-                    run_qif_at_config(&qif_path, &groups, config, chunk_size, dump_ctx);
+                let observer = observers
+                    .entry((chunk_size, config))
+                    .or_insert_with(|| {
+                        std::sync::Arc::new(super::HeaderObserver::from_http_config(
+                            &crate::HttpConfig::DEFAULT,
+                        ))
+                    })
+                    .clone();
+                let (stats, our_wire) = run_qif_at_config(
+                    &qif_path,
+                    &groups,
+                    config,
+                    chunk_size,
+                    observer,
+                    dump_ctx,
+                );
                 tested += 1;
 
                 if stats_enabled {
@@ -699,7 +711,6 @@ fn qpack_encoder_corpus() {
                         config,
                         stats,
                         refs,
-                        counters,
                         our_wire,
                     ));
                 }
@@ -724,8 +735,8 @@ fn qpack_encoder_corpus() {
             let unchunked: Vec<_> = metric
                 .iter()
                 .filter(|row| row.0.is_none())
-                .map(|(_, stem, c, s, r, sc, w)| {
-                    (stem.clone(), *c, *s, r.clone(), sc.clone(), w.clone())
+                .map(|(_, stem, c, s, r, w)| {
+                    (stem.clone(), *c, *s, r.clone(), w.clone())
                 })
                 .collect();
             print_metric_report(&unchunked);
@@ -745,7 +756,6 @@ fn print_curve_report(
         Config,
         EncodeStats,
         BTreeMap<String, (usize, Option<WireHistogram>)>,
-        StrategyCounters,
         WireHistogram,
     )],
     chunk_sizes: &[Option<usize>],
@@ -764,7 +774,7 @@ fn print_curve_report(
     let mut per_qif: BTreeMap<(String, u64, u64), BTreeMap<Option<usize>, usize>> =
         BTreeMap::new();
     let mut agg: BTreeMap<(u64, u64), BTreeMap<Option<usize>, usize>> = BTreeMap::new();
-    for (cs, stem, config, stats, _, _, _) in metric {
+    for (cs, stem, config, stats, _, _) in metric {
         *per_qif
             .entry((stem.clone(), config.capacity, config.max_blocked))
             .or_default()
@@ -851,7 +861,6 @@ fn print_metric_report(
         Config,
         EncodeStats,
         BTreeMap<String, (usize, Option<WireHistogram>)>,
-        StrategyCounters,
         WireHistogram,
     )],
 ) {
@@ -864,7 +873,7 @@ fn print_metric_report(
         "{:<20} {:<12} {:>10} {:>10} {:>10}  vs references (pct of ours)",
         "qif", "config", "section", "enc_stream", "total"
     );
-    for (stem, config, stats, refs, _, _) in metric {
+    for (stem, config, stats, refs, _) in metric {
         let refs_str = if refs.is_empty() {
             String::from("(no reference at this config)")
         } else {
@@ -898,14 +907,12 @@ fn print_metric_report(
     let mut ours_by_config: BTreeMap<(u64, u64), usize> = BTreeMap::new();
     // (cap, blocked, encoder) -> (our bytes on matching files, their bytes)
     let mut paired: BTreeMap<(u64, u64, String), (usize, usize)> = BTreeMap::new();
-    // (cap, blocked) -> strategy counters summed across all qifs
-    let mut counters_by_config: BTreeMap<(u64, u64), StrategyCounters> = BTreeMap::new();
     // (cap, blocked) -> our wire histogram summed across all qifs
     let mut our_wire_by_config: BTreeMap<(u64, u64), WireHistogram> = BTreeMap::new();
     // (cap, blocked, encoder) -> their wire histogram summed across qifs where they
     // have a reference at this config
     let mut their_wire_by_config: BTreeMap<(u64, u64, String), WireHistogram> = BTreeMap::new();
-    for (_, config, stats, refs, counters, our_wire) in metric {
+    for (_, config, stats, refs, our_wire) in metric {
         *ours_by_config
             .entry((config.capacity, config.max_blocked))
             .or_default() += stats.total();
@@ -922,10 +929,6 @@ fn print_metric_report(
                     .add(h);
             }
         }
-        counters_by_config
-            .entry((config.capacity, config.max_blocked))
-            .or_default()
-            .add(counters);
         our_wire_by_config
             .entry((config.capacity, config.max_blocked))
             .or_default()
@@ -952,7 +955,6 @@ fn print_metric_report(
         eprintln!("({cap},{blk}): ours={ours}\n    {refs_str}");
     }
     eprintln!();
-    print_strategy_counters(&counters_by_config);
     print_wire_comparison(&our_wire_by_config, &their_wire_by_config);
 }
 
@@ -1088,76 +1090,3 @@ fn diverges(ours: u64, theirs: u64) -> &'static str {
     if a >= b * 2 { "  ←Δ" } else { "" }
 }
 
-/// Dev-time scaffolding: summarize the per-line planner strategy distribution per config.
-/// Removed along with the rest of the counter plumbing before the dynamic-tables branch
-/// ships. Reads three flagged gaps:
-/// - Gap #1 ("warming insert when dyn_name matches") → non-zero `warming_insert.dyn_name`
-/// - Gap #2 (main-path DUP threshold) → size of `main_path_dup_refresh`
-/// - Gap #3 (name-only needs a slot) → non-zero `name_only_skipped_no_slot` at (4096,0)
-fn print_strategy_counters(counters_by_config: &BTreeMap<(u64, u64), StrategyCounters>) {
-    eprintln!("--- planner strategy counters (scaffolding; dev-only) ---");
-    for ((cap, blk), c) in counters_by_config {
-        let warming_total =
-            c.warming_insert_no_match + c.warming_insert_static_name + c.warming_insert_dyn_name;
-        let literal_total = c.literal_static_name + c.literal_dyn_name + c.literal_literal_name;
-        let allowance_total = c.allowance_none + c.allowance_name_only + c.allowance_full;
-        let pct = |n: u64| -> f64 {
-            if allowance_total == 0 {
-                0.0
-            } else {
-                (n as f64) * 100.0 / (allowance_total as f64)
-            }
-        };
-        let sat_pct = if c.n_sections == 0 {
-            0.0
-        } else {
-            (c.n_saturating_sections as f64) * 100.0 / (c.n_sections as f64)
-        };
-        eprintln!("({cap},{blk}):");
-        eprintln!(
-            "    indexed_dynamic_existing={}  indexed_static={}  insert_then_reference={}",
-            c.indexed_dynamic_existing, c.indexed_static, c.insert_then_reference,
-        );
-        eprintln!(
-            "    main_path_dup_refresh={}  dup_draining_pass_emits={}",
-            c.main_path_dup_refresh, c.dup_draining_pass_emits,
-        );
-        eprintln!(
-            "    warming_insert={} (no_match={} static_name={} dyn_name={} ← gap #1)",
-            warming_total,
-            c.warming_insert_no_match,
-            c.warming_insert_static_name,
-            c.warming_insert_dyn_name,
-        );
-        eprintln!(
-            "    name_only_insert={}  skipped_no_slot={} ← gap #3",
-            c.name_only_insert, c.name_only_skipped_no_slot,
-        );
-        eprintln!(
-            "    literal={} (static_name={} dyn_name={} literal_name={})",
-            literal_total, c.literal_static_name, c.literal_dyn_name, c.literal_literal_name,
-        );
-        eprintln!(
-            "    inflation_retry={}  insert_budget_blocked={}",
-            c.inflation_retry, c.insert_budget_blocked,
-        );
-        eprintln!(
-            "    allowance: none={} ({:.1}%)  name_only={} ({:.1}%)  full={} ({:.1}%)",
-            c.allowance_none,
-            pct(c.allowance_none),
-            c.allowance_name_only,
-            pct(c.allowance_name_only),
-            c.allowance_full,
-            pct(c.allowance_full),
-        );
-        eprintln!(
-            "    predictor: sections={} saturating={} ({sat_pct:.1}%) grow_events={} \
-             ring_size_sum={} (one per qif connection)",
-            c.n_sections,
-            c.n_saturating_sections,
-            c.saturation_grow_events,
-            c.final_ring_size,
-        );
-    }
-    eprintln!();
-}

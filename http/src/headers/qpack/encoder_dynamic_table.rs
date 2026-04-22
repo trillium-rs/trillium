@@ -19,23 +19,25 @@
 //! describe intent, not encoding.
 
 use crate::{
+    HttpContext,
     h3::{H3Error, H3ErrorCode, H3Settings},
-    headers::qpack::{FieldLineValue, entry_name::QpackEntryName},
+    headers::qpack::{FieldLineValue, HeaderObserver, entry_name::QpackEntryName},
 };
 use event_listener::{Event, EventListener};
+use recent_pairs::RecentPairs;
 use state::TableState;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+mod connection_metrics;
 mod encode;
-mod policy;
-mod predictor;
 mod reader;
+mod recent_pairs;
 mod state;
-#[cfg(test)]
-pub(in crate::headers::qpack) mod strategy_counters;
 #[cfg(test)]
 mod tests;
 mod writer;
+
+use connection_metrics::ConnectionMetrics;
 
 pub(in crate::headers) use state::SectionRefs;
 
@@ -47,19 +49,61 @@ pub(in crate::headers) use state::SectionRefs;
 #[derive(Debug)]
 pub struct EncoderDynamicTable {
     state: Mutex<TableState>,
+    /// Cross-connection header-frequency observer for priming + per-section observation
+    /// feedback. Shared across connections on a given listener.
+    observer: Arc<HeaderObserver>,
+    /// Our local upper bound on dynamic-table capacity, captured from
+    /// [`HttpConfig::h3_max_table_capacity`] at construction. The negotiated capacity
+    /// is `min(our_max_capacity, peer_qpack_max_table_capacity)`; consumed once by
+    /// [`initialize_from_peer_settings`](Self::initialize_from_peer_settings).
+    ///
+    /// [`HttpConfig::h3_max_table_capacity`]: crate::HttpConfig::h3_max_table_capacity
+    our_max_capacity: usize,
     /// Notified on: new op enqueued, peer ack received, failure. The encoder stream writer
     /// task awaits this to wake and drain `pending_ops`.
     event: Event,
+    /// Per-connection QPACK metrics for observer/priming evaluation. Research-mode
+    /// instrumentation; emitted on drop via `log::info!` at the
+    /// `trillium_http::qpack_metrics` target. See
+    /// [`connection_metrics`](self::connection_metrics) for the rationale.
+    metrics: ConnectionMetrics,
+}
+
+impl Drop for EncoderDynamicTable {
+    fn drop(&mut self) {
+        log::info!(target: "qpack_metrics", "EncoderDynamicTable dropped");
+        self.metrics.log_summary_with_prefix("connection final");
+    }
 }
 
 impl Default for EncoderDynamicTable {
-    /// Construct an empty encoder dynamic table. `max_capacity` and the working `capacity`
-    /// both start at 0; call [`initialize_from_peer_settings`](Self::initialize_from_peer_settings)
-    /// once the peer's `SETTINGS_QPACK_MAX_TABLE_CAPACITY` is known before any inserts.
+    /// Construct an empty encoder dynamic table with a fresh, empty observer and
+    /// default config. Intended for tests and fixtures; production callers should use
+    /// [`EncoderDynamicTable::new`] so the observer is shared across connections on the
+    /// same listener.
     fn default() -> Self {
+        Self::new(&HttpContext::default())
+    }
+}
+
+impl EncoderDynamicTable {
+    /// Construct an empty encoder dynamic table for a connection running under
+    /// `context`. Captures the listener's shared observer and our local max capacity;
+    /// pre-sizes the per-connection [`RecentPairs`] ring from the observer's
+    /// cross-connection EMA on headers-per-section.
+    ///
+    /// `max_capacity` and the working `capacity` both start at 0; call
+    /// [`initialize_from_peer_settings`](Self::initialize_from_peer_settings) once the
+    /// peer's `SETTINGS_QPACK_MAX_TABLE_CAPACITY` is known before any inserts.
+    pub(crate) fn new(context: &HttpContext) -> Self {
+        let observer = context.observer.clone();
+        let ring_size = observer.suggested_ring_size();
         Self {
-            state: Mutex::new(TableState::new()),
+            state: Mutex::new(TableState::new(RecentPairs::with_size(ring_size))),
+            observer,
+            our_max_capacity: context.config.h3_max_table_capacity,
             event: Event::new(),
+            metrics: ConnectionMetrics::default(),
         }
     }
 }
@@ -67,29 +111,36 @@ impl Default for EncoderDynamicTable {
 impl EncoderDynamicTable {
     /// Initialize the table from peer settings. Sets `max_capacity` (and the working
     /// `capacity`) to `min(our_max_capacity, peer_qpack_max_table_capacity)`, records
-    /// `max_blocked_streams` from the peer's settings, stores the local
-    /// `mnemonic_indexing` and `inflation_ratio_max` policy choices (from
-    /// `HttpConfig::h3_qpack_mnemonic_indexing` and
-    /// `HttpConfig::h3_qpack_inflation_ratio_max`), and, if the chosen capacity is
+    /// `max_blocked_streams` from the peer's settings, and, if the chosen capacity is
     /// non-zero, enqueues a Set Dynamic Table Capacity instruction (RFC 9204 §3.2.1,
     /// §4.3.1).
     ///
     /// Must be called exactly once, immediately after the peer's `SETTINGS` frame is parsed
     /// on the control stream.
-    pub(crate) fn initialize_from_peer_settings(
-        &self,
-        our_max_capacity: usize,
-        peer_settings: H3Settings,
-        mnemonic_indexing: bool,
-        inflation_ratio_max: f32,
-    ) {
+    pub(crate) fn initialize_from_peer_settings(&self, peer_settings: H3Settings) {
         let peer_max_capacity =
             usize::try_from(peer_settings.qpack_max_table_capacity().unwrap_or(0))
                 .unwrap_or(usize::MAX);
-        let chosen = our_max_capacity.min(peer_max_capacity);
+        let chosen = self.our_max_capacity.min(peer_max_capacity);
         let max_blocked_streams =
             usize::try_from(peer_settings.qpack_blocked_streams().unwrap_or(0))
                 .unwrap_or(usize::MAX);
+
+        // Compute priming entries outside the encoder-state critical section. The observer
+        // ticks per *section*, not per connection, so we don't bump it here — the first
+        // `encode_field_lines` call for this connection will do that.
+        let prime_entries = if chosen > 0 {
+            let cap = u32::try_from(chosen).unwrap_or(u32::MAX);
+            self.observer.prime(cap)
+        } else {
+            Vec::new()
+        };
+        log::info!(
+            target: "qpack_metrics",
+            "initialize_from_peer_settings: chosen_capacity={chosen} prime_entries={}",
+            prime_entries.len(),
+        );
+
         let mut state = self.state.lock().unwrap();
         debug_assert_eq!(
             state.max_capacity, 0,
@@ -97,16 +148,56 @@ impl EncoderDynamicTable {
         );
         state.max_capacity = chosen;
         state.max_blocked_streams = max_blocked_streams;
-        state.mnemonic_indexing = mnemonic_indexing;
-        state.inflation_ratio_max = inflation_ratio_max;
-        // Seed the mnemonic predictor's ring size from the negotiated capacity, matching
-        // ls-qpack's `enc_init` formula. Larger tables see more distinct entries over their
-        // lifetime, so the ring needs more slots to catch repeats before they rotate out.
-        state.predictor.initialize_for_capacity(chosen);
         if chosen > 0 {
             state
                 .set_capacity(chosen)
                 .expect("set_capacity within max_capacity at init");
+            for candidate in prime_entries {
+                // Clone for the metrics record before consuming the pair in `insert`. The
+                // observer returned `'static` clones so this is cheap. A `None` value is
+                // a name-only candidate — primed as a `(name, "")` dynamic-table entry.
+                let name_for_metrics = candidate.name.clone();
+                let value_for_insert = candidate
+                    .value
+                    .clone()
+                    .unwrap_or(FieldLineValue::Static(b""));
+                let value_for_metrics = value_for_insert.clone();
+                let count = candidate.count;
+                let total_ema = candidate.total_ema;
+                let score = candidate.score;
+                let kind = if candidate.value.is_some() { "full-pair" } else { "name-only" };
+                match state.insert(candidate.name, value_for_insert, None) {
+                    Ok(abs_idx) => {
+                        let wire_bytes = state
+                            .pending_ops
+                            .back()
+                            .map_or(0, |b| u64::try_from(b.len()).unwrap_or(u64::MAX));
+                        let fraction = if total_ema > 0.0 {
+                            count / total_ema
+                        } else {
+                            0.0
+                        };
+                        log::info!(
+                            target: "qpack_metrics",
+                            "  priming insert ({kind}): abs_idx={abs_idx} wire_bytes={wire_bytes} \
+                             count={count:.2} total_ema={total_ema:.2} fraction={fraction:.2} \
+                             score={score:.1} name={:?} value={:?}",
+                            name_for_metrics,
+                            String::from_utf8_lossy(value_for_metrics.as_bytes()),
+                        );
+                        self.metrics.record_primed_insert(
+                            abs_idx,
+                            name_for_metrics,
+                            value_for_metrics,
+                            wire_bytes,
+                        );
+                    }
+                    Err(err) => {
+                        log::debug!("qpack observer priming insert failed: {err:?}");
+                        break;
+                    }
+                }
+            }
             drop(state);
             self.event.notify(usize::MAX);
         }
@@ -315,32 +406,4 @@ impl EncoderDynamicTable {
         self.state.lock().unwrap().failed
     }
 
-    /// Enable per-line strategy counting. Development-time scaffolding used by the corpus
-    /// test to see which planner strategies fire at what rates. No-op if already enabled.
-    /// Tears out before release; see
-    /// [`strategy_counters`](self::strategy_counters) for the full rationale.
-    #[cfg(test)]
-    pub(in crate::headers::qpack) fn enable_strategy_counters(&self) {
-        let mut state = self.state.lock().unwrap();
-        if state.strategy_counters.is_none() {
-            state.strategy_counters = Some(Default::default());
-        }
-    }
-
-    /// Snapshot the current strategy counters, leaving counting enabled with zeroed
-    /// buckets. Returns `None` if counting was never enabled on this table. Folds the
-    /// predictor-side diagnostic fields into the returned snapshot so the corpus report
-    /// can display them alongside the planner buckets.
-    #[cfg(test)]
-    pub(in crate::headers::qpack) fn take_strategy_counters(
-        &self,
-    ) -> Option<strategy_counters::StrategyCounters> {
-        let mut state = self.state.lock().unwrap();
-        let mut snapshot = state.strategy_counters.as_mut().map(std::mem::take)?;
-        snapshot.n_sections = state.predictor.diag_n_sections;
-        snapshot.n_saturating_sections = state.predictor.diag_n_saturating_sections;
-        snapshot.saturation_grow_events = state.predictor.diag_saturation_grow_events;
-        snapshot.final_ring_size = state.predictor.ring_size() as u64;
-        Some(snapshot)
-    }
 }

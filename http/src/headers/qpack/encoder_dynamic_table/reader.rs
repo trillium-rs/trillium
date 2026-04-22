@@ -95,12 +95,11 @@ mod tests {
     }
 
     fn make_table_with_two_entries() -> EncoderDynamicTable {
+        // `EncoderDynamicTable::default()` reads `h3_max_table_capacity` from the default
+        // `HttpContext`/`HttpConfig`, which is 4096 — matches what we want here.
         let table = EncoderDynamicTable::default();
         table.initialize_from_peer_settings(
-            4096,
             H3Settings::default().with_qpack_max_table_capacity(4096),
-            false,
-            1.0,
         );
         table.insert(qen("a"), fv("1")).unwrap();
         table.insert(qen("b"), fv("2")).unwrap();

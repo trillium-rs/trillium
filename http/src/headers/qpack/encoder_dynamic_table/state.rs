@@ -13,16 +13,8 @@
 //! in the parent module. This file does no I/O — wire bytes are pushed onto `pending_ops`
 //! for the writer task to drain.
 
-use super::predictor::MnemonicPredictor;
-#[cfg(test)]
-use super::strategy_counters::StrategyCounters;
+use super::recent_pairs::RecentPairs;
 
-/// Saturating `usize` → `u32` conversion. Wire byte sizes and header lengths never
-/// meaningfully exceed `u32::MAX` in practice; clamping at the boundary keeps the
-/// inflation counter arithmetic honest without adding a panic on pathological inputs.
-pub(super) fn to_u32(n: usize) -> u32 {
-    u32::try_from(n).unwrap_or(u32::MAX)
-}
 use crate::{
     h3::{H3Error, H3ErrorCode},
     headers::qpack::{
@@ -76,33 +68,9 @@ pub(super) struct TableState {
     /// [`NameIndex`] holds a per-value map (for full-match lookups) and the latest `abs_idx`
     /// across all live entries with this name (for name-only lookups).
     pub(super) by_name: HashMap<QpackEntryName<'static>, NameIndex>,
-    /// Whether the planner should consult [`predictor`](Self::predictor) when deciding
-    /// `allow_indexing`. When `false`, every non-sensitive header is considered indexable
-    /// (phase-2 eager behavior). Sourced from `HttpConfig::h3_qpack_mnemonic_indexing`.
-    pub(super) mnemonic_indexing: bool,
-    /// Mnemonic predictor state. Always present so the struct has a single shape; the
-    /// [`mnemonic_indexing`](Self::mnemonic_indexing) flag gates whether the planner
-    /// actually consults it.
-    pub(super) predictor: MnemonicPredictor,
-    /// Running sum of raw `name.len() + value.len()` across all header lines encoded on
-    /// this connection. Paired with [`bytes_out`](Self::bytes_out) to drive the phase-5
-    /// inflation guard. Periodically rescaled by
-    /// [`rescale_compression_counters`](Self::rescale_compression_counters) to prevent
-    /// `u32` overflow; rescaling preserves the ratio.
-    pub(super) bytes_in: u32,
-    /// Running sum of wire bytes (encoder stream + header block) emitted for this
-    /// connection.
-    pub(super) bytes_out: u32,
-    /// Inflation guard threshold: when a planned Insert-paired-with-literal would project
-    /// the running ratio `bytes_out / bytes_in` above this value, the line is re-planned
-    /// with indexing disabled. `1.0` or higher disables the guard. Sourced from
-    /// `HttpConfig::h3_qpack_inflation_ratio_max`.
-    pub(super) inflation_ratio_max: f32,
-    /// Development-time strategy counters. `Some` only when the corpus test opts in via
-    /// [`EncoderDynamicTable::enable_strategy_counters`](super::EncoderDynamicTable::enable_strategy_counters).
-    /// Always `None` in production (the field itself is `cfg(test)`-gated).
-    #[cfg(test)]
-    pub(super) strategy_counters: Option<StrategyCounters>,
+    /// Per-connection ring of recently-seen `(name, value)` pair hashes. Consulted by
+    /// the planner before each warming insert.
+    pub(super) recent_pairs: RecentPairs,
 }
 
 #[derive(Debug, Default)]
@@ -140,7 +108,7 @@ pub(in crate::headers) struct SectionRefs {
 }
 
 impl TableState {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(recent_pairs: RecentPairs) -> Self {
         Self {
             entries: VecDeque::new(),
             max_capacity: 0,
@@ -153,17 +121,7 @@ impl TableState {
             failed: None,
             max_blocked_streams: 0,
             by_name: HashMap::new(),
-            // Set by `EncoderDynamicTable::initialize_from_peer_settings` from
-            // `HttpConfig::h3_qpack_mnemonic_indexing` / `h3_qpack_inflation_ratio_max`.
-            mnemonic_indexing: false,
-            predictor: MnemonicPredictor::new(),
-            bytes_in: 0,
-            bytes_out: 0,
-            // `1.0` disables the guard; the real default is re-applied by
-            // `initialize_from_peer_settings`.
-            inflation_ratio_max: 1.0,
-            #[cfg(test)]
-            strategy_counters: None,
+            recent_pairs,
         }
     }
 
@@ -349,259 +307,6 @@ impl TableState {
         abs_idx
     }
 
-    /// Phase-5 inflation guard: would indexing this `(name, value)` pair at the current
-    /// running ratio push `bytes_out / bytes_in` above the configured threshold?
-    ///
-    /// Matches ls-qpack's projection (`lsqpack.c:1945-1957`): the incremental `bytes_out`
-    /// cost is approximated as `huffman_or_raw_length(name) + huffman_or_raw_length(value)`
-    /// — i.e. the string bytes alone, ignoring varint prefixes. This is a heuristic check,
-    /// not a precise projection: a miss just means the guard fires one line early or late,
-    /// and the strategy-chain fallback (retry with indexing disabled) is strictly
-    /// non-regressing. Exact wire-byte accounting happens in
-    /// [`add_compression_counters`](Self::add_compression_counters) after the line is
-    /// planned.
-    ///
-    /// The guard is disabled (always returns `false`) when `inflation_ratio_max >= 1.0`.
-    pub(super) fn would_inflate(&self, name: &[u8], value: &[u8]) -> bool {
-        if self.inflation_ratio_max >= 1.0 {
-            return false;
-        }
-        let name_out = to_u32(
-            crate::headers::qpack::huffman::encoded_length_if_shorter(name).unwrap_or(name.len()),
-        );
-        let value_out = to_u32(
-            crate::headers::qpack::huffman::encoded_length_if_shorter(value).unwrap_or(value.len()),
-        );
-        let projected_out = self
-            .bytes_out
-            .saturating_add(name_out)
-            .saturating_add(value_out);
-        let projected_in = self
-            .bytes_in
-            .saturating_add(to_u32(name.len()))
-            .saturating_add(to_u32(value.len()));
-        if projected_in == 0 {
-            return false;
-        }
-        // f32 precision loss at large counter values is irrelevant here — the rescale
-        // caps `bytes_out` at 1000 long before precision degrades, and the ratio threshold
-        // tolerates order-of-epsilon noise.
-        #[allow(clippy::cast_precision_loss)]
-        {
-            (projected_out as f32) / (projected_in as f32) > self.inflation_ratio_max
-        }
-    }
-
-    /// Fold `(name_value_bytes, wire_bytes)` into the running inflation counters for this
-    /// connection, rescaling if `bytes_out` is approaching `u32::MAX / 2`. Rescaling
-    /// preserves the ratio and keeps the EMA-like memory finite. Called once per header
-    /// line from the planner.
-    ///
-    /// Mirrors ls-qpack's post-encode update (`lsqpack.c:2182-2191`), including the
-    /// rescale to 1000 when `bytes_out` crosses the halfway point.
-    pub(super) fn add_compression_counters(&mut self, name_value_bytes: u32, wire_bytes: u32) {
-        self.bytes_in = self.bytes_in.saturating_add(name_value_bytes);
-        self.bytes_out = self.bytes_out.saturating_add(wire_bytes);
-        if self.bytes_out > (1u32 << 31) {
-            // Rescale to `bytes_out = 1000`, scaling `bytes_in` by the same factor to
-            // preserve the ratio. f64 avoids precision loss at large `bytes_out`; the
-            // result is a small positive integer so the cast back is safe.
-            let ratio = f64::from(self.bytes_in) / f64::from(self.bytes_out);
-            let scaled = (ratio * 1000.0).round().clamp(0.0, f64::from(u32::MAX));
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            {
-                self.bytes_in = scaled as u32;
-            }
-            self.bytes_out = 1000;
-        }
-    }
-
-    /// Post-encode refresh pass: walk the draining region of the table and duplicate
-    /// entries that the mnemonic predictor has recently seen, biggest-first. Continues
-    /// until no more eligible candidates remain. Returns `true` when at least one
-    /// Duplicate was enqueued onto the encoder stream.
-    ///
-    /// Candidate criteria (all must hold):
-    /// - Absolute index is in the draining region (see
-    ///   [`draining_frontier_abs_idx`](Self::draining_frontier_abs_idx)).
-    /// - The entry's `nameval_hash` appears in the predictor ring — i.e. the encoder has recently
-    ///   observed this `(name, value)` pair, so refreshing it is likely to pay off.
-    /// - No newer live entry shares the same `(name, value)` pair (checked via the `by_name`
-    ///   reverse index) — if a fresher copy exists, this one is redundant.
-    /// - [`safe_to_dup`](Self::safe_to_dup) is true with no extra floor (the caller's section refs
-    ///   are already in `outstanding_sections` and picked up by `eviction_floor()`).
-    ///
-    /// The caller must have registered the just-encoded section in `outstanding_sections`
-    /// before calling this, so the eviction floor protects any refs that section took.
-    ///
-    /// Skipped entirely when the mnemonic predictor is disabled: without the predictor
-    /// the "recently seen" signal is unavailable, so there is no basis for choosing
-    /// candidates. Mirrors ls-qpack's `qenc_dup_draining` at `lsqpack.c:1554-1617`.
-    ///
-    /// Returns the total encoder-stream bytes enqueued by this pass — consumed by the
-    /// phase-5 inflation-ratio counter to account for the cost of background refreshes.
-    ///
-    /// `extra_floor` is an additional eviction-floor `abs_idx` that combines with the
-    /// outstanding-sections floor. The per-header caller passes the in-progress section's
-    /// current `min_ref_abs_idx` here, because the section isn't yet registered in
-    /// `outstanding_sections` during mid-section invocations — without this the pass
-    /// could dup into a position that evicts an entry the section is already referencing.
-    pub(super) fn dup_draining_pass(&mut self, extra_floor: Option<u64>) -> u32 {
-        if !self.mnemonic_indexing {
-            return 0;
-        }
-        // EMA gate: when the dynamic table is smaller than the typical section length,
-        // duplicates can't be referenced before they're re-evicted. Mirrors the
-        // suppression at the top of ls-qpack's `qenc_dup_draining`.
-        if !self.predictor.allow_dup_draining() {
-            return 0;
-        }
-        let mut added_bytes: u32 = 0;
-        while let Some(abs_idx) = self.pick_dup_draining_candidate(extra_floor) {
-            if self.duplicate(abs_idx, extra_floor).is_err() {
-                // Defensive: `safe_to_dup` gated the choice, but the loop mutates state
-                // between iterations and a rare edge case could reject the duplicate.
-                // Stop rather than spin.
-                break;
-            }
-            if let Some(wire) = self.pending_ops.back() {
-                added_bytes = added_bytes.saturating_add(to_u32(wire.len()));
-            }
-            #[cfg(test)]
-            if let Some(c) = self.strategy_counters.as_mut() {
-                c.dup_draining_pass_emits += 1;
-            }
-        }
-        added_bytes
-    }
-
-    /// Scan the draining region for the largest entry eligible for a policy-driven
-    /// Duplicate. See [`dup_draining_pass`](Self::dup_draining_pass) for the full
-    /// criteria; this helper just picks one candidate per call. `extra_floor` is
-    /// forwarded to [`safe_to_dup`](Self::safe_to_dup) so mid-section callers preserve
-    /// their own in-progress refs during the dup safety check.
-    fn pick_dup_draining_candidate(&self, extra_floor: Option<u64>) -> Option<u64> {
-        let frontier = self.draining_frontier_abs_idx();
-        if frontier == 0 {
-            return None;
-        }
-        let oldest_abs = self.insert_count.saturating_sub(self.entries.len() as u64);
-        let mut best: Option<(u64, usize)> = None;
-        for (rev_i, entry) in self.entries.iter().rev().enumerate() {
-            let abs = oldest_abs + rev_i as u64;
-            if abs >= frontier {
-                break;
-            }
-            // Biggest-first tie-break matches ls-qpack: only consider entries strictly
-            // larger than the current best. Duplicates consume capacity, so refreshing the
-            // biggest draining entry first maximises the retained value per remaining slot.
-            if best.is_some_and(|(_, best_size)| best_size >= entry.size) {
-                continue;
-            }
-            let h = MnemonicPredictor::hash(entry.name.as_bytes(), entry.value.as_ref());
-            if !self.predictor.seen(h).nameval {
-                continue;
-            }
-            let latest = self
-                .by_name
-                .get(&entry.name)
-                .and_then(|idx| idx.by_value.get(entry.value.as_ref()).copied());
-            if latest != Some(abs) {
-                continue;
-            }
-            if !self.safe_to_dup(abs, extra_floor) {
-                continue;
-            }
-            best = Some((abs, entry.size));
-        }
-        best.map(|(abs, _)| abs)
-    }
-
-    /// Smallest absolute index whose entry is *not* draining, per ls-qpack's mnemonic
-    /// heuristic (`qenc_entry_is_draining`). Entries with `abs_idx < frontier` are
-    /// considered draining — close enough to the oldest end of a near-full table that
-    /// referencing them risks pinning an entry the encoder is about to evict. Returns `0`
-    /// when no live entry is draining (e.g. a mostly-empty table).
-    ///
-    /// The per-entry ls-qpack formula is
-    /// `dist = when_added_used + (capacity - current_used); draining iff dist < capacity/4`,
-    /// where `when_added_used` is the `current_used` value captured right *before* the entry
-    /// was inserted (ls-qpack/lsqpack.c:1060) — i.e. the sum of sizes of entries strictly
-    /// older than this one (still live, since no evictions have happened in the absence of
-    /// dropped bytes).
-    ///
-    /// We walk oldest-first, maintaining `cumulative = free_space + sum_of_entry_sizes_so_far`.
-    /// After adding entry E's size, `cumulative` equals the `dist` value for the *next*
-    /// entry (E+1) — so the first time `cumulative >= threshold`, entry E+1 is the smallest
-    /// non-draining abs_idx. Return `abs(E) + 1`.
-    ///
-    /// Off-by-one history: the original implementation returned `abs(E)` here, which is the
-    /// *last draining* entry — so `pick_dup_draining_candidate`'s `abs < frontier` check
-    /// excluded the largest candidate in the draining region. This was a significant source
-    /// of the dup-rate gap vs ls-qpack on fb-resp at (4096,100); see the project memory
-    /// entry for details.
-    ///
-    /// O(draining-region size). Typically a small handful of entries even on a full table;
-    /// bounded by `entries.len()`.
-    pub(super) fn draining_frontier_abs_idx(&self) -> u64 {
-        let threshold = self.capacity / 4;
-        let mut cumulative = self.capacity.saturating_sub(self.current_size);
-        if cumulative >= threshold {
-            return 0;
-        }
-        let oldest_abs = self.insert_count.saturating_sub(self.entries.len() as u64);
-        for (rev_i, entry) in self.entries.iter().rev().enumerate() {
-            cumulative = cumulative.saturating_add(entry.size);
-            if cumulative >= threshold {
-                return oldest_abs + rev_i as u64 + 1;
-            }
-        }
-        // All live entries are draining — frontier sits just past the newest entry so
-        // every abs_idx in the table is `< frontier`.
-        self.insert_count
-    }
-
-    /// Would a [`duplicate`](Self::duplicate) of `src_abs_idx` succeed against the current
-    /// table without touching the source or any entry protected by a floor? Pure read —
-    /// does not mutate, does not allocate.
-    ///
-    /// Mirrors ls-qpack's `qenc_safe_to_dup` intuition: simulate the new copy (cost
-    /// `src.size`) and greedily evict oldest entries until the table fits, stopping short
-    /// of the source itself or the combined eviction floor. `extra_floor` threads the
-    /// planner's in-progress `min_ref_abs_idx` through so the pre-check reflects the same
-    /// preserve-floor [`duplicate`](Self::duplicate) would see if invoked now.
-    ///
-    /// Returns `false` when `src_abs_idx` is not currently live.
-    pub(super) fn safe_to_dup(&self, src_abs_idx: u64, extra_floor: Option<u64>) -> bool {
-        let Some(src) = self.entry_at_abs(src_abs_idx) else {
-            return false;
-        };
-        let src_size = src.size;
-        if self.current_size + src_size <= self.capacity {
-            return true;
-        }
-        let floor = combine_floor(self.eviction_floor(), extra_floor);
-        let oldest_abs = self.insert_count.saturating_sub(self.entries.len() as u64);
-        let mut simulated_used = self.current_size;
-        for (rev_i, entry) in self.entries.iter().rev().enumerate() {
-            let abs = oldest_abs + rev_i as u64;
-            if abs == src_abs_idx {
-                return false;
-            }
-            // Same pin semantics as [`evict_down_to_with_floor`]: block once the simulated
-            // eviction reaches the pinned `abs_idx`; entries strictly older than the pin are
-            // unpinned and may be evicted to make room.
-            if floor.is_some_and(|pin| abs >= pin) {
-                return false;
-            }
-            simulated_used = simulated_used.saturating_sub(entry.size);
-            if simulated_used + src_size <= self.capacity {
-                return true;
-            }
-        }
-        false
-    }
-
     /// Look up a currently-live entry by its absolute index. Returns `None` if the entry
     /// has already been evicted or the index is past `insert_count`.
     pub(super) fn entry_at_abs(&self, abs_idx: u64) -> Option<&Entry> {
@@ -663,7 +368,6 @@ impl TableState {
         target_size: usize,
         floor: Option<u64>,
     ) -> Result<(), H3Error> {
-        let pre_count = self.entries.len();
         let mut result = Ok(());
         while self.current_size > target_size {
             let evicted_abs = self.insert_count - self.entries.len() as u64;
@@ -686,22 +390,7 @@ impl TableState {
             self.remove_from_reverse_index(&name, value.as_ref(), evicted_abs);
             log::trace!("qpack encoder: evicted entry abs_idx={evicted_abs} size={size}");
         }
-        // Sample even on the error path — anything we evicted before hitting the pin is
-        // real. Helper no-ops when nothing dropped, matching ls-qpack's
-        // `if (dropped && qpe_hist_els)` gate in `qenc_remove_overflow_entries`.
-        self.sample_table_size_if_evictions(pre_count);
         result
-    }
-
-    /// Funnel for predictor table-size sampling. Call after any code path that may
-    /// shrink `self.entries`, passing the entry count from before the operation. Single
-    /// place to evolve gating logic (e.g. dropped-bytes weighting) without revisiting
-    /// each call site.
-    fn sample_table_size_if_evictions(&mut self, pre_count: usize) {
-        if pre_count > self.entries.len() {
-            let nelem = u32::try_from(self.entries.len()).unwrap_or(u32::MAX);
-            self.predictor.sample_table_size(nelem);
-        }
     }
 
     /// Remove an evicted entry's reverse-index slot, respecting the staleness rule: the

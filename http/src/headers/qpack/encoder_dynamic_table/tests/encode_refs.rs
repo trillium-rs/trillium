@@ -110,7 +110,12 @@ fn budget_zero_warming_inserts_when_no_full_match() {
 
     let mut headers = Headers::new();
     headers.insert("x-custom", "world");
-    let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+    // First sighting populates the recent-pairs ring; on its own this section emits a
+    // literal with no encoder-stream activity (predictor hasn't seen the pair yet).
+    let _ = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+    let _ = drain_instructions(&encoder);
+    // Second sighting trips the predictor → warming insert.
+    let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 3);
 
     let (prefix, lines) = parse_section(&bytes);
     assert_eq!(
@@ -152,7 +157,11 @@ fn budget_zero_warming_inserts_unknown_header_with_no_name_match() {
 
     let mut headers = Headers::new();
     headers.insert("x-fresh", "v1");
-    let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+    // First sighting populates the recent-pairs ring; emission is a plain literal.
+    let _ = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+    let _ = drain_instructions(&encoder);
+    // Second sighting trips the predictor → warming insert.
+    let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 3);
 
     let (prefix, lines) = parse_section(&bytes);
     assert_eq!(prefix, FieldSectionPrefix::default());
@@ -183,7 +192,12 @@ fn budget_zero_warming_inserts_known_header_uses_static_name_ref() {
 
     let mut headers = Headers::new();
     headers.insert("content-type", "application/x-trillium-test");
-    let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+    // First sighting populates the recent-pairs ring; emission is a plain literal-with-
+    // static-name-ref (no warming insert yet).
+    let _ = encode(&encoder, PseudoHeaders::default(), &headers, 1);
+    let _ = drain_instructions(&encoder);
+    // Second sighting trips the predictor → warming insert.
+    let bytes = encode(&encoder, PseudoHeaders::default(), &headers, 3);
 
     let (prefix, lines) = parse_section(&bytes);
     assert_eq!(prefix, FieldSectionPrefix::default());
@@ -209,39 +223,43 @@ fn budget_zero_warming_inserts_known_header_uses_static_name_ref() {
 
 #[test]
 fn warming_insert_referenceable_in_next_section_after_ack() {
-    // Section 1 warming-inserts x-fresh: v1. After we apply the encoder stream and ack
-    // the entry (advances KRC), section 2 references it non-blockingly even though the
-    // blocked-streams budget remains zero.
+    // Section 1 populates the predictor ring. Section 2 trips it and warming-inserts
+    // x-fresh: v1. After we apply the encoder stream and ack the entry (advances KRC),
+    // section 3 references it non-blockingly even though the blocked-streams budget
+    // remains zero.
     let encoder = new_table_with_blocked_streams(4096, 0);
     let _ = drain_instructions(&encoder);
 
-    // Section 1: warming insert.
     let mut h1 = Headers::new();
     h1.insert("x-fresh", "v1");
+
+    // Section 1: predictor records, no warming insert yet.
     let bytes1 = encode(&encoder, PseudoHeaders::default(), &h1, 1);
     let (p1, _) = parse_section(&bytes1);
-    assert_eq!(
-        p1,
-        FieldSectionPrefix::default(),
-        "section 1 should not RIC"
-    );
+    assert_eq!(p1, FieldSectionPrefix::default(), "section 1 should not RIC");
+    let _ = drain_instructions(&encoder);
+
+    // Section 2: predictor hits, warming insert fires; section emits a literal.
+    let bytes2 = encode(&encoder, PseudoHeaders::default(), &h1, 3);
+    let (p2, _) = parse_section(&bytes2);
+    assert_eq!(p2, FieldSectionPrefix::default(), "section 2 should not RIC");
     // Drain the warming Insert and pretend the peer acked it (advances KRC).
     let _ = drain_instructions(&encoder);
     encoder.on_insert_count_increment(1).unwrap();
 
-    // Section 2: full match with KRC=1 → non-blocking IndexedDynamic.
-    let bytes2 = encode(&encoder, PseudoHeaders::default(), &h1, 2);
-    let (p2, lines2) = parse_section(&bytes2);
+    // Section 3: full match with KRC=1 → non-blocking IndexedDynamic.
+    let bytes3 = encode(&encoder, PseudoHeaders::default(), &h1, 5);
+    let (p3, lines3) = parse_section(&bytes3);
     assert_ne!(
-        p2.encoded_required_insert_count, 0,
-        "section 2 should reference the warmed entry"
+        p3.encoded_required_insert_count, 0,
+        "section 3 should reference the warmed entry"
     );
     assert!(
         matches!(
-            lines2.as_slice(),
+            lines3.as_slice(),
             [FieldLineInstruction::IndexedDynamic { .. }]
         ),
-        "expected indexed dynamic ref, got {lines2:?}",
+        "expected indexed dynamic ref, got {lines3:?}",
     );
 }
 

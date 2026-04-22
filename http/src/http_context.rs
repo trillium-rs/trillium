@@ -1,4 +1,4 @@
-use crate::{Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade};
+use crate::{Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade, headers::qpack::HeaderObserver};
 use fieldwork::Fieldwork;
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{future::Future, sync::Arc};
@@ -19,6 +19,12 @@ pub struct HttpContext {
 
     /// [`TypeSet`] shared state
     pub(crate) shared_state: TypeSet,
+
+    /// Per-listener QPACK header-frequency observer. Shared by `Arc` across all connections
+    /// a given listener accepts; runtime adapters isolate it per hop-and-direction via
+    /// [`__isolate_qpack_observer`](Self::__isolate_qpack_observer).
+    #[field(get)]
+    pub(crate) observer: Arc<HeaderObserver>,
 }
 impl AsRef<TypeSet> for HttpContext {
     fn as_ref(&self) -> &TypeSet {
@@ -94,5 +100,20 @@ impl HttpContext {
     /// blocking context
     pub fn shut_down(&self) -> ShutdownCompletion {
         self.swansong.shut_down()
+    }
+
+    /// Replace this context's QPACK header observer with a fresh, empty one.
+    ///
+    /// Runtime adapters (trillium-server-common, trillium-client) call this during listener
+    /// setup so that each hop-and-direction pair in a deployment gets its own observer. A
+    /// reverse proxy's inbound server observer is distinct from its outbound client observer
+    /// by construction, so header values one hop forwards (e.g. `authorization`, `cookie`)
+    /// cannot reach the QPACK state of unrelated clients on the other hop.
+    ///
+    /// Not part of the stable public API; exposed only so adapter crates can call it.
+    #[doc(hidden)]
+    pub fn __isolate_qpack_observer(&mut self) -> &mut Self {
+        self.observer = Arc::new(HeaderObserver::from_http_config(&self.config));
+        self
     }
 }
