@@ -16,11 +16,10 @@
 //! [`BoxedTransport`]: crate::transport::BoxedTransport
 
 use super::H2Connection;
-use crate::headers::hpack::FieldSection;
+use crate::{Buffer, headers::hpack::FieldSection};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
-    collections::VecDeque,
     fmt, io,
     pin::Pin,
     sync::{
@@ -113,24 +112,15 @@ impl AsyncRead for H2Transport {
 
         let mut recv = recv_state.buf.lock().expect("recv buf mutex poisoned");
 
-        // Drain bytes from the front of the queue into `out`. Each entry in `recv_buf` is one
-        // DATA frame's payload; we consume head entries fully and leave a partially-read entry
-        // at the front for the next call.
-        let mut written = 0;
-        while written < out.len() {
-            let Some(front) = recv.front_mut() else { break };
-            let take = (out.len() - written).min(front.len());
-            out[written..written + take].copy_from_slice(&front[..take]);
-            written += take;
-            if take == front.len() {
-                recv.pop_front();
-            } else {
-                front.drain(..take);
-            }
-        }
-
-        if written > 0 {
-            return Poll::Ready(Ok(written));
+        // Copy as many bytes as fit from the front of the ring into `out`, then advance the
+        // ring's virtual read cursor. `Buffer::ignore_front` truncates the underlying `Vec` to
+        // zero when we drain fully, so capacity stays bounded by peak in-flight bytes rather
+        // than cumulative traffic.
+        let take = out.len().min(recv.len());
+        if take > 0 {
+            out[..take].copy_from_slice(&recv[..take]);
+            recv.ignore_front(take);
+            return Poll::Ready(Ok(take));
         }
 
         // Buffer empty. EOF if END_STREAM was observed, otherwise register and wait.
@@ -178,10 +168,13 @@ pub(super) struct StreamState {
 /// Receive-side per-stream state.
 #[derive(Debug, Default)]
 pub(super) struct RecvState {
-    /// Inbound DATA payloads awaiting handler read. Each entry is one DATA frame's payload —
-    /// the driver pushes whole payloads, [`H2Transport::poll_read`] drains them entry-by-entry,
-    /// splitting head entries when a partial copy is needed.
-    pub(super) buf: Mutex<VecDeque<Vec<u8>>>,
+    /// Inbound DATA body bytes awaiting handler read. A single persistent ring (append-at-tail,
+    /// `ignore_front`-at-head): the driver appends via `extend_from_slice` when a DATA frame
+    /// arrives; the handler reads from the front and virtually drops consumed bytes. When
+    /// `ignore_front` catches up to the data end the `Buffer` truncates to zero, so the
+    /// underlying `Vec` capacity stays bounded by peak in-flight bytes rather than cumulative
+    /// traffic — zero amortized allocations per DATA frame.
+    pub(super) buf: Mutex<Buffer>,
 
     /// `true` once `END_STREAM` has been observed for this stream's recv side. Set by the
     /// driver under the same `buf` lock used for pushes; checked by `poll_read` while

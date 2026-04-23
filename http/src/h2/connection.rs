@@ -792,7 +792,7 @@ where
         {
             let mut recv = state.recv.buf.lock().expect("recv buf mutex poisoned");
             if !data.is_empty() {
-                recv.push_back(data.to_vec());
+                recv.extend_from_slice(data);
             }
             if end_stream {
                 state.recv.eof.store(true, Ordering::Release);
