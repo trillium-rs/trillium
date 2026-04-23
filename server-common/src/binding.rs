@@ -195,4 +195,8 @@ where
     fn peer_addr(&self) -> Result<Option<std::net::SocketAddr>> {
         self.as_transport().peer_addr()
     }
+
+    fn negotiated_alpn(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+        self.as_transport().negotiated_alpn()
+    }
 }

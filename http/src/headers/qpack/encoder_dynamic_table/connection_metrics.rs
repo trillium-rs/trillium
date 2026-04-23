@@ -13,13 +13,12 @@
 //! evaluated without a synthetic harness. Expected to be removed once the direction is
 //! confirmed or falsified.
 
-use super::super::{FieldLineValue, entry_name::QpackEntryName};
-use std::{
-    collections::HashMap,
-    sync::{
-        Mutex,
-        atomic::{AtomicI64, AtomicU64, Ordering},
-    },
+use super::super::FieldLineValue;
+use crate::headers::entry_name::EntryName;
+use hashbrown::HashMap;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicI64, AtomicU64, Ordering},
 };
 
 /// Per-connection QPACK encoder metrics, aggregated and logged on `EncoderDynamicTable`
@@ -97,7 +96,7 @@ impl Default for ConnectionMetrics {
 /// only so the drop report can identify which entries paid for themselves.
 #[derive(Debug)]
 pub(super) struct PrimedEntry {
-    pub(super) name: QpackEntryName<'static>,
+    pub(super) name: EntryName<'static>,
     pub(super) value: FieldLineValue<'static>,
     pub(super) ref_count: u64,
 }
@@ -109,7 +108,7 @@ impl ConnectionMetrics {
     pub(super) fn record_primed_insert(
         &self,
         abs_idx: u64,
-        name: QpackEntryName<'static>,
+        name: EntryName<'static>,
         value: FieldLineValue<'static>,
         wire_bytes: u64,
     ) {

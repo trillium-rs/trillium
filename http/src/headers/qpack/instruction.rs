@@ -17,7 +17,7 @@ pub(in crate::headers) mod decoder;
 pub(in crate::headers) mod encoder;
 pub(in crate::headers) mod field_section;
 
-use crate::headers::qpack::{huffman, varint};
+use crate::headers::{huffman, integer_prefix};
 use futures_lite::io::{AsyncRead, AsyncReadExt};
 
 // §4.1.2: H flag in a string literal with a 7-bit length prefix.
@@ -154,11 +154,11 @@ pub(super) fn validate_value(value: &[u8]) -> Result<(), ()> {
 pub(in crate::headers) fn encode_string(value: &[u8], prefix_size: u8, buf: &mut Vec<u8>) {
     let start = buf.len();
     if let Some(huffman_len) = huffman::encoded_length_if_shorter(value) {
-        varint::encode_into(huffman_len, prefix_size, buf);
+        integer_prefix::encode_into(huffman_len, prefix_size, buf);
         buf[start] |= 1_u8 << prefix_size;
         huffman::encode_into(value, buf);
     } else {
-        varint::encode_into(value.len(), prefix_size, buf);
+        integer_prefix::encode_into(value.len(), prefix_size, buf);
         buf.extend_from_slice(value);
     }
 }

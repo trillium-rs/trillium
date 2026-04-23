@@ -36,16 +36,20 @@
 //! ## Sensitive headers
 //!
 //! Headers whose name marks the value uncacheable
-//! ([`QpackEntryName::has_uncacheable_value`]) are excluded from the predictor and never
+//! ([`EntryName::has_uncacheable_value`]) are excluded from the predictor and never
 //! warm-inserted. This is a conservative stand-in for the RFC 9204 §4.5.4 N bit until
-//! `FieldLine` carries the bit through end-to-end (see `qpack-n-bit-gap` memory).
+//! `FieldLine` carries the bit through end-to-end.
 
-use super::{EncoderDynamicTable, SectionRefs, recent_pairs::RecentPairs, state::TableState};
-use crate::headers::qpack::{
-    FieldLineValue, FieldSection, HeaderObserver,
-    entry_name::QpackEntryName,
-    instruction::field_section::{FieldLineInstruction, FieldSectionPrefix},
-    static_table::{StaticLookup, static_table_lookup},
+use super::{EncoderDynamicTable, SectionRefs, state::TableState};
+use crate::headers::{
+    entry_name::EntryName,
+    qpack::{
+        FieldLineValue, FieldSection, HeaderObserver,
+        instruction::field_section::{FieldLineInstruction, FieldSectionPrefix},
+        static_table::static_table_lookup,
+    },
+    recent_pairs::RecentPairs,
+    static_hit::StaticHit,
 };
 
 /// Saturating `usize` → `u32` conversion. Wire byte sizes never meaningfully exceed
@@ -78,7 +82,7 @@ impl EncoderDynamicTable {
     /// and bypass the `FieldSection` → `field_lines()` conversion.
     pub(in crate::headers) fn encode_field_lines(
         &self,
-        field_lines: &[(QpackEntryName<'_>, FieldLineValue<'_>)],
+        field_lines: &[(EntryName<'_>, FieldLineValue<'_>)],
         buf: &mut Vec<u8>,
         stream_id: u64,
     ) {
@@ -152,8 +156,7 @@ impl EncoderDynamicTable {
 /// duration of one `encode()` call, so the lifetime is always trivially satisfied.
 ///
 /// The literal variants carry a `never_indexed` flag (RFC 9204 §4.5.4 N bit). Hardcoded
-/// `false` today because the source signal is not yet plumbed through `FieldLine` — see
-/// `qpack-n-bit-gap` memory.
+/// `false` today because the source signal is not yet plumbed through `FieldLine`.
 #[derive(Debug)]
 enum Emission<'lines, 'names> {
     /// §4.5.2: Indexed Field Line referencing the QPACK static table (T=1).
@@ -181,7 +184,7 @@ enum Emission<'lines, 'names> {
 
     /// §4.5.6: Literal Field Line with Literal Name.
     LiteralLiteralName {
-        name: &'lines QpackEntryName<'names>,
+        name: &'lines EntryName<'names>,
         value: FieldLineValue<'lines>,
         never_indexed: bool,
     },
@@ -250,11 +253,7 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     }
 
     /// Plan a single field line — decide encoding and apply any encoder-stream side effect.
-    fn plan_header_line(
-        &mut self,
-        name: &'lines QpackEntryName<'names>,
-        value: FieldLineValue<'lines>,
-    ) {
+    fn plan_header_line(&mut self, name: &'lines EntryName<'names>, value: FieldLineValue<'lines>) {
         // Cross-connection observer accumulator — fold-on-close, no shared-state
         // mutation here. See `header_observer` module docs.
         self.state.accum.observe(name, &value);
@@ -283,18 +282,17 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     /// entry, accumulates wire bytes).
     fn plan_emission(
         &mut self,
-        name: &'lines QpackEntryName<'names>,
+        name: &'lines EntryName<'names>,
         value: FieldLineValue<'lines>,
         should_index: bool,
     ) -> Emission<'lines, 'names> {
-        // Hardcoded `false` until `FieldLine` carries the §4.5.4 N bit — see
-        // `qpack-n-bit-gap` memory.
+        // Hardcoded `false` until `FieldLine` carries the §4.5.4 N bit
         let never_indexed = false;
 
         let static_match = static_table_lookup(name, Some(value.as_bytes()));
 
         // 1. Static full match: cheapest possible encoding, no dynamic-table interaction.
-        if let StaticLookup::FullMatch(i) = static_match {
+        if let StaticHit::Full(i) = static_match {
             return Emission::IndexedStatic(i);
         }
 
@@ -339,7 +337,7 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
 
         // 5. Literal form: static name ref → pre-insert dyn name ref (still live and referenceable)
         //    → literal-literal. Section never references the freshly- inserted entry from step 4.
-        if let StaticLookup::NameMatch(i) = static_match {
+        if let StaticHit::Name(i) = static_match {
             return Emission::LiteralStaticNameRef {
                 name_index: i,
                 value,

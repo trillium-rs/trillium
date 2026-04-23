@@ -317,7 +317,7 @@ pub(in crate::headers::qpack) fn render_field_line(i: &FieldLineInstruction<'_>)
     }
 }
 
-fn render_name(n: &super::entry_name::QpackEntryName<'_>) -> String {
+fn render_name(n: &crate::headers::entry_name::EntryName<'_>) -> String {
     render_value(n.as_bytes())
 }
 

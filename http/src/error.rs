@@ -90,6 +90,14 @@ pub enum Error {
     /// something took longer than was allowed
     #[error("{0} took longer than {1:?}")]
     TimedOut(&'static str, Duration),
+
+    /// HTTP/2 peer has not advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` (RFC 8441 §3),
+    /// so an extended-CONNECT (e.g. WebSocket-over-h2) request cannot be sent on this
+    /// connection. Surfaced by the client when it has waited for the peer's first SETTINGS
+    /// frame and confirmed the capability is unavailable, so the spec-violating
+    /// `:protocol` HEADERS is never put on the wire.
+    #[error("HTTP/2 peer does not support extended CONNECT (RFC 8441)")]
+    ExtendedConnectUnsupported,
 }
 
 /// this crate's result type

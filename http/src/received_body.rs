@@ -1,4 +1,6 @@
-use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, copy, h3::H3Connection};
+use crate::{
+    Body, Buffer, Error, Headers, HttpConfig, MutCow, copy, h2::H2Connection, h3::H3Connection,
+};
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 use encoding_rs::Encoding;
@@ -13,6 +15,7 @@ use std::{
 
 mod chunked;
 mod fixed_length;
+mod h2_data;
 mod h3_data;
 
 /// A received http body
@@ -125,6 +128,14 @@ pub struct ReceivedBody<'conn, Transport> {
     /// a boxed future that handles decoding trailers
     h3_trailer_future:
         Option<Pin<Box<dyn Future<Output = io::Result<Headers>> + Send + Sync + 'static>>>,
+
+    /// The h2 connection and stream id for this body, when served over HTTP/2. Used in the
+    /// body state machine's `End` transition to pull driver-decoded trailers from
+    /// [`H2Connection::take_trailers`][H2Connection::take_trailers] into
+    /// [`Conn::request_trailers`][crate::Conn] — symmetric with the h3 hook, but the h2
+    /// driver decodes trailers synchronously on a separate task, so there's no boxed
+    /// future to chase.
+    h2_connection: Option<(Arc<H2Connection>, u32)>,
 }
 
 fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
@@ -184,6 +195,7 @@ where
             send_100_continue_offset: None,
             h3_connection: None,
             h3_trailer_future: None,
+            h2_connection: None,
         }
     }
 
@@ -213,6 +225,31 @@ where
         h3_connection: Option<(Arc<H3Connection>, u64)>,
     ) -> Self {
         self.h3_connection = h3_connection;
+        self
+    }
+
+    /// Associate this body with the [`H2Connection`] and h2 stream that produced it. The
+    /// End transition of the body state machine consults these to pull driver-decoded
+    /// trailers into [`Conn::request_trailers`][crate::Conn].
+    #[doc(hidden)]
+    #[must_use]
+    #[cfg(feature = "unstable")]
+    pub fn with_h2_connection(mut self, h2_connection: Option<(Arc<H2Connection>, u32)>) -> Self {
+        self.h2_connection = h2_connection;
+        self
+    }
+
+    /// Associate this body with the [`H2Connection`] and h2 stream that produced it. The
+    /// End transition of the body state machine consults these to pull driver-decoded
+    /// trailers into [`Conn::request_trailers`][crate::Conn].
+    #[doc(hidden)]
+    #[must_use]
+    #[cfg(not(feature = "unstable"))]
+    pub(crate) fn with_h2_connection(
+        mut self,
+        h2_connection: Option<(Arc<H2Connection>, u32)>,
+    ) -> Self {
+        self.h2_connection = h2_connection;
         self
     }
 
@@ -425,6 +462,7 @@ where
                     current_index,
                     total,
                 } => self.handle_fixed_length(cx, buf, current_index, total),
+                ReceivedBodyState::H2Data { total } => self.handle_h2_data(cx, buf, total),
                 ReceivedBodyState::H3Data {
                     remaining_in_frame,
                     total,
@@ -453,6 +491,17 @@ where
                     let trailers = ready!(h3_trailer_future.as_mut().poll(cx))?;
                     *self.trailers = Some(trailers);
                     self.h3_trailer_future = None;
+                }
+
+                // h2 trailer handoff. The driver decodes trailers on a separate task and
+                // stashes them on the per-stream `StreamState` *before* signalling EOF, so
+                // by the time we reach `End` the trailers (if any) are present — no boxed
+                // future required.
+                if bytes == 0
+                    && let Some((h2_connection, stream_id)) = self.h2_connection.take()
+                    && let Some(trailers) = h2_connection.take_trailers(stream_id)
+                {
+                    *self.trailers = Some(trailers);
                 }
 
                 if self.on_completion.is_some() && self.owns_transport() {
@@ -532,6 +581,16 @@ pub enum ReceivedBodyState {
         total: u64,
     },
 
+    /// read state for an H2 body. The h2 driver demuxes DATA frames into a per-stream recv
+    /// ring on a separate task before we see them, so there's no frame-boundary state here —
+    /// just a running byte total for `max_len` / content-length enforcement. Transitions to
+    /// [`End`] when the transport yields `Ready(0)` (the driver's signal that `END_STREAM`
+    /// was observed). Initial state for any body on an h2 request.
+    H2Data {
+        /// total body bytes read across all DATA frames.
+        total: u64,
+    },
+
     /// read state for an H3 body framed as DATA frames.
     H3Data {
         /// bytes remaining in the current frame (DATA, Unknown, or Trailers). zero means we need
@@ -563,6 +622,10 @@ pub enum ReceivedBodyState {
 }
 
 impl ReceivedBodyState {
+    pub fn new_h2() -> Self {
+        Self::H2Data { total: 0 }
+    }
+
     pub fn new_h3() -> Self {
         Self::H3Data {
             remaining_in_frame: 0,

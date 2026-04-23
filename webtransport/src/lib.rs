@@ -259,10 +259,9 @@ where
 {
     async fn run(&self, conn: Conn) -> Conn {
         let inner: &trillium_http::Conn<Box<dyn Transport>> = conn.as_ref();
-        if inner.state().contains::<QuicConnection>() && conn.method() == Method::Connect
-        // todo(jbr): try to figure out why chrome isn't sending a protocol
-        //            && inner.protocol() == Some("webtransport-h3")
-        //            && inner.authority().is_some(/*and something else?*/)
+        if inner.state().contains::<QuicConnection>()
+            && conn.method() == Method::Connect
+            && inner.protocol() == Some("webtransport")
         {
             conn.with_state(WTUpgrade).with_status(Status::Ok).halt()
         } else {
@@ -279,7 +278,8 @@ where
 
         info.config_mut()
             .set_h3_datagrams_enabled(true)
-            .set_webtransport_enabled(true);
+            .set_webtransport_enabled(true)
+            .set_extended_connect_enabled(true);
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {

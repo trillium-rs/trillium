@@ -360,7 +360,7 @@ fn dynamic_name_ref_protocol_pseudo() {
     let encoder = new_table(4096);
     encoder
         .insert(
-            QpackEntryName::Pseudo(PseudoHeaderName::Protocol),
+            EntryName::Pseudo(PseudoHeaderName::Protocol),
             fv("webtransport"),
         )
         .unwrap();

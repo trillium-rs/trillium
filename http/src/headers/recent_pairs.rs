@@ -38,7 +38,7 @@
 use std::hash::{DefaultHasher, Hasher};
 
 #[derive(Debug)]
-pub(super) struct RecentPairs {
+pub(in crate::headers) struct RecentPairs {
     hashes: Box<[u32]>,
     cursor: usize,
 }
@@ -46,7 +46,7 @@ pub(super) struct RecentPairs {
 impl RecentPairs {
     /// Construct a ring of `size` slots. `size` is clamped to at least 1 so the ring is
     /// always usable.
-    pub(super) fn with_size(size: usize) -> Self {
+    pub(in crate::headers) fn with_size(size: usize) -> Self {
         let size = size.max(1);
         Self {
             hashes: vec![0; size].into_boxed_slice(),
@@ -57,7 +57,7 @@ impl RecentPairs {
     /// Compute the ring-indexable hash for one `(name, value)` pair. Pure associated
     /// function — no ring access. Callers reuse the same hash across [`seen`](Self::seen)
     /// and [`remember`](Self::remember) within one header's encode.
-    pub(super) fn hash(name: &[u8], value: &[u8]) -> u32 {
+    pub(in crate::headers) fn hash(name: &[u8], value: &[u8]) -> u32 {
         let mut h = DefaultHasher::new();
         h.write(name);
         // Length-agnostic separator so `"ab" + "c"` and `"a" + "bc"` don't collide.
@@ -72,14 +72,14 @@ impl RecentPairs {
 
     /// Report whether `hash` is in the ring. Pure read — the ring is unchanged, so
     /// callers can query multiple times between [`remember`](Self::remember) calls.
-    pub(super) fn seen(&self, hash: u32) -> bool {
+    pub(in crate::headers) fn seen(&self, hash: u32) -> bool {
         self.hashes.contains(&hash)
     }
 
     /// Write `hash` at the cursor and advance. Intended to be called after the planner's
     /// decision for the header completes, so the header isn't visible to its own earlier
     /// [`seen`](Self::seen) query.
-    pub(super) fn remember(&mut self, hash: u32) {
+    pub(in crate::headers) fn remember(&mut self, hash: u32) {
         self.hashes[self.cursor] = hash;
         self.cursor = (self.cursor + 1) % self.hashes.len();
     }

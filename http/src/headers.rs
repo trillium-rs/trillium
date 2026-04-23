@@ -1,9 +1,21 @@
 //! Header types
+pub(crate) mod compression_error;
 mod entry;
+mod entry_name;
+mod field_section;
 mod header_name;
+pub(crate) mod header_observer;
 mod header_value;
 mod header_values;
+#[cfg(feature = "unstable")]
+pub mod hpack;
+#[cfg(not(feature = "unstable"))]
+pub(crate) mod hpack;
+pub(crate) mod huffman;
+mod integer_prefix;
 mod known_header_name;
+pub(in crate::headers) mod recent_pairs;
+mod static_hit;
 mod unknown_header_name;
 
 #[cfg(feature = "unstable")]

@@ -3,7 +3,7 @@ use encoding_rs::Encoding;
 use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
     Body, Buffer, HeaderName, HeaderValues, Headers, HttpContext, Method, ReceivedBody,
-    ReceivedBodyState, Status, TypeSet, Version, h3::H3Connection,
+    ReceivedBodyState, Status, TypeSet, Version, h2::H2Connection, h3::H3Connection,
 };
 use trillium_server_common::{
     ArcedConnector, Transport,
@@ -11,10 +11,12 @@ use trillium_server_common::{
 };
 
 mod h1;
+mod h2;
 mod h3;
 mod shared;
 mod unexpected_status_error;
 
+pub(crate) use h2::H2Pooled;
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 pub use shared::ClientSerdeError;
 pub use unexpected_status_error::UnexpectedStatusError;
@@ -25,6 +27,11 @@ pub use unexpected_status_error::UnexpectedStatusError;
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn {
     pub(crate) pool: Option<Pool<Origin, Box<dyn Transport>>>,
+    pub(crate) h2_pool: Option<Pool<Origin, H2Pooled>>,
+    pub(crate) h2_idle_timeout: Option<Duration>,
+    pub(crate) h2_idle_ping_threshold: Option<Duration>,
+    pub(crate) h2_idle_ping_timeout: Duration,
+    pub(crate) h2_connection: Option<(Arc<H2Connection>, u32)>,
     pub(crate) h3_client_state: Option<H3ClientState>,
     pub(crate) h3_connection: Option<(Arc<H3Connection>, u64)>,
     pub(crate) buffer: Buffer,
@@ -144,8 +151,13 @@ pub struct Conn {
 
     /// the http version for this conn
     ///
-    /// prior to conn execution, this reflects the intended http version that will be sent, and
-    /// after execution this reflects the server-indicated http version
+    /// Pre-execution this is the version *hint* (prior knowledge), not the version that will
+    /// necessarily be on the wire — the default [`Version::Http1_1`] means "no hint, use
+    /// auto-discovery" rather than "force HTTP/1.1." Post-execution this reflects the version
+    /// the request was actually sent over.
+    ///
+    /// See the crate-level [Protocol selection][crate#protocol-selection] documentation for
+    /// the full hint → behavior table.
     #[field(get, set, with, copy)]
     pub(crate) http_version: Version,
 
@@ -167,6 +179,16 @@ pub struct Conn {
     /// target instead of deriving it from the url. For all other methods, this field is ignored.
     #[field(with, set, get, option_set_some, into)]
     pub(crate) request_target: Option<Cow<'static, str>>,
+
+    /// the `:protocol` pseudo-header for an extended-CONNECT bootstrap (RFC 8441 §4 over h2,
+    /// RFC 9220 §3 over h3). Set internally by [`Conn::into_websocket`] to `"websocket"`;
+    /// triggers the h2/h3 exec paths to send HEADERS without `END_STREAM` and leave the stream
+    /// open as a bidirectional byte channel.
+    ///
+    /// Only meaningful when method is `CONNECT` and [`http_version`][Self::http_version] is
+    /// `Http2` or `Http3`. h1 and prior-version requests ignore this field.
+    #[field(get)]
+    pub(crate) protocol: Option<Cow<'static, str>>,
 
     /// trailers sent with the request body, populated after the body has been fully sent.
     ///
@@ -330,6 +352,7 @@ impl Conn {
         )
         .with_trailers(&mut self.response_trailers)
         .with_h3_connection(self.h3_connection.clone())
+        .with_h2_connection(self.h2_connection.clone())
         .into()
     }
 

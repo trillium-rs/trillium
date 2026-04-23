@@ -287,7 +287,7 @@ fn roundtrip_pseudo_header_without_static_slot() {
     let table = new_table(4096);
     table
         .insert(
-            QpackEntryName::Pseudo(PseudoHeaderName::Protocol),
+            EntryName::Pseudo(PseudoHeaderName::Protocol),
             fv("webtransport"),
         )
         .unwrap();

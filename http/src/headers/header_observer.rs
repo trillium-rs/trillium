@@ -5,6 +5,11 @@
 //! table can be pre-warmed with literals that the encoder is likely to emit again.
 //! Private to `trillium-http`; never appears in a public signature.
 //!
+//! Protocol-agnostic: the observation pool is shared across HPACK and QPACK encoders
+//! on the same listener (HTTP/2 and HTTP/3 see the same application headers, so an
+//! observation from either feeds both). The cost model branches on
+//! [`HeaderCompression`] at consultation time.
+//!
 //! ## Type-narrowed exact-identity design
 //!
 //! Cross-connection priming is restricted to pairs whose name has a [`NameKey`]
@@ -14,8 +19,8 @@
 //! - `Known(K)` and `Pseudo(P)` are sealed enums populated from compile-time constants in
 //!   application source.
 //! - `UnknownStatic(&'static str)` is the result of routing a `&'static str` literal through the
-//!   lowercase interner ([`super::super::unknown_header_name`]). The interner only takes `&'static
-//!   str` inputs and only adds entries for literals that already lived in static memory.
+//!   lowercase interner ([`super::unknown_header_name`]). The interner only takes `&'static str`
+//!   inputs and only adds entries for literals that already lived in static memory.
 //!
 //! Pair tracking additionally requires the value be `FieldLineValue::Static`
 //! (`&'static [u8]`). Borrowed-non-static and Owned values are not paired; only the
@@ -41,8 +46,14 @@
 //! Role isolation: each hop-and-direction pair gets its own observer (see
 //! `HttpContext::__isolate_qpack_observer`).
 
-use super::{FieldLineValue, entry_name::QpackEntryName, static_table};
-use crate::{KnownHeaderName, headers::qpack::static_table::PseudoHeaderName};
+use crate::{
+    KnownHeaderName,
+    headers::{
+        entry_name::{EntryName, PseudoHeaderName},
+        field_section::FieldLineValue,
+        static_hit::StaticHit,
+    },
+};
 use hashbrown::HashSet;
 use smallvec::SmallVec;
 use std::{
@@ -50,14 +61,26 @@ use std::{
     sync::Mutex,
 };
 
-/// RFC 9204 §3.2.1 per-entry overhead in the dynamic table (entry size = overhead +
-/// name bytes + value bytes).
+/// RFC 9204 §3.2.1 / RFC 7541 §4.1 per-entry overhead in the dynamic table
+/// (entry size = overhead + name bytes + value bytes). Identical for HPACK and QPACK.
 const ENTRY_OVERHEAD: u32 = 32;
+
+/// Which header-compression scheme to cost a priming candidate against. Selects
+/// per-protocol wire-byte constants in [`CostModel::estimate`]; the observation pool
+/// itself is protocol-agnostic.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[allow(dead_code)] // `Hpack` arm consumed by the HPACK encoder once it grows a dynamic table.
+pub(crate) enum HeaderCompression {
+    /// HPACK (RFC 7541) — HTTP/2 header compression. Inserts inline in HEADERS blocks.
+    Hpack,
+    /// QPACK (RFC 9204) — HTTP/3 header compression. Inserts on the encoder stream.
+    Qpack,
+}
 
 /// Stable, content-equal key for a header name in the cross-connection observer.
 /// All three variants are `Copy` and program-controlled by construction.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub(crate) enum NameKey {
+pub(in crate::headers) enum NameKey {
     Known(KnownHeaderName),
     Pseudo(PseudoHeaderName),
     UnknownStatic(&'static str),
@@ -74,12 +97,12 @@ impl Debug for NameKey {
 }
 
 impl NameKey {
-    /// Reconstitute the corresponding `QpackEntryName<'static>`.
-    fn into_entry_name(self) -> QpackEntryName<'static> {
+    /// Reconstitute the corresponding `EntryName<'static>`.
+    fn into_entry_name(self) -> EntryName<'static> {
         match self {
-            Self::Known(k) => QpackEntryName::Known(k),
-            Self::Pseudo(p) => QpackEntryName::Pseudo(p),
-            Self::UnknownStatic(s) => QpackEntryName::UnknownStatic(s),
+            Self::Known(k) => EntryName::Known(k),
+            Self::Pseudo(p) => EntryName::Pseudo(p),
+            Self::UnknownStatic(s) => EntryName::UnknownStatic(s),
         }
     }
 }
@@ -159,8 +182,8 @@ impl HeaderObserver {
     /// "is this name in the priming set?" answers the dup-drain question.
     pub(in crate::headers) fn is_hot(
         &self,
-        name: &QpackEntryName<'static>,
-        value: Option<&FieldLineValue<'static>>,
+        name: &EntryName<'_>,
+        value: Option<&FieldLineValue<'_>>,
     ) -> bool {
         let Some(key) = name.name_key() else {
             return false;
@@ -177,11 +200,15 @@ impl HeaderObserver {
     /// Return priming-insert candidates ranked by `CostModel::savings_per_ref`
     /// (descending), fitting under `capacity` bytes. Each candidate is a pair or
     /// name-only entry the encoder would otherwise spend wire bytes on if literal-
-    /// emitted.
+    /// emitted. The `compression` parameter selects the wire-byte cost model.
     ///
     /// Empty when no observations have happened yet, no candidates pass the cost
     /// model, or capacity is zero.
-    pub(in crate::headers) fn prime(&self, capacity: u32) -> Vec<PrimingCandidate> {
+    pub(in crate::headers) fn prime(
+        &self,
+        capacity: u32,
+        compression: HeaderCompression,
+    ) -> Vec<PrimingCandidate> {
         if capacity == 0 {
             return Vec::new();
         }
@@ -196,11 +223,11 @@ impl HeaderObserver {
         for &(key, s) in &inner.seen_pairs {
             let name = key.into_entry_name();
             let value = FieldLineValue::Static(s);
-            push_candidate(&mut ranked, name, Some(value));
+            push_candidate(&mut ranked, name, Some(value), compression);
         }
         for &key in &inner.seen_names {
             let name = key.into_entry_name();
-            push_candidate(&mut ranked, name, None);
+            push_candidate(&mut ranked, name, None, compression);
         }
         let ranked_total = ranked.len();
 
@@ -245,7 +272,7 @@ impl HeaderObserver {
         }
         log::debug!(
             target: "qpack_metrics",
-            "observer prime(capacity={capacity}): observed pairs={observed_pairs} names={observed_names} \
+            "observer prime(capacity={capacity}, {compression:?}): observed pairs={observed_pairs} names={observed_names} \
              cost-passing={ranked_total} packed={} dropped_no_room={dropped_no_room} bytes_used={used}/{capacity}",
             out.len(),
         );
@@ -255,10 +282,11 @@ impl HeaderObserver {
 
 fn push_candidate(
     ranked: &mut Vec<RankedCandidate>,
-    name: QpackEntryName<'static>,
+    name: EntryName<'static>,
     value: Option<FieldLineValue<'static>>,
+    compression: HeaderCompression,
 ) {
-    let Some(model) = CostModel::estimate(&name, value.as_ref()) else {
+    let Some(model) = CostModel::estimate(compression, &name, value.as_ref()) else {
         return;
     };
     let value_len = value.as_ref().map_or(0, |v| v.as_bytes().len());
@@ -314,28 +342,40 @@ impl Debug for ConnectionAccumulator {
 
 impl ConnectionAccumulator {
     /// Hot path. One call per emitted header line. Names without a [`NameKey`]
-    /// representation (i.e., `QpackEntryName::Unknown` — borrowed-non-static or
+    /// representation (i.e., `EntryName::Unknown` — borrowed-non-static or
     /// Owned) are skipped entirely; the rest mark their name-set bit. Pair
     /// tracking additionally requires `Static` value AND a non-uncacheable name.
-    pub(in crate::headers) fn observe(
-        &mut self,
-        name: &QpackEntryName<'_>,
-        value: &FieldLineValue<'_>,
-    ) {
+    pub(in crate::headers) fn observe(&mut self, name: &EntryName<'_>, value: &FieldLineValue<'_>) {
         let Some(key) = name.name_key() else {
             return;
         };
+        let static_value = if name.has_uncacheable_value() {
+            None
+        } else {
+            match value {
+                FieldLineValue::Static(s) => Some(*s),
+                _ => None,
+            }
+        };
+        self.record(key, static_value);
+    }
+
+    /// Pre-extracted form of [`observe`](Self::observe). The HPACK encoder's
+    /// per-line walk extracts the `(NameKey, static_value)` pair from the
+    /// field-line shape and calls this directly, skipping the [`observe`]
+    /// matching logic — the encoder already has the variants in hand.
+    ///
+    /// `static_value` is `Some(s)` only for non-uncacheable names with
+    /// `FieldLineValue::Static` values — exactly the cases [`observe`] would
+    /// have considered for full-pair tracking. `None` covers both the
+    /// uncacheable-name and non-Static-value cases (which produce identical
+    /// effects in the accumulator: name-only observation).
+    pub(in crate::headers) fn record(&mut self, key: NameKey, static_value: Option<&'static [u8]>) {
         if !self.seen_names.contains(&key) {
             self.seen_names.push(key);
         }
 
-        // No full-pair tracking for sensitive names (CRIME-style side-channel
-        // risk if the value ever crossed into the dynamic table) or for
-        // non-Static values (see module doc).
-        if name.has_uncacheable_value() {
-            return;
-        }
-        let FieldLineValue::Static(s) = value else {
+        let Some(s) = static_value else {
             return;
         };
         if self.high_card_names.contains(&key) {
@@ -349,7 +389,7 @@ impl ConnectionAccumulator {
             if *kk != key {
                 continue;
             }
-            if *ss == *s {
+            if *ss == s {
                 same_pos = Some(i);
                 break;
             }
@@ -365,7 +405,7 @@ impl ConnectionAccumulator {
                 self.high_card_names.push(key);
             }
             (None, None) => {
-                self.seen_pairs.push((key, *s));
+                self.seen_pairs.push((key, s));
             }
         }
     }
@@ -375,8 +415,10 @@ impl ConnectionAccumulator {
 /// ignore varint width and Huffman compression — close enough for ranking, and a
 /// miss in either direction just shifts the priming threshold by a byte or two.
 struct CostModel {
-    /// Estimated bytes saved per reference: (no-priming encoding cost) − (Indexed
-    /// Dynamic encoding cost ≈ 2 bytes).
+    /// Estimated bytes saved per reference: (no-priming encoding cost) − (indexed
+    /// reference encoding cost). The indexed cost differs per protocol (QPACK
+    /// indexed-dynamic ≈ 2 bytes; HPACK indexed ≈ 1 byte at typical dyn indices),
+    /// hence the [`HeaderCompression`] dispatch in [`Self::estimate`].
     savings_per_ref: u32,
 }
 
@@ -388,48 +430,77 @@ impl CostModel {
     ///
     /// - Full pair with a full static-table match — Indexed Static is already as cheap.
     /// - Name-only with a static name-table match — literals can use the static name ref for free.
+    ///
+    /// The `compression` parameter selects per-protocol wire-byte constants. The
+    /// `(NoMatch)` arms use slightly different overhead numbers because HPACK's
+    /// Indexed form is 1 byte at typical dynamic indices while QPACK's
+    /// `IndexedDynamic` is ~2 bytes; the cost-model output is rough enough that the
+    /// difference only matters at the ranking margins.
     #[allow(clippy::match_same_arms)]
-    fn estimate(name: &QpackEntryName<'_>, value: Option<&FieldLineValue<'_>>) -> Option<Self> {
+    fn estimate(
+        compression: HeaderCompression,
+        name: &EntryName<'_>,
+        value: Option<&FieldLineValue<'_>>,
+    ) -> Option<Self> {
         let name_len = u32::try_from(name.len()).unwrap_or(u32::MAX);
         let value_bytes = value.map(FieldLineValue::as_bytes);
-        let lookup = static_table::static_table_lookup(name, value_bytes);
+        let lookup = static_lookup(compression, name, value_bytes);
 
         match (value, lookup) {
-            (Some(_), static_table::StaticLookup::FullMatch(_)) => None,
+            (Some(_), StaticHit::Full(_)) => None,
 
-            (Some(v), static_table::StaticLookup::NameMatch(_)) => {
+            (Some(v), StaticHit::Name(_)) => {
                 let value_len = u32::try_from(v.len()).unwrap_or(u32::MAX);
                 Some(Self {
                     savings_per_ref: value_len,
                 })
             }
 
-            (Some(v), static_table::StaticLookup::NoMatch) => {
+            (Some(v), StaticHit::None) => {
                 let value_len = u32::try_from(v.len()).unwrap_or(u32::MAX);
+                let overhead = match compression {
+                    HeaderCompression::Qpack => 1,
+                    HeaderCompression::Hpack => 2,
+                };
                 Some(Self {
-                    savings_per_ref: name_len.saturating_add(value_len).saturating_add(1),
+                    savings_per_ref: name_len.saturating_add(value_len).saturating_add(overhead),
                 })
             }
 
-            (
-                None,
-                static_table::StaticLookup::FullMatch(_) | static_table::StaticLookup::NameMatch(_),
-            ) => None,
+            (None, StaticHit::Full(_) | StaticHit::Name(_)) => None,
 
-            (None, static_table::StaticLookup::NoMatch) => Some(Self {
+            (None, StaticHit::None) => Some(Self {
                 savings_per_ref: name_len,
             }),
         }
     }
 }
 
+/// Run the per-protocol static-table lookup. HPACK's lookup signature takes a
+/// non-optional `&[u8]`; for name-only candidates (`value = None`) we pass `b""` so
+/// shared-`""`-value entries surface as `Name`, not `Full`.
+fn static_lookup(
+    compression: HeaderCompression,
+    name: &EntryName<'_>,
+    value: Option<&[u8]>,
+) -> StaticHit {
+    match compression {
+        HeaderCompression::Qpack => {
+            crate::headers::qpack::static_table::static_table_lookup(name, value)
+        }
+        HeaderCompression::Hpack => {
+            crate::headers::hpack::static_table::static_table_lookup(name, value.unwrap_or(b""))
+        }
+    }
+}
+
 /// Priming-insert candidate returned by [`HeaderObserver::prime`]. `value` is
 /// `None` for a name-only candidate — the encoder primes it as a `(name, "")`
-/// dynamic-table entry so future literals can use a `LiteralDynamicNameRef` to
-/// save the name bytes.
+/// dynamic-table entry so future literals can use a name-reference form to save
+/// the name bytes.
 #[derive(Debug)]
 pub(in crate::headers) struct PrimingCandidate {
-    pub(in crate::headers) name: QpackEntryName<'static>,
+    pub(in crate::headers) name: EntryName<'static>,
     pub(in crate::headers) value: Option<FieldLineValue<'static>>,
 }
 
@@ -437,7 +508,7 @@ pub(in crate::headers) struct PrimingCandidate {
 /// `entry_size` needed for capacity bin-packing and the `savings_per_ref` used
 /// for ranking, neither of which [`PrimingCandidate`] needs to expose.
 struct RankedCandidate {
-    name: QpackEntryName<'static>,
+    name: EntryName<'static>,
     value: Option<FieldLineValue<'static>>,
     entry_size: u32,
     savings_per_ref: u32,
@@ -447,8 +518,8 @@ struct RankedCandidate {
 mod tests {
     use super::*;
 
-    fn name(known: KnownHeaderName) -> QpackEntryName<'static> {
-        QpackEntryName::Known(known)
+    fn name(known: KnownHeaderName) -> EntryName<'static> {
+        EntryName::Known(known)
     }
 
     fn value(bytes: &'static [u8]) -> FieldLineValue<'static> {
@@ -457,7 +528,7 @@ mod tests {
 
     fn observe_once(
         observer: &HeaderObserver,
-        pairs: &[(QpackEntryName<'static>, FieldLineValue<'static>)],
+        pairs: &[(EntryName<'static>, FieldLineValue<'static>)],
     ) {
         let mut accum = ConnectionAccumulator::default();
         for (n, v) in pairs {
@@ -474,7 +545,7 @@ mod tests {
             &observer,
             &[(name(KnownHeaderName::Server), value(b"trillium"))],
         );
-        let primed = observer.prime(4096);
+        let primed = observer.prime(4096, HeaderCompression::Qpack);
         assert_eq!(primed.len(), 1, "expected 1 candidate, got {primed:?}");
         assert_eq!(primed[0].name, name(KnownHeaderName::Server));
         assert_eq!(primed[0].value, Some(value(b"trillium")));
@@ -486,17 +557,14 @@ mod tests {
         let observer = HeaderObserver::default();
         observe_once(
             &observer,
-            &[(
-                QpackEntryName::Pseudo(PseudoHeaderName::Status),
-                value(b"200"),
-            )],
+            &[(EntryName::Pseudo(PseudoHeaderName::Status), value(b"200"))],
         );
-        let primed = observer.prime(4096);
+        let primed = observer.prime(4096, HeaderCompression::Qpack);
         assert!(
-            !primed.iter().any(|c| matches!(
-                c.name,
-                QpackEntryName::Pseudo(PseudoHeaderName::Status)
-            ) && c.value.is_some()),
+            !primed.iter().any(
+                |c| matches!(c.name, EntryName::Pseudo(PseudoHeaderName::Status))
+                    && c.value.is_some()
+            ),
             "(:status, 200) should not prime; got {primed:?}",
         );
     }
@@ -514,7 +582,7 @@ mod tests {
         let small = (name(KnownHeaderName::ContentLength), value(b"12"));
         observe_once(&observer, &[big.clone(), small.clone()]);
         // Big entry size: 32 + 12 + 31 = 75.
-        let primed = observer.prime(75);
+        let primed = observer.prime(75, HeaderCompression::Qpack);
         assert_eq!(primed.len(), 1);
         assert_eq!(primed[0].name, big.0);
         assert_eq!(primed[0].value, Some(big.1));
@@ -536,25 +604,24 @@ mod tests {
 
     #[test]
     fn unknown_names_are_ignored() {
-        // QpackEntryName::Unknown (no static recovery) returns None from
+        // EntryName::Unknown (no static recovery) returns None from
         // name_key(), so the observer never sees them.
         let observer = HeaderObserver::default();
-        let unknown: QpackEntryName<'static> =
-            QpackEntryName::try_from(b"x-custom".to_vec()).unwrap();
+        let unknown: EntryName<'static> = EntryName::try_from(b"x-custom".to_vec()).unwrap();
         let mut accum = ConnectionAccumulator::default();
         accum.observe(&unknown, &value(b"hello"));
         assert!(accum.seen_pairs.is_empty());
         assert!(accum.seen_names.is_empty());
         observer.fold_connection(&accum);
-        assert!(observer.prime(4096).is_empty());
+        assert!(observer.prime(4096, HeaderCompression::Qpack).is_empty());
     }
 
     #[test]
     fn unknown_static_is_tracked() {
         let observer = HeaderObserver::default();
-        let unknown_static = QpackEntryName::UnknownStatic("x-trillium-flag");
+        let unknown_static = EntryName::UnknownStatic("x-trillium-flag");
         observe_once(&observer, &[(unknown_static.clone(), value(b"on"))]);
-        let primed = observer.prime(4096);
+        let primed = observer.prime(4096, HeaderCompression::Qpack);
         assert!(
             primed
                 .iter()
@@ -598,7 +665,7 @@ mod tests {
         let pair_b = (name(KnownHeaderName::UserAgent), value(b"test-agent/1.0"));
         observe_once(&observer, std::slice::from_ref(&pair_a));
         observe_once(&observer, std::slice::from_ref(&pair_b));
-        let primed = observer.prime(4096);
+        let primed = observer.prime(4096, HeaderCompression::Qpack);
         assert!(
             primed
                 .iter()
@@ -609,5 +676,20 @@ mod tests {
                 .iter()
                 .any(|c| c.name == pair_b.0 && c.value.as_ref() == Some(&pair_b.1))
         );
+    }
+
+    #[test]
+    fn hpack_prime_emits_observed_pair() {
+        // Same observation, costed under HPACK — both NameMatch arms produce
+        // value-bytes savings, so the pair primes identically to QPACK.
+        let observer = HeaderObserver::default();
+        observe_once(
+            &observer,
+            &[(name(KnownHeaderName::Server), value(b"trillium"))],
+        );
+        let primed = observer.prime(4096, HeaderCompression::Hpack);
+        assert_eq!(primed.len(), 1);
+        assert_eq!(primed[0].name, name(KnownHeaderName::Server));
+        assert_eq!(primed[0].value, Some(value(b"trillium")));
     }
 }

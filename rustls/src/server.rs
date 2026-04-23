@@ -5,6 +5,7 @@ use futures_rustls::{
     server::TlsStream,
 };
 use std::{
+    borrow::Cow,
     fmt::{Debug, Formatter},
     io,
     pin::Pin,
@@ -56,6 +57,21 @@ impl RustlsAcceptor {
     /// let rustls_acceptor = RustlsAcceptor::from_single_cert(CERT, KEY);
     /// ```
     pub fn from_single_cert(cert: &[u8], key: &[u8]) -> Self {
+        Self::single_cert_with_alpn(cert, key, vec![b"h2".to_vec(), b"http/1.1".to_vec()])
+    }
+
+    /// build a [`RustlsAcceptor`] from a cert chain + private key that advertises only
+    /// `http/1.1` via ALPN, opting out of HTTP/2.
+    ///
+    /// This exists as a separate constructor because [`futures_rustls::TlsAcceptor`] does
+    /// not expose its inner [`ServerConfig`] for post-construction mutation. Callers needing
+    /// finer control should construct a [`ServerConfig`] directly and use its `Into`
+    /// conversion.
+    pub fn from_single_cert_no_h2(cert: &[u8], key: &[u8]) -> Self {
+        Self::single_cert_with_alpn(cert, key, vec![b"http/1.1".to_vec()])
+    }
+
+    fn single_cert_with_alpn(cert: &[u8], key: &[u8], alpn_protocols: Vec<Vec<u8>>) -> Self {
         use std::io::Cursor;
 
         let cert_chain = rustls_pemfile::certs(&mut Cursor::new(cert))
@@ -66,13 +82,14 @@ impl RustlsAcceptor {
             .expect("could not read key pemfile")
             .expect("no private key found in `key`");
 
-        ServerConfig::builder_with_provider(crypto_provider())
+        let mut config = ServerConfig::builder_with_provider(crypto_provider())
             .with_safe_default_protocol_versions()
             .expect("crypto provider did not support safe default protocol versions")
             .with_no_client_auth()
             .with_single_cert(cert_chain, key_der)
-            .expect("could not create a rustls ServerConfig from the supplied cert and key")
-            .into()
+            .expect("could not create a rustls ServerConfig from the supplied cert and key");
+        config.alpn_protocols = alpn_protocols;
+        config.into()
     }
 }
 
@@ -131,6 +148,10 @@ impl<T: AsyncWrite + AsyncRead + Unpin> AsyncWrite for RustlsServerTransport<T> 
 impl<T: Transport> Transport for RustlsServerTransport<T> {
     fn peer_addr(&self) -> io::Result<Option<std::net::SocketAddr>> {
         self.inner_transport().peer_addr()
+    }
+
+    fn negotiated_alpn(&self) -> Option<Cow<'_, [u8]>> {
+        self.as_ref().alpn_protocol().map(Cow::Borrowed)
     }
 }
 

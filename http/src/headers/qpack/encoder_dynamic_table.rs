@@ -18,17 +18,19 @@
 use crate::{
     HttpContext,
     h3::{H3Error, H3ErrorCode, H3Settings},
-    headers::qpack::{FieldLineValue, HeaderObserver},
+    headers::{
+        header_observer::HeaderCompression,
+        qpack::{FieldLineValue, HeaderObserver},
+        recent_pairs::RecentPairs,
+    },
 };
 use event_listener::{Event, EventListener};
-use recent_pairs::RecentPairs;
 use state::TableState;
 use std::sync::{Arc, Mutex};
 
 mod connection_metrics;
 mod encode;
 mod reader;
-mod recent_pairs;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -122,7 +124,7 @@ impl EncoderDynamicTable {
 
         let prime_entries = if chosen > 0 {
             let cap = u32::try_from(chosen).unwrap_or(u32::MAX);
-            self.observer.prime(cap)
+            self.observer.prime(cap, HeaderCompression::Qpack)
         } else {
             Vec::new()
         };

@@ -29,4 +29,10 @@ signal-hook-tokio = { version = "0.4.0", features = ["futures-v0_3"] }
 
 [dev-dependencies]
 env_logger = "0.11.10"
+h2 = "0.4"
+http = "1"
+rcgen = "0.14.7"
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
 tokio = { version = "1.50.0", features = ["full"] }
+tokio-rustls = "0.26"
+trillium-rustls = { path = "../rustls" }
