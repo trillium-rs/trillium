@@ -17,5 +17,6 @@
 //! by the HPACK decoder, which lands next. Remove once that happens.
 #![allow(dead_code)]
 
+pub(crate) mod decoder;
 pub(crate) mod dynamic_table;
 pub(crate) mod static_table;
