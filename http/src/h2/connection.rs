@@ -19,7 +19,7 @@ use super::{
     frame::{self, FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader},
     transport::{H2Transport, StreamState},
 };
-use crate::{HttpContext, headers::hpack::HpackDecoder};
+use crate::{Conn, HttpContext, headers::hpack::HpackDecoder};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -266,8 +266,10 @@ impl StreamEntry {
 enum Action {
     /// Frame handled; continue the main loop.
     Continue,
-    /// A stream just opened — return the transport to the caller, resume on next `poll_next`.
-    Emit(H2Transport),
+    /// A stream just opened and the request validated — return the [`Conn`] to the caller; the
+    /// runtime adapter spawns a handler task per emitted Conn. Boxed to keep the enum small —
+    /// `Conn` is over 500 bytes and most dispatches return `Continue`.
+    Emit(Box<Conn<H2Transport>>),
     /// Begin graceful or erroring close with this outcome.
     Close(CloseOutcome),
 }
@@ -306,17 +308,18 @@ where
     /// Drive the connection until the next request stream opens, the connection ends, or a fatal
     /// protocol or I/O error occurs.
     ///
-    /// Returns `Ok(Some(transport))` for each new request stream — the runtime adapter is expected
-    /// to spawn a handler task that consumes the [`H2Transport`]. Returns `Ok(None)` when the
-    /// connection has been shut down cleanly (peer GOAWAY, our own swansong shutdown, peer EOF
-    /// at a frame boundary).
+    /// Returns `Ok(Some(conn))` for each new request stream — the runtime adapter is expected
+    /// to spawn a handler task that consumes the [`Conn`]. Malformed requests (RFC 9113 §8.1.2)
+    /// are handled internally with a stream-level `RST_STREAM` and never surfaced. Returns
+    /// `Ok(None)` when the connection has been shut down cleanly (peer GOAWAY, our own swansong
+    /// shutdown, peer EOF at a frame boundary).
     ///
     /// # Errors
     ///
-    /// Returns an [`H2Error`] for any protocol violation detected while decoding peer frames or
-    /// for an unrecoverable transport I/O error. A final GOAWAY is sent before a protocol error
-    /// is returned (best-effort; I/O errors skip it).
-    pub async fn next(&mut self) -> Result<Option<H2Transport>, H2Error> {
+    /// Returns an [`H2Error`] for any *connection-level* protocol violation detected while
+    /// decoding peer frames or for an unrecoverable transport I/O error. A final GOAWAY is sent
+    /// before a protocol error is returned (best-effort; I/O errors skip it).
+    pub async fn next(&mut self) -> Result<Option<Conn<H2Transport>>, H2Error> {
         poll_fn(|cx| self.poll_next(cx)).await
     }
 
@@ -330,7 +333,7 @@ where
     pub fn poll_next(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<H2Transport>, H2Error>> {
+    ) -> Poll<Result<Option<Conn<H2Transport>>, H2Error>> {
         if self.finished {
             return Poll::Ready(Ok(None));
         }
@@ -391,8 +394,8 @@ where
 
                 DriverState::Running => match self.poll_advance_read(cx) {
                     Poll::Ready(Ok(Action::Continue)) => {}
-                    Poll::Ready(Ok(Action::Emit(transport))) => {
-                        return Poll::Ready(Ok(Some(transport)));
+                    Poll::Ready(Ok(Action::Emit(conn))) => {
+                        return Poll::Ready(Ok(Some(*conn)));
                     }
                     Poll::Ready(Ok(Action::Close(outcome))) => {
                         self.begin_close(outcome);
@@ -457,7 +460,7 @@ where
 
     /// Convert the current `close_outcome` into the terminal return of `poll_next`. Must only be
     /// called after outbound bytes have been flushed.
-    fn finish_with_current_outcome(&mut self) -> Result<Option<H2Transport>, H2Error> {
+    fn finish_with_current_outcome(&mut self) -> Result<Option<Conn<H2Transport>>, H2Error> {
         self.finished = true;
         match self.close_outcome.take() {
             None | Some(CloseOutcome::Graceful) => Ok(None),
@@ -742,7 +745,14 @@ where
     }
 
     /// The complete header block is now available (whether from a single HEADERS or from
-    /// HEADERS + CONTINUATION*): HPACK-decode it, open the stream, and emit the transport.
+    /// HEADERS + CONTINUATION*): HPACK-decode it, open the stream, validate the request via
+    /// [`Conn::new_h2`], and emit the [`Conn`] on success.
+    ///
+    /// On a §8.1.2 malformed-request rejection from `new_h2`, the stream is removed from both
+    /// maps, a `RST_STREAM(PROTOCOL_ERROR)` is queued, and `Action::Continue` is returned —
+    /// the malformed request never reaches a handler task. (HPACK decode failures, by contrast,
+    /// are connection-level: the dynamic table state is now untrustworthy for *every* future
+    /// stream on this connection.)
     fn finalize_headers(
         &mut self,
         stream_id: u32,
@@ -772,12 +782,21 @@ where
         // cannot send body bytes until the handler calls `H2Transport::poll_read` and the driver
         // observes `recv.is_reading` on a subsequent poll.
 
-        Ok(Action::Emit(H2Transport::new(
-            self.connection.clone(),
-            stream_id,
-            field_section,
-            state,
-        )))
+        let transport = H2Transport::new(self.connection.clone(), stream_id, state);
+        match Conn::new_h2(self.connection.clone(), stream_id, field_section, transport) {
+            Ok(conn) => Ok(Action::Emit(Box::new(conn))),
+            Err(code) => {
+                log::debug!("h2 stream {stream_id}: rejected during build: {code:?}");
+                self.streams.remove(&stream_id);
+                self.connection
+                    .streams
+                    .lock()
+                    .expect("connection streams mutex poisoned")
+                    .remove(&stream_id);
+                self.queue_rst_stream(stream_id, code);
+                Ok(Action::Continue)
+            }
+        }
     }
 
     /// A DATA frame arrived — copy its payload into the matching stream's recv buffer and wake
@@ -876,6 +895,15 @@ where
         let n = frame::goaway::encode(last_stream_id, code, &[], &mut self.write_buf[start..])
             .expect("buffer sized from encoded_len");
         self.write_buf.truncate(start + n);
+        self.write_flush_pending = true;
+    }
+
+    fn queue_rst_stream(&mut self, stream_id: u32, code: H2ErrorCode) {
+        let start = self.write_buf.len();
+        self.write_buf
+            .resize(start + frame::rst_stream::ENCODED_LEN, 0);
+        frame::rst_stream::encode(stream_id, code, &mut self.write_buf[start..])
+            .expect("ENCODED_LEN matches fixed rst_stream size");
         self.write_flush_pending = true;
     }
 }

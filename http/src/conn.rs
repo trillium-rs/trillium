@@ -3,6 +3,7 @@ use crate::{
     KnownHeaderName::Host,
     Method, ReceivedBody, Status, Swansong, TypeSet, Version,
     after_send::{AfterSend, SendStatus},
+    h2::H2Connection,
     h3::H3Connection,
     liveness::{CancelOnDisconnect, LivenessFut},
     received_body::ReceivedBodyState,
@@ -24,6 +25,7 @@ use std::{
     time::Instant,
 };
 mod h1;
+mod h2;
 mod h3;
 
 /// A http connection
@@ -138,6 +140,14 @@ pub struct Conn<Transport> {
     /// stream id
     pub(crate) h3_stream_id: Option<u64>,
 
+    /// the [`H2Connection`] for this conn, if this is an HTTP/2 request
+    #[field(get)]
+    pub(crate) h2_connection: Option<Arc<H2Connection>>,
+
+    /// h2 stream id (31-bit per RFC 9113 §5.1.1, fits in u32)
+    #[field(get, copy)]
+    pub(crate) h2_stream_id: Option<u32>,
+
     /// the :protocol http/3 pseudo-header
     #[field(set, get, into)]
     pub(crate) protocol: Option<Cow<'static, str>>,
@@ -171,6 +181,8 @@ impl<Transport> Debug for Conn<Transport> {
             .field("protocol", &self.protocol)
             .field("h3_connection", &self.h3_connection)
             .field("h3_stream_id", &self.h3_stream_id)
+            .field("h2_connection", &self.h2_connection)
+            .field("h2_stream_id", &self.h2_stream_id)
             .field("request_trailers", &self.request_trailers)
             .finish()
     }
@@ -469,6 +481,8 @@ where
             protocol: self.protocol,
             request_trailers: self.request_trailers,
             h3_stream_id: self.h3_stream_id,
+            h2_connection: self.h2_connection,
+            h2_stream_id: self.h2_stream_id,
         }
     }
 

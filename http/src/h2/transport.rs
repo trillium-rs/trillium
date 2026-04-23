@@ -16,7 +16,7 @@
 //! [`BoxedTransport`]: crate::transport::BoxedTransport
 
 use super::H2Connection;
-use crate::{Buffer, headers::hpack::FieldSection};
+use crate::Buffer;
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -29,20 +29,18 @@ use std::{
     task::{Context, Poll},
 };
 
-/// A single HTTP/2 stream, presented as an [`AsyncRead`] + [`AsyncWrite`] for handler-side code.
+/// A single HTTP/2 stream's transport handle.
 ///
-/// Each stream that opens on a connection produces one `H2Transport` returned from
-/// [`H2Acceptor::next`][crate::h2::H2Acceptor::next]. The runtime adapter spawns a task per
-/// transport, builds a [`Conn`][crate::Conn] from it, and runs the user's handler. The transport
-/// holds an [`Arc`] to the shared [`H2Connection`] so that frame I/O continues to flow through the
-/// single driver task even as the handler reads body bytes and writes its response.
-///
-/// The decoded request [`FieldSection`] arrives attached to the transport — handler-side
-/// `Conn::new_h2` takes it via [`Self::take_request_headers`] before the user handler runs.
+/// Today (during phase-4 step 2) `H2Transport` still carries an [`Arc<StreamState>`] and a real
+/// [`AsyncRead`] impl that drains the stream's recv ring — that code path will be replaced in
+/// step 6 by `ReceivedBody` reading via `H2Connection::poll_read`, after which `H2Transport`
+/// collapses to a unit struct with loud-fail `AsyncRead`/`AsyncWrite` stubs whose only purpose
+/// is to satisfy [`BoxedTransport`][crate::transport::BoxedTransport]'s trait bounds at the
+/// `Conn.transport` slot. Until then the type still needs the connection backref + stream id +
+/// state Arc to implement `poll_read`.
 pub struct H2Transport {
     connection: Arc<H2Connection>,
     stream_id: u32,
-    request_headers: Option<FieldSection<'static>>,
     state: Arc<StreamState>,
 }
 
@@ -50,7 +48,6 @@ impl fmt::Debug for H2Transport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("H2Transport")
             .field("stream_id", &self.stream_id)
-            .field("has_request_headers", &self.request_headers.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -60,13 +57,11 @@ impl H2Transport {
     pub(super) fn new(
         connection: Arc<H2Connection>,
         stream_id: u32,
-        request_headers: FieldSection<'static>,
         state: Arc<StreamState>,
     ) -> Self {
         Self {
             connection,
             stream_id,
-            request_headers: Some(request_headers),
             state,
         }
     }
@@ -76,17 +71,9 @@ impl H2Transport {
         self.stream_id
     }
 
-    /// The shared [`H2Connection`] backing this stream. Handler-side code calls into this for
-    /// per-stream operations that don't fit into [`AsyncRead`] / [`AsyncWrite`] — currently, just
-    /// trailers retrieval (lands in a follow-up phase).
+    /// The shared [`H2Connection`] backing this stream.
     pub fn connection(&self) -> &Arc<H2Connection> {
         &self.connection
-    }
-
-    /// Take the decoded request headers. Returns `None` after the first call — the handler-side
-    /// `Conn::new_h2` consumes them exactly once.
-    pub fn take_request_headers(&mut self) -> Option<FieldSection<'static>> {
-        self.request_headers.take()
     }
 }
 

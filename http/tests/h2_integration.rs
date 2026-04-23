@@ -14,7 +14,7 @@ use tokio::{
     sync::mpsc,
 };
 use trillium_http::{
-    HttpContext,
+    Conn, HttpContext,
     h2::{H2Connection, H2Transport},
 };
 
@@ -34,7 +34,7 @@ fn spawn_server<T>(
     transport: T,
 ) -> (
     Arc<H2Connection>,
-    mpsc::UnboundedReceiver<H2Transport>,
+    mpsc::UnboundedReceiver<Conn<H2Transport>>,
     tokio::task::JoinHandle<()>,
 )
 where
@@ -50,10 +50,10 @@ where
         loop {
             match acceptor.next().await {
                 Ok(None) | Err(_) => break,
-                Ok(Some(transport)) => {
-                    // Hand the opened stream off to the test. If the receiver has been dropped,
+                Ok(Some(conn)) => {
+                    // Hand the opened Conn off to the test. If the receiver has been dropped,
                     // we silently discard (the test is no longer interested).
-                    let _ = tx.send(transport);
+                    let _ = tx.send(conn);
                 }
             }
         }
@@ -193,7 +193,7 @@ async fn opens_stream_from_get_request() {
         .expect("acceptor did not emit a stream within 2s")
         .expect("acceptor closed before emitting a stream");
 
-    assert_eq!(opened.stream_id(), 1);
+    assert_eq!(opened.h2_stream_id(), Some(1));
 
     drop(opened);
     drop(client_io);
@@ -202,7 +202,8 @@ async fn opens_stream_from_get_request() {
 }
 
 /// A POST with a small body: HEADERS without END_STREAM, followed by one DATA frame with
-/// END_STREAM. The handler reads the body off the H2Transport and asserts the bytes match.
+/// END_STREAM. The handler reads the body off the H2Transport (still real-AsyncRead at this
+/// step; collapses to ZST + ReceivedBody-driven reads in step 6) and asserts the bytes match.
 #[tokio::test]
 async fn handler_reads_request_body_from_data_frame() {
     let (mut client_io, server_io) = duplex(64 * 1024);
@@ -239,18 +240,23 @@ async fn handler_reads_request_body_from_data_frame() {
     )
     .await;
 
-    let mut transport = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
+    let mut opened = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
         .await
         .expect("acceptor did not emit a stream within 2s")
         .expect("acceptor closed before emitting a stream");
 
-    // Drain the body via H2Transport's AsyncRead. The driver will route the DATA frame in the
-    // background as we await.
+    // Drain the body via the Conn's transport (H2Transport's AsyncRead). The driver will route
+    // the DATA frame in the background as we await. Step 6 will replace this with a
+    // ReceivedBody-based read once the H2Transport collapses to a ZST.
     let mut got = Vec::new();
-    transport.read_to_end(&mut got).await.expect("read body");
+    opened
+        .transport_mut()
+        .read_to_end(&mut got)
+        .await
+        .expect("read body");
     assert_eq!(got.as_slice(), body);
 
-    drop(transport);
+    drop(opened);
     drop(client_io);
     conn.shut_down();
     server_task.await.expect("server task panicked");
@@ -301,11 +307,11 @@ async fn lazy_window_update_gated_on_first_poll_read() {
     write_frame(&mut client_io, 0x1, 0x4, 1, &block).await; // END_HEADERS only
 
     // (2) After HEADERS, no WINDOW_UPDATE yet — poll with a timeout to confirm absence.
-    let mut transport = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
+    let mut opened = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
         .await
         .expect("acceptor did not emit a stream within 2s")
         .expect("acceptor closed before emitting a stream");
-    assert_eq!(transport.stream_id(), 1);
+    assert_eq!(opened.h2_stream_id(), Some(1));
 
     let no_wu = tokio::time::timeout(
         std::time::Duration::from_millis(100),
@@ -323,7 +329,7 @@ async fn lazy_window_update_gated_on_first_poll_read() {
     // (no body bytes yet), but the side effect (CAS on `is_reading` + waking the driver) is
     // the observable we care about.
     let mut fut = futures_lite::future::poll_once(futures_lite::AsyncReadExt::read(
-        &mut transport,
+        opened.transport_mut(),
         &mut scratch,
     ));
     let _ = (&mut fut).await;
@@ -349,7 +355,7 @@ async fn lazy_window_update_gated_on_first_poll_read() {
         "window topped up to MAX_STREAM_WINDOW"
     );
 
-    drop(transport);
+    drop(opened);
     drop(client_io);
     conn.shut_down();
     server_task.await.expect("server task panicked");

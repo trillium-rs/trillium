@@ -244,6 +244,8 @@ where
             scheme,
             h3_connection: Some(h3_connection),
             h3_stream_id: Some(stream_id),
+            h2_connection: None,
+            h2_stream_id: None,
             protocol,
             request_trailers: None,
         })
