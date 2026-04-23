@@ -89,6 +89,7 @@ mod conn;
 mod connection_status;
 mod copy;
 mod error;
+pub mod h2;
 pub mod h3;
 pub mod headers;
 #[cfg(feature = "http-compat-0")]
