@@ -36,6 +36,17 @@ const MAX_BUFFER_SIZE: usize = 1 << 20;
 /// hardcoded to match the default we advertise.
 const HPACK_TABLE_SIZE: usize = 4096;
 
+/// Per-stream recv flow-control window we'll advertise once a request body is wanted. Bounds the
+/// peer's in-flight DATA per stream and our per-stream recv buffer footprint. Phase 7 will pull
+/// this from `HttpConfig::h2_max_stream_window`; defaulting to 64 KiB matches Chrome / Firefox /
+/// hyper.
+///
+/// Until lazy `WINDOW_UPDATE` wiring lands, the acceptor emits this eagerly when a stream
+/// opens — the peer can immediately send up to this many body bytes whether the handler will
+/// read them or not. The `h2_initial_stream_window` knob (default 0) plus lazy emission lands
+/// alongside the cross-task wake mechanism.
+const MAX_STREAM_WINDOW: u32 = 64 * 1024;
+
 /// Shared per-connection state for HTTP/2.
 ///
 /// Wrapped in an [`Arc`] and held by both the [`H2Acceptor`] driver and every [`H2Transport`]
@@ -250,11 +261,18 @@ where
                     return Ok(Some(transport));
                 }
 
+                Frame::Data {
+                    stream_id,
+                    end_stream,
+                    data_length,
+                    padding_length,
+                } => {
+                    self.route_data(stream_id, end_stream, data_length, padding_length, consumed)?;
+                }
+
                 // §6.6 PUSH_PROMISE from a client is always a connection error; §6.10
-                // CONTINUATION outside an in-progress header block is too. DATA without
-                // stream-machinery target is rejected for now (DATA-frame routing lands when
-                // the recv side of H2Transport is wired up).
-                Frame::PushPromise { .. } | Frame::Continuation { .. } | Frame::Data { .. } => {
+                // CONTINUATION outside an in-progress header block is too.
+                Frame::PushPromise { .. } | Frame::Continuation { .. } => {
                     return Err(H2ErrorCode::ProtocolError.into());
                 }
 
@@ -342,11 +360,27 @@ where
 
         let field_section = self.hpack.decode(&block)?;
 
-        let _ = end_stream; // recv-EOF wiring lands in the next commit (DATA routing).
-
         let state = Arc::new(StreamState::default());
+        if end_stream {
+            // No DATA will follow — mark the recv side EOF immediately so the handler's first
+            // body read returns 0. Set under the lock the driver also uses for pushes, so it's
+            // ordered consistently with the handler's `poll_read` checks.
+            let _guard = state.recv.buf.lock().expect("recv buf mutex poisoned");
+            state
+                .recv
+                .eof
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
         self.streams.insert(stream_id, state.clone());
         self.last_peer_stream_id = stream_id;
+
+        // Eager WINDOW_UPDATE: open the per-stream recv window so the peer may send a body
+        // immediately. This is the temporary (non-lazy) form; task 6 moves the emission into
+        // `H2Transport::poll_read` and gates it on handler intent. We skip if the request had
+        // no body — there's nothing for the peer to send.
+        if !end_stream {
+            write_window_update(&mut self.transport, stream_id, MAX_STREAM_WINDOW).await?;
+        }
 
         Ok(H2Transport::new(
             self.connection.clone(),
@@ -354,6 +388,57 @@ where
             field_section,
             state,
         ))
+    }
+
+    /// Route a DATA frame's payload into the matching stream's recv buffer and wake its handler.
+    ///
+    /// The `consumed` argument is the offset in `self.read_buf` past the DATA frame's fixed
+    /// prefix (frame header + optional pad-length byte) — i.e. the start of the payload bytes.
+    /// `data_length` payload bytes are copied; `padding_length` padding bytes that follow are
+    /// ignored (already accounted for in the frame's reported total length).
+    ///
+    /// DATA on an unknown stream id is a connection error per RFC 9113 §5.1 — peer sent DATA on
+    /// a stream we never opened (or one we've already closed without notifying). Phase 7 will
+    /// distinguish "closed" from "unknown" once the state machine lands; for now, both produce
+    /// `STREAM_CLOSED`.
+    fn route_data(
+        &mut self,
+        stream_id: u32,
+        end_stream: bool,
+        data_length: u32,
+        padding_length: u8,
+        consumed: usize,
+    ) -> Result<(), H2Error> {
+        let _ = padding_length; // padding bytes are part of the frame body but skipped here
+
+        let Some(state) = self.streams.get(&stream_id) else {
+            return Err(H2ErrorCode::StreamClosed.into());
+        };
+        let data_len_usize =
+            usize::try_from(data_length).map_err(|_| H2ErrorCode::FrameSizeError)?;
+        let data_end = consumed
+            .checked_add(data_len_usize)
+            .ok_or(H2ErrorCode::FrameSizeError)?;
+        if data_end > self.read_buf.len() {
+            return Err(H2ErrorCode::FrameSizeError.into());
+        }
+
+        // Copy payload out before reusing read_buf for the next frame. Empty DATA frames are
+        // legal — only the END_STREAM flag matters, no buffer push.
+        {
+            let mut recv = state.recv.buf.lock().expect("recv buf mutex poisoned");
+            if data_len_usize > 0 {
+                recv.push_back(self.read_buf[consumed..data_end].to_vec());
+            }
+            if end_stream {
+                state
+                    .recv
+                    .eof
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+        state.recv.waker.wake();
+        Ok(())
     }
 }
 
@@ -432,6 +517,22 @@ where
 {
     let mut buf = [0u8; frame::ping::ENCODED_LEN];
     frame::ping::encode(opaque_data, true, &mut buf).expect("ENCODED_LEN matches fixed ping size");
+    transport.write_all(&buf).await?;
+    transport.flush().await?;
+    Ok(())
+}
+
+async fn write_window_update<T>(
+    transport: &mut T,
+    stream_id: u32,
+    increment: u32,
+) -> Result<(), H2Error>
+where
+    T: AsyncWrite + Unpin + Send,
+{
+    let mut buf = [0u8; frame::window_update::ENCODED_LEN];
+    frame::window_update::encode(stream_id, increment, &mut buf)
+        .expect("ENCODED_LEN matches fixed window_update size");
     transport.write_all(&buf).await?;
     transport.flush().await?;
     Ok(())

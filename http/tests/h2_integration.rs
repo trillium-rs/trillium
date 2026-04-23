@@ -6,6 +6,7 @@
 //! cycles once `H2Connection` owns streams.
 
 use async_compat::Compat;
+use futures_lite::AsyncReadExt as _;
 use h2::{Ping, client};
 use std::sync::Arc;
 use tokio::{
@@ -174,16 +175,14 @@ async fn opens_stream_from_get_request() {
     block.push(b"example.com".len() as u8);
     block.extend_from_slice(b"example.com");
 
-    let mut frame = Vec::new();
-    let len = block.len() as u32;
-    frame.push((len >> 16) as u8);
-    frame.push((len >> 8) as u8);
-    frame.push(len as u8);
-    frame.push(0x1); // type = HEADERS
-    frame.push(0x4 | 0x1); // END_HEADERS | END_STREAM
-    frame.extend_from_slice(&1u32.to_be_bytes()); // stream id 1
-    frame.extend_from_slice(&block);
-    client_io.write_all(&frame).await.unwrap();
+    write_frame(
+        &mut client_io,
+        0x1,       // HEADERS
+        0x4 | 0x1, // END_HEADERS | END_STREAM
+        1,         // stream id
+        &block,
+    )
+    .await;
 
     let opened = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
         .await
@@ -196,6 +195,83 @@ async fn opens_stream_from_get_request() {
     drop(client_io);
     conn.shut_down();
     server_task.await.expect("server task panicked");
+}
+
+/// A POST with a small body: HEADERS without END_STREAM, followed by one DATA frame with
+/// END_STREAM. The handler reads the body off the H2Transport and asserts the bytes match.
+#[tokio::test]
+async fn handler_reads_request_body_from_data_frame() {
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (conn, mut streams, server_task) = spawn_server(Compat::new(server_io));
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_empty_settings(&mut client_io).await;
+
+    // HEADERS for `POST /upload` (no END_STREAM — body follows).
+    let mut block = vec![0x83, 0x87]; // :method POST (3), :scheme https (7)
+    block.push(0x44); // :path literal
+    block.push(b"/upload".len() as u8);
+    block.extend_from_slice(b"/upload");
+    block.push(0x41); // :authority literal
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+    write_frame(
+        &mut client_io,
+        0x1, // HEADERS
+        0x4, // END_HEADERS only — no END_STREAM
+        1,   // stream id
+        &block,
+    )
+    .await;
+
+    // DATA frame with the body, END_STREAM set.
+    let body = b"hello, body";
+    write_frame(
+        &mut client_io,
+        0x0, // DATA
+        0x1, // END_STREAM
+        1,
+        body,
+    )
+    .await;
+
+    let mut transport = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
+        .await
+        .expect("acceptor did not emit a stream within 2s")
+        .expect("acceptor closed before emitting a stream");
+
+    // Drain the body via H2Transport's AsyncRead. The driver will route the DATA frame in the
+    // background as we await.
+    let mut got = Vec::new();
+    transport.read_to_end(&mut got).await.expect("read body");
+    assert_eq!(got.as_slice(), body);
+
+    drop(transport);
+    drop(client_io);
+    conn.shut_down();
+    server_task.await.expect("server task panicked");
+}
+
+/// Writes one HTTP/2 frame with the given type, flags, stream id, and payload.
+async fn write_frame(
+    client: &mut DuplexStream,
+    frame_type: u8,
+    flags: u8,
+    stream_id: u32,
+    payload: &[u8],
+) {
+    let len = payload.len() as u32;
+    let mut hdr = [0u8; 9];
+    hdr[0] = (len >> 16) as u8;
+    hdr[1] = (len >> 8) as u8;
+    hdr[2] = len as u8;
+    hdr[3] = frame_type;
+    hdr[4] = flags;
+    hdr[5..9].copy_from_slice(&stream_id.to_be_bytes());
+    client.write_all(&hdr).await.unwrap();
+    if !payload.is_empty() {
+        client.write_all(payload).await.unwrap();
+    }
 }
 
 /// Writes a zero-length client SETTINGS frame. Enough to satisfy the server's handshake read.
