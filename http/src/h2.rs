@@ -4,8 +4,10 @@
 //! crate-private; only the error types are currently part of the public surface.
 
 mod error;
+mod settings;
 
 pub use error::H2ErrorCode;
+pub use settings::H2Settings;
 
 /// An error that may occur during HTTP/2 stream or connection processing.
 ///
