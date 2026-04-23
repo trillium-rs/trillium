@@ -44,6 +44,7 @@ event-listener = "5"
 fieldwork = "0.5.0"
 sync_wrapper = "1.0.2"
 pin-project-lite = "0.2"
+atomic-waker = "1.1"
 
 [dev-dependencies]
 async-compat = "0.2.5"

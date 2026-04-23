@@ -11,11 +11,13 @@ mod connection;
 mod error;
 mod frame;
 mod settings;
+mod transport;
 
 pub use connection::{H2Acceptor, H2Connection, TransportPlaceholder};
 pub use error::H2ErrorCode;
 pub use frame::{Frame, FrameDecodeError, PriorityInfo};
 pub use settings::H2Settings;
+pub use transport::H2Transport;
 
 /// An error that may occur during HTTP/2 stream or connection processing.
 ///
