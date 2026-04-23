@@ -58,7 +58,11 @@ async fn h2spec_conformance() {
                 loop {
                     match acceptor.next().await {
                         Ok(None) | Err(_) => break,
-                        Ok(Some(_transport)) => unreachable!("streams not yet implemented"),
+                        Ok(Some(_transport)) => {
+                            // Phase-3 work in progress: streams are emitted but the
+                            // H2Transport's read/write are stubs. Drop it; h2spec gets a stalled
+                            // stream which suffices for a number of stream-state tests.
+                        }
                     }
                 }
             });

@@ -6,19 +6,20 @@
 //! [`H2Acceptor::next`]: each call returns the next opened request stream (an [`H2Transport`] for
 //! the runtime to spawn a handler task against), or `None` when the connection is closed.
 //!
-//! Phase 3 (in progress): the acceptor performs the preface exchange, ACKs SETTINGS, echoes PINGs,
-//! and shuts the connection down cleanly on local or peer signal. Stream open / DATA / send-side
-//! land incrementally on top of this skeleton.
+//! Phase 3 (in progress): the acceptor handshakes, reassembles HEADERS + CONTINUATION blocks,
+//! decodes them via HPACK, and emits each new request stream as an [`H2Transport`]. DATA frame
+//! routing and send-side serialization land in subsequent commits.
 //!
 //! [`H2Transport`]: super::transport::H2Transport
 
 use super::{
     H2Error, H2ErrorCode, H2Settings,
     frame::{self, FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader},
+    transport::{H2Transport, StreamState},
 };
-use crate::HttpContext;
+use crate::{HttpContext, headers::hpack::HpackDecoder};
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use swansong::{ShutdownCompletion, Swansong};
 
 /// The client connection preface (RFC 9113 §3.4). 24 bytes the client MUST send before any
@@ -30,11 +31,16 @@ pub(crate) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 /// replace this in phase 7.
 const MAX_BUFFER_SIZE: usize = 1 << 20;
 
+/// Initial HPACK dynamic table size per RFC 7541 §4.2 — also the value implied by an absent
+/// `SETTINGS_HEADER_TABLE_SIZE`. Phase 7 will let `HttpConfig` raise or lower this; for now it's
+/// hardcoded to match the default we advertise.
+const HPACK_TABLE_SIZE: usize = 4096;
+
 /// Shared per-connection state for HTTP/2.
 ///
 /// Wrapped in an [`Arc`] and held by both the [`H2Acceptor`] driver and every [`H2Transport`]
-/// handed to a handler task. Per-stream tables, HPACK decoder state, and flow-control bookkeeping
-/// will all live here as later phases land.
+/// handed to a handler task. Per-stream tables, HPACK encoder state, and connection-level send
+/// flow control will accumulate here as later phases land.
 ///
 /// [`H2Transport`]: super::transport::H2Transport
 #[derive(Debug)]
@@ -86,18 +92,29 @@ impl H2Connection {
 /// Created by [`H2Connection::run`]. The runtime adapter calls [`Self::next`] in a loop; each call
 /// either returns the next opened request stream (an [`H2Transport`] to be spawned on a handler
 /// task) or `None` when the connection is closed.
-///
-/// [`H2Transport`]: super::transport::H2Transport
 #[derive(Debug)]
 pub struct H2Acceptor<T> {
     connection: Arc<H2Connection>,
     transport: T,
     state: AcceptorState,
+
     /// Reusable scratch buffer for the next frame's header + payload.
     read_buf: Vec<u8>,
-    /// Set to `true` when the driver has emitted a final GOAWAY (graceful or PROTOCOL_ERROR) and
-    /// `Self::next` should subsequently return `Ok(None)`.
+
+    /// Set to `true` when the driver has emitted a final GOAWAY (graceful or `PROTOCOL_ERROR`)
+    /// and `Self::next` should subsequently return `Ok(None)`.
     finished: bool,
+
+    /// HPACK decoder state, shared across all header blocks on this connection.
+    hpack: HpackDecoder,
+
+    /// Per-stream state, keyed by stream id. Driver-only — handler tasks hold their own
+    /// `Arc<StreamState>` via [`H2Transport`] and don't consult this table.
+    streams: HashMap<u32, Arc<StreamState>>,
+
+    /// Highest peer-initiated stream id seen so far. Peer-initiated (client) stream ids must be
+    /// odd and strictly increasing per RFC 9113 §5.1.1.
+    last_peer_stream_id: u32,
 }
 
 /// Cursor through the connection setup → frame loop sequence inside [`H2Acceptor::next`].
@@ -122,6 +139,9 @@ where
             state: AcceptorState::AwaitingPreface,
             read_buf: vec![0u8; FRAME_HEADER_LEN],
             finished: false,
+            hpack: HpackDecoder::new(HPACK_TABLE_SIZE),
+            streams: HashMap::new(),
+            last_peer_stream_id: 0,
         }
     }
 
@@ -138,44 +158,43 @@ where
     /// connection has been shut down cleanly (peer GOAWAY, our own swansong shutdown, or graceful
     /// peer close).
     ///
-    /// Phase 3 is incremental: this method does not yet open streams. It runs the preface +
-    /// SETTINGS handshake + PING/GOAWAY housekeeping, returning `Ok(None)` once shut down.
-    ///
     /// # Errors
     ///
     /// Returns an [`H2Error`] for any protocol violation detected while decoding peer frames or
     /// for an unrecoverable transport I/O error. A final GOAWAY is sent before this method returns
     /// (best-effort; I/O errors skip it).
-    ///
-    /// [`H2Transport`]: super::transport::H2Transport
-    pub async fn next(&mut self) -> Result<Option<TransportPlaceholder>, H2Error> {
+    pub async fn next(&mut self) -> Result<Option<H2Transport>, H2Error> {
         if self.finished {
             return Ok(None);
         }
 
-        let result = self.drive().await;
-        self.finished = true;
-
-        // Translate driver outcomes to next()'s contract. A clean exit means the connection is
-        // done — emit a graceful GOAWAY and return None on subsequent calls. A protocol error
-        // means GOAWAY with the offending code, then the error propagates. I/O errors skip GOAWAY
-        // since the transport is already unusable.
-        match result {
-            Ok(()) => {
+        // A successfully opened stream is the common path — return it without touching
+        // `finished` so the next call resumes the loop. Anything else terminates the connection
+        // (graceful or error) and is followed by a best-effort GOAWAY.
+        match self.drive().await {
+            Ok(Some(transport)) => Ok(Some(transport)),
+            Ok(None) => {
+                self.finished = true;
                 let _ = send_goaway(&mut self.transport, 0, H2ErrorCode::NoError).await;
                 Ok(None)
             }
             Err(H2Error::Protocol(code)) => {
+                self.finished = true;
                 let _ = send_goaway(&mut self.transport, 0, code).await;
                 Err(H2Error::Protocol(code))
             }
-            Err(e @ H2Error::Io(_)) => Err(e),
+            Err(e @ H2Error::Io(_)) => {
+                self.finished = true;
+                Err(e)
+            }
         }
     }
 
-    /// Inner loop body. Returns `Ok(())` on a clean shutdown (peer GOAWAY or local swansong),
-    /// `Err` on any protocol or I/O failure.
-    async fn drive(&mut self) -> Result<(), H2Error> {
+    /// Inner loop body. Returns:
+    /// - `Ok(Some(_))` when a new request stream has opened and should be returned to the caller.
+    /// - `Ok(None)` on a clean connection shutdown (peer GOAWAY or local swansong).
+    /// - `Err` on any protocol or I/O failure.
+    async fn drive(&mut self) -> Result<Option<H2Transport>, H2Error> {
         if self.state == AcceptorState::AwaitingPreface {
             read_preface(&mut self.transport).await?;
             self.state = AcceptorState::NeedsServerSettings;
@@ -194,11 +213,12 @@ where
                 .interrupt(read_frame(&mut self.transport, &mut self.read_buf))
                 .await;
 
-            let Some(frame) = read else {
-                return Ok(());
+            let Some(decoded) = read else {
+                return Ok(None);
             };
+            let (frame, consumed) = decoded?;
 
-            match frame? {
+            match frame {
                 Frame::Settings(_) => write_settings_ack(&mut self.transport).await?,
 
                 Frame::Ping {
@@ -208,15 +228,33 @@ where
 
                 Frame::Goaway { .. } => {
                     self.connection.swansong.shut_down();
-                    return Ok(());
+                    return Ok(None);
                 }
 
-                // PUSH_PROMISE from a client is always a connection error (§6.6). Until stream
-                // machinery lands, DATA / HEADERS / CONTINUATION are equally invalid here.
-                Frame::PushPromise { .. }
-                | Frame::Data { .. }
-                | Frame::Headers { .. }
-                | Frame::Continuation { .. } => {
+                Frame::Headers {
+                    stream_id,
+                    end_stream,
+                    end_headers,
+                    header_block_length,
+                    ..
+                } => {
+                    let transport = self
+                        .open_stream(
+                            stream_id,
+                            end_stream,
+                            end_headers,
+                            header_block_length,
+                            consumed,
+                        )
+                        .await?;
+                    return Ok(Some(transport));
+                }
+
+                // §6.6 PUSH_PROMISE from a client is always a connection error; §6.10
+                // CONTINUATION outside an in-progress header block is too. DATA without
+                // stream-machinery target is rejected for now (DATA-frame routing lands when
+                // the recv side of H2Transport is wired up).
+                Frame::PushPromise { .. } | Frame::Continuation { .. } | Frame::Data { .. } => {
                     return Err(H2ErrorCode::ProtocolError.into());
                 }
 
@@ -231,16 +269,93 @@ where
             }
         }
     }
-}
 
-/// Placeholder return type for [`H2Acceptor::next`] until [`H2Transport`] lands in a follow-up
-/// commit. Today no value of this type is ever constructed — `next` only ever returns
-/// `Ok(None)` or an error — but having the slot in place keeps the API shape stable as stream
-/// machinery is added.
-///
-/// [`H2Transport`]: super::transport::H2Transport
-#[derive(Debug, Clone, Copy)]
-pub enum TransportPlaceholder {}
+    /// Open a new request stream from a HEADERS frame the driver has just decoded.
+    ///
+    /// Validates the stream id (odd + monotonically increasing per §5.1.1), reassembles any
+    /// trailing CONTINUATION frames into a single block (§6.10 — no other frame may interleave
+    /// on any stream while the block is in progress), HPACK-decodes the assembled bytes, and
+    /// returns the [`H2Transport`] that the runtime adapter will spawn a handler task against.
+    ///
+    /// `header_prefix_consumed` is the offset in `self.read_buf` past the HEADERS frame's fixed
+    /// prefix (frame header + optional pad-length byte + optional priority block) — i.e. the
+    /// start of the first header block fragment.
+    async fn open_stream(
+        &mut self,
+        stream_id: u32,
+        end_stream: bool,
+        first_end_headers: bool,
+        first_block_length: u32,
+        header_prefix_consumed: usize,
+    ) -> Result<H2Transport, H2Error> {
+        // §5.1.1: a peer-initiated stream id must be odd and strictly greater than every prior
+        // peer-initiated stream id.
+        if stream_id.is_multiple_of(2)
+            || stream_id <= self.last_peer_stream_id
+            || self.streams.contains_key(&stream_id)
+        {
+            return Err(H2ErrorCode::ProtocolError.into());
+        }
+
+        // Copy the first fragment out before we reuse `read_buf` for any CONTINUATION frame.
+        let block_start = header_prefix_consumed;
+        let block_end = block_start
+            .checked_add(
+                usize::try_from(first_block_length).map_err(|_| H2ErrorCode::FrameSizeError)?,
+            )
+            .ok_or(H2ErrorCode::FrameSizeError)?;
+        if block_end > self.read_buf.len() {
+            return Err(H2ErrorCode::FrameSizeError.into());
+        }
+        let mut block = self.read_buf[block_start..block_end].to_vec();
+
+        // Tight loop reading CONTINUATION frames until END_HEADERS. §6.10 forbids any other
+        // frame (on any stream) interleaving — the caller does no swansong interruption here so
+        // we can't be cancelled mid-block.
+        let mut end_headers = first_end_headers;
+        while !end_headers {
+            let (frame, consumed) = read_frame(&mut self.transport, &mut self.read_buf).await?;
+            let Frame::Continuation {
+                stream_id: cont_stream_id,
+                end_headers: cont_end_headers,
+                header_block_length,
+            } = frame
+            else {
+                return Err(H2ErrorCode::ProtocolError.into());
+            };
+            if cont_stream_id != stream_id {
+                return Err(H2ErrorCode::ProtocolError.into());
+            }
+            let cont_start = consumed;
+            let cont_end = cont_start
+                .checked_add(
+                    usize::try_from(header_block_length)
+                        .map_err(|_| H2ErrorCode::FrameSizeError)?,
+                )
+                .ok_or(H2ErrorCode::FrameSizeError)?;
+            if cont_end > self.read_buf.len() {
+                return Err(H2ErrorCode::FrameSizeError.into());
+            }
+            block.extend_from_slice(&self.read_buf[cont_start..cont_end]);
+            end_headers = cont_end_headers;
+        }
+
+        let field_section = self.hpack.decode(&block)?;
+
+        let _ = end_stream; // recv-EOF wiring lands in the next commit (DATA routing).
+
+        let state = Arc::new(StreamState::default());
+        self.streams.insert(stream_id, state.clone());
+        self.last_peer_stream_id = stream_id;
+
+        Ok(H2Transport::new(
+            self.connection.clone(),
+            stream_id,
+            field_section,
+            state,
+        ))
+    }
+}
 
 async fn read_preface<T>(transport: &mut T) -> Result<(), H2Error>
 where
@@ -254,9 +369,15 @@ where
     Ok(())
 }
 
-/// Read one frame from `transport`, reusing `buf` for both the header and the payload. The buffer
-/// ends the call holding exactly `FRAME_HEADER_LEN + payload_length` bytes.
-async fn read_frame<T>(transport: &mut T, buf: &mut Vec<u8>) -> Result<Frame, H2Error>
+/// Read one frame from `transport`, reusing `buf` for both the header and the payload.
+///
+/// Returns the decoded frame plus the byte offset within `buf` past the frame's fixed prefix —
+/// for body-bearing frames (DATA / HEADERS / CONTINUATION / `PUSH_PROMISE` / Unknown) the actual
+/// payload bytes start at this offset and run for the type-specific length carried inside the
+/// `Frame`. For control frames the entire payload has already been consumed into the `Frame`.
+///
+/// At return, `buf` holds exactly `FRAME_HEADER_LEN + payload_length` bytes.
+async fn read_frame<T>(transport: &mut T, buf: &mut Vec<u8>) -> Result<(Frame, usize), H2Error>
 where
     T: AsyncRead + Unpin + Send,
 {
@@ -275,7 +396,7 @@ where
     }
 
     match Frame::decode(buf) {
-        Ok((frame, _)) => Ok(frame),
+        Ok((frame, consumed)) => Ok((frame, consumed)),
         Err(FrameDecodeError::Error(code)) => Err(code.into()),
         // Frame::decode only returns Incomplete if fewer bytes are available than a control frame
         // requires; we read exactly `header.length` payload bytes, so this is unreachable.

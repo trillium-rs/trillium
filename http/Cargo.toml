@@ -67,9 +67,10 @@ unicycle = "0.10.2"
 
 [dev-dependencies.tokio]
 version = "1.50.0"
-features = ["rt", "net", "rt-multi-thread", "macros", "io-util"]
+features = ["rt", "net", "rt-multi-thread", "macros", "io-util", "sync", "time"]
 package = "tokio"
 
 [dev-dependencies.h2]
 version = "0.4"
 package = "h2"
+

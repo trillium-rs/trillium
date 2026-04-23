@@ -22,4 +22,40 @@ pub(crate) mod dynamic_table;
 pub(crate) mod encoder;
 pub(crate) mod static_table;
 
+use super::compression_error::CompressionError;
 pub(crate) use super::field_section::FieldSection;
+use dynamic_table::DynamicTable;
+
+/// Per-connection HPACK codec state for the decoder side.
+///
+/// Wraps the [`DynamicTable`] and the protocol-advertised maximum table size (the value of our
+/// outgoing `SETTINGS_HEADER_TABLE_SIZE`, which caps any §6.3 size update the peer can send).
+/// Constructed once per HTTP/2 connection and threaded through every header block as the driver
+/// task processes them.
+#[derive(Debug)]
+pub(crate) struct HpackDecoder {
+    table: DynamicTable,
+    protocol_max_table_size: usize,
+}
+
+impl HpackDecoder {
+    /// Construct an HPACK decoder. `protocol_max_table_size` is the limit we advertise to the
+    /// peer (typically 4096 per RFC 7541's default); §6.3 size updates that exceed it are decoder
+    /// errors. The table starts empty at the same size.
+    pub(crate) fn new(protocol_max_table_size: usize) -> Self {
+        Self {
+            table: DynamicTable::new(protocol_max_table_size),
+            protocol_max_table_size,
+        }
+    }
+
+    /// Decode a single complete header block (HEADERS + CONTINUATIONs already reassembled).
+    /// Mutates the dynamic table per any incremental-indexing or §6.3 size-update directives in
+    /// the block; subsequent blocks see the updated table.
+    pub(crate) fn decode(
+        &mut self,
+        block: &[u8],
+    ) -> Result<FieldSection<'static>, CompressionError> {
+        decoder::decode(block, &mut self.table, self.protocol_max_table_size)
+    }
+}

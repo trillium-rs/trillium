@@ -13,7 +13,7 @@ mod frame;
 mod settings;
 mod transport;
 
-pub use connection::{H2Acceptor, H2Connection, TransportPlaceholder};
+pub use connection::{H2Acceptor, H2Connection};
 pub use error::H2ErrorCode;
 pub use frame::{Frame, FrameDecodeError, PriorityInfo};
 pub use settings::H2Settings;
@@ -33,4 +33,11 @@ pub enum H2Error {
     /// An unrecoverable I/O error encountered at the network layer.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+}
+
+/// HPACK decoding failures map to `COMPRESSION_ERROR` per RFC 9113 §4.3.1.
+impl From<crate::headers::compression_error::CompressionError> for H2Error {
+    fn from(_: crate::headers::compression_error::CompressionError) -> Self {
+        Self::Protocol(H2ErrorCode::CompressionError)
+    }
 }

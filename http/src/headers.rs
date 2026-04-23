@@ -1,5 +1,5 @@
 //! Header types
-mod compression_error;
+pub(crate) mod compression_error;
 mod entry;
 mod entry_name;
 mod field_section;

@@ -8,8 +8,14 @@
 use async_compat::Compat;
 use h2::{Ping, client};
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
-use trillium_http::{HttpContext, h2::H2Connection};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex},
+    sync::mpsc,
+};
+use trillium_http::{
+    HttpContext,
+    h2::{H2Connection, H2Transport},
+};
 
 /// RFC 9113 §3.4 client connection preface.
 const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
@@ -19,7 +25,13 @@ const FRAME_TYPE_SETTINGS: u8 = 0x4;
 const FRAME_TYPE_GOAWAY: u8 = 0x7;
 const FLAG_ACK: u8 = 0x1;
 
-fn spawn_server<T>(transport: T) -> (Arc<H2Connection>, tokio::task::JoinHandle<()>)
+fn spawn_server<T>(
+    transport: T,
+) -> (
+    Arc<H2Connection>,
+    mpsc::UnboundedReceiver<H2Transport>,
+    tokio::task::JoinHandle<()>,
+)
 where
     T: futures_lite::io::AsyncRead + futures_lite::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -27,19 +39,21 @@ where
     let context = Arc::new(HttpContext::default());
     let conn = H2Connection::new(context);
     let conn_handle = conn.clone();
+    let (tx, rx) = mpsc::unbounded_channel();
     let join = tokio::spawn(async move {
         let mut acceptor = conn.run(transport);
-        // Phase-3 placeholder: no streams are emitted yet; the first call to next() drains the
-        // connection and returns Ok(None) on shutdown. Errors here are expected on tests that
-        // drop their client half early.
         loop {
             match acceptor.next().await {
                 Ok(None) | Err(_) => break,
-                Ok(Some(_transport)) => unreachable!("streams not yet implemented"),
+                Ok(Some(transport)) => {
+                    // Hand the opened stream off to the test. If the receiver has been dropped,
+                    // we silently discard (the test is no longer interested).
+                    let _ = tx.send(transport);
+                }
             }
         }
     });
-    (conn_handle, join)
+    (conn_handle, rx, join)
 }
 
 /// Handshake + PING round-trip against hyper's `h2` client, then graceful shutdown.
@@ -53,7 +67,7 @@ where
 #[tokio::test]
 async fn hyper_h2_handshake_ping_and_shutdown() {
     let (client_io, server_io) = duplex(64 * 1024);
-    let (conn, server_task) = spawn_server(Compat::new(server_io));
+    let (conn, _streams, server_task) = spawn_server(Compat::new(server_io));
 
     let (_send_request, mut connection) = client::handshake(client_io)
         .await
@@ -87,7 +101,7 @@ async fn hyper_h2_handshake_ping_and_shutdown() {
 #[tokio::test]
 async fn shutdown_emits_goaway_with_no_error() {
     let (mut client_io, server_io) = duplex(64 * 1024);
-    let (conn, _server_task) = spawn_server(Compat::new(server_io));
+    let (conn, _streams, _server_task) = spawn_server(Compat::new(server_io));
 
     client_io.write_all(CLIENT_PREFACE).await.unwrap();
     write_empty_settings(&mut client_io).await;
@@ -122,6 +136,66 @@ async fn shutdown_emits_goaway_with_no_error() {
     let error_code = u32::from_be_bytes([goaway.1[4], goaway.1[5], goaway.1[6], goaway.1[7]]);
     assert_eq!(last_stream_id, 0);
     assert_eq!(error_code, 0, "graceful shutdown uses NO_ERROR");
+}
+
+/// A hand-crafted HEADERS frame for `GET https://example.com/hello` opens a stream end-to-end.
+///
+/// The block is HPACK-indexed entirely from the static table — no incremental indexing — to
+/// keep the test independent of the encoder under test. Confirms preface → SETTINGS → HEADERS
+/// decode → stream emit on the acceptor.
+#[tokio::test]
+async fn opens_stream_from_get_request() {
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (conn, mut streams, server_task) = spawn_server(Compat::new(server_io));
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_empty_settings(&mut client_io).await;
+
+    // Drain server SETTINGS so the wire is clean for any subsequent reads from the client side.
+    // (We don't actually read here — just confirm the server didn't error early.)
+
+    // HEADERS payload: index references against the static table.
+    //   0x82 → :method GET (static index 2)
+    //   0x87 → :scheme https (static index 7)
+    //   0x44 → literal value, name index 4 (:path), then string "/hello"
+    //   0x41 → literal value, name index 1 (:authority), then string "example.com"
+    //
+    // Note: 0x44 = 0b0100_0100 — Literal With Incremental Indexing, name index 4. We pick this
+    // representation rather than 0x04 (without indexing) because either works on decode and the
+    // dynamic table mutation is safe to take at face value (we have no follow-up references).
+    // Strings are sent without Huffman to keep the bytes obvious.
+    let mut block = vec![0x82, 0x87];
+    // :path = "/hello"
+    block.push(0x44);
+    block.push(b"/hello".len() as u8);
+    block.extend_from_slice(b"/hello");
+    // :authority = "example.com"
+    block.push(0x41);
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+
+    let mut frame = Vec::new();
+    let len = block.len() as u32;
+    frame.push((len >> 16) as u8);
+    frame.push((len >> 8) as u8);
+    frame.push(len as u8);
+    frame.push(0x1); // type = HEADERS
+    frame.push(0x4 | 0x1); // END_HEADERS | END_STREAM
+    frame.extend_from_slice(&1u32.to_be_bytes()); // stream id 1
+    frame.extend_from_slice(&block);
+    client_io.write_all(&frame).await.unwrap();
+
+    let opened = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
+        .await
+        .expect("acceptor did not emit a stream within 2s")
+        .expect("acceptor closed before emitting a stream");
+
+    assert_eq!(opened.stream_id(), 1);
+
+    drop(opened);
+    drop(client_io);
+    conn.shut_down();
+    server_task.await.expect("server task panicked");
 }
 
 /// Writes a zero-length client SETTINGS frame. Enough to satisfy the server's handshake read.

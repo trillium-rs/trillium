@@ -16,8 +16,7 @@ use super::H2Connection;
 use crate::headers::hpack::FieldSection;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
-    fmt,
-    io,
+    fmt, io,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
