@@ -177,7 +177,7 @@ pub struct HttpConfig {
     ///
     /// When the observer's entry count exceeds this, least-frequently-used entries are
     /// evicted. This bounds per-listener observer memory: each entry is roughly a few dozen
-    /// bytes plus the stored name/value, so 10_000 entries is on the order of hundreds of
+    /// bytes plus the stored name/value, so `10_000` entries is on the order of hundreds of
     /// kilobytes.
     ///
     /// **Default**: `10_000`

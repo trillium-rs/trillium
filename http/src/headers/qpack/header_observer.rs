@@ -37,7 +37,10 @@
 //! generalizes cleanly across deployment shapes.
 
 use super::{FieldLineValue, static_table};
-use crate::{HttpConfig, KnownHeaderName, headers::entry_name::EntryName};
+use crate::{
+    HttpConfig, KnownHeaderName,
+    headers::{entry_name::EntryName, qpack::static_table::StaticLookup},
+};
 use std::{collections::HashMap, sync::Mutex};
 
 /// Hardcoded threshold — a pair must have appeared in at least this fraction of recent
@@ -54,7 +57,7 @@ const MIN_PRIMING_FRACTION: f64 = 0.30;
 /// quality filter this provides is real but makes iterative testing impractical (hundreds
 /// of distinct connections can't be driven from a browser); re-raise once the mechanism
 /// is validated.
-const WARMUP_MIN_TICKS: u64 = 0;
+const WARMUP_MIN_TICKS: u64 = 2;
 
 /// RFC 9204 §3.2.1 per-entry overhead in the dynamic table (entry size = overhead +
 /// name bytes + value bytes).
@@ -253,7 +256,7 @@ impl HeaderObserver {
     /// preserving via a Duplicate instruction instead of letting it evict.
     ///
     /// Returns `false` during warm-up (`tick < WARMUP_MIN_TICKS`) or when no observations
-    /// exist yet. The HashMap lookup requires an owned key; the clone is one small
+    /// exist yet. The `HashMap` lookup requires an owned key; the clone is one small
     /// allocation on the value side (zero for `Static` / `Borrowed` variants).
     pub(in crate::headers) fn is_hot(
         &self,
@@ -391,13 +394,20 @@ impl CostModel {
 
         match (value, lookup) {
             // Full pair with full static match: Indexed Static is already 1-2 bytes,
-            // matching Indexed Dynamic. Skip.
-            (Some(_), static_table::StaticLookup::FullMatch(_)) => None,
+            // matching Indexed Dynamic
+            //
+            // or
+            //
+            // name-only with any static name match (full or partial): literals can use
+            // the static name ref for free.
+            //
+            // Skip.
+            (_, StaticLookup::FullMatch(_)) | (None, StaticLookup::NameMatch(_)) => None,
 
             // Full pair, static name match: insert is "Insert With Name Reference (T=1)".
             // Per-ref savings is the value bytes (Literal With Name Ref T=1 vs Indexed
             // Dynamic).
-            (Some(v), static_table::StaticLookup::NameMatch(_)) => {
+            (Some(v), StaticLookup::NameMatch(_)) => {
                 let value_len = u32::try_from(v.len()).unwrap_or(u32::MAX);
                 Some(Self {
                     insert_cost: value_len.saturating_add(2),
@@ -408,7 +418,7 @@ impl CostModel {
             // Full pair, no static match: insert is "Insert With Literal Name". Per-ref
             // savings is roughly name+value bytes (Literal With Literal Name vs Indexed
             // Dynamic).
-            (Some(v), static_table::StaticLookup::NoMatch) => {
+            (Some(v), StaticLookup::NoMatch) => {
                 let value_len = u32::try_from(v.len()).unwrap_or(u32::MAX);
                 Some(Self {
                     insert_cost: name_len.saturating_add(value_len).saturating_add(3),
@@ -416,17 +426,10 @@ impl CostModel {
                 })
             }
 
-            // Name-only with any static name match (full or partial): literals can use
-            // the static name ref for free. Skip.
-            (
-                None,
-                static_table::StaticLookup::FullMatch(_) | static_table::StaticLookup::NameMatch(_),
-            ) => None,
-
             // Name-only, no static match: insert is "Insert With Literal Name" carrying
             // empty value (~3 prefix + name). Per-ref savings is `name.len()` (Literal
             // With Dynamic Name Ref vs Literal With Literal Name).
-            (None, static_table::StaticLookup::NoMatch) => Some(Self {
+            (None, StaticLookup::NoMatch) => Some(Self {
                 insert_cost: name_len.saturating_add(3),
                 savings_per_ref: name_len,
             }),

@@ -35,6 +35,10 @@ pub(in crate::headers) fn encode(field_section: &FieldSection<'_>, buf: &mut Vec
 }
 
 /// Result of looking up an `(name, value)` pair against the static table.
+#[allow(
+    clippy::enum_variant_names,
+    reason = "Might rename to StaticLookupMatch at some point but not pressing"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StaticLookup {
     /// Both name and value match a static table entry at this 1-based index.
