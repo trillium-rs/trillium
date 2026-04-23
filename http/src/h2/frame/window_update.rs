@@ -1,0 +1,42 @@
+//! `WINDOW_UPDATE` frame (RFC 9113 §6.9).
+
+use super::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader, FrameType};
+use crate::h2::H2ErrorCode;
+
+const PAYLOAD_LEN: u32 = 4;
+pub(crate) const ENCODED_LEN: usize = FRAME_HEADER_LEN + PAYLOAD_LEN as usize;
+
+pub(crate) fn decode(header: FrameHeader, payload: &[u8]) -> Result<Frame, FrameDecodeError> {
+    if payload.len() != PAYLOAD_LEN as usize {
+        return Err(H2ErrorCode::FrameSizeError.into());
+    }
+    // Top bit is reserved and MUST be ignored.
+    let increment =
+        u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]) & 0x7FFF_FFFF;
+    // §6.9: a 0 increment on the connection is a connection error; on a stream it's a stream
+    // error. Report as ProtocolError; the caller classifies using stream_id.
+    if increment == 0 {
+        return Err(H2ErrorCode::ProtocolError.into());
+    }
+    Ok(Frame::WindowUpdate {
+        stream_id: header.stream_id,
+        increment,
+    })
+}
+
+pub(crate) fn encode(stream_id: u32, increment: u32, buf: &mut [u8]) -> Option<usize> {
+    if buf.len() < ENCODED_LEN {
+        return None;
+    }
+    let (header_buf, payload_buf) = buf.split_at_mut(FRAME_HEADER_LEN);
+    FrameHeader {
+        length: PAYLOAD_LEN,
+        frame_type: FrameType::WindowUpdate as u8,
+        flags: 0,
+        stream_id,
+    }
+    .encode(header_buf.try_into().expect("split_at_mut slot"));
+    payload_buf[..PAYLOAD_LEN as usize]
+        .copy_from_slice(&(increment & 0x7FFF_FFFF).to_be_bytes());
+    Some(ENCODED_LEN)
+}

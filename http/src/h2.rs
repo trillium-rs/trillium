@@ -2,11 +2,17 @@
 //!
 //! This module is the server-side HTTP/2 implementation used by `trillium-http`. Most items are
 //! crate-private; only the error types are currently part of the public surface.
+//!
+//! The module-wide `dead_code` allowance is intentional while the connection driver is still
+//! being built — the per-frame encoders are used by unit tests but have no production caller yet.
+#![allow(dead_code)]
 
 mod error;
+mod frame;
 mod settings;
 
 pub use error::H2ErrorCode;
+pub use frame::{Frame, FrameDecodeError, PriorityInfo};
 pub use settings::H2Settings;
 
 /// An error that may occur during HTTP/2 stream or connection processing.
