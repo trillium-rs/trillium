@@ -7,13 +7,15 @@
 //! being built — the per-frame encoders are used by unit tests but have no production caller yet.
 #![allow(dead_code)]
 
+mod acceptor;
 mod connection;
 mod error;
 mod frame;
 mod settings;
 mod transport;
 
-pub use connection::{H2Acceptor, H2Connection};
+pub use acceptor::H2Acceptor;
+pub use connection::{H2Connection, SubmitSend};
 pub use error::H2ErrorCode;
 pub use frame::{Frame, FrameDecodeError, PriorityInfo};
 pub use settings::H2Settings;

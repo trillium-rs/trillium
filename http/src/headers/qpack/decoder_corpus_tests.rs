@@ -172,7 +172,7 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
     };
 
     runtime.block_on(async {
-        assert!(!runtime.timeout(FILE_TIMEOUT, drive).await.is_none(), 
+        assert!(runtime.timeout(FILE_TIMEOUT, drive).await.is_some(), 
             "{}: timed out after {FILE_TIMEOUT:?} — some stream is hung (likely a \
              wake-plumbing bug in DecoderDynamicTable::get). Rerun with RUST_LOG=trace to \
              narrow down which stream id never resolved.",

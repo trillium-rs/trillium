@@ -94,7 +94,7 @@ impl AsyncRead for H2Transport {
         let recv_state = &self.state.recv;
         let connection = &*self.connection;
         if !recv_state.is_reading.swap(true, Ordering::AcqRel) {
-            connection.outbound_waker.wake();
+            connection.outbound_waker().wake();
         }
 
         let mut recv = recv_state.buf.lock().expect("recv buf mutex poisoned");
