@@ -6,9 +6,11 @@
 //! [`H2Acceptor::next`]: each call returns the next opened request stream (an [`H2Transport`] for
 //! the runtime to spawn a handler task against), or `None` when the connection is closed.
 //!
-//! Phase 3 (in progress): the acceptor handshakes, reassembles HEADERS + CONTINUATION blocks,
-//! decodes them via HPACK, and emits each new request stream as an [`H2Transport`]. DATA frame
-//! routing and send-side serialization land in subsequent commits.
+//! The driver is a poll-based state machine, not an async fn. A single [`H2Acceptor::poll_next`]
+//! call is the unit of forward progress: it drains any pending outbound bytes, advances the read
+//! cursor, and dispatches frames as they complete, parking with cancel-safe partial state when
+//! no further progress can be made. [`H2Acceptor::next`] is an `async fn` wrapper around
+//! `poll_next` for ergonomic use by the runtime adapter.
 //!
 //! [`H2Transport`]: super::transport::H2Transport
 
@@ -18,9 +20,16 @@ use super::{
     transport::{H2Transport, StreamState},
 };
 use crate::{HttpContext, headers::hpack::HpackDecoder};
-use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use std::{collections::HashMap, sync::Arc};
-use swansong::{ShutdownCompletion, Swansong};
+use futures_lite::io::{AsyncRead, AsyncWrite};
+use std::{
+    collections::HashMap,
+    future::poll_fn,
+    io,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll, ready},
+};
+use swansong::{ShutdownCompletion, ShuttingDown, Swansong};
 
 /// The client connection preface (RFC 9113 §3.4). 24 bytes the client MUST send before any
 /// HTTP/2 frames.
@@ -86,8 +95,9 @@ impl H2Connection {
     /// Bind this `H2Connection` to a TCP transport and return an [`H2Acceptor`] that drives the
     /// connection.
     ///
-    /// The acceptor must be polled to completion via repeated calls to [`H2Acceptor::next`]; each
-    /// returned [`H2Transport`] should be spawned on its own task.
+    /// The acceptor must be polled to completion via repeated calls to [`H2Acceptor::next`] (or
+    /// [`H2Acceptor::poll_next`]); each returned [`H2Transport`] should be spawned on its own
+    /// task.
     ///
     /// [`H2Transport`]: super::transport::H2Transport
     pub fn run<T>(self: Arc<Self>, transport: T) -> H2Acceptor<T>
@@ -100,21 +110,43 @@ impl H2Connection {
 
 /// Owns the per-connection TCP transport and drives the HTTP/2 demux loop.
 ///
-/// Created by [`H2Connection::run`]. The runtime adapter calls [`Self::next`] in a loop; each call
-/// either returns the next opened request stream (an [`H2Transport`] to be spawned on a handler
-/// task) or `None` when the connection is closed.
+/// Created by [`H2Connection::run`]. The runtime adapter calls [`Self::next`] (or
+/// [`Self::poll_next`] directly) in a loop; each call either returns the next opened request stream
+/// (an [`H2Transport`] to be spawned on a handler task) or `None` when the connection is closed.
+///
+/// Under the hood the driver is a poll-based state machine. `poll_next` is the single
+/// forward-progress entry point; `next` wraps it with [`poll_fn`] for async-fn ergonomics.
+///
+/// [`H2Transport`]: super::transport::H2Transport
 #[derive(Debug)]
 pub struct H2Acceptor<T> {
     connection: Arc<H2Connection>,
     transport: T,
-    state: AcceptorState,
 
-    /// Reusable scratch buffer for the next frame's header + payload.
+    /// Overall lifecycle position of the driver.
+    state: DriverState,
+
+    /// Future that resolves when the shared `Swansong` begins shutdown. Polled each `poll_next`
+    /// tick while the driver is running; on resolution the driver queues a GOAWAY and transitions
+    /// to `Closing`, after which the top-of-loop guard returns early and we never poll this again
+    /// on the same acceptor.
+    shutting_down: ShuttingDown,
+
+    /// Inbound byte cursor. Accumulates bytes from the transport across `poll_next` calls so a
+    /// partial frame read can survive a return to `Poll::Pending`. Always contains exactly the
+    /// bytes of the current frame being accumulated (header, then payload); reset after each
+    /// complete frame is dispatched.
     read_buf: Vec<u8>,
+    read_filled: usize,
+    read_phase: ReadPhase,
 
-    /// Set to `true` when the driver has emitted a final GOAWAY (graceful or `PROTOCOL_ERROR`)
-    /// and `Self::next` should subsequently return `Ok(None)`.
-    finished: bool,
+    /// Outbound byte cursor. The driver encodes control frames into `write_buf` and drains to
+    /// the transport via `poll_flush_outbound`. `write_cursor` is the offset of the first byte
+    /// not yet accepted by `poll_write`. After the buffer fully drains, both fields are reset
+    /// and a flush is issued.
+    write_buf: Vec<u8>,
+    write_cursor: usize,
+    write_flush_pending: bool,
 
     /// HPACK decoder state, shared across all header blocks on this connection.
     hpack: HpackDecoder,
@@ -126,17 +158,72 @@ pub struct H2Acceptor<T> {
     /// Highest peer-initiated stream id seen so far. Peer-initiated (client) stream ids must be
     /// odd and strictly increasing per RFC 9113 §5.1.1.
     last_peer_stream_id: u32,
+
+    /// Accumulator for an in-progress HEADERS block that is waiting on further CONTINUATION
+    /// frames. `None` outside a HEADERS block. §6.10 forbids any frame on any stream from
+    /// interleaving while this is `Some`.
+    pending_headers: Option<PendingHeaders>,
+
+    /// Set once the driver decides to close: graceful (peer GOAWAY / server swansong / peer EOF)
+    /// or erroring (protocol violation → GOAWAY with code, or I/O failure → no GOAWAY).
+    /// `poll_next` completes (returns `Ok(None)` or the error) once outbound drains to empty.
+    close_outcome: Option<CloseOutcome>,
+
+    /// Set after `poll_next` yields its terminal result. Subsequent calls return `Ok(None)`
+    /// without touching the transport.
+    finished: bool,
 }
 
-/// Cursor through the connection setup → frame loop sequence inside [`H2Acceptor::next`].
+/// Position of the connection in its high-level lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AcceptorState {
+enum DriverState {
     /// Haven't read the client preface yet.
     AwaitingPreface,
-    /// Preface read; need to send our initial SETTINGS frame before processing peer frames.
+    /// Preface read; need to queue our initial SETTINGS frame to `write_buf`.
     NeedsServerSettings,
-    /// Steady state — read the next frame and dispatch.
+    /// Steady state — read frames from the transport and dispatch.
     Running,
+    /// GOAWAY has been queued; drain `write_buf` then terminate.
+    Closing,
+}
+
+/// Where the read cursor is inside the current frame.
+#[derive(Debug, Clone, Copy)]
+enum ReadPhase {
+    /// Not yet read the 9 bytes of the next frame header.
+    NeedHeader,
+    /// Header read and decoded; still collecting payload bytes. `total` is the full target
+    /// fill (`FRAME_HEADER_LEN + payload_len`).
+    NeedPayload { header: FrameHeader, total: usize },
+}
+
+/// Why the driver is closing — shaped around what the terminal `poll_next` result should be.
+#[derive(Debug)]
+enum CloseOutcome {
+    /// Clean close. `poll_next` returns `Ok(None)`.
+    Graceful,
+    /// Protocol error. `poll_next` returns `Err(...)`. GOAWAY with this code has been queued.
+    Protocol(H2ErrorCode),
+    /// I/O error. GOAWAY was NOT queued (transport is untrustworthy). Propagated verbatim.
+    Io(io::Error),
+}
+
+/// HEADERS + CONTINUATION assembly state.
+#[derive(Debug)]
+struct PendingHeaders {
+    stream_id: u32,
+    end_stream: bool,
+    assembled: Vec<u8>,
+}
+
+/// Result of dispatching one decoded frame.
+enum Action {
+    /// Frame handled; continue the main loop.
+    Continue,
+    /// A stream just opened — return the transport to the caller, resume on next `poll_next`.
+    Emit(H2Transport),
+    /// Begin graceful or erroring close with this outcome.
+    Close(CloseOutcome),
 }
 
 impl<T> H2Acceptor<T>
@@ -144,15 +231,24 @@ where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {
     fn new(connection: Arc<H2Connection>, transport: T) -> Self {
+        let shutting_down = connection.swansong.shutting_down();
         Self {
             connection,
             transport,
-            state: AcceptorState::AwaitingPreface,
+            state: DriverState::AwaitingPreface,
+            shutting_down,
             read_buf: vec![0u8; FRAME_HEADER_LEN],
-            finished: false,
+            read_filled: 0,
+            read_phase: ReadPhase::NeedHeader,
+            write_buf: Vec::new(),
+            write_cursor: 0,
+            write_flush_pending: false,
             hpack: HpackDecoder::new(HPACK_TABLE_SIZE),
             streams: HashMap::new(),
             last_peer_stream_id: 0,
+            pending_headers: None,
+            close_outcome: None,
+            finished: false,
         }
     }
 
@@ -166,205 +262,399 @@ where
     ///
     /// Returns `Ok(Some(transport))` for each new request stream — the runtime adapter is expected
     /// to spawn a handler task that consumes the [`H2Transport`]. Returns `Ok(None)` when the
-    /// connection has been shut down cleanly (peer GOAWAY, our own swansong shutdown, or graceful
-    /// peer close).
+    /// connection has been shut down cleanly (peer GOAWAY, our own swansong shutdown, peer EOF
+    /// at a frame boundary).
     ///
     /// # Errors
     ///
     /// Returns an [`H2Error`] for any protocol violation detected while decoding peer frames or
-    /// for an unrecoverable transport I/O error. A final GOAWAY is sent before this method returns
-    /// (best-effort; I/O errors skip it).
+    /// for an unrecoverable transport I/O error. A final GOAWAY is sent before a protocol error
+    /// is returned (best-effort; I/O errors skip it).
     pub async fn next(&mut self) -> Result<Option<H2Transport>, H2Error> {
+        poll_fn(|cx| self.poll_next(cx)).await
+    }
+
+    /// Poll-based driver core. See [`Self::next`] for the async-fn wrapper and the overall
+    /// semantics; the `Poll` shape is available so `select`-style combinators and runtime
+    /// adapters can drive the connection directly.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::next`].
+    pub fn poll_next(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Option<H2Transport>, H2Error>> {
         if self.finished {
-            return Ok(None);
+            return Poll::Ready(Ok(None));
         }
 
-        // A successfully opened stream is the common path — return it without touching
-        // `finished` so the next call resumes the loop. Anything else terminates the connection
-        // (graceful or error) and is followed by a best-effort GOAWAY.
-        match self.drive().await {
-            Ok(Some(transport)) => Ok(Some(transport)),
-            Ok(None) => {
-                self.finished = true;
-                let _ = send_goaway(&mut self.transport, 0, H2ErrorCode::NoError).await;
-                Ok(None)
+        loop {
+            // 1. Flush any pending outbound first — never re-poll reads when we still owe bytes to
+            //    the peer, and never signal closure to the caller before the wire is clean.
+            match self.poll_flush_outbound(cx) {
+                Poll::Ready(Ok(())) => {}
+                Poll::Ready(Err(e)) => {
+                    // Flush failure while closing: just take whatever outcome we had and shelve
+                    // the fresh I/O error. While running, record and finish.
+                    if self.close_outcome.is_none() {
+                        self.close_outcome = Some(CloseOutcome::Io(e));
+                    }
+                    return Poll::Ready(self.finish_with_current_outcome());
+                }
+                Poll::Pending => return Poll::Pending,
             }
-            Err(H2Error::Protocol(code)) => {
-                self.finished = true;
-                let _ = send_goaway(&mut self.transport, 0, code).await;
-                Err(H2Error::Protocol(code))
+
+            // 2. If we were closing, outbound is now drained — we're done.
+            if self.state == DriverState::Closing {
+                return Poll::Ready(self.finish_with_current_outcome());
             }
-            Err(e @ H2Error::Io(_)) => {
-                self.finished = true;
-                Err(e)
+
+            // 3. Server-initiated shutdown check. Post-shutdown re-polls are harmless for this
+            //    `ShuttingDown` (event_listener-backed, not single-shot), and begin_close flips us
+            //    to `Closing` so the guard above returns before we get here again anyway.
+            if Pin::new(&mut self.shutting_down).poll(cx).is_ready() {
+                self.begin_close(CloseOutcome::Graceful);
+                continue;
+            }
+
+            // 4. State-specific step.
+            match self.state {
+                DriverState::AwaitingPreface => match self.poll_read_preface(cx) {
+                    Poll::Ready(Ok(())) => self.state = DriverState::NeedsServerSettings,
+                    Poll::Ready(Err(e)) => {
+                        self.close_outcome = Some(e);
+                        return Poll::Ready(self.finish_with_current_outcome());
+                    }
+                    Poll::Pending => return Poll::Pending,
+                },
+
+                DriverState::NeedsServerSettings => {
+                    self.queue_settings();
+                    self.state = DriverState::Running;
+                }
+
+                DriverState::Running => match self.poll_advance_read(cx) {
+                    Poll::Ready(Ok(Action::Continue)) => {}
+                    Poll::Ready(Ok(Action::Emit(transport))) => {
+                        return Poll::Ready(Ok(Some(transport)));
+                    }
+                    Poll::Ready(Ok(Action::Close(outcome))) => {
+                        self.begin_close(outcome);
+                    }
+                    Poll::Ready(Err(e)) => {
+                        self.close_outcome = Some(e);
+                        return Poll::Ready(self.finish_with_current_outcome());
+                    }
+                    Poll::Pending => return Poll::Pending,
+                },
+
+                DriverState::Closing => unreachable!("handled above once write_buf is drained"),
             }
         }
     }
 
-    /// Inner loop body. Returns:
-    /// - `Ok(Some(_))` when a new request stream has opened and should be returned to the caller.
-    /// - `Ok(None)` on a clean connection shutdown (peer GOAWAY or local swansong).
-    /// - `Err` on any protocol or I/O failure.
-    async fn drive(&mut self) -> Result<Option<H2Transport>, H2Error> {
-        if self.state == AcceptorState::AwaitingPreface {
-            read_preface(&mut self.transport).await?;
-            self.state = AcceptorState::NeedsServerSettings;
+    /// Convert the current `close_outcome` into the terminal return of `poll_next`. Must only be
+    /// called after outbound bytes have been flushed.
+    fn finish_with_current_outcome(&mut self) -> Result<Option<H2Transport>, H2Error> {
+        self.finished = true;
+        match self.close_outcome.take() {
+            None | Some(CloseOutcome::Graceful) => Ok(None),
+            Some(CloseOutcome::Protocol(code)) => Err(H2Error::Protocol(code)),
+            Some(CloseOutcome::Io(e)) => Err(H2Error::Io(e)),
         }
-        if self.state == AcceptorState::NeedsServerSettings {
-            // Server-side preface per §3.4: our initial SETTINGS frame MUST be the first frame we
-            // send.
-            write_settings(&mut self.transport, &H2Settings::server_defaults()).await?;
-            self.state = AcceptorState::Running;
+    }
+
+    /// Enter the closing state: record the outcome and queue a GOAWAY (only for outcomes that
+    /// warrant one). The main loop will drain `write_buf` and then finish.
+    fn begin_close(&mut self, outcome: CloseOutcome) {
+        // Don't overwrite a prior outcome (e.g. if an error fires in the middle of a graceful
+        // shutdown, keep the error).
+        let code = match &outcome {
+            CloseOutcome::Graceful => Some(H2ErrorCode::NoError),
+            CloseOutcome::Protocol(code) => Some(*code),
+            CloseOutcome::Io(_) => None,
+        };
+        if self.close_outcome.is_none() {
+            self.close_outcome = Some(outcome);
+        }
+        if let Some(code) = code {
+            self.queue_goaway(self.last_peer_stream_id, code);
+        }
+        self.state = DriverState::Closing;
+    }
+
+    /// Advance the read side by one frame. Accumulates bytes, and once a complete frame is
+    /// available, dispatches it and returns the resulting action.
+    ///
+    /// Always returns after handling one frame (even on `Action::Continue`) so the outer loop
+    /// gets a chance to flush any outbound bytes that dispatch queued — holding them in
+    /// `write_buf` across reads would deadlock against a peer that's waiting for an ACK before
+    /// sending its next frame.
+    fn poll_advance_read(&mut self, cx: &mut Context<'_>) -> Poll<Result<Action, CloseOutcome>> {
+        // Make sure we've at least decoded the header and know how much payload to expect.
+        if matches!(self.read_phase, ReadPhase::NeedHeader) {
+            ready!(self.poll_fill_to(FRAME_HEADER_LEN, cx)).map_err(io_to_outcome)?;
+            let header = FrameHeader::decode(&self.read_buf[..FRAME_HEADER_LEN])
+                .expect("FRAME_HEADER_LEN bytes already filled");
+            let payload_len = usize::try_from(header.length)
+                .ok()
+                .filter(|n| *n <= MAX_BUFFER_SIZE)
+                .ok_or(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
+            let total = FRAME_HEADER_LEN + payload_len;
+            self.read_phase = ReadPhase::NeedPayload { header, total };
         }
 
-        loop {
-            let read = self
-                .connection
-                .swansong
-                .interrupt(read_frame(&mut self.transport, &mut self.read_buf))
-                .await;
+        let ReadPhase::NeedPayload { total, .. } = self.read_phase else {
+            unreachable!("set by the block above")
+        };
+        if self.read_filled < total {
+            ready!(self.poll_fill_to(total, cx)).map_err(io_to_outcome)?;
+        }
 
-            let Some(decoded) = read else {
-                return Ok(None);
-            };
-            let (frame, consumed) = decoded?;
+        let frame_bytes = &self.read_buf[..total];
+        let (frame, consumed) = match Frame::decode(frame_bytes) {
+            Ok(pair) => pair,
+            Err(FrameDecodeError::Error(code)) => {
+                return Poll::Ready(Err(CloseOutcome::Protocol(code)));
+            }
+            // Unreachable: we read exactly `header.length` payload bytes.
+            Err(FrameDecodeError::Incomplete) => {
+                return Poll::Ready(Err(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError)));
+            }
+        };
+        let action = self.dispatch(frame, consumed, total)?;
+        self.reset_after_frame();
+        Poll::Ready(Ok(action))
+    }
 
-            match frame {
-                Frame::Settings(_) => write_settings_ack(&mut self.transport).await?,
+    /// Read bytes from the transport into `read_buf[read_filled..target]` until `read_filled >=
+    /// target`. Cancel-safe: if the caller drops the Future, any bytes already placed are
+    /// preserved in the buffer.
+    ///
+    /// A 0-byte read is surfaced as `UnexpectedEof`. The caller maps this to a terminal I/O
+    /// error; we don't emit a GOAWAY on peer-initiated close (consistent with the pre-poll
+    /// driver).
+    fn poll_fill_to(&mut self, target: usize, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.read_buf.len() < target {
+            self.read_buf.resize(target, 0);
+        }
+        while self.read_filled < target {
+            let n = ready!(
+                Pin::new(&mut self.transport)
+                    .poll_read(cx, &mut self.read_buf[self.read_filled..target])
+            )?;
+            if n == 0 {
+                return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof)));
+            }
+            self.read_filled += n;
+        }
+        Poll::Ready(Ok(()))
+    }
 
-                Frame::Ping {
-                    opaque_data,
-                    ack: false,
-                } => write_ping_ack(&mut self.transport, opaque_data).await?,
+    /// Read the 24-byte client connection preface (§3.4) and validate it. Uses `read_buf` /
+    /// `read_filled` so a partial preface survives a return to `Poll::Pending`.
+    fn poll_read_preface(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), CloseOutcome>> {
+        ready!(self.poll_fill_to(CLIENT_PREFACE.len(), cx)).map_err(io_to_outcome)?;
+        if &self.read_buf[..CLIENT_PREFACE.len()] != CLIENT_PREFACE {
+            return Poll::Ready(Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)));
+        }
+        // Preface is NOT a frame — reset the read cursor so the frame reader starts fresh.
+        self.read_buf.clear();
+        self.read_buf.resize(FRAME_HEADER_LEN, 0);
+        self.read_filled = 0;
+        self.read_phase = ReadPhase::NeedHeader;
+        Poll::Ready(Ok(()))
+    }
 
-                Frame::Goaway { .. } => {
-                    self.connection.swansong.shut_down();
-                    return Ok(None);
-                }
+    /// Drain `write_buf[write_cursor..]` to the transport, then flush if bytes were written.
+    /// Returns `Ready(Ok(()))` when both the buffer is empty AND any pending flush has completed.
+    fn poll_flush_outbound(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        while self.write_cursor < self.write_buf.len() {
+            let n = ready!(
+                Pin::new(&mut self.transport).poll_write(cx, &self.write_buf[self.write_cursor..])
+            )?;
+            if n == 0 {
+                return Poll::Ready(Err(io::Error::from(io::ErrorKind::WriteZero)));
+            }
+            self.write_cursor += n;
+        }
+        // Fully drained — reset the buffer so future writes start at offset 0.
+        self.write_buf.clear();
+        self.write_cursor = 0;
+        if self.write_flush_pending {
+            ready!(Pin::new(&mut self.transport).poll_flush(cx))?;
+            self.write_flush_pending = false;
+        }
+        Poll::Ready(Ok(()))
+    }
 
-                Frame::Headers {
-                    stream_id,
-                    end_stream,
-                    end_headers,
-                    header_block_length,
-                    ..
-                } => {
-                    let transport = self
-                        .open_stream(
-                            stream_id,
-                            end_stream,
-                            end_headers,
-                            header_block_length,
-                            consumed,
-                        )
-                        .await?;
-                    return Ok(Some(transport));
-                }
+    /// Decoded frame arrived — run the connection-level side-effects.
+    ///
+    /// `payload_start` is the offset within `self.read_buf` where the frame's body bytes begin
+    /// (past the fixed header and any per-frame prefix — same value `Frame::decode` returned).
+    /// `total` is the full `FRAME_HEADER_LEN + payload_len` so header-block / data consumers can
+    /// slice against it.
+    fn dispatch(
+        &mut self,
+        frame: Frame,
+        payload_start: usize,
+        total: usize,
+    ) -> Result<Action, CloseOutcome> {
+        // §6.10: while a HEADERS block is in progress (pending_headers.is_some()), the ONLY
+        // frame the peer may send on any stream is the matching CONTINUATION. Anything else is
+        // a connection-level PROTOCOL_ERROR.
+        if self.pending_headers.is_some() && !matches!(frame, Frame::Continuation { .. }) {
+            return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+        }
 
-                Frame::Data {
+        match frame {
+            Frame::Settings(_) => {
+                self.queue_settings_ack();
+                Ok(Action::Continue)
+            }
+            Frame::Ping {
+                opaque_data,
+                ack: false,
+            } => {
+                self.queue_ping_ack(opaque_data);
+                Ok(Action::Continue)
+            }
+            Frame::Goaway { .. } => {
+                self.connection.swansong.shut_down();
+                Ok(Action::Close(CloseOutcome::Graceful))
+            }
+            Frame::Headers {
+                stream_id,
+                end_stream,
+                end_headers,
+                header_block_length,
+                ..
+            } => self.handle_headers(
+                stream_id,
+                end_stream,
+                end_headers,
+                header_block_length,
+                payload_start,
+                total,
+            ),
+            Frame::Continuation {
+                stream_id,
+                end_headers,
+                header_block_length,
+            } => self.handle_continuation(stream_id, end_headers, header_block_length, total),
+            Frame::Data {
+                stream_id,
+                end_stream,
+                data_length,
+                padding_length,
+            } => {
+                self.route_data(
                     stream_id,
                     end_stream,
                     data_length,
                     padding_length,
-                } => {
-                    self.route_data(stream_id, end_stream, data_length, padding_length, consumed)?;
-                }
-
-                // §6.6 PUSH_PROMISE from a client is always a connection error; §6.10
-                // CONTINUATION outside an in-progress header block is too.
-                Frame::PushPromise { .. } | Frame::Continuation { .. } => {
-                    return Err(H2ErrorCode::ProtocolError.into());
-                }
-
-                // Benign frames whose effect is not yet implemented. Tolerate to keep the
-                // handshake clean until the relevant phases.
-                Frame::SettingsAck
-                | Frame::Ping { ack: true, .. }
-                | Frame::WindowUpdate { .. }
-                | Frame::RstStream { .. }
-                | Frame::Priority { .. }
-                | Frame::Unknown { .. } => {}
+                    payload_start,
+                    total,
+                )?;
+                Ok(Action::Continue)
             }
+            // §6.6 PUSH_PROMISE from a client is a connection error; §6.10 CONTINUATION without
+            // an in-progress header block is too (but pending_headers==Some is handled via the
+            // match arm above).
+            Frame::PushPromise { .. } => Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)),
+            // Benign frames whose effect isn't yet implemented. Tolerate to keep the handshake
+            // clean until the relevant phases.
+            Frame::SettingsAck
+            | Frame::Ping { ack: true, .. }
+            | Frame::WindowUpdate { .. }
+            | Frame::RstStream { .. }
+            | Frame::Priority { .. }
+            | Frame::Unknown { .. } => Ok(Action::Continue),
         }
     }
 
-    /// Open a new request stream from a HEADERS frame the driver has just decoded.
-    ///
-    /// Validates the stream id (odd + monotonically increasing per §5.1.1), reassembles any
-    /// trailing CONTINUATION frames into a single block (§6.10 — no other frame may interleave
-    /// on any stream while the block is in progress), HPACK-decodes the assembled bytes, and
-    /// returns the [`H2Transport`] that the runtime adapter will spawn a handler task against.
-    ///
-    /// `header_prefix_consumed` is the offset in `self.read_buf` past the HEADERS frame's fixed
-    /// prefix (frame header + optional pad-length byte + optional priority block) — i.e. the
-    /// start of the first header block fragment.
-    async fn open_stream(
+    /// A HEADERS frame arrived. Either `END_HEADERS` is set (emit the stream immediately) or we
+    /// accumulate the fragment into `pending_headers` and wait for CONTINUATION.
+    fn handle_headers(
         &mut self,
         stream_id: u32,
         end_stream: bool,
-        first_end_headers: bool,
-        first_block_length: u32,
-        header_prefix_consumed: usize,
-    ) -> Result<H2Transport, H2Error> {
+        end_headers: bool,
+        header_block_length: u32,
+        payload_start: usize,
+        total: usize,
+    ) -> Result<Action, CloseOutcome> {
         // §5.1.1: a peer-initiated stream id must be odd and strictly greater than every prior
-        // peer-initiated stream id.
+        // peer-initiated stream id, and not already known.
         if stream_id.is_multiple_of(2)
             || stream_id <= self.last_peer_stream_id
             || self.streams.contains_key(&stream_id)
         {
-            return Err(H2ErrorCode::ProtocolError.into());
+            return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
 
-        // Copy the first fragment out before we reuse `read_buf` for any CONTINUATION frame.
-        let block_start = header_prefix_consumed;
-        let block_end = block_start
-            .checked_add(
-                usize::try_from(first_block_length).map_err(|_| H2ErrorCode::FrameSizeError)?,
-            )
-            .ok_or(H2ErrorCode::FrameSizeError)?;
-        if block_end > self.read_buf.len() {
-            return Err(H2ErrorCode::FrameSizeError.into());
-        }
-        let mut block = self.read_buf[block_start..block_end].to_vec();
+        let fragment = frame_slice(&self.read_buf, payload_start, header_block_length, total)?;
 
-        // Tight loop reading CONTINUATION frames until END_HEADERS. §6.10 forbids any other
-        // frame (on any stream) interleaving — the caller does no swansong interruption here so
-        // we can't be cancelled mid-block.
-        let mut end_headers = first_end_headers;
-        while !end_headers {
-            let (frame, consumed) = read_frame(&mut self.transport, &mut self.read_buf).await?;
-            let Frame::Continuation {
-                stream_id: cont_stream_id,
-                end_headers: cont_end_headers,
-                header_block_length,
-            } = frame
-            else {
-                return Err(H2ErrorCode::ProtocolError.into());
-            };
-            if cont_stream_id != stream_id {
-                return Err(H2ErrorCode::ProtocolError.into());
-            }
-            let cont_start = consumed;
-            let cont_end = cont_start
-                .checked_add(
-                    usize::try_from(header_block_length)
-                        .map_err(|_| H2ErrorCode::FrameSizeError)?,
-                )
-                .ok_or(H2ErrorCode::FrameSizeError)?;
-            if cont_end > self.read_buf.len() {
-                return Err(H2ErrorCode::FrameSizeError.into());
-            }
-            block.extend_from_slice(&self.read_buf[cont_start..cont_end]);
-            end_headers = cont_end_headers;
+        if end_headers {
+            let block = fragment.to_vec();
+            self.finalize_headers(stream_id, end_stream, &block)
+        } else {
+            self.pending_headers = Some(PendingHeaders {
+                stream_id,
+                end_stream,
+                assembled: fragment.to_vec(),
+            });
+            Ok(Action::Continue)
+        }
+    }
+
+    /// A CONTINUATION frame arrived. Must match the in-progress HEADERS block's stream id.
+    fn handle_continuation(
+        &mut self,
+        stream_id: u32,
+        end_headers: bool,
+        header_block_length: u32,
+        total: usize,
+    ) -> Result<Action, CloseOutcome> {
+        let pending = self
+            .pending_headers
+            .as_mut()
+            .ok_or(CloseOutcome::Protocol(H2ErrorCode::ProtocolError))?;
+        if pending.stream_id != stream_id {
+            return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
 
-        let field_section = self.hpack.decode(&block)?;
+        let fragment = frame_slice(&self.read_buf, FRAME_HEADER_LEN, header_block_length, total)?;
+        pending.assembled.extend_from_slice(fragment);
+
+        if end_headers {
+            let PendingHeaders {
+                stream_id,
+                end_stream,
+                assembled,
+            } = self.pending_headers.take().expect("checked above");
+            self.finalize_headers(stream_id, end_stream, &assembled)
+        } else {
+            Ok(Action::Continue)
+        }
+    }
+
+    /// The complete header block is now available (whether from a single HEADERS or from
+    /// HEADERS + CONTINUATION*): HPACK-decode it, open the stream, and emit the transport.
+    fn finalize_headers(
+        &mut self,
+        stream_id: u32,
+        end_stream: bool,
+        block: &[u8],
+    ) -> Result<Action, CloseOutcome> {
+        let field_section = self.hpack.decode(block).map_err(|e| match e.into() {
+            H2Error::Protocol(code) => CloseOutcome::Protocol(code),
+            H2Error::Io(e) => CloseOutcome::Io(e),
+        })?;
 
         let state = Arc::new(StreamState::default());
         if end_stream {
-            // No DATA will follow — mark the recv side EOF immediately so the handler's first
-            // body read returns 0. Set under the lock the driver also uses for pushes, so it's
-            // ordered consistently with the handler's `poll_read` checks.
             let _guard = state.recv.buf.lock().expect("recv buf mutex poisoned");
             state
                 .recv
@@ -374,61 +664,45 @@ where
         self.streams.insert(stream_id, state.clone());
         self.last_peer_stream_id = stream_id;
 
-        // Eager WINDOW_UPDATE: open the per-stream recv window so the peer may send a body
-        // immediately. This is the temporary (non-lazy) form; task 6 moves the emission into
-        // `H2Transport::poll_read` and gates it on handler intent. We skip if the request had
-        // no body — there's nothing for the peer to send.
+        // Eager WINDOW_UPDATE: temporary pre-lazy form. Skipped when the stream had no body.
+        // Task 4 (lazy WU) replaces this with a handler-side signal.
         if !end_stream {
-            write_window_update(&mut self.transport, stream_id, MAX_STREAM_WINDOW).await?;
+            self.queue_window_update(stream_id, MAX_STREAM_WINDOW);
         }
 
-        Ok(H2Transport::new(
+        Ok(Action::Emit(H2Transport::new(
             self.connection.clone(),
             stream_id,
             field_section,
             state,
-        ))
+        )))
     }
 
-    /// Route a DATA frame's payload into the matching stream's recv buffer and wake its handler.
-    ///
-    /// The `consumed` argument is the offset in `self.read_buf` past the DATA frame's fixed
-    /// prefix (frame header + optional pad-length byte) — i.e. the start of the payload bytes.
-    /// `data_length` payload bytes are copied; `padding_length` padding bytes that follow are
-    /// ignored (already accounted for in the frame's reported total length).
-    ///
-    /// DATA on an unknown stream id is a connection error per RFC 9113 §5.1 — peer sent DATA on
-    /// a stream we never opened (or one we've already closed without notifying). Phase 7 will
-    /// distinguish "closed" from "unknown" once the state machine lands; for now, both produce
-    /// `STREAM_CLOSED`.
+    /// A DATA frame arrived — copy its payload into the matching stream's recv buffer and wake
+    /// the handler. Padding bytes are part of the already-read frame body and are skipped
+    /// (they're in the buffer but not pushed).
     fn route_data(
         &mut self,
         stream_id: u32,
         end_stream: bool,
         data_length: u32,
         padding_length: u8,
-        consumed: usize,
-    ) -> Result<(), H2Error> {
-        let _ = padding_length; // padding bytes are part of the frame body but skipped here
+        payload_start: usize,
+        total: usize,
+    ) -> Result<(), CloseOutcome> {
+        let _ = padding_length; // padding is skipped — we only push the data portion
 
-        let Some(state) = self.streams.get(&stream_id) else {
-            return Err(H2ErrorCode::StreamClosed.into());
-        };
-        let data_len_usize =
-            usize::try_from(data_length).map_err(|_| H2ErrorCode::FrameSizeError)?;
-        let data_end = consumed
-            .checked_add(data_len_usize)
-            .ok_or(H2ErrorCode::FrameSizeError)?;
-        if data_end > self.read_buf.len() {
-            return Err(H2ErrorCode::FrameSizeError.into());
-        }
+        let state = self
+            .streams
+            .get(&stream_id)
+            .ok_or(CloseOutcome::Protocol(H2ErrorCode::StreamClosed))?;
 
-        // Copy payload out before reusing read_buf for the next frame. Empty DATA frames are
-        // legal — only the END_STREAM flag matters, no buffer push.
+        let data = frame_slice(&self.read_buf, payload_start, data_length, total)?;
+
         {
             let mut recv = state.recv.buf.lock().expect("recv buf mutex poisoned");
-            if data_len_usize > 0 {
-                recv.push_back(self.read_buf[consumed..data_end].to_vec());
+            if !data.is_empty() {
+                recv.push_back(data.to_vec());
             }
             if end_stream {
                 state
@@ -440,116 +714,89 @@ where
         state.recv.waker.wake();
         Ok(())
     }
-}
 
-async fn read_preface<T>(transport: &mut T) -> Result<(), H2Error>
-where
-    T: AsyncRead + Unpin + Send,
-{
-    let mut preface = [0u8; 24];
-    transport.read_exact(&mut preface).await?;
-    if &preface != CLIENT_PREFACE {
-        return Err(H2ErrorCode::ProtocolError.into());
-    }
-    Ok(())
-}
-
-/// Read one frame from `transport`, reusing `buf` for both the header and the payload.
-///
-/// Returns the decoded frame plus the byte offset within `buf` past the frame's fixed prefix —
-/// for body-bearing frames (DATA / HEADERS / CONTINUATION / `PUSH_PROMISE` / Unknown) the actual
-/// payload bytes start at this offset and run for the type-specific length carried inside the
-/// `Frame`. For control frames the entire payload has already been consumed into the `Frame`.
-///
-/// At return, `buf` holds exactly `FRAME_HEADER_LEN + payload_length` bytes.
-async fn read_frame<T>(transport: &mut T, buf: &mut Vec<u8>) -> Result<(Frame, usize), H2Error>
-where
-    T: AsyncRead + Unpin + Send,
-{
-    buf.resize(FRAME_HEADER_LEN, 0);
-    transport.read_exact(&mut buf[..FRAME_HEADER_LEN]).await?;
-    let header = FrameHeader::decode(&buf[..FRAME_HEADER_LEN])
-        .expect("read_exact filled FRAME_HEADER_LEN bytes");
-
-    let payload_len = usize::try_from(header.length).map_err(|_| H2ErrorCode::FrameSizeError)?;
-    if payload_len > MAX_BUFFER_SIZE {
-        return Err(H2ErrorCode::FrameSizeError.into());
-    }
-    buf.resize(FRAME_HEADER_LEN + payload_len, 0);
-    if payload_len > 0 {
-        transport.read_exact(&mut buf[FRAME_HEADER_LEN..]).await?;
+    /// Clear read cursor state and prepare for the next frame.
+    fn reset_after_frame(&mut self) {
+        self.read_filled = 0;
+        self.read_phase = ReadPhase::NeedHeader;
+        // Shrink if we ballooned above the default capacity for a big frame.
+        if self.read_buf.capacity() > MAX_BUFFER_SIZE / 16 {
+            self.read_buf = vec![0u8; FRAME_HEADER_LEN];
+        } else {
+            self.read_buf.truncate(FRAME_HEADER_LEN);
+        }
     }
 
-    match Frame::decode(buf) {
-        Ok((frame, consumed)) => Ok((frame, consumed)),
-        Err(FrameDecodeError::Error(code)) => Err(code.into()),
-        // Frame::decode only returns Incomplete if fewer bytes are available than a control frame
-        // requires; we read exactly `header.length` payload bytes, so this is unreachable.
-        Err(FrameDecodeError::Incomplete) => Err(H2ErrorCode::FrameSizeError.into()),
+    // --- outbound frame queuing helpers -------------------------------------------------------
+    //
+    // All `queue_*` helpers append encoded bytes to `write_buf` and set `write_flush_pending`.
+    // The driver's main loop drains `write_buf` before observing progress elsewhere.
+
+    fn queue_settings(&mut self) {
+        let settings = H2Settings::server_defaults();
+        let start = self.write_buf.len();
+        self.write_buf
+            .resize(start + frame::settings::encoded_len(&settings), 0);
+        let n = frame::settings::encode(&settings, &mut self.write_buf[start..])
+            .expect("buffer sized from encoded_len");
+        self.write_buf.truncate(start + n);
+        self.write_flush_pending = true;
+    }
+
+    fn queue_settings_ack(&mut self) {
+        let start = self.write_buf.len();
+        self.write_buf
+            .resize(start + frame::settings::ACK_ENCODED_LEN, 0);
+        frame::settings::encode_ack(&mut self.write_buf[start..])
+            .expect("ACK_ENCODED_LEN is exactly the fixed ack size");
+        self.write_flush_pending = true;
+    }
+
+    fn queue_ping_ack(&mut self, opaque_data: [u8; 8]) {
+        let start = self.write_buf.len();
+        self.write_buf.resize(start + frame::ping::ENCODED_LEN, 0);
+        frame::ping::encode(opaque_data, true, &mut self.write_buf[start..])
+            .expect("ENCODED_LEN matches fixed ping size");
+        self.write_flush_pending = true;
+    }
+
+    fn queue_window_update(&mut self, stream_id: u32, increment: u32) {
+        let start = self.write_buf.len();
+        self.write_buf
+            .resize(start + frame::window_update::ENCODED_LEN, 0);
+        frame::window_update::encode(stream_id, increment, &mut self.write_buf[start..])
+            .expect("ENCODED_LEN matches fixed window_update size");
+        self.write_flush_pending = true;
+    }
+
+    fn queue_goaway(&mut self, last_stream_id: u32, code: H2ErrorCode) {
+        let start = self.write_buf.len();
+        self.write_buf
+            .resize(start + frame::goaway::encoded_len(0), 0);
+        let n = frame::goaway::encode(last_stream_id, code, &[], &mut self.write_buf[start..])
+            .expect("buffer sized from encoded_len");
+        self.write_buf.truncate(start + n);
+        self.write_flush_pending = true;
     }
 }
 
-async fn write_settings<T>(transport: &mut T, settings: &H2Settings) -> Result<(), H2Error>
-where
-    T: AsyncWrite + Unpin + Send,
-{
-    let mut buf = vec![0u8; frame::settings::encoded_len(settings)];
-    let n = frame::settings::encode(settings, &mut buf).expect("buffer sized from encoded_len");
-    transport.write_all(&buf[..n]).await?;
-    transport.flush().await?;
-    Ok(())
+/// Slice the interesting bytes out of a just-read frame. Bounds-checks to defend against a
+/// payload length on the wire that disagrees with a body-bearing frame's declared inner length.
+fn frame_slice(buf: &[u8], start: usize, length: u32, total: usize) -> Result<&[u8], CloseOutcome> {
+    let length =
+        usize::try_from(length).map_err(|_| CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
+    let end = start
+        .checked_add(length)
+        .ok_or(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
+    if end > total {
+        return Err(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError));
+    }
+    Ok(&buf[start..end])
 }
 
-async fn write_settings_ack<T>(transport: &mut T) -> Result<(), H2Error>
-where
-    T: AsyncWrite + Unpin + Send,
-{
-    let mut buf = [0u8; frame::settings::ACK_ENCODED_LEN];
-    frame::settings::encode_ack(&mut buf).expect("ACK_ENCODED_LEN is exactly the fixed ack size");
-    transport.write_all(&buf).await?;
-    transport.flush().await?;
-    Ok(())
-}
-
-async fn write_ping_ack<T>(transport: &mut T, opaque_data: [u8; 8]) -> Result<(), H2Error>
-where
-    T: AsyncWrite + Unpin + Send,
-{
-    let mut buf = [0u8; frame::ping::ENCODED_LEN];
-    frame::ping::encode(opaque_data, true, &mut buf).expect("ENCODED_LEN matches fixed ping size");
-    transport.write_all(&buf).await?;
-    transport.flush().await?;
-    Ok(())
-}
-
-async fn write_window_update<T>(
-    transport: &mut T,
-    stream_id: u32,
-    increment: u32,
-) -> Result<(), H2Error>
-where
-    T: AsyncWrite + Unpin + Send,
-{
-    let mut buf = [0u8; frame::window_update::ENCODED_LEN];
-    frame::window_update::encode(stream_id, increment, &mut buf)
-        .expect("ENCODED_LEN matches fixed window_update size");
-    transport.write_all(&buf).await?;
-    transport.flush().await?;
-    Ok(())
-}
-
-async fn send_goaway<T>(
-    transport: &mut T,
-    last_stream_id: u32,
-    error_code: H2ErrorCode,
-) -> Result<(), H2Error>
-where
-    T: AsyncWrite + Unpin + Send,
-{
-    let mut buf = vec![0u8; frame::goaway::encoded_len(0)];
-    frame::goaway::encode(last_stream_id, error_code, &[], &mut buf)
-        .expect("buffer sized from encoded_len");
-    transport.write_all(&buf).await?;
-    transport.flush().await?;
-    Ok(())
+/// Convert a transport I/O error into a close outcome. Plain I/O errors terminate the driver
+/// without emitting a GOAWAY — matching the pre-poll driver's behavior of surfacing `read_exact`
+/// EOF as a terminal `H2Error::Io`.
+fn io_to_outcome(e: io::Error) -> CloseOutcome {
+    CloseOutcome::Io(e)
 }
