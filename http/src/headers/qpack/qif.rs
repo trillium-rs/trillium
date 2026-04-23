@@ -56,7 +56,7 @@ pub(super) fn field_section_to_pairs(fs: FieldSection<'static>) -> QifGroup {
     let (pseudos, headers) = fs.into_parts();
     let mut pairs = Vec::new();
     pseudo_pairs(&pseudos, &mut pairs);
-    for (name, values) in headers.iter() {
+    for (name, values) in &headers {
         for value in values {
             pairs.push((name.to_string().to_lowercase(), value.to_string()));
         }

@@ -16,7 +16,7 @@
 //! [`BoxedTransport`]: crate::transport::BoxedTransport
 
 use super::H2Connection;
-use crate::Buffer;
+use crate::{Body, Buffer};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -150,6 +150,9 @@ impl AsyncWrite for H2Transport {
 pub(super) struct StreamState {
     /// Recv side: inbound DATA payloads, EOF flag, handler waker, handler-intent signal.
     pub(super) recv: RecvState,
+    /// Send side: handoff slot from the conn task's `submit_send`, plus completion signaling
+    /// the conn task awaits.
+    pub(super) send: SendState,
 }
 
 /// Receive-side per-stream state.
@@ -177,4 +180,46 @@ pub(super) struct RecvState {
     /// stream, topping its recv window up from `SETTINGS_INITIAL_WINDOW_SIZE` (advertised as
     /// `0`) to the per-stream maximum. Once set, stays set.
     pub(super) is_reading: AtomicBool,
+}
+
+/// Send-side per-stream state used to hand a response from the conn task to the driver.
+///
+/// The conn task fills `submission` once via [`H2Connection::submit_send`][submit] and waits on
+/// `completion_waker` for `completed` to flip. The driver picks up the submission on its next
+/// `poll_next` tick, frames it (HEADERS, DATA, optional trailing HEADERS) into the connection's
+/// outbound buffer as send-side flow control allows, and on completion stores the
+/// `completion_result`, sets `completed = true`, and wakes the conn task.
+///
+/// The shape is general enough to absorb a future `outbound_bytes: VecDeque<u8>` queue for
+/// extended-CONNECT (WebSocket / WebTransport over h2) upgrades — the upgrade handler's
+/// `AsyncWrite` impl would push raw bytes into that queue alongside (or instead of) `body`.
+///
+/// [submit]: super::H2Connection::submit_send
+#[derive(Debug, Default)]
+pub(super) struct SendState {
+    /// Slot for the conn task's submission. Some between `submit_send` and the driver's
+    /// pickup tick; None at all other times.
+    pub(super) submission: Mutex<Option<Submission>>,
+
+    /// Set to `true` by the driver once the response has been fully framed, flushed, or
+    /// errored. The conn task's `SubmitSend` future polls this atomic and registers on
+    /// `completion_waker`.
+    pub(super) completed: AtomicBool,
+
+    /// The driver writes the final result here before flipping `completed`. The conn task
+    /// takes it once `completed` is observed true.
+    pub(super) completion_result: Mutex<Option<io::Result<()>>>,
+
+    /// The conn task's waker, registered by `SubmitSend::poll` and fired by the driver
+    /// after `completed` is set.
+    pub(super) completion_waker: AtomicWaker,
+}
+
+/// What the conn task hands the driver for a single response. Body's trailers (if any) are
+/// pulled by the driver via `Body::trailers()` after the body is fully drained — they are not
+/// a separate field here.
+#[derive(Debug)]
+pub(super) struct Submission {
+    pub(super) encoded_headers: Vec<u8>,
+    pub(super) body: Option<Body>,
 }

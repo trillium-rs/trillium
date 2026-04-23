@@ -19,7 +19,7 @@ use super::static_table::STATIC_TABLE;
 use crate::headers::{entry_name::EntryName, field_section::FieldSection, huffman, integer_prefix};
 
 /// Encode `field_section` into `buf` as an HPACK header block.
-pub(in crate::headers) fn encode(field_section: &FieldSection<'_>, buf: &mut Vec<u8>) {
+pub(crate) fn encode(field_section: &FieldSection<'_>, buf: &mut Vec<u8>) {
     for (name, value) in field_section.field_lines() {
         let value_bytes = value.as_bytes();
         match static_table_lookup(&name, value_bytes) {

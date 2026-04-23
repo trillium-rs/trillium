@@ -1,12 +1,17 @@
 use crate::{
-    Buffer, Conn, Headers, KnownHeaderName, Method, TypeSet, Version,
+    Buffer, Conn, Headers, KnownHeaderName, Method, Status, TypeSet, Version,
     after_send::AfterSend,
     h2::{H2Connection, H2ErrorCode},
-    headers::hpack::FieldSection,
+    headers::hpack::{self, FieldSection, PseudoHeaders},
     received_body::ReceivedBodyState,
 };
 use futures_lite::{AsyncRead, AsyncWrite};
-use std::{borrow::Cow, sync::Arc, time::Instant};
+use std::{
+    borrow::Cow,
+    io,
+    sync::Arc,
+    time::{Instant, SystemTime},
+};
 
 impl<Transport> Conn<Transport>
 where
@@ -119,4 +124,82 @@ where
             request_trailers: None,
         })
     }
+
+    /// Hand the response off to the [`H2Connection`] driver for framing and transmission.
+    ///
+    /// Pre-encodes HEADERS into an HPACK byte block on the conn task (the static-or-literal
+    /// encoder is stateless), takes the response body off the Conn, and `await`s
+    /// [`H2Connection::submit_send`]. The Conn lives across the await — its `Drop` (which
+    /// includes things like state-bag teardown and observers) happens *after* the body is
+    /// fully on the wire, matching h1/h3's lifecycle.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`io::Error`] from the body's `poll_read` or from the underlying transport
+    /// if the response failed partway through.
+    pub(crate) async fn send_h2(mut self) -> io::Result<Self> {
+        self.finalize_response_headers_h2();
+        let encoded_headers = encode_headers_h2(self.status, &self.response_headers);
+        let body = if self.method != Method::Head
+            && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
+        {
+            self.response_body.take()
+        } else {
+            self.response_body = None;
+            None
+        };
+
+        let h2 = self
+            .h2_connection
+            .clone()
+            .ok_or(io::ErrorKind::NotConnected)?;
+        let stream_id = self.h2_stream_id.ok_or(io::ErrorKind::NotConnected)?;
+
+        let result = h2.submit_send(stream_id, encoded_headers, body).await;
+        self.after_send.call(result.is_ok().into());
+        result.map(|()| self)
+    }
+
+    /// Apply h2-flavored finalizations to the response headers: insert a Date header if absent,
+    /// surface content-length if known, strip h1-only connection-management headers (which are
+    /// forbidden in h2 per RFC 9113 §8.1.2.2).
+    fn finalize_response_headers_h2(&mut self) {
+        self.response_headers
+            .try_insert_with(KnownHeaderName::Date, || {
+                httpdate::fmt_http_date(SystemTime::now())
+            });
+
+        if !matches!(self.status, Some(Status::NotModified | Status::NoContent))
+            && let Some(len) = self.body_len_h2()
+        {
+            self.response_headers
+                .try_insert(KnownHeaderName::ContentLength, len);
+        }
+
+        self.response_headers.remove_all([
+            KnownHeaderName::Connection,
+            KnownHeaderName::TransferEncoding,
+            KnownHeaderName::KeepAlive,
+            KnownHeaderName::ProxyConnection,
+            KnownHeaderName::Upgrade,
+        ]);
+    }
+
+    fn body_len_h2(&self) -> Option<u64> {
+        match self.response_body {
+            Some(ref body) => body.len(),
+            None => Some(0),
+        }
+    }
+}
+
+/// Encode response headers into an HPACK byte block: `:status` pseudo-header followed by
+/// the response Headers map. Static-or-literal — no dynamic-table mutation, safe to do on the
+/// conn task without coordination with the driver.
+fn encode_headers_h2(status: Option<Status>, response_headers: &Headers) -> Vec<u8> {
+    let pseudos = PseudoHeaders::default().with_status(status.unwrap_or(Status::NotFound));
+    let field_section = FieldSection::new(pseudos, response_headers);
+    let mut buf = Vec::new();
+    hpack::encode(&field_section, &mut buf);
+    buf
 }

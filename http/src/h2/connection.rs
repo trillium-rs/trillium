@@ -19,12 +19,12 @@ use super::{
     frame::{self, FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader},
     transport::{H2Transport, StreamState},
 };
-use crate::{Conn, HttpContext, headers::hpack::HpackDecoder};
+use crate::{Body, Conn, Headers, HttpContext, headers::hpack::HpackDecoder};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     collections::HashMap,
-    future::poll_fn,
+    future::{Future, poll_fn},
     io,
     pin::Pin,
     sync::{Arc, Mutex, atomic::Ordering},
@@ -56,6 +56,11 @@ const HPACK_TABLE_SIZE: usize = 4096;
 /// observing the handler's is-reading signal. A handler that never reads its body costs one
 /// HEADERS frame and nothing more.
 const MAX_STREAM_WINDOW: u32 = 64 * 1024;
+
+/// RFC 9113 §6.5.2 default for `SETTINGS_MAX_FRAME_SIZE`. Used as the per-frame payload cap
+/// (HEADERS / CONTINUATION header-block bytes, DATA payload bytes) until peer SETTINGS parsing
+/// in step 4 replaces this with the negotiated value.
+const DEFAULT_PEER_MAX_FRAME_SIZE: u32 = 16_384;
 
 /// Shared per-connection state for HTTP/2.
 ///
@@ -123,6 +128,129 @@ impl H2Connection {
         T: AsyncRead + AsyncWrite + Unpin + Send,
     {
         H2Acceptor::new(self, transport)
+    }
+
+    /// Per-stream entry point — call from the runtime adapter's spawned task for each
+    /// [`Conn`] returned by [`H2Acceptor::next`]. Runs `handler` to produce the response, then
+    /// `send_h2` to hand the framed response to the driver.
+    ///
+    /// Mirrors [`H3Connection::process_inbound_bidi`][crate::h3::H3Connection::process_inbound_bidi]'s
+    /// role for h3, except the Conn is already built (the acceptor decoded HEADERS and validated
+    /// the request before emitting), so this just runs the handler chain and sends.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`io::Error`] from `send_h2` if the body's `poll_read` errors or the
+    /// underlying transport fails partway through the response.
+    pub async fn process_inbound<Transport, Handler, Fut>(
+        conn: Conn<Transport>,
+        handler: Handler,
+    ) -> io::Result<Conn<Transport>>
+    where
+        Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+        Handler: FnOnce(Conn<Transport>) -> Fut,
+        Fut: Future<Output = Conn<Transport>>,
+    {
+        handler(conn).await.send_h2().await
+    }
+
+    /// Hand a fully-encoded response off to the driver for framing and transmission.
+    ///
+    /// The conn task pre-encodes the response HEADERS into `encoded_headers` (via the
+    /// static-or-literal HPACK encoder — no shared state required), takes the response body off
+    /// the [`Conn`], and calls this method. The returned future resolves once the driver has
+    /// fully framed and flushed HEADERS+CONTINUATION + DATA + (trailing HEADERS or
+    /// `END_STREAM`) onto the wire.
+    ///
+    /// Trailers are not a separate argument: the driver pulls them off the body via
+    /// [`Body::trailers`][crate::Body::trailers] once the body is fully drained, mirroring how
+    /// h1's send path works.
+    ///
+    /// # Errors
+    ///
+    /// The future resolves to an [`io::Error`] if the body's `poll_read` errors, or if the
+    /// underlying transport fails partway through the response.
+    pub(crate) fn submit_send(
+        self: &Arc<Self>,
+        stream_id: u32,
+        encoded_headers: Vec<u8>,
+        body: Option<Body>,
+    ) -> SubmitSend {
+        let stream = self
+            .streams
+            .lock()
+            .expect("connection streams mutex poisoned")
+            .get(&stream_id)
+            .cloned();
+        if let Some(state) = &stream {
+            *state
+                .send
+                .submission
+                .lock()
+                .expect("send submission mutex poisoned") = Some(super::transport::Submission {
+                encoded_headers,
+                body,
+            });
+            self.outbound_waker.wake();
+        }
+        SubmitSend {
+            stream_id,
+            stream,
+        }
+    }
+}
+
+/// Future returned by [`H2Connection::submit_send`]; resolves once the driver has fully
+/// framed and flushed the submitted response, or with the relevant `io::Error` on failure.
+///
+/// Holds the per-stream [`StreamState`] Arc (cloned out of the streams map at submit time),
+/// not a connection backref + id — so dropping the future doesn't require another map lookup
+/// and the conn task's wake registration stays local to the per-stream sync primitives.
+#[must_use = "futures do nothing unless awaited"]
+#[derive(Debug)]
+pub struct SubmitSend {
+    stream_id: u32,
+    /// `None` if the stream wasn't in the map at submit time (already closed). The future
+    /// surfaces that as `NotConnected`.
+    stream: Option<Arc<StreamState>>,
+}
+
+impl Future for SubmitSend {
+    type Output = io::Result<()>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let Some(state) = &self.stream else {
+            log::debug!("h2 stream {}: submit_send on closed stream", self.stream_id);
+            return Poll::Ready(Err(io::ErrorKind::NotConnected.into()));
+        };
+
+        if state.send.completed.load(Ordering::Acquire) {
+            let result = state
+                .send
+                .completion_result
+                .lock()
+                .expect("completion_result mutex poisoned")
+                .take()
+                .unwrap_or(Ok(()));
+            return Poll::Ready(result);
+        }
+
+        state.send.completion_waker.register(cx.waker());
+
+        // Re-check after registering so we don't miss a wake fired between the load above and
+        // the registration.
+        if state.send.completed.load(Ordering::Acquire) {
+            let result = state
+                .send
+                .completion_result
+                .lock()
+                .expect("completion_result mutex poisoned")
+                .take()
+                .unwrap_or(Ok(()));
+            return Poll::Ready(result);
+        }
+
+        Poll::Pending
     }
 }
 
@@ -192,6 +320,15 @@ pub struct H2Acceptor<T> {
     /// Set after `poll_next` yields its terminal result. Subsequent calls return `Ok(None)`
     /// without touching the transport.
     finished: bool,
+
+    /// Peer-advertised `SETTINGS_MAX_FRAME_SIZE`. Caps the payload length of any frame we send.
+    /// Defaults to RFC 9113 §6.5.2 (16 KiB); peer SETTINGS parsing in step 4 will update from
+    /// the wire.
+    peer_max_frame_size: u32,
+
+    /// Reusable scratch the send pump reads body chunks into before framing as DATA. Sized
+    /// once at construction to fit a peer-max-frame-size payload; never grows during a tick.
+    body_scratch: Vec<u8>,
 }
 
 /// Position of the connection in its high-level lifecycle.
@@ -241,7 +378,7 @@ struct PendingHeaders {
 /// know). Grows as phase 3 / phase 4 add state machine and flow-control bookkeeping.
 #[derive(Debug)]
 struct StreamEntry {
-    /// Shared state (recv buffer, send side eventually, handler wakers). Owned by `Arc` so the
+    /// Shared state (recv buffer, send slot, handler wakers). Owned by `Arc` so the
     /// handler task can outlive or operate concurrently with the driver's view.
     shared: Arc<StreamState>,
 
@@ -251,6 +388,11 @@ struct StreamEntry {
     /// Phase 7's refill-as-handler-drains model will reuse this slot as the live advertised
     /// count rather than a boolean.
     window_advertised: bool,
+
+    /// Driver-private send-side state for an in-progress response. `None` until the conn task
+    /// submits a response via [`H2Connection::submit_send`] and the driver picks it up on its
+    /// next `service_handler_signals` tick.
+    send: Option<SendCursor>,
 }
 
 impl StreamEntry {
@@ -258,8 +400,44 @@ impl StreamEntry {
         Self {
             shared,
             window_advertised: false,
+            send: None,
         }
     }
+}
+
+/// Driver-private state for an in-progress response on a single stream. Never observed
+/// concurrently — only the driver task touches this.
+#[derive(Debug)]
+struct SendCursor {
+    /// Pre-encoded HEADERS bytes (HPACK output from the conn task), chunked into HEADERS +
+    /// CONTINUATION frames as `peer_max_frame_size` allows.
+    encoded_headers: Vec<u8>,
+    /// Offset into `encoded_headers` of the first byte not yet emitted.
+    headers_offset: usize,
+    /// Whether this stream's response carries a body. Decides whether the final HEADERS
+    /// fragment carries `END_STREAM` (no body, no trailers) or whether we transition to
+    /// the Body phase next.
+    has_body: bool,
+    /// Body source. Driver polls `body.poll_read` to fill DATA frames; transitions to None
+    /// once drained (a 0-byte read).
+    body: Option<Body>,
+    /// Trailers, populated from `body.trailers()` once the body is fully drained.
+    trailers: Option<Headers>,
+    /// Where we are in the response.
+    phase: SendPhase,
+}
+
+/// Position of a `SendCursor` in the response lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SendPhase {
+    /// Still emitting HEADERS + CONTINUATION fragments.
+    Headers,
+    /// HEADERS done; pumping body bytes into DATA frames.
+    Body,
+    /// Body fully drained; emit trailing HEADERS (if trailers) or empty `DATA(END_STREAM)`.
+    Trailers,
+    /// Completion has been signaled to the conn task; entry can be cleaned up.
+    Complete,
 }
 
 /// Result of dispatching one decoded frame.
@@ -297,6 +475,8 @@ where
             pending_headers: None,
             close_outcome: None,
             finished: false,
+            peer_max_frame_size: DEFAULT_PEER_MAX_FRAME_SIZE,
+            body_scratch: vec![0u8; DEFAULT_PEER_MAX_FRAME_SIZE as usize],
         }
     }
 
@@ -339,12 +519,16 @@ where
         }
 
         loop {
-            // 1. Handler-produced signals. Turn handler intents into outbound frame bytes so the
-            //    flush step below includes them on this iteration. Cheap scan — O(streams) plus
-            //    O(signals) per tick.
+            // 1. Conn-task signals. Picks up window-update intent (`is_reading`) and new
+            //    `submit_send` submissions, moving them into driver-private state.
             self.service_handler_signals();
 
-            // 2. Flush any pending outbound — never re-poll reads when we still owe bytes to the
+            // 2. Send pump. Turns picked-up SendCursors into HEADERS / DATA / trailing-HEADERS
+            //    frame bytes in `write_buf`. Body reads that return Pending leave the cursor in
+            //    place — the body's source will wake the driver task when it has bytes.
+            self.advance_outbound_sends(cx);
+
+            // 3. Flush any pending outbound — never re-poll reads when we still owe bytes to the
             //    peer, and never signal closure to the caller before the wire is clean.
             match self.poll_flush_outbound(cx) {
                 Poll::Ready(Ok(())) => {}
@@ -359,12 +543,12 @@ where
                 Poll::Pending => return Poll::Pending,
             }
 
-            // 3. If we were closing, outbound is now drained — we're done.
+            // 4. If we were closing, outbound is now drained — we're done.
             if self.state == DriverState::Closing {
                 return Poll::Ready(self.finish_with_current_outcome());
             }
 
-            // 4. Server-initiated shutdown check. Post-shutdown re-polls are harmless for this
+            // 5. Server-initiated shutdown check. Post-shutdown re-polls are harmless for this
             //    `ShuttingDown` (event_listener-backed, not single-shot), and begin_close flips us
             //    to `Closing` so the guard above returns before we get here again anyway.
             if Pin::new(&mut self.shutting_down).poll(cx).is_ready() {
@@ -372,7 +556,7 @@ where
                 continue;
             }
 
-            // 5. State-specific step.
+            // 6. State-specific step.
             match self.state {
                 DriverState::AwaitingPreface => match self.poll_read_preface(cx) {
                     Poll::Ready(Ok(())) => self.state = DriverState::NeedsServerSettings,
@@ -426,11 +610,16 @@ where
         !self.has_pending_handler_signals()
     }
 
-    /// Scan streams for handler-side signals that the driver should convert into outbound
-    /// frame bytes. Currently only the lazy `WINDOW_UPDATE` signal (`recv.is_reading`).
+    /// Scan streams for conn-task-side signals that the driver should turn into driver-internal
+    /// state. Two signals:
+    /// - `recv.is_reading` (lazy `WINDOW_UPDATE`): conn task declared intent to read the
+    ///   request body; emit a `WINDOW_UPDATE` topping the per-stream recv window up.
+    /// - `send.submission` (response handoff): conn task called `submit_send`; move the
+    ///   submission into the driver's private `SendCursor` so the next `advance_outbound_sends`
+    ///   tick can start framing.
     ///
-    /// Each stream's `StreamEntry` caches whether we've already advertised for that stream so
-    /// we don't re-emit on every scan.
+    /// Each stream's `StreamEntry` caches whether the corresponding driver-side action has
+    /// already happened so we don't re-emit on every scan.
     fn service_handler_signals(&mut self) {
         // Collect stream_ids first to avoid holding &mut self.streams across `queue_*` calls
         // (which take &mut self). Short-lived Vec; bounded by MAX_CONCURRENT_STREAMS.
@@ -448,14 +637,283 @@ where
         for stream_id in needs_advertise {
             self.queue_window_update(stream_id, MAX_STREAM_WINDOW);
         }
+
+        // Pick up new submissions. Iterate in place — `entry.send` is driver-private, no
+        // borrow conflict with `self.write_buf`.
+        for entry in self.streams.values_mut() {
+            if entry.send.is_some() {
+                continue;
+            }
+            let submission = entry
+                .shared
+                .send
+                .submission
+                .lock()
+                .expect("send submission mutex poisoned")
+                .take();
+            if let Some(submission) = submission {
+                let has_body = submission.body.is_some();
+                entry.send = Some(SendCursor {
+                    encoded_headers: submission.encoded_headers,
+                    headers_offset: 0,
+                    has_body,
+                    body: submission.body,
+                    trailers: None,
+                    phase: SendPhase::Headers,
+                });
+            }
+        }
     }
 
-    /// True if any stream has a signal pending that we haven't yet serviced. Used by `park`
-    /// to decide whether returning `Pending` is safe or whether we need to loop around.
+    /// True if any stream has a conn-task signal pending that we haven't yet serviced. Used by
+    /// `park` to decide whether returning `Pending` is safe or whether we need to loop around.
     fn has_pending_handler_signals(&self) -> bool {
+        self.streams.values().any(|e| {
+            (!e.window_advertised && e.shared.recv.is_reading.load(Ordering::Acquire))
+                || e.shared
+                    .send
+                    .submission
+                    .lock()
+                    .expect("send submission mutex poisoned")
+                    .is_some()
+        })
+    }
+
+    /// True if any stream has an in-progress `SendCursor` that could make synchronous progress
+    /// (i.e. is in a phase that doesn't require new external input). Used to decide whether to
+    /// re-enter the main loop after parking.
+    fn has_active_sends(&self) -> bool {
         self.streams
             .values()
-            .any(|e| !e.window_advertised && e.shared.recv.is_reading.load(Ordering::Acquire))
+            .any(|e| e.send.as_ref().is_some_and(|s| s.phase != SendPhase::Body))
+    }
+
+    /// Advance every active send by at most one step per tick (headers fragments are emitted
+    /// atomically per stream — RFC 9113 §6.10 forbids interleaving HEADERS+CONTINUATION with
+    /// any other frame on any other stream). Body reads that return Pending leave the cursor
+    /// in place; the body's source will wake the driver task when bytes are available.
+    fn advance_outbound_sends(&mut self, cx: &mut Context<'_>) {
+        let stream_ids: Vec<u32> = self.streams.keys().copied().collect();
+        for stream_id in stream_ids {
+            self.advance_one_send(stream_id, cx);
+        }
+    }
+
+    /// Advance one stream's `SendCursor` by one frame's worth of work, with the §6.10
+    /// exception: in `Headers` phase we keep emitting fragments back-to-back until `END_HEADERS`
+    /// is set. Other phases emit at most one frame per tick to keep streams roughly fair.
+    fn advance_one_send(&mut self, stream_id: u32, cx: &mut Context<'_>) {
+        let Some(mut send) = self
+            .streams
+            .get_mut(&stream_id)
+            .and_then(|e| e.send.take())
+        else {
+            return;
+        };
+
+        loop {
+            match send.phase {
+                SendPhase::Headers => {
+                    // §6.10 forbids interleaving HEADERS+CONTINUATION with any other frame,
+                    // including frames on other streams. The unconditional loop iteration that
+                    // follows keeps emitting fragments while still in Headers, or moves into
+                    // the new phase this tick if transitioned (avoiding an extra park cycle).
+                    self.emit_one_headers_fragment(stream_id, &mut send);
+                }
+                SendPhase::Body => match self.poll_emit_one_data(stream_id, &mut send, cx) {
+                    Poll::Ready(Ok(())) => {
+                        // Body returned Ready(N>0) (emitted DATA, still Body) or Ready(0)
+                        // (transitioned to Trailers). On transition, run the new phase this
+                        // tick; on stay-in-Body, yield to the next stream.
+                        if send.phase == SendPhase::Body {
+                            break;
+                        }
+                    }
+                    Poll::Ready(Err(e)) => {
+                        self.complete_and_remove_stream(stream_id, Err(e));
+                        return;
+                    }
+                    Poll::Pending => break, // body's source will wake the driver task
+                },
+                SendPhase::Trailers => {
+                    // Always transitions to Complete; the next loop iteration fires it.
+                    self.emit_trailers_or_end_stream(stream_id, &mut send);
+                }
+                SendPhase::Complete => {
+                    self.complete_and_remove_stream(stream_id, Ok(()));
+                    return;
+                }
+            }
+        }
+
+        // Cursor still active — put it back.
+        if let Some(entry) = self.streams.get_mut(&stream_id) {
+            entry.send = Some(send);
+        }
+    }
+
+    /// Signal send completion on the stream's `StreamState`, then remove the stream from both
+    /// the driver's private map and `H2Connection.streams`. After this the conn task's pending
+    /// `SubmitSend` future will see `completed = true` on its next poll and resolve.
+    fn complete_and_remove_stream(&mut self, stream_id: u32, result: io::Result<()>) {
+        if let Some(entry) = self.streams.remove(&stream_id) {
+            signal_send_completion(&entry.shared, result);
+        }
+        self.connection
+            .streams
+            .lock()
+            .expect("connection streams mutex poisoned")
+            .remove(&stream_id);
+    }
+
+    /// Emit one HEADERS or CONTINUATION fragment from `send.encoded_headers`. Transitions
+    /// `send.phase` to `Body` / `Trailers` / `Complete` once `END_HEADERS` is set. The first
+    /// fragment is HEADERS; subsequent fragments (when `headers_offset > 0`) are CONTINUATION.
+    fn emit_one_headers_fragment(&mut self, stream_id: u32, send: &mut SendCursor) {
+        let max_payload = self.peer_max_frame_size as usize;
+        let remaining = send.encoded_headers.len() - send.headers_offset;
+        let chunk_len = remaining.min(max_payload);
+        let end_headers = chunk_len == remaining;
+        let is_first = send.headers_offset == 0;
+        let chunk_len_u32 = u32::try_from(chunk_len).expect("chunk_len <= peer_max_frame_size u32");
+
+        if is_first {
+            // Final HEADERS fragment with no body and no trailers carries END_STREAM.
+            let end_stream = end_headers && !send.has_body;
+            let prefix_len = frame::headers::encoded_prefix_len(0, false);
+            let start = self.write_buf.len();
+            self.write_buf.resize(start + prefix_len, 0);
+            frame::headers::encode_prefix(
+                stream_id,
+                end_stream,
+                end_headers,
+                None,
+                chunk_len_u32,
+                0,
+                &mut self.write_buf[start..],
+            )
+            .expect("buffer sized from encoded_prefix_len");
+        } else {
+            let prefix_len = frame::continuation::ENCODED_PREFIX_LEN;
+            let start = self.write_buf.len();
+            self.write_buf.resize(start + prefix_len, 0);
+            frame::continuation::encode_prefix(
+                stream_id,
+                end_headers,
+                chunk_len_u32,
+                &mut self.write_buf[start..],
+            )
+            .expect("buffer sized from ENCODED_PREFIX_LEN");
+        }
+
+        // Append the header-block fragment payload.
+        self.write_buf
+            .extend_from_slice(&send.encoded_headers[send.headers_offset..send.headers_offset + chunk_len]);
+        send.headers_offset += chunk_len;
+        self.write_flush_pending = true;
+
+        if end_headers {
+            send.phase = if send.has_body {
+                SendPhase::Body
+            } else {
+                // The single HEADERS fragment carried END_STREAM (or final CONTINUATION did
+                // not — but our encoder above only sets END_STREAM on the *first* fragment, so
+                // for the multi-fragment + no-body case we'd need an extra empty DATA. That
+                // case is unreachable today: response headers always fit comfortably in one
+                // peer-default 16 KiB frame, but still — guard with a Trailers transition that
+                // the next tick will turn into an empty DATA(END_STREAM).
+                if is_first {
+                    SendPhase::Complete
+                } else {
+                    SendPhase::Trailers
+                }
+            };
+        }
+    }
+
+    /// Poll the body for one DATA chunk. On `Ready(Ok(0))`, takes trailers off the body and
+    /// transitions to `Trailers`. On `Ready(Ok(n))`, emits one DATA frame (no `END_STREAM`).
+    /// On `Pending`, the cursor stays in `Body` — body's source will wake the driver task.
+    fn poll_emit_one_data(
+        &mut self,
+        stream_id: u32,
+        send: &mut SendCursor,
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<()>> {
+        let Some(body) = send.body.as_mut() else {
+            // Body already drained but somehow we're still in Body phase — treat as 0-byte EOF.
+            send.phase = SendPhase::Trailers;
+            return Poll::Ready(Ok(()));
+        };
+
+        let n = ready!(Pin::new(body).poll_read(cx, &mut self.body_scratch))?;
+        if n == 0 {
+            // Body drained. Take trailers off it, drop the body, transition.
+            send.trailers = send.body.as_mut().and_then(Body::trailers);
+            send.body = None;
+            send.phase = SendPhase::Trailers;
+            return Poll::Ready(Ok(()));
+        }
+
+        let n_u32 = u32::try_from(n).expect("read n <= peer_max_frame_size u32");
+        let prefix_len = frame::data::encoded_prefix_len(0);
+        let start = self.write_buf.len();
+        self.write_buf.resize(start + prefix_len, 0);
+        frame::data::encode_prefix(
+            stream_id,
+            false, // never END_STREAM here; trailers / empty-DATA carries END_STREAM
+            n_u32,
+            0,
+            &mut self.write_buf[start..],
+        )
+        .expect("buffer sized from encoded_prefix_len");
+        self.write_buf
+            .extend_from_slice(&self.body_scratch[..n]);
+        self.write_flush_pending = true;
+        Poll::Ready(Ok(()))
+    }
+
+    /// Emit either a trailing HEADERS (with `END_STREAM`) if the response has trailers, or an
+    /// empty `DATA(END_STREAM)` frame as the stream terminator. Transitions to `Complete` so the
+    /// next tick fires the conn-task completion signal.
+    fn emit_trailers_or_end_stream(&mut self, stream_id: u32, send: &mut SendCursor) {
+        if let Some(trailers) = send.trailers.take() {
+            // Encode trailers via the static-or-literal HPACK encoder. Trailers carry no
+            // pseudo-headers (response status/etc. are already in the HEADERS frame).
+            let mut block = Vec::new();
+            crate::headers::hpack::encode(
+                &crate::headers::hpack::FieldSection::new(
+                    crate::headers::hpack::PseudoHeaders::default(),
+                    &trailers,
+                ),
+                &mut block,
+            );
+            // Trailing HEADERS: END_HEADERS=true, END_STREAM=true.
+            let block_len_u32 = u32::try_from(block.len()).expect("trailers block fits u32");
+            let prefix_len = frame::headers::encoded_prefix_len(0, false);
+            let start = self.write_buf.len();
+            self.write_buf.resize(start + prefix_len, 0);
+            frame::headers::encode_prefix(
+                stream_id,
+                true,
+                true,
+                None,
+                block_len_u32,
+                0,
+                &mut self.write_buf[start..],
+            )
+            .expect("buffer sized from encoded_prefix_len");
+            self.write_buf.extend_from_slice(&block);
+        } else {
+            // No trailers — empty DATA frame with END_STREAM as the stream terminator.
+            let prefix_len = frame::data::encoded_prefix_len(0);
+            let start = self.write_buf.len();
+            self.write_buf.resize(start + prefix_len, 0);
+            frame::data::encode_prefix(stream_id, true, 0, 0, &mut self.write_buf[start..])
+                .expect("buffer sized from encoded_prefix_len");
+        }
+        self.write_flush_pending = true;
+        send.phase = SendPhase::Complete;
     }
 
     /// Convert the current `close_outcome` into the terminal return of `poll_next`. Must only be
@@ -906,6 +1364,18 @@ where
             .expect("ENCODED_LEN matches fixed rst_stream size");
         self.write_flush_pending = true;
     }
+}
+
+/// Store the send result on `StreamState`, flip `completed`, wake the conn-task waker. Lone
+/// free fn so the driver can call it from inside an `&mut self` borrow chain without a re-lookup.
+fn signal_send_completion(state: &StreamState, result: io::Result<()>) {
+    *state
+        .send
+        .completion_result
+        .lock()
+        .expect("completion_result mutex poisoned") = Some(result);
+    state.send.completed.store(true, Ordering::Release);
+    state.send.completion_waker.wake();
 }
 
 /// Slice the interesting bytes out of a just-read frame. Bounds-checks to defend against a

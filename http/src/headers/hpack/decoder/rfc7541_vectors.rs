@@ -342,7 +342,7 @@ fn c_5_response_sequence_with_eviction() {
     assert_table_size(&table, 215);
 }
 
-/// Sanity: FieldLineValue for decoded dynamic-table entries should be Owned (came from the
+/// Sanity: `FieldLineValue` for decoded dynamic-table entries should be Owned (came from the
 /// wire, not static string slices).
 #[test]
 fn inserted_values_are_owned() {

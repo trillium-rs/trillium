@@ -3,7 +3,7 @@
 //! The QPACK offline-interop corpus ships precomputed encoder outputs under
 //! `tests/qifs/encoded/qpack-06/{encoder}/{stem}.out.{cap}.{blocked}.{variant}`. Each
 //! file is a sequence of records: `[8-byte stream_id][4-byte length][length bytes of
-//! payload]`. `stream_id == 0` means encoder-stream instructions; any other stream_id is
+//! payload]`. `stream_id == 0` means encoder-stream instructions; any other `stream_id` is
 //! a header block for that stream. This module walks those records and classifies each
 //! instruction into a [`WireHistogram`] that can be compared, bucket for bucket, against
 //! a histogram derived from our own encoder output.
@@ -61,12 +61,12 @@ pub(in crate::headers::qpack) struct WireHistogram {
     pub(in crate::headers::qpack) literal_post_base_name_ref: u64,
     pub(in crate::headers::qpack) literal_literal_name: u64,
     // --- aggregates ---
-    /// Number of non-zero stream_id records seen (header blocks). Zero for our own
+    /// Number of non-zero `stream_id` records seen (header blocks). Zero for our own
     /// aggregated classification; the caller bumps this as it processes each section.
     pub(in crate::headers::qpack) n_sections: u64,
     /// Bytes spent in header-block records.
     pub(in crate::headers::qpack) section_bytes: u64,
-    /// Bytes spent in encoder-stream records (stream_id = 0).
+    /// Bytes spent in encoder-stream records (`stream_id` = 0).
     pub(in crate::headers::qpack) encoder_stream_bytes: u64,
 }
 
@@ -91,7 +91,7 @@ impl WireHistogram {
     }
 
     /// Convenience: total encoder-stream inserts of any flavor (literal name, static
-    /// name ref, dynamic name ref). Excludes Duplicate and SetCapacity.
+    /// name ref, dynamic name ref). Excludes Duplicate and `SetCapacity`.
     pub(in crate::headers::qpack) fn inserts_total(&self) -> u64 {
         self.insert_literal_name + self.insert_static_name_ref + self.insert_dynamic_name_ref
     }
@@ -212,16 +212,16 @@ pub(in crate::headers::qpack) fn classify_header_block(bytes: &[u8], hist: &mut 
 /// between the previous group and this group's header block, plus the header-block bytes
 /// themselves. Groups are ordered as written on the wire.
 pub(in crate::headers::qpack) struct OutGroup {
-    /// Zero or more encoder-stream record payloads (stream_id = 0). Concatenated, they
+    /// Zero or more encoder-stream record payloads (`stream_id` = 0). Concatenated, they
     /// form the encoder-stream instruction sequence this group prepared.
     pub(in crate::headers::qpack) enc_stream: Vec<Vec<u8>>,
-    /// The header-block record payload (stream_id = this group's stream_id). Includes
+    /// The header-block record payload (`stream_id` = this group's `stream_id`). Includes
     /// the §4.5.1 prefix.
     pub(in crate::headers::qpack) header_block: Vec<u8>,
 }
 
-/// Parse a reference `.out` file into an ordered list of groups. Every non-zero stream_id
-/// record becomes one group; preceding zero stream_id records are attached to it.
+/// Parse a reference `.out` file into an ordered list of groups. Every non-zero `stream_id`
+/// record becomes one group; preceding zero `stream_id` records are attached to it.
 /// Returns `None` if the file does not exist.
 pub(in crate::headers::qpack) fn parse_out_groups(path: &Path) -> Option<Vec<OutGroup>> {
     let data = std::fs::read(path).ok()?;
@@ -338,7 +338,7 @@ fn render_value(bytes: &[u8]) -> String {
             b'\n' => out.push_str("\\n"),
             b'\r' => out.push_str("\\r"),
             b'\t' => out.push_str("\\t"),
-            _ => out.push_str(&format!("\\x{:02x}", b)),
+            _ => out.push_str(&format!("\\x{b:02x}")),
         }
     }
     out.push('"');

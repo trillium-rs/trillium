@@ -9,7 +9,7 @@
 use super::*;
 
 /// Observer ticks to drive for "hot": enough to push the EMA well above the 30%
-/// priming-fraction threshold at the default half-life of 10_000.
+/// priming-fraction threshold at the default half-life of `10_000`.
 const OBSERVATIONS: usize = 500;
 
 /// Build a context whose observer has been driven through `sections` ticks of the

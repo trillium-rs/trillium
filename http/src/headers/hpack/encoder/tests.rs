@@ -78,7 +78,7 @@ fn no_match_literal_name_value() {
     );
 }
 
-/// A known header with a non-matching value should use NameMatch.
+/// A known header with a non-matching value should use `NameMatch`.
 /// `content-type: application/json` — name-match on static index 31, literal value.
 #[test]
 fn name_match_known_header() {

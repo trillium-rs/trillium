@@ -15,7 +15,7 @@ use futures_lite::future::block_on;
 /// Test-only inspection and mutation helpers on [`EncoderDynamicTable`]. Production code
 /// drives the table through the `encode` / `initialize_from_peer_settings` surface and the
 /// ack/cancel/increment handlers; these wrappers exist so unit tests can exercise the
-/// state-layer primitives directly (insert, set_capacity, reverse-index lookup, blocked-
+/// state-layer primitives directly (insert, `set_capacity`, reverse-index lookup, blocked-
 /// streams accounting) without having to stand up a full field-section flow.
 impl EncoderDynamicTable {
     /// The current `insert_count` — total entries ever inserted.

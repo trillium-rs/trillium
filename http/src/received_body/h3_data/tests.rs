@@ -76,7 +76,7 @@ fn grease_frame(n: u64, payload: &[u8]) -> Vec<u8> {
     buf
 }
 
-/// Helper to call h3_frame_decode and return (state, output_bytes).
+/// Helper to call `h3_frame_decode` and return (state, `output_bytes`).
 fn decode(
     remaining_in_frame: u64,
     total: u64,

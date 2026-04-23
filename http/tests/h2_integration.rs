@@ -22,10 +22,13 @@ use trillium_http::{
 const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 /// `h2` frame-type bytes we care about in the raw tests.
+const FRAME_TYPE_DATA: u8 = 0x0;
+const FRAME_TYPE_HEADERS: u8 = 0x1;
 const FRAME_TYPE_SETTINGS: u8 = 0x4;
 const FRAME_TYPE_GOAWAY: u8 = 0x7;
 const FRAME_TYPE_WINDOW_UPDATE: u8 = 0x8;
 const FLAG_ACK: u8 = 0x1;
+const FLAG_END_STREAM: u8 = 0x1;
 
 /// `SETTINGS_INITIAL_WINDOW_SIZE` (RFC 9113 §6.5.2).
 const SETTINGS_INITIAL_WINDOW_SIZE: u16 = 0x4;
@@ -59,6 +62,39 @@ where
         }
     });
     (conn_handle, rx, join)
+}
+
+/// Like `spawn_server`, but spawns a per-stream task that runs the provided handler and then
+/// `send_h2`. Use for tests that need round-trip request → response semantics rather than
+/// just observing the opened Conn.
+fn spawn_h2_server_with_handler<T, F, Fut>(
+    transport: T,
+    handler: F,
+) -> (Arc<H2Connection>, tokio::task::JoinHandle<()>)
+where
+    T: futures_lite::io::AsyncRead + futures_lite::io::AsyncWrite + Unpin + Send + 'static,
+    F: Fn(Conn<H2Transport>) -> Fut + Send + Sync + Clone + 'static,
+    Fut: std::future::Future<Output = Conn<H2Transport>> + Send + 'static,
+{
+    let _ = env_logger::try_init();
+    let context = Arc::new(HttpContext::default());
+    let conn = H2Connection::new(context);
+    let conn_handle = conn.clone();
+    let join = tokio::spawn(async move {
+        let mut acceptor = conn.run(transport);
+        loop {
+            match acceptor.next().await {
+                Ok(None) | Err(_) => break,
+                Ok(Some(c)) => {
+                    let handler = handler.clone();
+                    tokio::spawn(async move {
+                        let _ = H2Connection::process_inbound(c, handler).await;
+                    });
+                }
+            }
+        }
+    });
+    (conn_handle, join)
 }
 
 /// Handshake + PING round-trip against hyper's `h2` client, then graceful shutdown.
@@ -361,6 +397,84 @@ async fn lazy_window_update_gated_on_first_poll_read() {
     server_task.await.expect("server task panicked");
 }
 
+/// First end-to-end submit_send: send a GET, run a handler that returns a small body, observe
+/// the response on the wire (HEADERS without END_STREAM, DATA with body bytes, empty
+/// DATA(END_STREAM) terminator). Exercises the full step-3 pipeline:
+///   - acceptor opens stream → conn task receives Conn,
+///   - handler sets status + body,
+///   - send_h2 pre-encodes HEADERS, calls submit_send,
+///   - driver picks up the submission, frames HEADERS / DATA / empty-DATA(END_STREAM),
+///   - completion signals back to the conn task.
+#[tokio::test]
+async fn small_get_returns_response_body_end_to_end() {
+    use trillium_http::Status;
+
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (server_conn, server_task) = spawn_h2_server_with_handler(
+        Compat::new(server_io),
+        |conn| async move {
+            conn.with_status(Status::Ok)
+                .with_response_body("hello, h2")
+        },
+    );
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_empty_settings(&mut client_io).await;
+
+    // GET / on stream 1 with END_STREAM (no request body).
+    let mut block = vec![0x82, 0x87]; // :method GET (2), :scheme https (7)
+    block.push(0x44); // :path literal, name index 4
+    block.push(b"/".len() as u8);
+    block.extend_from_slice(b"/");
+    block.push(0x41); // :authority literal, name index 1
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+    write_frame(&mut client_io, FRAME_TYPE_HEADERS, 0x4 | 0x1, 1, &block).await;
+
+    // Drain server frames. Ack the server's SETTINGS along the way.
+    let mut got_response_headers = false;
+    let mut response_body = Vec::new();
+    let mut got_end_stream = false;
+    while !got_end_stream {
+        let (hdr, payload) = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            read_frame(&mut client_io),
+        )
+        .await
+        .expect("server stalled emitting response");
+
+        match hdr.frame_type {
+            FRAME_TYPE_SETTINGS if hdr.flags & FLAG_ACK == 0 => {
+                write_settings_ack(&mut client_io).await;
+            }
+            FRAME_TYPE_HEADERS if hdr.stream_id == 1 => {
+                got_response_headers = true;
+                if hdr.flags & FLAG_END_STREAM != 0 {
+                    got_end_stream = true;
+                }
+            }
+            FRAME_TYPE_DATA if hdr.stream_id == 1 => {
+                response_body.extend_from_slice(&payload);
+                if hdr.flags & FLAG_END_STREAM != 0 {
+                    got_end_stream = true;
+                }
+            }
+            _ => {} // SETTINGS ACKs, WINDOW_UPDATEs, etc.
+        }
+    }
+
+    assert!(got_response_headers, "response HEADERS observed");
+    assert_eq!(
+        response_body,
+        b"hello, h2",
+        "DATA frames carry the handler's response body"
+    );
+
+    drop(client_io);
+    server_conn.shut_down();
+    server_task.await.expect("server task panicked");
+}
+
 /// Parse a raw SETTINGS payload into (id, value) pairs. Each entry is 6 bytes: u16 id, u32 value.
 fn parse_settings(payload: &[u8]) -> Vec<(u16, u32)> {
     payload
@@ -401,6 +515,14 @@ async fn write_empty_settings(client: &mut DuplexStream) {
     let mut buf = [0u8; 9];
     // length = 0, type = SETTINGS, flags = 0, stream_id = 0
     buf[3] = FRAME_TYPE_SETTINGS;
+    client.write_all(&buf).await.unwrap();
+}
+
+/// Writes a zero-length client SETTINGS ACK frame.
+async fn write_settings_ack(client: &mut DuplexStream) {
+    let mut buf = [0u8; 9];
+    buf[3] = FRAME_TYPE_SETTINGS;
+    buf[4] = FLAG_ACK;
     client.write_all(&buf).await.unwrap();
 }
 

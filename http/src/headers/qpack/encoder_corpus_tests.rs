@@ -397,7 +397,7 @@ fn dump_group(
                 writer,
                 "    hdr.prefix: enc_ric={} sign={} delta_base={}",
                 prefix.encoded_required_insert_count,
-                prefix.base_is_negative as u8,
+                u8::from(prefix.base_is_negative),
                 prefix.delta_base,
             );
             for instr in lines {
@@ -418,7 +418,7 @@ fn dump_enc_and_hdr(writer: &mut BufWriter<File>, enc: &[u8], hdr: &[u8]) {
         let _ = writeln!(
             writer,
             "    hdr.prefix: enc_ric={} sign={} delta_base={}",
-            prefix.encoded_required_insert_count, prefix.base_is_negative as u8, prefix.delta_base,
+            prefix.encoded_required_insert_count, u8::from(prefix.base_is_negative), prefix.delta_base,
         );
         for instr in lines {
             let _ = writeln!(writer, "    hdr: {}", render_field_line(&instr));
@@ -444,7 +444,7 @@ fn render_bytes_for_dump(bytes: &[u8]) -> String {
             b'\n' => out.push_str("\\n"),
             b'\r' => out.push_str("\\r"),
             b'\t' => out.push_str("\\t"),
-            _ => out.push_str(&format!("\\x{:02x}", b)),
+            _ => out.push_str(&format!("\\x{b:02x}")),
         }
     }
     out.push('"');
@@ -520,7 +520,7 @@ fn parse_chunk_sizes() -> Vec<Option<usize>> {
         None => vec![None],
         Some(s) => s
             .split(',')
-            .map(|tok| tok.trim())
+            .map(str::trim)
             .filter(|tok| !tok.is_empty())
             .map(|tok| match tok {
                 "inf" | "∞" => None,
@@ -625,9 +625,7 @@ fn qpack_encoder_corpus() {
                     qif_path.display(),
                     config.capacity,
                     config.max_blocked,
-                    chunk_size
-                        .map(|n| n.to_string())
-                        .unwrap_or_else(|| "inf".to_string()),
+                    chunk_size.map_or_else(|| "inf".to_string(), |n| n.to_string()),
                 );
                 // Dump writer only opens when unchunked — avoids a meaningless
                 // their-side diff in chunked runs.
@@ -719,7 +717,7 @@ fn qpack_encoder_corpus() {
             let unchunked: Vec<_> = metric
                 .iter()
                 .filter(|row| row.0.is_none())
-                .map(|(_, stem, c, s, r, w)| (stem.clone(), *c, *s, r.clone(), w.clone()))
+                .map(|(_, stem, c, s, r, w)| (stem.clone(), *c, *s, r.clone(), *w))
                 .collect();
             print_metric_report(&unchunked);
         }
@@ -749,8 +747,7 @@ fn print_curve_report(
     );
 
     let fmt_cs = |cs: Option<usize>| -> String {
-        cs.map(|n| format!("N={n}"))
-            .unwrap_or_else(|| "N=inf".into())
+        cs.map_or_else(|| "N=inf".into(), |n| format!("N={n}"))
     };
 
     // Build: (stem, cap, blk) -> chunk_size -> total bytes.
