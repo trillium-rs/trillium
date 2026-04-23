@@ -24,7 +24,11 @@ const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 /// `h2` frame-type bytes we care about in the raw tests.
 const FRAME_TYPE_SETTINGS: u8 = 0x4;
 const FRAME_TYPE_GOAWAY: u8 = 0x7;
+const FRAME_TYPE_WINDOW_UPDATE: u8 = 0x8;
 const FLAG_ACK: u8 = 0x1;
+
+/// `SETTINGS_INITIAL_WINDOW_SIZE` (RFC 9113 §6.5.2).
+const SETTINGS_INITIAL_WINDOW_SIZE: u16 = 0x4;
 
 fn spawn_server<T>(
     transport: T,
@@ -250,6 +254,118 @@ async fn handler_reads_request_body_from_data_frame() {
     drop(client_io);
     conn.shut_down();
     server_task.await.expect("server task panicked");
+}
+
+/// The server advertises `SETTINGS_INITIAL_WINDOW_SIZE = 0` so the peer cannot send any DATA
+/// until the handler declares intent to read the request body. `WINDOW_UPDATE` is emitted only
+/// after that signal — a handler that never reads its body costs zero extra frames on the wire.
+///
+/// The test drives three observations in order:
+/// 1. Initial SETTINGS from the server includes `INITIAL_WINDOW_SIZE = 0`.
+/// 2. After HEADERS for a POST stream (no `END_STREAM`), the server does NOT emit `WINDOW_UPDATE`.
+/// 3. Once the handler calls `poll_read` on the `H2Transport`, the server DOES emit `WINDOW_UPDATE`
+///    for that stream.
+#[tokio::test]
+async fn lazy_window_update_gated_on_first_poll_read() {
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (conn, mut streams, server_task) = spawn_server(Compat::new(server_io));
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_empty_settings(&mut client_io).await;
+
+    // (1) Initial SETTINGS from server advertises INITIAL_WINDOW_SIZE = 0.
+    let (hdr, payload) = read_frame(&mut client_io).await;
+    assert_eq!(hdr.frame_type, FRAME_TYPE_SETTINGS);
+    assert_eq!(hdr.flags & FLAG_ACK, 0, "first frame is non-ACK SETTINGS");
+    let iws = parse_settings(&payload)
+        .into_iter()
+        .find_map(|(id, value)| (id == SETTINGS_INITIAL_WINDOW_SIZE).then_some(value))
+        .expect("INITIAL_WINDOW_SIZE present in server SETTINGS");
+    assert_eq!(iws, 0, "server advertises INITIAL_WINDOW_SIZE=0");
+
+    // Consume the SETTINGS ACK that follows our client SETTINGS so subsequent reads are
+    // positioned at WINDOW_UPDATE (or absence thereof).
+    let (hdr, _) = read_frame(&mut client_io).await;
+    assert_eq!(hdr.frame_type, FRAME_TYPE_SETTINGS);
+    assert_eq!(hdr.flags & FLAG_ACK, FLAG_ACK, "peer SETTINGS ACK");
+
+    // HEADERS for `POST /upload` without END_STREAM (body will follow eventually — we just
+    // need the driver to open the stream).
+    let mut block = vec![0x83, 0x87]; // :method POST (3), :scheme https (7)
+    block.push(0x44); // :path literal, name index 4
+    block.push(b"/upload".len() as u8);
+    block.extend_from_slice(b"/upload");
+    block.push(0x41); // :authority literal, name index 1
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+    write_frame(&mut client_io, 0x1, 0x4, 1, &block).await; // END_HEADERS only
+
+    // (2) After HEADERS, no WINDOW_UPDATE yet — poll with a timeout to confirm absence.
+    let mut transport = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
+        .await
+        .expect("acceptor did not emit a stream within 2s")
+        .expect("acceptor closed before emitting a stream");
+    assert_eq!(transport.stream_id(), 1);
+
+    let no_wu = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        read_frame(&mut client_io),
+    )
+    .await;
+    assert!(
+        no_wu.is_err(),
+        "no frame should be sent before handler reads"
+    );
+
+    // (3) Handler polls read (returns Pending, but the is-reading signal fires).
+    let mut scratch = [0u8; 1];
+    // Poll once directly rather than using `read` — a Pending return is the expected outcome
+    // (no body bytes yet), but the side effect (CAS on `is_reading` + waking the driver) is
+    // the observable we care about.
+    let mut fut = futures_lite::future::poll_once(futures_lite::AsyncReadExt::read(
+        &mut transport,
+        &mut scratch,
+    ));
+    let _ = (&mut fut).await;
+
+    // The driver should now emit WINDOW_UPDATE for stream 1.
+    let (hdr, payload) = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        read_frame(&mut client_io),
+    )
+    .await
+    .expect("WINDOW_UPDATE not received within 2s");
+    assert_eq!(
+        hdr.frame_type, FRAME_TYPE_WINDOW_UPDATE,
+        "expected WINDOW_UPDATE after first poll_read"
+    );
+    assert_eq!(hdr.stream_id, 1, "stream-level WINDOW_UPDATE for stream 1");
+    assert_eq!(payload.len(), 4);
+    let increment =
+        u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]) & 0x7FFF_FFFF;
+    assert_eq!(
+        increment,
+        64 * 1024,
+        "window topped up to MAX_STREAM_WINDOW"
+    );
+
+    drop(transport);
+    drop(client_io);
+    conn.shut_down();
+    server_task.await.expect("server task panicked");
+}
+
+/// Parse a raw SETTINGS payload into (id, value) pairs. Each entry is 6 bytes: u16 id, u32 value.
+fn parse_settings(payload: &[u8]) -> Vec<(u16, u32)> {
+    payload
+        .chunks_exact(6)
+        .map(|c| {
+            (
+                u16::from_be_bytes([c[0], c[1]]),
+                u32::from_be_bytes([c[2], c[3], c[4], c[5]]),
+            )
+        })
+        .collect()
 }
 
 /// Writes one HTTP/2 frame with the given type, flags, stream id, and payload.

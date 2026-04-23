@@ -118,6 +118,12 @@ impl H2Settings {
             enable_push: Some(false),
             max_concurrent_streams: Some(100),
             max_header_list_size: Some(8192),
+            // INITIAL_WINDOW_SIZE = 0: the peer cannot send any body bytes on a new stream
+            // until we issue a `WINDOW_UPDATE`. We do that only once the handler declares
+            // intent to consume the body (via `H2Transport::poll_read`), so a handler that
+            // never reads its request body never pays for the bytes. Phase 7 makes this
+            // configurable via `HttpConfig::h2_initial_stream_window`.
+            initial_window_size: Some(0),
             grease_id,
             grease_value: fastrand::u32(..),
             ..Default::default()

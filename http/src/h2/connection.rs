@@ -20,13 +20,14 @@ use super::{
     transport::{H2Transport, StreamState},
 };
 use crate::{HttpContext, headers::hpack::HpackDecoder};
+use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     collections::HashMap,
     future::poll_fn,
     io,
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, atomic::Ordering},
     task::{Context, Poll, ready},
 };
 use swansong::{ShutdownCompletion, ShuttingDown, Swansong};
@@ -45,15 +46,15 @@ const MAX_BUFFER_SIZE: usize = 1 << 20;
 /// hardcoded to match the default we advertise.
 const HPACK_TABLE_SIZE: usize = 4096;
 
-/// Per-stream recv flow-control window we'll advertise once a request body is wanted. Bounds the
-/// peer's in-flight DATA per stream and our per-stream recv buffer footprint. Phase 7 will pull
-/// this from `HttpConfig::h2_max_stream_window`; defaulting to 64 KiB matches Chrome / Firefox /
-/// hyper.
+/// Per-stream recv flow-control window we top the peer up to once a handler declares intent to
+/// consume its request body (via [`H2Transport::poll_read`]). Bounds the peer's in-flight DATA
+/// per stream and our per-stream recv buffer footprint. Phase 7 will pull this from
+/// `HttpConfig::h2_max_stream_window`; defaulting to 64 KiB matches Chrome / Firefox / hyper.
 ///
-/// Until lazy `WINDOW_UPDATE` wiring lands, the acceptor emits this eagerly when a stream
-/// opens — the peer can immediately send up to this many body bytes whether the handler will
-/// read them or not. The `h2_initial_stream_window` knob (default 0) plus lazy emission lands
-/// alongside the cross-task wake mechanism.
+/// We advertise `INITIAL_WINDOW_SIZE = 0` in server SETTINGS — the peer cannot send any body
+/// bytes until the driver emits a `WINDOW_UPDATE` for the stream, which it does only after
+/// observing the handler's is-reading signal. A handler that never reads its body costs one
+/// HEADERS frame and nothing more.
 const MAX_STREAM_WINDOW: u32 = 64 * 1024;
 
 /// Shared per-connection state for HTTP/2.
@@ -67,13 +68,22 @@ const MAX_STREAM_WINDOW: u32 = 64 * 1024;
 pub struct H2Connection {
     context: Arc<HttpContext>,
     swansong: Swansong,
+    /// Driver-side waker that handler tasks fire whenever they produce work the driver should
+    /// act on — for now just the is-reading signal on first `H2Transport::poll_read`, in phase
+    /// 4 also the `submit_response` arrival. Single-consumer (the driver); N producers (handler
+    /// tasks). The driver registers its current `poll_next` waker here each iteration it parks.
+    pub(super) outbound_waker: AtomicWaker,
 }
 
 impl H2Connection {
     /// Construct a new `H2Connection` to manage HTTP/2 for a single peer.
     pub fn new(context: Arc<HttpContext>) -> Arc<Self> {
         let swansong = context.swansong().child();
-        Arc::new(Self { context, swansong })
+        Arc::new(Self {
+            context,
+            swansong,
+            outbound_waker: AtomicWaker::new(),
+        })
     }
 
     /// The [`HttpContext`] this connection was constructed with.
@@ -152,8 +162,10 @@ pub struct H2Acceptor<T> {
     hpack: HpackDecoder,
 
     /// Per-stream state, keyed by stream id. Driver-only — handler tasks hold their own
-    /// `Arc<StreamState>` via [`H2Transport`] and don't consult this table.
-    streams: HashMap<u32, Arc<StreamState>>,
+    /// `Arc<StreamState>` via [`H2Transport`] and don't consult this table. The entry bundles
+    /// the shared state with driver-private bookkeeping (e.g. "have we already advertised the
+    /// recv window after seeing `is_reading`?").
+    streams: HashMap<u32, StreamEntry>,
 
     /// Highest peer-initiated stream id seen so far. Peer-initiated (client) stream ids must be
     /// odd and strictly increasing per RFC 9113 §5.1.1.
@@ -214,6 +226,32 @@ struct PendingHeaders {
     stream_id: u32,
     end_stream: bool,
     assembled: Vec<u8>,
+}
+
+/// Driver-side view of a single open stream: the shared state the handler also sees, plus a
+/// cache of decisions the driver has made for this stream (which the handler doesn't need to
+/// know). Grows as phase 3 / phase 4 add state machine and flow-control bookkeeping.
+#[derive(Debug)]
+struct StreamEntry {
+    /// Shared state (recv buffer, send side eventually, handler wakers). Owned by `Arc` so the
+    /// handler task can outlive or operate concurrently with the driver's view.
+    shared: Arc<StreamState>,
+
+    /// `true` once the driver has emitted a `WINDOW_UPDATE` in response to the handler's first
+    /// `poll_read` (via `recv.is_reading`). Stops duplicate emissions — every subsequent
+    /// `poll_next` scan observes `is_reading == true` but we only top up the window once.
+    /// Phase 7's refill-as-handler-drains model will reuse this slot as the live advertised
+    /// count rather than a boolean.
+    window_advertised: bool,
+}
+
+impl StreamEntry {
+    fn new(shared: Arc<StreamState>) -> Self {
+        Self {
+            shared,
+            window_advertised: false,
+        }
+    }
 }
 
 /// Result of dispatching one decoded frame.
@@ -290,8 +328,13 @@ where
         }
 
         loop {
-            // 1. Flush any pending outbound first — never re-poll reads when we still owe bytes to
-            //    the peer, and never signal closure to the caller before the wire is clean.
+            // 1. Handler-produced signals. Turn handler intents into outbound frame bytes so the
+            //    flush step below includes them on this iteration. Cheap scan — O(streams) plus
+            //    O(signals) per tick.
+            self.service_handler_signals();
+
+            // 2. Flush any pending outbound — never re-poll reads when we still owe bytes to the
+            //    peer, and never signal closure to the caller before the wire is clean.
             match self.poll_flush_outbound(cx) {
                 Poll::Ready(Ok(())) => {}
                 Poll::Ready(Err(e)) => {
@@ -305,12 +348,12 @@ where
                 Poll::Pending => return Poll::Pending,
             }
 
-            // 2. If we were closing, outbound is now drained — we're done.
+            // 3. If we were closing, outbound is now drained — we're done.
             if self.state == DriverState::Closing {
                 return Poll::Ready(self.finish_with_current_outcome());
             }
 
-            // 3. Server-initiated shutdown check. Post-shutdown re-polls are harmless for this
+            // 4. Server-initiated shutdown check. Post-shutdown re-polls are harmless for this
             //    `ShuttingDown` (event_listener-backed, not single-shot), and begin_close flips us
             //    to `Closing` so the guard above returns before we get here again anyway.
             if Pin::new(&mut self.shutting_down).poll(cx).is_ready() {
@@ -318,7 +361,7 @@ where
                 continue;
             }
 
-            // 4. State-specific step.
+            // 5. State-specific step.
             match self.state {
                 DriverState::AwaitingPreface => match self.poll_read_preface(cx) {
                     Poll::Ready(Ok(())) => self.state = DriverState::NeedsServerSettings,
@@ -326,7 +369,11 @@ where
                         self.close_outcome = Some(e);
                         return Poll::Ready(self.finish_with_current_outcome());
                     }
-                    Poll::Pending => return Poll::Pending,
+                    Poll::Pending => {
+                        if self.park(cx) {
+                            return Poll::Pending;
+                        }
+                    }
                 },
 
                 DriverState::NeedsServerSettings => {
@@ -346,12 +393,58 @@ where
                         self.close_outcome = Some(e);
                         return Poll::Ready(self.finish_with_current_outcome());
                     }
-                    Poll::Pending => return Poll::Pending,
+                    Poll::Pending => {
+                        if self.park(cx) {
+                            return Poll::Pending;
+                        }
+                    }
                 },
 
                 DriverState::Closing => unreachable!("handled above once write_buf is drained"),
             }
         }
+    }
+
+    /// Register the driver's waker with the shared `outbound_waker` (so handler tasks can
+    /// wake the driver) and tell the caller whether it's safe to park. Returns `true` if the
+    /// driver should return `Poll::Pending`, or `false` if a handler produced work between our
+    /// last check and the registration — in which case the caller should loop around to pick
+    /// it up.
+    fn park(&mut self, cx: &mut Context<'_>) -> bool {
+        self.connection.outbound_waker.register(cx.waker());
+        !self.has_pending_handler_signals()
+    }
+
+    /// Scan streams for handler-side signals that the driver should convert into outbound
+    /// frame bytes. Currently only the lazy `WINDOW_UPDATE` signal (`recv.is_reading`).
+    ///
+    /// Each stream's `StreamEntry` caches whether we've already advertised for that stream so
+    /// we don't re-emit on every scan.
+    fn service_handler_signals(&mut self) {
+        // Collect stream_ids first to avoid holding &mut self.streams across `queue_*` calls
+        // (which take &mut self). Short-lived Vec; bounded by MAX_CONCURRENT_STREAMS.
+        let needs_advertise: Vec<u32> = self
+            .streams
+            .iter_mut()
+            .filter_map(|(&id, entry)| {
+                (!entry.window_advertised && entry.shared.recv.is_reading.load(Ordering::Acquire))
+                    .then(|| {
+                        entry.window_advertised = true;
+                        id
+                    })
+            })
+            .collect();
+        for stream_id in needs_advertise {
+            self.queue_window_update(stream_id, MAX_STREAM_WINDOW);
+        }
+    }
+
+    /// True if any stream has a signal pending that we haven't yet serviced. Used by `park`
+    /// to decide whether returning `Pending` is safe or whether we need to loop around.
+    fn has_pending_handler_signals(&self) -> bool {
+        self.streams
+            .values()
+            .any(|e| !e.window_advertised && e.shared.recv.is_reading.load(Ordering::Acquire))
     }
 
     /// Convert the current `close_outcome` into the terminal return of `poll_next`. Must only be
@@ -656,19 +749,15 @@ where
         let state = Arc::new(StreamState::default());
         if end_stream {
             let _guard = state.recv.buf.lock().expect("recv buf mutex poisoned");
-            state
-                .recv
-                .eof
-                .store(true, std::sync::atomic::Ordering::Release);
+            state.recv.eof.store(true, Ordering::Release);
         }
-        self.streams.insert(stream_id, state.clone());
+        self.streams
+            .insert(stream_id, StreamEntry::new(state.clone()));
         self.last_peer_stream_id = stream_id;
 
-        // Eager WINDOW_UPDATE: temporary pre-lazy form. Skipped when the stream had no body.
-        // Task 4 (lazy WU) replaces this with a handler-side signal.
-        if !end_stream {
-            self.queue_window_update(stream_id, MAX_STREAM_WINDOW);
-        }
+        // No eager WINDOW_UPDATE: we advertise `INITIAL_WINDOW_SIZE = 0` in SETTINGS, so the peer
+        // cannot send body bytes until the handler calls `H2Transport::poll_read` and the driver
+        // observes `recv.is_reading` on a subsequent poll.
 
         Ok(Action::Emit(H2Transport::new(
             self.connection.clone(),
@@ -692,10 +781,11 @@ where
     ) -> Result<(), CloseOutcome> {
         let _ = padding_length; // padding is skipped — we only push the data portion
 
-        let state = self
+        let entry = self
             .streams
             .get(&stream_id)
             .ok_or(CloseOutcome::Protocol(H2ErrorCode::StreamClosed))?;
+        let state = &entry.shared;
 
         let data = frame_slice(&self.read_buf, payload_start, data_length, total)?;
 
@@ -705,10 +795,7 @@ where
                 recv.push_back(data.to_vec());
             }
             if end_stream {
-                state
-                    .recv
-                    .eof
-                    .store(true, std::sync::atomic::Ordering::Release);
+                state.recv.eof.store(true, Ordering::Release);
             }
         }
         state.recv.waker.wake();

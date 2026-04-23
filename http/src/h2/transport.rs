@@ -5,12 +5,15 @@
 //! it. The transport never touches the underlying TCP connection directly — all I/O coordinates
 //! through shared per-stream state on the [`H2Connection`] driven by the acceptor task.
 //!
-//! Phase 3 (in progress): the type is wired up but `poll_read` and `poll_write` are stubs.
-//! Subsequent commits add DATA-frame routing on the read side and the send buffer + driver wake
-//! on the write side.
+//! The send side (`poll_write` / `poll_close`) is a no-op placeholder: phase 4's `Conn::send_h2`
+//! will submit the whole response (headers + Body + trailers) to [`H2Connection`] and let the
+//! driver schedule frames onto the shared transport. The `AsyncWrite` impl exists to satisfy
+//! [`BoxedTransport`] bounds but is not exercised on the production send path. See
+//! `memory/h2-planning.md` "Lay of the land" — design 1.5.
 //!
 //! [`H2Acceptor::next`]: super::H2Acceptor::next
 //! [`H2Connection`]: super::H2Connection
+//! [`BoxedTransport`]: crate::transport::BoxedTransport
 
 use super::H2Connection;
 use crate::headers::hpack::FieldSection;
@@ -98,7 +101,16 @@ impl AsyncRead for H2Transport {
             return Poll::Ready(Ok(0));
         }
 
+        // The first `poll_read` is the handler's declaration of intent to consume the request
+        // body — until this point, we've advertised a zero recv window and the peer has sent
+        // nothing beyond HEADERS. Tell the driver to top up our per-stream window now. Later
+        // calls CAS-fail silently and don't re-signal.
         let recv_state = &self.state.recv;
+        let connection = &*self.connection;
+        if !recv_state.is_reading.swap(true, Ordering::AcqRel) {
+            connection.outbound_waker.wake();
+        }
+
         let mut recv = recv_state.buf.lock().expect("recv buf mutex poisoned");
 
         // Drain bytes from the front of the queue into `out`. Each entry in `recv_buf` is one
@@ -139,8 +151,10 @@ impl AsyncWrite for H2Transport {
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        // Phase 3 stub. Send buffering + driver wake land in a follow-up commit; for now silently
-        // accept the bytes and discard so a handler that calls write doesn't error.
+        // Placeholder. The production send path in phase 4 submits the whole response to
+        // `H2Connection` via `submit_response` and bypasses this entirely; `AsyncWrite` only
+        // exists here to satisfy `BoxedTransport` bounds. If a caller does invoke it, accept
+        // the bytes silently rather than blackhole the handler's progress.
         Poll::Ready(Ok(buf.len()))
     }
 
@@ -155,12 +169,9 @@ impl AsyncWrite for H2Transport {
 
 /// Shared per-stream state. Owned by an [`Arc`] held jointly by the driver (via the connection's
 /// stream table) and the handler task (via [`H2Transport`]).
-///
-/// Phase 3 in progress: receive side wired up (DATA frame routing + EOF + waker). Send ring +
-/// waker and flow control windows land in subsequent commits.
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
-    /// Recv side: inbound DATA payloads, EOF flag, handler waker.
+    /// Recv side: inbound DATA payloads, EOF flag, handler waker, handler-intent signal.
     pub(super) recv: RecvState,
 }
 
@@ -180,4 +191,10 @@ pub(super) struct RecvState {
     /// Handler-task waker, fired by the driver after pushing DATA into `buf` or after
     /// setting `eof`. Single-waiter: only one task ever polls a given `H2Transport`.
     pub(super) waker: AtomicWaker,
+
+    /// Set by the handler's first [`H2Transport::poll_read`] to declare intent to consume the
+    /// request body. The driver observes the transition and emits a `WINDOW_UPDATE` for this
+    /// stream, topping its recv window up from `SETTINGS_INITIAL_WINDOW_SIZE` (advertised as
+    /// `0`) to the per-stream maximum. Once set, stays set.
+    pub(super) is_reading: AtomicBool,
 }
