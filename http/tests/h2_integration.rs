@@ -28,9 +28,16 @@ where
     let conn = H2Connection::new(context);
     let conn_handle = conn.clone();
     let join = tokio::spawn(async move {
-        // Any errors from an interrupted transport are expected in tests that drop their client
-        // half early; the tests that assert clean exit do so via the client-side signal.
-        let _ = conn.run(transport).await;
+        let mut acceptor = conn.run(transport);
+        // Phase-3 placeholder: no streams are emitted yet; the first call to next() drains the
+        // connection and returns Ok(None) on shutdown. Errors here are expected on tests that
+        // drop their client half early.
+        loop {
+            match acceptor.next().await {
+                Ok(None) | Err(_) => break,
+                Ok(Some(_transport)) => unreachable!("streams not yet implemented"),
+            }
+        }
     });
     (conn_handle, join)
 }

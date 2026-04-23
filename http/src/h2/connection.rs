@@ -1,12 +1,16 @@
 //! HTTP/2 connection driver (RFC 9113).
 //!
-//! Phase 1 responsibility: own the transport, perform the preface exchange, ACK peer SETTINGS,
-//! echo PINGs, and shut the connection down cleanly on local or peer signal. Stream machinery
-//! (DATA, HEADERS, flow control) lands in phase 3.
+//! [`H2Connection`] is the shared, [`Arc`]-able per-connection state — handler tasks reference it
+//! by way of their [`H2Transport`] to talk back to the driver. [`H2Acceptor`] owns the underlying
+//! TCP transport and the demux state, and is driven by the runtime adapter via
+//! [`H2Acceptor::next`]: each call returns the next opened request stream (an [`H2Transport`] for
+//! the runtime to spawn a handler task against), or `None` when the connection is closed.
 //!
-//! The loop is straight-line `async`: one task reads a frame header, reads its payload, dispatches,
-//! and optionally writes a response. The more elaborate coordinator shape described in the planning
-//! doc (`AtomicWaker` + per-stream send buffers) appears when streams do.
+//! Phase 3 (in progress): the acceptor performs the preface exchange, ACKs SETTINGS, echoes PINGs,
+//! and shuts the connection down cleanly on local or peer signal. Stream open / DATA / send-side
+//! land incrementally on top of this skeleton.
+//!
+//! [`H2Transport`]: super::transport::H2Transport
 
 use super::{
     H2Error, H2ErrorCode, H2Settings,
@@ -26,11 +30,13 @@ pub(crate) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 /// replace this in phase 7.
 const MAX_BUFFER_SIZE: usize = 1 << 20;
 
-/// Shared state for a single HTTP/2 TCP connection.
+/// Shared per-connection state for HTTP/2.
 ///
-/// Phase 1 state is minimal: a handle to the shared [`HttpContext`] and a connection-scoped
-/// [`Swansong`] for shutdown propagation. Per-stream state, HPACK tables, and flow-control
-/// bookkeeping land in later phases.
+/// Wrapped in an [`Arc`] and held by both the [`H2Acceptor`] driver and every [`H2Transport`]
+/// handed to a handler task. Per-stream tables, HPACK decoder state, and flow-control bookkeeping
+/// will all live here as later phases land.
+///
+/// [`H2Transport`]: super::transport::H2Transport
 #[derive(Debug)]
 pub struct H2Connection {
     context: Arc<HttpContext>,
@@ -60,91 +66,181 @@ impl H2Connection {
         self.swansong.shut_down()
     }
 
-    /// Drive the connection to completion.
+    /// Bind this `H2Connection` to a TCP transport and return an [`H2Acceptor`] that drives the
+    /// connection.
     ///
-    /// Reads the client preface, exchanges SETTINGS, then enters the frame dispatch loop until
-    /// either the peer sends GOAWAY, the connection-scoped swansong shuts down, or a protocol
-    /// violation occurs. A terminating GOAWAY is sent on any clean exit; I/O errors skip it.
+    /// The acceptor must be polled to completion via repeated calls to [`H2Acceptor::next`]; each
+    /// returned [`H2Transport`] should be spawned on its own task.
+    ///
+    /// [`H2Transport`]: super::transport::H2Transport
+    pub fn run<T>(self: Arc<Self>, transport: T) -> H2Acceptor<T>
+    where
+        T: AsyncRead + AsyncWrite + Unpin + Send,
+    {
+        H2Acceptor::new(self, transport)
+    }
+}
+
+/// Owns the per-connection TCP transport and drives the HTTP/2 demux loop.
+///
+/// Created by [`H2Connection::run`]. The runtime adapter calls [`Self::next`] in a loop; each call
+/// either returns the next opened request stream (an [`H2Transport`] to be spawned on a handler
+/// task) or `None` when the connection is closed.
+///
+/// [`H2Transport`]: super::transport::H2Transport
+#[derive(Debug)]
+pub struct H2Acceptor<T> {
+    connection: Arc<H2Connection>,
+    transport: T,
+    state: AcceptorState,
+    /// Reusable scratch buffer for the next frame's header + payload.
+    read_buf: Vec<u8>,
+    /// Set to `true` when the driver has emitted a final GOAWAY (graceful or PROTOCOL_ERROR) and
+    /// `Self::next` should subsequently return `Ok(None)`.
+    finished: bool,
+}
+
+/// Cursor through the connection setup → frame loop sequence inside [`H2Acceptor::next`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AcceptorState {
+    /// Haven't read the client preface yet.
+    AwaitingPreface,
+    /// Preface read; need to send our initial SETTINGS frame before processing peer frames.
+    NeedsServerSettings,
+    /// Steady state — read the next frame and dispatch.
+    Running,
+}
+
+impl<T> H2Acceptor<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin + Send,
+{
+    fn new(connection: Arc<H2Connection>, transport: T) -> Self {
+        Self {
+            connection,
+            transport,
+            state: AcceptorState::AwaitingPreface,
+            read_buf: vec![0u8; FRAME_HEADER_LEN],
+            finished: false,
+        }
+    }
+
+    /// The shared [`H2Connection`] this acceptor was created from.
+    pub fn connection(&self) -> &Arc<H2Connection> {
+        &self.connection
+    }
+
+    /// Drive the connection until the next request stream opens, the connection ends, or a fatal
+    /// protocol or I/O error occurs.
+    ///
+    /// Returns `Ok(Some(transport))` for each new request stream — the runtime adapter is expected
+    /// to spawn a handler task that consumes the [`H2Transport`]. Returns `Ok(None)` when the
+    /// connection has been shut down cleanly (peer GOAWAY, our own swansong shutdown, or graceful
+    /// peer close).
+    ///
+    /// Phase 3 is incremental: this method does not yet open streams. It runs the preface +
+    /// SETTINGS handshake + PING/GOAWAY housekeeping, returning `Ok(None)` once shut down.
     ///
     /// # Errors
     ///
     /// Returns an [`H2Error`] for any protocol violation detected while decoding peer frames or
-    /// for an unrecoverable transport I/O error.
-    pub async fn run<T>(self: Arc<Self>, mut transport: T) -> Result<(), H2Error>
-    where
-        T: AsyncRead + AsyncWrite + Unpin + Send,
-    {
-        let _guard = self.swansong.guard();
-        let result = self.drive(&mut transport).await;
+    /// for an unrecoverable transport I/O error. A final GOAWAY is sent before this method returns
+    /// (best-effort; I/O errors skip it).
+    ///
+    /// [`H2Transport`]: super::transport::H2Transport
+    pub async fn next(&mut self) -> Result<Option<TransportPlaceholder>, H2Error> {
+        if self.finished {
+            return Ok(None);
+        }
 
-        // Always try a final GOAWAY before the transport drops. On I/O failure the transport is
-        // already unusable, so skip it.
-        match &result {
+        let result = self.drive().await;
+        self.finished = true;
+
+        // Translate driver outcomes to next()'s contract. A clean exit means the connection is
+        // done — emit a graceful GOAWAY and return None on subsequent calls. A protocol error
+        // means GOAWAY with the offending code, then the error propagates. I/O errors skip GOAWAY
+        // since the transport is already unusable.
+        match result {
             Ok(()) => {
-                let _ = send_goaway(&mut transport, 0, H2ErrorCode::NoError).await;
+                let _ = send_goaway(&mut self.transport, 0, H2ErrorCode::NoError).await;
+                Ok(None)
             }
             Err(H2Error::Protocol(code)) => {
-                let _ = send_goaway(&mut transport, 0, *code).await;
+                let _ = send_goaway(&mut self.transport, 0, code).await;
+                Err(H2Error::Protocol(code))
             }
-            Err(H2Error::Io(_)) => {}
+            Err(e @ H2Error::Io(_)) => Err(e),
         }
-        result
     }
 
-    async fn drive<T>(&self, transport: &mut T) -> Result<(), H2Error>
-    where
-        T: AsyncRead + AsyncWrite + Unpin + Send,
-    {
-        read_preface(transport).await?;
-
-        // Server-side preface per §3.4: our initial SETTINGS frame MUST be the first frame we send.
-        write_settings(transport, &H2Settings::server_defaults()).await?;
-
-        let mut buf = vec![0u8; FRAME_HEADER_LEN];
+    /// Inner loop body. Returns `Ok(())` on a clean shutdown (peer GOAWAY or local swansong),
+    /// `Err` on any protocol or I/O failure.
+    async fn drive(&mut self) -> Result<(), H2Error> {
+        if self.state == AcceptorState::AwaitingPreface {
+            read_preface(&mut self.transport).await?;
+            self.state = AcceptorState::NeedsServerSettings;
+        }
+        if self.state == AcceptorState::NeedsServerSettings {
+            // Server-side preface per §3.4: our initial SETTINGS frame MUST be the first frame we
+            // send.
+            write_settings(&mut self.transport, &H2Settings::server_defaults()).await?;
+            self.state = AcceptorState::Running;
+        }
 
         loop {
-            match self
+            let read = self
+                .connection
                 .swansong
-                .interrupt(read_frame(transport, &mut buf))
-                .await
-            {
-                None => return Ok(()),
-                Some(result) => match result? {
-                    Frame::Settings(_) => write_settings_ack(transport).await?,
+                .interrupt(read_frame(&mut self.transport, &mut self.read_buf))
+                .await;
 
-                    Frame::Ping {
-                        opaque_data,
-                        ack: false,
-                    } => write_ping_ack(transport, opaque_data).await?,
+            let Some(frame) = read else {
+                return Ok(());
+            };
 
-                    Frame::Goaway { .. } => {
-                        self.swansong.shut_down();
-                        return Ok(());
-                    }
+            match frame? {
+                Frame::Settings(_) => write_settings_ack(&mut self.transport).await?,
 
-                    // PUSH_PROMISE from a client is always a connection error (§6.6). Phase 1
-                    // has no streams so DATA/HEADERS/CONTINUATION are equally invalid; stream
-                    // machinery in phase 3 will dispatch them instead.
-                    Frame::PushPromise { .. }
-                    | Frame::Data { .. }
-                    | Frame::Headers { .. }
-                    | Frame::Continuation { .. } => {
-                        return Err(H2ErrorCode::ProtocolError.into());
-                    }
+                Frame::Ping {
+                    opaque_data,
+                    ack: false,
+                } => write_ping_ack(&mut self.transport, opaque_data).await?,
 
-                    // Benign frames whose effect is not yet implemented. Tolerate to keep the
-                    // handshake clean until the relevant phases.
-                    Frame::SettingsAck
-                    | Frame::Ping { ack: true, .. }
-                    | Frame::WindowUpdate { .. }
-                    | Frame::RstStream { .. }
-                    | Frame::Priority { .. }
-                    | Frame::Unknown { .. } => {}
-                },
+                Frame::Goaway { .. } => {
+                    self.connection.swansong.shut_down();
+                    return Ok(());
+                }
+
+                // PUSH_PROMISE from a client is always a connection error (§6.6). Until stream
+                // machinery lands, DATA / HEADERS / CONTINUATION are equally invalid here.
+                Frame::PushPromise { .. }
+                | Frame::Data { .. }
+                | Frame::Headers { .. }
+                | Frame::Continuation { .. } => {
+                    return Err(H2ErrorCode::ProtocolError.into());
+                }
+
+                // Benign frames whose effect is not yet implemented. Tolerate to keep the
+                // handshake clean until the relevant phases.
+                Frame::SettingsAck
+                | Frame::Ping { ack: true, .. }
+                | Frame::WindowUpdate { .. }
+                | Frame::RstStream { .. }
+                | Frame::Priority { .. }
+                | Frame::Unknown { .. } => {}
             }
         }
     }
 }
+
+/// Placeholder return type for [`H2Acceptor::next`] until [`H2Transport`] lands in a follow-up
+/// commit. Today no value of this type is ever constructed — `next` only ever returns
+/// `Ok(None)` or an error — but having the slot in place keeps the API shape stable as stream
+/// machinery is added.
+///
+/// [`H2Transport`]: super::transport::H2Transport
+#[derive(Debug, Clone, Copy)]
+pub enum TransportPlaceholder {}
 
 async fn read_preface<T>(transport: &mut T) -> Result<(), H2Error>
 where

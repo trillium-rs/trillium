@@ -12,7 +12,7 @@ mod error;
 mod frame;
 mod settings;
 
-pub use connection::H2Connection;
+pub use connection::{H2Acceptor, H2Connection, TransportPlaceholder};
 pub use error::H2ErrorCode;
 pub use frame::{Frame, FrameDecodeError, PriorityInfo};
 pub use settings::H2Settings;

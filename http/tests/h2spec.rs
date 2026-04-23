@@ -54,7 +54,13 @@ async fn h2spec_conformance() {
             let _ = stream.set_nodelay(true);
             let conn = H2Connection::new(accept_context.clone());
             tokio::spawn(async move {
-                let _ = conn.run(Compat::new(stream)).await;
+                let mut acceptor = conn.run(Compat::new(stream));
+                loop {
+                    match acceptor.next().await {
+                        Ok(None) | Err(_) => break,
+                        Ok(Some(_transport)) => unreachable!("streams not yet implemented"),
+                    }
+                }
             });
         }
     });
