@@ -72,10 +72,11 @@ const HPACK_TABLE_SIZE: usize = 4096;
 /// HEADERS frame and nothing more.
 const MAX_STREAM_WINDOW: u32 = 64 * 1024;
 
-/// RFC 9113 §6.5.2 default for `SETTINGS_MAX_FRAME_SIZE`. Used as the per-frame payload cap
-/// (HEADERS / CONTINUATION header-block bytes, DATA payload bytes) until peer SETTINGS
-/// parsing in step 4 replaces this with the negotiated value.
-const DEFAULT_PEER_MAX_FRAME_SIZE: u32 = 16_384;
+/// Hard ceiling on the DATA payload we'll emit in a single frame even if the peer
+/// advertises a larger `MAX_FRAME_SIZE`. Bounds `body_scratch` so a permissive peer can't
+/// steer us into oversized allocations; the protocol only requires we not *exceed* the
+/// peer's advertised max, which starts at the RFC 9113 §6.5.2 default of 16 KiB.
+const MAX_DATA_CHUNK_SIZE: u32 = 16_384;
 
 /// Owns the per-connection TCP transport and drives the HTTP/2 demux loop.
 ///
@@ -139,13 +140,9 @@ pub struct H2Acceptor<T> {
     /// without touching the transport.
     finished: bool,
 
-    /// Peer-advertised `SETTINGS_MAX_FRAME_SIZE`. Caps the payload length of any frame we
-    /// send. Defaults to RFC 9113 §6.5.2 (16 KiB); peer SETTINGS parsing in step 4 will
-    /// update from the wire.
-    peer_max_frame_size: u32,
-
-    /// Reusable scratch the send pump reads body chunks into before framing as DATA. Sized
-    /// once at construction to fit a peer-max-frame-size payload; never grows during a tick.
+    /// Reusable scratch the send pump reads body chunks into before framing as DATA.
+    /// Sized at [`MAX_DATA_CHUNK_SIZE`] — even if the peer permits larger frames we cap our
+    /// DATA emissions here to bound per-connection memory.
     body_scratch: Vec<u8>,
 }
 
@@ -252,8 +249,7 @@ where
             pending_headers: None,
             close_outcome: None,
             finished: false,
-            peer_max_frame_size: DEFAULT_PEER_MAX_FRAME_SIZE,
-            body_scratch: vec![0u8; DEFAULT_PEER_MAX_FRAME_SIZE as usize],
+            body_scratch: vec![0u8; MAX_DATA_CHUNK_SIZE as usize],
         }
     }
 

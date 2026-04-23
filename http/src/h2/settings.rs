@@ -103,6 +103,27 @@ impl PartialEq for H2Settings {
 }
 
 impl H2Settings {
+    /// [`max_frame_size`][Self::max_frame_size] with the RFC 9113 §6.5.2 default of 16384
+    /// applied when the field is `None`. Use this when you need a concrete value for
+    /// framing.
+    pub fn effective_max_frame_size(&self) -> u32 {
+        self.max_frame_size.unwrap_or(16_384)
+    }
+
+    /// [`initial_window_size`][Self::initial_window_size] with the RFC 9113 §6.5.2 default
+    /// of 65535 applied when the field is `None`. Use this when seeding a new stream's send
+    /// window.
+    pub fn effective_initial_window_size(&self) -> u32 {
+        self.initial_window_size.unwrap_or(65_535)
+    }
+
+    /// [`header_table_size`][Self::header_table_size] with the RFC 9113 §6.5.2 default of
+    /// 4096 applied when the field is `None`. Used by a dynamic HPACK encoder to bound the
+    /// peer's decoder table size.
+    pub fn effective_header_table_size(&self) -> u32 {
+        self.header_table_size.unwrap_or(4096)
+    }
+
     /// A reasonable outgoing settings frame for a trillium server.
     ///
     /// Disables server push, caps concurrent streams at 100, and caps header list size at 8 KiB.

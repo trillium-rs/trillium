@@ -162,12 +162,13 @@ where
     /// first fragment is HEADERS; subsequent fragments (when `headers_offset > 0`) are
     /// CONTINUATION.
     fn emit_one_headers_fragment(&mut self, stream_id: u32, send: &mut SendCursor) {
-        let max_payload = self.peer_max_frame_size as usize;
+        let max_payload = self.connection.peer_settings().effective_max_frame_size() as usize;
         let remaining = send.encoded_headers.len() - send.headers_offset;
         let chunk_len = remaining.min(max_payload);
         let end_headers = chunk_len == remaining;
         let is_first = send.headers_offset == 0;
-        let chunk_len_u32 = u32::try_from(chunk_len).expect("chunk_len <= peer_max_frame_size u32");
+        let chunk_len_u32 =
+            u32::try_from(chunk_len).expect("chunk_len <= effective_max_frame_size fits u32");
 
         if is_first {
             // Final HEADERS fragment with no body and no trailers carries END_STREAM.
@@ -251,7 +252,7 @@ where
             return Poll::Ready(Ok(()));
         }
 
-        let n_u32 = u32::try_from(n).expect("read n <= peer_max_frame_size u32");
+        let n_u32 = u32::try_from(n).expect("read n <= body_scratch.len() fits u32");
         let prefix_len = frame::data::encoded_prefix_len(0);
         let start = self.write_buf.len();
         self.write_buf.resize(start + prefix_len, 0);

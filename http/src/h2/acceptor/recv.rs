@@ -12,7 +12,7 @@ use super::{
 use crate::{
     Conn,
     h2::{
-        H2Error, H2ErrorCode,
+        H2Error, H2ErrorCode, H2Settings,
         frame::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader},
         transport::{H2Transport, StreamState},
     },
@@ -124,7 +124,8 @@ where
         }
 
         match frame {
-            Frame::Settings(_) => {
+            Frame::Settings(settings) => {
+                self.apply_peer_settings(&settings);
                 self.queue_settings_ack();
                 Ok(Action::Continue)
             }
@@ -337,6 +338,46 @@ where
         }
         state.recv.waker.wake();
         Ok(())
+    }
+
+    /// Integrate a just-received peer SETTINGS frame into driver state. Only the fields
+    /// present (`Some`) in the incoming settings are applied; the rest keep their
+    /// previously-negotiated value.
+    ///
+    /// Per RFC 9113 §6.5.3, all values MUST be processed in order before we ack; because
+    /// our applied state is derived from the already-decoded `H2Settings` (which parses
+    /// each entry sequentially into its typed fields), that order is preserved for
+    /// everything except duplicate ids within the same frame — in which case `H2Settings`
+    /// itself keeps only the last value, matching "process in order".
+    ///
+    /// Mid-connection `INITIAL_WINDOW_SIZE` changes must be applied as a *delta* to every
+    /// open stream's current send window (§6.9.2). That redistribution lands with the
+    /// per-stream send windows in a later commit.
+    fn apply_peer_settings(&mut self, settings: &H2Settings) {
+        let mut current = self.connection.peer_settings_mut();
+        if let Some(v) = settings.max_frame_size() {
+            current.set_max_frame_size(Some(v));
+        }
+        if let Some(v) = settings.initial_window_size() {
+            current.set_initial_window_size(Some(v));
+        }
+        if let Some(v) = settings.max_header_list_size() {
+            current.set_max_header_list_size(Some(v));
+        }
+        if let Some(v) = settings.header_table_size() {
+            current.set_header_table_size(Some(v));
+        }
+        if let Some(v) = settings.enable_push() {
+            current.set_enable_push(Some(v));
+        }
+        if let Some(v) = settings.max_concurrent_streams() {
+            current.set_max_concurrent_streams(Some(v));
+        }
+        // ENABLE_PUSH / MAX_CONCURRENT_STREAMS / HEADER_TABLE_SIZE aren't consulted on the
+        // send path today: server-side push is never emitted, the peer's MAX_CONCURRENT_STREAMS
+        // applies to peer-initiated streams (we don't initiate), and the static-or-literal
+        // HPACK encoder doesn't track the peer's table-size cap. They're stored here
+        // regardless so conn-task code that inspects the settings sees a complete picture.
     }
 
     /// Clear read cursor state and prepare for the next frame.

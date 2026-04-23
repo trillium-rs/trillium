@@ -11,7 +11,7 @@
 //!
 //! [`H2Acceptor`]: super::H2Acceptor
 
-use super::{H2Acceptor, transport::StreamState};
+use super::{H2Acceptor, H2Settings, transport::StreamState};
 use crate::{Body, Conn, HttpContext};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -20,7 +20,7 @@ use std::{
     future::Future,
     io,
     pin::Pin,
-    sync::{Arc, Mutex, MutexGuard, atomic::Ordering},
+    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, atomic::Ordering},
     task::{Context, Poll},
 };
 use swansong::{ShutdownCompletion, Swansong};
@@ -46,6 +46,14 @@ pub struct H2Connection {
     /// `Arc<StreamState>` in its private `StreamEntry` for hot-loop perf, so every entry
     /// here has refcount ≥ 2 while the stream is open.
     streams: Mutex<HashMap<u32, Arc<StreamState>>>,
+    /// The peer's most recently announced SETTINGS values. Written by the driver each time a
+    /// SETTINGS frame arrives (or, for the initial SETTINGS, the first one); read from any
+    /// send path that needs to respect peer-advertised limits (HEADERS fragment size, stream
+    /// send-window seed, `MAX_HEADER_LIST_SIZE` cap). `RwLock` — read often, written rarely.
+    /// Default-constructed (all fields `None`) means "peer has not yet sent SETTINGS"; readers
+    /// should use [`H2Settings::effective_*`][H2Settings::effective_max_frame_size] helpers
+    /// that apply the RFC 9113 §6.5.2 defaults to absent fields.
+    peer_settings: RwLock<H2Settings>,
 }
 
 impl H2Connection {
@@ -57,6 +65,7 @@ impl H2Connection {
             swansong,
             outbound_waker: AtomicWaker::new(),
             streams: Mutex::new(HashMap::new()),
+            peer_settings: RwLock::new(H2Settings::default()),
         })
     }
 
@@ -89,6 +98,23 @@ impl H2Connection {
         self.streams
             .lock()
             .expect("connection streams mutex poisoned")
+    }
+
+    /// Read the peer's SETTINGS. Cheap (`RwLock::read`); held only for as long as the
+    /// returned guard lives. Use the `effective_*` helpers on [`H2Settings`] to get a value
+    /// with RFC defaults applied for fields the peer hasn't set.
+    pub(super) fn peer_settings(&self) -> RwLockReadGuard<'_, H2Settings> {
+        self.peer_settings
+            .read()
+            .expect("peer_settings rwlock poisoned")
+    }
+
+    /// Acquire a write guard on peer settings. Driver-only — the SETTINGS frame handler is
+    /// the single writer.
+    pub(super) fn peer_settings_mut(&self) -> RwLockWriteGuard<'_, H2Settings> {
+        self.peer_settings
+            .write()
+            .expect("peer_settings rwlock poisoned")
     }
 
     /// Bind this `H2Connection` to a TCP transport and return an [`H2Acceptor`] that drives
