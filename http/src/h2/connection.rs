@@ -27,7 +27,7 @@ use std::{
     future::poll_fn,
     io,
     pin::Pin,
-    sync::{Arc, atomic::Ordering},
+    sync::{Arc, Mutex, atomic::Ordering},
     task::{Context, Poll, ready},
 };
 use swansong::{ShutdownCompletion, ShuttingDown, Swansong};
@@ -73,6 +73,13 @@ pub struct H2Connection {
     /// 4 also the `submit_response` arrival. Single-consumer (the driver); N producers (handler
     /// tasks). The driver registers its current `poll_next` waker here each iteration it parks.
     pub(super) outbound_waker: AtomicWaker,
+    /// Per-stream shared state, keyed by stream id. The driver inserts on stream open; later
+    /// phases will remove on stream close. Conn-task-side code (`ReceivedBody`, `Conn::send_h2`)
+    /// looks up via private accessor methods on `H2Connection` rather than touching the map
+    /// directly — `StreamState` stays module-private. The driver also caches each
+    /// `Arc<StreamState>` in its private `StreamEntry` for hot-loop perf, so every entry here
+    /// has refcount ≥ 2 while the stream is open.
+    pub(super) streams: Mutex<HashMap<u32, Arc<StreamState>>>,
 }
 
 impl H2Connection {
@@ -83,6 +90,7 @@ impl H2Connection {
             context,
             swansong,
             outbound_waker: AtomicWaker::new(),
+            streams: Mutex::new(HashMap::new()),
         })
     }
 
@@ -751,6 +759,11 @@ where
             let _guard = state.recv.buf.lock().expect("recv buf mutex poisoned");
             state.recv.eof.store(true, Ordering::Release);
         }
+        self.connection
+            .streams
+            .lock()
+            .expect("connection streams mutex poisoned")
+            .insert(stream_id, state.clone());
         self.streams
             .insert(stream_id, StreamEntry::new(state.clone()));
         self.last_peer_stream_id = stream_id;
