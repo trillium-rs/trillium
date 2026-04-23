@@ -1,14 +1,14 @@
 use super::{H2ErrorCode, H2Settings};
 
-mod continuation;
-mod data;
-mod goaway;
-mod headers;
-mod ping;
-mod priority;
-mod rst_stream;
-mod settings;
-mod window_update;
+pub(crate) mod continuation;
+pub(crate) mod data;
+pub(crate) mod goaway;
+pub(crate) mod headers;
+pub(crate) mod ping;
+pub(crate) mod priority;
+pub(crate) mod rst_stream;
+pub(crate) mod settings;
+pub(crate) mod window_update;
 
 /// Length of the fixed frame header on the wire (RFC 9113 §4.1).
 pub const FRAME_HEADER_LEN: usize = 9;
