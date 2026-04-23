@@ -14,8 +14,9 @@
 //! encoded Required Insert Count to an actual insert count requires table state (`max_entries`
 //! and `total_inserts`), so that step lives at the semantic layer.
 
-use crate::headers::qpack::{
-    EntryName, FieldLineValue, QpackError, huffman, instruction::encode_string, varint,
+use crate::headers::{
+    entry_name::EntryName,
+    qpack::{FieldLineValue, QpackError, huffman, instruction::encode_string, varint},
 };
 
 // --- §4.5.1 Field Section Prefix ---

@@ -83,10 +83,7 @@ impl DecoderDynamicTable {
             self.acknowledge_section(stream_id, required_insert_count);
         }
 
-        Ok(FieldSection {
-            pseudo_headers,
-            headers: Cow::Owned(headers),
-        })
+        Ok(FieldSection::from_owned(pseudo_headers, headers))
     }
 }
 
@@ -246,22 +243,22 @@ impl PseudoHeader {
     pub(in crate::headers) fn apply(self, pseudos: &mut PseudoHeaders<'static>) {
         match self {
             PseudoHeader::Method(m) => {
-                pseudos.method.get_or_insert(m);
+                pseudos.method_mut().get_or_insert(m);
             }
             PseudoHeader::Status(s) => {
-                pseudos.status.get_or_insert(s);
+                pseudos.status_mut().get_or_insert(s);
             }
             PseudoHeader::Other(PseudoHeaderName::Authority, Some(v)) => {
-                pseudos.authority.get_or_insert(v);
+                pseudos.authority_mut().get_or_insert(v);
             }
             PseudoHeader::Other(PseudoHeaderName::Path, Some(v)) => {
-                pseudos.path.get_or_insert(v);
+                pseudos.path_mut().get_or_insert(v);
             }
             PseudoHeader::Other(PseudoHeaderName::Scheme, Some(v)) => {
-                pseudos.scheme.get_or_insert(v);
+                pseudos.scheme_mut().get_or_insert(v);
             }
             PseudoHeader::Other(PseudoHeaderName::Protocol, Some(v)) => {
-                pseudos.protocol.get_or_insert(v);
+                pseudos.protocol_mut().get_or_insert(v);
             }
             // Method and Status with the Other variant shouldn't be constructed,
             // but handle gracefully
