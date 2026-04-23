@@ -122,7 +122,11 @@ mod tests {
             H2ErrorCode::Http1_1Required,
         ] {
             let wire: u32 = code.into();
-            assert_eq!(H2ErrorCode::from(wire), code, "roundtrip failed for {code:?}");
+            assert_eq!(
+                H2ErrorCode::from(wire),
+                code,
+                "roundtrip failed for {code:?}"
+            );
         }
     }
 

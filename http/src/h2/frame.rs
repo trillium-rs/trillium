@@ -1,6 +1,9 @@
 use super::{H2ErrorCode, H2Settings};
 
+mod continuation;
+mod data;
 mod goaway;
+mod headers;
 mod ping;
 mod priority;
 mod rst_stream;
@@ -92,8 +95,7 @@ impl FrameHeader {
         let length = u32::from_be_bytes([0, input[0], input[1], input[2]]);
         let frame_type = input[3];
         let flags = input[4];
-        let stream_id =
-            u32::from_be_bytes([input[5], input[6], input[7], input[8]]) & 0x7FFF_FFFF;
+        let stream_id = u32::from_be_bytes([input[5], input[6], input[7], input[8]]) & 0x7FFF_FFFF;
         Some(Self {
             length,
             frame_type,
@@ -107,10 +109,7 @@ impl FrameHeader {
     /// `SETTINGS_MAX_FRAME_SIZE`).
     pub fn encode(&self, buf: &mut [u8; FRAME_HEADER_LEN]) {
         debug_assert!(self.length < (1 << 24), "payload length exceeds 24 bits");
-        debug_assert!(
-            self.stream_id < (1 << 31),
-            "stream id exceeds 31 bits"
-        );
+        debug_assert!(self.stream_id < (1 << 31), "stream id exceeds 31 bits");
         let length = self.length.to_be_bytes();
         buf[0] = length[1];
         buf[1] = length[2];
@@ -138,10 +137,10 @@ impl From<H2ErrorCode> for FrameDecodeError {
 
 /// A decoded HTTP/2 frame.
 ///
-/// Frames carrying a header block or data body (Data, Headers, Continuation, `PushPromise`, Unknown)
-/// report their post-prefix payload length for the caller to consume from the transport; the fixed
-/// header (and any PADDED / PRIORITY prefix) is the only portion [`Frame::decode`] consumes from
-/// the input slice.
+/// Frames carrying a header block or data body (Data, Headers, Continuation, `PushPromise`,
+/// Unknown) report their post-prefix payload length for the caller to consume from the transport;
+/// the fixed header (and any PADDED / PRIORITY prefix) is the only portion [`Frame::decode`]
+/// consumes from the input slice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Frame {
     /// DATA (§6.1). `data_length` bytes of stream payload follow; then `padding_length` bytes of
@@ -289,8 +288,8 @@ impl Frame {
     /// plus any per-type fixed prefix (pad length byte, priority block, promised stream id); the
     /// payload itself remains unconsumed in `input` for the caller to stream.
     ///
-    /// For control frames (Settings, Ping, `RstStream`, Goaway, `WindowUpdate`, Priority) the entire
-    /// frame is consumed.
+    /// For control frames (Settings, Ping, `RstStream`, Goaway, `WindowUpdate`, Priority) the
+    /// entire frame is consumed.
     ///
     /// # Errors
     ///
@@ -306,21 +305,16 @@ impl Frame {
         };
         match FrameType::try_from(header.frame_type) {
             Ok(FrameType::Data) => {
-                let (frame, prefix_consumed) = decode_data_prefix(header, prefix_input()?)?;
+                let (frame, prefix_consumed) = data::decode_prefix(header, prefix_input()?)?;
                 Ok((frame, FRAME_HEADER_LEN + prefix_consumed))
             }
             Ok(FrameType::Headers) => {
-                let (frame, prefix_consumed) = decode_headers_prefix(header, prefix_input()?)?;
+                let (frame, prefix_consumed) = headers::decode_prefix(header, prefix_input()?)?;
                 Ok((frame, FRAME_HEADER_LEN + prefix_consumed))
             }
-            Ok(FrameType::Continuation) => Ok((
-                Frame::Continuation {
-                    stream_id: header.stream_id,
-                    end_headers: header.flags & FLAG_END_HEADERS != 0,
-                    header_block_length: header.length,
-                },
-                FRAME_HEADER_LEN,
-            )),
+            Ok(FrameType::Continuation) => {
+                continuation::decode(header).map(|f| (f, FRAME_HEADER_LEN))
+            }
             Ok(FrameType::PushPromise) => Ok((
                 Frame::PushPromise {
                     stream_id: header.stream_id,
@@ -364,83 +358,6 @@ impl Frame {
             )),
         }
     }
-}
-
-fn decode_data_prefix(
-    header: FrameHeader,
-    prefix_input: &[u8],
-) -> Result<(Frame, usize), FrameDecodeError> {
-    if header.stream_id == 0 {
-        return Err(H2ErrorCode::ProtocolError.into());
-    }
-    let padded = header.flags & FLAG_PADDED != 0;
-    let (padding_length, prefix_len) = if padded {
-        let pad_length = *prefix_input.first().ok_or(FrameDecodeError::Incomplete)?;
-        if u32::from(pad_length) >= header.length {
-            // RFC 9113 §6.1: pad length ≥ rest of payload ⇒ PROTOCOL_ERROR
-            return Err(H2ErrorCode::ProtocolError.into());
-        }
-        (pad_length, 1u32)
-    } else {
-        (0, 0)
-    };
-    let data_length = header.length - u32::from(padding_length) - prefix_len;
-    Ok((
-        Frame::Data {
-            stream_id: header.stream_id,
-            end_stream: header.flags & FLAG_END_STREAM != 0,
-            data_length,
-            padding_length,
-        },
-        prefix_len as usize,
-    ))
-}
-
-fn decode_headers_prefix(
-    header: FrameHeader,
-    prefix_input: &[u8],
-) -> Result<(Frame, usize), FrameDecodeError> {
-    if header.stream_id == 0 {
-        return Err(H2ErrorCode::ProtocolError.into());
-    }
-    let padded = header.flags & FLAG_PADDED != 0;
-    let priority_flag = header.flags & FLAG_PRIORITY != 0;
-    let mut cursor: u32 = 0;
-
-    let padding_length = if padded {
-        let pad_length = *prefix_input.first().ok_or(FrameDecodeError::Incomplete)?;
-        cursor += 1;
-        pad_length
-    } else {
-        0
-    };
-
-    let priority = if priority_flag {
-        let slice = prefix_input
-            .get(cursor as usize..cursor as usize + PriorityInfo::WIRE_LEN as usize)
-            .ok_or(FrameDecodeError::Incomplete)?;
-        cursor += PriorityInfo::WIRE_LEN;
-        Some(PriorityInfo::decode(slice))
-    } else {
-        None
-    };
-
-    let consumed = cursor + u32::from(padding_length);
-    if consumed > header.length {
-        return Err(H2ErrorCode::ProtocolError.into());
-    }
-    let header_block_length = header.length - consumed;
-    Ok((
-        Frame::Headers {
-            stream_id: header.stream_id,
-            end_stream: header.flags & FLAG_END_STREAM != 0,
-            end_headers: header.flags & FLAG_END_HEADERS != 0,
-            priority,
-            header_block_length,
-            padding_length,
-        },
-        cursor as usize,
-    ))
 }
 
 pub(crate) fn require_payload(

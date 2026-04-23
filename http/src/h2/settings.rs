@@ -312,7 +312,11 @@ mod tests {
     #[test]
     fn initial_window_at_max_is_allowed() {
         let mut payload = [0; 6];
-        write_entry(SETTINGS_INITIAL_WINDOW_SIZE, MAX_INITIAL_WINDOW_SIZE, &mut payload);
+        write_entry(
+            SETTINGS_INITIAL_WINDOW_SIZE,
+            MAX_INITIAL_WINDOW_SIZE,
+            &mut payload,
+        );
         let decoded = H2Settings::decode(&payload).unwrap();
         assert_eq!(decoded.initial_window_size, Some(MAX_INITIAL_WINDOW_SIZE));
     }

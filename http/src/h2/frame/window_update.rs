@@ -36,7 +36,6 @@ pub(crate) fn encode(stream_id: u32, increment: u32, buf: &mut [u8]) -> Option<u
         stream_id,
     }
     .encode(header_buf.try_into().expect("split_at_mut slot"));
-    payload_buf[..PAYLOAD_LEN as usize]
-        .copy_from_slice(&(increment & 0x7FFF_FFFF).to_be_bytes());
+    payload_buf[..PAYLOAD_LEN as usize].copy_from_slice(&(increment & 0x7FFF_FFFF).to_be_bytes());
     Some(ENCODED_LEN)
 }

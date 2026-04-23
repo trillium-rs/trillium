@@ -1,3 +1,5 @@
+#![allow(clippy::cast_possible_truncation)] // fixed-size test payloads
+
 use super::*;
 use crate::h2::{H2ErrorCode, H2Settings};
 
@@ -318,4 +320,200 @@ fn incomplete_control_payload_is_incomplete() {
     }
     .encode((&mut buf[..FRAME_HEADER_LEN]).try_into().unwrap());
     assert_eq!(Frame::decode(&buf), Err(FrameDecodeError::Incomplete));
+}
+
+// -- DATA frames --
+
+#[test]
+fn data_roundtrip_plain() {
+    let payload = b"hello world";
+    let prefix_len = data::encoded_prefix_len(0);
+    let mut buf = vec![0u8; prefix_len + payload.len()];
+    let written = data::encode_prefix(3, false, payload.len() as u32, 0, &mut buf).unwrap();
+    assert_eq!(written, prefix_len);
+    buf[prefix_len..].copy_from_slice(payload);
+
+    let (frame, consumed) = Frame::decode(&buf).unwrap();
+    assert_eq!(consumed, prefix_len);
+    assert_eq!(
+        frame,
+        Frame::Data {
+            stream_id: 3,
+            end_stream: false,
+            data_length: payload.len() as u32,
+            padding_length: 0,
+        }
+    );
+    assert_eq!(&buf[prefix_len..prefix_len + payload.len()], payload);
+}
+
+#[test]
+fn data_roundtrip_end_stream_flag() {
+    let payload = b"goodbye";
+    let prefix_len = data::encoded_prefix_len(0);
+    let mut buf = vec![0u8; prefix_len + payload.len()];
+    data::encode_prefix(1, true, payload.len() as u32, 0, &mut buf).unwrap();
+    buf[prefix_len..].copy_from_slice(payload);
+    let (frame, _) = Frame::decode(&buf).unwrap();
+    assert_eq!(
+        frame,
+        Frame::Data {
+            stream_id: 1,
+            end_stream: true,
+            data_length: payload.len() as u32,
+            padding_length: 0,
+        }
+    );
+}
+
+#[test]
+fn data_roundtrip_padded() {
+    let payload = b"padded-data";
+    let padding = 4u8;
+    let prefix_len = data::encoded_prefix_len(padding);
+    let mut buf = vec![0u8; prefix_len + payload.len() + padding as usize];
+    data::encode_prefix(5, false, payload.len() as u32, padding, &mut buf).unwrap();
+    buf[prefix_len..prefix_len + payload.len()].copy_from_slice(payload);
+
+    let (frame, consumed) = Frame::decode(&buf).unwrap();
+    assert_eq!(consumed, prefix_len);
+    assert_eq!(
+        frame,
+        Frame::Data {
+            stream_id: 5,
+            end_stream: false,
+            data_length: payload.len() as u32,
+            padding_length: padding,
+        }
+    );
+}
+
+#[test]
+fn data_on_stream_zero_protocol_error() {
+    let buf = encode_frame(FrameType::Data, 0, 0, b"hi");
+    assert_eq!(
+        Frame::decode(&buf),
+        Err(FrameDecodeError::Error(H2ErrorCode::ProtocolError)),
+    );
+}
+
+#[test]
+fn data_pad_length_covering_entire_payload_is_protocol_error() {
+    // PADDED set; payload length = 5; pad length byte = 5 ⇒ no room for data
+    let payload = [5u8, 0, 0, 0, 0];
+    let buf = encode_frame(FrameType::Data, FLAG_PADDED, 1, &payload);
+    assert_eq!(
+        Frame::decode(&buf),
+        Err(FrameDecodeError::Error(H2ErrorCode::ProtocolError)),
+    );
+}
+
+// -- HEADERS frames --
+
+#[test]
+fn headers_roundtrip_plain() {
+    let block = b"\x00\x00abc";
+    let prefix_len = headers::encoded_prefix_len(0, false);
+    let mut buf = vec![0u8; prefix_len + block.len()];
+    headers::encode_prefix(7, false, true, None, block.len() as u32, 0, &mut buf).unwrap();
+    buf[prefix_len..].copy_from_slice(block);
+
+    let (frame, consumed) = Frame::decode(&buf).unwrap();
+    assert_eq!(consumed, prefix_len);
+    assert_eq!(
+        frame,
+        Frame::Headers {
+            stream_id: 7,
+            end_stream: false,
+            end_headers: true,
+            priority: None,
+            header_block_length: block.len() as u32,
+            padding_length: 0,
+        }
+    );
+}
+
+#[test]
+fn headers_roundtrip_padded_priority_and_end_stream() {
+    let block = b"some-header-block";
+    let padding = 3u8;
+    let priority = PriorityInfo {
+        exclusive: true,
+        stream_dependency: 11,
+        weight: 42,
+    };
+    let prefix_len = headers::encoded_prefix_len(padding, true);
+    let mut buf = vec![0u8; prefix_len + block.len() + padding as usize];
+    headers::encode_prefix(
+        13,
+        true,
+        true,
+        Some(priority),
+        block.len() as u32,
+        padding,
+        &mut buf,
+    )
+    .unwrap();
+    buf[prefix_len..prefix_len + block.len()].copy_from_slice(block);
+
+    let (frame, consumed) = Frame::decode(&buf).unwrap();
+    assert_eq!(consumed, prefix_len);
+    assert_eq!(
+        frame,
+        Frame::Headers {
+            stream_id: 13,
+            end_stream: true,
+            end_headers: true,
+            priority: Some(priority),
+            header_block_length: block.len() as u32,
+            padding_length: padding,
+        }
+    );
+}
+
+#[test]
+fn headers_on_stream_zero_protocol_error() {
+    let buf = encode_frame(FrameType::Headers, 0, 0, b"xyz");
+    assert_eq!(
+        Frame::decode(&buf),
+        Err(FrameDecodeError::Error(H2ErrorCode::ProtocolError)),
+    );
+}
+
+#[test]
+fn headers_priority_prefix_without_enough_bytes_is_incomplete() {
+    // PRIORITY flag set but frame payload is only 4 bytes — priority block needs 5.
+    let buf = encode_frame(FrameType::Headers, FLAG_PRIORITY, 1, &[0u8; 4]);
+    assert_eq!(Frame::decode(&buf), Err(FrameDecodeError::Incomplete));
+}
+
+// -- CONTINUATION frames --
+
+#[test]
+fn continuation_roundtrip() {
+    let block = b"continued-fragment";
+    let prefix_len = continuation::ENCODED_PREFIX_LEN;
+    let mut buf = vec![0u8; prefix_len + block.len()];
+    continuation::encode_prefix(9, true, block.len() as u32, &mut buf).unwrap();
+    buf[prefix_len..].copy_from_slice(block);
+
+    let (frame, consumed) = Frame::decode(&buf).unwrap();
+    assert_eq!(consumed, prefix_len);
+    assert_eq!(
+        frame,
+        Frame::Continuation {
+            stream_id: 9,
+            end_headers: true,
+            header_block_length: block.len() as u32,
+        }
+    );
+}
+
+#[test]
+fn continuation_on_stream_zero_protocol_error() {
+    let buf = encode_frame(FrameType::Continuation, 0, 0, b"");
+    assert_eq!(
+        Frame::decode(&buf),
+        Err(FrameDecodeError::Error(H2ErrorCode::ProtocolError)),
+    );
 }
