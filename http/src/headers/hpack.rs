@@ -13,10 +13,11 @@
 //! - [`crate::headers::field_section::FieldSection`] — decoded output shape.
 //! - [`crate::headers::compression_error::CompressionError`] — shared codec error.
 //!
-//! The module-wide `dead_code` allow is transient — the static table's lookup is consumed
-//! by the HPACK decoder, which lands next. Remove once that happens.
+//! The module-wide `dead_code` allow is transient — the codec is consumed by the h2
+//! connection driver once phase 3 stream machinery lands. Remove once that happens.
 #![allow(dead_code)]
 
 pub(crate) mod decoder;
 pub(crate) mod dynamic_table;
+pub(crate) mod encoder;
 pub(crate) mod static_table;

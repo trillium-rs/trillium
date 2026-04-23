@@ -19,6 +19,8 @@
 //! — same gap as QPACK's N bit. See the `qpack-n-bit-gap` memory for the downstream story.
 
 #[cfg(test)]
+mod rfc7541_vectors;
+#[cfg(test)]
 mod tests;
 
 use super::{

@@ -74,7 +74,7 @@ pub(in crate::headers) fn static_entry(
 }
 
 /// RFC 7541 Appendix A. Physically 0-indexed; callers add 1 via [`static_entry`].
-const STATIC_TABLE: [(StaticHeaderName, &str); 61] = [
+pub(super) const STATIC_TABLE: [(StaticHeaderName, &str); 61] = [
     (Pseudo(Authority), ""),
     (Pseudo(Method), "GET"),
     (Pseudo(Method), "POST"),
