@@ -15,8 +15,10 @@
 //! and `total_inserts`), so that step lives at the semantic layer.
 
 use crate::headers::{
+    compression_error::CompressionError,
     entry_name::EntryName,
-    qpack::{FieldLineValue, QpackError, huffman, instruction::encode_string, varint},
+    huffman, integer_prefix,
+    qpack::{FieldLineValue, instruction::encode_string},
 };
 
 // --- §4.5.1 Field Section Prefix ---
@@ -100,14 +102,14 @@ pub(in crate::headers) enum FieldLineInstruction<'a> {
 impl<'a> FieldLineInstruction<'a> {
     /// Parse a single field line from the start of `input`. Returns the instruction and the
     /// unconsumed tail.
-    pub(in crate::headers) fn parse(input: &'a [u8]) -> Result<(Self, &'a [u8]), QpackError> {
+    pub(in crate::headers) fn parse(input: &'a [u8]) -> Result<(Self, &'a [u8]), CompressionError> {
         let &[first, ..] = input else {
-            return Err(QpackError::UnexpectedEnd);
+            return Err(CompressionError::UnexpectedEnd);
         };
 
         if first & INDEXED_FIELD_LINE != 0 {
             // §4.5.2: 1Txxxxxx
-            let (index, rest) = varint::decode(input, 6)?;
+            let (index, rest) = integer_prefix::decode(input, 6)?;
             let instr = if first & INDEXED_STATIC_FLAG != 0 {
                 FieldLineInstruction::IndexedStatic { index }
             } else {
@@ -120,7 +122,7 @@ impl<'a> FieldLineInstruction<'a> {
             // §4.5.4: 01NTxxxx
             let never_indexed = first & NAME_REF_NEVER_INDEXED_FLAG != 0;
             let is_static = first & NAME_REF_STATIC_FLAG != 0;
-            let (index, rest) = varint::decode(input, 4)?;
+            let (index, rest) = integer_prefix::decode(input, 4)?;
             let (value, rest) = decode_string(rest, 7)?;
             let instr = if is_static {
                 FieldLineInstruction::LiteralStaticNameRef {
@@ -151,7 +153,7 @@ impl<'a> FieldLineInstruction<'a> {
             ))
         } else if first & POST_BASE_INDEXED != 0 {
             // §4.5.3: 0001xxxx
-            let (post_base_index, rest) = varint::decode(input, 4)?;
+            let (post_base_index, rest) = integer_prefix::decode(input, 4)?;
             Ok((
                 FieldLineInstruction::IndexedPostBase { post_base_index },
                 rest,
@@ -159,7 +161,7 @@ impl<'a> FieldLineInstruction<'a> {
         } else {
             // §4.5.5: 0000Nxxx
             let never_indexed = first & POST_BASE_NAME_REF_NEVER_INDEXED_FLAG != 0;
-            let (post_base_index, rest) = varint::decode(input, 3)?;
+            let (post_base_index, rest) = integer_prefix::decode(input, 3)?;
             let (value, rest) = decode_string(rest, 7)?;
             Ok((
                 FieldLineInstruction::LiteralPostBaseNameRef {
@@ -177,17 +179,17 @@ impl<'a> FieldLineInstruction<'a> {
         match *self {
             FieldLineInstruction::IndexedStatic { index } => {
                 let start = buf.len();
-                varint::encode_into(index, 6, buf);
+                integer_prefix::encode_into(index, 6, buf);
                 buf[start] |= INDEXED_FIELD_LINE | INDEXED_STATIC_FLAG;
             }
             FieldLineInstruction::IndexedDynamic { relative_index } => {
                 let start = buf.len();
-                varint::encode_into(relative_index, 6, buf);
+                integer_prefix::encode_into(relative_index, 6, buf);
                 buf[start] |= INDEXED_FIELD_LINE;
             }
             FieldLineInstruction::IndexedPostBase { post_base_index } => {
                 let start = buf.len();
-                varint::encode_into(post_base_index, 4, buf);
+                integer_prefix::encode_into(post_base_index, 4, buf);
                 buf[start] |= POST_BASE_INDEXED;
             }
             FieldLineInstruction::LiteralStaticNameRef {
@@ -196,7 +198,7 @@ impl<'a> FieldLineInstruction<'a> {
                 never_indexed,
             } => {
                 let start = buf.len();
-                varint::encode_into(name_index, 4, buf);
+                integer_prefix::encode_into(name_index, 4, buf);
                 buf[start] |= LITERAL_WITH_NAME_REF
                     | NAME_REF_STATIC_FLAG
                     | if never_indexed {
@@ -212,7 +214,7 @@ impl<'a> FieldLineInstruction<'a> {
                 never_indexed,
             } => {
                 let start = buf.len();
-                varint::encode_into(relative_index, 4, buf);
+                integer_prefix::encode_into(relative_index, 4, buf);
                 buf[start] |= LITERAL_WITH_NAME_REF
                     | if never_indexed {
                         NAME_REF_NEVER_INDEXED_FLAG
@@ -227,7 +229,7 @@ impl<'a> FieldLineInstruction<'a> {
                 never_indexed,
             } => {
                 let start = buf.len();
-                varint::encode_into(post_base_index, 3, buf);
+                integer_prefix::encode_into(post_base_index, 3, buf);
                 buf[start] |= if never_indexed {
                     POST_BASE_NAME_REF_NEVER_INDEXED_FLAG
                 } else {
@@ -271,13 +273,13 @@ pub(in crate::headers) struct FieldSectionPrefix {
 }
 
 impl FieldSectionPrefix {
-    pub(in crate::headers) fn parse(input: &[u8]) -> Result<(Self, &[u8]), QpackError> {
-        let (encoded_required_insert_count, rest) = varint::decode(input, 8)?;
+    pub(in crate::headers) fn parse(input: &[u8]) -> Result<(Self, &[u8]), CompressionError> {
+        let (encoded_required_insert_count, rest) = integer_prefix::decode(input, 8)?;
         let &[first, ..] = rest else {
-            return Err(QpackError::UnexpectedEnd);
+            return Err(CompressionError::UnexpectedEnd);
         };
         let base_is_negative = first & BASE_DELTA_SIGN != 0;
-        let (delta_base, rest) = varint::decode(rest, 7)?;
+        let (delta_base, rest) = integer_prefix::decode(rest, 7)?;
         Ok((
             Self {
                 encoded_required_insert_count,
@@ -289,9 +291,9 @@ impl FieldSectionPrefix {
     }
 
     pub(in crate::headers) fn encode(&self, buf: &mut Vec<u8>) {
-        varint::encode_into(self.encoded_required_insert_count, 8, buf);
+        integer_prefix::encode_into(self.encoded_required_insert_count, 8, buf);
         let start = buf.len();
-        varint::encode_into(self.delta_base, 7, buf);
+        integer_prefix::encode_into(self.delta_base, 7, buf);
         if self.base_is_negative {
             buf[start] |= BASE_DELTA_SIGN;
         }
@@ -305,14 +307,17 @@ impl FieldSectionPrefix {
 ///
 /// On the non-Huffman path the returned value is `FieldLineValue::Borrowed(&input[..])` —
 /// zero allocation. On the Huffman path the decoded bytes are owned.
-fn decode_string(input: &[u8], prefix_size: u8) -> Result<(FieldLineValue<'_>, &[u8]), QpackError> {
+fn decode_string(
+    input: &[u8],
+    prefix_size: u8,
+) -> Result<(FieldLineValue<'_>, &[u8]), CompressionError> {
     let &[first, ..] = input else {
-        return Err(QpackError::UnexpectedEnd);
+        return Err(CompressionError::UnexpectedEnd);
     };
     let huffman_encoded = first & (1 << prefix_size) != 0;
-    let (length, rest) = varint::decode(input, prefix_size)?;
+    let (length, rest) = integer_prefix::decode(input, prefix_size)?;
     if rest.len() < length {
-        return Err(QpackError::UnexpectedEnd);
+        return Err(CompressionError::UnexpectedEnd);
     }
     let (body, rest) = rest.split_at(length);
     let value = if huffman_encoded {
@@ -325,20 +330,21 @@ fn decode_string(input: &[u8], prefix_size: u8) -> Result<(FieldLineValue<'_>, &
 
 /// Decode a §4.1.2 name string into a [`EntryName`], preserving the borrow on the
 /// non-Huffman path.
-fn decode_name(input: &[u8], prefix_size: u8) -> Result<(EntryName<'_>, &[u8]), QpackError> {
+fn decode_name(input: &[u8], prefix_size: u8) -> Result<(EntryName<'_>, &[u8]), CompressionError> {
     let &[first, ..] = input else {
-        return Err(QpackError::UnexpectedEnd);
+        return Err(CompressionError::UnexpectedEnd);
     };
     let huffman_encoded = first & (1 << prefix_size) != 0;
-    let (length, rest) = varint::decode(input, prefix_size)?;
+    let (length, rest) = integer_prefix::decode(input, prefix_size)?;
     if rest.len() < length {
-        return Err(QpackError::UnexpectedEnd);
+        return Err(CompressionError::UnexpectedEnd);
     }
     let (body, rest) = rest.split_at(length);
     let name = if huffman_encoded {
-        EntryName::try_from(huffman::decode(body)?).map_err(|_| QpackError::InvalidHeaderName)?
+        EntryName::try_from(huffman::decode(body)?)
+            .map_err(|_| CompressionError::InvalidHeaderName)?
     } else {
-        EntryName::try_from(body).map_err(|_| QpackError::InvalidHeaderName)?
+        EntryName::try_from(body).map_err(|_| CompressionError::InvalidHeaderName)?
     };
     Ok((name, rest))
 }
@@ -543,7 +549,7 @@ mod tests {
     fn parse_empty_input_is_error() {
         assert!(matches!(
             FieldLineInstruction::parse(&[]),
-            Err(QpackError::UnexpectedEnd)
+            Err(CompressionError::UnexpectedEnd)
         ));
     }
 
@@ -553,7 +559,7 @@ mod tests {
         let buf = [0x20 | 0x05, b'a', b'b'];
         assert!(matches!(
             FieldLineInstruction::parse(&buf),
-            Err(QpackError::UnexpectedEnd)
+            Err(CompressionError::UnexpectedEnd)
         ));
     }
 

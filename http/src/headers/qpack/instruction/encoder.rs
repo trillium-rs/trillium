@@ -22,10 +22,7 @@ use super::{
 };
 use crate::{
     h3::{H3Error, H3ErrorCode},
-    headers::{
-        entry_name::EntryName,
-        qpack::{huffman, varint},
-    },
+    headers::{entry_name::EntryName, huffman, integer_prefix},
 };
 use futures_lite::io::AsyncRead;
 
@@ -149,8 +146,8 @@ async fn parse_inner(
 
 /// Set Dynamic Table Capacity (§3.2.1): `001xxxxx` with a 5-bit prefix integer.
 pub(in crate::headers) fn encode_set_capacity(capacity: usize) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(varint::encoded_length(capacity, 5));
-    varint::encode_into(capacity, 5, &mut buf);
+    let mut buf = Vec::with_capacity(integer_prefix::encoded_length(capacity, 5));
+    integer_prefix::encode_into(capacity, 5, &mut buf);
     buf[0] |= SET_DYNAMIC_TABLE_CAPACITY;
     buf
 }
@@ -175,7 +172,7 @@ pub(in crate::headers) fn encode_insert_with_name_ref(
 ) -> Vec<u8> {
     let mut buf = Vec::with_capacity(value.len() + 4);
     let start = buf.len();
-    varint::encode_into(name_index, 6, &mut buf);
+    integer_prefix::encode_into(name_index, 6, &mut buf);
     buf[start] |= INSERT_WITH_NAME_REF | if is_static { NAME_REF_STATIC_FLAG } else { 0 };
     encode_string(value, 7, &mut buf);
     buf
@@ -183,8 +180,8 @@ pub(in crate::headers) fn encode_insert_with_name_ref(
 
 /// Duplicate (§3.2.4): `000xxxxx` — 5-bit prefix integer for the relative index.
 pub(in crate::headers) fn encode_duplicate(relative_index: usize) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(varint::encoded_length(relative_index, 5));
-    varint::encode_into(relative_index, 5, &mut buf);
+    let mut buf = Vec::with_capacity(integer_prefix::encoded_length(relative_index, 5));
+    integer_prefix::encode_into(relative_index, 5, &mut buf);
     buf[0] |= DUPLICATE;
     buf
 }

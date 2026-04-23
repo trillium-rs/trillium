@@ -1,10 +1,13 @@
 //! Header types
+mod compression_error;
 mod entry;
 mod entry_name;
 mod field_section;
 mod header_name;
 mod header_value;
 mod header_values;
+pub(crate) mod huffman;
+mod integer_prefix;
 mod known_header_name;
 mod unknown_header_name;
 

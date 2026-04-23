@@ -1,4 +1,3 @@
-use super::QpackError;
 use crate::{
     KnownHeaderName::{
         self, Accept, AcceptEncoding, AcceptLanguage, AcceptRanges, AccessControlAllowCredentials,
@@ -11,7 +10,10 @@ use crate::{
         UpgradeInsecureRequests, UserAgent, Vary, XcontentTypeOptions, XforwardedFor,
         XframeOptions, XxssProtection,
     },
-    headers::entry_name::{EntryName, PseudoHeaderName},
+    headers::{
+        compression_error::CompressionError,
+        entry_name::{EntryName, PseudoHeaderName},
+    },
 };
 use PseudoHeaderName::{Authority, Method, Path, Scheme, Status};
 use StaticHeaderName::{Header, Pseudo};
@@ -61,10 +63,10 @@ impl From<StaticHeaderName> for EntryName<'static> {
 
 pub(in crate::headers) fn static_entry(
     index: usize,
-) -> Result<&'static (StaticHeaderName, &'static str), QpackError> {
+) -> Result<&'static (StaticHeaderName, &'static str), CompressionError> {
     STATIC_TABLE
         .get(index)
-        .ok_or(QpackError::InvalidStaticIndex(index))
+        .ok_or(CompressionError::InvalidStaticIndex(index))
 }
 
 const STATIC_TABLE: [(StaticHeaderName, &str); 99] = [
