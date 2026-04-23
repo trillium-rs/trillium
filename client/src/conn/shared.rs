@@ -32,18 +32,28 @@ pub enum ClientSerdeError {
 
 impl Conn {
     pub(crate) async fn exec(&mut self) -> Result<()> {
-        match self.http_version {
-            Version::Http0_9 | Version::Http2 => {
-                return Err(Error::UnsupportedVersion(self.http_version));
-            }
-            _ => {}
+        if matches!(self.http_version, Version::Http0_9) {
+            return Err(Error::UnsupportedVersion(self.http_version));
         }
 
-        if !self.try_exec_h3().await? {
-            self.exec_h1().await?;
+        if self.try_exec_h3().await? {
+            return Ok(());
+        }
+        if self.try_exec_h2_pooled().await? {
+            return Ok(());
         }
 
-        Ok(())
+        // h2 prior knowledge: `http_version = Http2` is an assertion that the server speaks
+        // h2, so we skip h1 entirely. Over `http://` this is h2c (cleartext immediate
+        // preface); over `https://` it bypasses ALPN-readback and starts the h2 driver
+        // directly after the TLS handshake — useful for TLS connectors that don't expose
+        // `negotiated_alpn` (e.g. native-tls today). Either way, there's no fallback path:
+        // a server that doesn't actually speak h2 surfaces as a plain IO error.
+        if self.http_version == Version::Http2 {
+            return self.exec_h2_prior_knowledge().await;
+        }
+
+        self.exec_h1_or_promote_h2().await
     }
 
     pub(crate) fn body_len(&self) -> Option<u64> {
@@ -57,6 +67,7 @@ impl Conn {
     pub(crate) fn finalize_headers(&mut self) -> Result<()> {
         match self.http_version {
             Version::Http1_0 | Version::Http1_1 => self.finalize_headers_h1(),
+            Version::Http2 => self.finalize_headers_h2(),
             Version::Http3 if self.h3_client_state.is_some() => self.finalize_headers_h3(),
             other => Err(Error::UnsupportedVersion(other)),
         }

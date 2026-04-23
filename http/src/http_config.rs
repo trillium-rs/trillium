@@ -9,6 +9,36 @@ use fieldwork::Fieldwork;
 /// Long term, trillium may export several standard defaults for different constraints and
 /// application types. In the distant future, these may turn into initial values and trillium will
 /// tune itself based on values seen at runtime.
+///
+/// ## HTTP version dispatch
+///
+/// trillium accepts HTTP/1.x, HTTP/2, and HTTP/3 connections on the same listener without
+/// any per-version configuration. The version a given connection speaks is decided at accept
+/// time based on ALPN (for TLS listeners with ALPN), or by peeking the first 24 bytes for
+/// the HTTP/2 client preface (for cleartext listeners and TLS listeners where ALPN was
+/// absent or returned an unrecognized value):
+///
+/// | Listener | ALPN result | First bytes | Protocol |
+/// |---|---|---|---|
+/// | TCP + TLS | `h2` | — | HTTP/2 |
+/// | TCP + TLS | `http/1.1` | — | HTTP/1.1 |
+/// | TCP + TLS | absent / other | match HTTP/2 preface | HTTP/2 (TLS prior-knowledge) |
+/// | TCP + TLS | absent / other | anything else | HTTP/1.1 |
+/// | TCP, cleartext | — | match HTTP/2 preface | HTTP/2 prior-knowledge (h2c) |
+/// | TCP, cleartext | — | anything else | HTTP/1.x |
+/// | QUIC (via `trillium-quinn`) | — | — | HTTP/3 |
+///
+/// h2c via the HTTP/1.1 `Upgrade` mechanism (RFC 7540 §3.2, removed in RFC 9113) is not
+/// supported. The `h2_*` fields on this struct tune the HTTP/2 advertised settings + recv
+/// windows; the `h3_*` fields tune HTTP/3. None of them affect HTTP/1.x.
+///
+/// ```
+/// # use trillium_http::HttpConfig;
+/// // Accept body bytes eagerly (65535-byte initial window) instead of the default 100-
+/// // continue-like lazy window. Good for "always accept uploads" workloads.
+/// let config = HttpConfig::default().with_h2_initial_stream_window_size(65_535);
+/// assert_eq!(config.h2_initial_stream_window_size(), 65_535);
+/// ```
 #[derive(Clone, Copy, Debug, Fieldwork)]
 #[fieldwork(get, get_mut, set, with, without)]
 // `HttpConfig` is a user-facing tuning struct with documented per-field setters; the natural
@@ -173,6 +203,116 @@ pub struct HttpConfig {
     /// **Unit**: Pair count
     pub(crate) h3_qpack_recent_pairs_size: usize,
 
+    /// Initial HTTP/2 stream flow-control window advertised to peers as
+    /// `SETTINGS_INITIAL_WINDOW_SIZE`.
+    ///
+    /// Controls how many request-body bytes the peer may send on a newly-opened stream before
+    /// waiting for a `WINDOW_UPDATE`. The default of `0` implements a lazy / 100-continue-like
+    /// pattern: the peer cannot send any body bytes until the handler calls `read` on the
+    /// request body, at which point the driver emits a `WINDOW_UPDATE` topping the window up
+    /// to [`h2_max_stream_recv_window_size`][Self::h2_max_stream_recv_window_size]. A handler
+    /// that returns an error from its header-level checks never pays the bandwidth cost of
+    /// reading the body.
+    ///
+    /// Set to `65_535` (the RFC 9113 baseline) to match nginx / Apache / hyper behavior — body
+    /// bytes arrive eagerly at the cost of 1 RTT less latency on the first DATA frame and the
+    /// possible waste of up to this many bytes on requests the handler rejects.
+    ///
+    /// Must not exceed `2^31 - 1`.
+    ///
+    /// **Default**: `0` (lazy-WU)
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_initial_stream_window_size: u32,
+
+    /// Per-stream recv window target — how high the driver keeps the peer's stream window
+    /// topped up as the handler consumes request-body bytes.
+    ///
+    /// After the handler signals intent to read (first `poll_read` on the request body), the
+    /// driver emits `WINDOW_UPDATE` frames to keep the effective peer window near this target.
+    /// Also serves as the hard per-stream buffer cap — a peer that sends past this amount of
+    /// unconsumed DATA on a single stream earns a connection-level `FLOW_CONTROL_ERROR`.
+    ///
+    /// **Default**: `1 MiB`
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_max_stream_recv_window_size: u32,
+
+    /// Connection-level recv window target — how high the driver keeps the peer's
+    /// connection-level window topped up as handlers consume bytes.
+    ///
+    /// Raised via an initial `WINDOW_UPDATE(stream_id=0)` right after SETTINGS (RFC 9113
+    /// §6.9.2 forbids SETTINGS from altering the connection window), then refilled on
+    /// consumption. Bounds total concurrent in-flight request-body bytes across all streams on
+    /// a single HTTP/2 connection. Leaving at the RFC baseline of `65_535` would cap bulk
+    /// uploads at ~5 Mbit/s × RTT.
+    ///
+    /// **Default**: `2 MiB`
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_initial_connection_window_size: u32,
+
+    /// HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` — the maximum number of concurrent
+    /// peer-initiated streams the server will accept.
+    ///
+    /// Peer-opened streams beyond this count get `RST_STREAM(RefusedStream)` per RFC 9113
+    /// §5.1.2. A value in the 100–250 range is the post-Rapid-Reset (CVE-2023-44487)
+    /// consensus; lower values cap parallelism, higher values need per-connection reset-rate
+    /// limiting to avoid `DoS` exposure.
+    ///
+    /// **Default**: `100`
+    ///
+    /// **Unit**: stream count
+    pub(crate) h2_max_concurrent_streams: u32,
+
+    /// HTTP/2 `SETTINGS_MAX_FRAME_SIZE` — the largest frame payload the server will accept.
+    ///
+    /// Peer frames whose payload exceeds this get `FRAME_SIZE_ERROR` per RFC 9113 §4.2. The
+    /// RFC floor is `16_384`; the ceiling is `16_777_215`. Larger values amortize per-frame
+    /// overhead on bulk transfers but increase the upper bound on a single read.
+    ///
+    /// **Default**: `16_384`
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_max_frame_size: u32,
+
+    /// HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE` — advisory cap on the cumulative decoded size
+    /// of a peer header list.
+    ///
+    /// Advertised in SETTINGS but not currently enforced on the receive path (the peer is
+    /// expected to self-police). Guards against pathological header lists inflating memory
+    /// per stream during HPACK decode.
+    ///
+    /// **Default**: `32 KiB`
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_max_header_list_size: u32,
+
+    /// Maximum capacity of the HPACK dynamic table for HTTP/2 header compression.
+    ///
+    /// Advertised to peers as `SETTINGS_HEADER_TABLE_SIZE` (RFC 7541 §6.5.2). Bounds both the
+    /// decoder's inbound table and our encoder's outbound table; set to `0` to disable dynamic
+    /// table compression entirely (encoder reduces to static-or-literal).
+    ///
+    /// **Default**: 4096 bytes
+    ///
+    /// **Unit**: Byte count
+    pub(crate) h2_hpack_table_capacity: usize,
+
+    /// Per-connection ring size for the HPACK encoder's recently-seen-pair predictor.
+    ///
+    /// Same role as [`h3_qpack_recent_pairs_size`][Self::h3_qpack_recent_pairs_size]: a
+    /// `(name, value)` pair must be observed at least once on the connection (within the ring's
+    /// retention window) before the encoder invests in a §6.2.1 insert. The cross-connection
+    /// [`HeaderObserver`] short-circuits this for already-known-hot pairs.
+    ///
+    /// **Default**: 64
+    ///
+    /// **Unit**: Pair count
+    ///
+    /// [`HeaderObserver`]: crate::headers::header_observer::HeaderObserver
+    pub(crate) h2_hpack_recent_pairs_size: usize,
+
     /// whether [datagrams](https://www.rfc-editor.org/rfc/rfc9297.html) are enabled for HTTP/3
     ///
     /// This is a protocol-level setting and is communicated to the peer as well as enforced.
@@ -189,6 +329,27 @@ pub struct HttpConfig {
     ///
     /// **Default**: false
     pub(crate) webtransport_enabled: bool,
+
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL` — advertises that the server accepts extended
+    /// CONNECT requests, enabling protocols layered on top of HTTP that bootstrap via a
+    /// CONNECT with a `:protocol` pseudo-header. The same identifier (0x08) is used by
+    /// HTTP/2 (RFC 8441 §3) and HTTP/3 (RFC 9220 §3).
+    ///
+    /// Use cases include WebSocket-over-h2 (RFC 8441), WebSocket-over-h3 (RFC 9220),
+    /// and WebTransport (`draft-ietf-webtrans-http2` and `draft-ietf-webtrans-http3`).
+    ///
+    /// When set, the server's initial SETTINGS frame includes
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` (on both HTTP/2 and HTTP/3) and the runtime
+    /// accepts CONNECT requests carrying a `:protocol` pseudo-header. Without it, clients
+    /// won't attempt extended CONNECT, which is the correct default — handlers that don't
+    /// expect extended CONNECT shouldn't see those requests.
+    ///
+    /// You don't need to set this manually if using a handler that requires it (e.g. an
+    /// h2 websocket handler will flip it from `Handler::init`, the same way the
+    /// trillium-webtransport handler flips `webtransport_enabled`).
+    ///
+    /// **Default**: false
+    pub(crate) extended_connect_enabled: bool,
 
     /// whether to panic when a response header with an invalid value (containing `\r`, `\n`, or
     /// `\0`) is encountered.
@@ -222,7 +383,16 @@ impl HttpConfig {
         h3_blocked_streams: 100,
         h3_qpack_recent_pairs_size: 64,
         h3_datagrams_enabled: false,
+        h2_initial_stream_window_size: 0,
+        h2_max_stream_recv_window_size: 1 << 20,
+        h2_initial_connection_window_size: 2 << 20,
+        h2_max_concurrent_streams: 100,
+        h2_max_frame_size: 16_384,
+        h2_max_header_list_size: 32 * 1024,
+        h2_hpack_table_capacity: 4096,
+        h2_hpack_recent_pairs_size: 64,
         webtransport_enabled: false,
+        extended_connect_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),
     };
 }

@@ -1,4 +1,4 @@
-use crate::{Headers, h3::H3Body};
+use crate::{Headers, h2::H2Body, h3::H3Body};
 use BodyType::{Empty, Static, Streaming};
 use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor, ready};
 use pin_project_lite::pin_project;
@@ -200,6 +200,16 @@ impl Body {
     #[cfg(not(feature = "unstable"))]
     pub(crate) fn into_h3(self) -> H3Body {
         H3Body::new(self)
+    }
+
+    /// Convert this body into an [`H2Body`] for reading by the h2 send pump.
+    ///
+    /// h2 frames DATA at the connection layer, so the body bytes that reach the send pump
+    /// must be plain payload — not chunk-encoded. [`H2Body`] strips the chunked-transfer
+    /// wrapping that [`Body::poll_read`] applies for the h1 path on streaming bodies of
+    /// unknown length, and forwards trailers so the send pump can emit trailing HEADERS.
+    pub(crate) fn into_h2(self) -> H2Body {
+        H2Body::new(self)
     }
 }
 

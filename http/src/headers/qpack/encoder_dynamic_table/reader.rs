@@ -80,14 +80,15 @@ mod tests {
     use super::*;
     use crate::{
         h3::H3Settings,
-        headers::qpack::{
-            FieldLineValue, encoder_dynamic_table::SectionRefs, entry_name::QpackEntryName,
+        headers::{
+            entry_name::EntryName,
+            qpack::{FieldLineValue, encoder_dynamic_table::SectionRefs},
         },
     };
     use futures_lite::future::block_on;
 
-    fn qen(s: &str) -> QpackEntryName<'static> {
-        QpackEntryName::try_from(s.as_bytes().to_vec()).unwrap()
+    fn qen(s: &str) -> EntryName<'static> {
+        EntryName::try_from(s.as_bytes().to_vec()).unwrap()
     }
 
     fn fv(s: &'static str) -> FieldLineValue<'static> {

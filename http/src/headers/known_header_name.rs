@@ -272,6 +272,7 @@ known_headers! {
     ("Ratelimit-Remaining", RatelimitRemaining, "ratelimit-remaining"),
     ("Referer", Referer, "referer"),
     ("Referrer-Policy", ReferrerPolicy, "referrer-policy"),
+    ("Refresh", Refresh, "refresh"),
     ("Refresh-Cache", RefreshCache, "refresh-cache"),
     ("Report-To", ReportTo, "report-to"),
     ("Repr-Digest", ReprDigest, "repr-digest"),

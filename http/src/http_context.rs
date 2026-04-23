@@ -1,5 +1,6 @@
 use crate::{
-    Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade, headers::qpack::HeaderObserver,
+    Buffer, Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade,
+    headers::header_observer::HeaderObserver,
 };
 use fieldwork::Fieldwork;
 use futures_lite::{AsyncRead, AsyncWrite};
@@ -74,25 +75,15 @@ impl HttpContext {
     pub async fn run<Transport, Handler, Fut>(
         self: Arc<Self>,
         transport: Transport,
-        mut handler: Handler,
+        handler: Handler,
     ) -> Result<Option<Upgrade<Transport>>>
     where
         Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
         Handler: FnMut(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>>,
     {
-        let _guard = self.swansong.guard();
-        let buffer = Vec::with_capacity(self.config.request_buffer_initial_len).into();
-
-        let mut conn = Conn::new_internal(self, transport, buffer).await?;
-
-        loop {
-            conn = match handler(conn).await.send().await? {
-                ConnectionStatus::Upgrade(upgrade) => return Ok(Some(upgrade)),
-                ConnectionStatus::Close => return Ok(None),
-                ConnectionStatus::Conn(next) => next,
-            }
-        }
+        let initial_bytes = Vec::with_capacity(self.config.request_buffer_initial_len);
+        run_with_initial_bytes(self, transport, initial_bytes, handler).await
     }
 
     /// Attempt graceful shutdown of this server.
@@ -122,5 +113,44 @@ impl HttpContext {
             Arc::as_ptr(&self.observer),
         );
         self
+    }
+}
+
+/// Like [`HttpContext::run`], but starts with the supplied bytes pre-filled into the request
+/// buffer.
+///
+/// Used by runtime adapters that need to peek the first few bytes off a cleartext TCP stream
+/// to decide between HTTP/1.1 and HTTP/2 prior-knowledge dispatch, and then hand those bytes
+/// into the HTTP/1 parser without re-reading them.
+///
+/// The mechanism is the same one the keep-alive / pipelining path already uses when a follow-up
+/// request arrives on the tail of the previous response: any bytes already in the buffer are
+/// consumed by the parser before the next transport read.
+///
+/// # Errors
+///
+/// Same as [`HttpContext::run`] — any irrecoverably malformed or noncompliant HTTP/1 request
+/// surfaces as an [`Error`](crate::Error).
+pub async fn run_with_initial_bytes<Transport, Handler, Fut>(
+    context: Arc<HttpContext>,
+    transport: Transport,
+    initial_bytes: Vec<u8>,
+    mut handler: Handler,
+) -> Result<Option<Upgrade<Transport>>>
+where
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+    Handler: FnMut(Conn<Transport>) -> Fut,
+    Fut: Future<Output = Conn<Transport>>,
+{
+    let _guard = context.swansong.guard();
+    let buffer: Buffer = initial_bytes.into();
+    let mut conn = Conn::new_internal(context, transport, buffer).await?;
+
+    loop {
+        conn = match handler(conn).await.send().await? {
+            ConnectionStatus::Upgrade(upgrade) => return Ok(Some(upgrade)),
+            ConnectionStatus::Close => return Ok(None),
+            ConnectionStatus::Conn(next) => next,
+        }
     }
 }

@@ -244,6 +244,8 @@ where
             scheme,
             h3_connection: Some(h3_connection),
             h3_stream_id: Some(stream_id),
+            h2_connection: None,
+            h2_stream_id: None,
             protocol,
             request_trailers: None,
         })
@@ -255,7 +257,11 @@ where
                 httpdate::fmt_http_date(SystemTime::now())
             });
 
-        if !matches!(self.status, Some(Status::NotModified | Status::NoContent))
+        // Mirror the h2 path: extended-CONNECT (RFC 9220 §3 reusing RFC 8441) responds
+        // with HEADERS only; the QUIC stream stays open as a bidi byte channel and a
+        // Content-Length would be misleading.
+        if !self.should_upgrade()
+            && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
             && let Some(len) = self.body_len()
         {
             self.response_headers

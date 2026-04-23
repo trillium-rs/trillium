@@ -2,14 +2,16 @@ use super::DecoderDynamicTable;
 use crate::{
     HeaderName, HeaderValue, Headers, Method, Status,
     h3::{H3Error, H3ErrorCode},
-    headers::qpack::{
-        FieldSection, PseudoHeaders,
-        entry_name::QpackEntryName,
-        instruction::{
-            field_section::{FieldLineInstruction, FieldSectionPrefix},
-            validate_value,
+    headers::{
+        entry_name::{EntryName, PseudoHeaderName},
+        qpack::{
+            FieldSection, PseudoHeaders,
+            instruction::{
+                field_section::{FieldLineInstruction, FieldSectionPrefix},
+                validate_value,
+            },
+            static_table::{StaticHeaderName, static_entry},
         },
-        static_table::{PseudoHeaderName, StaticHeaderName, static_entry},
     },
 };
 use std::{
@@ -81,10 +83,7 @@ impl DecoderDynamicTable {
             self.acknowledge_section(stream_id, required_insert_count);
         }
 
-        Ok(FieldSection {
-            pseudo_headers,
-            headers: Cow::Owned(headers),
-        })
+        Ok(FieldSection::from_owned(pseudo_headers, headers))
     }
 }
 
@@ -94,8 +93,7 @@ impl DecoderDynamicTable {
 ///
 /// TODO(n-bit): the `never_indexed` flag on literal instruction variants is currently
 /// discarded here. Preserving it for trillium-proxy reverse-proxy correctness requires
-/// extending `FieldLine` / `FieldSection` with a per-field never-index flag. See
-/// `qpack-n-bit-gap` memory.
+/// extending `FieldLine` / `FieldSection` with a per-field never-index flag.
 async fn apply_instruction(
     instruction: FieldLineInstruction<'_>,
     base: u64,
@@ -132,7 +130,7 @@ async fn apply_instruction(
         } => {
             let (name, _) = static_entry(name_index)?;
             log::trace!("LiteralStaticNameRef {name}: {value:?}");
-            entry_field_line(QpackEntryName::from(*name), value.into_static()).map_err(Into::into)
+            entry_field_line(EntryName::from(*name), value.into_static()).map_err(Into::into)
         }
         FieldLineInstruction::LiteralDynamicNameRef {
             relative_index,
@@ -191,33 +189,31 @@ fn static_table_field_line(name: StaticHeaderName, value: &'static str) -> Field
 /// load-bearing one for literal field-line variants whose values were not seen by the
 /// encoder-stream parser.
 fn entry_field_line(
-    name: QpackEntryName<'_>,
+    name: EntryName<'_>,
     value: Cow<'static, [u8]>,
 ) -> Result<FieldLine, H3ErrorCode> {
     let err = || H3ErrorCode::QpackDecompressionFailed;
     validate_value(&value).map_err(|()| err())?;
     match name {
-        QpackEntryName::Known(k) => Ok(FieldLine::Header(k.into(), HeaderValue::from(value))),
-        QpackEntryName::UnknownStatic(s) => Ok(FieldLine::Header(
+        EntryName::Known(k) => Ok(FieldLine::Header(k.into(), HeaderValue::from(value))),
+        EntryName::UnknownStatic(s) => Ok(FieldLine::Header(
             HeaderName::from(s),
             HeaderValue::from(value),
         )),
-        QpackEntryName::Unknown(u) => Ok(FieldLine::Header(
+        EntryName::Unknown(u) => Ok(FieldLine::Header(
             u.into_owned().into(),
             HeaderValue::from(value),
         )),
-        QpackEntryName::Pseudo(PseudoHeaderName::Method) => Ok(FieldLine::Pseudo(
-            PseudoHeader::Method(Method::parse(&value).map_err(|_| err())?),
-        )),
-        QpackEntryName::Pseudo(PseudoHeaderName::Status) => {
-            Ok(FieldLine::Pseudo(PseudoHeader::Status(
-                std::str::from_utf8(&value)
-                    .map_err(|_| err())?
-                    .parse()
-                    .map_err(|_| err())?,
-            )))
-        }
-        QpackEntryName::Pseudo(other) => Ok(FieldLine::Pseudo(PseudoHeader::Other(
+        EntryName::Pseudo(PseudoHeaderName::Method) => Ok(FieldLine::Pseudo(PseudoHeader::Method(
+            Method::parse(&value).map_err(|_| err())?,
+        ))),
+        EntryName::Pseudo(PseudoHeaderName::Status) => Ok(FieldLine::Pseudo(PseudoHeader::Status(
+            std::str::from_utf8(&value)
+                .map_err(|_| err())?
+                .parse()
+                .map_err(|_| err())?,
+        ))),
+        EntryName::Pseudo(other) => Ok(FieldLine::Pseudo(PseudoHeader::Other(
             other,
             Some(match value {
                 Cow::Borrowed(b) => Cow::Borrowed(std::str::from_utf8(b).map_err(|_| err())?),
@@ -259,22 +255,22 @@ impl PseudoHeader {
     pub(in crate::headers) fn apply(self, pseudos: &mut PseudoHeaders<'static>) {
         match self {
             PseudoHeader::Method(m) => {
-                pseudos.method.get_or_insert(m);
+                pseudos.method_mut().get_or_insert(m);
             }
             PseudoHeader::Status(s) => {
-                pseudos.status.get_or_insert(s);
+                pseudos.status_mut().get_or_insert(s);
             }
             PseudoHeader::Other(PseudoHeaderName::Authority, Some(v)) => {
-                pseudos.authority.get_or_insert(v);
+                pseudos.authority_mut().get_or_insert(v);
             }
             PseudoHeader::Other(PseudoHeaderName::Path, Some(v)) => {
-                pseudos.path.get_or_insert(v);
+                pseudos.path_mut().get_or_insert(v);
             }
             PseudoHeader::Other(PseudoHeaderName::Scheme, Some(v)) => {
-                pseudos.scheme.get_or_insert(v);
+                pseudos.scheme_mut().get_or_insert(v);
             }
             PseudoHeader::Other(PseudoHeaderName::Protocol, Some(v)) => {
-                pseudos.protocol.get_or_insert(v);
+                pseudos.protocol_mut().get_or_insert(v);
             }
             // Method and Status with the Other variant shouldn't be constructed,
             // but handle gracefully

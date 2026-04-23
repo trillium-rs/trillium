@@ -12,6 +12,7 @@ members = [
         "channels",
         "client",
         "compression",
+        "conformance",
         "conn-id",
         "cookies",
         "example",

@@ -177,10 +177,7 @@ fn dynamic_full_match_pseudo_method() {
     // table so a later encode finds a full dynamic match.
     let encoder = new_table(4096);
     let abs = encoder
-        .insert(
-            QpackEntryName::Pseudo(PseudoHeaderName::Method),
-            fv("PATCH"),
-        )
+        .insert(EntryName::Pseudo(PseudoHeaderName::Method), fv("PATCH"))
         .unwrap();
     assert_eq!(abs, 0);
     encoder.on_insert_count_increment(1).unwrap();
@@ -214,7 +211,7 @@ fn dynamic_full_match_protocol() {
     let encoder = new_table(4096);
     encoder
         .insert(
-            QpackEntryName::Pseudo(PseudoHeaderName::Protocol),
+            EntryName::Pseudo(PseudoHeaderName::Protocol),
             fv("webtransport"),
         )
         .unwrap();

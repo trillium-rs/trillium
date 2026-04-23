@@ -59,6 +59,11 @@ impl Transport for InnerTransport {
         self.stats.inc("peer_addr");
         Ok(None)
     }
+
+    fn negotiated_alpn(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+        self.stats.inc("negotiated_alpn");
+        None
+    }
 }
 
 fn call_all_once(t: &mut impl Transport) {
@@ -66,6 +71,7 @@ fn call_all_once(t: &mut impl Transport) {
     t.set_nodelay(true).unwrap();
     t.set_ip_ttl(0).unwrap();
     t.peer_addr().unwrap();
+    t.negotiated_alpn();
 }
 
 macro_rules! define_transport_with_except {
@@ -104,6 +110,11 @@ macro_rules! define_transport_with_except {
                 self.stats.inc("peer_addr");
                 Ok(None)
             }
+
+            fn negotiated_alpn(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+                self.stats.inc("negotiated_alpn");
+                None
+            }
         }
     }
 }
@@ -117,10 +128,12 @@ fn full_derive() {
     assert_eq!(outer.stats.get("set_nodelay"), 0);
     assert_eq!(outer.stats.get("set_ip_ttl"), 0);
     assert_eq!(outer.stats.get("peer_addr"), 0);
+    assert_eq!(outer.stats.get("negotiated_alpn"), 0);
     assert_eq!(outer.inner.stats.get("set_linger"), 1);
     assert_eq!(outer.inner.stats.get("set_nodelay"), 1);
     assert_eq!(outer.inner.stats.get("set_ip_ttl"), 1);
     assert_eq!(outer.inner.stats.get("peer_addr"), 1);
+    assert_eq!(outer.inner.stats.get("negotiated_alpn"), 1);
 }
 
 #[test]
@@ -132,32 +145,42 @@ fn override_one() {
     assert_eq!(outer.stats.get("set_nodelay"), 0);
     assert_eq!(outer.stats.get("set_ip_ttl"), 0);
     assert_eq!(outer.stats.get("peer_addr"), 0);
+    assert_eq!(outer.stats.get("negotiated_alpn"), 0);
     assert_eq!(outer.inner.stats.get("set_linger"), 0);
     assert_eq!(outer.inner.stats.get("set_nodelay"), 1);
     assert_eq!(outer.inner.stats.get("set_ip_ttl"), 1);
     assert_eq!(outer.inner.stats.get("peer_addr"), 1);
+    assert_eq!(outer.inner.stats.get("negotiated_alpn"), 1);
 }
 
 #[test]
 fn override_two() {
-    define_transport_with_except!(OuterTransport, except = [set_nodelay, peer_addr]);
+    define_transport_with_except!(OuterTransport, except = [set_nodelay, negotiated_alpn]);
     let mut outer = OuterTransport::new();
     call_all_once(&mut outer);
     assert_eq!(outer.stats.get("set_linger"), 0);
     assert_eq!(outer.stats.get("set_nodelay"), 1);
     assert_eq!(outer.stats.get("set_ip_ttl"), 0);
-    assert_eq!(outer.stats.get("peer_addr"), 1);
+    assert_eq!(outer.stats.get("peer_addr"), 0);
+    assert_eq!(outer.stats.get("negotiated_alpn"), 1);
     assert_eq!(outer.inner.stats.get("set_linger"), 1);
     assert_eq!(outer.inner.stats.get("set_nodelay"), 0);
     assert_eq!(outer.inner.stats.get("set_ip_ttl"), 1);
-    assert_eq!(outer.inner.stats.get("peer_addr"), 0);
+    assert_eq!(outer.inner.stats.get("peer_addr"), 1);
+    assert_eq!(outer.inner.stats.get("negotiated_alpn"), 0);
 }
 
 #[test]
 fn override_all() {
     define_transport_with_except!(
         OuterTransport,
-        except = [set_linger, set_nodelay, set_ip_ttl, peer_addr],
+        except = [
+            set_linger,
+            set_nodelay,
+            set_ip_ttl,
+            peer_addr,
+            negotiated_alpn
+        ],
     );
     let mut outer = OuterTransport::new();
     call_all_once(&mut outer);
@@ -165,8 +188,10 @@ fn override_all() {
     assert_eq!(outer.stats.get("set_nodelay"), 1);
     assert_eq!(outer.stats.get("set_ip_ttl"), 1);
     assert_eq!(outer.stats.get("peer_addr"), 1);
+    assert_eq!(outer.stats.get("negotiated_alpn"), 1);
     assert_eq!(outer.inner.stats.get("set_linger"), 0);
     assert_eq!(outer.inner.stats.get("set_nodelay"), 0);
     assert_eq!(outer.inner.stats.get("set_ip_ttl"), 0);
     assert_eq!(outer.inner.stats.get("peer_addr"), 0);
+    assert_eq!(outer.inner.stats.get("negotiated_alpn"), 0);
 }

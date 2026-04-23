@@ -1,23 +1,29 @@
-use super::QpackError;
-use crate::KnownHeaderName::{
-    self, Accept, AcceptEncoding, AcceptLanguage, AcceptRanges, AccessControlAllowCredentials,
-    AccessControlAllowHeaders, AccessControlAllowMethods, AccessControlAllowOrigin,
-    AccessControlExposeHeaders, AccessControlRequestHeaders, AccessControlRequestMethod, Age,
-    AltSvc, Authorization, CacheControl, ContentDisposition, ContentEncoding, ContentLength,
-    ContentSecurityPolicy, ContentType, Cookie, Date, EarlyData, Etag, ExpectCt, Forwarded,
-    IfModifiedSince, IfNoneMatch, IfRange, LastModified, Link, Location, Origin, Purpose, Range,
-    Referer, Server, SetCookie, StrictTransportSecurity, TimingAllowOrigin,
-    UpgradeInsecureRequests, UserAgent, Vary, XcontentTypeOptions, XforwardedFor, XframeOptions,
-    XxssProtection,
+use crate::{
+    KnownHeaderName::{
+        self, Accept, AcceptEncoding, AcceptLanguage, AcceptRanges, AccessControlAllowCredentials,
+        AccessControlAllowHeaders, AccessControlAllowMethods, AccessControlAllowOrigin,
+        AccessControlExposeHeaders, AccessControlRequestHeaders, AccessControlRequestMethod, Age,
+        AltSvc, Authorization, CacheControl, ContentDisposition, ContentEncoding, ContentLength,
+        ContentSecurityPolicy, ContentType, Cookie, Date, EarlyData, Etag, ExpectCt, Forwarded,
+        IfModifiedSince, IfNoneMatch, IfRange, LastModified, Link, Location, Origin, Purpose,
+        Range, Referer, Server, SetCookie, StrictTransportSecurity, TimingAllowOrigin,
+        UpgradeInsecureRequests, UserAgent, Vary, XcontentTypeOptions, XforwardedFor,
+        XframeOptions, XxssProtection,
+    },
+    headers::{
+        compression_error::CompressionError,
+        entry_name::{EntryName, PseudoHeaderName},
+    },
 };
-use PseudoHeaderName::{Authority, Method, Path, Protocol, Scheme, Status};
+use PseudoHeaderName::{Authority, Method, Path, Scheme, Status};
 use StaticHeaderName::{Header, Pseudo};
 use std::{
     convert::AsRef,
     fmt::{self, Display, Formatter},
 };
 mod lookup;
-pub(super) use lookup::{StaticLookup, first_match, static_table_lookup};
+pub(super) use lookup::first_match;
+pub(in crate::headers) use lookup::static_table_lookup;
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub(in crate::headers) enum StaticHeaderName {
@@ -47,76 +53,21 @@ impl Display for StaticHeaderName {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
-#[repr(u8)]
-pub(in crate::headers) enum PseudoHeaderName {
-    Authority,
-    Method,
-    Path,
-    Protocol,
-    Scheme,
-    Status,
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::headers::qpack::static_table::PseudoHeaderName;
-
-    #[test]
-    fn round_trip() {
-        for phn in PseudoHeaderName::VARIANTS.iter().copied() {
-            assert_eq!(
-                PseudoHeaderName::lowercase_byte_match(phn.as_str().as_bytes()),
-                Some(phn)
-            );
+impl From<StaticHeaderName> for EntryName<'static> {
+    fn from(s: StaticHeaderName) -> Self {
+        match s {
+            Header(known) => known.into(),
+            Pseudo(pseudo) => pseudo.into(),
         }
-
-        assert!(PseudoHeaderName::lowercase_byte_match(b":other").is_none());
-    }
-}
-
-impl PseudoHeaderName {
-    #[cfg(test)]
-    pub(in crate::headers) const VARIANTS: &[PseudoHeaderName] =
-        &[Authority, Method, Path, Protocol, Scheme, Status];
-
-    /// Retrieve a 'static str representation
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Authority => ":authority",
-            Method => ":method",
-            Path => ":path",
-            Protocol => ":protocol",
-            Scheme => ":scheme",
-            Status => ":status",
-        }
-    }
-
-    pub(in crate::headers) fn lowercase_byte_match(bytes: &[u8]) -> Option<Self> {
-        match bytes {
-            b":authority" => Some(Authority),
-            b":method" => Some(Method),
-            b":path" => Some(Path),
-            b":protocol" => Some(Protocol),
-            b":scheme" => Some(Scheme),
-            b":status" => Some(Status),
-            _ => None,
-        }
-    }
-}
-
-impl Display for PseudoHeaderName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
     }
 }
 
 pub(in crate::headers) fn static_entry(
     index: usize,
-) -> Result<&'static (StaticHeaderName, &'static str), QpackError> {
+) -> Result<&'static (StaticHeaderName, &'static str), CompressionError> {
     STATIC_TABLE
         .get(index)
-        .ok_or(QpackError::InvalidStaticIndex(index))
+        .ok_or(CompressionError::InvalidStaticIndex(index))
 }
 
 const STATIC_TABLE: [(StaticHeaderName, &str); 99] = [

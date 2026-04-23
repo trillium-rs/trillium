@@ -14,7 +14,7 @@ use super::*;
 /// it as a candidate.
 fn context_with_observations(
     max_capacity: usize,
-    observations: &[(QpackEntryName<'static>, FieldLineValue<'static>)],
+    observations: &[(EntryName<'static>, FieldLineValue<'static>)],
 ) -> HttpContext {
     let context = HttpContext::default()
         .with_config(crate::HttpConfig::default().with_h3_max_table_capacity(max_capacity));
@@ -74,7 +74,7 @@ fn gate_closed_when_table_has_headroom() {
     // Prime one hot pair into a very large table. Headroom stays far above
     // `primed_bytes` after warming inserts, so the gate never opens.
     let server = (
-        QpackEntryName::Known(KnownHeaderName::Server),
+        EntryName::Known(KnownHeaderName::Server),
         FieldLineValue::Static(b"trillium"),
     );
     let context = context_with_observations(4096, &[server]);
@@ -111,11 +111,11 @@ fn gate_open_hot_tail_emits_duplicate() {
     // that a warming insert opens the gate on the first attempt. The oldest entry is
     // still observer-hot, so a Duplicate is emitted before the warming insert.
     let server = (
-        QpackEntryName::Known(KnownHeaderName::Server),
+        EntryName::Known(KnownHeaderName::Server),
         FieldLineValue::Static(b"trillium"),
     );
     let ua = (
-        QpackEntryName::Known(KnownHeaderName::UserAgent),
+        EntryName::Known(KnownHeaderName::UserAgent),
         FieldLineValue::Static(b"custom"),
     );
     let context = context_with_observations(160, &[server, ua]);
@@ -152,11 +152,11 @@ fn sustained_pressure_emits_dup_and_remains_consistent() {
     // eviction can touch (the structural "nothing below the pin" case). In either
     // case the warming insert itself always proceeds and the table remains consistent.
     let server = (
-        QpackEntryName::Known(KnownHeaderName::Server),
+        EntryName::Known(KnownHeaderName::Server),
         FieldLineValue::Static(b"trillium"),
     );
     let ua = (
-        QpackEntryName::Known(KnownHeaderName::UserAgent),
+        EntryName::Known(KnownHeaderName::UserAgent),
         FieldLineValue::Static(b"custom"),
     );
     let context = context_with_observations(160, &[server, ua]);

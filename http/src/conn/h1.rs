@@ -106,6 +106,7 @@ where
         )
         .with_trailers(&mut self.request_trailers)
         .with_h3_connection(self.h3_connection.clone().zip(self.h3_stream_id))
+        .with_h2_connection(self.h2_connection.clone().zip(self.h2_stream_id))
     }
 
     fn validate_headers(request_headers: &Headers) -> Result<()> {
@@ -238,6 +239,8 @@ where
             protocol: None,
             request_trailers: None,
             h3_stream_id: None,
+            h2_connection: None,
+            h2_stream_id: None,
         })
     }
 
@@ -314,6 +317,8 @@ where
             protocol: None,
             request_trailers: None,
             h3_stream_id: None,
+            h2_connection: None,
+            h2_stream_id: None,
         })
     }
 
@@ -423,7 +428,9 @@ where
             cl.parse()
                 .map(Some)
                 .map_err(|_| Error::InvalidHeaderValue(KnownHeaderName::ContentLength.into()))
-        } else if self.version == Version::Http3 {
+        } else if matches!(self.version, Version::Http2 | Version::Http3) {
+            // h2 and h3 frame the body via stream-level END_STREAM; there's no equivalent of
+            // h1's implicit "no content-length means empty body" default.
             Ok(None)
         } else {
             Ok(Some(0))

@@ -33,8 +33,8 @@
 //!    advance the encoder's Known Received Count to its current `insert_count` via
 //!    [`EncoderDynamicTable::on_insert_count_increment`]. Without this, warming inserts (which
 //!    produce RIC=0 sections so the section-ack path doesn't fire) would pile up unreferenceable
-//!    forever, and the metric would punish phase-2+ policies that insert without referencing in the
-//!    same section.
+//!    forever, and the metric would punish policies that insert without referencing in the same
+//!    section.
 //!
 //! Together these are the upper bound on what a healthy peer would do — both
 //! deterministic, so the compression metric is a stable baseline as policy changes are
@@ -54,7 +54,7 @@
 //! `QPACK_ENCODER_CORPUS_FILTER=substring` restricts the run to qif files whose path contains
 //! that substring. Mirrors `QPACK_CORPUS_FILTER` on the decoder side.
 //!
-//! ## Chunking (phase-1 benchmark harness)
+//! ## Chunking
 //!
 //! `QPACK_CHUNK_SIZES=n1,n2,...` simulates "one .qif = many short connections" by resetting
 //! the encoder + decoder every N groups. Values are comma-separated positive integers plus
