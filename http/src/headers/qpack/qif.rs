@@ -10,8 +10,8 @@
 //! (`encoder_corpus_tests.rs`) need to parse QIF files and compare against them in
 //! `(name, value)` form, so the helpers live here.
 
-use super::{FieldLineValue, FieldSection, PseudoHeaders, entry_name::QpackEntryName};
-use crate::Status;
+use super::{FieldLineValue, FieldSection, PseudoHeaders};
+use crate::{Status, headers::entry_name::EntryName};
 
 /// A parsed QIF group — a flat list of `(name, value)` pairs for one request or response,
 /// including pseudo-headers (with their `:` prefix preserved).
@@ -95,7 +95,7 @@ fn status_code_str(s: Status) -> String {
         .to_owned()
 }
 
-/// Convert a parsed QIF group into an ordered list of `(QpackEntryName, FieldLineValue)`
+/// Convert a parsed QIF group into an ordered list of `(EntryName, FieldLineValue)`
 /// pairs suitable for [`super::EncoderDynamicTable::encode_field_lines`].
 ///
 /// File order is preserved verbatim — both for stable wire output (the encoder is
@@ -107,11 +107,11 @@ fn status_code_str(s: Status) -> String {
 /// attribute the failure to a specific qif file and group.
 pub(super) fn build_field_lines(
     group: &QifGroup,
-) -> Result<Vec<(QpackEntryName<'static>, FieldLineValue<'static>)>, String> {
+) -> Result<Vec<(EntryName<'static>, FieldLineValue<'static>)>, String> {
     group
         .iter()
         .map(|(name, value)| {
-            let entry_name = QpackEntryName::try_from(name.as_bytes().to_vec())
+            let entry_name = EntryName::try_from(name.as_bytes().to_vec())
                 .map_err(|e| format!("parsing name {name:?}: {e:?}"))?;
             Ok((
                 entry_name,

@@ -41,8 +41,11 @@
 //! Role isolation: each hop-and-direction pair gets its own observer (see
 //! `HttpContext::__isolate_qpack_observer`).
 
-use super::{FieldLineValue, entry_name::QpackEntryName, static_table};
-use crate::{KnownHeaderName, headers::qpack::static_table::PseudoHeaderName};
+use super::{FieldLineValue, static_table};
+use crate::{
+    KnownHeaderName,
+    headers::entry_name::{EntryName, PseudoHeaderName},
+};
 use hashbrown::HashSet;
 use smallvec::SmallVec;
 use std::{
@@ -57,7 +60,7 @@ const ENTRY_OVERHEAD: u32 = 32;
 /// Stable, content-equal key for a header name in the cross-connection observer.
 /// All three variants are `Copy` and program-controlled by construction.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub(crate) enum NameKey {
+pub(in crate::headers) enum NameKey {
     Known(KnownHeaderName),
     Pseudo(PseudoHeaderName),
     UnknownStatic(&'static str),
@@ -74,12 +77,12 @@ impl Debug for NameKey {
 }
 
 impl NameKey {
-    /// Reconstitute the corresponding `QpackEntryName<'static>`.
-    fn into_entry_name(self) -> QpackEntryName<'static> {
+    /// Reconstitute the corresponding `EntryName<'static>`.
+    fn into_entry_name(self) -> EntryName<'static> {
         match self {
-            Self::Known(k) => QpackEntryName::Known(k),
-            Self::Pseudo(p) => QpackEntryName::Pseudo(p),
-            Self::UnknownStatic(s) => QpackEntryName::UnknownStatic(s),
+            Self::Known(k) => EntryName::Known(k),
+            Self::Pseudo(p) => EntryName::Pseudo(p),
+            Self::UnknownStatic(s) => EntryName::UnknownStatic(s),
         }
     }
 }
@@ -159,7 +162,7 @@ impl HeaderObserver {
     /// "is this name in the priming set?" answers the dup-drain question.
     pub(in crate::headers) fn is_hot(
         &self,
-        name: &QpackEntryName<'static>,
+        name: &EntryName<'static>,
         value: Option<&FieldLineValue<'static>>,
     ) -> bool {
         let Some(key) = name.name_key() else {
@@ -255,7 +258,7 @@ impl HeaderObserver {
 
 fn push_candidate(
     ranked: &mut Vec<RankedCandidate>,
-    name: QpackEntryName<'static>,
+    name: EntryName<'static>,
     value: Option<FieldLineValue<'static>>,
 ) {
     let Some(model) = CostModel::estimate(&name, value.as_ref()) else {
@@ -314,14 +317,10 @@ impl Debug for ConnectionAccumulator {
 
 impl ConnectionAccumulator {
     /// Hot path. One call per emitted header line. Names without a [`NameKey`]
-    /// representation (i.e., `QpackEntryName::Unknown` — borrowed-non-static or
+    /// representation (i.e., `EntryName::Unknown` — borrowed-non-static or
     /// Owned) are skipped entirely; the rest mark their name-set bit. Pair
     /// tracking additionally requires `Static` value AND a non-uncacheable name.
-    pub(in crate::headers) fn observe(
-        &mut self,
-        name: &QpackEntryName<'_>,
-        value: &FieldLineValue<'_>,
-    ) {
+    pub(in crate::headers) fn observe(&mut self, name: &EntryName<'_>, value: &FieldLineValue<'_>) {
         let Some(key) = name.name_key() else {
             return;
         };
@@ -389,7 +388,7 @@ impl CostModel {
     /// - Full pair with a full static-table match — Indexed Static is already as cheap.
     /// - Name-only with a static name-table match — literals can use the static name ref for free.
     #[allow(clippy::match_same_arms)]
-    fn estimate(name: &QpackEntryName<'_>, value: Option<&FieldLineValue<'_>>) -> Option<Self> {
+    fn estimate(name: &EntryName<'_>, value: Option<&FieldLineValue<'_>>) -> Option<Self> {
         let name_len = u32::try_from(name.len()).unwrap_or(u32::MAX);
         let value_bytes = value.map(FieldLineValue::as_bytes);
         let lookup = static_table::static_table_lookup(name, value_bytes);
@@ -429,7 +428,7 @@ impl CostModel {
 /// save the name bytes.
 #[derive(Debug)]
 pub(in crate::headers) struct PrimingCandidate {
-    pub(in crate::headers) name: QpackEntryName<'static>,
+    pub(in crate::headers) name: EntryName<'static>,
     pub(in crate::headers) value: Option<FieldLineValue<'static>>,
 }
 
@@ -437,7 +436,7 @@ pub(in crate::headers) struct PrimingCandidate {
 /// `entry_size` needed for capacity bin-packing and the `savings_per_ref` used
 /// for ranking, neither of which [`PrimingCandidate`] needs to expose.
 struct RankedCandidate {
-    name: QpackEntryName<'static>,
+    name: EntryName<'static>,
     value: Option<FieldLineValue<'static>>,
     entry_size: u32,
     savings_per_ref: u32,
@@ -447,8 +446,8 @@ struct RankedCandidate {
 mod tests {
     use super::*;
 
-    fn name(known: KnownHeaderName) -> QpackEntryName<'static> {
-        QpackEntryName::Known(known)
+    fn name(known: KnownHeaderName) -> EntryName<'static> {
+        EntryName::Known(known)
     }
 
     fn value(bytes: &'static [u8]) -> FieldLineValue<'static> {
@@ -457,7 +456,7 @@ mod tests {
 
     fn observe_once(
         observer: &HeaderObserver,
-        pairs: &[(QpackEntryName<'static>, FieldLineValue<'static>)],
+        pairs: &[(EntryName<'static>, FieldLineValue<'static>)],
     ) {
         let mut accum = ConnectionAccumulator::default();
         for (n, v) in pairs {
@@ -486,17 +485,14 @@ mod tests {
         let observer = HeaderObserver::default();
         observe_once(
             &observer,
-            &[(
-                QpackEntryName::Pseudo(PseudoHeaderName::Status),
-                value(b"200"),
-            )],
+            &[(EntryName::Pseudo(PseudoHeaderName::Status), value(b"200"))],
         );
         let primed = observer.prime(4096);
         assert!(
-            !primed.iter().any(|c| matches!(
-                c.name,
-                QpackEntryName::Pseudo(PseudoHeaderName::Status)
-            ) && c.value.is_some()),
+            !primed.iter().any(
+                |c| matches!(c.name, EntryName::Pseudo(PseudoHeaderName::Status))
+                    && c.value.is_some()
+            ),
             "(:status, 200) should not prime; got {primed:?}",
         );
     }
@@ -536,11 +532,10 @@ mod tests {
 
     #[test]
     fn unknown_names_are_ignored() {
-        // QpackEntryName::Unknown (no static recovery) returns None from
+        // EntryName::Unknown (no static recovery) returns None from
         // name_key(), so the observer never sees them.
         let observer = HeaderObserver::default();
-        let unknown: QpackEntryName<'static> =
-            QpackEntryName::try_from(b"x-custom".to_vec()).unwrap();
+        let unknown: EntryName<'static> = EntryName::try_from(b"x-custom".to_vec()).unwrap();
         let mut accum = ConnectionAccumulator::default();
         accum.observe(&unknown, &value(b"hello"));
         assert!(accum.seen_pairs.is_empty());
@@ -552,7 +547,7 @@ mod tests {
     #[test]
     fn unknown_static_is_tracked() {
         let observer = HeaderObserver::default();
-        let unknown_static = QpackEntryName::UnknownStatic("x-trillium-flag");
+        let unknown_static = EntryName::UnknownStatic("x-trillium-flag");
         observe_once(&observer, &[(unknown_static.clone(), value(b"on"))]);
         let primed = observer.prime(4096);
         assert!(

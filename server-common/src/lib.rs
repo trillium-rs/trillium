@@ -67,4 +67,5 @@ pub use udp_transport::UdpTransport;
 
 mod running_config;
 
+pub(crate) mod h2;
 pub mod h3;

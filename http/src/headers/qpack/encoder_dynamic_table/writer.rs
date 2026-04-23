@@ -68,8 +68,9 @@ mod tests {
     use super::*;
     use crate::{
         h3::{H3ErrorCode, H3Settings, UniStreamType},
-        headers::qpack::{
-            FieldLineValue, decoder_dynamic_table::DecoderDynamicTable, entry_name::QpackEntryName,
+        headers::{
+            entry_name::EntryName,
+            qpack::{FieldLineValue, decoder_dynamic_table::DecoderDynamicTable},
         },
     };
     use futures_lite::{
@@ -170,8 +171,8 @@ mod tests {
         }
     }
 
-    fn qen(s: &str) -> QpackEntryName<'static> {
-        QpackEntryName::try_from(s.as_bytes().to_vec()).unwrap()
+    fn qen(s: &str) -> EntryName<'static> {
+        EntryName::try_from(s.as_bytes().to_vec()).unwrap()
     }
 
     fn fv(s: &'static str) -> FieldLineValue<'static> {

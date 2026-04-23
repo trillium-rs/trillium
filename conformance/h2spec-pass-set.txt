@@ -1,0 +1,170 @@
+# h2spec conformance pass-set.
+#
+# Format: one "<package> / <classname>" per line, matching how the conformance runner
+# identifies tests from h2spec's JUnit XML. Lines starting with # and blank lines are ignored.
+#
+# Baseline established 2026-04-24 on branch `h2`: 124/146 passing against a real trillium
+# server (previous feature-gated test against an emit-and-drop stub server was ~83/146 —
+# the real server covers substantially more of the suite trivially).
+#
+# 2026-04-24: HPACK strict request-decode lands (§8.1.2.1, §8.1.2.3), +5 → 129/146.
+# 2026-04-24: H2Connection::stream_error + content-length wire (§8.1.2.6), +2 → 131/146.
+# 2026-04-24: Graceful-close drain (§3.8 / §7 GOAWAY shape parity cleartext vs TLS), +2 → 133/146.
+# 2026-04-24: Frame-size + concurrent-streams + self-depend limits (§4.2, §5.1.2, §5.3.1), +4 → 137/146.
+# 2026-04-24: Stream-state cleanup — DATA/RST/WINDOW on idle & half-closed (§5.1, §6.1, §6.4), +6 → 143/146.
+# 2026-04-24: Closed-stream ledger + half-closed-remote HEADERS tightening, +3 → 146/146.
+#   Bounded 128-entry ledger tracks RST_STREAM-closed vs END_STREAM-closed so the §5.1
+#   closed-state rule picks the right error category (stream-level STREAM_CLOSED for
+#   RST-closed, connection-level STREAM_CLOSED for END_STREAM-closed, connection-level
+#   PROTOCOL_ERROR per §5.1.1 for never-opened). Received RST_STREAM now actually removes
+#   the stream (was a no-op). HEADERS on a stream with recv.eof already set is picked up
+#   as stream-level STREAM_CLOSED before the trailer path runs.
+#
+# When adding: run `cargo run -p trillium-conformance -- h2spec`, copy the "unexpected
+# passes" output, append, sort.
+generic/1 / Sends a client connection preface
+generic/2 / Sends a PRIORITY frame on closed stream
+generic/2 / Sends a PRIORITY frame on half-closed (remote) stream
+generic/2 / Sends a PRIORITY frame on idle stream
+generic/2 / Sends a RST_STREAM frame on half-closed (remote) stream
+generic/2 / Sends a WINDOW_UPDATE frame on half-closed (remote) stream
+generic/3.1 / Sends a DATA frame
+generic/3.1 / Sends a DATA frame with padding
+generic/3.1 / Sends multiple DATA frames
+generic/3.10 / Sends a CONTINUATION frame
+generic/3.10 / Sends multiple CONTINUATION frames
+generic/3.2 / Sends a HEADERS frame
+generic/3.2 / Sends a HEADERS frame with padding
+generic/3.2 / Sends a HEADERS frame with priority
+generic/3.3 / Sends a PRIORITY frame for an idle stream, then send a HEADER frame for a lower stream ID
+generic/3.3 / Sends a PRIORITY frame with exclusive
+generic/3.3 / Sends a PRIORITY frame with priority 1
+generic/3.3 / Sends a PRIORITY frame with priority 256
+generic/3.3 / Sends a PRIORITY frame with stream dependency
+generic/3.4 / Sends a RST_STREAM frame
+generic/3.5 / Sends a SETTINGS frame
+generic/3.7 / Sends a PING frame
+generic/3.8 / Sends a GOAWAY frame
+generic/3.9 / Sends a WINDOW_UPDATE frame with stream ID 0
+generic/3.9 / Sends a WINDOW_UPDATE frame with stream ID 1
+generic/4 / Sends a GET request
+generic/4 / Sends a HEAD request
+generic/4 / Sends a POST request
+generic/4 / Sends a POST request with trailers
+generic/5 / Sends a dynamic table size update
+generic/5 / Sends a indexed header field representation
+generic/5 / Sends a literal header field never indexed - indexed name
+generic/5 / Sends a literal header field never indexed - indexed name (huffman encoded)
+generic/5 / Sends a literal header field never indexed - new name
+generic/5 / Sends a literal header field never indexed - new name (huffman encoded)
+generic/5 / Sends a literal header field with incremental indexing - indexed name
+generic/5 / Sends a literal header field with incremental indexing - indexed name (with Huffman coding)
+generic/5 / Sends a literal header field with incremental indexing - new name
+generic/5 / Sends a literal header field with incremental indexing - new name (with Huffman coding)
+generic/5 / Sends a literal header field without indexing - indexed name
+generic/5 / Sends a literal header field without indexing - indexed name (with Huffman coding)
+generic/5 / Sends a literal header field without indexing - new name
+generic/5 / Sends a literal header field without indexing - new name (huffman encoded)
+generic/5 / Sends multiple dynamic table size update
+hpack/2.3.3 / Sends a indexed header field representation with invalid index
+hpack/2.3.3 / Sends a literal header field representation with invalid index
+hpack/4.2 / Sends a dynamic table size update at the end of header block
+hpack/5.2 / Sends a Huffman-encoded string literal representation containing the EOS symbol
+hpack/5.2 / Sends a Huffman-encoded string literal representation padded by zero
+hpack/5.2 / Sends a Huffman-encoded string literal representation with padding longer than 7 bits
+hpack/6.1 / Sends a indexed header field representation with index 0
+hpack/6.3 / Sends a dynamic table size update larger than the value of SETTINGS_HEADER_TABLE_SIZE
+http2/3.5 / Sends client connection preface
+http2/3.5 / Sends invalid connection preface
+http2/4.1 / Sends a frame with reserved field bit
+http2/4.1 / Sends a frame with undefined flag
+http2/4.1 / Sends a frame with unknown type
+http2/4.2 / Sends a DATA frame with 2^14 octets in length
+http2/4.2 / Sends a large size DATA frame that exceeds the SETTINGS_MAX_FRAME_SIZE
+http2/4.2 / Sends a large size HEADERS frame that exceeds the SETTINGS_MAX_FRAME_SIZE
+http2/4.3 / Sends a HEADERS frame to another stream while sending the header blocks
+http2/4.3 / Sends a PRIORITY frame while sending the header blocks
+http2/4.3 / Sends invalid header block fragment
+http2/5.1 / closed: Sends a CONTINUATION frame
+http2/5.1 / closed: Sends a CONTINUATION frame after sending RST_STREAM frame
+http2/5.1 / closed: Sends a DATA frame
+http2/5.1 / closed: Sends a DATA frame after sending RST_STREAM frame
+http2/5.1 / closed: Sends a HEADERS frame
+http2/5.1 / closed: Sends a HEADERS frame after sending RST_STREAM frame
+http2/5.1 / half closed (remote): Sends a CONTINUATION frame
+http2/5.1 / half closed (remote): Sends a DATA frame
+http2/5.1 / half closed (remote): Sends a HEADERS frame
+http2/5.1 / idle: Sends a CONTINUATION frame
+http2/5.1 / idle: Sends a DATA frame
+http2/5.1 / idle: Sends a RST_STREAM frame
+http2/5.1 / idle: Sends a WINDOW_UPDATE frame
+http2/5.1.1 / Sends even-numbered stream identifier
+http2/5.1.1 / Sends stream identifier that is numerically smaller than previous
+http2/5.1.2 / Sends HEADERS frames that causes their advertised concurrent stream limit to be exceeded
+http2/5.3.1 / Sends HEADERS frame that depends on itself
+http2/5.3.1 / Sends PRIORITY frame that depend on itself
+http2/5.4.1 / Sends an invalid PING frame for connection close
+http2/5.5 / Sends an unknown extension frame
+http2/5.5 / Sends an unknown extension frame in the middle of a header block
+http2/6.1 / Sends a DATA frame on the stream that is not in "open" or "half-closed (local)" state
+http2/6.1 / Sends a DATA frame with 0x0 stream identifier
+http2/6.1 / Sends a DATA frame with invalid pad length
+http2/6.10 / Sends a CONTINUATION frame followed by any frame other than CONTINUATION
+http2/6.10 / Sends a CONTINUATION frame preceded by a CONTINUATION frame with END_HEADERS flag
+http2/6.10 / Sends a CONTINUATION frame preceded by a DATA frame
+http2/6.10 / Sends a CONTINUATION frame preceded by a HEADERS frame with END_HEADERS flag
+http2/6.10 / Sends a CONTINUATION frame with 0x0 stream identifier
+http2/6.10 / Sends multiple CONTINUATION frames preceded by a HEADERS frame
+http2/6.2 / Sends a HEADERS frame to another stream while sending a HEADERS frame
+http2/6.2 / Sends a HEADERS frame with 0x0 stream identifier
+http2/6.2 / Sends a HEADERS frame with invalid pad length
+http2/6.2 / Sends a HEADERS frame without the END_HEADERS flag, and a PRIORITY frame
+http2/6.3 / Sends a PRIORITY frame with 0x0 stream identifier
+http2/6.3 / Sends a PRIORITY frame with a length other than 5 octets
+http2/6.4 / Sends a RST_STREAM frame on a idle stream
+http2/6.4 / Sends a RST_STREAM frame with 0x0 stream identifier
+http2/6.4 / Sends a RST_STREAM frame with a length other than 4 octets
+http2/6.5 / Sends a SETTINGS frame with ACK flag and payload
+http2/6.5 / Sends a SETTINGS frame with a length other than a multiple of 6 octets
+http2/6.5 / Sends a SETTINGS frame with a stream identifier other than 0x0
+http2/6.5.2 / SETTINGS_ENABLE_PUSH (0x2): Sends the value other than 0 or 1
+http2/6.5.2 / SETTINGS_INITIAL_WINDOW_SIZE (0x4): Sends the value above the maximum flow control window size
+http2/6.5.2 / SETTINGS_MAX_FRAME_SIZE (0x5): Sends the value above the maximum allowed frame size
+http2/6.5.2 / SETTINGS_MAX_FRAME_SIZE (0x5): Sends the value below the initial value
+http2/6.5.2 / Sends a SETTINGS frame with unknown identifier
+http2/6.5.3 / Sends a SETTINGS frame without ACK flag
+http2/6.5.3 / Sends multiple values of SETTINGS_INITIAL_WINDOW_SIZE
+http2/6.7 / Sends a PING frame
+http2/6.7 / Sends a PING frame with ACK
+http2/6.7 / Sends a PING frame with a length field value other than 8
+http2/6.7 / Sends a PING frame with a stream identifier field value other than 0x0
+http2/6.8 / Sends a GOAWAY frame with a stream identifier other than 0x0
+http2/6.9 / Sends a WINDOW_UPDATE frame with a flow control window increment of 0
+http2/6.9 / Sends a WINDOW_UPDATE frame with a flow control window increment of 0 on a stream
+http2/6.9 / Sends a WINDOW_UPDATE frame with a length other than 4 octets
+http2/6.9.1 / Sends SETTINGS frame to set the initial window size to 1 and sends HEADERS frame
+http2/6.9.1 / Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1
+http2/6.9.1 / Sends multiple WINDOW_UPDATE frames increasing the flow control window to above 2^31-1 on a stream
+http2/6.9.2 / Changes SETTINGS_INITIAL_WINDOW_SIZE after sending HEADERS frame
+http2/6.9.2 / Sends a SETTINGS frame for window size to be negative
+http2/6.9.2 / Sends a SETTINGS_INITIAL_WINDOW_SIZE settings with an exceeded maximum window size value
+http2/7 / Sends a GOAWAY frame with unknown error code
+http2/7 / Sends a RST_STREAM frame with unknown error code
+http2/8.1 / Sends a second HEADERS frame without the END_STREAM flag
+http2/8.1.2 / Sends a HEADERS frame that contains the header field name in uppercase letters
+http2/8.1.2.1 / Sends a HEADERS frame that contains a pseudo-header field as trailers
+http2/8.1.2.1 / Sends a HEADERS frame that contains a pseudo-header field that appears in a header block after a regular header field
+http2/8.1.2.1 / Sends a HEADERS frame that contains a unknown pseudo-header field
+http2/8.1.2.1 / Sends a HEADERS frame that contains the pseudo-header field defined for response
+http2/8.1.2.2 / Sends a HEADERS frame that contains the TE header field with any value other than "trailers"
+http2/8.1.2.2 / Sends a HEADERS frame that contains the connection-specific header field
+http2/8.1.2.3 / Sends a HEADERS frame that omits ":method" pseudo-header field
+http2/8.1.2.3 / Sends a HEADERS frame that omits ":path" pseudo-header field
+http2/8.1.2.3 / Sends a HEADERS frame that omits ":scheme" pseudo-header field
+http2/8.1.2.3 / Sends a HEADERS frame with duplicated ":method" pseudo-header field
+http2/8.1.2.3 / Sends a HEADERS frame with duplicated ":path" pseudo-header field
+http2/8.1.2.3 / Sends a HEADERS frame with duplicated ":scheme" pseudo-header field
+http2/8.1.2.3 / Sends a HEADERS frame with empty ":path" pseudo-header field
+http2/8.1.2.6 / Sends a HEADERS frame with the "content-length" header field which does not equal the DATA frame payload length
+http2/8.1.2.6 / Sends a HEADERS frame with the "content-length" header field which does not equal the sum of the multiple DATA frames payload length
+http2/8.2 / Sends a PUSH_PROMISE frame

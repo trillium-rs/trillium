@@ -6,11 +6,13 @@
 
 use crate::{
     h3::{H3Error, H3ErrorCode},
-    headers::qpack::{
-        decoder_dynamic_table::DecoderDynamicTable,
-        entry_name::QpackEntryName,
-        instruction::encoder::{EncoderInstruction, parse},
-        static_table::static_entry,
+    headers::{
+        entry_name::EntryName,
+        qpack::{
+            decoder_dynamic_table::DecoderDynamicTable,
+            instruction::encoder::{EncoderInstruction, parse},
+            static_table::static_entry,
+        },
     },
 };
 use futures_lite::io::AsyncRead;
@@ -77,7 +79,7 @@ impl DecoderDynamicTable {
                     log::error!("QPACK encoder: static_entry({name_index}) failed: {e:?}");
                     H3ErrorCode::QpackEncoderStreamError
                 })?;
-                let name = QpackEntryName::from(*static_name);
+                let name = EntryName::from(*static_name);
                 log::trace!(
                     "QPACK encoder: Insert With Name Reference (static) [{name}: {}]",
                     String::from_utf8_lossy(&value)

@@ -159,6 +159,8 @@ impl Conn<Synthetic> {
             protocol: None,
             request_trailers: None,
             h3_stream_id: None,
+            h2_connection: None,
+            h2_stream_id: None,
         }
     }
 

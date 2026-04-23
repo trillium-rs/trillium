@@ -46,6 +46,10 @@ impl QuicTransportSend for QuinnTransport {
 
 impl QuicTransportBidi for QuinnTransport {}
 
+// `negotiated_alpn` is left at the trait default (`None`). trillium-quinn is positioned as the
+// QUIC adapter for trillium-http's HTTP/3 support, where the ALPN value is always `h3`. Nothing
+// in the framework currently needs to read it back per stream, and h1-vs-h2 dispatch only ever
+// runs on a TCP listener.
 impl Transport for QuinnTransport {}
 
 /// A QUIC connection backed by quinn, implementing [`QuicConnectionTrait`].

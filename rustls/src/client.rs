@@ -66,12 +66,16 @@ fn default_client_config() -> ClientConfig {
     let provider = crypto_provider();
     let verifier = verifier(Arc::clone(&provider));
 
-    ClientConfig::builder_with_provider(provider)
+    let mut config = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .expect("crypto provider did not support safe default protocol versions")
         .dangerous()
         .with_custom_certificate_verifier(verifier)
-        .with_no_client_auth()
+        .with_no_client_auth();
+
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+    config
 }
 
 impl From<ClientConfig> for RustlsClientConfig {
@@ -90,6 +94,18 @@ impl<C: Connector> RustlsConfig<C> {
     /// replace the tcp config
     pub fn with_tcp_config(mut self, config: C) -> Self {
         self.tcp_config = config;
+        self
+    }
+
+    /// Drop `h2` from the ALPN protocol list, forcing HTTP/1.1 over TLS.
+    ///
+    /// `RustlsConfig::default()` advertises `[h2, http/1.1]` so HTTP/2 is the preferred
+    /// protocol when the server supports it. Call this to opt out and pin the connection to
+    /// HTTP/1.1.
+    #[must_use]
+    pub fn without_http2(mut self) -> Self {
+        let config = Arc::make_mut(&mut self.rustls_config.0);
+        config.alpn_protocols.retain(|p| p != b"h2");
         self
     }
 }
@@ -241,6 +257,12 @@ where
 impl<T: Transport> Transport for RustlsClientTransport<T> {
     fn peer_addr(&self) -> Result<Option<SocketAddr>> {
         self.as_ref().peer_addr()
+    }
+
+    fn negotiated_alpn(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+        self.tls_state()
+            .and_then(|conn| conn.alpn_protocol())
+            .map(std::borrow::Cow::Borrowed)
     }
 }
 

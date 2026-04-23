@@ -1,6 +1,6 @@
 /// Errors that can occur during variable-length integer decoding.
 #[derive(Debug, thiserror::Error, PartialEq, Eq, Clone, Copy)]
-pub enum VarIntError {
+pub enum IntegerPrefixError {
     /// The encoded integer overflows usize.
     #[error("encoded integer overflows usize")]
     Overflow,
@@ -21,11 +21,11 @@ pub enum VarIntError {
 pub(in crate::headers) fn decode(
     input: &[u8],
     prefix_size: u8,
-) -> Result<(usize, &[u8]), VarIntError> {
+) -> Result<(usize, &[u8]), IntegerPrefixError> {
     debug_assert!((1..=8).contains(&prefix_size));
 
     let [first, rest @ ..] = input else {
-        return Err(VarIntError::UnexpectedEnd);
+        return Err(IntegerPrefixError::UnexpectedEnd);
     };
 
     let prefix_mask = u8::MAX >> (8 - prefix_size);
@@ -39,8 +39,12 @@ pub(in crate::headers) fn decode(
     let mut shift = 0_u32;
     for (i, &byte) in rest.iter().enumerate() {
         let payload = usize::from(byte & 0x7F);
-        let increment = payload.checked_shl(shift).ok_or(VarIntError::Overflow)?;
-        value = value.checked_add(increment).ok_or(VarIntError::Overflow)?;
+        let increment = payload
+            .checked_shl(shift)
+            .ok_or(IntegerPrefixError::Overflow)?;
+        value = value
+            .checked_add(increment)
+            .ok_or(IntegerPrefixError::Overflow)?;
         shift += 7;
 
         if byte & 0x80 == 0 {
@@ -48,7 +52,7 @@ pub(in crate::headers) fn decode(
         }
     }
 
-    Err(VarIntError::UnexpectedEnd)
+    Err(IntegerPrefixError::UnexpectedEnd)
 }
 
 /// Encoded length of `value` under a prefix-coded integer with `prefix_size`-bit prefix
@@ -144,13 +148,16 @@ mod tests {
 
     #[test]
     fn decode_empty_input() {
-        assert_eq!(decode(&[], 5), Err(VarIntError::UnexpectedEnd));
+        assert_eq!(decode(&[], 5), Err(IntegerPrefixError::UnexpectedEnd));
     }
 
     #[test]
     fn decode_truncated_continuation() {
         // Prefix bits all set (needs continuation) but no more bytes
-        assert_eq!(decode(&[0b000_11111], 5), Err(VarIntError::UnexpectedEnd));
+        assert_eq!(
+            decode(&[0b000_11111], 5),
+            Err(IntegerPrefixError::UnexpectedEnd)
+        );
     }
 
     fn encode(value: usize, prefix_size: u8) -> Vec<u8> {

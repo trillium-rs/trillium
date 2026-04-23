@@ -21,6 +21,36 @@
 //! crate](https://docs.trillium.rs/trillium), the api is likely to be
 //! less stable than that of the higher level abstractions in Trillium.
 //!
+//! ## Protocol dispatch
+//!
+//! trillium-http supports HTTP/1.0, HTTP/1.1, HTTP/2, and (via `trillium-quinn`)
+//! HTTP/3 on the same listener. The version that a given connection speaks is
+//! decided at accept time:
+//!
+//! | Listener | ALPN result | First bytes | Protocol |
+//! |---|---|---|---|
+//! | TCP + TLS | `h2` | — | HTTP/2 over TLS |
+//! | TCP + TLS | `http/1.1` | — | HTTP/1.1 over TLS |
+//! | TCP + TLS | absent or other | match HTTP/2 preface (`PRI * HTTP/2.0…`) | HTTP/2 "prior knowledge" over TLS |
+//! | TCP + TLS | absent or other | anything else | HTTP/1.1 over TLS |
+//! | TCP, cleartext | — | match HTTP/2 preface | HTTP/2 "prior knowledge" (h2c) |
+//! | TCP, cleartext | — | anything else | HTTP/1.x |
+//! | QUIC | — | — | HTTP/3 |
+//!
+//! h2c via the HTTP/1.1 `Upgrade` mechanism (RFC 7540 §3.2, removed in RFC 9113)
+//! is **not** supported — if an `Upgrade: h2c` header arrives on an h1 request it
+//! is logged and ignored.
+//!
+//! The TLS acceptors shipped with trillium (`trillium-rustls`, `trillium-native-tls`)
+//! automatically advertise `h2, http/1.1` in ALPN. Users with custom TLS configs
+//! are responsible for advertising `h2` themselves if h2 is desired. Clients on TLS
+//! stacks that don't expose an ALPN knob can still reach h2 via the prior-knowledge
+//! preface path — ALPN comes back absent and the server peeks the first 24 bytes.
+//!
+//! All h2/h3-specific tuning flows through [`HttpConfig`] — see its field
+//! documentation for the full list of knobs (stream / connection flow-control
+//! windows, max concurrent streams, max frame size, etc.).
+//!
 //! ## Example
 //!
 //! This is an elaborate example that demonstrates some of `trillium_http`'s
@@ -89,6 +119,7 @@ mod conn;
 mod connection_status;
 mod copy;
 mod error;
+pub mod h2;
 pub mod h3;
 pub mod headers;
 #[cfg(feature = "http-compat-0")]
@@ -127,7 +158,7 @@ pub(crate) use copy::copy;
 pub use error::{Error, Result};
 pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, SERVER_HEADER};
 pub use http_config::HttpConfig;
-pub use http_context::HttpContext;
+pub use http_context::{HttpContext, run_with_initial_bytes};
 pub use method::Method;
 pub(crate) use mut_cow::MutCow;
 pub use received_body::ReceivedBody;

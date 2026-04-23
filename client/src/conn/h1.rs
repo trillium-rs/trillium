@@ -65,7 +65,13 @@ impl Conn {
         Ok(None)
     }
 
-    async fn connect_and_send_head(&mut self) -> Result<()> {
+    /// Acquire a transport for h1 from the pool or by fresh-connect, signalling whether a
+    /// fresh-connect ALPN-negotiated `h2` should divert to the h2 promotion path.
+    ///
+    /// On a pool hit the head is already written by `find_pool_candidate`. On a fresh
+    /// connect, the head is written iff ALPN did not negotiate h2 — when h2 is selected we
+    /// hand the transport back unwritten so the caller can promote it instead.
+    async fn acquire_transport(&mut self) -> Result<TransportAcquisition> {
         if self.transport.is_some() {
             return Err(Error::Io(std::io::Error::new(
                 ErrorKind::AlreadyExists,
@@ -75,22 +81,20 @@ impl Conn {
 
         let head = self.build_head().await?;
 
-        let transport = match self.find_pool_candidate(&head).await? {
-            Some(transport) => {
-                log::debug!("reusing connection to {:?}", transport.peer_addr()?);
-                transport
-            }
+        if let Some(transport) = self.find_pool_candidate(&head).await? {
+            log::debug!("reusing connection to {:?}", transport.peer_addr()?);
+            return Ok(TransportAcquisition::H1Ready(transport));
+        }
 
-            None => {
-                let mut transport = self.config.connect(&self.url).await?;
-                log::debug!("opened new connection to {:?}", transport.peer_addr()?);
-                transport.write_all(&head).await?;
-                transport
-            }
-        };
+        let mut transport = self.config.connect(&self.url).await?;
+        log::debug!("opened new connection to {:?}", transport.peer_addr()?);
 
-        self.transport = Some(transport);
-        Ok(())
+        if self.h2_pool.is_some() && transport.negotiated_alpn().as_deref() == Some(b"h2") {
+            return Ok(TransportAcquisition::H2(transport));
+        }
+
+        transport.write_all(&head).await?;
+        Ok(TransportAcquisition::H1Ready(transport))
     }
 
     async fn build_head(&mut self) -> Result<Vec<u8>> {
@@ -398,18 +402,29 @@ impl Conn {
         }
     }
 
-    pub(super) async fn exec_h1(&mut self) -> Result<()> {
+    pub(super) async fn exec_h1_or_promote_h2(&mut self) -> Result<()> {
         if self.http_version > Version::Http1_1 {
             self.http_version = Version::Http1_1;
         }
 
         self.finalize_headers_h1()?;
-        self.connect_and_send_head().await?;
-        self.send_body_and_parse_head().await?;
-        if let Some(h3) = &self.h3_client_state {
-            self.update_alt_svc_from_response(h3);
+        match self.acquire_transport().await? {
+            TransportAcquisition::H1Ready(transport) => {
+                self.transport = Some(transport);
+                self.send_body_and_parse_head().await?;
+                if let Some(h3) = &self.h3_client_state {
+                    self.update_alt_svc_from_response(h3);
+                }
+                Ok(())
+            }
+            TransportAcquisition::H2(transport) => self.try_exec_h2_with_transport(transport).await,
         }
-
-        Ok(())
     }
+}
+
+pub(super) enum TransportAcquisition {
+    /// Pooled or fresh h1 transport — head already written.
+    H1Ready(Box<dyn Transport>),
+    /// Fresh transport whose ALPN negotiated h2; caller promotes to h2.
+    H2(Box<dyn Transport>),
 }

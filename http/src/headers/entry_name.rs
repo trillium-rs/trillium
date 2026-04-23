@@ -1,6 +1,6 @@
-//! A name as it can appear in a QPACK dynamic table entry.
+//! A name as it can appear in an HPACK or QPACK dynamic table entry.
 //!
-//! [`QpackEntryName`] is a superset of [`StaticHeaderName`]: it admits arbitrary unknown
+//! [`EntryName`] is a superset of [`StaticHeaderName`]: it admits arbitrary unknown
 //! header names (for entries inserted via Insert With Literal Name or dynamic-name
 //! references) in addition to the known-header and pseudo-header variants that the static
 //! table contains.
@@ -12,20 +12,14 @@
 use crate::{
     HeaderName, KnownHeaderName,
     h3::H3ErrorCode,
-    headers::{
-        HeaderNameInner, UnknownHeaderName,
-        qpack::{
-            header_observer::NameKey,
-            static_table::{PseudoHeaderName, StaticHeaderName},
-        },
-    },
+    headers::{HeaderNameInner, UnknownHeaderName, qpack::NameKey},
 };
 use std::{
-    fmt::{self, Debug},
+    fmt::{self, Debug, Display, Formatter},
     hash::{Hash, Hasher},
 };
 
-/// A QPACK dynamic table entry's name — either a known/pseudo-header (sealed enums)
+/// A dynamic table entry's name — either a known/pseudo-header (sealed enums)
 /// or a regular unknown header name. Unknown names are split into two variants:
 /// `UnknownStatic` for names recoverable as `&'static str` (literals normalized
 /// through the lowercase interner), and `Unknown` for everything else (owned, or
@@ -36,7 +30,7 @@ use std::{
 /// is purely an indexing-into-priming-eligibility distinction, not a content one.
 /// `Unknown("x-custom")`, `UnknownStatic("x-custom")` collide as map keys; only
 /// the variant tag determines [`name_key`](Self::name_key) eligibility.
-pub(in crate::headers) enum QpackEntryName<'a> {
+pub(in crate::headers) enum EntryName<'a> {
     Known(KnownHeaderName),
     /// An HTTP pseudo-header name (e.g. `:method`, `:path`).
     Pseudo(PseudoHeaderName),
@@ -49,8 +43,8 @@ pub(in crate::headers) enum QpackEntryName<'a> {
     Unknown(UnknownHeaderName<'a>),
 }
 
-impl Debug for QpackEntryName<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Debug for EntryName<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Known(arg0) => write!(f, "{arg0}"),
             Self::Pseudo(arg0) => write!(f, "{arg0}"),
@@ -60,21 +54,21 @@ impl Debug for QpackEntryName<'_> {
     }
 }
 
-impl PartialEq for QpackEntryName<'_> {
+impl PartialEq for EntryName<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.as_str() == other.as_str()
     }
 }
 
-impl Eq for QpackEntryName<'_> {}
+impl Eq for EntryName<'_> {}
 
-impl Hash for QpackEntryName<'_> {
+impl Hash for EntryName<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.as_str().hash(state);
     }
 }
 
-impl Clone for QpackEntryName<'static> {
+impl Clone for EntryName<'static> {
     fn clone(&self) -> Self {
         match self {
             Self::Known(k) => Self::Known(*k),
@@ -85,7 +79,7 @@ impl Clone for QpackEntryName<'static> {
     }
 }
 
-impl QpackEntryName<'_> {
+impl EntryName<'_> {
     /// wire bytes for this entry name
     pub(in crate::headers) fn as_bytes(&self) -> &[u8] {
         self.as_ref().as_bytes()
@@ -107,21 +101,21 @@ impl QpackEntryName<'_> {
         self.as_bytes().len()
     }
 
-    pub(in crate::headers) fn reborrow(&self) -> QpackEntryName<'_> {
+    pub(in crate::headers) fn reborrow(&self) -> EntryName<'_> {
         match self {
-            QpackEntryName::Known(k) => QpackEntryName::Known(*k),
-            QpackEntryName::Pseudo(p) => QpackEntryName::Pseudo(*p),
-            QpackEntryName::UnknownStatic(s) => QpackEntryName::UnknownStatic(s),
-            QpackEntryName::Unknown(u) => QpackEntryName::Unknown(u.reborrow()),
+            EntryName::Known(k) => EntryName::Known(*k),
+            EntryName::Pseudo(p) => EntryName::Pseudo(*p),
+            EntryName::UnknownStatic(s) => EntryName::UnknownStatic(s),
+            EntryName::Unknown(u) => EntryName::Unknown(u.reborrow()),
         }
     }
 
-    pub(in crate::headers) fn into_owned(self) -> QpackEntryName<'static> {
+    pub(in crate::headers) fn into_owned(self) -> EntryName<'static> {
         match self {
-            QpackEntryName::Known(k) => QpackEntryName::Known(k),
-            QpackEntryName::Pseudo(p) => QpackEntryName::Pseudo(p),
-            QpackEntryName::UnknownStatic(s) => QpackEntryName::UnknownStatic(s),
-            QpackEntryName::Unknown(u) => QpackEntryName::Unknown(u.into_owned()),
+            EntryName::Known(k) => EntryName::Known(k),
+            EntryName::Pseudo(p) => EntryName::Pseudo(p),
+            EntryName::UnknownStatic(s) => EntryName::UnknownStatic(s),
+            EntryName::Unknown(u) => EntryName::Unknown(u.into_owned()),
         }
     }
 
@@ -142,7 +136,7 @@ impl QpackEntryName<'_> {
         }
     }
 
-    /// True if the *value* under this name must never reach a QPACK dynamic table for
+    /// True if the *value* under this name must never reach a dynamic table for
     /// privacy reasons — caching would let a CRIME-style length side-channel against a
     /// shared dynamic table learn secret values.
     ///
@@ -156,7 +150,7 @@ impl QpackEntryName<'_> {
     pub(in crate::headers) fn has_uncacheable_value(&self) -> bool {
         matches!(
             self,
-            QpackEntryName::Known(
+            EntryName::Known(
                 KnownHeaderName::Authorization
                     | KnownHeaderName::Cookie
                     | KnownHeaderName::SetCookie
@@ -167,7 +161,7 @@ impl QpackEntryName<'_> {
     }
 }
 
-impl QpackEntryName<'static> {
+impl EntryName<'static> {
     fn known_or_pseudo(bytes: &[u8]) -> Result<Option<Self>, H3ErrorCode> {
         if bytes.is_empty() {
             log::error!("QPACK encoder: empty qpack entry name");
@@ -182,20 +176,23 @@ impl QpackEntryName<'static> {
                 );
                 H3ErrorCode::QpackEncoderStreamError
             })?;
-            Ok(Some(QpackEntryName::from(pseudo)))
+            Ok(Some(EntryName::from(pseudo)))
         } else if let Some(khn) = KnownHeaderName::lowercase_byte_match(bytes) {
-            Ok(Some(QpackEntryName::from(khn)))
+            Ok(Some(EntryName::from(khn)))
         } else {
             Ok(None)
         }
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for QpackEntryName<'a> {
+impl<'a> TryFrom<&'a [u8]> for EntryName<'a> {
+    // Note: error type is H3-flavored while this type is being shared cross-protocol. HPACK
+    // will map the same conditions to COMPRESSION_ERROR; a neutral error type can come later
+    // if the callsite mapping gets awkward.
     type Error = H3ErrorCode;
 
     fn try_from(name_bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if let Some(qen) = QpackEntryName::known_or_pseudo(name_bytes)? {
+        if let Some(qen) = EntryName::known_or_pseudo(name_bytes)? {
             return Ok(qen);
         }
 
@@ -214,15 +211,15 @@ impl<'a> TryFrom<&'a [u8]> for QpackEntryName<'a> {
             return Err(H3ErrorCode::QpackEncoderStreamError);
         }
 
-        Ok(QpackEntryName::Unknown(uhn))
+        Ok(EntryName::Unknown(uhn))
     }
 }
 
-impl TryFrom<Vec<u8>> for QpackEntryName<'static> {
+impl TryFrom<Vec<u8>> for EntryName<'static> {
     type Error = H3ErrorCode;
 
     fn try_from(name_bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        if let Some(qen) = QpackEntryName::known_or_pseudo(&name_bytes)? {
+        if let Some(qen) = EntryName::known_or_pseudo(&name_bytes)? {
             return Ok(qen);
         }
 
@@ -241,18 +238,18 @@ impl TryFrom<Vec<u8>> for QpackEntryName<'static> {
             return Err(H3ErrorCode::QpackEncoderStreamError);
         }
 
-        Ok(QpackEntryName::Unknown(uhn))
+        Ok(EntryName::Unknown(uhn))
     }
 }
 
-impl AsRef<str> for QpackEntryName<'_> {
+impl AsRef<str> for EntryName<'_> {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl fmt::Display for QpackEntryName<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for EntryName<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Known(k) => write!(f, "{k}"),
             Self::Pseudo(p) => write!(f, "{p}"),
@@ -262,16 +259,7 @@ impl fmt::Display for QpackEntryName<'_> {
     }
 }
 
-impl From<StaticHeaderName> for QpackEntryName<'static> {
-    fn from(s: StaticHeaderName) -> Self {
-        match s {
-            StaticHeaderName::Header(known) => known.into(),
-            StaticHeaderName::Pseudo(pseudo) => pseudo.into(),
-        }
-    }
-}
-
-impl<'a> From<HeaderName<'a>> for QpackEntryName<'a> {
+impl<'a> From<HeaderName<'a>> for EntryName<'a> {
     fn from(h: HeaderName<'a>) -> Self {
         match h.0 {
             HeaderNameInner::KnownHeader(k) => Self::Known(k),
@@ -280,7 +268,7 @@ impl<'a> From<HeaderName<'a>> for QpackEntryName<'a> {
     }
 }
 
-impl<'a> From<&'a HeaderName<'_>> for QpackEntryName<'a> {
+impl<'a> From<&'a HeaderName<'_>> for EntryName<'a> {
     fn from(h: &'a HeaderName<'_>) -> Self {
         match &h.0 {
             HeaderNameInner::KnownHeader(k) => Self::Known(*k),
@@ -289,32 +277,89 @@ impl<'a> From<&'a HeaderName<'_>> for QpackEntryName<'a> {
     }
 }
 
-impl From<KnownHeaderName> for QpackEntryName<'static> {
+impl From<KnownHeaderName> for EntryName<'static> {
     fn from(value: KnownHeaderName) -> Self {
         Self::Known(value)
     }
 }
 
-impl From<PseudoHeaderName> for QpackEntryName<'static> {
+impl From<PseudoHeaderName> for EntryName<'static> {
     fn from(value: PseudoHeaderName) -> Self {
         Self::Pseudo(value)
     }
 }
 
+/// The HTTP pseudo-header names (RFC 9113 §8.3 / RFC 9114 §4.3, extended by RFC 9220).
+///
+/// These form a closed set; an unknown `:foo` on the wire is a protocol error.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[repr(u8)]
+pub(in crate::headers) enum PseudoHeaderName {
+    Authority,
+    Method,
+    Path,
+    Protocol,
+    Scheme,
+    Status,
+}
+
+impl PseudoHeaderName {
+    #[cfg(test)]
+    pub(in crate::headers) const VARIANTS: &[PseudoHeaderName] = &[
+        Self::Authority,
+        Self::Method,
+        Self::Path,
+        Self::Protocol,
+        Self::Scheme,
+        Self::Status,
+    ];
+
+    /// Retrieve a `'static str` representation (e.g. `":method"`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Authority => ":authority",
+            Self::Method => ":method",
+            Self::Path => ":path",
+            Self::Protocol => ":protocol",
+            Self::Scheme => ":scheme",
+            Self::Status => ":status",
+        }
+    }
+
+    pub(in crate::headers) fn lowercase_byte_match(bytes: &[u8]) -> Option<Self> {
+        match bytes {
+            b":authority" => Some(Self::Authority),
+            b":method" => Some(Self::Method),
+            b":path" => Some(Self::Path),
+            b":protocol" => Some(Self::Protocol),
+            b":scheme" => Some(Self::Scheme),
+            b":status" => Some(Self::Status),
+            _ => None,
+        }
+    }
+}
+
+impl Display for PseudoHeaderName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{HeaderName, KnownHeaderName, headers::qpack::entry_name::QpackEntryName};
+    use super::{EntryName, PseudoHeaderName};
+    use crate::{HeaderName, KnownHeaderName};
 
     #[test]
     fn khn_round_trip() {
         for khn in KnownHeaderName::VARIANTS {
             assert_eq!(
-                QpackEntryName::try_from(khn.as_lower_str().as_bytes()).unwrap(),
-                QpackEntryName::from(*khn)
+                EntryName::try_from(khn.as_lower_str().as_bytes()).unwrap(),
+                EntryName::from(*khn)
             );
             assert_eq!(
-                QpackEntryName::try_from(khn.as_lower_str().as_bytes().to_owned()).unwrap(),
-                QpackEntryName::from(*khn)
+                EntryName::try_from(khn.as_lower_str().as_bytes().to_owned()).unwrap(),
+                EntryName::from(*khn)
             );
         }
     }
@@ -323,12 +368,12 @@ mod tests {
     fn pseudo_round_trip() {
         for khn in KnownHeaderName::VARIANTS {
             assert_eq!(
-                QpackEntryName::try_from(khn.as_lower_str().as_bytes()).unwrap(),
-                QpackEntryName::from(*khn)
+                EntryName::try_from(khn.as_lower_str().as_bytes()).unwrap(),
+                EntryName::from(*khn)
             );
             assert_eq!(
-                QpackEntryName::try_from(khn.as_lower_str().as_bytes().to_owned()).unwrap(),
-                QpackEntryName::from(*khn)
+                EntryName::try_from(khn.as_lower_str().as_bytes().to_owned()).unwrap(),
+                EntryName::from(*khn)
             );
         }
     }
@@ -336,19 +381,30 @@ mod tests {
     #[test]
     fn other_round_trip() {
         assert_eq!(
-            QpackEntryName::try_from(b"x-other".as_slice()).unwrap(),
-            QpackEntryName::from(HeaderName::from("x-other"))
+            EntryName::try_from(b"x-other".as_slice()).unwrap(),
+            EntryName::from(HeaderName::from("x-other"))
         );
 
         assert_eq!(
-            QpackEntryName::try_from(b"x-other".to_vec()).unwrap(),
-            QpackEntryName::from(HeaderName::from("x-other"))
+            EntryName::try_from(b"x-other".to_vec()).unwrap(),
+            EntryName::from(HeaderName::from("x-other"))
         );
     }
 
     #[test]
     fn unknown_has_no_name_key() {
-        let unknown = QpackEntryName::try_from(b"x-other".as_slice()).unwrap();
+        let unknown = EntryName::try_from(b"x-other".as_slice()).unwrap();
         assert_eq!(unknown.name_key(), None);
+    }
+
+    #[test]
+    fn pseudo_header_name_round_trip() {
+        for phn in PseudoHeaderName::VARIANTS.iter().copied() {
+            assert_eq!(
+                PseudoHeaderName::lowercase_byte_match(phn.as_str().as_bytes()),
+                Some(phn)
+            );
+        }
+        assert!(PseudoHeaderName::lowercase_byte_match(b":other").is_none());
     }
 }

@@ -199,17 +199,65 @@ where
         Q: Hash + Eq + ?Sized,
         V: Clone,
     {
+        self.peek_candidate_classify(key, |_| PoolEntryStatus::Available)
+    }
+
+    /// Like [`peek_candidate`](Self::peek_candidate), but asks `classify` how to treat each
+    /// non-expired entry: hand out, keep but skip, or drop. Returns the first entry classified
+    /// as [`Available`][PoolEntryStatus::Available]; entries classified as
+    /// [`Busy`][PoolEntryStatus::Busy] are re-pushed and skipped; entries classified as
+    /// [`Dead`][PoolEntryStatus::Dead] are dropped from the pool.
+    ///
+    /// Useful for multiplexed connections whose health and availability are independent — e.g.
+    /// an HTTP/2 connection might be alive (`Available` or `Busy`) but at its
+    /// `MAX_CONCURRENT_STREAMS` cap (`Busy`); a separate dead-connection signal evicts via
+    /// `Dead`.
+    pub fn peek_candidate_classify<Q, F>(&self, key: &Q, mut classify: F) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+        V: Clone,
+        F: FnMut(&V) -> PoolEntryStatus,
+    {
         let pool_set = self.connections.get(key)?;
-        while let Some(entry) = pool_set.0.pop() {
+        // Bound the loop by the queue's snapshot length to guarantee termination even if every
+        // entry classifies as `Busy` (re-push would otherwise feed `pop` indefinitely).
+        let mut remaining = pool_set.0.len();
+        while remaining > 0
+            && let Some(entry) = pool_set.0.pop()
+        {
+            remaining -= 1;
             if entry.is_expired() {
                 continue;
             }
-            let value = entry.item.clone();
-            pool_set.0.force_push(entry);
-            return Some(value);
+            match classify(&entry.item) {
+                PoolEntryStatus::Available => {
+                    let value = entry.item.clone();
+                    pool_set.0.force_push(entry);
+                    return Some(value);
+                }
+                PoolEntryStatus::Busy => {
+                    pool_set.0.force_push(entry);
+                }
+                PoolEntryStatus::Dead => {}
+            }
         }
         None
     }
+}
+
+/// Classification of a pool entry's current usability, returned by the closure passed to
+/// [`Pool::peek_candidate_classify`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PoolEntryStatus {
+    /// Hand this entry out for the caller's request.
+    Available,
+    /// Keep this entry in the pool but skip it for this request — e.g. an HTTP/2 connection
+    /// at its `MAX_CONCURRENT_STREAMS` cap that will become available again as streams close.
+    Busy,
+    /// Drop this entry from the pool — e.g. an HTTP/2 connection that received GOAWAY or whose
+    /// liveness probe failed.
+    Dead,
 }
 
 #[cfg(test)]
