@@ -15,7 +15,7 @@
 //! and `total_inserts`), so that step lives at the semantic layer.
 
 use crate::headers::qpack::{
-    FieldLineValue, QpackEntryName, QpackError, huffman, instruction::encode_string, varint,
+    EntryName, FieldLineValue, QpackError, huffman, instruction::encode_string, varint,
 };
 
 // --- §4.5.1 Field Section Prefix ---
@@ -90,7 +90,7 @@ pub(in crate::headers) enum FieldLineInstruction<'a> {
     },
     /// §4.5.6: literal name and literal value, no table reference.
     LiteralLiteralName {
-        name: QpackEntryName<'a>,
+        name: EntryName<'a>,
         value: FieldLineValue<'a>,
         never_indexed: bool,
     },
@@ -322,9 +322,9 @@ fn decode_string(input: &[u8], prefix_size: u8) -> Result<(FieldLineValue<'_>, &
     Ok((value, rest))
 }
 
-/// Decode a §4.1.2 name string into a [`QpackEntryName`], preserving the borrow on the
+/// Decode a §4.1.2 name string into a [`EntryName`], preserving the borrow on the
 /// non-Huffman path.
-fn decode_name(input: &[u8], prefix_size: u8) -> Result<(QpackEntryName<'_>, &[u8]), QpackError> {
+fn decode_name(input: &[u8], prefix_size: u8) -> Result<(EntryName<'_>, &[u8]), QpackError> {
     let &[first, ..] = input else {
         return Err(QpackError::UnexpectedEnd);
     };
@@ -335,10 +335,9 @@ fn decode_name(input: &[u8], prefix_size: u8) -> Result<(QpackEntryName<'_>, &[u
     }
     let (body, rest) = rest.split_at(length);
     let name = if huffman_encoded {
-        QpackEntryName::try_from(huffman::decode(body)?)
-            .map_err(|_| QpackError::InvalidHeaderName)?
+        EntryName::try_from(huffman::decode(body)?).map_err(|_| QpackError::InvalidHeaderName)?
     } else {
-        QpackEntryName::try_from(body).map_err(|_| QpackError::InvalidHeaderName)?
+        EntryName::try_from(body).map_err(|_| QpackError::InvalidHeaderName)?
     };
     Ok((name, rest))
 }
@@ -460,14 +459,14 @@ mod tests {
     fn roundtrip_literal_literal_name() {
         for never_indexed in [false, true] {
             roundtrip(FieldLineInstruction::LiteralLiteralName {
-                name: QpackEntryName::try_from(b"x-custom".as_slice())
+                name: EntryName::try_from(b"x-custom".as_slice())
                     .unwrap()
                     .into_owned(),
                 value: fv(b"value"),
                 never_indexed,
             });
             roundtrip(FieldLineInstruction::LiteralLiteralName {
-                name: QpackEntryName::try_from(b"content-type".as_slice())
+                name: EntryName::try_from(b"content-type".as_slice())
                     .unwrap()
                     .into_owned(),
                 value: fv(b"application/json"),

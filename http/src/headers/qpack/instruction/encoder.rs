@@ -22,7 +22,10 @@ use super::{
 };
 use crate::{
     h3::{H3Error, H3ErrorCode},
-    headers::qpack::{entry_name::QpackEntryName, huffman, varint},
+    headers::{
+        entry_name::EntryName,
+        qpack::{huffman, varint},
+    },
 };
 use futures_lite::io::AsyncRead;
 
@@ -61,7 +64,7 @@ pub(in crate::headers) enum EncoderInstruction {
     },
     /// §3.2.3: Insert With Literal Name.
     InsertWithLiteralName {
-        name: QpackEntryName<'static>,
+        name: EntryName<'static>,
         value: Vec<u8>,
     },
     /// §3.2.4: Duplicate.
@@ -123,7 +126,7 @@ async fn parse_inner(
         } else {
             name_bytes
         };
-        let name = QpackEntryName::try_from(name_bytes).map_err(|e| {
+        let name = EntryName::try_from(name_bytes).map_err(|e| {
             log::error!("QPACK encoder: invalid literal name: {e:?}");
         })?;
         let value = read_string_with_huffman(max_entry_size, stream).await?;
@@ -260,7 +263,7 @@ mod spec_vectors {
         assert_eq!(
             parse_one(&bytes),
             EncoderInstruction::InsertWithLiteralName {
-                name: QpackEntryName::try_from(b"custom-key".to_vec()).unwrap(),
+                name: EntryName::try_from(b"custom-key".to_vec()).unwrap(),
                 value: b"custom-value".to_vec(),
             },
         );

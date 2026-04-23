@@ -1,6 +1,6 @@
 use crate::{
     h3::{H3Error, H3ErrorCode},
-    headers::qpack::entry_name::QpackEntryName,
+    headers::entry_name::EntryName,
 };
 use event_listener::{Event, EventListener};
 use std::{
@@ -79,7 +79,7 @@ pub(in crate::headers) struct PendingSectionAck {
 
 #[derive(Debug, Clone)]
 struct DynamicEntry {
-    name: QpackEntryName<'static>,
+    name: EntryName<'static>,
     value: Cow<'static, [u8]>,
     /// `name.len() + value.len() + 32` per RFC 9204 §3.2.1.
     size: usize,
@@ -213,7 +213,7 @@ impl DecoderDynamicTable {
     /// RFC 9204 §3.2.2).
     pub(in crate::headers) fn insert(
         &self,
-        name: impl Into<QpackEntryName<'static>>,
+        name: impl Into<EntryName<'static>>,
         value: Cow<'static, [u8]>,
     ) -> Result<(), H3Error> {
         let name = name.into();
@@ -278,7 +278,7 @@ impl DecoderDynamicTable {
     pub(in crate::headers) fn name_at_relative(
         &self,
         relative_index: usize,
-    ) -> Option<QpackEntryName<'static>> {
+    ) -> Option<EntryName<'static>> {
         self.inner
             .lock()
             .unwrap()
@@ -343,7 +343,7 @@ impl DecoderDynamicTable {
         &self,
         absolute_index: u64,
         required_insert_count: u64,
-    ) -> Result<(QpackEntryName<'static>, Cow<'static, [u8]>), H3Error> {
+    ) -> Result<(EntryName<'static>, Cow<'static, [u8]>), H3Error> {
         ThresholdWait {
             table: self,
             threshold: required_insert_count,
@@ -432,7 +432,7 @@ impl Drop for ThresholdWait<'_> {
 }
 
 impl DecoderDynamicTableInner {
-    fn get(&self, absolute_index: u64) -> Option<(QpackEntryName<'static>, Cow<'static, [u8]>)> {
+    fn get(&self, absolute_index: u64) -> Option<(EntryName<'static>, Cow<'static, [u8]>)> {
         // entries[0] = newest = absolute index (insert_count - 1)
         // entries[i] = absolute index (insert_count - 1 - i)
         let i = usize::try_from(

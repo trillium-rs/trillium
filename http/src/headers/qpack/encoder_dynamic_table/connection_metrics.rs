@@ -13,7 +13,8 @@
 //! evaluated without a synthetic harness. Expected to be removed once the direction is
 //! confirmed or falsified.
 
-use super::super::{FieldLineValue, entry_name::QpackEntryName};
+use super::super::FieldLineValue;
+use crate::headers::entry_name::EntryName;
 use std::{
     collections::HashMap,
     sync::{
@@ -97,7 +98,7 @@ impl Default for ConnectionMetrics {
 /// only so the drop report can identify which entries paid for themselves.
 #[derive(Debug)]
 pub(super) struct PrimedEntry {
-    pub(super) name: QpackEntryName<'static>,
+    pub(super) name: EntryName<'static>,
     pub(super) value: FieldLineValue<'static>,
     pub(super) ref_count: u64,
 }
@@ -109,7 +110,7 @@ impl ConnectionMetrics {
     pub(super) fn record_primed_insert(
         &self,
         abs_idx: u64,
-        name: QpackEntryName<'static>,
+        name: EntryName<'static>,
         value: FieldLineValue<'static>,
         wire_bytes: u64,
     ) {
@@ -201,19 +202,15 @@ impl ConnectionMetrics {
         let priming_bytes_eager = self.priming_bytes_eager.load(Ordering::Relaxed);
         let priming_references_total = self.priming_references_total.load(Ordering::Relaxed);
         let sections_total = self.sections_total.load(Ordering::Relaxed);
-        let sections_with_primed_reference = self
-            .sections_with_primed_reference
-            .load(Ordering::Relaxed);
+        let sections_with_primed_reference =
+            self.sections_with_primed_reference.load(Ordering::Relaxed);
         let field_section_bytes = self.field_section_bytes.load(Ordering::Relaxed);
         let encoder_stream_bytes_load_bearing = self
             .encoder_stream_bytes_load_bearing
             .load(Ordering::Relaxed);
-        let primed_acked_at_first_section = self
-            .primed_acked_at_first_section
-            .load(Ordering::Relaxed);
-        let primed_acked_section_sum = self
-            .primed_acked_section_sum
-            .load(Ordering::Relaxed);
+        let primed_acked_at_first_section =
+            self.primed_acked_at_first_section.load(Ordering::Relaxed);
+        let primed_acked_section_sum = self.primed_acked_section_sum.load(Ordering::Relaxed);
         let entries = self.primed_entries.lock().unwrap();
         let priming_entries_referenced = entries.values().filter(|e| e.ref_count > 0).count();
 

@@ -1,4 +1,6 @@
-use crate::{Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade, headers::qpack::HeaderObserver};
+use crate::{
+    Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade, headers::qpack::HeaderObserver,
+};
 use fieldwork::Fieldwork;
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{future::Future, sync::Arc};

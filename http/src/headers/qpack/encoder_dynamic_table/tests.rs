@@ -2,11 +2,12 @@ use super::{encode::encode_required_insert_count, *};
 use crate::{
     HttpContext, KnownHeaderName,
     h3::H3Error,
-    headers::qpack::{
-        decoder_dynamic_table::DecoderDynamicTable,
-        entry_name::QpackEntryName,
-        instruction::encoder::{EncoderInstruction, parse},
-        static_table::PseudoHeaderName,
+    headers::{
+        entry_name::{EntryName, PseudoHeaderName},
+        qpack::{
+            decoder_dynamic_table::DecoderDynamicTable,
+            instruction::encoder::{EncoderInstruction, parse},
+        },
     },
 };
 use futures_lite::future::block_on;
@@ -47,7 +48,7 @@ impl EncoderDynamicTable {
     /// [`TableState::insert`]. Returns the absolute index of the freshly-inserted entry.
     pub(in crate::headers) fn insert(
         &self,
-        name: QpackEntryName<'_>,
+        name: EntryName<'_>,
         value: FieldLineValue<'_>,
     ) -> Result<u64, H3Error> {
         let mut state = self.state.lock().unwrap();
@@ -70,7 +71,7 @@ impl EncoderDynamicTable {
     /// index of the latest such entry, or `None` if no live entry has this `(name, value)`.
     pub(in crate::headers) fn find_full_match(
         &self,
-        name: &QpackEntryName,
+        name: &EntryName,
         value: &[u8],
     ) -> Option<u64> {
         let state = self.state.lock().unwrap();
@@ -82,7 +83,7 @@ impl EncoderDynamicTable {
 
     /// Look up a dynamic-table entry whose name matches (value may differ). Returns the
     /// absolute index of the latest such entry, or `None` if no live entry has this name.
-    pub(in crate::headers) fn find_name_match(&self, name: &QpackEntryName) -> Option<u64> {
+    pub(in crate::headers) fn find_name_match(&self, name: &EntryName) -> Option<u64> {
         let state = self.state.lock().unwrap();
         state.by_name.get(name).map(|index| index.latest_any)
     }
@@ -131,10 +132,10 @@ impl EncoderDynamicTable {
 
 // Test helpers — kept small and explicit.
 
-/// Construct a [`QpackEntryName`] from a string. Handles known headers (`"accept-encoding"`),
+/// Construct a [`EntryName`] from a string. Handles known headers (`"accept-encoding"`),
 /// pseudo-headers (`":path"`), and unknown headers (`"x-custom"`) uniformly.
-fn qen(s: &str) -> QpackEntryName<'static> {
-    QpackEntryName::try_from(s.as_bytes().to_vec()).unwrap()
+fn qen(s: &str) -> EntryName<'static> {
+    EntryName::try_from(s.as_bytes().to_vec()).unwrap()
 }
 
 /// Construct an owned [`FieldLineValue`] from a static string — the common test shape.
@@ -162,8 +163,9 @@ fn new_table_with_blocked_streams(
     max_capacity: u64,
     max_blocked_streams: u64,
 ) -> EncoderDynamicTable {
-    let context = HttpContext::default()
-        .with_config(crate::HttpConfig::default().with_h3_max_table_capacity(max_capacity as usize));
+    let context = HttpContext::default().with_config(
+        crate::HttpConfig::default().with_h3_max_table_capacity(max_capacity as usize),
+    );
     let table = EncoderDynamicTable::new(&context);
     table.initialize_from_peer_settings(
         H3Settings::default()

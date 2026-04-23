@@ -17,7 +17,7 @@ const OBSERVATIONS: usize = 500;
 fn context_with_observations(
     max_capacity: usize,
     sections: usize,
-    observations: &[(QpackEntryName<'static>, FieldLineValue<'static>)],
+    observations: &[(EntryName<'static>, FieldLineValue<'static>)],
 ) -> HttpContext {
     let context = HttpContext::default()
         .with_config(crate::HttpConfig::default().with_h3_max_table_capacity(max_capacity));
@@ -80,7 +80,7 @@ fn gate_closed_when_table_has_headroom() {
     // Prime one hot pair into a very large table. Headroom stays far above
     // `primed_bytes` after warming inserts, so the gate never opens.
     let server = (
-        QpackEntryName::Known(KnownHeaderName::Server),
+        EntryName::Known(KnownHeaderName::Server),
         FieldLineValue::Static(b"trillium"),
     );
     let context = context_with_observations(4096, OBSERVATIONS, &[server]);
@@ -111,7 +111,7 @@ fn gate_open_cold_tail_no_dup() {
     // threshold. The dup-drain gate opens (small capacity, primed tail) but `is_hot`
     // returns false, so no Duplicate is emitted.
     let server = (
-        QpackEntryName::Known(KnownHeaderName::Server),
+        EntryName::Known(KnownHeaderName::Server),
         FieldLineValue::Static(b"trillium"),
     );
     let context = context_with_observations(160, OBSERVATIONS, &[server.clone()]);
@@ -120,7 +120,7 @@ fn gate_open_cold_tail_no_dup() {
     // At the default half-life of 10_000, ~100k sections of an unrelated pair cut the
     // original fraction by ~2^-10 → well below the 30% threshold.
     let other = (
-        QpackEntryName::Known(KnownHeaderName::Accept),
+        EntryName::Known(KnownHeaderName::Accept),
         FieldLineValue::Static(b"application/json"),
     );
     for _ in 0..100_000 {
@@ -153,11 +153,11 @@ fn gate_open_hot_tail_emits_duplicate() {
     // that a warming insert opens the gate on the first attempt. The oldest entry is
     // still observer-hot, so a Duplicate is emitted before the warming insert.
     let server = (
-        QpackEntryName::Known(KnownHeaderName::Server),
+        EntryName::Known(KnownHeaderName::Server),
         FieldLineValue::Static(b"trillium"),
     );
     let ua = (
-        QpackEntryName::Known(KnownHeaderName::UserAgent),
+        EntryName::Known(KnownHeaderName::UserAgent),
         FieldLineValue::Static(b"custom"),
     );
     let context = context_with_observations(160, OBSERVATIONS, &[server, ua]);
@@ -194,11 +194,11 @@ fn sustained_pressure_emits_dup_and_remains_consistent() {
     // eviction can touch (the structural "nothing below the pin" case). In either
     // case the warming insert itself always proceeds and the table remains consistent.
     let server = (
-        QpackEntryName::Known(KnownHeaderName::Server),
+        EntryName::Known(KnownHeaderName::Server),
         FieldLineValue::Static(b"trillium"),
     );
     let ua = (
-        QpackEntryName::Known(KnownHeaderName::UserAgent),
+        EntryName::Known(KnownHeaderName::UserAgent),
         FieldLineValue::Static(b"custom"),
     );
     let context = context_with_observations(160, OBSERVATIONS, &[server, ua]);

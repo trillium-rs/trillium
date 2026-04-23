@@ -7,7 +7,6 @@ mod decoder_dynamic_table;
 #[cfg(test)]
 mod encoder_corpus_tests;
 mod encoder_dynamic_table;
-mod entry_name;
 mod header_observer;
 pub(crate) mod huffman;
 mod instruction;
@@ -28,8 +27,9 @@ use super::header_value::HeaderValueInner;
 use crate::{
     Headers, Method, Status,
     h3::{H3Error, H3ErrorCode},
-    headers::qpack::{
-        entry_name::QpackEntryName, static_table::PseudoHeaderName, varint::VarIntError,
+    headers::{
+        entry_name::{EntryName, PseudoHeaderName},
+        qpack::varint::VarIntError,
     },
 };
 #[cfg(not(feature = "unstable"))]
@@ -202,7 +202,7 @@ impl<'a> FieldSection<'a> {
         }
     }
 
-    fn field_lines(&self) -> Vec<(QpackEntryName<'_>, FieldLineValue<'_>)> {
+    fn field_lines(&self) -> Vec<(EntryName<'_>, FieldLineValue<'_>)> {
         let mut lines = Vec::with_capacity(self.headers.len() + 6);
         if let Some(method) = &self.pseudo_headers.method {
             lines.push((
@@ -252,7 +252,7 @@ impl<'a> FieldSection<'a> {
                 } else {
                     FieldLineValue::Borrowed(v.as_ref())
                 };
-                lines.push((QpackEntryName::from(hn.clone()), v));
+                lines.push((EntryName::from(hn.clone()), v));
             }
         }
 
@@ -264,7 +264,6 @@ impl<'a> FieldSection<'a> {
     pub fn into_parts(self) -> (PseudoHeaders<'a>, Headers) {
         (self.pseudo_headers, self.headers.into_owned())
     }
-
 }
 
 impl Display for FieldSection<'_> {

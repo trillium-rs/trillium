@@ -236,13 +236,21 @@ fn warming_insert_referenceable_in_next_section_after_ack() {
     // Section 1: predictor records, no warming insert yet.
     let bytes1 = encode(&encoder, PseudoHeaders::default(), &h1, 1);
     let (p1, _) = parse_section(&bytes1);
-    assert_eq!(p1, FieldSectionPrefix::default(), "section 1 should not RIC");
+    assert_eq!(
+        p1,
+        FieldSectionPrefix::default(),
+        "section 1 should not RIC"
+    );
     let _ = drain_instructions(&encoder);
 
     // Section 2: predictor hits, warming insert fires; section emits a literal.
     let bytes2 = encode(&encoder, PseudoHeaders::default(), &h1, 3);
     let (p2, _) = parse_section(&bytes2);
-    assert_eq!(p2, FieldSectionPrefix::default(), "section 2 should not RIC");
+    assert_eq!(
+        p2,
+        FieldSectionPrefix::default(),
+        "section 2 should not RIC"
+    );
     // Drain the warming Insert and pretend the peer acked it (advances KRC).
     let _ = drain_instructions(&encoder);
     encoder.on_insert_count_increment(1).unwrap();
@@ -352,7 +360,7 @@ fn dynamic_name_ref_protocol_pseudo() {
     let encoder = new_table(4096);
     encoder
         .insert(
-            QpackEntryName::Pseudo(PseudoHeaderName::Protocol),
+            EntryName::Pseudo(PseudoHeaderName::Protocol),
             fv("webtransport"),
         )
         .unwrap();

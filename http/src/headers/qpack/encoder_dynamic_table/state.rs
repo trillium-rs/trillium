@@ -14,17 +14,18 @@
 //! for the writer task to drain.
 
 use super::recent_pairs::RecentPairs;
-
 use crate::{
     h3::{H3Error, H3ErrorCode},
-    headers::qpack::{
-        FieldLineValue,
-        entry_name::QpackEntryName,
-        instruction::encoder::{
-            encode_duplicate, encode_insert_with_literal_name, encode_insert_with_name_ref,
-            encode_set_capacity,
+    headers::{
+        entry_name::EntryName,
+        qpack::{
+            FieldLineValue,
+            instruction::encoder::{
+                encode_duplicate, encode_insert_with_literal_name, encode_insert_with_name_ref,
+                encode_set_capacity,
+            },
+            static_table::first_match,
         },
-        static_table::first_match,
     },
 };
 use std::{
@@ -67,7 +68,7 @@ pub(super) struct TableState {
     /// Reverse index for encode-path lookups. Outer map keyed by entry name; each
     /// [`NameIndex`] holds a per-value map (for full-match lookups) and the latest `abs_idx`
     /// across all live entries with this name (for name-only lookups).
-    pub(super) by_name: HashMap<QpackEntryName<'static>, NameIndex>,
+    pub(super) by_name: HashMap<EntryName<'static>, NameIndex>,
     /// Per-connection ring of recently-seen `(name, value)` pair hashes. Consulted by
     /// the planner before each warming insert.
     pub(super) recent_pairs: RecentPairs,
@@ -93,7 +94,7 @@ pub(super) struct NameIndex {
 
 #[derive(Debug, Clone)]
 pub(super) struct Entry {
-    pub(super) name: QpackEntryName<'static>,
+    pub(super) name: EntryName<'static>,
     pub(super) value: Cow<'static, [u8]>,
     /// `name.len() + value.len() + 32` per RFC 9204 §3.2.1.
     pub(super) size: usize,
@@ -159,7 +160,7 @@ impl TableState {
     /// or if eviction would require dropping a pinned entry (combined floor).
     pub(super) fn insert(
         &mut self,
-        name: QpackEntryName<'_>,
+        name: EntryName<'_>,
         value: FieldLineValue<'_>,
         extra_floor: Option<u64>,
     ) -> Result<u64, H3Error> {
@@ -286,7 +287,7 @@ impl TableState {
     /// same lock; this helper does no validation.
     fn insert_entry(
         &mut self,
-        name: QpackEntryName<'_>,
+        name: EntryName<'_>,
         value: Cow<'static, [u8]>,
         entry_size: usize,
         wire: Vec<u8>,
@@ -406,7 +407,7 @@ impl TableState {
     /// [`NameIndex`] is removed.
     fn remove_from_reverse_index(
         &mut self,
-        name: &QpackEntryName<'static>,
+        name: &EntryName<'static>,
         value: &[u8],
         evicted_abs: u64,
     ) {

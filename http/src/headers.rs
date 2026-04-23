@@ -1,5 +1,6 @@
 //! Header types
 mod entry;
+mod entry_name;
 mod header_name;
 mod header_value;
 mod header_values;

@@ -162,4 +162,3 @@ pub(in crate::headers) fn encode_string(value: &[u8], prefix_size: u8, buf: &mut
         buf.extend_from_slice(value);
     }
 }
-

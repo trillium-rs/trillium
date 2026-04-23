@@ -10,8 +10,8 @@
 //! stream is handled separately by the per-connection indexing layer; the observer doesn't
 //! try to compete on that axis.
 //!
-//! Storage key is `(QpackEntryName<'static>, FieldLineValue<'static>)` — the same types
-//! the encoder's dynamic table already uses. `QpackEntryName::Pseudo` lets the observer
+//! Storage key is `(EntryName<'static>, FieldLineValue<'static>)` — the same types
+//! the encoder's dynamic table already uses. `EntryName::Pseudo` lets the observer
 //! track hot `:path`/`:scheme`/`:authority` values that aren't in the static table.
 //!
 //! Role isolation: each hop-and-direction pair gets its own observer (see
@@ -36,8 +36,8 @@
 //! counting is the simplest definition of "the distribution of outbound headers" and
 //! generalizes cleanly across deployment shapes.
 
-use super::{FieldLineValue, entry_name::QpackEntryName, static_table};
-use crate::{HttpConfig, KnownHeaderName};
+use super::{FieldLineValue, static_table};
+use crate::{HttpConfig, KnownHeaderName, headers::entry_name::EntryName};
 use std::{collections::HashMap, sync::Mutex};
 
 /// Hardcoded threshold — a pair must have appeared in at least this fraction of recent
@@ -83,7 +83,7 @@ impl Default for HeaderObserver {
 /// `(name, None)` entries track name-only frequency, summed across all values seen for
 /// that name. Always tracked, including for sensitive headers — priming
 /// `(authorization, "")` saves name bytes per future use without caching any value.
-type ObserverKey = (QpackEntryName<'static>, Option<FieldLineValue<'static>>);
+type ObserverKey = (EntryName<'static>, Option<FieldLineValue<'static>>);
 
 #[derive(Debug, Default)]
 struct ObserverInner {
@@ -201,20 +201,19 @@ impl HeaderObserver {
     /// Record one observation of `(name, value)` in the current section. Bumps two
     /// counters in the unified frequency map:
     ///
-    /// - The name-only entry `(name, None)` — always, including for sensitive headers.
-    ///   Storing it costs nothing if the name has a static-table match (in which case
-    ///   the cost model in [`prime`](Self::prime) filters it out anyway), and is the
-    ///   only way to prime hot non-static names whose values vary per request
-    ///   (`x-trace-id`, `x-request-id`, custom app headers).
-    /// - The full-pair entry `(name, Some(value))` — only when the value is cacheable.
-    ///   See [`value_is_uncacheable`] for the skip rules (sensitive headers + Date).
+    /// - The name-only entry `(name, None)` — always, including for sensitive headers. Storing it
+    ///   costs nothing if the name has a static-table match (in which case the cost model in
+    ///   [`prime`](Self::prime) filters it out anyway), and is the only way to prime hot non-static
+    ///   names whose values vary per request (`x-trace-id`, `x-request-id`, custom app headers).
+    /// - The full-pair entry `(name, Some(value))` — only when the value is cacheable. See
+    ///   [`value_is_uncacheable`] for the skip rules (sensitive headers + Date).
     ///
     /// No per-section dedup is enforced: a pair appearing twice in one field section
     /// (rare — multi-valued headers like `set-cookie` are distinct pairs, but
     /// pathological duplicates would double-count) bumps the count twice.
     pub(in crate::headers) fn record_observation(
         &self,
-        name: QpackEntryName<'static>,
+        name: EntryName<'static>,
         value: FieldLineValue<'static>,
     ) {
         let mut inner = self.inner.lock().expect("observer mutex poisoned");
@@ -258,7 +257,7 @@ impl HeaderObserver {
     /// allocation on the value side (zero for `Static` / `Borrowed` variants).
     pub(in crate::headers) fn is_hot(
         &self,
-        name: &QpackEntryName<'static>,
+        name: &EntryName<'static>,
         value: Option<&FieldLineValue<'static>>,
     ) -> bool {
         let inner = self.inner.lock().expect("observer mutex poisoned");
@@ -282,17 +281,17 @@ impl HeaderObserver {
     /// ranked together; the cost model branches on whether the pair has a static-table
     /// match and whether the value is cached:
     ///
-    /// - **Full pair, full static match**: skipped — Indexed Static is already as cheap
-    ///   as Indexed Dynamic.
-    /// - **Full pair, static name match**: insert is "Insert With Name Reference (T=1)";
-    ///   per-ref savings is the value bytes (Indexed Dynamic vs. Literal With Name Ref).
-    /// - **Full pair, no static match**: insert is "Insert With Literal Name"; per-ref
-    ///   savings is roughly `name.len() + value.len()`.
-    /// - **Name-only, static name match**: skipped — literals can already use the static
-    ///   name ref for free.
-    /// - **Name-only, no static name match**: insert is "Insert With Literal Name"
-    ///   carrying empty value; per-ref savings is `name.len()` (Literal With Dynamic
-    ///   Name Ref vs Literal With Literal Name).
+    /// - **Full pair, full static match**: skipped — Indexed Static is already as cheap as Indexed
+    ///   Dynamic.
+    /// - **Full pair, static name match**: insert is "Insert With Name Reference (T=1)"; per-ref
+    ///   savings is the value bytes (Indexed Dynamic vs. Literal With Name Ref).
+    /// - **Full pair, no static match**: insert is "Insert With Literal Name"; per-ref savings is
+    ///   roughly `name.len() + value.len()`.
+    /// - **Name-only, static name match**: skipped — literals can already use the static name ref
+    ///   for free.
+    /// - **Name-only, no static name match**: insert is "Insert With Literal Name" carrying empty
+    ///   value; per-ref savings is `name.len()` (Literal With Dynamic Name Ref vs Literal With
+    ///   Literal Name).
     ///
     /// Candidates whose net score is non-positive are dropped.
     ///
@@ -339,7 +338,11 @@ impl HeaderObserver {
             })
             .collect();
 
-        candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let mut out = Vec::new();
         let mut used: u32 = 0;
@@ -380,9 +383,8 @@ impl CostModel {
     /// priming is dominated by a cheaper alternative the encoder will already pick:
     ///
     /// - Full pair with a full static-table match — Indexed Static is already as cheap.
-    /// - Name-only with a static name-table match — literals can use the static name ref
-    ///   for free.
-    fn estimate(name: &QpackEntryName<'_>, value: Option<&FieldLineValue<'_>>) -> Option<Self> {
+    /// - Name-only with a static name-table match — literals can use the static name ref for free.
+    fn estimate(name: &EntryName<'_>, value: Option<&FieldLineValue<'_>>) -> Option<Self> {
         let name_len = u32::try_from(name.len()).unwrap_or(u32::MAX);
         let value_bytes = value.map(FieldLineValue::as_bytes);
         let lookup = static_table::static_table_lookup(name, value_bytes);
@@ -441,7 +443,7 @@ impl CostModel {
 /// to save the name bytes.
 #[derive(Debug)]
 pub(in crate::headers) struct PrimingCandidate {
-    pub(in crate::headers) name: QpackEntryName<'static>,
+    pub(in crate::headers) name: EntryName<'static>,
     pub(in crate::headers) value: Option<FieldLineValue<'static>>,
     /// EMA-decayed count of connections that observed this entry, at ranking time.
     pub(in crate::headers) count: f64,
@@ -457,7 +459,7 @@ pub(in crate::headers) struct PrimingCandidate {
 /// `entry_size` needed for capacity bin-packing, which [`PrimingCandidate`] does not
 /// need to expose to callers.
 struct RankedCandidate {
-    name: QpackEntryName<'static>,
+    name: EntryName<'static>,
     value: Option<FieldLineValue<'static>>,
     entry_size: u32,
     count: f64,
@@ -465,14 +467,14 @@ struct RankedCandidate {
 }
 
 /// True when the *value* of this header should not be cached by the observer. Names that
-/// are sensitive ([`QpackEntryName::has_uncacheable_value`]) and `date` (rolls over every
+/// are sensitive ([`EntryName::has_uncacheable_value`]) and `date` (rolls over every
 /// second) qualify. The name itself is still tracked — name-only priming is safe and
 /// useful even for these.
-fn value_is_uncacheable(name: &QpackEntryName<'_>) -> bool {
+fn value_is_uncacheable(name: &EntryName<'_>) -> bool {
     if name.has_uncacheable_value() {
         return true;
     }
-    matches!(name, QpackEntryName::Known(KnownHeaderName::Date))
+    matches!(name, EntryName::Known(KnownHeaderName::Date))
 }
 
 /// Drop the least-frequently-used entry (by current effective count) to stay within the
@@ -499,8 +501,8 @@ mod tests {
     use super::*;
     use crate::KnownHeaderName;
 
-    fn name(known: KnownHeaderName) -> QpackEntryName<'static> {
-        QpackEntryName::Known(known)
+    fn name(known: KnownHeaderName) -> EntryName<'static> {
+        EntryName::Known(known)
     }
 
     fn value(bytes: &'static [u8]) -> FieldLineValue<'static> {
@@ -518,7 +520,7 @@ mod tests {
     fn observe_n_same(
         observer: &HeaderObserver,
         n: usize,
-        n_pair: (QpackEntryName<'static>, FieldLineValue<'static>),
+        n_pair: (EntryName<'static>, FieldLineValue<'static>),
     ) {
         for _ in 0..n {
             observer.record_section_start();
@@ -536,7 +538,11 @@ mod tests {
         // full-pair candidate gets value-bytes savings; the name-only candidate is
         // skipped by the cost model because the static name ref is already free.
         let observer = observer_with(10_000, 1_000);
-        observe_n_same(&observer, 500, (name(KnownHeaderName::Server), value(b"trillium")));
+        observe_n_same(
+            &observer,
+            500,
+            (name(KnownHeaderName::Server), value(b"trillium")),
+        );
         let primed = observer.prime(4096);
         assert_eq!(primed.len(), 1, "expected 1 candidate, got {primed:?}");
         assert_eq!(primed[0].name, name(KnownHeaderName::Server));
@@ -550,10 +556,7 @@ mod tests {
         for i in 0..500 {
             observer.record_section_start();
             if i < 100 {
-                observer.record_observation(
-                    name(KnownHeaderName::Server),
-                    value(b"trillium"),
-                );
+                observer.record_observation(name(KnownHeaderName::Server), value(b"trillium"));
             }
         }
         assert!(observer.prime(4096).is_empty());
@@ -607,7 +610,10 @@ mod tests {
         // savings). Capacity only fits one. Both names are static — name-only entries
         // are skipped by the cost model — so we only consider full-pair candidates.
         let observer = observer_with(10_000, 1_000);
-        let big = (name(KnownHeaderName::ContentType), value(b"application/json; charset=utf-8"));
+        let big = (
+            name(KnownHeaderName::ContentType),
+            value(b"application/json; charset=utf-8"),
+        );
         let small = (name(KnownHeaderName::ContentLength), value(b"12"));
         for _ in 0..500 {
             observer.record_section_start();
@@ -680,10 +686,20 @@ mod tests {
         // All three names are static so name-only candidates are filtered by the cost
         // model. Asserting on the surviving full-pair entries.
         let primed = observer.prime(4096);
-        assert!(primed.iter().any(|c| c.name == most.0 && c.value.as_ref() == Some(&most.1)));
-        assert!(primed.iter().any(|c| c.name == mid.0 && c.value.as_ref() == Some(&mid.1)));
         assert!(
-            !primed.iter().any(|c| c.name == least.0 && c.value.as_ref() == Some(&least.1)),
+            primed
+                .iter()
+                .any(|c| c.name == most.0 && c.value.as_ref() == Some(&most.1))
+        );
+        assert!(
+            primed
+                .iter()
+                .any(|c| c.name == mid.0 && c.value.as_ref() == Some(&mid.1))
+        );
+        assert!(
+            !primed
+                .iter()
+                .any(|c| c.name == least.0 && c.value.as_ref() == Some(&least.1)),
             "least-frequent pair should have been evicted"
         );
     }
@@ -694,16 +710,12 @@ mod tests {
         // crosses the 30% fraction threshold) but the name itself is hot. Expectation:
         // prime emits a single name-only candidate `(x-trace-id, None)`.
         let observer = observer_with(10_000, 1_000);
-        let trace_name: QpackEntryName<'static> =
-            QpackEntryName::try_from(b"x-trace-id".to_vec()).unwrap();
+        let trace_name: EntryName<'static> = EntryName::try_from(b"x-trace-id".to_vec()).unwrap();
         for i in 0..500 {
             observer.record_section_start();
             // Distinct value per section — no full-pair clears the threshold.
             let value_bytes = format!("trace-{i:04}").into_bytes();
-            observer.record_observation(
-                trace_name.clone(),
-                FieldLineValue::Owned(value_bytes),
-            );
+            observer.record_observation(trace_name.clone(), FieldLineValue::Owned(value_bytes));
         }
         let primed = observer.prime(4096);
         let name_only_match = primed
@@ -715,7 +727,9 @@ mod tests {
         );
         // No full-pair candidate should sneak in (no single value cleared the threshold).
         assert!(
-            !primed.iter().any(|c| c.name == trace_name && c.value.is_some()),
+            !primed
+                .iter()
+                .any(|c| c.name == trace_name && c.value.is_some()),
             "no per-value full-pair candidate should be present; got {primed:?}",
         );
     }

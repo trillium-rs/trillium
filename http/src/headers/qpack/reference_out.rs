@@ -22,12 +22,12 @@
 //! Even encoders with identical policy can emit differently-shaped bytes:
 //!
 //! - **Pre-base vs post-base indexing for newly-inserted entries.** Ls-qpack emits
-//!   `IndexedPostBase`/`LiteralPostBaseNameRef` for references to entries inserted by the
-//!   current header block; we emit `IndexedDynamic`/`LiteralDynamicNameRef` (pre-base with
-//!   `delta_base = 0`). Both carry the same semantic and cost a single byte for the common
-//!   case. See the "total dynamic refs" derived line in [`WireHistogram::print_comparison`].
-//! - **Huffman-or-raw picks for strings** can differ between encoders on short or
-//!   high-entropy values, independently of any policy difference.
+//!   `IndexedPostBase`/`LiteralPostBaseNameRef` for references to entries inserted by the current
+//!   header block; we emit `IndexedDynamic`/`LiteralDynamicNameRef` (pre-base with `delta_base =
+//!   0`). Both carry the same semantic and cost a single byte for the common case. See the "total
+//!   dynamic refs" derived line in [`WireHistogram::print_comparison`].
+//! - **Huffman-or-raw picks for strings** can differ between encoders on short or high-entropy
+//!   values, independently of any policy difference.
 //!
 //! The comparison report flags buckets that differ by more than 2× and annotates those
 //! that tend to alias across encoders with the divergence note.
@@ -317,7 +317,7 @@ pub(in crate::headers::qpack) fn render_field_line(i: &FieldLineInstruction<'_>)
     }
 }
 
-fn render_name(n: &super::entry_name::QpackEntryName<'_>) -> String {
+fn render_name(n: &crate::headers::entry_name::EntryName<'_>) -> String {
     render_value(n.as_bytes())
 }
 

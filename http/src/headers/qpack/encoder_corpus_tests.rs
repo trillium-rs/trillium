@@ -223,9 +223,8 @@ fn run_qif_at_config(
             // a connection. In chunked mode each chunk is a fresh connection, so ids restart.
             let stream_id = (i as u64) + 1;
             let global_index = chunk_start + i;
-            let field_lines = qif::build_field_lines(group).unwrap_or_else(|e| {
-                panic!("{}: group {global_index}: {e}", qif_path.display())
-            });
+            let field_lines = qif::build_field_lines(group)
+                .unwrap_or_else(|e| panic!("{}: group {global_index}: {e}", qif_path.display()));
 
             let mut buf = Vec::new();
             encoder.encode_field_lines(&field_lines, &mut buf, stream_id);
@@ -277,15 +276,15 @@ fn run_qif_at_config(
                 // subsequent encode of references to entries the decoder already has.
                 let increment = encoder.insert_count() - encoder.known_received_count();
                 if increment > 0 {
-                    encoder.on_insert_count_increment(increment).unwrap_or_else(
-                        |e| {
+                    encoder
+                        .on_insert_count_increment(increment)
+                        .unwrap_or_else(|e| {
                             panic!(
                                 "{}: group {global_index}: encoder rejected insert count \
                                  increment {increment}: {e}",
                                 qif_path.display()
                             )
-                        },
-                    );
+                        });
                 }
             }
 
@@ -419,9 +418,7 @@ fn dump_enc_and_hdr(writer: &mut BufWriter<File>, enc: &[u8], hdr: &[u8]) {
         let _ = writeln!(
             writer,
             "    hdr.prefix: enc_ric={} sign={} delta_base={}",
-            prefix.encoded_required_insert_count,
-            prefix.base_is_negative as u8,
-            prefix.delta_base,
+            prefix.encoded_required_insert_count, prefix.base_is_negative as u8, prefix.delta_base,
         );
         for instr in lines {
             let _ = writeln!(writer, "    hdr: {}", render_field_line(&instr));
@@ -686,14 +683,8 @@ fn qpack_encoder_corpus() {
                         ))
                     })
                     .clone();
-                let (stats, our_wire) = run_qif_at_config(
-                    &qif_path,
-                    &groups,
-                    config,
-                    chunk_size,
-                    observer,
-                    dump_ctx,
-                );
+                let (stats, our_wire) =
+                    run_qif_at_config(&qif_path, &groups, config, chunk_size, observer, dump_ctx);
                 tested += 1;
 
                 if stats_enabled {
@@ -705,14 +696,7 @@ fn qpack_encoder_corpus() {
                     } else {
                         BTreeMap::new()
                     };
-                    metric.push((
-                        chunk_size,
-                        stem.clone(),
-                        config,
-                        stats,
-                        refs,
-                        our_wire,
-                    ));
+                    metric.push((chunk_size, stem.clone(), config, stats, refs, our_wire));
                 }
             }
         }
@@ -735,9 +719,7 @@ fn qpack_encoder_corpus() {
             let unchunked: Vec<_> = metric
                 .iter()
                 .filter(|row| row.0.is_none())
-                .map(|(_, stem, c, s, r, w)| {
-                    (stem.clone(), *c, *s, r.clone(), w.clone())
-                })
+                .map(|(_, stem, c, s, r, w)| (stem.clone(), *c, *s, r.clone(), w.clone()))
                 .collect();
             print_metric_report(&unchunked);
         }
@@ -762,17 +744,17 @@ fn print_curve_report(
 ) {
     eprintln!("\n=== QPACK Encoder Curve — total bytes by chunk size ===");
     eprintln!(
-        "(bytes = section_bytes + encoder_stream_bytes; chunk_size = simulated connection \
-         length in header blocks; inf = one connection per qif)\n"
+        "(bytes = section_bytes + encoder_stream_bytes; chunk_size = simulated connection length \
+         in header blocks; inf = one connection per qif)\n"
     );
 
     let fmt_cs = |cs: Option<usize>| -> String {
-        cs.map(|n| format!("N={n}")).unwrap_or_else(|| "N=inf".into())
+        cs.map(|n| format!("N={n}"))
+            .unwrap_or_else(|| "N=inf".into())
     };
 
     // Build: (stem, cap, blk) -> chunk_size -> total bytes.
-    let mut per_qif: BTreeMap<(String, u64, u64), BTreeMap<Option<usize>, usize>> =
-        BTreeMap::new();
+    let mut per_qif: BTreeMap<(String, u64, u64), BTreeMap<Option<usize>, usize>> = BTreeMap::new();
     let mut agg: BTreeMap<(u64, u64), BTreeMap<Option<usize>, usize>> = BTreeMap::new();
     for (cs, stem, config, stats, _, _) in metric {
         *per_qif
@@ -977,8 +959,12 @@ fn print_wire_comparison(
             .collect();
         refs.sort_by_key(|(name, _)| name.as_str());
 
-        eprintln!("\n({cap},{blk})  — bucket: ours vs [{}]",
-            refs.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", "),
+        eprintln!(
+            "\n({cap},{blk})  — bucket: ours vs [{}]",
+            refs.iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
         );
 
         print_row("set_capacity", our.set_capacity, &refs, |h| h.set_capacity);
@@ -1048,9 +1034,12 @@ fn print_wire_comparison(
             &refs,
             WireHistogram::literal_dyn_name_total,
         );
-        print_row("literal_literal_name", our.literal_literal_name, &refs, |h| {
-            h.literal_literal_name
-        });
+        print_row(
+            "literal_literal_name",
+            our.literal_literal_name,
+            &refs,
+            |h| h.literal_literal_name,
+        );
     }
     eprintln!();
 }
@@ -1089,4 +1078,3 @@ fn diverges(ours: u64, theirs: u64) -> &'static str {
     };
     if a >= b * 2 { "  ←Δ" } else { "" }
 }
-

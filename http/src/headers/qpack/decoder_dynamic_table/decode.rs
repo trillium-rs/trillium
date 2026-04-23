@@ -2,14 +2,16 @@ use super::DecoderDynamicTable;
 use crate::{
     HeaderName, HeaderValue, Headers, Method, Status,
     h3::{H3Error, H3ErrorCode},
-    headers::qpack::{
-        FieldSection, PseudoHeaders,
-        entry_name::QpackEntryName,
-        instruction::{
-            field_section::{FieldLineInstruction, FieldSectionPrefix},
-            validate_value,
+    headers::{
+        entry_name::{EntryName, PseudoHeaderName},
+        qpack::{
+            FieldSection, PseudoHeaders,
+            instruction::{
+                field_section::{FieldLineInstruction, FieldSectionPrefix},
+                validate_value,
+            },
+            static_table::{StaticHeaderName, static_entry},
         },
-        static_table::{PseudoHeaderName, StaticHeaderName, static_entry},
     },
 };
 use std::{
@@ -126,7 +128,7 @@ async fn apply_instruction(
             name_index, value, ..
         } => {
             let (name, _) = static_entry(name_index)?;
-            entry_field_line(QpackEntryName::from(*name), value.into_static()).map_err(Into::into)
+            entry_field_line(EntryName::from(*name), value.into_static()).map_err(Into::into)
         }
         FieldLineInstruction::LiteralDynamicNameRef {
             relative_index,
@@ -182,29 +184,27 @@ fn static_table_field_line(name: StaticHeaderName, value: &'static str) -> Field
 /// load-bearing one for literal field-line variants whose values were not seen by the
 /// encoder-stream parser.
 fn entry_field_line(
-    name: QpackEntryName<'_>,
+    name: EntryName<'_>,
     value: Cow<'static, [u8]>,
 ) -> Result<FieldLine, H3ErrorCode> {
     let err = || H3ErrorCode::QpackDecompressionFailed;
     validate_value(&value).map_err(|()| err())?;
     match name {
-        QpackEntryName::Known(k) => Ok(FieldLine::Header(k.into(), HeaderValue::from(value))),
-        QpackEntryName::Unknown(u) => Ok(FieldLine::Header(
+        EntryName::Known(k) => Ok(FieldLine::Header(k.into(), HeaderValue::from(value))),
+        EntryName::Unknown(u) => Ok(FieldLine::Header(
             u.into_owned().into(),
             HeaderValue::from(value),
         )),
-        QpackEntryName::Pseudo(PseudoHeaderName::Method) => Ok(FieldLine::Pseudo(
-            PseudoHeader::Method(Method::parse(&value).map_err(|_| err())?),
-        )),
-        QpackEntryName::Pseudo(PseudoHeaderName::Status) => {
-            Ok(FieldLine::Pseudo(PseudoHeader::Status(
-                std::str::from_utf8(&value)
-                    .map_err(|_| err())?
-                    .parse()
-                    .map_err(|_| err())?,
-            )))
-        }
-        QpackEntryName::Pseudo(other) => Ok(FieldLine::Pseudo(PseudoHeader::Other(
+        EntryName::Pseudo(PseudoHeaderName::Method) => Ok(FieldLine::Pseudo(PseudoHeader::Method(
+            Method::parse(&value).map_err(|_| err())?,
+        ))),
+        EntryName::Pseudo(PseudoHeaderName::Status) => Ok(FieldLine::Pseudo(PseudoHeader::Status(
+            std::str::from_utf8(&value)
+                .map_err(|_| err())?
+                .parse()
+                .map_err(|_| err())?,
+        ))),
+        EntryName::Pseudo(other) => Ok(FieldLine::Pseudo(PseudoHeader::Other(
             other,
             Some(match value {
                 Cow::Borrowed(b) => Cow::Borrowed(std::str::from_utf8(b).map_err(|_| err())?),
