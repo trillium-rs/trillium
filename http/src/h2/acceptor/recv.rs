@@ -125,7 +125,7 @@ where
 
         match frame {
             Frame::Settings(settings) => {
-                self.apply_peer_settings(&settings);
+                self.apply_peer_settings(&settings)?;
                 self.queue_settings_ack();
                 Ok(Action::Continue)
             }
@@ -361,10 +361,34 @@ where
     /// everything except duplicate ids within the same frame — in which case `H2Settings`
     /// itself keeps only the last value, matching "process in order".
     ///
-    /// Mid-connection `INITIAL_WINDOW_SIZE` changes must be applied as a *delta* to every
-    /// open stream's current send window (§6.9.2). That redistribution lands with the
-    /// per-stream send windows in a later commit.
-    fn apply_peer_settings(&mut self, settings: &H2Settings) {
+    /// A change to `INITIAL_WINDOW_SIZE` must be applied as a *delta* (new − previously
+    /// effective) to every open stream's send window, per RFC 9113 §6.9.2. The delta can
+    /// drive a window negative (legal); it cannot push it past `2^31 − 1` (connection-
+    /// level `FLOW_CONTROL_ERROR`).
+    fn apply_peer_settings(&mut self, settings: &H2Settings) -> Result<(), CloseOutcome> {
+        // Compute INITIAL_WINDOW_SIZE delta against the previously effective value BEFORE
+        // we take the write lock, so the per-stream adjustment below doesn't need to
+        // reenter the lock.
+        let initial_window_delta = settings.initial_window_size().map(|new| {
+            let old = self.connection.peer_settings().effective_initial_window_size();
+            i64::from(new) - i64::from(old)
+        });
+
+        // Apply the delta before writing the new settings so a partial failure leaves
+        // `peer_settings.initial_window_size` unchanged too — the whole SETTINGS frame
+        // is either accepted or it's a connection error.
+        if let Some(delta) = initial_window_delta
+            && delta != 0
+        {
+            for entry in self.streams.values_mut() {
+                let new = entry.send_window + delta;
+                if new > MAX_FLOW_CONTROL_WINDOW {
+                    return Err(CloseOutcome::Protocol(H2ErrorCode::FlowControlError));
+                }
+                entry.send_window = new;
+            }
+        }
+
         let mut current = self.connection.peer_settings_mut();
         if let Some(v) = settings.max_frame_size() {
             current.set_max_frame_size(Some(v));
@@ -389,6 +413,7 @@ where
         // applies to peer-initiated streams (we don't initiate), and the static-or-literal
         // HPACK encoder doesn't track the peer's table-size cap. They're stored here
         // regardless so conn-task code that inspects the settings sees a complete picture.
+        Ok(())
     }
 
     /// Apply a peer `WINDOW_UPDATE`. Connection-level updates (`stream_id == 0`) credit

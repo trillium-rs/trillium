@@ -572,6 +572,89 @@ async fn send_respects_peer_initial_window_size_and_resumes_on_window_update() {
     server_task.await.expect("server task panicked");
 }
 
+/// A mid-connection `SETTINGS_INITIAL_WINDOW_SIZE` change applies as a delta (new − old)
+/// to all open streams' send windows (RFC 9113 §6.9.2).
+///
+/// Client:
+/// 1. Opens the connection with `INITIAL_WINDOW_SIZE = 0` — server can't emit any DATA.
+/// 2. Sends a GET that triggers a 9-byte response. Server emits HEADERS but stalls on DATA.
+/// 3. Sends `SETTINGS(INITIAL_WINDOW_SIZE = 9)` — delta `+9`, stream 1's send window becomes 9.
+/// 4. Server emits DATA(9) + empty `DATA(END_STREAM)`.
+#[tokio::test]
+async fn settings_initial_window_size_delta_unblocks_open_streams() {
+    use trillium_http::Status;
+
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (server_conn, server_task) = spawn_h2_server_with_handler(
+        Compat::new(server_io),
+        |conn| async move {
+            conn.with_status(Status::Ok)
+                .with_response_body("hello, h2")
+        },
+    );
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_settings_with(&mut client_io, SETTINGS_INITIAL_WINDOW_SIZE, 0).await;
+
+    let mut block = vec![0x82, 0x87];
+    block.push(0x44);
+    block.push(b"/".len() as u8);
+    block.extend_from_slice(b"/");
+    block.push(0x41);
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+    write_frame(&mut client_io, FRAME_TYPE_HEADERS, 0x4 | 0x1, 1, &block).await;
+
+    let mut got_response_headers = false;
+    let mut collected_body = Vec::new();
+    let mut got_end_stream = false;
+    let mut raised_initial_window = false;
+
+    while !got_end_stream {
+        let frame_poll = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            read_frame(&mut client_io),
+        )
+        .await;
+
+        match frame_poll {
+            // The expected stall point: response HEADERS seen, no DATA yet. Raise the
+            // peer's INITIAL_WINDOW_SIZE and expect DATA to flow.
+            Err(_) if got_response_headers && !raised_initial_window => {
+                write_settings_with(&mut client_io, SETTINGS_INITIAL_WINDOW_SIZE, 9).await;
+                raised_initial_window = true;
+                continue;
+            }
+            Err(_) => panic!(
+                "server stalled unexpectedly. got_headers={got_response_headers} \
+                body_so_far={collected_body:?} raised_window={raised_initial_window}"
+            ),
+            Ok((hdr, payload)) => match hdr.frame_type {
+                FRAME_TYPE_SETTINGS if hdr.flags & FLAG_ACK == 0 => {
+                    write_settings_ack(&mut client_io).await;
+                }
+                FRAME_TYPE_HEADERS if hdr.stream_id == 1 => {
+                    got_response_headers = true;
+                }
+                FRAME_TYPE_DATA if hdr.stream_id == 1 => {
+                    collected_body.extend_from_slice(&payload);
+                    if hdr.flags & FLAG_END_STREAM != 0 {
+                        got_end_stream = true;
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+
+    assert!(raised_initial_window, "stall was resolved by delta SETTINGS");
+    assert_eq!(collected_body, b"hello, h2");
+
+    drop(client_io);
+    server_conn.shut_down();
+    server_task.await.expect("server task panicked");
+}
+
 /// A peer-sent connection-level `WINDOW_UPDATE(stream_id=0, 2^31-1)` pushes the default
 /// connection-send window (65535) past RFC 9113 §6.9.1's `2^31 - 1` limit: the server
 /// must respond with `GOAWAY(FLOW_CONTROL_ERROR)` and tear the connection down.
