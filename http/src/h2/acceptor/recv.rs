@@ -7,8 +7,8 @@
 
 use super::{
     Action, CloseOutcome, ClosedReason, H2Acceptor, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
-    OUR_MAX_CONCURRENT_STREAMS, OUR_MAX_FRAME_SIZE, ReadPhase, StreamEntry, frame_slice,
-    io_to_outcome,
+    MAX_STREAM_RECV_WINDOW, OUR_MAX_CONCURRENT_STREAMS, OUR_MAX_FRAME_SIZE, ReadPhase, StreamEntry,
+    frame_slice, io_to_outcome,
 };
 use crate::{
     Conn,
@@ -447,16 +447,19 @@ where
                 .peer_settings()
                 .effective_initial_window_size(),
         );
+        // Peer's recv window seed = what we advertised in SETTINGS_INITIAL_WINDOW_SIZE.
+        // Today that's 0 (lazy-WU pattern) — the peer cannot send body bytes until the
+        // handler calls `H2Transport::poll_read` and the driver observes `is_reading` on
+        // a subsequent tick. Phase 7 makes the advertised value configurable.
+        let peer_recv_window: i64 = 0;
         self.connection
             .streams_lock()
             .insert(stream_id, state.clone());
-        self.streams
-            .insert(stream_id, StreamEntry::new(state.clone(), send_window));
+        self.streams.insert(
+            stream_id,
+            StreamEntry::new(state.clone(), send_window, peer_recv_window),
+        );
         self.last_peer_stream_id = stream_id;
-
-        // No eager WINDOW_UPDATE: we advertise `INITIAL_WINDOW_SIZE = 0` in SETTINGS, so
-        // the peer cannot send body bytes until the handler calls `H2Transport::poll_read`
-        // and the driver observes `recv.is_reading` on a subsequent poll.
 
         let transport = H2Transport::new(self.connection.clone(), stream_id, state);
         match Conn::new_h2(self.connection.clone(), stream_id, field_section, transport) {
@@ -528,6 +531,15 @@ where
     ///   we've already read it off the wire.
     /// - **Half-closed remote** (in map, `recv.eof` already set): same stream-level
     ///   `STREAM_CLOSED`.
+    ///
+    /// Flow-control accounting per RFC 9113 §6.9.1: the entire DATA payload (including
+    /// pad length byte + padding) counts against both the per-stream and connection-level
+    /// recv windows. We track both for correct refill accounting but enforce leniently —
+    /// a peer that sends past our advertised window is simply violating the SETTINGS
+    /// hint; the real `DoS` bound is the per-stream buffer cap ([`MAX_STREAM_RECV_WINDOW`]).
+    /// This keeps trillium's lazy-WU default (`SETTINGS_INITIAL_WINDOW_SIZE = 0`) working
+    /// against h2spec-style peers that send DATA immediately after HEADERS without
+    /// respecting the server's advertised initial window.
     fn route_data(
         &mut self,
         stream_id: u32,
@@ -537,9 +549,16 @@ where
         payload_start: usize,
         total: usize,
     ) -> Result<(), CloseOutcome> {
-        let _ = padding_length; // padding is skipped — we only push the data portion
+        let _ = padding_length; // padding is skipped by the push — still flow-controlled below
+        // Flow-controlled byte count is the entire frame payload — data + pad-length byte
+        // (if present) + padding. The frame header is not flow-controlled.
+        let flow_controlled = i64::try_from(total - FRAME_HEADER_LEN)
+            .map_err(|_| CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
 
-        let Some(entry) = self.streams.get(&stream_id) else {
+        // Connection-level accounting runs regardless of stream state (§6.9.1).
+        self.connection_recv_window -= flow_controlled;
+
+        if !self.streams.contains_key(&stream_id) {
             return if stream_id > self.last_peer_stream_id {
                 // Idle — never opened; connection error.
                 Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError))
@@ -548,11 +567,17 @@ where
                 self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
                 Ok(())
             };
-        };
-        let state = &entry.shared;
+        }
+
+        let entry = self
+            .streams
+            .get_mut(&stream_id)
+            .expect("checked above under shared borrow");
+        entry.peer_recv_window -= flow_controlled;
+        let state = entry.shared.clone();
 
         // Half-closed remote: peer already sent END_STREAM on this stream; any DATA after
-        // that is stream-level STREAM_CLOSED.
+        // that is stream-level STREAM_CLOSED. Flow-control accounting above still applies.
         if state.recv.eof.load(Ordering::Acquire) {
             self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
             self.complete_and_remove_stream(
@@ -566,6 +591,12 @@ where
 
         {
             let mut recv = state.recv.buf.lock().expect("recv buf mutex poisoned");
+            // Per-stream buffer cap — this is our actual DoS bound, since
+            // `peer_recv_window` is tracked but not strictly enforced. A peer that
+            // floods us past the buffer cap earns a connection-level `FLOW_CONTROL_ERROR`.
+            if recv.len() + data.len() > MAX_STREAM_RECV_WINDOW as usize {
+                return Err(CloseOutcome::Protocol(H2ErrorCode::FlowControlError));
+            }
             if !data.is_empty() {
                 recv.extend_from_slice(data);
             }

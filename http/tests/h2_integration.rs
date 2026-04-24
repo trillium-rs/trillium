@@ -271,6 +271,26 @@ async fn handler_reads_request_body_from_data_frame() {
     )
     .await;
 
+    let mut opened = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
+        .await
+        .expect("acceptor did not emit a stream within 2s")
+        .expect("acceptor closed before emitting a stream");
+
+    // Body-read pattern: spawn the handler's read first, which advertises intent to consume
+    // and triggers the driver to emit a stream-level WINDOW_UPDATE. Wait for that WU on the
+    // client side, then send DATA. Server advertises INITIAL_WINDOW_SIZE=0 (lazy-WU), so
+    // sending DATA before the WU arrives would be a flow-control violation.
+    let read_task = tokio::spawn(async move {
+        let got = opened.request_body().read_bytes().await.expect("read body");
+        (got, opened)
+    });
+    loop {
+        let (hdr, _) = read_frame(&mut client_io).await;
+        if hdr.frame_type == FRAME_TYPE_WINDOW_UPDATE && hdr.stream_id == 1 {
+            break;
+        }
+    }
+
     // DATA frame with the body, END_STREAM set.
     let body = b"hello, body";
     write_frame(
@@ -282,15 +302,7 @@ async fn handler_reads_request_body_from_data_frame() {
     )
     .await;
 
-    let mut opened = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
-        .await
-        .expect("acceptor did not emit a stream within 2s")
-        .expect("acceptor closed before emitting a stream");
-
-    // No content-length header was sent, so the h2 `ReceivedBody` reads to EOF (the driver's
-    // `END_STREAM` signal). The `request_body()` call advertises read intent, which triggers
-    // the driver to emit a WINDOW_UPDATE; the peer then sends the DATA frame it was holding.
-    let got = opened.request_body().read_bytes().await.expect("read body");
+    let (got, opened) = read_task.await.expect("read task");
     assert_eq!(got.as_slice(), body);
 
     drop(opened);
@@ -326,8 +338,16 @@ async fn lazy_window_update_gated_on_first_poll_read() {
         .expect("INITIAL_WINDOW_SIZE present in server SETTINGS");
     assert_eq!(iws, 0, "server advertises INITIAL_WINDOW_SIZE=0");
 
-    // Consume the SETTINGS ACK that follows our client SETTINGS so subsequent reads are
-    // positioned at WINDOW_UPDATE (or absence thereof).
+    // The server also emits a connection-level WINDOW_UPDATE right after SETTINGS to raise
+    // the connection recv window above the RFC 65535 baseline — drain that and the SETTINGS
+    // ACK that follows our client SETTINGS so subsequent reads are positioned at the
+    // stream-level window behavior we're testing.
+    let (hdr, _) = read_frame(&mut client_io).await;
+    assert_eq!(
+        hdr.frame_type, FRAME_TYPE_WINDOW_UPDATE,
+        "initial connection-level WINDOW_UPDATE"
+    );
+    assert_eq!(hdr.stream_id, 0, "connection-level WINDOW_UPDATE");
     let (hdr, _) = read_frame(&mut client_io).await;
     assert_eq!(hdr.frame_type, FRAME_TYPE_SETTINGS);
     assert_eq!(hdr.flags & FLAG_ACK, FLAG_ACK, "peer SETTINGS ACK");
@@ -388,8 +408,8 @@ async fn lazy_window_update_gated_on_first_poll_read() {
         u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]) & 0x7FFF_FFFF;
     assert_eq!(
         increment,
-        64 * 1024,
-        "window topped up to MAX_STREAM_WINDOW"
+        1 << 20,
+        "window topped up to MAX_STREAM_RECV_WINDOW (1 MiB)"
     );
 
     drop(opened);
@@ -517,6 +537,18 @@ async fn trailing_headers_populate_request_trailers() {
     block.extend_from_slice(b"5");
     write_frame(&mut client_io, FRAME_TYPE_HEADERS, 0x4, 1, &block).await;
 
+    // Server advertises INITIAL_WINDOW_SIZE=0, so we can't send DATA until the handler
+    // declares intent (which triggers a stream-level WINDOW_UPDATE). Ack SETTINGS and drain
+    // server frames until we see WU for stream 1, at which point the window is open.
+    loop {
+        let (hdr, _) = read_frame(&mut client_io).await;
+        if hdr.frame_type == FRAME_TYPE_SETTINGS && hdr.flags & FLAG_ACK == 0 {
+            write_settings_ack(&mut client_io).await;
+        } else if hdr.frame_type == FRAME_TYPE_WINDOW_UPDATE && hdr.stream_id == 1 {
+            break;
+        }
+    }
+
     // DATA body (no END_STREAM — trailing HEADERS terminates the stream).
     write_frame(&mut client_io, FRAME_TYPE_DATA, 0, 1, b"hello").await;
 
@@ -536,16 +568,11 @@ async fn trailing_headers_populate_request_trailers() {
     )
     .await;
 
-    // Keep the client side from blocking on write back-pressure — drain anything the
+    // Keep the client side from blocking on write back-pressure — drain anything else the
     // server emits while the handler is running.
     tokio::spawn(async move {
         loop {
-            match read_frame(&mut client_io).await {
-                (hdr, _) if hdr.frame_type == FRAME_TYPE_SETTINGS && hdr.flags & FLAG_ACK == 0 => {
-                    write_settings_ack(&mut client_io).await;
-                }
-                _ => {}
-            }
+            let _ = read_frame(&mut client_io).await;
         }
     });
 

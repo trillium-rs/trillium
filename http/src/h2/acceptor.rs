@@ -61,16 +61,30 @@ const MAX_BUFFER_SIZE: usize = 1 << 20;
 /// it's hardcoded to match the default we advertise.
 const HPACK_TABLE_SIZE: usize = 4096;
 
-/// Per-stream recv flow-control window we top the peer up to once a handler declares intent to
-/// consume its request body (via [`H2Transport::poll_read`]). Bounds the peer's in-flight
-/// DATA per stream and our per-stream recv buffer footprint. Phase 7 will pull this from
-/// `HttpConfig::h2_max_stream_window`; defaulting to 64 KiB matches Chrome / Firefox / hyper.
+/// Per-stream recv flow-control window target — how high we keep the peer's stream window
+/// topped up once the handler has declared intent to consume its request body. Each time
+/// the handler drains bytes from [`RecvState::buf`][super::transport::RecvState] we emit a
+/// stream-level `WINDOW_UPDATE` crediting the consumed byte count back, keeping the
+/// effective window near this target. Bounds per-stream recv buffer footprint.
 ///
 /// We advertise `INITIAL_WINDOW_SIZE = 0` in server SETTINGS — the peer cannot send any body
-/// bytes until the driver emits a `WINDOW_UPDATE` for the stream, which it does only after
-/// observing the handler's is-reading signal. A handler that never reads its body costs one
-/// HEADERS frame and nothing more.
-const MAX_STREAM_WINDOW: u32 = 64 * 1024;
+/// bytes until the driver emits the first `WINDOW_UPDATE`, which it does only after observing
+/// the handler's is-reading signal. A handler that never reads its body costs one HEADERS
+/// frame and nothing more.
+const MAX_STREAM_RECV_WINDOW: u32 = 1 << 20;
+
+/// Connection-level recv window target. The RFC baseline is 65535 which caps bulk-upload
+/// throughput to ~5 Mbit/s at 100ms RTT; we raise to 2 MiB via an initial
+/// `WINDOW_UPDATE(0)` right after SETTINGS and then refill as the handler consumes
+/// (RFC 9113 §6.9.2 forbids SETTINGS from altering the connection window, so WU is the
+/// only path).
+const MAX_CONNECTION_RECV_WINDOW: i64 = 2 << 20;
+
+/// RFC 9113 §6.9.2 baseline connection-level flow-control window — 65535 octets for both
+/// directions, unchanged by SETTINGS. Used as the starting value for our send-side window
+/// (credited via peer `WINDOW_UPDATE(0)`) and for our recv-side window before we emit the
+/// initial raising `WINDOW_UPDATE(0)` to [`MAX_CONNECTION_RECV_WINDOW`].
+const INITIAL_CONNECTION_RECV_WINDOW: i64 = 65_535;
 
 /// Hard ceiling on the DATA payload we'll emit in a single frame even if the peer
 /// advertises a larger `MAX_FRAME_SIZE`. Bounds `body_scratch` so a permissive peer can't
@@ -87,11 +101,6 @@ pub(super) const OUR_MAX_FRAME_SIZE: u32 = 16_384;
 /// `HttpConfig`; kept in sync with [`H2Settings::server_defaults`] for now. Peer-initiated
 /// streams beyond this count get `RST_STREAM(RefusedStream)` per RFC 9113 §5.1.2.
 pub(super) const OUR_MAX_CONCURRENT_STREAMS: usize = 100;
-
-/// RFC 9113 §6.9.2: the initial connection-level flow-control window for both directions
-/// is 65535 octets, and it is **not** affected by `SETTINGS_INITIAL_WINDOW_SIZE` (which
-/// only governs *stream* windows).
-pub(super) const INITIAL_CONNECTION_SEND_WINDOW: i64 = 65_535;
 
 /// RFC 9113 §6.9.1: a flow-control window MUST NOT exceed `2^31 - 1`. If a
 /// `WINDOW_UPDATE` would push it past that maximum, the peer has misbehaved — we emit
@@ -173,6 +182,15 @@ pub struct H2Acceptor<T> {
     /// Overflow past [`MAX_FLOW_CONTROL_WINDOW`] is a connection-level `FLOW_CONTROL_ERROR`.
     connection_send_window: i64,
 
+    /// Connection-level recv flow-control window. Starts at the RFC 9113 §6.9.2 baseline of
+    /// 65535 octets and is raised to [`MAX_CONNECTION_RECV_WINDOW`] via an initial
+    /// `WINDOW_UPDATE(0)` right after SETTINGS — §6.9.2 forbids SETTINGS from altering it,
+    /// so WU is the only path. Decremented as peer DATA frames arrive (across all streams);
+    /// incremented as the handler-task-side consumption signal is picked up and we emit
+    /// `WINDOW_UPDATE(0, consumed)`. A negative value means the peer overran the window —
+    /// connection-level `FLOW_CONTROL_ERROR`.
+    connection_recv_window: i64,
+
     /// Bounded ledger of recently-closed streams and why they closed. Consulted by
     /// [`recv::H2Acceptor::finalize_headers`] when a HEADERS frame arrives on an id ≤
     /// `last_peer_stream_id` that's not in the active map, to distinguish `RST_STREAM`-
@@ -234,13 +252,6 @@ struct StreamEntry {
     /// handler task can outlive or operate concurrently with the driver's view.
     shared: Arc<StreamState>,
 
-    /// `true` once the driver has emitted a `WINDOW_UPDATE` in response to the handler's
-    /// first `poll_read` (via `recv.is_reading`). Stops duplicate emissions — every
-    /// subsequent `poll_next` scan observes `is_reading == true` but we only top up the
-    /// window once. Phase 7's refill-as-handler-drains model will reuse this slot as the
-    /// live advertised count rather than a boolean.
-    window_advertised: bool,
-
     /// Driver-private send-side state for an in-progress response. `None` until the conn
     /// task submits a response via [`H2Connection::submit_send`] and the driver picks it
     /// up on its next `service_handler_signals` tick.
@@ -255,15 +266,24 @@ struct StreamEntry {
     /// mid-connection SETTINGS change (§6.9.2 — may drive negative). Overflow past
     /// [`MAX_FLOW_CONTROL_WINDOW`] is a stream-level `FLOW_CONTROL_ERROR` (→ `RST_STREAM`).
     send_window: i64,
+
+    /// Per-stream recv flow-control window (RFC 9113 §6.9) — how many bytes we've told
+    /// the peer it may still send on this stream. Starts at the server's advertised
+    /// `SETTINGS_INITIAL_WINDOW_SIZE` (currently 0 — lazy-WU pattern); decremented as the
+    /// peer's DATA frames arrive; incremented as we emit stream-level `WINDOW_UPDATE`
+    /// (both the initial raise on the handler's `is_reading` signal and every subsequent
+    /// refill crediting bytes the handler has consumed). A negative value means the peer
+    /// overran the window — connection-level `FLOW_CONTROL_ERROR`.
+    peer_recv_window: i64,
 }
 
 impl StreamEntry {
-    pub(super) fn new(shared: Arc<StreamState>, send_window: i64) -> Self {
+    pub(super) fn new(shared: Arc<StreamState>, send_window: i64, peer_recv_window: i64) -> Self {
         Self {
             shared,
-            window_advertised: false,
             send: None,
             send_window,
+            peer_recv_window,
         }
     }
 }
@@ -360,7 +380,8 @@ where
             close_outcome: None,
             finished: false,
             body_scratch: vec![0u8; MAX_DATA_CHUNK_SIZE as usize],
-            connection_send_window: INITIAL_CONNECTION_SEND_WINDOW,
+            connection_send_window: INITIAL_CONNECTION_RECV_WINDOW,
+            connection_recv_window: INITIAL_CONNECTION_RECV_WINDOW,
             closed_streams: ClosedStreams::default(),
         }
     }
@@ -468,6 +489,16 @@ where
 
                 DriverState::NeedsServerSettings => {
                     self.queue_settings();
+                    // §6.9.2 forbids SETTINGS from altering the connection-level flow-control
+                    // window — it stays at the 65535 RFC baseline unless we raise it via
+                    // `WINDOW_UPDATE(0)`. Do that immediately after SETTINGS so peer bulk
+                    // uploads aren't capped at ~5 Mbit/s × RTT.
+                    let raise = MAX_CONNECTION_RECV_WINDOW - INITIAL_CONNECTION_RECV_WINDOW;
+                    if raise > 0 {
+                        let raise = u32::try_from(raise).unwrap_or(u32::MAX);
+                        self.queue_window_update(0, raise);
+                        self.connection_recv_window += i64::from(raise);
+                    }
                     self.state = DriverState::Running;
                 }
 
@@ -530,21 +561,45 @@ where
     /// Each stream's `StreamEntry` caches whether the corresponding driver-side action has
     /// already happened so we don't re-emit on every scan.
     fn service_handler_signals(&mut self) {
+        // Pick up recv-side consumption + is-reading signals and turn them into
+        // `WINDOW_UPDATE` frames. Two cases per stream:
+        // - Handler has declared intent (is_reading) and the peer's recv window is still at the
+        //   advertised SETTINGS baseline (≤ 0 by default, since we advertise 0): raise the stream
+        //   window to [`MAX_STREAM_RECV_WINDOW`].
+        // - Handler has drained `bytes_consumed` from its recv ring: emit a matching stream-level
+        //   credit so the peer can keep sending, and aggregate across streams for a single
+        //   connection-level `WINDOW_UPDATE(0)`.
+        //
         // Collect stream_ids first to avoid holding &mut self.streams across `queue_*`
         // calls (which take &mut self). Short-lived Vec; bounded by MAX_CONCURRENT_STREAMS.
-        let needs_advertise: Vec<u32> = self
-            .streams
-            .iter_mut()
-            .filter_map(|(&id, entry)| {
-                (!entry.window_advertised && entry.shared.recv.is_reading.load(Ordering::Acquire))
-                    .then(|| {
-                        entry.window_advertised = true;
-                        id
-                    })
-            })
-            .collect();
-        for stream_id in needs_advertise {
-            self.queue_window_update(stream_id, MAX_STREAM_WINDOW);
+        let mut stream_updates: Vec<(u32, u32)> = Vec::new();
+        let mut connection_credit: u64 = 0;
+        for (&id, entry) in &mut self.streams {
+            // Initial lazy raise: peer hasn't been credited any recv window yet, handler
+            // signaled intent, emit a one-time top-up to the stream target.
+            if entry.peer_recv_window <= 0 && entry.shared.recv.is_reading.load(Ordering::Acquire) {
+                stream_updates.push((id, MAX_STREAM_RECV_WINDOW));
+                entry.peer_recv_window += i64::from(MAX_STREAM_RECV_WINDOW);
+            }
+            // Refill for bytes the handler has consumed since our last tick. Bounded by
+            // MAX_FLOW_CONTROL_WINDOW (2^31-1) which comfortably fits u32; a handler that
+            // somehow consumed more than u32::MAX bytes in one tick gets the credit
+            // emitted in multiple frames on subsequent ticks.
+            let consumed = entry.shared.recv.bytes_consumed.swap(0, Ordering::AcqRel);
+            if consumed > 0 {
+                let credit = u32::try_from(consumed).unwrap_or(u32::MAX);
+                stream_updates.push((id, credit));
+                entry.peer_recv_window += i64::from(credit);
+                connection_credit = connection_credit.saturating_add(u64::from(credit));
+            }
+        }
+        for (stream_id, increment) in stream_updates {
+            self.queue_window_update(stream_id, increment);
+        }
+        if connection_credit > 0 {
+            let credit = u32::try_from(connection_credit).unwrap_or(u32::MAX);
+            self.queue_window_update(0, credit);
+            self.connection_recv_window += i64::from(credit);
         }
 
         // Pick up new submissions. Iterate in place — `entry.send` is driver-private, no
@@ -598,7 +653,8 @@ where
     /// around.
     fn has_pending_handler_signals(&self) -> bool {
         self.streams.values().any(|e| {
-            (!e.window_advertised && e.shared.recv.is_reading.load(Ordering::Acquire))
+            (e.peer_recv_window <= 0 && e.shared.recv.is_reading.load(Ordering::Acquire))
+                || e.shared.recv.bytes_consumed.load(Ordering::Acquire) > 0
                 || e.shared
                     .send
                     .submission

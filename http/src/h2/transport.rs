@@ -36,7 +36,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     task::{Context, Poll},
 };
@@ -118,6 +118,17 @@ impl AsyncRead for H2Transport {
         if take > 0 {
             out[..take].copy_from_slice(&recv[..take]);
             recv.ignore_front(take);
+            // Drop the buf lock before the waker fire so the driver can grab it without
+            // contention when it wakes.
+            drop(recv);
+            // Tell the driver how many bytes the handler consumed so it can emit a matching
+            // `WINDOW_UPDATE` and keep the peer's stream + connection windows topped up.
+            // `fetch_add` accumulates across calls that happen before the driver's next
+            // service tick; the driver's `swap(0)` takes the whole batch at once.
+            recv_state
+                .bytes_consumed
+                .fetch_add(take as u64, Ordering::AcqRel);
+            connection.outbound_waker().wake();
             return Poll::Ready(Ok(take));
         }
 
@@ -202,6 +213,13 @@ pub(super) struct RecvState {
     /// stream, topping its recv window up from `SETTINGS_INITIAL_WINDOW_SIZE` (advertised as
     /// `0`) to the per-stream maximum. Once set, stays set.
     pub(super) is_reading: AtomicBool,
+
+    /// Bytes the handler has consumed from `buf` since the driver last sampled this counter.
+    /// Incremented by [`H2Transport::poll_read`] using `fetch_add` after each drain; the
+    /// driver reads it via `swap(0)` on each tick and emits stream-level + connection-level
+    /// `WINDOW_UPDATE` for the consumed total. Ensures a handler draining a body larger than
+    /// a single window doesn't stall the peer.
+    pub(super) bytes_consumed: AtomicU64,
 
     /// Trailers, populated by the driver if a trailing HEADERS frame arrives for this stream.
     /// Always written *before* `eof` is set, so once the handler observes `Ready(0)` on the
