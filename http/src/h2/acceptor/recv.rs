@@ -269,14 +269,13 @@ where
 
     /// The complete header block is now available (whether from a single HEADERS or from
     /// HEADERS + CONTINUATION*). Branches on whether the stream is already open:
-    /// - **New stream:** HPACK-decode, open the stream, validate the request via
-    ///   [`Conn::new_h2`], emit the [`Conn`] on success; on a §8.1.2 malformed-request
-    ///   rejection, queue `RST_STREAM(PROTOCOL_ERROR)` and drop the stream before a
-    ///   handler task ever sees it.
+    /// - **New stream:** HPACK-decode, open the stream, validate the request via [`Conn::new_h2`],
+    ///   emit the [`Conn`] on success; on a §8.1.2 malformed-request rejection, queue
+    ///   `RST_STREAM(PROTOCOL_ERROR)` and drop the stream before a handler task ever sees it.
     /// - **Existing stream (trailers):** HPACK-decode, validate `END_STREAM` is set and no
-    ///   pseudo-headers present (§8.1), stash on `StreamState.recv.trailers`, then signal
-    ///   EOF. A stream-level §8.1 violation queues `RST_STREAM(PROTOCOL_ERROR)` on the
-    ///   offending stream and leaves the connection open.
+    ///   pseudo-headers present (§8.1), stash on `StreamState.recv.trailers`, then signal EOF. A
+    ///   stream-level §8.1 violation queues `RST_STREAM(PROTOCOL_ERROR)` on the offending stream
+    ///   and leaves the connection open.
     ///
     /// HPACK decode failures, by contrast, are connection-level: the dynamic table state
     /// is now untrustworthy for *every* future stream on this connection, so we bubble
@@ -430,7 +429,10 @@ where
         // we take the write lock, so the per-stream adjustment below doesn't need to
         // reenter the lock.
         let initial_window_delta = settings.initial_window_size().map(|new| {
-            let old = self.connection.peer_settings().effective_initial_window_size();
+            let old = self
+                .connection
+                .peer_settings()
+                .effective_initial_window_size();
             i64::from(new) - i64::from(old)
         });
 
@@ -484,16 +486,11 @@ where
     /// would push a window past that maximum is a `FLOW_CONTROL_ERROR`, handled at the
     /// appropriate level:
     /// - Connection window overflow → connection-level GOAWAY (via the returned error).
-    /// - Stream window overflow → stream-level `RST_STREAM`, stream cleanup, connection
-    ///   continues.
+    /// - Stream window overflow → stream-level `RST_STREAM`, stream cleanup, connection continues.
     ///
     /// A `WINDOW_UPDATE` on a stream we don't know is benign per §6.9 (the peer may send
     /// one after the stream has closed): log and move on.
-    fn apply_window_update(
-        &mut self,
-        stream_id: u32,
-        increment: u32,
-    ) -> Result<(), CloseOutcome> {
+    fn apply_window_update(&mut self, stream_id: u32, increment: u32) -> Result<(), CloseOutcome> {
         let inc = i64::from(increment);
 
         if stream_id == 0 {

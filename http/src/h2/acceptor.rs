@@ -17,10 +17,10 @@
 //!
 //! Driver impl is split across this file and two child modules to keep each focused:
 //!
-//! - **`acceptor.rs`** (this file): struct definition, the [`Self::poll_next`] orchestration
-//!   loop, conn-task signal pickup, write/flush plumbing, and the `queue_*` outbound-frame
-//!   helpers. Also the supporting enums ([`DriverState`], [`ReadPhase`], [`CloseOutcome`],
-//!   [`Action`], [`StreamEntry`]).
+//! - **`acceptor.rs`** (this file): struct definition, the [`Self::poll_next`] orchestration loop,
+//!   conn-task signal pickup, write/flush plumbing, and the `queue_*` outbound-frame helpers. Also
+//!   the supporting enums ([`DriverState`], [`ReadPhase`], [`CloseOutcome`], [`Action`],
+//!   [`StreamEntry`]).
 //! - **`acceptor::recv`**: receive side — frame reader, dispatch, HEADERS+CONTINUATION
 //!   accumulation, malformed-request `RST_STREAM`, DATA routing into per-stream recv rings.
 //! - **`acceptor::send`**: send pump — picks up [`SendCursor`][send::SendCursor]s from the
@@ -324,14 +324,13 @@ where
             //    `submit_send` submissions, moving them into driver-private state.
             self.service_handler_signals();
 
-            // 2. Send pump. Turns picked-up SendCursors into HEADERS / DATA / trailing-
-            //    HEADERS frame bytes in `write_buf`. Body reads that return Pending leave
-            //    the cursor in place — the body's source will wake the driver task.
+            // 2. Send pump. Turns picked-up SendCursors into HEADERS / DATA / trailing- HEADERS
+            //    frame bytes in `write_buf`. Body reads that return Pending leave the cursor in
+            //    place — the body's source will wake the driver task.
             self.advance_outbound_sends(cx);
 
-            // 3. Flush any pending outbound — never re-poll reads when we still owe bytes
-            //    to the peer, and never signal closure to the caller before the wire is
-            //    clean.
+            // 3. Flush any pending outbound — never re-poll reads when we still owe bytes to the
+            //    peer, and never signal closure to the caller before the wire is clean.
             match self.poll_flush_outbound(cx) {
                 Poll::Ready(Ok(())) => {}
                 Poll::Ready(Err(e)) => {
@@ -350,10 +349,9 @@ where
                 return Poll::Ready(self.finish_with_current_outcome());
             }
 
-            // 5. Server-initiated shutdown check. Post-shutdown re-polls are harmless for
-            //    this `ShuttingDown` (event_listener-backed, not single-shot), and
-            //    begin_close flips us to `Closing` so the guard above returns before we get
-            //    here again anyway.
+            // 5. Server-initiated shutdown check. Post-shutdown re-polls are harmless for this
+            //    `ShuttingDown` (event_listener-backed, not single-shot), and begin_close flips us
+            //    to `Closing` so the guard above returns before we get here again anyway.
             if Pin::new(&mut self.shutting_down).poll(cx).is_ready() {
                 self.begin_close(CloseOutcome::Graceful);
                 continue;
@@ -418,11 +416,11 @@ where
 
     /// Scan streams for conn-task-side signals that the driver should turn into driver-
     /// internal state. Two signals:
-    /// - `recv.is_reading` (lazy `WINDOW_UPDATE`): conn task declared intent to read the
-    ///   request body; emit a `WINDOW_UPDATE` topping the per-stream recv window up.
-    /// - `send.submission` (response handoff): conn task called `submit_send`; move the
-    ///   submission into the driver's private `SendCursor` so the next
-    ///   `advance_outbound_sends` tick can start framing.
+    /// - `recv.is_reading` (lazy `WINDOW_UPDATE`): conn task declared intent to read the request
+    ///   body; emit a `WINDOW_UPDATE` topping the per-stream recv window up.
+    /// - `send.submission` (response handoff): conn task called `submit_send`; move the submission
+    ///   into the driver's private `SendCursor` so the next `advance_outbound_sends` tick can start
+    ///   framing.
     ///
     /// Each stream's `StreamEntry` caches whether the corresponding driver-side action has
     /// already happened so we don't re-emit on every scan.
@@ -515,11 +513,7 @@ where
     /// A 0-byte read is surfaced as `UnexpectedEof`. The caller maps this to a terminal
     /// I/O error; we don't emit a GOAWAY on peer-initiated close (consistent with the pre-
     /// poll driver).
-    fn poll_fill_to(
-        &mut self,
-        target: usize,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_fill_to(&mut self, target: usize, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if self.read_buf.len() < target {
             self.read_buf.resize(target, 0);
         }
@@ -625,14 +619,9 @@ where
 /// Slice the interesting bytes out of a just-read frame. Bounds-checks to defend against a
 /// payload length on the wire that disagrees with a body-bearing frame's declared inner
 /// length.
-fn frame_slice(
-    buf: &[u8],
-    start: usize,
-    length: u32,
-    total: usize,
-) -> Result<&[u8], CloseOutcome> {
-    let length = usize::try_from(length)
-        .map_err(|_| CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
+fn frame_slice(buf: &[u8], start: usize, length: u32, total: usize) -> Result<&[u8], CloseOutcome> {
+    let length =
+        usize::try_from(length).map_err(|_| CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
     let end = start
         .checked_add(length)
         .ok_or(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;

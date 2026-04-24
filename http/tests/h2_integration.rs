@@ -242,8 +242,10 @@ async fn opens_stream_from_get_request() {
 }
 
 /// A POST with a small body: HEADERS without END_STREAM, followed by one DATA frame with
-/// END_STREAM. The handler reads the body off the H2Transport (still real-AsyncRead at this
-/// step; collapses to ZST + ReceivedBody-driven reads in step 6) and asserts the bytes match.
+/// END_STREAM. The handler reads the body via [`Conn::request_body`] — the production path
+/// through [`ReceivedBody`][trillium_http::ReceivedBody]'s `H2Data` state — and asserts the
+/// bytes match. Exercises the full path: peer DATA → driver demux → recv ring →
+/// `handle_h2_data` → handler bytes.
 #[tokio::test]
 async fn handler_reads_request_body_from_data_frame() {
     let (mut client_io, server_io) = duplex(64 * 1024);
@@ -285,15 +287,10 @@ async fn handler_reads_request_body_from_data_frame() {
         .expect("acceptor did not emit a stream within 2s")
         .expect("acceptor closed before emitting a stream");
 
-    // Drain the body via the Conn's transport (H2Transport's AsyncRead). The driver will route
-    // the DATA frame in the background as we await. Step 6 will replace this with a
-    // ReceivedBody-based read once the H2Transport collapses to a ZST.
-    let mut got = Vec::new();
-    opened
-        .transport_mut()
-        .read_to_end(&mut got)
-        .await
-        .expect("read body");
+    // No content-length header was sent, so the h2 `ReceivedBody` reads to EOF (the driver's
+    // `END_STREAM` signal). The `request_body()` call advertises read intent, which triggers
+    // the driver to emit a WINDOW_UPDATE; the peer then sends the DATA frame it was holding.
+    let got = opened.request_body().read_bytes().await.expect("read body");
     assert_eq!(got.as_slice(), body);
 
     drop(opened);
@@ -414,13 +411,10 @@ async fn small_get_returns_response_body_end_to_end() {
     use trillium_http::Status;
 
     let (mut client_io, server_io) = duplex(64 * 1024);
-    let (server_conn, server_task) = spawn_h2_server_with_handler(
-        Compat::new(server_io),
-        |conn| async move {
-            conn.with_status(Status::Ok)
-                .with_response_body("hello, h2")
-        },
-    );
+    let (server_conn, server_task) =
+        spawn_h2_server_with_handler(Compat::new(server_io), |conn| async move {
+            conn.with_status(Status::Ok).with_response_body("hello, h2")
+        });
 
     client_io.write_all(CLIENT_PREFACE).await.unwrap();
     write_empty_settings(&mut client_io).await;
@@ -469,8 +463,7 @@ async fn small_get_returns_response_body_end_to_end() {
 
     assert!(got_response_headers, "response HEADERS observed");
     assert_eq!(
-        response_body,
-        b"hello, h2",
+        response_body, b"hello, h2",
         "DATA frames carry the handler's response body"
     );
 
@@ -489,9 +482,8 @@ async fn trailing_headers_populate_request_trailers() {
 
     let (trailers_tx, mut trailers_rx) = tokio::sync::mpsc::unbounded_channel();
     let (mut client_io, server_io) = duplex(64 * 1024);
-    let (server_conn, server_task) = spawn_h2_server_with_handler(
-        Compat::new(server_io),
-        move |mut conn| {
+    let (server_conn, server_task) =
+        spawn_h2_server_with_handler(Compat::new(server_io), move |mut conn| {
             let trailers_tx = trailers_tx.clone();
             async move {
                 let mut body = String::new();
@@ -504,8 +496,7 @@ async fn trailing_headers_populate_request_trailers() {
                 let _ = trailers_tx.send((body, trailers));
                 conn.with_status(Status::Ok).with_response_body("ok")
             }
-        },
-    );
+        });
 
     client_io.write_all(CLIENT_PREFACE).await.unwrap();
     write_empty_settings(&mut client_io).await;
@@ -558,10 +549,11 @@ async fn trailing_headers_populate_request_trailers() {
         }
     });
 
-    let (body, trailers) = tokio::time::timeout(std::time::Duration::from_secs(2), trailers_rx.recv())
-        .await
-        .expect("handler never produced trailer result")
-        .expect("handler channel closed without sending");
+    let (body, trailers) =
+        tokio::time::timeout(std::time::Duration::from_secs(2), trailers_rx.recv())
+            .await
+            .expect("handler never produced trailer result")
+            .expect("handler channel closed without sending");
     assert_eq!(body, "hello");
     let trailers = trailers.expect("request_trailers was None");
     assert_eq!(trailers.get_str("x-trailer-test"), Some("ok"));
@@ -643,13 +635,10 @@ async fn send_respects_peer_initial_window_size_and_resumes_on_window_update() {
     use trillium_http::Status;
 
     let (mut client_io, server_io) = duplex(64 * 1024);
-    let (server_conn, server_task) = spawn_h2_server_with_handler(
-        Compat::new(server_io),
-        |conn| async move {
-            conn.with_status(Status::Ok)
-                .with_response_body("hello, h2")
-        },
-    );
+    let (server_conn, server_task) =
+        spawn_h2_server_with_handler(Compat::new(server_io), |conn| async move {
+            conn.with_status(Status::Ok).with_response_body("hello, h2")
+        });
 
     client_io.write_all(CLIENT_PREFACE).await.unwrap();
     write_settings_with(&mut client_io, SETTINGS_INITIAL_WINDOW_SIZE, 5).await;
@@ -678,8 +667,8 @@ async fn send_respects_peer_initial_window_size_and_resumes_on_window_update() {
         .await
         .unwrap_or_else(|_| {
             panic!(
-                "server stalled. got_headers={got_response_headers} body_so_far={collected_body:?} \
-                sent_update={sent_window_update}"
+                "server stalled. got_headers={got_response_headers} \
+                 body_so_far={collected_body:?} sent_update={sent_window_update}"
             )
         });
 
@@ -737,13 +726,10 @@ async fn settings_initial_window_size_delta_unblocks_open_streams() {
     use trillium_http::Status;
 
     let (mut client_io, server_io) = duplex(64 * 1024);
-    let (server_conn, server_task) = spawn_h2_server_with_handler(
-        Compat::new(server_io),
-        |conn| async move {
-            conn.with_status(Status::Ok)
-                .with_response_body("hello, h2")
-        },
-    );
+    let (server_conn, server_task) =
+        spawn_h2_server_with_handler(Compat::new(server_io), |conn| async move {
+            conn.with_status(Status::Ok).with_response_body("hello, h2")
+        });
 
     client_io.write_all(CLIENT_PREFACE).await.unwrap();
     write_settings_with(&mut client_io, SETTINGS_INITIAL_WINDOW_SIZE, 0).await;
@@ -779,7 +765,7 @@ async fn settings_initial_window_size_delta_unblocks_open_streams() {
             }
             Err(_) => panic!(
                 "server stalled unexpectedly. got_headers={got_response_headers} \
-                body_so_far={collected_body:?} raised_window={raised_initial_window}"
+                 body_so_far={collected_body:?} raised_window={raised_initial_window}"
             ),
             Ok((hdr, payload)) => match hdr.frame_type {
                 FRAME_TYPE_SETTINGS if hdr.flags & FLAG_ACK == 0 => {
@@ -799,7 +785,10 @@ async fn settings_initial_window_size_delta_unblocks_open_streams() {
         }
     }
 
-    assert!(raised_initial_window, "stall was resolved by delta SETTINGS");
+    assert!(
+        raised_initial_window,
+        "stall was resolved by delta SETTINGS"
+    );
     assert_eq!(collected_body, b"hello, h2");
 
     drop(client_io);

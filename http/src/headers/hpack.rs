@@ -24,8 +24,8 @@ pub(crate) mod static_table;
 
 use super::compression_error::CompressionError;
 pub(crate) use super::field_section::{FieldSection, PseudoHeaders};
-pub(crate) use encoder::encode;
 use dynamic_table::DynamicTable;
+pub(crate) use encoder::encode;
 
 /// Per-connection HPACK codec state for the decoder side.
 ///

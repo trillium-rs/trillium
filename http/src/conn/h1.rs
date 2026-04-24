@@ -442,7 +442,9 @@ where
             cl.parse()
                 .map(Some)
                 .map_err(|_| Error::InvalidHeaderValue(KnownHeaderName::ContentLength.into()))
-        } else if self.version == Version::Http3 {
+        } else if matches!(self.version, Version::Http2 | Version::Http3) {
+            // h2 and h3 frame the body via stream-level END_STREAM; there's no equivalent of
+            // h1's implicit "no content-length means empty body" default.
             Ok(None)
         } else {
             Ok(Some(0))

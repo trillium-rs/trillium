@@ -418,7 +418,9 @@ fn dump_enc_and_hdr(writer: &mut BufWriter<File>, enc: &[u8], hdr: &[u8]) {
         let _ = writeln!(
             writer,
             "    hdr.prefix: enc_ric={} sign={} delta_base={}",
-            prefix.encoded_required_insert_count, u8::from(prefix.base_is_negative), prefix.delta_base,
+            prefix.encoded_required_insert_count,
+            u8::from(prefix.base_is_negative),
+            prefix.delta_base,
         );
         for instr in lines {
             let _ = writeln!(writer, "    hdr: {}", render_field_line(&instr));
@@ -746,9 +748,8 @@ fn print_curve_report(
          in header blocks; inf = one connection per qif)\n"
     );
 
-    let fmt_cs = |cs: Option<usize>| -> String {
-        cs.map_or_else(|| "N=inf".into(), |n| format!("N={n}"))
-    };
+    let fmt_cs =
+        |cs: Option<usize>| -> String { cs.map_or_else(|| "N=inf".into(), |n| format!("N={n}")) };
 
     // Build: (stem, cap, blk) -> chunk_size -> total bytes.
     let mut per_qif: BTreeMap<(String, u64, u64), BTreeMap<Option<usize>, usize>> = BTreeMap::new();

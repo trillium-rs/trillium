@@ -107,11 +107,7 @@ where
     /// `END_HEADERS` is set. Other phases emit at most one frame per tick to keep streams
     /// roughly fair.
     fn advance_one_send(&mut self, stream_id: u32, cx: &mut Context<'_>) {
-        let Some(mut send) = self
-            .streams
-            .get_mut(&stream_id)
-            .and_then(|e| e.send.take())
-        else {
+        let Some(mut send) = self.streams.get_mut(&stream_id).and_then(|e| e.send.take()) else {
             return;
         };
 
@@ -161,11 +157,7 @@ where
     /// both the driver's private map and `H2Connection.streams`. After this the conn
     /// task's pending `SubmitSend` future will see `completed = true` on its next poll
     /// and resolve.
-    pub(super) fn complete_and_remove_stream(
-        &mut self,
-        stream_id: u32,
-        result: io::Result<()>,
-    ) {
+    pub(super) fn complete_and_remove_stream(&mut self, stream_id: u32, result: io::Result<()>) {
         if let Some(entry) = self.streams.remove(&stream_id) {
             signal_send_completion(&entry.shared, result);
         }
@@ -247,8 +239,8 @@ where
     /// `END_STREAM`) and decrements both windows by `n`. On `Pending`, the cursor stays in
     /// `Body`:
     /// - If the cause is no body bytes available, the body's source will wake the driver.
-    /// - If the cause is an exhausted window, the peer's next `WINDOW_UPDATE` (arriving
-    ///   on the read path) will wake the driver and the next tick will retry.
+    /// - If the cause is an exhausted window, the peer's next `WINDOW_UPDATE` (arriving on the read
+    ///   path) will wake the driver and the next tick will retry.
     fn poll_emit_one_data(
         &mut self,
         stream_id: u32,

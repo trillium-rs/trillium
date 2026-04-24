@@ -1,19 +1,31 @@
 //! Per-stream transport handed to handler tasks.
 //!
 //! [`H2Transport`] is the [`AsyncRead`] + [`AsyncWrite`] view of a single HTTP/2 stream. It is
-//! returned from [`H2Acceptor::next`] and the runtime adapter spawns a handler task that consumes
-//! it. The transport never touches the underlying TCP connection directly — all I/O coordinates
-//! through shared per-stream state on the [`H2Connection`] driven by the acceptor task.
+//! carried on the emitted [`Conn`][crate::Conn] returned from [`H2Acceptor::next`], and the
+//! runtime adapter spawns a handler task that consumes it. The transport never touches the
+//! underlying TCP connection directly — all I/O coordinates through shared per-stream state
+//! on the [`H2Connection`] driven by the acceptor task.
 //!
-//! The send side (`poll_write` / `poll_close`) is a no-op placeholder: phase 4's `Conn::send_h2`
-//! will submit the whole response (headers + Body + trailers) to [`H2Connection`] and let the
-//! driver schedule frames onto the shared transport. The `AsyncWrite` impl exists to satisfy
-//! [`BoxedTransport`] bounds but is not exercised on the production send path. See
-//! `memory/h2-planning.md` "Lay of the land" — design 1.5.
+//! During normal HTTP/2 operation neither impl is invoked on the production paths:
+//! [`ReceivedBody`][crate::ReceivedBody] reads the request body via the transport's
+//! `AsyncRead`, but through `ReceivedBody::handle_h2_data` — users generally don't reach for
+//! the transport directly (same sharp edge h1 and h3 document). Response bytes flow through
+//! [`H2Connection::submit_send`][submit_send] to the driver's send pump, which frames HEADERS
+//! + DATA + trailing HEADERS onto the connection without ever touching this `AsyncWrite`.
+//!
+//! The real `AsyncRead` + `AsyncWrite` impls remain in place anyway because a future
+//! extended-CONNECT upgrade ([RFC 8441] WebSocket-over-h2, [RFC 9220] WebTransport-over-h2)
+//! keeps a single h2 stream open as a bidirectional byte channel after the response — at that
+//! point the upgrade handler needs a real transport to talk over, and `H2Transport` is the
+//! slot the `Conn.transport` already points at. See `memory/h2-planning.md` "Future-proofing:
+//! extended CONNECT."
 //!
 //! [`H2Acceptor::next`]: super::H2Acceptor::next
 //! [`H2Connection`]: super::H2Connection
 //! [`BoxedTransport`]: crate::transport::BoxedTransport
+//! [submit_send]: super::H2Connection::submit_send
+//! [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
+//! [RFC 9220]: https://www.rfc-editor.org/rfc/rfc9220
 
 use super::H2Connection;
 use crate::{Body, Buffer, Headers};
@@ -31,13 +43,12 @@ use std::{
 
 /// A single HTTP/2 stream's transport handle.
 ///
-/// Today (during phase-4 step 2) `H2Transport` still carries an [`Arc<StreamState>`] and a real
-/// [`AsyncRead`] impl that drains the stream's recv ring — that code path will be replaced in
-/// step 6 by `ReceivedBody` reading via `H2Connection::poll_read`, after which `H2Transport`
-/// collapses to a unit struct with loud-fail `AsyncRead`/`AsyncWrite` stubs whose only purpose
-/// is to satisfy [`BoxedTransport`][crate::transport::BoxedTransport]'s trait bounds at the
-/// `Conn.transport` slot. Until then the type still needs the connection backref + stream id +
-/// state Arc to implement `poll_read`.
+/// Carries a backref to the shared [`H2Connection`], the stream id, and the per-stream
+/// `Arc<StreamState>` used by the read side. Normal HTTP/2 operation reads through
+/// [`ReceivedBody`][crate::ReceivedBody] and writes through
+/// [`H2Connection::submit_send`][super::H2Connection::submit_send]; the `AsyncRead` /
+/// `AsyncWrite` impls here are only reached by code that borrows the transport directly
+/// (typically an upgrade handler after extended CONNECT).
 pub struct H2Transport {
     connection: Arc<H2Connection>,
     stream_id: u32,
@@ -128,10 +139,12 @@ impl AsyncWrite for H2Transport {
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        // Placeholder. The production send path in phase 4 submits the whole response to
-        // `H2Connection` via `submit_response` and bypasses this entirely; `AsyncWrite` only
-        // exists here to satisfy `BoxedTransport` bounds. If a caller does invoke it, accept
-        // the bytes silently rather than blackhole the handler's progress.
+        // No-op. The production send path routes bytes through
+        // `H2Connection::submit_send` (response framing) and will eventually route through a
+        // per-stream outbound-byte queue for extended-CONNECT upgrades — neither touches this
+        // impl. A caller that borrows the transport and writes directly is on the same
+        // "you're on your own" footing as the h1 and h3 transports; we accept silently rather
+        // than stall the handler's progress.
         Poll::Ready(Ok(buf.len()))
     }
 
@@ -186,7 +199,8 @@ pub(super) struct RecvState {
     /// recv side, any trailers for this request are guaranteed to be in place.
     ///
     /// Taken out and moved into [`Conn::request_trailers`][crate::Conn] by the receiver-side
-    /// body state machine when it transitions to [`ReceivedBodyState::End`][crate::received_body::ReceivedBodyState].
+    /// body state machine when it transitions to
+    /// [`ReceivedBodyState::End`][crate::received_body::ReceivedBodyState].
     pub(super) trailers: Mutex<Option<Headers>>,
 }
 

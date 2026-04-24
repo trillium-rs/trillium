@@ -15,6 +15,7 @@ use std::{
 
 mod chunked;
 mod fixed_length;
+mod h2_data;
 mod h3_data;
 
 /// A received http body
@@ -233,11 +234,7 @@ where
     /// trailers into [`Conn::request_trailers`][crate::Conn].
     #[doc(hidden)]
     #[must_use]
-    pub fn with_h2_connection(
-        mut self,
-        h2_connection: Arc<H2Connection>,
-        stream_id: u32,
-    ) -> Self {
+    pub fn with_h2_connection(mut self, h2_connection: Arc<H2Connection>, stream_id: u32) -> Self {
         self.h2_connection = Some((h2_connection, stream_id));
         self
     }
@@ -451,6 +448,7 @@ where
                     current_index,
                     total,
                 } => self.handle_fixed_length(cx, buf, current_index, total),
+                ReceivedBodyState::H2Data { total } => self.handle_h2_data(cx, buf, total),
                 ReceivedBodyState::H3Data {
                     remaining_in_frame,
                     total,
@@ -569,6 +567,16 @@ pub enum ReceivedBodyState {
         total: u64,
     },
 
+    /// read state for an H2 body. The h2 driver demuxes DATA frames into a per-stream recv
+    /// ring on a separate task before we see them, so there's no frame-boundary state here —
+    /// just a running byte total for `max_len` / content-length enforcement. Transitions to
+    /// [`End`] when the transport yields `Ready(0)` (the driver's signal that `END_STREAM`
+    /// was observed). Initial state for any body on an h2 request.
+    H2Data {
+        /// total body bytes read across all DATA frames.
+        total: u64,
+    },
+
     /// read state for an H3 body framed as DATA frames.
     H3Data {
         /// bytes remaining in the current frame (DATA, Unknown, or Trailers). zero means we need
@@ -600,6 +608,10 @@ pub enum ReceivedBodyState {
 }
 
 impl ReceivedBodyState {
+    pub fn new_h2() -> Self {
+        Self::H2Data { total: 0 }
+    }
+
     pub fn new_h3() -> Self {
         Self::H3Data {
             remaining_in_frame: 0,

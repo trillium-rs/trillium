@@ -109,7 +109,7 @@ where
             status: None,
             state: TypeSet::new(),
             response_body: None,
-            request_body_state: ReceivedBodyState::Start,
+            request_body_state: ReceivedBodyState::new_h2(),
             secure: true,
             after_send: AfterSend::default(),
             start_time: Instant::now(),
