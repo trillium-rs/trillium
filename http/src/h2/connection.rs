@@ -12,7 +12,7 @@
 //! [`H2Acceptor`]: super::H2Acceptor
 
 use super::{H2Acceptor, H2Settings, transport::StreamState};
-use crate::{Body, Conn, HttpContext};
+use crate::{Body, Conn, Headers, HttpContext};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -115,6 +115,20 @@ impl H2Connection {
         self.peer_settings
             .write()
             .expect("peer_settings rwlock poisoned")
+    }
+
+    /// Remove and return trailers stashed on the stream's recv state. Called by
+    /// [`ReceivedBody`][crate::ReceivedBody]'s End transition after the request body is
+    /// fully drained. Returns `None` if the stream is gone (already closed) or no trailers
+    /// were received.
+    pub(crate) fn take_trailers(&self, stream_id: u32) -> Option<Headers> {
+        let stream = self.streams_lock().get(&stream_id).cloned()?;
+        stream
+            .recv
+            .trailers
+            .lock()
+            .expect("recv trailers mutex poisoned")
+            .take()
     }
 
     /// Bind this `H2Connection` to a TCP transport and return an [`H2Acceptor`] that drives

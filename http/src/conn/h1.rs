@@ -106,10 +106,18 @@ where
         )
         .with_trailers(&mut self.request_trailers);
 
-        if let Some(h3_connection) = self.h3_connection.clone()
+        let body = if let Some(h3_connection) = self.h3_connection.clone()
             && let Some(stream_id) = self.h3_stream_id
         {
             body.with_h3_connection(h3_connection, stream_id)
+        } else {
+            body
+        };
+
+        if let Some(h2_connection) = self.h2_connection.clone()
+            && let Some(stream_id) = self.h2_stream_id
+        {
+            body.with_h2_connection(h2_connection, stream_id)
         } else {
             body
         }

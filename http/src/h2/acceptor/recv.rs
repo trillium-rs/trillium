@@ -198,6 +198,10 @@ where
 
     /// A HEADERS frame arrived. Either `END_HEADERS` is set (emit the stream immediately) or
     /// we accumulate the fragment into `pending_headers` and wait for CONTINUATION.
+    ///
+    /// A HEADERS frame on an *existing* stream is trailers (RFC 9113 §8.1). Accumulation is
+    /// identical to an initial HEADERS block; the branch between "initial request HEADERS"
+    /// and "trailers" happens in [`Self::finalize_headers`] against the current streams map.
     fn handle_headers(
         &mut self,
         stream_id: u32,
@@ -207,12 +211,13 @@ where
         payload_start: usize,
         total: usize,
     ) -> Result<Action, CloseOutcome> {
-        // §5.1.1: a peer-initiated stream id must be odd and strictly greater than every
-        // prior peer-initiated stream id, and not already known.
-        if stream_id.is_multiple_of(2)
-            || stream_id <= self.last_peer_stream_id
-            || self.streams.contains_key(&stream_id)
-        {
+        // §5.1.1: a peer-initiated stream id must be odd.
+        if stream_id.is_multiple_of(2) {
+            return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+        }
+        // Trailer HEADERS on an existing stream: must be strictly equal to a known id.
+        // New-stream HEADERS: strictly greater than `last_peer_stream_id`.
+        if !self.streams.contains_key(&stream_id) && stream_id <= self.last_peer_stream_id {
             return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
 
@@ -263,14 +268,19 @@ where
     }
 
     /// The complete header block is now available (whether from a single HEADERS or from
-    /// HEADERS + CONTINUATION*): HPACK-decode it, open the stream, validate the request via
-    /// [`Conn::new_h2`], and emit the [`Conn`] on success.
+    /// HEADERS + CONTINUATION*). Branches on whether the stream is already open:
+    /// - **New stream:** HPACK-decode, open the stream, validate the request via
+    ///   [`Conn::new_h2`], emit the [`Conn`] on success; on a §8.1.2 malformed-request
+    ///   rejection, queue `RST_STREAM(PROTOCOL_ERROR)` and drop the stream before a
+    ///   handler task ever sees it.
+    /// - **Existing stream (trailers):** HPACK-decode, validate `END_STREAM` is set and no
+    ///   pseudo-headers present (§8.1), stash on `StreamState.recv.trailers`, then signal
+    ///   EOF. A stream-level §8.1 violation queues `RST_STREAM(PROTOCOL_ERROR)` on the
+    ///   offending stream and leaves the connection open.
     ///
-    /// On a §8.1.2 malformed-request rejection from `new_h2`, the stream is removed from
-    /// both maps, a `RST_STREAM(PROTOCOL_ERROR)` is queued, and `Action::Continue` is
-    /// returned — the malformed request never reaches a handler task. (HPACK decode
-    /// failures, by contrast, are connection-level: the dynamic table state is now
-    /// untrustworthy for *every* future stream on this connection.)
+    /// HPACK decode failures, by contrast, are connection-level: the dynamic table state
+    /// is now untrustworthy for *every* future stream on this connection, so we bubble
+    /// them up as a `CloseOutcome::Protocol`.
     fn finalize_headers(
         &mut self,
         stream_id: u32,
@@ -281,6 +291,11 @@ where
             H2Error::Protocol(code) => CloseOutcome::Protocol(code),
             H2Error::Io(e) => CloseOutcome::Io(e),
         })?;
+
+        if self.streams.contains_key(&stream_id) {
+            self.finalize_trailers(stream_id, end_stream, field_section);
+            return Ok(Action::Continue);
+        }
 
         let state = Arc::new(StreamState::default());
         if end_stream {
@@ -314,6 +329,51 @@ where
                 Ok(Action::Continue)
             }
         }
+    }
+
+    /// Receive-side trailers (§8.1): stash on `StreamState.recv.trailers` and signal EOF.
+    /// Pseudo-header or missing-END_STREAM violations are stream-level errors —
+    /// `RST_STREAM(PROTOCOL_ERROR)` and leave the connection alive.
+    fn finalize_trailers(
+        &mut self,
+        stream_id: u32,
+        end_stream: bool,
+        field_section: crate::headers::hpack::FieldSection<'static>,
+    ) {
+        let (pseudos, trailers) = field_section.into_parts();
+        if !end_stream || !pseudos.is_empty() {
+            log::debug!(
+                "h2 stream {stream_id}: malformed trailers (end_stream={end_stream}, \
+                 pseudos_empty={})",
+                pseudos.is_empty()
+            );
+            self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
+            self.complete_and_remove_stream(
+                stream_id,
+                Err(std::io::Error::other("malformed h2 trailers")),
+            );
+            return;
+        }
+
+        // Shared state lookup via our driver-private `StreamEntry` avoids re-locking the
+        // shared map. Both point at the same Arc<StreamState>.
+        let entry = self
+            .streams
+            .get(&stream_id)
+            .expect("caller verified stream is present");
+        let state = &entry.shared;
+
+        // §8.1 race ordering: store trailers first, then flip eof. Both under the recv
+        // buf lock so observers of eof see trailers populated.
+        let recv_buf = state.recv.buf.lock().expect("recv buf mutex poisoned");
+        *state
+            .recv
+            .trailers
+            .lock()
+            .expect("recv trailers mutex poisoned") = Some(trailers);
+        state.recv.eof.store(true, Ordering::Release);
+        drop(recv_buf);
+        state.recv.waker.wake();
     }
 
     /// A DATA frame arrived — copy its payload into the matching stream's recv buffer and

@@ -479,6 +479,158 @@ async fn small_get_returns_response_body_end_to_end() {
     server_task.await.expect("server task panicked");
 }
 
+/// A client sends a POST with a small body, followed by a trailing HEADERS frame with
+/// `END_STREAM` carrying a single trailer. The handler reads the body through
+/// [`Conn::request_body`] (which uses `ReceivedBody`); after the body drain completes,
+/// `conn.request_trailers()` returns the decoded trailer.
+#[tokio::test]
+async fn trailing_headers_populate_request_trailers() {
+    use trillium_http::Status;
+
+    let (trailers_tx, mut trailers_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (server_conn, server_task) = spawn_h2_server_with_handler(
+        Compat::new(server_io),
+        move |mut conn| {
+            let trailers_tx = trailers_tx.clone();
+            async move {
+                let mut body = String::new();
+                conn.request_body()
+                    .read_to_string(&mut body)
+                    .await
+                    .expect("body read");
+                // Trailers live on the Conn itself; clone out for inspection.
+                let trailers = conn.request_trailers().cloned();
+                let _ = trailers_tx.send((body, trailers));
+                conn.with_status(Status::Ok).with_response_body("ok")
+            }
+        },
+    );
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_empty_settings(&mut client_io).await;
+
+    // Request HEADERS (POST /upload, content-length: 5) with END_HEADERS only.
+    let mut block = vec![0x83, 0x87]; // :method POST (3), :scheme https (7)
+    block.push(0x44); // :path literal, name index 4
+    block.push(b"/upload".len() as u8);
+    block.extend_from_slice(b"/upload");
+    block.push(0x41); // :authority literal, name index 1
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+    // content-length: 5 — literal without indexing, new name.
+    block.push(0x00);
+    block.push(b"content-length".len() as u8);
+    block.extend_from_slice(b"content-length");
+    block.push(b"5".len() as u8);
+    block.extend_from_slice(b"5");
+    write_frame(&mut client_io, FRAME_TYPE_HEADERS, 0x4, 1, &block).await;
+
+    // DATA body (no END_STREAM — trailing HEADERS terminates the stream).
+    write_frame(&mut client_io, FRAME_TYPE_DATA, 0, 1, b"hello").await;
+
+    // Trailing HEADERS with a single trailer — literal without indexing, new name, no
+    // pseudo-headers (§8.1).
+    let mut trailer_block = vec![0x00];
+    trailer_block.push(b"x-trailer-test".len() as u8);
+    trailer_block.extend_from_slice(b"x-trailer-test");
+    trailer_block.push(b"ok".len() as u8);
+    trailer_block.extend_from_slice(b"ok");
+    write_frame(
+        &mut client_io,
+        FRAME_TYPE_HEADERS,
+        0x4 | 0x1, // END_HEADERS | END_STREAM
+        1,
+        &trailer_block,
+    )
+    .await;
+
+    // Keep the client side from blocking on write back-pressure — drain anything the
+    // server emits while the handler is running.
+    tokio::spawn(async move {
+        loop {
+            match read_frame(&mut client_io).await {
+                (hdr, _) if hdr.frame_type == FRAME_TYPE_SETTINGS && hdr.flags & FLAG_ACK == 0 => {
+                    write_settings_ack(&mut client_io).await;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    let (body, trailers) = tokio::time::timeout(std::time::Duration::from_secs(2), trailers_rx.recv())
+        .await
+        .expect("handler never produced trailer result")
+        .expect("handler channel closed without sending");
+    assert_eq!(body, "hello");
+    let trailers = trailers.expect("request_trailers was None");
+    assert_eq!(trailers.get_str("x-trailer-test"), Some("ok"));
+
+    server_conn.shut_down();
+    let _ = server_task.await;
+}
+
+/// Malformed trailers (pseudo-headers present) produce a stream-level
+/// `RST_STREAM(PROTOCOL_ERROR)`, not a connection error. Connection stays open and a
+/// subsequent stream on the same connection works normally.
+#[tokio::test]
+async fn malformed_trailers_with_pseudo_headers_is_rst_stream() {
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (server_conn, mut streams, server_task) = spawn_server(Compat::new(server_io));
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_empty_settings(&mut client_io).await;
+
+    // Stream 1: POST with content-length: 0 but trailing HEADERS carrying a pseudo-header
+    // (`:method`) — §8.1 says trailers MUST NOT include pseudo-headers.
+    let mut block = vec![0x83, 0x87];
+    block.push(0x44);
+    block.push(b"/upload".len() as u8);
+    block.extend_from_slice(b"/upload");
+    block.push(0x41);
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+    write_frame(&mut client_io, FRAME_TYPE_HEADERS, 0x4, 1, &block).await;
+
+    // Wait for the stream to surface so we know the server has it registered.
+    let opened = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
+        .await
+        .expect("stream not surfaced")
+        .expect("acceptor closed");
+    assert_eq!(opened.h2_stream_id(), Some(1));
+
+    // Trailing HEADERS(END_STREAM) with a `:method` pseudo-header — static index 2.
+    let trailer_block = vec![0x82]; // static index 2 (:method GET)
+    write_frame(
+        &mut client_io,
+        FRAME_TYPE_HEADERS,
+        0x4 | 0x1,
+        1,
+        &trailer_block,
+    )
+    .await;
+
+    // Expect RST_STREAM for stream 1 with PROTOCOL_ERROR.
+    let rst = loop {
+        let (hdr, payload) = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            read_frame(&mut client_io),
+        )
+        .await
+        .expect("server stalled before RST_STREAM");
+        if hdr.frame_type == FRAME_TYPE_RST_STREAM && hdr.stream_id == 1 {
+            break (hdr, payload);
+        }
+    };
+    let code = u32::from_be_bytes([rst.1[0], rst.1[1], rst.1[2], rst.1[3]]);
+    assert_eq!(code, 0x1, "PROTOCOL_ERROR = 0x1");
+
+    drop(opened);
+    drop(client_io);
+    server_conn.shut_down();
+    server_task.await.expect("server task panicked");
+}
+
 /// A peer-advertised `SETTINGS_INITIAL_WINDOW_SIZE = 5` limits how much of a 9-byte response
 /// body the server may emit before receiving a `WINDOW_UPDATE`. The test watches the wire for
 /// an initial DATA(5) ("hello"), then sends `WINDOW_UPDATE(+4)` on the stream and confirms

@@ -59,6 +59,19 @@ pub struct PseudoHeaders<'a> {
     pub(in crate::headers) protocol: Option<Cow<'a, str>>,
 }
 
+impl PseudoHeaders<'_> {
+    /// `true` when no pseudo-header fields are set. Useful for validating trailer sections,
+    /// which per RFC 9113 §8.1 (h2) and RFC 9114 §4.4 (h3) MUST NOT include pseudo-headers.
+    pub fn is_empty(&self) -> bool {
+        self.method.is_none()
+            && self.status.is_none()
+            && self.path.is_none()
+            && self.scheme.is_none()
+            && self.authority.is_none()
+            && self.protocol.is_none()
+    }
+}
+
 impl Display for PseudoHeaders<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if let Some(method) = &self.method {
@@ -184,7 +197,6 @@ impl<'a> FieldSection<'a> {
     }
 
     /// Decompose a `FieldSection` into its pseudo-headers and headers.
-    #[cfg(test)]
     pub fn into_parts(self) -> (PseudoHeaders<'a>, Headers) {
         (self.pseudo_headers, self.headers.into_owned())
     }

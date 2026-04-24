@@ -1,4 +1,6 @@
-use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, copy, h3::H3Connection};
+use crate::{
+    Body, Buffer, Error, Headers, HttpConfig, MutCow, copy, h2::H2Connection, h3::H3Connection,
+};
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 use encoding_rs::Encoding;
@@ -125,6 +127,14 @@ pub struct ReceivedBody<'conn, Transport> {
     /// a boxed future that handles decoding trailers
     h3_trailer_future:
         Option<Pin<Box<dyn Future<Output = io::Result<Headers>> + Send + Sync + 'static>>>,
+
+    /// The h2 connection and stream id for this body, when served over HTTP/2. Used in the
+    /// body state machine's `End` transition to pull driver-decoded trailers from
+    /// [`H2Connection::take_trailers`][H2Connection::take_trailers] into
+    /// [`Conn::request_trailers`][crate::Conn] — symmetric with the h3 hook, but the h2
+    /// driver decodes trailers synchronously on a separate task, so there's no boxed
+    /// future to chase.
+    h2_connection: Option<(Arc<H2Connection>, u32)>,
 }
 
 fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
@@ -184,6 +194,7 @@ where
             send_100_continue_offset: None,
             h3_connection: None,
             h3_trailer_future: None,
+            h2_connection: None,
         }
     }
 
@@ -214,6 +225,20 @@ where
         stream_id: u64,
     ) -> Self {
         self.h3_connection = Some((h3_connection, stream_id));
+        self
+    }
+
+    /// Associate this body with the [`H2Connection`] and h2 stream that produced it. The
+    /// End transition of the body state machine consults these to pull driver-decoded
+    /// trailers into [`Conn::request_trailers`][crate::Conn].
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_h2_connection(
+        mut self,
+        h2_connection: Arc<H2Connection>,
+        stream_id: u32,
+    ) -> Self {
+        self.h2_connection = Some((h2_connection, stream_id));
         self
     }
 
@@ -454,6 +479,17 @@ where
                     let trailers = ready!(h3_trailer_future.as_mut().poll(cx))?;
                     *self.trailers = Some(trailers);
                     self.h3_trailer_future = None;
+                }
+
+                // h2 trailer handoff. The driver decodes trailers on a separate task and
+                // stashes them on the per-stream `StreamState` *before* signalling EOF, so
+                // by the time we reach `End` the trailers (if any) are present — no boxed
+                // future required.
+                if bytes == 0
+                    && let Some((h2_connection, stream_id)) = self.h2_connection.take()
+                    && let Some(trailers) = h2_connection.take_trailers(stream_id)
+                {
+                    *self.trailers = Some(trailers);
                 }
 
                 if self.on_completion.is_some() && self.owns_transport() {

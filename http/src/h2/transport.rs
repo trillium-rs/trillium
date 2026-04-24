@@ -16,7 +16,7 @@
 //! [`BoxedTransport`]: crate::transport::BoxedTransport
 
 use super::H2Connection;
-use crate::{Body, Buffer};
+use crate::{Body, Buffer, Headers};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -180,6 +180,14 @@ pub(super) struct RecvState {
     /// stream, topping its recv window up from `SETTINGS_INITIAL_WINDOW_SIZE` (advertised as
     /// `0`) to the per-stream maximum. Once set, stays set.
     pub(super) is_reading: AtomicBool,
+
+    /// Trailers, populated by the driver if a trailing HEADERS frame arrives for this stream.
+    /// Always written *before* `eof` is set, so once the handler observes `Ready(0)` on the
+    /// recv side, any trailers for this request are guaranteed to be in place.
+    ///
+    /// Taken out and moved into [`Conn::request_trailers`][crate::Conn] by the receiver-side
+    /// body state machine when it transitions to [`ReceivedBodyState::End`][crate::received_body::ReceivedBodyState].
+    pub(super) trailers: Mutex<Option<Headers>>,
 }
 
 /// Send-side per-stream state used to hand a response from the conn task to the driver.
