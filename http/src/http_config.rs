@@ -183,6 +183,91 @@ pub struct HttpConfig {
     /// **Default**: `10_000`
     pub(crate) h3_qpack_header_observer_max_entries: u32,
 
+    /// Initial HTTP/2 stream flow-control window advertised to peers as
+    /// `SETTINGS_INITIAL_WINDOW_SIZE`.
+    ///
+    /// Controls how many request-body bytes the peer may send on a newly-opened stream before
+    /// waiting for a `WINDOW_UPDATE`. The default of `0` implements a lazy / 100-continue-like
+    /// pattern: the peer cannot send any body bytes until the handler calls `read` on the
+    /// request body, at which point the driver emits a `WINDOW_UPDATE` topping the window up
+    /// to [`h2_max_stream_recv_window_size`][Self::h2_max_stream_recv_window_size]. A handler
+    /// that returns an error from its header-level checks never pays the bandwidth cost of
+    /// reading the body.
+    ///
+    /// Set to `65_535` (the RFC 9113 baseline) to match nginx / Apache / hyper behavior — body
+    /// bytes arrive eagerly at the cost of 1 RTT less latency on the first DATA frame and the
+    /// possible waste of up to this many bytes on requests the handler rejects.
+    ///
+    /// Must not exceed `2^31 - 1`.
+    ///
+    /// **Default**: `0` (lazy-WU)
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_initial_stream_window_size: u32,
+
+    /// Per-stream recv window target — how high the driver keeps the peer's stream window
+    /// topped up as the handler consumes request-body bytes.
+    ///
+    /// After the handler signals intent to read (first `poll_read` on the request body), the
+    /// driver emits `WINDOW_UPDATE` frames to keep the effective peer window near this target.
+    /// Also serves as the hard per-stream buffer cap — a peer that sends past this amount of
+    /// unconsumed DATA on a single stream earns a connection-level `FLOW_CONTROL_ERROR`.
+    ///
+    /// **Default**: `1 MiB`
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_max_stream_recv_window_size: u32,
+
+    /// Connection-level recv window target — how high the driver keeps the peer's
+    /// connection-level window topped up as handlers consume bytes.
+    ///
+    /// Raised via an initial `WINDOW_UPDATE(stream_id=0)` right after SETTINGS (RFC 9113
+    /// §6.9.2 forbids SETTINGS from altering the connection window), then refilled on
+    /// consumption. Bounds total concurrent in-flight request-body bytes across all streams on
+    /// a single HTTP/2 connection. Leaving at the RFC baseline of `65_535` would cap bulk
+    /// uploads at ~5 Mbit/s × RTT.
+    ///
+    /// **Default**: `2 MiB`
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_initial_connection_window_size: u32,
+
+    /// HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` — the maximum number of concurrent
+    /// peer-initiated streams the server will accept.
+    ///
+    /// Peer-opened streams beyond this count get `RST_STREAM(RefusedStream)` per RFC 9113
+    /// §5.1.2. A value in the 100–250 range is the post-Rapid-Reset (CVE-2023-44487)
+    /// consensus; lower values cap parallelism, higher values need per-connection reset-rate
+    /// limiting to avoid `DoS` exposure.
+    ///
+    /// **Default**: `100`
+    ///
+    /// **Unit**: stream count
+    pub(crate) h2_max_concurrent_streams: u32,
+
+    /// HTTP/2 `SETTINGS_MAX_FRAME_SIZE` — the largest frame payload the server will accept.
+    ///
+    /// Peer frames whose payload exceeds this get `FRAME_SIZE_ERROR` per RFC 9113 §4.2. The
+    /// RFC floor is `16_384`; the ceiling is `16_777_215`. Larger values amortize per-frame
+    /// overhead on bulk transfers but increase the upper bound on a single read.
+    ///
+    /// **Default**: `16_384`
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_max_frame_size: u32,
+
+    /// HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE` — advisory cap on the cumulative decoded size
+    /// of a peer header list.
+    ///
+    /// Advertised in SETTINGS but not currently enforced on the receive path (the peer is
+    /// expected to self-police). Guards against pathological header lists inflating memory
+    /// per stream during HPACK decode.
+    ///
+    /// **Default**: `32 KiB`
+    ///
+    /// **Unit**: byte count
+    pub(crate) h2_max_header_list_size: u32,
+
     /// whether [datagrams](https://www.rfc-editor.org/rfc/rfc9297.html) are enabled for HTTP/3
     ///
     /// This is a protocol-level setting and is communicated to the peer as well as enforced.
@@ -233,6 +318,12 @@ impl HttpConfig {
         h3_qpack_header_observer_half_life_sections: 10_000,
         h3_qpack_header_observer_max_entries: 10_000,
         h3_datagrams_enabled: false,
+        h2_initial_stream_window_size: 0,
+        h2_max_stream_recv_window_size: 1 << 20,
+        h2_initial_connection_window_size: 2 << 20,
+        h2_max_concurrent_streams: 100,
+        h2_max_frame_size: 16_384,
+        h2_max_header_list_size: 32 * 1024,
         webtransport_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),
     };

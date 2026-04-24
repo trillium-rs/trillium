@@ -51,39 +51,22 @@ use std::{
 };
 use swansong::ShuttingDown;
 
-/// Upper bound for transient frame buffers — prevents runaway allocation on a peer that
-/// advertises an absurd `MAX_FRAME_SIZE`. The per-connection maximum is negotiated via
-/// SETTINGS and will replace this in phase 7.
+/// Absolute upper bound on transient frame buffers — a backstop against a peer that advertises
+/// an absurd frame size. Independent of `HttpConfig::h2_max_frame_size` (which we advertise and
+/// enforce against incoming frames); this is just the ceiling on our own decode buffer to
+/// prevent runaway allocation under an adversarial peer.
 const MAX_BUFFER_SIZE: usize = 1 << 20;
 
 /// Initial HPACK dynamic table size per RFC 7541 §4.2 — also the value implied by an absent
-/// `SETTINGS_HEADER_TABLE_SIZE`. Phase 7 will let `HttpConfig` raise or lower this; for now
-/// it's hardcoded to match the default we advertise.
+/// `SETTINGS_HEADER_TABLE_SIZE`. HPACK dynamic table is decode-only today (encoder is
+/// static-or-literal), so a user-facing knob here would be cosmetic. Revisit when dynamic
+/// encoding lands.
 const HPACK_TABLE_SIZE: usize = 4096;
-
-/// Per-stream recv flow-control window target — how high we keep the peer's stream window
-/// topped up once the handler has declared intent to consume its request body. Each time
-/// the handler drains bytes from [`RecvState::buf`][super::transport::RecvState] we emit a
-/// stream-level `WINDOW_UPDATE` crediting the consumed byte count back, keeping the
-/// effective window near this target. Bounds per-stream recv buffer footprint.
-///
-/// We advertise `INITIAL_WINDOW_SIZE = 0` in server SETTINGS — the peer cannot send any body
-/// bytes until the driver emits the first `WINDOW_UPDATE`, which it does only after observing
-/// the handler's is-reading signal. A handler that never reads its body costs one HEADERS
-/// frame and nothing more.
-const MAX_STREAM_RECV_WINDOW: u32 = 1 << 20;
-
-/// Connection-level recv window target. The RFC baseline is 65535 which caps bulk-upload
-/// throughput to ~5 Mbit/s at 100ms RTT; we raise to 2 MiB via an initial
-/// `WINDOW_UPDATE(0)` right after SETTINGS and then refill as the handler consumes
-/// (RFC 9113 §6.9.2 forbids SETTINGS from altering the connection window, so WU is the
-/// only path).
-const MAX_CONNECTION_RECV_WINDOW: i64 = 2 << 20;
 
 /// RFC 9113 §6.9.2 baseline connection-level flow-control window — 65535 octets for both
 /// directions, unchanged by SETTINGS. Used as the starting value for our send-side window
 /// (credited via peer `WINDOW_UPDATE(0)`) and for our recv-side window before we emit the
-/// initial raising `WINDOW_UPDATE(0)` to [`MAX_CONNECTION_RECV_WINDOW`].
+/// initial raising `WINDOW_UPDATE(0)` to `h2_initial_connection_window_size`.
 const INITIAL_CONNECTION_RECV_WINDOW: i64 = 65_535;
 
 /// Hard ceiling on the DATA payload we'll emit in a single frame even if the peer
@@ -91,16 +74,6 @@ const INITIAL_CONNECTION_RECV_WINDOW: i64 = 65_535;
 /// steer us into oversized allocations; the protocol only requires we not *exceed* the
 /// peer's advertised max, which starts at the RFC 9113 §6.5.2 default of 16 KiB.
 const MAX_DATA_CHUNK_SIZE: u32 = 16_384;
-
-/// The `SETTINGS_MAX_FRAME_SIZE` we advertise (RFC 9113 §6.5.2 baseline 16 KiB). Phase 7
-/// will pull this from `HttpConfig`. We use it on the read side to reject frames the peer
-/// sends that exceed what we advertised — RFC 9113 §4.2 says this is a `FRAME_SIZE_ERROR`.
-pub(super) const OUR_MAX_FRAME_SIZE: u32 = 16_384;
-
-/// The `SETTINGS_MAX_CONCURRENT_STREAMS` we advertise. Phase 7 will pull this from
-/// `HttpConfig`; kept in sync with [`H2Settings::server_defaults`] for now. Peer-initiated
-/// streams beyond this count get `RST_STREAM(RefusedStream)` per RFC 9113 §5.1.2.
-pub(super) const OUR_MAX_CONCURRENT_STREAMS: usize = 100;
 
 /// RFC 9113 §6.9.1: a flow-control window MUST NOT exceed `2^31 - 1`. If a
 /// `WINDOW_UPDATE` would push it past that maximum, the peer has misbehaved — we emit
@@ -197,6 +170,39 @@ pub struct H2Acceptor<T> {
     /// closed (stream-level `STREAM_CLOSED`) from `END_STREAM`-closed or never-opened
     /// (connection-level). See [`ClosedStreams`] for the eviction policy.
     closed_streams: ClosedStreams,
+
+    /// Snapshot of the h2-relevant fields of [`HttpConfig`][crate::HttpConfig] taken at
+    /// acceptor construction. Copied in because `HttpConfig` is per-server but an acceptor
+    /// is per-connection — the config is effectively immutable over a connection's
+    /// lifetime, and a local copy avoids reaching through [`H2Connection::context`] on
+    /// every policy check.
+    ///
+    /// [`H2Connection::context`]: super::H2Connection::context
+    pub(super) config: AcceptorConfig,
+}
+
+/// h2-relevant configuration extracted from [`HttpConfig`][crate::HttpConfig] at acceptor
+/// construction. Carried as a plain value so hot-loop policy checks don't cross the
+/// `Arc<HttpContext>` indirection.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct AcceptorConfig {
+    pub(super) initial_stream_window_size: u32,
+    pub(super) max_stream_recv_window_size: u32,
+    pub(super) initial_connection_window_size: u32,
+    pub(super) max_concurrent_streams: u32,
+    pub(super) max_frame_size: u32,
+}
+
+impl AcceptorConfig {
+    fn from_http_config(config: &crate::HttpConfig) -> Self {
+        Self {
+            initial_stream_window_size: config.h2_initial_stream_window_size(),
+            max_stream_recv_window_size: config.h2_max_stream_recv_window_size(),
+            initial_connection_window_size: config.h2_initial_connection_window_size(),
+            max_concurrent_streams: config.h2_max_concurrent_streams(),
+            max_frame_size: config.h2_max_frame_size(),
+        }
+    }
 }
 
 /// Position of the connection in its high-level lifecycle.
@@ -362,6 +368,7 @@ where
 {
     pub(super) fn new(connection: Arc<H2Connection>, transport: T) -> Self {
         let shutting_down = connection.swansong().shutting_down();
+        let config = AcceptorConfig::from_http_config(connection.context().config());
         Self {
             connection,
             transport,
@@ -383,6 +390,7 @@ where
             connection_send_window: INITIAL_CONNECTION_RECV_WINDOW,
             connection_recv_window: INITIAL_CONNECTION_RECV_WINDOW,
             closed_streams: ClosedStreams::default(),
+            config,
         }
     }
 
@@ -493,7 +501,8 @@ where
                     // window — it stays at the 65535 RFC baseline unless we raise it via
                     // `WINDOW_UPDATE(0)`. Do that immediately after SETTINGS so peer bulk
                     // uploads aren't capped at ~5 Mbit/s × RTT.
-                    let raise = MAX_CONNECTION_RECV_WINDOW - INITIAL_CONNECTION_RECV_WINDOW;
+                    let raise = i64::from(self.config.initial_connection_window_size)
+                        - INITIAL_CONNECTION_RECV_WINDOW;
                     if raise > 0 {
                         let raise = u32::try_from(raise).unwrap_or(u32::MAX);
                         self.queue_window_update(0, raise);
@@ -574,12 +583,13 @@ where
         // calls (which take &mut self). Short-lived Vec; bounded by MAX_CONCURRENT_STREAMS.
         let mut stream_updates: Vec<(u32, u32)> = Vec::new();
         let mut connection_credit: u64 = 0;
+        let max_stream_recv_window = self.config.max_stream_recv_window_size;
         for (&id, entry) in &mut self.streams {
             // Initial lazy raise: peer hasn't been credited any recv window yet, handler
             // signaled intent, emit a one-time top-up to the stream target.
             if entry.peer_recv_window <= 0 && entry.shared.recv.is_reading.load(Ordering::Acquire) {
-                stream_updates.push((id, MAX_STREAM_RECV_WINDOW));
-                entry.peer_recv_window += i64::from(MAX_STREAM_RECV_WINDOW);
+                stream_updates.push((id, max_stream_recv_window));
+                entry.peer_recv_window += i64::from(max_stream_recv_window);
             }
             // Refill for bytes the handler has consumed since our last tick. Bounded by
             // MAX_FLOW_CONTROL_WINDOW (2^31-1) which comfortably fits u32; a handler that
@@ -790,7 +800,7 @@ where
     // progress elsewhere.
 
     fn queue_settings(&mut self) {
-        let settings = H2Settings::server_defaults();
+        let settings = H2Settings::from_config(self.connection.context().config());
         let start = self.write_buf.len();
         self.write_buf
             .resize(start + frame::settings::encoded_len(&settings), 0);

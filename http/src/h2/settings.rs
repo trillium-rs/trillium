@@ -124,31 +124,39 @@ impl H2Settings {
         self.header_table_size.unwrap_or(4096)
     }
 
-    /// A reasonable outgoing settings frame for a trillium server.
+    /// Build an outgoing SETTINGS frame from the h2 fields of an [`HttpConfig`][crate::HttpConfig].
     ///
-    /// Disables server push, caps concurrent streams at 100, and caps header list size at 8 KiB.
-    /// Also selects a random GREASE setting per RFC 8701.
+    /// Disables server push (`SETTINGS_ENABLE_PUSH` = 0, trillium never sends `PUSH_PROMISE`) and
+    /// selects a random GREASE setting per RFC 8701 for forward-compat checking. The remaining
+    /// advertised values come from the config:
     ///
-    /// The concrete knobs will be replaced with `HttpConfig`-driven values in phase 7 of the H2
-    /// implementation (see `memory/h2-planning.md`).
-    pub fn server_defaults() -> Self {
+    /// | Setting | Source |
+    /// |---|---|
+    /// | `SETTINGS_INITIAL_WINDOW_SIZE` | `h2_initial_stream_window_size` |
+    /// | `SETTINGS_MAX_CONCURRENT_STREAMS` | `h2_max_concurrent_streams` |
+    /// | `SETTINGS_MAX_FRAME_SIZE` | `h2_max_frame_size` |
+    /// | `SETTINGS_MAX_HEADER_LIST_SIZE` | `h2_max_header_list_size` |
+    pub fn from_config(config: &crate::HttpConfig) -> Self {
         // RFC 8701: the reserved GREASE settings are 0x0A0A, 0x1A1A, ..., 0xFAFA.
         let n = u16::from(fastrand::u8(0..16));
         let grease_id = 0x0A0A | (n << 12) | (n << 4);
         Self {
             enable_push: Some(false),
-            max_concurrent_streams: Some(100),
-            max_header_list_size: Some(8192),
-            // INITIAL_WINDOW_SIZE = 0: the peer cannot send any body bytes on a new stream
-            // until we issue a `WINDOW_UPDATE`. We do that only once the handler declares
-            // intent to consume the body (via `H2Transport::poll_read`), so a handler that
-            // never reads its request body never pays for the bytes. Phase 7 makes this
-            // configurable via `HttpConfig::h2_initial_stream_window`.
-            initial_window_size: Some(0),
+            max_concurrent_streams: Some(config.h2_max_concurrent_streams()),
+            max_header_list_size: Some(config.h2_max_header_list_size()),
+            initial_window_size: Some(config.h2_initial_stream_window_size()),
+            max_frame_size: Some(config.h2_max_frame_size()),
             grease_id,
             grease_value: fastrand::u32(..),
             ..Default::default()
         }
+    }
+
+    /// A reasonable outgoing settings frame for a trillium server, using the default
+    /// `HttpConfig`. Convenience wrapper around [`Self::from_config`] for tests and ad-hoc
+    /// use; production code builds via `from_config` with the real configured values.
+    pub fn server_defaults() -> Self {
+        Self::from_config(&crate::HttpConfig::DEFAULT)
     }
 
     /// The number of bytes this settings payload will occupy when encoded.

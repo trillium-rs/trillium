@@ -7,8 +7,7 @@
 
 use super::{
     Action, CloseOutcome, ClosedReason, H2Acceptor, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
-    MAX_STREAM_RECV_WINDOW, OUR_MAX_CONCURRENT_STREAMS, OUR_MAX_FRAME_SIZE, ReadPhase, StreamEntry,
-    frame_slice, io_to_outcome,
+    ReadPhase, StreamEntry, frame_slice, io_to_outcome,
 };
 use crate::{
     Conn,
@@ -61,9 +60,10 @@ where
             // `SETTINGS_MAX_FRAME_SIZE` is a `FRAME_SIZE_ERROR`. We also enforce
             // [`MAX_BUFFER_SIZE`] as a DoS guard — it's the higher of the two limits, but
             // belt-and-suspenders against a future change that raises the advertised max.
+            let max_frame_size = self.config.max_frame_size as usize;
             let payload_len = usize::try_from(header.length)
                 .ok()
-                .filter(|n| *n <= OUR_MAX_FRAME_SIZE as usize && *n <= MAX_BUFFER_SIZE)
+                .filter(|n| *n <= max_frame_size && *n <= MAX_BUFFER_SIZE)
                 .ok_or(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
             let total = FRAME_HEADER_LEN + payload_len;
             self.read_phase = ReadPhase::NeedPayload { header, total };
@@ -309,10 +309,10 @@ where
         // `SETTINGS_MAX_CONCURRENT_STREAMS` get `RST_STREAM(RefusedStream)`. The identifier
         // is still "consumed" per §5.1.1 ("The identifier of a refused stream is not
         // reused") so bump `last_peer_stream_id`.
-        if is_new_stream && self.streams.len() >= OUR_MAX_CONCURRENT_STREAMS {
+        let max_concurrent = self.config.max_concurrent_streams as usize;
+        if is_new_stream && self.streams.len() >= max_concurrent {
             log::debug!(
-                "h2 stream {stream_id}: concurrent stream limit reached \
-                 ({OUR_MAX_CONCURRENT_STREAMS})"
+                "h2 stream {stream_id}: concurrent stream limit reached ({max_concurrent})"
             );
             self.queue_rst_stream(stream_id, H2ErrorCode::RefusedStream);
             self.last_peer_stream_id = stream_id;
@@ -448,10 +448,10 @@ where
                 .effective_initial_window_size(),
         );
         // Peer's recv window seed = what we advertised in SETTINGS_INITIAL_WINDOW_SIZE.
-        // Today that's 0 (lazy-WU pattern) — the peer cannot send body bytes until the
+        // Default is 0 (lazy-WU pattern) — the peer cannot send body bytes until the
         // handler calls `H2Transport::poll_read` and the driver observes `is_reading` on
-        // a subsequent tick. Phase 7 makes the advertised value configurable.
-        let peer_recv_window: i64 = 0;
+        // a subsequent tick. Configurable via `HttpConfig::h2_initial_stream_window_size`.
+        let peer_recv_window = i64::from(self.config.initial_stream_window_size);
         self.connection
             .streams_lock()
             .insert(stream_id, state.clone());
@@ -536,7 +536,8 @@ where
     /// pad length byte + padding) counts against both the per-stream and connection-level
     /// recv windows. We track both for correct refill accounting but enforce leniently —
     /// a peer that sends past our advertised window is simply violating the SETTINGS
-    /// hint; the real `DoS` bound is the per-stream buffer cap ([`MAX_STREAM_RECV_WINDOW`]).
+    /// hint; the real `DoS` bound is the per-stream buffer cap
+    /// (`HttpConfig::h2_max_stream_recv_window_size`).
     /// This keeps trillium's lazy-WU default (`SETTINGS_INITIAL_WINDOW_SIZE = 0`) working
     /// against h2spec-style peers that send DATA immediately after HEADERS without
     /// respecting the server's advertised initial window.
@@ -594,7 +595,7 @@ where
             // Per-stream buffer cap — this is our actual DoS bound, since
             // `peer_recv_window` is tracked but not strictly enforced. A peer that
             // floods us past the buffer cap earns a connection-level `FLOW_CONTROL_ERROR`.
-            if recv.len() + data.len() > MAX_STREAM_RECV_WINDOW as usize {
+            if recv.len() + data.len() > self.config.max_stream_recv_window_size as usize {
                 return Err(CloseOutcome::Protocol(H2ErrorCode::FlowControlError));
             }
             if !data.is_empty() {
