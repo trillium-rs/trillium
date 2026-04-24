@@ -22,10 +22,52 @@ pub(crate) mod dynamic_table;
 pub(crate) mod encoder;
 pub(crate) mod static_table;
 
-use super::compression_error::CompressionError;
 pub(crate) use super::field_section::{FieldSection, PseudoHeaders};
+use super::{
+    compression_error::CompressionError, huffman::HuffmanError, integer_prefix::IntegerPrefixError,
+};
+pub(crate) use decoder::MalformedRequest;
 use dynamic_table::DynamicTable;
 pub(crate) use encoder::encode;
+
+/// Error surfaced out of HPACK decoding.
+///
+/// The two variants carry different consequences for the driver: [`Compression`] means the
+/// dynamic table state is now inconsistent with the peer's model (RFC 7541 §6.3), which
+/// forces a connection-level `COMPRESSION_ERROR` GOAWAY. [`MalformedRequest`] is a
+/// spec-defined request malformation (§8.1.2) that leaves the dynamic table consistent —
+/// the driver emits `RST_STREAM(PROTOCOL_ERROR)` on the offending stream and the connection
+/// stays alive.
+///
+/// [`Compression`]: Self::Compression
+/// [`MalformedRequest`]: Self::MalformedRequest
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum HpackDecodeError {
+    /// Wire-format failure — Huffman malformed, integer-prefix decode, oversized size update,
+    /// out-of-range table index, truncated input. Connection-level.
+    #[error(transparent)]
+    Compression(#[from] CompressionError),
+
+    /// Spec-defined request malformation detected during decode (duplicate pseudo,
+    /// pseudo-header after a regular header). Stream-level.
+    #[error("malformed request header block: {0:?}")]
+    MalformedRequest(MalformedRequest),
+}
+
+// Transitive `?`-friendly conversions — each of these is covered by
+// `From<X> for CompressionError` followed by `From<CompressionError> for HpackDecodeError`,
+// but Rust's `?` only walks one `From` step.
+impl From<HuffmanError> for HpackDecodeError {
+    fn from(e: HuffmanError) -> Self {
+        Self::Compression(e.into())
+    }
+}
+
+impl From<IntegerPrefixError> for HpackDecodeError {
+    fn from(e: IntegerPrefixError) -> Self {
+        Self::Compression(e.into())
+    }
+}
 
 /// Per-connection HPACK codec state for the decoder side.
 ///
@@ -53,10 +95,16 @@ impl HpackDecoder {
     /// Decode a single complete header block (HEADERS + CONTINUATIONs already reassembled).
     /// Mutates the dynamic table per any incremental-indexing or §6.3 size-update directives in
     /// the block; subsequent blocks see the updated table.
+    ///
+    /// # Errors
+    ///
+    /// [`HpackDecodeError::Compression`] for any RFC 7541 wire-format violation
+    /// (connection-level `COMPRESSION_ERROR`); [`HpackDecodeError::MalformedRequest`] for
+    /// request malformation detected during decode (stream-level `PROTOCOL_ERROR`).
     pub(crate) fn decode(
         &mut self,
         block: &[u8],
-    ) -> Result<FieldSection<'static>, CompressionError> {
+    ) -> Result<FieldSection<'static>, HpackDecodeError> {
         decoder::decode(block, &mut self.table, self.protocol_max_table_size)
     }
 }

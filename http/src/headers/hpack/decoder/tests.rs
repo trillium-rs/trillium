@@ -10,7 +10,7 @@ use crate::{
         compression_error::CompressionError,
         entry_name::{EntryName, PseudoHeaderName},
         field_section::{FieldLineValue, PseudoHeaders},
-        hpack::dynamic_table::DynamicTable,
+        hpack::{HpackDecodeError, dynamic_table::DynamicTable},
     },
 };
 
@@ -43,7 +43,9 @@ fn indexed_zero_is_error() {
     let mut table = fresh_table();
     assert!(matches!(
         decode(&[0x80], &mut table, DEFAULT_PROTOCOL_MAX),
-        Err(CompressionError::InvalidStaticIndex(0))
+        Err(HpackDecodeError::Compression(
+            CompressionError::InvalidStaticIndex(0)
+        ))
     ));
 }
 
@@ -55,7 +57,9 @@ fn indexed_beyond_dynamic_is_error() {
     // Encoded as the single byte 0b1_0111110 = 0xBE.
     assert!(matches!(
         decode(&[0xBE], &mut table, DEFAULT_PROTOCOL_MAX),
-        Err(CompressionError::InvalidStaticIndex(62))
+        Err(HpackDecodeError::Compression(
+            CompressionError::InvalidStaticIndex(62)
+        ))
     ));
 }
 
@@ -164,7 +168,9 @@ fn size_update_above_protocol_max_is_error() {
     let result = decode(&block, &mut table, 15);
     assert!(matches!(
         result,
-        Err(CompressionError::InvalidStaticIndex(16))
+        Err(HpackDecodeError::Compression(
+            CompressionError::InvalidStaticIndex(16)
+        ))
     ));
 }
 
@@ -177,7 +183,9 @@ fn size_update_after_field_is_error() {
     let block = [0x82, 0x20];
     assert!(matches!(
         decode(&block, &mut table, DEFAULT_PROTOCOL_MAX),
-        Err(CompressionError::UnexpectedEnd)
+        Err(HpackDecodeError::Compression(
+            CompressionError::UnexpectedEnd
+        ))
     ));
 }
 
@@ -215,13 +223,39 @@ fn literal_overrides_static_slot_value() {
     assert_eq!(table.len(), 0);
 }
 
-/// First-wins pseudo-header assembly: repeating :method should keep the first seen value.
+/// RFC 9113 §8.1.2.3: duplicated pseudo-header fields are a malformed request. The decoder
+/// surfaces this via [`HpackDecodeError::MalformedRequest`] so the caller can respond with
+/// a stream-level `PROTOCOL_ERROR` without tearing down the connection.
 #[test]
-fn pseudo_first_wins() {
+fn duplicate_pseudo_is_malformed() {
     let mut table = fresh_table();
     // :method GET (0x82) then :method POST (0x83).
-    let fs = decode(&[0x82, 0x83], &mut table, DEFAULT_PROTOCOL_MAX).unwrap();
-    assert_eq!(fs.pseudo_headers().method(), Some(Method::Get));
+    assert!(matches!(
+        decode(&[0x82, 0x83], &mut table, DEFAULT_PROTOCOL_MAX),
+        Err(HpackDecodeError::MalformedRequest(
+            super::MalformedRequest::DuplicatePseudoHeader
+        ))
+    ));
+}
+
+/// RFC 9113 §8.1.2.1: a pseudo-header appearing after any regular header is a malformed
+/// request.
+#[test]
+fn pseudo_after_regular_is_malformed() {
+    let mut table = fresh_table();
+    // :method GET (0x82 — §6.1 indexed static) → regular "foo: bar" (§6.2.2 literal
+    // without indexing, new name) → :path / (0x85 — §6.1 indexed static).
+    let mut bytes = vec![0x82, 0x00, 0x03];
+    bytes.extend_from_slice(b"foo");
+    bytes.push(0x03);
+    bytes.extend_from_slice(b"bar");
+    bytes.push(0x85);
+    assert!(matches!(
+        decode(&bytes, &mut table, DEFAULT_PROTOCOL_MAX),
+        Err(HpackDecodeError::MalformedRequest(
+            super::MalformedRequest::PseudoHeaderAfterRegular
+        ))
+    ));
 }
 
 /// Confirming the Pseudo field value pipeline: ensure Authority is surfaced as a str.

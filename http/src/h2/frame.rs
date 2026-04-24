@@ -174,10 +174,13 @@ pub enum Frame {
         padding_length: u8,
     },
 
-    /// PRIORITY (§6.3). Parsed and discarded; RFC 9113 §5.3.2 deprecates the scheme.
+    /// PRIORITY (§6.3). RFC 9113 §5.3.2 deprecates the scheme, but §5.3.1 still requires
+    /// rejecting self-dependency, so the priority block is surfaced to the connection layer.
     Priority {
         /// Stream identifier the priority applies to.
         stream_id: u32,
+        /// Priority block (dependency + weight). Not used for scheduling.
+        priority: PriorityInfo,
     },
 
     /// `RST_STREAM` (§6.4).

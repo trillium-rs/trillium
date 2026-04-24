@@ -41,6 +41,12 @@ where
         log::trace!("h2 stream {stream_id}: building Conn from\n{request_headers}");
         let pseudo_headers = request_headers.pseudo_headers_mut();
 
+        // §8.1.2.1 response pseudo-header in request: `:status` is the only response-only
+        // pseudo and MUST NOT appear in a request.
+        if pseudo_headers.status().is_some() {
+            return Err(H2ErrorCode::ProtocolError);
+        }
+
         let method = pseudo_headers.take_method();
         let path = pseudo_headers.take_path();
         let authority = pseudo_headers.take_authority();

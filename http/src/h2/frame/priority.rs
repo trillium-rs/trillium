@@ -10,9 +10,11 @@ pub(crate) fn decode(header: FrameHeader, payload: &[u8]) -> Result<Frame, Frame
     if payload.len() != PriorityInfo::WIRE_LEN as usize {
         return Err(H2ErrorCode::FrameSizeError.into());
     }
-    // Parse to validate wire format, then discard — the scheme is deprecated.
-    let _ = PriorityInfo::decode(payload);
+    // Surface the parsed block — the scheme is deprecated (§5.3.2) so we don't use it for
+    // priority decisions, but §5.3.1 requires us to reject self-dependency, which means
+    // the connection layer has to see the priority info.
     Ok(Frame::Priority {
         stream_id: header.stream_id,
+        priority: PriorityInfo::decode(payload),
     })
 }

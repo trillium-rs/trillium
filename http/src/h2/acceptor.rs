@@ -78,6 +78,16 @@ const MAX_STREAM_WINDOW: u32 = 64 * 1024;
 /// peer's advertised max, which starts at the RFC 9113 §6.5.2 default of 16 KiB.
 const MAX_DATA_CHUNK_SIZE: u32 = 16_384;
 
+/// The `SETTINGS_MAX_FRAME_SIZE` we advertise (RFC 9113 §6.5.2 baseline 16 KiB). Phase 7
+/// will pull this from `HttpConfig`. We use it on the read side to reject frames the peer
+/// sends that exceed what we advertised — RFC 9113 §4.2 says this is a `FRAME_SIZE_ERROR`.
+pub(super) const OUR_MAX_FRAME_SIZE: u32 = 16_384;
+
+/// The `SETTINGS_MAX_CONCURRENT_STREAMS` we advertise. Phase 7 will pull this from
+/// `HttpConfig`; kept in sync with [`H2Settings::server_defaults`] for now. Peer-initiated
+/// streams beyond this count get `RST_STREAM(RefusedStream)` per RFC 9113 §5.1.2.
+pub(super) const OUR_MAX_CONCURRENT_STREAMS: usize = 100;
+
 /// RFC 9113 §6.9.2: the initial connection-level flow-control window for both directions
 /// is 65535 octets, and it is **not** affected by `SETTINGS_INITIAL_WINDOW_SIZE` (which
 /// only governs *stream* windows).
@@ -173,8 +183,18 @@ enum DriverState {
     NeedsServerSettings,
     /// Steady state — read frames from the transport and dispatch.
     Running,
-    /// GOAWAY has been queued; drain `write_buf` then terminate.
+    /// GOAWAY has been queued; drain `write_buf` then transition to [`Drained`] (for
+    /// graceful shutdown) or terminate directly (for I/O error paths where the transport
+    /// is already untrustworthy).
+    ///
+    /// [`Drained`]: Self::Drained
     Closing,
+    /// Our outbound bytes are on the wire (including our GOAWAY). Now we're waiting for
+    /// the peer to close its write half (recv returns 0) so our Drop doesn't look like a
+    /// reset to the client — the sequence the h2 spec and most clients (hyper-h2 in
+    /// particular) assume. Any inbound bytes the peer happens to send during this window
+    /// are discarded; we've already committed to closing.
+    Drained,
 }
 
 /// Where the read cursor is inside the current frame.
@@ -344,15 +364,25 @@ where
                 Poll::Pending => return Poll::Pending,
             }
 
-            // 4. If we were closing, outbound is now drained — we're done.
+            // 4. If we were closing, outbound is now drained. For graceful (or protocol-error)
+            //    shutdowns, transition to `Drained` and wait for the peer to close its write half —
+            //    otherwise the peer sees our drop as a reset rather than a clean close. For
+            //    I/O-error shutdowns the transport is already untrustworthy, so skip the drain.
             if self.state == DriverState::Closing {
-                return Poll::Ready(self.finish_with_current_outcome());
+                if matches!(self.close_outcome, Some(CloseOutcome::Io(_))) {
+                    return Poll::Ready(self.finish_with_current_outcome());
+                }
+                self.state = DriverState::Drained;
             }
 
-            // 5. Server-initiated shutdown check. Post-shutdown re-polls are harmless for this
-            //    `ShuttingDown` (event_listener-backed, not single-shot), and begin_close flips us
-            //    to `Closing` so the guard above returns before we get here again anyway.
-            if Pin::new(&mut self.shutting_down).poll(cx).is_ready() {
+            // 5. Server-initiated shutdown check. Only relevant while we're running — once we're
+            //    past the Closing/Drained transition we've already committed to a close and
+            //    re-observing the swansong here would re-enter begin_close in a loop. Post-shutdown
+            //    re-polls of `ShuttingDown` are harmless themselves (event_listener-backed, not
+            //    single-shot) but the re-entry isn't.
+            if self.state == DriverState::Running
+                && Pin::new(&mut self.shutting_down).poll(cx).is_ready()
+            {
                 self.begin_close(CloseOutcome::Graceful);
                 continue;
             }
@@ -400,6 +430,13 @@ where
                 },
 
                 DriverState::Closing => unreachable!("handled above once write_buf is drained"),
+
+                DriverState::Drained => match self.poll_drain_peer(cx) {
+                    Poll::Ready(()) => {
+                        return Poll::Ready(self.finish_with_current_outcome());
+                    }
+                    Poll::Pending => return Poll::Pending,
+                },
             }
         }
     }
@@ -415,12 +452,16 @@ where
     }
 
     /// Scan streams for conn-task-side signals that the driver should turn into driver-
-    /// internal state. Two signals:
+    /// internal state. Three signals:
     /// - `recv.is_reading` (lazy `WINDOW_UPDATE`): conn task declared intent to read the request
     ///   body; emit a `WINDOW_UPDATE` topping the per-stream recv window up.
     /// - `send.submission` (response handoff): conn task called `submit_send`; move the submission
     ///   into the driver's private `SendCursor` so the next `advance_outbound_sends` tick can start
     ///   framing.
+    /// - `pending_reset` (stream-error request): conn-task side (e.g. `ReceivedBody`'s
+    ///   content-length guard) called
+    ///   [`H2Connection::stream_error`][super::H2Connection::stream_error]; emit `RST_STREAM` and
+    ///   clean the stream up via `complete_and_remove_stream`.
     ///
     /// Each stream's `StreamEntry` caches whether the corresponding driver-side action has
     /// already happened so we don't re-emit on every scan.
@@ -460,6 +501,32 @@ where
                 entry.send = Some(SendCursor::new(submission));
             }
         }
+
+        // Pick up stream-error requests. Collect first, act second — same reason as the
+        // window-advertise pass above.
+        let resets: Vec<(u32, H2ErrorCode)> = self
+            .streams
+            .iter()
+            .filter_map(|(&id, entry)| {
+                entry
+                    .shared
+                    .pending_reset
+                    .lock()
+                    .expect("pending_reset mutex poisoned")
+                    .take()
+                    .map(|code| (id, code))
+            })
+            .collect();
+        for (stream_id, code) in resets {
+            log::debug!("h2 stream {stream_id}: conn-task-requested RST_STREAM({code:?})");
+            self.queue_rst_stream(stream_id, code);
+            self.complete_and_remove_stream(
+                stream_id,
+                Err(io::Error::other(format!(
+                    "stream reset requested by conn task: {code:?}"
+                ))),
+            );
+        }
     }
 
     /// True if any stream has a conn-task signal pending that we haven't yet serviced. Used
@@ -473,6 +540,11 @@ where
                     .submission
                     .lock()
                     .expect("send submission mutex poisoned")
+                    .is_some()
+                || e.shared
+                    .pending_reset
+                    .lock()
+                    .expect("pending_reset mutex poisoned")
                     .is_some()
         })
     }
@@ -530,6 +602,42 @@ where
             self.read_filled += n;
         }
         Poll::Ready(Ok(()))
+    }
+
+    /// Post-GOAWAY, drain whatever inbound bytes are *immediately* available from the
+    /// peer so our Drop sends a clean FIN (no unread data → no TCP RST) while the peer
+    /// sees the GOAWAY we just emitted. Read loops internally: consume each Ready chunk,
+    /// discard it, ask for more. Exits as soon as the transport returns `Pending` (no
+    /// bytes available right now) OR `Ready(0)` (peer FIN already arrived) OR any error.
+    ///
+    /// Does **not** register the waker on `Pending` — we're actively closing, not
+    /// observing the peer. A peer that happens to send more bytes after our exit will
+    /// have those bytes dropped when the transport is closed; that's a race the peer
+    /// chose to lose by sending after receiving our GOAWAY.
+    ///
+    /// Returning `Ready(())` unconditionally (no `Pending` case) lets the caller finalize
+    /// immediately. The `Poll` wrapper is kept for symmetry with the rest of the driver's
+    /// poll-style methods.
+    fn poll_drain_peer(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        // A peer flooding us with bytes could keep this loop going a long time. Cap it
+        // so a pathological client can't pin our close-out forever.
+        const MAX_DISCARD_ITERATIONS: usize = 256;
+        // Lightweight scratch — we're throwing it away. 512 balances "drain in few
+        // iterations" against "don't hold a large buffer for a rare path."
+        let mut scratch = [0u8; 512];
+        for _ in 0..MAX_DISCARD_ITERATIONS {
+            // We pass `cx` through for the benefit of the transport's `poll_read` contract,
+            // but we *interpret* `Pending` as "done draining" rather than parking on it —
+            // we're actively closing, not observing. A peer that sends more bytes after
+            // our exit loses the race.
+            match Pin::new(&mut self.transport).poll_read(cx, &mut scratch) {
+                Poll::Ready(Ok(0) | Err(_)) | Poll::Pending => {
+                    return Poll::Ready(());
+                }
+                Poll::Ready(Ok(_)) => {}
+            }
+        }
+        Poll::Ready(())
     }
 
     /// Drain `write_buf[write_cursor..]` to the transport, then flush if bytes were

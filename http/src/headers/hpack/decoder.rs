@@ -24,6 +24,7 @@ mod rfc7541_vectors;
 mod tests;
 
 use super::{
+    HpackDecodeError,
     dynamic_table::{DynamicTable, Entry},
     static_table::{StaticHeaderName, static_entry},
 };
@@ -37,6 +38,23 @@ use crate::{
     },
 };
 use std::borrow::Cow;
+
+/// Spec-defined request malformations (RFC 9113 §8.1.2) the decoder is in a position to
+/// detect. Each variant maps to a stream-level `PROTOCOL_ERROR`.
+///
+/// Intentionally payload-free — the caller only needs to know *that* something was
+/// malformed to decide the response; which specific pseudo triggered it lives in the
+/// debug log via trace-level logging inside the decoder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MalformedRequest {
+    /// A pseudo-header field appeared twice in the same block (§8.1.2.3). First occurrence
+    /// is kept in the returned section; the duplicate is dropped. This reason still
+    /// surfaces as an error so the caller doesn't proceed with a silently truncated set.
+    DuplicatePseudoHeader,
+    /// A pseudo-header appeared after a regular header (§8.1.2.1). Pseudos MUST precede
+    /// every regular header in the block.
+    PseudoHeaderAfterRegular,
+}
 
 // First-byte masks (RFC 7541 §6).
 //
@@ -62,10 +80,17 @@ pub(in crate::headers) fn decode(
     mut input: &[u8],
     table: &mut DynamicTable,
     protocol_max_table_size: usize,
-) -> Result<FieldSection<'static>, CompressionError> {
+) -> Result<FieldSection<'static>, HpackDecodeError> {
     let mut pseudo_headers = PseudoHeaders::default();
     let mut headers = Headers::new();
     let mut size_updates_allowed = true;
+    // §8.1.2.1 ordering: pseudos MUST precede all regular headers. Set once the first
+    // regular header lands; any subsequent pseudo is malformed.
+    let mut saw_regular = false;
+    // First malformation detected. We keep decoding after detection so the dynamic table
+    // stays consistent with the peer's model (aborting mid-block would leave their
+    // incremental-indexing inserts applied on their side but not ours).
+    let mut malformed: Option<MalformedRequest> = None;
 
     while !input.is_empty() {
         let first = input[0];
@@ -74,11 +99,18 @@ pub(in crate::headers) fn decode(
             // §6.1 Indexed Header Field
             let (index, rest) = integer_prefix::decode(input, 7)?;
             if index == 0 {
-                return Err(CompressionError::InvalidStaticIndex(0));
+                return Err(CompressionError::InvalidStaticIndex(0).into());
             }
             size_updates_allowed = false;
             input = rest;
-            emit_indexed(index, table, &mut pseudo_headers, &mut headers)?;
+            emit_indexed(
+                index,
+                table,
+                &mut pseudo_headers,
+                &mut headers,
+                &mut saw_regular,
+                &mut malformed,
+            )?;
         } else if first & LITERAL_WITH_INDEXING != 0 {
             // §6.2.1 Literal Header Field with Incremental Indexing
             let (index, rest) = integer_prefix::decode(input, 6)?;
@@ -91,17 +123,24 @@ pub(in crate::headers) fn decode(
             // the decoded header list and inserting it as a new entry into the dynamic
             // table."
             table.insert(name.clone(), value.clone());
-            emit_literal(name, value, &mut pseudo_headers, &mut headers)?;
+            emit_literal(
+                name,
+                value,
+                &mut pseudo_headers,
+                &mut headers,
+                &mut saw_regular,
+                &mut malformed,
+            )?;
         } else if first & SIZE_UPDATE != 0 {
             // §6.3 Dynamic Table Size Update
             if !size_updates_allowed {
                 // §4.2: updates MUST occur before any field representation.
-                return Err(CompressionError::UnexpectedEnd);
+                return Err(CompressionError::UnexpectedEnd.into());
             }
             let (new_max, rest) = integer_prefix::decode(input, 5)?;
             if new_max > protocol_max_table_size {
                 // §6.3: MUST treat as decoding error.
-                return Err(CompressionError::InvalidStaticIndex(new_max));
+                return Err(CompressionError::InvalidStaticIndex(new_max).into());
             }
             input = rest;
             table.set_max_size(new_max);
@@ -112,17 +151,34 @@ pub(in crate::headers) fn decode(
             size_updates_allowed = false;
             input = rest;
             // TODO(n-bit): preserve the "never indexed" signal through to intermediaries.
-            emit_literal(name, value, &mut pseudo_headers, &mut headers)?;
+            emit_literal(
+                name,
+                value,
+                &mut pseudo_headers,
+                &mut headers,
+                &mut saw_regular,
+                &mut malformed,
+            )?;
         } else {
             // §6.2.2 Literal Header Field without Indexing — 0000xxxx prefix
             let (index, rest) = integer_prefix::decode(input, 4)?;
             let (name, value, rest) = read_literal_name_value(rest, index, table)?;
             size_updates_allowed = false;
             input = rest;
-            emit_literal(name, value, &mut pseudo_headers, &mut headers)?;
+            emit_literal(
+                name,
+                value,
+                &mut pseudo_headers,
+                &mut headers,
+                &mut saw_regular,
+                &mut malformed,
+            )?;
         }
     }
 
+    if let Some(reason) = malformed {
+        return Err(HpackDecodeError::MalformedRequest(reason));
+    }
     Ok(FieldSection::from_owned(pseudo_headers, headers))
 }
 
@@ -133,17 +189,26 @@ fn emit_indexed(
     table: &DynamicTable,
     pseudo_headers: &mut PseudoHeaders<'static>,
     headers: &mut Headers,
+    saw_regular: &mut bool,
+    malformed: &mut Option<MalformedRequest>,
 ) -> Result<(), CompressionError> {
     if index <= 61 {
         let (name, value) = static_entry(index)?;
         let value_bytes = FieldLineValue::Static(value.as_bytes());
-        emit_from_entry_ref(*name, value_bytes, pseudo_headers, headers)
+        emit_from_entry_ref(
+            *name,
+            value_bytes,
+            pseudo_headers,
+            headers,
+            saw_regular,
+            malformed,
+        )
     } else {
         let dyn_index = index - 61;
         let entry = table
             .get(dyn_index)
             .ok_or(CompressionError::InvalidStaticIndex(index))?;
-        emit_from_entry(entry, pseudo_headers, headers)
+        emit_from_entry(entry, pseudo_headers, headers, saw_regular, malformed)
     }
 }
 
@@ -205,8 +270,16 @@ fn emit_literal(
     value: FieldLineValue<'static>,
     pseudo_headers: &mut PseudoHeaders<'static>,
     headers: &mut Headers,
+    saw_regular: &mut bool,
+    malformed: &mut Option<MalformedRequest>,
 ) -> Result<(), CompressionError> {
-    emit_from_entry(&Entry { name, value }, pseudo_headers, headers)
+    emit_from_entry(
+        &Entry { name, value },
+        pseudo_headers,
+        headers,
+        saw_regular,
+        malformed,
+    )
 }
 
 /// Route a `StaticHeaderName` + static `FieldLineValue` into pseudos or headers.
@@ -215,6 +288,8 @@ fn emit_from_entry_ref(
     value: FieldLineValue<'static>,
     pseudo_headers: &mut PseudoHeaders<'static>,
     headers: &mut Headers,
+    saw_regular: &mut bool,
+    malformed: &mut Option<MalformedRequest>,
 ) -> Result<(), CompressionError> {
     let entry_name: EntryName<'static> = name.into();
     emit_from_entry(
@@ -224,61 +299,101 @@ fn emit_from_entry_ref(
         },
         pseudo_headers,
         headers,
+        saw_regular,
+        malformed,
     )
 }
 
 /// Shared emission path — takes a borrowed entry (owned by caller, cloned into Headers when
-/// needed) and dispatches to pseudo/header accumulators with first-wins pseudo semantics.
+/// needed) and dispatches to pseudo/header accumulators. Tracks §8.1.2.1 ordering
+/// (pseudos-before-regulars) and §8.1.2.3 pseudo uniqueness — both surface as
+/// [`MalformedRequest`] via the shared `malformed` slot so the caller can translate to the
+/// appropriate stream-level error.
 fn emit_from_entry(
     entry: &Entry,
     pseudo_headers: &mut PseudoHeaders<'static>,
     headers: &mut Headers,
+    saw_regular: &mut bool,
+    malformed: &mut Option<MalformedRequest>,
 ) -> Result<(), CompressionError> {
     let value_bytes: &[u8] = entry.value.as_bytes();
     match &entry.name {
         EntryName::Known(k) => {
+            *saw_regular = true;
             headers.append(
                 HeaderName::from(*k),
                 HeaderValue::from(value_bytes.to_vec()),
             );
         }
         EntryName::Unknown(u) => {
+            *saw_regular = true;
             headers.append(
                 HeaderName::from(u.clone().into_owned()),
                 HeaderValue::from(value_bytes.to_vec()),
             );
         }
-        EntryName::Pseudo(PseudoHeaderName::Method) => {
-            let m = Method::parse(value_bytes).map_err(|_| CompressionError::InvalidHeaderName)?;
-            pseudo_headers.method_mut().get_or_insert(m);
+        EntryName::Pseudo(pseudo) => {
+            if *saw_regular {
+                log::trace!("hpack: pseudo-header after regular: {pseudo:?}");
+                malformed.get_or_insert(MalformedRequest::PseudoHeaderAfterRegular);
+            }
+            insert_pseudo(*pseudo, value_bytes, pseudo_headers, malformed)?;
         }
-        EntryName::Pseudo(PseudoHeaderName::Status) => {
+    }
+    Ok(())
+}
+
+/// Insert a decoded pseudo-header with first-wins semantics, flagging duplicates via the
+/// shared `malformed` slot (§8.1.2.3). The second occurrence is dropped; the caller is
+/// expected to fail the stream once decode returns, so preserving faithful "original order"
+/// content doesn't matter — the invariant that matters is that `malformed` is set.
+fn insert_pseudo(
+    pseudo: PseudoHeaderName,
+    value_bytes: &[u8],
+    pseudo_headers: &mut PseudoHeaders<'static>,
+    malformed: &mut Option<MalformedRequest>,
+) -> Result<(), CompressionError> {
+    let slot_filled = match pseudo {
+        PseudoHeaderName::Method => pseudo_headers.method().is_some(),
+        PseudoHeaderName::Status => pseudo_headers.status().is_some(),
+        PseudoHeaderName::Authority => pseudo_headers.authority().is_some(),
+        PseudoHeaderName::Path => pseudo_headers.path().is_some(),
+        PseudoHeaderName::Scheme => pseudo_headers.scheme().is_some(),
+        PseudoHeaderName::Protocol => pseudo_headers.protocol().is_some(),
+    };
+    if slot_filled {
+        log::trace!("hpack: duplicate pseudo-header: {pseudo:?}");
+        malformed.get_or_insert(MalformedRequest::DuplicatePseudoHeader);
+        return Ok(());
+    }
+
+    match pseudo {
+        PseudoHeaderName::Method => {
+            let m = Method::parse(value_bytes).map_err(|_| CompressionError::InvalidHeaderName)?;
+            pseudo_headers.set_method(Some(m));
+        }
+        PseudoHeaderName::Status => {
             let s: Status = std::str::from_utf8(value_bytes)
                 .map_err(|_| CompressionError::InvalidHeaderName)?
                 .parse()
                 .map_err(|_| CompressionError::InvalidHeaderName)?;
-            pseudo_headers.status_mut().get_or_insert(s);
+            pseudo_headers.set_status(Some(s));
         }
-        EntryName::Pseudo(other) => {
+        PseudoHeaderName::Authority
+        | PseudoHeaderName::Path
+        | PseudoHeaderName::Scheme
+        | PseudoHeaderName::Protocol => {
             let s = std::str::from_utf8(value_bytes)
                 .map_err(|_| CompressionError::InvalidHeaderName)?
                 .to_owned();
             let cow: Cow<'static, str> = Cow::Owned(s);
-            match other {
-                PseudoHeaderName::Authority => {
-                    pseudo_headers.authority_mut().get_or_insert(cow);
-                }
-                PseudoHeaderName::Path => {
-                    pseudo_headers.path_mut().get_or_insert(cow);
-                }
-                PseudoHeaderName::Scheme => {
-                    pseudo_headers.scheme_mut().get_or_insert(cow);
-                }
-                PseudoHeaderName::Protocol => {
-                    pseudo_headers.protocol_mut().get_or_insert(cow);
-                }
+            match pseudo {
+                PseudoHeaderName::Authority => pseudo_headers.set_authority(Some(cow)),
+                PseudoHeaderName::Path => pseudo_headers.set_path(Some(cow)),
+                PseudoHeaderName::Scheme => pseudo_headers.set_scheme(Some(cow)),
+                PseudoHeaderName::Protocol => pseudo_headers.set_protocol(Some(cow)),
                 PseudoHeaderName::Method | PseudoHeaderName::Status => unreachable!(),
-            }
+            };
         }
     }
     Ok(())

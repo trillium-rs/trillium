@@ -131,6 +131,30 @@ impl H2Connection {
             .take()
     }
 
+    /// Request that the driver emit `RST_STREAM` on this stream with the given error code
+    /// and clean up. Called from the conn-task side when something in its path (e.g. a
+    /// body-read that detected a content-length violation — RFC 9113 §8.1.2.6) needs the
+    /// stream torn down but can't touch the driver's private state directly.
+    ///
+    /// Side effects: stashes the code on `StreamState.pending_reset` and wakes the driver.
+    /// A no-op if the stream is already gone from the shared map — that happens when the
+    /// driver has already closed the stream for its own reasons. Idempotent; only the first
+    /// call takes effect, subsequent calls see the slot still filled and do nothing.
+    pub(crate) fn stream_error(&self, stream_id: u32, code: super::H2ErrorCode) {
+        let Some(stream) = self.streams_lock().get(&stream_id).cloned() else {
+            return;
+        };
+        let mut slot = stream
+            .pending_reset
+            .lock()
+            .expect("pending_reset mutex poisoned");
+        if slot.is_none() {
+            *slot = Some(code);
+            drop(slot);
+            self.outbound_waker.wake();
+        }
+    }
+
     /// Bind this `H2Connection` to a TCP transport and return an [`H2Acceptor`] that drives
     /// the connection.
     ///

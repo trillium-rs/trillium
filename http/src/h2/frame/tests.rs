@@ -233,14 +233,24 @@ fn goaway_on_nonzero_stream_is_protocol_error() {
 }
 
 #[test]
-fn priority_parse_and_discard() {
+fn priority_parse_and_surface() {
     // exclusive=1, dep=3, weight=16 (wire byte = 15)
     let mut payload = [0u8; 5];
     payload[0..4].copy_from_slice(&(0x8000_0003u32).to_be_bytes());
     payload[4] = 15;
     let buf = encode_frame(FrameType::Priority, 0, 7, &payload);
     let (frame, _) = Frame::decode(&buf).unwrap();
-    assert_eq!(frame, Frame::Priority { stream_id: 7 });
+    assert_eq!(
+        frame,
+        Frame::Priority {
+            stream_id: 7,
+            priority: PriorityInfo {
+                exclusive: true,
+                stream_dependency: 3,
+                weight: 16,
+            },
+        },
+    );
 }
 
 #[test]

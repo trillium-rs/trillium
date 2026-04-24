@@ -166,6 +166,15 @@ pub(super) struct StreamState {
     /// Send side: handoff slot from the conn task's `submit_send`, plus completion signaling
     /// the conn task awaits.
     pub(super) send: SendState,
+    /// Stream-error request raised from the conn-task side. Populated by
+    /// [`H2Connection::stream_error`][super::H2Connection::stream_error] when something on
+    /// the conn-task side (a body-read that detects content-length mismatch, a handler
+    /// that wants to abort) needs the driver to emit `RST_STREAM` and clean up. The driver
+    /// picks this up in `service_handler_signals` on its next tick and routes through
+    /// [`H2Acceptor::complete_and_remove_stream`][super::H2Acceptor]'s normal cleanup path.
+    ///
+    /// [`H2Acceptor`]: super::H2Acceptor
+    pub(super) pending_reset: Mutex<Option<super::H2ErrorCode>>,
 }
 
 /// Receive-side per-stream state.

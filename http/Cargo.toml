@@ -16,9 +16,6 @@ http-compat-0 = ["dep:http0"]
 http-compat-1 = ["dep:http1"]
 serde = ["dep:serde"]
 parse = []
-# Enables the h2spec conformance test (`http/tests/h2spec.rs`). Off by default because the test
-# shells out to the external `h2spec` Go binary; CI installs it, local runs are opt-in.
-h2-conformance = []
 
 [dependencies]
 encoding_rs = "0.8.35"

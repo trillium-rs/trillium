@@ -6,8 +6,9 @@
 //! `super::*` for everything it needs from the parent.
 
 use super::{
-    Action, CloseOutcome, H2Acceptor, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW, ReadPhase,
-    StreamEntry, frame_slice, io_to_outcome,
+    Action, CloseOutcome, H2Acceptor, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
+    OUR_MAX_CONCURRENT_STREAMS, OUR_MAX_FRAME_SIZE, ReadPhase, StreamEntry, frame_slice,
+    io_to_outcome,
 };
 use crate::{
     Conn,
@@ -16,6 +17,7 @@ use crate::{
         frame::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader},
         transport::{H2Transport, StreamState},
     },
+    headers::hpack::HpackDecodeError,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -55,9 +57,13 @@ where
             ready!(self.poll_fill_to(FRAME_HEADER_LEN, cx)).map_err(io_to_outcome)?;
             let header = FrameHeader::decode(&self.read_buf[..FRAME_HEADER_LEN])
                 .expect("FRAME_HEADER_LEN bytes already filled");
+            // RFC 9113 §4.2: a frame whose length exceeds the receiver-advertised
+            // `SETTINGS_MAX_FRAME_SIZE` is a `FRAME_SIZE_ERROR`. We also enforce
+            // [`MAX_BUFFER_SIZE`] as a DoS guard — it's the higher of the two limits, but
+            // belt-and-suspenders against a future change that raises the advertised max.
             let payload_len = usize::try_from(header.length)
                 .ok()
-                .filter(|n| *n <= MAX_BUFFER_SIZE)
+                .filter(|n| *n <= OUR_MAX_FRAME_SIZE as usize && *n <= MAX_BUFFER_SIZE)
                 .ok_or(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
             let total = FRAME_HEADER_LEN + payload_len;
             self.read_phase = ReadPhase::NeedPayload { header, total };
@@ -145,12 +151,14 @@ where
                 stream_id,
                 end_stream,
                 end_headers,
+                priority,
                 header_block_length,
                 ..
             } => self.handle_headers(
                 stream_id,
                 end_stream,
                 end_headers,
+                priority,
                 header_block_length,
                 payload_start,
                 total,
@@ -183,17 +191,40 @@ where
                 self.apply_window_update(stream_id, increment)?;
                 Ok(Action::Continue)
             }
+            Frame::Priority {
+                stream_id,
+                priority,
+            } => {
+                self.handle_priority(stream_id, priority);
+                Ok(Action::Continue)
+            }
+            Frame::RstStream { stream_id, .. } => {
+                // §5.1: `RST_STREAM` on an idle stream is a connection-level
+                // `PROTOCOL_ERROR`; on a closed or active stream it's benign.
+                if stream_id > self.last_peer_stream_id && !self.streams.contains_key(&stream_id) {
+                    return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+                }
+                Ok(Action::Continue)
+            }
             // §6.6 PUSH_PROMISE from a client is a connection error; §6.10 CONTINUATION
             // without an in-progress header block is too (but pending_headers==Some is
             // handled via the match arm above).
             Frame::PushPromise { .. } => Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)),
             // Benign frames whose effect isn't yet implemented. Tolerate to keep the
             // handshake clean until the relevant phases.
-            Frame::SettingsAck
-            | Frame::Ping { ack: true, .. }
-            | Frame::RstStream { .. }
-            | Frame::Priority { .. }
-            | Frame::Unknown { .. } => Ok(Action::Continue),
+            Frame::SettingsAck | Frame::Ping { ack: true, .. } | Frame::Unknown { .. } => {
+                Ok(Action::Continue)
+            }
+        }
+    }
+
+    /// §5.3.1 / §6.3: PRIORITY frames on idle streams are allowed (they don't open the
+    /// stream but record priority). A PRIORITY frame that names its own stream as its
+    /// dependency is a stream-level `PROTOCOL_ERROR`. We don't use the priority info
+    /// ourselves — RFC 9113 deprecated the scheme — but we validate for conformance.
+    fn handle_priority(&mut self, stream_id: u32, priority: crate::h2::frame::PriorityInfo) {
+        if priority.stream_dependency == stream_id {
+            self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
         }
     }
 
@@ -203,11 +234,13 @@ where
     /// A HEADERS frame on an *existing* stream is trailers (RFC 9113 §8.1). Accumulation is
     /// identical to an initial HEADERS block; the branch between "initial request HEADERS"
     /// and "trailers" happens in [`Self::finalize_headers`] against the current streams map.
+    #[allow(clippy::too_many_arguments)]
     fn handle_headers(
         &mut self,
         stream_id: u32,
         end_stream: bool,
         end_headers: bool,
+        priority: Option<crate::h2::frame::PriorityInfo>,
         header_block_length: u32,
         payload_start: usize,
         total: usize,
@@ -217,9 +250,44 @@ where
             return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
         // Trailer HEADERS on an existing stream: must be strictly equal to a known id.
-        // New-stream HEADERS: strictly greater than `last_peer_stream_id`.
-        if !self.streams.contains_key(&stream_id) && stream_id <= self.last_peer_stream_id {
+        // New-stream HEADERS: strictly greater than `last_peer_stream_id`. A lower id
+        // that is no longer active could be either an out-of-order HEADERS (§5.1.1 —
+        // connection error) or a frame on a stream the peer previously closed (§5.1 —
+        // connection error of type STREAM_CLOSED is permitted). Both forms are
+        // connection-level; h2spec expects that. Distinguishing "closed via RST_STREAM"
+        // from those (which the spec wants stream-level on) would need a separate
+        // recently-reset set — deferred.
+        let is_new_stream = !self.streams.contains_key(&stream_id);
+        if is_new_stream && stream_id <= self.last_peer_stream_id {
             return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+        }
+
+        // §5.3.1: a stream cannot depend on itself. Stream-level PROTOCOL_ERROR — the
+        // connection stays alive; just RST this stream and advance past it.
+        if let Some(p) = priority
+            && p.stream_dependency == stream_id
+        {
+            log::debug!("h2 stream {stream_id}: HEADERS depends on itself; RST_STREAM");
+            self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
+            // Advance `last_peer_stream_id` so the peer can't reuse this id.
+            if is_new_stream {
+                self.last_peer_stream_id = stream_id;
+            }
+            return Ok(Action::Continue);
+        }
+
+        // §5.1.2: peer-initiated streams beyond our advertised
+        // `SETTINGS_MAX_CONCURRENT_STREAMS` get `RST_STREAM(RefusedStream)`. The identifier
+        // is still "consumed" per §5.1.1 ("The identifier of a refused stream is not
+        // reused") so bump `last_peer_stream_id`.
+        if is_new_stream && self.streams.len() >= OUR_MAX_CONCURRENT_STREAMS {
+            log::debug!(
+                "h2 stream {stream_id}: concurrent stream limit reached \
+                 ({OUR_MAX_CONCURRENT_STREAMS})"
+            );
+            self.queue_rst_stream(stream_id, H2ErrorCode::RefusedStream);
+            self.last_peer_stream_id = stream_id;
+            return Ok(Action::Continue);
         }
 
         let fragment = frame_slice(&self.read_buf, payload_start, header_block_length, total)?;
@@ -278,19 +346,44 @@ where
     ///   stream-level §8.1 violation queues `RST_STREAM(PROTOCOL_ERROR)` on the offending stream
     ///   and leaves the connection open.
     ///
-    /// HPACK decode failures, by contrast, are connection-level: the dynamic table state
-    /// is now untrustworthy for *every* future stream on this connection, so we bubble
-    /// them up as a `CloseOutcome::Protocol`.
+    /// HPACK decode failures split by variant: wire-format compression errors are
+    /// connection-level (dynamic table now untrusted for every future stream — bubble up as
+    /// `CloseOutcome::Protocol`), while spec-defined request malformation is stream-level
+    /// (`RST_STREAM(PROTOCOL_ERROR)` and the connection continues).
     fn finalize_headers(
         &mut self,
         stream_id: u32,
         end_stream: bool,
         block: &[u8],
     ) -> Result<Action, CloseOutcome> {
-        let field_section = self.hpack.decode(block).map_err(|e| match e.into() {
-            H2Error::Protocol(code) => CloseOutcome::Protocol(code),
-            H2Error::Io(e) => CloseOutcome::Io(e),
-        })?;
+        let field_section = match self.hpack.decode(block) {
+            Ok(fs) => fs,
+            Err(HpackDecodeError::Compression(e)) => {
+                let h2err: H2Error = e.into();
+                return Err(match h2err {
+                    H2Error::Protocol(code) => CloseOutcome::Protocol(code),
+                    H2Error::Io(e) => CloseOutcome::Io(e),
+                });
+            }
+            Err(HpackDecodeError::MalformedRequest(reason)) => {
+                log::debug!("h2 stream {stream_id}: malformed request headers: {reason:?}");
+                // Stream-level per §8.1.2. Pre-stream-open: just RST; post-open
+                // (trailer path): drive through the completion helper to clean up send
+                // state if any.
+                if self.streams.contains_key(&stream_id) {
+                    self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
+                    self.complete_and_remove_stream(
+                        stream_id,
+                        Err(std::io::Error::other(
+                            "malformed h2 request trailer header block",
+                        )),
+                    );
+                } else {
+                    self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
+                }
+                return Ok(Action::Continue);
+            }
+        };
 
         if self.streams.contains_key(&stream_id) {
             self.finalize_trailers(stream_id, end_stream, field_section);
@@ -379,6 +472,15 @@ where
     /// A DATA frame arrived — copy its payload into the matching stream's recv buffer and
     /// wake the handler. Padding bytes are part of the already-read frame body and are
     /// skipped (they're in the buffer but not pushed).
+    ///
+    /// Stream-state errors per RFC 9113 §5.1 / §6.1:
+    /// - **Idle** (`stream_id` > `last_peer_stream_id`): DATA on an unopened stream is a
+    ///   connection-level `PROTOCOL_ERROR`.
+    /// - **Closed** (`stream_id` ≤ `last_peer_stream_id`, not in active map): stream-level
+    ///   `RST_STREAM(STREAM_CLOSED)`. Sent after-the-fact — peer has already written this frame and
+    ///   we've already read it off the wire.
+    /// - **Half-closed remote** (in map, `recv.eof` already set): same stream-level
+    ///   `STREAM_CLOSED`.
     fn route_data(
         &mut self,
         stream_id: u32,
@@ -390,11 +492,28 @@ where
     ) -> Result<(), CloseOutcome> {
         let _ = padding_length; // padding is skipped — we only push the data portion
 
-        let entry = self
-            .streams
-            .get(&stream_id)
-            .ok_or(CloseOutcome::Protocol(H2ErrorCode::StreamClosed))?;
+        let Some(entry) = self.streams.get(&stream_id) else {
+            return if stream_id > self.last_peer_stream_id {
+                // Idle — never opened; connection error.
+                Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError))
+            } else {
+                // Closed — stream-level.
+                self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
+                Ok(())
+            };
+        };
         let state = &entry.shared;
+
+        // Half-closed remote: peer already sent END_STREAM on this stream; any DATA after
+        // that is stream-level STREAM_CLOSED.
+        if state.recv.eof.load(Ordering::Acquire) {
+            self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
+            self.complete_and_remove_stream(
+                stream_id,
+                Err(std::io::Error::other("DATA after END_STREAM on h2 stream")),
+            );
+            return Ok(());
+        }
 
         let data = frame_slice(&self.read_buf, payload_start, data_length, total)?;
 
@@ -504,7 +623,13 @@ where
         }
 
         let Some(entry) = self.streams.get_mut(&stream_id) else {
-            log::trace!("WINDOW_UPDATE on unknown stream {stream_id} — ignoring");
+            // §5.1: WINDOW_UPDATE on an idle stream is a connection error. On a closed
+            // stream it's benign (the peer may credit a just-closed stream before it
+            // observed our END_STREAM).
+            if stream_id > self.last_peer_stream_id {
+                return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+            }
+            log::trace!("WINDOW_UPDATE on closed stream {stream_id} — ignoring");
             return Ok(());
         };
         let new = entry.send_window + inc;
