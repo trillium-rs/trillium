@@ -40,8 +40,16 @@ pub(super) struct SendCursor {
     /// the Body phase next.
     has_body: bool,
     /// Body source. Driver polls `body.poll_read` to fill DATA frames; transitions to None
-    /// once drained (a 0-byte read).
+    /// once drained (a 0-byte read) or once `body_bytes_emitted == body_len`.
     body: Option<Body>,
+    /// Declared `Body::len` at cursor creation, if known. When `Some(n)` and
+    /// `body_bytes_emitted == n`, we can transition out of the Body phase without another
+    /// `body.poll_read` — important when send flow-control windows are exactly at zero on
+    /// the last byte: without this, we'd wait for a superfluous `WINDOW_UPDATE` before
+    /// detecting EOF.
+    body_len: Option<u64>,
+    /// Cumulative DATA payload bytes emitted from the body.
+    body_bytes_emitted: u64,
     /// Trailers, populated from `body.trailers()` once the body is fully drained.
     trailers: Option<Headers>,
     /// Where we are in the response.
@@ -51,11 +59,14 @@ pub(super) struct SendCursor {
 impl SendCursor {
     pub(super) fn new(submission: Submission) -> Self {
         let has_body = submission.body.is_some();
+        let body_len = submission.body.as_ref().and_then(Body::len);
         Self {
             encoded_headers: submission.encoded_headers,
             headers_offset: 0,
             has_body,
             body: submission.body,
+            body_len,
+            body_bytes_emitted: 0,
             trailers: None,
             phase: SendPhase::Headers,
         }
@@ -150,7 +161,11 @@ where
     /// both the driver's private map and `H2Connection.streams`. After this the conn
     /// task's pending `SubmitSend` future will see `completed = true` on its next poll
     /// and resolve.
-    fn complete_and_remove_stream(&mut self, stream_id: u32, result: io::Result<()>) {
+    pub(super) fn complete_and_remove_stream(
+        &mut self,
+        stream_id: u32,
+        result: io::Result<()>,
+    ) {
         if let Some(entry) = self.streams.remove(&stream_id) {
             signal_send_completion(&entry.shared, result);
         }
@@ -226,26 +241,47 @@ where
         }
     }
 
-    /// Poll the body for one DATA chunk. On `Ready(Ok(0))`, takes trailers off the body and
-    /// transitions to `Trailers`. On `Ready(Ok(n))`, emits one DATA frame (no
-    /// `END_STREAM`). On `Pending`, the cursor stays in `Body` — body's source will wake
-    /// the driver task.
+    /// Poll the body for one DATA chunk, respecting both per-stream and connection send
+    /// flow-control windows (RFC 9113 §6.9). On `Ready(Ok(0))`, takes trailers off the
+    /// body and transitions to `Trailers`. On `Ready(Ok(n))`, emits one DATA frame (no
+    /// `END_STREAM`) and decrements both windows by `n`. On `Pending`, the cursor stays in
+    /// `Body`:
+    /// - If the cause is no body bytes available, the body's source will wake the driver.
+    /// - If the cause is an exhausted window, the peer's next `WINDOW_UPDATE` (arriving
+    ///   on the read path) will wake the driver and the next tick will retry.
     fn poll_emit_one_data(
         &mut self,
         stream_id: u32,
         send: &mut SendCursor,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<()>> {
-        let Some(body) = send.body.as_mut() else {
-            // Body already drained but somehow we're still in Body phase — treat as 0-byte
-            // EOF.
+        // Fast path — body already drained (poll_read returned Ready(0) on a prior tick)
+        // OR we've already emitted the declared body length. Transition without polling.
+        // The Content-Length-known check is what lets us close out a stream whose window
+        // just barely sufficed for the body without waiting on a superfluous WINDOW_UPDATE
+        // to detect EOF.
+        if send.body.is_none() || send.body_len == Some(send.body_bytes_emitted) {
+            send.trailers = send.body.as_mut().and_then(Body::trailers);
+            send.body = None;
             send.phase = SendPhase::Trailers;
             return Poll::Ready(Ok(()));
-        };
+        }
 
-        let n = ready!(Pin::new(body).poll_read(cx, &mut self.body_scratch))?;
+        // Budget = min(body_scratch capacity, stream send window, connection send window).
+        let stream_window = self.streams.get(&stream_id).map_or(0, |e| e.send_window);
+        let budget = stream_window.min(self.connection_send_window);
+        if budget <= 0 {
+            // Windows exhausted; peer WINDOW_UPDATE via the read path will wake us.
+            return Poll::Pending;
+        }
+        let cap = usize::try_from(budget)
+            .unwrap_or(usize::MAX)
+            .min(self.body_scratch.len());
+
+        let body = send.body.as_mut().expect("checked above");
+        let n = ready!(Pin::new(body).poll_read(cx, &mut self.body_scratch[..cap]))?;
         if n == 0 {
-            // Body drained. Take trailers off it, drop the body, transition.
+            // Body drained via a 0-byte read (unknown-length body reached EOF).
             send.trailers = send.body.as_mut().and_then(Body::trailers);
             send.body = None;
             send.phase = SendPhase::Trailers;
@@ -266,6 +302,26 @@ where
         .expect("buffer sized from encoded_prefix_len");
         self.write_buf.extend_from_slice(&self.body_scratch[..n]);
         self.write_flush_pending = true;
+
+        // Charge both windows. `n <= body_scratch.len() = MAX_DATA_CHUNK_SIZE` which
+        // comfortably fits i64 without wraparound.
+        let charge = i64::try_from(n).expect("n <= body_scratch.len() fits i64");
+        self.connection_send_window -= charge;
+        if let Some(entry) = self.streams.get_mut(&stream_id) {
+            entry.send_window -= charge;
+        }
+        send.body_bytes_emitted += n as u64;
+
+        // If body length is known and we just emitted the last byte, transition within
+        // this call so `advance_one_send`'s phase loop can fall through to
+        // `emit_trailers_or_end_stream` — otherwise we'd park in Body and wait for an
+        // external wake to notice EOF, which never comes (peer has nothing more to send).
+        if send.body_len == Some(send.body_bytes_emitted) {
+            send.trailers = send.body.as_mut().and_then(Body::trailers);
+            send.body = None;
+            send.phase = SendPhase::Trailers;
+        }
+
         Poll::Ready(Ok(()))
     }
 

@@ -78,6 +78,16 @@ const MAX_STREAM_WINDOW: u32 = 64 * 1024;
 /// peer's advertised max, which starts at the RFC 9113 §6.5.2 default of 16 KiB.
 const MAX_DATA_CHUNK_SIZE: u32 = 16_384;
 
+/// RFC 9113 §6.9.2: the initial connection-level flow-control window for both directions
+/// is 65535 octets, and it is **not** affected by `SETTINGS_INITIAL_WINDOW_SIZE` (which
+/// only governs *stream* windows).
+pub(super) const INITIAL_CONNECTION_SEND_WINDOW: i64 = 65_535;
+
+/// RFC 9113 §6.9.1: a flow-control window MUST NOT exceed `2^31 - 1`. If a
+/// `WINDOW_UPDATE` would push it past that maximum, the peer has misbehaved — we emit
+/// `FLOW_CONTROL_ERROR` at the appropriate level (connection or stream).
+pub(super) const MAX_FLOW_CONTROL_WINDOW: i64 = (1 << 31) - 1;
+
 /// Owns the per-connection TCP transport and drives the HTTP/2 demux loop.
 ///
 /// See the [module docs](self) for the high-level driver shape and how its impl is split
@@ -144,6 +154,14 @@ pub struct H2Acceptor<T> {
     /// Sized at [`MAX_DATA_CHUNK_SIZE`] — even if the peer permits larger frames we cap our
     /// DATA emissions here to bound per-connection memory.
     body_scratch: Vec<u8>,
+
+    /// Connection-level send flow-control window (RFC 9113 §6.9). Tracked as [`i64`] so
+    /// mid-connection `INITIAL_WINDOW_SIZE` reductions can drive per-stream windows
+    /// temporarily negative (§6.9.2) — kept here to the connection window for symmetry
+    /// though the connection window itself is *not* affected by `SETTINGS_INITIAL_WINDOW_SIZE`.
+    /// Decremented as we emit DATA; incremented by peer `WINDOW_UPDATE(stream_id=0, inc)`.
+    /// Overflow past [`MAX_FLOW_CONTROL_WINDOW`] is a connection-level `FLOW_CONTROL_ERROR`.
+    connection_send_window: i64,
 }
 
 /// Position of the connection in its high-level lifecycle.
@@ -202,14 +220,23 @@ struct StreamEntry {
     ///
     /// [`H2Connection::submit_send`]: super::H2Connection::submit_send
     send: Option<SendCursor>,
+
+    /// Per-stream send flow-control window (RFC 9113 §6.9). Seeded from
+    /// `peer_settings.effective_initial_window_size()` when the stream is opened;
+    /// decremented as we emit DATA frames; incremented by peer
+    /// `WINDOW_UPDATE(stream_id, inc)`; adjusted by `SETTINGS_INITIAL_WINDOW_SIZE` delta on
+    /// mid-connection SETTINGS change (§6.9.2 — may drive negative). Overflow past
+    /// [`MAX_FLOW_CONTROL_WINDOW`] is a stream-level `FLOW_CONTROL_ERROR` (→ `RST_STREAM`).
+    send_window: i64,
 }
 
 impl StreamEntry {
-    fn new(shared: Arc<StreamState>) -> Self {
+    pub(super) fn new(shared: Arc<StreamState>, send_window: i64) -> Self {
         Self {
             shared,
             window_advertised: false,
             send: None,
+            send_window,
         }
     }
 }
@@ -250,6 +277,7 @@ where
             close_outcome: None,
             finished: false,
             body_scratch: vec![0u8; MAX_DATA_CHUNK_SIZE as usize],
+            connection_send_window: INITIAL_CONNECTION_SEND_WINDOW,
         }
     }
 
@@ -359,9 +387,12 @@ where
                     Poll::Ready(Ok(Action::Close(outcome))) => {
                         self.begin_close(outcome);
                     }
+                    // Protocol errors need a GOAWAY on the wire before we terminate;
+                    // `begin_close` queues that and transitions us to Closing so the next
+                    // outer-loop iteration drains the frame. Io errors short-circuit with
+                    // no GOAWAY (`begin_close` already skips queuing for those).
                     Poll::Ready(Err(e)) => {
-                        self.close_outcome = Some(e);
-                        return Poll::Ready(self.finish_with_current_outcome());
+                        self.begin_close(e);
                     }
                     Poll::Pending => {
                         if self.park(cx) {

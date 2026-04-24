@@ -6,8 +6,8 @@
 //! `super::*` for everything it needs from the parent.
 
 use super::{
-    Action, CloseOutcome, H2Acceptor, MAX_BUFFER_SIZE, ReadPhase, StreamEntry, frame_slice,
-    io_to_outcome,
+    Action, CloseOutcome, H2Acceptor, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW, ReadPhase,
+    StreamEntry, frame_slice, io_to_outcome,
 };
 use crate::{
     Conn,
@@ -175,6 +175,13 @@ where
                 )?;
                 Ok(Action::Continue)
             }
+            Frame::WindowUpdate {
+                stream_id,
+                increment,
+            } => {
+                self.apply_window_update(stream_id, increment)?;
+                Ok(Action::Continue)
+            }
             // §6.6 PUSH_PROMISE from a client is a connection error; §6.10 CONTINUATION
             // without an in-progress header block is too (but pending_headers==Some is
             // handled via the match arm above).
@@ -183,7 +190,6 @@ where
             // handshake clean until the relevant phases.
             Frame::SettingsAck
             | Frame::Ping { ack: true, .. }
-            | Frame::WindowUpdate { .. }
             | Frame::RstStream { .. }
             | Frame::Priority { .. }
             | Frame::Unknown { .. } => Ok(Action::Continue),
@@ -281,11 +287,16 @@ where
             let _guard = state.recv.buf.lock().expect("recv buf mutex poisoned");
             state.recv.eof.store(true, Ordering::Release);
         }
+        let send_window = i64::from(
+            self.connection
+                .peer_settings()
+                .effective_initial_window_size(),
+        );
         self.connection
             .streams_lock()
             .insert(stream_id, state.clone());
         self.streams
-            .insert(stream_id, StreamEntry::new(state.clone()));
+            .insert(stream_id, StreamEntry::new(state.clone(), send_window));
         self.last_peer_stream_id = stream_id;
 
         // No eager WINDOW_UPDATE: we advertise `INITIAL_WINDOW_SIZE = 0` in SETTINGS, so
@@ -378,6 +389,55 @@ where
         // applies to peer-initiated streams (we don't initiate), and the static-or-literal
         // HPACK encoder doesn't track the peer's table-size cap. They're stored here
         // regardless so conn-task code that inspects the settings sees a complete picture.
+    }
+
+    /// Apply a peer `WINDOW_UPDATE`. Connection-level updates (`stream_id == 0`) credit
+    /// the driver's `connection_send_window`; stream-level updates credit the matching
+    /// `StreamEntry.send_window`.
+    ///
+    /// RFC 9113 §6.9.1 bounds every flow-control window at `2^31 - 1`. An increment that
+    /// would push a window past that maximum is a `FLOW_CONTROL_ERROR`, handled at the
+    /// appropriate level:
+    /// - Connection window overflow → connection-level GOAWAY (via the returned error).
+    /// - Stream window overflow → stream-level `RST_STREAM`, stream cleanup, connection
+    ///   continues.
+    ///
+    /// A `WINDOW_UPDATE` on a stream we don't know is benign per §6.9 (the peer may send
+    /// one after the stream has closed): log and move on.
+    fn apply_window_update(
+        &mut self,
+        stream_id: u32,
+        increment: u32,
+    ) -> Result<(), CloseOutcome> {
+        let inc = i64::from(increment);
+
+        if stream_id == 0 {
+            let new = self.connection_send_window + inc;
+            if new > MAX_FLOW_CONTROL_WINDOW {
+                return Err(CloseOutcome::Protocol(H2ErrorCode::FlowControlError));
+            }
+            self.connection_send_window = new;
+            return Ok(());
+        }
+
+        let Some(entry) = self.streams.get_mut(&stream_id) else {
+            log::trace!("WINDOW_UPDATE on unknown stream {stream_id} — ignoring");
+            return Ok(());
+        };
+        let new = entry.send_window + inc;
+        if new > MAX_FLOW_CONTROL_WINDOW {
+            // Stream-level overflow. RST + cleanup + signal any pending send.
+            self.queue_rst_stream(stream_id, H2ErrorCode::FlowControlError);
+            self.complete_and_remove_stream(
+                stream_id,
+                Err(std::io::Error::other(
+                    "peer WINDOW_UPDATE overflowed stream send window",
+                )),
+            );
+            return Ok(());
+        }
+        entry.send_window = new;
+        Ok(())
     }
 
     /// Clear read cursor state and prepare for the next frame.

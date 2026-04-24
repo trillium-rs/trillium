@@ -24,6 +24,7 @@ const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 /// `h2` frame-type bytes we care about in the raw tests.
 const FRAME_TYPE_DATA: u8 = 0x0;
 const FRAME_TYPE_HEADERS: u8 = 0x1;
+const FRAME_TYPE_RST_STREAM: u8 = 0x3;
 const FRAME_TYPE_SETTINGS: u8 = 0x4;
 const FRAME_TYPE_GOAWAY: u8 = 0x7;
 const FRAME_TYPE_WINDOW_UPDATE: u8 = 0x8;
@@ -32,6 +33,9 @@ const FLAG_END_STREAM: u8 = 0x1;
 
 /// `SETTINGS_INITIAL_WINDOW_SIZE` (RFC 9113 §6.5.2).
 const SETTINGS_INITIAL_WINDOW_SIZE: u16 = 0x4;
+
+/// RFC 9113 §7 `FLOW_CONTROL_ERROR`.
+const ERROR_CODE_FLOW_CONTROL: u32 = 0x3;
 
 fn spawn_server<T>(
     transport: T,
@@ -475,6 +479,181 @@ async fn small_get_returns_response_body_end_to_end() {
     server_task.await.expect("server task panicked");
 }
 
+/// A peer-advertised `SETTINGS_INITIAL_WINDOW_SIZE = 5` limits how much of a 9-byte response
+/// body the server may emit before receiving a `WINDOW_UPDATE`. The test watches the wire for
+/// an initial DATA(5) ("hello"), then sends `WINDOW_UPDATE(+4)` on the stream and confirms
+/// the remaining 4 bytes (", h2") + empty `DATA(END_STREAM)` come through.
+///
+/// The connection-level window starts at the RFC 9113 §6.9.2 default of 65535, so the
+/// per-stream `INITIAL_WINDOW_SIZE` is the binding constraint.
+#[tokio::test]
+async fn send_respects_peer_initial_window_size_and_resumes_on_window_update() {
+    use trillium_http::Status;
+
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (server_conn, server_task) = spawn_h2_server_with_handler(
+        Compat::new(server_io),
+        |conn| async move {
+            conn.with_status(Status::Ok)
+                .with_response_body("hello, h2")
+        },
+    );
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_settings_with(&mut client_io, SETTINGS_INITIAL_WINDOW_SIZE, 5).await;
+
+    // GET / on stream 1 with END_STREAM (no request body).
+    let mut block = vec![0x82, 0x87]; // :method GET (2), :scheme https (7)
+    block.push(0x44); // :path literal, name index 4
+    block.push(b"/".len() as u8);
+    block.extend_from_slice(b"/");
+    block.push(0x41); // :authority literal, name index 1
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+    write_frame(&mut client_io, FRAME_TYPE_HEADERS, 0x4 | 0x1, 1, &block).await;
+
+    // Drain frames until we have the response HEADERS + the first DATA.
+    let mut collected_body = Vec::new();
+    let mut got_response_headers = false;
+    let mut got_end_stream = false;
+    let mut sent_window_update = false;
+
+    while !got_end_stream {
+        let (hdr, payload) = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            read_frame(&mut client_io),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "server stalled. got_headers={got_response_headers} body_so_far={collected_body:?} \
+                sent_update={sent_window_update}"
+            )
+        });
+
+        match hdr.frame_type {
+            FRAME_TYPE_SETTINGS if hdr.flags & FLAG_ACK == 0 => {
+                write_settings_ack(&mut client_io).await;
+            }
+            FRAME_TYPE_HEADERS if hdr.stream_id == 1 => {
+                got_response_headers = true;
+            }
+            FRAME_TYPE_DATA if hdr.stream_id == 1 => {
+                // The first DATA frame must respect the 5-byte window.
+                if !sent_window_update {
+                    assert!(
+                        payload.len() <= 5,
+                        "first DATA must fit the 5-byte window, got {} bytes",
+                        payload.len()
+                    );
+                }
+                collected_body.extend_from_slice(&payload);
+                if hdr.flags & FLAG_END_STREAM != 0 {
+                    got_end_stream = true;
+                } else if !sent_window_update && collected_body.len() == 5 {
+                    // Grant 4 more bytes for the tail of the response.
+                    write_window_update(&mut client_io, 1, 4).await;
+                    sent_window_update = true;
+                }
+            }
+            _ => {} // SETTINGS ACKs, WINDOW_UPDATEs, etc.
+        }
+    }
+
+    assert!(got_response_headers, "response HEADERS observed");
+    assert_eq!(collected_body, b"hello, h2");
+    assert!(
+        sent_window_update,
+        "server emitted all body bytes without waiting — window not being enforced?"
+    );
+
+    drop(client_io);
+    server_conn.shut_down();
+    server_task.await.expect("server task panicked");
+}
+
+/// A peer-sent connection-level `WINDOW_UPDATE(stream_id=0, 2^31-1)` pushes the default
+/// connection-send window (65535) past RFC 9113 §6.9.1's `2^31 - 1` limit: the server
+/// must respond with `GOAWAY(FLOW_CONTROL_ERROR)` and tear the connection down.
+#[tokio::test]
+async fn connection_window_update_overflow_is_flow_control_error() {
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (_conn, _streams, _server_task) = spawn_server(Compat::new(server_io));
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_empty_settings(&mut client_io).await;
+
+    // Overflow: current conn window is 65535; increment 2^31 - 1 pushes it over the 2^31-1 cap.
+    write_window_update(&mut client_io, 0, 0x7FFF_FFFF).await;
+
+    let goaway = loop {
+        let (hdr, payload) = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            read_frame(&mut client_io),
+        )
+        .await
+        .expect("server stalled before GOAWAY");
+        if hdr.frame_type == FRAME_TYPE_GOAWAY {
+            break (hdr, payload);
+        }
+    };
+    assert_eq!(goaway.0.stream_id, 0);
+    let error_code = u32::from_be_bytes([goaway.1[4], goaway.1[5], goaway.1[6], goaway.1[7]]);
+    assert_eq!(error_code, ERROR_CODE_FLOW_CONTROL);
+}
+
+/// A peer-sent stream-level `WINDOW_UPDATE` that overflows the per-stream window is a
+/// *stream*-level error: the server emits `RST_STREAM(FLOW_CONTROL_ERROR)` and the
+/// connection stays open.
+#[tokio::test]
+async fn stream_window_update_overflow_is_rst_stream() {
+    let (mut client_io, server_io) = duplex(64 * 1024);
+    let (server_conn, mut streams, server_task) = spawn_server(Compat::new(server_io));
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_empty_settings(&mut client_io).await;
+
+    // Open stream 1 with a plain GET so the server has a stream 1 to reset.
+    let mut block = vec![0x82, 0x87];
+    block.push(0x44);
+    block.push(b"/".len() as u8);
+    block.extend_from_slice(b"/");
+    block.push(0x41);
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+    write_frame(&mut client_io, FRAME_TYPE_HEADERS, 0x4 | 0x1, 1, &block).await;
+
+    // Wait for the acceptor to surface the stream so we know the stream is open on the server.
+    let opened = tokio::time::timeout(std::time::Duration::from_secs(2), streams.recv())
+        .await
+        .expect("acceptor did not emit a stream within 2s")
+        .expect("acceptor closed before emitting a stream");
+    assert_eq!(opened.h2_stream_id(), Some(1));
+
+    // Overflow the per-stream window.
+    write_window_update(&mut client_io, 1, 0x7FFF_FFFF).await;
+
+    let rst = loop {
+        let (hdr, payload) = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            read_frame(&mut client_io),
+        )
+        .await
+        .expect("server stalled before RST_STREAM");
+        if hdr.frame_type == FRAME_TYPE_RST_STREAM && hdr.stream_id == 1 {
+            break (hdr, payload);
+        }
+    };
+    let error_code = u32::from_be_bytes([rst.1[0], rst.1[1], rst.1[2], rst.1[3]]);
+    assert_eq!(error_code, ERROR_CODE_FLOW_CONTROL);
+
+    // Connection is still alive — PING should still round-trip. We'll just shut down cleanly.
+    drop(opened);
+    drop(client_io);
+    server_conn.shut_down();
+    server_task.await.expect("server task panicked");
+}
+
 /// Parse a raw SETTINGS payload into (id, value) pairs. Each entry is 6 bytes: u16 id, u32 value.
 fn parse_settings(payload: &[u8]) -> Vec<(u16, u32)> {
     payload
@@ -516,6 +695,21 @@ async fn write_empty_settings(client: &mut DuplexStream) {
     // length = 0, type = SETTINGS, flags = 0, stream_id = 0
     buf[3] = FRAME_TYPE_SETTINGS;
     client.write_all(&buf).await.unwrap();
+}
+
+/// Writes a client SETTINGS frame with a single (id, value) entry.
+async fn write_settings_with(client: &mut DuplexStream, id: u16, value: u32) {
+    let mut payload = [0u8; 6];
+    payload[0..2].copy_from_slice(&id.to_be_bytes());
+    payload[2..6].copy_from_slice(&value.to_be_bytes());
+    write_frame(client, FRAME_TYPE_SETTINGS, 0, 0, &payload).await;
+}
+
+/// Writes a `WINDOW_UPDATE` frame for the given stream (0 = connection-level).
+async fn write_window_update(client: &mut DuplexStream, stream_id: u32, increment: u32) {
+    let mut payload = [0u8; 4];
+    payload.copy_from_slice(&(increment & 0x7FFF_FFFF).to_be_bytes());
+    write_frame(client, FRAME_TYPE_WINDOW_UPDATE, 0, stream_id, &payload).await;
 }
 
 /// Writes a zero-length client SETTINGS ACK frame.
