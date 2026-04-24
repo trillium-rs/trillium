@@ -63,8 +63,23 @@ pub struct Conn<Transport> {
     #[field(get, copy)]
     pub(crate) status: Option<Status>,
 
+    /// The HTTP protocol version in use on this connection — HTTP/1.x, HTTP/2, or HTTP/3.
+    /// Populated by whichever protocol dispatcher opened the stream; handlers that need to
+    /// branch on version (e.g. to emit protocol-specific response headers, or to avoid
+    /// features that are only meaningful in one version) read it here.
+    ///
+    /// See [`HttpConfig`][crate::HttpConfig] for the full dispatch matrix and per-version
+    /// tuning knobs.
+    ///
+    /// ```
+    /// # use trillium_http::{Conn, Method, Version};
+    /// let conn = Conn::new_synthetic(Method::Get, "/", ());
+    /// // Synthetic conns default to HTTP/1.1; real conns reflect what the peer actually
+    /// // spoke (h2 when ALPN negotiated `h2` or the h2c prior-knowledge preface matched;
+    /// // h3 when the listener is a QUIC endpoint).
+    /// assert_eq!(conn.http_version(), Version::Http1_1);
+    /// ```
     #[field(get = http_version, copy)]
-    /// the http version for this conn
     pub(crate) version: Version,
 
     /// the [state typemap](TypeSet) for this conn

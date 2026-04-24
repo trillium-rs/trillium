@@ -9,6 +9,32 @@ use fieldwork::Fieldwork;
 /// Long term, trillium may export several standard defaults for different constraints and
 /// application types. In the distant future, these may turn into initial values and trillium will
 /// tune itself based on values seen at runtime.
+///
+/// ## HTTP version dispatch
+///
+/// trillium accepts HTTP/1.x, HTTP/2, and HTTP/3 connections on the same listener without
+/// any per-version configuration. The version a given connection speaks is decided at accept
+/// time based on ALPN (for TLS listeners) or preface-peek (for cleartext):
+///
+/// | Listener | Negotiation | Protocol |
+/// |---|---|---|
+/// | TCP + TLS | ALPN = `h2` | HTTP/2 |
+/// | TCP + TLS | ALPN = `http/1.1` or absent | HTTP/1.1 |
+/// | TCP, cleartext | first 24 bytes = `PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n` | HTTP/2 prior-knowledge (h2c) |
+/// | TCP, cleartext | anything else | HTTP/1.x |
+/// | QUIC (via `trillium-quinn`) | — | HTTP/3 |
+///
+/// h2c via the HTTP/1.1 `Upgrade` mechanism (RFC 7540 §3.2, removed in RFC 9113) is not
+/// supported. The `h2_*` fields on this struct tune the HTTP/2 advertised settings + recv
+/// windows; the `h3_*` fields tune HTTP/3. None of them affect HTTP/1.x.
+///
+/// ```
+/// # use trillium_http::HttpConfig;
+/// // Accept body bytes eagerly (65535-byte initial window) instead of the default 100-
+/// // continue-like lazy window. Good for "always accept uploads" workloads.
+/// let config = HttpConfig::default().with_h2_initial_stream_window_size(65_535);
+/// assert_eq!(config.h2_initial_stream_window_size(), 65_535);
+/// ```
 #[derive(Clone, Copy, Debug, Fieldwork)]
 #[fieldwork(get, get_mut, set, with, without)]
 // `HttpConfig` is a user-facing tuning struct with documented per-field setters; the natural
