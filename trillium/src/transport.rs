@@ -82,3 +82,5 @@ impl Transport for Box<dyn Transport> {
 }
 
 impl Transport for trillium_http::Synthetic {}
+
+impl Transport for trillium_http::h2::H2Transport {}

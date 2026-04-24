@@ -137,6 +137,7 @@ where
                 Ok(Action::Continue)
             }
             Frame::Goaway { .. } => {
+                log::trace!("h2 driver: received peer GOAWAY");
                 self.connection.swansong().shut_down();
                 Ok(Action::Close(CloseOutcome::Graceful))
             }

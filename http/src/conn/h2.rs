@@ -155,7 +155,13 @@ where
             .ok_or(io::ErrorKind::NotConnected)?;
         let stream_id = self.h2_stream_id.ok_or(io::ErrorKind::NotConnected)?;
 
+        log::trace!(
+            "h2 stream {stream_id}: send_h2 submitting ({} header bytes, body={})",
+            encoded_headers.len(),
+            body.is_some()
+        );
         let result = h2.submit_send(stream_id, encoded_headers, body).await;
+        log::trace!("h2 stream {stream_id}: send_h2 completed with {result:?}");
         self.after_send.call(result.is_ok().into());
         result.map(|()| self)
     }

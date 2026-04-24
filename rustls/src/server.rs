@@ -5,6 +5,7 @@ use futures_rustls::{
     server::TlsStream,
 };
 use std::{
+    borrow::Cow,
     fmt::{Debug, Formatter},
     io,
     pin::Pin,
@@ -66,13 +67,14 @@ impl RustlsAcceptor {
             .expect("could not read key pemfile")
             .expect("no private key found in `key`");
 
-        ServerConfig::builder_with_provider(crypto_provider())
+        let mut config = ServerConfig::builder_with_provider(crypto_provider())
             .with_safe_default_protocol_versions()
             .expect("crypto provider did not support safe default protocol versions")
             .with_no_client_auth()
             .with_single_cert(cert_chain, key_der)
-            .expect("could not create a rustls ServerConfig from the supplied cert and key")
-            .into()
+            .expect("could not create a rustls ServerConfig from the supplied cert and key");
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        config.into()
     }
 }
 
@@ -179,5 +181,9 @@ where
 
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
         self.0.accept(input).await.map(RustlsServerTransport)
+    }
+
+    fn negotiated_alpn<'a>(&self, output: &'a Self::Output) -> Option<Cow<'a, [u8]>> {
+        output.as_ref().alpn_protocol().map(Cow::Borrowed)
     }
 }

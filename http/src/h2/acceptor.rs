@@ -444,7 +444,7 @@ where
 
         // Pick up new submissions. Iterate in place — `entry.send` is driver-private, no
         // borrow conflict with `self.write_buf`.
-        for entry in self.streams.values_mut() {
+        for (&stream_id, entry) in &mut self.streams {
             if entry.send.is_some() {
                 continue;
             }
@@ -456,6 +456,7 @@ where
                 .expect("send submission mutex poisoned")
                 .take();
             if let Some(submission) = submission {
+                log::trace!("h2 stream {stream_id}: driver picked up submission");
                 entry.send = Some(SendCursor::new(submission));
             }
         }
@@ -490,6 +491,7 @@ where
     /// Enter the closing state: record the outcome and queue a GOAWAY (only for outcomes
     /// that warrant one). The main loop will drain `write_buf` and then finish.
     fn begin_close(&mut self, outcome: CloseOutcome) {
+        log::trace!("h2 driver: begin_close({outcome:?})");
         // Don't overwrite a prior outcome (e.g. if an error fires in the middle of a
         // graceful shutdown, keep the error).
         let code = match &outcome {

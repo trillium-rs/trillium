@@ -1,5 +1,5 @@
 use crate::Transport;
-use std::{convert::Infallible, fmt::Debug, future::Future};
+use std::{borrow::Cow, convert::Infallible, fmt::Debug, future::Future};
 
 /// This trait provides the common interface for server-side tls
 /// acceptors, abstracting over various implementations
@@ -26,6 +26,20 @@ where
     /// should conns be treated as secure?
     fn is_secure(&self) -> bool {
         true
+    }
+
+    /// The protocol negotiated via TLS ALPN with the peer for this accepted connection, if any.
+    ///
+    /// Used by the runtime adapter to dispatch between HTTP/1.1 and HTTP/2 on the same TCP
+    /// listener: `Some(b"h2")` → HTTP/2, anything else → HTTP/1.1. Returns `None` for non-TLS
+    /// acceptors and for TLS acceptors whose peers didn't negotiate an ALPN protocol.
+    ///
+    /// The returned [`Cow`] borrows from `output` when the backend exposes the protocol as a
+    /// borrowed slice (e.g. rustls) and is owned when the backend copies (e.g. native-tls). The
+    /// default returns `None` so acceptors that don't speak TLS — or don't want to opt into
+    /// ALPN-based dispatch — don't need to implement it.
+    fn negotiated_alpn<'a>(&self, _output: &'a Self::Output) -> Option<Cow<'a, [u8]>> {
+        None
     }
 }
 

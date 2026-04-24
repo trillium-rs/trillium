@@ -128,7 +128,7 @@ pub(crate) use copy::copy;
 pub use error::{Error, Result};
 pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, SERVER_HEADER};
 pub use http_config::HttpConfig;
-pub use http_context::HttpContext;
+pub use http_context::{HttpContext, run_with_initial_bytes};
 pub use method::Method;
 pub(crate) use mut_cow::MutCow;
 pub use received_body::ReceivedBody;

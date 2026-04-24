@@ -158,6 +158,7 @@ where
     /// task's pending `SubmitSend` future will see `completed = true` on its next poll
     /// and resolve.
     pub(super) fn complete_and_remove_stream(&mut self, stream_id: u32, result: io::Result<()>) {
+        log::trace!("h2 stream {stream_id}: completing send ({result:?})");
         if let Some(entry) = self.streams.remove(&stream_id) {
             signal_send_completion(&entry.shared, result);
         }
