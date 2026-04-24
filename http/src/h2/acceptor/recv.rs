@@ -6,7 +6,7 @@
 //! `super::*` for everything it needs from the parent.
 
 use super::{
-    Action, CloseOutcome, H2Acceptor, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
+    Action, CloseOutcome, ClosedReason, H2Acceptor, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
     OUR_MAX_CONCURRENT_STREAMS, OUR_MAX_FRAME_SIZE, ReadPhase, StreamEntry, frame_slice,
     io_to_outcome,
 };
@@ -204,6 +204,22 @@ where
                 if stream_id > self.last_peer_stream_id && !self.streams.contains_key(&stream_id) {
                     return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
                 }
+                if let Some(entry) = self.streams.get(&stream_id) {
+                    // Unblock any handler task blocked on `poll_read` — the peer has
+                    // abandoned this stream so no more request body bytes are coming.
+                    // `eof` plus a waker wake is how we tell the recv side "end of data"
+                    // in the normal path too.
+                    entry.shared.recv.eof.store(true, Ordering::Release);
+                    entry.shared.recv.waker.wake();
+                    self.complete_and_remove_stream(
+                        stream_id,
+                        Err(std::io::Error::other("peer RST_STREAM")),
+                    );
+                } else {
+                    // Already closed from our side; still record (idempotent) so later
+                    // stray peer frames on this id map to the right error category.
+                    self.closed_streams.record(stream_id, ClosedReason::Reset);
+                }
                 Ok(Action::Continue)
             }
             // §6.6 PUSH_PROMISE from a client is a connection error; §6.10 CONTINUATION
@@ -251,15 +267,28 @@ where
         }
         // Trailer HEADERS on an existing stream: must be strictly equal to a known id.
         // New-stream HEADERS: strictly greater than `last_peer_stream_id`. A lower id
-        // that is no longer active could be either an out-of-order HEADERS (§5.1.1 —
-        // connection error) or a frame on a stream the peer previously closed (§5.1 —
-        // connection error of type STREAM_CLOSED is permitted). Both forms are
-        // connection-level; h2spec expects that. Distinguishing "closed via RST_STREAM"
-        // from those (which the spec wants stream-level on) would need a separate
-        // recently-reset set — deferred.
+        // that is no longer active splits three ways per RFC 9113:
+        // - Closed via `RST_STREAM` (either direction) → stream-level `STREAM_CLOSED` per §5.1
+        //   closed-state rule. Ledger lookup returns `ClosedReason::Reset`.
+        // - Closed via `END_STREAM` on both sides → connection-level `STREAM_CLOSED` per §5.1
+        //   closed-state rule. Ledger lookup returns `ClosedReason::EndStream`.
+        // - Never opened (implicitly closed by a higher-id HEADERS, or evicted from the bounded
+        //   ledger) → connection-level `PROTOCOL_ERROR` per §5.1.1's "stream identifiers MUST be
+        //   numerically greater than all streams the initiating endpoint has opened".
         let is_new_stream = !self.streams.contains_key(&stream_id);
         if is_new_stream && stream_id <= self.last_peer_stream_id {
-            return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+            match self.closed_reason(stream_id) {
+                Some(ClosedReason::Reset) => {
+                    self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
+                    return Ok(Action::Continue);
+                }
+                Some(ClosedReason::EndStream) => {
+                    return Err(CloseOutcome::Protocol(H2ErrorCode::StreamClosed));
+                }
+                None => {
+                    return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+                }
+            }
         }
 
         // §5.3.1: a stream cannot depend on itself. Stream-level PROTOCOL_ERROR — the
@@ -385,7 +414,25 @@ where
             }
         };
 
-        if self.streams.contains_key(&stream_id) {
+        if let Some(entry) = self.streams.get(&stream_id) {
+            // §5.1 half-closed (remote): once we've observed the peer's `END_STREAM`, any
+            // further HEADERS on that stream is a stream-level `STREAM_CLOSED`. This is
+            // the case where `recv.eof` was already set by a prior DATA(END_STREAM) or a
+            // prior trailer HEADERS — trailers themselves arrive while the stream is
+            // still "open" and flip `eof` as part of the transition, so this check
+            // correctly picks out "second HEADERS after eof flipped", not the trailer
+            // itself.
+            if entry.shared.recv.eof.load(Ordering::Acquire) {
+                log::debug!("h2 stream {stream_id}: HEADERS on half-closed-remote stream");
+                self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
+                self.complete_and_remove_stream(
+                    stream_id,
+                    Err(std::io::Error::other(
+                        "HEADERS on half-closed-remote h2 stream",
+                    )),
+                );
+                return Ok(Action::Continue);
+            }
             self.finalize_trailers(stream_id, end_stream, field_section);
             return Ok(Action::Continue);
         }

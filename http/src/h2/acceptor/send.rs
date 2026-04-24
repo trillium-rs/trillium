@@ -9,7 +9,7 @@
 //!
 //! All methods are on [`super::H2Acceptor`].
 
-use super::H2Acceptor;
+use super::{ClosedReason, H2Acceptor};
 use crate::{
     Body, Headers,
     h2::{
@@ -157,8 +157,20 @@ where
     /// both the driver's private map and `H2Connection.streams`. After this the conn
     /// task's pending `SubmitSend` future will see `completed = true` on its next poll
     /// and resolve.
+    ///
+    /// Records the close reason in the driver's closed-stream ledger so that any late
+    /// peer frames on this stream get the correct error category (§5.1): an `Err` result
+    /// — which always follows a `queue_rst_stream` call in the error paths — records as
+    /// `Reset`, and an `Ok` result (clean `END_STREAM` completion from the send pump)
+    /// records as `EndStream`.
     pub(super) fn complete_and_remove_stream(&mut self, stream_id: u32, result: io::Result<()>) {
         log::trace!("h2 stream {stream_id}: completing send ({result:?})");
+        let reason = if result.is_err() {
+            ClosedReason::Reset
+        } else {
+            ClosedReason::EndStream
+        };
+        self.closed_streams.record(stream_id, reason);
         if let Some(entry) = self.streams.remove(&stream_id) {
             signal_send_completion(&entry.shared, result);
         }

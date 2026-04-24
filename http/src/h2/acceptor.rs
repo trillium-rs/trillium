@@ -42,7 +42,7 @@ use futures_lite::io::{AsyncRead, AsyncWrite};
 use recv::PendingHeaders;
 use send::SendCursor;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     future::poll_fn,
     io,
     pin::Pin,
@@ -172,6 +172,13 @@ pub struct H2Acceptor<T> {
     /// Decremented as we emit DATA; incremented by peer `WINDOW_UPDATE(stream_id=0, inc)`.
     /// Overflow past [`MAX_FLOW_CONTROL_WINDOW`] is a connection-level `FLOW_CONTROL_ERROR`.
     connection_send_window: i64,
+
+    /// Bounded ledger of recently-closed streams and why they closed. Consulted by
+    /// [`recv::H2Acceptor::finalize_headers`] when a HEADERS frame arrives on an id ≤
+    /// `last_peer_stream_id` that's not in the active map, to distinguish `RST_STREAM`-
+    /// closed (stream-level `STREAM_CLOSED`) from `END_STREAM`-closed or never-opened
+    /// (connection-level). See [`ClosedStreams`] for the eviction policy.
+    closed_streams: ClosedStreams,
 }
 
 /// Position of the connection in its high-level lifecycle.
@@ -261,6 +268,62 @@ impl StreamEntry {
     }
 }
 
+/// Why a stream transitioned to the closed state — dictates the error category for any
+/// subsequent frame the peer sends on that stream id (RFC 9113 §5.1):
+/// - `Reset`: closed via `RST_STREAM` (either direction). Subsequent frames → stream-level
+///   `STREAM_CLOSED`.
+/// - `EndStream`: closed via `END_STREAM` on both sides. Subsequent frames (other than
+///   `WINDOW_UPDATE` / `PRIORITY` / `RST_STREAM`) → connection-level `STREAM_CLOSED`.
+///
+/// Streams that were never opened and are merely implicitly closed by a higher-id
+/// HEADERS (§5.1.1) don't appear in the ledger; the fall-through case there is
+/// connection-level `PROTOCOL_ERROR` per §5.1.1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ClosedReason {
+    Reset,
+    EndStream,
+}
+
+/// Bounded FIFO of recently-closed streams and how they closed. Consulted when a peer
+/// frame arrives on a stream id that's no longer in the active map to pick the right error
+/// category per RFC 9113 §5.1.
+///
+/// Fixed cap — this is a correctness mechanism, not a concurrency-scaled structure. A
+/// well-behaved peer never sends frames on a stream it knows is closed; the ledger only
+/// needs to span a handful of RTTs between our close and a misbehaving peer's stale
+/// frame. Oldest entries evict on overflow; evicted lookups fall through to the §5.1.1
+/// connection-level `PROTOCOL_ERROR` default.
+#[derive(Debug, Default)]
+struct ClosedStreams {
+    map: HashMap<u32, ClosedReason>,
+    fifo: VecDeque<u32>,
+}
+
+impl ClosedStreams {
+    const CAP: usize = 128;
+
+    /// Record (or update) the close reason for `stream_id`. Idempotent on repeated calls
+    /// for the same id; the most recent reason wins (a stream can be recorded as
+    /// `EndStream` by `complete_and_remove_stream(Ok)` after already being recorded as
+    /// `Reset` by `queue_rst_stream`, which is benign — the Reset recording is authoritative
+    /// in that path because it happens first and the Ok path doesn't fire when the error
+    /// path did).
+    fn record(&mut self, stream_id: u32, reason: ClosedReason) {
+        if self.map.insert(stream_id, reason).is_none() {
+            self.fifo.push_back(stream_id);
+            while self.fifo.len() > Self::CAP {
+                if let Some(old) = self.fifo.pop_front() {
+                    self.map.remove(&old);
+                }
+            }
+        }
+    }
+
+    fn reason(&self, stream_id: u32) -> Option<ClosedReason> {
+        self.map.get(&stream_id).copied()
+    }
+}
+
 /// Result of dispatching one decoded frame.
 enum Action {
     /// Frame handled; continue the main loop.
@@ -298,6 +361,7 @@ where
             finished: false,
             body_scratch: vec![0u8; MAX_DATA_CHUNK_SIZE as usize],
             connection_send_window: INITIAL_CONNECTION_SEND_WINDOW,
+            closed_streams: ClosedStreams::default(),
         }
     }
 
@@ -723,6 +787,16 @@ where
         frame::rst_stream::encode(stream_id, code, &mut self.write_buf[start..])
             .expect("ENCODED_LEN matches fixed rst_stream size");
         self.write_flush_pending = true;
+        // Record in the ledger so subsequent frames the peer sends on this stream get
+        // stream-level `STREAM_CLOSED` rather than connection-level `PROTOCOL_ERROR`
+        // (§5.1 closed-state rule for RST_STREAM-closed streams).
+        self.closed_streams.record(stream_id, ClosedReason::Reset);
+    }
+
+    /// Look up why a stream is closed. `None` means either never-opened or evicted from the
+    /// bounded ledger — both fall through to the connection-level §5.1.1 default.
+    pub(super) fn closed_reason(&self, stream_id: u32) -> Option<ClosedReason> {
+        self.closed_streams.reason(stream_id)
     }
 }
 
