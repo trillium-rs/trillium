@@ -9,7 +9,7 @@
 //!
 //! All methods are on [`super::H2Driver`].
 
-use super::{ClosedReason, DriverState, H2Driver};
+use super::{ClosedReason, DriverState, H2Driver, Role};
 use crate::{
     Body, Headers,
     h2::{
@@ -168,7 +168,7 @@ where
                     self.emit_trailers_or_end_stream(stream_id, &mut send);
                 }
                 SendPhase::Complete => {
-                    self.complete_and_remove_stream(stream_id, Ok(()));
+                    self.finalize_send(stream_id);
                     return;
                 }
             }
@@ -214,8 +214,58 @@ where
             } else {
                 signal_send_completion(&entry.shared, result);
             }
+            // Wake any conn task parked on `H2Connection::poll_response_headers` — the slot
+            // is empty (we never stashed for this id, otherwise the take would have already
+            // happened normally), so the wake makes the parked poll re-check the streams map,
+            // find the id absent, and surface `NotConnected`. Idempotent / no-op on
+            // server-role streams (the slot is never written there).
+            entry.shared.recv.response_headers_waker.wake();
         }
         self.connection.streams_lock().remove(&stream_id);
+    }
+
+    /// Send pump's success-path completion. Signals the conn task's pending
+    /// [`SubmitSend`][super::super::SubmitSend], then for **server** role removes the
+    /// stream immediately (response done = stream done) and for **client** role defers
+    /// removal until the recv side has also observed `END_STREAM` — the request being
+    /// fully sent doesn't end the stream from the client's perspective; we still need to
+    /// receive the response.
+    ///
+    /// The deferred client-role completion is finalized either by the peer's response
+    /// reaching `END_STREAM` (via [`route_data`][super::recv] or the HEADERS-with-END_STREAM
+    /// case in [`finalize_response_headers`][super::recv]) or by an error/RST path on
+    /// either side (which routes through [`Self::complete_and_remove_stream`] directly).
+    pub(super) fn finalize_send(&mut self, stream_id: u32) {
+        if let Some(entry) = self.streams.get_mut(&stream_id) {
+            let already_signaled = entry.send.as_ref().is_some_and(|c| c.completion_signaled);
+            if !already_signaled {
+                signal_send_completion(&entry.shared, Ok(()));
+                if let Some(c) = entry.send.as_mut() {
+                    c.completion_signaled = true;
+                }
+            }
+        }
+        match self.role {
+            Role::Server => self.complete_and_remove_stream(stream_id, Ok(())),
+            Role::Client => self.try_close_if_both_done(stream_id),
+        }
+    }
+
+    /// Remove the stream if both halves have completed. Used by the client-role lifecycle
+    /// — the recv-side `END_STREAM` path in [`route_data`][super::recv], the
+    /// HEADERS-with-`END_STREAM` case in
+    /// [`finalize_response_headers`][super::recv], and [`Self::finalize_send`] for the
+    /// client branch — to actually tear down the stream once both directions are done.
+    /// No-op if either side is still in flight.
+    pub(super) fn try_close_if_both_done(&mut self, stream_id: u32) {
+        let Some(entry) = self.streams.get(&stream_id) else {
+            return;
+        };
+        let send_done = entry.shared.send.completed.load(Ordering::Acquire);
+        let recv_done = entry.shared.recv.eof.load(Ordering::Acquire);
+        if send_done && recv_done {
+            self.complete_and_remove_stream(stream_id, Ok(()));
+        }
     }
 
     /// Emit one HEADERS or CONTINUATION fragment from `send.encoded_headers`. Transitions

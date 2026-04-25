@@ -434,28 +434,86 @@ where
                 );
                 return Ok(Action::Continue);
             }
-            // Role-asymmetric: server treats HEADERS-on-known as trailers; client treats
-            // it as response headers on the first arrival and trailers on the second. The
-            // client arm becomes reachable once later phases open client-initiated streams
-            // and populate the response-headers slot.
+            // Role-asymmetric: server treats HEADERS-on-known as trailers; client first
+            // arrival is the response headers, subsequent arrival is trailers. We
+            // distinguish by whether the response_headers slot has already been populated.
             match self.role {
                 Role::Server => self.finalize_trailers(stream_id, end_stream, field_section),
                 Role::Client => {
-                    unreachable!("client-initiated stream HEADERS handling lands in a later phase")
+                    let already_have_response = entry
+                        .shared
+                        .recv
+                        .response_headers
+                        .lock()
+                        .expect("response_headers mutex poisoned")
+                        .is_some();
+                    if already_have_response {
+                        // Second HEADERS arrival on a client-initiated stream is the
+                        // trailing HEADERS — same constraints as the server-side trailer
+                        // path (no pseudos, MUST carry END_STREAM).
+                        self.finalize_trailers(stream_id, end_stream, field_section);
+                    } else {
+                        self.finalize_response_headers(stream_id, end_stream, field_section);
+                    }
                 }
             }
             return Ok(Action::Continue);
         }
 
         // Role-asymmetric: server opens a new request stream; client would see this only
-        // as a server-initiated push, which is rejected since PUSH is disabled in our
-        // advertised SETTINGS. Unreachable until client wiring lands.
+        // as a server-initiated push. We don't enable PUSH in our advertised SETTINGS, so
+        // a peer-initiated even-id HEADERS would be a protocol violation; an odd-id HEADERS
+        // we don't have means we already declared this id wasn't valid. Either way, refuse.
         Ok(match self.role {
             Role::Server => self.finalize_new_request_stream(stream_id, end_stream, field_section),
             Role::Client => {
-                unreachable!("server push is disabled; client HEADERS-on-unknown unreachable")
+                log::debug!(
+                    "h2 client: HEADERS on unknown stream {stream_id} — refusing \
+                     (push disabled)"
+                );
+                self.queue_rst_stream(stream_id, H2ErrorCode::RefusedStream);
+                Action::Continue
             }
         })
+    }
+
+    /// Client-role: first HEADERS arrival on a client-initiated stream is the response
+    /// HEADERS — stash on `StreamState.recv.response_headers`, fire the response-headers
+    /// waker, and (if `END_STREAM` is set) flip recv-side eof and try to close the stream
+    /// if our send half has already completed.
+    ///
+    /// Validation of pseudo-headers (e.g. presence of `:status`) is left to the conn task
+    /// in trillium-client, mirroring how the h3 client decomposes the `FieldSection`
+    /// returned by `recv_h3_response_headers`.
+    fn finalize_response_headers(
+        &mut self,
+        stream_id: u32,
+        end_stream: bool,
+        field_section: crate::headers::hpack::FieldSection<'static>,
+    ) {
+        let entry = self
+            .streams
+            .get(&stream_id)
+            .expect("caller verified stream is present");
+        let state = entry.shared.clone();
+
+        // Stash headers under the recv buf lock to give body readers + eof observers a
+        // consistent ordering: by the time eof is visible, response_headers is too.
+        let recv_buf = state.recv.buf.lock().expect("recv buf mutex poisoned");
+        *state
+            .recv
+            .response_headers
+            .lock()
+            .expect("response_headers mutex poisoned") = Some(field_section);
+        if end_stream {
+            state.recv.eof.store(true, Ordering::Release);
+        }
+        drop(recv_buf);
+        state.recv.response_headers_waker.wake();
+        if end_stream {
+            state.recv.waker.wake();
+            self.try_close_if_both_done(stream_id);
+        }
     }
 
     /// Server-role handler for HEADERS on a stream id we've not seen before: open the
@@ -636,6 +694,13 @@ where
             }
         }
         state.recv.waker.wake();
+        // Client-role lifecycle: peer END_STREAM on the response body might be the second
+        // half of "both halves done" — if our send pump has already signaled completion,
+        // close the stream now. Server-role removal happens on send completion (via
+        // `finalize_send`); recv-side END_STREAM there is informational.
+        if end_stream && self.role == Role::Client {
+            self.try_close_if_both_done(stream_id);
+        }
         Ok(())
     }
 

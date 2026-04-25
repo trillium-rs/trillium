@@ -36,7 +36,7 @@
 //! [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
 
 use super::{H2Connection, H2ErrorCode};
-use crate::{Body, Buffer, Headers};
+use crate::{Body, Buffer, Headers, headers::hpack::FieldSection};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -278,6 +278,23 @@ pub(super) struct RecvState {
     /// body state machine when it transitions to
     /// [`ReceivedBodyState::End`][crate::received_body::ReceivedBodyState].
     pub(super) trailers: Mutex<Option<Headers>>,
+
+    /// Client-role: response HEADERS field section, populated by the driver on the first
+    /// HEADERS frame arrival for a client-initiated stream. Server role doesn't use this slot
+    /// (response HEADERS go *out* on the server, not in). Single-shot: the conn task takes
+    /// the `FieldSection` via [`H2Connection::poll_response_headers`][super::H2Connection]
+    /// once; subsequent HEADERS arrivals on the same stream are interpreted as trailers and
+    /// routed to the [`Self::trailers`] slot. 1xx interim responses are not modeled — the
+    /// slot is one `FieldSection` per stream, matching the same constraint elsewhere in
+    /// trillium.
+    pub(super) response_headers: Mutex<Option<FieldSection<'static>>>,
+
+    /// Client-role: waker the conn task registers via
+    /// [`H2Connection::poll_response_headers`][super::H2Connection]; fired by the driver
+    /// after stashing the `FieldSection` in [`Self::response_headers`] *or* on stream removal
+    /// (so a parked conn task observing the stream gone surfaces `NotConnected` instead of
+    /// hanging).
+    pub(super) response_headers_waker: AtomicWaker,
 }
 
 /// Send-side per-stream state used to hand a response from the conn task to the driver,
