@@ -7,7 +7,7 @@
 
 use super::{
     Action, CloseOutcome, ClosedReason, H2Driver, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
-    ReadPhase, StreamEntry, frame_slice,
+    ReadPhase, Role, StreamEntry, frame_slice,
 };
 use crate::{
     Conn,
@@ -221,12 +221,12 @@ where
             // handled via the match arm above).
             Frame::PushPromise { .. } => Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)),
             // Informational-only for our current feature set:
-            // - `SETTINGS_ACK` (§6.5.3): confirms the peer is using our advertised SETTINGS.
-            //   We start enforcing our values immediately on send, not on ack, so there's
-            //   no deferred state to apply. We also don't implement `SETTINGS_TIMEOUT` —
-            //   a peer that never acks our SETTINGS stays connected.
-            // - `PING { ack: true }` (§6.7): only meaningful if we initiated a proactive
-            //   PING, which we never do today. An unsolicited ACK is silently tolerated.
+            // - `SETTINGS_ACK` (§6.5.3): confirms the peer is using our advertised SETTINGS. We
+            //   start enforcing our values immediately on send, not on ack, so there's no deferred
+            //   state to apply. We also don't implement `SETTINGS_TIMEOUT` — a peer that never acks
+            //   our SETTINGS stays connected.
+            // - `PING { ack: true }` (§6.7): only meaningful if we initiated a proactive PING,
+            //   which we never do today. An unsolicited ACK is silently tolerated.
             // - `Unknown` (§5.5): unknown frame types MUST be ignored.
             Frame::SettingsAck | Frame::Ping { ack: true, .. } | Frame::Unknown { .. } => {
                 Ok(Action::Continue)
@@ -421,7 +421,8 @@ where
             // prior trailer HEADERS — trailers themselves arrive while the stream is
             // still "open" and flip `eof` as part of the transition, so this check
             // correctly picks out "second HEADERS after eof flipped", not the trailer
-            // itself.
+            // itself. Role-agnostic: applies symmetrically to server (peer-sent EOS) and
+            // client (peer-sent response EOS).
             if entry.shared.recv.eof.load(Ordering::Acquire) {
                 log::debug!("h2 stream {stream_id}: HEADERS on half-closed-remote stream");
                 self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
@@ -433,10 +434,32 @@ where
                 );
                 return Ok(Action::Continue);
             }
-            self.finalize_trailers(stream_id, end_stream, field_section);
+            // Role-asymmetric: server treats HEADERS-on-known as trailers; client (future)
+            // treats it as response headers on the first arrival and trailers on the
+            // second.
+            match self.role {
+                Role::Server => self.finalize_trailers(stream_id, end_stream, field_section),
+            }
             return Ok(Action::Continue);
         }
 
+        // Role-asymmetric: server opens a new request stream; client (future) would see
+        // this only as a server-initiated push, which we reject since PUSH is disabled.
+        match self.role {
+            Role::Server => self.finalize_new_request_stream(stream_id, end_stream, field_section),
+        }
+    }
+
+    /// Server-role handler for HEADERS on a stream id we've not seen before: open the
+    /// stream, validate the request via [`Conn::new_h2`], and emit the [`Conn`] on
+    /// success. On a §8.1.2 rejection the stream is dropped with `RST_STREAM` before a
+    /// handler task ever sees it.
+    fn finalize_new_request_stream(
+        &mut self,
+        stream_id: u32,
+        end_stream: bool,
+        field_section: crate::headers::hpack::FieldSection<'static>,
+    ) -> Result<Action, CloseOutcome> {
         let state = Arc::new(StreamState::default());
         if end_stream {
             let _guard = state.recv.buf.lock().expect("recv buf mutex poisoned");
@@ -462,16 +485,18 @@ where
         self.last_peer_stream_id = stream_id;
 
         let transport = H2Transport::new(self.connection.clone(), stream_id, state);
-        match Conn::new_h2(self.connection.clone(), stream_id, field_section, transport) {
-            Ok(conn) => Ok(Action::Emit(Box::new(conn))),
-            Err(code) => {
-                log::debug!("h2 stream {stream_id}: rejected during build: {code:?}");
-                self.streams.remove(&stream_id);
-                self.connection.streams_lock().remove(&stream_id);
-                self.queue_rst_stream(stream_id, code);
-                Ok(Action::Continue)
-            }
-        }
+        Ok(
+            match Conn::new_h2(self.connection.clone(), stream_id, field_section, transport) {
+                Ok(conn) => Action::Emit(Box::new(conn)),
+                Err(code) => {
+                    log::debug!("h2 stream {stream_id}: rejected during build: {code:?}");
+                    self.streams.remove(&stream_id);
+                    self.connection.streams_lock().remove(&stream_id);
+                    self.queue_rst_stream(stream_id, code);
+                    Action::Continue
+                }
+            },
+        )
     }
 
     /// Receive-side trailers (§8.1): stash on `StreamState.recv.trailers` and signal EOF.

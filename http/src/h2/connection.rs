@@ -11,7 +11,7 @@
 //!
 //! [`H2Driver`]: super::H2Driver
 
-use super::{H2Driver, H2Settings, transport::StreamState};
+use super::{H2Driver, H2Settings, acceptor::Role, transport::StreamState};
 use crate::{Body, Conn, Headers, HttpContext};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -156,13 +156,13 @@ impl H2Connection {
     /// the connection.
     ///
     /// The driver must be polled to completion via repeated calls to
-    /// [`H2Driver::next`] (or its [`Stream`][futures_lite::stream::Stream] impl); each returned [`Conn`] should
-    /// be spawned on its own task.
+    /// [`H2Driver::next`] (or its [`Stream`][futures_lite::stream::Stream] impl); each returned
+    /// [`Conn`] should be spawned on its own task.
     pub fn run<T>(self: Arc<Self>, transport: T) -> H2Driver<T>
     where
         T: AsyncRead + AsyncWrite + Unpin + Send,
     {
-        H2Driver::new(self, transport)
+        H2Driver::new(self, transport, Role::Server)
     }
 
     /// Per-stream entry point — call from the runtime adapter's spawned task for each

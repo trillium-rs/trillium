@@ -80,6 +80,19 @@ const MAX_DATA_CHUNK_SIZE: u32 = 16_384;
 /// `FLOW_CONTROL_ERROR` at the appropriate level (connection or stream).
 pub(super) const MAX_FLOW_CONTROL_WINDOW: i64 = (1 << 31) - 1;
 
+/// Whether this driver is servicing a peer that dialled us (server role) or a peer we
+/// dialled (client role). Routes the handful of role-asymmetric driver concerns — preface
+/// direction, HEADERS-on-unknown-id semantics, HEADERS-on-known-id semantics — through a
+/// single match point each. The `Client` variant is introduced in a later phase; for now
+/// only `Server` is populated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Role {
+    /// Driver was handed a transport from an accepting listener — we read the client
+    /// preface, treat peer-initiated (odd-id) streams as new requests, and treat HEADERS
+    /// on a known stream as trailers.
+    Server,
+}
+
 /// Owns the per-connection TCP transport and drives the HTTP/2 demux loop.
 ///
 /// See the [module docs](self) for the high-level driver shape and how its impl is split
@@ -88,6 +101,10 @@ pub(super) const MAX_FLOW_CONTROL_WINDOW: i64 = (1 << 31) - 1;
 pub struct H2Driver<T> {
     connection: Arc<H2Connection>,
     transport: T,
+
+    /// Role this driver runs in — see [`Role`]. Consulted at role-asymmetric branch points
+    /// (preface direction, HEADERS-on-unknown-id, HEADERS-on-known-id).
+    role: Role,
 
     /// Overall lifecycle position of the driver.
     state: DriverState,
@@ -368,12 +385,13 @@ impl<T> H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {
-    pub(super) fn new(connection: Arc<H2Connection>, transport: T) -> Self {
+    pub(super) fn new(connection: Arc<H2Connection>, transport: T, role: Role) -> Self {
         let shutting_down = connection.swansong().shutting_down();
         let config = AcceptorConfig::from_http_config(connection.context().config());
         Self {
             connection,
             transport,
+            role,
             state: DriverState::AwaitingPreface,
             shutting_down,
             read_buf: vec![0u8; FRAME_HEADER_LEN],
@@ -424,10 +442,7 @@ where
     /// and the [`Stream`] impl on [`H2Driver`].
     ///
     /// [`Stream`]: futures_lite::stream::Stream
-    fn drive(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
+    fn drive(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
         if self.finished {
             return Poll::Ready(None);
         }
@@ -482,18 +497,25 @@ where
 
             // 6. State-specific step.
             match self.state {
-                DriverState::AwaitingPreface => match self.poll_read_preface(cx) {
-                    Poll::Ready(Ok(())) => self.state = DriverState::NeedsServerSettings,
-                    Poll::Ready(Err(e)) => {
-                        self.close_outcome = Some(e);
-                        return Poll::Ready(self.finish_with_current_outcome());
-                    }
-                    Poll::Pending => {
-                        if self.park(cx) {
-                            return Poll::Pending;
+                DriverState::AwaitingPreface => {
+                    // Role-asymmetric: server reads the 24-byte preface; client (future)
+                    // writes it.
+                    let poll = match self.role {
+                        Role::Server => self.poll_read_preface(cx),
+                    };
+                    match poll {
+                        Poll::Ready(Ok(())) => self.state = DriverState::NeedsServerSettings,
+                        Poll::Ready(Err(e)) => {
+                            self.close_outcome = Some(e);
+                            return Poll::Ready(self.finish_with_current_outcome());
+                        }
+                        Poll::Pending => {
+                            if self.park(cx) {
+                                return Poll::Pending;
+                            }
                         }
                     }
-                },
+                }
 
                 DriverState::NeedsServerSettings => {
                     self.queue_settings();
@@ -819,7 +841,10 @@ where
     }
 
     fn queue_settings_ack(&mut self) {
-        self.queue_frame(frame::settings::ACK_ENCODED_LEN, frame::settings::encode_ack);
+        self.queue_frame(
+            frame::settings::ACK_ENCODED_LEN,
+            frame::settings::encode_ack,
+        );
     }
 
     fn queue_ping_ack(&mut self, opaque_data: [u8; 8]) {
