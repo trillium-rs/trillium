@@ -16,6 +16,9 @@ use crate::headers::compression_error::CompressionError;
 pub use acceptor::H2Driver;
 pub(crate) use body_wrapper::H2Body;
 pub use connection::H2Connection;
+#[cfg(feature = "unstable")]
+#[doc(hidden)]
+pub use connection::SubmitSend;
 pub use error::H2ErrorCode;
 #[cfg(feature = "unstable")]
 pub use initiator::H2Initiator;

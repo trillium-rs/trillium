@@ -17,12 +17,15 @@ pub(crate) mod dynamic_table;
 pub(crate) mod encoder;
 pub(crate) mod static_table;
 
-pub(crate) use super::field_section::{FieldSection, PseudoHeaders};
+pub use super::field_section::{FieldSection, PseudoHeaders};
 use super::{
     compression_error::CompressionError, huffman::HuffmanError, integer_prefix::IntegerPrefixError,
 };
 pub(crate) use decoder::MalformedRequest;
 use dynamic_table::DynamicTable;
+#[cfg(feature = "unstable")]
+pub use encoder::encode;
+#[cfg(not(feature = "unstable"))]
 pub(crate) use encoder::encode;
 
 /// Error surfaced out of HPACK decoding.

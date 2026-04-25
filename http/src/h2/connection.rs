@@ -14,9 +14,9 @@
 #[cfg(feature = "unstable")]
 use super::H2Initiator;
 use super::{H2Driver, H2Settings, acceptor::Role, transport::StreamState};
-use crate::{Body, Conn, Headers, HttpContext};
 #[cfg(feature = "unstable")]
-use crate::headers::hpack::FieldSection;
+use super::transport::H2Transport;
+use crate::{Body, Conn, Headers, HttpContext};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -300,61 +300,10 @@ impl H2Connection {
         SubmitSend { stream_id, stream }
     }
 
-    /// Client-role primitive: poll for the response HEADERS for a previously-opened stream.
-    ///
-    /// Resolves to:
-    /// - `Ready(Ok(field_section))` once the driver has stashed the response HEADERS for this
-    ///   stream — the caller decomposes it into `:status` + headers (mirroring
-    ///   `recv_h3_response_headers` in trillium-client's h3 path).
-    /// - `Ready(Err(NotConnected))` if `stream_id` is not present in the streams map: the
-    ///   stream was either never opened, or it has been removed by the driver (peer
-    ///   `RST_STREAM`, GOAWAY-driven teardown, or any other error path).
-    /// - `Pending` while the driver is still waiting for the peer's first HEADERS on this
-    ///   stream. Single-waiter: the conn task is the only poller for a given stream id.
-    ///
-    /// Single-shot: the `FieldSection` is moved out on a successful poll. Subsequent polls
-    /// after a successful take see an empty slot and `Pending` indefinitely (the conn task
-    /// shouldn't poll again — it transitions to reading the response body via
-    /// [`H2Transport`][super::H2Transport]'s `AsyncRead`). 1xx interim responses are not
-    /// modeled; the slot represents the single response HEADERS frame that h2 surfaces to
-    /// the application.
-    #[cfg(feature = "unstable")]
-    #[allow(dead_code)] // promoted to `pub` and consumed by trillium-client in phase A8 / C
-    pub(crate) fn poll_response_headers(
-        &self,
-        stream_id: u32,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<FieldSection<'static>>> {
-        let stream = self.streams_lock().get(&stream_id).cloned();
-        let Some(state) = stream else {
-            log::debug!("h2 stream {stream_id}: poll_response_headers on unknown stream");
-            return Poll::Ready(Err(io::ErrorKind::NotConnected.into()));
-        };
-
-        let try_take = || {
-            state
-                .recv
-                .response_headers
-                .lock()
-                .expect("response_headers mutex poisoned")
-                .take()
-        };
-
-        if let Some(fs) = try_take() {
-            return Poll::Ready(Ok(fs));
-        }
-        state.recv.response_headers_waker.register(cx.waker());
-        // Re-check after registering so we don't miss a wake fired between the take above
-        // and the registration.
-        if let Some(fs) = try_take() {
-            return Poll::Ready(Ok(fs));
-        }
-        Poll::Pending
-    }
-
     /// Client-role primitive: allocate a fresh outbound stream id, stage a request submission
-    /// for the driver, and return the id plus a [`SubmitSend`] the conn task awaits for send
-    /// completion.
+    /// for the driver, and return the id, a [`SubmitSend`] the conn task awaits for send
+    /// completion, and the per-stream [`H2Transport`] for response-body reads (and for
+    /// `poll_response_headers` to await the response HEADERS).
     ///
     /// `encoded_headers` is the HPACK-encoded HEADERS block (static-or-literal — no shared
     /// dynamic-table state). `body` is the request body, if any; `None` causes the HEADERS
@@ -373,20 +322,26 @@ impl H2Connection {
     /// existing send pump frames HEADERS + DATA + optional trailing HEADERS as if the
     /// submission had come from the server-side path.
     ///
-    /// The returned [`SubmitSend`] resolves once the entire request has been framed and
+    /// The returned [`SubmitSend`] resolves once the request has been fully framed and
     /// flushed, or with the relevant `io::Error` on failure. The response side is awaited
-    /// separately via [`Self::poll_response_headers`] for HEADERS and the per-stream
-    /// [`H2Transport`][super::H2Transport] `AsyncRead` for the body.
+    /// separately on the [`H2Transport`]: response HEADERS via
+    /// [`H2Transport::poll_response_headers`], response body via the transport's `AsyncRead`
+    /// impl.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any of the per-connection / per-stream mutexes is poisoned (a previous
+    /// thread panicked while holding the lock) — same posture as the rest of the h2
+    /// driver's mutex usage.
     ///
     /// [submission]: super::transport::SendState::submission
     /// [outbound_waker]: Self::outbound_waker
     #[cfg(feature = "unstable")]
-    #[allow(dead_code)] // promoted to `pub` and consumed by trillium-client in phase A8 / C
-    pub(crate) fn open_stream(
-        &self,
+    pub fn open_stream(
+        self: &Arc<Self>,
         encoded_headers: Vec<u8>,
         body: Option<Body>,
-    ) -> Option<(u32, SubmitSend)> {
+    ) -> Option<(u32, SubmitSend, H2Transport)> {
         if !self.swansong.state().is_running() {
             return None;
         }
@@ -422,18 +377,21 @@ impl H2Connection {
         self.streams_lock().insert(stream_id, state.clone());
         log::trace!("h2 client: open_stream allocated stream {stream_id}");
         self.outbound_waker.wake();
+        let transport = H2Transport::new(Arc::clone(self), stream_id, state.clone());
         Some((
             stream_id,
             SubmitSend {
                 stream_id,
                 stream: Some(state),
             },
+            transport,
         ))
     }
 }
 
-/// Future returned by [`H2Connection::submit_send`]; resolves once the driver has fully
-/// framed and flushed the submitted response, or with the relevant `io::Error` on failure.
+/// Future returned by the various send-staging primitives on [`H2Connection`]; resolves once
+/// the driver has fully framed and flushed the submitted message (request on the client,
+/// response on the server), or with the relevant `io::Error` on failure.
 ///
 /// Holds the per-stream [`StreamState`] Arc (cloned out of the streams map at submit time),
 /// not a connection backref + id — so dropping the future doesn't require another map
@@ -441,7 +399,7 @@ impl H2Connection {
 /// primitives.
 #[must_use = "futures do nothing unless awaited"]
 #[derive(Debug)]
-pub(crate) struct SubmitSend {
+pub struct SubmitSend {
     stream_id: u32,
     /// `None` if the stream wasn't in the map at submit time (already closed). The future
     /// surfaces that as `NotConnected`.
