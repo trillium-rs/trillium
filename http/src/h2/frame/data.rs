@@ -71,16 +71,15 @@ pub(crate) fn encode_prefix(
     if padded {
         flags |= FLAG_PADDED;
     }
-    let (header_buf, rest) = buf.split_at_mut(FRAME_HEADER_LEN);
     FrameHeader {
         length: payload_length,
         frame_type: FrameType::Data as u8,
         flags,
         stream_id,
     }
-    .encode(header_buf.try_into().expect("split_at_mut slot"));
+    .encode(buf);
     if padded {
-        rest[0] = padding_length;
+        buf[FRAME_HEADER_LEN] = padding_length;
     }
     Some(prefix_len)
 }

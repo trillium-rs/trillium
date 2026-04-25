@@ -146,14 +146,12 @@ where
     pub(crate) async fn send_h2(mut self) -> io::Result<Self> {
         self.finalize_response_headers_h2();
         let encoded_headers = encode_headers_h2(self.status, &self.response_headers);
-        let body = if self.method != Method::Head
-            && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
-        {
-            self.response_body.take()
-        } else {
-            self.response_body = None;
-            None
-        };
+        // RFC 9110 §3.3.2: HEAD / 304 / 204 responses carry no body. Take unconditionally
+        // (so post-send Conn state is consistent) and filter out the body itself for those
+        // statuses.
+        let allow_body = self.method != Method::Head
+            && !matches!(self.status, Some(Status::NotModified | Status::NoContent));
+        let body = self.response_body.take().filter(|_| allow_body);
 
         let h2 = self
             .h2_connection

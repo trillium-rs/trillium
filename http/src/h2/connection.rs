@@ -20,7 +20,7 @@ use std::{
     future::Future,
     io,
     pin::Pin,
-    sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, atomic::Ordering},
+    sync::{Arc, Mutex, MutexGuard, atomic::Ordering},
     task::{Context, Poll},
 };
 use swansong::{ShutdownCompletion, Swansong};
@@ -37,7 +37,7 @@ pub struct H2Connection {
     /// Driver-side waker that conn tasks fire whenever they produce work the driver should
     /// act on — the is-reading signal on first `H2Transport::poll_read`, and the
     /// `submit_send` arrival. Single-consumer (the driver); N producers (conn tasks). The
-    /// driver registers its current `poll_next` waker here each iteration it parks.
+    /// driver registers its current `drive` waker here each iteration it parks.
     outbound_waker: AtomicWaker,
     /// Per-stream shared state, keyed by stream id. The driver inserts on stream open and
     /// removes on close. Conn-task-side code (`ReceivedBody`, `Conn::send_h2`) looks up
@@ -47,13 +47,17 @@ pub struct H2Connection {
     /// here has refcount ≥ 2 while the stream is open.
     streams: Mutex<HashMap<u32, Arc<StreamState>>>,
     /// The peer's most recently announced SETTINGS values. Written by the driver each time a
-    /// SETTINGS frame arrives (or, for the initial SETTINGS, the first one); read from any
-    /// send path that needs to respect peer-advertised limits (HEADERS fragment size, stream
-    /// send-window seed, `MAX_HEADER_LIST_SIZE` cap). `RwLock` — read often, written rarely.
-    /// Default-constructed (all fields `None`) means "peer has not yet sent SETTINGS"; readers
-    /// should use [`H2Settings::effective_*`][H2Settings::effective_max_frame_size] helpers
-    /// that apply the RFC 9113 §6.5.2 defaults to absent fields.
-    peer_settings: RwLock<H2Settings>,
+    /// SETTINGS frame arrives (or, for the initial SETTINGS, the first one); read from the
+    /// driver's send path when it needs to respect peer-advertised limits (HEADERS fragment
+    /// size, stream send-window seed, `MAX_HEADER_LIST_SIZE` cap). Single-task access (only
+    /// the driver touches this), so a plain `Mutex` suffices — the `RwLock` optimisation for
+    /// concurrent shared reads would be wasted here. `H2Settings` is `Copy`, so readers
+    /// typically take the guard, copy out, and release.
+    ///
+    /// Default-constructed (all fields `None`) means "peer has not yet sent SETTINGS";
+    /// readers should use [`H2Settings::effective_*`][H2Settings::effective_max_frame_size]
+    /// helpers that apply the RFC 9113 §6.5.2 defaults to absent fields.
+    peer_settings: Mutex<H2Settings>,
 }
 
 impl H2Connection {
@@ -65,7 +69,7 @@ impl H2Connection {
             swansong,
             outbound_waker: AtomicWaker::new(),
             streams: Mutex::new(HashMap::new()),
-            peer_settings: RwLock::new(H2Settings::default()),
+            peer_settings: Mutex::new(H2Settings::default()),
         })
     }
 
@@ -100,21 +104,14 @@ impl H2Connection {
             .expect("connection streams mutex poisoned")
     }
 
-    /// Read the peer's SETTINGS. Cheap (`RwLock::read`); held only for as long as the
-    /// returned guard lives. Use the `effective_*` helpers on [`H2Settings`] to get a value
-    /// with RFC defaults applied for fields the peer hasn't set.
-    pub(super) fn peer_settings(&self) -> RwLockReadGuard<'_, H2Settings> {
+    /// Lock the peer's SETTINGS. Cheap; held only as long as the returned guard lives.
+    /// Use the `effective_*` helpers on [`H2Settings`] to get a value with RFC defaults
+    /// applied for fields the peer hasn't set; typical callers copy out via `*guard` and
+    /// release immediately.
+    pub(super) fn peer_settings(&self) -> MutexGuard<'_, H2Settings> {
         self.peer_settings
-            .read()
-            .expect("peer_settings rwlock poisoned")
-    }
-
-    /// Acquire a write guard on peer settings. Driver-only — the SETTINGS frame handler is
-    /// the single writer.
-    pub(super) fn peer_settings_mut(&self) -> RwLockWriteGuard<'_, H2Settings> {
-        self.peer_settings
-            .write()
-            .expect("peer_settings rwlock poisoned")
+            .lock()
+            .expect("peer_settings mutex poisoned")
     }
 
     /// Remove and return trailers stashed on the stream's recv state. Called by
@@ -159,7 +156,7 @@ impl H2Connection {
     /// the connection.
     ///
     /// The acceptor must be polled to completion via repeated calls to
-    /// [`H2Acceptor::next`] (or [`H2Acceptor::poll_next`]); each returned [`Conn`] should
+    /// [`H2Acceptor::next`] (or its [`Stream`][futures_lite::stream::Stream] impl); each returned [`Conn`] should
     /// be spawned on its own task.
     pub fn run<T>(self: Arc<Self>, transport: T) -> H2Acceptor<T>
     where
@@ -205,7 +202,7 @@ impl H2Connection {
     /// [`Body::trailers`] once the body is fully drained, mirroring how h1's send path
     /// works.
     pub(crate) fn submit_send(
-        self: &Arc<Self>,
+        &self,
         stream_id: u32,
         encoded_headers: Vec<u8>,
         body: Option<Body>,
@@ -235,7 +232,7 @@ impl H2Connection {
 /// primitives.
 #[must_use = "futures do nothing unless awaited"]
 #[derive(Debug)]
-pub struct SubmitSend {
+pub(crate) struct SubmitSend {
     stream_id: u32,
     /// `None` if the stream wasn't in the map at submit time (already closed). The future
     /// surfaces that as `NotConnected`.
@@ -251,32 +248,34 @@ impl Future for SubmitSend {
             return Poll::Ready(Err(io::ErrorKind::NotConnected.into()));
         };
 
-        if state.send.completed.load(Ordering::Acquire) {
-            let result = state
-                .send
-                .completion_result
-                .lock()
-                .expect("completion_result mutex poisoned")
-                .take()
-                .unwrap_or(Ok(()));
+        let stream_id = self.stream_id;
+        let try_take = || -> Option<io::Result<()>> {
+            state.send.completed.load(Ordering::Acquire).then(|| {
+                state
+                    .send
+                    .completion_result
+                    .lock()
+                    .expect("completion_result mutex poisoned")
+                    .take()
+                    .unwrap_or_else(|| {
+                        log::error!(
+                            "h2 stream {stream_id}: completed without a completion_result — \
+                             driver should write the result before flipping completed"
+                        );
+                        Ok(())
+                    })
+            })
+        };
+
+        if let Some(result) = try_take() {
             return Poll::Ready(result);
         }
-
         state.send.completion_waker.register(cx.waker());
-
         // Re-check after registering so we don't miss a wake fired between the load above
         // and the registration.
-        if state.send.completed.load(Ordering::Acquire) {
-            let result = state
-                .send
-                .completion_result
-                .lock()
-                .expect("completion_result mutex poisoned")
-                .take()
-                .unwrap_or(Ok(()));
+        if let Some(result) = try_take() {
             return Poll::Ready(result);
         }
-
         Poll::Pending
     }
 }

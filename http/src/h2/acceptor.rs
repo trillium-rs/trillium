@@ -2,22 +2,21 @@
 //! poll-based state machine that demuxes frames, dispatches stream-opens to handler tasks, and
 //! pumps responses back out.
 //!
-//! Created by [`H2Connection::run`]. The runtime adapter calls [`H2Acceptor::next`] (or
-//! [`H2Acceptor::poll_next`] directly) in a loop; each call either returns the next opened
-//! request stream (a [`Conn`] for the runtime to spawn a handler task against) or `None` when
-//! the connection is closed.
+//! Created by [`H2Connection::run`]. The runtime adapter calls [`H2Acceptor::next`] in a
+//! loop (or drives via the [`Stream`] impl, which has the same semantics); each yield either
+//! returns the next opened request stream (a [`Conn`] for the runtime to spawn a handler
+//! task against) or `None` when the connection is closed.
 //!
-//! The driver is a poll-based state machine, not an async fn. A single
-//! [`H2Acceptor::poll_next`] call is the unit of forward progress: it picks up conn-task
-//! signals, advances any in-flight response sends, drains pending outbound bytes, and
-//! advances the read cursor — parking with cancel-safe partial state when no further progress
-//! can be made.
+//! The driver is a poll-based state machine, not an async fn. A single `drive` call is the
+//! unit of forward progress: it picks up conn-task signals, advances any in-flight response
+//! sends, drains pending outbound bytes, and advances the read cursor — parking with
+//! cancel-safe partial state when no further progress can be made.
 //!
 //! # Module layout
 //!
 //! Driver impl is split across this file and two child modules to keep each focused:
 //!
-//! - **`acceptor.rs`** (this file): struct definition, the [`Self::poll_next`] orchestration loop,
+//! - **`acceptor.rs`** (this file): struct definition, the [`Self::drive`] orchestration loop,
 //!   conn-task signal pickup, write/flush plumbing, and the `queue_*` outbound-frame helpers. Also
 //!   the supporting enums ([`DriverState`], [`ReadPhase`], [`CloseOutcome`], [`Action`],
 //!   [`StreamEntry`]).
@@ -27,6 +26,7 @@
 //!   conn-task signal pickup, frames HEADERS / DATA / trailing-HEADERS, signals completion.
 //!
 //! [`H2Connection::run`]: super::H2Connection::run
+//! [`Stream`]: futures_lite::stream::Stream
 
 mod recv;
 mod send;
@@ -34,7 +34,7 @@ mod send;
 use super::{
     H2Error, H2ErrorCode, H2Settings,
     connection::H2Connection,
-    frame::{self, FRAME_HEADER_LEN, FrameHeader},
+    frame::{self, FRAME_HEADER_LEN},
     transport::{H2Transport, StreamState},
 };
 use crate::{Conn, headers::hpack::HpackDecoder};
@@ -43,7 +43,7 @@ use recv::PendingHeaders;
 use send::SendCursor;
 use std::{
     collections::{HashMap, VecDeque},
-    future::poll_fn,
+    future::Future,
     io,
     pin::Pin,
     sync::{Arc, atomic::Ordering},
@@ -93,12 +93,12 @@ pub struct H2Acceptor<T> {
     state: DriverState,
 
     /// Future that resolves when the shared `Swansong` begins shutdown. Polled each
-    /// `poll_next` tick while the driver is running; on resolution the driver queues a
+    /// `drive` tick while the driver is running; on resolution the driver queues a
     /// GOAWAY and transitions to `Closing`, after which the top-of-loop guard returns
     /// early and we never poll this again on the same acceptor.
     shutting_down: ShuttingDown,
 
-    /// Inbound byte cursor. Accumulates bytes from the transport across `poll_next` calls so
+    /// Inbound byte cursor. Accumulates bytes from the transport across `drive` calls so
     /// a partial frame read can survive a return to `Poll::Pending`. Always contains
     /// exactly the bytes of the current frame being accumulated (header, then payload);
     /// reset after each complete frame is dispatched.
@@ -134,12 +134,12 @@ pub struct H2Acceptor<T> {
 
     /// Set once the driver decides to close: graceful (peer GOAWAY / server swansong / peer
     /// EOF) or erroring (protocol violation → GOAWAY with code, or I/O failure → no
-    /// GOAWAY). `poll_next` completes (returns `Ok(None)` or the error) once outbound
-    /// drains to empty.
+    /// GOAWAY). `drive` completes (returns `None` or a final `Some(Err(...))`) once
+    /// outbound drains to empty.
     close_outcome: Option<CloseOutcome>,
 
-    /// Set after `poll_next` yields its terminal result. Subsequent calls return `Ok(None)`
-    /// without touching the transport.
+    /// Set after `drive` yields its terminal result. Subsequent calls return `None` without
+    /// touching the transport.
     finished: bool,
 
     /// Reusable scratch the send pump reads body chunks into before framing as DATA.
@@ -233,17 +233,19 @@ enum DriverState {
 enum ReadPhase {
     /// Not yet read the 9 bytes of the next frame header.
     NeedHeader,
-    /// Header read and decoded; still collecting payload bytes. `total` is the full target
-    /// fill (`FRAME_HEADER_LEN + payload_len`).
-    NeedPayload { header: FrameHeader, total: usize },
+    /// Header read and validated; still collecting payload bytes. `total` is the full target
+    /// fill (`FRAME_HEADER_LEN + payload_len`). The decoded header itself is cheap enough to
+    /// re-parse from the buffer when we dispatch, so we don't stash it here.
+    NeedPayload { total: usize },
 }
 
-/// Why the driver is closing — shaped around what the terminal `poll_next` result should be.
+/// Why the driver is closing — shaped around what the terminal `drive` result should be.
 #[derive(Debug)]
 enum CloseOutcome {
-    /// Clean close. `poll_next` returns `Ok(None)`.
+    /// Clean close. `drive` returns `None`.
     Graceful,
-    /// Protocol error. `poll_next` returns `Err(...)`. GOAWAY with this code has been queued.
+    /// Protocol error. `drive` returns `Some(Err(...))`. GOAWAY with this code has been
+    /// queued.
     Protocol(H2ErrorCode),
     /// I/O error. GOAWAY was NOT queued (transport is untrustworthy). Propagated verbatim.
     Io(io::Error),
@@ -410,26 +412,24 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an [`H2Error`] for any *connection-level* protocol violation detected while
-    /// decoding peer frames or for an unrecoverable transport I/O error. A final GOAWAY is
-    /// sent before a protocol error is returned (best-effort; I/O errors skip it).
-    pub async fn next(&mut self) -> Result<Option<Conn<H2Transport>>, H2Error> {
-        poll_fn(|cx| self.poll_next(cx)).await
+    /// The returned future resolves to an [`H2Error`] for any *connection-level* protocol
+    /// violation detected while decoding peer frames or for an unrecoverable transport I/O
+    /// error. A final GOAWAY is sent before a protocol error is returned (best-effort; I/O
+    /// errors skip it).
+    pub fn next(&mut self) -> Next<'_, T> {
+        Next { acceptor: self }
     }
 
-    /// Poll-based driver core. See [`Self::next`] for the async-fn wrapper and the overall
-    /// semantics; the `Poll` shape is available so `select`-style combinators and runtime
-    /// adapters can drive the connection directly.
+    /// Poll-based driver core. Private implementation shared by [`Next`]'s `Future` impl
+    /// and the [`Stream`] impl on [`H2Acceptor`].
     ///
-    /// # Errors
-    ///
-    /// Same as [`Self::next`].
-    pub fn poll_next(
+    /// [`Stream`]: futures_lite::stream::Stream
+    fn drive(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<Conn<H2Transport>>, H2Error>> {
+    ) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
         if self.finished {
-            return Poll::Ready(Ok(None));
+            return Poll::Ready(None);
         }
 
         loop {
@@ -514,7 +514,7 @@ where
                 DriverState::Running => match self.poll_advance_read(cx) {
                     Poll::Ready(Ok(Action::Continue)) => {}
                     Poll::Ready(Ok(Action::Emit(conn))) => {
-                        return Poll::Ready(Ok(Some(*conn)));
+                        return Poll::Ready(Some(Ok(*conn)));
                     }
                     Poll::Ready(Ok(Action::Close(outcome))) => {
                         self.begin_close(outcome);
@@ -679,14 +679,15 @@ where
         })
     }
 
-    /// Convert the current `close_outcome` into the terminal return of `poll_next`. Must
-    /// only be called after outbound bytes have been flushed.
-    fn finish_with_current_outcome(&mut self) -> Result<Option<Conn<H2Transport>>, H2Error> {
+    /// Convert the current `close_outcome` into the terminal return of [`Self::drive`]. Must
+    /// only be called after outbound bytes have been flushed. Graceful closes return `None`;
+    /// errors surface as a final `Some(Err(...))` before subsequent polls return `None`.
+    fn finish_with_current_outcome(&mut self) -> Option<Result<Conn<H2Transport>, H2Error>> {
         self.finished = true;
         match self.close_outcome.take() {
-            None | Some(CloseOutcome::Graceful) => Ok(None),
-            Some(CloseOutcome::Protocol(code)) => Err(H2Error::Protocol(code)),
-            Some(CloseOutcome::Io(e)) => Err(H2Error::Io(e)),
+            None | Some(CloseOutcome::Graceful) => None,
+            Some(CloseOutcome::Protocol(code)) => Some(Err(H2Error::Protocol(code))),
+            Some(CloseOutcome::Io(e)) => Some(Err(H2Error::Io(e))),
         }
     }
 
@@ -795,64 +796,54 @@ where
 
     // --- outbound frame queuing helpers --------------------------------------------------
     //
-    // All `queue_*` helpers append encoded bytes to `write_buf` and set
-    // `write_flush_pending`. The driver's main loop drains `write_buf` before observing
-    // progress elsewhere.
+    // All `queue_*` helpers append encoded bytes to `write_buf` via [`Self::queue_frame`]
+    // and set `write_flush_pending`. The driver's main loop drains `write_buf` before
+    // observing progress elsewhere.
+
+    /// Append one frame to `write_buf`. `max_len` must be an upper bound on the encoded
+    /// size; `encode` writes into the provided slice and returns the actual length (panics
+    /// via `expect` if the caller under-sized `max_len`).
+    fn queue_frame(&mut self, max_len: usize, encode: impl FnOnce(&mut [u8]) -> Option<usize>) {
+        let start = self.write_buf.len();
+        self.write_buf.resize(start + max_len, 0);
+        let n = encode(&mut self.write_buf[start..]).expect("buffer sized from max_len");
+        self.write_buf.truncate(start + n);
+        self.write_flush_pending = true;
+    }
 
     fn queue_settings(&mut self) {
         let settings = H2Settings::from_config(self.connection.context().config());
-        let start = self.write_buf.len();
-        self.write_buf
-            .resize(start + frame::settings::encoded_len(&settings), 0);
-        let n = frame::settings::encode(&settings, &mut self.write_buf[start..])
-            .expect("buffer sized from encoded_len");
-        self.write_buf.truncate(start + n);
-        self.write_flush_pending = true;
+        self.queue_frame(frame::settings::encoded_len(&settings), |buf| {
+            frame::settings::encode(&settings, buf)
+        });
     }
 
     fn queue_settings_ack(&mut self) {
-        let start = self.write_buf.len();
-        self.write_buf
-            .resize(start + frame::settings::ACK_ENCODED_LEN, 0);
-        frame::settings::encode_ack(&mut self.write_buf[start..])
-            .expect("ACK_ENCODED_LEN is exactly the fixed ack size");
-        self.write_flush_pending = true;
+        self.queue_frame(frame::settings::ACK_ENCODED_LEN, frame::settings::encode_ack);
     }
 
     fn queue_ping_ack(&mut self, opaque_data: [u8; 8]) {
-        let start = self.write_buf.len();
-        self.write_buf.resize(start + frame::ping::ENCODED_LEN, 0);
-        frame::ping::encode(opaque_data, true, &mut self.write_buf[start..])
-            .expect("ENCODED_LEN matches fixed ping size");
-        self.write_flush_pending = true;
+        self.queue_frame(frame::ping::ENCODED_LEN, |buf| {
+            frame::ping::encode(opaque_data, true, buf)
+        });
     }
 
     fn queue_window_update(&mut self, stream_id: u32, increment: u32) {
-        let start = self.write_buf.len();
-        self.write_buf
-            .resize(start + frame::window_update::ENCODED_LEN, 0);
-        frame::window_update::encode(stream_id, increment, &mut self.write_buf[start..])
-            .expect("ENCODED_LEN matches fixed window_update size");
-        self.write_flush_pending = true;
+        self.queue_frame(frame::window_update::ENCODED_LEN, |buf| {
+            frame::window_update::encode(stream_id, increment, buf)
+        });
     }
 
     fn queue_goaway(&mut self, last_stream_id: u32, code: H2ErrorCode) {
-        let start = self.write_buf.len();
-        self.write_buf
-            .resize(start + frame::goaway::encoded_len(0), 0);
-        let n = frame::goaway::encode(last_stream_id, code, &[], &mut self.write_buf[start..])
-            .expect("buffer sized from encoded_len");
-        self.write_buf.truncate(start + n);
-        self.write_flush_pending = true;
+        self.queue_frame(frame::goaway::encoded_len(0), |buf| {
+            frame::goaway::encode(last_stream_id, code, &[], buf)
+        });
     }
 
     fn queue_rst_stream(&mut self, stream_id: u32, code: H2ErrorCode) {
-        let start = self.write_buf.len();
-        self.write_buf
-            .resize(start + frame::rst_stream::ENCODED_LEN, 0);
-        frame::rst_stream::encode(stream_id, code, &mut self.write_buf[start..])
-            .expect("ENCODED_LEN matches fixed rst_stream size");
-        self.write_flush_pending = true;
+        self.queue_frame(frame::rst_stream::ENCODED_LEN, |buf| {
+            frame::rst_stream::encode(stream_id, code, buf)
+        });
         // Record in the ledger so subsequent frames the peer sends on this stream get
         // stream-level `STREAM_CLOSED` rather than connection-level `PROTOCOL_ERROR`
         // (§5.1 closed-state rule for RST_STREAM-closed streams).
@@ -863,6 +854,36 @@ where
     /// bounded ledger — both fall through to the connection-level §5.1.1 default.
     pub(super) fn closed_reason(&self, stream_id: u32) -> Option<ClosedReason> {
         self.closed_streams.reason(stream_id)
+    }
+}
+
+/// Future returned by [`H2Acceptor::next`]. Resolves to `None` on graceful close, `Some(Ok)`
+/// when a new request stream opens, or `Some(Err)` on a fatal protocol or I/O error.
+#[must_use = "futures do nothing unless awaited"]
+#[derive(Debug)]
+pub struct Next<'a, T> {
+    acceptor: &'a mut H2Acceptor<T>,
+}
+
+impl<T> Future for Next<'_, T>
+where
+    T: AsyncRead + AsyncWrite + Unpin + Send,
+{
+    type Output = Option<Result<Conn<H2Transport>, H2Error>>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.acceptor.drive(cx)
+    }
+}
+
+impl<T> futures_lite::stream::Stream for H2Acceptor<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin + Send,
+{
+    type Item = Result<Conn<H2Transport>, H2Error>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.get_mut().drive(cx)
     }
 }
 
@@ -879,11 +900,4 @@ fn frame_slice(buf: &[u8], start: usize, length: u32, total: usize) -> Result<&[
         return Err(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError));
     }
     Ok(&buf[start..end])
-}
-
-/// Convert a transport I/O error into a close outcome. Plain I/O errors terminate the
-/// driver without emitting a GOAWAY — matching the pre-poll driver's behavior of surfacing
-/// `read_exact` EOF as a terminal `H2Error::Io`.
-fn io_to_outcome(e: io::Error) -> CloseOutcome {
-    CloseOutcome::Io(e)
 }

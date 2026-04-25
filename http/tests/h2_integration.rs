@@ -54,10 +54,10 @@ where
     let (tx, rx) = mpsc::unbounded_channel();
     let join = tokio::spawn(async move {
         let mut acceptor = conn.run(transport);
-        loop {
-            match acceptor.next().await {
-                Ok(None) | Err(_) => break,
-                Ok(Some(conn)) => {
+        while let Some(result) = acceptor.next().await {
+            match result {
+                Err(_) => break,
+                Ok(conn) => {
                     // Hand the opened Conn off to the test. If the receiver has been dropped,
                     // we silently discard (the test is no longer interested).
                     let _ = tx.send(conn);
@@ -86,10 +86,10 @@ where
     let conn_handle = conn.clone();
     let join = tokio::spawn(async move {
         let mut acceptor = conn.run(transport);
-        loop {
-            match acceptor.next().await {
-                Ok(None) | Err(_) => break,
-                Ok(Some(c)) => {
+        while let Some(result) = acceptor.next().await {
+            match result {
+                Err(_) => break,
+                Ok(c) => {
                     let handler = handler.clone();
                     tokio::spawn(async move {
                         let _ = H2Connection::process_inbound(c, handler).await;

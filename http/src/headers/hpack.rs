@@ -12,11 +12,6 @@
 //! - [`crate::headers::entry_name::EntryName`] / `PseudoHeaderName` — shared name vocabulary.
 //! - [`crate::headers::field_section::FieldSection`] — decoded output shape.
 //! - [`crate::headers::compression_error::CompressionError`] — shared codec error.
-//!
-//! The module-wide `dead_code` allow is transient — the codec is consumed by the h2
-//! connection driver once phase 3 stream machinery lands. Remove once that happens.
-#![allow(dead_code)]
-
 pub(crate) mod decoder;
 pub(crate) mod dynamic_table;
 pub(crate) mod encoder;

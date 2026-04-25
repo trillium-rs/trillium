@@ -193,30 +193,21 @@ where
         if is_first {
             // Final HEADERS fragment with no body and no trailers carries END_STREAM.
             let end_stream = end_headers && !send.has_body;
-            let prefix_len = frame::headers::encoded_prefix_len(0, false);
-            let start = self.write_buf.len();
-            self.write_buf.resize(start + prefix_len, 0);
-            frame::headers::encode_prefix(
-                stream_id,
-                end_stream,
-                end_headers,
-                None,
-                chunk_len_u32,
-                0,
-                &mut self.write_buf[start..],
-            )
-            .expect("buffer sized from encoded_prefix_len");
+            self.queue_frame(frame::headers::encoded_prefix_len(0, false), |buf| {
+                frame::headers::encode_prefix(
+                    stream_id,
+                    end_stream,
+                    end_headers,
+                    None,
+                    chunk_len_u32,
+                    0,
+                    buf,
+                )
+            });
         } else {
-            let prefix_len = frame::continuation::ENCODED_PREFIX_LEN;
-            let start = self.write_buf.len();
-            self.write_buf.resize(start + prefix_len, 0);
-            frame::continuation::encode_prefix(
-                stream_id,
-                end_headers,
-                chunk_len_u32,
-                &mut self.write_buf[start..],
-            )
-            .expect("buffer sized from ENCODED_PREFIX_LEN");
+            self.queue_frame(frame::continuation::ENCODED_PREFIX_LEN, |buf| {
+                frame::continuation::encode_prefix(stream_id, end_headers, chunk_len_u32, buf)
+            });
         }
 
         // Append the header-block fragment payload.
@@ -224,24 +215,21 @@ where
             &send.encoded_headers[send.headers_offset..send.headers_offset + chunk_len],
         );
         send.headers_offset += chunk_len;
-        self.write_flush_pending = true;
 
         if end_headers {
             send.phase = if send.has_body {
                 SendPhase::Body
+            } else if is_first {
+                // Single HEADERS carried END_STREAM; nothing more to emit.
+                SendPhase::Complete
             } else {
-                // The single HEADERS fragment carried END_STREAM (or final CONTINUATION
-                // did not — but our encoder above only sets END_STREAM on the *first*
-                // fragment, so for the multi-fragment + no-body case we'd need an extra
-                // empty DATA. That case is unreachable today: response headers always fit
-                // comfortably in one peer-default 16 KiB frame, but still — guard with a
-                // Trailers transition that the next tick will turn into an empty
-                // DATA(END_STREAM).
-                if is_first {
-                    SendPhase::Complete
-                } else {
-                    SendPhase::Trailers
-                }
+                // Multi-fragment + no-body case: END_STREAM was not set on the first
+                // HEADERS (because end_headers was false then), and CONTINUATION has no
+                // END_STREAM flag per §6.10. Transition to Trailers so the next tick
+                // emits an empty DATA(END_STREAM) as the stream terminator. Rare in
+                // practice — response headers usually fit in one peer-default 16 KiB
+                // frame — but spec-correct when a response has lots of large headers.
+                SendPhase::Trailers
             };
         }
     }
@@ -266,9 +254,7 @@ where
         // just barely sufficed for the body without waiting on a superfluous WINDOW_UPDATE
         // to detect EOF.
         if send.body.is_none() || send.body_len == Some(send.body_bytes_emitted) {
-            send.trailers = send.body.as_mut().and_then(Body::trailers);
-            send.body = None;
-            send.phase = SendPhase::Trailers;
+            transition_to_trailers(send);
             return Poll::Ready(Ok(()));
         }
 
@@ -287,26 +273,16 @@ where
         let n = ready!(Pin::new(body).poll_read(cx, &mut self.body_scratch[..cap]))?;
         if n == 0 {
             // Body drained via a 0-byte read (unknown-length body reached EOF).
-            send.trailers = send.body.as_mut().and_then(Body::trailers);
-            send.body = None;
-            send.phase = SendPhase::Trailers;
+            transition_to_trailers(send);
             return Poll::Ready(Ok(()));
         }
 
         let n_u32 = u32::try_from(n).expect("read n <= body_scratch.len() fits u32");
-        let prefix_len = frame::data::encoded_prefix_len(0);
-        let start = self.write_buf.len();
-        self.write_buf.resize(start + prefix_len, 0);
-        frame::data::encode_prefix(
-            stream_id,
-            false, // never END_STREAM here; trailers / empty-DATA carries END_STREAM
-            n_u32,
-            0,
-            &mut self.write_buf[start..],
-        )
-        .expect("buffer sized from encoded_prefix_len");
+        self.queue_frame(frame::data::encoded_prefix_len(0), |buf| {
+            // Never END_STREAM here; trailers / empty-DATA carries END_STREAM.
+            frame::data::encode_prefix(stream_id, false, n_u32, 0, buf)
+        });
         self.write_buf.extend_from_slice(&self.body_scratch[..n]);
-        self.write_flush_pending = true;
 
         // Charge both windows. `n <= body_scratch.len() = MAX_DATA_CHUNK_SIZE` which
         // comfortably fits i64 without wraparound.
@@ -322,9 +298,7 @@ where
         // `emit_trailers_or_end_stream` — otherwise we'd park in Body and wait for an
         // external wake to notice EOF, which never comes (peer has nothing more to send).
         if send.body_len == Some(send.body_bytes_emitted) {
-            send.trailers = send.body.as_mut().and_then(Body::trailers);
-            send.body = None;
-            send.phase = SendPhase::Trailers;
+            transition_to_trailers(send);
         }
 
         Poll::Ready(Ok(()))
@@ -344,31 +318,27 @@ where
             );
             // Trailing HEADERS: END_HEADERS=true, END_STREAM=true.
             let block_len_u32 = u32::try_from(block.len()).expect("trailers block fits u32");
-            let prefix_len = frame::headers::encoded_prefix_len(0, false);
-            let start = self.write_buf.len();
-            self.write_buf.resize(start + prefix_len, 0);
-            frame::headers::encode_prefix(
-                stream_id,
-                true,
-                true,
-                None,
-                block_len_u32,
-                0,
-                &mut self.write_buf[start..],
-            )
-            .expect("buffer sized from encoded_prefix_len");
+            self.queue_frame(frame::headers::encoded_prefix_len(0, false), |buf| {
+                frame::headers::encode_prefix(stream_id, true, true, None, block_len_u32, 0, buf)
+            });
             self.write_buf.extend_from_slice(&block);
         } else {
             // No trailers — empty DATA frame with END_STREAM as the stream terminator.
-            let prefix_len = frame::data::encoded_prefix_len(0);
-            let start = self.write_buf.len();
-            self.write_buf.resize(start + prefix_len, 0);
-            frame::data::encode_prefix(stream_id, true, 0, 0, &mut self.write_buf[start..])
-                .expect("buffer sized from encoded_prefix_len");
+            self.queue_frame(frame::data::encoded_prefix_len(0), |buf| {
+                frame::data::encode_prefix(stream_id, true, 0, 0, buf)
+            });
         }
-        self.write_flush_pending = true;
         send.phase = SendPhase::Complete;
     }
+}
+
+/// Body drained (or content-length reached) — pull trailers off the body, drop the body
+/// handle, and transition the cursor into `Trailers`. The next tick emits either a
+/// trailing HEADERS (if trailers) or an empty DATA(END_STREAM).
+fn transition_to_trailers(send: &mut SendCursor) {
+    send.trailers = send.body.as_mut().and_then(Body::trailers);
+    send.body = None;
+    send.phase = SendPhase::Trailers;
 }
 
 /// Store the send result on `StreamState`, flip `completed`, wake the conn-task waker.

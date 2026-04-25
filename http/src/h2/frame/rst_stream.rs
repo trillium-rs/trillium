@@ -24,14 +24,13 @@ pub(crate) fn encode(stream_id: u32, error_code: H2ErrorCode, buf: &mut [u8]) ->
     if buf.len() < ENCODED_LEN {
         return None;
     }
-    let (header_buf, payload_buf) = buf.split_at_mut(FRAME_HEADER_LEN);
     FrameHeader {
         length: PAYLOAD_LEN,
         frame_type: FrameType::RstStream as u8,
         flags: 0,
         stream_id,
     }
-    .encode(header_buf.try_into().expect("split_at_mut slot"));
-    payload_buf[..PAYLOAD_LEN as usize].copy_from_slice(&u32::from(error_code).to_be_bytes());
+    .encode(buf);
+    buf[FRAME_HEADER_LEN..ENCODED_LEN].copy_from_slice(&u32::from(error_code).to_be_bytes());
     Some(ENCODED_LEN)
 }

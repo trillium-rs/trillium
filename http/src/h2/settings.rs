@@ -1,4 +1,5 @@
 use super::H2ErrorCode;
+use crate::HttpConfig;
 use fieldwork::Fieldwork;
 
 /// `SETTINGS_HEADER_TABLE_SIZE` (RFC 9113 §6.5.2).
@@ -36,7 +37,7 @@ const SETTING_ENTRY_LEN: usize = 6;
 /// [`decode`]: H2Settings::decode
 #[derive(Clone, Copy, Eq, Fieldwork, Default)]
 #[fieldwork(get, set, with(option_set_some))]
-pub struct H2Settings {
+pub(crate) struct H2Settings {
     /// The maximum size of the HPACK dynamic header table the peer may use when encoding.
     ///
     /// Default: 4096.
@@ -44,7 +45,9 @@ pub struct H2Settings {
 
     /// Whether the peer is permitted to initiate server push.
     ///
-    /// Default: true. A server should always advertise `Some(false)`.
+    /// Default: true. Trillium always advertises `Some(false)` from [`Self::from_config`]
+    /// because we never send `PUSH_PROMISE`; a peer that advertises `Some(true)` is a protocol
+    /// error for a server since clients cannot push.
     enable_push: Option<bool>,
 
     /// The maximum number of concurrent streams the peer may initiate.
@@ -106,22 +109,15 @@ impl H2Settings {
     /// [`max_frame_size`][Self::max_frame_size] with the RFC 9113 §6.5.2 default of 16384
     /// applied when the field is `None`. Use this when you need a concrete value for
     /// framing.
-    pub fn effective_max_frame_size(&self) -> u32 {
+    pub(crate) fn effective_max_frame_size(&self) -> u32 {
         self.max_frame_size.unwrap_or(16_384)
     }
 
     /// [`initial_window_size`][Self::initial_window_size] with the RFC 9113 §6.5.2 default
     /// of 65535 applied when the field is `None`. Use this when seeding a new stream's send
     /// window.
-    pub fn effective_initial_window_size(&self) -> u32 {
+    pub(crate) fn effective_initial_window_size(&self) -> u32 {
         self.initial_window_size.unwrap_or(65_535)
-    }
-
-    /// [`header_table_size`][Self::header_table_size] with the RFC 9113 §6.5.2 default of
-    /// 4096 applied when the field is `None`. Used by a dynamic HPACK encoder to bound the
-    /// peer's decoder table size.
-    pub fn effective_header_table_size(&self) -> u32 {
-        self.header_table_size.unwrap_or(4096)
     }
 
     /// Build an outgoing SETTINGS frame from the h2 fields of an [`HttpConfig`][crate::HttpConfig].
@@ -136,7 +132,7 @@ impl H2Settings {
     /// | `SETTINGS_MAX_CONCURRENT_STREAMS` | `h2_max_concurrent_streams` |
     /// | `SETTINGS_MAX_FRAME_SIZE` | `h2_max_frame_size` |
     /// | `SETTINGS_MAX_HEADER_LIST_SIZE` | `h2_max_header_list_size` |
-    pub fn from_config(config: &crate::HttpConfig) -> Self {
+    pub(crate) fn from_config(config: &HttpConfig) -> Self {
         // RFC 8701: the reserved GREASE settings are 0x0A0A, 0x1A1A, ..., 0xFAFA.
         let n = u16::from(fastrand::u8(0..16));
         let grease_id = 0x0A0A | (n << 12) | (n << 4);
@@ -155,12 +151,13 @@ impl H2Settings {
     /// A reasonable outgoing settings frame for a trillium server, using the default
     /// `HttpConfig`. Convenience wrapper around [`Self::from_config`] for tests and ad-hoc
     /// use; production code builds via `from_config` with the real configured values.
-    pub fn server_defaults() -> Self {
-        Self::from_config(&crate::HttpConfig::DEFAULT)
+    #[cfg(test)]
+    pub(crate) fn server_defaults() -> Self {
+        Self::from_config(&HttpConfig::DEFAULT)
     }
 
     /// The number of bytes this settings payload will occupy when encoded.
-    pub fn encoded_len(&self) -> usize {
+    pub(crate) fn encoded_len(&self) -> usize {
         let mut entries = 0;
         if self.header_table_size.is_some() {
             entries += 1;
@@ -198,7 +195,7 @@ impl H2Settings {
     ///   outside \[16384, 2^24 - 1\].
     /// - `FLOW_CONTROL_ERROR` for an `INITIAL_WINDOW_SIZE` above 2^31 - 1.
     /// - `FRAME_SIZE_ERROR` if the payload length is not a multiple of 6.
-    pub fn decode(payload: &[u8]) -> Result<Self, H2ErrorCode> {
+    pub(crate) fn decode(payload: &[u8]) -> Result<Self, H2ErrorCode> {
         if !payload.len().is_multiple_of(SETTING_ENTRY_LEN) {
             return Err(H2ErrorCode::FrameSizeError);
         }
@@ -235,7 +232,7 @@ impl H2Settings {
 
     /// Encode these settings into `buf`. Returns the number of bytes written, or `None` if the
     /// buffer is too small (check [`encoded_len`](Self::encoded_len) first).
-    pub fn encode(&self, buf: &mut [u8]) -> Option<usize> {
+    pub(crate) fn encode(&self, buf: &mut [u8]) -> Option<usize> {
         if buf.len() < self.encoded_len() {
             return None;
         }

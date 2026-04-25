@@ -11,7 +11,7 @@ pub(crate) mod settings;
 pub(crate) mod window_update;
 
 /// Length of the fixed frame header on the wire (RFC 9113 §4.1).
-pub const FRAME_HEADER_LEN: usize = 9;
+pub(crate) const FRAME_HEADER_LEN: usize = 9;
 
 /// HTTP/2 frame type identifiers (RFC 9113 §11.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,18 +77,18 @@ pub(crate) const FLAG_PRIORITY: u8 = 0x20;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FrameHeader {
     /// Payload length in bytes (24-bit).
-    pub length: u32,
+    pub(crate) length: u32,
     /// Raw type byte. Compare against `FrameType::try_from`.
-    pub frame_type: u8,
+    pub(crate) frame_type: u8,
     /// Frame-type-specific flags.
-    pub flags: u8,
+    pub(crate) flags: u8,
     /// Stream identifier (31-bit; the reserved high bit is masked off).
-    pub stream_id: u32,
+    pub(crate) stream_id: u32,
 }
 
 impl FrameHeader {
     /// Decode the 9-byte frame header. Returns `None` if `input` is too short.
-    pub fn decode(input: &[u8]) -> Option<Self> {
+    pub(crate) fn decode(input: &[u8]) -> Option<Self> {
         if input.len() < FRAME_HEADER_LEN {
             return None;
         }
@@ -104,10 +104,15 @@ impl FrameHeader {
         })
     }
 
-    /// Encode the 9-byte frame header into `buf`. Panics in debug builds if `length` exceeds 24
-    /// bits; release builds silently truncate the top byte (the caller should have already enforced
-    /// `SETTINGS_MAX_FRAME_SIZE`).
-    pub fn encode(&self, buf: &mut [u8; FRAME_HEADER_LEN]) {
+    /// Encode the 9-byte frame header into the first [`FRAME_HEADER_LEN`] bytes of `buf`.
+    ///
+    /// The caller must ensure `buf.len() >= FRAME_HEADER_LEN`; debug builds check this, release
+    /// builds panic on out-of-bounds access.
+    ///
+    /// Also debug-asserts that `length` fits in 24 bits and `stream_id` fits in 31 bits; release
+    /// builds silently truncate (callers should have already enforced `SETTINGS_MAX_FRAME_SIZE`).
+    pub(crate) fn encode(&self, buf: &mut [u8]) {
+        debug_assert!(buf.len() >= FRAME_HEADER_LEN, "frame header buffer too small");
         debug_assert!(self.length < (1 << 24), "payload length exceeds 24 bits");
         debug_assert!(self.stream_id < (1 << 31), "stream id exceeds 31 bits");
         let length = self.length.to_be_bytes();
@@ -122,7 +127,7 @@ impl FrameHeader {
 
 /// Errors from [`Frame::decode`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrameDecodeError {
+pub(crate) enum FrameDecodeError {
     /// Not enough bytes in the input yet.
     Incomplete,
     /// Protocol violation. Map to `GOAWAY` or `RST_STREAM` based on context.
@@ -142,7 +147,7 @@ impl From<H2ErrorCode> for FrameDecodeError {
 /// the fixed header (and any PADDED / PRIORITY prefix) is the only portion [`Frame::decode`]
 /// consumes from the input slice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Frame {
+pub(crate) enum Frame {
     /// DATA (§6.1). `data_length` bytes of stream payload follow; then `padding_length` bytes of
     /// padding to skip.
     Data {
@@ -259,13 +264,13 @@ pub enum Frame {
 /// Stream priority parameters from a HEADERS or PRIORITY frame (§6.3). Deprecated by RFC 9113
 /// §5.3.2 — the decoder surfaces them but no enforcement is performed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PriorityInfo {
+pub(crate) struct PriorityInfo {
     /// Whether the dependency is exclusive.
-    pub exclusive: bool,
+    pub(crate) exclusive: bool,
     /// Stream id this stream depends on.
-    pub stream_dependency: u32,
+    pub(crate) stream_dependency: u32,
     /// Weight, 1..=256 (encoded as weight-1 on the wire).
-    pub weight: u16,
+    pub(crate) weight: u16,
 }
 
 impl PriorityInfo {
@@ -299,7 +304,7 @@ impl Frame {
     /// `FrameDecodeError::Incomplete` if `input` doesn't yet contain the whole frame header plus
     /// the fixed control-frame payload. `FrameDecodeError::Error(code)` for any protocol violation
     /// detected during decoding.
-    pub fn decode(input: &[u8]) -> Result<(Self, usize), FrameDecodeError> {
+    pub(crate) fn decode(input: &[u8]) -> Result<(Self, usize), FrameDecodeError> {
         let header = FrameHeader::decode(input).ok_or(FrameDecodeError::Incomplete)?;
         let prefix_input = || {
             input

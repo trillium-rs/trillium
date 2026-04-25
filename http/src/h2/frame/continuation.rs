@@ -28,13 +28,12 @@ pub(crate) fn encode_prefix(
     if buf.len() < FRAME_HEADER_LEN {
         return None;
     }
-    let (header_buf, _) = buf.split_at_mut(FRAME_HEADER_LEN);
     FrameHeader {
         length: header_block_length,
         frame_type: FrameType::Continuation as u8,
         flags: if end_headers { FLAG_END_HEADERS } else { 0 },
         stream_id,
     }
-    .encode(header_buf.try_into().expect("split_at_mut slot"));
+    .encode(buf);
     Some(FRAME_HEADER_LEN)
 }

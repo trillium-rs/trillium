@@ -45,9 +45,9 @@ pub(crate) async fn run_h2<T>(
     let h2 = H2Connection::new(context);
     let mut acceptor = h2.clone().run(transport);
 
-    loop {
-        match acceptor.next().await {
-            Ok(Some(conn)) => {
+    while let Some(result) = acceptor.next().await {
+        match result {
+            Ok(conn) => {
                 let stream_id = conn.h2_stream_id();
                 log::trace!("run_h2: spawning handler task for stream {stream_id:?}");
                 let handler = handler.clone();
@@ -67,16 +67,13 @@ pub(crate) async fn run_h2<T>(
                     }
                 });
             }
-            Ok(None) => {
-                log::trace!("run_h2: acceptor returned None, connection done");
-                break;
-            }
             Err(e) => {
                 log::debug!("h2 connection error: {e}");
                 break;
             }
         }
     }
+    log::trace!("run_h2: acceptor exhausted, connection done");
 }
 
 /// A TCP transport that first serves a pre-peeked byte prefix before reading from its wrapped

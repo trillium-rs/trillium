@@ -2,11 +2,6 @@
 //!
 //! This module is the server-side HTTP/2 implementation used by `trillium-http`. Most items are
 //! crate-private; only the error types are currently part of the public surface.
-//!
-//! The module-wide `dead_code` allowance is intentional while the connection driver is still
-//! being built — the per-frame encoders are used by unit tests but have no production caller yet.
-#![allow(dead_code)]
-
 mod acceptor;
 mod connection;
 mod error;
@@ -14,11 +9,11 @@ mod frame;
 mod settings;
 mod transport;
 
+use crate::headers::compression_error::CompressionError;
 pub use acceptor::H2Acceptor;
-pub use connection::{H2Connection, SubmitSend};
+pub use connection::H2Connection;
 pub use error::H2ErrorCode;
-pub use frame::{Frame, FrameDecodeError, PriorityInfo};
-pub use settings::H2Settings;
+pub(crate) use settings::H2Settings;
 pub use transport::H2Transport;
 
 /// An error that may occur during HTTP/2 stream or connection processing.
@@ -38,8 +33,8 @@ pub enum H2Error {
 }
 
 /// HPACK decoding failures map to `COMPRESSION_ERROR` per RFC 9113 §4.3.1.
-impl From<crate::headers::compression_error::CompressionError> for H2Error {
-    fn from(_: crate::headers::compression_error::CompressionError) -> Self {
+impl From<CompressionError> for H2Error {
+    fn from(_: CompressionError) -> Self {
         Self::Protocol(H2ErrorCode::CompressionError)
     }
 }

@@ -40,16 +40,16 @@ pub(crate) fn encode(
         return None;
     }
     let payload_len = FIXED_PREFIX_LEN + debug_data.len();
-    let (header_buf, rest) = buf.split_at_mut(FRAME_HEADER_LEN);
     FrameHeader {
         length: u32::try_from(payload_len).expect("goaway payload fits in 24 bits"),
         frame_type: FrameType::Goaway as u8,
         flags: 0,
         stream_id: 0,
     }
-    .encode(header_buf.try_into().expect("split_at_mut slot"));
-    rest[0..4].copy_from_slice(&(last_stream_id & 0x7FFF_FFFF).to_be_bytes());
-    rest[4..8].copy_from_slice(&u32::from(error_code).to_be_bytes());
-    rest[8..8 + debug_data.len()].copy_from_slice(debug_data);
+    .encode(buf);
+    let payload = &mut buf[FRAME_HEADER_LEN..];
+    payload[0..4].copy_from_slice(&(last_stream_id & 0x7FFF_FFFF).to_be_bytes());
+    payload[4..8].copy_from_slice(&u32::from(error_code).to_be_bytes());
+    payload[8..8 + debug_data.len()].copy_from_slice(debug_data);
     Some(total)
 }

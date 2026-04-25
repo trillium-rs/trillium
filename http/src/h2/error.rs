@@ -1,75 +1,84 @@
-use std::borrow::Cow;
+use std::fmt;
 
 /// H2 error codes per RFC 9113 §7.
 ///
 /// The same codes appear in both GOAWAY (connection errors) and `RST_STREAM` (stream errors);
 /// whether a given use is connection- or stream-level is determined by context, not by the code
 /// itself. Unknown wire values decode to [`Self::NoError`] per §5.4.4 / §5.4.5.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum H2ErrorCode {
     /// Graceful shutdown or no error to signal.
-    #[error("Graceful shutdown or no error to signal.")]
     NoError = 0x0,
 
     /// Peer violated protocol requirements.
-    #[error("Peer violated protocol requirements.")]
     ProtocolError = 0x1,
 
     /// An internal error in the HTTP stack.
-    #[error("An internal error in the HTTP stack.")]
     InternalError = 0x2,
 
     /// Peer violated flow-control limits.
-    #[error("Peer violated flow-control limits.")]
     FlowControlError = 0x3,
 
     /// Settings frame was not acknowledged in a timely manner.
-    #[error("Settings frame was not acknowledged in a timely manner.")]
     SettingsTimeout = 0x4,
 
     /// A frame was received on a closed stream.
-    #[error("A frame was received on a closed stream.")]
     StreamClosed = 0x5,
 
     /// A frame of an incorrect size was received.
-    #[error("A frame of an incorrect size was received.")]
     FrameSizeError = 0x6,
 
     /// The stream was refused before any application processing.
-    #[error("The stream was refused before any application processing.")]
     RefusedStream = 0x7,
 
     /// The stream was cancelled.
-    #[error("The stream was cancelled.")]
     Cancel = 0x8,
 
     /// HPACK compression state could not be maintained.
-    #[error("HPACK compression state could not be maintained.")]
     CompressionError = 0x9,
 
     /// TCP connection for a CONNECT request was reset or abnormally closed.
-    #[error("TCP connection for a CONNECT request was reset or abnormally closed.")]
     ConnectError = 0xa,
 
     /// Peer is generating excessive load.
-    #[error("Peer is generating excessive load.")]
     EnhanceYourCalm = 0xb,
 
     /// Negotiated TLS parameters are unacceptable.
-    #[error("Negotiated TLS parameters are unacceptable.")]
     InadequateSecurity = 0xc,
 
     /// Request must be retried over HTTP/1.1.
-    #[error("Request must be retried over HTTP/1.1.")]
     Http1_1Required = 0xd,
 }
 
 impl H2ErrorCode {
     /// A reason phrase suitable for GOAWAY debug data.
-    pub fn reason(&self) -> Cow<'static, str> {
-        Cow::Owned(format!("{self}"))
+    pub(crate) fn reason(&self) -> &'static str {
+        match self {
+            Self::NoError => "Graceful shutdown or no error to signal.",
+            Self::ProtocolError => "Peer violated protocol requirements.",
+            Self::InternalError => "An internal error in the HTTP stack.",
+            Self::FlowControlError => "Peer violated flow-control limits.",
+            Self::SettingsTimeout => "Settings frame was not acknowledged in a timely manner.",
+            Self::StreamClosed => "A frame was received on a closed stream.",
+            Self::FrameSizeError => "A frame of an incorrect size was received.",
+            Self::RefusedStream => "The stream was refused before any application processing.",
+            Self::Cancel => "The stream was cancelled.",
+            Self::CompressionError => "HPACK compression state could not be maintained.",
+            Self::ConnectError => "TCP connection for a CONNECT request was reset or abnormally closed.",
+            Self::EnhanceYourCalm => "Peer is generating excessive load.",
+            Self::InadequateSecurity => "Negotiated TLS parameters are unacceptable.",
+            Self::Http1_1Required => "Request must be retried over HTTP/1.1.",
+        }
     }
 }
+
+impl fmt::Display for H2ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.reason())
+    }
+}
+
+impl std::error::Error for H2ErrorCode {}
 
 impl From<u32> for H2ErrorCode {
     /// Unknown error codes decode to [`Self::NoError`] per RFC 9113 §5.4.4 / §5.4.5.

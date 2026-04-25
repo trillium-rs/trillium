@@ -28,14 +28,13 @@ pub(crate) fn encode(stream_id: u32, increment: u32, buf: &mut [u8]) -> Option<u
     if buf.len() < ENCODED_LEN {
         return None;
     }
-    let (header_buf, payload_buf) = buf.split_at_mut(FRAME_HEADER_LEN);
     FrameHeader {
         length: PAYLOAD_LEN,
         frame_type: FrameType::WindowUpdate as u8,
         flags: 0,
         stream_id,
     }
-    .encode(header_buf.try_into().expect("split_at_mut slot"));
-    payload_buf[..PAYLOAD_LEN as usize].copy_from_slice(&(increment & 0x7FFF_FFFF).to_be_bytes());
+    .encode(buf);
+    buf[FRAME_HEADER_LEN..ENCODED_LEN].copy_from_slice(&(increment & 0x7FFF_FFFF).to_be_bytes());
     Some(ENCODED_LEN)
 }

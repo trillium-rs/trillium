@@ -52,21 +52,6 @@ impl DynamicTable {
         }
     }
 
-    /// Current maximum size in bytes.
-    pub(in crate::headers) fn max_size(&self) -> usize {
-        self.max_size
-    }
-
-    /// Current size in bytes (sum of live entries' §4.1 sizes).
-    pub(in crate::headers) fn size(&self) -> usize {
-        self.size
-    }
-
-    /// Number of live entries.
-    pub(in crate::headers) fn len(&self) -> usize {
-        self.entries.len()
-    }
-
     /// Look up an entry by 1-based dynamic index (1 = newest).
     ///
     /// HPACK absolute indices above 61 map here via `absolute - 61`.
@@ -118,6 +103,25 @@ impl DynamicTable {
             };
             self.size -= evicted.size();
         }
+    }
+}
+
+/// Test-only accessors used by `tests` here and by HPACK encoder/decoder test modules
+/// to assert on post-mutation state. Not used on production paths — the decoder / encoder
+/// consult the table via [`DynamicTable::get`] / [`DynamicTable::insert`] / size updates
+/// without needing to read these fields directly.
+#[cfg(test)]
+impl DynamicTable {
+    pub(in crate::headers) fn max_size(&self) -> usize {
+        self.max_size
+    }
+
+    pub(in crate::headers) fn size(&self) -> usize {
+        self.size
+    }
+
+    pub(in crate::headers) fn len(&self) -> usize {
+        self.entries.len()
     }
 }
 

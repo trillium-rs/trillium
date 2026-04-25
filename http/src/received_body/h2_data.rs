@@ -41,11 +41,10 @@ where
             return if let Some(expected) = self.content_length
                 && total != expected
             {
-                self.signal_h2_stream_error(H2ErrorCode::ProtocolError);
-                Ready(Err(io::Error::new(
+                self.h2_protocol_error(
                     ErrorKind::InvalidData,
                     format!("content-length mismatch, {expected} != {total}"),
-                )))
+                )
             } else {
                 Ready(Ok((End, 0)))
             };
@@ -53,31 +52,27 @@ where
 
         let total = total + bytes as u64;
         if total > self.max_len {
-            self.signal_h2_stream_error(H2ErrorCode::ProtocolError);
-            return Ready(Err(io::Error::new(
-                ErrorKind::Unsupported,
-                "content too long",
-            )));
+            return self.h2_protocol_error(ErrorKind::Unsupported, "content too long".into());
         }
         if let Some(expected) = self.content_length
             && total > expected
         {
-            self.signal_h2_stream_error(H2ErrorCode::ProtocolError);
-            return Ready(Err(io::Error::new(
+            return self.h2_protocol_error(
                 ErrorKind::InvalidData,
                 format!("body exceeds content-length, {total} > {expected}"),
-            )));
+            );
         }
 
         Ready(Ok((ReceivedBodyState::H2Data { total }, bytes)))
     }
 
-    /// Request the h2 driver `RST_STREAM` this body's stream. No-op if we were constructed
-    /// without an `h2_connection` (shouldn't happen for the h2-data arm, but keeps the
-    /// helper defensive).
-    fn signal_h2_stream_error(&self, code: H2ErrorCode) {
+    /// Signal the driver to emit `RST_STREAM(PROTOCOL_ERROR)` for this stream and return a
+    /// matching `io::Error` to the caller. The caller's error and the peer-visible RST
+    /// track from the same detection point.
+    fn h2_protocol_error(&self, kind: ErrorKind, msg: String) -> StateOutput {
         if let Some((connection, stream_id)) = &self.h2_connection {
-            connection.stream_error(*stream_id, code);
+            connection.stream_error(*stream_id, H2ErrorCode::ProtocolError);
         }
+        Ready(Err(io::Error::new(kind, msg)))
     }
 }

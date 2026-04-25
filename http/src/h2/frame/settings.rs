@@ -27,15 +27,14 @@ pub(crate) fn encode(settings: &H2Settings, buf: &mut [u8]) -> Option<usize> {
     if buf.len() < total {
         return None;
     }
-    let (header_buf, payload_buf) = buf.split_at_mut(FRAME_HEADER_LEN);
     FrameHeader {
         length: u32::try_from(payload_len).expect("settings payload fits in 24 bits"),
         frame_type: FrameType::Settings as u8,
         flags: 0,
         stream_id: 0,
     }
-    .encode(header_buf.try_into().expect("split_at_mut slot"));
-    settings.encode(payload_buf)?;
+    .encode(buf);
+    settings.encode(&mut buf[FRAME_HEADER_LEN..])?;
     Some(total)
 }
 
@@ -43,14 +42,13 @@ pub(crate) fn encode_ack(buf: &mut [u8]) -> Option<usize> {
     if buf.len() < FRAME_HEADER_LEN {
         return None;
     }
-    let (header_buf, _) = buf.split_at_mut(FRAME_HEADER_LEN);
     FrameHeader {
         length: 0,
         frame_type: FrameType::Settings as u8,
         flags: FLAG_ACK,
         stream_id: 0,
     }
-    .encode(header_buf.try_into().expect("split_at_mut slot"));
+    .encode(buf);
     Some(FRAME_HEADER_LEN)
 }
 

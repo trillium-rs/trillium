@@ -29,14 +29,13 @@ pub(crate) fn encode(
     if buf.len() < ENCODED_LEN {
         return None;
     }
-    let (header_buf, payload_buf) = buf.split_at_mut(FRAME_HEADER_LEN);
     FrameHeader {
         length: PAYLOAD_LEN,
         frame_type: FrameType::Ping as u8,
         flags: if ack { FLAG_ACK } else { 0 },
         stream_id: 0,
     }
-    .encode(header_buf.try_into().expect("split_at_mut slot"));
-    payload_buf[..PAYLOAD_LEN as usize].copy_from_slice(&opaque_data);
+    .encode(buf);
+    buf[FRAME_HEADER_LEN..ENCODED_LEN].copy_from_slice(&opaque_data);
     Some(ENCODED_LEN)
 }

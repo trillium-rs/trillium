@@ -112,24 +112,23 @@ pub(crate) fn encode_prefix(
     if has_priority {
         flags |= FLAG_PRIORITY;
     }
-    let (header_buf, rest) = buf.split_at_mut(FRAME_HEADER_LEN);
     FrameHeader {
         length: payload_length,
         frame_type: FrameType::Headers as u8,
         flags,
         stream_id,
     }
-    .encode(header_buf.try_into().expect("split_at_mut slot"));
-    let mut cursor = 0usize;
+    .encode(buf);
+    let mut cursor = FRAME_HEADER_LEN;
     if padded {
-        rest[cursor] = padding_length;
+        buf[cursor] = padding_length;
         cursor += 1;
     }
     if let Some(priority) = priority {
         let dep = priority.stream_dependency & 0x7FFF_FFFF
             | if priority.exclusive { 0x8000_0000 } else { 0 };
-        rest[cursor..cursor + 4].copy_from_slice(&dep.to_be_bytes());
-        rest[cursor + 4] =
+        buf[cursor..cursor + 4].copy_from_slice(&dep.to_be_bytes());
+        buf[cursor + 4] =
             u8::try_from(priority.weight.saturating_sub(1)).expect("priority weight is 1..=256");
     }
     Some(prefix_len)

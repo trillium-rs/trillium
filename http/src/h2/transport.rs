@@ -27,7 +27,7 @@
 //! [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
 //! [RFC 9220]: https://www.rfc-editor.org/rfc/rfc9220
 
-use super::H2Connection;
+use super::{H2Connection, H2ErrorCode};
 use crate::{Body, Buffer, Headers};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -185,7 +185,7 @@ pub(super) struct StreamState {
     /// [`H2Acceptor::complete_and_remove_stream`][super::H2Acceptor]'s normal cleanup path.
     ///
     /// [`H2Acceptor`]: super::H2Acceptor
-    pub(super) pending_reset: Mutex<Option<super::H2ErrorCode>>,
+    pub(super) pending_reset: Mutex<Option<H2ErrorCode>>,
 }
 
 /// Receive-side per-stream state.
@@ -235,7 +235,7 @@ pub(super) struct RecvState {
 ///
 /// The conn task fills `submission` once via [`H2Connection::submit_send`][submit] and waits on
 /// `completion_waker` for `completed` to flip. The driver picks up the submission on its next
-/// `poll_next` tick, frames it (HEADERS, DATA, optional trailing HEADERS) into the connection's
+/// `drive` tick, frames it (HEADERS, DATA, optional trailing HEADERS) into the connection's
 /// outbound buffer as send-side flow control allows, and on completion stores the
 /// `completion_result`, sets `completed = true`, and wakes the conn task.
 ///

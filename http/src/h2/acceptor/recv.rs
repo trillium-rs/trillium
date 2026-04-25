@@ -7,7 +7,7 @@
 
 use super::{
     Action, CloseOutcome, ClosedReason, H2Acceptor, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
-    ReadPhase, StreamEntry, frame_slice, io_to_outcome,
+    ReadPhase, StreamEntry, frame_slice,
 };
 use crate::{
     Conn,
@@ -52,28 +52,29 @@ where
         cx: &mut Context<'_>,
     ) -> Poll<Result<Action, CloseOutcome>> {
         // Make sure we've at least decoded the header and know how much payload to expect.
-        if matches!(self.read_phase, ReadPhase::NeedHeader) {
-            ready!(self.poll_fill_to(FRAME_HEADER_LEN, cx)).map_err(io_to_outcome)?;
-            let header = FrameHeader::decode(&self.read_buf[..FRAME_HEADER_LEN])
-                .expect("FRAME_HEADER_LEN bytes already filled");
-            // RFC 9113 §4.2: a frame whose length exceeds the receiver-advertised
-            // `SETTINGS_MAX_FRAME_SIZE` is a `FRAME_SIZE_ERROR`. We also enforce
-            // [`MAX_BUFFER_SIZE`] as a DoS guard — it's the higher of the two limits, but
-            // belt-and-suspenders against a future change that raises the advertised max.
-            let max_frame_size = self.config.max_frame_size as usize;
-            let payload_len = usize::try_from(header.length)
-                .ok()
-                .filter(|n| *n <= max_frame_size && *n <= MAX_BUFFER_SIZE)
-                .ok_or(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
-            let total = FRAME_HEADER_LEN + payload_len;
-            self.read_phase = ReadPhase::NeedPayload { header, total };
-        }
-
-        let ReadPhase::NeedPayload { total, .. } = self.read_phase else {
-            unreachable!("set by the block above")
+        let total = match self.read_phase {
+            ReadPhase::NeedHeader => {
+                ready!(self.poll_fill_to(FRAME_HEADER_LEN, cx)).map_err(CloseOutcome::Io)?;
+                let header = FrameHeader::decode(&self.read_buf[..FRAME_HEADER_LEN])
+                    .expect("FRAME_HEADER_LEN bytes already filled");
+                // RFC 9113 §4.2: a frame whose length exceeds the receiver-advertised
+                // `SETTINGS_MAX_FRAME_SIZE` is a `FRAME_SIZE_ERROR`. We also enforce
+                // [`MAX_BUFFER_SIZE`] as a DoS guard — it's the higher of the two limits,
+                // but belt-and-suspenders against a future change that raises the
+                // advertised max.
+                let max_frame_size = self.config.max_frame_size as usize;
+                let payload_len = usize::try_from(header.length)
+                    .ok()
+                    .filter(|n| *n <= max_frame_size && *n <= MAX_BUFFER_SIZE)
+                    .ok_or(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
+                let total = FRAME_HEADER_LEN + payload_len;
+                self.read_phase = ReadPhase::NeedPayload { total };
+                total
+            }
+            ReadPhase::NeedPayload { total } => total,
         };
         if self.read_filled < total {
-            ready!(self.poll_fill_to(total, cx)).map_err(io_to_outcome)?;
+            ready!(self.poll_fill_to(total, cx)).map_err(CloseOutcome::Io)?;
         }
 
         let frame_bytes = &self.read_buf[..total];
@@ -98,7 +99,7 @@ where
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), CloseOutcome>> {
-        ready!(self.poll_fill_to(CLIENT_PREFACE.len(), cx)).map_err(io_to_outcome)?;
+        ready!(self.poll_fill_to(CLIENT_PREFACE.len(), cx)).map_err(CloseOutcome::Io)?;
         if &self.read_buf[..CLIENT_PREFACE.len()] != CLIENT_PREFACE {
             return Poll::Ready(Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)));
         }
@@ -172,16 +173,9 @@ where
                 stream_id,
                 end_stream,
                 data_length,
-                padding_length,
+                ..
             } => {
-                self.route_data(
-                    stream_id,
-                    end_stream,
-                    data_length,
-                    padding_length,
-                    payload_start,
-                    total,
-                )?;
+                self.route_data(stream_id, end_stream, data_length, payload_start, total)?;
                 Ok(Action::Continue)
             }
             Frame::WindowUpdate {
@@ -226,8 +220,14 @@ where
             // without an in-progress header block is too (but pending_headers==Some is
             // handled via the match arm above).
             Frame::PushPromise { .. } => Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)),
-            // Benign frames whose effect isn't yet implemented. Tolerate to keep the
-            // handshake clean until the relevant phases.
+            // Informational-only for our current feature set:
+            // - `SETTINGS_ACK` (§6.5.3): confirms the peer is using our advertised SETTINGS.
+            //   We start enforcing our values immediately on send, not on ack, so there's
+            //   no deferred state to apply. We also don't implement `SETTINGS_TIMEOUT` —
+            //   a peer that never acks our SETTINGS stays connected.
+            // - `PING { ack: true }` (§6.7): only meaningful if we initiated a proactive
+            //   PING, which we never do today. An unsolicited ACK is silently tolerated.
+            // - `Unknown` (§5.5): unknown frame types MUST be ignored.
             Frame::SettingsAck | Frame::Ping { ack: true, .. } | Frame::Unknown { .. } => {
                 Ok(Action::Continue)
             }
@@ -546,13 +546,12 @@ where
         stream_id: u32,
         end_stream: bool,
         data_length: u32,
-        padding_length: u8,
         payload_start: usize,
         total: usize,
     ) -> Result<(), CloseOutcome> {
-        let _ = padding_length; // padding is skipped by the push — still flow-controlled below
         // Flow-controlled byte count is the entire frame payload — data + pad-length byte
-        // (if present) + padding. The frame header is not flow-controlled.
+        // (if present) + padding. The frame header is not flow-controlled. Padding bytes
+        // past `data_length` stay in `read_buf` but aren't copied into the recv ring.
         let flow_controlled = i64::try_from(total - FRAME_HEADER_LEN)
             .map_err(|_| CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
 
@@ -624,9 +623,8 @@ where
     /// drive a window negative (legal); it cannot push it past `2^31 − 1` (connection-
     /// level `FLOW_CONTROL_ERROR`).
     fn apply_peer_settings(&mut self, settings: &H2Settings) -> Result<(), CloseOutcome> {
-        // Compute INITIAL_WINDOW_SIZE delta against the previously effective value BEFORE
-        // we take the write lock, so the per-stream adjustment below doesn't need to
-        // reenter the lock.
+        // Compute INITIAL_WINDOW_SIZE delta against the previously effective value before
+        // we take the lock, so the per-stream adjustment below doesn't need to reenter it.
         let initial_window_delta = settings.initial_window_size().map(|new| {
             let old = self
                 .connection
@@ -650,7 +648,7 @@ where
             }
         }
 
-        let mut current = self.connection.peer_settings_mut();
+        let mut current = self.connection.peer_settings();
         if let Some(v) = settings.max_frame_size() {
             current.set_max_frame_size(Some(v));
         }
