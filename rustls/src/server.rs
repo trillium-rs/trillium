@@ -57,6 +57,21 @@ impl RustlsAcceptor {
     /// let rustls_acceptor = RustlsAcceptor::from_single_cert(CERT, KEY);
     /// ```
     pub fn from_single_cert(cert: &[u8], key: &[u8]) -> Self {
+        Self::single_cert_with_alpn(cert, key, vec![b"h2".to_vec(), b"http/1.1".to_vec()])
+    }
+
+    /// build a [`RustlsAcceptor`] from a cert chain + private key that advertises only
+    /// `http/1.1` via ALPN, opting out of HTTP/2.
+    ///
+    /// This exists as a separate constructor because [`futures_rustls::TlsAcceptor`] does
+    /// not expose its inner [`ServerConfig`] for post-construction mutation. Callers needing
+    /// finer control should construct a [`ServerConfig`] directly and use its `Into`
+    /// conversion.
+    pub fn from_single_cert_no_h2(cert: &[u8], key: &[u8]) -> Self {
+        Self::single_cert_with_alpn(cert, key, vec![b"http/1.1".to_vec()])
+    }
+
+    fn single_cert_with_alpn(cert: &[u8], key: &[u8], alpn_protocols: Vec<Vec<u8>>) -> Self {
         use std::io::Cursor;
 
         let cert_chain = rustls_pemfile::certs(&mut Cursor::new(cert))
@@ -73,7 +88,7 @@ impl RustlsAcceptor {
             .with_no_client_auth()
             .with_single_cert(cert_chain, key_der)
             .expect("could not create a rustls ServerConfig from the supplied cert and key");
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        config.alpn_protocols = alpn_protocols;
         config.into()
     }
 }
