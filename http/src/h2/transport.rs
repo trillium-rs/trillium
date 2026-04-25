@@ -97,25 +97,26 @@ impl H2Transport {
 }
 
 impl Drop for H2Transport {
-    /// Send `RST_STREAM(Cancel)` if the stream is still tracked by the driver and
-    /// hasn't completed cleanly in both directions. Without this, dropping a transport
-    /// mid-stream — handler panic, conn task abandoned, client awaiting a response that
-    /// never came — would leak the stream until the entire connection tore down.
+    /// Application-side release / cancel signal, depending on stream state:
     ///
-    /// "Completed cleanly" means both halves observed `END_STREAM`: the send side has
-    /// fired its completion (`send.completed`) **and** the recv side reached eof. If the
-    /// driver has already removed the stream from the shared map (the normal teardown
-    /// path), there's nothing to RST and we no-op.
+    /// - **Wire-closed cleanly** (`send.completed && recv.eof`): the application is done with a
+    ///   stream that already finished on the wire. The client-role lifecycle keeps such streams in
+    ///   the map after wire-close (see [`H2Driver::try_close_if_both_done`][super::H2Driver]) so
+    ///   the application's transport handle remains valid for trailer / late-read access. Dropping
+    ///   the transport is the signal that the application is done, and we forward it via
+    ///   [`H2Connection::release_stream`][super::H2Connection::release_stream] so the driver
+    ///   removes the entry from both maps.
     ///
-    /// Symmetric for both roles: server-side a `Conn` dropped before `send_h2` runs to
-    /// completion now also emits RST, which is correct h2 behavior we previously lacked.
+    /// - **Wire-incomplete** (handler panic, conn task abandoned, client awaiting a response that
+    ///   never came): emit `RST_STREAM(Cancel)` so the peer learns we're abandoning the stream.
+    ///   Without this the leak persists until the entire connection tears down. Symmetric for both
+    ///   roles.
     ///
-    /// Extended-CONNECT (RFC 8441) handling: `outbound_close_requested` is the "user
-    /// called `poll_close`" signal — set only by [`Self::poll_close`] on the upgrade
-    /// path. When it's true the user has asked for graceful close and the driver is
-    /// (or will be) draining the outbound queue + emitting `DATA(END_STREAM)`; we
-    /// don't RST in that window. For the non-upgrade paths the flag stays false, so
-    /// this check is a no-op there.
+    /// - **Already gone from the shared map**: driver beat us to cleanup; no-op.
+    ///
+    /// - **Upgrade path graceful close in flight** (`outbound_close_requested`): user has already
+    ///   asked for graceful close via [`Self::poll_close`]; the driver is draining the outbound
+    ///   queue + emitting `DATA(END_STREAM)`. Don't RST in that window.
     fn drop(&mut self) {
         // Cheap pre-check: if the stream is no longer in the shared map the driver has
         // already cleaned up; nothing to do.
@@ -125,6 +126,11 @@ impl Drop for H2Transport {
         let send_done = self.state.send.completed.load(Ordering::Acquire);
         let recv_done = self.state.recv.eof.load(Ordering::Acquire);
         if send_done && recv_done {
+            log::trace!(
+                "h2 stream {}: H2Transport dropped on wire-closed stream — releasing",
+                self.stream_id,
+            );
+            self.connection.release_stream(self.stream_id);
             return;
         }
         // Upgrade path graceful close in flight — let the driver finish.
@@ -285,6 +291,16 @@ pub(super) struct StreamState {
     ///
     /// [`H2Driver`]: super::H2Driver
     pub(super) pending_reset: Mutex<Option<H2ErrorCode>>,
+
+    /// Client-role: the application has dropped its [`H2Transport`] handle on a stream that
+    /// already wire-closed cleanly (both halves observed `END_STREAM`). The driver removes
+    /// the stream from both maps on its next `service_handler_signals` tick. No `RST_STREAM`
+    /// — the wire-side is already closed; this is purely application-side resource cleanup.
+    /// Distinct from [`Self::pending_reset`], which emits `RST_STREAM` for unclean teardown.
+    ///
+    /// Server role never sets this — server streams are removed eagerly when the response
+    /// finishes sending (no held-after-close lifecycle).
+    pub(super) pending_release: AtomicBool,
 }
 
 /// Receive-side per-stream state.
@@ -337,6 +353,14 @@ pub(super) struct RecvState {
     /// to the [`Self::trailers`] slot. 1xx interim responses are not modeled — the slot is
     /// one `FieldSection` per stream, matching the same constraint elsewhere in trillium.
     pub(super) response_headers: Mutex<Option<FieldSection<'static>>>,
+
+    /// Client-role: latching flag for "first HEADERS arrived for this stream." Distinct from
+    /// `response_headers.is_some()` — the conn task drains that slot when it consumes
+    /// headers, so the driver can't use slot occupancy to distinguish "haven't seen
+    /// HEADERS yet" from "headers seen + already taken." Set inside `finalize_response_headers`
+    /// before that slot is populated; checked by `route_headers` on subsequent HEADERS to
+    /// route them as trailers. Never cleared.
+    pub(super) first_response_headers_seen: AtomicBool,
 
     /// Client-role: waker the conn task registers via
     /// [`H2Connection::response_headers`][super::H2Connection]; fired by the driver after

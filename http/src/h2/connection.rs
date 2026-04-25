@@ -370,12 +370,23 @@ impl H2Connection {
     /// Panics if any of the per-connection mutexes is poisoned.
     #[cfg(feature = "unstable")]
     pub fn can_open_stream(&self) -> bool {
+        use std::sync::atomic::Ordering;
         if !self.swansong.state().is_running() {
             return false;
         }
-        // RFC 9113 §5.1.1 caps the stream-id space at 2^31, so the count fits in u32 in
-        // practice; saturate defensively rather than truncate if the invariant is ever broken.
-        let inflight = u32::try_from(self.streams_lock().len()).unwrap_or(u32::MAX);
+        // Count wire-active streams only — entries the application is still holding after a
+        // clean wire-close (the h1/h3-symmetric "stream lives until the user drops" lifecycle)
+        // are in the map but no longer count against the peer's MAX_CONCURRENT_STREAMS per RFC
+        // 9113 §5.1's closed-state rule.
+        let inflight: u32 = self
+            .streams_lock()
+            .values()
+            .filter(|s| {
+                !(s.send.completed.load(Ordering::Acquire) && s.recv.eof.load(Ordering::Acquire))
+            })
+            .count()
+            .try_into()
+            .unwrap_or(u32::MAX);
         let cap = self.peer_settings().effective_max_concurrent_streams();
         inflight < cap
     }
@@ -420,6 +431,23 @@ impl H2Connection {
             .lock()
             .expect("recv trailers mutex poisoned")
             .take()
+    }
+
+    /// Client-role: signal that the application has dropped its [`H2Transport`] for a
+    /// cleanly wire-closed stream and the driver should now remove the entry from both
+    /// stream maps. No `RST_STREAM` is emitted — the wire side already closed cleanly via
+    /// `END_STREAM` in both directions. This is purely the application-side resource cleanup
+    /// trigger (mirroring h1/h3, where the stream lives until the user drops their handle).
+    ///
+    /// Side effects: sets `StreamState.pending_release` and wakes the driver. No-op on a
+    /// stream that's already gone from the map. Server-role streams never reach here —
+    /// they're removed eagerly when the response finishes sending.
+    pub(crate) fn release_stream(&self, stream_id: u32) {
+        let stream = self.streams_lock().get(&stream_id).cloned();
+        if let Some(stream) = stream {
+            stream.pending_release.store(true, Ordering::Release);
+            self.outbound_waker.wake();
+        }
     }
 
     /// Request that the driver emit `RST_STREAM` on this stream with the given error code

@@ -178,15 +178,7 @@ async fn h2_post_with_body() -> TestResult {
     Ok(())
 }
 
-// FIXME: response trailers race with client-role stream removal. The current lifecycle
-// removes the stream from the connection's map as soon as `send.completed && recv.eof`,
-// which can fire before the conn task wakes up to read the body to EOF and call
-// `take_trailers`. The fix is to align h2 with h1/h3: keep the stream in the map until the
-// user drops their handle (`H2Transport::Drop`). Tracked as a follow-up commit on this
-// branch. The request-trailers half of the test (server receives `x-ping`) is exercised by
-// the body assertion below — `"ping:data"` only comes back if the server saw the trailer.
 #[test(harness)]
-#[ignore = "blocked on h2 client-role stream lifecycle fix; see comment above"]
 async fn h2_bidirectional_trailers() -> TestResult {
     let _ = env_logger::builder().is_test(true).try_init();
     let cert = test_cert();

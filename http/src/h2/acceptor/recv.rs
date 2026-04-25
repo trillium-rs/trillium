@@ -445,13 +445,15 @@ where
             match self.role {
                 Role::Server => self.finalize_trailers(stream_id, end_stream, field_section),
                 Role::Client => {
+                    // Latching flag, not slot occupancy: the conn task drains
+                    // `response_headers` when it consumes them, so the slot would falsely
+                    // read empty for a trailing-HEADERS arriving after the conn task has
+                    // taken the response.
                     let already_have_response = entry
                         .shared
                         .recv
-                        .response_headers
-                        .lock()
-                        .expect("response_headers mutex poisoned")
-                        .is_some();
+                        .first_response_headers_seen
+                        .load(Ordering::Acquire);
                     if already_have_response {
                         // Second HEADERS arrival on a client-initiated stream is the
                         // trailing HEADERS — same constraints as the server-side trailer
@@ -500,6 +502,14 @@ where
             .get(&stream_id)
             .expect("caller verified stream is present");
         let state = entry.shared.clone();
+
+        // Latch the "we've seen the first HEADERS" flag *before* writing the slot. Subsequent
+        // HEADERS arrivals route as trailers via this flag rather than the slot's occupancy,
+        // since the conn task takes the slot when consuming headers.
+        state
+            .recv
+            .first_response_headers_seen
+            .store(true, Ordering::Release);
 
         // Stash headers under the recv buf lock to give body readers + eof observers a
         // consistent ordering: by the time eof is visible, response_headers is too.

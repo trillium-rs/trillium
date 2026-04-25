@@ -709,6 +709,21 @@ where
                 ))),
             );
         }
+
+        // Pick up application-side release requests for client-role wire-closed streams. The
+        // `H2Transport::Drop` for a cleanly-completed stream sets `pending_release`; this
+        // pass acts on it by removing the entry from both stream maps. No `RST_STREAM` —
+        // the wire is already closed.
+        let releases: Vec<u32> = self
+            .streams
+            .iter()
+            .filter(|(_, entry)| entry.shared.pending_release.swap(false, Ordering::AcqRel))
+            .map(|(&id, _)| id)
+            .collect();
+        for stream_id in releases {
+            log::trace!("h2 stream {stream_id}: application released held stream — removing");
+            self.remove_from_stream_maps(stream_id);
+        }
     }
 
     /// True if any stream has a conn-task signal pending that we haven't yet serviced. Used
@@ -741,6 +756,7 @@ where
                     .lock()
                     .expect("pending_reset mutex poisoned")
                     .is_some()
+                || e.shared.pending_release.load(Ordering::Acquire)
         })
     }
 

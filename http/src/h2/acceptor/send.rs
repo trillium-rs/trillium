@@ -197,6 +197,20 @@ where
     /// `send_h2` and started `handler.upgrade(...)`. `entry.send.completion_signaled`
     /// gates re-signaling here to avoid clobbering the result the conn task already saw.
     pub(super) fn complete_and_remove_stream(&mut self, stream_id: u32, result: io::Result<()>) {
+        self.signal_close(stream_id, result);
+        self.remove_from_stream_maps(stream_id);
+    }
+
+    /// Wire-close half of [`Self::complete_and_remove_stream`]: record in the closed-streams
+    /// ledger, signal the conn task's pending [`SubmitSend`][super::super::SubmitSend], wake
+    /// any task parked on response headers. Does **not** remove the stream from either map.
+    ///
+    /// Used directly by client-role clean completion ([`Self::try_close_if_both_done`]),
+    /// which intentionally keeps the stream in the map so the application's
+    /// [`H2Transport`][super::super::H2Transport] still has a working handle for trailer
+    /// access etc. Map removal happens later via the application dropping its transport,
+    /// which signals through `pending_release` (handled by `service_handler_signals`).
+    pub(super) fn signal_close(&mut self, stream_id: u32, result: io::Result<()>) {
         log::trace!("h2 stream {stream_id}: completing send ({result:?})");
         let reason = if result.is_err() {
             ClosedReason::Reset
@@ -204,7 +218,7 @@ where
             ClosedReason::EndStream
         };
         self.closed_streams.record(stream_id, reason);
-        if let Some(entry) = self.streams.remove(&stream_id) {
+        if let Some(entry) = self.streams.get(&stream_id) {
             let already_signaled = entry.send.as_ref().is_some_and(|c| c.completion_signaled);
             if already_signaled {
                 log::trace!(
@@ -221,6 +235,14 @@ where
             // server-role streams (the slot is never written there).
             entry.shared.recv.response_headers_waker.wake();
         }
+    }
+
+    /// Map-removal half of [`Self::complete_and_remove_stream`]: drop the entry from the
+    /// driver's private map and the connection's shared map. Called immediately by error /
+    /// server-role completion paths, and on application-side release for client-role
+    /// wire-closed-but-held streams.
+    pub(super) fn remove_from_stream_maps(&mut self, stream_id: u32) {
+        self.streams.remove(&stream_id);
         self.connection.streams_lock().remove(&stream_id);
     }
 
@@ -251,11 +273,19 @@ where
         }
     }
 
-    /// Remove the stream if both halves have completed. Used by the client-role lifecycle
-    /// — the recv-side `END_STREAM` path in [`route_data`][super::recv], the
+    /// Wire-close the stream if both halves have completed. Used by the client-role
+    /// lifecycle — the recv-side `END_STREAM` path in [`route_data`][super::recv], the
     /// HEADERS-with-`END_STREAM` case in
     /// [`finalize_response_headers`][super::recv], and [`Self::finalize_send`] for the
-    /// client branch — to actually tear down the stream once both directions are done.
+    /// client branch.
+    ///
+    /// Performs the wire-close work (closed-streams ledger + send-completion signaling +
+    /// response-headers waker fire) but **keeps the entry in both stream maps** so the
+    /// application's [`H2Transport`][super::super::H2Transport] retains a working handle
+    /// for response-trailer access, etc. — mirroring h1/h3, where the stream lives until
+    /// the application drops its conn. Map removal happens via `pending_release` triggered
+    /// by `H2Transport::Drop` and serviced in `service_handler_signals`.
+    ///
     /// No-op if either side is still in flight.
     pub(super) fn try_close_if_both_done(&mut self, stream_id: u32) {
         let Some(entry) = self.streams.get(&stream_id) else {
@@ -264,7 +294,7 @@ where
         let send_done = entry.shared.send.completed.load(Ordering::Acquire);
         let recv_done = entry.shared.recv.eof.load(Ordering::Acquire);
         if send_done && recv_done {
-            self.complete_and_remove_stream(stream_id, Ok(()));
+            self.signal_close(stream_id, Ok(()));
         }
     }
 
