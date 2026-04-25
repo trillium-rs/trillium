@@ -56,7 +56,7 @@ pub(super) struct SendCursor {
     trailers: Option<Headers>,
     /// Where we are in the response.
     phase: SendPhase,
-    /// `true` if this stream is in extended-CONNECT upgrade mode (RFC 8441 / RFC 9220):
+    /// `true` if this stream is in extended-CONNECT upgrade mode (RFC 8441):
     /// signal [`SubmitSend`][super::super::SubmitSend] completion the moment `END_HEADERS`
     /// goes out instead of waiting for `END_STREAM`, so the runtime can dispatch
     /// [`Handler::upgrade`][trillium::Handler::upgrade] while the streaming body keeps
@@ -251,7 +251,7 @@ where
         send.headers_offset += chunk_len;
 
         if end_headers {
-            // Extended-CONNECT (RFC 8441 / RFC 9220): signal `SubmitSend` completion as
+            // Extended-CONNECT (RFC 8441): signal `SubmitSend` completion as
             // soon as the response HEADERS frame is on the wire so `Conn::send_h2`
             // returns and the runtime can dispatch `handler.upgrade(...)`. The body
             // (an `H2OutboundReader` over `SendState.outbound`) keeps streaming in the

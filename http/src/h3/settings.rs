@@ -15,6 +15,10 @@ const SETTINGS_QPACK_BLOCKED_STREAMS: u64 = 0x07;
 const SETTINGS_H3_DATAGRAM: u64 = 0x33;
 /// draft-ietf-webtrans-http3 — enables WebTransport over HTTP/3.
 const SETTINGS_ENABLE_WEBTRANSPORT: u64 = 0x2b60_3742;
+/// RFC 9220 §3 — reuses the HTTP/2 identifier (RFC 8441) to signal that the
+/// server accepts extended CONNECT requests carrying a `:protocol`
+/// pseudo-header (e.g. WebSocket-over-h3).
+const SETTINGS_ENABLE_CONNECT_PROTOCOL: u64 = 0x08;
 
 /// H3 connection settings per RFC 9114 §7.2.4.
 ///
@@ -52,6 +56,13 @@ pub struct H3Settings {
     /// Default: false (disabled).
     enable_webtransport: bool,
 
+    /// Whether extended CONNECT (RFC 9220, reusing the RFC 8441 mechanism for HTTP/3) is
+    /// advertised. Required by clients to attempt protocols layered on extended CONNECT,
+    /// such as WebSocket-over-h3.
+    ///
+    /// Default: false (disabled).
+    enable_connect_protocol: bool,
+
     // GREASE setting included in encoded output per RFC 9114 §7.2.4.1.
     // Chosen at construction time so encoded_len() and encode() agree.
     // Zero when decoded from a peer (GREASE is skipped during decode).
@@ -70,6 +81,7 @@ impl std::fmt::Debug for H3Settings {
             .field("qpack_blocked_streams", &self.qpack_blocked_streams)
             .field("h3_datagram", &self.h3_datagram)
             .field("enable_webtransport", &self.enable_webtransport)
+            .field("enable_connect_protocol", &self.enable_connect_protocol)
             .finish_non_exhaustive()
     }
 }
@@ -83,6 +95,7 @@ impl From<&HttpConfig> for H3Settings {
             qpack_blocked_streams: (value.h3_blocked_streams > 0)
                 .then_some(value.h3_blocked_streams as u64),
             enable_webtransport: value.webtransport_enabled,
+            enable_connect_protocol: value.extended_connect_enabled,
             h3_datagram: value.h3_datagrams_enabled,
             ..Self::default()
         }
@@ -98,6 +111,7 @@ impl PartialEq for H3Settings {
             && self.qpack_blocked_streams == other.qpack_blocked_streams
             && self.h3_datagram == other.h3_datagram
             && self.enable_webtransport == other.enable_webtransport
+            && self.enable_connect_protocol == other.enable_connect_protocol
     }
 }
 
@@ -135,6 +149,10 @@ impl H3Settings {
         }
         if self.enable_webtransport {
             len += quic_varint::encoded_len(SETTINGS_ENABLE_WEBTRANSPORT);
+            len += quic_varint::encoded_len(1u64);
+        }
+        if self.enable_connect_protocol {
+            len += quic_varint::encoded_len(SETTINGS_ENABLE_CONNECT_PROTOCOL);
             len += quic_varint::encoded_len(1u64);
         }
         if self.grease_id != 0 {
@@ -179,6 +197,9 @@ impl H3Settings {
                 SETTINGS_ENABLE_WEBTRANSPORT => {
                     settings.enable_webtransport = value == 1;
                 }
+                SETTINGS_ENABLE_CONNECT_PROTOCOL => {
+                    settings.enable_connect_protocol = value == 1;
+                }
                 _ => {
                     log::trace!("skipping unknown setting identifier {id:#x}");
                 }
@@ -210,6 +231,11 @@ impl H3Settings {
         }
         if self.enable_webtransport {
             written += quic_varint::encode(SETTINGS_ENABLE_WEBTRANSPORT, &mut buf[written..])?;
+            written += quic_varint::encode(1u64, &mut buf[written..])?;
+        }
+        if self.enable_connect_protocol {
+            written +=
+                quic_varint::encode(SETTINGS_ENABLE_CONNECT_PROTOCOL, &mut buf[written..])?;
             written += quic_varint::encode(1u64, &mut buf[written..])?;
         }
         if self.grease_id != 0 {
@@ -303,6 +329,29 @@ mod tests {
         let decoded = H3Settings::decode(&buf[..len]).unwrap();
         assert!(!decoded.h3_datagram());
         assert!(!decoded.enable_webtransport());
+    }
+
+    #[test]
+    fn roundtrip_enable_connect_protocol() {
+        let settings = H3Settings::new().with_enable_connect_protocol(true);
+        let mut buf = vec![0; 256];
+        let len = settings.encode(&mut buf).unwrap();
+        assert_eq!(settings.encoded_len(), len);
+        let decoded = H3Settings::decode(&buf[..len]).unwrap();
+        assert_eq!(decoded, settings);
+        assert!(decoded.enable_connect_protocol());
+    }
+
+    #[test]
+    fn enable_connect_protocol_default_false() {
+        let settings = H3Settings::default();
+        assert!(!settings.enable_connect_protocol());
+
+        let settings = H3Settings::new();
+        let mut buf = vec![0; 256];
+        let len = settings.encode(&mut buf).unwrap();
+        let decoded = H3Settings::decode(&buf[..len]).unwrap();
+        assert!(!decoded.enable_connect_protocol());
     }
 
     #[test]

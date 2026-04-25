@@ -16,9 +16,10 @@
 //!   which frames HEADERS + DATA + trailing HEADERS onto the connection without ever
 //!   touching this `AsyncWrite`.
 //!
-//! - **Extended-CONNECT upgrades** ([RFC 8441] WebSocket-over-h2, [RFC 9220]
-//!   WebTransport-over-h2): after the handler responds 200 to a `CONNECT` request with a
-//!   `:protocol` pseudo-header, [`Conn::send_h2`][crate::Conn::send_h2] routes through
+//! - **Extended-CONNECT upgrades** ([RFC 8441] WebSocket-over-h2, plus the in-progress
+//!   `draft-ietf-webtrans-http2` for WebTransport-over-h2): after the handler responds 200
+//!   to a `CONNECT` request with a `:protocol` pseudo-header,
+//!   [`Conn::send_h2`][crate::Conn::send_h2] routes through
 //!   [`H2Connection::submit_upgrade`][submit_upgrade] which frames HEADERS without
 //!   `END_STREAM`, signals send completion early, and leaves the stream open as a
 //!   bidirectional byte channel. The runtime adapter then dispatches
@@ -35,7 +36,6 @@
 //! [submit_send]: super::H2Connection::submit_send
 //! [submit_upgrade]: super::H2Connection::submit_upgrade
 //! [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
-//! [RFC 9220]: https://www.rfc-editor.org/rfc/rfc9220
 
 use super::{H2Connection, H2ErrorCode};
 use crate::{Body, Buffer, Headers};
@@ -161,7 +161,7 @@ impl AsyncWrite for H2Transport {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         // Append into the per-stream outbound queue used by the extended-CONNECT
-        // (RFC 8441 / RFC 9220) upgrade path. The driver's send pump drains the same
+        // (RFC 8441) upgrade path. The driver's send pump drains the same
         // queue (via the upgrade body's `AsyncRead::poll_read`) into DATA frames bounded
         // by per-stream + connection send windows.
         //
@@ -292,7 +292,7 @@ pub(super) struct RecvState {
 /// control allows, and on completion stores the `completion_result`, sets `completed = true`,
 /// and wakes the conn task.
 ///
-/// **Extended-CONNECT upgrade path** ([RFC 8441] / [RFC 9220]): the conn task calls
+/// **Extended-CONNECT upgrade path** ([RFC 8441]): the conn task calls
 /// [`H2Connection::submit_upgrade`][submit_upgrade], which constructs an
 /// [`H2OutboundReader`] over `outbound` / `outbound_close_requested` /
 /// `outbound_waker` and submits it as the response body. The driver signals
@@ -308,7 +308,6 @@ pub(super) struct RecvState {
 /// [submit]: super::H2Connection::submit_send
 /// [submit_upgrade]: super::H2Connection::submit_upgrade
 /// [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
-/// [RFC 9220]: https://www.rfc-editor.org/rfc/rfc9220
 #[derive(Debug, Default)]
 pub(super) struct SendState {
     /// Slot for the conn task's submission. Some between `submit_send` and the driver's
@@ -328,7 +327,7 @@ pub(super) struct SendState {
     /// after `completed` is set.
     pub(super) completion_waker: AtomicWaker,
 
-    /// Outbound bytes for an extended-CONNECT (RFC 8441 / RFC 9220) upgraded stream.
+    /// Outbound bytes for an extended-CONNECT (RFC 8441) upgraded stream.
     /// Appended to by [`H2Transport`]'s `AsyncWrite::poll_write` and drained by the
     /// upgrade body's `AsyncRead::poll_read` (the driver-task side of the send pump).
     /// Empty for normal responses — the driver pumps the response [`Body`] directly.
@@ -412,7 +411,7 @@ impl AsyncRead for H2OutboundReader {
 
 /// What the conn task hands the driver to begin a send on a stream.
 ///
-/// `body` carries either a normal response body or, for extended-CONNECT (RFC 8441 / RFC 9220)
+/// `body` carries either a normal response body or, for extended-CONNECT (RFC 8441)
 /// upgrades, a streaming body that reads from [`SendState::outbound`] (which the upgrade
 /// handler's [`H2Transport`] `AsyncWrite` writes into). Trailers (if any) come from
 /// [`Body::trailers`] after drain — not a separate field.

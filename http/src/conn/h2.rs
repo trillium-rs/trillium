@@ -139,7 +139,7 @@ where
     /// includes things like state-bag teardown and observers) happens *after* the body is
     /// fully on the wire, matching h1/h3's lifecycle.
     ///
-    /// On the extended-CONNECT (RFC 8441 / RFC 9220) upgrade path — i.e.,
+    /// On the extended-CONNECT (RFC 8441) upgrade path — i.e.,
     /// [`Conn::should_upgrade`] returns true at this point because the handler has set
     /// status 200 on a CONNECT request — this routes through
     /// [`H2Connection::submit_upgrade`] instead. That signals completion as soon as the

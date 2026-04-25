@@ -223,7 +223,7 @@ impl H2Connection {
         SubmitSend { stream_id, stream }
     }
 
-    /// Hand a response off for an extended-CONNECT (RFC 8441 / RFC 9220) upgrade.
+    /// Hand a response off for an extended-CONNECT (RFC 8441) upgrade.
     ///
     /// Frames the response HEADERS without `END_STREAM` and signals
     /// [`SubmitSend`] completion the moment the HEADERS frame is on the wire — instead of

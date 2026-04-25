@@ -311,15 +311,19 @@ pub struct HttpConfig {
     /// **Default**: false
     pub(crate) webtransport_enabled: bool,
 
-    /// HTTP/2 `SETTINGS_ENABLE_CONNECT_PROTOCOL` (RFC 8441 §3) — advertises that the
-    /// server accepts extended CONNECT requests, enabling protocols layered on top of h2
-    /// such as WebSocket-over-h2 (RFC 8441) and WebTransport-over-h2 (RFC 9220).
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL` — advertises that the server accepts extended
+    /// CONNECT requests, enabling protocols layered on top of HTTP that bootstrap via a
+    /// CONNECT with a `:protocol` pseudo-header. The same identifier (0x08) is used by
+    /// HTTP/2 (RFC 8441 §3) and HTTP/3 (RFC 9220 §3).
+    ///
+    /// Use cases include WebSocket-over-h2 (RFC 8441), WebSocket-over-h3 (RFC 9220),
+    /// and WebTransport (`draft-ietf-webtrans-http2` and `draft-ietf-webtrans-http3`).
     ///
     /// When set, the server's initial SETTINGS frame includes
-    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` and the runtime accepts CONNECT requests
-    /// carrying a `:protocol` pseudo-header. Without it, clients won't attempt extended
-    /// CONNECT, which is the correct default — handlers that don't expect extended
-    /// CONNECT shouldn't see those requests.
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` (on both HTTP/2 and HTTP/3) and the runtime
+    /// accepts CONNECT requests carrying a `:protocol` pseudo-header. Without it, clients
+    /// won't attempt extended CONNECT, which is the correct default — handlers that don't
+    /// expect extended CONNECT shouldn't see those requests.
     ///
     /// You don't need to set this manually if using a handler that requires it (e.g. an
     /// h2 websocket handler will flip it from `Handler::init`, the same way the
