@@ -1,13 +1,26 @@
-use crate::{Conn, IntoUrl, Pool, USER_AGENT, h3::H3ClientState};
+use crate::{Conn, IntoUrl, Pool, USER_AGENT, conn::H2Pooled, h3::H3ClientState};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
     HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method, ReceivedBodyState,
-    TypeSet, Version::Http1_1, h2::H2Connection,
+    TypeSet, Version::Http1_1,
 };
 use trillium_server_common::{
     ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Transport,
     url::{Origin, Url},
 };
+
+/// Default maximum idle time for a pooled HTTP/2 connection. Longer than h1 because the
+/// initial h2 handshake (TCP + TLS + ALPN + SETTINGS exchange) is more expensive to
+/// re-establish.
+const DEFAULT_H2_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Default idle threshold above which a pooled HTTP/2 connection is liveness-pinged before
+/// being handed out for a new request. Below this, we trust the connection without probing.
+const DEFAULT_H2_IDLE_PING_THRESHOLD: Duration = Duration::from_secs(10);
+
+/// Default timeout for the liveness PING — if we don't get an ACK within this window, the
+/// connection is treated as dead and a fresh one is established instead.
+const DEFAULT_H2_IDLE_PING_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// A HTTP Client supporting HTTP/1.x and, when configured with a quic implementation, HTTP/3. See
 /// [`Client::new`] and [`Client::new_with_quic`] for construction information.
@@ -16,7 +29,29 @@ pub struct Client {
     config: ArcedConnector,
     h3: Option<H3ClientState>,
     pool: Option<Pool<Origin, Box<dyn Transport>>>,
-    h2_pool: Option<Pool<Origin, Arc<H2Connection>>>,
+    h2_pool: Option<Pool<Origin, H2Pooled>>,
+
+    /// Maximum idle time for a pooled HTTP/2 connection. `None` disables expiry.
+    ///
+    /// Defaults to 5 minutes.
+    #[field(get, set, with, without, copy)]
+    h2_idle_timeout: Option<Duration>,
+
+    /// If a pooled HTTP/2 connection has been idle for longer than this, an active PING is
+    /// sent to verify it's still alive before being handed out. `None` disables the probe.
+    ///
+    /// Defaults to 10 seconds.
+    #[field(get, set, with, copy, without)]
+    h2_idle_ping_threshold: Option<Duration>,
+
+    /// Timeout for the liveness PING sent under the [`h2_idle_ping_threshold`] policy.
+    /// Connections whose ACK doesn't arrive within this window are treated as dead.
+    ///
+    /// Defaults to 20 seconds.
+    ///
+    /// [`h2_idle_ping_threshold`]: Self::h2_idle_ping_threshold
+    #[field(get, set, with, copy)]
+    h2_idle_ping_timeout: Duration,
 
     /// url base for this client
     #[field(get)]
@@ -26,8 +61,8 @@ pub struct Client {
     #[field(get)]
     default_headers: Arc<Headers>,
 
-    /// optional timeout
-    #[field(get, set, with, copy, option_set_some)]
+    /// optional per-request timeout
+    #[field(get, set, with, copy, without, option_set_some)]
     timeout: Option<Duration>,
 
     /// configuration
@@ -97,6 +132,9 @@ impl Client {
             h3: None,
             pool: Some(Pool::default()),
             h2_pool: Some(Pool::default()),
+            h2_idle_timeout: Some(DEFAULT_H2_IDLE_TIMEOUT),
+            h2_idle_ping_threshold: Some(DEFAULT_H2_IDLE_PING_THRESHOLD),
+            h2_idle_ping_timeout: DEFAULT_H2_IDLE_PING_TIMEOUT,
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
@@ -121,6 +159,9 @@ impl Client {
             h3: Some(H3ClientState::new(arced_quic)),
             pool: Some(Pool::default()),
             h2_pool: Some(Pool::default()),
+            h2_idle_timeout: Some(DEFAULT_H2_IDLE_TIMEOUT),
+            h2_idle_ping_threshold: Some(DEFAULT_H2_IDLE_PING_THRESHOLD),
+            h2_idle_ping_timeout: DEFAULT_H2_IDLE_PING_TIMEOUT,
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
@@ -205,6 +246,9 @@ impl Client {
             request_body: None,
             pool: self.pool.clone(),
             h2_pool: self.h2_pool.clone(),
+            h2_idle_timeout: self.h2_idle_timeout,
+            h2_idle_ping_threshold: self.h2_idle_ping_threshold,
+            h2_idle_ping_timeout: self.h2_idle_ping_timeout,
             h2_connection: None,
             h3_client_state: self.h3.clone(),
             h3_connection: None,

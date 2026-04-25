@@ -16,6 +16,7 @@ mod h3;
 mod shared;
 mod unexpected_status_error;
 
+pub(crate) use h2::H2Pooled;
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 pub use shared::ClientSerdeError;
 pub use unexpected_status_error::UnexpectedStatusError;
@@ -26,7 +27,10 @@ pub use unexpected_status_error::UnexpectedStatusError;
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn {
     pub(crate) pool: Option<Pool<Origin, Box<dyn Transport>>>,
-    pub(crate) h2_pool: Option<Pool<Origin, Arc<H2Connection>>>,
+    pub(crate) h2_pool: Option<Pool<Origin, H2Pooled>>,
+    pub(crate) h2_idle_timeout: Option<Duration>,
+    pub(crate) h2_idle_ping_threshold: Option<Duration>,
+    pub(crate) h2_idle_ping_timeout: Duration,
     pub(crate) h2_connection: Option<(Arc<H2Connection>, u32)>,
     pub(crate) h3_client_state: Option<H3ClientState>,
     pub(crate) h3_connection: Option<(Arc<H3Connection>, u64)>,

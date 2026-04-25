@@ -1,11 +1,73 @@
 use super::Conn;
-use std::{borrow::Cow, future::poll_fn, sync::Arc};
+use std::{
+    borrow::Cow,
+    fmt::{self, Debug, Formatter},
+    future::poll_fn,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 use trillium_http::{
     Error, KnownHeaderName, Method, ReceivedBodyState, Result, Version,
     h2::H2Connection,
     headers::hpack::{self, FieldSection, PseudoHeaders},
 };
 use trillium_server_common::Transport;
+
+/// Client-side wrapper for a pooled HTTP/2 connection.
+///
+/// Bundles the shared `Arc<H2Connection>` with per-pool-entry liveness state — currently
+/// just the `last_used` instant for idle-ping decisions in [`Conn::try_exec_h2_pooled`].
+///
+/// Cloned via `Arc` shares;
+/// [`Pool::peek_candidate_classify`][crate::pool::Pool::peek_candidate_classify] clones an entry to
+/// hand it out while keeping the original in the queue, so cloning needs to be cheap and observably
+/// equivalent to the original (both clones touch the same `last_used`).
+#[derive(Clone)]
+pub(crate) struct H2Pooled {
+    connection: Arc<H2Connection>,
+    last_used: Arc<Mutex<Instant>>,
+}
+
+impl Debug for H2Pooled {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("H2Pooled")
+            .field("connection", &self.connection)
+            .field("last_used", &*self.last_used.lock().unwrap())
+            .finish()
+    }
+}
+
+impl H2Pooled {
+    pub(crate) fn new(connection: Arc<H2Connection>) -> Self {
+        Self {
+            connection,
+            last_used: Arc::new(Mutex::new(Instant::now())),
+        }
+    }
+
+    pub(crate) fn connection(&self) -> &Arc<H2Connection> {
+        &self.connection
+    }
+
+    fn touch(&self) {
+        *self.last_used.lock().unwrap() = Instant::now();
+    }
+
+    fn idle_for(&self) -> Duration {
+        self.last_used.lock().unwrap().elapsed()
+    }
+}
+
+/// Generate an 8-byte opaque payload for an active PING frame. Uses the low 64 bits of
+/// system-time nanoseconds since the unix epoch — collisions on a single connection are
+/// effectively impossible, and the byte sequence is opaque on the wire (RFC 9113 §6.7).
+fn fresh_ping_opaque() -> [u8; 8] {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    nanos.to_be_bytes()
+}
 
 impl Conn {
     /// Attempt to execute this request over a pooled HTTP/2 connection.
@@ -18,13 +80,46 @@ impl Conn {
             return Ok(false);
         };
         let origin = self.url.origin();
-        let Some(h2) = h2_pool.peek_candidate(&origin) else {
+        let Some(pooled) = h2_pool.peek_candidate_classify(&origin, |p| {
+            let conn = p.connection();
+            if !conn.swansong().state().is_running() {
+                crate::pool::PoolEntryStatus::Dead
+            } else if !conn.can_open_stream() {
+                crate::pool::PoolEntryStatus::Busy
+            } else {
+                crate::pool::PoolEntryStatus::Available
+            }
+        }) else {
             return Ok(false);
         };
-        if !h2.swansong().state().is_running() {
-            return Ok(false);
+
+        if let Some(threshold) = self.h2_idle_ping_threshold
+            && pooled.idle_for() > threshold
+        {
+            let opaque = fresh_ping_opaque();
+            let ping = pooled.connection().send_ping(opaque);
+            match self
+                .config
+                .runtime()
+                .timeout(self.h2_idle_ping_timeout, ping)
+                .await
+            {
+                Some(Ok(rtt)) => {
+                    log::trace!("h2 client liveness ping ack in {rtt:?}");
+                }
+                other => {
+                    log::debug!(
+                        "h2 client liveness ping failed ({other:?}); shutting down connection"
+                    );
+                    pooled.connection().shut_down();
+                    return Ok(false);
+                }
+            }
         }
-        self.exec_h2_on_connection(h2).await?;
+
+        pooled.touch();
+        self.exec_h2_on_connection(pooled.connection().clone())
+            .await?;
         Ok(true)
     }
 
@@ -43,9 +138,10 @@ impl Conn {
         });
 
         if let Some(h2_pool) = &self.h2_pool {
+            let expiry = self.h2_idle_timeout.map(|d| Instant::now() + d);
             h2_pool.insert(
                 self.url.origin(),
-                crate::pool::PoolEntry::new(h2.clone(), None),
+                crate::pool::PoolEntry::new(H2Pooled::new(h2.clone()), expiry),
             );
         }
 

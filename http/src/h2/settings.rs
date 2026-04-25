@@ -133,6 +133,14 @@ impl H2Settings {
         self.initial_window_size.unwrap_or(65_535)
     }
 
+    /// [`max_concurrent_streams`][Self::max_concurrent_streams] with the RFC 9113 §6.5.2
+    /// "no limit" default applied when the field is `None`. The spec leaves the initial
+    /// value unbounded, so callers should treat the absence of an advertised limit as
+    /// permission to open as many streams as the stream-id space allows.
+    pub(crate) fn effective_max_concurrent_streams(&self) -> u32 {
+        self.max_concurrent_streams.unwrap_or(u32::MAX)
+    }
+
     /// Build an outgoing SETTINGS frame from the h2 fields of an [`HttpConfig`][crate::HttpConfig].
     ///
     /// Disables server push (`SETTINGS_ENABLE_PUSH` = 0, trillium never sends `PUSH_PROMISE`) and

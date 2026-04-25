@@ -305,6 +305,33 @@ impl H2Connection {
             .expect("peer_settings mutex poisoned")
     }
 
+    /// Whether a fresh stream could be opened on this connection right now.
+    ///
+    /// Encapsulates the policy a client multiplexer asks before reusing a pooled
+    /// connection: the connection must be running (no GOAWAY received, swansong not asked
+    /// to shut down) and inflight streams must be below the peer's advertised
+    /// `MAX_CONCURRENT_STREAMS`. Future signals (priority pressure under RFC 9218,
+    /// flow-control headroom, etc.) can fold into this without changing the call site.
+    ///
+    /// `false` doesn't mean the connection is dead — it might just be saturated and free
+    /// up momentarily. Callers should keep saturated connections in their pool rather than
+    /// evicting; pair this with a separate aliveness check to decide eviction.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any of the per-connection mutexes is poisoned.
+    #[cfg(feature = "unstable")]
+    pub fn can_open_stream(&self) -> bool {
+        if !self.swansong.state().is_running() {
+            return false;
+        }
+        // RFC 9113 §5.1.1 caps the stream-id space at 2^31, so the count fits in u32 in
+        // practice; saturate defensively rather than truncate if the invariant is ever broken.
+        let inflight = u32::try_from(self.streams_lock().len()).unwrap_or(u32::MAX);
+        let cap = self.peer_settings().effective_max_concurrent_streams();
+        inflight < cap
+    }
+
     /// Client-role: poll for the response HEADERS field section for a stream.
     ///
     /// Mirrors [`H2Transport::poll_response_headers`] for callers that hold the
