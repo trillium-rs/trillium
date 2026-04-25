@@ -441,6 +441,9 @@ where
     /// violation detected while decoding peer frames or for an unrecoverable transport I/O
     /// error. A final GOAWAY is sent before a protocol error is returned (best-effort; I/O
     /// errors skip it).
+    // Mirrors `StreamExt::next` (a `&mut self -> impl Future<Output = Option<T>>` adapter),
+    // not `Iterator::next`. The driver is also `Stream`, so callers can use either.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Next<'_, T> {
         Next { driver: self }
     }

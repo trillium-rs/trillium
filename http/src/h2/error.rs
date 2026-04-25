@@ -52,7 +52,7 @@ pub enum H2ErrorCode {
 
 impl H2ErrorCode {
     /// A reason phrase suitable for GOAWAY debug data.
-    pub(crate) fn reason(&self) -> &'static str {
+    pub(crate) fn reason(self) -> &'static str {
         match self {
             Self::NoError => "Graceful shutdown or no error to signal.",
             Self::ProtocolError => "Peer violated protocol requirements.",
@@ -76,7 +76,7 @@ impl H2ErrorCode {
 
 impl fmt::Display for H2ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.reason())
+        f.write_str((*self).reason())
     }
 }
 
