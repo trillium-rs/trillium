@@ -83,14 +83,23 @@ pub(super) const MAX_FLOW_CONTROL_WINDOW: i64 = (1 << 31) - 1;
 /// Whether this driver is servicing a peer that dialled us (server role) or a peer we
 /// dialled (client role). Routes the handful of role-asymmetric driver concerns — preface
 /// direction, HEADERS-on-unknown-id semantics, HEADERS-on-known-id semantics — through a
-/// single match point each. The `Client` variant is introduced in a later phase; for now
-/// only `Server` is populated.
+/// single match point each.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Role {
     /// Driver was handed a transport from an accepting listener — we read the client
     /// preface, treat peer-initiated (odd-id) streams as new requests, and treat HEADERS
     /// on a known stream as trailers.
     Server,
+    /// Driver was handed a transport from an outbound dial — we write the client preface,
+    /// open streams with locally-allocated odd ids, and treat HEADERS on one of our
+    /// streams as the response headers (first arrival) or trailers (second).
+    ///
+    /// The client-initiated-stream machinery that actually *uses* this variant is
+    /// introduced in a later phase; for now the variant only exercises the preface write
+    /// path. `allow(dead_code)` until the `H2Connection::run_client` constructor lands
+    /// and starts producing this variant.
+    #[allow(dead_code)]
+    Client,
 }
 
 /// Owns the per-connection TCP transport and drives the HTTP/2 demux loop.
@@ -498,10 +507,15 @@ where
             // 6. State-specific step.
             match self.state {
                 DriverState::AwaitingPreface => {
-                    // Role-asymmetric: server reads the 24-byte preface; client (future)
-                    // writes it.
+                    // Role-asymmetric: server reads the 24-byte preface off the wire; client
+                    // writes it to `write_buf` (the next drain tick flushes it, then our
+                    // SETTINGS, then the peer's SETTINGS arrives as the first frame in Running).
                     let poll = match self.role {
                         Role::Server => self.poll_read_preface(cx),
+                        Role::Client => {
+                            self.queue_client_preface();
+                            Poll::Ready(Ok(()))
+                        }
                     };
                     match poll {
                         Poll::Ready(Ok(())) => self.state = DriverState::NeedsServerSettings,
@@ -838,6 +852,14 @@ where
         self.queue_frame(frame::settings::encoded_len(&settings), |buf| {
             frame::settings::encode(&settings, buf)
         });
+    }
+
+    /// Append the 24-byte RFC 9113 §3.4 client connection preface to `write_buf`. The
+    /// next outbound drain flushes it, and the `NeedsServerSettings` state follows up
+    /// with our initial SETTINGS frame. Client role only.
+    fn queue_client_preface(&mut self) {
+        self.write_buf.extend_from_slice(recv::CLIENT_PREFACE);
+        self.write_flush_pending = true;
     }
 
     fn queue_settings_ack(&mut self) {

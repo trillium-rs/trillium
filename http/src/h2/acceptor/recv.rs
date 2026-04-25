@@ -26,7 +26,7 @@ use std::{
 
 /// The client connection preface (RFC 9113 §3.4). 24 bytes the client MUST send before any
 /// HTTP/2 frames.
-const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+pub(super) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 /// HEADERS + CONTINUATION assembly state.
 #[derive(Debug)]
@@ -434,19 +434,27 @@ where
                 );
                 return Ok(Action::Continue);
             }
-            // Role-asymmetric: server treats HEADERS-on-known as trailers; client (future)
-            // treats it as response headers on the first arrival and trailers on the
-            // second.
+            // Role-asymmetric: server treats HEADERS-on-known as trailers; client treats
+            // it as response headers on the first arrival and trailers on the second. The
+            // client arm becomes reachable once later phases open client-initiated streams
+            // and populate the response-headers slot.
             match self.role {
                 Role::Server => self.finalize_trailers(stream_id, end_stream, field_section),
+                Role::Client => {
+                    unreachable!("client-initiated stream HEADERS handling lands in a later phase")
+                }
             }
             return Ok(Action::Continue);
         }
 
-        // Role-asymmetric: server opens a new request stream; client (future) would see
-        // this only as a server-initiated push, which we reject since PUSH is disabled.
+        // Role-asymmetric: server opens a new request stream; client would see this only
+        // as a server-initiated push, which is rejected since PUSH is disabled in our
+        // advertised SETTINGS. Unreachable until client wiring lands.
         match self.role {
             Role::Server => self.finalize_new_request_stream(stream_id, end_stream, field_section),
+            Role::Client => {
+                unreachable!("server push is disabled; client HEADERS-on-unknown unreachable")
+            }
         }
     }
 
