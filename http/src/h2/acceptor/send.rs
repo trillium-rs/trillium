@@ -1,5 +1,5 @@
 //! Send pump: turns conn-task-submitted responses ([`SendCursor`]s) into HEADERS / DATA /
-//! trailing-HEADERS frame bytes in `H2Acceptor.write_buf`, and signals completion back to the
+//! trailing-HEADERS frame bytes in `H2Driver.write_buf`, and signals completion back to the
 //! conn task once the response is fully on the wire.
 //!
 //! Picks up new submissions from per-stream `StreamState.send.submission` slots in the
@@ -7,9 +7,9 @@
 //! (with the §6.10 exception: HEADERS+CONTINUATION runs to `END_HEADERS` without yielding to
 //! other streams).
 //!
-//! All methods are on [`super::H2Acceptor`].
+//! All methods are on [`super::H2Driver`].
 
-use super::{ClosedReason, H2Acceptor};
+use super::{ClosedReason, H2Driver};
 use crate::{
     Body, Headers,
     h2::{
@@ -104,7 +104,7 @@ enum SendPhase {
     Complete,
 }
 
-impl<T> H2Acceptor<T>
+impl<T> H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {

@@ -1,10 +1,10 @@
 //! Per-stream transport handed to handler tasks.
 //!
 //! [`H2Transport`] is the [`AsyncRead`] + [`AsyncWrite`] view of a single HTTP/2 stream. It is
-//! carried on the emitted [`Conn`][crate::Conn] returned from [`H2Acceptor::next`], and the
+//! carried on the emitted [`Conn`][crate::Conn] returned from [`H2Driver::next`], and the
 //! runtime adapter spawns a handler task that consumes it. The transport never touches the
 //! underlying TCP connection directly — all I/O coordinates through shared per-stream state
-//! on the [`H2Connection`] driven by the acceptor task.
+//! on the [`H2Connection`] driven by the driver task.
 //!
 //! Two paths reach the impls:
 //!
@@ -30,7 +30,7 @@
 //!   windows. `AsyncWrite::poll_close` flips [`SendState::outbound_close_requested`] so
 //!   the driver eventually emits `DATA(END_STREAM)` and tears the stream down.
 //!
-//! [`H2Acceptor::next`]: super::H2Acceptor::next
+//! [`H2Driver::next`]: super::H2Driver::next
 //! [`H2Connection`]: super::H2Connection
 //! [`BoxedTransport`]: crate::transport::BoxedTransport
 //! [submit_send]: super::H2Connection::submit_send
@@ -74,7 +74,7 @@ impl fmt::Debug for H2Transport {
 }
 
 impl H2Transport {
-    /// Create a transport for a stream that has just been opened by the acceptor.
+    /// Create a transport for a stream that has just been opened by the driver.
     pub(super) fn new(
         connection: Arc<H2Connection>,
         stream_id: u32,
@@ -233,9 +233,9 @@ pub(super) struct StreamState {
     /// the conn-task side (a body-read that detects content-length mismatch, a handler
     /// that wants to abort) needs the driver to emit `RST_STREAM` and clean up. The driver
     /// picks this up in `service_handler_signals` on its next tick and routes through
-    /// [`H2Acceptor::complete_and_remove_stream`][super::H2Acceptor]'s normal cleanup path.
+    /// [`H2Driver::complete_and_remove_stream`][super::H2Driver]'s normal cleanup path.
     ///
-    /// [`H2Acceptor`]: super::H2Acceptor
+    /// [`H2Driver`]: super::H2Driver
     pub(super) pending_reset: Mutex<Option<H2ErrorCode>>,
 }
 

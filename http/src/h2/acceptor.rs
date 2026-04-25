@@ -1,8 +1,8 @@
-//! HTTP/2 driver loop ([`H2Acceptor`]) — owns the per-connection TCP transport and runs the
+//! HTTP/2 driver loop ([`H2Driver`]) — owns the per-connection TCP transport and runs the
 //! poll-based state machine that demuxes frames, dispatches stream-opens to handler tasks, and
 //! pumps responses back out.
 //!
-//! Created by [`H2Connection::run`]. The runtime adapter calls [`H2Acceptor::next`] in a
+//! Created by [`H2Connection::run`]. The runtime adapter calls [`H2Driver::next`] in a
 //! loop (or drives via the [`Stream`] impl, which has the same semantics); each yield either
 //! returns the next opened request stream (a [`Conn`] for the runtime to spawn a handler
 //! task against) or `None` when the connection is closed.
@@ -85,7 +85,7 @@ pub(super) const MAX_FLOW_CONTROL_WINDOW: i64 = (1 << 31) - 1;
 /// See the [module docs](self) for the high-level driver shape and how its impl is split
 /// across the `recv` and `send` child modules.
 #[derive(Debug)]
-pub struct H2Acceptor<T> {
+pub struct H2Driver<T> {
     connection: Arc<H2Connection>,
     transport: T,
 
@@ -165,7 +165,7 @@ pub struct H2Acceptor<T> {
     connection_recv_window: i64,
 
     /// Bounded ledger of recently-closed streams and why they closed. Consulted by
-    /// [`recv::H2Acceptor::finalize_headers`] when a HEADERS frame arrives on an id ≤
+    /// [`recv::H2Driver::finalize_headers`] when a HEADERS frame arrives on an id ≤
     /// `last_peer_stream_id` that's not in the active map, to distinguish `RST_STREAM`-
     /// closed (stream-level `STREAM_CLOSED`) from `END_STREAM`-closed or never-opened
     /// (connection-level). See [`ClosedStreams`] for the eviction policy.
@@ -364,7 +364,7 @@ enum Action {
     Close(CloseOutcome),
 }
 
-impl<T> H2Acceptor<T>
+impl<T> H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {
@@ -417,11 +417,11 @@ where
     /// error. A final GOAWAY is sent before a protocol error is returned (best-effort; I/O
     /// errors skip it).
     pub fn next(&mut self) -> Next<'_, T> {
-        Next { acceptor: self }
+        Next { driver: self }
     }
 
     /// Poll-based driver core. Private implementation shared by [`Next`]'s `Future` impl
-    /// and the [`Stream`] impl on [`H2Acceptor`].
+    /// and the [`Stream`] impl on [`H2Driver`].
     ///
     /// [`Stream`]: futures_lite::stream::Stream
     fn drive(
@@ -857,12 +857,12 @@ where
     }
 }
 
-/// Future returned by [`H2Acceptor::next`]. Resolves to `None` on graceful close, `Some(Ok)`
+/// Future returned by [`H2Driver::next`]. Resolves to `None` on graceful close, `Some(Ok)`
 /// when a new request stream opens, or `Some(Err)` on a fatal protocol or I/O error.
 #[must_use = "futures do nothing unless awaited"]
 #[derive(Debug)]
 pub struct Next<'a, T> {
-    acceptor: &'a mut H2Acceptor<T>,
+    driver: &'a mut H2Driver<T>,
 }
 
 impl<T> Future for Next<'_, T>
@@ -872,11 +872,11 @@ where
     type Output = Option<Result<Conn<H2Transport>, H2Error>>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.acceptor.drive(cx)
+        self.driver.drive(cx)
     }
 }
 
-impl<T> futures_lite::stream::Stream for H2Acceptor<T>
+impl<T> futures_lite::stream::Stream for H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {

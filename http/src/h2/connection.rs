@@ -1,7 +1,7 @@
 //! Shared per-connection HTTP/2 state ([`H2Connection`]) plus the [`SubmitSend`] future
 //! conn tasks await for response transmission.
 //!
-//! [`H2Connection`] is `Arc`-shared between the driver task ([`H2Acceptor`]) and every conn
+//! [`H2Connection`] is `Arc`-shared between the driver task ([`H2Driver`]) and every conn
 //! task that holds an open stream's [`Conn`]. It owns the per-stream `StreamState` map,
 //! the cross-task wake primitive ([`AtomicWaker`]), and the [`HttpContext`] / [`Swansong`]
 //! the broader server stack reaches in through.
@@ -9,9 +9,9 @@
 //! The driver loop itself lives in [`super::acceptor`] — see that module for the
 //! per-connection state machine and how send / receive concerns are split.
 //!
-//! [`H2Acceptor`]: super::H2Acceptor
+//! [`H2Driver`]: super::H2Driver
 
-use super::{H2Acceptor, H2Settings, transport::StreamState};
+use super::{H2Driver, H2Settings, transport::StreamState};
 use crate::{Body, Conn, Headers, HttpContext};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -27,7 +27,7 @@ use swansong::{ShutdownCompletion, Swansong};
 
 /// Shared per-connection state for HTTP/2.
 ///
-/// Wrapped in an [`Arc`] and held by both the [`H2Acceptor`] driver and every conn task
+/// Wrapped in an [`Arc`] and held by both the [`H2Driver`] driver and every conn task
 /// that holds an open stream's [`Conn`]. Per-stream `StreamState`, HPACK encoder state, and
 /// connection-level send flow control will accumulate here as later phases land.
 #[derive(Debug)]
@@ -152,21 +152,21 @@ impl H2Connection {
         }
     }
 
-    /// Bind this `H2Connection` to a TCP transport and return an [`H2Acceptor`] that drives
+    /// Bind this `H2Connection` to a TCP transport and return an [`H2Driver`] that drives
     /// the connection.
     ///
-    /// The acceptor must be polled to completion via repeated calls to
-    /// [`H2Acceptor::next`] (or its [`Stream`][futures_lite::stream::Stream] impl); each returned [`Conn`] should
+    /// The driver must be polled to completion via repeated calls to
+    /// [`H2Driver::next`] (or its [`Stream`][futures_lite::stream::Stream] impl); each returned [`Conn`] should
     /// be spawned on its own task.
-    pub fn run<T>(self: Arc<Self>, transport: T) -> H2Acceptor<T>
+    pub fn run<T>(self: Arc<Self>, transport: T) -> H2Driver<T>
     where
         T: AsyncRead + AsyncWrite + Unpin + Send,
     {
-        H2Acceptor::new(self, transport)
+        H2Driver::new(self, transport)
     }
 
     /// Per-stream entry point — call from the runtime adapter's spawned task for each
-    /// [`Conn`] returned by [`H2Acceptor::next`]. Runs `handler` to produce the response,
+    /// [`Conn`] returned by [`H2Driver::next`]. Runs `handler` to produce the response,
     /// then `send_h2` to hand the framed response to the driver.
     ///
     /// Mirrors [`H3Connection::process_inbound_bidi`][crate::h3::H3Connection::process_inbound_bidi]'s

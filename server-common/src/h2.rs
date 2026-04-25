@@ -1,9 +1,9 @@
 //! HTTP/2 specific dispatch for runtime adapters.
 //!
-//! Entry point used by [`running_config`][crate::running_config]: when the acceptor signals
-//! `h2` via ALPN or when a cleartext connection presents the HTTP/2 preface, the adapter
-//! hands the transport to [`run_h2`]. This module owns the per-connection driver loop and
-//! per-stream task spawning that mirrors [`h3::run_h3`][crate::h3::run_h3].
+//! Entry point used by [`running_config`][crate::running_config]: when the TLS acceptor
+//! signals `h2` via ALPN or when a cleartext connection presents the HTTP/2 preface, the
+//! adapter hands the transport to [`run_h2`]. This module owns the per-connection driver
+//! loop and per-stream task spawning that mirrors [`h3::run_h3`][crate::h3::run_h3].
 
 use crate::{ArcHandler, Runtime};
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -25,12 +25,12 @@ use trillium_http::{
 /// bytes to decide between HTTP/1.1 and HTTP/2.
 pub(crate) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
-/// Drive an HTTP/2 connection end-to-end: construct the [`H2Connection`], run its acceptor
+/// Drive an HTTP/2 connection end-to-end: construct the [`H2Connection`], run its driver
 /// loop, and spawn a per-stream task running the user handler for every emitted [`Conn`].
 ///
 /// `peer_ip` and `is_secure` are populated onto each per-stream [`Conn`] before the handler
 /// runs, matching [`crate::running_config`]'s HTTP/1.1 path. Cleartext prior-knowledge
-/// dispatch sets `is_secure = false`; ALPN-negotiated dispatch sets it to whatever the
+/// dispatch sets `is_secure = false`; ALPN-negotiated dispatch sets it to whatever the TLS
 /// acceptor reports.
 pub(crate) async fn run_h2<T>(
     transport: T,
@@ -43,9 +43,9 @@ pub(crate) async fn run_h2<T>(
     T: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     let h2 = H2Connection::new(context);
-    let mut acceptor = h2.clone().run(transport);
+    let mut driver = h2.clone().run(transport);
 
-    while let Some(result) = acceptor.next().await {
+    while let Some(result) = driver.next().await {
         match result {
             Ok(conn) => {
                 let stream_id = conn.h2_stream_id();
@@ -88,7 +88,7 @@ pub(crate) async fn run_h2<T>(
             }
         }
     }
-    log::trace!("run_h2: acceptor exhausted, connection done");
+    log::trace!("run_h2: driver exhausted, connection done");
 }
 
 /// A TCP transport that first serves a pre-peeked byte prefix before reading from its wrapped

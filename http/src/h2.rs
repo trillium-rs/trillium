@@ -11,7 +11,7 @@ mod settings;
 mod transport;
 
 use crate::headers::compression_error::CompressionError;
-pub use acceptor::H2Acceptor;
+pub use acceptor::H2Driver;
 pub(crate) use body_wrapper::H2Body;
 pub use connection::H2Connection;
 pub use error::H2ErrorCode;

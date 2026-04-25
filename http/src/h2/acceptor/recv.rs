@@ -1,12 +1,12 @@
 //! Receive side of the HTTP/2 driver: frame reading, dispatch, HEADERS+CONTINUATION
 //! accumulation, malformed-request `RST_STREAM`, DATA routing into per-stream recv rings.
 //!
-//! All methods are on [`super::H2Acceptor`] — split off here to keep the driver's send and
+//! All methods are on [`super::H2Driver`] — split off here to keep the driver's send and
 //! receive logic in separate files. Visibility-wise, this child module reaches up via
 //! `super::*` for everything it needs from the parent.
 
 use super::{
-    Action, CloseOutcome, ClosedReason, H2Acceptor, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
+    Action, CloseOutcome, ClosedReason, H2Driver, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
     ReadPhase, StreamEntry, frame_slice,
 };
 use crate::{
@@ -36,7 +36,7 @@ pub(super) struct PendingHeaders {
     assembled: Vec<u8>,
 }
 
-impl<T> H2Acceptor<T>
+impl<T> H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {
