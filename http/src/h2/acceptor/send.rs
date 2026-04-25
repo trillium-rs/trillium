@@ -9,7 +9,7 @@
 //!
 //! All methods are on [`super::H2Driver`].
 
-use super::{ClosedReason, H2Driver};
+use super::{ClosedReason, DriverState, H2Driver};
 use crate::{
     Body, Headers,
     h2::{
@@ -113,7 +113,16 @@ where
     /// HEADERS+CONTINUATION with any other frame on any other stream). Body reads that
     /// return Pending leave the cursor in place; the body's source will wake the driver
     /// task when bytes are available.
+    ///
+    /// No-op outside [`DriverState::Running`]: in earlier states the connection preface
+    /// and our initial SETTINGS haven't reached the wire yet, and emitting HEADERS before
+    /// them would violate RFC 9113 §3.4 / §6.5. Server-side this is moot (no streams exist
+    /// pre-Running); client-side it matters because `H2Connection::open_stream` can stage
+    /// a submission any time after the connection is created.
     pub(super) fn advance_outbound_sends(&mut self, cx: &mut Context<'_>) {
+        if self.state != DriverState::Running {
+            return;
+        }
         let stream_ids: Vec<u32> = self.streams.keys().copied().collect();
         for stream_id in stream_ids {
             self.advance_one_send(stream_id, cx);

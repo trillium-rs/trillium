@@ -231,7 +231,7 @@ impl AcceptorConfig {
 
 /// Position of the connection in its high-level lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DriverState {
+pub(super) enum DriverState {
     /// Haven't read the client preface yet.
     AwaitingPreface,
     /// Preface read; need to queue our initial SETTINGS frame to `write_buf`.
@@ -610,6 +610,12 @@ where
     /// Each stream's `StreamEntry` caches whether the corresponding driver-side action has
     /// already happened so we don't re-emit on every scan.
     fn service_handler_signals(&mut self) {
+        // Client role: pick up streams the conn task has opened via `H2Connection::open_stream`
+        // — they're in the shared map but not yet in our private `self.streams`. After this
+        // pass the existing submission-pickup loop below will promote each new stream's staged
+        // submission into a `SendCursor` on the same tick.
+        self.pick_up_new_client_streams();
+
         // Pick up recv-side consumption + is-reading signals and turn them into
         // `WINDOW_UPDATE` frames. Two cases per stream:
         // - Handler has declared intent (is_reading) and the peer's recv window is still at the
@@ -702,6 +708,18 @@ where
     /// by `park` to decide whether returning `Pending` is safe or whether we need to loop
     /// around.
     fn has_pending_handler_signals(&self) -> bool {
+        // Client role: a stream the conn task has opened (added to the shared map) but the
+        // driver hasn't yet picked up isn't represented in `self.streams` and thus would be
+        // invisible to the per-stream checks below. Without this guard, an `open_stream`
+        // call landing between `service_handler_signals` and `park`'s waker registration
+        // could deadlock — the waker.wake fires before any task has registered, and the
+        // pickup work isn't on `self.streams` yet for the registered waker to detect.
+        if self.role == Role::Client {
+            let shared = self.connection.streams_lock();
+            if shared.keys().any(|id| !self.streams.contains_key(id)) {
+                return true;
+            }
+        }
         self.streams.values().any(|e| {
             (e.peer_recv_window <= 0 && e.shared.recv.is_reading.load(Ordering::Acquire))
                 || e.shared.recv.bytes_consumed.load(Ordering::Acquire) > 0
@@ -717,6 +735,44 @@ where
                     .expect("pending_reset mutex poisoned")
                     .is_some()
         })
+    }
+
+    /// Client role: scan [`H2Connection::streams`][super::H2Connection] for ids the conn
+    /// task has published via [`H2Connection::open_stream`][super::H2Connection::open_stream]
+    /// that we don't yet have a [`StreamEntry`] for, and create one per id seeded with the
+    /// peer-advertised initial send window and our own advertised initial recv window.
+    /// No-op for server role (server streams are created by inbound HEADERS in
+    /// [`recv::H2Driver::finalize_new_request_stream`][super::recv]).
+    fn pick_up_new_client_streams(&mut self) {
+        if self.role != Role::Client {
+            return;
+        }
+        // Collect first so we don't hold the shared streams lock across `streams.insert`
+        // (no actual deadlock risk, but keeps the lock as short as possible).
+        let new_streams: Vec<(u32, Arc<StreamState>)> = {
+            let shared = self.connection.streams_lock();
+            shared
+                .iter()
+                .filter(|(id, _)| !self.streams.contains_key(id))
+                .map(|(&id, s)| (id, Arc::clone(s)))
+                .collect()
+        };
+        if new_streams.is_empty() {
+            return;
+        }
+        let send_window = i64::from(
+            self.connection
+                .peer_settings()
+                .effective_initial_window_size(),
+        );
+        let peer_recv_window = i64::from(self.config.initial_stream_window_size);
+        for (id, shared) in new_streams {
+            log::trace!("h2 client: driver picked up new client-opened stream {id}");
+            self.streams.insert(
+                id,
+                StreamEntry::new(shared, send_window, peer_recv_window),
+            );
+        }
     }
 
     /// Convert the current `close_outcome` into the terminal return of [`Self::drive`]. Must

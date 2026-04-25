@@ -60,6 +60,17 @@ pub struct H2Connection {
     /// readers should use [`H2Settings::effective_*`][H2Settings::effective_max_frame_size]
     /// helpers that apply the RFC 9113 §6.5.2 defaults to absent fields.
     peer_settings: Mutex<H2Settings>,
+    /// Next stream id to allocate for client-role outbound streams. RFC 9113 §5.1.1 requires
+    /// client-initiated stream ids to be odd and strictly increasing; we start at 1 and
+    /// `+= 2` per allocation. Read/written only by [`Self::open_stream`]; the server role
+    /// never touches it. Capped at `2^31` — once exhausted, further `open_stream` calls
+    /// return `None` and the caller is expected to fail over to a fresh connection.
+    ///
+    /// Gated behind `unstable` so server builds (which never call `open_stream`) don't
+    /// carry the per-connection allocation. Matches the existing exposure pattern for the
+    /// `initiator` module and `H2Connection::run_client`.
+    #[cfg(feature = "unstable")]
+    next_client_stream_id: Mutex<u32>,
 }
 
 impl H2Connection {
@@ -72,6 +83,8 @@ impl H2Connection {
             outbound_waker: AtomicWaker::new(),
             streams: Mutex::new(HashMap::new()),
             peer_settings: Mutex::new(H2Settings::default()),
+            #[cfg(feature = "unstable")]
+            next_client_stream_id: Mutex::new(1),
         })
     }
 
@@ -283,6 +296,85 @@ impl H2Connection {
             self.outbound_waker.wake();
         }
         SubmitSend { stream_id, stream }
+    }
+
+    /// Client-role primitive: allocate a fresh outbound stream id, stage a request submission
+    /// for the driver, and return the id plus a [`SubmitSend`] the conn task awaits for send
+    /// completion.
+    ///
+    /// `encoded_headers` is the HPACK-encoded HEADERS block (static-or-literal — no shared
+    /// dynamic-table state). `body` is the request body, if any; `None` causes the HEADERS
+    /// frame to carry `END_STREAM` and no DATA to be emitted.
+    ///
+    /// Returns `None` when:
+    /// - The 2^31 odd-id space is exhausted (caller should fail over to a new connection), or
+    /// - The connection is shutting down (we've received GOAWAY or our own swansong has been
+    ///   asked to shut down) — opening another stream would just produce a stream the peer
+    ///   has promised to ignore.
+    ///
+    /// Staging is synchronous and infallible past the `None` checks: the submission is
+    /// published via the per-stream [`SendState::submission`][submission] slot and the driver
+    /// is woken via [`outbound_waker`][outbound_waker]. The driver's pickup pass observes the
+    /// new id in the shared streams map, allocates per-stream flow-control state, and the
+    /// existing send pump frames HEADERS + DATA + optional trailing HEADERS as if the
+    /// submission had come from the server-side path.
+    ///
+    /// The returned [`SubmitSend`] resolves once the entire request has been framed and
+    /// flushed, or with the relevant `io::Error` on failure. Response bytes (HEADERS and
+    /// body) arrive on a separate channel — see the response-headers slot and the per-stream
+    /// [`H2Transport`][super::H2Transport] `AsyncRead`, both wired in subsequent phases.
+    ///
+    /// [submission]: super::transport::SendState::submission
+    /// [outbound_waker]: Self::outbound_waker
+    #[cfg(feature = "unstable")]
+    #[allow(dead_code)] // promoted to `pub` and consumed by trillium-client in phase A8 / C
+    pub(crate) fn open_stream(
+        &self,
+        encoded_headers: Vec<u8>,
+        body: Option<Body>,
+    ) -> Option<(u32, SubmitSend)> {
+        if !self.swansong.state().is_running() {
+            return None;
+        }
+
+        let stream_id = {
+            let mut next = self
+                .next_client_stream_id
+                .lock()
+                .expect("next_client_stream_id mutex poisoned");
+            if *next >= (1u32 << 31) {
+                return None;
+            }
+            let id = *next;
+            *next += 2;
+            id
+        };
+
+        let state = Arc::new(StreamState::default());
+        // Stage submission *before* publishing the stream id to the shared map. The driver's
+        // client-pickup pass scans the shared map, allocates a `StreamEntry`, and on the same
+        // tick the existing submission-pickup loop promotes this submission to a `SendCursor`.
+        // Doing it in this order means the submission is guaranteed visible the first time
+        // the driver sees the stream — no second tick needed to start framing.
+        *state
+            .send
+            .submission
+            .lock()
+            .expect("send submission mutex poisoned") = Some(super::transport::Submission {
+            encoded_headers,
+            body,
+            is_upgrade: false,
+        });
+        self.streams_lock().insert(stream_id, state.clone());
+        log::trace!("h2 client: open_stream allocated stream {stream_id}");
+        self.outbound_waker.wake();
+        Some((
+            stream_id,
+            SubmitSend {
+                stream_id,
+                stream: Some(state),
+            },
+        ))
     }
 }
 
