@@ -70,9 +70,7 @@ pub(crate) async fn run_h2<T>(
                                 log::debug!("upgrading h2 stream");
                                 handler.upgrade(upgrade).await;
                             } else {
-                                log::error!(
-                                    "h2 upgrade specified but no upgrade handler provided"
-                                );
+                                log::error!("h2 upgrade specified but no upgrade handler provided");
                             }
                         }
                         Ok(_) => {}

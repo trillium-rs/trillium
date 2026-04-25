@@ -66,9 +66,7 @@ impl AsyncRead for H2Body {
                 if *done {
                     return Poll::Ready(Ok(0));
                 }
-                let bytes = futures_lite::ready!(
-                    async_read.get_mut().as_mut().poll_read(cx, buf)
-                )?;
+                let bytes = futures_lite::ready!(async_read.get_mut().as_mut().poll_read(cx, buf))?;
                 if bytes == 0 {
                     *done = true;
                 } else {

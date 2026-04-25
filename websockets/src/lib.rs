@@ -75,12 +75,12 @@ use std::{
     ops::{Deref, DerefMut},
 };
 use trillium::{
-    Conn, Handler, Info, Method,
+    Conn, Handler, Info,
     KnownHeaderName::{
         Connection, SecWebsocketAccept, SecWebsocketKey, SecWebsocketProtocol, SecWebsocketVersion,
         Upgrade as UpgradeHeader,
     },
-    Status, Upgrade, Version,
+    Method, Status, Upgrade, Version,
 };
 pub use websocket_connection::WebSocketConn;
 pub use websocket_handler::WebSocketHandler;

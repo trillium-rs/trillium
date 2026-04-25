@@ -234,8 +234,7 @@ impl H3Settings {
             written += quic_varint::encode(1u64, &mut buf[written..])?;
         }
         if self.enable_connect_protocol {
-            written +=
-                quic_varint::encode(SETTINGS_ENABLE_CONNECT_PROTOCOL, &mut buf[written..])?;
+            written += quic_varint::encode(SETTINGS_ENABLE_CONNECT_PROTOCOL, &mut buf[written..])?;
             written += quic_varint::encode(1u64, &mut buf[written..])?;
         }
         if self.grease_id != 0 {

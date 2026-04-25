@@ -64,7 +64,9 @@ impl H2ErrorCode {
             Self::RefusedStream => "The stream was refused before any application processing.",
             Self::Cancel => "The stream was cancelled.",
             Self::CompressionError => "HPACK compression state could not be maintained.",
-            Self::ConnectError => "TCP connection for a CONNECT request was reset or abnormally closed.",
+            Self::ConnectError => {
+                "TCP connection for a CONNECT request was reset or abnormally closed."
+            }
             Self::EnhanceYourCalm => "Peer is generating excessive load.",
             Self::InadequateSecurity => "Negotiated TLS parameters are unacceptable.",
             Self::Http1_1Required => "Request must be retried over HTTP/1.1.",

@@ -196,13 +196,11 @@ where
         };
         self.closed_streams.record(stream_id, reason);
         if let Some(entry) = self.streams.remove(&stream_id) {
-            let already_signaled = entry
-                .send
-                .as_ref()
-                .is_some_and(|c| c.completion_signaled);
+            let already_signaled = entry.send.as_ref().is_some_and(|c| c.completion_signaled);
             if already_signaled {
                 log::trace!(
-                    "h2 stream {stream_id}: skipping signal_send_completion (already signaled by upgrade path)"
+                    "h2 stream {stream_id}: skipping signal_send_completion (already signaled by \
+                     upgrade path)"
                 );
             } else {
                 signal_send_completion(&entry.shared, result);
@@ -260,7 +258,8 @@ where
             if send.is_upgrade && !send.completion_signaled {
                 if let Some(entry) = self.streams.get(&stream_id) {
                     log::trace!(
-                        "h2 stream {stream_id}: upgrade — signaling SubmitSend completion at END_HEADERS"
+                        "h2 stream {stream_id}: upgrade — signaling SubmitSend completion at \
+                         END_HEADERS"
                     );
                     signal_send_completion(&entry.shared, Ok(()));
                 }

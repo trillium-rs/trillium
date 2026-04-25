@@ -8,27 +8,25 @@
 //!
 //! Two paths reach the impls:
 //!
-//! - **Normal HTTP/2 request/response**: handlers usually don't touch [`H2Transport`]
-//!   directly (same sharp edge h1 and h3 document). [`ReceivedBody`][crate::ReceivedBody]
-//!   reads request body bytes through the transport's `AsyncRead` via
-//!   [`ReceivedBody::handle_h2_data`][crate::ReceivedBody::handle_h2_data]. Response bytes
-//!   flow through [`H2Connection::submit_send`][submit_send] to the driver's send pump,
-//!   which frames HEADERS + DATA + trailing HEADERS onto the connection without ever
-//!   touching this `AsyncWrite`.
+//! - **Normal HTTP/2 request/response**: handlers usually don't touch [`H2Transport`] directly
+//!   (same sharp edge h1 and h3 document). [`ReceivedBody`][crate::ReceivedBody] reads request body
+//!   bytes through the transport's `AsyncRead` via
+//!   [`ReceivedBody::handle_h2_data`][crate::ReceivedBody::handle_h2_data]. Response bytes flow
+//!   through [`H2Connection::submit_send`][submit_send] to the driver's send pump, which frames
+//!   HEADERS + DATA + trailing HEADERS onto the connection without ever touching this `AsyncWrite`.
 //!
 //! - **Extended-CONNECT upgrades** ([RFC 8441] WebSocket-over-h2, plus the in-progress
-//!   `draft-ietf-webtrans-http2` for WebTransport-over-h2): after the handler responds 200
-//!   to a `CONNECT` request with a `:protocol` pseudo-header,
-//!   [`Conn::send_h2`][crate::Conn::send_h2] routes through
-//!   [`H2Connection::submit_upgrade`][submit_upgrade] which frames HEADERS without
-//!   `END_STREAM`, signals send completion early, and leaves the stream open as a
-//!   bidirectional byte channel. The runtime adapter then dispatches
-//!   [`Handler::upgrade`][trillium::Handler::upgrade], which gets an
-//!   [`Upgrade`][crate::Upgrade] wrapping this transport. `AsyncWrite::poll_write`
-//!   appends to a per-stream outbound queue ([`SendState::outbound`]); the driver's send
-//!   pump drains it into DATA frames bounded by the per-stream and connection send
-//!   windows. `AsyncWrite::poll_close` flips [`SendState::outbound_close_requested`] so
-//!   the driver eventually emits `DATA(END_STREAM)` and tears the stream down.
+//!   `draft-ietf-webtrans-http2` for WebTransport-over-h2): after the handler responds 200 to a
+//!   `CONNECT` request with a `:protocol` pseudo-header, [`Conn::send_h2`][crate::Conn::send_h2]
+//!   routes through [`H2Connection::submit_upgrade`][submit_upgrade] which frames HEADERS without
+//!   `END_STREAM`, signals send completion early, and leaves the stream open as a bidirectional
+//!   byte channel. The runtime adapter then dispatches
+//!   [`Handler::upgrade`][trillium::Handler::upgrade], which gets an [`Upgrade`][crate::Upgrade]
+//!   wrapping this transport. `AsyncWrite::poll_write` appends to a per-stream outbound queue
+//!   ([`SendState::outbound`]); the driver's send pump drains it into DATA frames bounded by the
+//!   per-stream and connection send windows. `AsyncWrite::poll_close` flips
+//!   [`SendState::outbound_close_requested`] so the driver eventually emits `DATA(END_STREAM)` and
+//!   tears the stream down.
 //!
 //! [`H2Driver::next`]: super::H2Driver::next
 //! [`H2Connection`]: super::H2Connection

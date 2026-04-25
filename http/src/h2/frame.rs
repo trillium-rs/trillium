@@ -112,7 +112,10 @@ impl FrameHeader {
     /// Also debug-asserts that `length` fits in 24 bits and `stream_id` fits in 31 bits; release
     /// builds silently truncate (callers should have already enforced `SETTINGS_MAX_FRAME_SIZE`).
     pub(crate) fn encode(&self, buf: &mut [u8]) {
-        debug_assert!(buf.len() >= FRAME_HEADER_LEN, "frame header buffer too small");
+        debug_assert!(
+            buf.len() >= FRAME_HEADER_LEN,
+            "frame header buffer too small"
+        );
         debug_assert!(self.length < (1 << 24), "payload length exceeds 24 bits");
         debug_assert!(self.stream_id < (1 << 31), "stream id exceeds 31 bits");
         let length = self.length.to_be_bytes();

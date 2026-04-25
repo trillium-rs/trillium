@@ -907,15 +907,15 @@ async fn stream_window_update_overflow_is_rst_stream() {
 
 /// Extended-CONNECT (RFC 8441 / RFC 9220) end-to-end:
 ///
-/// 1. Server is configured with `extended_connect_enabled = true`. We assert its initial
-///    SETTINGS frame includes `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`.
+/// 1. Server is configured with `extended_connect_enabled = true`. We assert its initial SETTINGS
+///    frame includes `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`.
 /// 2. Client sends a CONNECT request HEADERS with `:protocol = websocket`, no `END_STREAM`.
 /// 3. Handler observes `method = CONNECT`, `protocol = Some("websocket")`, returns status 200.
-/// 4. `Conn::send_h2` routes through `submit_upgrade` because `should_upgrade()` is true,
-///    and signals completion the moment HEADERS hit the wire.
-/// 5. Test reaches into the post-send Conn for the `H2Transport`, writes a few bytes, and
-///    closes. We expect HEADERS without END_STREAM, DATA frame(s) carrying the bytes, and
-///    a final `DATA(END_STREAM)` terminator.
+/// 4. `Conn::send_h2` routes through `submit_upgrade` because `should_upgrade()` is true, and
+///    signals completion the moment HEADERS hit the wire.
+/// 5. Test reaches into the post-send Conn for the `H2Transport`, writes a few bytes, and closes.
+///    We expect HEADERS without END_STREAM, DATA frame(s) carrying the bytes, and a final
+///    `DATA(END_STREAM)` terminator.
 #[tokio::test]
 async fn extended_connect_upgrade_round_trip() {
     use trillium_http::{HttpConfig, Method, Status};
@@ -939,17 +939,18 @@ async fn extended_connect_upgrade_round_trip() {
                         // submit_upgrade, then we use the H2Transport (still on the Conn) for
                         // bidi bytes.
                         tokio::spawn(async move {
-                            let conn_after_send = H2Connection::process_inbound(c, |conn| async move {
-                                assert_eq!(conn.method(), Method::Connect, "expect CONNECT");
-                                assert_eq!(
-                                    conn.protocol(),
-                                    Some("websocket"),
-                                    "expect :protocol = websocket"
-                                );
-                                conn.with_status(Status::Ok)
-                            })
-                            .await
-                            .expect("process_inbound");
+                            let conn_after_send =
+                                H2Connection::process_inbound(c, |conn| async move {
+                                    assert_eq!(conn.method(), Method::Connect, "expect CONNECT");
+                                    assert_eq!(
+                                        conn.protocol(),
+                                        Some("websocket"),
+                                        "expect :protocol = websocket"
+                                    );
+                                    conn.with_status(Status::Ok)
+                                })
+                                .await
+                                .expect("process_inbound");
                             assert!(
                                 conn_after_send.should_upgrade(),
                                 "CONNECT + 200 ⇒ should_upgrade()"
