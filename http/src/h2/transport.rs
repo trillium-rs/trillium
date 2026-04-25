@@ -6,24 +6,34 @@
 //! underlying TCP connection directly — all I/O coordinates through shared per-stream state
 //! on the [`H2Connection`] driven by the acceptor task.
 //!
-//! During normal HTTP/2 operation neither impl is invoked on the production paths:
-//! [`ReceivedBody`][crate::ReceivedBody] reads the request body via the transport's
-//! `AsyncRead`, but through `ReceivedBody::handle_h2_data` — users generally don't reach for
-//! the transport directly (same sharp edge h1 and h3 document). Response bytes flow through
-//! [`H2Connection::submit_send`][submit_send] to the driver's send pump, which frames HEADERS
-//! + DATA + trailing HEADERS onto the connection without ever touching this `AsyncWrite`.
+//! Two paths reach the impls:
 //!
-//! The real `AsyncRead` + `AsyncWrite` impls remain in place anyway because a future
-//! extended-CONNECT upgrade ([RFC 8441] WebSocket-over-h2, [RFC 9220] WebTransport-over-h2)
-//! keeps a single h2 stream open as a bidirectional byte channel after the response — at that
-//! point the upgrade handler needs a real transport to talk over, and `H2Transport` is the
-//! slot the `Conn.transport` already points at. See `memory/h2-planning.md` "Future-proofing:
-//! extended CONNECT."
+//! - **Normal HTTP/2 request/response**: handlers usually don't touch [`H2Transport`]
+//!   directly (same sharp edge h1 and h3 document). [`ReceivedBody`][crate::ReceivedBody]
+//!   reads request body bytes through the transport's `AsyncRead` via
+//!   [`ReceivedBody::handle_h2_data`][crate::ReceivedBody::handle_h2_data]. Response bytes
+//!   flow through [`H2Connection::submit_send`][submit_send] to the driver's send pump,
+//!   which frames HEADERS + DATA + trailing HEADERS onto the connection without ever
+//!   touching this `AsyncWrite`.
+//!
+//! - **Extended-CONNECT upgrades** ([RFC 8441] WebSocket-over-h2, [RFC 9220]
+//!   WebTransport-over-h2): after the handler responds 200 to a `CONNECT` request with a
+//!   `:protocol` pseudo-header, [`Conn::send_h2`][crate::Conn::send_h2] routes through
+//!   [`H2Connection::submit_upgrade`][submit_upgrade] which frames HEADERS without
+//!   `END_STREAM`, signals send completion early, and leaves the stream open as a
+//!   bidirectional byte channel. The runtime adapter then dispatches
+//!   [`Handler::upgrade`][trillium::Handler::upgrade], which gets an
+//!   [`Upgrade`][crate::Upgrade] wrapping this transport. `AsyncWrite::poll_write`
+//!   appends to a per-stream outbound queue ([`SendState::outbound`]); the driver's send
+//!   pump drains it into DATA frames bounded by the per-stream and connection send
+//!   windows. `AsyncWrite::poll_close` flips [`SendState::outbound_close_requested`] so
+//!   the driver eventually emits `DATA(END_STREAM)` and tears the stream down.
 //!
 //! [`H2Acceptor::next`]: super::H2Acceptor::next
 //! [`H2Connection`]: super::H2Connection
 //! [`BoxedTransport`]: crate::transport::BoxedTransport
 //! [submit_send]: super::H2Connection::submit_send
+//! [submit_upgrade]: super::H2Connection::submit_upgrade
 //! [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
 //! [RFC 9220]: https://www.rfc-editor.org/rfc/rfc9220
 
@@ -150,20 +160,61 @@ impl AsyncWrite for H2Transport {
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        // No-op. The production send path routes bytes through
-        // `H2Connection::submit_send` (response framing) and will eventually route through a
-        // per-stream outbound-byte queue for extended-CONNECT upgrades — neither touches this
-        // impl. A caller that borrows the transport and writes directly is on the same
-        // "you're on your own" footing as the h1 and h3 transports; we accept silently rather
-        // than stall the handler's progress.
-        Poll::Ready(Ok(buf.len()))
+        // Append into the per-stream outbound queue used by the extended-CONNECT
+        // (RFC 8441 / RFC 9220) upgrade path. The driver's send pump drains the same
+        // queue (via the upgrade body's `AsyncRead::poll_read`) into DATA frames bounded
+        // by per-stream + connection send windows.
+        //
+        // No backpressure here yet — the queue is unbounded. If a runaway handler
+        // becomes a problem we'll cap it and return `Poll::Pending` past the cap, with a
+        // wake from the driver's drain side.
+        let send = &self.state.send;
+
+        if send.outbound_close_requested.load(Ordering::Acquire) {
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
+
+        let n = buf.len();
+        log::trace!(
+            "h2 stream {}: H2Transport::poll_write appending {n} bytes to outbound queue",
+            self.stream_id,
+        );
+        send.outbound
+            .lock()
+            .expect("outbound buf mutex poisoned")
+            .extend_from_slice(buf);
+
+        // Wake the driver task (if parked on the connection-level waker) and the
+        // upgrade body's poll_read (in case it's registered between driver ticks).
+        // Firing both is cheap and resolves the cross-task race where the driver
+        // happens to be parked on `connection.outbound_waker` rather than mid-body-poll.
+        send.outbound_waker.wake();
+        self.connection.outbound_waker().wake();
+        Poll::Ready(Ok(n))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        // Best-effort: bytes appended via `poll_write` are already visible to the driver
+        // and will be framed on the next tick. There's no application-level "flushed"
+        // state below us to wait on.
         Poll::Ready(Ok(()))
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        // Mark the upgrade write-half closed. Once the driver drains the remaining
+        // outbound bytes, the upgrade body's `poll_read` will return `Ready(0)`, the
+        // send pump transitions through trailers (none) into `DATA(END_STREAM)`, and the
+        // stream tears down via the normal `complete_and_remove_stream` path.
+        log::trace!(
+            "h2 stream {}: H2Transport::poll_close marking outbound closed",
+            self.stream_id,
+        );
+        self.state
+            .send
+            .outbound_close_requested
+            .store(true, Ordering::Release);
+        self.state.send.outbound_waker.wake();
+        self.connection.outbound_waker().wake();
         Poll::Ready(Ok(()))
     }
 }
@@ -231,19 +282,33 @@ pub(super) struct RecvState {
     pub(super) trailers: Mutex<Option<Headers>>,
 }
 
-/// Send-side per-stream state used to hand a response from the conn task to the driver.
+/// Send-side per-stream state used to hand a response from the conn task to the driver,
+/// plus the outbound byte queue for extended-CONNECT upgraded streams.
 ///
-/// The conn task fills `submission` once via [`H2Connection::submit_send`][submit] and waits on
-/// `completion_waker` for `completed` to flip. The driver picks up the submission on its next
-/// `drive` tick, frames it (HEADERS, DATA, optional trailing HEADERS) into the connection's
-/// outbound buffer as send-side flow control allows, and on completion stores the
-/// `completion_result`, sets `completed = true`, and wakes the conn task.
+/// **Normal response path**: the conn task fills `submission` once via
+/// [`H2Connection::submit_send`][submit] and waits on `completion_waker` for `completed` to
+/// flip. The driver picks up the submission on its next `drive` tick, frames it (HEADERS,
+/// DATA, optional trailing HEADERS) into the connection's outbound buffer as send-side flow
+/// control allows, and on completion stores the `completion_result`, sets `completed = true`,
+/// and wakes the conn task.
 ///
-/// The shape is general enough to absorb a future `outbound_bytes: VecDeque<u8>` queue for
-/// extended-CONNECT (WebSocket / WebTransport over h2) upgrades — the upgrade handler's
-/// `AsyncWrite` impl would push raw bytes into that queue alongside (or instead of) `body`.
+/// **Extended-CONNECT upgrade path** ([RFC 8441] / [RFC 9220]): the conn task calls
+/// [`H2Connection::submit_upgrade`][submit_upgrade], which constructs an
+/// [`H2OutboundReader`] over `outbound` / `outbound_close_requested` /
+/// `outbound_waker` and submits it as the response body. The driver signals
+/// `completion_waker` as soon as the response HEADERS frame is on the wire (instead of
+/// waiting for the body to drain), so the conn task's `submit_upgrade().await` returns and
+/// the runtime adapter can dispatch [`Handler::upgrade`][trillium::Handler::upgrade]. The
+/// upgrade handler then writes through [`H2Transport`]'s `AsyncWrite`, which appends to
+/// `outbound`; the driver's send pump pulls those bytes out via the body's `AsyncRead`
+/// and frames them as DATA. Closing the transport sets `outbound_close_requested`, the
+/// reader returns `Ready(0)`, and the send pump terminates the stream with
+/// `DATA(END_STREAM)`.
 ///
 /// [submit]: super::H2Connection::submit_send
+/// [submit_upgrade]: super::H2Connection::submit_upgrade
+/// [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
+/// [RFC 9220]: https://www.rfc-editor.org/rfc/rfc9220
 #[derive(Debug, Default)]
 pub(super) struct SendState {
     /// Slot for the conn task's submission. Some between `submit_send` and the driver's
@@ -262,13 +327,105 @@ pub(super) struct SendState {
     /// The conn task's waker, registered by `SubmitSend::poll` and fired by the driver
     /// after `completed` is set.
     pub(super) completion_waker: AtomicWaker,
+
+    /// Outbound bytes for an extended-CONNECT (RFC 8441 / RFC 9220) upgraded stream.
+    /// Appended to by [`H2Transport`]'s `AsyncWrite::poll_write` and drained by the
+    /// upgrade body's `AsyncRead::poll_read` (the driver-task side of the send pump).
+    /// Empty for normal responses — the driver pumps the response [`Body`] directly.
+    pub(super) outbound: Mutex<Buffer>,
+
+    /// Set by [`H2Transport::poll_close`] to mark the upgrade-side write half closed.
+    /// The upgrade body's `poll_read` returns `Ready(0)` once `outbound` is empty and
+    /// this flag is set, which transitions the driver's send pump into the
+    /// trailers/`DATA(END_STREAM)` phase.
+    pub(super) outbound_close_requested: AtomicBool,
+
+    /// Waker for the upgrade body's `poll_read`. Fired by [`H2Transport::poll_write`]
+    /// after appending bytes and by [`H2Transport::poll_close`] after flipping
+    /// `outbound_close_requested`. Registered by the body during its `poll_read` when
+    /// it observes an empty buffer and no close flag.
+    pub(super) outbound_waker: AtomicWaker,
 }
 
-/// What the conn task hands the driver for a single response. Body's trailers (if any) are
-/// pulled by the driver via `Body::trailers()` after the body is fully drained — they are not
-/// a separate field here.
+/// `AsyncRead` source the driver uses as the response body for an extended-CONNECT upgrade.
+///
+/// Reads from [`SendState::outbound`] — the same per-stream queue [`H2Transport`]'s
+/// `AsyncWrite::poll_write` appends to. Returns `Ready(0)` once the queue is empty and
+/// [`SendState::outbound_close_requested`] has been set (handler dropped or called
+/// `poll_close` on the transport), at which point the driver's send pump transitions
+/// through trailers (none) into `DATA(END_STREAM)` and tears the stream down.
+///
+/// Constructed by [`H2Connection::submit_upgrade`][super::H2Connection::submit_upgrade];
+/// wrapped in [`Body::new_streaming`] so the existing send pump can pump it as if it were
+/// any other unknown-length response body.
+#[derive(Debug)]
+pub(super) struct H2OutboundReader {
+    state: Arc<StreamState>,
+    stream_id: u32,
+}
+
+impl H2OutboundReader {
+    pub(super) fn new(state: Arc<StreamState>, stream_id: u32) -> Self {
+        Self { state, stream_id }
+    }
+}
+
+impl AsyncRead for H2OutboundReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        out: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        if out.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
+
+        let send = &self.state.send;
+        let mut outbound = send.outbound.lock().expect("outbound buf mutex poisoned");
+        let take = out.len().min(outbound.len());
+        if take > 0 {
+            out[..take].copy_from_slice(&outbound[..take]);
+            outbound.ignore_front(take);
+            log::trace!(
+                "h2 stream {}: H2OutboundReader::poll_read drained {take} bytes",
+                self.stream_id,
+            );
+            return Poll::Ready(Ok(take));
+        }
+
+        // Queue empty. Register first, then re-check the close flag. This closes the
+        // register-then-check race against `poll_close` (which doesn't take the buf
+        // lock — it just stores the flag and fires the waker). Holding the buf lock
+        // means `poll_write` can't race here; only `poll_close` can.
+        send.outbound_waker.register(cx.waker());
+
+        if send.outbound_close_requested.load(Ordering::Acquire) {
+            log::trace!(
+                "h2 stream {}: H2OutboundReader::poll_read EOF (close_requested + empty)",
+                self.stream_id,
+            );
+            return Poll::Ready(Ok(0));
+        }
+        Poll::Pending
+    }
+}
+
+/// What the conn task hands the driver to begin a send on a stream.
+///
+/// `body` carries either a normal response body or, for extended-CONNECT (RFC 8441 / RFC 9220)
+/// upgrades, a streaming body that reads from [`SendState::outbound`] (which the upgrade
+/// handler's [`H2Transport`] `AsyncWrite` writes into). Trailers (if any) come from
+/// [`Body::trailers`] after drain — not a separate field.
+///
+/// `is_upgrade` flips the driver's completion semantics: instead of signaling
+/// [`SubmitSend`][super::SubmitSend] completion after the body is fully on the wire, the
+/// driver signals completion as soon as the response HEADERS frame is flushed. That lets
+/// [`Conn::send_h2`][crate::Conn::send_h2] return so the runtime can dispatch
+/// [`Handler::upgrade`][trillium::Handler::upgrade], while the body keeps streaming in the
+/// background.
 #[derive(Debug)]
 pub(super) struct Submission {
     pub(super) encoded_headers: Vec<u8>,
     pub(super) body: Option<Body>,
+    pub(super) is_upgrade: bool,
 }

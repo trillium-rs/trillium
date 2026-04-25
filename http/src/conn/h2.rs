@@ -18,8 +18,8 @@ where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     /// Build a `Conn` from the bits an HTTP/2 stream-open hands the driver: the shared
-    /// connection, the stream id, the decoded request field section, and a transport (today an
-    /// `H2Transport`; will become a ZST placeholder in a later step).
+    /// connection, the stream id, the decoded request field section, and the per-stream
+    /// [`H2Transport`][crate::h2::H2Transport].
     ///
     /// Synchronous — no I/O required at this point because the driver has already decoded the
     /// HEADERS block. Returns an [`H2ErrorCode`] for any RFC 9113 §8.1.2 malformed-request
@@ -139,6 +139,15 @@ where
     /// includes things like state-bag teardown and observers) happens *after* the body is
     /// fully on the wire, matching h1/h3's lifecycle.
     ///
+    /// On the extended-CONNECT (RFC 8441 / RFC 9220) upgrade path — i.e.,
+    /// [`Conn::should_upgrade`] returns true at this point because the handler has set
+    /// status 200 on a CONNECT request — this routes through
+    /// [`H2Connection::submit_upgrade`] instead. That signals completion as soon as the
+    /// HEADERS frame is on the wire so this function returns and the runtime adapter can
+    /// dispatch [`Handler::upgrade`][trillium::Handler::upgrade]; the stream stays open
+    /// for the upgrade handler's bidirectional [`H2Transport`][crate::h2::H2Transport]
+    /// I/O.
+    ///
     /// # Errors
     ///
     /// Returns the [`io::Error`] from the body's `poll_read` or from the underlying transport
@@ -146,12 +155,6 @@ where
     pub(crate) async fn send_h2(mut self) -> io::Result<Self> {
         self.finalize_response_headers_h2();
         let encoded_headers = encode_headers_h2(self.status, &self.response_headers);
-        // RFC 9110 §3.3.2: HEAD / 304 / 204 responses carry no body. Take unconditionally
-        // (so post-send Conn state is consistent) and filter out the body itself for those
-        // statuses.
-        let allow_body = self.method != Method::Head
-            && !matches!(self.status, Some(Status::NotModified | Status::NoContent));
-        let body = self.response_body.take().filter(|_| allow_body);
 
         let h2 = self
             .h2_connection
@@ -159,12 +162,27 @@ where
             .ok_or(io::ErrorKind::NotConnected)?;
         let stream_id = self.h2_stream_id.ok_or(io::ErrorKind::NotConnected)?;
 
-        log::trace!(
-            "h2 stream {stream_id}: send_h2 submitting ({} header bytes, body={})",
-            encoded_headers.len(),
-            body.is_some()
-        );
-        let result = h2.submit_send(stream_id, encoded_headers, body).await;
+        let is_upgrade = self.should_upgrade();
+        let result = if is_upgrade {
+            log::trace!(
+                "h2 stream {stream_id}: send_h2 submitting upgrade ({} header bytes)",
+                encoded_headers.len(),
+            );
+            h2.submit_upgrade(stream_id, encoded_headers).await
+        } else {
+            // RFC 9110 §3.3.2: HEAD / 304 / 204 responses carry no body. Take unconditionally
+            // (so post-send Conn state is consistent) and filter out the body itself for those
+            // statuses.
+            let allow_body = self.method != Method::Head
+                && !matches!(self.status, Some(Status::NotModified | Status::NoContent));
+            let body = self.response_body.take().filter(|_| allow_body);
+            log::trace!(
+                "h2 stream {stream_id}: send_h2 submitting ({} header bytes, body={})",
+                encoded_headers.len(),
+                body.is_some()
+            );
+            h2.submit_send(stream_id, encoded_headers, body).await
+        };
         log::trace!("h2 stream {stream_id}: send_h2 completed with {result:?}");
         self.after_send.call(result.is_ok().into());
         result.map(|()| self)
@@ -173,13 +191,20 @@ where
     /// Apply h2-flavored finalizations to the response headers: insert a Date header if absent,
     /// surface content-length if known, strip h1-only connection-management headers (which are
     /// forbidden in h2 per RFC 9113 §8.1.2.2).
+    ///
+    /// Skips Content-Length insertion on the extended-CONNECT upgrade path: the response is
+    /// HEADERS-only on the wire and the stream stays open as a bidirectional byte channel,
+    /// so a Content-Length would be both meaningless and misleading. RFC 8441 §4 explicitly
+    /// notes that the 200 response to an extended CONNECT carries no body in the conventional
+    /// sense.
     fn finalize_response_headers_h2(&mut self) {
         self.response_headers
             .try_insert_with(KnownHeaderName::Date, || {
                 httpdate::fmt_http_date(SystemTime::now())
             });
 
-        if !matches!(self.status, Some(Status::NotModified | Status::NoContent))
+        if !self.should_upgrade()
+            && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
             && let Some(len) = self.body_len_h2()
         {
             self.response_headers

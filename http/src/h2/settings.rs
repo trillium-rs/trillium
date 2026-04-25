@@ -14,6 +14,9 @@ const SETTINGS_INITIAL_WINDOW_SIZE: u16 = 0x4;
 const SETTINGS_MAX_FRAME_SIZE: u16 = 0x5;
 /// `SETTINGS_MAX_HEADER_LIST_SIZE` (RFC 9113 §6.5.2).
 const SETTINGS_MAX_HEADER_LIST_SIZE: u16 = 0x6;
+/// `SETTINGS_ENABLE_CONNECT_PROTOCOL` (RFC 8441 §3) — advertises that the server
+/// accepts extended CONNECT requests carrying a `:protocol` pseudo-header.
+const SETTINGS_ENABLE_CONNECT_PROTOCOL: u16 = 0x8;
 
 /// The upper bound on `SETTINGS_INITIAL_WINDOW_SIZE` (RFC 9113 §6.5.2).
 const MAX_INITIAL_WINDOW_SIZE: u32 = (1 << 31) - 1;
@@ -70,6 +73,14 @@ pub(crate) struct H2Settings {
     /// Default: unlimited.
     max_header_list_size: Option<u32>,
 
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL` (RFC 8441 §3) — when `Some(true)`, advertises
+    /// that the server accepts extended CONNECT requests (with a `:protocol`
+    /// pseudo-header), enabling WebSocket-over-h2 and WebTransport-over-h2.
+    ///
+    /// `None` means the setting is absent (peer-default false). Peers MUST treat values
+    /// other than 0/1 as a connection-level `PROTOCOL_ERROR` per RFC 8441 §3.
+    enable_connect_protocol: Option<bool>,
+
     // GREASE setting included in encoded output per RFC 8701 when non-zero.
     // Chosen at construction time so encoded_len() and encode() agree.
     // Zero when decoded from a peer (GREASE is skipped during decode).
@@ -89,6 +100,7 @@ impl std::fmt::Debug for H2Settings {
             .field("initial_window_size", &self.initial_window_size)
             .field("max_frame_size", &self.max_frame_size)
             .field("max_header_list_size", &self.max_header_list_size)
+            .field("enable_connect_protocol", &self.enable_connect_protocol)
             .finish_non_exhaustive()
     }
 }
@@ -102,6 +114,7 @@ impl PartialEq for H2Settings {
             && self.initial_window_size == other.initial_window_size
             && self.max_frame_size == other.max_frame_size
             && self.max_header_list_size == other.max_header_list_size
+            && self.enable_connect_protocol == other.enable_connect_protocol
     }
 }
 
@@ -142,6 +155,9 @@ impl H2Settings {
             max_header_list_size: Some(config.h2_max_header_list_size()),
             initial_window_size: Some(config.h2_initial_stream_window_size()),
             max_frame_size: Some(config.h2_max_frame_size()),
+            // Only advertise SETTINGS_ENABLE_CONNECT_PROTOCOL when actually enabled —
+            // omitting it (None) is equivalent to advertising 0 per RFC 8441 §3 default.
+            enable_connect_protocol: config.extended_connect_enabled().then_some(true),
             grease_id,
             grease_value: fastrand::u32(..),
             ..Default::default()
@@ -175,6 +191,9 @@ impl H2Settings {
             entries += 1;
         }
         if self.max_header_list_size.is_some() {
+            entries += 1;
+        }
+        if self.enable_connect_protocol.is_some() {
             entries += 1;
         }
         if self.grease_id != 0 {
@@ -224,6 +243,11 @@ impl H2Settings {
                     settings.max_frame_size = Some(value);
                 }
                 SETTINGS_MAX_HEADER_LIST_SIZE => settings.max_header_list_size = Some(value),
+                SETTINGS_ENABLE_CONNECT_PROTOCOL => match value {
+                    0 => settings.enable_connect_protocol = Some(false),
+                    1 => settings.enable_connect_protocol = Some(true),
+                    _ => return Err(H2ErrorCode::ProtocolError),
+                },
                 _ => log::trace!("skipping unknown setting identifier {id:#x}"),
             }
         }
@@ -254,6 +278,13 @@ impl H2Settings {
         }
         if let Some(v) = self.max_header_list_size {
             written += write_entry(SETTINGS_MAX_HEADER_LIST_SIZE, v, &mut buf[written..]);
+        }
+        if let Some(b) = self.enable_connect_protocol {
+            written += write_entry(
+                SETTINGS_ENABLE_CONNECT_PROTOCOL,
+                u32::from(b),
+                &mut buf[written..],
+            );
         }
         if self.grease_id != 0 {
             written += write_entry(self.grease_id, self.grease_value, &mut buf[written..]);
@@ -412,6 +443,33 @@ mod tests {
         let decoded = H2Settings::decode(&buf[..len]).unwrap();
         // decoded has no grease id
         assert_eq!(decoded.grease_id, 0);
+    }
+
+    #[test]
+    fn enable_connect_protocol_roundtrip() {
+        // Setting absent on encode → not in output → decoded as None.
+        let absent = H2Settings::default();
+        let mut buf = vec![0; 64];
+        let len = absent.encode(&mut buf).unwrap();
+        let decoded = H2Settings::decode(&buf[..len]).unwrap();
+        assert_eq!(decoded.enable_connect_protocol, None);
+
+        // Setting present (true) survives roundtrip.
+        let on = H2Settings::default().with_enable_connect_protocol(true);
+        let mut buf = vec![0; 64];
+        let len = on.encode(&mut buf).unwrap();
+        let decoded = H2Settings::decode(&buf[..len]).unwrap();
+        assert_eq!(decoded.enable_connect_protocol, Some(true));
+    }
+
+    #[test]
+    fn invalid_enable_connect_protocol_is_protocol_error() {
+        let mut payload = [0; 6];
+        write_entry(SETTINGS_ENABLE_CONNECT_PROTOCOL, 2, &mut payload);
+        assert_eq!(
+            H2Settings::decode(&payload),
+            Err(H2ErrorCode::ProtocolError),
+        );
     }
 
     #[test]

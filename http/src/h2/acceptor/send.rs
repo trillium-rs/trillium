@@ -56,6 +56,17 @@ pub(super) struct SendCursor {
     trailers: Option<Headers>,
     /// Where we are in the response.
     phase: SendPhase,
+    /// `true` if this stream is in extended-CONNECT upgrade mode (RFC 8441 / RFC 9220):
+    /// signal [`SubmitSend`][super::super::SubmitSend] completion the moment `END_HEADERS`
+    /// goes out instead of waiting for `END_STREAM`, so the runtime can dispatch
+    /// [`Handler::upgrade`][trillium::Handler::upgrade] while the streaming body keeps
+    /// pumping bytes from [`SendState::outbound`][super::super::transport::SendState] into
+    /// DATA frames in the background.
+    is_upgrade: bool,
+    /// `true` once `signal_send_completion` has been called for this cursor — prevents the
+    /// upgrade-early-completion path and the eventual `complete_and_remove_stream` call from
+    /// double-signaling the conn task's `SubmitSend` future.
+    completion_signaled: bool,
 }
 
 impl SendCursor {
@@ -74,6 +85,8 @@ impl SendCursor {
             body_bytes_emitted: 0,
             trailers: None,
             phase: SendPhase::Headers,
+            is_upgrade: submission.is_upgrade,
+            completion_signaled: false,
         }
     }
 }
@@ -168,6 +181,12 @@ where
     /// — which always follows a `queue_rst_stream` call in the error paths — records as
     /// `Reset`, and an `Ok` result (clean `END_STREAM` completion from the send pump)
     /// records as `EndStream`.
+    ///
+    /// On the extended-CONNECT upgrade path, completion is signaled early (right after
+    /// HEADERS go out — see [`emit_one_headers_fragment`][Self::emit_one_headers_fragment]),
+    /// so by the time we reach this teardown the conn task has long since returned from
+    /// `send_h2` and started `handler.upgrade(...)`. `entry.send.completion_signaled`
+    /// gates re-signaling here to avoid clobbering the result the conn task already saw.
     pub(super) fn complete_and_remove_stream(&mut self, stream_id: u32, result: io::Result<()>) {
         log::trace!("h2 stream {stream_id}: completing send ({result:?})");
         let reason = if result.is_err() {
@@ -177,7 +196,17 @@ where
         };
         self.closed_streams.record(stream_id, reason);
         if let Some(entry) = self.streams.remove(&stream_id) {
-            signal_send_completion(&entry.shared, result);
+            let already_signaled = entry
+                .send
+                .as_ref()
+                .is_some_and(|c| c.completion_signaled);
+            if already_signaled {
+                log::trace!(
+                    "h2 stream {stream_id}: skipping signal_send_completion (already signaled by upgrade path)"
+                );
+            } else {
+                signal_send_completion(&entry.shared, result);
+            }
         }
         self.connection.streams_lock().remove(&stream_id);
     }
@@ -222,6 +251,22 @@ where
         send.headers_offset += chunk_len;
 
         if end_headers {
+            // Extended-CONNECT (RFC 8441 / RFC 9220): signal `SubmitSend` completion as
+            // soon as the response HEADERS frame is on the wire so `Conn::send_h2`
+            // returns and the runtime can dispatch `handler.upgrade(...)`. The body
+            // (an `H2OutboundReader` over `SendState.outbound`) keeps streaming in the
+            // background — the eventual `complete_and_remove_stream` call sees
+            // `completion_signaled` and skips re-signaling.
+            if send.is_upgrade && !send.completion_signaled {
+                if let Some(entry) = self.streams.get(&stream_id) {
+                    log::trace!(
+                        "h2 stream {stream_id}: upgrade — signaling SubmitSend completion at END_HEADERS"
+                    );
+                    signal_send_completion(&entry.shared, Ok(()));
+                }
+                send.completion_signaled = true;
+            }
+
             send.phase = if send.has_body {
                 SendPhase::Body
             } else if is_first {
@@ -339,7 +384,7 @@ where
 
 /// Body drained (or content-length reached) — pull trailers off the body, drop the body
 /// handle, and transition the cursor into `Trailers`. The next tick emits either a
-/// trailing HEADERS (if trailers) or an empty DATA(END_STREAM).
+/// trailing HEADERS (if trailers) or an empty `DATA(END_STREAM)`.
 fn transition_to_trailers(send: &mut SendCursor) {
     send.trailers = send.body.as_mut().and_then(H2Body::trailers);
     send.body = None;

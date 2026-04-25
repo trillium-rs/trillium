@@ -14,7 +14,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium::{Handler, Transport};
+use trillium::{Handler, Transport, Upgrade};
 use trillium_http::{
     HttpContext,
     h2::{H2Connection, H2Transport},
@@ -52,8 +52,9 @@ pub(crate) async fn run_h2<T>(
                 log::trace!("run_h2: spawning handler task for stream {stream_id:?}");
                 let handler = handler.clone();
                 runtime.spawn(async move {
+                    let inner_handler = handler.clone();
                     let result = H2Connection::process_inbound(conn, |mut conn| async move {
-                        let handler = &handler;
+                        let handler = &inner_handler;
                         conn.set_peer_ip(peer_ip);
                         conn.set_secure(is_secure);
                         let conn = handler.run(conn.into()).await;
@@ -62,8 +63,22 @@ pub(crate) async fn run_h2<T>(
                     })
                     .await;
 
-                    if let Err(e) = result {
-                        log::debug!("h2 stream error: {e}");
+                    match result {
+                        Ok(conn) if conn.should_upgrade() => {
+                            let upgrade = Upgrade::from(conn);
+                            if handler.has_upgrade(&upgrade) {
+                                log::debug!("upgrading h2 stream");
+                                handler.upgrade(upgrade).await;
+                            } else {
+                                log::error!(
+                                    "h2 upgrade specified but no upgrade handler provided"
+                                );
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            log::debug!("h2 stream error: {e}");
+                        }
                     }
                 });
             }

@@ -216,7 +216,48 @@ impl H2Connection {
                 .expect("send submission mutex poisoned") = Some(super::transport::Submission {
                 encoded_headers,
                 body,
+                is_upgrade: false,
             });
+            self.outbound_waker.wake();
+        }
+        SubmitSend { stream_id, stream }
+    }
+
+    /// Hand a response off for an extended-CONNECT (RFC 8441 / RFC 9220) upgrade.
+    ///
+    /// Frames the response HEADERS without `END_STREAM` and signals
+    /// [`SubmitSend`] completion the moment the HEADERS frame is on the wire — instead of
+    /// after the body finishes, as [`submit_send`][Self::submit_send] does. That early
+    /// completion lets [`Conn::send_h2`][crate::Conn::send_h2] return so the runtime
+    /// adapter can dispatch [`Handler::upgrade`][trillium::Handler::upgrade] while the
+    /// stream stays open as a bidirectional byte channel.
+    ///
+    /// Internally constructs an [`H2OutboundReader`][super::transport::H2OutboundReader]
+    /// over the per-stream outbound queue ([`SendState::outbound`][outbound]) and submits
+    /// it as the response body. The upgrade handler appends bytes via
+    /// [`H2Transport`][super::H2Transport]'s `AsyncWrite::poll_write`; the driver's send
+    /// pump pulls them via the body's `AsyncRead::poll_read` and frames them as DATA
+    /// frames bounded by per-stream + connection send windows. When the handler closes
+    /// the transport (or drops it), the reader returns `Ready(0)`, the send pump emits
+    /// `DATA(END_STREAM)`, and the stream tears down via the normal
+    /// `complete_and_remove_stream` path.
+    ///
+    /// [outbound]: super::transport::SendState::outbound
+    pub(crate) fn submit_upgrade(&self, stream_id: u32, encoded_headers: Vec<u8>) -> SubmitSend {
+        let stream = self.streams_lock().get(&stream_id).cloned();
+        if let Some(state) = &stream {
+            let reader = super::transport::H2OutboundReader::new(state.clone(), stream_id);
+            let body = Body::new_streaming(reader, None);
+            *state
+                .send
+                .submission
+                .lock()
+                .expect("send submission mutex poisoned") = Some(super::transport::Submission {
+                encoded_headers,
+                body: Some(body),
+                is_upgrade: true,
+            });
+            log::trace!("h2 stream {stream_id}: submit_upgrade — submission staged");
             self.outbound_waker.wake();
         }
         SubmitSend { stream_id, stream }

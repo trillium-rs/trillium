@@ -905,6 +905,172 @@ async fn stream_window_update_overflow_is_rst_stream() {
     server_task.await.expect("server task panicked");
 }
 
+/// Extended-CONNECT (RFC 8441 / RFC 9220) end-to-end:
+///
+/// 1. Server is configured with `extended_connect_enabled = true`. We assert its initial
+///    SETTINGS frame includes `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`.
+/// 2. Client sends a CONNECT request HEADERS with `:protocol = websocket`, no `END_STREAM`.
+/// 3. Handler observes `method = CONNECT`, `protocol = Some("websocket")`, returns status 200.
+/// 4. `Conn::send_h2` routes through `submit_upgrade` because `should_upgrade()` is true,
+///    and signals completion the moment HEADERS hit the wire.
+/// 5. Test reaches into the post-send Conn for the `H2Transport`, writes a few bytes, and
+///    closes. We expect HEADERS without END_STREAM, DATA frame(s) carrying the bytes, and
+///    a final `DATA(END_STREAM)` terminator.
+#[tokio::test]
+async fn extended_connect_upgrade_round_trip() {
+    use trillium_http::{HttpConfig, Method, Status};
+
+    let _ = env_logger::try_init();
+    let (mut client_io, server_io) = duplex(64 * 1024);
+
+    let context = Arc::new(
+        HttpContext::default().with_config(HttpConfig::default().with_extended_connect_enabled()),
+    );
+    let server_conn = H2Connection::new(context);
+    let server_task = {
+        let server_conn = server_conn.clone();
+        let mut acceptor = server_conn.run(Compat::new(server_io));
+        tokio::spawn(async move {
+            while let Some(result) = acceptor.next().await {
+                match result {
+                    Err(_) => break,
+                    Ok(c) => {
+                        // Per-stream task: handler sets status 200, send_h2 routes through
+                        // submit_upgrade, then we use the H2Transport (still on the Conn) for
+                        // bidi bytes.
+                        tokio::spawn(async move {
+                            let conn_after_send = H2Connection::process_inbound(c, |conn| async move {
+                                assert_eq!(conn.method(), Method::Connect, "expect CONNECT");
+                                assert_eq!(
+                                    conn.protocol(),
+                                    Some("websocket"),
+                                    "expect :protocol = websocket"
+                                );
+                                conn.with_status(Status::Ok)
+                            })
+                            .await
+                            .expect("process_inbound");
+                            assert!(
+                                conn_after_send.should_upgrade(),
+                                "CONNECT + 200 ⇒ should_upgrade()"
+                            );
+                            // Mirror the runtime adapter's upgrade dispatch: convert into an
+                            // Upgrade (which AsyncWrite-forwards to the inner H2Transport),
+                            // write the payload, close. Closing flushes the outbound queue and
+                            // emits DATA(END_STREAM).
+                            let mut upgrade = trillium_http::Upgrade::from(conn_after_send);
+                            use futures_lite::AsyncWriteExt;
+                            upgrade.write_all(b"hello over h2 upgrade").await.unwrap();
+                            upgrade.close().await.unwrap();
+                        });
+                    }
+                }
+            }
+        })
+    };
+
+    client_io.write_all(CLIENT_PREFACE).await.unwrap();
+    write_empty_settings(&mut client_io).await;
+
+    // CONNECT /chat with :protocol=websocket on stream 1, NO END_STREAM (extended-CONNECT
+    // streams stay open after HEADERS).
+    //
+    // Indices used (RFC 7541 Appendix A static table):
+    //   :scheme https     → static index 7 (0x87)
+    //   :path             → static index 4
+    //   :authority        → static index 1
+    //
+    // :method CONNECT and :protocol aren't in the static table — emit them as literal-with-
+    // incremental-indexing (0x40 prefix) using literal name + value strings.
+    let mut block = vec![0x87]; // :scheme https
+    // :method = CONNECT (literal name + value, name not indexed)
+    block.push(0x40);
+    block.push(b":method".len() as u8);
+    block.extend_from_slice(b":method");
+    block.push(b"CONNECT".len() as u8);
+    block.extend_from_slice(b"CONNECT");
+    // :path = /chat (name index 4)
+    block.push(0x44);
+    block.push(b"/chat".len() as u8);
+    block.extend_from_slice(b"/chat");
+    // :authority = example.com (name index 1)
+    block.push(0x41);
+    block.push(b"example.com".len() as u8);
+    block.extend_from_slice(b"example.com");
+    // :protocol = websocket (literal name + value, name not indexed)
+    block.push(0x40);
+    block.push(b":protocol".len() as u8);
+    block.extend_from_slice(b":protocol");
+    block.push(b"websocket".len() as u8);
+    block.extend_from_slice(b"websocket");
+    write_frame(
+        &mut client_io,
+        FRAME_TYPE_HEADERS,
+        0x4, // END_HEADERS only — NOT END_STREAM
+        1,
+        &block,
+    )
+    .await;
+
+    // Drain server frames. Verify (a) initial SETTINGS includes ENABLE_CONNECT_PROTOCOL=1,
+    // (b) response HEADERS arrive without END_STREAM, (c) DATA carries the upgrade bytes,
+    // (d) final DATA(END_STREAM) is the stream terminator.
+    let mut saw_settings_with_connect_protocol = false;
+    let mut saw_response_headers = false;
+    let mut response_headers_had_end_stream = false;
+    let mut data_payload = Vec::new();
+    let mut got_end_stream = false;
+    while !got_end_stream {
+        let (hdr, payload) = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            read_frame(&mut client_io),
+        )
+        .await
+        .expect("server stalled emitting upgrade frames");
+
+        match hdr.frame_type {
+            FRAME_TYPE_SETTINGS if hdr.flags & FLAG_ACK == 0 => {
+                let entries = parse_settings(&payload);
+                if entries.iter().any(|(id, val)| *id == 0x8 && *val == 1) {
+                    saw_settings_with_connect_protocol = true;
+                }
+                write_settings_ack(&mut client_io).await;
+            }
+            FRAME_TYPE_HEADERS if hdr.stream_id == 1 => {
+                saw_response_headers = true;
+                if hdr.flags & FLAG_END_STREAM != 0 {
+                    response_headers_had_end_stream = true;
+                }
+            }
+            FRAME_TYPE_DATA if hdr.stream_id == 1 => {
+                data_payload.extend_from_slice(&payload);
+                if hdr.flags & FLAG_END_STREAM != 0 {
+                    got_end_stream = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    assert!(
+        saw_settings_with_connect_protocol,
+        "server initial SETTINGS must include SETTINGS_ENABLE_CONNECT_PROTOCOL=1"
+    );
+    assert!(saw_response_headers, "server must emit response HEADERS");
+    assert!(
+        !response_headers_had_end_stream,
+        "extended-CONNECT response HEADERS must NOT carry END_STREAM"
+    );
+    assert_eq!(
+        data_payload, b"hello over h2 upgrade",
+        "DATA frames carry the bytes the handler wrote through H2Transport"
+    );
+
+    drop(client_io);
+    server_conn.shut_down();
+    server_task.await.expect("server task panicked");
+}
+
 /// Parse a raw SETTINGS payload into (id, value) pairs. Each entry is 6 bytes: u16 id, u32 value.
 fn parse_settings(payload: &[u8]) -> Vec<(u16, u32)> {
     payload

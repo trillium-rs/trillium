@@ -1,6 +1,6 @@
 use crate::{
-    Buffer, Conn, Headers, HttpContext, Method, TypeSet, Version, h3::H3Connection,
-    received_body::read_buffered,
+    Buffer, Conn, Headers, HttpContext, Method, TypeSet, Version, h2::H2Connection,
+    h3::H3Connection, received_body::read_buffered,
 };
 use fieldwork::Fieldwork;
 use futures_lite::{AsyncRead, AsyncWrite};
@@ -69,6 +69,14 @@ pub struct Upgrade<Transport> {
     #[field(get(deref = false))]
     h3_connection: Option<Arc<H3Connection>>,
 
+    /// the HTTP/2 connection associated with this upgrade, if this was an HTTP/2 stream
+    #[field(get(deref = false))]
+    h2_connection: Option<Arc<H2Connection>>,
+
+    /// the HTTP/2 stream id, if this was an HTTP/2 stream
+    #[field(copy)]
+    h2_stream_id: Option<u32>,
+
     /// the :protocol http/3 pseudo-header
     protocol: Option<Cow<'static, str>>,
 
@@ -102,6 +110,8 @@ impl<Transport> Upgrade<Transport> {
             authority: None,
             scheme: None,
             h3_connection: None,
+            h2_connection: None,
+            h2_stream_id: None,
             protocol: None,
             secure: false,
             version,
@@ -158,6 +168,8 @@ impl<Transport> Upgrade<Transport> {
             authority: self.authority,
             scheme: self.scheme,
             h3_connection: self.h3_connection,
+            h2_connection: self.h2_connection,
+            h2_stream_id: self.h2_stream_id,
             protocol: self.protocol,
             version: self.version,
             secure: self.secure,
@@ -179,6 +191,8 @@ impl<Transport> Debug for Upgrade<Transport> {
             .field("authority", &self.authority)
             .field("scheme", &self.scheme)
             .field("h3_connection", &self.h3_connection)
+            .field("h2_connection", &self.h2_connection)
+            .field("h2_stream_id", &self.h2_stream_id)
             .field("protocol", &self.protocol)
             .field("version", &self.version)
             .field("secure", &self.secure)
@@ -200,6 +214,8 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             authority,
             scheme,
             h3_connection,
+            h2_connection,
+            h2_stream_id,
             protocol,
             version,
             secure,
@@ -218,6 +234,8 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             authority,
             scheme,
             h3_connection,
+            h2_connection,
+            h2_stream_id,
             protocol,
             version,
             secure,

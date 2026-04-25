@@ -311,6 +311,23 @@ pub struct HttpConfig {
     /// **Default**: false
     pub(crate) webtransport_enabled: bool,
 
+    /// HTTP/2 `SETTINGS_ENABLE_CONNECT_PROTOCOL` (RFC 8441 §3) — advertises that the
+    /// server accepts extended CONNECT requests, enabling protocols layered on top of h2
+    /// such as WebSocket-over-h2 (RFC 8441) and WebTransport-over-h2 (RFC 9220).
+    ///
+    /// When set, the server's initial SETTINGS frame includes
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` and the runtime accepts CONNECT requests
+    /// carrying a `:protocol` pseudo-header. Without it, clients won't attempt extended
+    /// CONNECT, which is the correct default — handlers that don't expect extended
+    /// CONNECT shouldn't see those requests.
+    ///
+    /// You don't need to set this manually if using a handler that requires it (e.g. an
+    /// h2 websocket handler will flip it from `Handler::init`, the same way the
+    /// trillium-webtransport handler flips `webtransport_enabled`).
+    ///
+    /// **Default**: false
+    pub(crate) extended_connect_enabled: bool,
+
     /// whether to panic when a response header with an invalid value (containing `\r`, `\n`, or
     /// `\0`) is encountered.
     ///
@@ -351,6 +368,7 @@ impl HttpConfig {
         h2_max_frame_size: 16_384,
         h2_max_header_list_size: 32 * 1024,
         webtransport_enabled: false,
+        extended_connect_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),
     };
 }
