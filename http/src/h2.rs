@@ -3,6 +3,7 @@
 //! This module is the server-side HTTP/2 implementation used by `trillium-http`. Most items are
 //! crate-private; only the error types are currently part of the public surface.
 mod acceptor;
+mod body_wrapper;
 mod connection;
 mod error;
 mod frame;
@@ -11,6 +12,7 @@ mod transport;
 
 use crate::headers::compression_error::CompressionError;
 pub use acceptor::H2Acceptor;
+pub(crate) use body_wrapper::H2Body;
 pub use connection::H2Connection;
 pub use error::H2ErrorCode;
 pub(crate) use settings::H2Settings;

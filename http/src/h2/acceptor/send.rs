@@ -13,7 +13,7 @@ use super::{ClosedReason, H2Acceptor};
 use crate::{
     Body, Headers,
     h2::{
-        frame,
+        H2Body, frame,
         transport::{StreamState, Submission},
     },
     headers::hpack::{self, FieldSection, PseudoHeaders},
@@ -39,9 +39,11 @@ pub(super) struct SendCursor {
     /// fragment carries `END_STREAM` (no body, no trailers) or whether we transition to
     /// the Body phase next.
     has_body: bool,
-    /// Body source. Driver polls `body.poll_read` to fill DATA frames; transitions to None
-    /// once drained (a 0-byte read) or once `body_bytes_emitted == body_len`.
-    body: Option<Body>,
+    /// Body source, wrapped in [`H2Body`] so its `AsyncRead` yields plain payload bytes
+    /// (no h1 chunked-encoding wrapping) suitable for DATA frame payloads. Driver polls
+    /// `body.poll_read` to fill DATA frames; transitions to None once drained (a 0-byte
+    /// read) or once `body_bytes_emitted == body_len`.
+    body: Option<H2Body>,
     /// Declared `Body::len` at cursor creation, if known. When `Some(n)` and
     /// `body_bytes_emitted == n`, we can transition out of the Body phase without another
     /// `body.poll_read` — important when send flow-control windows are exactly at zero on
@@ -59,12 +61,15 @@ pub(super) struct SendCursor {
 impl SendCursor {
     pub(super) fn new(submission: Submission) -> Self {
         let has_body = submission.body.is_some();
+        // Capture `Body::len` before the `into_h2()` consumes it — H2Body intentionally
+        // doesn't expose the inner length (the send pump uses it for the early-EOF
+        // optimization in `poll_emit_one_data`).
         let body_len = submission.body.as_ref().and_then(Body::len);
         Self {
             encoded_headers: submission.encoded_headers,
             headers_offset: 0,
             has_body,
-            body: submission.body,
+            body: submission.body.map(Body::into_h2),
             body_len,
             body_bytes_emitted: 0,
             trailers: None,
@@ -336,7 +341,7 @@ where
 /// handle, and transition the cursor into `Trailers`. The next tick emits either a
 /// trailing HEADERS (if trailers) or an empty DATA(END_STREAM).
 fn transition_to_trailers(send: &mut SendCursor) {
-    send.trailers = send.body.as_mut().and_then(Body::trailers);
+    send.trailers = send.body.as_mut().and_then(H2Body::trailers);
     send.body = None;
     send.phase = SendPhase::Trailers;
 }
