@@ -220,17 +220,22 @@ where
             // without an in-progress header block is too (but pending_headers==Some is
             // handled via the match arm above).
             Frame::PushPromise { .. } => Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)),
+            // PING ACK: complete the matching `H2Connection::send_ping` future, recording
+            // the RTT. Unsolicited ACKs (no matching opaque) are silently tolerated per §6.7.
+            Frame::Ping {
+                opaque_data,
+                ack: true,
+            } => {
+                self.connection.complete_pending_ping(opaque_data);
+                Ok(Action::Continue)
+            }
             // Informational-only for our current feature set:
             // - `SETTINGS_ACK` (§6.5.3): confirms the peer is using our advertised SETTINGS. We
             //   start enforcing our values immediately on send, not on ack, so there's no deferred
             //   state to apply. We also don't implement `SETTINGS_TIMEOUT` — a peer that never acks
             //   our SETTINGS stays connected.
-            // - `PING { ack: true }` (§6.7): only meaningful if we initiated a proactive PING,
-            //   which we never do today. An unsolicited ACK is silently tolerated.
             // - `Unknown` (§5.5): unknown frame types MUST be ignored.
-            Frame::SettingsAck | Frame::Ping { ack: true, .. } | Frame::Unknown { .. } => {
-                Ok(Action::Continue)
-            }
+            Frame::SettingsAck | Frame::Unknown { .. } => Ok(Action::Continue),
         }
     }
 

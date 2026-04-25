@@ -1166,3 +1166,124 @@ async fn read_frame(client: &mut DuplexStream) -> (RawFrameHeader, Vec<u8>) {
     }
     (header, payload)
 }
+
+// ---- Active PING (`H2Connection::send_ping`) ----
+
+/// Server-initiated PING is acked by the peer and the future resolves with the round-trip
+/// time.
+#[tokio::test]
+async fn server_active_ping_roundtrip() {
+    let (client_io, server_io) = duplex(64 * 1024);
+    let (conn, _streams, server_task) = spawn_server(Compat::new(server_io));
+
+    let (_send_request, connection) = client::handshake(client_io)
+        .await
+        .expect("hyper h2 handshake failed");
+    let connection_task = tokio::spawn(connection);
+
+    let rtt = conn
+        .send_ping([1; 8])
+        .await
+        .expect("server-initiated PING was not acked");
+    assert!(
+        rtt < std::time::Duration::from_secs(1),
+        "PING RTT looks unreasonable: {rtt:?}"
+    );
+
+    conn.shut_down();
+    connection_task
+        .await
+        .expect("client task panicked")
+        .expect("client connection saw protocol error");
+    server_task.await.expect("server task panicked");
+}
+
+/// A second `send_ping` with the same opaque payload while one is still in flight resolves
+/// to `io::ErrorKind::AlreadyExists`. Dropping the first lets the opaque be reused.
+#[tokio::test]
+async fn duplicate_opaque_returns_already_exists() {
+    use std::{
+        future::Future,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+
+    let (_client_io, server_io) = duplex(64 * 1024);
+    let (conn, _streams, _server_task) = spawn_server(Compat::new(server_io));
+
+    let first = conn.send_ping([2; 8]);
+    let second = conn.send_ping([2; 8]);
+
+    // Second resolves synchronously on first poll — no I/O needed for the dup check.
+    let waker = Waker::noop();
+    let mut cx = Context::from_waker(waker);
+    let mut second = pin!(second);
+    let Poll::Ready(result) = second.as_mut().poll(&mut cx) else {
+        panic!("duplicate-opaque PING must resolve on first poll");
+    };
+    let err = result.expect_err("duplicate opaque must surface an error");
+    assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+
+    drop(first);
+
+    // After the first is dropped, the same opaque is reusable — fresh `send_ping` should
+    // register and return a `Pending` future on first poll (no I/O has happened yet).
+    let third = conn.send_ping([2; 8]);
+    let mut third = pin!(third);
+    assert!(matches!(third.as_mut().poll(&mut cx), Poll::Pending));
+}
+
+/// Dropping a `SendPing` future before completion removes the entry from the connection's
+/// pending map, so re-using the same opaque immediately afterward does not collide.
+#[tokio::test]
+async fn dropped_send_ping_cleans_up() {
+    use std::{
+        future::Future,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+
+    let (_client_io, server_io) = duplex(64 * 1024);
+    let (conn, _streams, _server_task) = spawn_server(Compat::new(server_io));
+
+    drop(conn.send_ping([3; 8]));
+
+    // If cleanup didn't run, this would resolve to `AlreadyExists` on first poll.
+    let waker = Waker::noop();
+    let mut cx = Context::from_waker(waker);
+    let probe = conn.send_ping([3; 8]);
+    let mut probe = pin!(probe);
+    assert!(
+        matches!(probe.as_mut().poll(&mut cx), Poll::Pending),
+        "fresh send_ping after drop should be pending, not AlreadyExists"
+    );
+}
+
+/// A pending `send_ping` resolves with `ConnectionAborted` when the connection closes
+/// before the ACK arrives.
+#[tokio::test]
+async fn pending_ping_completes_on_connection_close() {
+    let (client_io, server_io) = duplex(64 * 1024);
+    let (conn, _streams, server_task) = spawn_server(Compat::new(server_io));
+
+    // Bring the client up so the driver is running and processing frames, then drop it
+    // — the server driver will see EOF on read and close the connection.
+    let (_send_request, connection) = client::handshake(client_io)
+        .await
+        .expect("hyper h2 handshake failed");
+    let connection_task = tokio::spawn(connection);
+
+    // Issue a ping but use an opaque the client won't know about yet (it will, since
+    // hyper auto-acks). To force "no ack arrives", shut the connection down immediately
+    // so the server's terminal cleanup runs `fail_pending_pings`.
+    let ping = conn.send_ping([4; 8]);
+    conn.shut_down();
+
+    let err = ping
+        .await
+        .expect_err("pending PING must error on connection close");
+    assert_eq!(err.kind(), std::io::ErrorKind::ConnectionAborted);
+
+    let _ = connection_task.await;
+    server_task.await.expect("server task panicked");
+}

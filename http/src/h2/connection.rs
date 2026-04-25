@@ -20,12 +20,13 @@ use crate::{Body, Conn, Headers, HttpContext};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     future::Future,
     io,
     pin::Pin,
     sync::{Arc, Mutex, MutexGuard, atomic::Ordering},
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
+    time::{Duration, Instant},
 };
 use swansong::{ShutdownCompletion, Swansong};
 
@@ -73,6 +74,79 @@ pub struct H2Connection {
     /// `initiator` module and `H2Connection::run_client`.
     #[cfg(feature = "unstable")]
     next_client_stream_id: Mutex<u32>,
+    /// Outstanding active PINGs we've sent and are awaiting ACKs for, keyed by opaque
+    /// payload. Populated by [`Self::send_ping`] before the PING is queued for transmission;
+    /// completed by the driver when a `PING { ack: true }` arrives whose payload matches an
+    /// entry. Drained on connection close so awaiting `send_ping` futures don't leak.
+    pending_pings: Mutex<HashMap<[u8; 8], PendingPing>>,
+    /// Opaque payloads queued for outbound `PING { ack: false }` emission. The driver
+    /// drains this on each [`service_handler_signals`][super::H2Driver] tick. Decoupled
+    /// from `pending_pings` so registration and queuing can happen atomically from the
+    /// caller's perspective without holding two locks.
+    pending_ping_outbound: Mutex<VecDeque<[u8; 8]>>,
+}
+
+/// Tracks a single outstanding active PING's lifecycle.
+#[derive(Debug)]
+pub(crate) struct PendingPing {
+    pub(crate) sent_at: Instant,
+    pub(crate) waker: Option<Waker>,
+    pub(crate) completed: Option<io::Result<Duration>>,
+}
+
+/// Future returned by [`H2Connection::send_ping`].
+///
+/// Resolves to the round-trip time once the peer's PING ACK arrives, or to an `io::Error`
+/// if the connection closes first. Dropping the future before completion removes the
+/// pending entry so the [`H2Connection`]'s map doesn't accumulate stale state.
+#[must_use = "futures do nothing unless awaited"]
+#[derive(Debug)]
+pub struct SendPing<'a> {
+    connection: &'a H2Connection,
+    opaque: [u8; 8],
+    /// `true` while this future still owns an entry in `pending_pings` that `Drop` must
+    /// remove. Set to `false` once registration fails (duplicate opaque) or `poll` returns
+    /// `Ready` with the entry removed.
+    needs_cleanup: bool,
+}
+
+impl Future for SendPing<'_> {
+    type Output = io::Result<Duration>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        if !this.needs_cleanup {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "PING with this opaque payload is already in flight",
+            )));
+        }
+        let mut pending = this
+            .connection
+            .pending_pings
+            .lock()
+            .expect("pending_pings mutex poisoned");
+        let entry = pending
+            .get_mut(&this.opaque)
+            .expect("pending_pings entry removed while SendPing future still pending");
+        if let Some(result) = entry.completed.take() {
+            pending.remove(&this.opaque);
+            this.needs_cleanup = false;
+            return Poll::Ready(result);
+        }
+        entry.waker = Some(cx.waker().clone());
+        Poll::Pending
+    }
+}
+
+impl Drop for SendPing<'_> {
+    fn drop(&mut self) {
+        if self.needs_cleanup
+            && let Ok(mut pending) = self.connection.pending_pings.lock()
+        {
+            pending.remove(&self.opaque);
+        }
+    }
 }
 
 impl H2Connection {
@@ -87,6 +161,8 @@ impl H2Connection {
             peer_settings: Mutex::new(H2Settings::default()),
             #[cfg(feature = "unstable")]
             next_client_stream_id: Mutex::new(1),
+            pending_pings: Mutex::new(HashMap::new()),
+            pending_ping_outbound: Mutex::new(VecDeque::new()),
         })
     }
 
@@ -104,6 +180,104 @@ impl H2Connection {
     /// Attempt graceful shutdown of this HTTP/2 connection.
     pub fn shut_down(&self) -> ShutdownCompletion {
         self.swansong.shut_down()
+    }
+
+    /// Send a `PING` frame to the peer and resolve when its `PING ACK` arrives, returning
+    /// the round-trip time.
+    ///
+    /// `opaque` is the 8-byte payload echoed back by the peer (RFC 9113 §6.7). Caller picks
+    /// the value — typically a counter or a random nonce. A `PING` whose opaque payload is
+    /// already in flight on this connection resolves to `io::ErrorKind::AlreadyExists`.
+    ///
+    /// No internal timeout. Wrap the returned future with the runtime's
+    /// `race_with_timeout` (or equivalent) to bound the wait.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the returned future before completion removes the pending entry from this
+    /// connection's tracking map. The PING frame may still go out (or already have gone
+    /// out) and the peer's ACK is silently dropped. Re-using the same `opaque` after drop
+    /// is safe.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any of the per-connection mutexes is poisoned (a previous thread panicked
+    /// while holding the lock) — same posture as the rest of the h2 driver's mutex usage.
+    pub fn send_ping(&self, opaque: [u8; 8]) -> SendPing<'_> {
+        let mut pending = self
+            .pending_pings
+            .lock()
+            .expect("pending_pings mutex poisoned");
+        if pending.contains_key(&opaque) {
+            return SendPing {
+                connection: self,
+                opaque,
+                needs_cleanup: false,
+            };
+        }
+        pending.insert(
+            opaque,
+            PendingPing {
+                sent_at: Instant::now(),
+                waker: None,
+                completed: None,
+            },
+        );
+        drop(pending);
+        self.pending_ping_outbound
+            .lock()
+            .expect("pending_ping_outbound mutex poisoned")
+            .push_back(opaque);
+        self.outbound_waker.wake();
+        SendPing {
+            connection: self,
+            opaque,
+            needs_cleanup: true,
+        }
+    }
+
+    /// Driver-side: drain the queue of outbound active PING opaque payloads. Called from
+    /// the driver's `service_handler_signals` tick.
+    pub(super) fn drain_pending_ping_outbound(&self) -> Vec<[u8; 8]> {
+        let mut queue = self
+            .pending_ping_outbound
+            .lock()
+            .expect("pending_ping_outbound mutex poisoned");
+        queue.drain(..).collect()
+    }
+
+    /// Driver-side: a `PING ACK` for the given opaque payload arrived. Marks the pending
+    /// entry complete with the elapsed RTT and wakes its waker, if any. A no-op if the
+    /// payload doesn't match an outstanding PING (unsolicited ACK).
+    pub(super) fn complete_pending_ping(&self, opaque: [u8; 8]) {
+        let mut pending = self
+            .pending_pings
+            .lock()
+            .expect("pending_pings mutex poisoned");
+        if let Some(entry) = pending.get_mut(&opaque) {
+            let elapsed = entry.sent_at.elapsed();
+            entry.completed = Some(Ok(elapsed));
+            if let Some(waker) = entry.waker.take() {
+                waker.wake();
+            }
+        }
+    }
+
+    /// Driver-side: connection is closing. Complete every outstanding PING with the given
+    /// error so awaiting `send_ping` futures don't block forever.
+    pub(super) fn fail_pending_pings(&self, error_kind: io::ErrorKind, message: &'static str) {
+        let mut pending = self
+            .pending_pings
+            .lock()
+            .expect("pending_pings mutex poisoned");
+        for entry in pending.values_mut() {
+            if entry.completed.is_none() {
+                entry.completed = Some(Err(io::Error::new(error_kind, message)));
+                if let Some(waker) = entry.waker.take() {
+                    waker.wake();
+                }
+            }
+        }
     }
 
     /// Driver-side wake primitive. Conn-task code calls

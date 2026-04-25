@@ -616,6 +616,13 @@ where
         // submission into a `SendCursor` on the same tick.
         self.pick_up_new_client_streams();
 
+        // Pick up any opaque payloads queued by `H2Connection::send_ping` and emit them as
+        // outbound `PING { ack: false }` frames. The corresponding ACKs (handled in recv)
+        // complete the awaiting futures and record their RTTs.
+        for opaque in self.connection.drain_pending_ping_outbound() {
+            self.queue_active_ping(opaque);
+        }
+
         // Pick up recv-side consumption + is-reading signals and turn them into
         // `WINDOW_UPDATE` frames. Two cases per stream:
         // - Handler has declared intent (is_reading) and the peer's recv window is still at the
@@ -780,6 +787,13 @@ where
     /// errors surface as a final `Some(Err(...))` before subsequent polls return `None`.
     fn finish_with_current_outcome(&mut self) -> Option<Result<Conn<H2Transport>, H2Error>> {
         self.finished = true;
+        // Complete every outstanding `H2Connection::send_ping` future with an error so
+        // awaiting callers don't block forever. Safe to call regardless of outcome —
+        // a no-op if no pings are in flight.
+        self.connection.fail_pending_pings(
+            io::ErrorKind::ConnectionAborted,
+            "h2 connection closed before PING ACK",
+        );
         match self.close_outcome.take() {
             None | Some(CloseOutcome::Graceful) => None,
             Some(CloseOutcome::Protocol(code)) => Some(Err(H2Error::Protocol(code))),
@@ -932,6 +946,12 @@ where
     fn queue_ping_ack(&mut self, opaque_data: [u8; 8]) {
         self.queue_frame(frame::ping::ENCODED_LEN, |buf| {
             frame::ping::encode(opaque_data, true, buf)
+        });
+    }
+
+    fn queue_active_ping(&mut self, opaque_data: [u8; 8]) {
+        self.queue_frame(frame::ping::ENCODED_LEN, |buf| {
+            frame::ping::encode(opaque_data, false, buf)
         });
     }
 
