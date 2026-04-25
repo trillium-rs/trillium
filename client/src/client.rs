@@ -2,7 +2,7 @@ use crate::{Conn, IntoUrl, Pool, USER_AGENT, h3::H3ClientState};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
     HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method, ReceivedBodyState,
-    TypeSet, Version::Http1_1,
+    TypeSet, Version::Http1_1, h2::H2Connection,
 };
 use trillium_server_common::{
     ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Transport,
@@ -16,6 +16,7 @@ pub struct Client {
     config: ArcedConnector,
     h3: Option<H3ClientState>,
     pool: Option<Pool<Origin, Box<dyn Transport>>>,
+    h2_pool: Option<Pool<Origin, Arc<H2Connection>>>,
 
     /// url base for this client
     #[field(get)]
@@ -95,6 +96,7 @@ impl Client {
             config: ArcedConnector::new(connector),
             h3: None,
             pool: Some(Pool::default()),
+            h2_pool: Some(Pool::default()),
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
@@ -118,6 +120,7 @@ impl Client {
             config: ArcedConnector::new(connector),
             h3: Some(H3ClientState::new(arced_quic)),
             pool: Some(Pool::default()),
+            h2_pool: Some(Pool::default()),
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
@@ -158,6 +161,7 @@ impl Client {
     /// ```
     pub fn without_keepalive(mut self) -> Self {
         self.pool = None;
+        self.h2_pool = None;
         self
     }
 
@@ -200,6 +204,8 @@ impl Client {
             status: None,
             request_body: None,
             pool: self.pool.clone(),
+            h2_pool: self.h2_pool.clone(),
+            h2_connection: None,
             h3_client_state: self.h3.clone(),
             h3_connection: None,
             buffer: Vec::with_capacity(128).into(),
@@ -232,6 +238,9 @@ impl Client {
     pub fn clean_up_pool(&self) {
         if let Some(pool) = &self.pool {
             pool.cleanup();
+        }
+        if let Some(h2_pool) = &self.h2_pool {
+            h2_pool.cleanup();
         }
     }
 

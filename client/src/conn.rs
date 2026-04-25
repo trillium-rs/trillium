@@ -3,7 +3,7 @@ use encoding_rs::Encoding;
 use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
     Body, Buffer, HeaderName, HeaderValues, Headers, HttpContext, Method, ReceivedBody,
-    ReceivedBodyState, Status, TypeSet, Version, h3::H3Connection,
+    ReceivedBodyState, Status, TypeSet, Version, h2::H2Connection, h3::H3Connection,
 };
 use trillium_server_common::{
     ArcedConnector, Transport,
@@ -11,6 +11,7 @@ use trillium_server_common::{
 };
 
 mod h1;
+mod h2;
 mod h3;
 mod shared;
 mod unexpected_status_error;
@@ -25,6 +26,8 @@ pub use unexpected_status_error::UnexpectedStatusError;
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn {
     pub(crate) pool: Option<Pool<Origin, Box<dyn Transport>>>,
+    pub(crate) h2_pool: Option<Pool<Origin, Arc<H2Connection>>>,
+    pub(crate) h2_connection: Option<(Arc<H2Connection>, u32)>,
     pub(crate) h3_client_state: Option<H3ClientState>,
     pub(crate) h3_connection: Option<(Arc<H3Connection>, u64)>,
     pub(crate) buffer: Buffer,

@@ -775,10 +775,8 @@ where
         let peer_recv_window = i64::from(self.config.initial_stream_window_size);
         for (id, shared) in new_streams {
             log::trace!("h2 client: driver picked up new client-opened stream {id}");
-            self.streams.insert(
-                id,
-                StreamEntry::new(shared, send_window, peer_recv_window),
-            );
+            self.streams
+                .insert(id, StreamEntry::new(shared, send_window, peer_recv_window));
         }
     }
 

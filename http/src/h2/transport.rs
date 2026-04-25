@@ -36,8 +36,7 @@
 //! [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
 
 use super::{H2Connection, H2ErrorCode};
-use crate::{Body, Buffer, Headers};
-use crate::headers::hpack::FieldSection;
+use crate::{Body, Buffer, Headers, headers::hpack::FieldSection};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -99,14 +98,14 @@ impl H2Transport {
     /// Client-role: poll for the response HEADERS field section for this stream.
     ///
     /// Resolves to:
-    /// - `Ready(Ok(field_section))` once the driver has stashed the response HEADERS — the
-    ///   caller decomposes it into `:status` + headers (mirroring `recv_h3_response_headers`
-    ///   in trillium-client's h3 path).
-    /// - `Ready(Err(ConnectionAborted))` if the recv side has reached eof without the
-    ///   driver ever stashing response HEADERS — the stream was reset, the connection went
-    ///   away, or the peer otherwise closed without responding.
-    /// - `Pending` while the driver is still waiting for the peer's first HEADERS on this
-    ///   stream. Single-waiter: the conn task is the only poller for a given stream id.
+    /// - `Ready(Ok(field_section))` once the driver has stashed the response HEADERS — the caller
+    ///   decomposes it into `:status` + headers (mirroring `recv_h3_response_headers` in
+    ///   trillium-client's h3 path).
+    /// - `Ready(Err(ConnectionAborted))` if the recv side has reached eof without the driver ever
+    ///   stashing response HEADERS — the stream was reset, the connection went away, or the peer
+    ///   otherwise closed without responding.
+    /// - `Pending` while the driver is still waiting for the peer's first HEADERS on this stream.
+    ///   Single-waiter: the conn task is the only poller for a given stream id.
     ///
     /// Single-shot: the `FieldSection` is moved out on a successful poll. Subsequent polls
     /// after a successful take see an empty slot and `Pending` indefinitely (the conn task
@@ -191,12 +190,17 @@ impl Drop for H2Transport {
             return;
         }
         // Upgrade path graceful close in flight — let the driver finish.
-        if self.state.send.outbound_close_requested.load(Ordering::Acquire) {
+        if self
+            .state
+            .send
+            .outbound_close_requested
+            .load(Ordering::Acquire)
+        {
             return;
         }
         log::debug!(
-            "h2 stream {}: H2Transport dropped mid-stream — \
-             RST_STREAM(Cancel) (send_done={send_done}, recv_done={recv_done})",
+            "h2 stream {}: H2Transport dropped mid-stream — RST_STREAM(Cancel) \
+             (send_done={send_done}, recv_done={recv_done})",
             self.stream_id,
         );
         self.connection

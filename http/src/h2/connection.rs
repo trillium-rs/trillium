@@ -13,9 +13,9 @@
 
 #[cfg(feature = "unstable")]
 use super::H2Initiator;
-use super::{H2Driver, H2Settings, acceptor::Role, transport::StreamState};
 #[cfg(feature = "unstable")]
 use super::transport::H2Transport;
+use super::{H2Driver, H2Settings, acceptor::Role, transport::StreamState};
 use crate::{Body, Conn, Headers, HttpContext};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -305,6 +305,59 @@ impl H2Connection {
             .expect("peer_settings mutex poisoned")
     }
 
+    /// Client-role: poll for the response HEADERS field section for a stream.
+    ///
+    /// Mirrors [`H2Transport::poll_response_headers`] for callers that hold the
+    /// connection + stream id but not a typed [`H2Transport`] handle (e.g. trillium-client,
+    /// where the per-stream transport is type-erased into `Box<dyn Transport>` for the
+    /// shared response-body machinery).
+    ///
+    /// Resolves to:
+    /// - `Ready(Ok(field_section))` once the driver has stashed the response HEADERS.
+    /// - `Ready(Err(ConnectionAborted))` if the recv side reached eof without the driver ever
+    ///   stashing response HEADERS — stream reset, connection went away, etc.
+    /// - `Pending` while the driver is still waiting for the peer's first HEADERS.
+    /// - `Ready(Err(NotConnected))` if the stream is no longer in the shared map.
+    ///
+    /// Single-shot: the `FieldSection` is moved out on a successful poll.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any per-stream mutex is poisoned.
+    #[cfg(feature = "unstable")]
+    pub fn poll_response_headers(
+        &self,
+        stream_id: u32,
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<crate::headers::hpack::FieldSection<'static>>> {
+        use std::sync::atomic::Ordering;
+        let Some(state) = self.streams_lock().get(&stream_id).cloned() else {
+            return Poll::Ready(Err(io::ErrorKind::NotConnected.into()));
+        };
+        let try_take = || {
+            state
+                .recv
+                .response_headers
+                .lock()
+                .expect("response_headers mutex poisoned")
+                .take()
+        };
+        if let Some(fs) = try_take() {
+            return Poll::Ready(Ok(fs));
+        }
+        if state.recv.eof.load(Ordering::Acquire) {
+            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
+        }
+        state.recv.response_headers_waker.register(cx.waker());
+        if let Some(fs) = try_take() {
+            return Poll::Ready(Ok(fs));
+        }
+        if state.recv.eof.load(Ordering::Acquire) {
+            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
+        }
+        Poll::Pending
+    }
+
     /// Remove and return trailers stashed on the stream's recv state. Called by
     /// [`ReceivedBody`][crate::ReceivedBody]'s End transition after the request body is
     /// fully drained. Returns `None` if the stream is gone (already closed) or no trailers
@@ -485,9 +538,9 @@ impl H2Connection {
     ///
     /// Returns `None` when:
     /// - The 2^31 odd-id space is exhausted (caller should fail over to a new connection), or
-    /// - The connection is shutting down (we've received GOAWAY or our own swansong has been
-    ///   asked to shut down) — opening another stream would just produce a stream the peer
-    ///   has promised to ignore.
+    /// - The connection is shutting down (we've received GOAWAY or our own swansong has been asked
+    ///   to shut down) — opening another stream would just produce a stream the peer has promised
+    ///   to ignore.
     ///
     /// Staging is synchronous and infallible past the `None` checks: the submission is
     /// published via the per-stream [`SendState::submission`][submission] slot and the driver

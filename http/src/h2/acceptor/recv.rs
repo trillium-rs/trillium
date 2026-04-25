@@ -473,8 +473,7 @@ where
             Role::Server => self.finalize_new_request_stream(stream_id, end_stream, field_section),
             Role::Client => {
                 log::debug!(
-                    "h2 client: HEADERS on unknown stream {stream_id} — refusing \
-                     (push disabled)"
+                    "h2 client: HEADERS on unknown stream {stream_id} — refusing (push disabled)"
                 );
                 self.queue_rst_stream(stream_id, H2ErrorCode::RefusedStream);
                 Action::Continue

@@ -174,7 +174,13 @@ fn override_two() {
 fn override_all() {
     define_transport_with_except!(
         OuterTransport,
-        except = [set_linger, set_nodelay, set_ip_ttl, peer_addr, negotiated_alpn],
+        except = [
+            set_linger,
+            set_nodelay,
+            set_ip_ttl,
+            peer_addr,
+            negotiated_alpn
+        ],
     );
     let mut outer = OuterTransport::new();
     call_all_once(&mut outer);
