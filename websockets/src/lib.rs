@@ -75,12 +75,12 @@ use std::{
     ops::{Deref, DerefMut},
 };
 use trillium::{
-    Conn, Handler,
+    Conn, Handler, Info, Method,
     KnownHeaderName::{
         Connection, SecWebsocketAccept, SecWebsocketKey, SecWebsocketProtocol, SecWebsocketVersion,
         Upgrade as UpgradeHeader,
     },
-    Status, Upgrade,
+    Status, Upgrade, Version,
 };
 pub use websocket_connection::WebSocketConn;
 pub use websocket_handler::WebSocketHandler;
@@ -148,6 +148,44 @@ impl<H> WebSocket<H>
 where
     H: WebSocketHandler,
 {
+    async fn run_h1(&self, mut conn: Conn) -> Conn {
+        if !upgrade_requested(&conn) {
+            if self.required {
+                return conn.with_status(Status::UpgradeRequired).halt();
+            } else {
+                return conn;
+            }
+        }
+
+        let websocket_peer_ip = WebsocketPeerIp(conn.peer_ip());
+
+        let Some(sec_websocket_key) = conn.request_headers().get_str(SecWebsocketKey) else {
+            return conn.with_status(Status::BadRequest).halt();
+        };
+        let sec_websocket_accept = websocket_accept_hash(sec_websocket_key);
+
+        let protocol = websocket_protocol(&conn, &self.protocols);
+
+        let headers = conn.response_headers_mut();
+
+        headers.extend([
+            (UpgradeHeader, "websocket"),
+            (Connection, "Upgrade"),
+            (SecWebsocketVersion, "13"),
+        ]);
+
+        headers.insert(SecWebsocketAccept, sec_websocket_accept);
+
+        if let Some(protocol) = protocol {
+            headers.insert(SecWebsocketProtocol, protocol);
+        }
+
+        conn.halt()
+            .with_state(websocket_peer_ip)
+            .with_state(IsWebsocket)
+            .with_status(Status::SwitchingProtocols)
+    }
+
     /// Build a new WebSocket with an async handler function that
     /// receives a [`WebSocketConn`]
     pub fn new(handler: H) -> Self {
@@ -200,41 +238,46 @@ where
     H: WebSocketHandler,
 {
     async fn run(&self, mut conn: Conn) -> Conn {
-        if !upgrade_requested(&conn) {
-            if self.required {
-                return conn.with_status(Status::UpgradeRequired).halt();
-            } else {
-                return conn;
+        match conn.http_version() {
+            Version::Http1_0 | Version::Http1_1 => self.run_h1(conn).await,
+            // Extended-CONNECT bootstrap of WebSockets — RFC 8441 (h2) and RFC 9220 (h3) define
+            // the same shape: `:method = CONNECT`, `:protocol = websocket`, no SHA1/Key/Accept
+            // handshake. The server replies with status 200 and the stream stays open as a
+            // bidirectional byte channel carrying WebSocket frames.
+            Version::Http2 | Version::Http3 => {
+                if extended_connect_websocket_request(&conn) {
+                    let websocket_peer_ip = WebsocketPeerIp(conn.peer_ip());
+                    let protocol = websocket_protocol(&conn, &self.protocols);
+
+                    if let Some(protocol) = protocol {
+                        conn.response_headers_mut()
+                            .insert(SecWebsocketProtocol, protocol);
+                    }
+
+                    conn.halt()
+                        .with_state(websocket_peer_ip)
+                        .with_state(IsWebsocket)
+                        .with_status(Status::Ok)
+                } else if self.required {
+                    conn.with_status(Status::UpgradeRequired).halt()
+                } else {
+                    conn
+                }
+            }
+            _ => {
+                if self.required {
+                    conn.with_status(Status::UpgradeRequired).halt()
+                } else {
+                    conn
+                }
             }
         }
+    }
 
-        let websocket_peer_ip = WebsocketPeerIp(conn.peer_ip());
-
-        let Some(sec_websocket_key) = conn.request_headers().get_str(SecWebsocketKey) else {
-            return conn.with_status(Status::BadRequest).halt();
-        };
-        let sec_websocket_accept = websocket_accept_hash(sec_websocket_key);
-
-        let protocol = websocket_protocol(&conn, &self.protocols);
-
-        let headers = conn.response_headers_mut();
-
-        headers.extend([
-            (UpgradeHeader, "websocket"),
-            (Connection, "Upgrade"),
-            (SecWebsocketVersion, "13"),
-        ]);
-
-        headers.insert(SecWebsocketAccept, sec_websocket_accept);
-
-        if let Some(protocol) = protocol {
-            headers.insert(SecWebsocketProtocol, protocol);
-        }
-
-        conn.halt()
-            .with_state(websocket_peer_ip)
-            .with_state(IsWebsocket)
-            .with_status(Status::SwitchingProtocols)
+    async fn init(&mut self, info: &mut Info) {
+        // Required for h2 (RFC 8441 §3) and h3 (RFC 9220 §3) clients to attempt the extended
+        // CONNECT bootstrap of WebSockets. Harmless on h1.
+        info.config_mut().set_extended_connect_enabled(true);
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
@@ -317,6 +360,20 @@ fn upgrade_to_websocket(conn: &Conn) -> bool {
 
 fn upgrade_requested(conn: &Conn) -> bool {
     connection_is_upgrade(conn) && upgrade_to_websocket(conn)
+}
+
+/// Detect a WebSocket bootstrap over extended CONNECT (RFC 8441 for h2, RFC 9220 for h3).
+///
+/// The peer must use `CONNECT` and carry a `:protocol` pseudo-header equal to "websocket"
+/// (case-insensitive per the RFCs).
+fn extended_connect_websocket_request(conn: &Conn) -> bool {
+    if conn.method() != Method::Connect {
+        return false;
+    }
+    let inner: &trillium_http::Conn<Box<dyn trillium::Transport>> = conn.as_ref();
+    inner
+        .protocol()
+        .is_some_and(|p| p.eq_ignore_ascii_case("websocket"))
 }
 
 /// Generate a random key suitable for Sec-WebSocket-Key
