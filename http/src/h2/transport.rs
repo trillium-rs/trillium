@@ -96,6 +96,51 @@ impl H2Transport {
     }
 }
 
+impl Drop for H2Transport {
+    /// Send `RST_STREAM(Cancel)` if the stream is still tracked by the driver and
+    /// hasn't completed cleanly in both directions. Without this, dropping a transport
+    /// mid-stream — handler panic, conn task abandoned, client awaiting a response that
+    /// never came — would leak the stream until the entire connection tore down.
+    ///
+    /// "Completed cleanly" means both halves observed `END_STREAM`: the send side has
+    /// fired its completion (`send.completed`) **and** the recv side reached eof. If the
+    /// driver has already removed the stream from the shared map (the normal teardown
+    /// path), there's nothing to RST and we no-op.
+    ///
+    /// Symmetric for both roles: server-side a `Conn` dropped before `send_h2` runs to
+    /// completion now also emits RST, which is correct h2 behavior we previously lacked.
+    ///
+    /// Extended-CONNECT (RFC 8441) handling: `outbound_close_requested` is the "user
+    /// called `poll_close`" signal — set only by [`Self::poll_close`] on the upgrade
+    /// path. When it's true the user has asked for graceful close and the driver is
+    /// (or will be) draining the outbound queue + emitting `DATA(END_STREAM)`; we
+    /// don't RST in that window. For the non-upgrade paths the flag stays false, so
+    /// this check is a no-op there.
+    fn drop(&mut self) {
+        // Cheap pre-check: if the stream is no longer in the shared map the driver has
+        // already cleaned up; nothing to do.
+        if !self.connection.streams_lock().contains_key(&self.stream_id) {
+            return;
+        }
+        let send_done = self.state.send.completed.load(Ordering::Acquire);
+        let recv_done = self.state.recv.eof.load(Ordering::Acquire);
+        if send_done && recv_done {
+            return;
+        }
+        // Upgrade path graceful close in flight — let the driver finish.
+        if self.state.send.outbound_close_requested.load(Ordering::Acquire) {
+            return;
+        }
+        log::debug!(
+            "h2 stream {}: H2Transport dropped mid-stream — \
+             RST_STREAM(Cancel) (send_done={send_done}, recv_done={recv_done})",
+            self.stream_id,
+        );
+        self.connection
+            .stream_error(self.stream_id, H2ErrorCode::Cancel);
+    }
+}
+
 impl AsyncRead for H2Transport {
     fn poll_read(
         self: Pin<&mut Self>,
