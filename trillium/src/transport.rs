@@ -1,5 +1,5 @@
 use futures_lite::{AsyncRead, AsyncWrite};
-use std::{any::Any, io::Result, net::SocketAddr, time::Duration};
+use std::{any::Any, borrow::Cow, io::Result, net::SocketAddr, time::Duration};
 
 /// # The interface that the http protocol is communicated over.
 ///
@@ -61,6 +61,20 @@ pub trait Transport: Any + AsyncRead + AsyncWrite + Unpin + Send + Sync + 'stati
     fn peer_addr(&self) -> Result<Option<SocketAddr>> {
         Ok(None)
     }
+
+    /// # The protocol negotiated via TLS ALPN with the peer, if any.
+    ///
+    /// Used by the runtime adapter to dispatch between HTTP/1.1 and HTTP/2 on the same TLS
+    /// listener (`Some(b"h2")` → HTTP/2, anything else → HTTP/1.1) and by the client to pick
+    /// between HTTP/1.1 and HTTP/2 when speaking to a server.
+    ///
+    /// The returned [`Cow`] borrows from `self` when the backend exposes the protocol as a
+    /// borrowed slice (e.g. rustls) and is owned when the backend copies (e.g. native-tls). The
+    /// default returns `None` so transports that don't speak TLS — or don't want to opt into
+    /// ALPN-based dispatch — don't need to implement it.
+    fn negotiated_alpn(&self) -> Option<Cow<'_, [u8]>> {
+        None
+    }
 }
 
 impl Transport for Box<dyn Transport> {
@@ -78,6 +92,10 @@ impl Transport for Box<dyn Transport> {
 
     fn peer_addr(&self) -> Result<Option<SocketAddr>> {
         (**self).peer_addr()
+    }
+
+    fn negotiated_alpn(&self) -> Option<Cow<'_, [u8]>> {
+        (**self).negotiated_alpn()
     }
 }
 

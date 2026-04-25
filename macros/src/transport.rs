@@ -45,6 +45,7 @@ enum Override {
     SetNodelay,
     SetIpTtl,
     PeerAddr,
+    NegotiatedAlpn,
 }
 
 impl TryFrom<&Path> for Override {
@@ -59,6 +60,8 @@ impl TryFrom<&Path> for Override {
             Ok(Self::SetIpTtl)
         } else if path.is_ident("peer_addr") {
             Ok(Self::PeerAddr)
+        } else if path.is_ident("negotiated_alpn") {
+            Ok(Self::NegotiatedAlpn)
         } else {
             Err(Error::new(
                 path.span(),
@@ -80,8 +83,8 @@ fn overrides<'a, I: Iterator<Item = &'a Expr>>(iter: I) -> syn::Result<Vec<Overr
         Expr::Path(ExprPath { path, .. }) => path.try_into(),
         _ => Err(Error::new(
             expr.span(),
-            "unrecognized override. valid options are set_linger, set_nodelay, set_ip_ttl, and \
-             peer_addr",
+            "unrecognized override. valid options are set_linger, set_nodelay, set_ip_ttl, \
+             peer_addr, and negotiated_alpn",
         )),
     })
     .collect()
@@ -244,12 +247,19 @@ pub fn derive_transport(input: TokenStream) -> TokenStream {
         quote!(trillium_server_common::Transport::peer_addr(&#transport))
     };
 
+    let negotiated_alpn = if overrides.contains(&Override::NegotiatedAlpn) {
+        quote!(Self::negotiated_alpn(self))
+    } else {
+        quote!(trillium_server_common::Transport::negotiated_alpn(&#transport))
+    };
+
     quote! {
         impl #impl_generics trillium_server_common::Transport for #struct_name #ty_generics #where_clause {
             fn set_linger(&mut self, linger: Option<core::time::Duration>) -> std::io::Result<()> { #set_linger }
             fn set_nodelay(&mut self, nodelay: bool) -> std::io::Result<()> { #set_nodelay }
             fn set_ip_ttl(&mut self, ttl: u32) -> std::io::Result<()> { #set_ip_ttl }
             fn peer_addr(&self) -> std::io::Result<Option<std::net::SocketAddr>> { #peer_addr }
+            fn negotiated_alpn(&self) -> Option<std::borrow::Cow<'_, [u8]>> { #negotiated_alpn }
         }
     }
     .into()

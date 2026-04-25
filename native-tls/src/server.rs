@@ -149,4 +149,10 @@ impl<T: Transport> Transport for NativeTlsServerTransport<T> {
     fn peer_addr(&self) -> io::Result<Option<SocketAddr>> {
         self.0.get_ref().peer_addr()
     }
+
+    // `negotiated_alpn` is left at the trait default (`None`). Server-side ALPN advertisement in
+    // `native-tls` lives behind the `alpn-accept` cargo feature, which `async-native-tls` 0.6 does
+    // not enable, and the wrapper's `TlsStream` does not expose `negotiated_alpn` either — so
+    // `trillium-native-tls` cannot perform ALPN-based h2 dispatch today. Revisit once the upstream
+    // wrapper grows the missing surface.
 }

@@ -134,6 +134,10 @@ impl<T: Transport> Transport for RustlsServerTransport<T> {
     fn peer_addr(&self) -> io::Result<Option<std::net::SocketAddr>> {
         self.inner_transport().peer_addr()
     }
+
+    fn negotiated_alpn(&self) -> Option<Cow<'_, [u8]>> {
+        self.as_ref().alpn_protocol().map(Cow::Borrowed)
+    }
 }
 
 impl<T> RustlsServerTransport<T> {
@@ -181,9 +185,5 @@ where
 
     async fn accept(&self, input: Input) -> Result<Self::Output, Self::Error> {
         self.0.accept(input).await.map(RustlsServerTransport)
-    }
-
-    fn negotiated_alpn<'a>(&self, output: &'a Self::Output) -> Option<Cow<'a, [u8]>> {
-        output.as_ref().alpn_protocol().map(Cow::Borrowed)
     }
 }

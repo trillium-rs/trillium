@@ -242,6 +242,12 @@ impl<T: Transport> Transport for RustlsClientTransport<T> {
     fn peer_addr(&self) -> Result<Option<SocketAddr>> {
         self.as_ref().peer_addr()
     }
+
+    fn negotiated_alpn(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+        self.tls_state()
+            .and_then(|conn| conn.alpn_protocol())
+            .map(std::borrow::Cow::Borrowed)
+    }
 }
 
 impl<T> AsRef<T> for RustlsClientTransport<T> {

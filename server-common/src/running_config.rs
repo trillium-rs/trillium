@@ -64,9 +64,8 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         let runtime: crate::Runtime = self.runtime.clone().into();
 
         // ALPN-negotiated HTTP/2 (TLS with `h2` selected).
-        let alpn_is_h2 = self
-            .acceptor
-            .negotiated_alpn(&transport)
+        let alpn_is_h2 = transport
+            .negotiated_alpn()
             .is_some_and(|alpn| &*alpn == b"h2");
         if alpn_is_h2 {
             h2::run_h2(

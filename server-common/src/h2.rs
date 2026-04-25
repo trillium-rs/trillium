@@ -172,4 +172,8 @@ impl<T: Transport> Transport for Prefixed<T> {
     fn peer_addr(&self) -> io::Result<Option<std::net::SocketAddr>> {
         self.inner.peer_addr()
     }
+
+    fn negotiated_alpn(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+        self.inner.negotiated_alpn()
+    }
 }

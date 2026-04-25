@@ -219,4 +219,10 @@ impl<T: Transport> Transport for NativeTlsClientTransport<T> {
     fn peer_addr(&self) -> Result<Option<SocketAddr>> {
         self.as_ref().peer_addr()
     }
+
+    // `negotiated_alpn` is left at the trait default (`None`). `native-tls` exposes the negotiated
+    // ALPN protocol via `TlsStream::negotiated_alpn` (gated on the `alpn` feature), but the
+    // `async-native-tls` 0.6 wrapper keeps its inner `native_tls::TlsStream` private and offers no
+    // accessor for it, so we cannot reach the value from here. Lift this once async-native-tls
+    // exposes the read side.
 }
