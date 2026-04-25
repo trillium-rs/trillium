@@ -450,12 +450,12 @@ where
         // Role-asymmetric: server opens a new request stream; client would see this only
         // as a server-initiated push, which is rejected since PUSH is disabled in our
         // advertised SETTINGS. Unreachable until client wiring lands.
-        match self.role {
+        Ok(match self.role {
             Role::Server => self.finalize_new_request_stream(stream_id, end_stream, field_section),
             Role::Client => {
                 unreachable!("server push is disabled; client HEADERS-on-unknown unreachable")
             }
-        }
+        })
     }
 
     /// Server-role handler for HEADERS on a stream id we've not seen before: open the
@@ -467,7 +467,7 @@ where
         stream_id: u32,
         end_stream: bool,
         field_section: crate::headers::hpack::FieldSection<'static>,
-    ) -> Result<Action, CloseOutcome> {
+    ) -> Action {
         let state = Arc::new(StreamState::default());
         if end_stream {
             let _guard = state.recv.buf.lock().expect("recv buf mutex poisoned");
@@ -493,18 +493,16 @@ where
         self.last_peer_stream_id = stream_id;
 
         let transport = H2Transport::new(self.connection.clone(), stream_id, state);
-        Ok(
-            match Conn::new_h2(self.connection.clone(), stream_id, field_section, transport) {
-                Ok(conn) => Action::Emit(Box::new(conn)),
-                Err(code) => {
-                    log::debug!("h2 stream {stream_id}: rejected during build: {code:?}");
-                    self.streams.remove(&stream_id);
-                    self.connection.streams_lock().remove(&stream_id);
-                    self.queue_rst_stream(stream_id, code);
-                    Action::Continue
-                }
-            },
-        )
+        match Conn::new_h2(self.connection.clone(), stream_id, field_section, transport) {
+            Ok(conn) => Action::Emit(Box::new(conn)),
+            Err(code) => {
+                log::debug!("h2 stream {stream_id}: rejected during build: {code:?}");
+                self.streams.remove(&stream_id);
+                self.connection.streams_lock().remove(&stream_id);
+                self.queue_rst_stream(stream_id, code);
+                Action::Continue
+            }
+        }
     }
 
     /// Receive-side trailers (§8.1): stash on `StreamState.recv.trailers` and signal EOF.

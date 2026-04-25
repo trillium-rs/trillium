@@ -92,13 +92,11 @@ pub(super) enum Role {
     Server,
     /// Driver was handed a transport from an outbound dial — we write the client preface,
     /// open streams with locally-allocated odd ids, and treat HEADERS on one of our
-    /// streams as the response headers (first arrival) or trailers (second).
-    ///
-    /// The client-initiated-stream machinery that actually *uses* this variant is
-    /// introduced in a later phase; for now the variant only exercises the preface write
-    /// path. `allow(dead_code)` until the `H2Connection::run_client` constructor lands
-    /// and starts producing this variant.
-    #[allow(dead_code)]
+    /// streams as the response headers (first arrival) or trailers (second). Produced by
+    /// [`H2Connection::run_client`][super::H2Connection::run_client], which is gated
+    /// behind the `unstable` feature — without that feature the variant is defined but
+    /// never constructed.
+    #[cfg_attr(not(feature = "unstable"), allow(dead_code))]
     Client,
 }
 
@@ -447,11 +445,14 @@ where
         Next { driver: self }
     }
 
-    /// Poll-based driver core. Private implementation shared by [`Next`]'s `Future` impl
-    /// and the [`Stream`] impl on [`H2Driver`].
+    /// Poll-based driver core. Shared by [`Next`]'s `Future` impl, the [`Stream`] impl on
+    /// [`H2Driver`], and [`H2Initiator`][super::H2Initiator]'s client-side Future impl.
     ///
     /// [`Stream`]: futures_lite::stream::Stream
-    fn drive(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
+    pub(super) fn drive(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
         if self.finished {
             return Poll::Ready(None);
         }

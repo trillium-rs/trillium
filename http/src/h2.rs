@@ -7,6 +7,8 @@ mod body_wrapper;
 mod connection;
 mod error;
 mod frame;
+#[cfg(feature = "unstable")]
+mod initiator;
 mod settings;
 mod transport;
 
@@ -15,6 +17,8 @@ pub use acceptor::H2Driver;
 pub(crate) use body_wrapper::H2Body;
 pub use connection::H2Connection;
 pub use error::H2ErrorCode;
+#[cfg(feature = "unstable")]
+pub use initiator::H2Initiator;
 pub(crate) use settings::H2Settings;
 pub use transport::H2Transport;
 

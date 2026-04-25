@@ -11,6 +11,8 @@
 //!
 //! [`H2Driver`]: super::H2Driver
 
+#[cfg(feature = "unstable")]
+use super::H2Initiator;
 use super::{H2Driver, H2Settings, acceptor::Role, transport::StreamState};
 use crate::{Body, Conn, Headers, HttpContext};
 use atomic_waker::AtomicWaker;
@@ -163,6 +165,26 @@ impl H2Connection {
         T: AsyncRead + AsyncWrite + Unpin + Send,
     {
         H2Driver::new(self, transport, Role::Server)
+    }
+
+    /// Bind this `H2Connection` to an outbound transport and return an [`H2Initiator`] —
+    /// the background-task future a client spawns to drive the connection.
+    ///
+    /// On first poll the driver writes the 24-byte RFC 9113 §3.4 client preface and its
+    /// initial SETTINGS; thereafter it demuxes inbound frames (peer SETTINGS, response
+    /// HEADERS / DATA on our streams, etc.) and pumps outbound bytes (new stream opens,
+    /// DATA, `WINDOW_UPDATEs`) until the connection closes or errors out.
+    ///
+    /// Awaiting the returned future resolves with `Ok(())` on graceful close or
+    /// `Err(H2Error)` on protocol / I/O failure. Streams are not opened via the future
+    /// itself — client code calls stream-open primitives on `H2Connection` (introduced
+    /// in a later phase); this future just runs the framing loop.
+    #[cfg(feature = "unstable")]
+    pub fn run_client<T>(self: Arc<Self>, transport: T) -> H2Initiator<T>
+    where
+        T: AsyncRead + AsyncWrite + Unpin + Send,
+    {
+        H2Initiator::new(H2Driver::new(self, transport, Role::Client))
     }
 
     /// Per-stream entry point — call from the runtime adapter's spawned task for each
