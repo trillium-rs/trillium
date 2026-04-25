@@ -94,68 +94,6 @@ impl H2Transport {
     pub fn connection(&self) -> &Arc<H2Connection> {
         &self.connection
     }
-
-    /// Client-role: poll for the response HEADERS field section for this stream.
-    ///
-    /// Resolves to:
-    /// - `Ready(Ok(field_section))` once the driver has stashed the response HEADERS — the caller
-    ///   decomposes it into `:status` + headers (mirroring `recv_h3_response_headers` in
-    ///   trillium-client's h3 path).
-    /// - `Ready(Err(ConnectionAborted))` if the recv side has reached eof without the driver ever
-    ///   stashing response HEADERS — the stream was reset, the connection went away, or the peer
-    ///   otherwise closed without responding.
-    /// - `Pending` while the driver is still waiting for the peer's first HEADERS on this stream.
-    ///   Single-waiter: the conn task is the only poller for a given stream id.
-    ///
-    /// Single-shot: the `FieldSection` is moved out on a successful poll. Subsequent polls
-    /// after a successful take see an empty slot and `Pending` indefinitely (the conn task
-    /// shouldn't poll again — it transitions to reading the response body via
-    /// [`AsyncRead`]). 1xx interim responses are not modeled; the slot represents the
-    /// single response HEADERS frame that h2 surfaces to the application.
-    ///
-    /// Server-role transports should never call this: the slot is only ever populated by
-    /// the client-role recv path. A server-role caller would just see `Pending` until
-    /// stream teardown, then `ConnectionAborted`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the per-stream `response_headers` mutex is poisoned (a previous thread
-    /// panicked while holding the lock).
-    #[cfg(feature = "unstable")]
-    pub fn poll_response_headers(
-        &self,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<FieldSection<'static>>> {
-        let try_take = || {
-            self.state
-                .recv
-                .response_headers
-                .lock()
-                .expect("response_headers mutex poisoned")
-                .take()
-        };
-
-        if let Some(fs) = try_take() {
-            return Poll::Ready(Ok(fs));
-        }
-        if self.state.recv.eof.load(Ordering::Acquire) {
-            log::debug!(
-                "h2 stream {}: poll_response_headers — recv eof without response HEADERS",
-                self.stream_id,
-            );
-            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
-        }
-        self.state.recv.response_headers_waker.register(cx.waker());
-        // Re-check after registering so we don't miss a wake fired between the take above
-        // and the registration.
-        if let Some(fs) = try_take() {
-            return Poll::Ready(Ok(fs));
-        }
-        if self.state.recv.eof.load(Ordering::Acquire) {
-            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
-        }
-        Poll::Pending
-    }
 }
 
 impl Drop for H2Transport {
@@ -394,17 +332,16 @@ pub(super) struct RecvState {
     /// Client-role: response HEADERS field section, populated by the driver on the first
     /// HEADERS frame arrival for a client-initiated stream. Server role doesn't use this slot
     /// (response HEADERS go *out* on the server, not in). Single-shot: the conn task takes
-    /// the `FieldSection` via [`H2Connection::poll_response_headers`][super::H2Connection]
-    /// once; subsequent HEADERS arrivals on the same stream are interpreted as trailers and
-    /// routed to the [`Self::trailers`] slot. 1xx interim responses are not modeled — the
-    /// slot is one `FieldSection` per stream, matching the same constraint elsewhere in
-    /// trillium.
+    /// the `FieldSection` via [`H2Connection::response_headers`][super::H2Connection] once;
+    /// subsequent HEADERS arrivals on the same stream are interpreted as trailers and routed
+    /// to the [`Self::trailers`] slot. 1xx interim responses are not modeled — the slot is
+    /// one `FieldSection` per stream, matching the same constraint elsewhere in trillium.
     pub(super) response_headers: Mutex<Option<FieldSection<'static>>>,
 
     /// Client-role: waker the conn task registers via
-    /// [`H2Connection::poll_response_headers`][super::H2Connection]; fired by the driver
-    /// after stashing the `FieldSection` in [`Self::response_headers`] *or* on stream removal
-    /// (so a parked conn task observing the stream gone surfaces `NotConnected` instead of
+    /// [`H2Connection::response_headers`][super::H2Connection]; fired by the driver after
+    /// stashing the `FieldSection` in [`Self::response_headers`] *or* on stream removal (so
+    /// a parked conn task observing the stream gone surfaces `NotConnected` instead of
     /// hanging).
     pub(super) response_headers_waker: AtomicWaker,
 }

@@ -18,7 +18,7 @@ pub(crate) use body_wrapper::H2Body;
 pub use connection::H2Connection;
 #[cfg(feature = "unstable")]
 #[doc(hidden)]
-pub use connection::SubmitSend;
+pub use connection::{ResponseHeaders, SubmitSend};
 pub use error::H2ErrorCode;
 #[cfg(feature = "unstable")]
 pub use initiator::H2Initiator;

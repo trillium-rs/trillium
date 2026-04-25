@@ -149,6 +149,54 @@ impl Drop for SendPing<'_> {
     }
 }
 
+/// Future returned by [`H2Connection::response_headers`].
+///
+/// Awaits the peer's first HEADERS frame on a client-initiated stream and yields the decoded
+/// [`FieldSection`][crate::headers::hpack::FieldSection]. See
+/// [`H2Connection::response_headers`] for error semantics.
+#[cfg(feature = "unstable")]
+#[must_use = "futures do nothing unless awaited"]
+#[derive(Debug)]
+pub struct ResponseHeaders<'a> {
+    connection: &'a H2Connection,
+    stream_id: u32,
+}
+
+#[cfg(feature = "unstable")]
+impl Future for ResponseHeaders<'_> {
+    type Output = io::Result<crate::headers::hpack::FieldSection<'static>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let Some(state) = self.connection.streams_lock().get(&self.stream_id).cloned() else {
+            return Poll::Ready(Err(io::ErrorKind::NotConnected.into()));
+        };
+        let try_take = || {
+            state
+                .recv
+                .response_headers
+                .lock()
+                .expect("response_headers mutex poisoned")
+                .take()
+        };
+        if let Some(fs) = try_take() {
+            return Poll::Ready(Ok(fs));
+        }
+        if state.recv.eof.load(Ordering::Acquire) {
+            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
+        }
+        state.recv.response_headers_waker.register(cx.waker());
+        // Re-check after registering so we don't miss a wake fired between the load above
+        // and the registration.
+        if let Some(fs) = try_take() {
+            return Poll::Ready(Ok(fs));
+        }
+        if state.recv.eof.load(Ordering::Acquire) {
+            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
+        }
+        Poll::Pending
+    }
+}
+
 impl H2Connection {
     /// Construct a new `H2Connection` to manage HTTP/2 for a single peer.
     pub fn new(context: Arc<HttpContext>) -> Arc<Self> {
@@ -332,57 +380,32 @@ impl H2Connection {
         inflight < cap
     }
 
-    /// Client-role: poll for the response HEADERS field section for a stream.
+    /// Client-role: await the response HEADERS field section for a stream.
     ///
-    /// Mirrors [`H2Transport::poll_response_headers`] for callers that hold the
-    /// connection + stream id but not a typed [`H2Transport`] handle (e.g. trillium-client,
-    /// where the per-stream transport is type-erased into `Box<dyn Transport>` for the
-    /// shared response-body machinery).
+    /// Resolves to the decoded [`FieldSection`] (including h2 pseudo-headers like `:status`)
+    /// once the driver receives and stashes the peer's first HEADERS frame on this stream.
+    /// Callers typically split pseudos out via [`FieldSection::pseudo_headers`] /
+    /// [`into_headers`][FieldSection::into_headers] before populating user-facing
+    /// `Headers` + status.
     ///
-    /// Resolves to:
-    /// - `Ready(Ok(field_section))` once the driver has stashed the response HEADERS.
-    /// - `Ready(Err(ConnectionAborted))` if the recv side reached eof without the driver ever
-    ///   stashing response HEADERS — stream reset, connection went away, etc.
-    /// - `Pending` while the driver is still waiting for the peer's first HEADERS.
-    /// - `Ready(Err(NotConnected))` if the stream is no longer in the shared map.
+    /// Single-shot: the `FieldSection` is moved out on a successful poll, so subsequent calls
+    /// for the same stream id will surface `ConnectionAborted` rather than re-deliver the
+    /// headers.
     ///
-    /// Single-shot: the `FieldSection` is moved out on a successful poll.
+    /// Errors:
+    /// - `NotConnected` — stream id is no longer tracked by the driver.
+    /// - `ConnectionAborted` — recv side reached eof without HEADERS arriving (peer reset the
+    ///   stream, sent GOAWAY, or otherwise tore the connection down).
     ///
-    /// # Panics
-    ///
-    /// Panics if any per-stream mutex is poisoned.
+    /// [`FieldSection`]: crate::headers::hpack::FieldSection
+    /// [`FieldSection::pseudo_headers`]: crate::headers::hpack::FieldSection::pseudo_headers
+    /// [`FieldSection::into_headers`]: crate::headers::hpack::FieldSection::into_headers
     #[cfg(feature = "unstable")]
-    pub fn poll_response_headers(
-        &self,
-        stream_id: u32,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<crate::headers::hpack::FieldSection<'static>>> {
-        use std::sync::atomic::Ordering;
-        let Some(state) = self.streams_lock().get(&stream_id).cloned() else {
-            return Poll::Ready(Err(io::ErrorKind::NotConnected.into()));
-        };
-        let try_take = || {
-            state
-                .recv
-                .response_headers
-                .lock()
-                .expect("response_headers mutex poisoned")
-                .take()
-        };
-        if let Some(fs) = try_take() {
-            return Poll::Ready(Ok(fs));
+    pub fn response_headers(&self, stream_id: u32) -> ResponseHeaders<'_> {
+        ResponseHeaders {
+            connection: self,
+            stream_id,
         }
-        if state.recv.eof.load(Ordering::Acquire) {
-            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
-        }
-        state.recv.response_headers_waker.register(cx.waker());
-        if let Some(fs) = try_take() {
-            return Poll::Ready(Ok(fs));
-        }
-        if state.recv.eof.load(Ordering::Acquire) {
-            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
-        }
-        Poll::Pending
     }
 
     /// Remove and return trailers stashed on the stream's recv state. Called by
@@ -555,9 +578,8 @@ impl H2Connection {
     }
 
     /// Client-role primitive: allocate a fresh outbound stream id, stage a request submission
-    /// for the driver, and return the id, a [`SubmitSend`] the conn task awaits for send
-    /// completion, and the per-stream [`H2Transport`] for response-body reads (and for
-    /// `poll_response_headers` to await the response HEADERS).
+    /// for the driver, and return the id, a [`SubmitSend`] tracking the request's send half,
+    /// and the per-stream [`H2Transport`] for response-body reads.
     ///
     /// `encoded_headers` is the HPACK-encoded HEADERS block (static-or-literal — no shared
     /// dynamic-table state). `body` is the request body, if any; `None` causes the HEADERS
@@ -578,9 +600,14 @@ impl H2Connection {
     ///
     /// The returned [`SubmitSend`] resolves once the request has been fully framed and
     /// flushed, or with the relevant `io::Error` on failure. The response side is awaited
-    /// separately on the [`H2Transport`]: response HEADERS via
-    /// [`H2Transport::poll_response_headers`], response body via the transport's `AsyncRead`
-    /// impl.
+    /// separately via [`response_headers`][Self::response_headers] for the response HEADERS,
+    /// and the [`H2Transport`]'s `AsyncRead` impl for the response body.
+    ///
+    /// **`SubmitSend` is drop-safe.** The body, once handed off here, is owned by the
+    /// driver's per-stream `SendState`; the driver continues to drain it, frame DATA, emit
+    /// trailers / `END_STREAM`, and tear the stream down regardless of whether the caller
+    /// awaits or drops the returned `SubmitSend`. Clients that only care about the response
+    /// (the typical case) may drop it without polling.
     ///
     /// # Panics
     ///

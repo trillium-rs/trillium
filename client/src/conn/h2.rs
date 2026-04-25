@@ -2,7 +2,6 @@ use super::Conn;
 use std::{
     borrow::Cow,
     fmt::{self, Debug, Formatter},
-    future::poll_fn,
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -160,7 +159,7 @@ impl Conn {
         hpack::encode(&field_section, &mut encoded);
 
         let body = self.request_body.take();
-        let (stream_id, submit, transport) = h2.open_stream(encoded, body).ok_or_else(|| {
+        let (stream_id, _submit, transport) = h2.open_stream(encoded, body).ok_or_else(|| {
             Error::Io(std::io::Error::new(
                 std::io::ErrorKind::ConnectionAborted,
                 "h2 connection is shutting down",
@@ -171,10 +170,11 @@ impl Conn {
         self.h2_connection = Some((h2.clone(), stream_id));
         self.transport = Some(Box::new(transport));
 
-        // Sequential send-then-recv is fine for the C1 happy path: the driver pumps both
-        // directions in parallel regardless of the order we await. Streaming-body cases that
-        // benefit from recv-while-still-sending will arrive with C3.
-        submit.await.map_err(Error::Io)?;
+        // Drop `_submit` rather than awaiting it. The driver owns the request body and
+        // drives it (DATA + trailers + END_STREAM) independently; the client only needs the
+        // response-headers signal to return from `.send()`. If the request fails partway
+        // through, the recv path surfaces it as `ConnectionAborted` from `response_headers`
+        // — see `H2Connection::open_stream`'s drop-safety note.
         self.recv_h2_response_headers(&h2, stream_id).await?;
         Ok(())
     }
@@ -271,9 +271,7 @@ impl Conn {
         h2: &Arc<H2Connection>,
         stream_id: u32,
     ) -> Result<()> {
-        let field_section = poll_fn(|cx| h2.poll_response_headers(stream_id, cx))
-            .await
-            .map_err(Error::Io)?;
+        let field_section = h2.response_headers(stream_id).await.map_err(Error::Io)?;
         log::trace!("received h2 response:\n{field_section}");
 
         self.status = field_section.pseudo_headers().status();

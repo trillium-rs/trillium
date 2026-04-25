@@ -50,8 +50,8 @@ pub use into_url::IntoUrl;
 pub(crate) use pool::Pool;
 pub use response_body::ResponseBody;
 pub use trillium_http::{
-    Body, Error, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, Method, Result,
-    Status, Version,
+    Body, BodySource, Error, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName,
+    Method, Result, Status, Version,
 };
 pub use trillium_server_common::{
     ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Url,

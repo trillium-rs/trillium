@@ -340,6 +340,10 @@ impl Conn {
             received_body
                 .with_h3_connection(h3_connection, stream_id)
                 .into()
+        } else if let Some((h2_connection, stream_id)) = self.h2_connection.clone() {
+            received_body
+                .with_h2_connection(h2_connection, stream_id)
+                .into()
         } else {
             received_body.into()
         }

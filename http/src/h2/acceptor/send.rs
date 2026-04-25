@@ -214,7 +214,7 @@ where
             } else {
                 signal_send_completion(&entry.shared, result);
             }
-            // Wake any conn task parked on `H2Connection::poll_response_headers` — the slot
+            // Wake any conn task parked on `H2Connection::response_headers` — the slot
             // is empty (we never stashed for this id, otherwise the take would have already
             // happened normally), so the wake makes the parked poll re-check the streams map,
             // find the id absent, and surface `NotConnected`. Idempotent / no-op on
