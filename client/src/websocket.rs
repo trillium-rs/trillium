@@ -106,23 +106,19 @@ impl Conn {
         self.set_method(Method::Connect);
         self.protocol = Some(Cow::Borrowed("websocket"));
 
+        // The peer-capability gate (RFC 8441 §3 — server must have advertised
+        // `SETTINGS_ENABLE_CONNECT_PROTOCOL` before the client may send a `:protocol`
+        // HEADERS) lives inside the h2 client send path, where it can park on the peer's
+        // first SETTINGS *before* putting any HEADERS on the wire. A "not supported"
+        // outcome surfaces here as `Error::ExtendedConnectUnsupported`.
         if let Err(e) = (&mut self).await {
-            return Err(WebSocketUpgradeError::new(self, e.into()));
-        }
-
-        // Peer-capability gate: the response status alone isn't sufficient — a server that
-        // doesn't support extended CONNECT might still send a 200, in which case the stream
-        // is a plain `CONNECT` tunnel rather than a websocket framing channel. Verify the
-        // peer actually advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`.
-        let extended_connect_supported = self
-            .h2_connection
-            .as_ref()
-            .is_some_and(|(h2, _)| h2.peer_enable_connect_protocol());
-        if !extended_connect_supported {
-            return Err(WebSocketUpgradeError::new(
-                self,
-                ErrorKind::ExtendedConnectUnsupported,
-            ));
+            let kind = match e {
+                trillium_http::Error::ExtendedConnectUnsupported => {
+                    ErrorKind::ExtendedConnectUnsupported
+                }
+                other => other.into(),
+            };
+            return Err(WebSocketUpgradeError::new(self, kind));
         }
 
         let status = self.status().expect("Response did not include status");

@@ -178,10 +178,20 @@ impl Conn {
             // END_STREAM and the per-stream outbound queue becomes the request body; the
             // application reads/writes via the returned `H2Transport`.
             //
-            // Caller (`Conn::into_websocket`) is responsible for verifying
-            // `peer_enable_connect_protocol()` before reaching this code path. There is no
-            // request_body to consume on this path — body framing is driven by writes to
-            // the H2Transport's `AsyncWrite`.
+            // RFC 8441 §3 forbids sending a `:protocol` HEADERS until the peer has
+            // advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL`. On a pooled connection the
+            // peer's first SETTINGS arrived long ago; on a fresh one we may need to park
+            // briefly. `peer_settings` resolves on either receipt or
+            // shutdown — disambiguated via the returned `Option`.
+            let Some(settings) = h2.peer_settings().await else {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionAborted,
+                    "h2 connection closed before peer SETTINGS arrived",
+                )));
+            };
+            if settings.enable_connect_protocol() != Some(true) {
+                return Err(Error::ExtendedConnectUnsupported);
+            }
             h2.open_connect_stream(encoded).ok_or_else(|| {
                 Error::Io(std::io::Error::new(
                     std::io::ErrorKind::ConnectionAborted,
