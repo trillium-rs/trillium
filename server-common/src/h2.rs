@@ -1,9 +1,10 @@
 //! HTTP/2 specific dispatch for runtime adapters.
 //!
 //! Entry point used by [`running_config`][crate::running_config]: when the TLS acceptor
-//! signals `h2` via ALPN or when a cleartext connection presents the HTTP/2 preface, the
-//! adapter hands the transport to [`run_h2`]. This module owns the per-connection driver
-//! loop and per-stream task spawning that mirrors [`h3::run_h3`][crate::h3::run_h3].
+//! signals `h2` via ALPN, or when a connection (cleartext or TLS-without-ALPN-h2) presents
+//! the HTTP/2 client preface, the adapter hands the transport to [`run_h2`]. This module
+//! owns the per-connection driver loop and per-stream task spawning that mirrors
+//! [`h3::run_h3`][crate::h3::run_h3].
 
 use crate::{ArcHandler, Runtime};
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -21,17 +22,17 @@ use trillium_http::{
 };
 
 /// HTTP/2 client connection preface (RFC 9113 §3.4). The first 24 bytes every HTTP/2 client
-/// sends before any frames; cleartext prior-knowledge dispatch peeks the TCP stream for these
-/// bytes to decide between HTTP/1.1 and HTTP/2.
+/// sends before any frames; the prior-knowledge dispatch path peeks the (cleartext or
+/// post-TLS) stream for these bytes to decide between HTTP/1.1 and HTTP/2.
 pub(crate) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 /// Drive an HTTP/2 connection end-to-end: construct the [`H2Connection`], run its driver
 /// loop, and spawn a per-stream task running the user handler for every emitted [`Conn`].
 ///
 /// `peer_ip` and `is_secure` are populated onto each per-stream [`Conn`] before the handler
-/// runs, matching [`crate::running_config`]'s HTTP/1.1 path. Cleartext prior-knowledge
-/// dispatch sets `is_secure = false`; ALPN-negotiated dispatch sets it to whatever the TLS
-/// acceptor reports.
+/// runs, matching [`crate::running_config`]'s HTTP/1.1 path. `is_secure` reflects the
+/// underlying transport: cleartext h2c sets it to `false`; ALPN-negotiated h2 and
+/// TLS-prior-knowledge h2 both set it to whatever the TLS acceptor reports.
 pub(crate) async fn run_h2<T>(
     transport: T,
     context: Arc<HttpContext>,
@@ -92,10 +93,11 @@ pub(crate) async fn run_h2<T>(
 /// A TCP transport that first serves a pre-peeked byte prefix before reading from its wrapped
 /// inner transport.
 ///
-/// Used by the cleartext HTTP/2 prior-knowledge path in [`crate::running_config`]: the adapter
-/// peeks the first 24 bytes of a connection to compare against [`CLIENT_PREFACE`]; if they
-/// match, we hand the original transport *with those bytes prepended* to [`run_h2`] so the
-/// driver's preface-reading state can consume them without re-reading from the wire.
+/// Used by the HTTP/2 prior-knowledge path in [`crate::running_config`] (both cleartext
+/// h2c and TLS-without-ALPN-h2): the adapter peeks the first 24 bytes of the post-acceptor
+/// transport to compare against [`CLIENT_PREFACE`]; if they match, we hand the original
+/// transport *with those bytes prepended* to [`run_h2`] so the driver's preface-reading
+/// state can consume them without re-reading from the wire.
 ///
 /// Forwards [`Transport`] trait methods to the wrapped inner transport so socket options and
 /// peer-addr queries behave the same as they would without the wrapper.

@@ -27,13 +27,15 @@
 //! HTTP/3 on the same listener. The version that a given connection speaks is
 //! decided at accept time:
 //!
-//! | Listener | ALPN result | Protocol |
-//! |---|---|---|
-//! | TCP + TLS | ALPN negotiated `h2` | HTTP/2 over TLS |
-//! | TCP + TLS | ALPN negotiated `http/1.1` or not negotiated | HTTP/1.1 over TLS |
-//! | TCP, cleartext | first 24 bytes match the HTTP/2 preface (`PRI * HTTP/2.0…`) | HTTP/2 "prior knowledge" (h2c) |
-//! | TCP, cleartext | anything else | HTTP/1.x |
-//! | QUIC | — | HTTP/3 |
+//! | Listener | ALPN result | First bytes | Protocol |
+//! |---|---|---|---|
+//! | TCP + TLS | `h2` | — | HTTP/2 over TLS |
+//! | TCP + TLS | `http/1.1` | — | HTTP/1.1 over TLS |
+//! | TCP + TLS | absent or other | match HTTP/2 preface (`PRI * HTTP/2.0…`) | HTTP/2 "prior knowledge" over TLS |
+//! | TCP + TLS | absent or other | anything else | HTTP/1.1 over TLS |
+//! | TCP, cleartext | — | match HTTP/2 preface | HTTP/2 "prior knowledge" (h2c) |
+//! | TCP, cleartext | — | anything else | HTTP/1.x |
+//! | QUIC | — | — | HTTP/3 |
 //!
 //! h2c via the HTTP/1.1 `Upgrade` mechanism (RFC 7540 §3.2, removed in RFC 9113)
 //! is **not** supported — if an `Upgrade: h2c` header arrives on an h1 request it
@@ -41,7 +43,9 @@
 //!
 //! The TLS acceptors shipped with trillium (`trillium-rustls`, `trillium-native-tls`)
 //! automatically advertise `h2, http/1.1` in ALPN. Users with custom TLS configs
-//! are responsible for advertising `h2` themselves if h2 is desired.
+//! are responsible for advertising `h2` themselves if h2 is desired. Clients on TLS
+//! stacks that don't expose an ALPN knob can still reach h2 via the prior-knowledge
+//! preface path — ALPN comes back absent and the server peeks the first 24 bytes.
 //!
 //! All h2/h3-specific tuning flows through [`HttpConfig`] — see its field
 //! documentation for the full list of knobs (stream / connection flow-control

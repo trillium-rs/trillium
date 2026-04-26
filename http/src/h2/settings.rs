@@ -137,6 +137,7 @@ impl H2Settings {
     /// "no limit" default applied when the field is `None`. The spec leaves the initial
     /// value unbounded, so callers should treat the absence of an advertised limit as
     /// permission to open as many streams as the stream-id space allows.
+    #[cfg(feature = "unstable")]
     pub(crate) fn effective_max_concurrent_streams(&self) -> u32 {
         self.max_concurrent_streams.unwrap_or(u32::MAX)
     }

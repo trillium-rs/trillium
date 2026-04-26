@@ -4,6 +4,18 @@ use std::{io::ErrorKind, sync::Arc};
 use trillium::{Handler, Transport};
 use trillium_http::{Error, HttpContext, SERVICE_UNAVAILABLE, Upgrade};
 
+/// How a freshly-accepted connection should be dispatched based on ALPN result.
+#[derive(Clone, Copy)]
+enum AlpnDispatch {
+    /// ALPN explicitly negotiated `h2` — run HTTP/2 directly.
+    H2,
+    /// ALPN explicitly negotiated `http/1.1` — respect that, run HTTP/1 without peeking.
+    H1,
+    /// ALPN absent or returned something else — peek the first 24 bytes for the HTTP/2
+    /// client preface (RFC 9113 §3.4) to decide between prior-knowledge h2 and HTTP/1.
+    PrefacePeek,
+}
+
 #[derive(Debug)]
 pub struct RunningConfig<ServerType: Server, AcceptorType> {
     pub(crate) acceptor: AcceptorType,
@@ -63,11 +75,60 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         let is_secure = self.acceptor.is_secure();
         let runtime: crate::Runtime = self.runtime.clone().into();
 
-        // ALPN-negotiated HTTP/2 (TLS with `h2` selected).
-        let alpn_is_h2 = transport
-            .negotiated_alpn()
-            .is_some_and(|alpn| &*alpn == b"h2");
-        if alpn_is_h2 {
+        // Dispatch by ALPN if present:
+        //   - `h2`        → run HTTP/2 directly
+        //   - `http/1.1`  → respect the negotiation, run HTTP/1 without peeking
+        //   - absent / anything else → fall through to prior-knowledge preface peek
+        let alpn_dispatch = match transport.negotiated_alpn().as_deref() {
+            Some(b"h2") => AlpnDispatch::H2,
+            Some(b"http/1.1") => AlpnDispatch::H1,
+            _ => AlpnDispatch::PrefacePeek,
+        };
+
+        match alpn_dispatch {
+            AlpnDispatch::H2 => {
+                h2::run_h2(
+                    transport,
+                    self.context.clone(),
+                    handler,
+                    runtime,
+                    peer_ip,
+                    is_secure,
+                )
+                .await;
+                return;
+            }
+            AlpnDispatch::H1 => {
+                let handler_ref = &handler;
+                let result = self
+                    .context
+                    .clone()
+                    .run(transport, |mut conn| async move {
+                        conn.set_peer_ip(peer_ip);
+                        let conn = handler_ref.run(conn.into()).await;
+                        let conn = handler_ref.before_send(conn).await;
+                        conn.into_inner()
+                    })
+                    .await;
+                handle_h1_result(result, &handler).await;
+                return;
+            }
+            AlpnDispatch::PrefacePeek => {}
+        }
+
+        // Prior-knowledge HTTP/2: peek the first 24 bytes for the preface. Applies to both
+        // cleartext (h2c) and TLS-without-ALPN-h2 (e.g. clients on TLS stacks that don't
+        // expose an ALPN knob). Bail to HTTP/1 on any mismatch or premature EOF, handing the
+        // peeked bytes into the parser.
+        let peek = match peek_preface(&mut transport).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::debug!("preface peek error: {e}");
+                return;
+            }
+        };
+        if peek.as_slice() == h2::CLIENT_PREFACE {
+            let transport = h2::Prefixed::new(peek, transport);
             h2::run_h2(
                 transport,
                 self.context.clone(),
@@ -79,59 +140,19 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
             .await;
             return;
         }
-
-        // Cleartext prior-knowledge HTTP/2: peek the first 24 bytes for the preface. Bail to
-        // HTTP/1 on any mismatch or premature EOF, handing the peeked bytes into the parser.
-        if !is_secure {
-            let peek = match peek_preface(&mut transport).await {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    log::debug!("preface peek error: {e}");
-                    return;
-                }
-            };
-            if peek.as_slice() == h2::CLIENT_PREFACE {
-                let transport = h2::Prefixed::new(peek, transport);
-                h2::run_h2(
-                    transport,
-                    self.context.clone(),
-                    handler,
-                    runtime,
-                    peer_ip,
-                    false,
-                )
-                .await;
-                return;
-            }
-            let handler_ref = &handler;
-            let result = trillium_http::run_with_initial_bytes(
-                self.context.clone(),
-                transport,
-                peek,
-                |mut conn| async move {
-                    conn.set_peer_ip(peer_ip);
-                    let conn = handler_ref.run(conn.into()).await;
-                    let conn = handler_ref.before_send(conn).await;
-                    conn.into_inner()
-                },
-            )
-            .await;
-            handle_h1_result(result, &handler).await;
-            return;
-        }
-
-        // TLS without ALPN=h2: run HTTP/1.
         let handler_ref = &handler;
-        let result = self
-            .context
-            .clone()
-            .run(transport, |mut conn| async move {
+        let result = trillium_http::run_with_initial_bytes(
+            self.context.clone(),
+            transport,
+            peek,
+            |mut conn| async move {
                 conn.set_peer_ip(peer_ip);
                 let conn = handler_ref.run(conn.into()).await;
                 let conn = handler_ref.before_send(conn).await;
                 conn.into_inner()
-            })
-            .await;
+            },
+        )
+        .await;
         handle_h1_result(result, &handler).await;
     }
 

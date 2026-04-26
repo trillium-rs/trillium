@@ -124,6 +124,59 @@ async fn alpn_h2_dispatches_to_h2() {
     conn_task.await.expect("client conn task panicked");
 }
 
+/// Client opens TLS with **no ALPN extension** at all, then sends the HTTP/2 client
+/// preface as its first application bytes (RFC 9113 §3.3 prior-knowledge). Server's ALPN
+/// returns absent, the dispatcher peeks the preface, and routes the TLS-wrapped transport
+/// to the h2 driver with `is_secure = true`. Handler sees `Version::Http2`.
+///
+/// This path matters for clients on TLS stacks that don't expose an ALPN knob — e.g.
+/// `trillium-native-tls` via `async-native-tls`, which has no ALPN setter.
+#[tokio::test]
+async fn tls_prior_knowledge_dispatches_to_h2() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let cert = test_cert();
+    let (handle, addr) = start_tls_server(&cert).await;
+
+    let tcp = TcpStream::connect(addr).await.expect("tcp connect");
+    let connector = TlsConnector::from(Arc::new(rustls_client_config(&cert, &[])));
+    let domain = ServerName::try_from("localhost").unwrap();
+    let tls = connector.connect(domain, tcp).await.expect("tls handshake");
+    assert_eq!(
+        tls.get_ref().1.alpn_protocol(),
+        None,
+        "client did not advertise ALPN, server should report none"
+    );
+
+    let (mut send, connection) = client::handshake(tls).await.expect("h2 handshake");
+    let conn_task = tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    let request = http::Request::builder()
+        .method(http::Method::GET)
+        .uri("/")
+        .body(())
+        .unwrap();
+    let (response_fut, _) = send.send_request(request, true).unwrap();
+    let response = response_fut.await.expect("response headers");
+    assert_eq!(response.status(), http::StatusCode::OK);
+
+    let mut body = response.into_body();
+    let mut collected = Vec::new();
+    while let Some(chunk) = body.data().await {
+        collected.extend_from_slice(&chunk.expect("data chunk"));
+    }
+    assert_eq!(
+        collected.as_slice(),
+        format!("{:?}", Version::Http2).as_bytes(),
+        "handler should have seen Http2"
+    );
+
+    drop(send);
+    handle.shut_down().await;
+    conn_task.await.expect("client conn task panicked");
+}
+
 /// Client advertises only `http/1.1` via ALPN; server negotiates http/1.1; handler sees
 /// `Version::Http1_1`. Confirms the ALPN branch in `running_config::handle_stream` does not
 /// route TLS connections to h2 when the peer didn't select it.

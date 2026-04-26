@@ -14,15 +14,19 @@ use fieldwork::Fieldwork;
 ///
 /// trillium accepts HTTP/1.x, HTTP/2, and HTTP/3 connections on the same listener without
 /// any per-version configuration. The version a given connection speaks is decided at accept
-/// time based on ALPN (for TLS listeners) or preface-peek (for cleartext):
+/// time based on ALPN (for TLS listeners with ALPN), or by peeking the first 24 bytes for
+/// the HTTP/2 client preface (for cleartext listeners and TLS listeners where ALPN was
+/// absent or returned an unrecognized value):
 ///
-/// | Listener | Negotiation | Protocol |
-/// |---|---|---|
-/// | TCP + TLS | ALPN = `h2` | HTTP/2 |
-/// | TCP + TLS | ALPN = `http/1.1` or absent | HTTP/1.1 |
-/// | TCP, cleartext | first 24 bytes = `PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n` | HTTP/2 prior-knowledge (h2c) |
-/// | TCP, cleartext | anything else | HTTP/1.x |
-/// | QUIC (via `trillium-quinn`) | — | HTTP/3 |
+/// | Listener | ALPN result | First bytes | Protocol |
+/// |---|---|---|---|
+/// | TCP + TLS | `h2` | — | HTTP/2 |
+/// | TCP + TLS | `http/1.1` | — | HTTP/1.1 |
+/// | TCP + TLS | absent / other | match HTTP/2 preface | HTTP/2 (TLS prior-knowledge) |
+/// | TCP + TLS | absent / other | anything else | HTTP/1.1 |
+/// | TCP, cleartext | — | match HTTP/2 preface | HTTP/2 prior-knowledge (h2c) |
+/// | TCP, cleartext | — | anything else | HTTP/1.x |
+/// | QUIC (via `trillium-quinn`) | — | — | HTTP/3 |
 ///
 /// h2c via the HTTP/1.1 `Upgrade` mechanism (RFC 7540 §3.2, removed in RFC 9113) is not
 /// supported. The `h2_*` fields on this struct tune the HTTP/2 advertised settings + recv
