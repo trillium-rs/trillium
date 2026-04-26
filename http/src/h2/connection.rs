@@ -18,13 +18,19 @@ use super::transport::H2Transport;
 use super::{H2Driver, H2Settings, acceptor::Role, transport::StreamState};
 use crate::{Body, Conn, Headers, HttpContext};
 use atomic_waker::AtomicWaker;
+use event_listener::Event;
+#[cfg(feature = "unstable")]
+use event_listener::EventListener;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     collections::{HashMap, VecDeque},
     future::Future,
     io,
     pin::Pin,
-    sync::{Arc, Mutex, MutexGuard, atomic::Ordering},
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Poll, Waker},
     time::{Duration, Instant},
 };
@@ -63,6 +69,21 @@ pub struct H2Connection {
     /// readers should use [`H2Settings::effective_*`][H2Settings::effective_max_frame_size]
     /// helpers that apply the RFC 9113 §6.5.2 defaults to absent fields.
     peer_settings: Mutex<H2Settings>,
+    /// Latch flipped to `true` the first (and every subsequent) time the driver applies a
+    /// peer SETTINGS frame. Distinct from `peer_settings` because an absent field in
+    /// `H2Settings` is ambiguous between "peer hasn't sent SETTINGS yet" and "peer sent
+    /// SETTINGS without that field" — the latch disambiguates. Read by [`PeerSettings`] to
+    /// gate operations that require seeing the peer's first SETTINGS (RFC 8441 §3 extended
+    /// CONNECT, in particular).
+    peer_settings_received: AtomicBool,
+    /// Multi-listener wake source for [`PeerSettings`]. The driver fires `notify(usize::MAX)`
+    /// after applying peer SETTINGS and again on connection close, so any number of
+    /// concurrently-parked `PeerSettings` futures all unblock together. Using
+    /// [`Event`][event_listener::Event] (rather than a single [`AtomicWaker`]) is necessary
+    /// because multiple application tasks can call [`H2Connection::peer_settings`]
+    /// concurrently — e.g. a fan-out of WebSocket-over-h2 upgrades on one pooled connection
+    /// — and an `AtomicWaker`'s last-writer-wins semantics would strand all but one of them.
+    peer_settings_event: Event,
     /// Next stream id to allocate for client-role outbound streams. RFC 9113 §5.1.1 requires
     /// client-initiated stream ids to be odd and strictly increasing; we start at 1 and
     /// `+= 2` per allocation. Read/written only by [`Self::open_stream`]; the server role
@@ -149,6 +170,61 @@ impl Drop for SendPing<'_> {
     }
 }
 
+/// Future returned by [`H2Connection::peer_settings`].
+///
+/// Resolves to `Some(snapshot)` once the driver has applied the peer's first SETTINGS frame,
+/// or to `None` if the connection was asked to shut down before any SETTINGS arrived. The
+/// `Option` disambiguates "peer never sent SETTINGS" from "peer sent SETTINGS but did not
+/// enable the field the caller cares about", which a plain accessor on the snapshot
+/// otherwise can't tell apart — both yield `None` for the underlying field.
+///
+/// The snapshot is a copy of the peer's most recently applied SETTINGS at the moment the
+/// future resolves. The peer may send further SETTINGS frames later; for fields where that
+/// matters (peer-settable limits like `MAX_CONCURRENT_STREAMS`), follow up with
+/// [`H2Connection::peer_settings_snapshot`]. RFC 8441 §3 forbids revoking
+/// `SETTINGS_ENABLE_CONNECT_PROTOCOL` once enabled, so a snapshot is sufficient for the
+/// extended-CONNECT gate.
+///
+/// Multiple `PeerSettings` futures can park concurrently on the same connection; all wake
+/// together when the driver fires the underlying [`Event`][event_listener::Event].
+#[cfg(feature = "unstable")]
+#[must_use = "futures do nothing unless awaited"]
+#[derive(Debug)]
+pub struct PeerSettings<'a>(&'a H2Connection, Option<EventListener>);
+
+#[cfg(feature = "unstable")]
+impl Future for PeerSettings<'_> {
+    type Output = Option<H2Settings>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let Self(connection, listener) = &mut *self;
+        loop {
+            if let Some(snapshot) = connection.peer_settings_snapshot() {
+                return Poll::Ready(Some(snapshot));
+            }
+            if !connection.swansong.state().is_running() {
+                return Poll::Ready(None);
+            }
+            let l = if let Some(l) = listener {
+                l
+            } else {
+                let l = listener.insert(connection.peer_settings_event.listen());
+                // Re-check after registering — same load/register/recheck idiom — so a notify
+                // racing the registration isn't lost.
+                if let Some(snapshot) = connection.peer_settings_snapshot() {
+                    return Poll::Ready(Some(snapshot));
+                }
+                if !connection.swansong.state().is_running() {
+                    return Poll::Ready(None);
+                }
+                l
+            };
+            std::task::ready!(Pin::new(l).poll(cx));
+            *listener = None;
+        }
+    }
+}
+
 /// Future returned by [`H2Connection::response_headers`].
 ///
 /// Awaits the peer's first HEADERS frame on a client-initiated stream and yields the decoded
@@ -207,6 +283,8 @@ impl H2Connection {
             outbound_waker: AtomicWaker::new(),
             streams: Mutex::new(HashMap::new()),
             peer_settings: Mutex::new(H2Settings::default()),
+            peer_settings_received: AtomicBool::new(false),
+            peer_settings_event: Event::new(),
             #[cfg(feature = "unstable")]
             next_client_stream_id: Mutex::new(1),
             pending_pings: Mutex::new(HashMap::new()),
@@ -347,7 +425,7 @@ impl H2Connection {
     /// Use the `effective_*` helpers on [`H2Settings`] to get a value with RFC defaults
     /// applied for fields the peer hasn't set; typical callers copy out via `*guard` and
     /// release immediately.
-    pub(super) fn peer_settings(&self) -> MutexGuard<'_, H2Settings> {
+    pub(super) fn current_peer_settings(&self) -> MutexGuard<'_, H2Settings> {
         self.peer_settings
             .lock()
             .expect("peer_settings mutex poisoned")
@@ -387,23 +465,72 @@ impl H2Connection {
             .count()
             .try_into()
             .unwrap_or(u32::MAX);
-        let cap = self.peer_settings().effective_max_concurrent_streams();
+        let cap = self
+            .current_peer_settings()
+            .effective_max_concurrent_streams();
         inflight < cap
     }
 
-    /// Whether the peer has advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` (RFC 8441 §3).
+    /// Park until the driver has applied the peer's first SETTINGS frame.
     ///
-    /// Returns `true` only when the peer's most recent SETTINGS frame explicitly enabled the
-    /// extended CONNECT protocol. Absence of the setting is equivalent to `0` per RFC 8441 §3,
-    /// so this returns `false` until a peer SETTINGS frame with the setting present has been
-    /// processed.
+    /// The returned [`PeerSettings`] future resolves to `Some(snapshot)` once a peer
+    /// SETTINGS frame has been applied at least once, or to `None` if the connection was
+    /// asked to shut down before any SETTINGS arrived. On a pooled connection that has
+    /// already exchanged SETTINGS, the future resolves on the first poll. Only fresh,
+    /// just-handshaked connections actually park.
     ///
-    /// Client-side gate for sending extended CONNECT (the WebSocket-over-h2 / WebTransport-over-h2
-    /// bootstrap) — without an enabling peer SETTINGS, the client must not send a CONNECT carrying
-    /// a `:protocol` pseudo-header.
+    /// Required for callers that send extended-CONNECT requests (RFC 8441 §3 — WebSocket-
+    /// over-h2): the spec forbids sending a `:protocol` pseudo-header until the peer has
+    /// advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL`. Awaiting this future and then
+    /// inspecting the returned [`H2Settings`] snapshot resolves the "peer hasn't sent
+    /// SETTINGS yet" vs "peer sent SETTINGS without the field" ambiguity in a single step:
+    ///
+    /// ```ignore
+    /// let Some(settings) = h2.peer_settings().await else {
+    ///     // connection shut down before SETTINGS arrived
+    /// };
+    /// if settings.enable_connect_protocol() != Some(true) {
+    ///     // peer doesn't support extended CONNECT
+    /// }
+    /// ```
+    ///
+    /// Multiple awaiters on the same connection are supported — internally backed by an
+    /// [`Event`][event_listener::Event] rather than a single waker.
     #[cfg(feature = "unstable")]
-    pub fn peer_enable_connect_protocol(&self) -> bool {
-        self.peer_settings().enable_connect_protocol() == Some(true)
+    pub fn peer_settings(&self) -> PeerSettings<'_> {
+        PeerSettings(self, None)
+    }
+
+    /// A snapshot of the peer's most recently applied SETTINGS, or `None` if the peer hasn't
+    /// sent any SETTINGS frame yet on this connection. The returned [`H2Settings`] is a
+    /// `Copy` value owned by the caller; subsequent peer SETTINGS frames will not be
+    /// reflected. For a synchronization primitive that parks until the first frame arrives,
+    /// see [`Self::peer_settings`].
+    ///
+    /// Acquire-loaded so the SETTINGS values themselves — written under the
+    /// `peer_settings` mutex in [`H2Driver::apply_peer_settings`] — are visible to any
+    /// reader who observes the latch as `true`.
+    #[cfg(feature = "unstable")]
+    pub fn peer_settings_snapshot(&self) -> Option<H2Settings> {
+        self.peer_settings_received
+            .load(Ordering::Acquire)
+            .then(|| *self.current_peer_settings())
+    }
+
+    /// Driver-side: a peer SETTINGS frame has just been applied. Latches the
+    /// `peer_settings_received` flag and wakes every parked [`PeerSettings`] future.
+    /// Idempotent — calling more than once on the same connection is harmless; spurious
+    /// wakes are absorbed by the future's poll loop.
+    pub(super) fn note_peer_settings(&self) {
+        self.peer_settings_received.store(true, Ordering::Release);
+        self.peer_settings_event.notify(usize::MAX);
+    }
+
+    /// Driver-side: the connection is closing. Wakes every parked [`PeerSettings`] future so
+    /// callers awaiting the peer's first SETTINGS observe the shutdown rather than
+    /// blocking forever.
+    pub(super) fn wake_peer_settings_waiters(&self) {
+        self.peer_settings_event.notify(usize::MAX);
     }
 
     /// Client-role: await the response HEADERS field section for a stream.
@@ -700,8 +827,10 @@ impl H2Connection {
     /// Returns `None` under the same conditions as [`Self::open_stream`]: stream-id space
     /// exhausted, or connection shutting down.
     ///
-    /// **Caller MUST verify [`peer_enable_connect_protocol`][Self::peer_enable_connect_protocol]
-    /// before calling this.** Sending extended CONNECT to a peer that hasn't advertised
+    /// **Caller MUST first await
+    /// [`peer_settings`][Self::peer_settings] and verify the
+    /// returned snapshot's `enable_connect_protocol() == Some(true)` before calling this.**
+    /// Sending extended CONNECT to a peer that hasn't advertised
     /// `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` is a protocol violation per RFC 8441 §3.
     #[cfg(feature = "unstable")]
     pub fn open_connect_stream(

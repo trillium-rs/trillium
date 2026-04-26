@@ -303,7 +303,10 @@ where
     /// first fragment is HEADERS; subsequent fragments (when `headers_offset > 0`) are
     /// CONTINUATION.
     fn emit_one_headers_fragment(&mut self, stream_id: u32, send: &mut SendCursor) {
-        let max_payload = self.connection.peer_settings().effective_max_frame_size() as usize;
+        let max_payload = self
+            .connection
+            .current_peer_settings()
+            .effective_max_frame_size() as usize;
         let remaining = send.encoded_headers.len() - send.headers_offset;
         let chunk_len = remaining.min(max_payload);
         let end_headers = chunk_len == remaining;

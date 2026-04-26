@@ -22,6 +22,9 @@ pub use connection::{ResponseHeaders, SubmitSend};
 pub use error::H2ErrorCode;
 #[cfg(feature = "unstable")]
 pub use initiator::H2Initiator;
+#[cfg(feature = "unstable")]
+pub use settings::H2Settings;
+#[cfg(not(feature = "unstable"))]
 pub(crate) use settings::H2Settings;
 pub use transport::H2Transport;
 

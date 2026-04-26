@@ -547,7 +547,7 @@ where
         }
         let send_window = i64::from(
             self.connection
-                .peer_settings()
+                .current_peer_settings()
                 .effective_initial_window_size(),
         );
         // Peer's recv window seed = what we advertised in SETTINGS_INITIAL_WINDOW_SIZE.
@@ -738,7 +738,7 @@ where
         let initial_window_delta = settings.initial_window_size().map(|new| {
             let old = self
                 .connection
-                .peer_settings()
+                .current_peer_settings()
                 .effective_initial_window_size();
             i64::from(new) - i64::from(old)
         });
@@ -758,7 +758,7 @@ where
             }
         }
 
-        let mut current = self.connection.peer_settings();
+        let mut current = self.connection.current_peer_settings();
         if let Some(v) = settings.max_frame_size() {
             current.set_max_frame_size(Some(v));
         }
@@ -787,6 +787,11 @@ where
         // regardless so conn-task code that inspects the settings sees a complete picture.
         // ENABLE_CONNECT_PROTOCOL (RFC 8441 §3) is read by client-role conn tasks to gate
         // sending extended CONNECT for WebSocket-over-h2.
+        drop(current);
+        // Latch + wake any `PeerSettings` futures *after* releasing the mutex so wakers
+        // polling immediately don't contend on it. Release ordering on the latch pairs with
+        // the Acquire load in `is_resolved_for_peer_settings`.
+        self.connection.note_peer_settings();
         Ok(())
     }
 

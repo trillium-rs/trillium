@@ -40,7 +40,7 @@ const SETTING_ENTRY_LEN: usize = 6;
 /// [`decode`]: H2Settings::decode
 #[derive(Clone, Copy, Eq, Fieldwork, Default)]
 #[fieldwork(get, set, with(option_set_some))]
-pub(crate) struct H2Settings {
+pub struct H2Settings {
     /// The maximum size of the HPACK dynamic header table the peer may use when encoding.
     ///
     /// Default: 4096.

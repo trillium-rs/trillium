@@ -609,8 +609,8 @@ where
     /// [`StreamState::needs_servicing`][super::transport::StreamState] mailbox flag:
     /// - `recv.is_reading` (lazy `WINDOW_UPDATE`): conn task declared intent to read the request
     ///   body; emit a `WINDOW_UPDATE` topping the per-stream recv window up.
-    /// - `recv.bytes_consumed`: handler drained N bytes from the recv ring; emit
-    ///   `WINDOW_UPDATE` credit at both stream and connection levels.
+    /// - `recv.bytes_consumed`: handler drained N bytes from the recv ring; emit `WINDOW_UPDATE`
+    ///   credit at both stream and connection levels.
     /// - `send.submission` (response handoff): conn task called `submit_send`; move the submission
     ///   into the driver's private `SendCursor` so the next `advance_outbound_sends` tick can start
     ///   framing.
@@ -783,7 +783,7 @@ where
         }
         let send_window = i64::from(
             self.connection
-                .peer_settings()
+                .current_peer_settings()
                 .effective_initial_window_size(),
         );
         let peer_recv_window = i64::from(self.config.initial_stream_window_size);
@@ -806,6 +806,10 @@ where
             io::ErrorKind::ConnectionAborted,
             "h2 connection closed before PING ACK",
         );
+        // Wake any `PeerSettings` waiters so a peer that disconnects without ever sending
+        // SETTINGS doesn't strand them. Their `poll` rechecks swansong state and returns
+        // Ready; the caller's follow-up operation surfaces the connection-closed error.
+        self.connection.wake_peer_settings_waiters();
         match self.close_outcome.take() {
             None | Some(CloseOutcome::Graceful) => None,
             Some(CloseOutcome::Protocol(code)) => Some(Err(H2Error::Protocol(code))),
