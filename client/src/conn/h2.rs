@@ -10,7 +10,7 @@ use trillium_http::{
     h2::H2Connection,
     headers::hpack::{self, FieldSection, PseudoHeaders},
 };
-use trillium_server_common::Transport;
+use trillium_server_common::{Connector, Transport};
 
 /// Client-side wrapper for a pooled HTTP/2 connection.
 ///
@@ -120,6 +120,21 @@ impl Conn {
         self.exec_h2_on_connection(pooled.connection().clone())
             .await?;
         Ok(true)
+    }
+
+    /// Open an h2 connection by prior knowledge and execute the request on it.
+    ///
+    /// Called when the user has set `http_version = Version::Http2` — see the crate-level
+    /// "Protocol selection" docs. Over `http://` this is h2c (cleartext); over `https://`
+    /// this skips the ALPN-readback dance and starts the h2 driver immediately after the TLS
+    /// handshake, which is the only way to use h2 with a TLS connector that doesn't expose
+    /// `negotiated_alpn` (e.g. native-tls today).
+    ///
+    /// Either way there is no h1 fallback: the preface bytes commit the connection, so a
+    /// non-h2-speaking server surfaces as a plain IO error from the h2 driver.
+    pub(super) async fn exec_h2_prior_knowledge(&mut self) -> Result<()> {
+        let transport = self.config.connect(&self.url).await?;
+        self.try_exec_h2_with_transport(transport).await
     }
 
     /// Promote a freshly-connected transport whose ALPN negotiated `h2` into an h2 connection,

@@ -151,8 +151,13 @@ pub struct Conn {
 
     /// the http version for this conn
     ///
-    /// prior to conn execution, this reflects the intended http version that will be sent, and
-    /// after execution this reflects the server-indicated http version
+    /// Pre-execution this is the version *hint* (prior knowledge), not the version that will
+    /// necessarily be on the wire — the default [`Version::Http1_1`] means "no hint, use
+    /// auto-discovery" rather than "force HTTP/1.1." Post-execution this reflects the version
+    /// the request was actually sent over.
+    ///
+    /// See the crate-level [Protocol selection][crate#protocol-selection] documentation for
+    /// the full hint → behavior table.
     #[field(get, set, with, copy)]
     pub(crate) http_version: Version,
 

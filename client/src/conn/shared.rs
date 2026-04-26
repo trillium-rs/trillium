@@ -42,6 +42,17 @@ impl Conn {
         if self.try_exec_h2_pooled().await? {
             return Ok(());
         }
+
+        // h2 prior knowledge: `http_version = Http2` is an assertion that the server speaks
+        // h2, so we skip h1 entirely. Over `http://` this is h2c (cleartext immediate
+        // preface); over `https://` it bypasses ALPN-readback and starts the h2 driver
+        // directly after the TLS handshake — useful for TLS connectors that don't expose
+        // `negotiated_alpn` (e.g. native-tls today). Either way, there's no fallback path:
+        // a server that doesn't actually speak h2 surfaces as a plain IO error.
+        if self.http_version == Version::Http2 {
+            return self.exec_h2_prior_knowledge().await;
+        }
+
         self.exec_h1_or_promote_h2().await
     }
 
