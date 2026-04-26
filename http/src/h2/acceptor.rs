@@ -215,6 +215,7 @@ pub(super) struct AcceptorConfig {
     pub(super) initial_connection_window_size: u32,
     pub(super) max_concurrent_streams: u32,
     pub(super) max_frame_size: u32,
+    pub(super) copy_loops_per_yield: usize,
 }
 
 impl AcceptorConfig {
@@ -225,6 +226,7 @@ impl AcceptorConfig {
             initial_connection_window_size: config.h2_initial_connection_window_size(),
             max_concurrent_streams: config.h2_max_concurrent_streams(),
             max_frame_size: config.h2_max_frame_size(),
+            copy_loops_per_yield: config.copy_loops_per_yield(),
         }
     }
 }
@@ -460,7 +462,8 @@ where
             return Poll::Ready(None);
         }
 
-        loop {
+        for loop_number in 0..self.config.copy_loops_per_yield {
+            log::trace!("h2 drive loop number: {loop_number}");
             // 1. Conn-task signals. Picks up window-update intent (`is_reading`) and new
             //    `submit_send` submissions, moving them into driver-private state.
             self.service_handler_signals();
@@ -583,6 +586,12 @@ where
                 },
             }
         }
+
+        // Cooperative yield: we made `copy_loops_per_yield` rounds of progress without
+        // hitting an internal Pending. Re-arm immediately and let the runtime pick up
+        // anything else it has waiting before we resume.
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 
     /// Register the driver's waker with the shared `outbound_waker` (so handler tasks can
