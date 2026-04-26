@@ -78,7 +78,7 @@ impl EntryName<'_> {
     /// shared dynamic table learn secret values.
     ///
     /// Current stand-in for propagating the RFC 9204 §4.5.4 N ("Never Indexed") bit through
-    /// trillium-proxy; see the `qpack-n-bit-gap` memory note for the full story.
+    /// trillium-proxy
     ///
     /// This predicate is a *ban* — callers that additionally want to skip names whose
     /// caching is merely *unprofitable* (e.g. `date`, whose rapidly-changing value the

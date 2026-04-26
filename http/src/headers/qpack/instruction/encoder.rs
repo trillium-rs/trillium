@@ -193,8 +193,7 @@ mod spec_vectors {
     //! These assert that our §3.2 parser produces the exact interpretation the spec
     //! documents for a given byte sequence. They don't attempt to round-trip through our
     //! encoder — our encoder makes different (and legitimate) policy choices around
-    //! Huffman selection, Duplicate emission, and base selection (see
-    //! `qpack-field-line-instruction-plan` memory).
+    //! Huffman selection, Duplicate emission, and base selection
 
     use super::*;
     use futures_lite::future::block_on;

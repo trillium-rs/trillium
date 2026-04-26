@@ -279,7 +279,7 @@ enum CloseOutcome {
 
 /// Driver-side view of a single open stream: the shared state the handler also sees, plus a
 /// cache of decisions the driver has made for this stream (which the handler doesn't need
-/// to know). Grows as later phases add state machine and flow-control bookkeeping.
+/// to know).
 #[derive(Debug)]
 struct StreamEntry {
     /// Shared state (recv buffer, send slot, handler wakers). Owned by `Arc` so the

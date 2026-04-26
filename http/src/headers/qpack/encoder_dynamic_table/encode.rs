@@ -38,7 +38,7 @@
 //! Headers whose name marks the value uncacheable
 //! ([`EntryName::has_uncacheable_value`]) are excluded from the predictor and never
 //! warm-inserted. This is a conservative stand-in for the RFC 9204 §4.5.4 N bit until
-//! `FieldLine` carries the bit through end-to-end (see `qpack-n-bit-gap` memory).
+//! `FieldLine` carries the bit through end-to-end.
 
 use super::{EncoderDynamicTable, SectionRefs, recent_pairs::RecentPairs, state::TableState};
 use crate::headers::{
@@ -163,8 +163,7 @@ impl EncoderDynamicTable {
 /// duration of one `encode()` call, so the lifetime is always trivially satisfied.
 ///
 /// The literal variants carry a `never_indexed` flag (RFC 9204 §4.5.4 N bit). Hardcoded
-/// `false` today because the source signal is not yet plumbed through `FieldLine` — see
-/// `qpack-n-bit-gap` memory.
+/// `false` today because the source signal is not yet plumbed through `FieldLine`.
 #[derive(Debug)]
 enum Emission<'lines, 'names> {
     /// §4.5.2: Indexed Field Line referencing the QPACK static table (T=1).
@@ -290,8 +289,7 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         value: FieldLineValue<'lines>,
         should_index: bool,
     ) -> Emission<'lines, 'names> {
-        // Hardcoded `false` until `FieldLine` carries the §4.5.4 N bit — see
-        // `qpack-n-bit-gap` memory.
+        // Hardcoded `false` until `FieldLine` carries the §4.5.4 N bit
         let never_indexed = false;
 
         let static_match = static_table_lookup(name, Some(value.as_bytes()));

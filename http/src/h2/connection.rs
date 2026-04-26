@@ -40,7 +40,7 @@ use swansong::{ShutdownCompletion, Swansong};
 ///
 /// Wrapped in an [`Arc`] and held by both the [`H2Driver`] driver and every conn task
 /// that holds an open stream's [`Conn`]. Per-stream `StreamState`, HPACK encoder state, and
-/// connection-level send flow control will accumulate here as later phases land.
+/// connection-level send flow control lives here.
 #[derive(Debug)]
 pub struct H2Connection {
     context: Arc<HttpContext>,

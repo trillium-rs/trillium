@@ -45,7 +45,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 /// Hardcoded threshold — a pair must have appeared in at least this fraction of recent
 /// connections (as measured by the EMA ratio) to be considered for priming. Room for a
-/// public knob later if phase-B measurement suggests it.
+/// public knob later if measurement suggests it.
 const MIN_PRIMING_FRACTION: f64 = 0.30;
 
 /// Below this many observed connections (monotonic tick, not EMA), priming is suppressed

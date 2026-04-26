@@ -16,8 +16,6 @@
 //! size updates; exceeding it is a decoding error (§6.3).
 //!
 //! The "Never Indexed" bit from §6.2.3 is preserved on decode but not yet plumbed through
-//! — same gap as QPACK's N bit. See the `qpack-n-bit-gap` memory for the downstream story.
-
 #[cfg(test)]
 mod rfc7541_vectors;
 #[cfg(test)]

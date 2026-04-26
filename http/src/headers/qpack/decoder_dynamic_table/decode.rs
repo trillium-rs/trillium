@@ -93,8 +93,7 @@ impl DecoderDynamicTable {
 ///
 /// TODO(n-bit): the `never_indexed` flag on literal instruction variants is currently
 /// discarded here. Preserving it for trillium-proxy reverse-proxy correctness requires
-/// extending `FieldLine` / `FieldSection` with a per-field never-index flag. See
-/// `qpack-n-bit-gap` memory.
+/// extending `FieldLine` / `FieldSection` with a per-field never-index flag.
 async fn apply_instruction(
     instruction: FieldLineInstruction<'_>,
     base: u64,

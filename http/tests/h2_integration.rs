@@ -1,17 +1,16 @@
 //! Integration tests for `trillium-http`'s HTTP/2 implementation, speaking to hyper's `h2` crate
 //! as a conformant peer over an in-memory duplex.
-//!
-//! Phase 1 coverage: preface + SETTINGS handshake (driven by hyper `h2`), PING round-trip, and
-//! clean GOAWAY on swansong shutdown. Later phases extend this file with real request/response
-//! cycles once `H2Connection` owns streams.
-
 use async_compat::Compat;
-use futures_lite::AsyncReadExt as _;
+use futures_lite::{
+    AsyncReadExt as _,
+    io::{AsyncRead, AsyncWrite},
+};
 use h2::{Ping, client};
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex},
     sync::mpsc,
+    task::JoinHandle,
 };
 use trillium_http::{
     Conn, HttpContext,
@@ -42,10 +41,10 @@ fn spawn_server<T>(
 ) -> (
     Arc<H2Connection>,
     mpsc::UnboundedReceiver<Conn<H2Transport>>,
-    tokio::task::JoinHandle<()>,
+    JoinHandle<()>,
 )
 where
-    T: futures_lite::io::AsyncRead + futures_lite::io::AsyncWrite + Unpin + Send + 'static,
+    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let _ = env_logger::try_init();
     let context = Arc::new(HttpContext::default());
@@ -74,11 +73,11 @@ where
 fn spawn_h2_server_with_handler<T, F, Fut>(
     transport: T,
     handler: F,
-) -> (Arc<H2Connection>, tokio::task::JoinHandle<()>)
+) -> (Arc<H2Connection>, JoinHandle<()>)
 where
-    T: futures_lite::io::AsyncRead + futures_lite::io::AsyncWrite + Unpin + Send + 'static,
+    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     F: Fn(Conn<H2Transport>) -> Fut + Send + Sync + Clone + 'static,
-    Fut: std::future::Future<Output = Conn<H2Transport>> + Send + 'static,
+    Fut: Future<Output = Conn<H2Transport>> + Send + 'static,
 {
     let _ = env_logger::try_init();
     let context = Arc::new(HttpContext::default());
@@ -102,8 +101,6 @@ where
 }
 
 /// Handshake + PING round-trip against hyper's `h2` client, then graceful shutdown.
-///
-/// Confirms the full phase-1 control path with a conformant peer:
 /// - client preface is accepted,
 /// - server SETTINGS is emitted in the right place,
 /// - peer SETTINGS is ACKed,

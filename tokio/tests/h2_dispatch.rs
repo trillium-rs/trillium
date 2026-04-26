@@ -2,7 +2,7 @@
 //! run under the tokio runtime so hyper's `h2` crate can be used natively without the
 //! `async_compat::Compat` bridge.
 //!
-//! Covers phase-5 work: the 24-byte preface peek in `running_config::handle_stream` and its
+//! Covers the following work: the 24-byte preface peek in `running_config::handle_stream` and its
 //! two outcomes — preface match → HTTP/2 driver, mismatch → HTTP/1 parser with the peeked
 //! bytes handed in via `trillium_http::run_with_initial_bytes`.
 //!
@@ -39,11 +39,7 @@ async fn cleartext_prior_knowledge_dispatches_to_h2() {
 
     let tcp = TcpStream::connect(addr).await.expect("tcp connect");
     let (mut send, connection) = client::handshake(tcp).await.expect("h2 handshake");
-    // Client's Connection future resolves once the server closes the TCP stream. A tidy
-    // graceful close (server emits GOAWAY and waits for peer FIN) is phase-6 work; today
-    // we emit GOAWAY and drop the socket, which the peer typically surfaces as an IO
-    // error — acceptable here, since the dispatch assertion above is what the test is
-    // checking.
+
     let conn_task = tokio::spawn(async move {
         let _ = connection.await;
     });
