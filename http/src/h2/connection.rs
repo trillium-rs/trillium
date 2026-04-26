@@ -461,6 +461,7 @@ impl H2Connection {
         let stream = self.streams_lock().get(&stream_id).cloned();
         if let Some(stream) = stream {
             stream.pending_release.store(true, Ordering::Release);
+            stream.needs_servicing.store(true, Ordering::Release);
             self.outbound_waker.wake();
         }
     }
@@ -485,6 +486,7 @@ impl H2Connection {
         if slot.is_none() {
             *slot = Some(code);
             drop(slot);
+            stream.needs_servicing.store(true, Ordering::Release);
             self.outbound_waker.wake();
         }
     }
@@ -575,6 +577,7 @@ impl H2Connection {
                 body,
                 is_upgrade: false,
             });
+            state.needs_servicing.store(true, Ordering::Release);
             self.outbound_waker.wake();
         }
         SubmitSend { stream_id, stream }
@@ -615,6 +618,7 @@ impl H2Connection {
                 is_upgrade: true,
             });
             log::trace!("h2 stream {stream_id}: submit_upgrade — submission staged");
+            state.needs_servicing.store(true, Ordering::Release);
             self.outbound_waker.wake();
         }
         SubmitSend { stream_id, stream }
@@ -766,6 +770,7 @@ impl H2Connection {
             body,
             is_upgrade,
         });
+        state.needs_servicing.store(true, Ordering::Release);
         self.streams_lock().insert(stream_id, state.clone());
         log::trace!("h2 client: open_stream allocated stream {stream_id} (upgrade={is_upgrade})");
         self.outbound_waker.wake();

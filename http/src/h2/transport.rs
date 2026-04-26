@@ -169,6 +169,7 @@ impl AsyncRead for H2Transport {
         let recv_state = &self.state.recv;
         let connection = &*self.connection;
         if !recv_state.is_reading.swap(true, Ordering::AcqRel) {
+            self.state.needs_servicing.store(true, Ordering::Release);
             connection.outbound_waker().wake();
         }
 
@@ -192,6 +193,7 @@ impl AsyncRead for H2Transport {
             recv_state
                 .bytes_consumed
                 .fetch_add(take as u64, Ordering::AcqRel);
+            self.state.needs_servicing.store(true, Ordering::Release);
             connection.outbound_waker().wake();
             return Poll::Ready(Ok(take));
         }
@@ -301,6 +303,24 @@ pub(super) struct StreamState {
     /// Server role never sets this — server streams are removed eagerly when the response
     /// finishes sending (no held-after-close lifecycle).
     pub(super) pending_release: AtomicBool,
+
+    /// Mailbox flag for conn-task → driver work signaling.
+    ///
+    /// Set to `true` by conn-task code whenever it produces work the driver should service
+    /// (new submission, [`Self::pending_reset`], [`Self::pending_release`], a
+    /// [`RecvState::bytes_consumed`] increment, or a [`RecvState::is_reading`] transition).
+    /// The driver's `service_handler_signals` walks every stream and consults this flag via
+    /// `swap(false, AcqRel)` — only streams where it returns `true` pay for the per-field
+    /// pickup (mutex acquires for `submission` / `pending_reset`, etc.). Idle streams cost a
+    /// single atomic RMW per tick.
+    ///
+    /// **Setter ordering rule**: write the underlying state first, then store `true` with
+    /// `Release`, then call [`H2Connection::outbound_waker`][super::H2Connection]`.wake()`.
+    /// The `Release` store + driver's `AcqRel` swap form the synchronization edge that
+    /// publishes the underlying state to the driver. Over-notification (driver clears, finds
+    /// nothing, moves on) is harmless; under-notification would lose a signal — which is why
+    /// the underlying state must be written *before* the flag store.
+    pub(super) needs_servicing: AtomicBool,
 }
 
 /// Receive-side per-stream state.

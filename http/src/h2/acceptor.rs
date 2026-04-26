@@ -605,9 +605,12 @@ where
     }
 
     /// Scan streams for conn-task-side signals that the driver should turn into driver-
-    /// internal state. Three signals:
+    /// internal state. Five per-stream signals, all gated by the
+    /// [`StreamState::needs_servicing`][super::transport::StreamState] mailbox flag:
     /// - `recv.is_reading` (lazy `WINDOW_UPDATE`): conn task declared intent to read the request
     ///   body; emit a `WINDOW_UPDATE` topping the per-stream recv window up.
+    /// - `recv.bytes_consumed`: handler drained N bytes from the recv ring; emit
+    ///   `WINDOW_UPDATE` credit at both stream and connection levels.
     /// - `send.submission` (response handoff): conn task called `submit_send`; move the submission
     ///   into the driver's private `SendCursor` so the next `advance_outbound_sends` tick can start
     ///   framing.
@@ -615,13 +618,15 @@ where
     ///   content-length guard) called
     ///   [`H2Connection::stream_error`][super::H2Connection::stream_error]; emit `RST_STREAM` and
     ///   clean the stream up via `complete_and_remove_stream`.
+    /// - `pending_release`: client-role `H2Transport::Drop` on a wire-closed-but-held stream;
+    ///   remove from both stream maps without emitting `RST_STREAM`.
     ///
-    /// Each stream's `StreamEntry` caches whether the corresponding driver-side action has
-    /// already happened so we don't re-emit on every scan.
+    /// Idle streams (mailbox flag `false`) are skipped after a single atomic RMW —
+    /// avoids 4+ mutex acquires per stream per tick.
     fn service_handler_signals(&mut self) {
         // Client role: pick up streams the conn task has opened via `H2Connection::open_stream`
         // — they're in the shared map but not yet in our private `self.streams`. After this
-        // pass the existing submission-pickup loop below will promote each new stream's staged
+        // pass the consolidated per-stream walk below will promote each new stream's staged
         // submission into a `SendCursor` on the same tick.
         self.pick_up_new_client_streams();
 
@@ -632,27 +637,32 @@ where
             self.queue_active_ping(opaque);
         }
 
-        // Pick up recv-side consumption + is-reading signals and turn them into
-        // `WINDOW_UPDATE` frames. Two cases per stream:
-        // - Handler has declared intent (is_reading) and the peer's recv window is still at the
-        //   advertised SETTINGS baseline (≤ 0 by default, since we advertise 0): raise the stream
-        //   window to [`MAX_STREAM_RECV_WINDOW`].
-        // - Handler has drained `bytes_consumed` from its recv ring: emit a matching stream-level
-        //   credit so the peer can keep sending, and aggregate across streams for a single
-        //   connection-level `WINDOW_UPDATE(0)`.
+        // Single per-stream walk gated by the `needs_servicing` mailbox flag. Conn-task code
+        // raises the flag whenever it produces work; we clear via `swap(false)` and run the
+        // per-field pickup only when set. Idle streams cost one atomic RMW per tick instead of
+        // four mutex acquires.
         //
-        // Collect stream_ids first to avoid holding &mut self.streams across `queue_*`
-        // calls (which take &mut self). Short-lived Vec; bounded by MAX_CONCURRENT_STREAMS.
+        // Collect work into short-lived Vecs (bounded by MAX_CONCURRENT_STREAMS) so we can act
+        // on it with `&mut self` after releasing the borrow on `self.streams`.
         let mut stream_updates: Vec<(u32, u32)> = Vec::new();
         let mut connection_credit: u64 = 0;
+        let mut resets: Vec<(u32, H2ErrorCode)> = Vec::new();
+        let mut releases: Vec<u32> = Vec::new();
         let max_stream_recv_window = self.config.max_stream_recv_window_size;
+
         for (&id, entry) in &mut self.streams {
+            // Mailbox-flag fast-skip. Idle streams stop here.
+            if !entry.shared.needs_servicing.swap(false, Ordering::AcqRel) {
+                continue;
+            }
+
             // Initial lazy raise: peer hasn't been credited any recv window yet, handler
             // signaled intent, emit a one-time top-up to the stream target.
             if entry.peer_recv_window <= 0 && entry.shared.recv.is_reading.load(Ordering::Acquire) {
                 stream_updates.push((id, max_stream_recv_window));
                 entry.peer_recv_window += i64::from(max_stream_recv_window);
             }
+
             // Refill for bytes the handler has consumed since our last tick. Bounded by
             // MAX_FLOW_CONTROL_WINDOW (2^31-1) which comfortably fits u32; a handler that
             // somehow consumed more than u32::MAX bytes in one tick gets the credit
@@ -664,7 +674,42 @@ where
                 entry.peer_recv_window += i64::from(credit);
                 connection_credit = connection_credit.saturating_add(u64::from(credit));
             }
+
+            // New submission pickup.
+            if entry.send.is_none() {
+                let submission = entry
+                    .shared
+                    .send
+                    .submission
+                    .lock()
+                    .expect("send submission mutex poisoned")
+                    .take();
+                if let Some(submission) = submission {
+                    log::trace!("h2 stream {id}: driver picked up submission");
+                    entry.send = Some(SendCursor::new(submission));
+                }
+            }
+
+            // Conn-task-requested RST_STREAM.
+            if let Some(code) = entry
+                .shared
+                .pending_reset
+                .lock()
+                .expect("pending_reset mutex poisoned")
+                .take()
+            {
+                resets.push((id, code));
+            }
+
+            // Application-side release for client-role wire-closed-but-held streams. The
+            // `H2Transport::Drop` for a cleanly-completed stream sets `pending_release`;
+            // we remove the entry from both stream maps below. No `RST_STREAM` — the wire
+            // is already closed.
+            if entry.shared.pending_release.swap(false, Ordering::AcqRel) {
+                releases.push(id);
+            }
         }
+
         for (stream_id, increment) in stream_updates {
             self.queue_window_update(stream_id, increment);
         }
@@ -673,41 +718,6 @@ where
             self.queue_window_update(0, credit);
             self.connection_recv_window += i64::from(credit);
         }
-
-        // Pick up new submissions. Iterate in place — `entry.send` is driver-private, no
-        // borrow conflict with `self.write_buf`.
-        for (&stream_id, entry) in &mut self.streams {
-            if entry.send.is_some() {
-                continue;
-            }
-            let submission = entry
-                .shared
-                .send
-                .submission
-                .lock()
-                .expect("send submission mutex poisoned")
-                .take();
-            if let Some(submission) = submission {
-                log::trace!("h2 stream {stream_id}: driver picked up submission");
-                entry.send = Some(SendCursor::new(submission));
-            }
-        }
-
-        // Pick up stream-error requests. Collect first, act second — same reason as the
-        // window-advertise pass above.
-        let resets: Vec<(u32, H2ErrorCode)> = self
-            .streams
-            .iter()
-            .filter_map(|(&id, entry)| {
-                entry
-                    .shared
-                    .pending_reset
-                    .lock()
-                    .expect("pending_reset mutex poisoned")
-                    .take()
-                    .map(|code| (id, code))
-            })
-            .collect();
         for (stream_id, code) in resets {
             log::debug!("h2 stream {stream_id}: conn-task-requested RST_STREAM({code:?})");
             self.queue_rst_stream(stream_id, code);
@@ -718,17 +728,6 @@ where
                 ))),
             );
         }
-
-        // Pick up application-side release requests for client-role wire-closed streams. The
-        // `H2Transport::Drop` for a cleanly-completed stream sets `pending_release`; this
-        // pass acts on it by removing the entry from both stream maps. No `RST_STREAM` —
-        // the wire is already closed.
-        let releases: Vec<u32> = self
-            .streams
-            .iter()
-            .filter(|(_, entry)| entry.shared.pending_release.swap(false, Ordering::AcqRel))
-            .map(|(&id, _)| id)
-            .collect();
         for stream_id in releases {
             log::trace!("h2 stream {stream_id}: application released held stream — removing");
             self.remove_from_stream_maps(stream_id);
@@ -751,22 +750,12 @@ where
                 return true;
             }
         }
-        self.streams.values().any(|e| {
-            (e.peer_recv_window <= 0 && e.shared.recv.is_reading.load(Ordering::Acquire))
-                || e.shared.recv.bytes_consumed.load(Ordering::Acquire) > 0
-                || e.shared
-                    .send
-                    .submission
-                    .lock()
-                    .expect("send submission mutex poisoned")
-                    .is_some()
-                || e.shared
-                    .pending_reset
-                    .lock()
-                    .expect("pending_reset mutex poisoned")
-                    .is_some()
-                || e.shared.pending_release.load(Ordering::Acquire)
-        })
+        // Mailbox-flag check — conn-task code raises `needs_servicing` whenever it produces
+        // work the driver should service. One atomic load per stream replaces the previous
+        // multi-atomic + multi-mutex peek.
+        self.streams
+            .values()
+            .any(|e| e.shared.needs_servicing.load(Ordering::Acquire))
     }
 
     /// Client role: scan [`H2Connection::streams`][super::H2Connection] for ids the conn
