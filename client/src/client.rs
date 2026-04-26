@@ -265,6 +265,7 @@ impl Client {
             scheme: None,
             path: None,
             request_target,
+            protocol: None,
             request_trailers: None,
             response_trailers: None,
         }

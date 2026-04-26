@@ -173,23 +173,42 @@ impl Conn {
         let mut encoded = Vec::with_capacity(self.context.config().request_buffer_initial_len());
         hpack::encode(&field_section, &mut encoded);
 
-        let body = self.request_body.take();
-        let (stream_id, _submit, transport) = h2.open_stream(encoded, body).ok_or_else(|| {
-            Error::Io(std::io::Error::new(
-                std::io::ErrorKind::ConnectionAborted,
-                "h2 connection is shutting down",
-            ))
-        })?;
+        let (stream_id, transport) = if self.protocol.is_some() {
+            // Extended CONNECT bootstrap (RFC 8441). The HEADERS frame goes out without
+            // END_STREAM and the per-stream outbound queue becomes the request body; the
+            // application reads/writes via the returned `H2Transport`.
+            //
+            // Caller (`Conn::into_websocket`) is responsible for verifying
+            // `peer_enable_connect_protocol()` before reaching this code path. There is no
+            // request_body to consume on this path — body framing is driven by writes to
+            // the H2Transport's `AsyncWrite`.
+            h2.open_connect_stream(encoded).ok_or_else(|| {
+                Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionAborted,
+                    "h2 connection is shutting down",
+                ))
+            })?
+        } else {
+            let body = self.request_body.take();
+            let (stream_id, _submit, transport) =
+                h2.open_stream(encoded, body).ok_or_else(|| {
+                    Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionAborted,
+                        "h2 connection is shutting down",
+                    ))
+                })?;
+            // Drop `_submit` rather than awaiting it. The driver owns the request body and
+            // drives it (DATA + trailers + END_STREAM) independently; the client only needs
+            // the response-headers signal to return from `.send()`. If the request fails
+            // partway through, the recv path surfaces it as `ConnectionAborted` from
+            // `response_headers` — see `H2Connection::open_stream`'s drop-safety note.
+            (stream_id, transport)
+        };
         log::trace!("h2 client opened stream {stream_id}");
 
         self.h2_connection = Some((h2.clone(), stream_id));
         self.transport = Some(Box::new(transport));
 
-        // Drop `_submit` rather than awaiting it. The driver owns the request body and
-        // drives it (DATA + trailers + END_STREAM) independently; the client only needs the
-        // response-headers signal to return from `.send()`. If the request fails partway
-        // through, the recv path surfaces it as `ConnectionAborted` from `response_headers`
-        // — see `H2Connection::open_stream`'s drop-safety note.
         self.recv_h2_response_headers(&h2, stream_id).await?;
         Ok(())
     }
@@ -211,6 +230,22 @@ impl Conn {
                 .set_scheme(Some(
                     self.scheme.as_deref().ok_or(Error::UnexpectedUriFormat)?,
                 ));
+        }
+
+        // Extended-CONNECT (RFC 8441 §4) — also requires `:scheme` and `:path` alongside the
+        // CONNECT method, contrary to plain CONNECT. set_path/set_scheme above were skipped
+        // when `method == CONNECT`, so layer them on here when bootstrapping an upgrade.
+        if let Some(protocol) = &self.protocol {
+            pseudo.set_protocol(Some(protocol.as_ref()));
+            if self.method == Method::Connect {
+                pseudo
+                    .set_path(Some(
+                        self.path.as_deref().ok_or(Error::UnexpectedUriFormat)?,
+                    ))
+                    .set_scheme(Some(
+                        self.scheme.as_deref().ok_or(Error::UnexpectedUriFormat)?,
+                    ));
+            }
         }
 
         Ok(pseudo)
@@ -243,7 +278,9 @@ impl Conn {
         {
             self.scheme = Some(Cow::Owned(self.url.scheme().to_string()));
             self.path = Some(target.clone());
-        } else if self.method == Method::Connect {
+        } else if self.method == Method::Connect && self.protocol.is_none() {
+            // Plain CONNECT: :scheme and :path are omitted (RFC 9113 §8.5).
+            // Extended CONNECT (RFC 8441 §4) keeps both — falls through to the else below.
             self.scheme = None;
             self.path = None;
         } else {

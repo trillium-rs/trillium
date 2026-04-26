@@ -180,6 +180,16 @@ pub struct Conn {
     #[field(with, set, get, option_set_some, into)]
     pub(crate) request_target: Option<Cow<'static, str>>,
 
+    /// the `:protocol` pseudo-header for an extended-CONNECT bootstrap (RFC 8441 §4 over h2,
+    /// RFC 9220 §3 over h3). Set internally by [`Conn::into_websocket`] to `"websocket"`;
+    /// triggers the h2/h3 exec paths to send HEADERS without `END_STREAM` and leave the stream
+    /// open as a bidirectional byte channel.
+    ///
+    /// Only meaningful when method is `CONNECT` and [`http_version`][Self::http_version] is
+    /// `Http2` or `Http3`. h1 and prior-version requests ignore this field.
+    #[field(get)]
+    pub(crate) protocol: Option<Cow<'static, str>>,
+
     /// trailers sent with the request body, populated after the body has been fully sent.
     ///
     /// Only present when the request body was constructed with [`Body::new_with_trailers`] and

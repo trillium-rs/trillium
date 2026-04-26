@@ -391,6 +391,21 @@ impl H2Connection {
         inflight < cap
     }
 
+    /// Whether the peer has advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` (RFC 8441 §3).
+    ///
+    /// Returns `true` only when the peer's most recent SETTINGS frame explicitly enabled the
+    /// extended CONNECT protocol. Absence of the setting is equivalent to `0` per RFC 8441 §3,
+    /// so this returns `false` until a peer SETTINGS frame with the setting present has been
+    /// processed.
+    ///
+    /// Client-side gate for sending extended CONNECT (the WebSocket-over-h2 / WebTransport-over-h2
+    /// bootstrap) — without an enabling peer SETTINGS, the client must not send a CONNECT carrying
+    /// a `:protocol` pseudo-header.
+    #[cfg(feature = "unstable")]
+    pub fn peer_enable_connect_protocol(&self) -> bool {
+        self.peer_settings().enable_connect_protocol() == Some(true)
+    }
+
     /// Client-role: await the response HEADERS field section for a stream.
     ///
     /// Resolves to the decoded [`FieldSection`] (including h2 pseudo-headers like `:status`)
@@ -651,6 +666,61 @@ impl H2Connection {
         encoded_headers: Vec<u8>,
         body: Option<Body>,
     ) -> Option<(u32, SubmitSend, H2Transport)> {
+        self.open_stream_inner(encoded_headers, body, false)
+            .map(|(id, state, transport)| {
+                (
+                    id,
+                    SubmitSend {
+                        stream_id: id,
+                        stream: Some(state),
+                    },
+                    transport,
+                )
+            })
+    }
+
+    /// Client-role: open a stream for an extended-CONNECT bootstrap (RFC 8441 §3 — WebSocket-
+    /// over-h2; the in-progress `draft-ietf-webtrans-http2` for WebTransport-over-h2).
+    ///
+    /// `encoded_headers` is the HPACK-encoded HEADERS block; the caller is responsible for
+    /// ensuring it carries `:method = CONNECT` and a `:protocol` pseudo-header. This is the
+    /// only case where staging a stream without a request body is *not* terminated by
+    /// `END_STREAM` on the initial HEADERS — instead, the per-stream outbound queue (the same
+    /// one [`H2Transport`]'s `AsyncWrite::poll_write` appends to) becomes the request body
+    /// and stays open until the application closes the transport.
+    ///
+    /// Returns `(stream_id, H2Transport)` — no [`SubmitSend`]. The application reads response
+    /// HEADERS via [`Self::response_headers`] and then exchanges bytes over the returned
+    /// transport's `AsyncRead` + `AsyncWrite`.
+    ///
+    /// Returns `None` under the same conditions as [`Self::open_stream`]: stream-id space
+    /// exhausted, or connection shutting down.
+    ///
+    /// **Caller MUST verify [`peer_enable_connect_protocol`][Self::peer_enable_connect_protocol]
+    /// before calling this.** Sending extended CONNECT to a peer that hasn't advertised
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` is a protocol violation per RFC 8441 §3.
+    #[cfg(feature = "unstable")]
+    pub fn open_connect_stream(
+        self: &Arc<Self>,
+        encoded_headers: Vec<u8>,
+    ) -> Option<(u32, H2Transport)> {
+        let (id, _state, transport) = self.open_stream_inner(encoded_headers, None, true)?;
+        Some((id, transport))
+    }
+
+    /// Shared id-allocate-and-stage logic backing [`Self::open_stream`] and
+    /// [`Self::open_connect_stream`]. The `is_upgrade` flag controls two things in the driver's
+    /// send pump: HEADERS does not carry `END_STREAM` (because the body field is `Some`), and
+    /// the body is sourced from the per-stream outbound queue ([`H2OutboundReader`]) rather
+    /// than the caller-supplied `Body`. For the non-upgrade path, the caller-supplied `body`
+    /// is used as-is and `END_STREAM` semantics fall out of `body.is_none()`.
+    #[cfg(feature = "unstable")]
+    fn open_stream_inner(
+        self: &Arc<Self>,
+        encoded_headers: Vec<u8>,
+        body: Option<Body>,
+        is_upgrade: bool,
+    ) -> Option<(u32, Arc<StreamState>, H2Transport)> {
         if !self.swansong.state().is_running() {
             return None;
         }
@@ -669,6 +739,19 @@ impl H2Connection {
         };
 
         let state = Arc::new(StreamState::default());
+
+        // For an extended-CONNECT bootstrap, the body field of the submission must be the
+        // per-stream outbound queue — same shape the server-side `submit_upgrade` uses.
+        // That keeps HEADERS flowing without END_STREAM and turns the per-stream
+        // outbound buffer into the writeback channel reachable through `H2Transport`'s
+        // `AsyncWrite`.
+        let body = if is_upgrade {
+            let reader = super::transport::H2OutboundReader::new(state.clone(), stream_id);
+            Some(Body::new_streaming(reader, None))
+        } else {
+            body
+        };
+
         // Stage submission *before* publishing the stream id to the shared map. The driver's
         // client-pickup pass scans the shared map, allocates a `StreamEntry`, and on the same
         // tick the existing submission-pickup loop promotes this submission to a `SendCursor`.
@@ -681,20 +764,13 @@ impl H2Connection {
             .expect("send submission mutex poisoned") = Some(super::transport::Submission {
             encoded_headers,
             body,
-            is_upgrade: false,
+            is_upgrade,
         });
         self.streams_lock().insert(stream_id, state.clone());
-        log::trace!("h2 client: open_stream allocated stream {stream_id}");
+        log::trace!("h2 client: open_stream allocated stream {stream_id} (upgrade={is_upgrade})");
         self.outbound_waker.wake();
         let transport = H2Transport::new(Arc::clone(self), stream_id, state.clone());
-        Some((
-            stream_id,
-            SubmitSend {
-                stream_id,
-                stream: Some(state),
-            },
-            transport,
-        ))
+        Some((stream_id, state, transport))
     }
 }
 

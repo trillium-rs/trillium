@@ -777,11 +777,16 @@ where
         if let Some(v) = settings.max_concurrent_streams() {
             current.set_max_concurrent_streams(Some(v));
         }
+        if let Some(v) = settings.enable_connect_protocol() {
+            current.set_enable_connect_protocol(Some(v));
+        }
         // ENABLE_PUSH / MAX_CONCURRENT_STREAMS / HEADER_TABLE_SIZE aren't consulted on the
         // send path today: server-side push is never emitted, the peer's MAX_CONCURRENT_STREAMS
         // applies to peer-initiated streams (we don't initiate), and the static-or-literal
         // HPACK encoder doesn't track the peer's table-size cap. They're stored here
         // regardless so conn-task code that inspects the settings sees a complete picture.
+        // ENABLE_CONNECT_PROTOCOL (RFC 8441 §3) is read by client-role conn tasks to gate
+        // sending extended CONNECT for WebSocket-over-h2.
         Ok(())
     }
 

@@ -2,6 +2,7 @@
 
 use crate::{Conn, WebSocketConfig, WebSocketConn};
 use std::{
+    borrow::Cow,
     error::Error,
     fmt::{self, Display},
     ops::{Deref, DerefMut},
@@ -11,13 +12,13 @@ use trillium_http::{
         Connection, SecWebsocketAccept, SecWebsocketKey, SecWebsocketVersion,
         Upgrade as UpgradeHeader,
     },
-    Status, Upgrade,
+    Method, Status, Upgrade, Version,
 };
 pub use trillium_websockets::Message;
 use trillium_websockets::{Role, websocket_accept_hash, websocket_key};
 
 impl Conn {
-    fn set_websocket_upgrade_headers(&mut self) {
+    fn set_websocket_upgrade_headers_h1(&mut self) {
         let headers = self.request_headers_mut();
         headers.try_insert(UpgradeHeader, "websocket");
         headers.try_insert(Connection, "upgrade");
@@ -25,43 +26,55 @@ impl Conn {
         headers.try_insert(SecWebsocketKey, websocket_key());
     }
 
-    /// Attempt to transform this `Conn` into a [`WebSocketConn`]
+    /// Attempt to transform this `Conn` into a [`WebSocketConn`].
     ///
-    /// This will:
+    /// This is an *execution* method: calling it on a conn that has already been awaited
+    /// returns [`ErrorKind::AlreadyExecuted`]. Build the conn, then call this — don't await
+    /// it yourself first.
     ///
-    /// * set `Upgrade`, `Connection`, `Sec-Websocket-Version`, and `Sec-Websocket-Key` headers
-    ///   appropriately if they have not yet been set and the `Conn` has not yet been awaited
-    /// * await the `Conn` if it has not yet been awaited
-    /// * confirm websocket upgrade negotiation per [rfc6455](https://datatracker.ietf.org/doc/html/rfc6455)
-    /// * transform the `Conn` into a [`WebSocketConn`]
+    /// Protocol selection follows the conn's [`http_version`][Conn::http_version] hint:
+    /// `Http2` uses the extended-CONNECT bootstrap (RFC 8441); the default uses an h1
+    /// `Upgrade` handshake (RFC 6455). If the peer is h2 but doesn't advertise
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL`, the upgrade hard-errors — there is no silent
+    /// fallback to h1 from a non-capable h2 peer.
+    ///
+    /// HTTP/3 (RFC 9220) extended CONNECT is not yet supported on the client. The h3 transport
+    /// would need to wrap post-upgrade bytes in h3 DATA frames on both client and server before
+    /// the byte channel will round-trip, and that framing layer doesn't exist yet. A `Http3`
+    /// hint here surfaces as `ErrorKind::ExtendedConnectUnsupported`.
     pub async fn into_websocket(self) -> Result<WebSocketConn, WebSocketUpgradeError> {
         self.into_websocket_with_config(WebSocketConfig::default())
             .await
     }
 
-    /// Attempt to transform this `Conn` into a [`WebSocketConn`], with a custom [`WebSocketConfig`]
-    ///
-    /// This will:
-    ///
-    /// * set `Upgrade`, `Connection`, `Sec-Websocket-Version`, and `Sec-Websocket-Key` headers
-    ///   appropriately if they have not yet been set and the `Conn` has not yet been awaited
-    /// * await the `Conn` if it has not yet been awaited
-    /// * confirm websocket upgrade negotiation per [rfc6455](https://datatracker.ietf.org/doc/html/rfc6455)
-    /// * transform the `Conn` into a [`WebSocketConn`]
+    /// Like [`Conn::into_websocket`] but with a caller-supplied [`WebSocketConfig`].
     pub async fn into_websocket_with_config(
+        self,
+        config: WebSocketConfig,
+    ) -> Result<WebSocketConn, WebSocketUpgradeError> {
+        if self.status().is_some() {
+            return Err(WebSocketUpgradeError::new(self, ErrorKind::AlreadyExecuted));
+        }
+
+        match self.http_version() {
+            Version::Http2 => self.into_websocket_extended_connect(config).await,
+            Version::Http3 => Err(WebSocketUpgradeError::new(
+                self,
+                ErrorKind::ExtendedConnectUnsupported,
+            )),
+            _ => self.into_websocket_h1(config).await,
+        }
+    }
+
+    async fn into_websocket_h1(
         mut self,
         config: WebSocketConfig,
     ) -> Result<WebSocketConn, WebSocketUpgradeError> {
-        let status = match self.status() {
-            Some(status) => status,
-            None => {
-                self.set_websocket_upgrade_headers();
-                if let Err(e) = (&mut self).await {
-                    return Err(WebSocketUpgradeError::new(self, e.into()));
-                }
-                self.status().expect("Response did not include status")
-            }
-        };
+        self.set_websocket_upgrade_headers_h1();
+        if let Err(e) = (&mut self).await {
+            return Err(WebSocketUpgradeError::new(self, e.into()));
+        }
+        let status = self.status().expect("Response did not include status");
         if status != Status::SwitchingProtocols {
             return Err(WebSocketUpgradeError::new(self, ErrorKind::Status(status)));
         }
@@ -78,6 +91,50 @@ impl Conn {
         conn.set_peer_ip(peer_ip);
         Ok(conn)
     }
+
+    async fn into_websocket_extended_connect(
+        mut self,
+        config: WebSocketConfig,
+    ) -> Result<WebSocketConn, WebSocketUpgradeError> {
+        // RFC 8441 §4 / RFC 9220 §3: the upgrade carries `Sec-WebSocket-Version: 13` and the
+        // optional `Sec-WebSocket-Protocol`, but skips the `Sec-WebSocket-Key` /
+        // `Sec-WebSocket-Accept` SHA1 dance — those are h1-only artifacts. The
+        // `Connection: upgrade` / `Upgrade: websocket` headers are likewise h1-only and would
+        // be stripped by `finalize_headers_h2` / `_h3` even if we set them.
+        self.request_headers_mut()
+            .try_insert(SecWebsocketVersion, "13");
+        self.set_method(Method::Connect);
+        self.protocol = Some(Cow::Borrowed("websocket"));
+
+        if let Err(e) = (&mut self).await {
+            return Err(WebSocketUpgradeError::new(self, e.into()));
+        }
+
+        // Peer-capability gate: the response status alone isn't sufficient — a server that
+        // doesn't support extended CONNECT might still send a 200, in which case the stream
+        // is a plain `CONNECT` tunnel rather than a websocket framing channel. Verify the
+        // peer actually advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`.
+        let extended_connect_supported = self
+            .h2_connection
+            .as_ref()
+            .is_some_and(|(h2, _)| h2.peer_enable_connect_protocol());
+        if !extended_connect_supported {
+            return Err(WebSocketUpgradeError::new(
+                self,
+                ErrorKind::ExtendedConnectUnsupported,
+            ));
+        }
+
+        let status = self.status().expect("Response did not include status");
+        if status != Status::Ok {
+            return Err(WebSocketUpgradeError::new(self, ErrorKind::Status(status)));
+        }
+
+        let peer_ip = self.peer_addr().map(|addr| addr.ip());
+        let mut conn = WebSocketConn::new(Upgrade::from(self), Some(config), Role::Client).await;
+        conn.set_peer_ip(peer_ip);
+        Ok(conn)
+    }
 }
 
 /// The kind of error that occurred when attempting a websocket upgrade
@@ -88,13 +145,32 @@ pub enum ErrorKind {
     #[error(transparent)]
     Http(#[from] trillium_http::Error),
 
-    /// Response didn't have status 101 (Switching Protocols)
-    #[error("Expected status 101 (Switching Protocols), got {0}")]
+    /// Response didn't have the expected status (101 Switching Protocols for h1, 200 OK for
+    /// h2/h3 extended CONNECT).
+    #[error("Unexpected response status {0} for websocket upgrade")]
     Status(Status),
 
     /// Response Sec-WebSocket-Accept was missing or invalid; generally a server bug
     #[error("Response Sec-WebSocket-Accept was missing or invalid")]
     InvalidAccept,
+
+    /// `into_websocket` was called on a `Conn` that had already been executed (its status is
+    /// already set). The websocket upgrade *is* the execution; build the conn and call
+    /// `into_websocket` directly without awaiting first.
+    #[error(
+        "Conn::into_websocket called after execution — build the conn and await into_websocket \
+         instead of awaiting the conn separately"
+    )]
+    AlreadyExecuted,
+
+    /// h2 peer did not advertise `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, so the extended-CONNECT
+    /// bootstrap (RFC 8441) is not available on this connection.
+    ///
+    /// Also surfaced when the conn was hinted as `Version::Http3`: client-side WebSocket-over-h3
+    /// (RFC 9220) requires h3 DATA-frame wrapping for the post-upgrade byte channel and that
+    /// framing layer doesn't exist yet.
+    #[error("peer does not support extended CONNECT, or h3 client websocket framing is missing")]
+    ExtendedConnectUnsupported,
 }
 
 /// An attempted upgrade to a WebSocket failed.
