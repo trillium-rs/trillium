@@ -14,12 +14,17 @@
 //!
 //! # Module layout
 //!
-//! Driver impl is split across this file and two child modules to keep each focused:
+//! Driver impl is split across this file and child modules to keep each focused:
 //!
-//! - **`acceptor.rs`** (this file): struct definition, the [`Self::drive`] orchestration loop,
-//!   conn-task signal pickup, write/flush plumbing, and the `queue_*` outbound-frame helpers. Also
-//!   the supporting enums ([`DriverState`], [`ReadPhase`], [`CloseOutcome`], [`Action`],
-//!   [`StreamEntry`]).
+//! - **`acceptor.rs`** (this file): struct definition, the [`Self::drive`] orchestration loop, I/O
+//!   read primitives (`poll_fill_to`, `poll_drain_peer`), and the supporting enums
+//!   ([`DriverState`], [`ReadPhase`], [`CloseOutcome`], [`Action`], [`StreamEntry`]).
+//! - **`acceptor::closed_streams`**: bounded ledger of recently-closed streams + reasons, consulted
+//!   to pick the right §5.1 error category for stale peer frames.
+//! - **`acceptor::handler_signals`**: conn-task → driver work-pickup boundary. Owns the
+//!   `needs_servicing` mailbox protocol — `service_handler_signals`, `pick_up_new_client_streams`,
+//!   `has_pending_handler_signals`.
+//! - **`acceptor::outbound`**: outbound write/flush plumbing and `queue_*` frame helpers.
 //! - **`acceptor::recv`**: receive side — frame reader, dispatch, HEADERS+CONTINUATION
 //!   accumulation, malformed-request `RST_STREAM`, DATA routing into per-stream recv rings.
 //! - **`acceptor::send`**: send pump — picks up [`SendCursor`][send::SendCursor]s from the
@@ -28,77 +33,38 @@
 //! [`H2Connection::run`]: super::H2Connection::run
 //! [`Stream`]: futures_lite::stream::Stream
 
+mod closed_streams;
+mod constants;
+mod handler_signals;
+mod outbound;
 mod recv;
 mod send;
+mod types;
 
 use super::{
-    H2Error, H2ErrorCode, H2Settings,
-    connection::H2Connection,
-    frame::{self, FRAME_HEADER_LEN},
-    transport::{H2Transport, StreamState},
+    H2Error, H2ErrorCode, connection::H2Connection, frame::FRAME_HEADER_LEN, role::Role,
+    transport::H2Transport,
 };
 use crate::{Conn, headers::hpack::HpackDecoder};
+use closed_streams::{ClosedReason, ClosedStreams};
+use constants::{
+    HPACK_TABLE_SIZE, INITIAL_CONNECTION_RECV_WINDOW, MAX_BUFFER_SIZE, MAX_DATA_CHUNK_SIZE,
+    MAX_FLOW_CONTROL_WINDOW,
+};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use recv::PendingHeaders;
-use send::SendCursor;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     future::Future,
     io,
     pin::Pin,
-    sync::{Arc, atomic::Ordering},
+    sync::Arc,
     task::{Context, Poll, ready},
 };
 use swansong::ShuttingDown;
-
-/// Absolute upper bound on transient frame buffers — a backstop against a peer that advertises
-/// an absurd frame size. Independent of `HttpConfig::h2_max_frame_size` (which we advertise and
-/// enforce against incoming frames); this is just the ceiling on our own decode buffer to
-/// prevent runaway allocation under an adversarial peer.
-const MAX_BUFFER_SIZE: usize = 1 << 20;
-
-/// Initial HPACK dynamic table size per RFC 7541 §4.2 — also the value implied by an absent
-/// `SETTINGS_HEADER_TABLE_SIZE`. HPACK dynamic table is decode-only today (encoder is
-/// static-or-literal), so a user-facing knob here would be cosmetic. Revisit when dynamic
-/// encoding lands.
-const HPACK_TABLE_SIZE: usize = 4096;
-
-/// RFC 9113 §6.9.2 baseline connection-level flow-control window — 65535 octets for both
-/// directions, unchanged by SETTINGS. Used as the starting value for our send-side window
-/// (credited via peer `WINDOW_UPDATE(0)`) and for our recv-side window before we emit the
-/// initial raising `WINDOW_UPDATE(0)` to `h2_initial_connection_window_size`.
-const INITIAL_CONNECTION_RECV_WINDOW: i64 = 65_535;
-
-/// Hard ceiling on the DATA payload we'll emit in a single frame even if the peer
-/// advertises a larger `MAX_FRAME_SIZE`. Bounds `body_scratch` so a permissive peer can't
-/// steer us into oversized allocations; the protocol only requires we not *exceed* the
-/// peer's advertised max, which starts at the RFC 9113 §6.5.2 default of 16 KiB.
-const MAX_DATA_CHUNK_SIZE: u32 = 16_384;
-
-/// RFC 9113 §6.9.1: a flow-control window MUST NOT exceed `2^31 - 1`. If a
-/// `WINDOW_UPDATE` would push it past that maximum, the peer has misbehaved — we emit
-/// `FLOW_CONTROL_ERROR` at the appropriate level (connection or stream).
-pub(super) const MAX_FLOW_CONTROL_WINDOW: i64 = (1 << 31) - 1;
-
-/// Whether this driver is servicing a peer that dialled us (server role) or a peer we
-/// dialled (client role). Routes the handful of role-asymmetric driver concerns — preface
-/// direction, HEADERS-on-unknown-id semantics, HEADERS-on-known-id semantics — through a
-/// single match point each.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Role {
-    /// Driver was handed a transport from an accepting listener — we read the client
-    /// preface, treat peer-initiated (odd-id) streams as new requests, and treat HEADERS
-    /// on a known stream as trailers.
-    Server,
-    /// Driver was handed a transport from an outbound dial — we write the client preface,
-    /// open streams with locally-allocated odd ids, and treat HEADERS on one of our
-    /// streams as the response headers (first arrival) or trailers (second). Produced by
-    /// [`H2Connection::run_client`][super::H2Connection::run_client], which is gated
-    /// behind the `unstable` feature — without that feature the variant is defined but
-    /// never constructed.
-    #[cfg_attr(not(feature = "unstable"), allow(dead_code))]
-    Client,
-}
+use types::{
+    AcceptorConfig, Action, CloseOutcome, DriverState, Next, ReadPhase, StreamEntry, frame_slice,
+};
 
 /// Owns the per-connection TCP transport and drives the HTTP/2 demux loop.
 ///
@@ -205,191 +171,6 @@ pub struct H2Driver<T> {
     pub(super) config: AcceptorConfig,
 }
 
-/// h2-relevant configuration extracted from [`HttpConfig`][crate::HttpConfig] at acceptor
-/// construction. Carried as a plain value so hot-loop policy checks don't cross the
-/// `Arc<HttpContext>` indirection.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct AcceptorConfig {
-    pub(super) initial_stream_window_size: u32,
-    pub(super) max_stream_recv_window_size: u32,
-    pub(super) initial_connection_window_size: u32,
-    pub(super) max_concurrent_streams: u32,
-    pub(super) max_frame_size: u32,
-    pub(super) copy_loops_per_yield: usize,
-}
-
-impl AcceptorConfig {
-    fn from_http_config(config: &crate::HttpConfig) -> Self {
-        Self {
-            initial_stream_window_size: config.h2_initial_stream_window_size(),
-            max_stream_recv_window_size: config.h2_max_stream_recv_window_size(),
-            initial_connection_window_size: config.h2_initial_connection_window_size(),
-            max_concurrent_streams: config.h2_max_concurrent_streams(),
-            max_frame_size: config.h2_max_frame_size(),
-            copy_loops_per_yield: config.copy_loops_per_yield(),
-        }
-    }
-}
-
-/// Position of the connection in its high-level lifecycle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum DriverState {
-    /// Haven't read the client preface yet.
-    AwaitingPreface,
-    /// Preface read; need to queue our initial SETTINGS frame to `write_buf`.
-    NeedsServerSettings,
-    /// Steady state — read frames from the transport and dispatch.
-    Running,
-    /// GOAWAY has been queued; drain `write_buf` then transition to [`Drained`] (for
-    /// graceful shutdown) or terminate directly (for I/O error paths where the transport
-    /// is already untrustworthy).
-    ///
-    /// [`Drained`]: Self::Drained
-    Closing,
-    /// Our outbound bytes are on the wire (including our GOAWAY). Now we're waiting for
-    /// the peer to close its write half (recv returns 0) so our Drop doesn't look like a
-    /// reset to the client — the sequence the h2 spec and most clients (hyper-h2 in
-    /// particular) assume. Any inbound bytes the peer happens to send during this window
-    /// are discarded; we've already committed to closing.
-    Drained,
-}
-
-/// Where the read cursor is inside the current frame.
-#[derive(Debug, Clone, Copy)]
-enum ReadPhase {
-    /// Not yet read the 9 bytes of the next frame header.
-    NeedHeader,
-    /// Header read and validated; still collecting payload bytes. `total` is the full target
-    /// fill (`FRAME_HEADER_LEN + payload_len`). The decoded header itself is cheap enough to
-    /// re-parse from the buffer when we dispatch, so we don't stash it here.
-    NeedPayload { total: usize },
-}
-
-/// Why the driver is closing — shaped around what the terminal `drive` result should be.
-#[derive(Debug)]
-enum CloseOutcome {
-    /// Clean close. `drive` returns `None`.
-    Graceful,
-    /// Protocol error. `drive` returns `Some(Err(...))`. GOAWAY with this code has been
-    /// queued.
-    Protocol(H2ErrorCode),
-    /// I/O error. GOAWAY was NOT queued (transport is untrustworthy). Propagated verbatim.
-    Io(io::Error),
-}
-
-/// Driver-side view of a single open stream: the shared state the handler also sees, plus a
-/// cache of decisions the driver has made for this stream (which the handler doesn't need
-/// to know).
-#[derive(Debug)]
-struct StreamEntry {
-    /// Shared state (recv buffer, send slot, handler wakers). Owned by `Arc` so the
-    /// handler task can outlive or operate concurrently with the driver's view.
-    shared: Arc<StreamState>,
-
-    /// Driver-private send-side state for an in-progress response. `None` until the conn
-    /// task submits a response via [`H2Connection::submit_send`] and the driver picks it
-    /// up on its next `service_handler_signals` tick.
-    ///
-    /// [`H2Connection::submit_send`]: super::H2Connection::submit_send
-    send: Option<SendCursor>,
-
-    /// Per-stream send flow-control window (RFC 9113 §6.9). Seeded from
-    /// `peer_settings.effective_initial_window_size()` when the stream is opened;
-    /// decremented as we emit DATA frames; incremented by peer
-    /// `WINDOW_UPDATE(stream_id, inc)`; adjusted by `SETTINGS_INITIAL_WINDOW_SIZE` delta on
-    /// mid-connection SETTINGS change (§6.9.2 — may drive negative). Overflow past
-    /// [`MAX_FLOW_CONTROL_WINDOW`] is a stream-level `FLOW_CONTROL_ERROR` (→ `RST_STREAM`).
-    send_window: i64,
-
-    /// Per-stream recv flow-control window (RFC 9113 §6.9) — how many bytes we've told
-    /// the peer it may still send on this stream. Starts at the server's advertised
-    /// `SETTINGS_INITIAL_WINDOW_SIZE` (currently 0 — lazy-WU pattern); decremented as the
-    /// peer's DATA frames arrive; incremented as we emit stream-level `WINDOW_UPDATE`
-    /// (both the initial raise on the handler's `is_reading` signal and every subsequent
-    /// refill crediting bytes the handler has consumed). A negative value means the peer
-    /// overran the window — connection-level `FLOW_CONTROL_ERROR`.
-    peer_recv_window: i64,
-}
-
-impl StreamEntry {
-    pub(super) fn new(shared: Arc<StreamState>, send_window: i64, peer_recv_window: i64) -> Self {
-        Self {
-            shared,
-            send: None,
-            send_window,
-            peer_recv_window,
-        }
-    }
-}
-
-/// Why a stream transitioned to the closed state — dictates the error category for any
-/// subsequent frame the peer sends on that stream id (RFC 9113 §5.1):
-/// - `Reset`: closed via `RST_STREAM` (either direction). Subsequent frames → stream-level
-///   `STREAM_CLOSED`.
-/// - `EndStream`: closed via `END_STREAM` on both sides. Subsequent frames (other than
-///   `WINDOW_UPDATE` / `PRIORITY` / `RST_STREAM`) → connection-level `STREAM_CLOSED`.
-///
-/// Streams that were never opened and are merely implicitly closed by a higher-id
-/// HEADERS (§5.1.1) don't appear in the ledger; the fall-through case there is
-/// connection-level `PROTOCOL_ERROR` per §5.1.1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ClosedReason {
-    Reset,
-    EndStream,
-}
-
-/// Bounded FIFO of recently-closed streams and how they closed. Consulted when a peer
-/// frame arrives on a stream id that's no longer in the active map to pick the right error
-/// category per RFC 9113 §5.1.
-///
-/// Fixed cap — this is a correctness mechanism, not a concurrency-scaled structure. A
-/// well-behaved peer never sends frames on a stream it knows is closed; the ledger only
-/// needs to span a handful of RTTs between our close and a misbehaving peer's stale
-/// frame. Oldest entries evict on overflow; evicted lookups fall through to the §5.1.1
-/// connection-level `PROTOCOL_ERROR` default.
-#[derive(Debug, Default)]
-struct ClosedStreams {
-    map: HashMap<u32, ClosedReason>,
-    fifo: VecDeque<u32>,
-}
-
-impl ClosedStreams {
-    const CAP: usize = 128;
-
-    /// Record (or update) the close reason for `stream_id`. Idempotent on repeated calls
-    /// for the same id; the most recent reason wins (a stream can be recorded as
-    /// `EndStream` by `complete_and_remove_stream(Ok)` after already being recorded as
-    /// `Reset` by `queue_rst_stream`, which is benign — the Reset recording is authoritative
-    /// in that path because it happens first and the Ok path doesn't fire when the error
-    /// path did).
-    fn record(&mut self, stream_id: u32, reason: ClosedReason) {
-        if self.map.insert(stream_id, reason).is_none() {
-            self.fifo.push_back(stream_id);
-            while self.fifo.len() > Self::CAP {
-                if let Some(old) = self.fifo.pop_front() {
-                    self.map.remove(&old);
-                }
-            }
-        }
-    }
-
-    fn reason(&self, stream_id: u32) -> Option<ClosedReason> {
-        self.map.get(&stream_id).copied()
-    }
-}
-
-/// Result of dispatching one decoded frame.
-enum Action {
-    /// Frame handled; continue the main loop.
-    Continue,
-    /// A stream just opened and the request validated — return the [`Conn`] to the caller;
-    /// the runtime adapter spawns a handler task per emitted Conn. Boxed to keep the enum
-    /// small — `Conn` is over 500 bytes and most dispatches return `Continue`.
-    Emit(Box<Conn<H2Transport>>),
-    /// Begin graceful or erroring close with this outcome.
-    Close(CloseOutcome),
-}
-
 impl<T> H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
@@ -462,7 +243,7 @@ where
             return Poll::Ready(None);
         }
 
-        for loop_number in 0..self.config.copy_loops_per_yield {
+        for loop_number in 0..self.config.copy_loops_per_yield() {
             log::trace!("h2 drive loop number: {loop_number}");
             // 1. Conn-task signals. Picks up window-update intent (`is_reading`) and new
             //    `submit_send` submissions, moving them into driver-private state.
@@ -544,7 +325,7 @@ where
                     // window — it stays at the 65535 RFC baseline unless we raise it via
                     // `WINDOW_UPDATE(0)`. Do that immediately after SETTINGS so peer bulk
                     // uploads aren't capped at ~5 Mbit/s × RTT.
-                    let raise = i64::from(self.config.initial_connection_window_size)
+                    let raise = i64::from(self.config.initial_connection_window_size())
                         - INITIAL_CONNECTION_RECV_WINDOW;
                     if raise > 0 {
                         let raise = u32::try_from(raise).unwrap_or(u32::MAX);
@@ -602,196 +383,6 @@ where
     fn park(&mut self, cx: &mut Context<'_>) -> bool {
         self.connection.outbound_waker().register(cx.waker());
         !self.has_pending_handler_signals()
-    }
-
-    /// Scan streams for conn-task-side signals that the driver should turn into driver-
-    /// internal state. Five per-stream signals, all gated by the
-    /// [`StreamState::needs_servicing`][super::transport::StreamState] mailbox flag:
-    /// - `recv.is_reading` (lazy `WINDOW_UPDATE`): conn task declared intent to read the request
-    ///   body; emit a `WINDOW_UPDATE` topping the per-stream recv window up.
-    /// - `recv.bytes_consumed`: handler drained N bytes from the recv ring; emit `WINDOW_UPDATE`
-    ///   credit at both stream and connection levels.
-    /// - `send.submission` (response handoff): conn task called `submit_send`; move the submission
-    ///   into the driver's private `SendCursor` so the next `advance_outbound_sends` tick can start
-    ///   framing.
-    /// - `pending_reset` (stream-error request): conn-task side (e.g. `ReceivedBody`'s
-    ///   content-length guard) called
-    ///   [`H2Connection::stream_error`][super::H2Connection::stream_error]; emit `RST_STREAM` and
-    ///   clean the stream up via `complete_and_remove_stream`.
-    /// - `pending_release`: client-role `H2Transport::Drop` on a wire-closed-but-held stream;
-    ///   remove from both stream maps without emitting `RST_STREAM`.
-    ///
-    /// Idle streams (mailbox flag `false`) are skipped after a single atomic RMW —
-    /// avoids 4+ mutex acquires per stream per tick.
-    fn service_handler_signals(&mut self) {
-        // Client role: pick up streams the conn task has opened via `H2Connection::open_stream`
-        // — they're in the shared map but not yet in our private `self.streams`. After this
-        // pass the consolidated per-stream walk below will promote each new stream's staged
-        // submission into a `SendCursor` on the same tick.
-        self.pick_up_new_client_streams();
-
-        // Pick up any opaque payloads queued by `H2Connection::send_ping` and emit them as
-        // outbound `PING { ack: false }` frames. The corresponding ACKs (handled in recv)
-        // complete the awaiting futures and record their RTTs.
-        for opaque in self.connection.drain_pending_ping_outbound() {
-            self.queue_active_ping(opaque);
-        }
-
-        // Single per-stream walk gated by the `needs_servicing` mailbox flag. Conn-task code
-        // raises the flag whenever it produces work; we clear via `swap(false)` and run the
-        // per-field pickup only when set. Idle streams cost one atomic RMW per tick instead of
-        // four mutex acquires.
-        //
-        // Collect work into short-lived Vecs (bounded by MAX_CONCURRENT_STREAMS) so we can act
-        // on it with `&mut self` after releasing the borrow on `self.streams`.
-        let mut stream_updates: Vec<(u32, u32)> = Vec::new();
-        let mut connection_credit: u64 = 0;
-        let mut resets: Vec<(u32, H2ErrorCode)> = Vec::new();
-        let mut releases: Vec<u32> = Vec::new();
-        let max_stream_recv_window = self.config.max_stream_recv_window_size;
-
-        for (&id, entry) in &mut self.streams {
-            // Mailbox-flag fast-skip. Idle streams stop here.
-            if !entry.shared.needs_servicing.swap(false, Ordering::AcqRel) {
-                continue;
-            }
-
-            // Initial lazy raise: peer hasn't been credited any recv window yet, handler
-            // signaled intent, emit a one-time top-up to the stream target.
-            if entry.peer_recv_window <= 0 && entry.shared.recv.is_reading.load(Ordering::Acquire) {
-                stream_updates.push((id, max_stream_recv_window));
-                entry.peer_recv_window += i64::from(max_stream_recv_window);
-            }
-
-            // Refill for bytes the handler has consumed since our last tick. Bounded by
-            // MAX_FLOW_CONTROL_WINDOW (2^31-1) which comfortably fits u32; a handler that
-            // somehow consumed more than u32::MAX bytes in one tick gets the credit
-            // emitted in multiple frames on subsequent ticks.
-            let consumed = entry.shared.recv.bytes_consumed.swap(0, Ordering::AcqRel);
-            if consumed > 0 {
-                let credit = u32::try_from(consumed).unwrap_or(u32::MAX);
-                stream_updates.push((id, credit));
-                entry.peer_recv_window += i64::from(credit);
-                connection_credit = connection_credit.saturating_add(u64::from(credit));
-            }
-
-            // New submission pickup.
-            if entry.send.is_none() {
-                let submission = entry
-                    .shared
-                    .send
-                    .submission
-                    .lock()
-                    .expect("send submission mutex poisoned")
-                    .take();
-                if let Some(submission) = submission {
-                    log::trace!("h2 stream {id}: driver picked up submission");
-                    entry.send = Some(SendCursor::new(submission));
-                }
-            }
-
-            // Conn-task-requested RST_STREAM.
-            if let Some(code) = entry
-                .shared
-                .pending_reset
-                .lock()
-                .expect("pending_reset mutex poisoned")
-                .take()
-            {
-                resets.push((id, code));
-            }
-
-            // Application-side release for client-role wire-closed-but-held streams. The
-            // `H2Transport::Drop` for a cleanly-completed stream sets `pending_release`;
-            // we remove the entry from both stream maps below. No `RST_STREAM` — the wire
-            // is already closed.
-            if entry.shared.pending_release.swap(false, Ordering::AcqRel) {
-                releases.push(id);
-            }
-        }
-
-        for (stream_id, increment) in stream_updates {
-            self.queue_window_update(stream_id, increment);
-        }
-        if connection_credit > 0 {
-            let credit = u32::try_from(connection_credit).unwrap_or(u32::MAX);
-            self.queue_window_update(0, credit);
-            self.connection_recv_window += i64::from(credit);
-        }
-        for (stream_id, code) in resets {
-            log::debug!("h2 stream {stream_id}: conn-task-requested RST_STREAM({code:?})");
-            self.queue_rst_stream(stream_id, code);
-            self.complete_and_remove_stream(
-                stream_id,
-                Err(io::Error::other(format!(
-                    "stream reset requested by conn task: {code:?}"
-                ))),
-            );
-        }
-        for stream_id in releases {
-            log::trace!("h2 stream {stream_id}: application released held stream — removing");
-            self.remove_from_stream_maps(stream_id);
-        }
-    }
-
-    /// True if any stream has a conn-task signal pending that we haven't yet serviced. Used
-    /// by `park` to decide whether returning `Pending` is safe or whether we need to loop
-    /// around.
-    fn has_pending_handler_signals(&self) -> bool {
-        // Client role: a stream the conn task has opened (added to the shared map) but the
-        // driver hasn't yet picked up isn't represented in `self.streams` and thus would be
-        // invisible to the per-stream checks below. Without this guard, an `open_stream`
-        // call landing between `service_handler_signals` and `park`'s waker registration
-        // could deadlock — the waker.wake fires before any task has registered, and the
-        // pickup work isn't on `self.streams` yet for the registered waker to detect.
-        if self.role == Role::Client {
-            let shared = self.connection.streams_lock();
-            if shared.keys().any(|id| !self.streams.contains_key(id)) {
-                return true;
-            }
-        }
-        // Mailbox-flag check — conn-task code raises `needs_servicing` whenever it produces
-        // work the driver should service. One atomic load per stream replaces the previous
-        // multi-atomic + multi-mutex peek.
-        self.streams
-            .values()
-            .any(|e| e.shared.needs_servicing.load(Ordering::Acquire))
-    }
-
-    /// Client role: scan [`H2Connection::streams`][super::H2Connection] for ids the conn
-    /// task has published via [`H2Connection::open_stream`][super::H2Connection::open_stream]
-    /// that we don't yet have a [`StreamEntry`] for, and create one per id seeded with the
-    /// peer-advertised initial send window and our own advertised initial recv window.
-    /// No-op for server role (server streams are created by inbound HEADERS in
-    /// [`recv::H2Driver::finalize_new_request_stream`][super::recv]).
-    fn pick_up_new_client_streams(&mut self) {
-        if self.role != Role::Client {
-            return;
-        }
-        // Collect first so we don't hold the shared streams lock across `streams.insert`
-        // (no actual deadlock risk, but keeps the lock as short as possible).
-        let new_streams: Vec<(u32, Arc<StreamState>)> = {
-            let shared = self.connection.streams_lock();
-            shared
-                .iter()
-                .filter(|(id, _)| !self.streams.contains_key(id))
-                .map(|(&id, s)| (id, Arc::clone(s)))
-                .collect()
-        };
-        if new_streams.is_empty() {
-            return;
-        }
-        let send_window = i64::from(
-            self.connection
-                .current_peer_settings()
-                .effective_initial_window_size(),
-        );
-        let peer_recv_window = i64::from(self.config.initial_stream_window_size);
-        for (id, shared) in new_streams {
-            log::trace!("h2 client: driver picked up new client-opened stream {id}");
-            self.streams
-                .insert(id, StreamEntry::new(shared, send_window, peer_recv_window));
-        }
     }
 
     /// Convert the current `close_outcome` into the terminal return of [`Self::drive`]. Must
@@ -897,150 +488,9 @@ where
         Poll::Ready(())
     }
 
-    /// Drain `write_buf[write_cursor..]` to the transport, then flush if bytes were
-    /// written. Returns `Ready(Ok(()))` when both the buffer is empty AND any pending
-    /// flush has completed.
-    fn poll_flush_outbound(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        while self.write_cursor < self.write_buf.len() {
-            let n = ready!(
-                Pin::new(&mut self.transport).poll_write(cx, &self.write_buf[self.write_cursor..])
-            )?;
-            if n == 0 {
-                return Poll::Ready(Err(io::Error::from(io::ErrorKind::WriteZero)));
-            }
-            self.write_cursor += n;
-        }
-        // Fully drained — reset the buffer so future writes start at offset 0.
-        self.write_buf.clear();
-        self.write_cursor = 0;
-        if self.write_flush_pending {
-            ready!(Pin::new(&mut self.transport).poll_flush(cx))?;
-            self.write_flush_pending = false;
-        }
-        Poll::Ready(Ok(()))
-    }
-
-    // --- outbound frame queuing helpers --------------------------------------------------
-    //
-    // All `queue_*` helpers append encoded bytes to `write_buf` via [`Self::queue_frame`]
-    // and set `write_flush_pending`. The driver's main loop drains `write_buf` before
-    // observing progress elsewhere.
-
-    /// Append one frame to `write_buf`. `max_len` must be an upper bound on the encoded
-    /// size; `encode` writes into the provided slice and returns the actual length (panics
-    /// via `expect` if the caller under-sized `max_len`).
-    fn queue_frame(&mut self, max_len: usize, encode: impl FnOnce(&mut [u8]) -> Option<usize>) {
-        let start = self.write_buf.len();
-        self.write_buf.resize(start + max_len, 0);
-        let n = encode(&mut self.write_buf[start..]).expect("buffer sized from max_len");
-        self.write_buf.truncate(start + n);
-        self.write_flush_pending = true;
-    }
-
-    fn queue_settings(&mut self) {
-        let settings = H2Settings::from_config(self.connection.context().config());
-        self.queue_frame(frame::settings::encoded_len(&settings), |buf| {
-            frame::settings::encode(&settings, buf)
-        });
-    }
-
-    /// Append the 24-byte RFC 9113 §3.4 client connection preface to `write_buf`. The
-    /// next outbound drain flushes it, and the `NeedsServerSettings` state follows up
-    /// with our initial SETTINGS frame. Client role only.
-    fn queue_client_preface(&mut self) {
-        self.write_buf.extend_from_slice(recv::CLIENT_PREFACE);
-        self.write_flush_pending = true;
-    }
-
-    fn queue_settings_ack(&mut self) {
-        self.queue_frame(
-            frame::settings::ACK_ENCODED_LEN,
-            frame::settings::encode_ack,
-        );
-    }
-
-    fn queue_ping_ack(&mut self, opaque_data: [u8; 8]) {
-        self.queue_frame(frame::ping::ENCODED_LEN, |buf| {
-            frame::ping::encode(opaque_data, true, buf)
-        });
-    }
-
-    fn queue_active_ping(&mut self, opaque_data: [u8; 8]) {
-        self.queue_frame(frame::ping::ENCODED_LEN, |buf| {
-            frame::ping::encode(opaque_data, false, buf)
-        });
-    }
-
-    fn queue_window_update(&mut self, stream_id: u32, increment: u32) {
-        self.queue_frame(frame::window_update::ENCODED_LEN, |buf| {
-            frame::window_update::encode(stream_id, increment, buf)
-        });
-    }
-
-    fn queue_goaway(&mut self, last_stream_id: u32, code: H2ErrorCode) {
-        self.queue_frame(frame::goaway::encoded_len(0), |buf| {
-            frame::goaway::encode(last_stream_id, code, &[], buf)
-        });
-    }
-
-    fn queue_rst_stream(&mut self, stream_id: u32, code: H2ErrorCode) {
-        self.queue_frame(frame::rst_stream::ENCODED_LEN, |buf| {
-            frame::rst_stream::encode(stream_id, code, buf)
-        });
-        // Record in the ledger so subsequent frames the peer sends on this stream get
-        // stream-level `STREAM_CLOSED` rather than connection-level `PROTOCOL_ERROR`
-        // (§5.1 closed-state rule for RST_STREAM-closed streams).
-        self.closed_streams.record(stream_id, ClosedReason::Reset);
-    }
-
     /// Look up why a stream is closed. `None` means either never-opened or evicted from the
     /// bounded ledger — both fall through to the connection-level §5.1.1 default.
     pub(super) fn closed_reason(&self, stream_id: u32) -> Option<ClosedReason> {
         self.closed_streams.reason(stream_id)
     }
-}
-
-/// Future returned by [`H2Driver::next`]. Resolves to `None` on graceful close, `Some(Ok)`
-/// when a new request stream opens, or `Some(Err)` on a fatal protocol or I/O error.
-#[must_use = "futures do nothing unless awaited"]
-#[derive(Debug)]
-pub struct Next<'a, T> {
-    driver: &'a mut H2Driver<T>,
-}
-
-impl<T> Future for Next<'_, T>
-where
-    T: AsyncRead + AsyncWrite + Unpin + Send,
-{
-    type Output = Option<Result<Conn<H2Transport>, H2Error>>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.driver.drive(cx)
-    }
-}
-
-impl<T> futures_lite::stream::Stream for H2Driver<T>
-where
-    T: AsyncRead + AsyncWrite + Unpin + Send,
-{
-    type Item = Result<Conn<H2Transport>, H2Error>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.get_mut().drive(cx)
-    }
-}
-
-/// Slice the interesting bytes out of a just-read frame. Bounds-checks to defend against a
-/// payload length on the wire that disagrees with a body-bearing frame's declared inner
-/// length.
-fn frame_slice(buf: &[u8], start: usize, length: u32, total: usize) -> Result<&[u8], CloseOutcome> {
-    let length =
-        usize::try_from(length).map_err(|_| CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
-    let end = start
-        .checked_add(length)
-        .ok_or(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
-    if end > total {
-        return Err(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError));
-    }
-    Ok(&buf[start..end])
 }

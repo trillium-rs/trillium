@@ -9,6 +9,7 @@ mod error;
 mod frame;
 #[cfg(feature = "unstable")]
 mod initiator;
+mod role;
 mod settings;
 mod transport;
 

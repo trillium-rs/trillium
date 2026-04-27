@@ -133,3 +133,103 @@ pub(crate) fn encode_prefix(
     }
     Some(prefix_len)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Frame, FrameDecodeError, FrameHeader, FrameType, FLAG_PRIORITY, FRAME_HEADER_LEN};
+    use super::*;
+    use crate::h2::H2ErrorCode;
+
+    fn encode_frame(frame_type: FrameType, flags: u8, stream_id: u32, payload: &[u8]) -> Vec<u8> {
+        let mut buf = vec![0u8; FRAME_HEADER_LEN + payload.len()];
+        FrameHeader {
+            length: u32::try_from(payload.len()).unwrap(),
+            frame_type: frame_type as u8,
+            flags,
+            stream_id,
+        }
+        .encode((&mut buf[..FRAME_HEADER_LEN]).try_into().unwrap());
+        buf[FRAME_HEADER_LEN..].copy_from_slice(payload);
+        buf
+    }
+
+    #[test]
+    fn headers_roundtrip_plain() {
+        let block = b"\x00\x00abc";
+        let prefix_len = encoded_prefix_len(0, false);
+        let mut buf = vec![0u8; prefix_len + block.len()];
+        encode_prefix(7, false, true, None, block.len() as u32, 0, &mut buf).unwrap();
+        buf[prefix_len..].copy_from_slice(block);
+
+        let (frame, consumed) = Frame::decode(&buf).unwrap();
+        assert_eq!(consumed, prefix_len);
+        assert_eq!(
+            frame,
+            Frame::Headers {
+                stream_id: 7,
+                end_stream: false,
+                end_headers: true,
+                priority: None,
+                header_block_length: block.len() as u32,
+                padding_length: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn headers_roundtrip_padded_priority_and_end_stream() {
+        let block = b"some-header-block";
+        let padding = 3u8;
+        let priority = PriorityInfo {
+            exclusive: true,
+            stream_dependency: 11,
+            weight: 42,
+        };
+        let prefix_len = encoded_prefix_len(padding, true);
+        let mut buf = vec![0u8; prefix_len + block.len() + padding as usize];
+        encode_prefix(
+            13,
+            true,
+            true,
+            Some(priority),
+            block.len() as u32,
+            padding,
+            &mut buf,
+        )
+        .unwrap();
+        buf[prefix_len..prefix_len + block.len()].copy_from_slice(block);
+
+        let (frame, consumed) = Frame::decode(&buf).unwrap();
+        assert_eq!(consumed, prefix_len);
+        assert_eq!(
+            frame,
+            Frame::Headers {
+                stream_id: 13,
+                end_stream: true,
+                end_headers: true,
+                priority: Some(priority),
+                header_block_length: block.len() as u32,
+                padding_length: padding,
+            }
+        );
+    }
+
+    #[test]
+    fn headers_on_stream_zero_protocol_error() {
+        let buf = encode_frame(FrameType::Headers, 0, 0, b"xyz");
+        assert_eq!(
+            Frame::decode(&buf),
+            Err(FrameDecodeError::Error(H2ErrorCode::ProtocolError)),
+        );
+    }
+
+    #[test]
+    fn headers_priority_prefix_without_enough_bytes_is_incomplete() {
+        // PRIORITY flag set but frame payload is only 4 bytes — priority block needs 5.
+        let buf = encode_frame(FrameType::Headers, FLAG_PRIORITY, 1, &[0u8; 4]);
+        assert_eq!(
+            Frame::decode(&buf),
+            Err(FrameDecodeError::Incomplete)
+        );
+    }
+}

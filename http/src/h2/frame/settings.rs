@@ -53,3 +53,60 @@ pub(crate) fn encode_ack(buf: &mut [u8]) -> Option<usize> {
 }
 
 pub(crate) const ACK_ENCODED_LEN: usize = FRAME_HEADER_LEN;
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Frame, FrameDecodeError, FrameHeader, FrameType, FLAG_ACK, FRAME_HEADER_LEN};
+    use super::*;
+    use crate::h2::H2ErrorCode;
+
+    fn encode_frame(frame_type: FrameType, flags: u8, stream_id: u32, payload: &[u8]) -> Vec<u8> {
+        let mut buf = vec![0u8; FRAME_HEADER_LEN + payload.len()];
+        FrameHeader {
+            length: u32::try_from(payload.len()).unwrap(),
+            frame_type: frame_type as u8,
+            flags,
+            stream_id,
+        }
+        .encode((&mut buf[..FRAME_HEADER_LEN]).try_into().unwrap());
+        buf[FRAME_HEADER_LEN..].copy_from_slice(payload);
+        buf
+    }
+
+    #[test]
+    fn settings_roundtrip_body() {
+        let settings = H2Settings::server_defaults().with_header_table_size(4096);
+        let mut buf = vec![0u8; encoded_len(&settings)];
+        let len = encode(&settings, &mut buf).unwrap();
+        let (frame, consumed) = Frame::decode(&buf[..len]).unwrap();
+        assert_eq!(consumed, len);
+        assert_eq!(frame, Frame::Settings(settings));
+    }
+
+    #[test]
+    fn settings_ack_roundtrip() {
+        let mut buf = vec![0u8; ACK_ENCODED_LEN];
+        let len = encode_ack(&mut buf).unwrap();
+        let (frame, consumed) = Frame::decode(&buf[..len]).unwrap();
+        assert_eq!(consumed, len);
+        assert_eq!(frame, Frame::SettingsAck);
+    }
+
+    #[test]
+    fn settings_ack_with_payload_is_frame_size_error() {
+        let buf = encode_frame(FrameType::Settings, FLAG_ACK, 0, &[0u8; 6]);
+        assert_eq!(
+            Frame::decode(&buf),
+            Err(FrameDecodeError::Error(H2ErrorCode::FrameSizeError)),
+        );
+    }
+
+    #[test]
+    fn settings_on_nonzero_stream_is_protocol_error() {
+        let buf = encode_frame(FrameType::Settings, 0, 1, &[]);
+        assert_eq!(
+            Frame::decode(&buf),
+            Err(FrameDecodeError::Error(H2ErrorCode::ProtocolError)),
+        );
+    }
+}

@@ -382,4 +382,108 @@ pub(crate) fn require_payload(
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    #![allow(clippy::cast_possible_truncation)] // fixed-size test payloads
+
+    use super::*;
+
+    #[test]
+    fn frame_header_roundtrip() {
+        let header = FrameHeader {
+            length: 0x00_01_02_03 & 0x00FF_FFFF,
+            frame_type: 0x09,
+            flags: 0x0F,
+            stream_id: 0x1234_5678,
+        };
+        let mut buf = [0u8; FRAME_HEADER_LEN];
+        header.encode(&mut buf);
+        let decoded = FrameHeader::decode(&buf).unwrap();
+        assert_eq!(decoded, header);
+    }
+
+    #[test]
+    fn frame_header_masks_reserved_bit_on_decode() {
+        let mut buf = [0u8; FRAME_HEADER_LEN];
+        // length=1, type=6 (PING), flags=0, stream_id with reserved bit set
+        buf[2] = 1;
+        buf[3] = 0x06;
+        buf[5..9].copy_from_slice(&0xFFFF_FFFFu32.to_be_bytes());
+        let decoded = FrameHeader::decode(&buf).unwrap();
+        assert_eq!(decoded.stream_id, 0x7FFF_FFFF);
+    }
+
+    #[test]
+    fn frame_header_incomplete() {
+        assert!(FrameHeader::decode(&[0u8; FRAME_HEADER_LEN - 1]).is_none());
+    }
+
+    #[test]
+    fn unknown_frame_type_returns_unknown_variant() {
+        let payload = [1u8, 2, 3];
+        let mut buf = vec![0u8; FRAME_HEADER_LEN + payload.len()];
+        FrameHeader {
+            length: u32::try_from(payload.len()).unwrap(),
+            frame_type: 0xBE,
+            flags: 0xEF,
+            stream_id: 5,
+        }
+        .encode((&mut buf[..FRAME_HEADER_LEN]).try_into().unwrap());
+        buf[FRAME_HEADER_LEN..].copy_from_slice(&payload);
+
+        let (frame, consumed) = Frame::decode(&buf).unwrap();
+        // Only the header is consumed; payload stays in the slice for the caller to skip.
+        assert_eq!(consumed, FRAME_HEADER_LEN);
+        assert_eq!(
+            frame,
+            Frame::Unknown {
+                stream_id: 5,
+                frame_type: 0xBE,
+                flags: 0xEF,
+                length: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn push_promise_variant_surfaced_for_rejection() {
+        let payload = [0u8; 8]; // promised_stream_id + header fragment
+        let mut buf = vec![0u8; FRAME_HEADER_LEN + payload.len()];
+        FrameHeader {
+            length: u32::try_from(payload.len()).unwrap(),
+            frame_type: FrameType::PushPromise as u8,
+            flags: 0,
+            stream_id: 1,
+        }
+        .encode((&mut buf[..FRAME_HEADER_LEN]).try_into().unwrap());
+        buf[FRAME_HEADER_LEN..].copy_from_slice(&payload);
+
+        let (frame, consumed) = Frame::decode(&buf).unwrap();
+        assert_eq!(consumed, FRAME_HEADER_LEN);
+        assert_eq!(
+            frame,
+            Frame::PushPromise {
+                stream_id: 1,
+                length: 8,
+            }
+        );
+    }
+
+    #[test]
+    fn incomplete_header_is_incomplete() {
+        assert_eq!(Frame::decode(&[0u8; 4]), Err(FrameDecodeError::Incomplete));
+    }
+
+    #[test]
+    fn incomplete_control_payload_is_incomplete() {
+        // PING frame declares length=8 but we only provide 4 payload bytes.
+        let mut buf = vec![0u8; FRAME_HEADER_LEN + 4];
+        FrameHeader {
+            length: 8,
+            frame_type: FrameType::Ping as u8,
+            flags: 0,
+            stream_id: 0,
+        }
+        .encode((&mut buf[..FRAME_HEADER_LEN]).try_into().unwrap());
+        assert_eq!(Frame::decode(&buf), Err(FrameDecodeError::Incomplete));
+    }
+}

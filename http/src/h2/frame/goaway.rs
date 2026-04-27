@@ -53,3 +53,59 @@ pub(crate) fn encode(
     payload[8..8 + debug_data.len()].copy_from_slice(debug_data);
     Some(total)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Frame, FrameDecodeError, FrameHeader, FrameType, FRAME_HEADER_LEN};
+    use super::*;
+    use crate::h2::H2ErrorCode;
+
+    fn encode_frame(frame_type: FrameType, flags: u8, stream_id: u32, payload: &[u8]) -> Vec<u8> {
+        let mut buf = vec![0u8; FRAME_HEADER_LEN + payload.len()];
+        FrameHeader {
+            length: u32::try_from(payload.len()).unwrap(),
+            frame_type: frame_type as u8,
+            flags,
+            stream_id,
+        }
+        .encode((&mut buf[..FRAME_HEADER_LEN]).try_into().unwrap());
+        buf[FRAME_HEADER_LEN..].copy_from_slice(payload);
+        buf
+    }
+
+    #[test]
+    fn goaway_roundtrip_with_debug_data() {
+        let mut buf = vec![0u8; encoded_len(5)];
+        let len = encode(42, H2ErrorCode::InternalError, b"hello", &mut buf).unwrap();
+        let (frame, consumed) = Frame::decode(&buf[..len]).unwrap();
+        assert_eq!(consumed, len);
+        assert_eq!(
+            frame,
+            Frame::Goaway {
+                last_stream_id: 42,
+                error_code: H2ErrorCode::InternalError,
+                debug_data_length: 5,
+            }
+        );
+        // Debug data is after the fixed prefix at the tail of the frame.
+        assert_eq!(&buf[FRAME_HEADER_LEN + 8..len], b"hello");
+    }
+
+    #[test]
+    fn goaway_short_payload_is_frame_size_error() {
+        let buf = encode_frame(FrameType::Goaway, 0, 0, &[0u8; 7]);
+        assert_eq!(
+            Frame::decode(&buf),
+            Err(FrameDecodeError::Error(H2ErrorCode::FrameSizeError)),
+        );
+    }
+
+    #[test]
+    fn goaway_on_nonzero_stream_is_protocol_error() {
+        let buf = encode_frame(FrameType::Goaway, 0, 3, &[0u8; 8]);
+        assert_eq!(
+            Frame::decode(&buf),
+            Err(FrameDecodeError::Error(H2ErrorCode::ProtocolError)),
+        );
+    }
+}

@@ -38,3 +38,60 @@ pub(crate) fn encode(stream_id: u32, increment: u32, buf: &mut [u8]) -> Option<u
     buf[FRAME_HEADER_LEN..ENCODED_LEN].copy_from_slice(&(increment & 0x7FFF_FFFF).to_be_bytes());
     Some(ENCODED_LEN)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Frame, FrameDecodeError, FrameHeader, FrameType, FRAME_HEADER_LEN};
+    use super::*;
+    use crate::h2::H2ErrorCode;
+
+    fn encode_frame(frame_type: FrameType, flags: u8, stream_id: u32, payload: &[u8]) -> Vec<u8> {
+        let mut buf = vec![0u8; FRAME_HEADER_LEN + payload.len()];
+        FrameHeader {
+            length: u32::try_from(payload.len()).unwrap(),
+            frame_type: frame_type as u8,
+            flags,
+            stream_id,
+        }
+        .encode((&mut buf[..FRAME_HEADER_LEN]).try_into().unwrap());
+        buf[FRAME_HEADER_LEN..].copy_from_slice(payload);
+        buf
+    }
+
+    #[test]
+    fn window_update_roundtrip() {
+        let mut buf = vec![0u8; ENCODED_LEN];
+        let len = encode(1, 65535, &mut buf).unwrap();
+        let (frame, consumed) = Frame::decode(&buf[..len]).unwrap();
+        assert_eq!(consumed, len);
+        assert_eq!(
+            frame,
+            Frame::WindowUpdate {
+                stream_id: 1,
+                increment: 65535,
+            }
+        );
+    }
+
+    #[test]
+    fn window_update_zero_increment_is_protocol_error() {
+        let buf = encode_frame(FrameType::WindowUpdate, 0, 1, &[0, 0, 0, 0]);
+        assert_eq!(
+            Frame::decode(&buf),
+            Err(FrameDecodeError::Error(H2ErrorCode::ProtocolError)),
+        );
+    }
+
+    #[test]
+    fn window_update_reserved_bit_ignored() {
+        let buf = encode_frame(FrameType::WindowUpdate, 0, 0, &[0xFF, 0xFF, 0xFF, 0xFF]);
+        let (frame, _) = Frame::decode(&buf).unwrap();
+        assert_eq!(
+            frame,
+            Frame::WindowUpdate {
+                stream_id: 0,
+                increment: 0x7FFF_FFFF,
+            }
+        );
+    }
+}
