@@ -20,12 +20,17 @@ hyper-bench = [
     "dep:http-body-util",
     "dep:bytes",
     "dep:tokio",
+    "dep:h3",
+    "dep:h3-quinn",
+    "dep:quinn",
+    "dep:http",
 ]
 
 [dependencies]
 trillium = { path = "../trillium" }
 trillium-tokio = { path = "../tokio" }
 trillium-rustls = { path = "../rustls" }
+trillium-quinn = { path = "../quinn" }
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
@@ -39,6 +44,10 @@ rustls = { version = "0.23", features = ["aws_lc_rs"], optional = true, default-
 rustls-pemfile = { version = "2", optional = true }
 http-body-util = { version = "0.1", optional = true }
 bytes = { version = "1", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+quinn = { version = "0.11", optional = true, default-features = false, features = ["rustls-aws-lc-rs", "log", "runtime-tokio"] }
+http = { version = "1", optional = true }
 
 [[bin]]
 name = "trillium-bench-server"

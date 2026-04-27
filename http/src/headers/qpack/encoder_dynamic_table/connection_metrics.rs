@@ -15,12 +15,10 @@
 
 use super::super::FieldLineValue;
 use crate::headers::entry_name::EntryName;
-use std::{
-    collections::HashMap,
-    sync::{
-        Mutex,
-        atomic::{AtomicI64, AtomicU64, Ordering},
-    },
+use hashbrown::HashMap;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicI64, AtomicU64, Ordering},
 };
 
 /// Per-connection QPACK encoder metrics, aggregated and logged on `EncoderDynamicTable`

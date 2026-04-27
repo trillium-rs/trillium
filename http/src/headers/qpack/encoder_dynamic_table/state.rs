@@ -28,10 +28,8 @@ use crate::{
         },
     },
 };
-use std::{
-    borrow::Cow,
-    collections::{HashMap, VecDeque},
-};
+use hashbrown::HashMap;
+use std::{borrow::Cow, collections::VecDeque};
 
 #[derive(Debug)]
 pub(super) struct TableState {

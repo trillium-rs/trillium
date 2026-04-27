@@ -41,7 +41,8 @@ use crate::{
     HttpConfig, KnownHeaderName,
     headers::{entry_name::EntryName, qpack::static_table::StaticLookup},
 };
-use std::{collections::HashMap, sync::Mutex};
+use hashbrown::HashMap;
+use std::sync::Mutex;
 
 /// Hardcoded threshold — a pair must have appeared in at least this fraction of recent
 /// connections (as measured by the EMA ratio) to be considered for priming. Room for a

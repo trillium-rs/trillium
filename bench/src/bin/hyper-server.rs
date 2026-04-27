@@ -1,8 +1,12 @@
 //! Hyper baseline bench server. Same routes, same TLS setup as the trillium variant.
 //!
 //! No router crate — match-on-path. The point is the lowest-overhead reference.
+//!
+//! HTTP/3 path uses the `h3` crate (hyper-team-maintained) on top of `h3-quinn`,
+//! since `hyper` itself doesn't ship HTTP/3. This is the natural h3 stack a hyper
+//! user reaches for today.
 
-use bytes::Bytes;
+use bytes::{Buf, Bytes, BytesMut};
 use clap::Parser;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -29,7 +33,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[derive(Parser, Debug)]
-#[command(about = "hyper h2 baseline bench server")]
+#[command(about = "hyper h1/h2 + h3-via-h3-crate baseline bench server")]
 struct Args {
     #[arg(long, default_value_t = 8443)]
     port: u16,
@@ -43,6 +47,9 @@ struct Args {
         default_value = "/home/ubuntu/trillium-h2-bench.tanuki-sunfish.ts.net.key"
     )]
     key: PathBuf,
+    /// Disable HTTP/3 / QUIC. Default: HTTP/3 enabled on the same port (UDP).
+    #[arg(long)]
+    no_quic: bool,
 }
 
 struct Bodies {
@@ -113,7 +120,7 @@ async fn handle(
     }
 }
 
-fn load_tls(cert_path: &PathBuf, key_path: &PathBuf) -> ServerConfig {
+fn load_tls(cert_path: &PathBuf, key_path: &PathBuf, alpn: Vec<Vec<u8>>) -> ServerConfig {
     let cert_file = std::fs::File::open(cert_path).expect("open cert");
     let key_file = std::fs::File::open(key_path).expect("open key");
     let certs = rustls_pemfile::certs(&mut BufReader::new(cert_file))
@@ -128,8 +135,114 @@ fn load_tls(cert_path: &PathBuf, key_path: &PathBuf) -> ServerConfig {
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .expect("build server config");
-    cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-    ServerConfig::from(cfg)
+    cfg.alpn_protocols = alpn;
+    cfg
+}
+
+// ── HTTP/3 path ───────────────────────────────────────────────────────────────
+
+async fn h3_handle_request<C>(
+    req: http::Request<()>,
+    mut stream: h3::server::RequestStream<C, Bytes>,
+) where
+    C: h3::quic::BidiStream<Bytes>,
+{
+    let path = req.uri().path().to_owned();
+    let method = req.method().clone();
+
+    let (status, body): (http::StatusCode, Bytes) = match (&method, path.as_str()) {
+        (&http::Method::GET, "/tiny") => (http::StatusCode::OK, Bytes::from_static(b"ok")),
+        (&http::Method::GET, "/small") => (http::StatusCode::OK, bodies().one_k.clone()),
+        (&http::Method::GET, p) if p.starts_with("/large/") => match body_for(&p[7..]) {
+            Some(b) => (http::StatusCode::OK, b),
+            None => (http::StatusCode::NOT_FOUND, Bytes::new()),
+        },
+        (&http::Method::POST, "/echo") => {
+            let mut buf = BytesMut::new();
+            while let Ok(Some(mut chunk)) = stream.recv_data().await {
+                buf.extend_from_slice(chunk.copy_to_bytes(chunk.remaining()).as_ref());
+            }
+            (http::StatusCode::OK, buf.freeze())
+        }
+        (&http::Method::POST, "/recv") => {
+            let mut total = 0usize;
+            while let Ok(Some(mut chunk)) = stream.recv_data().await {
+                total += chunk.remaining();
+                let _ = chunk.copy_to_bytes(chunk.remaining());
+            }
+            (http::StatusCode::OK, Bytes::from(total.to_string()))
+        }
+        _ => (http::StatusCode::NOT_FOUND, Bytes::new()),
+    };
+
+    let resp = http::Response::builder().status(status).body(()).unwrap();
+    if stream.send_response(resp).await.is_err() {
+        return;
+    }
+    if !body.is_empty() && stream.send_data(body).await.is_err() {
+        return;
+    }
+    // Explicit graceful close of recv side so the implicit drop doesn't trigger
+    // STOP_SENDING(0), which h2load misreports as a stream error.
+    stream.stop_sending(h3::error::Code::H3_NO_ERROR);
+    let _ = stream.finish().await;
+}
+
+async fn run_h3(
+    cert_path: PathBuf,
+    key_path: PathBuf,
+    addr: SocketAddr,
+) -> std::io::Result<()> {
+    let mut tls = load_tls(&cert_path, &key_path, vec![b"h3".to_vec()]);
+    tls.max_early_data_size = u32::MAX;
+    let quic_tls = quinn::crypto::rustls::QuicServerConfig::try_from(Arc::new(tls))
+        .expect("build quic tls");
+    let server_cfg = quinn::ServerConfig::with_crypto(Arc::new(quic_tls));
+
+    let endpoint = quinn::Endpoint::server(server_cfg, addr)?;
+    log::info!("h3 (hyper-baseline) listening on udp {}", addr);
+
+    while let Some(incoming) = endpoint.accept().await {
+        tokio::spawn(async move {
+            let conn = match incoming.await {
+                Ok(c) => c,
+                Err(e) => {
+                    log::warn!("quic accept failed: {e}");
+                    return;
+                }
+            };
+            let h3_conn = match h3::server::Connection::new(h3_quinn::Connection::new(conn)).await {
+                Ok(c) => c,
+                Err(e) => {
+                    log::warn!("h3 connection failed: {e}");
+                    return;
+                }
+            };
+            let mut h3_conn = h3_conn;
+            loop {
+                match h3_conn.accept().await {
+                    Ok(Some(resolver)) => {
+                        tokio::spawn(async move {
+                            let (req, stream) = match resolver.resolve_request().await {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    log::warn!("h3 resolve failed: {e}");
+                                    return;
+                                }
+                            };
+                            h3_handle_request(req, stream).await;
+                        });
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        log::warn!("h3 accept failed: {e}");
+                        break;
+                    }
+                }
+            }
+        });
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -138,12 +251,26 @@ async fn main() {
     let args = Args::parse();
     bodies();
 
-    let tls_cfg = Arc::new(load_tls(&args.cert, &args.key));
+    let tls_cfg = Arc::new(load_tls(
+        &args.cert,
+        &args.key,
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()],
+    ));
     let acceptor = TlsAcceptor::from(tls_cfg);
     let addr: SocketAddr = ([0, 0, 0, 0], args.port).into();
     let listener = TcpListener::bind(addr).await.expect("bind");
 
-    log::info!("hyper bench listening on {}", addr);
+    log::info!("hyper bench listening on tcp {}", addr);
+
+    if !args.no_quic {
+        let cert = args.cert.clone();
+        let key = args.key.clone();
+        tokio::spawn(async move {
+            if let Err(e) = run_h3(cert, key, addr).await {
+                log::error!("h3 server error: {e}");
+            }
+        });
+    }
 
     loop {
         let (stream, _peer) = match listener.accept().await {
