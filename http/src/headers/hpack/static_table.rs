@@ -16,6 +16,9 @@ use PseudoHeaderName::{Authority, Method, Path, Scheme, Status};
 use StaticHeaderName::{Header, Pseudo};
 use std::fmt::{self, Display, Formatter};
 
+mod lookup;
+pub(in crate::headers) use lookup::{StaticLookup, static_table_lookup};
+
 /// A name in the HPACK static table — either a regular header or a pseudo-header.
 ///
 /// Structurally parallel to the QPACK equivalent; kept local to HPACK so the two tables

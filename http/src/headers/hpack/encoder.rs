@@ -15,8 +15,8 @@
 #[cfg(test)]
 mod tests;
 
-use super::static_table::STATIC_TABLE;
-use crate::headers::{entry_name::EntryName, field_section::FieldSection, huffman, integer_prefix};
+use super::static_table::{StaticLookup, static_table_lookup};
+use crate::headers::{field_section::FieldSection, huffman, integer_prefix};
 
 /// Encode `field_section` into `buf` as an HPACK header block.
 pub fn encode(field_section: &FieldSection<'_>, buf: &mut Vec<u8>) {
@@ -32,41 +32,6 @@ pub fn encode(field_section: &FieldSection<'_>, buf: &mut Vec<u8>) {
             }
         }
     }
-}
-
-/// Result of looking up an `(name, value)` pair against the static table.
-#[allow(
-    clippy::enum_variant_names,
-    reason = "Might rename to StaticLookupMatch at some point but not pressing"
-)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StaticLookup {
-    /// Both name and value match a static table entry at this 1-based index.
-    FullMatch(u8),
-    /// The name appears in the static table at this 1-based index; the value doesn't match
-    /// any entry for that name.
-    NameMatch(u8),
-    /// The name is not in the static table.
-    NoMatch,
-}
-
-/// Walk the 61-entry table once, tracking the first name-match and returning early on a
-/// full `(name, value)` match. Linear because the table is small and encoding is not on a
-/// hot path relative to send.
-fn static_table_lookup(name: &EntryName<'_>, value: &[u8]) -> StaticLookup {
-    let mut name_match: Option<u8> = None;
-    for (i, (entry_name, entry_value)) in STATIC_TABLE.iter().enumerate() {
-        if EntryName::from(*entry_name).reborrow() == name.reborrow() {
-            let idx = u8::try_from(i + 1).expect("static table length fits u8");
-            if entry_value.as_bytes() == value {
-                return StaticLookup::FullMatch(idx);
-            }
-            if name_match.is_none() {
-                name_match = Some(idx);
-            }
-        }
-    }
-    name_match.map_or(StaticLookup::NoMatch, StaticLookup::NameMatch)
 }
 
 /// §6.1 Indexed Header Field: `1xxxxxxx` + 7-bit prefix integer.

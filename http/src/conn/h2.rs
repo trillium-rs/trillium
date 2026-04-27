@@ -154,7 +154,11 @@ where
     /// if the response failed partway through.
     pub(crate) async fn send_h2(mut self) -> io::Result<Self> {
         self.finalize_response_headers_h2();
-        let encoded_headers = encode_headers_h2(self.status, &self.response_headers);
+        let encoded_headers = encode_headers_h2(
+            self.status,
+            &self.response_headers,
+            self.context.config.response_buffer_len,
+        );
 
         let h2 = self
             .h2_connection
@@ -231,10 +235,14 @@ where
 /// Encode response headers into an HPACK byte block: `:status` pseudo-header followed by
 /// the response Headers map. Static-or-literal — no dynamic-table mutation, safe to do on the
 /// conn task without coordination with the driver.
-fn encode_headers_h2(status: Option<Status>, response_headers: &Headers) -> Vec<u8> {
+fn encode_headers_h2(
+    status: Option<Status>,
+    response_headers: &Headers,
+    initial_capacity: usize,
+) -> Vec<u8> {
     let pseudos = PseudoHeaders::default().with_status(status.unwrap_or(Status::NotFound));
     let field_section = FieldSection::new(pseudos, response_headers);
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(initial_capacity);
     hpack::encode(&field_section, &mut buf);
     buf
 }

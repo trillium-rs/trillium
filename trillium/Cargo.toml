@@ -12,6 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [features]
 unstable = ["trillium-http/unstable"]
+parse = ["trillium-http/parse"]
 http-compat-0 = ["trillium-http/http-compat-0"]
 http-compat-1 = ["trillium-http/http-compat-1"]
 serde = ["trillium-http/serde"]

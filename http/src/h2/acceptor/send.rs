@@ -129,6 +129,27 @@ where
         }
     }
 
+    /// True if any active stream has more outbound work that could make progress on the next
+    /// tick — a `SendCursor` mid-Headers / Trailers / Complete (no flow control gates these),
+    /// or a `SendCursor` in Body with a positive per-stream send window AND a positive
+    /// connection send window. Used by [`park`][super::H2Driver::park] to keep the driver
+    /// awake when there are body bytes left to emit and budget to emit them with — the body
+    /// source wouldn't wake us in that case (it already returned `Ready` on the prior poll),
+    /// and the only frame the peer is obliged to send is a `WINDOW_UPDATE` once our budget
+    /// runs out, not before.
+    pub(super) fn has_pending_outbound_progress(&self) -> bool {
+        if self.connection_send_window <= 0 {
+            return false;
+        }
+        self.streams.values().any(|entry| match &entry.send {
+            None => false,
+            Some(send) => match send.phase {
+                SendPhase::Headers | SendPhase::Trailers | SendPhase::Complete => true,
+                SendPhase::Body => entry.send_window > 0,
+            },
+        })
+    }
+
     /// Advance one stream's `SendCursor` by one frame's worth of work, with the §6.10
     /// exception: in `Headers` phase we keep emitting fragments back-to-back until
     /// `END_HEADERS` is set. Other phases emit at most one frame per tick to keep streams

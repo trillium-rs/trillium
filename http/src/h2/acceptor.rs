@@ -52,9 +52,9 @@ use constants::{
     MAX_FLOW_CONTROL_WINDOW,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
+use hashbrown::HashMap;
 use recv::PendingHeaders;
 use std::{
-    collections::HashMap,
     future::Future,
     io,
     pin::Pin,
@@ -382,7 +382,7 @@ where
     /// around to pick it up.
     fn park(&mut self, cx: &mut Context<'_>) -> bool {
         self.connection.outbound_waker().register(cx.waker());
-        !self.has_pending_handler_signals()
+        !self.has_pending_handler_signals() && !self.has_pending_outbound_progress()
     }
 
     /// Convert the current `close_outcome` into the terminal return of [`Self::drive`]. Must

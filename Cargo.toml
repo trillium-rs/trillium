@@ -8,6 +8,7 @@ members = [
         "aws-lambda",
         "aws-lambda-example",
         "basic-auth",
+        "bench",
         "caching-headers",
         "channels",
         "client",
@@ -44,3 +45,9 @@ members = [
         "webtransport",
 ]
 exclude = ["controllers", "fuzz"]
+
+[profile.bench-release]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+debug = "line-tables-only"

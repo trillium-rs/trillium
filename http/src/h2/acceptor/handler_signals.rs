@@ -195,7 +195,7 @@ where
             let shared = self.connection.streams_lock();
             shared
                 .iter()
-                .filter(|(id, _)| !self.streams.contains_key(id))
+                .filter(|(id, _)| !self.streams.contains_key(*id))
                 .map(|(&id, s)| (id, Arc::clone(s)))
                 .collect()
         };

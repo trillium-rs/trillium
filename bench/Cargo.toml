@@ -1,0 +1,53 @@
+[package]
+name = "trillium-bench"
+version = "0.1.0"
+authors = ["Jacob Rothstein <hi@jbr.me>"]
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[features]
+default = []
+mimalloc = ["dep:mimalloc"]
+jemalloc = ["dep:tikv-jemallocator"]
+parse = ["trillium/parse"]
+hyper-bench = [
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:tokio-rustls",
+    "dep:rustls",
+    "dep:rustls-pemfile",
+    "dep:http-body-util",
+    "dep:bytes",
+    "dep:tokio",
+]
+
+[dependencies]
+trillium = { path = "../trillium" }
+trillium-tokio = { path = "../tokio" }
+trillium-rustls = { path = "../rustls" }
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+mimalloc = { version = "0.1", optional = true, default-features = false }
+tikv-jemallocator = { version = "0.6", optional = true }
+hyper = { version = "1", features = ["http1", "http2", "server"], optional = true }
+hyper-util = { version = "0.1", features = ["server", "tokio", "http1", "http2"], optional = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "fs"], optional = true }
+tokio-rustls = { version = "0.26", optional = true }
+rustls = { version = "0.23", features = ["aws_lc_rs"], optional = true, default-features = false }
+rustls-pemfile = { version = "2", optional = true }
+http-body-util = { version = "0.1", optional = true }
+bytes = { version = "1", optional = true }
+
+[[bin]]
+name = "trillium-bench-server"
+path = "src/bin/trillium-server.rs"
+
+[[bin]]
+name = "hyper-bench-server"
+path = "src/bin/hyper-server.rs"
+required-features = ["hyper-bench"]
+
+[target.'cfg(any())'.dependencies]
+# tokens for the hyper baseline; only built when --features hyper-bench is set

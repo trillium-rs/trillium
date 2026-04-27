@@ -1,0 +1,1 @@
+-c, -t: the number of clients must be greater than or equal to the number of threads.
