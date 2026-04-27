@@ -24,6 +24,7 @@ members = [
         "macros",
         "method-override",
         "native-tls",
+        "openssl",
         "proxy",
         "quinn",
         "redirect",

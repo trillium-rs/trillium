@@ -28,7 +28,7 @@
 //!     .with_host("127.0.0.1")
 //!     .without_signals()
 //!     .with_nodelay()
-//!     .with_acceptor(()) // see [`trillium_rustls`] and [`trillium_native_tls`]
+//!     .with_acceptor(()) // see [`trillium_rustls`], [`trillium_native_tls`], and [`trillium_openssl`]
 //!     .with_swansong(swansong)
 //!     .run(|conn: trillium::Conn| async move { conn.ok("hello smol") });
 //! ```
@@ -122,7 +122,7 @@ pub async fn run_async(handler: impl Handler) {
 ///     .with_host("127.0.0.1")
 ///     .without_signals()
 ///     .with_nodelay()
-///     .with_acceptor(()) // see [`trillium_rustls`] and [`trillium_native_tls`]
+///     .with_acceptor(()) // see [`trillium_rustls`], [`trillium_native_tls`], and [`trillium_openssl`]
 ///     .with_swansong(swansong)
 ///     .run(|conn: trillium::Conn| async move { conn.ok("hello smol") });
 /// ```

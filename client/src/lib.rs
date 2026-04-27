@@ -22,8 +22,9 @@
 //! [`trillium_async_std`](https://docs.trillium.rs/trillium_async_std)) offers
 //! a Connector implementation, which can optionally be combined with a
 //! tls crate such as
-//! [`trillium_rustls`](https://docs.trillium.rs/trillium_rustls) or
-//! [`trillium_native_tls`](https://docs.trillium.rs/trillium_native_tls).
+//! [`trillium_rustls`](https://docs.trillium.rs/trillium_rustls),
+//! [`trillium_native_tls`](https://docs.trillium.rs/trillium_native_tls), or
+//! [`trillium_openssl`](https://docs.trillium.rs/trillium_openssl).
 //!
 //! See the documentation for [`Client`] and [`Conn`] for further usage
 //! examples.
@@ -33,7 +34,8 @@
 //! By default, trillium-client auto-discovers the best HTTP version for each request:
 //!
 //! - Over `https://` with a TLS connector that advertises `h2` in ALPN *and* exposes the server's selection
-//!   back to trillium (the default for [`trillium_rustls::RustlsConfig`](https://docs.trillium.rs/trillium_rustls/struct.RustlsConfig.html)):
+//!   back to trillium (the default for [`trillium_rustls::RustlsConfig`](https://docs.trillium.rs/trillium_rustls/struct.RustlsConfig.html)
+//!   and [`trillium_openssl::OpenSslConfig`](https://docs.trillium.rs/trillium_openssl/struct.OpenSslConfig.html)):
 //!   the server picks h2 or h1.1 during the TLS handshake. Whatever ALPN selects is what the client
 //!   uses.
 //! - Over `https://` with `h2` removed from the ALPN list (e.g. `RustlsConfig::without_http2()`):
