@@ -41,11 +41,12 @@
 //! is **not** supported — if an `Upgrade: h2c` header arrives on an h1 request it
 //! is logged and ignored.
 //!
-//! The TLS acceptors shipped with trillium (`trillium-rustls`, `trillium-native-tls`)
-//! automatically advertise `h2, http/1.1` in ALPN. Users with custom TLS configs
-//! are responsible for advertising `h2` themselves if h2 is desired. Clients on TLS
-//! stacks that don't expose an ALPN knob can still reach h2 via the prior-knowledge
-//! preface path — ALPN comes back absent and the server peeks the first 24 bytes.
+//! The TLS acceptors shipped with trillium that advertise ALPN (`trillium-rustls` and
+//! `trillium-openssl`) advertise `h2, http/1.1` automatically. `trillium-native-tls`
+//! does not surface ALPN. Users with custom TLS configs are responsible for advertising
+//! `h2` themselves if h2 is desired. Clients on TLS stacks that don't expose an ALPN
+//! knob can still reach h2 via the prior-knowledge preface path — ALPN comes back
+//! absent and the server peeks the first 24 bytes.
 //!
 //! All h2/h3-specific tuning flows through [`HttpConfig`] — see its field
 //! documentation for the full list of knobs (stream / connection flow-control

@@ -2,7 +2,7 @@
 
 [rustdocs](https://docs.trillium.rs/trillium_client)
 
-`trillium-client` is a full HTTP client that mirrors the server-side `Conn` design. It supports HTTP/1.0, HTTP/1.1, HTTP/2, and HTTP/3, HTTPS via rustls or native-tls, connection pooling, and WebSocket upgrades (including over h2).
+`trillium-client` is a full HTTP client that mirrors the server-side `Conn` design. It supports HTTP/1.0, HTTP/1.1, HTTP/2, and HTTP/3, HTTPS, connection pooling, and WebSocket upgrades (including over h2).
 
 The client is runtime-agnostic and uses the same connector pattern as the server adapters.
 
@@ -61,7 +61,7 @@ let conn = client.get("https://example.com/").await.unwrap();
 # }) }
 ```
 
-`trillium-native-tls` can be used instead of `trillium-rustls` with the same pattern.
+`trillium-native-tls` and `trillium-openssl` can be used instead of `trillium-rustls` with the same pattern.
 
 ## HTTP/2
 

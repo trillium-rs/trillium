@@ -186,6 +186,11 @@ const ecosystem: EcosystemCategory[] = [
         href: "/guide/overview/runtimes#native-tls",
       },
       {
+        name: "OpenSSL",
+        description: "TLS via openssl",
+        href: "/guide/overview/runtimes#openssl",
+      },
+      {
         name: "ACME",
         description: "Automatic certificate provisioning via Let's Encrypt",
         href: "https://docs.rs/trillium-acme",
@@ -260,7 +265,7 @@ const features: FeatureItem[] = [
   {
     title: "Runtime and TLS Independent",
     description:
-      "Choose tokio, smol, async-std, or AWS Lambda — swap with one import. TLS (rustls or native-tls) is equally orthogonal. Infrastructure choices live at the application boundary, invisible to handler code.",
+      "Choose tokio, smol, async-std, or AWS Lambda — swap with one import. TLS (rustls, native-tls, or openssl) is equally orthogonal. Infrastructure choices live at the application boundary, invisible to handler code.",
   },
   {
     title: "Opt-in Composable Ecosystem",
