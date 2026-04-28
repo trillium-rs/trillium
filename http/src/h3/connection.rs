@@ -357,86 +357,96 @@ impl H3Connection {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let mut buf = vec![0; 128];
-        let mut filled = 0;
+        self.swansong
+            .interrupt(async move {
+                let mut buf = vec![0; 128];
+                let mut filled = 0;
 
-        // Read stream type varint (decode as raw u64 to handle unknown types)
-        let stream_type = read(
-            &mut buf,
-            &mut filled,
-            &mut stream,
-            |data| match quic_varint::decode::<u64>(data) {
-                Ok(ok) => Ok(Some(ok)),
-                Err(QuicVarIntError::UnexpectedEnd) => Ok(None),
-                // this branch is unreachable because u64 is always From<u64>
-                Err(QuicVarIntError::UnknownValue { bytes, value }) => Ok(Some((value, bytes))),
-            },
-        )
-        .await?;
-
-        match UniStreamType::try_from(stream_type) {
-            Ok(UniStreamType::Control) => {
-                log::trace!("H3 inbound uni: control stream");
-                self.run_inbound_control(&mut buf, &mut filled, &mut stream)
-                    .await?;
-                Ok(UniStreamResult::Handled)
-            }
-
-            Ok(UniStreamType::QpackEncoder) => {
-                log::trace!("H3 inbound uni: QPACK encoder stream ({filled} bytes pre-read)");
-                let mut reader = Prepended {
-                    head: &buf[..filled],
-                    tail: stream,
-                };
-
-                log::trace!("QPACK encoder stream: started");
-                self.decoder_dynamic_table.run_reader(&mut reader).await?;
-
-                Ok(UniStreamResult::Handled)
-            }
-
-            Ok(UniStreamType::QpackDecoder) => {
-                log::trace!("H3 inbound uni: QPACK decoder stream ({filled} bytes pre-read)");
-                let mut reader = Prepended {
-                    head: &buf[..filled],
-                    tail: stream,
-                };
-                self.encoder_dynamic_table.run_reader(&mut reader).await?;
-                Ok(UniStreamResult::Handled)
-            }
-
-            Ok(UniStreamType::WebTransport) => {
-                log::trace!("H3 inbound uni: WebTransport stream");
-                let session_id =
+                // Read stream type varint (decode as raw u64 to handle unknown types)
+                let stream_type =
                     read(
                         &mut buf,
                         &mut filled,
                         &mut stream,
-                        |data| match quic_varint::decode::<u64>(data) {
+                        |data| match quic_varint::decode(data) {
                             Ok(ok) => Ok(Some(ok)),
                             Err(QuicVarIntError::UnexpectedEnd) => Ok(None),
+                            // this branch is unreachable because u64 is always From<u64>
                             Err(QuicVarIntError::UnknownValue { bytes, value }) => {
                                 Ok(Some((value, bytes)))
                             }
                         },
                     )
                     .await?;
-                buf.truncate(filled);
-                Ok(UniStreamResult::WebTransport {
-                    session_id,
-                    stream,
-                    buffer: buf.into(),
-                })
-            }
 
-            Ok(UniStreamType::Push) | Err(_) => {
-                log::trace!("H3 inbound uni: unknown stream type {stream_type:#x}");
-                Ok(UniStreamResult::Unknown {
-                    stream_type,
-                    stream,
-                })
-            }
-        }
+                match UniStreamType::try_from(stream_type) {
+                    Ok(UniStreamType::Control) => {
+                        log::trace!("H3 inbound uni: control stream");
+                        self.run_inbound_control(&mut buf, &mut filled, &mut stream)
+                            .await?;
+                        Ok(UniStreamResult::Handled)
+                    }
+
+                    Ok(UniStreamType::QpackEncoder) => {
+                        log::trace!(
+                            "H3 inbound uni: QPACK encoder stream ({filled} bytes pre-read)"
+                        );
+                        let mut reader = Prepended {
+                            head: &buf[..filled],
+                            tail: stream,
+                        };
+
+                        log::trace!("QPACK encoder stream: started");
+                        self.decoder_dynamic_table.run_reader(&mut reader).await?;
+
+                        Ok(UniStreamResult::Handled)
+                    }
+
+                    Ok(UniStreamType::QpackDecoder) => {
+                        log::trace!(
+                            "H3 inbound uni: QPACK decoder stream ({filled} bytes pre-read)"
+                        );
+                        let mut reader = Prepended {
+                            head: &buf[..filled],
+                            tail: stream,
+                        };
+                        self.encoder_dynamic_table.run_reader(&mut reader).await?;
+                        Ok(UniStreamResult::Handled)
+                    }
+
+                    Ok(UniStreamType::WebTransport) => {
+                        log::trace!("H3 inbound uni: WebTransport stream");
+                        let session_id = read(&mut buf, &mut filled, &mut stream, |data| {
+                            match quic_varint::decode(data) {
+                                Ok(ok) => Ok(Some(ok)),
+                                Err(QuicVarIntError::UnexpectedEnd) => Ok(None),
+                                Err(QuicVarIntError::UnknownValue { bytes, value }) => {
+                                    Ok(Some((value, bytes)))
+                                }
+                            }
+                        })
+                        .await?;
+
+                        buf.truncate(filled);
+
+                        Ok(UniStreamResult::WebTransport {
+                            session_id,
+                            stream,
+                            buffer: buf.into(),
+                        })
+                    }
+
+                    Ok(UniStreamType::Push) | Err(_) => {
+                        log::trace!("H3 inbound uni: unknown stream type {stream_type:#x}");
+                        Ok(UniStreamResult::Unknown {
+                            stream_type,
+                            stream,
+                        })
+                    }
+                }
+            })
+            .await
+            .unwrap_or(Ok(UniStreamResult::Handled)) // interrupted
     }
 
     /// Handle the http/3 peer's inbound control stream.
@@ -489,17 +499,20 @@ impl H3Connection {
 
             match frame {
                 None => {
-                    log::trace!("H3 control stream: interrupted by swansong shutdown");
+                    log::trace!("H3 control stream: interrupted by shutdown");
                     return Ok(());
                 }
+
                 Some(Frame::Goaway(id)) => {
                     log::trace!("H3 control stream: peer sent GOAWAY(stream_id={id})");
                     self.swansong.shut_down();
                     return Ok(());
                 }
+
                 Some(Frame::Settings(_)) => {
                     return Err(H3ErrorCode::FrameUnexpected.into());
                 }
+
                 Some(Frame::Unknown(n)) => {
                     // RFC 9114 §7.2.8: unknown frame types MUST be ignored.
                     // We must also consume the payload bytes so the stream stays synchronized.
