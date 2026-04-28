@@ -1,11 +1,12 @@
 use futures_lite::{AsyncRead, io::Cursor};
 use std::{
-    fs,
     io::Result,
     pin::Pin,
+    process::ExitCode,
     task::{Context, Poll},
 };
 use trillium::{Body, BodySource, Conn, Headers, KnownHeaderName};
+use trillium_client::Url;
 use trillium_logger::logger;
 use trillium_quinn::QuicConfig;
 use trillium_rustls::RustlsAcceptor;
@@ -26,7 +27,7 @@ impl AsyncRead for PollCounter {
         self.polls += 1;
         if let Poll::Ready(Ok(n)) = &result {
             for chunk in buf[0..*n].chunks(16) {
-                for (offset, byte) in chunk.into_iter().enumerate() {
+                for (offset, byte) in chunk.iter().enumerate() {
                     self.hash ^= u128::from(*byte) << offset;
                 }
             }
@@ -59,20 +60,39 @@ async fn handler_fn(mut conn: Conn) -> Conn {
     .with_response_header(KnownHeaderName::Trailer, ["poll-count", "hash"])
 }
 
-fn main() {
+fn cert_and_key() -> Option<(Vec<u8>, Vec<u8>)> {
+    let host_path = std::env::var("CERT").ok()?;
+    let key_path = std::env::var("KEY").ok()?;
+    let cert_file = std::fs::read(host_path).ok()?;
+    let key_file = std::fs::read(key_path).ok()?;
+    Some((cert_file, key_file))
+}
+
+fn main() -> ExitCode {
     env_logger::init();
 
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 3 {
-        eprintln!("Usage: {} <cert.pem> <key.pem>", args[0]);
-        std::process::exit(1);
-    }
+    let Some((cert, key)) = cert_and_key() else {
+        eprintln!("CERT and KEY env vars should point at files");
+        return ExitCode::FAILURE;
+    };
 
-    let cert_pem = fs::read(&args[1]).expect("reading cert file");
-    let key_pem = fs::read(&args[2]).expect("reading key file");
+    let Some(url) = std::env::var("URL")
+        .ok()
+        .as_deref()
+        .map(Url::parse)
+        .transpose()
+        .ok()
+        .flatten()
+    else {
+        eprintln!("URL env var expected");
+        return ExitCode::FAILURE;
+    };
 
     trillium_tokio::config()
-        .with_acceptor(RustlsAcceptor::from_single_cert(&cert_pem, &key_pem))
-        .with_quic(QuicConfig::from_single_cert(&cert_pem, &key_pem))
+        .with_acceptor(RustlsAcceptor::from_single_cert(&cert, &key))
+        .with_quic(QuicConfig::from_single_cert(&cert, &key))
+        .with_shared_state(url)
         .run((logger(), handler_fn));
+
+    ExitCode::SUCCESS
 }
