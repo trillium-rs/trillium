@@ -146,8 +146,8 @@ where
             if quic_binding.is_some() {
                 info.shared_state_entry::<Headers>()
                     .or_default()
-                    .try_insert_with(KnownHeaderName::AltSvc, || {
-                        format!("h3=\":{}\"", socket_addr.port())
+                    .try_insert_with(KnownHeaderName::AltSvc, || -> &'static str {
+                        format!("h3=\":{}\"", socket_addr.port()).leak()
                     });
             }
 
@@ -192,10 +192,12 @@ where
         if let Some(quic_binding) = quic_binding {
             let context = context.clone();
             let handler = handler.clone();
-            let runtime: crate::Runtime = runtime.clone().into();
-            runtime
-                .clone()
-                .spawn(crate::h3::run_h3(quic_binding, context, handler, runtime));
+            runtime.clone().spawn(crate::h3::run_h3(
+                quic_binding,
+                context,
+                handler,
+                runtime.clone(),
+            ));
         }
 
         let running_config = Arc::new(RunningConfig {
