@@ -2,7 +2,7 @@
 
 [rustdocs](https://docs.trillium.rs/trillium_client)
 
-`trillium-client` is a full HTTP client that mirrors the server-side `Conn` design. It supports HTTP/1.1, HTTPS via rustls or native-tls, HTTP/3 via QUIC, connection pooling, and WebSocket upgrades.
+`trillium-client` is a full HTTP client that mirrors the server-side `Conn` design. It supports HTTP/1.0, HTTP/1.1, HTTP/2, and HTTP/3, HTTPS via rustls or native-tls, connection pooling, and WebSocket upgrades (including over h2).
 
 The client is runtime-agnostic and uses the same connector pattern as the server adapters.
 
@@ -62,6 +62,53 @@ let conn = client.get("https://example.com/").await.unwrap();
 ```
 
 `trillium-native-tls` can be used instead of `trillium-rustls` with the same pattern.
+
+## HTTP/2
+
+Over `https://` with a `trillium-rustls` connector, HTTP/2 is automatically negotiated when the server selects `h2` in ALPN. No code changes are required — every example above already speaks h2 against an h2-capable server.
+
+To opt out, drop `h2` from the advertised ALPN list:
+
+```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-rustls = { path = "../rustls" }
+# trillium-client = { path = "../client" }
+#
+use trillium_client::Client;
+use trillium_rustls::RustlsConfig;
+use trillium_smol::ClientConfig;
+
+# fn main() {
+let client = Client::new(RustlsConfig::<ClientConfig>::default().without_http2());
+# }
+```
+
+For TLS connectors that don't surface ALPN selection (`trillium-native-tls` at time of writing) or for cleartext h2c, set the per-request prior-knowledge hint:
+
+```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-testing = { path = "../testing" }
+#
+# fn main() { trillium_testing::block_on(async {
+# use trillium_client::Client;
+# use trillium_smol::ClientConfig;
+use trillium_client::Version;
+
+# let client = Client::new(ClientConfig::default());
+let conn = client
+    .get("http://localhost:8080/")
+    .with_http_version(Version::Http2)
+    .await
+    .unwrap();
+# }); }
+```
+
+`Version::Http2` skips ALPN inspection and starts the h2 driver immediately — there is no fallback if the server doesn't speak h2. See the [`trillium_client` rustdocs](https://docs.trillium.rs/trillium_client) for the full prior-knowledge table.
+
+HTTP/2 connections are pooled and multiplex concurrent requests over a single TCP+TLS connection. `Client::with_h2_idle_timeout`, `with_h2_idle_ping_threshold`, and `with_h2_idle_ping_timeout` tune idle and health-check behavior.
 
 ## HTTP/3
 
@@ -124,7 +171,7 @@ println!("status: {}", conn.status().unwrap());
 
 ## Connection pooling
 
-Connections are pooled and reused automatically across requests to the same host. The pool handles HTTP/1.1 and HTTP/3 connections separately.
+Connections are pooled and reused automatically across requests to the same host. HTTP/1.1, HTTP/2, and HTTP/3 each have their own pool; HTTP/2 multiplexes concurrent requests over a single connection.
 
 ## WebSocket client
 

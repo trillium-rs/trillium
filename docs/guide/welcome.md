@@ -85,15 +85,15 @@ handler early in the tuple stores the current user in state, and later handlers 
 
 `trillium_smol::run` in the examples above is a **runtime adapter** — it binds a port, listens for
 TCP connections, and drives the async executor. Adapters are available for smol, tokio, async-std,
-and AWS Lambda. TLS and HTTP/3 are also configured at this layer.
+and AWS Lambda. TLS, HTTP/2, and HTTP/3 are also configured at this layer.
 
-See [Runtime Adapters, TLS, and HTTP/3](./overview/runtimes.md) for the full picture.
+See [Runtime Adapters, TLS, HTTP/2, and HTTP/3](./overview/runtimes.md) for the full picture.
 
 ## Where to go next
 
 - [Handlers in depth](./overview/handlers.md) — the trait, built-in implementations, and the `init`
   lifecycle
 - [Conn in depth](./overview/conn.md) — request access, state, and the conn extension pattern
-- [Runtime Adapters, TLS, and HTTP/3](./overview/runtimes.md) — runtime selection, configuration,
-  TLS, and QUIC
+- [Runtime Adapters, TLS, HTTP/2, and HTTP/3](./overview/runtimes.md) — runtime selection,
+  configuration, TLS, and the H2/H3 protocol stack
 - [Handler Libraries](./handlers.md) — a tour of all official handler crates

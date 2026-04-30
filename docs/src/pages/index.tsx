@@ -156,7 +156,8 @@ const ecosystem: EcosystemCategory[] = [
     items: [
       {
         name: "HTTP Client",
-        description: "Async HTTP/1.1 and HTTP/3 client with connection pooling",
+        description:
+          "Async HTTP/1.0 / HTTP/1.1 / HTTP/2 / HTTP/3 client with connection pooling",
         href: "/guide/handlers/http_client",
       },
       {
@@ -252,9 +253,9 @@ const features: FeatureItem[] = [
     ),
   },
   {
-    title: "HTTP/3",
+    title: "Every HTTP version, client and server",
     description:
-      "HTTP/3 over QUIC alongside HTTP/1.x — add a crate and two lines of config, and existing handlers run unchanged across protocols. WebTransport, for bidirectional browser communication over HTTP/3, is included.",
+      "Spec-compliant client and server across HTTP/1.0, HTTP/1.1, HTTP/2, and HTTP/3, plus WebSockets (including over h2) and WebTransport. The same handler runs unchanged across all of them; ALPN and Alt-Svc pick the protocol per connection.",
   },
   {
     title: "Runtime and TLS Independent",

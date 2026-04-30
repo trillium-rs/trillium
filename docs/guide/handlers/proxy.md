@@ -2,7 +2,7 @@
 
 [rustdocs](https://docs.trillium.rs/trillium_proxy)
 
-The `trillium-proxy` crate provides both reverse proxy and forward proxy modes, built on `trillium-client`. Both modes support HTTP/3 on the inbound side (when the server is configured with `trillium-quinn`) and on the outbound side (when the client is initialized with `Client::new_with_quic`).
+The `trillium-proxy` crate provides both reverse proxy and forward proxy modes, built on `trillium-client`. The proxy is protocol-agnostic on both sides: HTTP/2 is negotiated automatically via TLS ALPN with no extra configuration, and HTTP/3 is available on the inbound side (when the server is configured with `trillium-quinn`) and on the outbound side (when the client is initialized with `Client::new_with_quic`).
 
 ## Reverse proxy
 

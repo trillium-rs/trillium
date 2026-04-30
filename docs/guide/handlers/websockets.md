@@ -65,6 +65,10 @@ WebSocket::new(|mut conn: WebSocketConn| async move {
 # );}
 ```
 
+## WebSockets over HTTP/2
+
+The same handler runs whether the WebSocket arrived via the HTTP/1.1 `Upgrade: websocket` mechanism or via HTTP/2 extended CONNECT ([RFC 8441](https://datatracker.ietf.org/doc/html/rfc8441)). On an h2 connection, regular requests and WebSocket sessions are multiplexed over the same TLS connection.
+
 ## Client-side WebSocket
 
 The `trillium-client` crate can upgrade connections to WebSocket with the `websockets` feature. See the [HTTP Client](./http_client.md) page.

@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-XX-XX
+
+### Added
+- `pub mod h2` — HTTP/2 protocol primitives: HPACK encode/decode, h2 framing, `H2Connection`, `H2Driver`, `H2Transport`. HTTP/2 is automatically negotiated when ALPN selects `h2` or via prior-knowledge cleartext ("h2c"). 146/146 [h2spec](https://github.com/summerwind/h2spec) cases pass.
+- HTTP/2 extended CONNECT (RFC 8441) — opt in via `HttpConfig::with_extended_connect_enabled()`; required for WebSockets-over-h2.
+- `KnownHeaderName::Refresh`
+- `Conn::h2_connection()`, `Conn::h2_stream_id()` — for handlers that want to interact with the underlying h2 stream
+- `Upgrade::h2_connection`, `Upgrade::h2_stream_id` (and `_mut` / `set_` / `with_` / `take_` variants) — used by `trillium-websockets` for WS-over-h2 (RFC 8441)
+- Various `HttpConfig::h2_*` tuning knobs (window sizes, max concurrent streams, max frame/header size, HPACK table capacity)
+
 ## [1.0.0] - 2026-04-08
 
 ### Changed
