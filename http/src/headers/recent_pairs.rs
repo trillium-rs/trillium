@@ -9,11 +9,11 @@
 //! ## Sizing
 //!
 //! Sized once per connection at construction from
-//! [`HttpConfig::h3_qpack_recent_pairs_size`]. Fixed for the lifetime of the connection.
+//! [`HttpConfig::recent_pairs_size`]. Fixed for the lifetime of the connection.
 //! Backed by `Box<[u32]>` so LLVM can autovectorize the [`contains`] scan in
 //! [`seen`](RecentPairs::seen) without the `SmallVec` inline-vs-spilled branch.
 //!
-//! [`HttpConfig::h3_qpack_recent_pairs_size`]: crate::HttpConfig::h3_qpack_recent_pairs_size
+//! [`HttpConfig::recent_pairs_size`]: crate::HttpConfig::recent_pairs_size
 //! [`contains`]: slice::contains
 //!
 //! ## Read-then-write ordering

@@ -17,7 +17,7 @@ fn context_with_observations(
     observations: &[(EntryName<'static>, FieldLineValue<'static>)],
 ) -> HttpContext {
     let context = HttpContext::default()
-        .with_config(crate::HttpConfig::default().with_h3_max_table_capacity(max_capacity));
+        .with_config(crate::HttpConfig::default().with_dynamic_table_capacity(max_capacity));
     let mut accum = ConnectionAccumulator::default();
     for (name, value) in observations {
         accum.observe(name, value);
@@ -46,7 +46,7 @@ fn count_duplicates(ops: &[EncoderInstruction]) -> usize {
 fn gate_closed_when_no_priming() {
     // Fresh observer, no observations — prime() returns empty, primed_bytes stays 0.
     let context = HttpContext::default()
-        .with_config(crate::HttpConfig::default().with_h3_max_table_capacity(160));
+        .with_config(crate::HttpConfig::default().with_dynamic_table_capacity(160));
     let table = init_table(&context, 160);
     assert_eq!(
         table.entry_count(),

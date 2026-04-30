@@ -165,7 +165,7 @@ fn new_table_with_blocked_streams(
     max_blocked_streams: u64,
 ) -> EncoderDynamicTable {
     let context = HttpContext::default().with_config(
-        crate::HttpConfig::default().with_h3_max_table_capacity(max_capacity as usize),
+        crate::HttpConfig::default().with_dynamic_table_capacity(max_capacity as usize),
     );
     let table = EncoderDynamicTable::new(&context);
     table.initialize_from_peer_settings(

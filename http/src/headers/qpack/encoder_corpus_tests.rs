@@ -192,7 +192,7 @@ fn run_qif_at_config(
         // it at construction).
         let mut context = crate::HttpContext::default();
         context.observer = observer.clone();
-        context.config.h3_max_table_capacity = config.capacity as usize;
+        context.config.dynamic_table_capacity = config.capacity as usize;
         let encoder = EncoderDynamicTable::new(&context);
         encoder.initialize_from_peer_settings(
             H3Settings::default()

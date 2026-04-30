@@ -39,7 +39,7 @@ impl AcceptorConfig {
             max_concurrent_streams: config.h2_max_concurrent_streams(),
             max_frame_size: config.h2_max_frame_size(),
             copy_loops_per_yield: config.copy_loops_per_yield(),
-            hpack_table_capacity: config.h2_hpack_table_capacity(),
+            hpack_table_capacity: config.dynamic_table_capacity(),
         }
     }
 }
