@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-XX-XX
+
+### Added
+- WebSockets over HTTP/2 (RFC 8441) — handled transparently when the request arrives via h2 with extended CONNECT. `WebSocketHandler::init` checks that the peer advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL` and turns the handler into a no-op for that connection if not.
+
 ## [0.7.0] - 2026-04-08
 
 ### Changed

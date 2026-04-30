@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-XX-XX
+
+### Added
+
+#### HTTP/2
+
+The client now speaks HTTP/2. With a TLS connector that negotiates `h2` via ALPN, h2 is used automatically; for cleartext h2c, set `Conn::with_http_version(Version::Http2)` for prior-knowledge dispatch. h2 connections are pooled and multiplex concurrent requests over a single connection.
+
+```rust
+use trillium_client::Client;
+use trillium_rustls::RustlsConfig;
+
+let client = Client::new(RustlsConfig::default()); // h2 advertised in ALPN automatically
+```
+
+- `Client::with_h2_idle_timeout` / `with_h2_idle_ping_threshold` / `with_h2_idle_ping_timeout` (and `set_*` / `without_*` variants) — h2 connection idle and health-check tuning
+- `Conn::protocol() -> Option<&str>` — the negotiated protocol (`Some("h2")` once the response has been received over h2)
+
+#### Other additions
+
+- `Client::without_timeout()` — builder counterpart to `with_timeout`
+- `BodySource` re-exported from `trillium-http`
+
 ## [0.7.0] - 2026-04-08
 
 ### Changed

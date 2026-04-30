@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-XX-XX
+
+### Changed
+- TLS now advertises `h2` and `http/1.1` in ALPN by default. `RustlsConfig::without_http2()` opts back out for HTTP/1.1-only deployments.
+
+### Added
+- `RustlsConfig::without_http2()` — drop `h2` from the advertised ALPN list
+- `RustlsAcceptor::from_single_cert_no_h2(cert, key)` — convenience constructor for HTTP/1.1-only TLS, equivalent to `from_single_cert(cert, key).without_http2()`
+- `RustlsClientTransport::negotiated_alpn()` / `RustlsServerTransport::negotiated_alpn()` — exposes the ALPN result for runtime/client dispatch
+
 ## [0.10.0] - 2026-04-08
 
 ### Changed

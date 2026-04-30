@@ -46,7 +46,7 @@ Trillium is designed so that every feature is opt-in. The crates below are all o
 
 ## HTTP client and proxying
 
-[**HTTP Client**](./handlers/http_client.md) — A full-featured async HTTP client with connection pooling, TLS, and HTTP/3 support. Can also upgrade to WebSocket. Uses the same conn-based interface as the server.
+[**HTTP Client**](./handlers/http_client.md) — A full-featured async HTTP client with connection pooling, TLS, and HTTP/1.0 / HTTP/1.1 / HTTP/2 / HTTP/3 support. Can also upgrade to WebSocket. Uses the same conn-based interface as the server.
 
 [**Reverse Proxy**](./handlers/proxy.md) — Forward incoming requests to an upstream server and stream the response back.
 
