@@ -4,6 +4,7 @@ use trillium::{Conn, KnownHeaderName};
 use trillium_client::{Client, Version};
 use trillium_quinn::{ClientQuicConfig, QuicConfig};
 use trillium_rustls::{RustlsConfig, rustls};
+use trillium_testing::{TestResult, harness, test};
 use trillium_tokio::ClientConfig;
 
 // ---------------------------------------------------------------------------
@@ -67,8 +68,8 @@ fn trillium_client(tc: &TestCert) -> Client {
 // Tests: trillium client against trillium server
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn trillium_client_h3_basic() {
+#[test(harness)]
+async fn trillium_client_h3_basic() -> TestResult {
     let tc = test_cert();
     let addr = start_server(|conn: Conn| async move { conn.ok("hello from h3") }, &tc).await;
 
@@ -76,18 +77,15 @@ async fn trillium_client_h3_basic() {
     let mut conn = client
         .get(format!("https://localhost:{}/", addr.port()))
         .with_http_version(Version::Http3)
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(conn.status().unwrap(), 200u16);
-    assert_eq!(
-        conn.response_body().read_string().await.unwrap(),
-        "hello from h3"
-    );
+    assert_eq!(conn.response_body().read_string().await?, "hello from h3");
+    Ok(())
 }
 
-#[tokio::test]
-async fn trillium_client_h3_post_with_body() {
+#[test(harness)]
+async fn trillium_client_h3_post_with_body() -> TestResult {
     let tc = test_cert();
     let addr = start_server(
         |mut conn: Conn| async move {
@@ -103,18 +101,15 @@ async fn trillium_client_h3_post_with_body() {
         .post(format!("https://localhost:{}/", addr.port()))
         .with_http_version(Version::Http3)
         .with_body("sent body")
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(conn.status().unwrap(), 200u16);
-    assert_eq!(
-        conn.response_body().read_string().await.unwrap(),
-        "got: sent body"
-    );
+    assert_eq!(conn.response_body().read_string().await?, "got: sent body");
+    Ok(())
 }
 
-#[tokio::test]
-async fn trillium_client_h3_large_response() {
+#[test(harness)]
+async fn trillium_client_h3_large_response() -> TestResult {
     let tc = test_cert();
     let large_body: String = "y".repeat(1024 * 64);
     let addr = start_server(
@@ -133,18 +128,15 @@ async fn trillium_client_h3_large_response() {
     let mut conn = client
         .get(format!("https://localhost:{}/", addr.port()))
         .with_http_version(Version::Http3)
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(conn.status().unwrap(), 200u16);
-    assert_eq!(
-        conn.response_body().read_string().await.unwrap(),
-        large_body
-    );
+    assert_eq!(conn.response_body().read_string().await?, large_body);
+    Ok(())
 }
 
-#[tokio::test]
-async fn trillium_client_alt_svc_upgrade() {
+#[test(harness)]
+async fn trillium_client_alt_svc_upgrade() -> TestResult {
     // Verify the full alt-svc discovery flow: H1 response teaches the client
     // about H3, and the next request uses H3 automatically.
     let tc = test_cert();
@@ -161,9 +153,9 @@ async fn trillium_client_alt_svc_upgrade() {
     let base_url = format!("https://localhost:{}/", addr.port());
 
     // First request: H1, response carries Alt-Svc header
-    let mut first = client.get(base_url.as_str()).await.unwrap();
+    let mut first = client.get(base_url.as_str()).await?;
     assert_eq!(first.status().unwrap(), 200u16);
-    let version_str = first.response_body().read_string().await.unwrap();
+    let version_str = first.response_body().read_string().await?;
     assert!(
         version_str.contains("Http1"),
         "expected H1 for first request, got: {version_str}"
@@ -177,11 +169,12 @@ async fn trillium_client_alt_svc_upgrade() {
     );
 
     // Second request: client should upgrade to H3
-    let mut second = client.get(base_url.as_str()).await.unwrap();
+    let mut second = client.get(base_url.as_str()).await?;
     assert_eq!(second.status().unwrap(), 200u16);
-    let version_str = second.response_body().read_string().await.unwrap();
+    let version_str = second.response_body().read_string().await?;
     assert!(
         version_str.contains("Http3"),
         "expected H3 for second request after alt-svc, got: {version_str}"
     );
+    Ok(())
 }
