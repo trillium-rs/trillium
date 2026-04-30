@@ -96,7 +96,7 @@ mod tests {
     }
 
     fn make_table_with_two_entries() -> EncoderDynamicTable {
-        // `EncoderDynamicTable::default()` reads `h3_max_table_capacity` from the default
+        // `EncoderDynamicTable::default()` reads `dynamic_table_capacity` from the default
         // `HttpContext`/`HttpConfig`, which is 4096 — matches what we want here.
         let table = EncoderDynamicTable::default();
         table.initialize_from_peer_settings(

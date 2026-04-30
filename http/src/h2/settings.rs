@@ -153,7 +153,7 @@ impl H2Settings {
     /// | `SETTINGS_INITIAL_WINDOW_SIZE` | `h2_initial_stream_window_size` |
     /// | `SETTINGS_MAX_CONCURRENT_STREAMS` | `h2_max_concurrent_streams` |
     /// | `SETTINGS_MAX_FRAME_SIZE` | `h2_max_frame_size` |
-    /// | `SETTINGS_MAX_HEADER_LIST_SIZE` | `h2_max_header_list_size` |
+    /// | `SETTINGS_MAX_HEADER_LIST_SIZE` | `max_header_list_size` |
     pub(crate) fn from_config(config: &HttpConfig) -> Self {
         // RFC 8701: the reserved GREASE settings are 0x0A0A, 0x1A1A, ..., 0xFAFA.
         let n = u16::from(fastrand::u8(0..16));
@@ -161,7 +161,7 @@ impl H2Settings {
         Self {
             enable_push: Some(false),
             max_concurrent_streams: Some(config.h2_max_concurrent_streams()),
-            max_header_list_size: Some(config.h2_max_header_list_size()),
+            max_header_list_size: Some(config.max_header_list_size()),
             initial_window_size: Some(config.h2_initial_stream_window_size()),
             max_frame_size: Some(config.h2_max_frame_size()),
             // Only advertise SETTINGS_ENABLE_CONNECT_PROTOCOL when actually enabled —

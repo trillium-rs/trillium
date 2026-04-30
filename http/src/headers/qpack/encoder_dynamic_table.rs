@@ -51,11 +51,11 @@ pub struct EncoderDynamicTable {
     /// feedback. Shared across connections on a given listener.
     observer: Arc<HeaderObserver>,
     /// Our local upper bound on dynamic-table capacity, captured from
-    /// [`HttpConfig::h3_max_table_capacity`] at construction. The negotiated capacity
+    /// [`HttpConfig::dynamic_table_capacity`] at construction. The negotiated capacity
     /// is `min(our_max_capacity, peer_qpack_max_table_capacity)`; consumed once by
     /// [`initialize_from_peer_settings`](Self::initialize_from_peer_settings).
     ///
-    /// [`HttpConfig::h3_max_table_capacity`]: crate::HttpConfig::h3_max_table_capacity
+    /// [`HttpConfig::dynamic_table_capacity`]: crate::HttpConfig::dynamic_table_capacity
     our_max_capacity: usize,
     /// Notified on: new op enqueued, peer ack received, failure. The encoder stream writer
     /// task awaits this to wake and drain `pending_ops`.
@@ -86,18 +86,18 @@ impl EncoderDynamicTable {
     /// peer's `SETTINGS_QPACK_MAX_TABLE_CAPACITY` is known before any inserts.
     pub(crate) fn new(context: &HttpContext) -> Self {
         let observer = context.observer.clone();
-        let recent_pairs_size = context.config.h3_qpack_recent_pairs_size;
+        let recent_pairs_size = context.config.recent_pairs_size;
         log::trace!(
             target: "qpack_metrics",
             "new EncoderDynamicTable: observer ptr={:p} our_max_capacity={} recent_pairs_size={}",
             Arc::as_ptr(&observer),
-            context.config.h3_max_table_capacity,
+            context.config.dynamic_table_capacity,
             recent_pairs_size,
         );
         Self {
             state: Mutex::new(TableState::new(RecentPairs::with_size(recent_pairs_size))),
             observer,
-            our_max_capacity: context.config.h3_max_table_capacity,
+            our_max_capacity: context.config.dynamic_table_capacity,
             event: Event::new(),
             metrics: ConnectionMetrics::default(),
         }

@@ -187,8 +187,8 @@ where
         let config = AcceptorConfig::from_http_config(context.config());
         let hpack_encoder = HpackEncoder::new(
             context.observer.clone(),
-            context.config.h2_hpack_table_capacity(),
-            context.config.h2_hpack_recent_pairs_size(),
+            context.config.dynamic_table_capacity(),
+            context.config.recent_pairs_size(),
         );
         Self {
             connection,

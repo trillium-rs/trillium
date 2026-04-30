@@ -105,7 +105,7 @@ impl H3Connection {
     /// Construct a new `H3Connection` to manage HTTP/3 for a given peer.
     pub fn new(context: Arc<HttpContext>) -> Arc<Self> {
         let swansong = context.swansong.child();
-        let max_table_capacity = context.config.h3_max_table_capacity;
+        let max_table_capacity = context.config.dynamic_table_capacity;
         let blocked_streams = context.config.h3_blocked_streams;
         let encoder_dynamic_table = EncoderDynamicTable::new(&context);
         Arc::new(Self {

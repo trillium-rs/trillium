@@ -75,7 +75,7 @@ where
             self.buffer.ignore_front(consumed);
 
             if frame_type == H3BodyFrameType::Trailers
-                && remaining_in_frame > self.h3_max_field_section_size
+                && remaining_in_frame > u64::from(self.max_header_list_size)
             {
                 return Ready(Err(io::Error::other(H3ErrorCode::MessageError)));
             }
@@ -108,7 +108,7 @@ where
                     buf: &mut buf[..leftover],
                     content_length: self.content_length,
                     max_len: self.max_len,
-                    max_trailer_size: self.h3_max_field_section_size,
+                    max_trailer_size: u64::from(self.max_header_list_size),
                     connection: self.h3_connection.as_ref(),
                     trailers_future: &mut self.h3_trailer_future,
                 }
@@ -138,7 +138,7 @@ where
                     buf: &mut buf[..bytes],
                     content_length: self.content_length,
                     max_len: self.max_len,
-                    max_trailer_size: self.h3_max_field_section_size,
+                    max_trailer_size: u64::from(self.max_header_list_size),
                     connection: self.h3_connection.as_ref(),
                     trailers_future: &mut self.h3_trailer_future,
                 }

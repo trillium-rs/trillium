@@ -154,25 +154,29 @@ pub struct HttpConfig {
     /// **Unit**: Byte count
     pub(crate) received_body_max_preallocate: usize,
 
-    /// The maximum size of a field section (header block) the peer may send in HTTP/3
+    /// The maximum cumulative size of a header block the peer may send.
     ///
-    /// This is a protocol-level setting and is communicated to the peer.
+    /// Advertised in SETTINGS as `SETTINGS_MAX_HEADER_LIST_SIZE` on HTTP/2 (RFC 9113 §6.5.2)
+    /// and `SETTINGS_MAX_FIELD_SECTION_SIZE` on HTTP/3 (RFC 9114 §7.2.4.1). Guards against
+    /// pathological header lists inflating memory per stream during HPACK/QPACK decode.
+    /// Currently advertised only — the peer is expected to self-police.
     ///
-    /// **Default**: 8kb
+    /// **Default**: `32 KiB`
     ///
-    /// **Unit**: Byte count
-    pub(crate) h3_max_field_section_size: u64,
+    /// **Unit**: byte count
+    pub(crate) max_header_list_size: u32,
 
-    /// Maximum capacity of the QPACK dynamic table for HTTP/3 header compression.
+    /// Maximum capacity of the dynamic header-compression table.
     ///
-    /// Advertised to peers as `SETTINGS_QPACK_MAX_TABLE_CAPACITY`. Peers may use a dynamic table
-    /// up to this size to compress request headers. Set to `0` to disable dynamic table
-    /// compression entirely.
+    /// Advertised to peers as `SETTINGS_HEADER_TABLE_SIZE` (HPACK / RFC 7541 §6.5.2) and
+    /// `SETTINGS_QPACK_MAX_TABLE_CAPACITY` (QPACK / RFC 9204 §5). Bounds both the decoder's
+    /// inbound table and our encoder's outbound table; set to `0` to disable dynamic-table
+    /// compression entirely (encoder reduces to static-or-literal).
     ///
     /// **Default**: 4096 bytes
     ///
     /// **Unit**: Byte count
-    pub(crate) h3_max_table_capacity: usize,
+    pub(crate) dynamic_table_capacity: usize,
 
     /// Maximum number of HTTP/3 request streams that may be blocked waiting for dynamic table
     /// updates.
@@ -185,14 +189,16 @@ pub struct HttpConfig {
     /// **Unit**: Stream count
     pub(crate) h3_blocked_streams: usize,
 
-    /// Per-connection ring size for the QPACK encoder's recently-seen-pair predictor.
+    /// Per-connection ring size for the header encoder's recently-seen-pair predictor.
     ///
-    /// The predictor lets the encoder defer dynamic-table inserts until a `(name, value)`
-    /// pair has been seen at least once on the connection — first sighting emits a
-    /// literal, subsequent sightings within the ring's retention window invest in an
-    /// insert so future sections can index it. A larger ring catches repetitions across
-    /// more intervening header lines (good for header-heavy reverse proxies); a smaller
-    /// ring forgets faster (fine for tiny APIs).
+    /// Applies to both HPACK (HTTP/2) and QPACK (HTTP/3). The predictor lets the encoder
+    /// defer dynamic-table inserts until a `(name, value)` pair has been seen at least
+    /// once on the connection — first sighting emits a literal, subsequent sightings
+    /// within the ring's retention window invest in an insert so future sections can
+    /// index it. A larger ring catches repetitions across more intervening header lines
+    /// (good for header-heavy reverse proxies); a smaller ring forgets faster (fine for
+    /// tiny APIs). A cross-connection observer short-circuits this for already-known-hot
+    /// pairs.
     ///
     /// The predictor is consulted once per emitted header line via a u32 hash compare;
     /// cost grows linearly with `size` but is dominated by the per-line hash, so
@@ -201,7 +207,7 @@ pub struct HttpConfig {
     /// **Default**: 64
     ///
     /// **Unit**: Pair count
-    pub(crate) h3_qpack_recent_pairs_size: usize,
+    pub(crate) recent_pairs_size: usize,
 
     /// Initial HTTP/2 stream flow-control window advertised to peers as
     /// `SETTINGS_INITIAL_WINDOW_SIZE`.
@@ -276,43 +282,6 @@ pub struct HttpConfig {
     /// **Unit**: byte count
     pub(crate) h2_max_frame_size: u32,
 
-    /// HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE` — advisory cap on the cumulative decoded size
-    /// of a peer header list.
-    ///
-    /// Advertised in SETTINGS but not currently enforced on the receive path (the peer is
-    /// expected to self-police). Guards against pathological header lists inflating memory
-    /// per stream during HPACK decode.
-    ///
-    /// **Default**: `32 KiB`
-    ///
-    /// **Unit**: byte count
-    pub(crate) h2_max_header_list_size: u32,
-
-    /// Maximum capacity of the HPACK dynamic table for HTTP/2 header compression.
-    ///
-    /// Advertised to peers as `SETTINGS_HEADER_TABLE_SIZE` (RFC 7541 §6.5.2). Bounds both the
-    /// decoder's inbound table and our encoder's outbound table; set to `0` to disable dynamic
-    /// table compression entirely (encoder reduces to static-or-literal).
-    ///
-    /// **Default**: 4096 bytes
-    ///
-    /// **Unit**: Byte count
-    pub(crate) h2_hpack_table_capacity: usize,
-
-    /// Per-connection ring size for the HPACK encoder's recently-seen-pair predictor.
-    ///
-    /// Same role as [`h3_qpack_recent_pairs_size`][Self::h3_qpack_recent_pairs_size]: a
-    /// `(name, value)` pair must be observed at least once on the connection (within the ring's
-    /// retention window) before the encoder invests in a §6.2.1 insert. The cross-connection
-    /// [`HeaderObserver`] short-circuits this for already-known-hot pairs.
-    ///
-    /// **Default**: 64
-    ///
-    /// **Unit**: Pair count
-    ///
-    /// [`HeaderObserver`]: crate::headers::header_observer::HeaderObserver
-    pub(crate) h2_hpack_recent_pairs_size: usize,
-
     /// whether [datagrams](https://www.rfc-editor.org/rfc/rfc9297.html) are enabled for HTTP/3
     ///
     /// This is a protocol-level setting and is communicated to the peer as well as enforced.
@@ -378,19 +347,16 @@ impl HttpConfig {
         received_body_max_len: 10 * 1024 * 1024,
         received_body_initial_len: 128,
         received_body_max_preallocate: 1024 * 1024,
-        h3_max_field_section_size: 8 * 1024,
-        h3_max_table_capacity: 4096,
+        max_header_list_size: 32 * 1024,
+        dynamic_table_capacity: 4096,
         h3_blocked_streams: 100,
-        h3_qpack_recent_pairs_size: 64,
+        recent_pairs_size: 64,
         h3_datagrams_enabled: false,
         h2_initial_stream_window_size: 0,
         h2_max_stream_recv_window_size: 1 << 20,
         h2_initial_connection_window_size: 2 << 20,
         h2_max_concurrent_streams: 100,
         h2_max_frame_size: 16_384,
-        h2_max_header_list_size: 32 * 1024,
-        h2_hpack_table_capacity: 4096,
-        h2_hpack_recent_pairs_size: 64,
         webtransport_enabled: false,
         extended_connect_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),
