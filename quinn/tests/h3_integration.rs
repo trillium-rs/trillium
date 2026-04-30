@@ -6,7 +6,7 @@ use std::{net::SocketAddr, sync::Arc};
 use trillium::{Body, Conn, KnownHeaderName};
 use trillium_client::{Client, Version};
 use trillium_quinn::{ClientQuicConfig, QuicConfig};
-use trillium_rustls::RustlsConfig;
+use trillium_rustls::{RustlsConfig, rustls};
 use trillium_tokio::ClientConfig;
 
 // ---------------------------------------------------------------------------
