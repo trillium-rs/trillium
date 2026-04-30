@@ -44,7 +44,6 @@ pin-project-lite = "0.2"
 atomic-waker = "1.1"
 
 [dev-dependencies]
-async-compat = "0.2.5"
 async-io = "2.6.0"
 async-net = "2.0.0"
 env_logger = "0.11.10"
@@ -61,13 +60,3 @@ async-channel = "2.5.0"
 async-executor = "1.14.0"
 core_affinity = "0.8.3"
 unicycle = "0.10.2"
-
-[dev-dependencies.tokio]
-version = "1.50.0"
-features = ["rt", "net", "rt-multi-thread", "macros", "io-util", "sync", "time"]
-package = "tokio"
-
-[dev-dependencies.h2]
-version = "0.4"
-package = "h2"
-

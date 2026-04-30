@@ -22,6 +22,7 @@ use std::{
 use trillium::{Body, BodySource, Conn, Headers, KnownHeaderName};
 use trillium_quinn::QuicConfig;
 use trillium_rustls::RustlsAcceptor;
+use trillium_testing::{harness, test};
 
 // ---------------------------------------------------------------------------
 // Infrastructure
@@ -65,11 +66,7 @@ fn h3i_config(addr: SocketAddr) -> Config {
 }
 
 async fn h3i_run(config: Config, actions: Vec<Action>) -> ConnectionSummary {
-    tokio::task::spawn_blocking(move || {
-        sync_client::connect(config, actions, None).expect("h3i connect failed")
-    })
-    .await
-    .expect("spawn_blocking panicked")
+    sync_client::connect(config, actions, None).expect("h3i connect failed")
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +180,7 @@ impl BodySource for TrailingBody {
 // Tests: happy-path conformance
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
+#[test(harness)]
 async fn h3i_basic_get() {
     let tc = test_cert();
     let addr = start_server(|conn: Conn| async move { conn.ok("hello from h3i") }, &tc).await;
@@ -198,7 +195,7 @@ async fn h3i_basic_get() {
     assert_eq!(response_status(&frames), Some(200));
 }
 
-#[tokio::test]
+#[test(harness)]
 async fn h3i_custom_response_headers() {
     let tc = test_cert();
     let addr = start_server(
@@ -227,7 +224,7 @@ async fn h3i_custom_response_headers() {
     );
 }
 
-#[tokio::test]
+#[test(harness)]
 async fn h3i_post_echoes_body() {
     let tc = test_cert();
     let addr = start_server(
@@ -263,7 +260,7 @@ async fn h3i_post_echoes_body() {
 //   HEADERS (response) → DATA → HEADERS (trailers) → stream FIN
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
+#[test(harness)]
 async fn h3i_trailers_frame_sequence() {
     let tc = test_cert();
     let addr = start_server(
@@ -322,7 +319,7 @@ async fn h3i_trailers_frame_sequence() {
 /// but the framework does not currently enforce it at the protocol level — a handler
 /// that ignores the body read error can still respond 200. This test uses a handler
 /// that propagates the error; the companion issue is framework-level enforcement.
-#[tokio::test]
+#[test(harness)]
 async fn h3i_content_length_mismatch() {
     let tc = test_cert();
     let addr = start_server(
@@ -371,7 +368,7 @@ async fn h3i_content_length_mismatch() {
 ///
 /// The server should terminate the malformed stream without responding, but must NOT
 /// close the entire connection — subsequent requests on new streams must still work.
-#[tokio::test]
+#[test(harness)]
 async fn h3i_connection_headers_rejected() {
     let tc = test_cert();
     let addr = start_server(|conn: Conn| async move { conn.ok("ok") }, &tc).await;
@@ -417,7 +414,7 @@ async fn h3i_connection_headers_rejected() {
 
 /// RFC 9114 §4.1.1 — requests must include the :method pseudo-header.
 /// Missing :method is a malformed request → stream is terminated, connection stays open.
-#[tokio::test]
+#[test(harness)]
 async fn h3i_missing_method_pseudo_header() {
     let tc = test_cert();
     let addr = start_server(|conn: Conn| async move { conn.ok("ok") }, &tc).await;
@@ -462,7 +459,7 @@ async fn h3i_missing_method_pseudo_header() {
 // ---------------------------------------------------------------------------
 
 /// Send two requests on streams 0 and 4. Both should complete successfully.
-#[tokio::test]
+#[test(harness)]
 async fn h3i_sequential_streams() {
     let tc = test_cert();
     let addr = start_server(
@@ -492,7 +489,7 @@ async fn h3i_sequential_streams() {
 
 /// Resetting a stream after sending headers should not crash the server.
 /// The next request on a new stream should still work.
-#[tokio::test]
+#[test(harness)]
 async fn h3i_reset_stream_is_handled() {
     let tc = test_cert();
     let addr = start_server(|conn: Conn| async move { conn.ok("ok") }, &tc).await;
