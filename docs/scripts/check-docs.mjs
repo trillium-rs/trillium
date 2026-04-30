@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Extracts rust fenced blocks from guide docs, compiles each one against the
-// workspace crates, and bails with attribution on the first failure.
+// workspace crates, and reports every failure with attribution.
 //
 // Lines prefixed with "# " (rustdoc-style hidden lines) are stripped before
 // compilation so authors can add hidden context without it appearing in the
@@ -102,11 +102,11 @@ function main() {
   console.log(`Found ${mdFiles.length} markdown files`);
 
   let checked = 0;
-  let failure = null;
+  const failures = [];
   const stagedFiles = [];
 
   try {
-    outer: for (const mdFile of mdFiles) {
+    for (const mdFile of mdFiles) {
       const content = readFileSync(mdFile, 'utf8');
       const blocks = extractRustBlocks(content);
       if (blocks.length === 0) continue;
@@ -135,11 +135,12 @@ function main() {
         checked++;
 
         if (result.status !== 0) {
-          failure = `FAIL: ${relFile} line ${lineNum} (block ${i + 1})\n${result.stderr}`;
-          break outer;
+          const message = `FAIL: ${relFile} line ${lineNum} (block ${i + 1})\n${result.stderr}`;
+          failures.push(message);
+          console.error(message);
+        } else {
+          console.log(`ok  ${relFile}:${lineNum}`);
         }
-
-        console.log(`ok  ${relFile}:${lineNum}`);
       }
     }
   } finally {
@@ -148,8 +149,8 @@ function main() {
     for (const f of stagedFiles) rmSync(f, { recursive: true, force: true });
   }
 
-  if (failure) {
-    console.error(failure);
+  if (failures.length > 0) {
+    console.error(`\n${failures.length} of ${checked} blocks failed.`);
     process.exit(1);
   }
 
