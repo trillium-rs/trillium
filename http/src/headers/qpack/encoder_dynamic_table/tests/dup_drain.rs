@@ -57,7 +57,7 @@ fn gate_closed_when_no_priming() {
     // Encode a section that would trigger a warming insert. With primed_bytes = 0, the
     // gate never opens regardless of headroom; no Duplicate should be emitted.
     let _ = drain_instructions(&table);
-    let lines = vec![(qen("x-w1"), fv("v")), (qen("x-w1"), fv("v"))];
+    let lines = vec![(qen("x-w1"), fv("v"), false), (qen("x-w1"), fv("v"), false)];
     let mut buf = Vec::new();
     table.encode_field_lines(&lines, &mut buf, 1);
 
@@ -86,7 +86,7 @@ fn gate_closed_when_table_has_headroom() {
     );
 
     let _ = drain_instructions(&table);
-    let lines = vec![(qen("x-w1"), fv("v")), (qen("x-w1"), fv("v"))];
+    let lines = vec![(qen("x-w1"), fv("v"), false), (qen("x-w1"), fv("v"), false)];
     let mut buf = Vec::new();
     table.encode_field_lines(&lines, &mut buf, 1);
 
@@ -128,7 +128,7 @@ fn gate_open_hot_tail_emits_duplicate() {
     let primed_count = table.insert_count();
     let _ = drain_instructions(&table);
 
-    let lines = vec![(qen("x-w1"), fv("v")), (qen("x-w1"), fv("v"))];
+    let lines = vec![(qen("x-w1"), fv("v"), false), (qen("x-w1"), fv("v"), false)];
     let mut buf = Vec::new();
     table.encode_field_lines(&lines, &mut buf, 1);
 
@@ -166,7 +166,10 @@ fn sustained_pressure_emits_dup_and_remains_consistent() {
     let primed = table.insert_count();
     let mut total_dups = 0;
     for (stream_id, new_name) in [(1u64, "x-w1"), (2, "x-w2"), (3, "x-w3")] {
-        let lines = vec![(qen(new_name), fv("v")), (qen(new_name), fv("v"))];
+        let lines = vec![
+            (qen(new_name), fv("v"), false),
+            (qen(new_name), fv("v"), false),
+        ];
         let mut buf = Vec::new();
         table.encode_field_lines(&lines, &mut buf, stream_id);
         let ops = drain_instructions(&table);

@@ -20,6 +20,13 @@ impl<T> MutCow<'_, T> {
         matches!(self, MutCow::Owned(_))
     }
 
+    /// Extract the owned value, panicking on `Borrowed`.
+    ///
+    /// Caller asserts ownership — typically because they've just checked with
+    /// [`is_owned`](Self::is_owned), or because the impl block constrains the
+    /// lifetime to `'static`. Panic semantics are deliberate: returning `Option`
+    /// would force every call site to handle a case that the surrounding logic
+    /// has already ruled out.
     pub(crate) fn unwrap_owned(self) -> T {
         match self {
             MutCow::Owned(t) => t,

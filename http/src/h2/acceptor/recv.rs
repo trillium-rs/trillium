@@ -364,9 +364,14 @@ where
             i64::from(new) - i64::from(old)
         });
 
-        // Apply the delta before writing the new settings so a partial failure leaves
-        // `peer_settings.initial_window_size` unchanged too — the whole SETTINGS frame
-        // is either accepted or it's a connection error.
+        // LOAD-BEARING ORDERING: apply the per-stream delta BEFORE mutating
+        // `peer_settings.initial_window_size`. A `FlowControlError` partway through
+        // (the only failure mode here) must leave the stored setting consistent with
+        // the per-stream `send_window`s we actually applied — otherwise a later
+        // `effective_initial_window_size()` read would compute the wrong delta
+        // against the *next* SETTINGS frame. SETTINGS frames are atomic per RFC 9113
+        // §6.5.3: accepted whole or treated as a connection error. Do not reorder
+        // without preserving that invariant.
         if let Some(delta) = initial_window_delta
             && delta != 0
         {
@@ -401,14 +406,20 @@ where
         if let Some(v) = settings.enable_connect_protocol() {
             current.set_enable_connect_protocol(Some(v));
         }
-        // ENABLE_PUSH / MAX_CONCURRENT_STREAMS / HEADER_TABLE_SIZE aren't consulted on the
-        // send path today: server-side push is never emitted, the peer's MAX_CONCURRENT_STREAMS
-        // applies to peer-initiated streams (we don't initiate), and the static-or-literal
-        // HPACK encoder doesn't track the peer's table-size cap. They're stored here
-        // regardless so conn-task code that inspects the settings sees a complete picture.
+        // ENABLE_PUSH / MAX_CONCURRENT_STREAMS aren't consulted on the send path: server-side
+        // push is never emitted, and the peer's MAX_CONCURRENT_STREAMS applies to
+        // peer-initiated streams (we don't initiate). They're stored here regardless so
+        // conn-task code that inspects the settings sees a complete picture.
         // ENABLE_CONNECT_PROTOCOL (RFC 8441 §3) is read by client-role conn tasks to gate
         // sending extended CONNECT for WebSocket-over-h2.
         drop(current);
+        // Apply peer's HEADER_TABLE_SIZE to the HPACK encoder. The encoder caps its
+        // operational size at `min(local_preferred, peer_advertised)`; a change queues a
+        // §6.3 Dynamic Table Size Update for emission on the next encode (RFC 7541 §4.2).
+        if let Some(v) = settings.header_table_size() {
+            self.hpack_encoder
+                .set_protocol_max_size(usize::try_from(v).unwrap_or(usize::MAX));
+        }
         // Latch + wake any `PeerSettings` futures *after* releasing the mutex so wakers
         // polling immediately don't contend on it. Release ordering on the latch pairs with
         // the Acquire load in `is_resolved_for_peer_settings`.

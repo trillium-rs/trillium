@@ -1,6 +1,6 @@
 use crate::{
-    Conn, Headers, HttpConfig, HttpContext, KnownHeaderName, Method, TypeSet, Version,
-    after_send::AfterSend, received_body::ReceivedBodyState,
+    Conn, Headers, HttpConfig, HttpContext, KnownHeaderName, Method, ProtocolSession, TypeSet,
+    Version, after_send::AfterSend, received_body::ReceivedBodyState,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
 use std::{
@@ -155,12 +155,9 @@ impl Conn<Synthetic> {
             peer_ip: None,
             authority: None,
             scheme: None,
-            h3_connection: None,
             protocol: None,
+            protocol_session: ProtocolSession::Http1,
             request_trailers: None,
-            h3_stream_id: None,
-            h2_connection: None,
-            h2_stream_id: None,
         }
     }
 

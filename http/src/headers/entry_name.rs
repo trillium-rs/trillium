@@ -11,7 +11,6 @@
 //! and Insert With Name Reference (dynamic).
 use crate::{
     HeaderName, KnownHeaderName,
-    h3::H3ErrorCode,
     headers::{HeaderNameInner, UnknownHeaderName, header_observer::NameKey},
 };
 use std::{
@@ -162,19 +161,18 @@ impl EntryName<'_> {
 }
 
 impl EntryName<'static> {
-    fn known_or_pseudo(bytes: &[u8]) -> Result<Option<Self>, H3ErrorCode> {
+    fn known_or_pseudo(bytes: &[u8]) -> Result<Option<Self>, ()> {
         if bytes.is_empty() {
-            log::error!("QPACK encoder: empty qpack entry name");
-            return Err(H3ErrorCode::QpackEncoderStreamError);
+            log::error!("entry name decode: empty header name");
+            return Err(());
         }
 
         if bytes.first() == Some(&b':') {
             let pseudo = PseudoHeaderName::lowercase_byte_match(bytes).ok_or_else(|| {
                 log::error!(
-                    "QPACK encoder: unknown pseudo-header in literal name: {:?}",
+                    "entry name decode: unknown pseudo-header in literal name: {:?}",
                     String::from_utf8_lossy(bytes)
                 );
-                H3ErrorCode::QpackEncoderStreamError
             })?;
             Ok(Some(EntryName::from(pseudo)))
         } else if let Some(khn) = KnownHeaderName::lowercase_byte_match(bytes) {
@@ -185,11 +183,14 @@ impl EntryName<'static> {
     }
 }
 
+// `EntryName` is shared by HPACK and QPACK, so these `TryFrom` impls deliberately yield
+// `Err = ()`: the call site knows which protocol it lives in and maps to the right error
+// (`H3ErrorCode::QpackEncoderStreamError` for the QPACK encoder stream;
+// `CompressionError::InvalidHeaderName` for HPACK and the QPACK field-section decoder).
+// All current call sites discarded the variant anyway — only one variant was ever
+// returned — so removing it loses no information.
 impl<'a> TryFrom<&'a [u8]> for EntryName<'a> {
-    // Note: error type is H3-flavored while this type is being shared cross-protocol. HPACK
-    // will map the same conditions to COMPRESSION_ERROR; a neutral error type can come later
-    // if the callsite mapping gets awkward.
-    type Error = H3ErrorCode;
+    type Error = ();
 
     fn try_from(name_bytes: &'a [u8]) -> Result<Self, Self::Error> {
         if let Some(qen) = EntryName::known_or_pseudo(name_bytes)? {
@@ -198,17 +199,16 @@ impl<'a> TryFrom<&'a [u8]> for EntryName<'a> {
 
         let str = std::str::from_utf8(name_bytes).map_err(|_| {
             log::error!(
-                "QPACK encoder: non-utf8 header name {:?}",
+                "entry name decode: non-utf8 header name {:?}",
                 String::from_utf8_lossy(name_bytes)
             );
-            H3ErrorCode::QpackEncoderStreamError
         })?;
 
         let uhn = UnknownHeaderName::from(str);
 
         if !uhn.is_valid_lower() {
-            log::error!("QPACK encoder: non-lower-ascii header name {uhn:?}");
-            return Err(H3ErrorCode::QpackEncoderStreamError);
+            log::error!("entry name decode: non-lower-ascii header name {uhn:?}");
+            return Err(());
         }
 
         Ok(EntryName::Unknown(uhn))
@@ -216,7 +216,7 @@ impl<'a> TryFrom<&'a [u8]> for EntryName<'a> {
 }
 
 impl TryFrom<Vec<u8>> for EntryName<'static> {
-    type Error = H3ErrorCode;
+    type Error = ();
 
     fn try_from(name_bytes: Vec<u8>) -> Result<Self, Self::Error> {
         if let Some(qen) = EntryName::known_or_pseudo(&name_bytes)? {
@@ -225,17 +225,16 @@ impl TryFrom<Vec<u8>> for EntryName<'static> {
 
         let string = String::from_utf8(name_bytes).map_err(|e| {
             log::error!(
-                "QPACK encoder: bytes were not a string: {}",
+                "entry name decode: non-utf8 header name {:?}",
                 String::from_utf8_lossy(e.as_bytes())
             );
-            H3ErrorCode::QpackEncoderStreamError
         })?;
 
         let uhn = UnknownHeaderName::from(string);
 
         if !uhn.is_valid_lower() {
-            log::error!("QPACK encoder: non-lower-ascii header name {uhn:?}");
-            return Err(H3ErrorCode::QpackEncoderStreamError);
+            log::error!("entry name decode: non-lower-ascii header name {uhn:?}");
+            return Err(());
         }
 
         Ok(EntryName::Unknown(uhn))

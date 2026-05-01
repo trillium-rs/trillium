@@ -135,7 +135,7 @@ fn decode_with_limits(
         content_length,
         max_len,
         max_trailer_size,
-        connection: Some(&(h3, stream_id)),
+        connection: Some((&h3, stream_id)),
         trailers_future: &mut None,
     }
     .decode()?;
@@ -421,7 +421,7 @@ fn trailers_decoded_into_destination() {
         content_length: None,
         max_len: 1024 * 1024,
         max_trailer_size: u64::MAX,
-        connection: Some(&(h3, stream_id)),
+        connection: Some((&h3, stream_id)),
         trailers_future: &mut trailers_fut,
     }
     .decode()

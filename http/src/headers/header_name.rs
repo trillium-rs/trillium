@@ -65,15 +65,6 @@ impl<'a> HeaderName<'a> {
         })
     }
 
-    // /// Convert a header name into a lowercase variant suitable for use in http/2-3
-    // #[must_use]
-    // pub fn into_lower(self) -> HeaderName<'a> {
-    //     HeaderName(match self.0 {
-    //         KnownHeader(known) => KnownHeader(known),
-    //         UnknownHeader(uhn) => UnknownHeader(uhn.into_lower()),
-    //     })
-    // }
-
     /// Turn a `&'b HeaderName<'a>` into a `HeaderName<'b>`
     pub fn reborrow<'b: 'a>(&'b self) -> HeaderName<'b> {
         match self.0 {

@@ -70,8 +70,8 @@ where
     /// matching `io::Error` to the caller. The caller's error and the peer-visible RST
     /// track from the same detection point.
     fn h2_protocol_error(&self, kind: ErrorKind, msg: String) -> StateOutput {
-        if let Some((connection, stream_id)) = &self.h2_connection {
-            connection.stream_error(*stream_id, H2ErrorCode::ProtocolError);
+        if let Some((connection, stream_id)) = self.protocol_session.as_h2() {
+            connection.stream_error(stream_id, H2ErrorCode::ProtocolError);
         }
         Ready(Err(io::Error::new(kind, msg)))
     }

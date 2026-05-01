@@ -342,9 +342,9 @@ fn decode_name(input: &[u8], prefix_size: u8) -> Result<(EntryName<'_>, &[u8]), 
     let (body, rest) = rest.split_at(length);
     let name = if huffman_encoded {
         EntryName::try_from(huffman::decode(body)?)
-            .map_err(|_| CompressionError::InvalidHeaderName)?
+            .map_err(|()| CompressionError::InvalidHeaderName)?
     } else {
-        EntryName::try_from(body).map_err(|_| CompressionError::InvalidHeaderName)?
+        EntryName::try_from(body).map_err(|()| CompressionError::InvalidHeaderName)?
     };
     Ok((name, rest))
 }

@@ -122,15 +122,18 @@ mod error;
 pub mod h2;
 pub mod h3;
 pub mod headers;
+#[cfg(any(feature = "http-compat-0", feature = "http-compat-1"))]
+mod http_compat;
 #[cfg(feature = "http-compat-0")]
-pub mod http_compat0;
+pub use http_compat::http_compat0;
 #[cfg(feature = "http-compat-1")]
-pub mod http_compat1;
+pub use http_compat::http_compat1;
 mod http_config;
 mod http_context;
 mod liveness;
 mod method;
 mod mut_cow;
+mod protocol_session;
 mod received_body;
 mod status;
 mod synthetic;
@@ -161,6 +164,10 @@ pub use http_config::HttpConfig;
 pub use http_context::{HttpContext, run_with_initial_bytes};
 pub use method::Method;
 pub(crate) use mut_cow::MutCow;
+#[cfg(feature = "unstable")]
+pub use protocol_session::ProtocolSession;
+#[cfg(not(feature = "unstable"))]
+pub(crate) use protocol_session::ProtocolSession;
 pub use received_body::ReceivedBody;
 #[cfg(feature = "unstable")]
 #[doc(hidden)]

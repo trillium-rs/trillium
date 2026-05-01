@@ -103,15 +103,17 @@ pub struct H2Connection {
     pub(super) peer_settings_event: Event,
     /// Next stream id to allocate for client-role outbound streams. RFC 9113 §5.1.1 requires
     /// client-initiated stream ids to be odd and strictly increasing; we start at 1 and
-    /// `+= 2` per allocation. Read/written only by [`Self::open_stream`]; the server role
-    /// never touches it. Capped at `2^31` — once exhausted, further `open_stream` calls
-    /// return `None` and the caller is expected to fail over to a fresh connection.
+    /// `+= 2` per allocation via [`AtomicU32::fetch_update`]. Read/written only by
+    /// [`Self::open_stream`]; the server role never touches it. Capped at `2^31` — once
+    /// exhausted, `fetch_update`'s closure returns `None` so the counter stops advancing
+    /// and further `open_stream` calls return `None` (the caller is expected to fail over
+    /// to a fresh connection).
     ///
     /// Gated behind `unstable` so server builds (which never call `open_stream`) don't
-    /// carry the per-connection allocation. Matches the existing exposure pattern for the
-    /// `initiator` module and `H2Connection::run_client`.
+    /// carry the field at all. Matches the existing exposure pattern for the `initiator`
+    /// module and `H2Connection::run_client`.
     #[cfg(feature = "unstable")]
-    pub(super) next_client_stream_id: Mutex<u32>,
+    pub(super) next_client_stream_id: std::sync::atomic::AtomicU32,
     /// Outstanding active PINGs we've sent and are awaiting ACKs for, keyed by opaque
     /// payload. Populated by [`Self::send_ping`] before the PING is queued for transmission;
     /// completed by the driver when a `PING { ack: true }` arrives whose payload matches an
@@ -137,7 +139,7 @@ impl H2Connection {
             peer_settings_received: AtomicBool::new(false),
             peer_settings_event: Event::new(),
             #[cfg(feature = "unstable")]
-            next_client_stream_id: Mutex::new(1),
+            next_client_stream_id: std::sync::atomic::AtomicU32::new(1),
             pending_pings: Mutex::new(HashMap::new()),
             pending_ping_outbound: Mutex::new(VecDeque::new()),
         })
@@ -163,13 +165,20 @@ impl H2Connection {
     ///
     /// Encapsulates the policy a client multiplexer asks before reusing a pooled
     /// connection: the connection must be running (no GOAWAY received, swansong not asked
-    /// to shut down) and inflight streams must be below the peer's advertised
-    /// `MAX_CONCURRENT_STREAMS`. Future signals (priority pressure under RFC 9218,
-    /// flow-control headroom, etc.) can fold into this without changing the call site.
+    /// to shut down), inflight streams must be below the peer's advertised
+    /// `MAX_CONCURRENT_STREAMS`, and the client stream-id space must not be exhausted
+    /// (RFC 9113 §5.1.1 caps client-initiated stream ids at `2^31 - 1`). Future signals
+    /// (priority pressure under RFC 9218, flow-control headroom, etc.) can fold into
+    /// this without changing the call site.
     ///
     /// `false` doesn't mean the connection is dead — it might just be saturated and free
     /// up momentarily. Callers should keep saturated connections in their pool rather than
     /// evicting; pair this with a separate aliveness check to decide eviction.
+    ///
+    /// Stream-id exhaustion is the one "false" case that *is* permanent: the connection
+    /// will never accept another `open_stream` call. The caller's pool should treat this
+    /// the same as `MAX_CONCURRENT_STREAMS` saturation (Busy → fall through to a fresh
+    /// connection); the connection is still usable for in-flight stream completion.
     ///
     /// # Panics
     ///
@@ -177,6 +186,15 @@ impl H2Connection {
     #[cfg(feature = "unstable")]
     pub fn can_open_stream(&self) -> bool {
         if !self.swansong.state().is_running() {
+            return false;
+        }
+        // Stream-id space exhausted: a fresh `open_stream` would return `None` because
+        // `fetch_update`'s closure refuses to advance past the cap. Without this check,
+        // an exhausted connection passes the inflight-vs-MAX_CONCURRENT_STREAMS check
+        // (no streams in flight → counts as 0) and the pool selects it as Available,
+        // only for `open_stream` to fail with a misleading "shutting down" error at the
+        // call site.
+        if self.next_client_stream_id.load(Ordering::Relaxed) >= (1u32 << 31) {
             return false;
         }
         // Count wire-active streams only — entries the application is still holding after a

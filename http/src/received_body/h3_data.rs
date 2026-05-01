@@ -109,7 +109,7 @@ where
                     content_length: self.content_length,
                     max_len: self.max_len,
                     max_trailer_size: u64::from(self.max_header_list_size),
-                    connection: self.h3_connection.as_ref(),
+                    connection: self.protocol_session.as_h3_borrowed(),
                     trailers_future: &mut self.h3_trailer_future,
                 }
                 .decode(),
@@ -139,7 +139,7 @@ where
                     content_length: self.content_length,
                     max_len: self.max_len,
                     max_trailer_size: u64::from(self.max_header_list_size),
-                    connection: self.h3_connection.as_ref(),
+                    connection: self.protocol_session.as_h3_borrowed(),
                     trailers_future: &mut self.h3_trailer_future,
                 }
                 .decode(),
@@ -157,7 +157,7 @@ struct H3Frame<'a> {
     content_length: Option<u64>,
     max_len: u64,
     max_trailer_size: u64,
-    connection: Option<&'a (Arc<H3Connection>, u64)>,
+    connection: Option<(&'a Arc<H3Connection>, u64)>,
     trailers_future:
         &'a mut Option<Pin<Box<dyn Future<Output = io::Result<Headers>> + Send + Sync + 'static>>>,
 }
@@ -227,7 +227,6 @@ impl H3Frame<'_> {
                     && let Some((connection, stream_id)) = connection
                 {
                     let connection = Arc::clone(connection);
-                    let stream_id = *stream_id;
                     let self_buffer = std::mem::take(self_buffer); // this is ok because there's nothing expected on a bidi stream after trailers
                     *trailers_future = Some(Box::pin(async move {
                         let field_section = connection

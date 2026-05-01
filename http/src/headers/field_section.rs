@@ -151,15 +151,18 @@ impl<'a> FieldSection<'a> {
         }
     }
 
-    /// Flatten this field section into an ordered list of `(name, value)` pairs suitable
-    /// for feeding to a compression-aware encoder.
+    /// Flatten this field section into an ordered list of `(name, value, never_indexed)`
+    /// triples suitable for feeding to a compression-aware encoder.
     ///
     /// Pseudo-headers come first in RFC-mandated order; regular headers follow.
     /// `FieldLineValue` provenance is preserved so a downstream encoder can elide
-    /// allocations for already-static slices.
-    pub(in crate::headers) fn field_lines(&self) -> Vec<(EntryName<'_>, FieldLineValue<'_>)> {
+    /// allocations for already-static slices. The `never_indexed` flag carries the
+    /// RFC 7541 §6.2.3 / RFC 9204 §4.5.4 N bit per value; pseudo-headers are always
+    /// `false` (the bit has no place to live for pseudos — they round-trip through
+    /// typed `Conn` fields, not the `Headers` map).
+    pub(in crate::headers) fn field_lines(&self) -> Vec<(EntryName<'_>, FieldLineValue<'_>, bool)> {
         fn field_line_value_from(v: &crate::HeaderValue) -> FieldLineValue<'_> {
-            if let HeaderValueInner::Utf8(SmartCow::Borrowed(b)) = &v.0 {
+            if let HeaderValueInner::Utf8(SmartCow::Borrowed(b)) = &v.inner {
                 FieldLineValue::Static(b.as_bytes())
             } else {
                 FieldLineValue::Borrowed(v.as_ref())
@@ -171,6 +174,7 @@ impl<'a> FieldSection<'a> {
             lines.push((
                 PseudoHeaderName::Method.into(),
                 FieldLineValue::Static(method.as_str().as_bytes()),
+                false,
             ));
         }
 
@@ -178,6 +182,7 @@ impl<'a> FieldSection<'a> {
             lines.push((
                 PseudoHeaderName::Status.into(),
                 FieldLineValue::Static(status.code().as_bytes()),
+                false,
             ));
         }
 
@@ -185,12 +190,14 @@ impl<'a> FieldSection<'a> {
             lines.push((
                 PseudoHeaderName::Path.into(),
                 FieldLineValue::Borrowed(path.as_bytes()),
+                false,
             ));
         }
         if let Some(scheme) = &self.pseudo_headers.scheme {
             lines.push((
                 PseudoHeaderName::Scheme.into(),
                 FieldLineValue::Borrowed(scheme.as_bytes()),
+                false,
             ));
         }
 
@@ -198,6 +205,7 @@ impl<'a> FieldSection<'a> {
             lines.push((
                 PseudoHeaderName::Authority.into(),
                 FieldLineValue::Borrowed(authority.as_bytes()),
+                false,
             ));
         }
 
@@ -205,6 +213,7 @@ impl<'a> FieldSection<'a> {
             lines.push((
                 PseudoHeaderName::Protocol.into(),
                 FieldLineValue::Borrowed(protocol.as_bytes()),
+                false,
             ));
         }
 
@@ -215,7 +224,7 @@ impl<'a> FieldSection<'a> {
         for (k, hv) in &self.headers.known {
             for v in hv {
                 let value = field_line_value_from(v);
-                lines.push((EntryName::Known(*k), value));
+                lines.push((EntryName::Known(*k), value, v.is_never_indexed()));
             }
         }
 
@@ -234,7 +243,7 @@ impl<'a> FieldSection<'a> {
                     Some(s) => EntryName::UnknownStatic(s),
                     None => EntryName::Unknown(lowered),
                 };
-                lines.push((name, value));
+                lines.push((name, value, v.is_never_indexed()));
             }
         }
 

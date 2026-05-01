@@ -1,5 +1,5 @@
 use crate::{
-    Buffer, Conn, Headers, KnownHeaderName, Method, Status, TypeSet, Version,
+    Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet, Version,
     after_send::AfterSend,
     h2::{H2Connection, H2ErrorCode},
     headers::hpack::{FieldSection, PseudoHeaders},
@@ -7,7 +7,6 @@ use crate::{
 };
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
-    borrow::Cow,
     io,
     sync::Arc,
     time::{Instant, SystemTime},
@@ -35,66 +34,19 @@ where
     pub(crate) fn new_h2(
         h2_connection: Arc<H2Connection>,
         stream_id: u32,
-        mut request_headers: FieldSection<'static>,
+        request_headers: FieldSection<'static>,
         transport: Transport,
     ) -> Result<Self, H2ErrorCode> {
         log::trace!("h2 stream {stream_id}: building Conn from\n{request_headers}");
-        let pseudo_headers = request_headers.pseudo_headers_mut();
 
-        // §8.1.2.1 response pseudo-header in request: `:status` is the only response-only
-        // pseudo and MUST NOT appear in a request.
-        if pseudo_headers.status().is_some() {
-            return Err(H2ErrorCode::ProtocolError);
-        }
-
-        let method = pseudo_headers.take_method();
-        let path = pseudo_headers.take_path();
-        let authority = pseudo_headers.take_authority();
-        let scheme = pseudo_headers.take_scheme();
-        let protocol = pseudo_headers.take_protocol();
-
-        let request_headers = request_headers.into_headers().into_owned();
-
-        if let Some(host) = request_headers.get_str(KnownHeaderName::Host)
-            && let Some(authority) = &authority
-            && host != authority.as_ref()
-        {
-            return Err(H2ErrorCode::ProtocolError);
-        }
-
-        if [
-            KnownHeaderName::Connection,
-            KnownHeaderName::KeepAlive,
-            KnownHeaderName::ProxyConnection,
-            KnownHeaderName::TransferEncoding,
-            KnownHeaderName::Upgrade,
-        ]
-        .into_iter()
-        .any(|name| request_headers.has_header(name))
-        {
-            return Err(H2ErrorCode::ProtocolError);
-        }
-
-        let method = method.ok_or(H2ErrorCode::ProtocolError)?;
-
-        if method != Method::Connect && scheme.is_none() {
-            return Err(H2ErrorCode::ProtocolError);
-        }
-
-        let path = match (method, path) {
-            (_, Some(path)) if !path.is_empty() => path,
-            (Method::Connect, _) => Cow::Borrowed("/"),
-            _ => return Err(H2ErrorCode::ProtocolError),
-        };
-
-        if method == Method::Connect && authority.is_none() {
-            return Err(H2ErrorCode::ProtocolError);
-        }
-
-        match request_headers.get_str(KnownHeaderName::Te) {
-            None | Some("trailers") => {}
-            _ => return Err(H2ErrorCode::ProtocolError),
-        }
+        let super::ValidatedRequest {
+            method,
+            path,
+            authority,
+            scheme,
+            protocol,
+            request_headers,
+        } = super::validate_h2h3_request(request_headers).ok_or(H2ErrorCode::ProtocolError)?;
 
         let response_headers = h2_connection
             .context()
@@ -122,11 +74,11 @@ where
             peer_ip: None,
             authority,
             scheme,
-            h3_connection: None,
-            h3_stream_id: None,
-            h2_connection: Some(h2_connection),
-            h2_stream_id: Some(stream_id),
             protocol,
+            protocol_session: ProtocolSession::Http2 {
+                connection: h2_connection,
+                stream_id,
+            },
             request_trailers: None,
         })
     }
@@ -156,11 +108,10 @@ where
     pub(crate) async fn send_h2(mut self) -> io::Result<Self> {
         self.finalize_response_headers_h2();
 
-        let h2 = self
-            .h2_connection
-            .clone()
+        let (h2, stream_id) = self
+            .protocol_session
+            .as_h2()
             .ok_or(io::ErrorKind::NotConnected)?;
-        let stream_id = self.h2_stream_id.ok_or(io::ErrorKind::NotConnected)?;
 
         // Variant A: hand owned (pseudos, headers) to the driver instead of pre-planning.
         // Driver does plan + commit synchronously at submission pickup. Headers are cloned
@@ -200,6 +151,11 @@ where
     /// so a Content-Length would be both meaningless and misleading. RFC 8441 §4 explicitly
     /// notes that the 200 response to an extended CONNECT carries no body in the conventional
     /// sense.
+    ///
+    /// Parallel to
+    /// [`Conn::finalize_response_headers_1x`][super::Conn::finalize_response_headers_1x]
+    /// (h1) and [`Conn::finalize_response_headers_h3`][super::Conn::finalize_response_headers_h3]
+    /// (h3); keep the three in sync when changing universal policy.
     fn finalize_response_headers_h2(&mut self) {
         self.response_headers
             .try_insert_with(KnownHeaderName::Date, || {
@@ -208,25 +164,12 @@ where
 
         if !self.should_upgrade()
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
-            && let Some(len) = self.body_len_h2()
+            && let Some(len) = self.body_len()
         {
             self.response_headers
                 .try_insert(KnownHeaderName::ContentLength, len);
         }
 
-        self.response_headers.remove_all([
-            KnownHeaderName::Connection,
-            KnownHeaderName::TransferEncoding,
-            KnownHeaderName::KeepAlive,
-            KnownHeaderName::ProxyConnection,
-            KnownHeaderName::Upgrade,
-        ]);
-    }
-
-    fn body_len_h2(&self) -> Option<u64> {
-        match self.response_body {
-            Some(ref body) => body.len(),
-            None => Some(0),
-        }
+        self.response_headers.remove_all(super::H1_ONLY_HEADERS);
     }
 }

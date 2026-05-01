@@ -59,8 +59,15 @@ pub enum UniStreamResult<T> {
         buffer: Buffer,
     },
 
-    /// An unknown or unsupported stream type (e.g. Push). The caller should close or reset
-    /// this stream without processing it.
+    /// A stream whose type is recognized but unsupported (e.g. `Push`) or not recognized
+    /// at all by this crate.
+    ///
+    /// The caller is responsible for disposing of the stream — the in-tree consumers
+    /// (`trillium-server-common` for servers, `trillium-client` for clients) RST it with
+    /// `H3_STREAM_CREATION_ERROR`. `process_inbound_uni` deliberately does *not* close
+    /// the stream itself: handing it back gives a downstream extension the option to
+    /// implement a stream type trillium-http doesn't yet know about (a future RFC, an
+    /// experiment, etc.) without forking the codec.
     Unknown {
         /// The raw stream type value.
         stream_type: u64,
@@ -72,6 +79,23 @@ pub enum UniStreamResult<T> {
 /// Shared state for a single HTTP/3 QUIC connection.
 ///
 /// Call the appropriate methods on this type for each stream accepted from the QUIC connection.
+///
+/// # Driver shape (vs h2)
+///
+/// h2 multiplexes everything onto a single TCP byte stream, so a single
+/// [`H2Driver`][crate::h2::H2Driver] task suffices. h3 instead has the QUIC layer hand us multiple
+/// independent streams: an inbound and outbound control stream, an inbound and outbound QPACK
+/// encoder stream, an inbound and outbound QPACK decoder stream, and one bidi stream per
+/// request. There is no single "h3 driver" — each stream is driven by its own future returned from
+/// `H3Connection`'s `run_*` / `process_*` methods, and the caller decides how those futures are
+/// scheduled.
+///
+/// The trillium-http boundary is **runtime-free by design**: this crate hands out anonymous futures
+/// and lets the caller pick the executor. The in-tree consumers (`trillium-server-common`,
+/// `trillium-client`) follow a task-per-stream pattern — spawn each long-lived control / encoder /
+/// decoder future on its own task at connection setup, then spawn one task per accepted request
+/// stream. Nothing in this crate requires that pattern; a caller could in principle race all the
+/// futures on one task instead, with different perf characteristics.
 #[derive(Debug)]
 pub struct H3Connection {
     /// Shared configuration for the entire server, including tcp-based listeners
@@ -436,7 +460,20 @@ impl H3Connection {
                         })
                     }
 
-                    Ok(UniStreamType::Push) | Err(_) => {
+                    Ok(UniStreamType::Push) => {
+                        // Push streams are server→client per RFC 9114 §4.6. Trillium does
+                        // not support HTTP/3 push as initiator or recipient, so we hand
+                        // these back as `Unknown` for the caller to dispose of identically
+                        // to truly-unknown stream types — the explicit arm exists so trace
+                        // output names "push stream" rather than a bare type id.
+                        log::trace!("H3 inbound uni: push stream (push not supported)");
+                        Ok(UniStreamResult::Unknown {
+                            stream_type,
+                            stream,
+                        })
+                    }
+
+                    Err(_) => {
                         log::trace!("H3 inbound uni: unknown stream type {stream_type:#x}");
                         Ok(UniStreamResult::Unknown {
                             stream_type,

@@ -1,6 +1,6 @@
 use crate::{
-    Buffer, Conn, Headers, HttpContext, Method, TypeSet, Version, h2::H2Connection,
-    h3::H3Connection, received_body::read_buffered,
+    Buffer, Conn, Headers, HttpContext, Method, ProtocolSession, Status, TypeSet, Version,
+    h2::H2Connection, h3::H3Connection, received_body::read_buffered,
 };
 use fieldwork::Fieldwork;
 use futures_lite::{AsyncRead, AsyncWrite};
@@ -13,6 +13,7 @@ use std::{
     str,
     sync::Arc,
     task::{self, Poll},
+    time::Instant,
 };
 use trillium_macros::AsyncWrite;
 
@@ -28,6 +29,10 @@ use trillium_macros::AsyncWrite;
 pub struct Upgrade<Transport> {
     /// The http request headers
     request_headers: Headers,
+
+    /// The http response headers as set on the underlying [`Conn`] before the upgrade was
+    /// negotiated. These have already been sent to the peer; preserved here for inspection.
+    response_headers: Headers,
 
     /// The request path
     #[field(get = false)]
@@ -59,23 +64,22 @@ pub struct Upgrade<Transport> {
     #[field(copy)]
     peer_ip: Option<IpAddr>,
 
+    /// the wall-clock time at which the underlying [`Conn`] was constructed. Useful for
+    /// instrumentation that wants elapsed time across the upgrade transition.
+    #[field(copy)]
+    start_time: Instant,
+
     /// the :authority http/3 pseudo-header
     authority: Option<Cow<'static, str>>,
 
     /// the :scheme http/3 pseudo-header
     scheme: Option<Cow<'static, str>>,
 
-    /// the HTTP/3 connection associated with this upgrade, if this was an HTTP/3 connection
-    #[field(get(deref = false))]
-    h3_connection: Option<Arc<H3Connection>>,
-
-    /// the HTTP/2 connection associated with this upgrade, if this was an HTTP/2 stream
-    #[field(get(deref = false))]
-    h2_connection: Option<Arc<H2Connection>>,
-
-    /// the HTTP/2 stream id, if this was an HTTP/2 stream
-    #[field(copy)]
-    h2_stream_id: Option<u32>,
+    /// the [`ProtocolSession`] for this upgrade — bundles the per-protocol session state
+    /// (h2/h3 connection driver and stream id) that was attached to the originating Conn.
+    /// `Http1` for upgrades from h1 / synthetic conns.
+    #[field = false]
+    protocol_session: ProtocolSession,
 
     /// the :protocol http/3 pseudo-header
     protocol: Option<Cow<'static, str>>,
@@ -83,6 +87,12 @@ pub struct Upgrade<Transport> {
     /// the http version
     #[field = "http_version"]
     version: Version,
+
+    /// the http response status set on the underlying [`Conn`] at the time the upgrade was
+    /// negotiated (typically `101 Switching Protocols` or `200 OK` for CONNECT). `None` if no
+    /// status was set explicitly.
+    #[field(copy)]
+    status: Option<Status>,
 
     /// whether this connection was deemed secure by the handler stack
     secure: bool,
@@ -100,6 +110,7 @@ impl<Transport> Upgrade<Transport> {
     ) -> Self {
         Self {
             request_headers,
+            response_headers: Headers::new(),
             path: path.into(),
             method,
             transport,
@@ -107,15 +118,35 @@ impl<Transport> Upgrade<Transport> {
             state: TypeSet::new(),
             context: Arc::default(),
             peer_ip: None,
+            start_time: Instant::now(),
             authority: None,
             scheme: None,
-            h3_connection: None,
-            h2_connection: None,
-            h2_stream_id: None,
+            protocol_session: ProtocolSession::Http1,
             protocol: None,
             secure: false,
             version,
+            status: None,
         }
+    }
+
+    /// the [`H2Connection`] driver for this upgrade, if it originated from an HTTP/2 stream
+    pub fn h2_connection(&self) -> Option<&Arc<H2Connection>> {
+        self.protocol_session.h2_connection()
+    }
+
+    /// the h2 stream id for this upgrade, if it originated from an HTTP/2 stream
+    pub fn h2_stream_id(&self) -> Option<u32> {
+        self.protocol_session.h2_stream_id()
+    }
+
+    /// the [`H3Connection`] driver for this upgrade, if it originated from an HTTP/3 stream
+    pub fn h3_connection(&self) -> Option<&Arc<H3Connection>> {
+        self.protocol_session.h3_connection()
+    }
+
+    /// the h3 stream id for this upgrade, if it originated from an HTTP/3 stream
+    pub fn h3_stream_id(&self) -> Option<u64> {
+        self.protocol_session.h3_stream_id()
     }
 
     /// Take any buffered bytes
@@ -156,6 +187,10 @@ impl<Transport> Upgrade<Transport> {
         self,
         f: impl Fn(Transport) -> T,
     ) -> Upgrade<T> {
+        // Manual respread: rustc treats `Upgrade<Transport>` and `Upgrade<T>` as disjoint
+        // and rejects `..self` without the unstable `type_changing_struct_update` feature.
+        // If a new field is added to `Upgrade`, update this respread, `Conn::map_transport`
+        // (`conn.rs`), and `From<Conn> for Upgrade` below — they share this drift hazard.
         Upgrade {
             transport: f(self.transport),
             path: self.path,
@@ -163,15 +198,16 @@ impl<Transport> Upgrade<Transport> {
             state: self.state,
             buffer: self.buffer,
             request_headers: self.request_headers,
+            response_headers: self.response_headers,
             context: self.context,
             peer_ip: self.peer_ip,
+            start_time: self.start_time,
             authority: self.authority,
             scheme: self.scheme,
-            h3_connection: self.h3_connection,
-            h2_connection: self.h2_connection,
-            h2_stream_id: self.h2_stream_id,
+            protocol_session: self.protocol_session,
             protocol: self.protocol,
             version: self.version,
+            status: self.status,
             secure: self.secure,
         }
     }
@@ -181,6 +217,7 @@ impl<Transport> Debug for Upgrade<Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct(&format!("Upgrade<{}>", std::any::type_name::<Transport>()))
             .field("request_headers", &self.request_headers)
+            .field("response_headers", &self.response_headers)
             .field("path", &self.path)
             .field("method", &self.method)
             .field("buffer", &self.buffer)
@@ -188,13 +225,13 @@ impl<Transport> Debug for Upgrade<Transport> {
             .field("state", &self.state)
             .field("transport", &format_args!(".."))
             .field("peer_ip", &self.peer_ip)
+            .field("start_time", &self.start_time)
             .field("authority", &self.authority)
             .field("scheme", &self.scheme)
-            .field("h3_connection", &self.h3_connection)
-            .field("h2_connection", &self.h2_connection)
-            .field("h2_stream_id", &self.h2_stream_id)
+            .field("protocol_session", &self.protocol_session)
             .field("protocol", &self.protocol)
             .field("version", &self.version)
+            .field("status", &self.status)
             .field("secure", &self.secure)
             .finish()
     }
@@ -202,8 +239,15 @@ impl<Transport> Debug for Upgrade<Transport> {
 
 impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
     fn from(conn: Conn<Transport>) -> Self {
+        // Exhaustive destructure (no `..` rest pattern) so that adding a new field to
+        // `Conn` is a compile error here, forcing a deliberate carry-vs-drop decision
+        // for the upgrade transition. The discarded fields below are response-body /
+        // request-body / instrumentation state that is meaningless once the conn has
+        // crossed into the upgrade phase. This shares a drift hazard with
+        // `Conn::map_transport` (`conn.rs`) and `Upgrade::map_transport` above.
         let Conn {
             request_headers,
+            response_headers,
             path,
             method,
             state,
@@ -211,19 +255,25 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             buffer,
             context,
             peer_ip,
+            start_time,
             authority,
             scheme,
-            h3_connection,
-            h2_connection,
-            h2_stream_id,
+            protocol_session,
             protocol,
             version,
+            status,
             secure,
-            ..
+            // Deliberately dropped — response-body / request-body lifecycle state with
+            // no role on the upgraded transport.
+            response_body: _,
+            request_body_state: _,
+            after_send: _,
+            request_trailers: _,
         } = conn;
 
         Self {
             request_headers,
+            response_headers,
             path,
             method,
             state,
@@ -231,13 +281,13 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             buffer,
             context,
             peer_ip,
+            start_time,
             authority,
             scheme,
-            h3_connection,
-            h2_connection,
-            h2_stream_id,
+            protocol_session,
             protocol,
             version,
+            status,
             secure,
         }
     }

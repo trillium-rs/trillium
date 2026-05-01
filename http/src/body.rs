@@ -317,8 +317,25 @@ impl AsyncRead for Body {
 
                 if bytes == 0 {
                     *done = true;
-                    // Write only the last-chunk marker; the caller must write the
-                    // trailer-section (possibly empty) followed by the terminating CRLF.
+                    // Write only the last-chunk marker (`0\r\n`). The caller must then
+                    // emit the trailer-section (possibly empty) followed by the
+                    // terminating `\r\n` to complete RFC 9112 §7.1.2 chunked framing.
+                    //
+                    // This split is structural, not a missed opportunity to encapsulate:
+                    //   * Trailers come from `BodySource::trailers() -> Option<Headers>` after EOF,
+                    //     not from this `AsyncRead` path. They are structured `Headers` data, not
+                    //     bytes.
+                    //   * Formatting them needs `HttpContext` config (e.g.
+                    //     `panic_on_invalid_response_headers`) that `Body` does not carry, and
+                    //     reuses the same `write_headers_or_trailers` helper used for the
+                    //     response-header section.
+                    //   * Trailers can be arbitrarily large; emitting them from inside `poll_read`
+                    //     would force a multi-poll state machine to span buffers. The caller writes
+                    //     them in one shot via `BufWriter::buffer_mut()`, which has no such
+                    //     constraint.
+                    //
+                    // Caller stitch lives in `conn/h1.rs::Conn::send` after the
+                    // `bufwriter.copy_from(&mut body, ...)` drain.
                     buf[..3].copy_from_slice(b"0\r\n");
                     return Poll::Ready(Ok(3));
                 }

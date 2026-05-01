@@ -167,6 +167,46 @@ struct DumpCtx<'a> {
 /// that `dump.their_groups` came from is unchunked, so the their-side of the dump is
 /// nonsensical past the first chunk boundary — dumping is intended for debugging the
 /// unchunked case.
+/// Stable-partition a QIF group so all pseudo-header entries (names starting with `:`)
+/// precede all regular-header entries. Preserves declared order within each partition.
+/// Used at QIF parse time to feed our encoder a compliant abstract header set when the
+/// corpus QIF has HTTP/1-shaped declared order.
+///
+/// Does NOT deduplicate pseudo-headers — duplicate pseudos are still malformed per
+/// RFC 9114 §4.1.1 and surface as decoder errors. In practice the corpus's duplicate
+/// pseudos are rare (single-digit groups across the entire set); for those we still
+/// rely on `qif_group_is_malformed`'s skip path.
+fn normalize_pseudos_first(group: &mut qif::QifGroup) {
+    // Stable in-place partition. Less obvious than `sort_by_key` but preserves the
+    // intra-partition order that the QIF declared, which the encoder corpus's
+    // observational stats want to keep faithful.
+    let mut write = 0;
+    for read in 0..group.len() {
+        if group[read].0.starts_with(':') {
+            group[write..=read].rotate_right(1);
+            write += 1;
+        }
+    }
+}
+
+/// True if the QIF group violates RFC 9114 §4.1.1 / §4.3.1 — a pseudo-header appears after
+/// a regular header, or the same pseudo-header appears more than once. After
+/// `normalize_pseudos_first` runs, only the duplicate-pseudo case can still fire.
+fn qif_group_is_malformed(group: &qif::QifGroup) -> bool {
+    let mut saw_regular = false;
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (name, _) in group {
+        if name.starts_with(':') {
+            if saw_regular || !seen.insert(name) {
+                return true;
+            }
+        } else {
+            saw_regular = true;
+        }
+    }
+    false
+}
+
 fn run_qif_at_config(
     qif_path: &Path,
     groups: &[qif::QifGroup],
@@ -288,13 +328,31 @@ fn run_qif_at_config(
                 }
             }
 
-            let field_section =
-                future::block_on(decoder.decode(&buf, stream_id)).unwrap_or_else(|e| {
-                    panic!(
-                        "{}: group {global_index}: decode failed: {e}",
-                        qif_path.display()
-                    )
-                });
+            let decode_result = future::block_on(decoder.decode(&buf, stream_id));
+
+            // Real-world QIF traces (e.g. captured Facebook traffic) contain HTTP/1-shaped
+            // header orderings — pseudo-headers interleaved with or following regular
+            // headers, and occasional duplicate pseudos. Our encoder emits the QIF order
+            // faithfully, and our decoder correctly rejects the resulting wire as a
+            // malformed message per RFC 9114 §4.1.1 + §4.3.1. Treat that as expected when
+            // the QIF source is non-conformant; skip the section-ack since the decoder
+            // never accepted the section. The real fix would be encoder-side
+            // normalization, but the production encoder is fed pre-validated
+            // `FieldSection`s from `PseudoHeaders + Headers` so it never sees this
+            // shape — only the corpus test's `encode_field_lines` path does.
+            let field_section = match decode_result {
+                Ok(fs) => fs,
+                Err(e)
+                    if e.to_string().contains("HTTP message was malformed.")
+                        && qif_group_is_malformed(group) =>
+                {
+                    continue;
+                }
+                Err(e) => panic!(
+                    "{}: group {global_index}: decode failed: {e}",
+                    qif_path.display()
+                ),
+            };
 
             let mut got = qif::field_section_to_pairs(field_section);
             let mut want = group.clone();
@@ -609,9 +667,21 @@ fn qpack_encoder_corpus() {
 
         let content = std::fs::read_to_string(&qif_path)
             .unwrap_or_else(|e| panic!("reading {}: {e}", qif_path.display()));
-        let groups = qif::parse(&content);
+        let mut groups = qif::parse(&content);
         if groups.is_empty() {
             continue;
+        }
+        // Some corpus QIFs (notably the Facebook captures) preserve HTTP/1-style ordering
+        // — pseudo-headers interleaved with or following regular headers. That's malformed
+        // for h2/h3 (RFC 9114 §4.1.1 + §4.3.1) and our strict decoder rejects on the
+        // resulting wire. Real h2/h3 traffic doesn't take this shape (compliant encoders
+        // emit pseudos first by construction); the QIF format is just declared-order, not
+        // wire-order. Normalize on read so the encoder sees a compliant abstract header
+        // set: this expands coverage to the malformed-source groups that we'd otherwise
+        // skip via `qif_group_is_malformed`. Decoder corpus has no equivalent normalization
+        // because the wire bytes there are external; see `decoder_corpus_tests.rs`.
+        for group in &mut groups {
+            normalize_pseudos_first(group);
         }
 
         let stem = qif_path

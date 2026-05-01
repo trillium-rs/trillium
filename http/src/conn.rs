@@ -1,14 +1,112 @@
 use crate::{
-    Body, Buffer, Headers, HttpContext,
+    Body, Buffer, Headers, HttpContext, KnownHeaderName,
     KnownHeaderName::Host,
-    Method, ReceivedBody, Status, Swansong, TypeSet, Version,
+    Method, ProtocolSession, ReceivedBody, Status, Swansong, TypeSet, Version,
     after_send::{AfterSend, SendStatus},
     h2::H2Connection,
     h3::H3Connection,
+    headers::hpack::FieldSection,
     liveness::{CancelOnDisconnect, LivenessFut},
     received_body::ReceivedBodyState,
     util::encoding,
 };
+
+/// Header names whose semantics only apply at the HTTP/1 layer.
+///
+/// HTTP/2 (RFC 9113 §8.2.2) and HTTP/3 (RFC 9114 §4.2) call these
+/// "connection-specific" headers and forbid them in requests and responses on those
+/// transports. Used both for incoming-request validation in `Conn::new_h2` /
+/// `Conn::build_h3` and for response-header sanitation in
+/// `finalize_response_headers_h2` / `finalize_response_headers_h3`.
+pub(super) const H1_ONLY_HEADERS: [KnownHeaderName; 5] = [
+    KnownHeaderName::Connection,
+    KnownHeaderName::KeepAlive,
+    KnownHeaderName::ProxyConnection,
+    KnownHeaderName::TransferEncoding,
+    KnownHeaderName::Upgrade,
+];
+
+/// Validated request pseudo-headers + headers, the common output of
+/// [`validate_h2h3_request`].
+pub(super) struct ValidatedRequest {
+    pub method: Method,
+    pub path: Cow<'static, str>,
+    pub authority: Option<Cow<'static, str>>,
+    pub scheme: Option<Cow<'static, str>>,
+    pub protocol: Option<Cow<'static, str>>,
+    pub request_headers: Headers,
+}
+
+/// Shared HTTP/2 + HTTP/3 request-validation per RFC 9113 §8.1.2 and RFC 9114 §4.3.1.
+///
+/// Both protocols apply the same malformed-message rules to incoming requests:
+/// no `:status` pseudo, required `:method`, non-empty `:path` (or CONNECT default),
+/// `:scheme` required for non-CONNECT, `:authority` required for CONNECT, no
+/// `Host`/`:authority` mismatch, no [`H1_ONLY_HEADERS`], and `TE` restricted to
+/// `trailers`. Returns `None` on any violation; the caller maps to its
+/// protocol-specific error code (e.g. `H2ErrorCode::ProtocolError`,
+/// `H3ErrorCode::MessageError`) via `.ok_or(...)`.
+pub(super) fn validate_h2h3_request(
+    mut field_section: FieldSection<'static>,
+) -> Option<ValidatedRequest> {
+    let pseudo_headers = field_section.pseudo_headers_mut();
+
+    // §8.1.2.1 / §4.3.1: `:status` is response-only; reject it on requests.
+    if pseudo_headers.status().is_some() {
+        return None;
+    }
+
+    let method = pseudo_headers.take_method();
+    let path = pseudo_headers.take_path();
+    let authority = pseudo_headers.take_authority();
+    let scheme = pseudo_headers.take_scheme();
+    let protocol = pseudo_headers.take_protocol();
+    let request_headers = field_section.into_headers().into_owned();
+
+    if let Some(host) = request_headers.get_str(Host)
+        && let Some(authority) = &authority
+        && host != authority.as_ref()
+    {
+        return None;
+    }
+
+    if H1_ONLY_HEADERS
+        .into_iter()
+        .any(|name| request_headers.has_header(name))
+    {
+        return None;
+    }
+
+    let method = method?;
+
+    if method != Method::Connect && scheme.is_none() {
+        return None;
+    }
+
+    let path = match (method, path) {
+        (_, Some(path)) if !path.is_empty() => path,
+        (Method::Connect, _) => Cow::Borrowed("/"),
+        _ => return None,
+    };
+
+    if method == Method::Connect && authority.is_none() {
+        return None;
+    }
+
+    match request_headers.get_str(KnownHeaderName::Te) {
+        None | Some("trailers") => {}
+        _ => return None,
+    }
+
+    Some(ValidatedRequest {
+        method,
+        path,
+        authority,
+        scheme,
+        protocol,
+        request_headers,
+    })
+}
 use encoding_rs::Encoding;
 use futures_lite::{
     future,
@@ -148,20 +246,11 @@ pub struct Conn<Transport> {
     #[field(set, get, into)]
     pub(crate) scheme: Option<Cow<'static, str>>,
 
-    /// the [`H3Connection`] for this conn, if this is an HTTP/3 request
-    #[field(get)]
-    pub(crate) h3_connection: Option<Arc<H3Connection>>,
-
-    /// stream id
-    pub(crate) h3_stream_id: Option<u64>,
-
-    /// the [`H2Connection`] for this conn, if this is an HTTP/2 request
-    #[field(get)]
-    pub(crate) h2_connection: Option<Arc<H2Connection>>,
-
-    /// h2 stream id (31-bit per RFC 9113 §5.1.1, fits in u32)
-    #[field(get, copy)]
-    pub(crate) h2_stream_id: Option<u32>,
+    /// the [`ProtocolSession`] for this conn — the per-protocol session state
+    /// (h2/h3 connection driver and stream id) bundled into a single enum so the
+    /// "set together" invariant is enforced at the type level. `Http1` for
+    /// h1 / synthetic conns.
+    pub(crate) protocol_session: ProtocolSession,
 
     /// the :protocol http/3 pseudo-header
     #[field(set, get, into)]
@@ -194,10 +283,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("authority", &self.authority)
             .field("scheme", &self.scheme)
             .field("protocol", &self.protocol)
-            .field("h3_connection", &self.h3_connection)
-            .field("h3_stream_id", &self.h3_stream_id)
-            .field("h2_connection", &self.h2_connection)
-            .field("h2_stream_id", &self.h2_stream_id)
+            .field("protocol_session", &self.protocol_session)
             .field("request_trailers", &self.request_trailers)
             .finish()
     }
@@ -442,19 +528,32 @@ where
     /// this to gracefully stop long-running futures and streams
     /// inside of handler functions
     pub fn swansong(&self) -> Swansong {
-        self.h3_connection
-            .as_ref()
+        self.protocol_session
+            .h3_connection()
             .map_or_else(|| self.context.swansong.clone(), |h| h.swansong().clone())
     }
 
     /// Registers a function to call after the http response has been
-    /// completely transferred. Please note that this is a sync function
-    /// and should be computationally lightweight. If your _application_
-    /// needs additional async processing, use your runtime's task spawn
-    /// within this hook.  If your _library_ needs additional async
-    /// processing in an `after_send` hook, please open an issue. This hook
-    /// is currently designed for simple instrumentation and logging, and
-    /// should be thought of as equivalent to a Drop hook.
+    /// completely transferred.
+    ///
+    /// The callback is guaranteed to fire **exactly once** before the conn is
+    /// dropped. Either the codec's send path invokes it with the real outcome,
+    /// or — if the conn is dropped before send completes (handler panic,
+    /// transport error, mid-write disconnect) — the drop fallback invokes it
+    /// with a `SendStatus` whose `is_success()` returns false. Multiple
+    /// registrations on the same conn chain in registration order.
+    ///
+    /// Because firing is ordered by send-completion rather than handler return,
+    /// this is the right hook for instrumentation that wants to report what the
+    /// peer actually observed (`trillium-logger` and the out-of-tree
+    /// `trillium-opentelemetry` handler both depend on this property).
+    ///
+    /// Please note that this is a sync function and should be computationally
+    /// lightweight. If your _application_ needs additional async processing,
+    /// use your runtime's task spawn within this hook. If your _library_ needs
+    /// additional async processing in an `after_send` hook, please open an
+    /// issue. This hook is currently designed for simple instrumentation and
+    /// logging, and should be thought of as equivalent to a Drop hook.
     pub fn after_send<F>(&mut self, after_send: F)
     where
         F: FnOnce(SendStatus) + Send + Sync + 'static,
@@ -473,6 +572,11 @@ where
     where
         NewTransport: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     {
+        // Manual respread: rustc treats `Conn<Transport>` and `Conn<NewTransport>` as
+        // disjoint types and rejects `..self` without the unstable
+        // `type_changing_struct_update` feature. If a new field is added to `Conn`,
+        // update this respread, `Upgrade::map_transport`, and `From<Conn> for Upgrade`
+        // (`upgrade.rs`) — they share this drift hazard.
         Conn {
             context: self.context,
             request_headers: self.request_headers,
@@ -492,12 +596,9 @@ where
             peer_ip: self.peer_ip,
             authority: self.authority,
             scheme: self.scheme,
-            h3_connection: self.h3_connection,
             protocol: self.protocol,
+            protocol_session: self.protocol_session,
             request_trailers: self.request_trailers,
-            h3_stream_id: self.h3_stream_id,
-            h2_connection: self.h2_connection,
-            h2_stream_id: self.h2_stream_id,
         }
     }
 
@@ -514,5 +615,25 @@ where
         } else {
             self.finalize_response_headers_1x();
         }
+    }
+
+    /// the [`H2Connection`] driver for this conn, if this is an HTTP/2 request
+    pub fn h2_connection(&self) -> Option<&Arc<H2Connection>> {
+        self.protocol_session.h2_connection()
+    }
+
+    /// the h2 stream id for this conn, if this is an HTTP/2 request
+    pub fn h2_stream_id(&self) -> Option<u32> {
+        self.protocol_session.h2_stream_id()
+    }
+
+    /// the [`H3Connection`] driver for this conn, if this is an HTTP/3 request
+    pub fn h3_connection(&self) -> Option<&Arc<H3Connection>> {
+        self.protocol_session.h3_connection()
+    }
+
+    /// the h3 stream id for this conn, if this is an HTTP/3 request
+    pub fn h3_stream_id(&self) -> Option<u64> {
+        self.protocol_session.h3_stream_id()
     }
 }

@@ -137,7 +137,10 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for BufWriter<W> {
             return Poll::Ready(Ok(additional.len()));
         }
 
-        // Still too big for capacity — direct write, absorb remainder up to max
+        // Still too big for capacity — direct write, then absorb remainder only
+        // if it fits within max_buffer_bytes. Externally-driven writes get
+        // backpressure when the budget is exhausted. (poll_write_vectored is
+        // internal-only and has no such cap; see comment there.)
         let written = ready!(Pin::new(&mut *inner).poll_write(cx, additional))?;
         if written == 0 {
             return Poll::Ready(Err(Error::new(ErrorKind::WriteZero, "write returned 0")));
@@ -201,7 +204,11 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for BufWriter<W> {
             }
         };
 
-        // Absorb any unwritten bufs (no max_buffer_bytes limit for vectored)
+        // Absorb any unwritten bufs unconditionally. Unlike poll_write (which
+        // honors max_buffer_bytes as a soft absorb budget for externally-driven
+        // writes), poll_write_vectored is only reached from internal codec
+        // paths with bytes already in memory — rejecting wouldn't save
+        // allocation, it would just force the caller to retry with the same bytes.
         let mut skip = from_bufs;
         for buf in bufs {
             if skip >= buf.len() {

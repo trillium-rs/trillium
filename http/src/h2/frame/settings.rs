@@ -57,23 +57,10 @@ pub(crate) const ACK_ENCODED_LEN: usize = FRAME_HEADER_LEN;
 #[cfg(test)]
 mod tests {
     use super::{
-        super::{FLAG_ACK, FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader, FrameType},
+        super::{FLAG_ACK, Frame, FrameDecodeError, FrameType, encode_frame},
         *,
     };
     use crate::h2::H2ErrorCode;
-
-    fn encode_frame(frame_type: FrameType, flags: u8, stream_id: u32, payload: &[u8]) -> Vec<u8> {
-        let mut buf = vec![0u8; FRAME_HEADER_LEN + payload.len()];
-        FrameHeader {
-            length: u32::try_from(payload.len()).unwrap(),
-            frame_type: frame_type as u8,
-            flags,
-            stream_id,
-        }
-        .encode((&mut buf[..FRAME_HEADER_LEN]).try_into().unwrap());
-        buf[FRAME_HEADER_LEN..].copy_from_slice(payload);
-        buf
-    }
 
     #[test]
     fn settings_roundtrip_body() {
