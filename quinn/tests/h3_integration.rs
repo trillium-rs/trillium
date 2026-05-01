@@ -1,11 +1,12 @@
+#![cfg(quinn_testing)]
+
 use rcgen::generate_simple_self_signed;
 use std::net::SocketAddr;
 use trillium::{Conn, KnownHeaderName};
 use trillium_client::{Client, Version};
 use trillium_quinn::{ClientQuicConfig, QuicConfig};
 use trillium_rustls::{RustlsConfig, rustls};
-use trillium_testing::{TestResult, harness, test};
-use trillium_tokio::ClientConfig;
+use trillium_testing::{TestResult, client_config, config, harness, test};
 
 // ---------------------------------------------------------------------------
 // Test infrastructure
@@ -43,7 +44,7 @@ fn rustls_client_config(tc: &TestCert) -> rustls::ClientConfig {
 /// Start a trillium server with TLS (H1) and QUIC (H3) on the same port.
 /// The server runs as a background task until the runtime shuts down.
 async fn start_server(handler: impl trillium::Handler, tc: &TestCert) -> SocketAddr {
-    let handle = trillium_tokio::config()
+    let handle = config()
         .with_port(0)
         .with_host("localhost")
         .without_signals()
@@ -59,7 +60,7 @@ async fn start_server(handler: impl trillium::Handler, tc: &TestCert) -> SocketA
 /// Build a trillium client configured for both H1 (TLS) and H3 with the test cert trusted.
 fn trillium_client(tc: &TestCert) -> Client {
     Client::new_with_quic(
-        RustlsConfig::new(rustls_client_config(tc), ClientConfig::default()),
+        RustlsConfig::new(rustls_client_config(tc), client_config()),
         ClientQuicConfig::from_rustls_client_config(rustls_client_config(tc)),
     )
 }
