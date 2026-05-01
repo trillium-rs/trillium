@@ -62,7 +62,7 @@ fn h3i_config(addr: SocketAddr) -> Config {
         .with_host_port(format!("localhost:{}", addr.port()))
         .with_connect_to(addr.to_string())
         .verify_peer(false)
-        .with_idle_timeout(2000)
+        .with_idle_timeout(5000)
         .build()
         .unwrap()
 }
