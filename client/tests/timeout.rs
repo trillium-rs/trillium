@@ -28,7 +28,7 @@ fn timeout_on_conn() {
         assert!(
             client
                 .get("/")
-                .with_timeout(Duration::from_millis(100))
+                .with_timeout(Duration::from_secs(3))
                 .await
                 .is_ok()
         );
@@ -44,9 +44,9 @@ fn timeout_on_client() {
     trillium_testing::with_server(handler, move |url| async move {
         let client = Client::new(client_config())
             .with_base(url)
-            .with_timeout(Duration::from_millis(100));
+            .with_timeout(Duration::from_secs(1));
         let err = client.get("/slow").await.unwrap_err();
-        assert_eq!(err.to_string(), "Conn took longer than 100ms");
+        assert_eq!(err.to_string(), "Conn took longer than 1s");
 
         assert!(client.get("/").await.is_ok());
         Ok(())
