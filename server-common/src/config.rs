@@ -87,6 +87,7 @@ where
     /// unrelated to the trillium application. If you do not need to spawn
     /// other tasks, [`Config::run`] is the preferred entrypoint
     pub async fn run_async(self, mut handler: impl Handler) {
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let Self {
             runtime,
             acceptor,
