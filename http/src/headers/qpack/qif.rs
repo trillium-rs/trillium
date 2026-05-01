@@ -107,15 +107,16 @@ fn status_code_str(s: Status) -> String {
 /// attribute the failure to a specific qif file and group.
 pub(super) fn build_field_lines(
     group: &QifGroup,
-) -> Result<Vec<(EntryName<'static>, FieldLineValue<'static>)>, String> {
+) -> Result<Vec<(EntryName<'static>, FieldLineValue<'static>, bool)>, String> {
     group
         .iter()
         .map(|(name, value)| {
             let entry_name = EntryName::try_from(name.as_bytes().to_vec())
-                .map_err(|e| format!("parsing name {name:?}: {e:?}"))?;
+                .map_err(|()| format!("parsing name {name:?}: invalid header name"))?;
             Ok((
                 entry_name,
                 FieldLineValue::Owned(value.clone().into_bytes()),
+                false,
             ))
         })
         .collect()

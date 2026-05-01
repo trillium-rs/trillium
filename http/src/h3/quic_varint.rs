@@ -62,9 +62,17 @@ pub fn decode<T: TryFrom<u64>>(input: &[u8]) -> Result<(T, usize), QuicVarIntErr
 
 /// The number of bytes needed to encode `value` as a QUIC varint.
 ///
+/// Asymmetric with [`encode`] on purpose: this function has only one possible failure
+/// mode (overflow), and every in-tree caller passes a value bounded by surrounding
+/// invariants — QUIC stream IDs, frame types, setting IDs, or payload lengths, all
+/// guaranteed < 2^62. Returning `Option` would force `?`/`unwrap` through accumulator
+/// chains for a case that can't happen. [`encode`] returns `Option` because it has
+/// the additional "buffer too small" failure mode, which is a runtime concern.
+///
 /// # Panics
 ///
-/// Panics if the value exceeds 2^62 - 1.
+/// Panics if the value exceeds 2^62 - 1. If a future caller can produce values in
+/// that range, it should validate upstream rather than rely on graceful failure here.
 pub fn encoded_len(value: impl Into<u64>) -> usize {
     let value = value.into();
     if value < (1 << 6) {
@@ -84,6 +92,11 @@ pub fn encoded_len(value: impl Into<u64>) -> usize {
 /// Returns the number of bytes written, or `None` if the value exceeds
 /// 2^62 - 1 or `buf` is too small (caller should check with
 /// [`encoded_len`] first).
+///
+/// Returns `Option` rather than panicking because of the buffer-too-small case —
+/// that's a runtime fact about the caller's allocation, not a value-range invariant.
+/// [`encoded_len`] panics on overflow because it has only the value-range concern,
+/// and every in-tree caller has already bounded the value upstream.
 pub fn encode(value: impl Into<u64>, buf: &mut [u8]) -> Option<usize> {
     let value = value.into();
     let bytes = value.to_be_bytes();

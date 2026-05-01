@@ -82,7 +82,7 @@ impl EncoderDynamicTable {
     /// and bypass the `FieldSection` → `field_lines()` conversion.
     pub(in crate::headers) fn encode_field_lines(
         &self,
-        field_lines: &[(EntryName<'_>, FieldLineValue<'_>)],
+        field_lines: &[(EntryName<'_>, FieldLineValue<'_>, bool)],
         buf: &mut Vec<u8>,
         stream_id: u64,
     ) {
@@ -96,8 +96,8 @@ impl EncoderDynamicTable {
             max_capacity = state.max_capacity;
             krc_at_encode = state.known_received_count;
             let mut planner = Planner::new(&mut state, stream_id, &self.observer);
-            for (name, value) in field_lines {
-                planner.plan_header_line(name, value.reborrow());
+            for (name, value, never_indexed) in field_lines {
+                planner.plan_header_line(name, value.reborrow(), *never_indexed);
             }
             made_inserts = planner.made_inserts;
             enc_stream_bytes = planner.enc_stream_bytes;
@@ -155,8 +155,9 @@ impl EncoderDynamicTable {
 /// Borrows name/value slices from the caller's `FieldSection` — the plan lives only for the
 /// duration of one `encode()` call, so the lifetime is always trivially satisfied.
 ///
-/// The literal variants carry a `never_indexed` flag (RFC 9204 §4.5.4 N bit). Hardcoded
-/// `false` today because the source signal is not yet plumbed through `FieldLine`.
+/// The literal variants carry a `never_indexed` flag (RFC 9204 §4.5.4 N bit). The flag is
+/// sourced from the per-value `HeaderValue::is_never_indexed()` set by the QPACK decoder
+/// when re-emitting a section round-tripped through `Headers` (e.g. through trillium-proxy).
 #[derive(Debug)]
 enum Emission<'lines, 'names> {
     /// §4.5.2: Indexed Field Line referencing the QPACK static table (T=1).
@@ -253,22 +254,34 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     }
 
     /// Plan a single field line — decide encoding and apply any encoder-stream side effect.
-    fn plan_header_line(&mut self, name: &'lines EntryName<'names>, value: FieldLineValue<'lines>) {
+    fn plan_header_line(
+        &mut self,
+        name: &'lines EntryName<'names>,
+        value: FieldLineValue<'lines>,
+        never_indexed: bool,
+    ) {
         // Cross-connection observer accumulator — fold-on-close, no shared-state
-        // mutation here. See `header_observer` module docs.
-        self.state.accum.observe(name, &value);
+        // mutation here. See `header_observer` module docs. Never-indexed values are
+        // skipped entirely to keep them out of the cross-connection priming pool: a
+        // `HeaderValue::const_new(...)` literal would otherwise reach `observe` as a
+        // `Static` provenance and end up tracked as a primed pair.
+        if !never_indexed {
+            self.state.accum.observe(name, &value);
+        }
 
         // Pre-decision: hash for the recent-pairs ring (sensitive headers are excluded
         // so they never enter the ring). Computed once and threaded through both `seen`
         // (read for the indexing decision) and `remember` (write at the end of planning).
-        let uncacheable = name.has_uncacheable_value();
+        // A never-indexed value is treated like a sensitive header: never hashed, never
+        // tracked, never inserted.
+        let uncacheable = name.has_uncacheable_value() || never_indexed;
         let hash = (!uncacheable).then(|| RecentPairs::hash(name.as_bytes(), value.as_bytes()));
 
         // Indexing decision: a non-sensitive header is eligible for warm insertion the
         // second (and subsequent) time the encoder sees it on this connection.
         let should_index = hash.is_some_and(|h| self.state.recent_pairs.seen(h));
 
-        let emission = self.plan_emission(name, value, should_index);
+        let emission = self.plan_emission(name, value, should_index, never_indexed);
         self.emissions.push(emission);
 
         // Defer the ring write until after planning — a header is never visible to its
@@ -285,14 +298,14 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         name: &'lines EntryName<'names>,
         value: FieldLineValue<'lines>,
         should_index: bool,
+        never_indexed: bool,
     ) -> Emission<'lines, 'names> {
-        // Hardcoded `false` until `FieldLine` carries the §4.5.4 N bit
-        let never_indexed = false;
-
         let static_match = static_table_lookup(name, Some(value.as_bytes()));
 
-        // 1. Static full match: cheapest possible encoding, no dynamic-table interaction.
-        if let StaticHit::Full(i) = static_match {
+        // 1. Static full match: cheapest possible encoding, no dynamic-table interaction. RFC 9204
+        //    §4.5.4 requires N=1 fields to use a literal representation, so we skip the indexed
+        //    shortcut when never_indexed.
+        if !never_indexed && let StaticHit::Full(i) = static_match {
             return Emission::IndexedStatic(i);
         }
 
@@ -300,9 +313,10 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
 
         // 2. Dynamic full match: reference directly when budget allows. Pre-insert lookup — we
         //    never reference an entry that the upcoming warming insert would create in this same
-        //    section.
+        //    section. Same N=1 literal-only rule as step 1.
         let dyn_full = name_lookup.and_then(|i| i.by_value.get(value.as_bytes()).copied());
-        if let Some(abs_idx) = dyn_full
+        if !never_indexed
+            && let Some(abs_idx) = dyn_full
             && self.can_ref(abs_idx)
         {
             self.record_ref(abs_idx);
@@ -336,8 +350,15 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         }
 
         // 5. Literal form: static name ref → pre-insert dyn name ref (still live and referenceable)
-        //    → literal-literal. Section never references the freshly- inserted entry from step 4.
-        if let StaticHit::Name(i) = static_match {
+        //    → literal-literal. Section never references the freshly- inserted entry from step 4. A
+        //    `StaticHit::Full` reaches step 5 only when `never_indexed` blocked the §4.5.2 indexed
+        //    shortcut; the static index is still a valid name reference for §4.5.4.
+        let static_name_index = match static_match {
+            StaticHit::Name(i) => Some(i),
+            StaticHit::Full(i) if never_indexed => Some(i),
+            _ => None,
+        };
+        if let Some(i) = static_name_index {
             return Emission::LiteralStaticNameRef {
                 name_index: i,
                 value,
@@ -457,6 +478,17 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
 /// Write the section prefix (§4.5.1). For a section with no dynamic references this is the
 /// fixed two-byte `[0x00, 0x00]` prefix. Otherwise it encodes the Required Insert Count per
 /// §4.5.1.1 and a Delta Base of zero (base = RIC, sign = 0) per §4.5.1.2.
+///
+/// **Always `base = RIC` — post-base references unimplemented.** Setting `base < RIC` would
+/// let us emit references in `[base, RIC)` via the post-base instruction shapes (§4.5.4 +
+/// §4.5.5), which yields smaller varints than the pre-base form when many references sit
+/// near the section's RIC. The win is meaningful only for high-cardinality sections (e.g.
+/// reverse-proxy traffic forwarding many distinct headers per request); typical
+/// request/response flows don't benefit. Decoder side already supports both shapes
+/// (`apply_indexed_with_post_base` etc.), so adding encoder-side post-base emission is a
+/// pure wire-efficiency optimization, not a correctness or interop gap. Revisit if a
+/// proxy-workload profiler shows headroom; until then `base = RIC` keeps the encoder
+/// simpler with no behavior cost in current workloads.
 fn emit_section_prefix(section_ric: u64, max_capacity: usize, buf: &mut Vec<u8>) {
     let encoded_required_insert_count = if section_ric == 0 {
         0

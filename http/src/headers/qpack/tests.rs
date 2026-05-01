@@ -296,6 +296,46 @@ fn decode_truncated_string_value() {
     assert!(decode(&buf).is_err());
 }
 
+// --- Malformed-message detection (RFC 9114 §4.1.1) ---
+
+#[test]
+fn decode_rejects_duplicate_pseudo_header() {
+    // RIC=0, base=0, then :method GET (static idx 17, 0xD1), then :method POST (static idx 20,
+    // 0xD4). Two `:method` pseudo-headers in one section MUST be treated as malformed (RFC 9114
+    // §4.1.1), mirroring HPACK's `DuplicatePseudoHeader` detection.
+    let buf = vec![0x00, 0x00, 0xD1, 0xD4];
+    let err = decode(&buf).expect_err("duplicate :method must fail");
+    let h3_err = match err {
+        H3Error::Protocol(code) => code,
+        other => panic!("expected Protocol error, got {other:?}"),
+    };
+    assert_eq!(h3_err, crate::h3::H3ErrorCode::MessageError);
+}
+
+#[test]
+fn decode_rejects_pseudo_after_regular() {
+    // RIC=0, base=0, then accept-encoding "gzip, deflate, br" (static idx 31, 0xDF), then
+    // :method GET (static idx 17, 0xD1). RFC 9114 §4.3.1: pseudo-headers MUST appear before
+    // any regular header field; a section that violates this MUST be treated as malformed.
+    let buf = vec![0x00, 0x00, 0xDF, 0xD1];
+    let err = decode(&buf).expect_err("pseudo-after-regular must fail");
+    let h3_err = match err {
+        H3Error::Protocol(code) => code,
+        other => panic!("expected Protocol error, got {other:?}"),
+    };
+    assert_eq!(h3_err, crate::h3::H3ErrorCode::MessageError);
+}
+
+#[test]
+fn decode_accepts_distinct_pseudos_in_order() {
+    // Sanity check that the strict-detection path doesn't misfire on a well-formed section.
+    // RIC=0, base=0, :method GET (0xD1), :path "/" (static idx 1, 0xC1).
+    let buf = vec![0x00, 0x00, 0xD1, 0xC1];
+    let (pseudos, _) = decode(&buf).expect("well-formed must decode").into_parts();
+    assert_eq!(pseudos.method, Some(Method::Get));
+    assert_eq!(pseudos.path.as_deref(), Some("/"));
+}
+
 // --- Dynamic table: blocked-streams enforcement ---
 
 #[test]
@@ -394,4 +434,91 @@ async fn dynamic_table_evicts_multiple_entries_for_large_insert() {
     assert!(table.get(1, 3).await.is_err()); // evicted
     let (name, _) = table.get(2, 3).await.unwrap();
     assert_eq!(name.as_ref(), "x-big-name");
+}
+
+// --- RFC 9204 §4.5.4 N (Never-Indexed) bit round-trip ---
+
+#[test]
+fn never_indexed_round_trips_through_headers() {
+    // App-side: build a value with the N bit set, encode through the QPACK encoder,
+    // decode it back, and verify the bit survives. Mirrors the proxy round-trip path
+    // (decode-then-re-encode) at the encoder/decoder seam.
+    let mut headers = Headers::new();
+    let mut secret = HeaderValue::from("Bearer abc123");
+    secret.set_never_indexed(true);
+    headers.insert(KnownHeaderName::Authorization, secret);
+    headers.insert(KnownHeaderName::ContentType, "application/json");
+
+    let (_, decoded_headers) = roundtrip(
+        PseudoHeaders {
+            method: Some(Method::Get),
+            path: Some(Cow::Borrowed("/")),
+            scheme: Some(Cow::Borrowed("https")),
+            ..Default::default()
+        },
+        &headers,
+    );
+
+    let auth = decoded_headers
+        .get_values(KnownHeaderName::Authorization)
+        .expect("authorization present");
+    assert_eq!(
+        auth.one().and_then(HeaderValue::as_str),
+        Some("Bearer abc123")
+    );
+    assert!(
+        auth.iter().all(HeaderValue::is_never_indexed),
+        "N bit must survive QPACK round-trip on the secret value",
+    );
+
+    let ct = decoded_headers
+        .get_values(KnownHeaderName::ContentType)
+        .expect("content-type present");
+    assert!(
+        ct.iter().all(|v| !v.is_never_indexed()),
+        "non-secret value must not pick up the N bit",
+    );
+}
+
+#[test]
+fn never_indexed_emits_literal_for_static_full_match() {
+    // RFC 9204 §4.5.4: when N=1 the encoded representation MUST be literal. Even when the
+    // (name, value) pair has a static-table full match, the encoder must skip the indexed
+    // shortcut and emit a literal-with-name-ref.
+    let mut headers = Headers::new();
+    // ":path /" is static table index 1 (full match) — but we route through a regular
+    // header here. Use a value that is a known static full-match in the qpack static
+    // table: "accept-encoding: gzip, deflate, br" (idx 31).
+    let mut value = HeaderValue::from("gzip, deflate, br");
+    value.set_never_indexed(true);
+    headers.insert(KnownHeaderName::AcceptEncoding, value);
+
+    let h3 = H3Connection::new(Default::default());
+    let mut buf = Vec::new();
+    let field_section = FieldSection::new(PseudoHeaders::default(), &headers);
+    h3.encode_field_section(&field_section, &mut buf, 1)
+        .unwrap();
+
+    // Wire bytes after the 2-byte section prefix should NOT be a §4.5.2 indexed-static
+    // representation (top bit + T-bit pattern: 1Txxxxxx with T=1). Instead they must be
+    // a §4.5.4 literal-with-static-name-ref with the N bit set (01N1xxxx pattern).
+    let body = &buf[2..];
+    let first = body[0];
+    assert_eq!(
+        first & 0b1100_0000,
+        0b0100_0000,
+        "expected §4.5.4 literal-with-name-ref (01xxxxxx), got first byte {first:#04x}",
+    );
+    assert_eq!(
+        first & 0b0010_0000,
+        0b0010_0000,
+        "N bit must be set on §4.5.4 emission, got first byte {first:#04x}",
+    );
+
+    // And the round-trip preserves the bit.
+    let decoded = decode(&buf).expect("round-trip decode").into_parts().1;
+    let v = decoded
+        .get_values(KnownHeaderName::AcceptEncoding)
+        .expect("accept-encoding present");
+    assert!(v.iter().all(HeaderValue::is_never_indexed));
 }

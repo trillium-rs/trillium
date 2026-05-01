@@ -283,18 +283,12 @@ impl H2Connection {
             return None;
         }
 
-        let stream_id = {
-            let mut next = self
-                .next_client_stream_id
-                .lock()
-                .expect("next_client_stream_id mutex poisoned");
-            if *next >= (1u32 << 31) {
-                return None;
-            }
-            let id = *next;
-            *next += 2;
-            id
-        };
+        let stream_id = self
+            .next_client_stream_id
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                (n < (1u32 << 31)).then_some(n + 2)
+            })
+            .ok()?;
 
         let state = Arc::new(StreamState::default());
 

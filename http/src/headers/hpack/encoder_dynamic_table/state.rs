@@ -37,9 +37,23 @@ pub(super) struct TableState {
     pub(super) current_size: usize,
     /// Working capacity (bytes). Caps the dynamic table; entries are evicted FIFO when
     /// an insert would exceed it. Per §4.4, an insert whose own size exceeds `max_size`
-    /// clears the table and is not stored. We do not currently emit §6.3 size updates,
-    /// so this stays at its constructor value for the connection's lifetime.
+    /// clears the table and is not stored.
+    ///
+    /// Starts at 0 — the encoder reduces to static-or-literal until peer SETTINGS
+    /// arrives. RFC 7541 §4.2's default of 4096 is the *protocol's permission ceiling*
+    /// for what we may use, not what we MUST use; matching QPACK's "wait for peer to
+    /// advertise" model removes the client-side race where pre-SETTINGS HEADERS get
+    /// emitted assuming 4096 against a peer that intends to advertise less. See
+    /// [`HpackEncoder::set_protocol_max_size`][super::HpackEncoder::set_protocol_max_size].
     pub(super) max_size: usize,
+    /// Encoder's local preferred operational size, fixed at construction. `max_size` is
+    /// `min(local_preferred_size, peer_advertised_max)` — `peer_advertised_max` arrives
+    /// via [`HpackEncoder::set_protocol_max_size`].
+    pub(super) local_preferred_size: usize,
+    /// Queued §6.3 Dynamic Table Size Update. Set whenever `max_size` changes;
+    /// drained by [`HpackEncoder::encode`] which prepends the §6.3 instruction
+    /// before the first field representation of the next HEADERS block (RFC 7541 §4.2).
+    pub(super) pending_size_update: Option<usize>,
     /// Total entries ever inserted (monotonically increasing). Equals one past the
     /// absolute index of the most-recently inserted entry.
     pub(super) insert_count: u64,
@@ -111,15 +125,46 @@ impl Debug for Entry {
 }
 
 impl TableState {
-    pub(super) fn new(max_size: usize, recent_pairs_size: usize) -> Self {
+    pub(super) fn new(local_preferred_size: usize, recent_pairs_size: usize) -> Self {
         Self {
             entries: VecDeque::new(),
             current_size: 0,
-            max_size,
+            max_size: 0,
+            local_preferred_size,
+            pending_size_update: None,
             insert_count: 0,
             by_name: HashMap::new(),
             accum: ConnectionAccumulator::default(),
             recent_pairs: RecentPairs::with_size(recent_pairs_size),
+        }
+    }
+
+    /// Apply peer's advertised `SETTINGS_HEADER_TABLE_SIZE`. Recomputes the operational
+    /// `max_size` as `min(local_preferred_size, peer_advertised)`, evicts to fit if
+    /// shrinking, and queues a §6.3 Dynamic Table Size Update for the next encode.
+    ///
+    /// Idempotent: a no-op if the new operational size matches the current one.
+    pub(super) fn set_protocol_max_size(&mut self, peer_advertised: usize) {
+        let new_max = self.local_preferred_size.min(peer_advertised);
+        if new_max == self.max_size {
+            return;
+        }
+        self.max_size = new_max;
+        if self.current_size > new_max {
+            self.evict_until_fits(0);
+        }
+        self.pending_size_update = Some(new_max);
+    }
+
+    /// Evict oldest entries until `current_size + needed <= max_size`.
+    fn evict_until_fits(&mut self, needed: usize) {
+        while self.current_size + needed > self.max_size {
+            let Some(entry) = self.entries.pop_back() else {
+                break;
+            };
+            let evicted_abs = self.insert_count - self.entries.len() as u64 - 1;
+            self.current_size -= entry.size;
+            self.remove_from_reverse_index(&entry.name, &entry.value, evicted_abs);
         }
     }
 
@@ -157,12 +202,7 @@ impl TableState {
             return;
         }
 
-        while self.current_size + entry_size > self.max_size {
-            let evicted_abs = self.insert_count - self.entries.len() as u64;
-            let entry = self.entries.pop_back().expect("current_size > 0");
-            self.current_size -= entry.size;
-            self.remove_from_reverse_index(&entry.name, &entry.value, evicted_abs);
-        }
+        self.evict_until_fits(entry_size);
 
         let abs_idx = self.insert_count;
         let name = name.into_owned();

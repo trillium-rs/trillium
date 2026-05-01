@@ -109,8 +109,14 @@ impl FrameHeader {
     /// The caller must ensure `buf.len() >= FRAME_HEADER_LEN`; debug builds check this, release
     /// builds panic on out-of-bounds access.
     ///
-    /// Also debug-asserts that `length` fits in 24 bits and `stream_id` fits in 31 bits; release
-    /// builds silently truncate (callers should have already enforced `SETTINGS_MAX_FRAME_SIZE`).
+    /// Also debug-asserts that `length` fits in 24 bits and `stream_id` fits in 31 bits.
+    /// In release, an out-of-range `length` silently encodes only its low 24 bits — the
+    /// resulting frame is malformed and the peer will misframe everything after it.
+    /// Returning `Result` would force unwrap noise at every emit site for a case that can't
+    /// occur: every in-tree caller computes `length` from a payload already chunked against
+    /// `SETTINGS_MAX_FRAME_SIZE` (≤ 2^24 − 1), and `stream_id` from a 31-bit allocator. If a
+    /// future caller can produce values out of these ranges, validate upstream rather than
+    /// rely on graceful failure here.
     pub(crate) fn encode(&self, buf: &mut [u8]) {
         debug_assert!(
             buf.len() >= FRAME_HEADER_LEN,
@@ -379,6 +385,30 @@ pub(crate) fn require_payload(
     input
         .get(FRAME_HEADER_LEN..FRAME_HEADER_LEN + length)
         .ok_or(FrameDecodeError::Incomplete)
+}
+
+/// Test-only helper for child frame-type modules: build a complete h2 frame
+/// (9-byte header + payload) from explicit field values. Shared via
+/// `super::encode_frame` from `frame/{data,headers,settings,...}::tests` so
+/// each frame-type's tests can construct fixtures without redefining the same
+/// helper nine times.
+#[cfg(test)]
+pub(crate) fn encode_frame(
+    frame_type: FrameType,
+    flags: u8,
+    stream_id: u32,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut buf = vec![0u8; FRAME_HEADER_LEN + payload.len()];
+    FrameHeader {
+        length: u32::try_from(payload.len()).unwrap(),
+        frame_type: frame_type as u8,
+        flags,
+        stream_id,
+    }
+    .encode(&mut buf);
+    buf[FRAME_HEADER_LEN..].copy_from_slice(payload);
+    buf
 }
 
 #[cfg(test)]

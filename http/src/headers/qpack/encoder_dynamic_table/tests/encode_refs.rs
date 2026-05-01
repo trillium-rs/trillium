@@ -412,7 +412,7 @@ fn committed_to_blocking_covers_full_match_then_name_ref() {
     encoder.insert(qen("x-a"), fv("1")).unwrap();
     encoder.insert(qen("x-b"), fv("1")).unwrap();
 
-    let field_lines = [(qen("x-a"), fv("1")), (qen("x-b"), fv("2"))];
+    let field_lines = [(qen("x-a"), fv("1"), false), (qen("x-b"), fv("2"), false)];
     let mut bytes = Vec::new();
     encoder.encode_field_lines(&field_lines, &mut bytes, 1);
 

@@ -124,6 +124,7 @@ pub(in crate::headers) fn decode(
             emit_literal(
                 name,
                 value,
+                false,
                 &mut pseudo_headers,
                 &mut headers,
                 &mut saw_regular,
@@ -143,15 +144,17 @@ pub(in crate::headers) fn decode(
             input = rest;
             table.set_max_size(new_max);
         } else if first & LITERAL_NEVER_INDEXED != 0 {
-            // §6.2.3 Literal Header Field Never Indexed
+            // §6.2.3 Literal Header Field Never Indexed. The N bit is lifted onto the
+            // produced HeaderValue so a downstream re-encoder (e.g. trillium-proxy) emits
+            // §6.2.3 again rather than degrading to §6.2.2.
             let (index, rest) = integer_prefix::decode(input, 4)?;
             let (name, value, rest) = read_literal_name_value(rest, index, table)?;
             size_updates_allowed = false;
             input = rest;
-            // TODO(n-bit): preserve the "never indexed" signal through to intermediaries.
             emit_literal(
                 name,
                 value,
+                true,
                 &mut pseudo_headers,
                 &mut headers,
                 &mut saw_regular,
@@ -166,6 +169,7 @@ pub(in crate::headers) fn decode(
             emit_literal(
                 name,
                 value,
+                false,
                 &mut pseudo_headers,
                 &mut headers,
                 &mut saw_regular,
@@ -206,7 +210,14 @@ fn emit_indexed(
         let entry = table
             .get(dyn_index)
             .ok_or(CompressionError::InvalidStaticIndex(index))?;
-        emit_from_entry(entry, pseudo_headers, headers, saw_regular, malformed)
+        emit_from_entry(
+            entry,
+            false,
+            pseudo_headers,
+            headers,
+            saw_regular,
+            malformed,
+        )
     }
 }
 
@@ -222,7 +233,7 @@ fn read_literal_name_value<'a>(
 ) -> Result<(EntryName<'static>, FieldLineValue<'static>, &'a [u8]), CompressionError> {
     let (name, rest) = if index == 0 {
         let (bytes, rest) = read_string(input)?;
-        let name = EntryName::try_from(bytes).map_err(|_| CompressionError::InvalidHeaderName)?;
+        let name = EntryName::try_from(bytes).map_err(|()| CompressionError::InvalidHeaderName)?;
         (name, rest)
     } else if index <= 61 {
         let (name, _) = static_entry(index)?;
@@ -262,10 +273,12 @@ fn read_string(input: &[u8]) -> Result<(Vec<u8>, &[u8]), CompressionError> {
     Ok((decoded, rest))
 }
 
-/// Route an owned-form `(EntryName, FieldLineValue)` into pseudos or headers.
+/// Route an owned-form `(EntryName, FieldLineValue)` into pseudos or headers. `never_indexed`
+/// is the §6.2.3 N bit lifted onto the produced `HeaderValue` for round-trip fidelity.
 fn emit_literal(
     name: EntryName<'static>,
     value: FieldLineValue<'static>,
+    never_indexed: bool,
     pseudo_headers: &mut PseudoHeaders<'static>,
     headers: &mut Headers,
     saw_regular: &mut bool,
@@ -273,6 +286,7 @@ fn emit_literal(
 ) -> Result<(), CompressionError> {
     emit_from_entry(
         &Entry { name, value },
+        never_indexed,
         pseudo_headers,
         headers,
         saw_regular,
@@ -280,7 +294,8 @@ fn emit_literal(
     )
 }
 
-/// Route a `StaticHeaderName` + static `FieldLineValue` into pseudos or headers.
+/// Route a `StaticHeaderName` + static `FieldLineValue` into pseudos or headers. Indexed
+/// representations (§6.1) never carry the N bit, so callers always pass `never_indexed=false`.
 fn emit_from_entry_ref(
     name: StaticHeaderName,
     value: FieldLineValue<'static>,
@@ -295,6 +310,7 @@ fn emit_from_entry_ref(
             name: entry_name,
             value,
         },
+        false,
         pseudo_headers,
         headers,
         saw_regular,
@@ -309,35 +325,35 @@ fn emit_from_entry_ref(
 /// appropriate stream-level error.
 fn emit_from_entry(
     entry: &Entry,
+    never_indexed: bool,
     pseudo_headers: &mut PseudoHeaders<'static>,
     headers: &mut Headers,
     saw_regular: &mut bool,
     malformed: &mut Option<MalformedRequest>,
 ) -> Result<(), CompressionError> {
     let value_bytes: &[u8] = entry.value.as_bytes();
+    let make_value = || {
+        let mut v = HeaderValue::from(value_bytes.to_vec());
+        v.set_never_indexed(never_indexed);
+        v
+    };
     match &entry.name {
         EntryName::Known(k) => {
             *saw_regular = true;
-            headers.append(
-                HeaderName::from(*k),
-                HeaderValue::from(value_bytes.to_vec()),
-            );
+            headers.append(HeaderName::from(*k), make_value());
         }
         EntryName::Unknown(u) => {
             *saw_regular = true;
-            headers.append(
-                HeaderName::from(u.clone().into_owned()),
-                HeaderValue::from(value_bytes.to_vec()),
-            );
+            headers.append(HeaderName::from(u.clone().into_owned()), make_value());
         }
         EntryName::UnknownStatic(s) => {
             *saw_regular = true;
-            headers.append(
-                HeaderName::from(*s),
-                HeaderValue::from(value_bytes.to_vec()),
-            );
+            headers.append(HeaderName::from(*s), make_value());
         }
         EntryName::Pseudo(pseudo) => {
+            // The N bit on a pseudo header has no place to live (pseudos route to typed
+            // Conn fields, not Headers); drop it. For proxy round-trip this is fine —
+            // pseudos are rebuilt from typed fields, not re-emitted from the wire bits.
             if *saw_regular {
                 log::trace!("hpack: pseudo-header after regular: {pseudo:?}");
                 malformed.get_or_insert(MalformedRequest::PseudoHeaderAfterRegular);

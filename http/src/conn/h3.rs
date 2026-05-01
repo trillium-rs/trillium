@@ -1,5 +1,6 @@
 use crate::{
-    BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, Status, TypeSet, Version,
+    BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet,
+    Version,
     after_send::AfterSend,
     h3::{Frame, FrameStream, H3Connection, H3Error, H3ErrorCode, H3StreamResult},
     headers::qpack::{FieldSection, PseudoHeaders},
@@ -7,7 +8,6 @@ use crate::{
 };
 use futures_lite::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use std::{
-    borrow::Cow,
     io,
     sync::Arc,
     time::{Instant, SystemTime},
@@ -107,16 +107,13 @@ where
             bufwriter.copy_from(&mut body, loops_per_yield).await?;
 
             if let Some(trailers) = body.trailers() {
-                let Some(h3) = &self.h3_connection else {
-                    return Err(io::ErrorKind::NotConnected.into());
-                };
-                let Some(stream_id) = self.h3_stream_id else {
+                let Some((h3, stream_id)) = self.protocol_session.as_h3() else {
                     return Err(io::ErrorKind::NotConnected.into());
                 };
 
                 log::trace!("sending trailers: {trailers}");
                 encode_field_section_h3(
-                    h3,
+                    &h3,
                     &FieldSection::new(PseudoHeaders::default(), &trailers),
                     max_peer_field_section_size,
                     initial_cap,
@@ -137,15 +134,12 @@ where
 
         let field_section = FieldSection::new(pseudo_headers, &self.response_headers);
         log::trace!("sending:\n{field_section}");
-        let Some(h3) = &self.h3_connection else {
-            return Err(io::ErrorKind::NotConnected.into());
-        };
-        let Some(stream_id) = self.h3_stream_id else {
+        let Some((h3, stream_id)) = self.protocol_session.as_h3() else {
             return Err(io::ErrorKind::NotConnected.into());
         };
 
         encode_field_section_h3(
-            h3,
+            &h3,
             &field_section,
             self.max_peer_field_section_size(),
             self.context.config.request_buffer_initial_len,
@@ -158,61 +152,20 @@ where
         h3_connection: Arc<H3Connection>,
         transport: Transport,
         buffer: Buffer,
-        mut field_section: FieldSection<'static>,
+        field_section: FieldSection<'static>,
         start_time: Instant,
         stream_id: u64,
     ) -> Result<Self, H3ErrorCode> {
         log::trace!("received:\n{field_section}");
-        let pseudo_headers = field_section.pseudo_headers_mut();
 
-        let method = pseudo_headers.take_method();
-        let path = pseudo_headers.take_path();
-        let authority = pseudo_headers.take_authority();
-        let scheme = pseudo_headers.take_scheme();
-        let protocol = pseudo_headers.take_protocol();
-
-        let request_headers = field_section.into_headers().into_owned();
-
-        if let Some(host) = request_headers.get_str(KnownHeaderName::Host)
-            && let Some(authority) = &authority
-            && host != authority.as_ref()
-        {
-            return Err(H3ErrorCode::MessageError);
-        }
-
-        if [
-            KnownHeaderName::Connection,
-            KnownHeaderName::KeepAlive,
-            KnownHeaderName::ProxyConnection,
-            KnownHeaderName::TransferEncoding,
-            KnownHeaderName::Upgrade,
-        ]
-        .into_iter()
-        .any(|name| request_headers.has_header(name))
-        {
-            return Err(H3ErrorCode::MessageError);
-        }
-
-        let method = method.ok_or(H3ErrorCode::MessageError)?;
-
-        if method != Method::Connect && scheme.is_none() {
-            return Err(H3ErrorCode::MessageError);
-        }
-
-        let path = match (method, path) {
-            (_, Some(path)) => path,
-            (Method::Connect, None) => Cow::Borrowed("/"),
-            (_, None) => return Err(H3ErrorCode::MessageError),
-        };
-
-        if method == Method::Connect && authority.is_none() {
-            return Err(H3ErrorCode::MessageError);
-        }
-
-        match request_headers.get_str(KnownHeaderName::Te) {
-            None | Some("trailers") => {}
-            _ => return Err(H3ErrorCode::MessageError),
-        }
+        let super::ValidatedRequest {
+            method,
+            path,
+            authority,
+            scheme,
+            protocol,
+            request_headers,
+        } = super::validate_h2h3_request(field_section).ok_or(H3ErrorCode::MessageError)?;
 
         let response_headers = h3_connection
             .context()
@@ -242,24 +195,33 @@ where
             peer_ip: None,
             authority,
             scheme,
-            h3_connection: Some(h3_connection),
-            h3_stream_id: Some(stream_id),
-            h2_connection: None,
-            h2_stream_id: None,
             protocol,
+            protocol_session: ProtocolSession::Http3 {
+                connection: h3_connection,
+                stream_id,
+            },
             request_trailers: None,
         })
     }
 
+    /// Apply h3-flavored finalizations to the response headers: insert a Date header if absent,
+    /// surface content-length if known, strip h1-only connection-management headers (forbidden
+    /// in h3 per RFC 9114 §4.2).
+    ///
+    /// Skips Content-Length insertion on the extended-CONNECT upgrade path (RFC 9220 §3 reusing
+    /// RFC 8441): the response is HEADERS-only with the QUIC stream staying open as a bidi byte
+    /// channel.
+    ///
+    /// Parallel to
+    /// [`Conn::finalize_response_headers_1x`][super::Conn::finalize_response_headers_1x]
+    /// (h1) and [`Conn::finalize_response_headers_h2`][super::Conn::finalize_response_headers_h2]
+    /// (h2); keep the three in sync when changing universal policy.
     pub(super) fn finalize_response_headers_h3(&mut self) {
         self.response_headers
             .try_insert_with(KnownHeaderName::Date, || {
                 httpdate::fmt_http_date(SystemTime::now())
             });
 
-        // Mirror the h2 path: extended-CONNECT (RFC 9220 §3 reusing RFC 8441) responds
-        // with HEADERS only; the QUIC stream stays open as a bidi byte channel and a
-        // Content-Length would be misleading.
         if !self.should_upgrade()
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
             && let Some(len) = self.body_len()
@@ -268,13 +230,7 @@ where
                 .try_insert(KnownHeaderName::ContentLength, len);
         }
 
-        self.response_headers.remove_all([
-            KnownHeaderName::Connection,
-            KnownHeaderName::TransferEncoding,
-            KnownHeaderName::KeepAlive,
-            KnownHeaderName::ProxyConnection,
-            KnownHeaderName::Upgrade,
-        ]);
+        self.response_headers.remove_all(super::H1_ONLY_HEADERS);
     }
 }
 

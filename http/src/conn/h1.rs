@@ -1,6 +1,6 @@
 use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
-    Method, ReceivedBody, Result, Status, TypeSet, Version, after_send::AfterSend,
+    Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version, after_send::AfterSend,
     conn::ReceivedBodyState, util::encoding,
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -16,6 +16,13 @@ impl<Transport> Conn<Transport>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
+    /// HTTP/1.x response-header finalization. Parallel to
+    /// [`Conn::finalize_response_headers_h2`][super::Conn::finalize_response_headers_h2]
+    /// and [`Conn::finalize_response_headers_h3`][super::Conn::finalize_response_headers_h3]
+    /// — keep the three in sync when changing universal policy (e.g. how Date is set).
+    /// Differences are version-intrinsic: chunked Transfer-Encoding and `Connection: close`
+    /// are h1-only; the h2/h3 paths instead strip [`H1_ONLY_HEADERS`][super::H1_ONLY_HEADERS]
+    /// and let the framing layer signal end-of-stream.
     pub(super) fn finalize_response_headers_1x(&mut self) {
         if self.status == Some(Status::SwitchingProtocols) {
             return;
@@ -68,6 +75,11 @@ where
 
             bufwriter.copy_from(&mut body, loops_per_yield).await?;
 
+            // Chunked-trailer-section stitch (RFC 9112 §7.1.2). `Body::poll_read` emitted
+            // the last-chunk marker `0\r\n` at EOF and stopped there; we own the rest of
+            // the framing because trailers are structured `Headers` (not bytes) and the
+            // terminating CRLF closes the trailer-section. See `Body::poll_read`'s
+            // `len: None` branch for the full rationale.
             if let Some(trailers) = body.trailers() {
                 log::trace!("sending trailers:\n{trailers}");
                 write_headers_or_trailers(bufwriter.buffer_mut(), &trailers, &self.context)?;
@@ -105,8 +117,7 @@ where
             &self.context.config,
         )
         .with_trailers(&mut self.request_trailers)
-        .with_h3_connection(self.h3_connection.clone().zip(self.h3_stream_id))
-        .with_h2_connection(self.h2_connection.clone().zip(self.h2_stream_id))
+        .with_protocol_session(self.protocol_session.clone())
     }
 
     fn validate_headers(request_headers: &Headers) -> Result<()> {
@@ -235,12 +246,9 @@ where
             context,
             authority,
             scheme: None,
-            h3_connection: None,
             protocol: None,
+            protocol_session: ProtocolSession::Http1,
             request_trailers: None,
-            h3_stream_id: None,
-            h2_connection: None,
-            h2_stream_id: None,
         })
     }
 
@@ -313,12 +321,9 @@ where
             peer_ip: None,
             authority,
             scheme: None,
-            h3_connection: None,
             protocol: None,
+            protocol_session: ProtocolSession::Http1,
             request_trailers: None,
-            h3_stream_id: None,
-            h2_connection: None,
-            h2_stream_id: None,
         })
     }
 

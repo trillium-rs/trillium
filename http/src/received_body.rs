@@ -1,6 +1,4 @@
-use crate::{
-    Body, Buffer, Error, Headers, HttpConfig, MutCow, copy, h2::H2Connection, h3::H3Connection,
-};
+use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, ProtocolSession, copy};
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
 use encoding_rs::Encoding;
@@ -9,7 +7,6 @@ use std::{
     fmt::{self, Debug, Formatter},
     io::{self, ErrorKind},
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -122,20 +119,16 @@ pub struct ReceivedBody<'conn, Transport> {
     /// first read. `None` means no pending write.
     send_100_continue_offset: Option<usize>,
 
-    /// holds connection and stream id
-    h3_connection: Option<(Arc<H3Connection>, u64)>,
+    /// The protocol session this body belongs to. Used by the body state machine's `End`
+    /// transition to pull driver-decoded trailers into
+    /// [`Conn::request_trailers`][crate::Conn]: h2 trailers come synchronously off
+    /// [`H2Connection::take_trailers`][H2Connection::take_trailers], h3 trailers come back
+    /// asynchronously via `h3_trailer_future`.
+    protocol_session: ProtocolSession,
 
-    /// a boxed future that handles decoding trailers
+    /// a boxed future that handles decoding h3 trailers
     h3_trailer_future:
         Option<Pin<Box<dyn Future<Output = io::Result<Headers>> + Send + Sync + 'static>>>,
-
-    /// The h2 connection and stream id for this body, when served over HTTP/2. Used in the
-    /// body state machine's `End` transition to pull driver-decoded trailers from
-    /// [`H2Connection::take_trailers`][H2Connection::take_trailers] into
-    /// [`Conn::request_trailers`][crate::Conn] — symmetric with the h3 hook, but the h2
-    /// driver decodes trailers synchronously on a separate task, so there's no boxed
-    /// future to chase.
-    h2_connection: Option<(Arc<H2Connection>, u32)>,
 }
 
 fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
@@ -193,9 +186,8 @@ where
             max_header_list_size: config.max_header_list_size,
             trailers: None.into(),
             send_100_continue_offset: None,
-            h3_connection: None,
+            protocol_session: ProtocolSession::Http1,
             h3_trailer_future: None,
-            h2_connection: None,
         }
     }
 
@@ -209,47 +201,24 @@ where
         self
     }
 
+    /// Associate this body with the [`ProtocolSession`] that produced it. The End
+    /// transition of the body state machine consults this to pull driver-decoded
+    /// trailers into [`Conn::request_trailers`][crate::Conn] (h2 synchronously,
+    /// h3 via a boxed future). For h1 bodies the session is
+    /// [`ProtocolSession::Http1`] and no trailer-driver hook fires.
     #[doc(hidden)]
     #[must_use]
     #[cfg(feature = "unstable")]
-    pub fn with_h3_connection(mut self, h3_connection: Option<(Arc<H3Connection>, u64)>) -> Self {
-        self.h3_connection = h3_connection;
+    pub fn with_protocol_session(mut self, protocol_session: ProtocolSession) -> Self {
+        self.protocol_session = protocol_session;
         self
     }
 
     #[doc(hidden)]
     #[must_use]
     #[cfg(not(feature = "unstable"))]
-    pub(crate) fn with_h3_connection(
-        mut self,
-        h3_connection: Option<(Arc<H3Connection>, u64)>,
-    ) -> Self {
-        self.h3_connection = h3_connection;
-        self
-    }
-
-    /// Associate this body with the [`H2Connection`] and h2 stream that produced it. The
-    /// End transition of the body state machine consults these to pull driver-decoded
-    /// trailers into [`Conn::request_trailers`][crate::Conn].
-    #[doc(hidden)]
-    #[must_use]
-    #[cfg(feature = "unstable")]
-    pub fn with_h2_connection(mut self, h2_connection: Option<(Arc<H2Connection>, u32)>) -> Self {
-        self.h2_connection = h2_connection;
-        self
-    }
-
-    /// Associate this body with the [`H2Connection`] and h2 stream that produced it. The
-    /// End transition of the body state machine consults these to pull driver-decoded
-    /// trailers into [`Conn::request_trailers`][crate::Conn].
-    #[doc(hidden)]
-    #[must_use]
-    #[cfg(not(feature = "unstable"))]
-    pub(crate) fn with_h2_connection(
-        mut self,
-        h2_connection: Option<(Arc<H2Connection>, u32)>,
-    ) -> Self {
-        self.h2_connection = h2_connection;
+    pub(crate) fn with_protocol_session(mut self, protocol_session: ProtocolSession) -> Self {
+        self.protocol_session = protocol_session;
         self
     }
 
@@ -496,9 +465,12 @@ where
                 // h2 trailer handoff. The driver decodes trailers on a separate task and
                 // stashes them on the per-stream `StreamState` *before* signalling EOF, so
                 // by the time we reach `End` the trailers (if any) are present — no boxed
-                // future required.
+                // future required. Replacing the session with `Http1` after the drain is the
+                // idempotency mechanism: subsequent `End` re-entries see no h2 session.
                 if bytes == 0
-                    && let Some((h2_connection, stream_id)) = self.h2_connection.take()
+                    && let Some((h2_connection, stream_id)) =
+                        std::mem::replace(&mut self.protocol_session, ProtocolSession::Http1)
+                            .as_h2()
                     && let Some(trailers) = h2_connection.take_trailers(stream_id)
                 {
                     *self.trailers = Some(trailers);

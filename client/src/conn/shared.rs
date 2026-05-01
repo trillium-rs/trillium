@@ -227,7 +227,7 @@ impl Debug for Conn {
             .field("buffer", &String::from_utf8_lossy(&self.buffer))
             .field("config", &self.config)
             .field("h3_client_state", &self.h3_client_state)
-            .field("h3_connection", &self.h3_connection)
+            .field("protocol_session", &self.protocol_session)
             .field("http_version", &self.http_version)
             .field("method", &self.method)
             .field("path", &self.path)

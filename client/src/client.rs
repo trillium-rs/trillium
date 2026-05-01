@@ -1,8 +1,8 @@
 use crate::{Conn, IntoUrl, Pool, USER_AGENT, conn::H2Pooled, h3::H3ClientState};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
-    HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method, ReceivedBodyState,
-    TypeSet, Version::Http1_1,
+    HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method, ProtocolSession,
+    ReceivedBodyState, TypeSet, Version::Http1_1,
 };
 use trillium_server_common::{
     ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Transport,
@@ -249,9 +249,8 @@ impl Client {
             h2_idle_timeout: self.h2_idle_timeout,
             h2_idle_ping_threshold: self.h2_idle_ping_threshold,
             h2_idle_ping_timeout: self.h2_idle_ping_timeout,
-            h2_connection: None,
             h3_client_state: self.h3.clone(),
-            h3_connection: None,
+            protocol_session: ProtocolSession::Http1,
             buffer: Vec::with_capacity(128).into(),
             response_body_state: ReceivedBodyState::Start,
             config: self.config.clone(),

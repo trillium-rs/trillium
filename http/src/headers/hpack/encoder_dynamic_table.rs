@@ -29,12 +29,22 @@ mod tests;
 
 /// Per-connection HPACK encoder.
 ///
-/// Construct one per HTTP/2 connection (server or client). The dynamic table is
-/// initialized at the peer's advertised `SETTINGS_HEADER_TABLE_SIZE` (or our local
-/// configured ceiling, whichever is smaller — the caller picks). The cross-connection
-/// header observer is shared via `Arc` across all connections on a listener; this
-/// encoder folds its per-connection observation accumulator into the shared observer
-/// in [`Drop`].
+/// Construct one per HTTP/2 connection (server or client). The operational table size
+/// starts at 0 (encoder reduces to static-or-literal) until the peer's
+/// `SETTINGS_HEADER_TABLE_SIZE` arrives via [`Self::set_protocol_max_size`]. At that
+/// point, the operational size is raised to `min(local_preferred_size, peer_advertised)`
+/// and a §6.3 Dynamic Table Size Update is queued for the next encode call (RFC 7541
+/// §4.2). Subsequent peer SETTINGS changes flow through the same path.
+///
+/// This "wait for peer" posture differs from RFC 7541 §4.2's stated default of 4096
+/// (we *could* use the dynamic table from frame zero) but mirrors QPACK's
+/// peer-advertised-capacity model, removes a client-side race where pre-SETTINGS
+/// HEADERS would be emitted assuming 4096 against a peer that intends to advertise
+/// less, and unifies the mental model across HPACK and QPACK.
+///
+/// The cross-connection header observer is shared via `Arc` across all connections on
+/// a listener; this encoder folds its per-connection observation accumulator into the
+/// shared observer in [`Drop`].
 #[derive(Debug)]
 pub(crate) struct HpackEncoder {
     state: TableState,
@@ -45,22 +55,33 @@ pub(crate) struct HpackEncoder {
 }
 
 impl HpackEncoder {
-    /// Construct a new HPACK encoder with the given dynamic-table capacity (in bytes,
-    /// per RFC 7541 §4.1) and the given recent-pairs ring size. The observer is
-    /// shared across connections on a listener.
+    /// Construct a new HPACK encoder with the given local preferred dynamic-table
+    /// capacity (bytes, per RFC 7541 §4.1) and recent-pairs ring size. The observer
+    /// is shared across connections on a listener.
     ///
-    /// `max_table_size = 0` is a valid input: the encoder will never insert (every
-    /// candidate fails §4.4's "entry alone exceeds `max_size`" check), reducing to the
-    /// static-or-literal shape.
+    /// The encoder's operational size starts at 0 and is raised on the first call to
+    /// [`Self::set_protocol_max_size`] (typically driven by the peer's
+    /// `SETTINGS_HEADER_TABLE_SIZE`). `local_preferred_size = 0` is a valid input:
+    /// the encoder will never insert regardless of what the peer advertises (every
+    /// candidate fails §4.4's "entry alone exceeds `max_size`" check).
     pub(crate) fn new(
         observer: Arc<HeaderObserver>,
-        max_table_size: usize,
+        local_preferred_size: usize,
         recent_pairs_size: usize,
     ) -> Self {
         Self {
-            state: TableState::new(max_table_size, recent_pairs_size),
+            state: TableState::new(local_preferred_size, recent_pairs_size),
             observer,
         }
+    }
+
+    /// Apply the peer's advertised `SETTINGS_HEADER_TABLE_SIZE`. The encoder's
+    /// operational size becomes `min(local_preferred_size, peer_advertised)`; if that
+    /// changed, the table is shrunk if needed and a §6.3 Dynamic Table Size Update
+    /// is queued for emission at the start of the next [`Self::encode`] call (RFC
+    /// 7541 §4.2). Idempotent: a no-op when the operational size is unchanged.
+    pub(crate) fn set_protocol_max_size(&mut self, peer_advertised: usize) {
+        self.state.set_protocol_max_size(peer_advertised);
     }
 }
 

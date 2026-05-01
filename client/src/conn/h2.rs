@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use trillium_http::{
-    Error, KnownHeaderName, Method, ReceivedBodyState, Result, Version,
+    Error, KnownHeaderName, Method, ProtocolSession, ReceivedBodyState, Result, Version,
     h2::H2Connection,
     headers::hpack::{FieldSection, PseudoHeaders},
 };
@@ -221,7 +221,10 @@ impl Conn {
         };
         log::trace!("h2 client opened stream {stream_id}");
 
-        self.h2_connection = Some((h2.clone(), stream_id));
+        self.protocol_session = ProtocolSession::Http2 {
+            connection: h2.clone(),
+            stream_id,
+        };
         self.transport = Some(Box::new(transport));
 
         self.recv_h2_response_headers(&h2, stream_id).await?;

@@ -1,6 +1,14 @@
+/// Coarse outcome reported to [`Conn::after_send`][crate::Conn::after_send] callbacks.
+///
+/// Currently a binary success/failure signal; the enum shape exists so additional
+/// termination detail (e.g. partial-send byte counts, error categorization) can be
+/// added without breaking the callback signature.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SendStatus {
+    /// The response was fully transferred to the peer.
     Success,
+    /// The response did not complete — the conn was dropped before send finished,
+    /// the handler panicked, or the transport reported an error mid-write.
     Failure,
 }
 impl From<bool> for SendStatus {
@@ -19,6 +27,13 @@ impl SendStatus {
     }
 }
 
+/// Storage for callbacks registered via [`Conn::after_send`][crate::Conn::after_send].
+///
+/// Callbacks are guaranteed to fire **exactly once** for the lifetime of a `Conn`:
+/// either the codec's send path invokes [`call`](Self::call) with the real outcome,
+/// or — if the `Conn` is dropped before send completes — the [`Drop`] impl fires
+/// the callback with [`SendStatus::Failure`]. Multiple registrations chain in
+/// registration order via [`append`](Self::append).
 #[derive(Default)]
 pub(crate) struct AfterSend(Option<Box<dyn FnOnce(SendStatus) + Send + Sync + 'static>>);
 
@@ -45,6 +60,10 @@ impl AfterSend {
 
 impl Drop for AfterSend {
     fn drop(&mut self) {
+        // Fallback so the callback fires exactly once even when the conn drops
+        // before the codec's send path runs (handler panic, transport error,
+        // mid-write disconnect, prematurely-released conn). The h1/h2/h3 send
+        // paths normally `call` with the real status; Drop covers everything else.
         self.call(SendStatus::Failure);
     }
 }

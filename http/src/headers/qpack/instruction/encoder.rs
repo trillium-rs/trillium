@@ -33,7 +33,12 @@ const NAME_REF_STATIC_FLAG: u8 = 0x40;
 
 // §3.2.3: Insert With Literal Name — first byte pattern 01xxxxxx.
 const INSERT_WITH_LITERAL_NAME: u8 = 0x40;
-// H bit for the name string of Insert With Literal Name.
+// H bit for the name string of Insert With Literal Name. Same role as the H flag
+// in a standalone §4.1.2 string-literal (Huffman-encoded on the wire), but packed
+// at bit 5 here because the surrounding instruction header eats the top two bits
+// and the name gets a 5-bit length prefix rather than §4.1.2's 7-bit one. The
+// value field of this same instruction *does* use the §4.1.2 wrapper, via
+// `read_string_with_huffman` / `encode_string`.
 const LITERAL_NAME_HUFFMAN_FLAG: u8 = 0x20;
 
 // §3.2.1: Set Dynamic Table Capacity — first byte pattern 001xxxxx.
@@ -123,8 +128,8 @@ async fn parse_inner(
         } else {
             name_bytes
         };
-        let name = EntryName::try_from(name_bytes).map_err(|e| {
-            log::error!("QPACK encoder: invalid literal name: {e:?}");
+        let name = EntryName::try_from(name_bytes).map_err(|()| {
+            log::error!("QPACK encoder: invalid literal name");
         })?;
         let value = read_string_with_huffman(max_entry_size, stream).await?;
         validate_value(&value)?;

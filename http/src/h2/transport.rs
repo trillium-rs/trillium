@@ -214,32 +214,45 @@ impl AsyncRead for H2Transport {
 impl AsyncWrite for H2Transport {
     fn poll_write(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         // Append into the per-stream outbound queue used by the extended-CONNECT
-        // (RFC 8441) upgrade path. The driver's send pump drains the same
-        // queue (via the upgrade body's `AsyncRead::poll_read`) into DATA frames bounded
-        // by per-stream + connection send windows.
+        // (RFC 8441) upgrade path. The driver's send pump drains the same queue (via
+        // the upgrade body's `AsyncRead::poll_read`) into DATA frames bounded by
+        // per-stream + connection send windows.
         //
-        // No backpressure here yet — the queue is unbounded. If a runaway handler
-        // becomes a problem we'll cap it and return `Poll::Pending` past the cap, with a
-        // wake from the driver's drain side.
+        // Bounded by `config.response_buffer_max_len` — the same cap h1 and h3 response
+        // paths use for their transit buffers. If the peer's flow-control window stalls
+        // (slow or malicious reader) the driver can't drain `outbound`, the cap is hit,
+        // and we return `Pending` so the handler is throttled. The drain side
+        // (`H2OutboundReader::poll_read`) wakes `outbound_write_waker` after each take.
         let send = &self.state.send;
 
         if send.outbound_close_requested.load(Ordering::Acquire) {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
 
-        let n = buf.len();
+        let cap = self.connection.context.config.response_buffer_max_len;
+        let mut outbound = send.outbound.lock().expect("outbound buf mutex poisoned");
+        if outbound.len() >= cap {
+            // Register first, then re-check under lock to close the race against the
+            // drain side (`H2OutboundReader::poll_read` takes the same lock to call
+            // `ignore_front` and then wakes us). If a drain landed between our length
+            // check and the register, the second check sees the freed space.
+            send.outbound_write_waker.register(cx.waker());
+            if outbound.len() >= cap {
+                return Poll::Pending;
+            }
+        }
+        let take = (cap - outbound.len()).min(buf.len());
         log::trace!(
-            "h2 stream {}: H2Transport::poll_write appending {n} bytes to outbound queue",
+            "h2 stream {}: H2Transport::poll_write appending {take}/{} bytes to outbound queue",
             self.stream_id,
+            buf.len(),
         );
-        send.outbound
-            .lock()
-            .expect("outbound buf mutex poisoned")
-            .extend_from_slice(buf);
+        outbound.extend_from_slice(&buf[..take]);
+        drop(outbound);
 
         // Wake the driver task (if parked on the connection-level waker) and the
         // upgrade body's poll_read (in case it's registered between driver ticks).
@@ -247,7 +260,7 @@ impl AsyncWrite for H2Transport {
         // happens to be parked on `connection.outbound_waker` rather than mid-body-poll.
         send.outbound_waker.wake();
         self.connection.outbound_waker().wake();
-        Poll::Ready(Ok(n))
+        Poll::Ready(Ok(take))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -453,6 +466,14 @@ pub(super) struct SendState {
     /// `outbound_close_requested`. Registered by the body during its `poll_read` when
     /// it observes an empty buffer and no close flag.
     pub(super) outbound_waker: AtomicWaker,
+
+    /// Reverse-direction waker: registered by [`H2Transport::poll_write`] when `outbound`
+    /// has reached the configured cap, fired by [`H2OutboundReader::poll_read`] after it
+    /// drains bytes (i.e. after `ignore_front`) so a parked writer can resume. This is the
+    /// edge that surfaces peer flow-control backpressure to the upgrade handler — without
+    /// it, a slow or unresponsive peer's closed window would let `outbound` grow without
+    /// bound.
+    pub(super) outbound_write_waker: AtomicWaker,
 }
 
 /// `AsyncRead` source the driver uses as the response body for an extended-CONNECT upgrade.
@@ -498,6 +519,12 @@ impl AsyncRead for H2OutboundReader {
                 "h2 stream {}: H2OutboundReader::poll_read drained {take} bytes",
                 self.stream_id,
             );
+            // Drop the lock before waking — the writer reacquires it on resume.
+            drop(outbound);
+            // Surface flow-control backpressure: wake any writer parked on
+            // `outbound_write_waker` because the cap was hit. Registered-but-still-full
+            // is harmless — the writer's recheck under lock observes the new len.
+            send.outbound_write_waker.wake();
             return Poll::Ready(Ok(take));
         }
 
@@ -551,5 +578,96 @@ impl Submission {
     /// Borrow this submission's headers as a [`FieldSection`] for encoding.
     pub(super) fn field_section(&self) -> FieldSection<'_> {
         FieldSection::new(self.pseudos.clone(), &self.headers)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::HttpContext;
+    use futures_lite::{AsyncRead, AsyncWrite};
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        task::{Context, Poll, Wake, Waker},
+    };
+
+    struct CountingWaker(AtomicBool);
+    impl Wake for CountingWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    fn pair_with_cap(cap: usize) -> (H2Transport, H2OutboundReader) {
+        let mut context = HttpContext::new();
+        context.config.response_buffer_max_len = cap;
+        let connection = H2Connection::new(Arc::new(context));
+        let state = Arc::new(StreamState::default());
+        let transport = H2Transport::new(connection.clone(), 1, state.clone());
+        let reader = H2OutboundReader::new(state, 1);
+        (transport, reader)
+    }
+
+    #[test]
+    fn poll_write_caps_at_response_buffer_max_len() {
+        // Cap of 16 bytes. Writing 32 bytes should accept exactly 16 (partial-write
+        // semantics; AsyncWriteExt::write_all retries the rest).
+        let (mut transport, _reader) = pair_with_cap(16);
+        let waker = Waker::from(Arc::new(CountingWaker(AtomicBool::new(false))));
+        let mut cx = Context::from_waker(&waker);
+
+        let buf = [0u8; 32];
+        match Pin::new(&mut transport).poll_write(&mut cx, &buf) {
+            Poll::Ready(Ok(n)) => assert_eq!(n, 16, "should accept exactly cap bytes"),
+            other => panic!("expected Ready(Ok(16)), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn poll_write_returns_pending_when_full_and_drain_wakes() {
+        let (mut transport, mut reader) = pair_with_cap(8);
+        let counting = Arc::new(CountingWaker(AtomicBool::new(false)));
+        let writer_waker = Waker::from(counting.clone());
+        let mut writer_cx = Context::from_waker(&writer_waker);
+
+        // Fill the buffer to the cap.
+        let buf = [0u8; 8];
+        match Pin::new(&mut transport).poll_write(&mut writer_cx, &buf) {
+            Poll::Ready(Ok(8)) => {}
+            other => panic!("expected Ready(Ok(8)), got {other:?}"),
+        }
+
+        // Next write must return Pending — buffer is at cap.
+        let extra = [0u8; 4];
+        match Pin::new(&mut transport).poll_write(&mut writer_cx, &extra) {
+            Poll::Pending => {}
+            other => panic!("expected Pending, got {other:?}"),
+        }
+        assert!(
+            !counting.0.load(Ordering::Acquire),
+            "writer waker should not have fired yet"
+        );
+
+        // Drain via the reader — this should wake the writer.
+        let reader_waker = Waker::noop().clone();
+        let mut reader_cx = Context::from_waker(&reader_waker);
+        let mut sink = [0u8; 4];
+        match Pin::new(&mut reader).poll_read(&mut reader_cx, &mut sink) {
+            Poll::Ready(Ok(4)) => {}
+            other => panic!("expected Ready(Ok(4)), got {other:?}"),
+        }
+        assert!(
+            counting.0.load(Ordering::Acquire),
+            "drain should have woken the writer"
+        );
+
+        // Re-poll the writer — there's now room for the 4 extra bytes.
+        match Pin::new(&mut transport).poll_write(&mut writer_cx, &extra) {
+            Poll::Ready(Ok(4)) => {}
+            other => panic!("expected Ready(Ok(4)), got {other:?}"),
+        }
     }
 }

@@ -73,7 +73,8 @@ impl serde::Serialize for Headers {
 
 impl Display for Headers {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        // for testing
+        // Sorted+allocated so test snapshots are deterministic.
+        // HTTP/1.x has no stable-order requirement, so wire emission iterates directly.
         let mut data = self.iter().collect::<Vec<_>>();
         data.sort_by(|(a, _), (b, _)| a.cmp(b));
         for (n, v) in data {

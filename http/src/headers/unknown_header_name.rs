@@ -264,12 +264,15 @@ fn intern_lowercase(s: &'static str) -> &'static str {
             return hit.0;
         }
     }
-    let lowered: String = s.chars().map(|c| c.to_ascii_lowercase()).collect();
-    let leaked: &'static str = Box::leak(lowered.into_boxed_str());
+    // Allocate-and-leak inside the write lock so two threads racing for the same
+    // uppercase literal don't both leak: the second arrival finds the first's
+    // insert via the post-acquire `get` and bails before allocating.
     let mut write = table.write().expect("intern table poisoned");
     if let Some(hit) = write.get(&probe) {
         return hit.0;
     }
+    let lowered: String = s.chars().map(|c| c.to_ascii_lowercase()).collect();
+    let leaked: &'static str = Box::leak(lowered.into_boxed_str());
     write.insert(InternKey(leaked));
     leaked
 }

@@ -2,8 +2,8 @@ use crate::{Pool, ResponseBody, h3::H3ClientState, util::encoding};
 use encoding_rs::Encoding;
 use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
-    Body, Buffer, HeaderName, HeaderValues, Headers, HttpContext, Method, ReceivedBody,
-    ReceivedBodyState, Status, TypeSet, Version, h2::H2Connection, h3::H3Connection,
+    Body, Buffer, HeaderName, HeaderValues, Headers, HttpContext, Method, ProtocolSession,
+    ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
 };
 use trillium_server_common::{
     ArcedConnector, Transport,
@@ -31,9 +31,8 @@ pub struct Conn {
     pub(crate) h2_idle_timeout: Option<Duration>,
     pub(crate) h2_idle_ping_threshold: Option<Duration>,
     pub(crate) h2_idle_ping_timeout: Duration,
-    pub(crate) h2_connection: Option<(Arc<H2Connection>, u32)>,
     pub(crate) h3_client_state: Option<H3ClientState>,
-    pub(crate) h3_connection: Option<(Arc<H3Connection>, u64)>,
+    pub(crate) protocol_session: ProtocolSession,
     pub(crate) buffer: Buffer,
     pub(crate) response_body_state: ReceivedBodyState,
     pub(crate) config: ArcedConnector,
@@ -351,8 +350,7 @@ impl Conn {
             encoding(&self.response_headers),
         )
         .with_trailers(&mut self.response_trailers)
-        .with_h3_connection(self.h3_connection.clone())
-        .with_h2_connection(self.h2_connection.clone())
+        .with_protocol_session(self.protocol_session.clone())
         .into()
     }
 

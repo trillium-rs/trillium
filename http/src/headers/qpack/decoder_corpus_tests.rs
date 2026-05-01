@@ -193,7 +193,20 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
     for (header_idx, outcome) in results {
         let expected = &expected_groups[header_idx];
         match outcome {
-            Err(e) => failures.push(format!("  header {header_idx}: {e}")),
+            Err(e) => {
+                // Real-world QIF traces (e.g. captured Facebook traffic) contain HTTP/1-shaped
+                // header orderings — pseudo-headers interleaved with or following regular
+                // headers, and occasional duplicate pseudos. Per RFC 9114 §4.1.1 + §4.3.1
+                // these are malformed messages and our decoder correctly rejects them as
+                // `H3_MESSAGE_ERROR`. Some corpus encoders dump them faithfully to the wire
+                // without normalizing, so we see the rejection here. Treat that as expected
+                // when the QIF source itself is non-conformant; flag any other decode error
+                // as a real failure.
+                if e.contains("HTTP message was malformed.") && qif_is_malformed(expected) {
+                    continue;
+                }
+                failures.push(format!("  header {header_idx}: {e}"));
+            }
             Ok(fs) => {
                 let mut got: Vec<_> = qif::field_section_to_pairs(fs);
                 let mut want: Vec<_> = expected.clone();
@@ -214,6 +227,25 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
         out_path.display(),
         failures.join("\n")
     );
+}
+
+/// True if the QIF group violates RFC 9114 §4.1.1 / §4.3.1 — a pseudo-header appears after
+/// a regular header, or the same pseudo-header appears more than once. The corpus contains
+/// such groups (e.g. Facebook traces captured at the HTTP/1 layer); compliant encoders
+/// would normalize before emitting wire bytes, but some corpus encoders did not.
+fn qif_is_malformed(group: &qif::QifGroup) -> bool {
+    let mut saw_regular = false;
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (name, _) in group {
+        if name.starts_with(':') {
+            if saw_regular || !seen.insert(name) {
+                return true;
+            }
+        } else {
+            saw_regular = true;
+        }
+    }
+    false
 }
 
 // --- Test entry point ---

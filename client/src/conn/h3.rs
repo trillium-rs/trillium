@@ -6,7 +6,7 @@ use std::{
     io::{self, ErrorKind},
 };
 use trillium_http::{
-    BufWriter, Error, KnownHeaderName, Method, ReceivedBodyState, Result, Version,
+    BufWriter, Error, KnownHeaderName, Method, ProtocolSession, ReceivedBodyState, Result, Version,
     h3::{Frame, FrameStream, H3Connection, H3Error},
     headers::qpack::{FieldSection, PseudoHeaders},
 };
@@ -78,7 +78,10 @@ impl Conn {
         self.transport = Some(transport);
         self.http_version = Version::Http3;
         self.finalize_headers_h3()?;
-        self.h3_connection = Some((connection.clone(), stream_id));
+        self.protocol_session = ProtocolSession::Http3 {
+            connection: connection.clone(),
+            stream_id,
+        };
 
         // From here on, failures propagate as errors (we've committed to H3).
         self.send_h3_request().await?;
@@ -90,7 +93,7 @@ impl Conn {
     }
 
     async fn send_h3_request(&mut self) -> Result<()> {
-        let Some((h3, stream_id)) = self.h3_connection.as_ref() else {
+        let Some((h3, stream_id)) = self.protocol_session.as_h3_borrowed() else {
             return Err(Error::Closed);
         };
         let mut pseudo_headers = PseudoHeaders::default()
@@ -132,7 +135,7 @@ impl Conn {
             max_peer_field_section_size,
             initial_cap,
             bufwriter.buffer_mut(),
-            *stream_id,
+            stream_id,
         )?;
 
         let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
@@ -150,7 +153,7 @@ impl Conn {
                     max_peer_field_section_size,
                     initial_cap,
                     bufwriter.buffer_mut(),
-                    *stream_id,
+                    stream_id,
                 )?;
             }
         }
@@ -231,7 +234,7 @@ impl Conn {
     }
 
     async fn recv_h3_response_headers(&mut self) -> Result<()> {
-        let Some((h3, stream_id)) = &self.h3_connection else {
+        let Some((h3, stream_id)) = self.protocol_session.as_h3_borrowed() else {
             return Err(Error::Closed);
         };
 
@@ -253,7 +256,7 @@ impl Conn {
                 let encoded = frame.buffer_payload().await?;
 
                 break h3
-                    .decode_field_section(encoded, *stream_id)
+                    .decode_field_section(encoded, stream_id)
                     .await
                     .map_err(|_| Error::InvalidHead)?;
             }
