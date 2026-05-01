@@ -55,18 +55,24 @@ jobs:
 
       - name: Run tests (smol)
         uses: actions-rs/cargo@v1
+        env:
+          RUSTFLAGS: --cfg=quinn_testing
         with:
           command: test
           args: --workspace --features trillium-static/smol,trillium-testing/smol
 
       - name: Run tests (tokio)
         uses: actions-rs/cargo@v1
+        env:
+          RUSTFLAGS: --cfg=quinn_testing
         with:
           command: test
           args: --workspace --features trillium-static/tokio,trillium-testing/tokio
 
       - name: Run tests (async-std)
         uses: actions-rs/cargo@v1
+        env:
+          RUSTFLAGS: --cfg=quinn_testing
         with:
           command: test
           args: --workspace --features trillium-static/async-std,trillium-testing/async-std

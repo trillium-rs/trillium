@@ -11,15 +11,18 @@ packages = ["trillium-http", "trillium-client"]
 
 [smol]
 features = "trillium-testing/smol trillium-static/smol"
-packages = ["trillium", "trillium-client", "trillium-static"]
+packages = ["trillium", "trillium-client", "trillium-static", "trillium-quinn"]
+rustflags = "--cfg=quinn_testing"
 
 [tokio]
 features = "trillium-testing/tokio trillium-static/tokio"
-packages = ["trillium", "trillium-client", "trillium-static"]
+packages = ["trillium", "trillium-client", "trillium-static", "trillium-quinn"]
+rustflags = "--cfg=quinn_testing"
 
 [async-std]
 features = "trillium-testing/async-std trillium-static/async-std"
-packages = ["trillium", "trillium-client", "trillium-static"]
+packages = ["trillium", "trillium-client", "trillium-static", "trillium-quinn"]
+rustflags = "--cfg=quinn_testing"
 
 [report]
 out = ["Html", "Xml"]

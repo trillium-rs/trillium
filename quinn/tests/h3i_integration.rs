@@ -1,3 +1,5 @@
+#![cfg(quinn_testing)]
+
 // Integration tests using h3i (quiche-based) against the trillium HTTP/3 server.
 //
 // These complement the h3-quinn tests by exercising trillium from a completely
@@ -22,7 +24,7 @@ use std::{
 use trillium::{Body, BodySource, Conn, Headers, KnownHeaderName};
 use trillium_quinn::QuicConfig;
 use trillium_rustls::RustlsAcceptor;
-use trillium_testing::{harness, test};
+use trillium_testing::{config, harness, test};
 
 // ---------------------------------------------------------------------------
 // Infrastructure
@@ -44,7 +46,7 @@ fn test_cert() -> TestCert {
 }
 
 async fn start_server(handler: impl trillium::Handler, tc: &TestCert) -> SocketAddr {
-    let handle = trillium_tokio::config()
+    let handle = config()
         .with_port(0)
         .with_host("localhost")
         .without_signals()

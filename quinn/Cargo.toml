@@ -16,6 +16,9 @@ ring = ["quinn/rustls-ring", "rustls/ring"]
 custom-crypto-provider = ["quinn/rustls"]
 webpki-roots = ["dep:webpki-roots"]
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(quinn_testing)"] }
+
 [dependencies]
 async-compat = "0.2"
 futures-lite = "2"
@@ -36,5 +39,5 @@ trillium = { version = "1.0.0-rc.1", path = "../trillium" }
 trillium-client = { path = "../client" }
 trillium-logger = { version = "0.5.0-rc.1", path = "../logger" }
 trillium-rustls = { version = "0.10.0-rc.1", path = "../rustls" }
-trillium-testing = { path = "../testing", features = ["tokio"] }
+trillium-testing = { path = "../testing" }
 trillium-tokio = { version = "0.5.0-rc.1", path = "../tokio" }

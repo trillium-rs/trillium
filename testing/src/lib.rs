@@ -115,15 +115,30 @@ pub use trillium_server_common::{
     ArcedConnector, Connector, Runtime, RuntimeTrait, Server, ServerHandle,
 };
 
+/// Bound exposed by [`config`]'s `UdpTransport` and [`client_config`]'s `Udp`
+/// when a real runtime feature is enabled. QUIC adapters such as
+/// `trillium-quinn` require raw FD/socket access to drive platform-optimized
+/// UDP I/O.
+#[cfg(unix)]
+#[doc(hidden)]
+pub trait QuicSocket: std::os::unix::io::AsFd {}
+#[cfg(unix)]
+impl<T: std::os::unix::io::AsFd> QuicSocket for T {}
+#[doc(hidden)]
+#[cfg(windows)]
+pub trait QuicSocket: std::os::windows::io::AsSocket {}
+#[cfg(windows)]
+impl<T: std::os::windows::io::AsSocket> QuicSocket for T {}
+
 cfg_if::cfg_if! {
     if #[cfg(feature = "smol")] {
         /// runtime server config
-        pub fn config() -> Config<impl Server, ()> {
+        pub fn config() -> Config<impl Server<Runtime: Unpin, UdpTransport: QuicSocket>, ()> {
             trillium_smol::config()
         }
 
         /// runtime client config
-        pub fn client_config() -> impl Connector {
+        pub fn client_config() -> impl Connector<Runtime: Unpin, Udp: QuicSocket> {
             trillium_smol::ClientConfig::default()
         }
         /// smol runtime
@@ -132,11 +147,11 @@ cfg_if::cfg_if! {
         }
     } else if #[cfg(feature = "async-std")] {
         /// runtime server config
-        pub fn config() -> Config<impl Server, ()> {
+        pub fn config() -> Config<impl Server<Runtime: Unpin, UdpTransport: QuicSocket>, ()> {
             trillium_async_std::config()
         }
         /// runtime client config
-        pub fn client_config() -> impl Connector {
+        pub fn client_config() -> impl Connector<Runtime: Unpin, Udp: QuicSocket> {
             trillium_async_std::ClientConfig::default()
         }
         /// async std runtime
@@ -145,12 +160,12 @@ cfg_if::cfg_if! {
         }
     } else if #[cfg(feature = "tokio")] {
         /// runtime server config
-        pub fn config() -> Config<impl Server, ()> {
+        pub fn config() -> Config<impl Server<Runtime: Unpin, UdpTransport: QuicSocket>, ()> {
             trillium_tokio::config()
         }
 
         /// tokio client config
-        pub fn client_config() -> impl Connector {
+        pub fn client_config() -> impl Connector<Runtime: Unpin, Udp: QuicSocket> {
             trillium_tokio::ClientConfig::default()
         }
 
