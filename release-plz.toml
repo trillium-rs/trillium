@@ -1,2 +1,3 @@
 [workspace]
 release_commits = "^(feat|fix|deps)"
+publish_timeout = "30m"        
