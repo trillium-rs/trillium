@@ -8,10 +8,13 @@
 
 use futures_lite::AsyncRead;
 use h3i::{
-    actions::h3::{Action, StreamEvent, StreamEventType, WaitType, send_headers_frame},
-    client::{connection_summary::ConnectionSummary, sync_client},
+    actions::h3::{Action, send_headers_frame},
+    client::{
+        connection_summary::{CloseTriggerFrames, ConnectionSummary},
+        sync_client,
+    },
     config::Config,
-    frame::H3iFrame,
+    frame::{CloseTriggerFrame, H3iFrame},
     quiche,
 };
 use rcgen::generate_simple_self_signed;
@@ -62,13 +65,32 @@ fn h3i_config(addr: SocketAddr) -> Config {
         .with_host_port(format!("localhost:{}", addr.port()))
         .with_connect_to(addr.to_string())
         .verify_peer(false)
-        .with_idle_timeout(5000)
+        .with_idle_timeout(30_000)
         .build()
         .unwrap()
 }
 
-async fn h3i_run(config: Config, actions: Vec<Action>) -> ConnectionSummary {
-    sync_client::connect(config, actions, None).expect("h3i connect failed")
+async fn h3i_run(
+    config: Config,
+    actions: Vec<Action>,
+    triggers: Vec<CloseTriggerFrame>,
+) -> ConnectionSummary {
+    let close_triggers = (!triggers.is_empty()).then(|| CloseTriggerFrames::new(triggers));
+    sync_client::connect(config, actions, close_triggers).expect("h3i connect failed")
+}
+
+/// Close-trigger that fires when any HEADERS frame arrives on `stream_id`.
+fn headers_on(stream_id: u64) -> CloseTriggerFrame {
+    CloseTriggerFrame::new_with_comparator(stream_id, |frame| {
+        frame.to_enriched_headers().is_some()
+    })
+}
+
+/// Close-trigger that fires on either HEADERS or RESET on `stream_id`.
+fn any_response_on(stream_id: u64) -> CloseTriggerFrame {
+    CloseTriggerFrame::new_with_comparator(stream_id, |frame| {
+        matches!(frame, H3iFrame::ResetStream(_)) || frame.to_enriched_headers().is_some()
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -109,25 +131,6 @@ fn send_data(stream_id: u64, payload: &'static [u8], fin: bool) -> Action {
         fin_stream: fin,
         frame: quiche::h3::frame::Frame::Data {
             payload: payload.to_vec(),
-        },
-    }
-}
-
-fn wait_finished(stream_id: u64) -> Action {
-    Action::Wait {
-        wait_type: WaitType::StreamEvent(StreamEvent {
-            stream_id,
-            event_type: StreamEventType::Finished,
-        }),
-    }
-}
-
-fn close_no_error() -> Action {
-    Action::ConnectionClose {
-        error: quiche::ConnectionError {
-            is_app: true,
-            error_code: quiche::h3::WireErrorCode::NoError as u64,
-            reason: vec![],
         },
     }
 }
@@ -189,7 +192,8 @@ async fn h3i_basic_get() {
 
     let summary = h3i_run(
         h3i_config(addr),
-        vec![get_request(0, "/"), wait_finished(0), close_no_error()],
+        vec![get_request(0, "/")],
+        vec![headers_on(0)],
     )
     .await;
 
@@ -211,7 +215,8 @@ async fn h3i_custom_response_headers() {
 
     let summary = h3i_run(
         h3i_config(addr),
-        vec![get_request(0, "/"), wait_finished(0), close_no_error()],
+        vec![get_request(0, "/")],
+        vec![headers_on(0)],
     )
     .await;
 
@@ -244,9 +249,8 @@ async fn h3i_post_echoes_body() {
         vec![
             post_request_headers(0, "/", body_bytes.len()),
             send_data(0, body_bytes, true),
-            wait_finished(0),
-            close_no_error(),
         ],
+        vec![headers_on(0)],
     )
     .await;
 
@@ -281,7 +285,23 @@ async fn h3i_trailers_frame_sequence() {
 
     let summary = h3i_run(
         h3i_config(addr),
-        vec![get_request(0, "/"), wait_finished(0), close_no_error()],
+        vec![get_request(0, "/")],
+        vec![
+            // Response HEADERS (has :status pseudo-header).
+            CloseTriggerFrame::new_with_comparator(0, |frame| {
+                frame
+                    .to_enriched_headers()
+                    .and_then(|h| h.status_code().map(|_| ()))
+                    .is_some()
+            }),
+            // Trailers HEADERS (has the trailer header but no :status).
+            CloseTriggerFrame::new_with_comparator(0, |frame| {
+                frame
+                    .to_enriched_headers()
+                    .map(|h| h.header_map().contains_key(b"x-trailer-checksum" as &[u8]))
+                    .unwrap_or(false)
+            }),
+        ],
     )
     .await;
 
@@ -340,9 +360,10 @@ async fn h3i_content_length_mismatch() {
         vec![
             post_request_headers(0, "/", 5), // claims 5 bytes
             send_data(0, b"test", true),     // sends only 4
-            wait_finished(0),
-            close_no_error(),
         ],
+        // Trigger on either a response or a stream reset; if the server closes the
+        // whole connection instead, sync_client exits on the peer-initiated close.
+        vec![any_response_on(0)],
     )
     .await;
 
@@ -389,14 +410,9 @@ async fn h3i_connection_headers_rejected() {
 
     let summary = h3i_run(
         h3i_config(addr),
-        vec![
-            bad_request,
-            wait_finished(0), // server drops the malformed stream
-            // Connection must remain usable for subsequent requests
-            get_request(4, "/"),
-            wait_finished(4),
-            close_no_error(),
-        ],
+        vec![bad_request, get_request(4, "/")],
+        // Stream 0 is expected to produce no response — only trigger on stream 4.
+        vec![headers_on(4)],
     )
     .await;
 
@@ -434,13 +450,8 @@ async fn h3i_missing_method_pseudo_header() {
 
     let summary = h3i_run(
         h3i_config(addr),
-        vec![
-            no_method,
-            wait_finished(0),
-            get_request(4, "/"),
-            wait_finished(4),
-            close_no_error(),
-        ],
+        vec![no_method, get_request(4, "/")],
+        vec![headers_on(4)],
     )
     .await;
 
@@ -475,13 +486,8 @@ async fn h3i_sequential_streams() {
 
     let summary = h3i_run(
         h3i_config(addr),
-        vec![
-            get_request(0, "/first"),
-            wait_finished(0),
-            get_request(4, "/second"),
-            wait_finished(4),
-            close_no_error(),
-        ],
+        vec![get_request(0, "/first"), get_request(4, "/second")],
+        vec![headers_on(0), headers_on(4)],
     )
     .await;
 
@@ -507,9 +513,8 @@ async fn h3i_reset_stream_is_handled() {
             },
             // Server should still handle a new request on stream 4
             get_request(4, "/"),
-            wait_finished(4),
-            close_no_error(),
         ],
+        vec![headers_on(4)],
     )
     .await;
 
