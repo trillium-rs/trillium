@@ -4,6 +4,7 @@
 /// termination detail (e.g. partial-send byte counts, error categorization) can be
 /// added without breaking the callback signature.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum SendStatus {
     /// The response was fully transferred to the peer.
     Success,

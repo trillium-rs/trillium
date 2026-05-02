@@ -7,6 +7,7 @@
 
 /// Errors that can occur during QUIC variable-length integer decoding.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum QuicVarIntError {
     /// The input ended before the integer was fully decoded.
     #[error("unexpected end of input")]

@@ -38,6 +38,7 @@ impl ProtocolSession {
     /// return [`Version::Http1_1`]; the more specific h1 sub-version (`Http0_9` / `Http1_0`)
     /// lives on the `Conn::version` field, which is independently tracked.
     #[must_use]
+    #[allow(dead_code)]
     pub fn http_version(&self) -> Version {
         match self {
             Self::Http1 => Version::Http1_1,

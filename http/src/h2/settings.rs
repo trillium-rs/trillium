@@ -161,7 +161,9 @@ impl H2Settings {
         Self {
             enable_push: Some(false),
             max_concurrent_streams: Some(config.h2_max_concurrent_streams()),
-            max_header_list_size: Some(config.max_header_list_size()),
+            max_header_list_size: Some(
+                config.max_header_list_size().try_into().unwrap_or(u32::MAX),
+            ),
             initial_window_size: Some(config.h2_initial_stream_window_size()),
             max_frame_size: Some(config.h2_max_frame_size()),
             // Only advertise SETTINGS_ENABLE_CONNECT_PROTOCOL when actually enabled —
