@@ -15,8 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `WebSocketConn::state_entry::<T>()` — entry API for connection state, mirrors `HashMap::entry`
 
-## [0.7.0](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.5...trillium-websockets-v0.7.0) - 2024-05-30
-
 ### Added
 - deprecate set_state for insert_state
 

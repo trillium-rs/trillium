@@ -30,8 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `UdpTransport` trait — async UDP socket abstraction for QUIC; implemented by `TokioUdpSocket`, `SmolUdpSocket`, `AsyncStdUdpSocket`
 - `NoQuic` — uninhabited type implementing `QuicConnection` for the `()` disabled case
 
-## [0.6.0](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.5.1...trillium-server-common-v0.6.0) - 2024-04-04
-
 ### Added
 - *(server-common)* reexport all of ::url
 

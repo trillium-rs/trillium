@@ -47,8 +47,6 @@ app.post("/")
 - `with_runtime(|runtime| async { ... })` — test harness that injects a `Runtime` into the test closure, also usable as a test harness
 - `TestConn::with_context(Arc<HttpContext>)` — pass a server config (including shared state initialized by `init`) to a test connection
 
-## [0.8.0](https://github.com/trillium-rs/trillium/compare/trillium-testing-v0.6.1...trillium-testing-v0.8.0) - 2024-05-30
-
 ### Added
 - *(api)* [**breaking**] make IoErrors respond with BadRequest
 - deprecate set_state for insert_state

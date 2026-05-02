@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Compatible with trillium 1.0
 
-## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-askama-v0.3.1...trillium-askama-v0.4.0) - 2024-01-19
-
 ### Other
 - *(askama,tera)* move from mime-db to mime_guess
 - Release only rustls

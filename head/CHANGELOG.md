@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Compatible with trillium 1.0
 
-## [0.3.0](https://github.com/trillium-rs/trillium/compare/trillium-head-v0.2.2...trillium-head-v0.3.0) - 2024-05-30
-
 ### Added
 - deprecate set_state for insert_state
 

@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Compatible with trillium 1.0
 
-## [0.6.0](https://github.com/trillium-rs/trillium/compare/trillium-proxy-v0.5.5...trillium-proxy-v0.6.0) - 2026-02-27
-
 ### Fixed
 
 - *(proxy)* Inappropriately stripped Connection / Upgrade in SwitchingProtocol

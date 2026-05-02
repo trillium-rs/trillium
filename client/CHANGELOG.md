@@ -44,8 +44,6 @@ let client = Client::new_with_quic(
 - Per-connection state via `TypeSet`: `with_state`, `insert_state`, `state`, `state_mut`, `take_state`
 - `sonic-rs` feature: opt-in alternative to `serde_json` for `with_json_body` and `response_json`. Enable with `features = ["sonic-rs"]`. The two features are mutually exclusive — enable only one. **Note:** unlike `serde_json`, `sonic-rs` does not guarantee stable map key ordering — tests that assert on raw JSON string output may need to parse back to `Value` before comparing. To keep using `serde_json`, use `features = ["serde_json"]`.
 
-## [0.7.0](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.6.1...trillium-client-v0.7.0) - 2024-05-30
-
 ### Added
 - deprecate Headers::contains_ignore_ascii_case
 - *(client)* impl IntoUrl for IpAddr and SocketAddr for convenience

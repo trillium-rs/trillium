@@ -80,8 +80,6 @@ trillium_tokio::config()
     .run(handler);
 ```
 
-## [1.0.0](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.19...trillium-v1.0.0) - 2024-05-30
-
 ### Added
 - deprecate set_state for insert_state
 

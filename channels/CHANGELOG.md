@@ -10,8 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compatible with trillium 1.0
 - `ChannelHandler` no longer uses `#[async_trait]`; remove the attribute from any implementations in your code
 
-## [0.4.0](https://github.com/trillium-rs/trillium/compare/trillium-channels-v0.3.1...trillium-channels-v0.4.0) - 2024-05-30
-
 ### Added
 - deprecate set_state for insert_state
 

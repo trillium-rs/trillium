@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Compatible with trillium 1.0
 
-## [0.3.0](https://github.com/trillium-rs/trillium/compare/trillium-method-override-v0.2.0...trillium-method-override-v0.3.0) - 2024-01-02
-
 ### Other
 - remove dependency carats
 - Update querystrong requirement from 0.2.0 to 0.3.0

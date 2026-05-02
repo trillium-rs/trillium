@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Compatible with trillium 1.0
 
-## [0.2.0](https://github.com/trillium-rs/trillium/compare/trillium-sse-v0.1.1...trillium-sse-v0.2.0) - 2024-04-07
-
 ### Added
 - add deprecation warnings to 0.2 branch in preparation for 1.0
 

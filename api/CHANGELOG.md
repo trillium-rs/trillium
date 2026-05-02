@@ -14,8 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `impl FromConn for trillium_http::Version` — HTTP version is now extractable as an API handler parameter
 
-## [0.3.0](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.01...trillium-api-v0.3.0) - 2024-05-30
-
 ### Added
 - *(api)* [**breaking**] make IoErrors respond with BadRequest
 - *(api)* [**breaking**] implement TryFromConn for `Vec<u8>` and `String`

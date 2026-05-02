@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Compatible with trillium 1.0
 
-## [0.3.0](https://github.com/trillium-rs/trillium/compare/trillium-handlebars-v0.2.0...trillium-handlebars-v0.3.0) - 2024-01-02
-
 ### Other
 - Update handlebars requirement from 4.5.0 to 5.0.0
 - upgrade deps
