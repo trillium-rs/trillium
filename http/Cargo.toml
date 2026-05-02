@@ -9,6 +9,7 @@ repository = "https://github.com/trillium-rs/trillium"
 readme = "README.md"
 keywords = ["trillium", "http", "async"]
 categories = ["web-programming::http-server", "web-programming"]
+exclude = ["tests/qifs/**"]
 
 [features]
 unstable = []
