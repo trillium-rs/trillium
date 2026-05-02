@@ -81,9 +81,7 @@ async fn h3i_run(
 
 /// Close-trigger that fires when any HEADERS frame arrives on `stream_id`.
 fn headers_on(stream_id: u64) -> CloseTriggerFrame {
-    CloseTriggerFrame::new_with_comparator(stream_id, |frame| {
-        frame.to_enriched_headers().is_some()
-    })
+    CloseTriggerFrame::new_with_comparator(stream_id, |frame| frame.to_enriched_headers().is_some())
 }
 
 /// Close-trigger that fires on either HEADERS or RESET on `stream_id`.

@@ -112,8 +112,8 @@ fn encode_line(
     // Pre-extract dyn-name lookup for use in the literal cases below.
     let dyn_name_abs = state.by_name.get(name).map(|ni| ni.latest_any);
 
-    // 3. should-index gate. Never-indexed values are excluded from the recent-pairs ring
-    //    and observer accounting, mirroring the static sensitive-headers list.
+    // 3. should-index gate. Never-indexed values are excluded from the recent-pairs ring and
+    //    observer accounting, mirroring the static sensitive-headers list.
     let uncacheable = name.has_uncacheable_value() || never_indexed;
     let hash = (!uncacheable).then(|| RecentPairs::hash(name.as_bytes(), value_bytes));
     let observer_hot = !uncacheable && observer.is_hot(name, Some(&value));
