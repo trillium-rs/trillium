@@ -42,3 +42,6 @@ trillium-logger = { version = "0.5.0-rc.1", path = "../logger" }
 trillium-rustls = { version = "0.10.0-rc.1", path = "../rustls" }
 trillium-testing = { path = "../testing" }
 trillium-tokio = { version = "0.5.0-rc.1", path = "../tokio" }
+
+[package.metadata.cargo-udeps.ignore]
+development = ["h3i", "rcgen", "trillium-testing"]
