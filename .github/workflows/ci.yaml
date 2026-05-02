@@ -17,6 +17,13 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            extra_features: ""
+          - os: macOS-latest
+            extra_features: ""
+          - os: windows-latest
+            extra_features: trillium-openssl/vendored
     steps:
       - uses: actions/checkout@master
         with:
@@ -45,7 +52,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --workspace
+          args: --workspace ${{ matrix.extra_features && format('--features {0}', matrix.extra_features) || '' }}
 
       - name: Run tests (parse)
         uses: actions-rs/cargo@v1
@@ -59,7 +66,7 @@ jobs:
           RUSTFLAGS: --cfg=quinn_testing
         with:
           command: test
-          args: --workspace --features trillium-static/smol,trillium-testing/smol
+          args: --workspace --features trillium-static/smol,trillium-testing/smol${{ matrix.extra_features && format(',{0}', matrix.extra_features) || '' }}
 
       - name: Run tests (tokio)
         uses: actions-rs/cargo@v1
@@ -67,7 +74,7 @@ jobs:
           RUSTFLAGS: --cfg=quinn_testing
         with:
           command: test
-          args: --workspace --features trillium-static/tokio,trillium-testing/tokio
+          args: --workspace --features trillium-static/tokio,trillium-testing/tokio${{ matrix.extra_features && format(',{0}', matrix.extra_features) || '' }}
 
       - name: Run tests (async-std)
         uses: actions-rs/cargo@v1
@@ -75,7 +82,7 @@ jobs:
           RUSTFLAGS: --cfg=quinn_testing
         with:
           command: test
-          args: --workspace --features trillium-static/async-std,trillium-testing/async-std
+          args: --workspace --features trillium-static/async-std,trillium-testing/async-std${{ matrix.extra_features && format(',{0}', matrix.extra_features) || '' }}
 
 
   check_fmt_and_docs:
