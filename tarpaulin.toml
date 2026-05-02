@@ -1,28 +1,21 @@
 [base]
 workspace = true
 
-[http_serde]
-features = "trillium-http/serde"
-packages = ["trillium-http"]
-
-[http_parse]
-features = "trillium-http/parse trillium-client/parse"
+[http_parse_and_serde]
+features = "trillium-http/parse trillium-client/parse trillium-http/serde"
 packages = ["trillium-http", "trillium-client"]
 
 [smol]
 features = "trillium-testing/smol trillium-static/smol"
-packages = ["trillium", "trillium-client", "trillium-static", "trillium-quinn"]
-rustflags = "--cfg=quinn_testing"
+packages = ["trillium", "trillium-client", "trillium-static"]
 
 [tokio]
 features = "trillium-testing/tokio trillium-static/tokio"
-packages = ["trillium", "trillium-client", "trillium-static", "trillium-quinn"]
-rustflags = "--cfg=quinn_testing"
+packages = ["trillium", "trillium-client", "trillium-static"]
 
 [async-std]
 features = "trillium-testing/async-std trillium-static/async-std"
-packages = ["trillium", "trillium-client", "trillium-static", "trillium-quinn"]
-rustflags = "--cfg=quinn_testing"
+packages = ["trillium", "trillium-client", "trillium-static"]
 
 [report]
 out = ["Html", "Xml"]
