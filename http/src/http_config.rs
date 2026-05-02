@@ -164,7 +164,7 @@ pub struct HttpConfig {
     /// **Default**: `32 KiB`
     ///
     /// **Unit**: byte count
-    pub(crate) max_header_list_size: u32,
+    pub(crate) max_header_list_size: u64,
 
     /// Maximum capacity of the dynamic header-compression table.
     ///

@@ -111,7 +111,7 @@ pub struct ReceivedBody<'conn, Transport> {
     #[field(with, get, set)]
     max_preallocate: usize,
 
-    max_header_list_size: u32,
+    max_header_list_size: u64,
 
     trailers: MutCow<'conn, Option<Headers>>,
 

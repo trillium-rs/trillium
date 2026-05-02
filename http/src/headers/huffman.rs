@@ -10,6 +10,7 @@ use table::TABLE;
 
 /// Errors that can occur during Huffman decoding.
 #[derive(Debug, thiserror::Error, PartialEq, Eq, Clone, Copy)]
+#[non_exhaustive]
 pub enum HuffmanError {
     /// The encoded data contained the EOS symbol, which must not
     /// appear in the encoded stream (RFC 7541 §5.2).
