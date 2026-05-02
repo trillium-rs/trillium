@@ -70,13 +70,26 @@ fn h3i_config(addr: SocketAddr) -> Config {
         .unwrap()
 }
 
+// h3i's `sync_client::connect` is fully synchronous (mio + blocking quiche), so calling
+// it from an async fn parks the polling thread for the duration of the QUIC exchange.
+// On runtimes whose `block_on` shares a process-global executor (smol, async-std), tests
+// running in parallel can saturate that pool and starve the trillium server's tasks
+// — the server stops processing UDP, quiche gives up, and the test sees no response.
+// Move the blocking call to a dedicated OS thread so the runtime worker pool stays free.
 async fn h3i_run(
     config: Config,
     actions: Vec<Action>,
     triggers: Vec<CloseTriggerFrame>,
 ) -> ConnectionSummary {
     let close_triggers = (!triggers.is_empty()).then(|| CloseTriggerFrames::new(triggers));
-    sync_client::connect(config, actions, close_triggers).expect("h3i connect failed")
+    let (tx, rx) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let _ = tx.send_blocking(sync_client::connect(config, actions, close_triggers));
+    });
+    rx.recv()
+        .await
+        .expect("h3i thread dropped")
+        .expect("h3i connect failed")
 }
 
 /// Close-trigger that fires when any HEADERS frame arrives on `stream_id`.
