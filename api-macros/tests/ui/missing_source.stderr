@@ -1,0 +1,7 @@
+error: missing required `#[api(...)]` attribute (state | json | body)
+ --> tests/ui/missing_source.rs:1:10
+  |
+1 | #[derive(trillium_api::TryFromConn)]
+  |          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `trillium_api::TryFromConn` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,5 +1,14 @@
 # Custom extractors
 
+For most cases, the
+[`#[derive(TryFromConn)]`](crate::TryFromConn) macro generates the
+extractor for you — see
+[`extractors::deriving`](crate::extractors::deriving). Reach for a
+hand-written impl when the derive doesn't fit: header sniffing, route
+parameter parsing, conditional or multi-step extraction (e.g. parse a
+route param, then look up a record in the database), or anywhere you
+need access to the `Conn` beyond what the derive's source modes provide.
+
 You can extract any type by implementing [`FromConn`](crate::FromConn)
 (infallible) or [`TryFromConn`](crate::TryFromConn) (fallible).
 

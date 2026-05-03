@@ -6,12 +6,94 @@ infallible cousin [`FromConn`](crate::FromConn)). Before your handler
 function runs, the extractor pulls typed data out of the
 [`Conn`](trillium::Conn).
 
+The recommended way to make your own types into extractors is the
+[`#[derive(TryFromConn)]`](crate::TryFromConn) macro — see
+[`extractors::deriving`](crate::extractors::deriving) for the full
+reference.
+
+## Deriving extractors on your own types
+
+If your type is already a regular Rust struct (often a `serde::Deserialize`
+domain type or a clonable handle to shared state), the simplest path is to
+let the derive write the `TryFromConn` impl for you:
+
+```rust
+use trillium::Conn;
+use trillium_api::{api, TryFromConn};
+use serde::Deserialize;
+
+#[derive(Deserialize, TryFromConn)]
+#[api(json)]
+struct NewPost {
+    title: String,
+}
+
+async fn create(_conn: &mut Conn, input: NewPost) -> String {
+    format!("created: {}", input.title)
+}
+# use trillium_testing::TestServer;
+# trillium_testing::block_on(async {
+#     let app = TestServer::new(api(create)).await;
+#     app.post("/")
+#         .with_request_header("content-type", "application/json")
+#         .with_body(r#"{"title":"hello"}"#)
+#         .await
+#         .assert_ok()
+#         .assert_body("created: hello");
+# });
+```
+
+The `#[api(...)]` attribute selects how the type is extracted:
+
+- `#[api(json)]` — JSON request body
+- `#[api(body)]` — request body with content-type negotiation
+- `#[api(state)]` — pulled out of conn state via
+  [`take_state`](trillium::Conn::take_state)
+- `#[api(state, clone)]` — same, but cloning rather than taking
+- `#[api(state, err = MyHandler)]` — run `MyHandler::default()` as a handler
+  if the state is missing
+
+The companion [`#[derive(Handler)]`](trillium::Handler) macro generates a
+`Handler` impl symmetrically — `#[api(json)]` writes JSON, `#[api(state)]`
+writes into state, `#[api(body)]` serializes with content-type negotiation:
+
+```rust
+use trillium_api::{api, Handler, TryFromConn};
+use trillium::Conn;
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize, Serialize, TryFromConn, Handler)]
+#[api(body)]
+struct Echo {
+    payload: String,
+}
+
+/// Reads `Echo` from the request body, returns the same value as the response.
+async fn echo(_conn: &mut Conn, e: Echo) -> Echo {
+    e
+}
+# use trillium_testing::TestServer;
+# trillium_testing::block_on(async {
+#     let app = TestServer::new(api(echo)).await;
+#     app.post("/")
+#         .with_request_header("content-type", "application/json")
+#         .with_request_header("accept", "application/json")
+#         .with_body(r#"{"payload":"hi"}"#)
+#         .await
+#         .assert_ok()
+#         .assert_body(r#"{"payload":"hi"}"#);
+# });
+```
+
+See [`extractors::deriving`](crate::extractors::deriving) for the full set
+of options and the generated code shape.
+
 ## No extraction
 
 Use `()` when you don't need anything from the request:
 
 ```rust
-use trillium_api::{api, Json};
+use trillium_api::api;
 use trillium::Conn;
 
 async fn health(_conn: &mut Conn, _: ()) -> &'static str {
@@ -24,99 +106,7 @@ async fn health(_conn: &mut Conn, _: ()) -> &'static str {
 # });
 ```
 
-## Body deserialization
-
-[`Body<T>`](crate::Body) deserializes the request body using content-type
-negotiation (JSON or form-urlencoded). [`Json<T>`](crate::Json)
-deserializes JSON only, rejecting other content types.
-
-```rust
-use trillium_api::{api, Body, Json};
-use trillium::Conn;
-use serde::Deserialize;
-
-#[derive(Deserialize)]
-struct NewPost { title: String }
-
-/// Accepts JSON or form-urlencoded (cargo-feature dependent)
-async fn with_body(_conn: &mut Conn, Body(post): Body<NewPost>) -> String {
-    format!("created: {}", post.title)
-}
-
-/// Accepts JSON only — returns 415 Unsupported Media Type for other content types
-async fn with_json(_conn: &mut Conn, Json(post): Json<NewPost>) -> String {
-    format!("created: {}", post.title)
-}
-
-# use trillium_testing::TestServer;
-# use trillium::Status;
-# trillium_testing::block_on(async {
-#     // Body accepts form-urlencoded
-#     let app = TestServer::new(api(with_body)).await;
-#     app.post("/")
-#         .with_request_header("content-type", "application/x-www-form-urlencoded")
-#         .with_body("title=hello")
-#         .await
-#         .assert_ok()
-#         .assert_body("created: hello");
-#
-#     // Json rejects form-urlencoded
-#     let app = TestServer::new(api(with_json)).await;
-#     app.post("/")
-#         .with_request_header("content-type", "application/x-www-form-urlencoded")
-#         .with_body("title=hello")
-#         .await
-#         .assert_status(Status::UnsupportedMediaType);
-# });
-```
-
-You can also extract the body as a raw `String` or `Vec<u8>`:
-
-```rust
-use trillium_api::api;
-use trillium::Conn;
-
-async fn raw_body(_conn: &mut Conn, body: String) {
-    // `body` is the request body as a string
-}
-```
-
-## State
-
-[`State<T>`](crate::State) extracts a `T` from the conn's state set.
-This is how you access shared application state (database handles,
-configuration, etc.) that was injected earlier in the handler chain.
-
-```rust
-use trillium_api::{api, Json, State};
-use trillium::Conn;
-
-#[derive(Clone, Debug)]
-struct AppConfig { name: String }
-
-async fn show_config(
-    _conn: &mut Conn,
-    State(config): State<AppConfig>,
-) -> Json<String> {
-    Json(config.name)
-}
-
-# use trillium_testing::TestServer;
-# trillium_testing::block_on(async {
-#     let app = TestServer::new((
-#         trillium::State::new(AppConfig { name: "my app".into() }),
-#         api(show_config),
-#     )).await;
-#     app.get("/").await.assert_ok().assert_body(r#""my app""#);
-# });
-```
-
-Note: `State<T>` calls [`Conn::take_state`](trillium::Conn::take_state),
-which *removes* the value from the conn. If the type is not present, the
-extractor returns `None`, which means your api handler is not called and
-the conn passes through unmodified (default 404).
-
-## Request metadata
+## Built-in request metadata
 
 Some trillium types implement [`FromConn`](crate::FromConn) directly:
 
@@ -134,6 +124,17 @@ async fn inspect(_conn: &mut Conn, (method, headers): (Method, Headers)) -> Stri
 # });
 ```
 
+You can also extract the body as a raw `String` or `Vec<u8>`:
+
+```rust
+use trillium_api::api;
+use trillium::Conn;
+
+async fn raw_body(_conn: &mut Conn, body: String) {
+    // `body` is the request body as a string
+}
+```
+
 ## Tuple extraction
 
 Combine multiple extractors as a tuple (up to 12 elements). Extractors
@@ -141,14 +142,16 @@ run in order, left to right. If any one fails, the error handler for
 that extractor runs and subsequent extractors are skipped.
 
 ```rust
-use trillium_api::{api, Body, Json, State};
+use trillium_api::{api, Handler, TryFromConn, Json};
 use trillium::{Conn, Status};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, TryFromConn)]
+#[api(state, clone)]
 struct Db;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, TryFromConn)]
+#[api(json)]
 struct CreateItem { name: String }
 
 #[derive(Serialize)]
@@ -156,7 +159,7 @@ struct Item { id: u64, name: String }
 
 async fn create(
     _conn: &mut Conn,
-    (State(db), Body(input)): (State<Db>, Body<CreateItem>),
+    (db, input): (Db, CreateItem),
 ) -> (Status, Json<Item>) {
     let _ = db; // use the database...
     (Status::Created, Json(Item { id: 1, name: input.name }))
@@ -176,12 +179,51 @@ async fn create(
 A common pattern for complex handlers is to use a type alias:
 
 ```rust,ignore
-type CreateArgs = (State<Db>, Body<CreateItem>, State<AppConfig>);
+type CreateArgs = (Db, CreateItem, AppConfig);
 
-async fn create(_conn: &mut Conn, (db, body, config): CreateArgs) -> impl Handler {
+async fn create(_conn: &mut Conn, (db, input, config): CreateArgs) -> impl Handler {
     // ...
 }
 ```
+
+## Wrapper extractors for foreign types
+
+Sometimes you can't add `#[derive(TryFromConn)]` to a type — typically
+because it lives in another crate. The
+[`Body<T>`](crate::Body), [`Json<T>`](crate::Json), and
+[`State<T>`](crate::State) newtypes give you the same behavior as the
+derive without modifying the wrapped type:
+
+```rust
+use trillium_api::{api, Body, Json, State};
+use trillium::Conn;
+
+# #[derive(Clone, Debug)]
+# struct AppConfig { name: String }
+async fn show_config(
+    _conn: &mut Conn,
+    State(config): State<AppConfig>,
+) -> Json<String> {
+    Json(config.name)
+}
+# use trillium_testing::TestServer;
+# trillium_testing::block_on(async {
+#     let app = TestServer::new((
+#         trillium::State::new(AppConfig { name: "my app".into() }),
+#         api(show_config),
+#     )).await;
+#     app.get("/").await.assert_ok().assert_body(r#""my app""#);
+# });
+```
+
+`Body<T>` deserializes via content-type negotiation and serializes via
+`Accept`. `Json<T>` is JSON-only on both sides. `State<T>` calls
+[`take_state`](trillium::Conn::take_state), which removes the value from
+the conn — if it's missing, the api handler is not called and the conn
+passes through unmodified (default 404).
+
+For your own types, prefer the derive — it produces the same code without
+the newtype indirection at call sites.
 
 ## `Option` and `Result` as extractors
 

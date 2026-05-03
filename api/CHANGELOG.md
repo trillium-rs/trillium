@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `#[derive(TryFromConn)]` and `#[derive(Handler)]` (re-exported from the new `trillium-api-macros` crate) — generate `TryFromConn` / `Handler` impls from `#[api(state | json | body, [clone,] [err = Type])]`. Note that `trillium_api::Handler` is the derive macro and shadows the `trillium::Handler` trait when both are imported, mirroring the serde pattern.
+
 ## [0.3.0] - 2026-04-08
 
 ### Changed

@@ -1,0 +1,5 @@
+error: `clone` is only meaningful with `state`
+ --> tests/ui/clone_on_json.rs:2:7
+  |
+2 | #[api(json, clone)]
+  |       ^^^^
