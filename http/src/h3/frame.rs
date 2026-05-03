@@ -140,6 +140,7 @@ impl From<H3ErrorCode> for FrameDecodeError {
 /// only the frame header is consumed; the payload bytes remain in the rest slice for the caller to
 /// handle. For control frames (Settings, Goaway, etc.), the payload is fully parsed and consumed.
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[non_exhaustive]
 pub enum Frame {
     /// DATA frame — `payload_length` bytes of body data follow in the rest slice.
     Data(u64),

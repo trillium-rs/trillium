@@ -15,6 +15,7 @@ fn h3_to_io(e: H3Error) -> io::Error {
     match e {
         H3Error::Io(io) => io,
         H3Error::Protocol(code) => io::Error::new(ErrorKind::InvalidData, code.to_string()),
+        other => io::Error::other(other),
     }
 }
 

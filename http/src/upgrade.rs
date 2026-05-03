@@ -66,7 +66,14 @@ pub struct Upgrade<Transport> {
     scheme: Option<Cow<'static, str>>,
 
     /// the HTTP/3 connection associated with this upgrade, if this was an HTTP/3 connection
-    #[field(get(deref = false))]
+    #[field(
+        get(deref = false),
+        get_mut = false,
+        set = false,
+        with = false,
+        into_field = false,
+        take = false
+    )]
     h3_connection: Option<Arc<H3Connection>>,
 
     /// the :protocol http/3 pseudo-header

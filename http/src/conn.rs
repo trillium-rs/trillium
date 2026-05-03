@@ -132,7 +132,7 @@ pub struct Conn<Transport> {
     pub(crate) scheme: Option<Cow<'static, str>>,
 
     /// the [`H3Connection`] for this conn, if this is an HTTP/3 request
-    #[field(get)]
+    #[field(get(deref = false))]
     pub(crate) h3_connection: Option<Arc<H3Connection>>,
 
     /// the :protocol http/3 pseudo-header

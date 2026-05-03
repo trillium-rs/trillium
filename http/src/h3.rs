@@ -19,6 +19,7 @@ mod tests;
 /// peer via the QUIC connection's error signaling. `Io` errors indicate an unrecoverable
 /// transport failure.
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum H3Error {
     #[error(transparent)]
     /// An HTTP/3 protocol error; the error code should be signaled to the peer.

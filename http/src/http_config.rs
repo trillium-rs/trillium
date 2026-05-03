@@ -119,14 +119,15 @@ pub struct HttpConfig {
     /// **Unit**: Byte count
     pub(crate) received_body_max_preallocate: usize,
 
-    /// The maximum size of a field section (header block) the peer may send in HTTP/3
+    /// The maximum cumulative size of a header block the peer may send.
     ///
-    /// This is a protocol-level setting and is communicated to the peer.
+    /// Advertised in `SETTINGS_MAX_FIELD_SECTION_SIZE` on HTTP/3 (RFC 9114 §7.2.4.1). Guards
+    /// against pathological header lists inflating memory per stream during HPACK/QPACK decode.
     ///
-    /// **Default**: 8kb
+    /// **Default**: `32 KiB`
     ///
-    /// **Unit**: Byte count
-    pub(crate) h3_max_field_section_size: u64,
+    /// **Unit**: byte count
+    pub(crate) max_header_list_size: u64,
 
     /// whether [datagrams](https://www.rfc-editor.org/rfc/rfc9297.html) are enabled for HTTP/3
     ///
@@ -171,7 +172,7 @@ impl HttpConfig {
         received_body_max_len: 10 * 1024 * 1024,
         received_body_initial_len: 128,
         received_body_max_preallocate: 1024 * 1024,
-        h3_max_field_section_size: 8 * 1024,
+        max_header_list_size: 8 * 1024,
         h3_datagrams_enabled: false,
         webtransport_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),

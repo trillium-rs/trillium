@@ -1,4 +1,5 @@
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum SendStatus {
     Success,
     Failure,

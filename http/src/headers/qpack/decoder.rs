@@ -18,6 +18,7 @@ use std::{
 
 /// Errors that can occur during QPACK decoding.
 #[derive(Debug, thiserror::Error, Clone, Copy)]
+#[non_exhaustive]
 pub enum DecoderError {
     #[error(transparent)]
     Huffman(#[from] HuffmanError),
