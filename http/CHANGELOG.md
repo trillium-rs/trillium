@@ -10,10 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pub mod h2` — HTTP/2 protocol primitives: HPACK encode/decode, h2 framing, `H2Connection`, `H2Driver`, `H2Transport`. HTTP/2 is automatically negotiated when ALPN selects `h2` or via prior-knowledge cleartext ("h2c"). 146/146 [h2spec](https://github.com/summerwind/h2spec) cases pass.
 - HTTP/2 extended CONNECT (RFC 8441) — opt in via `HttpConfig::with_extended_connect_enabled()`; required for WebSockets-over-h2.
 - `KnownHeaderName::Refresh`
-- `Conn::h2_connection()`, `Conn::h2_stream_id()` — for handlers that want to interact with the underlying h2 stream
-- `Upgrade::h2_connection`, `Upgrade::h2_stream_id` (and `_mut` / `set_` / `with_` / `take_` variants) — used by `trillium-websockets` for WS-over-h2 (RFC 8441)
-- Various `HttpConfig::h2_*` tuning knobs (window sizes, max concurrent streams, max frame/header size, HPACK table capacity)
-- `Upgrade::response_headers: Headers` — the response headers that had been set on the underlying `Conn` before the upgrade was negotiated. These have already been sent to the peer; preserved here so post-upgrade code can inspect what was sent.
+- `Conn::h2_connection()`, `Conn::h2_stream_id()`, `Conn::h3_stream_id()` — for handlers that want to interact with the underlying h2/h3 stream
+- `Upgrade::h2_connection`, `Upgrade::h2_stream_id`, `Upgrade::h3_stream_id` (and `_mut` / `set_` / `with_` / `take_` variants where applicable) — used by `trillium-websockets` for WS-over-h2 (RFC 8441)
+- Various `HttpConfig::h2_*` tuning knobs: `h2_initial_connection_window_size`, `h2_initial_stream_window_size`, `h2_max_stream_recv_window_size`, `h2_max_concurrent_streams`, `h2_max_frame_size`
+- `HttpConfig::dynamic_table_capacity` (and setter / `with_` / `_mut` variants) — HPACK/QPACK encoder dynamic table capacity, shared between h2 and h3
+- `HttpConfig::recent_pairs_size` (and setter / `with_` / `_mut` variants) — per-connection ring size for the HPACK/QPACK encoder's recent-pairs predictor
+- `HttpConfig::h3_blocked_streams` (and setter / `with_` / `_mut` variants) — maximum number of HTTP/3 streams that may be blocked waiting for QPACK dynamic-table updates
+- `Upgrade::response_headers: Headers` — the response headers that had been set on the underlying `Conn` before the upgrade was negotiated. These have already been sent to the peer; preserved here so post-upgrade code can inspect what was sent. `response_headers_mut`, `set_response_headers`, `with_response_headers`, and `into_response_headers` round out the accessor surface.
+- `Upgrade::status` (with `_mut` / `set_` / `take_` / `with_` variants) — `Option<Status>` carrying the response status sent before the upgrade
+- `Upgrade::start_time` (with `_mut` / `set_` / `with_` variants) — `Instant` recording when the Conn that became this Upgrade was constructed
 - `H3Connection::peer_settings_ready() -> PeerSettingsReady<'_>` (gated on the `unstable` feature) — async future that resolves to `Some(H3Settings)` once the inbound control stream has applied the peer's SETTINGS frame, or `None` if the connection shut down before SETTINGS arrived. Required for senders of extended-CONNECT requests (RFC 9220 §3 — the spec forbids sending a `:protocol` HEADERS until the peer has advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL`). On a pooled connection that has already exchanged SETTINGS, the future resolves on the first poll. Multiple awaiters on the same connection are supported.
 
 The existing sync `H3Connection::peer_settings(&self) -> Option<&H3Settings>` accessor is unchanged.
