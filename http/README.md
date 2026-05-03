@@ -1,4 +1,4 @@
-# ⚙️ trillium-http — low-level HTTP/1.x implementation
+# ⚙️ trillium-http — lower-level HTTP protocol implementation
 
 [![ci][ci-badge]][ci]
 [![crates.io version][version-badge]][crate]
