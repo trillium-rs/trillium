@@ -34,6 +34,7 @@ pub use halt::Halt;
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "serde_json", feature = "sonic-rs"))))]
 pub use json::Json;
+pub use trillium::Handler;
 
 #[cfg(all(feature = "serde_json", feature = "sonic-rs"))]
 compile_error!("cargo features \"serde_json\" and \"sonic-rs\" are mutually exclusive");
@@ -45,6 +46,7 @@ pub use serde_json::{Value, json};
 #[cfg_attr(docsrs, doc(cfg(feature = "sonic-rs")))]
 pub use sonic_rs::{Value, json};
 pub use state::State;
+pub use trillium_api_macros::{Handler, TryFromConn};
 pub use try_from_conn::TryFromConn;
 
 /// trait alias for a result with this crate's [`Error`]
@@ -53,6 +55,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[cfg(doc)]
 #[doc = include_str!("../docs/extractors.md")]
 pub mod extractors {
+    #[doc = include_str!("../docs/extractors/deriving.md")]
+    pub mod deriving {}
     #[doc = include_str!("../docs/extractors/custom.md")]
     pub mod custom {}
 }

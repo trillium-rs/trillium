@@ -1,0 +1,5 @@
+error: unrecognized `#[api]` key `oops` — expected one of: state, json, body, clone, err
+ --> tests/ui/unknown_key.rs:2:14
+  |
+2 | #[api(state, oops)]
+  |              ^^^^

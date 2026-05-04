@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
         "api",
+        "api-macros",
         "docs-check",
         "askama",
         "async-std",

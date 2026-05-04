@@ -28,6 +28,7 @@ serde_urlencoded = { version = "0.7.1", optional = true }
 sonic-rs = { version = "0.5.8", optional = true }
 thiserror = "2.0.18"
 trillium = { path = "../trillium", version = "1.0.0-rc.1" }
+trillium-api-macros = { version = "0.1.0-rc.1", path = "../api-macros" }
 trillium-macros = { version = "0.1.0-rc.1", path = "../macros" }
 url = { version = "2.5.8", optional = true }
 

@@ -52,8 +52,9 @@ run on the conn, typically setting an error status.
 
 | Module | Topic |
 |--------|-------|
-| [`extractors`] | Pulling data out of requests — `Body`, `Json`, `State`, tuples |
-| [`extractors::custom`] | Writing your own `FromConn` / `TryFromConn` implementations |
+| [`extractors`] | Pulling data out of requests — typically via `#[derive(TryFromConn)]` on your own types |
+| [`extractors::deriving`] | The `#[derive(TryFromConn)]` and `#[derive(Handler)]` macros in depth |
+| [`extractors::custom`] | Hand-writing `FromConn` / `TryFromConn` when the derive isn't enough |
 | [`return_types`] | What you can return from an api handler |
 | [`error_handling`] | How extraction errors and `Result` return types work |
 | [`recipes`] | Patterns and ideas: middleware, type aliases, and more |
