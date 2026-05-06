@@ -1,7 +1,6 @@
 [package]
 name = "trillium-client"
-version = "0.8.1"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.8.2"
 edition = "2024"
 description = "http client for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -9,6 +8,9 @@ repository = "https://github.com/trillium-rs/trillium"
 readme = "README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming", "web-programming::http-client"]
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium"]
 
 [package.metadata.docs.rs]
 features = ["sonic-rs", "websockets"]
@@ -39,10 +41,7 @@ sonic-rs = { version = "0.5.8", optional = true }
 fieldwork = "0.5.0"
 trillium-macros.workspace = true
 trillium-webtransport = { workspace = true, optional = true }
-
-[dependencies.trillium-http]
-workspace = true
-features = ["unstable"]
+trillium-http = { workspace = true, features = ["unstable"] }
 
 [dev-dependencies]
 async-channel = "2.5.0"
@@ -61,6 +60,3 @@ trillium-testing.workspace = true
 trillium-tokio.workspace = true
 trillium-rustls.workspace = true
 trillium-quinn = { workspace = true, features = ["webpki-roots"] }
-
-[package.metadata.cargo-udeps.ignore]
-development = ["trillium"]

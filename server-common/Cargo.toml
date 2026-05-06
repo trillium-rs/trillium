@@ -1,7 +1,6 @@
 [package]
 name = "trillium-server-common"
 version = "0.7.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "server utilities for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -9,6 +8,9 @@ repository = "https://github.com/trillium-rs/trillium"
 readme = "README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing", "trillium-smol"]
 
 [dependencies]
 async-channel = "2.5.0"
@@ -30,7 +32,3 @@ rlimit = "0.11.0"
 trillium-smol.workspace = true
 trillium-testing.workspace = true
 
-[features]
-
-[package.metadata.cargo-udeps.ignore]
-development = ["trillium-testing", "trillium-smol"]
