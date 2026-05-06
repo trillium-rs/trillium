@@ -14,7 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PKCS#12 archive (via [`Identity::from_pkcs12`]) only when that path fails.
   This works around macOS Secure Transport's `errSecUnknownFormat` failure on
   EC keys (e.g. ACME-issued tailnet/Let's Encrypt certs) while keeping the
-  fast PKCS#8 path on Linux and Windows.
+  fast PKCS#8 path on Linux and Windows. EC keys via `from_cert_and_key`
+  are still unsupported on Windows (SChannel rejects both paths); use
+  `trillium-rustls` or supply a pre-built PKCS#12 archive via
+  `from_pkcs12` for that combination.
 
 ## [0.6.1] - 2026-05-06
 

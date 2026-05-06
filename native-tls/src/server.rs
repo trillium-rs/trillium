@@ -50,6 +50,13 @@ impl NativeTlsAcceptor {
     /// [`Identity::from_pkcs12`]. The fallback only runs when the first
     /// attempt fails, so OpenSSL-backed platforms never hit it.
     ///
+    /// **Windows + EC keys:** SChannel rejects EC keys via both paths — its
+    /// PKCS#8 PEM import is strict, and our fallback archive omits the
+    /// `LocalKeyId` attribute SChannel uses to pair cert and key. For EC
+    /// keys on Windows, prefer `trillium-rustls`, or supply a pre-built
+    /// PKCS#12 archive (e.g. from `openssl pkcs12 -export`) via
+    /// [`Self::from_pkcs12`]. RSA keys work on Windows.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
