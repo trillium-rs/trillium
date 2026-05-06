@@ -1,6 +1,6 @@
 [package]
 name = "trillium-quinn"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 edition = "2024"
 description = "quinn QUIC adapter for trillium.rs HTTP/3 support"
 license = "MIT OR Apache-2.0"
@@ -27,8 +27,8 @@ quinn = { version = "0.11", default-features = false, features = ["log"] }
 rustls = { version = "0.23", default-features = false }
 rustls-pemfile = "2"
 webpki-roots = { version = "1.0", optional = true }
-trillium-macros = { path = "../macros", version = "0.1.0-rc.1" }
-trillium-server-common = { path = "../server-common", version = "0.6.0-rc.1" }
+trillium-macros = { path = "../macros", version = "0.1.0" }
+trillium-server-common = { path = "../server-common", version = "0.6.0" }
 
 
 [dev-dependencies]
@@ -36,12 +36,12 @@ async-channel = "2.5.0"
 env_logger = "0.11.10"
 h3i = "0.6.0"
 rcgen = "0.14.7"
-trillium = { version = "1.0.0-rc.1", path = "../trillium" }
+trillium = { version = "1.0.0", path = "../trillium" }
 trillium-client = { path = "../client" }
-trillium-logger = { version = "0.5.0-rc.1", path = "../logger" }
-trillium-rustls = { version = "0.10.0-rc.1", path = "../rustls" }
+trillium-logger = { version = "0.5.0", path = "../logger" }
+trillium-rustls = { version = "0.10.0", path = "../rustls" }
 trillium-testing = { path = "../testing" }
-trillium-tokio = { version = "0.5.0-rc.1", path = "../tokio" }
+trillium-tokio = { version = "0.5.0", path = "../tokio" }
 
 [package.metadata.cargo-udeps.ignore]
 development = ["h3i", "rcgen", "trillium-testing"]
