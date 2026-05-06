@@ -63,7 +63,8 @@ trillium-http = { version = "1", path = "http" }
 trillium-logger = { version = "0.5", path = "logger" }
 trillium-macros = { version = "0.1", path = "macros" }
 trillium-method-override = { version = "0.3", path = "method-override" }
-trillium-native-tls = { version = "0.5", path = "native-tls" }
+trillium-native-tls = { version = "0.6", path = "native-tls" }
+trillium-openssl = { version = "0.2", path = "openssl" }
 trillium-proxy = { version = "0.7", path = "proxy" }
 trillium-quinn = { version = "0.1", path = "quinn" }
 trillium-router = { version = "0.5", path = "router" }
@@ -77,4 +78,4 @@ trillium-static-compiled-macros = { version = "0.2", path = "static-compiled-mac
 trillium-testing = { version = "0.8", path = "testing" }
 trillium-tokio = { version = "0.6", path = "tokio" }
 trillium-websockets = { version = "0.8", path = "websockets" }
-trillium-webtransport = { version = "0.1", path = "webtransport" }
+trillium-webtransport = { version = "0.2", path = "webtransport" }

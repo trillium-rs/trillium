@@ -6,7 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.0] - 2026-05-05
 
+### Changed
+
+- Compatible with trillium 1.1
+
 ### Added
+
 - `Binding::negotiated_alpn()` — forwards to the inner transport so runtime adapters can dispatch on ALPN regardless of which listener the connection came from
 - HTTP/2 server support is now wired through the runtime adapter: when ALPN selects `h2`, connections are dispatched to the h2 driver instead of HTTP/1.1
 
