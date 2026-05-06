@@ -4,7 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.11.0] - 2026-05-05
+## [0.11.1] - 2026-05-05
+
+### Fixed
+- Bump `trillium-server-common` dependency specifier to `0.7` to match the 1.1 release; `0.11.0` was published with a stale `0.6` spec.
+
+## [0.11.0] - 2026-05-05 [YANKED]
 
 ### Changed
 - TLS now advertises `h2` and `http/1.1` in ALPN by default. `RustlsConfig::without_http2()` opts back out for HTTP/1.1-only deployments.
