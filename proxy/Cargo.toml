@@ -23,11 +23,11 @@ futures-lite = "2.6.1"
 log = "0.4.29"
 size = "0.5.0"
 sluice = "0.6.0"
-trillium = { path = "../trillium", version = "1.0.0" }
-trillium-client = { path = "../client", version = "0.7.0" }
+trillium = { path = "../trillium", version = "1" }
+trillium-client = { path = "../client", version = "0.8" }
 trillium-forwarding = { version = "0.3.0", path = "../forwarding" }
-trillium-http = { path = "../http", version = "1.0.0", features = ["unstable"] }
-trillium-server-common = { version = "0.6.0", path = "../server-common", optional = true }
+trillium-http = { path = "../http", version = "1", features = ["unstable"] }
+trillium-server-common = { version = "0.7", path = "../server-common", optional = true }
 url = "2.5.8"
 
 [dev-dependencies]

@@ -20,7 +20,7 @@ parse = ["trillium-http/parse"]
 [dependencies]
 futures-lite = "2.6.1"
 log = "0.4.29"
-trillium-http = { path = "../http", version = "1.0.0" }
+trillium-http = { path = "../http", version = "1" }
 trillium-macros = { version = "0.1.0", path = "../macros" }
 
 [dev-dependencies]

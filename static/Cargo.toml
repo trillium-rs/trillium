@@ -23,7 +23,7 @@ cfg-if = "1.0.4"
 futures-lite = "2.6.1"
 log = "0.4.29"
 relative-path = "2.0.1"
-trillium = { path = "../trillium", version = "1.0.0" }
+trillium = { path = "../trillium", version = "1" }
 mime_guess = "2.0.5"
 httpdate = "1.0.3"
 etag = { version = "4.0.0", features = ["std"] }
