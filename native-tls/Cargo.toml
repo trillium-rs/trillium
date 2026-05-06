@@ -1,6 +1,6 @@
 [package]
 name = "trillium-native-tls"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 description = "native-tls adapter for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -12,6 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 async-native-tls = "0.6.0"
 native-tls = "0.2.18"
+p12 = "0.6.3"
 pem = "3"
 pkcs8 = { version = "0.10", features = ["alloc"] }
 sec1 = "0.7"

@@ -31,21 +31,22 @@ impl NativeTlsAcceptor {
     /// This is the recommended entrypoint and matches the input format used by
     /// `trillium-rustls` and `trillium-openssl`. The cert input may contain one
     /// or more `CERTIFICATE` blocks (the leaf followed by any intermediates).
-    /// The key input is accepted in any of the three common PEM key forms and
-    /// is normalized to PKCS#8 before being handed to native-tls:
+    /// The key input is accepted in any of the three common PEM key forms:
     ///
-    /// - `-----BEGIN PRIVATE KEY-----` (PKCS#8) — passed through.
-    /// - `-----BEGIN RSA PRIVATE KEY-----` (PKCS#1) — wrapped in a PKCS#8 envelope.
-    /// - `-----BEGIN EC PRIVATE KEY-----` (SEC1) — wrapped in a PKCS#8 envelope.
+    /// - `-----BEGIN PRIVATE KEY-----` (PKCS#8)
+    /// - `-----BEGIN RSA PRIVATE KEY-----` (PKCS#1)
+    /// - `-----BEGIN EC PRIVATE KEY-----` (SEC1)
     ///
     /// Either argument may also be a single concatenated bundle containing
     /// both the cert chain and the key; the relevant blocks are extracted from
     /// each input. Encrypted keys are not supported here — decrypt first or
     /// use [`Self::from_pkcs12`].
     ///
-    /// Algorithm portability across native-tls backends (SChannel on Windows,
-    /// Secure Transport on macOS, OpenSSL on Linux) is not guaranteed for all
-    /// curves; RSA-2048+ and ECDSA P-256/P-384 are the safe choices.
+    /// Internally the cert chain and key are packaged into a PKCS#12 archive
+    /// and handed to [`Identity::from_pkcs12`]. This is uniform across all
+    /// native-tls backends (SChannel on Windows, Secure Transport on macOS,
+    /// OpenSSL on Linux) and avoids the EC import limitation in macOS Secure
+    /// Transport's PKCS#8 PEM path.
     ///
     /// # Example
     ///
@@ -56,10 +57,11 @@ impl NativeTlsAcceptor {
     /// let acceptor = NativeTlsAcceptor::from_cert_and_key(CERT, KEY);
     /// ```
     pub fn from_cert_and_key(cert: &[u8], key: &[u8]) -> Self {
-        let cert_chain = extract_cert_chain_pem(cert);
-        let key_pkcs8 = normalize_key_to_pkcs8_pem(key);
-        Identity::from_pkcs8(&cert_chain, &key_pkcs8)
-            .expect("could not build Identity from provided cert and key")
+        let cert_chain = extract_cert_chain_der(cert);
+        let key_pkcs8 = normalize_key_to_pkcs8_der(key);
+        let p12_der = build_pkcs12_der(&cert_chain, &key_pkcs8);
+        Identity::from_pkcs12(&p12_der, INTERNAL_P12_PASSWORD)
+            .expect("could not build Identity from internally-built PKCS#12 archive")
             .into()
     }
 
@@ -96,11 +98,16 @@ const PEM_TAG_CERT: &str = "CERTIFICATE";
 const RSA_ENCRYPTION_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
 const EC_PUBLIC_KEY_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
 
+// Password used for the in-memory PKCS#12 archive built by `from_cert_and_key`.
+// The archive lives only inside this process, so the password is just a
+// well-known value that lets us round-trip through the PKCS#12 import path.
+const INTERNAL_P12_PASSWORD: &str = "trillium";
+
 fn parse_pem_blocks(input: &[u8]) -> Vec<Pem> {
     pem::parse_many(input).expect("could not parse PEM input")
 }
 
-fn normalize_key_to_pkcs8_pem(input: &[u8]) -> Vec<u8> {
+fn normalize_key_to_pkcs8_der(input: &[u8]) -> Vec<u8> {
     let blocks = parse_pem_blocks(input);
     let key = blocks
         .iter()
@@ -110,14 +117,12 @@ fn normalize_key_to_pkcs8_pem(input: &[u8]) -> Vec<u8> {
              EC PRIVATE KEY)",
         );
 
-    let pkcs8_der = match key.tag() {
+    match key.tag() {
         PEM_TAG_PKCS8 => key.contents().to_vec(),
         PEM_TAG_PKCS1 => wrap_pkcs1_in_pkcs8(key.contents()),
         PEM_TAG_SEC1 => wrap_sec1_in_pkcs8(key.contents()),
         _ => unreachable!(),
-    };
-
-    pem::encode(&Pem::new(PEM_TAG_PKCS8, pkcs8_der)).into_bytes()
+    }
 }
 
 fn wrap_pkcs1_in_pkcs8(pkcs1_der: &[u8]) -> Vec<u8> {
@@ -147,16 +152,31 @@ fn wrap_sec1_in_pkcs8(sec1_der: &[u8]) -> Vec<u8> {
         .expect("could not encode SEC1 key as PKCS#8")
 }
 
-fn extract_cert_chain_pem(input: &[u8]) -> Vec<u8> {
-    let certs: Vec<Pem> = parse_pem_blocks(input)
+fn extract_cert_chain_der(input: &[u8]) -> Vec<Vec<u8>> {
+    let certs: Vec<Vec<u8>> = parse_pem_blocks(input)
         .into_iter()
         .filter(|b| b.tag() == PEM_TAG_CERT)
+        .map(|b| b.into_contents())
         .collect();
     assert!(
         !certs.is_empty(),
         "no CERTIFICATE blocks found in cert input"
     );
-    pem::encode_many(&certs).into_bytes()
+    certs
+}
+
+fn build_pkcs12_der(cert_chain_der: &[Vec<u8>], key_pkcs8_der: &[u8]) -> Vec<u8> {
+    let leaf = cert_chain_der.first().expect("cert chain was empty");
+    let intermediates: Vec<&[u8]> = cert_chain_der.iter().skip(1).map(Vec::as_slice).collect();
+    let pfx = p12::PFX::new_with_cas(
+        leaf,
+        key_pkcs8_der,
+        &intermediates,
+        INTERNAL_P12_PASSWORD,
+        "",
+    )
+    .expect("could not build PKCS#12 archive from cert and key");
+    pfx.to_der()
 }
 
 impl From<Identity> for NativeTlsAcceptor {
@@ -282,8 +302,7 @@ impl<T: Transport> Transport for NativeTlsServerTransport<T> {
 #[cfg(test)]
 mod tests {
     use super::{
-        EC_PUBLIC_KEY_OID, PEM_TAG_PKCS8, RSA_ENCRYPTION_OID, extract_cert_chain_pem,
-        normalize_key_to_pkcs8_pem,
+        EC_PUBLIC_KEY_OID, RSA_ENCRYPTION_OID, extract_cert_chain_der, normalize_key_to_pkcs8_der,
     };
     use pkcs8::PrivateKeyInfo;
 
@@ -293,24 +312,20 @@ mod tests {
     const EC_SEC1: &[u8] = include_bytes!("../tests/fixtures/ec-sec1.key");
     const EC_PKCS8: &[u8] = include_bytes!("../tests/fixtures/ec-pkcs8.key");
 
-    fn parse_pkcs8_pem(pem_bytes: &[u8]) -> PrivateKeyInfo<'_> {
-        let block = pem::parse(pem_bytes).expect("output not parseable as PEM");
-        assert_eq!(block.tag(), PEM_TAG_PKCS8, "wrong PEM armor label");
-        let leaked: &'static [u8] = Box::leak(block.into_contents().into_boxed_slice());
-        PrivateKeyInfo::try_from(leaked).expect("output not parseable as PKCS#8")
+    fn parse_pkcs8_der(der: &[u8]) -> PrivateKeyInfo<'_> {
+        PrivateKeyInfo::try_from(der).expect("output not parseable as PKCS#8")
     }
 
     #[test]
     fn pkcs1_wraps_to_pkcs8_with_rsa_oid() {
-        let pkcs8 = normalize_key_to_pkcs8_pem(RSA_PKCS1);
-        let pki = parse_pkcs8_pem(&pkcs8);
-        assert_eq!(pki.algorithm.oid, RSA_ENCRYPTION_OID);
+        let der = normalize_key_to_pkcs8_der(RSA_PKCS1);
+        assert_eq!(parse_pkcs8_der(&der).algorithm.oid, RSA_ENCRYPTION_OID);
     }
 
     #[test]
     fn sec1_wraps_to_pkcs8_with_ec_oid_and_curve_param() {
-        let pkcs8 = normalize_key_to_pkcs8_pem(EC_SEC1);
-        let pki = parse_pkcs8_pem(&pkcs8);
+        let der = normalize_key_to_pkcs8_der(EC_SEC1);
+        let pki = parse_pkcs8_der(&der);
         assert_eq!(pki.algorithm.oid, EC_PUBLIC_KEY_OID);
         assert!(
             pki.algorithm.parameters.is_some(),
@@ -320,9 +335,8 @@ mod tests {
 
     #[test]
     fn pkcs8_pass_through_preserves_algorithm() {
-        let pkcs8 = normalize_key_to_pkcs8_pem(EC_PKCS8);
-        let pki = parse_pkcs8_pem(&pkcs8);
-        assert_eq!(pki.algorithm.oid, EC_PUBLIC_KEY_OID);
+        let der = normalize_key_to_pkcs8_der(EC_PKCS8);
+        assert_eq!(parse_pkcs8_der(&der).algorithm.oid, EC_PUBLIC_KEY_OID);
     }
 
     #[test]
@@ -331,14 +345,13 @@ mod tests {
         bundle.extend_from_slice(EC_CERT);
         bundle.extend_from_slice(EC_SEC1);
 
-        let extracted_blocks = pem::parse_many(extract_cert_chain_pem(&bundle)).unwrap();
-        let original_blocks = pem::parse_many(EC_CERT).unwrap();
-        assert_eq!(extracted_blocks.len(), original_blocks.len());
-        for (a, b) in extracted_blocks.iter().zip(original_blocks.iter()) {
-            assert_eq!(a.tag(), "CERTIFICATE");
-            assert_eq!(a.tag(), b.tag());
-            assert_eq!(a.contents(), b.contents());
-        }
+        let extracted = extract_cert_chain_der(&bundle);
+        let original: Vec<Vec<u8>> = pem::parse_many(EC_CERT)
+            .unwrap()
+            .into_iter()
+            .map(pem::Pem::into_contents)
+            .collect();
+        assert_eq!(extracted, original);
     }
 
     #[test]
@@ -346,9 +359,7 @@ mod tests {
         let mut bundle = Vec::new();
         bundle.extend_from_slice(RSA_CERT);
         bundle.extend_from_slice(RSA_PKCS1);
-        // Should not panic and should produce a valid PKCS#8 with RSA OID.
-        let pkcs8 = normalize_key_to_pkcs8_pem(&bundle);
-        let pki = parse_pkcs8_pem(&pkcs8);
-        assert_eq!(pki.algorithm.oid, RSA_ENCRYPTION_OID);
+        let der = normalize_key_to_pkcs8_der(&bundle);
+        assert_eq!(parse_pkcs8_der(&der).algorithm.oid, RSA_ENCRYPTION_OID);
     }
 }
