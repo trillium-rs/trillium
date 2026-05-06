@@ -5,16 +5,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.6.2] - 2026-05-06
+
+### Fixed
+
+- `NativeTlsAcceptor::from_cert_and_key` now packages cert + key into a PKCS#12 archive in memory
+  and routes through [`Identity::from_pkcs12`] instead of [`Identity::from_pkcs8`]. PKCS#12 is the
+  universal native-tls input that all platform backends accept, fixing the `errSecUnknownFormat`
+  failure that 0.6.1 hit on macOS for EC keys. RSA keys continue to work unchanged.
+
 ## [0.6.1] - 2026-05-06
 
 ### Added
 
-- `NativeTlsAcceptor::from_cert_and_key(cert, key)` — recommended primary
-  constructor matching the input signature used by `trillium-rustls` and
-  `trillium-openssl`. Accepts PEM cert chains and PEM keys in PKCS#8, PKCS#1
-  (RSA), or SEC1 (EC) form, normalizing to PKCS#8 before handing off to
-  `native_tls::Identity`. Either argument may be a concatenated bundle
-  containing both cert and key.
+- `NativeTlsAcceptor::from_cert_and_key(cert, key)` — recommended primary constructor matching the
+  input signature used by `trillium-rustls` and `trillium-openssl`. Accepts PEM cert chains and PEM
+  keys in PKCS#8, PKCS#1 (RSA), or SEC1 (EC) form, normalizing to PKCS#8 before handing off to
+  `native_tls::Identity`. Either argument may be a concatenated bundle containing both cert and key.
 
 ### Changed
 
