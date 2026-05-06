@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `WebTransportConnection` is now constructible from outside this crate, enabling the WebTransport client in `trillium-client` (cargo feature `webtransport`). The same type — and the same `accept_bidi` / `accept_uni` / `recv_datagram` / `open_bidi` / `open_uni` / `send_datagram` API — works whether you obtained it from a server-side handler or from `Client::webtransport(url).into_webtransport().await`.
 - `Router` and `SessionRouter` are now `pub` (`#[doc(hidden)]`) so trillium-client can share the per-QUIC-connection multiplexing primitives. `Router::spawn_routing_task(self: Arc<Self>, quic, runtime)` is an idempotent helper that drains inbound WebTransport streams from the dispatcher and inbound datagrams from the QUIC connection, demuxing both to the right session. These are internal multiplexing primitives — most users will not interact with them directly.
 
-## [0.2.0] - 2026-04-08
+## [0.2.0] - 2026-05-02
 
 ### Added
 - Initial release: WebTransport handler for HTTP/3 sessions

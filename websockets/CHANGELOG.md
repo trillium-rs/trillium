@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - WebSockets over HTTP/2 (RFC 8441) — handled transparently when the request arrives via h2 with extended CONNECT. `WebSocketHandler::init` checks that the peer advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL` and turns the handler into a no-op for that connection if not.
 
-## [0.7.0] - 2026-04-08
+## [0.7.0] - 2026-05-02
 
 ### Changed
 - Compatible with trillium 1.0
@@ -19,8 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `WebSocketConn::state_entry::<T>()` — entry API for connection state, mirrors `HashMap::entry`
-
-## [0.7.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-websockets-v0.6.5...trillium-websockets-v0.7.0-rc.1) - 2024-05-30
 
 ### Added
 - deprecate set_state for insert_state

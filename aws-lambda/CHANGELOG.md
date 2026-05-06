@@ -8,13 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Inherits `trillium-server-common` 0.7 (`Binding::negotiated_alpn`). HTTP/2 dispatch is not exercised here in practice — Lambda terminates TLS upstream — but the reexport surface tracks server-common.
-
-## [0.3.0] - 2026-04-08
+## [0.3.0] - 2026-05-02
 
 ### Changed
 - Compatible with trillium 1.0
-
-## [0.3.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-aws-lambda-v0.2.1...trillium-aws-lambda-v0.3.0-rc.1) - 2024-01-02
 
 ### Other
 - updated the following local packages: trillium-http

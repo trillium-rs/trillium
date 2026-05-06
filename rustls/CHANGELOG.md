@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RustlsAcceptor::from_single_cert_no_h2(cert, key)` — convenience constructor for HTTP/1.1-only TLS, equivalent to `from_single_cert(cert, key).without_http2()`
 - `RustlsClientTransport::negotiated_alpn()` / `RustlsServerTransport::negotiated_alpn()` — exposes the ALPN result for runtime/client dispatch
 
-## [0.10.0] - 2026-04-08
+## [0.10.0] - 2026-05-02
 
 ### Changed
 - Compatible with trillium 1.0

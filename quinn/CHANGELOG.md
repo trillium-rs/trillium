@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `pub use quinn` — the underlying `quinn` crate is now re-exported at the crate root, so callers don't need to add `quinn` as a separate dependency to interact with the underlying QUIC types
 
-## [0.1.0] - 2026-04-08
+## [0.1.0] - 2026-05-02
 
 ### Added
 - Initial release: Quinn-backed QUIC adapter for HTTP/3 support

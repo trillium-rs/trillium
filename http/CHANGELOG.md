@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 The existing sync `H3Connection::peer_settings(&self) -> Option<&H3Settings>` accessor is unchanged.
 
-## [1.0.0] - 2026-04-08
+## [1.0.0] - 2026-05-02
 
 ### Changed
 - Compatible with trillium 1.0
@@ -47,11 +47,6 @@ The existing sync `H3Connection::peer_settings(&self) -> Option<&H3Settings>` ac
 - `parse` feature — opt-in alternative header parser (bypasses httparse; groundwork for H3)
 - `HttpContext` is now public — Arc-shared per-server state (Swansong + TypeSet + HttpConfig) passed to every connection
 - `pub mod h3` — HTTP/3 protocol primitives: QPACK encode/decode, H3 framing, `H3Connection`, `H3Body`, `H3Error`; used by [`trillium-quinn`](https://docs.rs/trillium-quinn) and other QUIC adapter crates
-
-## [1.0.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.16...trillium-http-v1.0.0-rc.1) - 2024-05-30
-
-### Added
-- deprecate Headers::contains_ignore_ascii_case
 
 ## [0.3.16](https://github.com/trillium-rs/trillium/compare/trillium-http-v0.3.15...trillium-http-v0.3.16) - 2024-04-07
 

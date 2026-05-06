@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Transport::negotiated_alpn() -> Option<Cow<'_, [u8]>>` — optional trait method (defaults to `None`); runtime adapters use the result to dispatch between HTTP/1.1 and HTTP/2 on the same TLS listener
 - `trillium::Upgrade` now implements `AsRef<trillium_http::Upgrade<Box<dyn Transport>>>` and `AsMut<...>`, exposing the full underlying fieldwork accessor surface to downstream callers (e.g. `trillium-webtransport`) without `Upgrade` having to enumerate every accessor up front.
 
-## [1.0.0] - 2026-04-08
+## [1.0.0] - 2026-05-02
 
 ### Changed
 - `impl Handler` no longer requires `#[async_trait]` — remove the attribute from all Handler implementations; `async_trait` can likely be removed from your dependencies entirely
@@ -85,8 +85,6 @@ trillium_tokio::config()
     .with_quic(trillium_quinn::QuicConfig::from_single_cert(&cert_pem, &key_pem))
     .run(handler);
 ```
-
-## [1.0.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-v0.2.19...trillium-v1.0.0-rc.1) - 2024-05-30
 
 ### Added
 - deprecate set_state for insert_state
