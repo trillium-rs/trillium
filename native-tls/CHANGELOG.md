@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1](https://github.com/trillium-rs/trillium/compare/trillium-native-tls-v0.6.0...trillium-native-tls-v0.6.1) - 2026-05-06
+
+### Added
+
+- *(native-tls)* add NativeTlsAcceptor::from_cert_and_key
+
 ### Added
 
 - `NativeTlsAcceptor::from_cert_and_key(cert, key)` — recommended primary
