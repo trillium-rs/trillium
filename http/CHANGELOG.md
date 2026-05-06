@@ -4,7 +4,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - 2026-XX-XX
+## [1.1.0] - 2026-05-05
+
+This release adds http/2 support.
 
 ### Added
 - `pub mod h2` — HTTP/2 protocol primitives: HPACK encode/decode, h2 framing, `H2Connection`, `H2Driver`, `H2Transport`. HTTP/2 is automatically negotiated when ALPN selects `h2` or via prior-knowledge cleartext ("h2c"). 146/146 [h2spec](https://github.com/summerwind/h2spec) cases pass.

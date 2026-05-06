@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - 2026-XX-XX
+## [0.6.0] - 2026-05-05
 
 ### Added
 - HTTP/2 support — when the TLS acceptor negotiates `h2` via ALPN, connections are dispatched to the h2 driver instead of HTTP/1.1. Inherited from `trillium-server-common` 0.7; no code changes required to opt in.
