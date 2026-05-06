@@ -26,8 +26,8 @@ futures-lite = "2.6.1"
 httparse = "1.10.1"
 log = "0.4.29"
 size = "0.5.0"
-trillium-server-common = { version = "0.7", path = "../server-common" }
-trillium-websockets = { version = "0.8", path = "../websockets", optional = true }
+trillium-server-common.workspace = true
+trillium-websockets = { workspace = true, optional = true }
 mime = "0.3.17"
 serde_json = { version = "1.0.149", optional = true }
 serde = { version = "1.0.228", optional = true }
@@ -37,13 +37,12 @@ crossbeam-queue = "0.3.12"
 memchr = "2.8.0"
 sonic-rs = { version = "0.5.8", optional = true }
 fieldwork = "0.5.0"
-trillium-macros = { version = "0.1.0", path = "../macros" }
-trillium-webtransport = { version = "0.1.0", path = "../webtransport", optional = true }
+trillium-macros.workspace = true
+trillium-webtransport = { workspace = true, optional = true }
 
 [dependencies.trillium-http]
-path = "../http"
+workspace = true
 features = ["unstable"]
-version = "1"
 
 [dev-dependencies]
 async-channel = "2.5.0"
@@ -55,13 +54,13 @@ indoc = "2.0.7"
 pretty_assertions = "1.4.1"
 rcgen = "0.14.7"
 test-harness = "0.3.1"
-trillium = { path = "../trillium" }
+trillium.workspace = true
 trillium-client = { path = ".", features = ["websockets"] }
-trillium-smol = { path = "../smol/" }
-trillium-testing = { path = "../testing" }
-trillium-tokio = { path = "../tokio" }
-trillium-rustls = { path = "../rustls" }
-trillium-quinn = { path = "../quinn", features = ["webpki-roots"] }
+trillium-smol.workspace = true
+trillium-testing.workspace = true
+trillium-tokio.workspace = true
+trillium-rustls.workspace = true
+trillium-quinn = { workspace = true, features = ["webpki-roots"] }
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium"]

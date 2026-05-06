@@ -33,7 +33,7 @@ smallvec = { version = "1.15.1", features = ["const_new"] }
 smartcow = "0.2.1"
 smartstring = "1.0.1"
 thiserror = "2.0.18"
-trillium-macros = { version = "0.1.0", path = "../macros" }
+trillium-macros.workspace = true
 swansong = "0.3.4"
 type-set = "0.3.2"
 fastrand = "2.3.0"
@@ -48,9 +48,9 @@ async-io = "2.6.0"
 async-net = "2.0.0"
 env_logger = "0.11.10"
 smol = "2.0.2"
-trillium-client = { path = "../client" }
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-client.workspace = true
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 futures-lite = "2"
 pretty_assertions = "1.4.1"
 test-harness = "0.3.1"

@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 log = "0.4.29"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 
 [dependencies.cookie]
 version = "0.18.1"
@@ -20,8 +20,8 @@ features = ["percent-encode", "secure"]
 
 [dev-dependencies]
 env_logger = "0.11.10"
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

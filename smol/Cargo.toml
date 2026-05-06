@@ -17,10 +17,10 @@ async-net = "2.0.0"
 async-task = "4.7.1"
 futures-lite = "2.6.1"
 log = "0.4.29"
-trillium = { path = "../trillium", version = "1" }
-trillium-http = { path = "../http", version = "1" }
-trillium-macros = { version = "0.1.0", path = "../macros" }
-trillium-server-common = { path = "../server-common", version = "0.7" }
+trillium.workspace = true
+trillium-http.workspace = true
+trillium-macros.workspace = true
+trillium-server-common.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.4.3"
@@ -30,9 +30,9 @@ async-signal = "0.2.13"
 env_logger = "0.11.10"
 tempfile = "3.27.0"
 test-harness = "0.3.1"
-trillium-client = { path = "../client" }
-trillium-logger = { path = "../logger" }
-trillium-testing = { path = "../testing" }
+trillium-client.workspace = true
+trillium-logger.workspace = true
+trillium-testing.workspace = true
 
 [[example]]
 name = "smol"

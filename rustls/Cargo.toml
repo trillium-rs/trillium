@@ -30,18 +30,18 @@ features = ["logging"]
 log = "0.4.29"
 rustls-pemfile = { version = "2.2.0", optional = true }
 rustls-platform-verifier = { version = "0.6.2", optional = true }
-trillium-server-common = { path = "../server-common", version = "0.7" }
+trillium-server-common.workspace = true
 webpki-roots = { version = "1.0", optional = true }
 
 [dev-dependencies]
 env_logger = "0.11.10"
 portpicker = "0.1.1"
 test-harness = "0.3.1"
-trillium = { path = "../trillium" }
-trillium-client = { path = "../client" }
-trillium-native-tls = { path = "../native-tls" }
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium.workspace = true
+trillium-client.workspace = true
+trillium-native-tls.workspace = true
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 
 [package.metadata.cargo-udeps.ignore]
 # because there is no way to say [dependencies.'cfg(not(feature = "platform-verifier"))']
