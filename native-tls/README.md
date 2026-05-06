@@ -20,13 +20,19 @@ use trillium::Conn;
 use trillium_native_tls::NativeTlsAcceptor;
 
 fn main() {
-    let identity = std::fs::read("identity.p12").unwrap();
-    let acceptor = NativeTlsAcceptor::from_pkcs12(&identity, "password");
+    let cert = std::fs::read("cert.pem").unwrap();
+    let key = std::fs::read("key.pem").unwrap();
+    let acceptor = NativeTlsAcceptor::from_cert_and_key(&cert, &key);
     trillium_smol::config()
         .with_acceptor(acceptor)
         .run(|conn: Conn| async move { conn.ok("https works") });
 }
 ```
+
+The key may be PKCS#8, PKCS#1 (RSA), or SEC1 (EC) PEM — the same inputs
+accepted by `trillium-rustls` and `trillium-openssl`. PKCS#12 archives are also
+supported via `NativeTlsAcceptor::from_pkcs12(der, password)` for callers who
+already have a password-protected bundle.
 
 ## Safety
 
