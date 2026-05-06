@@ -9,10 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `NativeTlsAcceptor::from_cert_and_key` now packages cert + key into a PKCS#12 archive in memory
-  and routes through [`Identity::from_pkcs12`] instead of [`Identity::from_pkcs8`]. PKCS#12 is the
-  universal native-tls input that all platform backends accept, fixing the `errSecUnknownFormat`
-  failure that 0.6.1 hit on macOS for EC keys. RSA keys continue to work unchanged.
+- `NativeTlsAcceptor::from_cert_and_key` now tries [`Identity::from_pkcs8`]
+  first and falls back to packaging the cert chain and key into an in-memory
+  PKCS#12 archive (via [`Identity::from_pkcs12`]) only when that path fails.
+  This works around macOS Secure Transport's `errSecUnknownFormat` failure on
+  EC keys (e.g. ACME-issued tailnet/Let's Encrypt certs) while keeping the
+  fast PKCS#8 path on Linux and Windows.
 
 ## [0.6.1] - 2026-05-06
 
