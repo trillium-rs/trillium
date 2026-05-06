@@ -12,25 +12,25 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 env_logger = "0.11.10"
-trillium = { path = "../trillium" }
-trillium-router = { path = "../router" }
-trillium-logger = { path = "../logger" }
-trillium-cookies = { path = "../cookies" }
-trillium-sessions = { path = "../sessions" }
-trillium-websockets = { path = "../websockets" }
-trillium-smol = { path = "../smol" }
-trillium-askama = { path = "../askama" }
+trillium.workspace = true
+trillium-router.workspace = true
+trillium-logger.workspace = true
+trillium-cookies.workspace = true
+trillium-sessions.workspace = true
+trillium-websockets.workspace = true
+trillium-smol.workspace = true
+trillium-askama.workspace = true
 futures-lite = "2.6.1"
 askama = "0.15.6"
-trillium-static-compiled = { path = "../static-compiled/" }
-trillium-proxy = { path = "../proxy" }
-trillium-rustls = { path = "../rustls" }
+trillium-static-compiled.workspace = true
+trillium-proxy.workspace = true
+trillium-rustls.workspace = true
 log = "0.4.29"
-trillium-head = { path = "../head" }
-trillium-method-override = { path = "../method-override" }
-trillium-conn-id = { path = "../conn-id" }
-trillium-caching-headers = { path = "../caching-headers" }
-trillium-compression = { path = "../compression" }
+trillium-head.workspace = true
+trillium-method-override.workspace = true
+trillium-conn-id.workspace = true
+trillium-caching-headers.workspace = true
+trillium-compression.workspace = true
 
 [dev-dependencies]
-trillium-testing = { path = "../testing" }
+trillium-testing.workspace = true

@@ -27,8 +27,8 @@ quinn = { version = "0.11", default-features = false, features = ["log"] }
 rustls = { version = "0.23", default-features = false }
 rustls-pemfile = "2"
 webpki-roots = { version = "1.0", optional = true }
-trillium-macros = { path = "../macros", version = "0.1.0" }
-trillium-server-common = { path = "../server-common", version = "0.7" }
+trillium-macros.workspace = true
+trillium-server-common.workspace = true
 
 
 [dev-dependencies]
@@ -36,12 +36,12 @@ async-channel = "2.5.0"
 env_logger = "0.11.10"
 h3i = "0.6.0"
 rcgen = "0.14.7"
-trillium = { version = "1", path = "../trillium" }
-trillium-client = { path = "../client" }
-trillium-logger = { version = "0.5", path = "../logger" }
-trillium-rustls = { version = "0.11", path = "../rustls" }
-trillium-testing = { path = "../testing" }
-trillium-tokio = { version = "0.6", path = "../tokio" }
+trillium.workspace = true
+trillium-client.workspace = true
+trillium-logger.workspace = true
+trillium-rustls.workspace = true
+trillium-testing.workspace = true
+trillium-tokio.workspace = true
 
 [package.metadata.cargo-udeps.ignore]
 development = ["h3i", "rcgen", "trillium-testing"]

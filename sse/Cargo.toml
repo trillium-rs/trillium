@@ -12,12 +12,12 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 futures-lite = "2.6.1"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 
 [dev-dependencies]
 broadcaster = "1.0.0"
-trillium-logger = { path = "../logger" }
-trillium-smol = { path = "../smol" }
-trillium-static-compiled = { path = "../static-compiled" }
+trillium-logger.workspace = true
+trillium-smol.workspace = true
+trillium-static-compiled.workspace = true
 
 [features]

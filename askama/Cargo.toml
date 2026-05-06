@@ -13,11 +13,11 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 askama = "0.15.6"
 log = "0.4.29"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 
 [dev-dependencies]
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

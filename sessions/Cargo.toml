@@ -11,15 +11,15 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-trillium-cookies = { path = "../cookies", version = "0.5" }
-trillium = { path = "../trillium", version = "1" }
+trillium-cookies.workspace = true
+trillium.workspace = true
 async-session = "3.0.0"
 log = "0.4.29"
 
 [dev-dependencies]
 env_logger = "0.11.10"
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

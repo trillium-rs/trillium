@@ -16,12 +16,12 @@ handlebars = { version = "6.4.0", features = ["dir_source"] }
 log = "0.4.29"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 
 [dev-dependencies]
 env_logger = "0.11.10"
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

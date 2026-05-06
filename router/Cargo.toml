@@ -13,10 +13,10 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 log = "0.4.29"
 routefinder = { version = "0.5.4", features = ["memchr"] }
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 
 [dev-dependencies]
 env_logger = "0.11.10"
-trillium-logger = { path = "../logger" }
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-logger.workspace = true
+trillium-smol.workspace = true
+trillium-testing.workspace = true

@@ -23,7 +23,7 @@ cfg-if = "1.0.4"
 futures-lite = "2.6.1"
 log = "0.4.29"
 relative-path = "2.0.1"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 mime_guess = "2.0.5"
 httpdate = "1.0.3"
 etag = { version = "4.0.0", features = ["std"] }
@@ -41,9 +41,9 @@ version = "1.50.0"
 
 [dev-dependencies]
 tempfile = "3"
-trillium-testing = { path = "../testing" }
-trillium-logger = { path = "../logger" }
-trillium-smol = { path = "../smol" }
+trillium-testing.workspace = true
+trillium-logger.workspace = true
+trillium-smol.workspace = true
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

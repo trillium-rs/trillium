@@ -20,18 +20,18 @@ parse = ["trillium-http/parse"]
 [dependencies]
 futures-lite = "2.6.1"
 log = "0.4.29"
-trillium-http = { path = "../http", version = "1" }
-trillium-macros = { version = "0.1.0", path = "../macros" }
+trillium-http.workspace = true
+trillium-macros.workspace = true
 
 [dev-dependencies]
 futures-lite = "2.6.1"
 async-channel = "2.5.0"
 async-io = "2.6.0"
 fastrand = "2.3.0"
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 env_logger = "0.11.10"
-trillium-client = { path = "../client" }
+trillium-client.workspace = true
 test-harness = "0.3.1"
 
 [package.metadata.cargo-udeps.ignore]

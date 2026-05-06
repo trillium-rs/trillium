@@ -13,10 +13,10 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 etag = { version = "4.0.0", features = ["std"] }
 httpdate = "1.0.3"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 
 [dev-dependencies]
-trillium-smol = { path = "../smol" }
-trillium-static = { path = "../static", features = ["smol"] }
+trillium-smol.workspace = true
+trillium-static = { workspace = true, features = ["smol"] }
 
 [features]
