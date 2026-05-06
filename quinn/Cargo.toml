@@ -9,6 +9,10 @@ keywords = ["trillium", "framework", "async", "quic", "h3"]
 categories = ["web-programming::http-server", "web-programming"]
 readme = "README.md"
 
+
+[package.metadata.cargo-udeps.ignore]
+development = ["h3i", "rcgen", "trillium-testing"]
+
 [features]
 default = ["aws-lc-rs"]
 aws-lc-rs = ["quinn/rustls-aws-lc-rs", "rustls/aws-lc-rs"]
@@ -36,12 +40,9 @@ async-channel = "2.5.0"
 env_logger = "0.11.10"
 h3i = "0.6.0"
 rcgen = "0.14.7"
-trillium = { version = "1", path = "../trillium" }
+trillium = { path = "../trillium" }
 trillium-client = { path = "../client" }
-trillium-logger = { version = "0.5", path = "../logger" }
-trillium-rustls = { version = "0.11", path = "../rustls" }
+trillium-logger = { path = "../logger" }
+trillium-rustls = {path = "../rustls" }
 trillium-testing = { path = "../testing" }
-trillium-tokio = { version = "0.6", path = "../tokio" }
-
-[package.metadata.cargo-udeps.ignore]
-development = ["h3i", "rcgen", "trillium-testing"]
+trillium-tokio = { path = "../tokio" }
