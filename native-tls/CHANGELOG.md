@@ -5,6 +5,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+
+- `NativeTlsAcceptor::from_cert_and_key(cert, key)` — recommended primary
+  constructor matching the input signature used by `trillium-rustls` and
+  `trillium-openssl`. Accepts PEM cert chains and PEM keys in PKCS#8, PKCS#1
+  (RSA), or SEC1 (EC) form, normalizing to PKCS#8 before handing off to
+  `native_tls::Identity`. Either argument may be a concatenated bundle
+  containing both cert and key.
+
+### Changed
+
+- README and example now lead with `from_cert_and_key`. `from_pkcs12` is
+  retained for callers with password-protected archives, and `from_pkcs8` is
+  retained for backwards compatibility.
+
 ## [0.6.0] - 2026-05-06
 
 ### Changed

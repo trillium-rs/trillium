@@ -12,6 +12,9 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 async-native-tls = "0.6.0"
 native-tls = "0.2.18"
+pem = "3"
+pkcs8 = { version = "0.10", features = ["alloc"] }
+sec1 = "0.7"
 trillium-server-common.workspace = true
 
 [dev-dependencies]
