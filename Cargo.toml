@@ -64,7 +64,7 @@ trillium-logger = { version = "0.5", path = "logger" }
 trillium-macros = { version = "0.1", path = "macros" }
 trillium-method-override = { version = "0.3", path = "method-override" }
 trillium-native-tls = { version = "0.5", path = "native-tls" }
-trillium-proxy = { version = "0.6", path = "proxy" }
+trillium-proxy = { version = "0.7", path = "proxy" }
 trillium-quinn = { version = "0.1", path = "quinn" }
 trillium-router = { version = "0.5", path = "router" }
 trillium-rustls = { version = "0.11", path = "rustls" }
