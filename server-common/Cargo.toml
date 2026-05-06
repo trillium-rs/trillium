@@ -19,16 +19,16 @@ listenfd = "1.0.2"
 log = "0.4.29"
 pin-project-lite = "0.2.17"
 swansong = "0.3.4"
-trillium = { path = "../trillium", version = "1" }
-trillium-http = { path = "../http", version = "1" }
+trillium.workspace = true
+trillium-http.workspace = true
 url = "2.5.8"
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.11.0"
 
 [dev-dependencies]
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 
 [features]
 

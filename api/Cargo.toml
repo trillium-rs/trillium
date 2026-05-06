@@ -27,18 +27,18 @@ serde_path_to_error = "0.1.20"
 serde_urlencoded = { version = "0.7.1", optional = true }
 sonic-rs = { version = "0.5.8", optional = true }
 thiserror = "2.0.18"
-trillium = { path = "../trillium", version = "1" }
-trillium-macros = { version = "0.1.0", path = "../macros" }
+trillium.workspace = true
+trillium-macros.workspace = true
 url = { version = "2.5.8", optional = true }
 
 [dev-dependencies]
 async-io = "2.6.0"
 env_logger = "0.11.10"
 serde = { version = "1.0.228", features = ["derive"] }
-trillium-logger = { path = "../logger" }
-trillium-router = { path = "../router" }
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-logger.workspace = true
+trillium-router.workspace = true
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 trillium-api = { path = ".", features = ["url", "sonic-rs", "forms"] }
 test-harness = "0.3.1"
 async-channel = "2.5.0"

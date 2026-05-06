@@ -29,8 +29,8 @@ serde_json = { version = "1.0.149", optional = true }
 sha-1 = "0.10.1"
 swansong = "0.3.4"
 thiserror = "2.0.18"
-trillium = { path = "../trillium", version = "1" }
-trillium-http = { path = "../http", version = "1" }
+trillium.workspace = true
+trillium-http.workspace = true
 
 [dev-dependencies]
 async-tungstenite = { version = "0.34.0", default-features = false, features = ["handshake"] }
@@ -38,10 +38,10 @@ serde = { version = "1.0.228", features = ["derive"] }
 async-channel = "2.5.0"
 async-net = "2.0.0"
 broadcaster = "1.0.0"
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 trillium-websockets = { features = ["json"], path = "." }
-trillium-logger = { path = "../logger" }
+trillium-logger.workspace = true
 env_logger = "0.11.10"
 
 [package.metadata.cargo-udeps.ignore]

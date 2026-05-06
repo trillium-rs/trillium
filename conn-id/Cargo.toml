@@ -12,8 +12,8 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 fastrand = "2.3.0"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 
 [dev-dependencies]
-trillium-testing = { path = "../testing" }
+trillium-testing.workspace = true
 uuid = { version = "1.23.0", features = ["v4"] }

@@ -13,9 +13,9 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 base64 = "0.22.1"
 fieldwork = "0.5.0"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 
 [dev-dependencies]
 test-harness = "0.3.1"
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-smol.workspace = true
+trillium-testing.workspace = true

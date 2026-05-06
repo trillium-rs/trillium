@@ -12,7 +12,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 futures-lite = "2.6.1"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 log = "0.4.29"
 
 [dependencies.async-compression]
@@ -21,11 +21,11 @@ features = ["brotli", "gzip", "zstd", "futures-io"]
 
 [dev-dependencies]
 env_logger = "0.11.10"
-trillium-logger = { path = "../logger" }
-trillium-router = { path = "../router" }
-trillium-smol = { path = "../smol" }
-trillium-static = { path = "../static", features = ["smol"] }
-trillium-static-compiled = { path = "../static-compiled" }
-trillium-testing = { path = "../testing" }
+trillium-logger.workspace = true
+trillium-router.workspace = true
+trillium-smol.workspace = true
+trillium-static = { workspace = true, features = ["smol"] }
+trillium-static-compiled.workspace = true
+trillium-testing.workspace = true
 
 [features]

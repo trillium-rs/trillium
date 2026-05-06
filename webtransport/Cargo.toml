@@ -13,28 +13,26 @@ categories = ["web-programming::http-server", "web-programming"]
 async-channel = "2"
 async-lock = "3"
 log = "0.4.29"
-trillium = { path = "../trillium", version = "1" }
-trillium-http = { path = "../http", version = "1", features = [
-        "unstable",
-] }
+trillium.workspace = true
+trillium-http = { workspace = true, features = ["unstable"] }
 swansong = "0.3"
-trillium-macros = { path = "../macros", version = "0.1.0" }
-trillium-server-common = { version = "0.7", path = "../server-common" }
+trillium-macros.workspace = true
+trillium-server-common.workspace = true
 futures-lite = "2.6.1"
-trillium-logger = { version = "0.5", path = "../logger" }
+trillium-logger.workspace = true
 
 [dev-dependencies]
 env_logger = "0.11.10"
 rcgen = "0.14.7"
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 tokio = { version = "1.51.1", features = ["rt", "macros", "time"] }
-trillium-client = { path = "../client", features = ["webtransport"] }
-trillium-quinn = { path = "../quinn" }
-trillium-rustls = { path = "../rustls" }
-trillium-smol = { path = "../smol" }
-trillium-static-compiled = { path = "../static-compiled" }
-trillium-testing = { path = "../testing" }
-trillium-tokio = { path = "../tokio" }
+trillium-client = { workspace = true, features = ["webtransport"] }
+trillium-quinn.workspace = true
+trillium-rustls.workspace = true
+trillium-smol.workspace = true
+trillium-static-compiled.workspace = true
+trillium-testing.workspace = true
+trillium-tokio.workspace = true
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing", "trillium-smol"]

@@ -12,9 +12,9 @@ env_logger = "0.11.10"
 junit-parser = "1.5"
 log = "0.4"
 rcgen = "0.14"
-trillium = { path = "../trillium" }
-trillium-async-std = { path = "../async-std" }
-trillium-rustls = { path = "../rustls" }
-trillium-server-common = { path = "../server-common" }
-trillium-smol = { path = "../smol" }
-trillium-tokio = { path = "../tokio" }
+trillium.workspace = true
+trillium-async-std.workspace = true
+trillium-rustls.workspace = true
+trillium-server-common.workspace = true
+trillium-smol.workspace = true
+trillium-tokio.workspace = true

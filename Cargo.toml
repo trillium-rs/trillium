@@ -45,3 +45,36 @@ members = [
         "webtransport",
 ]
 exclude = ["controllers", "fuzz"]
+
+[workspace.dependencies]
+trillium = { version = "1", path = "trillium" }
+trillium-api = { version = "0.3", path = "api" }
+trillium-askama = { version = "0.4", path = "askama" }
+trillium-async-std = { version = "0.6", path = "async-std" }
+trillium-aws-lambda = { version = "0.4", path = "aws-lambda" }
+trillium-caching-headers = { version = "0.3", path = "caching-headers" }
+trillium-client = { version = "0.8", path = "client" }
+trillium-compression = { version = "0.2", path = "compression" }
+trillium-conn-id = { version = "0.3", path = "conn-id" }
+trillium-cookies = { version = "0.5", path = "cookies" }
+trillium-forwarding = { version = "0.3", path = "forwarding" }
+trillium-head = { version = "0.3", path = "head" }
+trillium-http = { version = "1", path = "http" }
+trillium-logger = { version = "0.5", path = "logger" }
+trillium-macros = { version = "0.1", path = "macros" }
+trillium-method-override = { version = "0.3", path = "method-override" }
+trillium-native-tls = { version = "0.5", path = "native-tls" }
+trillium-proxy = { version = "0.6", path = "proxy" }
+trillium-quinn = { version = "0.1", path = "quinn" }
+trillium-router = { version = "0.5", path = "router" }
+trillium-rustls = { version = "0.11", path = "rustls" }
+trillium-server-common = { version = "0.7", path = "server-common" }
+trillium-sessions = { version = "0.5", path = "sessions" }
+trillium-smol = { version = "0.6", path = "smol" }
+trillium-static = { version = "0.5", path = "static" }
+trillium-static-compiled = { version = "0.6", path = "static-compiled" }
+trillium-static-compiled-macros = { version = "0.2", path = "static-compiled-macros" }
+trillium-testing = { version = "0.8", path = "testing" }
+trillium-tokio = { version = "0.6", path = "tokio" }
+trillium-websockets = { version = "0.8", path = "websockets" }
+trillium-webtransport = { version = "0.1", path = "webtransport" }

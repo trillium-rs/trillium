@@ -11,4 +11,4 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true

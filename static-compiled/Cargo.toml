@@ -14,15 +14,15 @@ categories = ["web-programming::http-server", "web-programming"]
 log = "0.4.29"
 mime = "0.3.17"
 mime_guess = "2.0.5"
-trillium = { path = "../trillium", version = "1" }
+trillium.workspace = true
 httpdate = "1.0.3"
-trillium-static-compiled-macros = { path = "../static-compiled-macros", version = "0.2.0" }
+trillium-static-compiled-macros.workspace = true
 
 [dev-dependencies]
-trillium-caching-headers = { path = "../caching-headers" }
-trillium-logger = { path = "../logger" }
-trillium-smol = { path = "../smol" }
-trillium-testing = { path = "../testing" }
+trillium-caching-headers.workspace = true
+trillium-logger.workspace = true
+trillium-smol.workspace = true
+trillium-testing.workspace = true
 
 [features]
 
