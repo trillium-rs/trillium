@@ -1,6 +1,6 @@
 [package]
 name = "trillium-native-tls"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 description = "native-tls adapter for trillium.rs"
 license = "MIT OR Apache-2.0"
