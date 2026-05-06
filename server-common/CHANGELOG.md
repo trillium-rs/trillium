@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Binding::negotiated_alpn()` — forwards to the inner transport so runtime adapters can dispatch on ALPN regardless of which listener the connection came from
 - HTTP/2 server support is now wired through the runtime adapter: when ALPN selects `h2`, connections are dispatched to the h2 driver instead of HTTP/1.1
 
-## [0.6.0] - 2026-04-08
+## [0.6.0] - 2026-05-02
 
 ### Changed
 - Compatible with trillium 1.0
@@ -35,8 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `QuicConfig`, `QuicEndpoint`, `QuicConnectionTrait`, `QuicConnection` — the three-layer abstraction for QUIC support (config → endpoint → connection); `()` impls disable H3 (the default)
 - `UdpTransport` trait — async UDP socket abstraction for QUIC; implemented by `TokioUdpSocket`, `SmolUdpSocket`, `AsyncStdUdpSocket`
 - `NoQuic` — uninhabited type implementing `QuicConnection` for the `()` disabled case
-
-## [0.6.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-server-common-v0.5.1...trillium-server-common-v0.6.0-rc.1) - 2024-04-04
 
 ### Added
 - *(server-common)* reexport all of ::url

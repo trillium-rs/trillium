@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-04-08
+## [0.3.0] - 2026-05-02
 
 ### Changed
 - Compatible with trillium 1.0
@@ -14,13 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `impl FromConn for trillium_http::Version` — HTTP version is now extractable as an API handler parameter
 
-## [0.3.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.11...trillium-api-v0.3.0-rc.1) - 2024-05-30
-
 ### Added
 - *(api)* [**breaking**] make IoErrors respond with BadRequest
 - *(api)* [**breaking**] implement TryFromConn for `Vec<u8>` and `String`
 
-## [0.2.0-rc.11](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.10...trillium-api-v0.2.0-rc.11) - 2024-04-07
+## [0.2.01](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.00...trillium-api-v0.2.01) - 2024-04-07
 
 ### Added
 - add deprecation warnings to 0.2 branch in preparation for 1.0
@@ -30,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - release
 - clippy
 
-## [0.2.0-rc.10](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.9...trillium-api-v0.2.0-rc.10) - 2024-02-13
+## [0.2.00](https://github.com/trillium-rs/trillium/compare/trillium-api-v0.2.0-rc.9...trillium-api-v0.2.00) - 2024-02-13
 
 ### Fixed
 - *(api)* set minimum trillium dependency correctly

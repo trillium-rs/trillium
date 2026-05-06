@@ -52,7 +52,7 @@ The HTTP/3 send path now honors `Conn::protocol`, mirroring the HTTP/2 extended-
 - `Client::without_timeout()` — builder counterpart to `with_timeout`
 - `BodySource` re-exported from `trillium-http`
 
-## [0.7.0] - 2026-04-08
+## [0.7.0] - 2026-05-02
 
 ### Changed
 - Compatible with trillium 1.0
@@ -91,8 +91,6 @@ let client = Client::new_with_quic(
 - `Client::set_timeout(&mut self, Duration)` and `Conn::set_timeout(&mut self, Duration)` — in-place variants of the above
 - Per-connection state via `TypeSet`: `with_state`, `insert_state`, `state`, `state_mut`, `take_state`
 - `sonic-rs` feature: opt-in alternative to `serde_json` for `with_json_body` and `response_json`. Enable with `features = ["sonic-rs"]`. The two features are mutually exclusive — enable only one. **Note:** unlike `serde_json`, `sonic-rs` does not guarantee stable map key ordering — tests that assert on raw JSON string output may need to parse back to `Value` before comparing. To keep using `serde_json`, use `features = ["serde_json"]`.
-
-## [0.7.0-rc.1](https://github.com/trillium-rs/trillium/compare/trillium-client-v0.6.1...trillium-client-v0.7.0-rc.1) - 2024-05-30
 
 ### Added
 - deprecate Headers::contains_ignore_ascii_case
