@@ -42,11 +42,13 @@ impl NativeTlsAcceptor {
     /// each input. Encrypted keys are not supported here — decrypt first or
     /// use [`Self::from_pkcs12`].
     ///
-    /// Internally the cert chain and key are packaged into a PKCS#12 archive
-    /// and handed to [`Identity::from_pkcs12`]. This is uniform across all
-    /// native-tls backends (SChannel on Windows, Secure Transport on macOS,
-    /// OpenSSL on Linux) and avoids the EC import limitation in macOS Secure
-    /// Transport's PKCS#8 PEM path.
+    /// Internally we first try [`Identity::from_pkcs8`] with the normalized
+    /// PEM inputs; on backends that reject that import path (notably macOS
+    /// Secure Transport, which refuses EC keys this way with
+    /// `errSecUnknownFormat`), we fall back to packaging the cert chain and
+    /// key into an in-memory PKCS#12 archive and calling
+    /// [`Identity::from_pkcs12`]. The fallback only runs when the first
+    /// attempt fails, so OpenSSL-backed platforms never hit it.
     ///
     /// # Example
     ///
@@ -57,12 +59,24 @@ impl NativeTlsAcceptor {
     /// let acceptor = NativeTlsAcceptor::from_cert_and_key(CERT, KEY);
     /// ```
     pub fn from_cert_and_key(cert: &[u8], key: &[u8]) -> Self {
-        let cert_chain = extract_cert_chain_der(cert);
-        let key_pkcs8 = normalize_key_to_pkcs8_der(key);
-        let p12_der = build_pkcs12_der(&cert_chain, &key_pkcs8);
-        Identity::from_pkcs12(&p12_der, INTERNAL_P12_PASSWORD)
-            .expect("could not build Identity from internally-built PKCS#12 archive")
-            .into()
+        let cert_chain_der = extract_cert_chain_der(cert);
+        let key_pkcs8_der = normalize_key_to_pkcs8_der(key);
+
+        let cert_chain_pem = encode_cert_chain_pem(&cert_chain_der);
+        let key_pkcs8_pem = encode_pkcs8_pem(&key_pkcs8_der);
+        let pkcs8_err = match Identity::from_pkcs8(&cert_chain_pem, &key_pkcs8_pem) {
+            Ok(identity) => return identity.into(),
+            Err(e) => e,
+        };
+
+        let p12_der = build_pkcs12_der(&cert_chain_der, &key_pkcs8_der);
+        match Identity::from_pkcs12(&p12_der, INTERNAL_P12_PASSWORD) {
+            Ok(identity) => identity.into(),
+            Err(p12_err) => panic!(
+                "could not build Identity from provided cert and key.\n  from_pkcs8 error: \
+                 {pkcs8_err}\n  from_pkcs12 fallback error: {p12_err}"
+            ),
+        }
     }
 
     /// Construct a `NativeTlsAcceptor` from a PKCS#12 archive and password.
@@ -150,6 +164,18 @@ fn wrap_sec1_in_pkcs8(sec1_der: &[u8]) -> Vec<u8> {
     PrivateKeyInfo::new(algorithm, sec1_der)
         .to_der()
         .expect("could not encode SEC1 key as PKCS#8")
+}
+
+fn encode_cert_chain_pem(cert_chain_der: &[Vec<u8>]) -> Vec<u8> {
+    let blocks: Vec<Pem> = cert_chain_der
+        .iter()
+        .map(|d| Pem::new(PEM_TAG_CERT, d.clone()))
+        .collect();
+    pem::encode_many(&blocks).into_bytes()
+}
+
+fn encode_pkcs8_pem(key_pkcs8_der: &[u8]) -> Vec<u8> {
+    pem::encode(&Pem::new(PEM_TAG_PKCS8, key_pkcs8_der.to_vec())).into_bytes()
 }
 
 fn extract_cert_chain_der(input: &[u8]) -> Vec<Vec<u8>> {
