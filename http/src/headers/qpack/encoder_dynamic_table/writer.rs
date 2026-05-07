@@ -210,12 +210,17 @@ mod tests {
             stream.read_exact(&mut stream_type_byte).await.unwrap();
             assert_eq!(stream_type_byte[0], UniStreamType::QpackEncoder as u8);
 
-            // Feed the rest into process_encoder_stream against a decoder table.
+            // Feed the rest into process_instructions against a decoder table.
             let decoder_table = DecoderDynamicTable::new(4096, 0);
             // We have exactly two instructions queued; once they're consumed, closing the
-            // duplex lets process_encoder_stream see EOF and return Ok.
+            // duplex lets process_instructions see EOF and return Ok. (Use
+            // process_instructions, not run_reader: a peer-FIN-as-protocol-violation
+            // doesn't apply to this synthetic test wiring.)
             let processed = async {
-                decoder_table.run_reader(&mut stream).await.unwrap();
+                decoder_table
+                    .process_instructions(&mut stream)
+                    .await
+                    .unwrap();
             };
 
             // Wait long enough for the writer to emit both ops, then close so the reader exits.

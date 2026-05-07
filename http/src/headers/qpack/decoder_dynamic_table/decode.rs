@@ -39,9 +39,12 @@ impl DecoderDynamicTable {
         encoded: &[u8],
         stream_id: u64,
     ) -> Result<FieldSection<'static>, H3Error> {
-        let err = || H3ErrorCode::QpackDecompressionFailed;
+        let codec_err = || H3ErrorCode::QpackDecompressionFailed;
 
-        let (prefix, mut rest) = FieldSectionPrefix::parse(encoded).map_err(|_| err())?;
+        // FieldSectionPrefix parsing only fails on integer-prefix codec errors, never on
+        // the InvalidHeaderName branch — collapsing CompressionError variants to
+        // QpackDecompressionFailed is correct here.
+        let (prefix, mut rest) = FieldSectionPrefix::parse(encoded).map_err(|_| codec_err())?;
         let required_insert_count =
             self.decode_required_insert_count(prefix.encoded_required_insert_count)?;
         log::trace!(
@@ -56,11 +59,11 @@ impl DecoderDynamicTable {
             required_insert_count
                 .checked_sub(delta_base)
                 .and_then(|v| v.checked_sub(1))
-                .ok_or_else(err)?
+                .ok_or_else(codec_err)?
         } else {
             required_insert_count
                 .checked_add(delta_base)
-                .ok_or_else(err)?
+                .ok_or_else(codec_err)?
         };
 
         let mut pseudo_headers = PseudoHeaders::default();
@@ -74,7 +77,13 @@ impl DecoderDynamicTable {
         let mut malformed = false;
 
         while !rest.is_empty() {
-            let (instruction, rest_) = FieldLineInstruction::parse(rest).map_err(|_| err())?;
+            // Use `?` so `CompressionError::InvalidHeaderName` (e.g. unknown pseudo, uppercase
+            // chars) routes through `From<CompressionError> for H3Error` to MessageError per
+            // RFC 9114 §4.2 / §4.3.1; codec failures still surface as QpackDecompressionFailed.
+            // Aborting mid-section here is safe: HEADERS instructions only *read* from the
+            // dynamic table — they don't mutate it — so table state stays consistent with
+            // the encoder regardless of how many later instructions we skip.
+            let (instruction, rest_) = FieldLineInstruction::parse(rest)?;
             rest = rest_;
 
             let field_line =
@@ -222,7 +231,7 @@ fn entry_field_line(
     never_indexed: bool,
 ) -> Result<FieldLine, H3ErrorCode> {
     let err = || H3ErrorCode::QpackDecompressionFailed;
-    validate_value(&value).map_err(|()| err())?;
+    validate_value(&value).map_err(|_| err())?;
     let header_name = match name {
         EntryName::Known(k) => HeaderName::from(k),
         EntryName::UnknownStatic(s) => HeaderName::from(s),

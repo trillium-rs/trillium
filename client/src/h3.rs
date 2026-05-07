@@ -234,7 +234,16 @@ fn spawn_inbound_bidi_streams(
             runtime.spawn(async move {
                 let result = h3
                     .clone()
-                    .process_inbound_bidi(transport, |conn| async move { conn }, stream_id)
+                    .process_inbound_bidi_with_reset(
+                        transport,
+                        |conn| async move { conn },
+                        stream_id,
+                        |t, code| {
+                            let raw = u64::from(code);
+                            t.stop(raw);
+                            t.reset(raw);
+                        },
+                    )
                     .await;
 
                 match result {
@@ -295,7 +304,22 @@ fn spawn_inbound_uni_streams(
             let dispatcher = dispatcher.clone();
 
             runtime.spawn(async move {
-                match h3.process_inbound_uni(recv).await {
+                // Connection-level protocol errors must close the QUIC connection
+                // before the recv stream drops; otherwise quinn's RecvStream::drop
+                // sends STOP_SENDING and the peer's RESET_STREAM response can race
+                // ahead, replacing our app error code with a transport-level code on
+                // the wire. The closure runs inside process_inbound_uni_with_close
+                // while the stream is still alive.
+                let close_connection = {
+                    let conn_for_close = conn_for_error.clone();
+                    move |code: H3ErrorCode| {
+                        conn_for_close.close(code.into(), code.reason().as_bytes());
+                    }
+                };
+                match h3
+                    .process_inbound_uni_with_close(recv, close_connection)
+                    .await
+                {
                     Ok(UniStreamResult::Handled) => {}
 
                     Ok(UniStreamResult::WebTransport {
@@ -326,7 +350,12 @@ fn spawn_inbound_uni_streams(
                     }
                     Err(error) => {
                         log::debug!("client H3 inbound uni stream error: {error}");
-                        if let H3Error::Protocol(code) = error {
+                        // Connection-level errors closed via the callback above
+                        // (Connection::close is idempotent); this branch covers I/O
+                        // errors plus stream-level errors that don't warrant close.
+                        if let H3Error::Protocol(code) = error
+                            && code.is_connection_error()
+                        {
                             conn_for_error.close(code.into(), code.reason().as_bytes());
                         }
                         h3.shut_down().await;
