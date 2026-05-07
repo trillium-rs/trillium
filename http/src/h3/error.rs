@@ -135,6 +135,9 @@ impl H3ErrorCode {
                 | Self::IdError
                 | Self::SettingsError
                 | Self::MissingSettings
+                | Self::QpackDecompressionFailed
+                | Self::QpackEncoderStreamError
+                | Self::QpackDecoderStreamError
         )
     }
 }

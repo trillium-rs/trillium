@@ -29,9 +29,20 @@ impl EncoderDynamicTable {
         T: AsyncRead + Unpin + Send,
     {
         log::trace!("QPACK decoder stream reader: started");
-        let result = process(stream, self).await;
+        // RFC 9204 §4.2: closure of the decoder stream is a connection error of type
+        // H3_CLOSED_CRITICAL_STREAM. process_instructions returns Ok on clean EOF; here we
+        // promote that to an error and mark the table failed. Graceful server-side
+        // shutdown drops this future via swansong before reaching that arm.
+        let result = match self.process_instructions(stream).await {
+            Ok(()) => {
+                log::debug!(
+                    "QPACK decoder stream reader: peer closed (FIN) — H3_CLOSED_CRITICAL_STREAM"
+                );
+                Err(H3ErrorCode::ClosedCriticalStream.into())
+            }
+            Err(e) => Err(e),
+        };
         match &result {
-            Ok(()) => log::trace!("QPACK decoder stream reader: clean EOF"),
             Err(H3Error::Protocol(code)) => {
                 log::debug!("QPACK decoder stream reader: protocol error: {code}");
                 self.fail(*code);
@@ -40,19 +51,25 @@ impl EncoderDynamicTable {
                 log::debug!("QPACK decoder stream reader: I/O error: {e}");
                 self.fail(H3ErrorCode::QpackDecoderStreamError);
             }
+            // unreachable given the EOF promotion above; defensively a no-op.
+            Ok(()) => {}
         }
         result
     }
-}
 
-async fn process<T>(stream: &mut T, table: &EncoderDynamicTable) -> Result<(), H3Error>
-where
-    T: AsyncRead + Unpin + Send,
-{
-    while let Some(instruction) = parse(stream).await? {
-        apply(table, instruction)?;
+    /// Loop-body of [`run_reader`] separated for tests and corpus replay: parse and apply
+    /// peer instructions until clean EOF or error, but **do not** convert EOF into
+    /// `H3_CLOSED_CRITICAL_STREAM` and **do not** mark the table failed. Production wiring
+    /// goes through [`run_reader`], which does both per RFC 9204 §4.2.
+    pub(crate) async fn process_instructions<T>(&self, stream: &mut T) -> Result<(), H3Error>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        while let Some(instruction) = parse(stream).await? {
+            apply(self, instruction)?;
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 fn apply(table: &EncoderDynamicTable, instruction: DecoderInstruction) -> Result<(), H3Error> {
@@ -123,7 +140,7 @@ mod tests {
         push_section(&table, 4, 2, Some(0));
         // Section Ack for stream ID 4: 0x80 | 4 = 0x84
         let mut wire: &[u8] = &[0x84];
-        block_on(table.run_reader(&mut wire)).unwrap();
+        block_on(table.process_instructions(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 2);
     }
 
@@ -132,7 +149,7 @@ mod tests {
         let table = make_table_with_two_entries();
         // ICI increment=1: 0x00 | 1 = 0x01
         let mut wire: &[u8] = &[0x01];
-        block_on(table.run_reader(&mut wire)).unwrap();
+        block_on(table.process_instructions(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 1);
     }
 
@@ -142,7 +159,7 @@ mod tests {
         push_section(&table, 4, 2, Some(0));
         // Stream Cancel stream_id=4: 0x40 | 4 = 0x44
         let mut wire: &[u8] = &[0x44];
-        block_on(table.run_reader(&mut wire)).unwrap();
+        block_on(table.process_instructions(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 0);
     }
 
@@ -152,7 +169,7 @@ mod tests {
         push_section(&table, 4, 1, Some(0));
         // Section Ack stream 4, then ICI +1: expects total known_received = 2.
         let mut wire: &[u8] = &[0x84, 0x01];
-        block_on(table.run_reader(&mut wire)).unwrap();
+        block_on(table.process_instructions(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 2);
     }
 
@@ -164,7 +181,7 @@ mod tests {
         // Section Ack for stream 200 needs a multi-byte varint.
         // 7-bit prefix: first byte = 0x80 | 0x7F = 0xFF, then 200 - 127 = 73 = 0x49.
         let mut wire: &[u8] = &[0xFF, 0x49];
-        block_on(table.run_reader(&mut wire)).unwrap();
+        block_on(table.process_instructions(&mut wire)).unwrap();
         assert_eq!(table.known_received_count(), 2);
     }
 
@@ -179,10 +196,15 @@ mod tests {
     }
 
     #[test]
-    fn clean_eof_returns_ok() {
+    fn peer_eof_is_closed_critical_stream() {
+        // RFC 9204 §4.2: peer FIN on the decoder stream is H3_CLOSED_CRITICAL_STREAM.
         let table = EncoderDynamicTable::default();
         let mut wire: &[u8] = &[];
-        block_on(table.run_reader(&mut wire)).unwrap();
-        assert!(table.failed().is_none());
+        let err = block_on(table.run_reader(&mut wire)).unwrap_err();
+        assert!(matches!(
+            err,
+            H3Error::Protocol(H3ErrorCode::ClosedCriticalStream)
+        ));
+        assert_eq!(table.failed(), Some(H3ErrorCode::ClosedCriticalStream));
     }
 }

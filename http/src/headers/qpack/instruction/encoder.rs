@@ -17,7 +17,7 @@
 //! [`encoder_dynamic_table::EncoderDynamicTable`]: crate::headers::qpack::encoder_dynamic_table::EncoderDynamicTable
 
 use super::{
-    encode_string, read_exact, read_first_byte, read_string_with_huffman, read_varint,
+    ReadError, encode_string, read_exact, read_first_byte, read_string_with_huffman, read_varint,
     validate_value,
 };
 use crate::{
@@ -81,20 +81,25 @@ pub(in crate::headers) enum EncoderInstruction {
 /// a peer from forcing a huge allocation via a single length prefix.
 ///
 /// Returns `Ok(None)` on clean EOF between instructions. `Ok(Some(_))` is a parsed
-/// instruction; `Err` is an I/O or wire-format error mapped to `QpackEncoderStreamError`.
+/// instruction; `Err(H3Error::Io)` propagates an underlying transport I/O error
+/// (e.g. connection lost while polling for the next instruction); `Err(Protocol(
+/// QpackEncoderStreamError))` is a wire-format violation by the peer.
 pub(in crate::headers) async fn parse(
     max_entry_size: usize,
     stream: &mut (impl AsyncRead + Unpin),
 ) -> Result<Option<EncoderInstruction>, H3Error> {
     parse_inner(max_entry_size, stream)
         .await
-        .map_err(|()| H3ErrorCode::QpackEncoderStreamError.into())
+        .map_err(|e| match e {
+            ReadError::Io(io) => H3Error::Io(io),
+            ReadError::Violation => H3ErrorCode::QpackEncoderStreamError.into(),
+        })
 }
 
 async fn parse_inner(
     max_entry_size: usize,
     stream: &mut (impl AsyncRead + Unpin),
-) -> Result<Option<EncoderInstruction>, ()> {
+) -> Result<Option<EncoderInstruction>, ReadError> {
     let Some(first) = read_first_byte(stream).await? else {
         return Ok(None);
     };
@@ -124,12 +129,14 @@ async fn parse_inner(
         let name_bytes = if is_huffman {
             huffman::decode(&name_bytes).map_err(|e| {
                 log::error!("QPACK encoder: huffman name decode failed: {e:?}");
+                ReadError::Violation
             })?
         } else {
             name_bytes
         };
         let name = EntryName::try_from(name_bytes).map_err(|()| {
             log::error!("QPACK encoder: invalid literal name");
+            ReadError::Violation
         })?;
         let value = read_string_with_huffman(max_entry_size, stream).await?;
         validate_value(&value)?;

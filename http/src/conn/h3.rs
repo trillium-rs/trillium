@@ -2,7 +2,7 @@ use crate::{
     BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet,
     Version,
     after_send::AfterSend,
-    h3::{Frame, FrameStream, H3Connection, H3Error, H3ErrorCode, H3StreamResult},
+    h3::{Frame, FrameStream, H3Connection, H3Error, H3ErrorCode},
     headers::qpack::{FieldSection, PseudoHeaders},
     received_body::ReceivedBodyState,
 };
@@ -13,29 +13,55 @@ use std::{
     time::{Instant, SystemTime},
 };
 
+/// What `Conn::process_first_frame_h3` resolved a bidi stream's first frame to.
+///
+/// Split apart from the actual `Conn` construction so the orchestrating caller
+/// (`H3Connection::process_inbound_bidi_with_reset`) can apply a stream RST against
+/// the still-owned transport on the error path before constructing anything.
+pub(crate) enum H3FirstFrame {
+    /// First frame was HEADERS, decoded and validated.
+    Request {
+        validated: super::ValidatedRequest,
+        start_time: Instant,
+    },
+    /// First "frame" was the WebTransport 0x41 bidi-stream signal.
+    WebTransport { session_id: u64 },
+}
+
 impl<Transport> Conn<Transport>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
-    /// Parse the first frame on a bidi stream.
+    /// Read and classify the first frame on an H3 bidi stream.
     ///
-    /// Returns [`H3StreamResult::Request`] for normal H3 requests (HEADERS frame) or
-    /// [`H3StreamResult::WebTransport`] for WebTransport bidi streams (0x41 signal).
-    pub(crate) async fn new_h3(
-        h3_connection: Arc<H3Connection>,
-        mut transport: Transport,
-        mut buffer: Buffer,
+    /// On success returns either a [`H3FirstFrame::Request`] (HEADERS, decoded + validated)
+    /// or a [`H3FirstFrame::WebTransport`] (0x41 signal). On error the borrowed transport is
+    /// returned to the caller intact so it can issue a stream RST before propagating.
+    ///
+    /// RFC 9114 §4.1: the first frame on a request stream MUST be HEADERS (or — extension —
+    /// the WebTransport 0x41 signal). DATA, `CANCEL_PUSH`, etc. before HEADERS is
+    /// `H3_FRAME_UNEXPECTED`. A first-frame *decode* failure is also `H3_FRAME_UNEXPECTED`:
+    /// anything we can't recognize as HEADERS up-front is by definition out of place. I/O
+    /// errors pass through unchanged.
+    pub(crate) async fn process_first_frame_h3(
+        h3_connection: &H3Connection,
+        transport: &mut Transport,
+        buffer: &mut Buffer,
         stream_id: u64,
-    ) -> Result<H3StreamResult<Transport>, H3Error> {
+    ) -> Result<H3FirstFrame, H3Error> {
         log::trace!("H3 bidi stream {stream_id}: started");
         let start_time = Instant::now();
+        log::trace!("H3 bidi stream {stream_id}: waiting for first frame");
 
-        let mut frame_stream = FrameStream::new(&mut transport, &mut buffer);
-        let field_section = loop {
-            log::trace!("H3 bidi stream {stream_id}: waiting for next frame");
+        let field_section = {
+            let mut frame_stream = FrameStream::new(transport, buffer);
             let mut frame = frame_stream
                 .next()
-                .await?
+                .await
+                .map_err(|e| match e {
+                    H3Error::Protocol(_) => H3ErrorCode::FrameUnexpected.into(),
+                    io @ H3Error::Io(_) => io,
+                })?
                 .ok_or(H3ErrorCode::RequestIncomplete)?;
 
             match frame.frame() {
@@ -45,38 +71,32 @@ where
                     let result = h3_connection
                         .decode_field_section(encoded, stream_id)
                         .await
-                        .map_err(|e| {
+                        .inspect_err(|e| {
                             log::debug!("H3 bidi stream {stream_id}: HEADERS decode error: {e:?}");
-                            H3ErrorCode::MessageError
                         })?;
                     log::trace!("H3 bidi stream {stream_id}: HEADERS decoded:\n{result}");
-                    break result;
+                    result
                 }
 
                 Frame::WebTransport(session_id) => {
                     let session_id = *session_id;
-                    drop(frame); // release borrow on frame_stream
-                    return Ok(H3StreamResult::WebTransport {
-                        session_id,
-                        transport,
-                        buffer,
-                    });
+                    return Ok(H3FirstFrame::WebTransport { session_id });
                 }
 
                 other => {
-                    log::trace!("H3 bidi stream {stream_id}: skipping frame {other:?}");
+                    log::trace!("H3 bidi stream {stream_id}: unexpected first frame {other:?}");
+                    return Err(H3ErrorCode::FrameUnexpected.into());
                 }
             }
         };
 
-        Ok(H3StreamResult::Request(Self::build_h3(
-            h3_connection,
-            transport,
-            buffer,
-            field_section,
+        log::trace!("received:\n{field_section}");
+        let validated =
+            super::validate_h2h3_request(field_section).ok_or(H3ErrorCode::MessageError)?;
+        Ok(H3FirstFrame::Request {
+            validated,
             start_time,
-            stream_id,
-        )?))
+        })
     }
 
     fn max_peer_field_section_size(&self) -> Option<u64> {
@@ -148,16 +168,14 @@ where
         )
     }
 
-    fn build_h3(
+    pub(crate) fn build_h3(
         h3_connection: Arc<H3Connection>,
         transport: Transport,
         buffer: Buffer,
-        field_section: FieldSection<'static>,
+        validated: super::ValidatedRequest,
         start_time: Instant,
         stream_id: u64,
-    ) -> Result<Self, H3ErrorCode> {
-        log::trace!("received:\n{field_section}");
-
+    ) -> Self {
         let super::ValidatedRequest {
             method,
             path,
@@ -165,7 +183,7 @@ where
             scheme,
             protocol,
             request_headers,
-        } = super::validate_h2h3_request(field_section).ok_or(H3ErrorCode::MessageError)?;
+        } = validated;
 
         let response_headers = h3_connection
             .context()
@@ -176,7 +194,7 @@ where
 
         let request_body_state = ReceivedBodyState::new_h3();
 
-        Ok(Conn {
+        Conn {
             context: h3_connection.context(),
             transport,
             request_headers,
@@ -201,7 +219,7 @@ where
                 stream_id,
             },
             request_trailers: None,
-        })
+        }
     }
 
     /// Apply h3-flavored finalizations to the response headers: insert a Date header if absent,

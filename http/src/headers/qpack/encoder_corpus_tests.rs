@@ -250,7 +250,10 @@ fn run_qif_at_config(
         classify_encoder_stream(&initial_ops, &mut wire);
         if !initial_ops.is_empty() {
             let mut cursor = Cursor::new(&initial_ops[..]);
-            future::block_on(decoder.run_reader(&mut cursor)).unwrap_or_else(|e| {
+            // Tests use process_instructions, not run_reader, to skip the
+            // EOF→H3_CLOSED_CRITICAL_STREAM promotion (run_reader's production semantics
+            // for an unexpected peer FIN).
+            future::block_on(decoder.process_instructions(&mut cursor)).unwrap_or_else(|e| {
                 panic!(
                     "{}: decoder rejected initial SetDynamicTableCapacity: {e}",
                     qif_path.display()
@@ -303,9 +306,9 @@ fn run_qif_at_config(
             }
             if !enc_ops.is_empty() {
                 let mut cursor = Cursor::new(&enc_ops[..]);
-                future::block_on(decoder.run_reader(&mut cursor)).unwrap_or_else(|e| {
+                future::block_on(decoder.process_instructions(&mut cursor)).unwrap_or_else(|e| {
                     panic!(
-                        "{}: group {global_index}: decoder run_reader failed: {e}",
+                        "{}: group {global_index}: decoder process_instructions failed: {e}",
                         qif_path.display()
                     )
                 });

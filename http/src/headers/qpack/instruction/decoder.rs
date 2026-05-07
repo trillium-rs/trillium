@@ -12,7 +12,7 @@
 //! [`encoder_dynamic_table::EncoderDynamicTable`]: crate::headers::qpack::encoder_dynamic_table::EncoderDynamicTable
 //! [`decoder_dynamic_table::DecoderDynamicTable`]: crate::headers::qpack::decoder_dynamic_table::DecoderDynamicTable
 
-use super::{read_first_byte, read_varint};
+use super::{ReadError, read_first_byte, read_varint};
 use crate::{
     h3::{H3Error, H3ErrorCode},
     headers::integer_prefix,
@@ -42,18 +42,22 @@ pub(in crate::headers) enum DecoderInstruction {
 /// Parse the next decoder-stream instruction from `stream`.
 ///
 /// Returns `Ok(None)` on clean EOF between instructions. `Ok(Some(_))` is a parsed
-/// instruction; `Err` is an I/O or wire-format error mapped to `QpackDecoderStreamError`.
+/// instruction; `Err(H3Error::Io)` propagates an underlying transport I/O error
+/// (e.g. connection lost while we were polling for the next instruction);
+/// `Err(H3Error::Protocol(QpackDecoderStreamError))` is a wire-format violation by
+/// the peer.
 pub(in crate::headers) async fn parse(
     stream: &mut (impl AsyncRead + Unpin),
 ) -> Result<Option<DecoderInstruction>, H3Error> {
-    parse_inner(stream)
-        .await
-        .map_err(|()| H3ErrorCode::QpackDecoderStreamError.into())
+    parse_inner(stream).await.map_err(|e| match e {
+        ReadError::Io(io) => H3Error::Io(io),
+        ReadError::Violation => H3ErrorCode::QpackDecoderStreamError.into(),
+    })
 }
 
 async fn parse_inner(
     stream: &mut (impl AsyncRead + Unpin),
-) -> Result<Option<DecoderInstruction>, ()> {
+) -> Result<Option<DecoderInstruction>, ReadError> {
     let Some(first) = read_first_byte(stream).await? else {
         return Ok(None);
     };

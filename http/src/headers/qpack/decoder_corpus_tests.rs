@@ -133,9 +133,15 @@ fn run_interop_file(out_path: &Path, qif_path: &Path, capacity: usize) {
         for record in &records {
             if record.stream_id == 0 {
                 let mut cursor = Cursor::new(&record.data[..]);
-                table.run_reader(&mut cursor).await.unwrap_or_else(|e| {
-                    panic!("encoder stream error in {}: {e}", out_path.display())
-                });
+                // Use process_instructions, not run_reader: bounded-slice EOF in tests is
+                // not a peer-FIN protocol violation, so we don't want the run_reader EOF→
+                // H3_CLOSED_CRITICAL_STREAM promotion (which also marks the table failed).
+                table
+                    .process_instructions(&mut cursor)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("encoder stream error in {}: {e}", out_path.display())
+                    });
             } else {
                 let table = Arc::clone(&table);
                 let stream_id = record.stream_id;

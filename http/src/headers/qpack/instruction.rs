@@ -10,8 +10,10 @@
 //! Shared between submodules: the low-level wire-read helpers ([`read_first_byte`],
 //! [`read_varint`], [`read_exact`], [`read_string_with_huffman`], [`validate_value`]) and the
 //! §4.1.2 string encoder ([`encode_string`], also used by the §4.5 field-section emitter).
-//! Read helpers return `Result<_, ()>` — the per-direction `parse` function maps failure to
-//! the appropriate stream error code. Helpers log the original error before discarding it.
+//! Read helpers return `Result<_, ReadError>` — the per-direction `parse` function maps
+//! [`ReadError::Io`] to `H3Error::Io` and [`ReadError::Violation`] to the appropriate stream
+//! error code. Distinguishing the two matters because a connection-lost I/O error during a
+//! teardown read should not masquerade as a peer-side QPACK protocol violation.
 
 pub(in crate::headers) mod decoder;
 pub(in crate::headers) mod encoder;
@@ -19,32 +21,55 @@ pub(in crate::headers) mod field_section;
 
 use crate::headers::{huffman, integer_prefix};
 use futures_lite::io::{AsyncRead, AsyncReadExt};
+use std::io;
 
 // §4.1.2: H flag in a string literal with a 7-bit length prefix.
 const STRING_HUFFMAN_FLAG: u8 = 0x80;
 
+/// Failure mode of an instruction-stream read helper.
+///
+/// `Io` is reserved for connection-teardown I/O errors observed *between* instructions —
+/// see [`read_first_byte`]. Any other failure (mid-instruction read, length cap exceeded,
+/// huffman decode error, etc.) is a [`ReadError::Violation`] — caller maps it to the
+/// stream-specific protocol error code.
+#[derive(Debug)]
+pub(super) enum ReadError {
+    Io(io::Error),
+    Violation,
+}
+
+impl From<io::Error> for ReadError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
 /// Read the first byte of an instruction, returning `None` on clean EOF.
 ///
 /// Clean EOF is not an error — the peer closed the stream (e.g. during connection teardown).
-/// Mid-instruction EOF (encountered by any other read helper) is an error.
+/// Surfacing other I/O errors here as [`ReadError::Io`] (rather than `Violation`) lets the
+/// caller distinguish "we lost the underlying connection" from "peer sent malformed
+/// QPACK"; otherwise every connection-tear-down read would log a bogus protocol violation.
+/// Mid-instruction EOF (encountered by any other read helper) is a `Violation`.
 pub(super) async fn read_first_byte(
     stream: &mut (impl AsyncRead + Unpin),
-) -> Result<Option<u8>, ()> {
+) -> Result<Option<u8>, ReadError> {
     let mut b = [0u8; 1];
     match stream.read(&mut b).await {
         Ok(0) => Ok(None),
         Ok(_) => Ok(Some(b[0])),
         Err(e) => {
             log::debug!("QPACK: read_first_byte io error: {e}");
-            Err(())
+            Err(ReadError::Io(e))
         }
     }
 }
 
-async fn read_byte(stream: &mut (impl AsyncRead + Unpin)) -> Result<u8, ()> {
+async fn read_byte(stream: &mut (impl AsyncRead + Unpin)) -> Result<u8, ReadError> {
     let mut b = [0u8; 1];
     stream.read_exact(&mut b).await.map_err(|e| {
         log::error!("QPACK: read_byte io error: {e:?}");
+        ReadError::Violation
     })?;
     Ok(b[0])
 }
@@ -56,7 +81,7 @@ pub(super) async fn read_varint(
     first: u8,
     prefix_size: u8,
     stream: &mut (impl AsyncRead + Unpin),
-) -> Result<usize, ()> {
+) -> Result<usize, ReadError> {
     let prefix_mask = u8::MAX >> (8 - prefix_size);
     let mut value = usize::from(first & prefix_mask);
     let mut shift = 0u32;
@@ -70,12 +95,14 @@ pub(super) async fn read_varint(
         let payload = usize::from(byte & 0x7F);
         let increment = payload.checked_shl(shift).ok_or_else(|| {
             log::error!("QPACK: varint checked_shl overflow (payload={payload}, shift={shift})");
+            ReadError::Violation
         })?;
 
         value = value.checked_add(increment).ok_or_else(|| {
             log::error!(
                 "QPACK: varint checked_add overflow (value={value}, increment={increment})"
             );
+            ReadError::Violation
         })?;
 
         shift += 7;
@@ -98,14 +125,15 @@ pub(super) async fn read_exact(
     len: usize,
     max: usize,
     stream: &mut (impl AsyncRead + Unpin),
-) -> Result<Vec<u8>, ()> {
+) -> Result<Vec<u8>, ReadError> {
     if len > max {
         log::error!("QPACK: read_exact len {len} exceeds max {max}");
-        return Err(());
+        return Err(ReadError::Violation);
     }
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf).await.map_err(|e| {
         log::error!("QPACK: read_exact({len}) io error: {e:?}");
+        ReadError::Violation
     })?;
     Ok(buf)
 }
@@ -117,7 +145,7 @@ pub(super) async fn read_exact(
 pub(super) async fn read_string_with_huffman(
     max: usize,
     stream: &mut (impl AsyncRead + Unpin),
-) -> Result<Vec<u8>, ()> {
+) -> Result<Vec<u8>, ReadError> {
     let first = read_byte(stream).await?;
     let is_huffman = first & STRING_HUFFMAN_FLAG != 0;
     let len = read_varint(first, 7, stream).await?;
@@ -125,6 +153,7 @@ pub(super) async fn read_string_with_huffman(
     if is_huffman {
         huffman::decode(&raw).map_err(|e| {
             log::error!("QPACK: huffman string decode failed ({len} bytes): {e:?}");
+            ReadError::Violation
         })
     } else {
         Ok(raw)
@@ -132,9 +161,9 @@ pub(super) async fn read_string_with_huffman(
 }
 
 /// Reject values containing CR, LF, or NUL bytes — RFC 9114 §4.2 field-value sanitation.
-pub(super) fn validate_value(value: &[u8]) -> Result<(), ()> {
+pub(super) fn validate_value(value: &[u8]) -> Result<(), ReadError> {
     if memchr::memchr3(b'\r', b'\n', 0, value).is_some() {
-        Err(())
+        Err(ReadError::Violation)
     } else {
         Ok(())
     }

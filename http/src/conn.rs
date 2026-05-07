@@ -41,11 +41,11 @@ pub(super) struct ValidatedRequest {
 ///
 /// Both protocols apply the same malformed-message rules to incoming requests:
 /// no `:status` pseudo, required `:method`, non-empty `:path` (or CONNECT default),
-/// `:scheme` required for non-CONNECT, `:authority` required for CONNECT, no
-/// `Host`/`:authority` mismatch, no [`H1_ONLY_HEADERS`], and `TE` restricted to
-/// `trailers`. Returns `None` on any violation; the caller maps to its
-/// protocol-specific error code (e.g. `H2ErrorCode::ProtocolError`,
-/// `H3ErrorCode::MessageError`) via `.ok_or(...)`.
+/// `:scheme` required for non-CONNECT, `:authority` required for CONNECT, `:authority`
+/// or `Host` required when `:scheme` is `http`/`https`, no `Host`/`:authority`
+/// mismatch, no [`H1_ONLY_HEADERS`], and `TE` restricted to `trailers`. Returns `None`
+/// on any violation; the caller maps to its protocol-specific error code (e.g.
+/// `H2ErrorCode::ProtocolError`, `H3ErrorCode::MessageError`) via `.ok_or(...)`.
 pub(super) fn validate_h2h3_request(
     mut field_section: FieldSection<'static>,
 ) -> Option<ValidatedRequest> {
@@ -93,6 +93,21 @@ pub(super) fn validate_h2h3_request(
         return None;
     }
 
+    // RFC 9114 §4.3.1 / RFC 9113 §8.3.1: when :scheme names a scheme with a mandatory
+    // authority component, the request MUST carry either :authority or a Host header.
+    // The spec gives "http" and "https" as the canonical examples; we also include "ws"
+    // and "wss" (RFC 6455 §3, same hierarchical-with-mandatory-authority shape) so the
+    // rule applies consistently if a non-standard sender uses those. Exotic schemes
+    // without mandatory authority (file, data, mailto, urn) are exempt; CONNECT is
+    // handled above.
+    if method != Method::Connect
+        && matches!(scheme.as_deref(), Some("http" | "https" | "ws" | "wss"))
+        && authority.is_none()
+        && request_headers.get_str(Host).is_none()
+    {
+        return None;
+    }
+
     match request_headers.get_str(KnownHeaderName::Te) {
         None | Some("trailers") => {}
         _ => return None,
@@ -125,6 +140,7 @@ use std::{
 mod h1;
 mod h2;
 mod h3;
+pub(crate) use h3::H3FirstFrame;
 
 /// A http connection
 ///

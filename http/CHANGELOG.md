@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-05-06
+
+### Fixed
+
+[h3spec](https://github.com/kazu-yamamoto/h3spec) identified the following minor violations in trillium's h3 implementation, primarily focused on error handling. All of these are fixed in 1.1.1:
+
+- RFC 9114 §4.1.2 — stream-level errors (notably `H3_MESSAGE_ERROR`) MUST RST the bidi stream.
+- RFC 9114 §4.1.1 / §4.2 / §4.3.1 — malformed messages (duplicated pseudos, unknown pseudos, uppercase header bytes) are `H3_MESSAGE_ERROR`.
+- RFC 9114 §4.3.1 — schemes with mandatory authority component (http/https) require `:authority` or `Host` on non-`CONNECT` requests.
+- RFC 9114 §6.2.1 — first frame on the peer's control stream must be `SETTINGS`. Non-`SETTINGS` first frame OR a malformed first frame →
+  `H3_MISSING_SETTINGS`.
+- RFC 9114 §6.2.1 + RFC 9204 §4.2 — closure of control or QPACK streams is `H3_CLOSED_CRITICAL_STREAM`.
+- RFC 9114 §7.2.1 / §7.2.2 / §7.2.4 / §7.2.5 — control stream must reject `DATA`, `HEADERS`, `PUSH_PROMISE`, second `SETTINGS`, and the WebTransport
+  `0x41` signal as `H3_FRAME_UNEXPECTED`.
+- RFC 9114 §4.1 — first-frame decode failure on a request bidi stream is `H3_FRAME_UNEXPECTED`.
+- RFC 9204 §3.1 — invalid static-table index in a field-line representation is `QPACK_DECOMPRESSION_FAILED`.
+- RFC 9204 §4.1.3 — Set Dynamic Table Capacity exceeding the limit is `QPACK_ENCODER_STREAM_ERROR`.
+- RFC 9204 §4.4.3 — Insert Count Increment of 0 is `QPACK_DECODER_STREAM_ERROR`.
+- RFC 9204 §6 — QPACK errors are connection-level, not stream-level.
+- RFC 9114 §8.1 / RFC 9204 §6 — correct close error code on the wire.
+
 ## [1.1.0] - 2026-05-05
 
 This release adds http/2 support.

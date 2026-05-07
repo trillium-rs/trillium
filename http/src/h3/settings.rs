@@ -89,7 +89,7 @@ impl std::fmt::Debug for H3Settings {
 impl From<&HttpConfig> for H3Settings {
     fn from(value: &HttpConfig) -> Self {
         Self {
-            max_field_section_size: Some(u64::from(value.max_header_list_size)),
+            max_field_section_size: Some(value.max_header_list_size),
             qpack_max_table_capacity: (value.dynamic_table_capacity > 0)
                 .then_some(value.dynamic_table_capacity as u64),
             qpack_blocked_streams: (value.h3_blocked_streams > 0)

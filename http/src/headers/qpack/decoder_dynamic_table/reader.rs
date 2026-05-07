@@ -33,7 +33,19 @@ impl DecoderDynamicTable {
         &self,
         stream: &mut T,
     ) -> Result<(), H3Error> {
-        let result = self.run_reader_inner(stream).await;
+        // RFC 9204 §4.2: closure of the encoder stream is a connection error of type
+        // H3_CLOSED_CRITICAL_STREAM. process_instructions returns Ok on clean EOF; here we
+        // promote that to an error and fail the table. (Graceful server-side shutdown drops
+        // this future via swansong before reaching that arm; reaching it means the peer
+        // FIN'd their encoder stream while our connection was still alive.)
+        let result = match self.process_instructions(stream).await {
+            Ok(()) => {
+                log::debug!("QPACK encoder stream: peer closed (FIN) — H3_CLOSED_CRITICAL_STREAM");
+                Err(H3ErrorCode::ClosedCriticalStream.into())
+            }
+            Err(e) => Err(e),
+        };
+
         match &result {
             Err(H3Error::Protocol(code)) => {
                 log::debug!("QPACK encoder stream: protocol error: {code}");
@@ -45,15 +57,18 @@ impl DecoderDynamicTable {
                 self.fail(H3ErrorCode::QpackEncoderStreamError);
             }
 
-            Ok(()) => {
-                log::trace!("QPACK encoder stream: closed cleanly");
-            }
+            // unreachable given the EOF promotion above; defensively a no-op.
+            Ok(()) => {}
         }
 
         result
     }
 
-    async fn run_reader_inner<T>(&self, stream: &mut T) -> Result<(), H3Error>
+    /// Loop-body of [`run_reader`] separated for tests and corpus replay: parse and apply
+    /// peer instructions until clean EOF or error, but **do not** convert EOF into
+    /// `H3_CLOSED_CRITICAL_STREAM` and **do not** mark the table failed. Production wiring
+    /// goes through [`run_reader`], which does both per RFC 9204 §4.2.
+    pub(crate) async fn process_instructions<T>(&self, stream: &mut T) -> Result<(), H3Error>
     where
         T: AsyncRead + Unpin + Send,
     {
@@ -61,7 +76,6 @@ impl DecoderDynamicTable {
         while let Some(instruction) = parse(max_entry_size, stream).await? {
             self.apply(instruction)?;
         }
-        log::trace!("QPACK encoder stream: EOF");
         Ok(())
     }
 

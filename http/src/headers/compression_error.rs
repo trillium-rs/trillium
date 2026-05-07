@@ -28,7 +28,18 @@ pub(crate) enum CompressionError {
 }
 
 impl From<CompressionError> for H3Error {
-    fn from(_: CompressionError) -> Self {
-        H3ErrorCode::QpackDecompressionFailed.into()
+    /// Most `CompressionError` variants are codec failures the QPACK layer must report as
+    /// `QPACK_DECOMPRESSION_FAILED` (RFC 9204 §6). `InvalidHeaderName` is the exception:
+    /// per RFC 9114 §4.2 / §4.3.1 a header name with uppercase chars or an unrecognized
+    /// pseudo-name is a *malformed-message* problem (the codec succeeded; the resulting
+    /// message is invalid), which is a stream-level `H3_MESSAGE_ERROR`.
+    fn from(error: CompressionError) -> Self {
+        match error {
+            CompressionError::InvalidHeaderName => H3ErrorCode::MessageError.into(),
+            CompressionError::Huffman(_)
+            | CompressionError::IntegerPrefix(_)
+            | CompressionError::InvalidStaticIndex(_)
+            | CompressionError::UnexpectedEnd => H3ErrorCode::QpackDecompressionFailed.into(),
+        }
     }
 }

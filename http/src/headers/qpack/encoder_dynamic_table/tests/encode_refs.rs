@@ -42,7 +42,9 @@ fn roundtrip(
     let bytes = encode(encoder, pseudo, headers, stream_id);
     let enc_ops: Vec<u8> = encoder.drain_pending_ops().into_iter().flatten().collect();
     let mut enc_stream = &enc_ops[..];
-    block_on(decoder.run_reader(&mut enc_stream)).unwrap();
+    // process_instructions, not run_reader: bounded-slice EOF in tests is not the
+    // peer-FIN protocol violation that run_reader promotes to H3_CLOSED_CRITICAL_STREAM.
+    block_on(decoder.process_instructions(&mut enc_stream)).unwrap();
     block_on(decoder.decode(&bytes, stream_id)).unwrap()
 }
 

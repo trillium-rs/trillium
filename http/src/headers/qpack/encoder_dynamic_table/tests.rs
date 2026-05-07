@@ -198,11 +198,16 @@ fn parse_all(bytes: &[u8]) -> Vec<EncoderInstruction> {
 /// reconstruct the same entries on the peer side regardless of which §3.2 wire format was
 /// picked. The encoder's leading `SetDynamicTableCapacity` op primes the decoder — no
 /// side-channel capacity call is needed, matching how this flows on the wire in production.
+///
+/// We use `process_instructions` rather than `run_reader` so a bounded `&[u8]` doesn't
+/// trip the production-only "EOF = H3_CLOSED_CRITICAL_STREAM" promotion that `run_reader`
+/// applies (RFC 9204 §4.2 / §4.5). The instructions themselves are what these tests want
+/// to exercise.
 fn apply_ops_to_decoder(table: &EncoderDynamicTable, max_capacity: u64) -> DecoderDynamicTable {
     let bytes: Vec<u8> = table.drain_pending_ops().into_iter().flatten().collect();
     let decoder = DecoderDynamicTable::new(max_capacity as usize, 0);
     let mut stream = &bytes[..];
-    block_on(decoder.run_reader(&mut stream)).unwrap();
+    block_on(decoder.process_instructions(&mut stream)).unwrap();
     decoder
 }
 

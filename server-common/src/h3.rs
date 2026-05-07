@@ -146,7 +146,15 @@ fn handle_bidi_stream<QC: QuicConnectionTrait>(
 
         let result = h3
             .clone()
-            .process_inbound_bidi(transport, handler_fn, stream_id)
+            .process_inbound_bidi_with_reset(transport, handler_fn, stream_id, |t, code| {
+                // RFC 9114 §4.1.2: stream-level protocol errors (notably H3_MESSAGE_ERROR)
+                // MUST RST the stream. We stop the recv side and reset the send side with
+                // the same code so the peer sees the error on whichever direction it's
+                // listening on.
+                let raw = u64::from(code);
+                t.stop(raw);
+                t.reset(raw);
+            })
             .await;
 
         match result {
@@ -207,7 +215,24 @@ fn spawn_inbound_uni_streams<QC: QuicConnectionTrait>(
                 (connection.clone(), h3.clone(), wt_dispatcher.clone());
 
             runtime.spawn(async move {
-                let result = h3.process_inbound_uni(recv).await;
+                // RFC 9114 §8.1 / RFC 9204 §6 connection-level errors must close the
+                // QUIC connection while the recv stream is still alive — otherwise
+                // quinn's RecvStream::drop sends STOP_SENDING, and the peer's malformed
+                // RESET_STREAM response can race ahead and override our app error code
+                // with FINAL_SIZE_ERROR on the wire. The closure fires inside
+                // process_inbound_uni_with_close before stream drops, so the close sets
+                // quinn's conn.error first and the drop becomes a no-op.
+                let close_connection = {
+                    let connection = connection.clone();
+                    let h3 = h3.clone();
+                    move |code: H3ErrorCode| {
+                        connection.close(code.into(), code.reason().as_bytes());
+                        h3.shut_down();
+                    }
+                };
+                let result = h3
+                    .process_inbound_uni_with_close(recv, close_connection)
+                    .await;
 
                 match result {
                     Ok(UniStreamResult::Handled) => {}
@@ -232,6 +257,9 @@ fn spawn_inbound_uni_streams<QC: QuicConnectionTrait>(
                     }
 
                     Err(error) => {
+                        // Connection-level protocol errors already fired the close
+                        // callback above; this call is a no-op for the close path
+                        // (idempotent) and still useful for logging plus I/O errors.
                         handle_h3_error(error, &connection, &h3);
                     }
                 }
