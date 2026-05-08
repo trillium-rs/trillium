@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-05-07
+
+### Fixed
+
+- HTTP/3: bidi streams now `RESET_STREAM` on stream-level protocol errors (RFC 9114 §4.1.2), and uni streams fire `CONNECTION_CLOSE` before the recv stream drops to avoid a `FINAL_SIZE_ERROR` race. Adopts `H3Connection::process_inbound_bidi_with_reset` / `process_inbound_uni_with_close` from `trillium-http` 1.2.
+
 ## [0.8.2] - 2026-05-06
 
 ### Fixed

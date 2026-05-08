@@ -235,7 +235,7 @@ impl H3Connection {
     ///
     /// Returns an `H3Error` in case of io error or http/3 semantic error.
     #[deprecated(
-        since = "1.1.1",
+        since = "1.2.0",
         note = "use `process_inbound_bidi_with_reset` so stream-level protocol errors RST the \
                 stream as required by RFC 9114 §4.1.2"
     )]
@@ -479,7 +479,7 @@ impl H3Connection {
     ///
     /// Returns a `H3Error` in case of io error or http/3 semantic error.
     #[deprecated(
-        since = "1.1.1",
+        since = "1.2.0",
         note = "use `process_inbound_uni_with_close` so connection-level protocol errors close \
                 the QUIC connection before the recv stream drops, avoiding a `FINAL_SIZE_ERROR` \
                 race with the peer's response to STOP_SENDING"

@@ -4,11 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.1] - 2026-05-06
+## [1.2.0] - 2026-05-07
+
+### Added
+
+- `H3Connection::process_inbound_bidi_with_reset` — process a bidi request stream with a caller-supplied closure that issues `RESET_STREAM` on stream-level protocol errors, as required by RFC 9114 §4.1.2.
+- `H3Connection::process_inbound_uni_with_close` — process a uni stream with a caller-supplied closure that fires `CONNECTION_CLOSE` while the recv stream is still alive, avoiding a `FINAL_SIZE_ERROR` race with the peer's response to STOP_SENDING.
+
+### Deprecated
+
+- `H3Connection::process_inbound_bidi` — use `process_inbound_bidi_with_reset` instead.
+- `H3Connection::process_inbound_uni` — use `process_inbound_uni_with_close` instead.
 
 ### Fixed
 
-[h3spec](https://github.com/kazu-yamamoto/h3spec) identified the following minor violations in trillium's h3 implementation, primarily focused on error handling. All of these are fixed in 1.1.1:
+[h3spec](https://github.com/kazu-yamamoto/h3spec) identified the following minor violations in trillium's h3 implementation, primarily focused on error handling. All of these are fixed in 1.2.0:
 
 - RFC 9114 §4.1.2 — stream-level errors (notably `H3_MESSAGE_ERROR`) MUST RST the bidi stream.
 - RFC 9114 §4.1.1 / §4.2 / §4.3.1 — malformed messages (duplicated pseudos, unknown pseudos, uppercase header bytes) are `H3_MESSAGE_ERROR`.
