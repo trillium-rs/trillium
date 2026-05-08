@@ -17,13 +17,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            extra_features: ""
-          - os: macOS-latest
-            extra_features: ""
-          - os: windows-latest
-            extra_features: trillium-openssl/vendored
     steps:
       - uses: actions/checkout@master
         with:
@@ -34,10 +27,15 @@ jobs:
 
       - name: get-cmake
         uses: lukka/get-cmake@v4.3.1
-            
+
       - name: Install NASM for aws-lc-rs on Windows
         if: runner.os == 'Windows'
         uses: ilammy/setup-nasm@v1
+
+      - name: Set OPENSSL_DIR (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
 
       - name: Install stable
         uses: actions-rs/toolchain@v1
@@ -52,7 +50,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --workspace ${{ matrix.extra_features && format('--features {0}', matrix.extra_features) || '' }}
+          args: --workspace
 
       - name: Run tests (parse)
         uses: actions-rs/cargo@v1
@@ -66,7 +64,7 @@ jobs:
           RUSTFLAGS: --cfg=quinn_testing
         with:
           command: test
-          args: --workspace --features trillium-static/smol,trillium-testing/smol${{ matrix.extra_features && format(',{0}', matrix.extra_features) || '' }}
+          args: --workspace --features trillium-static/smol,trillium-testing/smol
 
       - name: Run tests (tokio)
         uses: actions-rs/cargo@v1
@@ -74,7 +72,7 @@ jobs:
           RUSTFLAGS: --cfg=quinn_testing
         with:
           command: test
-          args: --workspace --features trillium-static/tokio,trillium-testing/tokio${{ matrix.extra_features && format(',{0}', matrix.extra_features) || '' }}
+          args: --workspace --features trillium-static/tokio,trillium-testing/tokio
 
       - name: Run tests (async-std)
         uses: actions-rs/cargo@v1
@@ -82,7 +80,7 @@ jobs:
           RUSTFLAGS: --cfg=quinn_testing
         with:
           command: test
-          args: --workspace --features trillium-static/async-std,trillium-testing/async-std${{ matrix.extra_features && format(',{0}', matrix.extra_features) || '' }}
+          args: --workspace --features trillium-static/async-std,trillium-testing/async-std
 
 
   check_fmt_and_docs:
