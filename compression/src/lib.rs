@@ -5,6 +5,16 @@
 //! although more algorithms may be added in the future. The correct
 //! algorithm will be selected based on the Accept-Encoding header sent by
 //! the client, if one exists.
+//!
+//! Defaults are tuned for HTTP transport: brotli at quality 4 (matching
+//! nginx/caddy/Cloudflare). To opt into stronger or weaker compression,
+//! see [`Compression::with_brotli_level`], [`Compression::with_gzip_level`],
+//! and [`Compression::with_zstd_level`].
+//!
+//! Responses with `Content-Encoding` already set (e.g. precompressed
+//! sidecars) are passed through unchanged. Responses with already-
+//! compressed `Content-Type` (images, video, audio, fonts, archives) are
+//! skipped by default.
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
@@ -20,6 +30,7 @@
 mod readme {}
 
 use async_compression::futures::bufread::{BrotliEncoder, GzipEncoder, ZstdEncoder};
+pub use async_compression::Level;
 use futures_lite::{
     AsyncReadExt,
     io::{BufReader, Cursor},
@@ -31,7 +42,7 @@ use std::{
 };
 use trillium::{
     Body, Conn, Handler, HeaderValues,
-    KnownHeaderName::{AcceptEncoding, ContentEncoding, Vary},
+    KnownHeaderName::{AcceptEncoding, ContentEncoding, ContentType, Vary},
     conn_try, conn_unwrap,
 };
 
@@ -95,6 +106,9 @@ impl FromStr for CompressionAlgorithm {
 #[derive(Clone, Debug)]
 pub struct Compression {
     algorithms: BTreeSet<CompressionAlgorithm>,
+    brotli_level: Level,
+    gzip_level: Level,
+    zstd_level: Level,
 }
 
 impl Default for Compression {
@@ -102,6 +116,12 @@ impl Default for Compression {
         use CompressionAlgorithm::*;
         Self {
             algorithms: [Zstd, Brotli, Gzip].into_iter().collect(),
+            // q11 (async-compression default) is ~10x slower than q4 with
+            // only a few percent better ratio — bad fit for the response
+            // hot path. Match nginx/caddy transport defaults.
+            brotli_level: Level::Precise(4),
+            gzip_level: Level::Default,
+            zstd_level: Level::Default,
         }
     }
 }
@@ -121,6 +141,29 @@ impl Compression {
     /// order is ignored.
     pub fn with_algorithms(mut self, algorithms: &[CompressionAlgorithm]) -> Self {
         self.set_algorithms(algorithms);
+        self
+    }
+
+    /// sets the brotli compression level. The default is `Level::Precise(4)`,
+    /// matching common reverse proxy transport defaults. `Level::Default`
+    /// resolves to brotli quality 11, which is much slower for marginal
+    /// size gains.
+    pub fn with_brotli_level(mut self, level: Level) -> Self {
+        self.brotli_level = level;
+        self
+    }
+
+    /// sets the gzip compression level. The default is `Level::Default`,
+    /// which resolves to gzip level 6.
+    pub fn with_gzip_level(mut self, level: Level) -> Self {
+        self.gzip_level = level;
+        self
+    }
+
+    /// sets the zstd compression level. The default is `Level::Default`,
+    /// which resolves to zstd level 3.
+    pub fn with_zstd_level(mut self, level: Level) -> Self {
+        self.zstd_level = level;
         self
     }
 
@@ -163,6 +206,53 @@ fn parse_accept_encoding(header: &str) -> Vec<(CompressionAlgorithm, u8)> {
     vec
 }
 
+/// Returns true if the content-type identifies a payload that is already
+/// compressed and should be passed through. The list covers image/audio/
+/// video binary formats, web fonts, and common archive formats. Plain-
+/// text-y types like `image/svg+xml` and `application/wasm` are intentionally
+/// not skipped.
+fn is_already_compressed(content_type: &str) -> bool {
+    let primary = content_type
+        .split(';')
+        .next()
+        .unwrap_or(content_type)
+        .trim();
+    matches!(
+        primary,
+        "image/png"
+            | "image/jpeg"
+            | "image/jpg"
+            | "image/gif"
+            | "image/webp"
+            | "image/avif"
+            | "image/heic"
+            | "image/heif"
+            | "image/apng"
+            | "image/x-icon"
+            | "video/mp4"
+            | "video/webm"
+            | "video/ogg"
+            | "video/quicktime"
+            | "video/x-msvideo"
+            | "audio/mpeg"
+            | "audio/ogg"
+            | "audio/webm"
+            | "audio/aac"
+            | "audio/flac"
+            | "audio/mp4"
+            | "font/woff"
+            | "font/woff2"
+            | "application/zip"
+            | "application/gzip"
+            | "application/x-gzip"
+            | "application/x-bzip2"
+            | "application/x-xz"
+            | "application/x-7z-compressed"
+            | "application/x-rar-compressed"
+            | "application/zstd"
+    ) || primary.starts_with("video/") || primary.starts_with("audio/")
+}
+
 impl Handler for Compression {
     async fn run(&self, mut conn: Conn) -> Conn {
         if let Some(header) = conn
@@ -176,91 +266,99 @@ impl Handler for Compression {
     }
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
-        if let Some(algo) = conn.state::<CompressionAlgorithm>().copied() {
-            let mut body = conn_unwrap!(conn.take_response_body(), conn);
-            let mut compression_used = false;
-
-            if body.is_static() {
-                match algo {
-                    CompressionAlgorithm::Zstd => {
-                        let bytes = body.static_bytes().unwrap();
-                        let mut data = vec![];
-                        let mut encoder = ZstdEncoder::new(Cursor::new(bytes));
-                        conn_try!(encoder.read_to_end(&mut data).await, conn);
-                        if data.len() < bytes.len() {
-                            log::trace!("zstd body from {} to {}", bytes.len(), data.len());
-                            compression_used = true;
-                            body = Body::new_static(data);
-                        }
-                    }
-
-                    CompressionAlgorithm::Brotli => {
-                        let bytes = body.static_bytes().unwrap();
-                        let mut data = vec![];
-                        let mut encoder = BrotliEncoder::new(Cursor::new(bytes));
-                        conn_try!(encoder.read_to_end(&mut data).await, conn);
-                        if data.len() < bytes.len() {
-                            log::trace!("brotli'd body from {} to {}", bytes.len(), data.len());
-                            compression_used = true;
-                            body = Body::new_static(data);
-                        }
-                    }
-
-                    CompressionAlgorithm::Gzip => {
-                        let bytes = body.static_bytes().unwrap();
-                        let mut data = vec![];
-                        let mut encoder = GzipEncoder::new(Cursor::new(bytes));
-                        conn_try!(encoder.read_to_end(&mut data).await, conn);
-                        if data.len() < bytes.len() {
-                            log::trace!("gzipped body from {} to {}", bytes.len(), data.len());
-                            body = Body::new_static(data);
-                            compression_used = true;
-                        }
-                    }
-                }
-            } else if body.is_streaming() {
-                compression_used = true;
-                match algo {
-                    CompressionAlgorithm::Zstd => {
-                        body = Body::new_streaming(
-                            ZstdEncoder::new(BufReader::new(body.into_reader())),
-                            None,
-                        );
-                    }
-
-                    CompressionAlgorithm::Brotli => {
-                        body = Body::new_streaming(
-                            BrotliEncoder::new(BufReader::new(body.into_reader())),
-                            None,
-                        );
-                    }
-
-                    CompressionAlgorithm::Gzip => {
-                        body = Body::new_streaming(
-                            GzipEncoder::new(BufReader::new(body.into_reader())),
-                            None,
-                        );
-                    }
-                }
-            }
-
-            if compression_used {
-                let vary = conn
-                    .response_headers()
-                    .get_str(Vary)
-                    .map(|vary| HeaderValues::from(format!("{vary}, Accept-Encoding")))
-                    .unwrap_or_else(|| HeaderValues::from("Accept-Encoding"));
-
-                conn.response_headers_mut().extend([
-                    (ContentEncoding, HeaderValues::from(algo.as_str())),
-                    (Vary, vary),
-                ]);
-            }
-
-            conn.with_body(body)
-        } else {
-            conn
+        // Already encoded upstream (precompressed sidecar, or another
+        // middleware ahead of us) — leave it alone.
+        if conn.response_headers().get_str(ContentEncoding).is_some() {
+            return conn;
         }
+
+        // Skip already-compressed payloads (images, fonts, archives, ...).
+        if conn
+            .response_headers()
+            .get_str(ContentType)
+            .is_some_and(is_already_compressed)
+        {
+            return conn;
+        }
+
+        let Some(algo) = conn.state::<CompressionAlgorithm>().copied() else {
+            return conn;
+        };
+
+        let mut body = conn_unwrap!(conn.take_response_body(), conn);
+        let mut compression_used = false;
+
+        if body.is_static() {
+            let bytes = body.static_bytes().unwrap();
+            let mut data = vec![];
+            match algo {
+                CompressionAlgorithm::Zstd => {
+                    let mut encoder =
+                        ZstdEncoder::with_quality(Cursor::new(bytes), self.zstd_level);
+                    conn_try!(encoder.read_to_end(&mut data).await, conn);
+                }
+                CompressionAlgorithm::Brotli => {
+                    let mut encoder =
+                        BrotliEncoder::with_quality(Cursor::new(bytes), self.brotli_level);
+                    conn_try!(encoder.read_to_end(&mut data).await, conn);
+                }
+                CompressionAlgorithm::Gzip => {
+                    let mut encoder =
+                        GzipEncoder::with_quality(Cursor::new(bytes), self.gzip_level);
+                    conn_try!(encoder.read_to_end(&mut data).await, conn);
+                }
+            }
+            if data.len() < bytes.len() {
+                log::trace!(
+                    "{} body from {} to {}",
+                    algo.as_str(),
+                    bytes.len(),
+                    data.len()
+                );
+                compression_used = true;
+                body = Body::new_static(data);
+            }
+        } else if body.is_streaming() {
+            compression_used = true;
+            match algo {
+                CompressionAlgorithm::Zstd => {
+                    body = Body::new_streaming(
+                        ZstdEncoder::with_quality(BufReader::new(body.into_reader()), self.zstd_level),
+                        None,
+                    );
+                }
+                CompressionAlgorithm::Brotli => {
+                    body = Body::new_streaming(
+                        BrotliEncoder::with_quality(
+                            BufReader::new(body.into_reader()),
+                            self.brotli_level,
+                        ),
+                        None,
+                    );
+                }
+                CompressionAlgorithm::Gzip => {
+                    body = Body::new_streaming(
+                        GzipEncoder::with_quality(BufReader::new(body.into_reader()), self.gzip_level),
+                        None,
+                    );
+                }
+            }
+        }
+
+        if compression_used {
+            let vary = conn
+                .response_headers()
+                .get_str(Vary)
+                .map(|vary| HeaderValues::from(format!("{vary}, Accept-Encoding")))
+                .unwrap_or_else(|| HeaderValues::from("Accept-Encoding"));
+
+            conn.response_headers_mut().extend([
+                (ContentEncoding, HeaderValues::from(algo.as_str())),
+                (Vary, vary),
+            ]);
+        }
+
+        conn.with_body(body)
     }
 }
 
