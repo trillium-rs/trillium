@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-08
+
+### Changed (breaking)
+- Default brotli level lowered from `Level::Default` (quality 11) to
+  `Level::Precise(4)`, matching common reverse-proxy transport defaults.
+  Quality 11 is roughly 100× slower than quality 4 for marginal size gains
+  and is unsuitable for the response hot path. Callers that want maximum
+  compression can opt back in with `with_brotli_level(Level::Best)`.
+- Encoders are now constructed with `with_quality(...)` instead of `new()`
+  so the configured level is actually applied per request.
+
+### Added
+- `with_brotli_level`, `with_gzip_level`, `with_zstd_level` for per-algorithm
+  level configuration. `Level` is re-exported from `async-compression`.
+
+### Fixed
+- Skip compression when the response already has `Content-Encoding` set.
+  Previously the middleware would re-compress precompressed sidecar
+  responses, producing invalid output and explosive memory use under any
+  concurrency.
+- Skip compression for content types that are already compressed (image
+  binary formats, video/*, audio/*, web fonts, common archive formats).
+  `image/svg+xml` and `application/wasm` are intentionally still compressed.
+
 ## [0.2.0] - 2026-05-02
 
 ### Changed
