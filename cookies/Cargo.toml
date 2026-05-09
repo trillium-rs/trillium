@@ -1,27 +1,37 @@
 [package]
-version = "0.5.0"
+version = "0.5.1"
 name = "trillium-cookies"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "cookies handler for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
 readme = "README.md"
 keywords = ["trillium", "framework", "async"]
-categories = ["web-programming::http-server", "web-programming"]
+categories = [
+    "web-programming::http-server",
+    "web-programming::http-client",
+    "web-programming",
+]
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]
+
+[features]
+default = []
+client = ["dep:trillium-client", "dep:cookie_store"]
+client-serialization = ["cookie_store/serde"]
 
 [dependencies]
 log = "0.4.29"
 trillium.workspace = true
-
-[dependencies.cookie]
-version = "0.18.1"
-features = ["percent-encode", "secure"]
+cookie = { version = "0.18.1", features = ["percent-encode", "secure"] }
+trillium-client = { workspace = true, optional = true }
+cookie_store = { version = "0.22", optional = true }
 
 [dev-dependencies]
 env_logger = "0.11.10"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
+trillium-cookies = { path = ".", features = ["client", "client-serialization"] }
+serde_json = "*"
 
-[package.metadata.cargo-udeps.ignore]
-development = ["trillium-testing"]
+

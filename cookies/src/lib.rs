@@ -57,3 +57,6 @@ pub use cookies_handler::{CookiesHandler, cookies};
 mod cookies_conn_ext;
 pub use cookie;
 pub use cookies_conn_ext::CookiesConnExt;
+
+#[cfg(feature = "client")]
+pub mod client;
