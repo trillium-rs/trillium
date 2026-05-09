@@ -143,7 +143,11 @@ mod readme {}
 
 use trillium::{
     Conn, Handler, HeaderValues,
-    KnownHeaderName::{AcceptEncoding, ContentEncoding, ContentType, Etag, LastModified, Vary},
+    KnownHeaderName::{
+        AcceptEncoding, AcceptRanges, ContentEncoding, ContentRange, ContentType, Etag, IfRange,
+        LastModified, Range, Vary,
+    },
+    Status,
 };
 
 mod dir;
@@ -151,6 +155,7 @@ mod dir_entry;
 mod encoding;
 mod file;
 mod metadata;
+mod range;
 
 pub use crate::encoding::Encoding;
 pub(crate) use crate::{dir::Dir, dir_entry::DirEntry, file::File, metadata::Metadata};
@@ -230,6 +235,49 @@ impl StaticCompiledHandler {
 
         if let Some(etag) = file.etag() {
             conn.response_headers_mut().try_insert(Etag, etag);
+        }
+
+        // Always advertise range support for static content.
+        conn.response_headers_mut()
+            .try_insert(AcceptRanges, "bytes");
+
+        let total = file.contents().len() as u64;
+        let range_spec = conn
+            .request_headers()
+            .get_str(Range)
+            .and_then(range::parse)
+            .filter(|_| {
+                // If-Range gate: present and matching → honor; present and
+                // non-matching → ignore Range and serve full body.
+                conn.request_headers()
+                    .get_str(IfRange)
+                    .is_none_or(|if_range| {
+                        range::if_range_matches(
+                            if_range,
+                            file.etag(),
+                            file.metadata().map(Metadata::modified),
+                        )
+                    })
+            });
+
+        if let Some(spec) = range_spec {
+            return match range::resolve(spec, total) {
+                Some((start, end)) => {
+                    let slice = &file.contents()[start as usize..=end as usize];
+                    conn.response_headers_mut()
+                        .insert(ContentRange, format!("bytes {start}-{end}/{total}"));
+                    if !file.encodings().is_empty() {
+                        append_vary_accept_encoding(&mut conn);
+                    }
+                    conn.with_status(Status::PartialContent).with_body(slice)
+                }
+                None => {
+                    conn.response_headers_mut()
+                        .insert(ContentRange, format!("bytes */{total}"));
+                    conn.with_status(Status::RequestedRangeNotSatisfiable)
+                        .with_body("")
+                }
+            };
         }
 
         let accept = conn.request_headers().get_str(AcceptEncoding);
