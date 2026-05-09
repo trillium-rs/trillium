@@ -73,8 +73,8 @@ trillium-server-common = { version = "0.7", path = "server-common" }
 trillium-sessions = { version = "0.5", path = "sessions" }
 trillium-smol = { version = "0.6", path = "smol" }
 trillium-static = { version = "0.5", path = "static" }
-trillium-static-compiled = { version = "0.6", path = "static-compiled" }
-trillium-static-compiled-macros = { version = "0.2", path = "static-compiled-macros" }
+trillium-static-compiled = { version = "0.7", path = "static-compiled" }
+trillium-static-compiled-macros = { version = "0.3", path = "static-compiled-macros" }
 trillium-testing = { version = "0.9", path = "testing" }
 trillium-tokio = { version = "0.6", path = "tokio" }
 trillium-websockets = { version = "0.8", path = "websockets" }

@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0]
+
+### Added
+- Compile-time precompression of file contents into Brotli, Zstd, and Gzip
+  variants, gated behind opt-in cargo features (`brotli`, `zstd`, `gzip`,
+  or the `compression` meta-feature) and an opt-in macro argument:
+  `static_compiled!("./files", compress)` bakes every variant whose feature
+  is enabled, and `static_compiled!("./files", compress = [Brotli, Gzip])`
+  bakes a specified subset. Encoders run at maximum quality in parallel via
+  rayon. Per-file variants are sorted smallest-first, and only baked when
+  they beat the source by at least 5%; files under 256 bytes are skipped
+  entirely. The handler picks the smallest variant the client's
+  `Accept-Encoding` allows, sets `Content-Encoding`, and emits
+  `Vary: Accept-Encoding` (per-file, only when variants are baked).
+  Composes with `trillium-compression`, which passes through any response
+  that already has `Content-Encoding` set.
+- Public `Encoding` enum with `Encoding::token()` returning the HTTP
+  content-coding token, and `File::with_encodings`, `File::encodings`, and
+  `File::pick_encoding` for inspecting baked variants.
+
+
 ## [0.2.0] - 2026-05-02
 
 ### Changed

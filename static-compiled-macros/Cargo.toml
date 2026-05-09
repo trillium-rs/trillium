@@ -1,7 +1,6 @@
 [package]
 name = "trillium-static-compiled-macros"
-version = "0.2.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.3.0"
 edition = "2024"
 description = "internal-use-only proc-macros for trillium-static-compiled"
 license = "MIT OR Apache-2.0"
@@ -16,3 +15,14 @@ proc-macro = true
 [dependencies]
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
+syn = "2.0.117"
+brotli = { version = "8.0.2", optional = true }
+zstd = { version = "0.13.3", optional = true }
+flate2 = { version = "1.1.9", optional = true }
+rayon = { version = "1.10.0", optional = true }
+
+[features]
+default = []
+brotli = ["dep:brotli", "dep:rayon"]
+zstd = ["dep:zstd", "dep:rayon"]
+gzip = ["dep:flate2", "dep:rayon"]
