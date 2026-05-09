@@ -52,6 +52,20 @@ pub fn main() {
 For non-default codings or suffixes, register variants individually with
 `with_precompressed_variant("encoding", "suffix")`.
 
+#### Range requests
+
+Range support is on by default. Every response advertises `Accept-Ranges: bytes`. A single-range
+request like `Range: bytes=0-1023` causes the handler to seek into the file and stream just that
+byte range with status `206 Partial Content` and a `Content-Range` header. Out-of-bounds ranges
+return `416 Requested Range Not Satisfiable`; multi-range requests fall through to a `200` full
+body.
+
+`If-Range` is honored with strong-comparison only per RFC 9110. The handler's metadata-derived
+etag is weak and so cannot satisfy `If-Range`, but a `Last-Modified` date in `If-Range` will.
+
+Ranged requests bypass precompressed-sidecar selection — the range applies to the identity
+representation, never to a compressed sidecar.
+
 ### From memory, at compile time
 
 Includes all of the static content in the compiled binary, allowing it to be shipped independently
@@ -133,3 +147,16 @@ client's `Accept-Encoding` allows, sets `Content-Encoding`, and emits `Vary: Acc
 This composes with [`trillium-compression`](./compression.md), which passes through any response
 that already has `Content-Encoding` set — so an upstream `Compression` handler will leave the
 precompiled bytes untouched.
+
+#### Range requests
+
+Range support is on by default. Every response advertises `Accept-Ranges: bytes`. A single-range
+request like `Range: bytes=0-1023` slices the in-memory bytes and returns them with status `206
+Partial Content` and a `Content-Range` header. Out-of-bounds ranges return `416 Requested Range
+Not Satisfiable`; multi-range requests fall through to a `200` full body.
+
+`If-Range` is honored with strong-comparison only per RFC 9110, against either the precomputed
+strong etag or the `Last-Modified` date.
+
+Ranged requests bypass `Accept-Encoding` negotiation — the range applies to the identity
+representation, never to a precompiled variant.

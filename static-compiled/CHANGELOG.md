@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.0]
 
 ### Added
+- HTTP Range request support. Every response advertises `Accept-Ranges:
+  bytes`. When a client sends a single-range `Range: bytes=...` header
+  (`START-END`, `START-`, or `-SUFFIX`), the handler returns just that
+  byte range with status `206 Partial Content`, `Content-Range`, and
+  `Content-Length`. Out-of-bounds ranges return `416 Requested Range Not
+  Satisfiable` with `Content-Range: bytes */N`. Multi-range requests fall
+  through to a `200` full body. Honors `If-Range` (strong-comparison only
+  per RFC 9110) against the precomputed strong etag or `Last-Modified`
+  date. Ranged requests bypass `Accept-Encoding` negotiation — the range
+  applies to the identity representation.
 - Compile-time entity-tag computation, on by default. The macro hashes each
   file's source bytes via `etag::EntityTag::from_data` and bakes the
   resulting tag string as a `&'static str`; the handler emits it as the
