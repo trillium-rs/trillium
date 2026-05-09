@@ -12,103 +12,398 @@
 //! relative paths are resolved from a root of CARGO_MANIFEST_DIR
 //! hygiene is maintained by using a macro_rules macro to import
 //! relevant structs
+//! Optional compile-time precompression of file contents into Brotli /
+//! Zstd / Gzip variants, gated behind cargo features.
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
 mod readme {}
 
-use proc_macro::{TokenStream, TokenTree};
-use proc_macro2::Literal;
+use proc_macro::TokenStream;
+use proc_macro2::{Literal, Span, TokenStream as TokenStream2};
 use quote::quote;
 use std::{
+    collections::HashMap,
     error::Error,
     fmt::{self, Display, Formatter},
     path::{Path, PathBuf},
     time::SystemTime,
 };
+use syn::{
+    Ident, LitStr, Token, bracketed,
+    parse::{Parse, ParseStream},
+    parse_macro_input,
+    punctuated::Punctuated,
+};
 
 /// Embed the contents of a directory. "Returns" a Dir
 #[proc_macro]
 pub fn include_dir(input: TokenStream) -> TokenStream {
-    let tokens: Vec<_> = input.into_iter().collect();
-
-    let path = match tokens.as_slice() {
-        [TokenTree::Literal(lit)] => unwrap_string_literal(lit),
-        _ => panic!("This macro only accepts a single, non-empty string argument"),
-    };
-
-    let path = resolve_path(&path, get_env)
-        .unwrap()
-        .canonicalize()
-        .unwrap();
-
-    expand_dir(&path, &path).into()
+    let args = parse_macro_input!(input as Args);
+    expand(args, true).into()
 }
 
 /// Embed a directory or file. "Returns" a DirEntry
 #[proc_macro]
 pub fn include_entry(input: TokenStream) -> TokenStream {
-    let tokens: Vec<_> = input.into_iter().collect();
-
-    let path = match tokens.as_slice() {
-        [TokenTree::Literal(lit)] => unwrap_string_literal(lit),
-        _ => panic!("This macro only accepts a single, non-empty string argument"),
-    };
-
-    let path = resolve_path(&path, get_env)
-        .unwrap()
-        .canonicalize()
-        .unwrap();
-
-    expand_entry(&path, &path).into()
+    let args = parse_macro_input!(input as Args);
+    expand(args, false).into()
 }
 
-fn unwrap_string_literal(lit: &proc_macro::Literal) -> String {
-    let mut repr = lit.to_string();
-    if !repr.starts_with('"') || !repr.ends_with('"') {
-        panic!("This macro only accepts a single, non-empty string argument")
+struct Args {
+    path: LitStr,
+    compress: Option<(Span, CompressSpec)>,
+}
+
+enum CompressSpec {
+    Default,
+    Specified(Vec<Encoding>),
+}
+
+impl Parse for Args {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let path: LitStr = input.parse()?;
+        let compress = if input.is_empty() {
+            None
+        } else {
+            input.parse::<Token![,]>()?;
+            let kw: Ident = input.parse()?;
+            if kw != "compress" {
+                return Err(syn::Error::new(
+                    kw.span(),
+                    format!("expected `compress`, found `{kw}`"),
+                ));
+            }
+            let span = kw.span();
+            let spec = if input.peek(Token![=]) {
+                input.parse::<Token![=]>()?;
+                let content;
+                bracketed!(content in input);
+                let list: Punctuated<Ident, Token![,]> = Punctuated::parse_terminated(&content)?;
+                let mut encodings = Vec::new();
+                for id in &list {
+                    encodings.push(Encoding::from_ident(id)?);
+                }
+                CompressSpec::Specified(encodings)
+            } else {
+                CompressSpec::Default
+            };
+            Some((span, spec))
+        };
+        Ok(Args { path, compress })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Encoding {
+    Brotli,
+    Zstd,
+    Gzip,
+}
+
+impl Encoding {
+    fn from_ident(ident: &Ident) -> syn::Result<Self> {
+        let s = ident.to_string();
+        let enc = match s.as_str() {
+            "Brotli" => Self::Brotli,
+            "Zstd" => Self::Zstd,
+            "Gzip" => Self::Gzip,
+            _ => {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    format!("unknown encoding `{s}`; expected `Brotli`, `Zstd`, or `Gzip`"),
+                ));
+            }
+        };
+        if let Some(missing_feature) = enc.required_feature_if_disabled() {
+            return Err(syn::Error::new(
+                ident.span(),
+                format!(
+                    "encoding `{s}` requires the `{missing_feature}` feature on \
+                     `trillium-static-compiled`"
+                ),
+            ));
+        }
+        Ok(enc)
     }
 
-    repr.remove(0);
-    repr.pop();
+    fn required_feature_if_disabled(self) -> Option<&'static str> {
+        match self {
+            Self::Brotli => {
+                #[cfg(feature = "brotli")]
+                {
+                    None
+                }
+                #[cfg(not(feature = "brotli"))]
+                {
+                    Some("brotli")
+                }
+            }
+            Self::Zstd => {
+                #[cfg(feature = "zstd")]
+                {
+                    None
+                }
+                #[cfg(not(feature = "zstd"))]
+                {
+                    Some("zstd")
+                }
+            }
+            Self::Gzip => {
+                #[cfg(feature = "gzip")]
+                {
+                    None
+                }
+                #[cfg(not(feature = "gzip"))]
+                {
+                    Some("gzip")
+                }
+            }
+        }
+    }
 
-    repr
+    fn variant_path(self) -> TokenStream2 {
+        match self {
+            Self::Brotli => quote!(Encoding::Brotli),
+            Self::Zstd => quote!(Encoding::Zstd),
+            Self::Gzip => quote!(Encoding::Gzip),
+        }
+    }
 }
 
-fn expand_entry(root: &Path, child: &Path) -> proc_macro2::TokenStream {
+// cfg-gated pushes; `vec![]` doesn't compose with #[cfg].
+#[allow(unused_mut, clippy::vec_init_then_push)]
+fn default_encodings() -> Vec<Encoding> {
+    let mut v = Vec::new();
+    #[cfg(feature = "brotli")]
+    v.push(Encoding::Brotli);
+    #[cfg(feature = "zstd")]
+    v.push(Encoding::Zstd);
+    #[cfg(feature = "gzip")]
+    v.push(Encoding::Gzip);
+    v
+}
+
+fn expand(args: Args, dir_only: bool) -> TokenStream2 {
+    let raw = args.path.value();
+    let path = match resolve_path(&raw, get_env).and_then(|p| Ok(p.canonicalize()?)) {
+        Ok(p) => p,
+        Err(e) => {
+            return syn::Error::new(args.path.span(), format!("{e}")).to_compile_error();
+        }
+    };
+
+    if dir_only && !path.is_dir() {
+        return syn::Error::new(
+            args.path.span(),
+            format!("\"{}\" is not a directory", path.display()),
+        )
+        .to_compile_error();
+    }
+
+    let encodings = match args.compress {
+        None => Vec::new(),
+        Some((span, CompressSpec::Default)) => {
+            let v = default_encodings();
+            if v.is_empty() {
+                return syn::Error::new(
+                    span,
+                    "no compression features are enabled on `trillium-static-compiled`; enable \
+                     one or more of `brotli`, `zstd`, `gzip`, or the `compression` meta-feature",
+                )
+                .to_compile_error();
+            }
+            v
+        }
+        Some((_, CompressSpec::Specified(list))) => list,
+    };
+
+    let mut file_paths = Vec::new();
+    if path.is_file() {
+        file_paths.push(path.clone());
+    } else {
+        collect_files(&path, &mut file_paths);
+    }
+
+    let compressed = compress_files(file_paths, &encodings);
+
+    if dir_only {
+        expand_dir(&path, &path, &compressed)
+    } else {
+        expand_entry(&path, &path, &compressed)
+    }
+}
+
+fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    if !dir.is_dir() {
+        return;
+    }
+    let mut entries: Vec<PathBuf> = match std::fs::read_dir(dir) {
+        Ok(it) => it.filter_map(|e| e.ok().map(|e| e.path())).collect(),
+        Err(e) => panic!("Unable to read \"{}\": {}", dir.display(), e),
+    };
+    entries.sort();
+    for p in entries {
+        if p.is_dir() {
+            collect_files(&p, out);
+        } else if p.is_file() {
+            out.push(p);
+        }
+    }
+}
+
+struct FileBytes {
+    source: Vec<u8>,
+    variants: Vec<(Encoding, Vec<u8>)>,
+}
+
+#[cfg(any(feature = "brotli", feature = "zstd", feature = "gzip"))]
+fn compress_files(paths: Vec<PathBuf>, encodings: &[Encoding]) -> HashMap<PathBuf, FileBytes> {
+    use rayon::prelude::*;
+
+    let pairs: Vec<(PathBuf, Vec<u8>)> = paths
+        .into_par_iter()
+        .map(|p| {
+            let bytes = std::fs::read(&p)
+                .unwrap_or_else(|e| panic!("Unable to read \"{}\": {}", p.display(), e));
+            (p, bytes)
+        })
+        .collect();
+
+    if encodings.is_empty() {
+        return pairs
+            .into_iter()
+            .map(|(p, b)| {
+                (
+                    p,
+                    FileBytes {
+                        source: b,
+                        variants: Vec::new(),
+                    },
+                )
+            })
+            .collect();
+    }
+
+    pairs
+        .into_par_iter()
+        .map(|(p, source)| {
+            let mut variants: Vec<(Encoding, Vec<u8>)> = encodings
+                .iter()
+                .filter_map(|&enc| compress(enc, &source).map(|c| (enc, c)))
+                .collect();
+            variants.sort_by_key(|(_, bytes)| bytes.len());
+            (p, FileBytes { source, variants })
+        })
+        .collect()
+}
+
+#[cfg(not(any(feature = "brotli", feature = "zstd", feature = "gzip")))]
+fn compress_files(paths: Vec<PathBuf>, _encodings: &[Encoding]) -> HashMap<PathBuf, FileBytes> {
+    paths
+        .into_iter()
+        .map(|p| {
+            let bytes = std::fs::read(&p)
+                .unwrap_or_else(|e| panic!("Unable to read \"{}\": {}", p.display(), e));
+            (
+                p,
+                FileBytes {
+                    source: bytes,
+                    variants: Vec::new(),
+                },
+            )
+        })
+        .collect()
+}
+
+#[cfg(any(feature = "brotli", feature = "zstd", feature = "gzip"))]
+fn compress(encoding: Encoding, source: &[u8]) -> Option<Vec<u8>> {
+    /// Skip compression entirely for files smaller than this.
+    const MIN_SIZE: usize = 256;
+
+    if source.len() < MIN_SIZE {
+        return None;
+    }
+
+    let encoded = match encoding {
+        #[cfg(feature = "brotli")]
+        Encoding::Brotli => brotli_encode(source),
+        #[cfg(feature = "zstd")]
+        Encoding::Zstd => zstd_encode(source),
+        #[cfg(feature = "gzip")]
+        Encoding::Gzip => gzip_encode(source),
+        #[allow(unreachable_patterns)]
+        _ => return None,
+    };
+
+    // Require a 5% size reduction over the source to bother baking the variant.
+    if encoded.len() * 20 <= source.len() * 19 {
+        Some(encoded)
+    } else {
+        None
+    }
+}
+
+#[cfg(feature = "brotli")]
+fn brotli_encode(source: &[u8]) -> Vec<u8> {
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: 11,
+        ..Default::default()
+    };
+    let mut input = source;
+    let mut output = Vec::new();
+    brotli::BrotliCompress(&mut input, &mut output, &params).expect("brotli compression failed");
+    output
+}
+
+#[cfg(feature = "zstd")]
+fn zstd_encode(source: &[u8]) -> Vec<u8> {
+    zstd::encode_all(source, 22).expect("zstd compression failed")
+}
+
+#[cfg(feature = "gzip")]
+fn gzip_encode(source: &[u8]) -> Vec<u8> {
+    use flate2::{Compression, write::GzEncoder};
+    use std::io::Write;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    encoder.write_all(source).expect("gzip compression failed");
+    encoder.finish().expect("gzip compression failed")
+}
+
+fn expand_entry(root: &Path, child: &Path, files: &HashMap<PathBuf, FileBytes>) -> TokenStream2 {
     if child.is_dir() {
-        let tokens = expand_dir(root, child);
+        let tokens = expand_dir(root, child, files);
         quote!(DirEntry::Dir(#tokens))
     } else if child.is_file() {
-        let tokens = expand_file(root, child);
+        let tokens = expand_file(root, child, files);
         quote!(DirEntry::File(#tokens))
     } else {
         panic!("\"{}\" is neither a file nor a directory", child.display());
     }
 }
 
-fn expand_dir(root: &Path, path: &Path) -> proc_macro2::TokenStream {
-    let children = read_dir(path).unwrap_or_else(|e| {
-        panic!(
-            "Unable to read the entries in \"{}\": {}",
-            path.display(),
-            e
-        )
-    });
+fn expand_dir(root: &Path, path: &Path, files: &HashMap<PathBuf, FileBytes>) -> TokenStream2 {
+    let mut children: Vec<PathBuf> = std::fs::read_dir(path)
+        .unwrap_or_else(|e| panic!("Unable to read \"{}\": {}", path.display(), e))
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .collect();
+    children.sort();
 
-    let child_tokens = children
+    let child_tokens: Vec<TokenStream2> = children
         .iter()
-        .map(|child| expand_entry(root, child))
-        .collect::<Vec<_>>();
+        .map(|c| expand_entry(root, c, files))
+        .collect();
 
-    let path = normalize_path(root, path);
+    let path_str = normalize_path(root, path);
 
-    quote!(Dir::new(#path, &[ #(#child_tokens),* ]))
+    quote!(Dir::new(#path_str, &[ #(#child_tokens),* ]))
 }
 
-fn expand_file(root: &Path, path: &Path) -> proc_macro2::TokenStream {
-    let contents = read_file(path);
-    let literal = Literal::byte_string(&contents);
+fn expand_file(root: &Path, path: &Path, files: &HashMap<PathBuf, FileBytes>) -> TokenStream2 {
+    let fb = files
+        .get(path)
+        .expect("file should be present in compression results");
+    let source_lit = Literal::byte_string(&fb.source);
 
     // When the file IS the root (include_entry! called directly on a file),
     // normalize_path would strip the entire path leaving "". Use the filename
@@ -121,15 +416,26 @@ fn expand_file(root: &Path, path: &Path) -> proc_macro2::TokenStream {
         normalize_path(root, path)
     };
 
-    let tokens = quote!(File::new(#normalized_path, #literal));
+    let base = quote!(File::new(#normalized_path, #source_lit));
 
-    match metadata(path) {
-        Some(metadata) => quote!(#tokens.with_metadata(#metadata)),
-        None => tokens,
+    let with_meta = match metadata(path) {
+        Some(m) => quote!(#base.with_metadata(#m)),
+        None => base,
+    };
+
+    if fb.variants.is_empty() {
+        with_meta
+    } else {
+        let variant_tokens = fb.variants.iter().map(|(enc, bytes)| {
+            let enc_path = enc.variant_path();
+            let bytes_lit = Literal::byte_string(bytes);
+            quote!((#enc_path, #bytes_lit))
+        });
+        quote!(#with_meta.with_encodings(&[#(#variant_tokens),*]))
     }
 }
 
-fn metadata(path: &Path) -> Option<proc_macro2::TokenStream> {
+fn metadata(path: &Path) -> Option<TokenStream2> {
     fn to_unix(t: SystemTime) -> u64 {
         t.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs()
     }
@@ -151,27 +457,6 @@ fn normalize_path(root: &Path, path: &Path) -> String {
     let as_string = stripped.to_string_lossy();
 
     as_string.replace('\\', "/")
-}
-
-fn read_dir(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    if !dir.is_dir() {
-        panic!("\"{}\" is not a directory", dir.display());
-    }
-
-    let mut paths = Vec::new();
-
-    for entry in dir.read_dir()? {
-        let entry = entry?;
-        paths.push(entry.path());
-    }
-
-    paths.sort();
-
-    Ok(paths)
-}
-
-fn read_file(path: &Path) -> Vec<u8> {
-    std::fs::read(path).unwrap_or_else(|e| panic!("Unable to read \"{}\": {}", path.display(), e))
 }
 
 fn resolve_path(

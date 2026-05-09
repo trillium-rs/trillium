@@ -102,21 +102,34 @@
 mod readme {}
 
 use trillium::{
-    Conn, Handler,
-    KnownHeaderName::{ContentType, LastModified},
+    Conn, Handler, HeaderValues,
+    KnownHeaderName::{AcceptEncoding, ContentEncoding, ContentType, LastModified, Vary},
 };
 
 mod dir;
 mod dir_entry;
+mod encoding;
 mod file;
 mod metadata;
 
+pub use crate::encoding::Encoding;
 pub(crate) use crate::{dir::Dir, dir_entry::DirEntry, file::File, metadata::Metadata};
 
 #[doc(hidden)]
 pub mod __macro_internals {
-    pub use crate::{dir::Dir, dir_entry::DirEntry, file::File, metadata::Metadata};
+    pub use crate::{
+        dir::Dir, dir_entry::DirEntry, encoding::Encoding, file::File, metadata::Metadata,
+    };
     pub use trillium_static_compiled_macros::{include_dir, include_entry};
+}
+
+fn append_vary_accept_encoding(conn: &mut Conn) {
+    let vary = conn
+        .response_headers()
+        .get_str(Vary)
+        .map(|existing| HeaderValues::from(format!("{existing}, Accept-Encoding")))
+        .unwrap_or_else(|| HeaderValues::from("Accept-Encoding"));
+    conn.response_headers_mut().insert(Vary, vary);
 }
 
 /// The static compiled handler which contains the compile-time loaded
@@ -175,7 +188,21 @@ impl StaticCompiledHandler {
                 .try_insert(LastModified, httpdate::fmt_http_date(metadata.modified()));
         }
 
-        conn.ok(file.contents())
+        let accept = conn.request_headers().get_str(AcceptEncoding);
+        let body = match file.pick_encoding(accept) {
+            Some((encoding, bytes)) => {
+                conn.response_headers_mut()
+                    .insert(ContentEncoding, encoding.token());
+                bytes
+            }
+            None => file.contents(),
+        };
+
+        if !file.encodings().is_empty() {
+            append_vary_accept_encoding(&mut conn);
+        }
+
+        conn.ok(body)
     }
 
     fn get_item(&self, path: &str) -> Option<DirEntry> {
@@ -242,8 +269,8 @@ impl Handler for StaticCompiledHandler {
 /// [env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
 #[macro_export]
 macro_rules! static_compiled {
-    ($path:tt) => {
-        $crate::StaticCompiledHandler::new($crate::root!($path))
+    ($($args:tt)*) => {
+        $crate::StaticCompiledHandler::new($crate::root!($($args)*))
     };
 }
 
@@ -272,9 +299,9 @@ macro_rules! static_compiled {
 /// [env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
 #[macro_export]
 macro_rules! root {
-    ($path:tt) => {{
-        use $crate::__macro_internals::{Dir, DirEntry, File, Metadata, include_entry};
-        const ENTRY: DirEntry = include_entry!($path);
+    ($($args:tt)*) => {{
+        use $crate::__macro_internals::{Dir, DirEntry, Encoding, File, Metadata, include_entry};
+        const ENTRY: DirEntry = include_entry!($($args)*);
         ENTRY
     }};
 }
