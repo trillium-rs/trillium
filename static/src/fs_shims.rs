@@ -25,7 +25,13 @@ cfg_if::cfg_if! {
                 _buf: &mut [u8],
             ) -> std::task::Poll<std::io::Result<usize>> {
                 unimplemented!("please enable the tokio, async-std, or smol runtime feature")
+            }
+        }
 
+
+        impl futures_lite::AsyncSeek for File {
+            fn poll_seek(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>, _pos: std::io::SeekFrom) -> std::task::Poll<std::io::Result<u64>> {
+                unimplemented!("please enable the tokio, async-std, or smol runtime feature")
             }
         }
 

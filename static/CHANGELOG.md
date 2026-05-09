@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- HTTP Range request support. Every response advertises `Accept-Ranges:
+  bytes`. When a client sends a single-range `Range: bytes=...` header
+  (`START-END`, `START-`, or `-SUFFIX`), the handler seeks into the file
+  and streams just that byte range with status `206 Partial Content`,
+  `Content-Range`, and `Content-Length`. Out-of-bounds ranges return `416
+  Requested Range Not Satisfiable` with `Content-Range: bytes */N`.
+  Multi-range requests fall through to a `200` full body. Honors
+  `If-Range` (strong-comparison only per RFC 9110); the metadata-derived
+  etag is weak and so will not satisfy `If-Range`, but the
+  `Last-Modified` date will. Ranged requests bypass precompressed-sidecar
+  selection — the range applies to the identity representation, never to
+  a compressed sidecar.
+
 - Precompressed-sidecar serving. `StaticFileHandler::with_precompressed()`
   serves `<asset>.br`, `<asset>.zst`, and `<asset>.gz` siblings when the
   client's `Accept-Encoding` allows them, in that priority order, with

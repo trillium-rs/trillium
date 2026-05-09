@@ -2,13 +2,18 @@ use crate::{
     StaticConnExt,
     fs_shims::{File, fs},
     options::StaticOptions,
+    range,
 };
+use etag::EntityTag;
 use relative_path::RelativePath;
 use std::path::{Path, PathBuf};
 use trillium::{
-    Conn, Handler, HeaderValues,
-    KnownHeaderName::{AcceptEncoding, ContentEncoding, Vary},
-    conn_unwrap,
+    Body, Conn, Handler, HeaderValues,
+    KnownHeaderName::{
+        AcceptEncoding, AcceptRanges, ContentEncoding, ContentRange, ContentType, Etag, IfRange,
+        LastModified, Range, Vary,
+    },
+    Status, conn_unwrap,
 };
 
 /// trillium handler to serve static files from the filesystem
@@ -50,6 +55,31 @@ fn accept_encoding_allows(accept: &str, encoding: &str) -> bool {
         }
     }
     named_ok.unwrap_or(wildcard_ok)
+}
+
+fn stream_full_body(file: File, len: u64) -> Body {
+    #[cfg(feature = "tokio")]
+    let file = async_compat::Compat::new(file);
+    Body::new_streaming(file, Some(len))
+}
+
+async fn seek_take_body(mut file: File, start: u64, len: u64) -> std::io::Result<Body> {
+    #[cfg(feature = "tokio")]
+    {
+        use tokio_crate::io::AsyncSeekExt as _;
+        file.seek(std::io::SeekFrom::Start(start)).await?;
+    }
+    #[cfg(not(feature = "tokio"))]
+    {
+        use futures_lite::AsyncSeekExt as _;
+        file.seek(std::io::SeekFrom::Start(start)).await?;
+    }
+
+    #[cfg(feature = "tokio")]
+    let file = async_compat::Compat::new(file);
+
+    use futures_lite::AsyncReadExt as _;
+    Ok(Body::new_streaming(file.take(len), Some(len)))
 }
 
 fn append_vary_accept_encoding(mut conn: Conn) -> Conn {
@@ -250,6 +280,79 @@ impl StaticFileHandler {
         self
     }
 
+    async fn serve_range(
+        &self,
+        mut conn: Conn,
+        file: File,
+        source_path: &Path,
+        spec: range::RangeSpec,
+        if_range: Option<&str>,
+    ) -> Conn {
+        let metadata = conn_unwrap!(file.metadata().await.ok(), conn);
+        let total = metadata.len();
+
+        if self.options.modified
+            && let Ok(last_modified) = metadata.modified()
+        {
+            conn.response_headers_mut()
+                .try_insert(LastModified, httpdate::fmt_http_date(last_modified));
+        }
+        let etag_str = self.options.etag.then(|| {
+            let etag = EntityTag::from_file_meta(&metadata).to_string();
+            conn.response_headers_mut().try_insert(Etag, etag.clone());
+            etag
+        });
+        conn.response_headers_mut()
+            .try_insert(AcceptRanges, "bytes");
+
+        let mime_path = source_path.to_path_buf();
+        if let Some(mime) = mime_guess::from_path(&mime_path).first() {
+            use mime_guess::mime::{APPLICATION, HTML, JAVASCRIPT, TEXT};
+            let is_text = matches!(
+                (mime.type_(), mime.subtype()),
+                (APPLICATION, JAVASCRIPT) | (TEXT, _) | (_, HTML)
+            );
+            conn.response_headers_mut().try_insert(
+                ContentType,
+                if is_text {
+                    format!("{mime}; charset=utf-8")
+                } else {
+                    mime.to_string()
+                },
+            );
+        }
+
+        // If-Range gate
+        let last_modified = metadata.modified().ok();
+        let honor = if_range
+            .is_none_or(|hv| range::if_range_matches(hv, etag_str.as_deref(), last_modified));
+
+        if !honor {
+            // Validator mismatch: serve full body 200 from this same file.
+            return conn.ok(stream_full_body(file, total));
+        }
+
+        match range::resolve(spec, total) {
+            Some((start, end)) => {
+                let len = end - start + 1;
+                match seek_take_body(file, start, len).await {
+                    Ok(body) => {
+                        conn.response_headers_mut()
+                            .insert(ContentRange, format!("bytes {start}-{end}/{total}"));
+                        conn.with_status(Status::PartialContent).with_body(body)
+                    }
+                    Err(_) => conn.with_status(Status::InternalServerError),
+                }
+            }
+            None => {
+                conn.response_headers_mut()
+                    .insert(ContentRange, format!("bytes */{total}"));
+                conn.with_status(Status::RequestedRangeNotSatisfiable)
+                    .with_body("")
+            }
+        }
+    }
+
     /// sets the index file on this StaticFileHandler
     /// ```
     /// # #[cfg(not(unix))] fn main() {}
@@ -305,37 +408,67 @@ impl Handler for StaticFileHandler {
             .request_headers()
             .get_str(AcceptEncoding)
             .map(str::to_owned);
+        let range_spec = conn.request_headers().get_str(Range).and_then(range::parse);
+        let if_range = conn.request_headers().get_str(IfRange).map(str::to_owned);
         let precompressed_enabled = !self.precompressed.is_empty();
 
-        let conn = match self.resolve(conn.path(), accept_encoding.as_deref()).await {
+        // When a parsable Range is present, bypass sidecar selection — the
+        // range applies to the identity representation.
+        let accept_for_resolve = if range_spec.is_some() {
+            None
+        } else {
+            accept_encoding.as_deref()
+        };
+
+        let conn = match self.resolve(conn.path(), accept_for_resolve).await {
             Some(Record::File(path, file, encoding)) => {
-                let conn = match encoding {
-                    Some(enc) => conn.with_response_header(ContentEncoding, enc),
-                    None => conn,
-                };
-                conn.send_file_with_options(file, &self.options)
-                    .await
-                    .with_mime_from_path(path)
+                if let Some(spec) = range_spec {
+                    self.serve_range(conn, file, &path, spec, if_range.as_deref())
+                        .await
+                } else {
+                    let conn = match encoding {
+                        Some(enc) => conn.with_response_header(ContentEncoding, enc),
+                        None => conn,
+                    };
+                    let mut conn = conn
+                        .send_file_with_options(file, &self.options)
+                        .await
+                        .with_mime_from_path(path);
+                    conn.response_headers_mut()
+                        .try_insert(AcceptRanges, "bytes");
+                    conn
+                }
             }
 
             Some(Record::Dir(path)) => {
                 let index = conn_unwrap!(self.index_file.as_ref(), conn);
                 let index_path = path.join(index);
-                let (open_path, encoding) = match self
-                    .pick_precompressed(&index_path, accept_encoding.as_deref())
-                    .await
-                {
-                    Some((sidecar, encoding)) => (sidecar, Some(encoding)),
-                    None => (index_path.clone(), None),
-                };
-                let file = conn_unwrap!(File::open(&open_path).await.ok(), conn);
-                let conn = match encoding {
-                    Some(enc) => conn.with_response_header(ContentEncoding, enc),
-                    None => conn,
-                };
-                conn.send_file_with_options(file, &self.options)
-                    .await
-                    .with_mime_from_path(index_path)
+
+                if let Some(spec) = range_spec {
+                    let file = conn_unwrap!(File::open(&index_path).await.ok(), conn);
+                    self.serve_range(conn, file, &index_path, spec, if_range.as_deref())
+                        .await
+                } else {
+                    let (open_path, encoding) = match self
+                        .pick_precompressed(&index_path, accept_encoding.as_deref())
+                        .await
+                    {
+                        Some((sidecar, encoding)) => (sidecar, Some(encoding)),
+                        None => (index_path.clone(), None),
+                    };
+                    let file = conn_unwrap!(File::open(&open_path).await.ok(), conn);
+                    let conn = match encoding {
+                        Some(enc) => conn.with_response_header(ContentEncoding, enc),
+                        None => conn,
+                    };
+                    let mut conn = conn
+                        .send_file_with_options(file, &self.options)
+                        .await
+                        .with_mime_from_path(index_path);
+                    conn.response_headers_mut()
+                        .try_insert(AcceptRanges, "bytes");
+                    conn
+                }
             }
 
             None => return conn,

@@ -34,7 +34,7 @@ package = "async-std"
 version = "1.13.2"
 
 [dependencies.tokio_crate]
-features = ["fs"]
+features = ["fs", "io-util"]
 optional = true
 package = "tokio"
 version = "1.50.0"

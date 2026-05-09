@@ -93,8 +93,7 @@
 //! ## stability note
 //!
 //! Please note that this crate is fairly incomplete, while functional. It
-//! does not include any notion of range requests or cache headers. It
-//! serves all files from disk every time, with no in-memory caching.
+//! does not yet do any in-memory caching — every request reads from disk.
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
@@ -103,6 +102,7 @@ mod readme {}
 mod fs_shims;
 mod handler;
 mod options;
+mod range;
 mod static_conn_ext;
 
 pub use handler::StaticFileHandler;
