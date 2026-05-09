@@ -242,7 +242,7 @@ impl Handler for &'static str {
     }
 
     fn name(&self) -> Cow<'static, str> {
-        format!("conn.ok({:?})", &self).into()
+        format!("conn.ok({self:?})").into()
     }
 }
 
@@ -252,7 +252,7 @@ impl Handler for String {
     }
 
     fn name(&self) -> Cow<'static, str> {
-        format!("conn.ok({:?})", &self).into()
+        format!("conn.ok({self:?})").into()
     }
 }
 

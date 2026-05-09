@@ -466,7 +466,7 @@ where
             "sending:\n{} {}\n{}",
             self.version,
             status,
-            &self.response_headers
+            self.response_headers
         );
 
         write_headers_or_trailers(output_buffer, &self.response_headers, &self.context)?;
