@@ -30,7 +30,7 @@ use std::{
     time::SystemTime,
 };
 use syn::{
-    Ident, LitStr, Token, bracketed,
+    Ident, LitBool, LitStr, Token, bracketed,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
@@ -53,6 +53,7 @@ pub fn include_entry(input: TokenStream) -> TokenStream {
 struct Args {
     path: LitStr,
     compress: Option<(Span, CompressSpec)>,
+    etag: bool,
 }
 
 enum CompressSpec {
@@ -63,34 +64,68 @@ enum CompressSpec {
 impl Parse for Args {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let path: LitStr = input.parse()?;
-        let compress = if input.is_empty() {
-            None
-        } else {
+        let mut compress = None;
+        let mut etag = true;
+        let mut etag_seen = false;
+
+        while !input.is_empty() {
             input.parse::<Token![,]>()?;
-            let kw: Ident = input.parse()?;
-            if kw != "compress" {
-                return Err(syn::Error::new(
-                    kw.span(),
-                    format!("expected `compress`, found `{kw}`"),
-                ));
+            if input.is_empty() {
+                break;
             }
-            let span = kw.span();
-            let spec = if input.peek(Token![=]) {
-                input.parse::<Token![=]>()?;
-                let content;
-                bracketed!(content in input);
-                let list: Punctuated<Ident, Token![,]> = Punctuated::parse_terminated(&content)?;
-                let mut encodings = Vec::new();
-                for id in &list {
-                    encodings.push(Encoding::from_ident(id)?);
+            let kw: Ident = input.parse()?;
+            let kw_str = kw.to_string();
+            match kw_str.as_str() {
+                "compress" => {
+                    if compress.is_some() {
+                        return Err(syn::Error::new(
+                            kw.span(),
+                            "`compress` specified more than once",
+                        ));
+                    }
+                    let span = kw.span();
+                    let spec = if input.peek(Token![=]) {
+                        input.parse::<Token![=]>()?;
+                        let content;
+                        bracketed!(content in input);
+                        let list: Punctuated<Ident, Token![,]> =
+                            Punctuated::parse_terminated(&content)?;
+                        let mut encodings = Vec::new();
+                        for id in &list {
+                            encodings.push(Encoding::from_ident(id)?);
+                        }
+                        CompressSpec::Specified(encodings)
+                    } else {
+                        CompressSpec::Default
+                    };
+                    compress = Some((span, spec));
                 }
-                CompressSpec::Specified(encodings)
-            } else {
-                CompressSpec::Default
-            };
-            Some((span, spec))
-        };
-        Ok(Args { path, compress })
+                "etag" => {
+                    if etag_seen {
+                        return Err(syn::Error::new(
+                            kw.span(),
+                            "`etag` specified more than once",
+                        ));
+                    }
+                    etag_seen = true;
+                    input.parse::<Token![=]>()?;
+                    let val: LitBool = input.parse()?;
+                    etag = val.value;
+                }
+                _ => {
+                    return Err(syn::Error::new(
+                        kw.span(),
+                        format!("unknown argument `{kw_str}`; expected `compress` or `etag`"),
+                    ));
+                }
+            }
+        }
+
+        Ok(Args {
+            path,
+            compress,
+            etag,
+        })
     }
 }
 
@@ -225,12 +260,12 @@ fn expand(args: Args, dir_only: bool) -> TokenStream2 {
         collect_files(&path, &mut file_paths);
     }
 
-    let compressed = compress_files(file_paths, &encodings);
+    let processed = process_files(file_paths, &encodings, args.etag);
 
     if dir_only {
-        expand_dir(&path, &path, &compressed)
+        expand_dir(&path, &path, &processed)
     } else {
-        expand_entry(&path, &path, &compressed)
+        expand_entry(&path, &path, &processed)
     }
 }
 
@@ -255,10 +290,19 @@ fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
 struct FileBytes {
     source: Vec<u8>,
     variants: Vec<(Encoding, Vec<u8>)>,
+    etag: Option<String>,
+}
+
+fn compute_etag(source: &[u8]) -> String {
+    etag::EntityTag::from_data(source).to_string()
 }
 
 #[cfg(any(feature = "brotli", feature = "zstd", feature = "gzip"))]
-fn compress_files(paths: Vec<PathBuf>, encodings: &[Encoding]) -> HashMap<PathBuf, FileBytes> {
+fn process_files(
+    paths: Vec<PathBuf>,
+    encodings: &[Encoding],
+    with_etag: bool,
+) -> HashMap<PathBuf, FileBytes> {
     use rayon::prelude::*;
 
     let pairs: Vec<(PathBuf, Vec<u8>)> = paths
@@ -270,21 +314,6 @@ fn compress_files(paths: Vec<PathBuf>, encodings: &[Encoding]) -> HashMap<PathBu
         })
         .collect();
 
-    if encodings.is_empty() {
-        return pairs
-            .into_iter()
-            .map(|(p, b)| {
-                (
-                    p,
-                    FileBytes {
-                        source: b,
-                        variants: Vec::new(),
-                    },
-                )
-            })
-            .collect();
-    }
-
     pairs
         .into_par_iter()
         .map(|(p, source)| {
@@ -293,23 +322,37 @@ fn compress_files(paths: Vec<PathBuf>, encodings: &[Encoding]) -> HashMap<PathBu
                 .filter_map(|&enc| compress(enc, &source).map(|c| (enc, c)))
                 .collect();
             variants.sort_by_key(|(_, bytes)| bytes.len());
-            (p, FileBytes { source, variants })
+            let etag = with_etag.then(|| compute_etag(&source));
+            (
+                p,
+                FileBytes {
+                    source,
+                    variants,
+                    etag,
+                },
+            )
         })
         .collect()
 }
 
 #[cfg(not(any(feature = "brotli", feature = "zstd", feature = "gzip")))]
-fn compress_files(paths: Vec<PathBuf>, _encodings: &[Encoding]) -> HashMap<PathBuf, FileBytes> {
+fn process_files(
+    paths: Vec<PathBuf>,
+    _encodings: &[Encoding],
+    with_etag: bool,
+) -> HashMap<PathBuf, FileBytes> {
     paths
         .into_iter()
         .map(|p| {
             let bytes = std::fs::read(&p)
                 .unwrap_or_else(|e| panic!("Unable to read \"{}\": {}", p.display(), e));
+            let etag = with_etag.then(|| compute_etag(&bytes));
             (
                 p,
                 FileBytes {
                     source: bytes,
                     variants: Vec::new(),
+                    etag,
                 },
             )
         })
@@ -423,15 +466,20 @@ fn expand_file(root: &Path, path: &Path, files: &HashMap<PathBuf, FileBytes>) ->
         None => base,
     };
 
+    let with_etag = match &fb.etag {
+        Some(etag) => quote!(#with_meta.with_etag(#etag)),
+        None => with_meta,
+    };
+
     if fb.variants.is_empty() {
-        with_meta
+        with_etag
     } else {
         let variant_tokens = fb.variants.iter().map(|(enc, bytes)| {
             let enc_path = enc.variant_path();
             let bytes_lit = Literal::byte_string(bytes);
             quote!((#enc_path, #bytes_lit))
         });
-        quote!(#with_meta.with_encodings(&[#(#variant_tokens),*]))
+        quote!(#with_etag.with_encodings(&[#(#variant_tokens),*]))
     }
 }
 

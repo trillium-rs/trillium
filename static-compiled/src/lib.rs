@@ -20,6 +20,46 @@
 //!
 //! If the root is a file, it will serve that file at all request paths.
 //!
+//! ## ETag headers
+//!
+//! On by default. Each file's source bytes are hashed at compile time via
+//! [`etag::EntityTag::from_data`][et] and the resulting tag is emitted as
+//! the `ETag` response header on every response. The baked tag is
+//! byte-identical to what [`trillium_caching_headers::Etag`][cce] would
+//! compute at runtime, so chaining `Etag::new()` after this handler
+//! observes the precomputed tag, skips rehashing the body, and handles
+//! `If-None-Match` / `304 Not Modified` for free. Opt out per invocation
+//! with `static_compiled!("./public", etag = false)`.
+//!
+//! [et]: https://docs.rs/etag/latest/etag/struct.EntityTag.html#method.from_data
+//! [cce]: https://docs.rs/trillium-caching-headers/latest/trillium_caching_headers/struct.Etag.html
+//!
+//! ## Precompression
+//!
+//! Optionally pre-compress bundle contents into Brotli, Zstd, and Gzip
+//! variants at build time, behind cargo features (`brotli`, `zstd`,
+//! `gzip`, or the `compression` meta-feature) and an opt-in macro
+//! argument:
+//!
+//! ```ignore
+//! // requires e.g. trillium-static-compiled = { features = ["compression"] }
+//! static_compiled!("./public", compress);                  // all enabled encoders
+//! static_compiled!("./public", compress = [Brotli, Gzip]); // explicit subset
+//! ```
+//!
+//! Encoders run at maximum quality in parallel via rayon at macro
+//! expansion time. Per-file variants are sorted smallest-first and only
+//! baked when they save at least 5%; files under 256 bytes are skipped
+//! entirely. The handler picks the smallest variant the client's
+//! `Accept-Encoding` allows, sets `Content-Encoding`, and emits
+//! `Vary: Accept-Encoding` (per-file, only when variants are baked).
+//! Composes with [`trillium-compression`][tc], which passes through any
+//! response that already has `Content-Encoding` set.
+//!
+//! [tc]: https://docs.rs/trillium-compression/
+//!
+//! ## Origin
+//!
 //! This crate contains code from [`include_dir`][include_dir], but with
 //! several tweaks to make it more suitable for this specific use case.
 //!
@@ -103,7 +143,7 @@ mod readme {}
 
 use trillium::{
     Conn, Handler, HeaderValues,
-    KnownHeaderName::{AcceptEncoding, ContentEncoding, ContentType, LastModified, Vary},
+    KnownHeaderName::{AcceptEncoding, ContentEncoding, ContentType, Etag, LastModified, Vary},
 };
 
 mod dir;
@@ -188,6 +228,10 @@ impl StaticCompiledHandler {
                 .try_insert(LastModified, httpdate::fmt_http_date(metadata.modified()));
         }
 
+        if let Some(etag) = file.etag() {
+            conn.response_headers_mut().try_insert(Etag, etag);
+        }
+
         let accept = conn.request_headers().get_str(AcceptEncoding);
         let body = match file.pick_encoding(accept) {
             Some((encoding, bytes)) => {
@@ -239,14 +283,38 @@ impl Handler for StaticCompiledHandler {
     }
 }
 
-/// The preferred interface to build a StaticCompiledHandler
+/// The preferred interface to build a [`StaticCompiledHandler`].
 ///
-/// Macro interface to build a
-/// [`StaticCompiledHandler`]. `static_compiled!("assets")` is
-/// identical to
+/// `static_compiled!("assets")` is identical to
 /// `StaticCompiledHandler::new(root!("assets"))`.
 ///
-/// This takes one argument, which must be a string literal.
+/// ## Arguments
+///
+/// The first argument is a string literal naming a path on disk. After
+/// the path, any number of optional arguments may follow in any order,
+/// separated by commas:
+///
+/// ```ignore
+/// static_compiled!("./public");                                // defaults
+/// static_compiled!("./public", etag = false);                  // skip etag
+/// static_compiled!("./public", compress);                      // all enabled encoders
+/// static_compiled!("./public", compress = [Brotli, Gzip]);     // specific encoders
+/// static_compiled!("./public", compress, etag = false);        // both
+/// ```
+///
+/// ### `etag = bool`
+///
+/// On by default. When true, an entity tag is computed at compile time
+/// for each file's source bytes and emitted as the `ETag` response
+/// header. See the [crate-level docs][crate#etag-headers] for details.
+///
+/// ### `compress` and `compress = [Brotli, Zstd, Gzip]`
+///
+/// Off by default and gated behind the `brotli` / `zstd` / `gzip` /
+/// `compression` cargo features. The bare form `compress` bakes every
+/// encoding whose feature is enabled; the listed form bakes a specified
+/// subset and is a compile error if a listed encoding's feature is not
+/// enabled. See the [crate-level docs][crate#precompression].
 ///
 /// ## Relative paths
 ///
@@ -257,11 +325,11 @@ impl Handler for StaticCompiledHandler {
 ///
 /// ## Environment variable expansion
 ///
-/// If the argument to `static_compiled` contains substrings that are
-/// formatted like an environment variable, beginning with a $, they will
-/// be interpreted in the compile time environment.
+/// If the path argument to `static_compiled!` contains substrings that
+/// are formatted like an environment variable, beginning with a `$`,
+/// they will be interpreted in the compile time environment.
 ///
-/// For example "$OUT_DIR/some_directory" will expand to the directory
+/// For example `"$OUT_DIR/some_directory"` will expand to the directory
 /// `some_directory` within the env variable `$OUT_DIR` set by cargo. See
 /// [this link][env_vars] for further documentation on the environment
 /// variables set by cargo.
@@ -274,29 +342,16 @@ macro_rules! static_compiled {
     };
 }
 
-/// Include the path as root. To be passed into [`StaticCompiledHandler::new`].
+/// Include the path as root. To be passed into
+/// [`StaticCompiledHandler::new`].
 ///
-/// This takes one argument, which must be a string literal.
+/// Most callers want [`static_compiled!`] instead, which wraps this in
+/// the handler constructor.
 ///
-/// ## Relative paths
-///
-/// Relative paths are expanded and canonicalized relative to
-/// `$CARGO_MANIFEST_DIR`, which is usually the directory that contains
-/// your Cargo.toml. If compiled within a workspace, this will be the
-/// subcrate's Cargo.toml.
-///
-/// ## Environment variable expansion
-///
-/// If the argument to `static_compiled` contains substrings that are
-/// formatted like an environment variable, beginning with a $, they will
-/// be interpreted in the compile time environment.
-///
-/// For example "$OUT_DIR/some_directory" will expand to the directory
-/// `some_directory` within the env variable `$OUT_DIR` set by cargo. See
-/// [this link][env_vars] for further documentation on the environment
-/// variables set by cargo.
-///
-/// [env_vars]:https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-crates
+/// Accepts the same arguments as [`static_compiled!`] — see its
+/// documentation for the path-argument grammar, optional `etag` and
+/// `compress` arguments, relative-path resolution, and environment
+/// variable expansion.
 #[macro_export]
 macro_rules! root {
     ($($args:tt)*) => {{

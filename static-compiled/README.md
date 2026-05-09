@@ -28,6 +28,43 @@ let handler = static_compiled!("./public").with_index_file("index.html");
 The `static_compiled!` macro embeds the directory contents at compile time, so the binary is
 self-contained — no filesystem access at runtime.
 
+## ETag headers (default-on)
+
+Each file is hashed at compile time and served with an `ETag` response header. The baked tag is
+byte-identical to what
+[`trillium_caching_headers::Etag`](https://docs.rs/trillium-caching-headers/latest/trillium_caching_headers/struct.Etag.html)
+would compute at runtime, so adding `Etag::new()` after this handler in the chain gives you
+`If-None-Match` / `304 Not Modified` for free without re-hashing the body.
+
+Opt out per invocation: `static_compiled!("./public", etag = false)`.
+
+## Precompression (opt-in via cargo features)
+
+Pre-compress bundle contents into Brotli, Zstd, and Gzip variants at build time. Enable one or more
+encoders via cargo features:
+
+```toml
+[dependencies]
+trillium-static-compiled = { version = "*", features = ["compression"] }
+# or pick individual encoders:
+# features = ["brotli", "gzip"]
+```
+
+Then opt in per invocation:
+
+```rust,ignore
+static_compiled!("./public", compress);                  // every enabled encoder
+static_compiled!("./public", compress = [Brotli, Gzip]); // a specific subset
+```
+
+The macro runs each encoder at maximum quality, in parallel via rayon. Per-file variants are sorted
+smallest-first and only baked when they save at least 5%; files under 256 bytes are skipped
+entirely. At request time the handler picks the smallest variant the client's `Accept-Encoding`
+allows, sets `Content-Encoding`, and emits `Vary: Accept-Encoding`.
+
+This composes with [`trillium-compression`](https://docs.rs/trillium-compression/), which passes
+through any response that already has `Content-Encoding` set.
+
 ## Safety
 
 This crate uses `#![forbid(unsafe_code)]`.

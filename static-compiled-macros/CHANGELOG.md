@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0]
 
 ### Added
+- Compile-time entity-tag computation, on by default. The macro hashes each
+  file's source bytes via `etag::EntityTag::from_data` and bakes the
+  resulting tag string as a `&'static str`; the handler emits it as the
+  `ETag` response header (one tag per source, applied to all encodings).
+  Opt out per invocation with `static_compiled!("./files", etag = false)`.
+  The baked tag is byte-identical to what `trillium_caching_headers::Etag`
+  would compute at runtime, so chaining `Etag::new()` after this handler
+  composes naturally — that handler observes the precomputed tag, skips
+  rehashing the body, and handles `If-None-Match` / `304 Not Modified`.
 - Compile-time precompression of file contents into Brotli, Zstd, and Gzip
   variants, gated behind opt-in cargo features (`brotli`, `zstd`, `gzip`,
   or the `compression` meta-feature) and an opt-in macro argument:

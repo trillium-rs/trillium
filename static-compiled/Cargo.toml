@@ -21,6 +21,7 @@ httpdate = "1.0.3"
 trillium-static-compiled-macros.workspace = true
 
 [dev-dependencies]
+etag = { version = "4.0.0", features = ["std"] }
 trillium-caching-headers.workspace = true
 trillium-logger.workspace = true
 trillium-smol.workspace = true
