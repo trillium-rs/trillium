@@ -5,7 +5,11 @@ use crate::{
 };
 use relative_path::RelativePath;
 use std::path::{Path, PathBuf};
-use trillium::{Conn, Handler, conn_unwrap};
+use trillium::{
+    Conn, Handler, HeaderValues,
+    KnownHeaderName::{AcceptEncoding, ContentEncoding, Vary},
+    conn_unwrap,
+};
 
 /// trillium handler to serve static files from the filesystem
 #[derive(Debug)]
@@ -14,12 +18,48 @@ pub struct StaticFileHandler {
     index_file: Option<String>,
     root_is_file: bool,
     options: StaticOptions,
+    /// (encoding token, filename suffix without the leading dot), in match
+    /// priority order. Empty disables precompressed-sidecar serving.
+    precompressed: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
 enum Record {
-    File(PathBuf, File),
+    /// (path-for-mime-detection, opened file, optional content-encoding token)
+    File(PathBuf, File, Option<String>),
     Dir(PathBuf),
+}
+
+fn accept_encoding_allows(accept: &str, encoding: &str) -> bool {
+    let mut wildcard_ok = false;
+    let mut named_ok = None;
+    for part in accept.split(',') {
+        let mut iter = part.trim().split(';');
+        let token = iter.next().unwrap_or("").trim();
+        let q = iter
+            .find_map(|p| {
+                p.trim()
+                    .strip_prefix("q=")
+                    .and_then(|q| q.parse::<f32>().ok())
+            })
+            .unwrap_or(1.0);
+        if token.eq_ignore_ascii_case(encoding) {
+            named_ok = Some(q > 0.0);
+        } else if token == "*" && named_ok.is_none() {
+            wildcard_ok = q > 0.0;
+        }
+    }
+    named_ok.unwrap_or(wildcard_ok)
+}
+
+fn append_vary_accept_encoding(mut conn: Conn) -> Conn {
+    let vary = conn
+        .response_headers()
+        .get_str(Vary)
+        .map(|existing| HeaderValues::from(format!("{existing}, Accept-Encoding")))
+        .unwrap_or_else(|| HeaderValues::from("Accept-Encoding"));
+    conn.response_headers_mut().insert(Vary, vary);
+    conn
 }
 
 impl StaticFileHandler {
@@ -54,17 +94,49 @@ impl StaticFileHandler {
         }
     }
 
-    async fn resolve(&self, url_path: &str) -> Option<Record> {
+    async fn pick_precompressed(
+        &self,
+        asset_path: &Path,
+        accept_encoding: Option<&str>,
+    ) -> Option<(PathBuf, String)> {
+        if self.precompressed.is_empty() {
+            return None;
+        }
+        let accept = accept_encoding?;
+        for (encoding, suffix) in &self.precompressed {
+            if !accept_encoding_allows(accept, encoding) {
+                continue;
+            }
+            let mut sidecar = asset_path.as_os_str().to_owned();
+            sidecar.push(".");
+            sidecar.push(suffix);
+            let sidecar = PathBuf::from(sidecar);
+            if let Ok(metadata) = fs::metadata(&sidecar).await
+                && metadata.is_file()
+            {
+                return Some((sidecar, encoding.clone()));
+            }
+        }
+        None
+    }
+
+    async fn resolve(&self, url_path: &str, accept_encoding: Option<&str>) -> Option<Record> {
         let fs_path = self.resolve_fs_path(url_path).await?;
         let metadata = fs::metadata(&fs_path).await.ok()?;
         if metadata.is_dir() {
             log::trace!("resolved {} as dir {}", url_path, fs_path.to_str().unwrap());
             Some(Record::Dir(fs_path))
         } else if metadata.is_file() {
+            if let Some((sidecar, encoding)) =
+                self.pick_precompressed(&fs_path, accept_encoding).await
+                && let Ok(file) = File::open(&sidecar).await
+            {
+                return Some(Record::File(fs_path, file, Some(encoding)));
+            }
             File::open(&fs_path)
                 .await
                 .ok()
-                .map(|file| Record::File(fs_path, file))
+                .map(|file| Record::File(fs_path, file, None))
         } else {
             None
         }
@@ -101,7 +173,69 @@ impl StaticFileHandler {
             index_file: None,
             root_is_file: false,
             options: StaticOptions::default(),
+            precompressed: Vec::new(),
         }
+    }
+
+    /// Enable serving precompressed sidecar files for the standard set of
+    /// content codings: brotli (`.br`), zstd (`.zst`), and gzip (`.gz`), in
+    /// that match-priority order.
+    ///
+    /// For each request whose `Accept-Encoding` allows one of these codings,
+    /// the handler looks for a sibling file at `<asset>.<suffix>` and, if
+    /// present, serves it with `Content-Encoding` set to the coding token.
+    /// The original asset's MIME type is preserved.
+    ///
+    /// When precompression is enabled, every response from this handler sets
+    /// `Vary: Accept-Encoding` — including the uncompressed-original fallback
+    /// — so caches do not serve a compressed response to a client that did
+    /// not ask for one (or vice versa).
+    ///
+    /// Equivalent to chaining three calls:
+    ///
+    /// ```ignore
+    /// handler
+    ///     .with_precompressed_variant("br", "br")
+    ///     .with_precompressed_variant("zstd", "zst")
+    ///     .with_precompressed_variant("gzip", "gz")
+    /// ```
+    ///
+    /// To register additional codings or use only a subset, use
+    /// [`with_precompressed_variant`](Self::with_precompressed_variant)
+    /// directly.
+    ///
+    /// This composes with `trillium-compression`: when this handler sets
+    /// `Content-Encoding`, the compression middleware skips the body and
+    /// passes it through unchanged.
+    pub fn with_precompressed(self) -> Self {
+        self.with_precompressed_variant("br", "br")
+            .with_precompressed_variant("zstd", "zst")
+            .with_precompressed_variant("gzip", "gz")
+    }
+
+    /// Register a precompressed-sidecar variant. Calls are additive and
+    /// preserve registration order — earlier registrations win when a client
+    /// accepts more than one.
+    ///
+    /// `encoding` is the [HTTP content-coding token][content-coding] used in
+    /// the `Content-Encoding` response header (e.g. `"br"`, `"gzip"`,
+    /// `"zstd"`).  `suffix` is the on-disk filename suffix without the
+    /// leading dot (e.g. `"br"`, `"gz"`, `"zst"`).
+    ///
+    /// Most callers want [`with_precompressed`](Self::with_precompressed),
+    /// which registers the standard set with conventional suffixes. Use
+    /// this method to register a custom coding (for example, a non-standard
+    /// suffix from a build pipeline) or to opt into only a subset of the
+    /// defaults.
+    ///
+    /// [content-coding]: https://www.rfc-editor.org/rfc/rfc9110.html#name-content-codings
+    pub fn with_precompressed_variant(
+        mut self,
+        encoding: impl Into<String>,
+        suffix: impl Into<String>,
+    ) -> Self {
+        self.precompressed.push((encoding.into(), suffix.into()));
+        self
     }
 
     /// do not set an etag header
@@ -145,8 +279,8 @@ impl StaticFileHandler {
 
 impl Handler for StaticFileHandler {
     async fn init(&mut self, _info: &mut trillium::Info) {
-        self.root_is_file = match self.resolve("/").await {
-            Some(Record::File(path, _)) => {
+        self.root_is_file = match self.resolve("/", None).await {
+            Some(Record::File(path, _, _)) => {
                 log::info!("serving {:?} for all paths", path);
                 true
             }
@@ -167,19 +301,50 @@ impl Handler for StaticFileHandler {
     }
 
     async fn run(&self, conn: Conn) -> Conn {
-        match self.resolve(conn.path()).await {
-            Some(Record::File(path, file)) => conn.send_file(file).await.with_mime_from_path(path),
+        let accept_encoding = conn
+            .request_headers()
+            .get_str(AcceptEncoding)
+            .map(str::to_owned);
+        let precompressed_enabled = !self.precompressed.is_empty();
 
-            Some(Record::Dir(path)) => {
-                let index = conn_unwrap!(self.index_file.as_ref(), conn);
-                let path = path.join(index);
-                let file = conn_unwrap!(File::open(path.to_str().unwrap()).await.ok(), conn);
+        let conn = match self.resolve(conn.path(), accept_encoding.as_deref()).await {
+            Some(Record::File(path, file, encoding)) => {
+                let conn = match encoding {
+                    Some(enc) => conn.with_response_header(ContentEncoding, enc),
+                    None => conn,
+                };
                 conn.send_file_with_options(file, &self.options)
                     .await
                     .with_mime_from_path(path)
             }
 
-            _ => conn,
+            Some(Record::Dir(path)) => {
+                let index = conn_unwrap!(self.index_file.as_ref(), conn);
+                let index_path = path.join(index);
+                let (open_path, encoding) = match self
+                    .pick_precompressed(&index_path, accept_encoding.as_deref())
+                    .await
+                {
+                    Some((sidecar, encoding)) => (sidecar, Some(encoding)),
+                    None => (index_path.clone(), None),
+                };
+                let file = conn_unwrap!(File::open(&open_path).await.ok(), conn);
+                let conn = match encoding {
+                    Some(enc) => conn.with_response_header(ContentEncoding, enc),
+                    None => conn,
+                };
+                conn.send_file_with_options(file, &self.options)
+                    .await
+                    .with_mime_from_path(index_path)
+            }
+
+            None => return conn,
+        };
+
+        if precompressed_enabled {
+            append_vary_accept_encoding(conn)
+        } else {
+            conn
         }
     }
 }

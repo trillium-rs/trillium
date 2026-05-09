@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Precompressed-sidecar serving. `StaticFileHandler::with_precompressed()`
+  serves `<asset>.br`, `<asset>.zst`, and `<asset>.gz` siblings when the
+  client's `Accept-Encoding` allows them, in that priority order, with
+  `Content-Encoding` set and the original asset's MIME type preserved.
+  `Vary: Accept-Encoding` is emitted on every response from the handler
+  while the feature is enabled — including the uncompressed-original
+  fallback — so caches do not serve a compressed response to a client
+  that did not ask for one. Composes with `trillium-compression`, which
+  passes any response that already has `Content-Encoding` through
+  unchanged. For non-default codings or suffixes, register variants
+  individually with `with_precompressed_variant(encoding, suffix)`.
+
+### Fixed
+- `.without_etag_header()` and `.without_modified_header()` now also apply
+  to direct-file requests, not just to index-file resolution.
+
 ## [0.5.0] - 2026-05-02
 
 ### Fixed

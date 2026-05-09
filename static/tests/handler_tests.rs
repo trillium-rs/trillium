@@ -214,3 +214,280 @@ fn symlink_escaping_root_is_followed() {
             .assert_body("secret content");
     });
 }
+
+// ---------------------------------------------------------------------------
+// Precompressed sidecars
+// ---------------------------------------------------------------------------
+
+mod precompressed {
+    use super::*;
+    use trillium::{Conn, KnownHeaderName::Vary};
+
+    /// Layout produced by [`setup_with_sidecars`]:
+    ///
+    /// ```text
+    /// www/
+    ///   page.html              ← all three sidecars present
+    ///   page.html.br
+    ///   page.html.zst
+    ///   page.html.gz
+    ///   only-gz.html           ← only one sidecar present
+    ///   only-gz.html.gz
+    ///   plain.html             ← no sidecars
+    ///   home/
+    ///     index.html           ← exercises the index/Dir code path
+    ///     index.html.br
+    /// ```
+    fn setup_with_sidecars() -> (TempDir, PathBuf) {
+        let outer = TempDir::new().unwrap();
+        let www = outer.path().join("www");
+        fs::create_dir(&www).unwrap();
+
+        fs::write(www.join("page.html"), "original page content").unwrap();
+        fs::write(www.join("page.html.br"), "brotli-encoded payload").unwrap();
+        fs::write(www.join("page.html.zst"), "zstd-encoded payload").unwrap();
+        fs::write(www.join("page.html.gz"), "gzip-encoded payload").unwrap();
+
+        fs::write(www.join("only-gz.html"), "only gz original").unwrap();
+        fs::write(www.join("only-gz.html.gz"), "only gz precompressed").unwrap();
+
+        fs::write(www.join("plain.html"), "plain original").unwrap();
+
+        fs::create_dir(www.join("home")).unwrap();
+        fs::write(www.join("home/index.html"), "home index original").unwrap();
+        fs::write(www.join("home/index.html.br"), "home index brotli").unwrap();
+
+        (outer, www)
+    }
+
+    #[test]
+    fn no_accept_encoding_serves_original_with_vary() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(StaticFileHandler::new(&www).with_precompressed()).await;
+            app.get("/page.html")
+                .await
+                .assert_ok()
+                .assert_body("original page content")
+                .assert_no_header("content-encoding")
+                .assert_header("vary", "Accept-Encoding")
+                .assert_header("content-type", "text/html; charset=utf-8");
+        });
+    }
+
+    #[test]
+    fn feature_disabled_emits_no_vary() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(StaticFileHandler::new(&www)).await;
+            // Even when the client offers compression, an unconfigured handler
+            // must not advertise Vary — there is no encoding negotiation.
+            app.get("/page.html")
+                .with_request_header("accept-encoding", "br")
+                .await
+                .assert_ok()
+                .assert_body("original page content")
+                .assert_no_header("content-encoding")
+                .assert_no_header("vary");
+        });
+    }
+
+    #[test]
+    fn gzip_accept_serves_gzip_sidecar() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(StaticFileHandler::new(&www).with_precompressed()).await;
+            app.get("/page.html")
+                .with_request_header("accept-encoding", "gzip")
+                .await
+                .assert_ok()
+                .assert_body("gzip-encoded payload")
+                .assert_header("content-encoding", "gzip")
+                .assert_header("vary", "Accept-Encoding")
+                // MIME comes from the original, not the .gz sidecar
+                .assert_header("content-type", "text/html; charset=utf-8");
+        });
+    }
+
+    #[test]
+    fn brotli_preferred_over_gzip_with_default_priority() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(StaticFileHandler::new(&www).with_precompressed()).await;
+            app.get("/page.html")
+                .with_request_header("accept-encoding", "br, gzip")
+                .await
+                .assert_ok()
+                .assert_body("brotli-encoded payload")
+                .assert_header("content-encoding", "br");
+        });
+    }
+
+    #[test]
+    fn registration_order_decides_priority() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            // Register zstd first; it must beat brotli even when both are accepted.
+            let app = TestServer::new(
+                StaticFileHandler::new(&www)
+                    .with_precompressed_variant("zstd", "zst")
+                    .with_precompressed_variant("br", "br"),
+            )
+            .await;
+            app.get("/page.html")
+                .with_request_header("accept-encoding", "br, zstd")
+                .await
+                .assert_ok()
+                .assert_body("zstd-encoded payload")
+                .assert_header("content-encoding", "zstd");
+        });
+    }
+
+    #[test]
+    fn falls_back_to_original_when_no_sidecar_exists() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(StaticFileHandler::new(&www).with_precompressed()).await;
+            app.get("/plain.html")
+                .with_request_header("accept-encoding", "gzip, br, zstd")
+                .await
+                .assert_ok()
+                .assert_body("plain original")
+                .assert_no_header("content-encoding")
+                .assert_header("vary", "Accept-Encoding");
+        });
+    }
+
+    #[test]
+    fn falls_back_when_only_unaccepted_sidecar_exists() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            // only-gz has only .gz on disk; client refuses gzip.
+            let app = TestServer::new(StaticFileHandler::new(&www).with_precompressed()).await;
+            app.get("/only-gz.html")
+                .with_request_header("accept-encoding", "br")
+                .await
+                .assert_ok()
+                .assert_body("only gz original")
+                .assert_no_header("content-encoding");
+        });
+    }
+
+    #[test]
+    fn q0_disables_specific_encoding() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(StaticFileHandler::new(&www).with_precompressed()).await;
+            app.get("/page.html")
+                .with_request_header("accept-encoding", "gzip;q=0")
+                .await
+                .assert_ok()
+                .assert_body("original page content")
+                .assert_no_header("content-encoding")
+                .assert_header("vary", "Accept-Encoding");
+        });
+    }
+
+    #[test]
+    fn wildcard_matches_first_registered_sidecar() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            // page.html has all three sidecars; default order is br first.
+            let app = TestServer::new(StaticFileHandler::new(&www).with_precompressed()).await;
+            app.get("/page.html")
+                .with_request_header("accept-encoding", "*")
+                .await
+                .assert_ok()
+                .assert_body("brotli-encoded payload")
+                .assert_header("content-encoding", "br");
+        });
+    }
+
+    #[test]
+    fn index_file_serves_sidecar() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(
+                StaticFileHandler::new(&www)
+                    .with_index_file("index.html")
+                    .with_precompressed(),
+            )
+            .await;
+            app.get("/home")
+                .with_request_header("accept-encoding", "br")
+                .await
+                .assert_ok()
+                .assert_body("home index brotli")
+                .assert_header("content-encoding", "br")
+                .assert_header("vary", "Accept-Encoding")
+                .assert_header("content-type", "text/html; charset=utf-8");
+        });
+    }
+
+    #[test]
+    fn index_file_falls_back_to_original_when_no_sidecar_accepted() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(
+                StaticFileHandler::new(&www)
+                    .with_index_file("index.html")
+                    .with_precompressed(),
+            )
+            .await;
+            app.get("/home")
+                .with_request_header("accept-encoding", "gzip")
+                .await
+                .assert_ok()
+                .assert_body("home index original")
+                .assert_no_header("content-encoding")
+                .assert_header("vary", "Accept-Encoding");
+        });
+    }
+
+    #[test]
+    fn vary_is_appended_to_upstream_value() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            // A handler ahead of the static handler stamps Vary; the static
+            // handler must concatenate, not overwrite.
+            let inject_vary = |conn: Conn| async { conn.with_response_header(Vary, "User-Agent") };
+            let app = TestServer::new((
+                inject_vary,
+                StaticFileHandler::new(&www).with_precompressed(),
+            ))
+            .await;
+            app.get("/page.html")
+                .with_request_header("accept-encoding", "br")
+                .await
+                .assert_ok()
+                .assert_body("brotli-encoded payload")
+                .assert_header("vary", "User-Agent, Accept-Encoding");
+        });
+    }
+
+    // Verifies the File-arm fix: `.without_etag_header()` previously only
+    // applied to index-file resolution, not direct file requests.
+    #[test]
+    fn without_etag_header_applies_to_direct_file() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(StaticFileHandler::new(&www).without_etag_header()).await;
+            app.get("/plain.html")
+                .await
+                .assert_ok()
+                .assert_no_header("etag");
+        });
+    }
+
+    #[test]
+    fn without_modified_header_applies_to_direct_file() {
+        let (_outer, www) = setup_with_sidecars();
+        block_on(async {
+            let app = TestServer::new(StaticFileHandler::new(&www).without_modified_header()).await;
+            app.get("/plain.html")
+                .await
+                .assert_ok()
+                .assert_no_header("last-modified");
+        });
+    }
+}
