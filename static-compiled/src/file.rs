@@ -11,6 +11,7 @@ pub struct File {
     contents: &'static [u8],
     metadata: Option<crate::Metadata>,
     encodings: &'static [(Encoding, &'static [u8])],
+    etag: Option<&'static str>,
 }
 
 impl File {
@@ -21,6 +22,7 @@ impl File {
             contents,
             metadata: None,
             encodings: &[],
+            etag: None,
         }
     }
 
@@ -46,6 +48,7 @@ impl File {
             path,
             contents,
             encodings,
+            etag,
             ..
         } = self;
 
@@ -54,6 +57,7 @@ impl File {
             contents,
             metadata: Some(metadata),
             encodings,
+            etag,
         }
     }
 
@@ -73,6 +77,7 @@ impl File {
             path,
             contents,
             metadata,
+            etag,
             ..
         } = self;
 
@@ -81,7 +86,40 @@ impl File {
             contents,
             metadata,
             encodings,
+            etag,
         }
+    }
+
+    /// Attach a precomputed entity-tag string. Used by the `static_compiled!`
+    /// macro when etag generation is enabled (the default); not generally
+    /// called directly.
+    ///
+    /// The string is expected to be a fully formatted entity-tag literal,
+    /// including its surrounding quotes — i.e. the value of an `ETag`
+    /// response header. The macro produces this via
+    /// [`etag::EntityTag::from_data`], so the bytes match what
+    /// `trillium_caching_headers::Etag` would compute at runtime.
+    pub const fn with_etag(self, etag: &'static str) -> Self {
+        let File {
+            path,
+            contents,
+            metadata,
+            encodings,
+            ..
+        } = self;
+
+        File {
+            path,
+            contents,
+            metadata,
+            encodings,
+            etag: Some(etag),
+        }
+    }
+
+    /// The precomputed entity-tag, if one was baked at compile time.
+    pub const fn etag(&self) -> Option<&'static str> {
+        self.etag
     }
 
     /// All precompressed variants attached to this file, in server-preference
@@ -112,6 +150,7 @@ impl Debug for File {
                 "encodings",
                 &format_args!("<{} variants>", self.encodings.len()),
             )
+            .field("etag", &self.etag)
             .finish()
     }
 }

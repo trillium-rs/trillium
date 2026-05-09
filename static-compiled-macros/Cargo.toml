@@ -16,6 +16,7 @@ proc-macro = true
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 syn = "2.0.117"
+etag = { version = "4.0.0", features = ["std"] }
 brotli = { version = "8.0.2", optional = true }
 zstd = { version = "0.13.3", optional = true }
 flate2 = { version = "1.1.9", optional = true }
