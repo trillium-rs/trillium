@@ -161,7 +161,7 @@ impl Handler for Forwarding {
             Ok(None) => return conn,
         };
 
-        log::debug!("received trusted forwarded {:?}", &forwarded);
+        log::debug!("received trusted forwarded {:?}", forwarded);
 
         let inner_mut: &mut trillium_http::Conn<Box<dyn Transport>> = conn.as_mut();
 

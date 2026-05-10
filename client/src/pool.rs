@@ -153,7 +153,7 @@ where
     }
 
     pub fn insert(&self, k: K, entry: PoolEntry<V>) {
-        log::debug!("saving connection to {:?}", &k);
+        log::debug!("saving connection to {:?}", k);
         match self.connections.entry(k) {
             Entry::Occupied(o) => {
                 o.get().insert(entry);

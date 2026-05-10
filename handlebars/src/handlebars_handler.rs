@@ -84,7 +84,7 @@ impl HandlebarsHandler {
         {
             let mut handlebars = self.0.write().unwrap();
             for file in glob::glob(pattern).unwrap().filter_map(Result::ok) {
-                log::debug!("registered template {:?}", &file);
+                log::debug!("registered template {:?}", file);
                 handlebars
                     .register_template_file(file.clone().to_string_lossy().as_ref(), file)
                     .unwrap();
