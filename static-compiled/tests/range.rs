@@ -8,8 +8,6 @@ use etag::EntityTag;
 use trillium_static_compiled::static_compiled;
 use trillium_testing::{TestServer, block_on};
 
-const LOREM_LEN: usize = 1147; // size of tests/fixtures/compressible/lorem.html
-
 fn lorem_source() -> String {
     std::fs::read_to_string("./tests/fixtures/compressible/lorem.html").unwrap()
 }
@@ -34,7 +32,7 @@ fn simple_range_returns_206_with_slice() {
             .with_request_header("range", "bytes=0-99")
             .await
             .assert_status(206)
-            .assert_header("content-range", &*format!("bytes 0-99/{LOREM_LEN}"))
+            .assert_header("content-range", &*format!("bytes 0-99/{}", src.len()))
             .assert_header("accept-ranges", "bytes")
             .assert_body(&src[..=99]);
     });
@@ -43,6 +41,7 @@ fn simple_range_returns_206_with_slice() {
 #[test]
 fn suffix_range_returns_last_n_bytes() {
     let src = lorem_source();
+    let len = src.len();
     block_on(async {
         let app = TestServer::new(static_compiled!("./tests/fixtures/compressible")).await;
         app.get("/lorem.html")
@@ -51,7 +50,7 @@ fn suffix_range_returns_last_n_bytes() {
             .assert_status(206)
             .assert_header(
                 "content-range",
-                &*format!("bytes {}-{}/{LOREM_LEN}", LOREM_LEN - 50, LOREM_LEN - 1),
+                &*format!("bytes {}-{}/{len}", len - 50, len - 1),
             )
             .assert_body(&src[src.len() - 50..]);
     });
@@ -60,16 +59,14 @@ fn suffix_range_returns_last_n_bytes() {
 #[test]
 fn open_ended_range_returns_to_end() {
     let src = lorem_source();
+    let len = src.len();
     block_on(async {
         let app = TestServer::new(static_compiled!("./tests/fixtures/compressible")).await;
         app.get("/lorem.html")
             .with_request_header("range", "bytes=1000-")
             .await
             .assert_status(206)
-            .assert_header(
-                "content-range",
-                &*format!("bytes 1000-{}/{LOREM_LEN}", LOREM_LEN - 1),
-            )
+            .assert_header("content-range", &*format!("bytes 1000-{}/{len}", len - 1))
             .assert_body(&src[1000..]);
     });
 }
@@ -77,29 +74,28 @@ fn open_ended_range_returns_to_end() {
 #[test]
 fn end_past_total_clamps_to_size_minus_one() {
     let src = lorem_source();
+    let len = src.len();
     block_on(async {
         let app = TestServer::new(static_compiled!("./tests/fixtures/compressible")).await;
         app.get("/lorem.html")
             .with_request_header("range", "bytes=0-99999")
             .await
             .assert_status(206)
-            .assert_header(
-                "content-range",
-                &*format!("bytes 0-{}/{LOREM_LEN}", LOREM_LEN - 1),
-            )
+            .assert_header("content-range", &*format!("bytes 0-{}/{len}", len - 1))
             .assert_body(&src);
     });
 }
 
 #[test]
 fn out_of_bounds_returns_416() {
+    let len = lorem_source().len();
     block_on(async {
         let app = TestServer::new(static_compiled!("./tests/fixtures/compressible")).await;
         app.get("/lorem.html")
             .with_request_header("range", "bytes=99999-")
             .await
             .assert_status(416)
-            .assert_header("content-range", &*format!("bytes */{LOREM_LEN}"))
+            .assert_header("content-range", &*format!("bytes */{len}"))
             .assert_body("");
     });
 }
@@ -176,7 +172,7 @@ fn range_bypasses_accept_encoding_negotiation() {
             .with_request_header("accept-encoding", "br")
             .await
             .assert_status(206)
-            .assert_header("content-range", &*format!("bytes 0-99/{LOREM_LEN}"))
+            .assert_header("content-range", &*format!("bytes 0-99/{}", src.len()))
             .assert_no_header("content-encoding")
             .assert_body(&src[..=99]);
     });
