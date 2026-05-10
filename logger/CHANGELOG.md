@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-05-15
+
+### Added: Client Logger
+
+- New optional `client` cargo feature exposing `trillium_logger::client::ClientLogger`, a
+  `ClientHandler` for `trillium-client` that emits one log line per request. Formatters
+  compose from primitives in `trillium_logger::client::formatters` (method, url, status,
+  version, response time, transport error, timestamp, request/response header, content
+  length, scheme indicator); `ClientLogFormatter` is implemented for tuples, `&'static str`,
+  `Arc<str>`, and `Fn(&Conn, bool) -> impl Display`.
+
+  Defaults: `dev_formatter`, `ColorMode::Auto`, `Target::Stdout`. Tunable via
+  `with_formatter`, `with_color_mode`, and `with_target`.
+
+  Log lines cover every request — successful responses, responses synthesized by an
+  upstream handler (cache hit, mock), and transport-layer failures (connection refused,
+  TLS error, timeout). The default `dev_formatter` renders any transport error inline.
+
 ## [0.5.0] - 2026-05-02
 
 ### Changed

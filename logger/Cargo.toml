@@ -1,14 +1,29 @@
 [package]
 name = "trillium-logger"
-version = "0.5.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.5.1"
 edition = "2024"
 description = "logger for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
 readme = "README.md"
 keywords = ["trillium", "framework", "async", "logging"]
-categories = ["web-programming::http-server", "web-programming"]
+categories = [
+    "web-programming::http-server",
+    "web-programming::http-client",
+    "web-programming",
+]
+
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing", "trillium-logger"]
+
+[package.metadata.docs.rs]
+features = ["client"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = []
+client = ["dep:trillium-client"]
 
 [dependencies]
 colored = "3.1.1"
@@ -21,6 +36,7 @@ time = { version = "0.3.47", features = [
 ] }
 trillium.workspace = true
 trillium-http.workspace = true
+trillium-client = { workspace = true, optional = true }
 url = "2.5.8"
 
 [dev-dependencies]
@@ -28,7 +44,5 @@ access_log_parser = "0.11.0"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-http = { path = "../http", features = ["http-compat-1"] }
+trillium-logger = { path = ".", features = ["client"] }
 async-channel = "2.5.0"
-
-[package.metadata.cargo-udeps.ignore]
-development = ["trillium-testing"]
