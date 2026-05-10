@@ -137,7 +137,7 @@ impl CachingHeadersExt for trillium::Headers {
 
     fn cache_control(&self) -> Option<CacheControlHeader> {
         self.get_str(KnownHeaderName::CacheControl)
-            .and_then(|cc| cc.parse().ok())
+            .map(CacheControlHeader::parse)
     }
 
     fn set_cache_control(&mut self, cache_control: impl Into<CacheControlHeader>) {

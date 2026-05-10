@@ -2,7 +2,6 @@ use CacheControlDirective::*;
 use std::{
     fmt::{Display, Write},
     ops::{Deref, DerefMut},
-    str::FromStr,
     time::Duration,
 };
 use trillium::{Conn, Handler, HeaderValues, KnownHeaderName};
@@ -18,8 +17,8 @@ pub enum CacheControlDirective {
     /// [`max-age`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control#expiration)
     MaxAge(Duration),
 
-    /// [`max-fresh`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control#expiration)
-    MaxFresh(Duration),
+    /// [`min-fresh`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control#min-fresh)
+    MinFresh(Duration),
 
     /// [`max-stale`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control#expiration)
     MaxStale(Option<Duration>),
@@ -137,10 +136,10 @@ impl CacheControlHeader {
         })
     }
 
-    /// returns a duration if one of the directives is `max-fresh`
-    pub fn max_fresh(&self) -> Option<Duration> {
+    /// returns a duration if one of the directives is `min-fresh`
+    pub fn min_fresh(&self) -> Option<Duration> {
         self.iter().find_map(|d| match d {
-            MaxFresh(d) => Some(*d),
+            MinFresh(d) => Some(*d),
             _ => None,
         })
     }
@@ -226,6 +225,46 @@ impl CacheControlHeader {
             _ => None,
         })
     }
+
+    /// Parse a `Cache-Control` header value. Unrecognized directives are
+    /// preserved as [`CacheControlDirective::UnknownDirective`] per RFC 9111
+    /// §5.2; this parser is infallible.
+    pub fn parse(s: &str) -> Self {
+        Self(
+            s.to_ascii_lowercase()
+                .split(',')
+                .map(str::trim)
+                .filter(|directive| !directive.is_empty())
+                .map(|directive| match directive {
+                    "immutable" => Immutable,
+                    "must-revalidate" => MustRevalidate,
+                    "no-cache" => NoCache,
+                    "no-store" => NoStore,
+                    "no-transform" => NoTransform,
+                    "only-if-cached" => OnlyIfCached,
+                    "private" => Private,
+                    "proxy-revalidate" => ProxyRevalidate,
+                    "public" => Public,
+                    "max-stale" => MaxStale(None),
+                    other => match other.split_once('=') {
+                        Some((directive, value)) => {
+                            let seconds = value.parse().map(Duration::from_secs);
+                            match (directive, seconds) {
+                                ("max-age", Ok(d)) => MaxAge(d),
+                                ("min-fresh", Ok(d)) => MinFresh(d),
+                                ("max-stale", Ok(d)) => MaxStale(Some(d)),
+                                ("s-maxage", Ok(d)) => SMaxage(d),
+                                ("stale-if-error", Ok(d)) => StaleIfError(d),
+                                ("stale-while-revalidate", Ok(d)) => StaleWhileRevalidate(d),
+                                _ => UnknownDirective(String::from(other)),
+                            }
+                        }
+                        None => UnknownDirective(String::from(other)),
+                    },
+                })
+                .collect(),
+        )
+    }
 }
 
 impl Deref for CacheControlHeader {
@@ -242,15 +281,6 @@ impl DerefMut for CacheControlHeader {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct CacheControlParseError;
-impl std::error::Error for CacheControlParseError {}
-impl Display for CacheControlParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("cache control parse error")
-    }
-}
-
 impl Display for CacheControlHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut first = true;
@@ -264,7 +294,7 @@ impl Display for CacheControlHeader {
             match directive {
                 Immutable => write!(f, "immutable"),
                 MaxAge(d) => write!(f, "max-age={}", d.as_secs()),
-                MaxFresh(d) => write!(f, "max-fresh={}", d.as_secs()),
+                MinFresh(d) => write!(f, "min-fresh={}", d.as_secs()),
                 MaxStale(Some(d)) => write!(f, "max-stale={}", d.as_secs()),
                 MaxStale(None) => write!(f, "max-stale"),
                 MustRevalidate => write!(f, "must-revalidate"),
@@ -286,46 +316,6 @@ impl Display for CacheControlHeader {
     }
 }
 
-impl FromStr for CacheControlHeader {
-    type Err = CacheControlParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.to_ascii_lowercase()
-            .split(',')
-            .map(str::trim)
-            .map(|directive| match directive {
-                "immutable" => Ok(Immutable),
-                "must-revalidate" => Ok(MustRevalidate),
-                "no-cache" => Ok(NoCache),
-                "no-store" => Ok(NoStore),
-                "no-transform" => Ok(NoTransform),
-                "only-if-cached" => Ok(OnlyIfCached),
-                "private" => Ok(Private),
-                "proxy-revalidate" => Ok(ProxyRevalidate),
-                "public" => Ok(Public),
-                "max-stale" => Ok(MaxStale(None)),
-                other => match other.split_once('=') {
-                    Some((directive, number)) => {
-                        let seconds = number.parse().map_err(|_| CacheControlParseError)?;
-                        let seconds = Duration::from_secs(seconds);
-                        match directive {
-                            "max-age" => Ok(MaxAge(seconds)),
-                            "max-fresh" => Ok(MaxFresh(seconds)),
-                            "max-stale" => Ok(MaxStale(Some(seconds))),
-                            "s-maxage" => Ok(SMaxage(seconds)),
-                            "stale-if-error" => Ok(StaleIfError(seconds)),
-                            "stale-while-revalidate" => Ok(StaleWhileRevalidate(seconds)),
-                            _ => Ok(UnknownDirective(String::from(other))),
-                        }
-                    }
-
-                    None => Ok(UnknownDirective(String::from(other))),
-                },
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(Self)
-    }
-}
 #[cfg(test)]
 mod test {
     use super::*;
@@ -333,12 +323,12 @@ mod test {
     fn parse() {
         assert_eq!(
             CacheControlHeader(vec![NoStore]),
-            "no-store".parse().unwrap()
+            CacheControlHeader::parse("no-store")
         );
 
-        let long = "private,no-cache,no-store,max-age=0,must-revalidate,pre-check=0,post-check=0"
-            .parse()
-            .unwrap();
+        let long = CacheControlHeader::parse(
+            "private,no-cache,no-store,max-age=0,must-revalidate,pre-check=0,post-check=0",
+        );
 
         assert_eq!(
             CacheControlHeader::from([
@@ -360,7 +350,24 @@ mod test {
 
         assert_eq!(
             CacheControlHeader::from([Public, MaxAge(Duration::from_secs(604800)), Immutable]),
-            "public, max-age=604800, immutable".parse().unwrap()
+            CacheControlHeader::parse("public, max-age=604800, immutable")
         );
+    }
+
+    #[test]
+    fn min_fresh() {
+        let parsed = CacheControlHeader::parse("min-fresh=300");
+        assert_eq!(parsed.min_fresh(), Some(Duration::from_secs(300)));
+        assert_eq!(parsed.to_string(), "min-fresh=300");
+    }
+
+    #[test]
+    fn unknown_directive_with_value_does_not_fail_header() {
+        // RFC 9111 §5.2: unrecognized directives MUST be ignored, not abort
+        // parsing of the rest of the header. Previously a non-numeric value on
+        // an unknown directive would cause the whole header to fail to parse.
+        let parsed = CacheControlHeader::parse("garbage=non-numeric, max-age=600");
+        assert_eq!(parsed.max_age(), Some(Duration::from_secs(600)));
+        assert!(parsed.contains(&UnknownDirective("garbage=non-numeric".into())));
     }
 }
