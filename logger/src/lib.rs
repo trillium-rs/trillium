@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![forbid(unsafe_code)]
 #![warn(
     rustdoc::missing_crate_level_docs,
@@ -21,6 +22,10 @@ use std::{
 use trillium::{Conn, Handler, Info, Transport};
 /// Components with which common log formats can be constructed
 pub mod formatters;
+
+#[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
+pub mod client;
 
 /// A configuration option that determines if format will be colorful.
 ///
