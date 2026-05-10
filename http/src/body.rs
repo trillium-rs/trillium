@@ -190,6 +190,31 @@ impl Body {
         matches!(self.0, Streaming { .. })
     }
 
+    /// Attempt to clone this body. Returns `None` for streaming bodies, which are one-shot.
+    ///
+    /// Static bodies (constructed via [`Body::new_static`] or any `From` conversion for
+    /// `Vec<u8>`, `&'static [u8]`, `String`, `&'static str`, etc.) clone cheaply — just a
+    /// `Cow` clone, which is a pointer copy for borrowed `&'static` content and a `Vec` clone
+    /// for owned content. The clone resets read progress, so it can be sent again from the
+    /// beginning.
+    ///
+    /// Empty bodies always clone successfully.
+    ///
+    /// This is useful for client middleware that needs to retransmit a body — e.g., redirect
+    /// handlers, retry handlers, or auth-refresh handlers.
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
+    pub fn try_clone(&self) -> Option<Self> {
+        match &self.0 {
+            Empty => Some(Self::default()),
+            Static { content, .. } => Some(Self(Static {
+                content: content.clone(),
+                cursor: 0,
+            })),
+            Streaming { .. } => None,
+        }
+    }
+
     /// Convert this body into an `H3Body` for reading
     #[cfg(feature = "unstable")]
     pub fn into_h3(self) -> H3Body {
