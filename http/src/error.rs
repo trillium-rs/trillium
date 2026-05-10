@@ -98,7 +98,23 @@ pub enum Error {
     /// `:protocol` HEADERS is never put on the wire.
     #[error("HTTP/2 peer does not support extended CONNECT (RFC 8441)")]
     ExtendedConnectUnsupported,
+
+    /// An error from middleware or other application-level code, type-erased into a boxed
+    /// error so it can flow through the protocol error type.
+    ///
+    /// Use `error.downcast_ref::<MyError>()` to recover the concrete type — for example,
+    /// `error.downcast_ref::<trillium_redirect::client::RedirectError>()` to inspect a
+    /// follow-redirects failure.
+    #[error(transparent)]
+    Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// this crate's result type
 pub type Result<T> = std::result::Result<T, Error>;
+
+impl Error {
+    /// Construct an Other variant
+    pub fn other(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::Other(Box::new(error))
+    }
+}
