@@ -70,7 +70,7 @@ impl Server for SmolServer {
             && let Ok(local) = u.local_addr()
             && let Some(path) = local.as_pathname()
         {
-            log::info!("deleting {:?}", &path);
+            log::info!("deleting {:?}", path);
             log_error!(std::fs::remove_file(path));
         }
     }

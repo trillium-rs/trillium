@@ -77,9 +77,9 @@ fn router() -> impl Handler {
             "/ws",
             WebSocket::new(|mut ws: WebSocketConn| async move {
                 while let Some(Ok(Message::Text(input))) = ws.next().await {
-                    log::info!("received message {:?}", &input);
+                    log::info!("received message {:?}", input);
                     let output: String = input.chars().rev().collect();
-                    let _ = ws.send_string(format!("{} | {}", &input, &output)).await;
+                    let _ = ws.send_string(format!("{} | {}", input, output)).await;
                 }
             }),
         )

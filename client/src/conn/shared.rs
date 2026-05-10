@@ -105,7 +105,7 @@ impl Drop for Conn {
             log::trace!(
                 "response body has been read to completion, checking transport back into pool for \
                  {}",
-                &peer_addr
+                peer_addr
             );
             pool.insert(origin, PoolEntry::new(transport, None));
         } else {
@@ -129,7 +129,7 @@ impl Drop for Conn {
                         log::trace!(
                             "read {} bytes in order to recycle conn for {}",
                             bytes,
-                            &peer_addr
+                            peer_addr
                         );
                         pool.insert(origin, PoolEntry::new(transport, None));
                     }

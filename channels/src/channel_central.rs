@@ -91,10 +91,10 @@ where
     async fn inbound(&self, message: trillium_websockets::Message, conn: &mut WebSocketConn) {
         let client = unwrap_or_return!(conn.state::<ChannelClient>());
 
-        log::trace!("received message as {:?}", &message);
+        log::trace!("received message as {:?}", message);
         let event = unwrap_or_return!(client.deserialize(message));
 
-        log::trace!("deserialized message as {:?}", &event);
+        log::trace!("deserialized message as {:?}", event);
         match (&*event.topic, &*event.event) {
             ("phoenix", "heartbeat") => {
                 log::trace!("heartbeat");

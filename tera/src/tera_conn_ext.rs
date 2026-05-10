@@ -67,7 +67,7 @@ impl TeraConnExt for Conn {
             }
 
             Err(e) => {
-                log::error!("{:?}", &e);
+                log::error!("{:?}", e);
                 self.with_status(500).with_body(e.to_string())
             }
         }

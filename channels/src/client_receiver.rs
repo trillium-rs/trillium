@@ -42,8 +42,8 @@ impl Stream for ClientReceiver {
                         log::trace!(
                             "serialized {:?} with {:?} as {:?}",
                             event,
-                            &self.version,
-                            &text
+                            self.version,
+                            text
                         );
                         break Poll::Ready(Some(Message::text(text)));
                     }
