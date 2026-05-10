@@ -52,7 +52,7 @@ trillium-api = { version = "0.3", path = "api" }
 trillium-askama = { version = "0.4", path = "askama" }
 trillium-async-std = { version = "0.6", path = "async-std" }
 trillium-aws-lambda = { version = "0.4", path = "aws-lambda" }
-trillium-caching-headers = { version = "0.3", path = "caching-headers" }
+trillium-caching-headers = { version = "0.4", path = "caching-headers" }
 trillium-client = { version = "0.9", path = "client" }
 trillium-compression = { version = "0.3", path = "compression" }
 trillium-conn-id = { version = "0.3", path = "conn-id" }

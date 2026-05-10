@@ -1,7 +1,6 @@
 [package]
 name = "trillium-caching-headers"
-version = "0.3.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.4.0"
 edition = "2024"
 description = "http caching headers for trillium.rs"
 license = "MIT OR Apache-2.0"
