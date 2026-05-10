@@ -223,7 +223,10 @@ impl Conn {
             _ => return Err(Error::InvalidHead),
         }
 
-        self.status = httparse_res.code.map(|code| code.try_into().unwrap());
+        self.status = httparse_res
+            .code
+            .map(|code| code.try_into().map_err(|_| Error::InvalidStatus))
+            .transpose()?;
 
         for header in httparse_res.headers {
             let header_name = HeaderName::from_str(header.name)?;
