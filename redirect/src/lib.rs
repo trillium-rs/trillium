@@ -13,6 +13,9 @@
 #[doc = include_str!("../README.md")]
 mod readme {}
 
+#[cfg(feature = "client")]
+pub mod client;
+
 use std::borrow::Cow;
 use trillium::{Conn, Handler, KnownHeaderName::Location, Status};
 

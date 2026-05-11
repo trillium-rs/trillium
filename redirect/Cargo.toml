@@ -1,14 +1,34 @@
 [package]
 name = "trillium-redirect"
-version = "0.2.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.3.0"
 edition = "2024"
 description = "Redirect utilities for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
 readme = "README.md"
 keywords = ["trillium", "framework", "async"]
-categories = ["web-programming::http-server", "web-programming"]
+categories = [
+    "web-programming::http-server",
+    "web-programming::http-client",
+    "web-programming",
+]
+
+[features]
+default = []
+client = ["dep:trillium-client", "dep:thiserror"]
 
 [dependencies]
 trillium.workspace = true
+
+[dependencies.trillium-client]
+workspace = true
+optional = true
+
+[dependencies.thiserror]
+version = "2.0.18"
+optional = true
+
+[dev-dependencies]
+futures-lite = "2"
+trillium-redirect = { path = ".", features = ["client"] }
+trillium-testing.workspace = true
