@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `Error::Other` and the `Error::other(impl Error)` constructor — a catchall variant for application-level errors that need to flow through `trillium_http::Result`.
+- `KnownHeaderName::CdnCacheControl`
 
 ### Changed
 
