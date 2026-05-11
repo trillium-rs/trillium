@@ -29,6 +29,15 @@ pub trait CachingHeadersExt: Sized {
     /// directives have different meanings.
     fn set_cache_control(&mut self, cache_control: impl Into<CacheControlHeader>);
 
+    /// Returns a parsed [`CacheControlHeader`] if these headers include a `CDN-Cache-Control`
+    /// header (RFC 9213). Unlike [`cache_control`](Self::cache_control), `CDN-Cache-Control`
+    /// is response-only by spec, so when called on a [`Conn`] this reads the *response* headers.
+    fn cdn_cache_control(&self) -> Option<CacheControlHeader>;
+
+    /// Sets a `CDN-Cache-Control` (RFC 9213) header on these headers. Targeted at CDN /
+    /// shared-intermediary caches, ignored by other caches.
+    fn set_cdn_cache_control(&mut self, cache_control: impl Into<CacheControlHeader>);
+
     /// returns a parsed `If-Modified-Since` header if one exists
     fn if_modified_since(&self) -> Option<SystemTime>;
 
@@ -68,6 +77,12 @@ pub trait CachingHeadersExt: Sized {
         self.set_vary(vary);
         self
     }
+
+    /// chainable method to set CDN-Cache-Control and return self. primarily useful on Conn
+    fn with_cdn_cache_control(mut self, cache_control: impl Into<CacheControlHeader>) -> Self {
+        self.set_cdn_cache_control(cache_control);
+        self
+    }
 }
 
 impl CachingHeadersExt for Conn {
@@ -93,6 +108,17 @@ impl CachingHeadersExt for Conn {
 
     fn set_cache_control(&mut self, cache_control: impl Into<CacheControlHeader>) {
         self.response_headers_mut().set_cache_control(cache_control)
+    }
+
+    // CDN-Cache-Control is response-only per RFC 9213; both getter and setter
+    // act on response_headers (no request-side asymmetry).
+    fn cdn_cache_control(&self) -> Option<CacheControlHeader> {
+        self.response_headers().cdn_cache_control()
+    }
+
+    fn set_cdn_cache_control(&mut self, cache_control: impl Into<CacheControlHeader>) {
+        self.response_headers_mut()
+            .set_cdn_cache_control(cache_control)
     }
 
     fn if_modified_since(&self) -> Option<SystemTime> {
@@ -143,6 +169,18 @@ impl CachingHeadersExt for trillium::Headers {
     fn set_cache_control(&mut self, cache_control: impl Into<CacheControlHeader>) {
         self.insert(
             KnownHeaderName::CacheControl,
+            cache_control.into().to_string(),
+        );
+    }
+
+    fn cdn_cache_control(&self) -> Option<CacheControlHeader> {
+        self.get_str(KnownHeaderName::CdnCacheControl)
+            .map(CacheControlHeader::parse)
+    }
+
+    fn set_cdn_cache_control(&mut self, cache_control: impl Into<CacheControlHeader>) {
+        self.insert(
+            KnownHeaderName::CdnCacheControl,
             cache_control.into().to_string(),
         );
     }
