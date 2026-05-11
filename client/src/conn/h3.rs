@@ -6,7 +6,8 @@ use std::{
     io::{self, ErrorKind},
 };
 use trillium_http::{
-    BufWriter, Error, KnownHeaderName, Method, ProtocolSession, ReceivedBodyState, Result, Version,
+    BufWriter, Error, KnownHeaderName, Method, ProtocolSession, ReceivedBodyState, Result, Status,
+    Version,
     h3::{Frame, FrameStream, H3Connection, H3Error},
     headers::qpack::{FieldSection, PseudoHeaders},
 };
@@ -289,31 +290,48 @@ impl Conn {
 
         let transport = self.transport.as_mut().ok_or(Error::Closed)?;
         let mut frame_stream = FrameStream::new(transport, &mut self.buffer);
-        let field_section = loop {
-            let Some(mut frame) = frame_stream
-                .next()
-                .await
-                .map_err(|e| Error::Io(h3_to_io(e)))?
-            else {
-                return Err(Error::Closed);
-            };
 
-            // Per RFC 9114 §4.1, the first frame on a response stream MUST be HEADERS.
-            // FrameStream auto-skips Unknown frames; anything else here is unexpected but
-            // we skip it rather than hard-failing to be tolerant of future frame types.
-            if matches!(frame.frame(), Frame::Headers(_)) {
-                let encoded = frame.buffer_payload().await?;
-
-                break h3
-                    .decode_field_section(encoded, stream_id)
+        // Outer loop: per RFC 9114 §4.1, an HTTP/3 response is zero or more 1xx informational
+        // HEADERS frames followed by the final-response HEADERS frame. Per RFC 9110 §15.2 and
+        // RFC 8297 §2, headers from interim responses MUST NOT be merged into the final
+        // response. We read HEADERS frames in a loop, discarding any whose `:status` is 1xx
+        // (except 101 Switching Protocols, which is itself a final response), until we get
+        // the final one. Surfacing interim sections to the conn task (for proxy forwarding
+        // etc.) is a future enhancement.
+        let (status, headers) = loop {
+            let field_section = loop {
+                let Some(mut frame) = frame_stream
+                    .next()
                     .await
-                    .map_err(|_| Error::InvalidHead)?;
-            }
-        };
-        log::trace!("received:\n{field_section}");
+                    .map_err(|e| Error::Io(h3_to_io(e)))?
+                else {
+                    return Err(Error::Closed);
+                };
 
-        self.status = field_section.pseudo_headers().status();
-        self.response_headers = field_section.into_headers().into_owned();
+                // FrameStream auto-skips Unknown frames; anything else here is unexpected
+                // but we skip it rather than hard-failing to be tolerant of future frame
+                // types.
+                if matches!(frame.frame(), Frame::Headers(_)) {
+                    let encoded = frame.buffer_payload().await?;
+
+                    break h3
+                        .decode_field_section(encoded, stream_id)
+                        .await
+                        .map_err(|_| Error::InvalidHead)?;
+                }
+            };
+            log::trace!("received:\n{field_section}");
+
+            let status = field_section.pseudo_headers().status();
+            if status.is_some_and(|s| s.is_informational() && s != Status::SwitchingProtocols) {
+                log::trace!("h3 stream {stream_id}: discarding interim response {status:?}");
+                continue;
+            }
+            break (status, field_section.into_headers().into_owned());
+        };
+
+        self.status = status;
+        self.response_headers = headers;
         self.response_body_state = ReceivedBodyState::new_h3();
 
         Ok(())
