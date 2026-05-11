@@ -24,7 +24,7 @@ impl Conn {
                 .map_or_else(|| host.to_string(), |port| format!("{host}:{port}"))
         });
 
-        if self.pool.is_none() {
+        if self.client.pool().is_none() {
             self.request_headers.try_insert(Connection, "close");
         }
 
@@ -53,7 +53,7 @@ impl Conn {
 
     async fn find_pool_candidate(&self, head: &[u8]) -> Result<Option<Box<dyn Transport>>> {
         let mut byte = [0];
-        if let Some(pool) = &self.pool {
+        if let Some(pool) = self.client.pool() {
             for mut candidate in pool.candidates(&self.url.origin()) {
                 if poll_once(candidate.read(&mut byte)).await.is_none()
                     && candidate.write_all(head).await.is_ok()
@@ -86,10 +86,11 @@ impl Conn {
             return Ok(TransportAcquisition::H1Ready(transport));
         }
 
-        let mut transport = self.config.connect(&self.url).await?;
+        let mut transport = self.client.connector().connect(&self.url).await?;
         log::debug!("opened new connection to {:?}", transport.peer_addr()?);
 
-        if self.h2_pool.is_some() && transport.negotiated_alpn().as_deref() == Some(b"h2") {
+        if self.client.h2_pool().is_some() && transport.negotiated_alpn().as_deref() == Some(b"h2")
+        {
             return Ok(TransportAcquisition::H2(transport));
         }
 
@@ -452,7 +453,7 @@ impl Conn {
             TransportAcquisition::H1Ready(transport) => {
                 self.transport = Some(transport);
                 self.send_body_and_parse_head().await?;
-                if let Some(h3) = &self.h3_client_state {
+                if let Some(h3) = self.client.h3() {
                     self.update_alt_svc_from_response(h3);
                 }
                 Ok(())

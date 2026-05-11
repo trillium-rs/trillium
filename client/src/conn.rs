@@ -1,15 +1,12 @@
-use crate::{Pool, ResponseBody, h3::H3ClientState, response_body::SyntheticResponseBody, util::encoding};
+use crate::{Client, ResponseBody, response_body::SyntheticResponseBody, util::encoding};
 use encoding_rs::Encoding;
-use futures_lite::AsyncRead;
+use futures_lite::{AsyncRead, AsyncWriteExt};
 use std::{borrow::Cow, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use trillium_http::{
     Body, Buffer, Error, HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method,
     ProtocolSession, ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
 };
-use trillium_server_common::{
-    ArcedConnector, Transport,
-    url::{Origin, Url},
-};
+use trillium_server_common::{Transport, url::Url};
 
 mod h1;
 mod h2;
@@ -27,12 +24,6 @@ pub use unexpected_status_error::UnexpectedStatusError;
 #[must_use]
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn {
-    pub(crate) pool: Option<Pool<Origin, Box<dyn Transport>>>,
-    pub(crate) h2_pool: Option<Pool<Origin, H2Pooled>>,
-    pub(crate) h2_idle_timeout: Option<Duration>,
-    pub(crate) h2_idle_ping_threshold: Option<Duration>,
-    pub(crate) h2_idle_ping_timeout: Duration,
-    pub(crate) h3_client_state: Option<H3ClientState>,
     pub(crate) protocol_session: ProtocolSession,
     /// QUIC-connection WebTransport dispatcher slot (lazy-init) and the QUIC connection
     /// itself, retained on extended-CONNECT-with-`:protocol = webtransport` requests so
@@ -42,7 +33,6 @@ pub struct Conn {
     pub(crate) wt_pool_entry: Option<crate::h3::H3PoolEntry>,
     pub(crate) buffer: Buffer,
     pub(crate) response_body_state: ReceivedBodyState,
-    pub(crate) config: ArcedConnector,
     pub(crate) headers_finalized: bool,
     pub(crate) max_head_length: usize,
     pub(crate) state: TypeSet,
@@ -145,7 +135,7 @@ pub struct Conn {
     ///     Ok(())
     /// });
     /// ```
-    #[field(with = with_body, argument = body, set, into, take, option_set_some)]
+    #[field(get, with = with_body, argument = body, set, into, take, option_set_some)]
     pub(crate) request_body: Option<Body>,
 
     /// the timeout for this conn
@@ -238,9 +228,9 @@ pub struct Conn {
     #[field(get, set, get_mut, option_set_some)]
     pub(crate) response_trailers: Option<Headers>,
 
-    /// type-erased middleware stack, copied from the [`Client`][crate::Client] that built this
-    /// conn. Driven from inside [`Conn::exec`].
-    pub(crate) handler: crate::client_handler::ArcedClientHandler,
+    /// the [`Client`] that built this conn.
+    #[field(get)]
+    pub(crate) client: Client,
 }
 
 /// default http user-agent header
@@ -506,8 +496,43 @@ impl Conn {
     /// task when the conn is dropped, but calling it explicitly allows
     /// you to block on it and control where it happens.
     pub async fn recycle(mut self) {
-        if self.is_keep_alive() && self.transport.is_some() && self.pool.is_some() {
+        if self.is_keep_alive() && self.transport.is_some() && self.client.pool().is_some() {
             self.finish_reading_body().await;
+        }
+    }
+
+    #[doc(hidden)]
+    pub async fn close(&mut self) {
+        use crate::pool::PoolEntry;
+        log::trace!("closing client conn");
+        if self.transport.is_none() {
+            log::trace!("no transport, nothing to do");
+            return;
+        };
+
+        if !self.is_keep_alive() {
+            log::trace!("not keep alive, closing");
+            let _ = self.transport.take().unwrap().close().await;
+            return;
+        }
+
+        let Some(pool) = self.client.pool().cloned() else {
+            return;
+        };
+
+        let origin = self.url.origin();
+
+        if self.response_body_state == ReceivedBodyState::End {
+            log::trace!(
+                "response body has been read to completion, checking transport back into pool for \
+                 {origin:?}",
+            );
+        } else {
+            let _ = self.response_body().drain().await;
+        }
+
+        if let Some(transport) = self.transport.take() {
+            pool.insert(origin, PoolEntry::new(transport, None));
         }
     }
 

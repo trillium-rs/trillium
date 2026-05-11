@@ -64,7 +64,10 @@ async fn synthetic_body_streams_via_async_read() -> TestResult {
     let mut conn = client
         .get("http://synthetic.invalid/")
         .with_status(Status::Ok)
-        .with_response_body(Body::new_streaming(Cursor::new(b"streamed".to_vec()), Some(8)));
+        .with_response_body(Body::new_streaming(
+            Cursor::new(b"streamed".to_vec()),
+            Some(8),
+        ));
     conn.halt();
     let mut conn = conn.await?;
 

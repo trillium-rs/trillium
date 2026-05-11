@@ -33,10 +33,9 @@ pub enum ClientSerdeError {
 impl Conn {
     pub(crate) async fn exec(&mut self) -> Result<()> {
         // Handler.run runs before the network round-trip, in declared order. A handler may halt
-        // (e.g. on a cache hit) to short-circuit the network entirely. The handler is stored on
-        // the conn as a cheap Arc clone, so taking another clone here doesn't conflict with the
-        // mut borrow we need to pass `self` into `run`.
-        let handler = self.handler.clone();
+        // (e.g. on a cache hit) to short-circuit the network entirely. We clone the Arc-shared
+        // handler off the client to avoid conflicting with the mut borrow we pass to `run`.
+        let handler = self.client.handler().clone();
         handler.run(self).await?;
 
         if !self.halted {
@@ -101,7 +100,7 @@ impl Conn {
         match self.http_version {
             Version::Http1_0 | Version::Http1_1 => self.finalize_headers_h1(),
             Version::Http2 => self.finalize_headers_h2(),
-            Version::Http3 if self.h3_client_state.is_some() => self.finalize_headers_h3(),
+            Version::Http3 if self.client.h3().is_some() => self.finalize_headers_h3(),
             other => Err(Error::UnsupportedVersion(other)),
         }
     }
@@ -119,7 +118,8 @@ impl Drop for Conn {
         if !self.is_keep_alive() {
             log::trace!("not keep alive, closing");
 
-            self.config
+            self.client
+                .connector()
                 .runtime()
                 .clone()
                 .spawn(async move { transport.close().await });
@@ -127,18 +127,17 @@ impl Drop for Conn {
             return;
         }
 
-        let Ok(Some(peer_addr)) = transport.peer_addr() else {
+        let Some(pool) = self.client.pool().cloned() else {
             return;
         };
-        let Some(pool) = self.pool.take() else { return };
 
         let origin = self.url.origin();
 
         if self.response_body_state == ReceivedBodyState::End {
             log::trace!(
                 "response body has been read to completion, checking transport back into pool for \
-                 {}",
-                peer_addr
+                 {origin:?} ({:?})",
+                transport.peer_addr()
             );
             pool.insert(origin, PoolEntry::new(transport, None));
         } else {
@@ -146,7 +145,7 @@ impl Drop for Conn {
             let buffer = mem::take(&mut self.buffer);
             let response_body_state = self.response_body_state;
             let encoding = encoding(&self.response_headers);
-            self.config.runtime().spawn(async move {
+            self.client.connector().runtime().spawn(async move {
                 let mut response_body = ReceivedBody::new(
                     content_length,
                     buffer,
@@ -159,11 +158,7 @@ impl Drop for Conn {
                 match io::copy(&mut response_body, io::sink()).await {
                     Ok(bytes) => {
                         let transport = response_body.take_transport().unwrap();
-                        log::trace!(
-                            "read {} bytes in order to recycle conn for {}",
-                            bytes,
-                            peer_addr
-                        );
+                        log::trace!("read {bytes} bytes in order to recycle conn",);
                         pool.insert(origin, PoolEntry::new(transport, None));
                     }
 
@@ -192,11 +187,11 @@ impl From<Conn> for Body {
 impl From<Conn> for ReceivedBody<'static, Box<dyn Transport>> {
     fn from(mut conn: Conn) -> Self {
         let _ = conn.finalize_headers();
-        let runtime = conn.config.runtime();
+        let runtime = conn.client.connector().runtime();
         let origin = conn.url.origin();
 
         let on_completion = if conn.is_keep_alive()
-            && let Some(pool) = conn.pool.take()
+            && let Some(pool) = conn.client.pool().cloned()
         {
             Box::new(move |transport: Box<dyn Transport>| {
                 log::trace!("body transferred, returning to pool");
@@ -248,7 +243,8 @@ impl<'conn> IntoFuture for &'conn mut Conn {
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
             if let Some(duration) = self.timeout {
-                self.config
+                self.client
+                    .connector()
                     .runtime()
                     .timeout(duration, self.exec())
                     .await
@@ -266,13 +262,11 @@ impl Debug for Conn {
         f.debug_struct("Conn")
             .field("authority", &self.authority)
             .field("buffer", &String::from_utf8_lossy(&self.buffer))
-            .field("config", &self.config)
-            .field("h3_client_state", &self.h3_client_state)
+            .field("client", &self.client)
             .field("protocol_session", &self.protocol_session)
             .field("http_version", &self.http_version)
             .field("method", &self.method)
             .field("path", &self.path)
-            .field("pool", &self.pool)
             .field("request_body", &self.request_body)
             .field("request_headers", &self.request_headers)
             .field("request_target", &self.request_target)
