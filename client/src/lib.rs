@@ -88,6 +88,7 @@
 #[doc = include_str!("../README.md")]
 mod readme {}
 mod client;
+mod client_handler;
 mod conn;
 mod h3;
 mod into_url;
@@ -100,6 +101,7 @@ pub mod websocket;
 pub mod webtransport;
 
 pub use client::Client;
+pub use client_handler::ClientHandler;
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 pub use conn::ClientSerdeError;
 pub use conn::{Conn, USER_AGENT, UnexpectedStatusError};

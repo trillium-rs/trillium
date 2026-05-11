@@ -1,5 +1,8 @@
-use crate::{Conn, IntoUrl, Pool, USER_AGENT, conn::H2Pooled, h3::H3ClientState};
-use std::{fmt::Debug, sync::Arc, time::Duration};
+use crate::{
+    ClientHandler, Conn, IntoUrl, Pool, USER_AGENT, client_handler::ArcedClientHandler,
+    conn::H2Pooled, h3::H3ClientState,
+};
+use std::{any::Any, fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
     HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method, ProtocolSession,
     ReceivedBodyState, TypeSet, Version::Http1_1,
@@ -68,6 +71,11 @@ pub struct Client {
     /// configuration
     #[field(get, get_mut, set, with, into)]
     context: Arc<HttpContext>,
+
+    /// type-erased middleware stack. Defaults to a no-op `()` handler. Set via
+    /// [`Client::with_handler`] / [`Client::set_handler`]; recover the concrete type via
+    /// [`Client::downcast_handler`].
+    handler: ArcedClientHandler,
 }
 
 macro_rules! method {
@@ -139,6 +147,7 @@ impl Client {
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
             context: Default::default(),
+            handler: ArcedClientHandler::new(()),
         }
     }
 
@@ -182,7 +191,38 @@ impl Client {
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
             context: Arc::new(context),
+            handler: ArcedClientHandler::new(()),
         }
+    }
+
+    /// Install a [`ClientHandler`] middleware stack on this client.
+    ///
+    /// The handler runs around every request issued by this client: its `run` method fires before
+    /// the network round-trip (with the option to halt + synthesize a response), and its
+    /// `after_response` fires afterwards. Compose multiple handlers with tuples — see
+    /// [`ClientHandler`] for the lifecycle and `Vec`/tuple/`Option` impls.
+    ///
+    /// Returns `self` for chaining.
+    #[must_use]
+    pub fn with_handler<H: ClientHandler>(mut self, handler: H) -> Self {
+        self.set_handler(handler);
+        self
+    }
+
+    /// Install a [`ClientHandler`] middleware stack on this client. See [`Client::with_handler`]
+    /// for details.
+    pub fn set_handler<H: ClientHandler>(&mut self, handler: H) -> &mut Self {
+        self.handler = ArcedClientHandler::new(handler);
+        self
+    }
+
+    /// Borrow the installed [`ClientHandler`] as the concrete type `T`, returning `None` if the
+    /// installed handler is not of that type.
+    ///
+    /// Useful for inspecting handler-internal state from outside the request path — e.g., reading
+    /// counters from a metrics handler.
+    pub fn downcast_handler<T: Any + 'static>(&self) -> Option<&T> {
+        self.handler.downcast_ref()
     }
 
     /// chainable method to remove a header from default request headers
@@ -273,6 +313,8 @@ impl Client {
             response_body_state: ReceivedBodyState::Start,
             config: self.config.clone(),
             headers_finalized: false,
+            halted: false,
+            error: None,
             timeout: self.timeout,
             http_version: Http1_1,
             max_head_length: 8 * 1024,
@@ -285,6 +327,7 @@ impl Client {
             protocol: None,
             request_trailers: None,
             response_trailers: None,
+            handler: self.handler.clone(),
         }
     }
 

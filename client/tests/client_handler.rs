@@ -1,0 +1,194 @@
+//! End-to-end tests for the [`ClientHandler`] middleware extension point.
+//!
+//! These tests use a `ServerConnector` that responds 500, so any test that ends with a 200 is
+//! proving that a handler short-circuited the network call.
+
+use std::{
+    io,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+};
+use trillium_client::{Client, ClientHandler, Conn, Status, Url};
+use trillium_server_common::Connector;
+use trillium_testing::{ServerConnector, TestResult, harness, test};
+
+#[derive(Debug, Default)]
+struct Counter {
+    runs: AtomicUsize,
+    after_responses: AtomicUsize,
+}
+
+impl ClientHandler for Counter {
+    async fn run(&self, _conn: &mut Conn) -> trillium_client::Result<()> {
+        self.runs.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn after_response(&self, _conn: &mut Conn) -> trillium_client::Result<()> {
+        self.after_responses.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+struct OrderRecorder {
+    runs: std::sync::Mutex<Vec<&'static str>>,
+    after_responses: std::sync::Mutex<Vec<&'static str>>,
+}
+
+#[derive(Debug)]
+struct Tagged {
+    tag: &'static str,
+    recorder: std::sync::Arc<OrderRecorder>,
+}
+
+impl ClientHandler for Tagged {
+    async fn run(&self, _conn: &mut Conn) -> trillium_client::Result<()> {
+        self.recorder.runs.lock().unwrap().push(self.tag);
+        Ok(())
+    }
+
+    async fn after_response(&self, _conn: &mut Conn) -> trillium_client::Result<()> {
+        self.recorder
+            .after_responses
+            .lock()
+            .unwrap()
+            .push(self.tag);
+        Ok(())
+    }
+}
+
+#[test(harness)]
+async fn single_handler_runs_both_passes() -> TestResult {
+    let client = Client::new(ServerConnector::new(Status::Ok)).with_handler(Counter::default());
+
+    let _conn = client.get("http://example.com/").await?;
+
+    let counter = client.downcast_handler::<Counter>().expect("handler installed");
+    assert_eq!(counter.runs.load(Ordering::SeqCst), 1);
+    assert_eq!(counter.after_responses.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[test(harness)]
+async fn tuple_runs_forward_and_after_responses_in_reverse() -> TestResult {
+    let recorder = std::sync::Arc::new(OrderRecorder::default());
+    let a = Tagged {
+        tag: "A",
+        recorder: recorder.clone(),
+    };
+    let b = Tagged {
+        tag: "B",
+        recorder: recorder.clone(),
+    };
+    let c = Tagged {
+        tag: "C",
+        recorder: recorder.clone(),
+    };
+
+    let client = Client::new(ServerConnector::new(Status::Ok)).with_handler((a, b, c));
+    let _conn = client.get("http://example.com/").await?;
+
+    assert_eq!(*recorder.runs.lock().unwrap(), vec!["A", "B", "C"]);
+    assert_eq!(
+        *recorder.after_responses.lock().unwrap(),
+        vec!["C", "B", "A"]
+    );
+    Ok(())
+}
+
+#[test(harness)]
+async fn unit_handler_is_default_and_no_op() -> TestResult {
+    // A client without with_handler() defaults to (); awaiting still works.
+    let client = Client::new(ServerConnector::new(Status::Ok));
+    let conn = client.get("http://example.com/").await?;
+    assert_eq!(conn.status(), Some(Status::Ok));
+    Ok(())
+}
+
+// Connector that always fails to connect — used to drive the
+// transport-error code path in `Conn::exec`.
+#[derive(Debug)]
+struct FailingConnector {
+    inner: ServerConnector<Status>,
+}
+
+impl FailingConnector {
+    fn new() -> Self {
+        Self {
+            inner: ServerConnector::new(Status::Ok),
+        }
+    }
+}
+
+impl Connector for FailingConnector {
+    type Runtime = <ServerConnector<Status> as Connector>::Runtime;
+    type Transport = <ServerConnector<Status> as Connector>::Transport;
+    type Udp = <ServerConnector<Status> as Connector>::Udp;
+
+    async fn connect(&self, _url: &Url) -> io::Result<Self::Transport> {
+        Err(io::Error::new(
+            io::ErrorKind::ConnectionRefused,
+            "test failure",
+        ))
+    }
+
+    fn runtime(&self) -> Self::Runtime {
+        self.inner.runtime().clone()
+    }
+
+    async fn resolve(&self, host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+        self.inner.resolve(host, port).await
+    }
+}
+
+// Records what after_response saw, including whether conn.error() was
+// populated when it ran.
+#[derive(Debug, Default, Clone)]
+struct ErrorObserver {
+    inner: Arc<ErrorObserverInner>,
+}
+
+#[derive(Debug, Default)]
+struct ErrorObserverInner {
+    after_response_runs: AtomicUsize,
+    saw_error: AtomicBool,
+}
+
+impl ClientHandler for ErrorObserver {
+    async fn after_response(&self, conn: &mut Conn) -> trillium_client::Result<()> {
+        self.inner
+            .after_response_runs
+            .fetch_add(1, Ordering::SeqCst);
+        if conn.error().is_some() {
+            self.inner.saw_error.store(true, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+}
+
+#[test(harness)]
+async fn after_response_runs_on_transport_error() -> TestResult {
+    let observer = ErrorObserver::default();
+    let client = Client::new(FailingConnector::new()).with_handler(observer.clone());
+
+    // Transport fails → error propagates from the awaited conn.
+    let result = client.get("http://example.com/").await;
+    assert!(result.is_err(), "expected transport error, got {result:?}");
+
+    // …but after_response still ran, and saw the stashed error.
+    assert_eq!(
+        observer.inner.after_response_runs.load(Ordering::SeqCst),
+        1,
+        "after_response should run exactly once on transport failure"
+    );
+    assert!(
+        observer.inner.saw_error.load(Ordering::SeqCst),
+        "after_response should observe the stashed error"
+    );
+    Ok(())
+}
+
