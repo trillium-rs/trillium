@@ -2,6 +2,7 @@ use crate::{
     connection::QuinnConnection,
     runtime::{SocketTransport, TrilliumRuntime},
 };
+use rustls::server::ResolvesServerCert;
 use std::{io, net::SocketAddr, sync::Arc};
 use trillium_server_common::{Info, QuicConfig as QuicConfigTrait, QuicEndpoint, Server};
 
@@ -69,6 +70,27 @@ impl QuicConfig {
     /// For custom TLS only, prefer [`from_rustls_server_config`](Self::from_rustls_server_config).
     pub fn from_quinn_server_config(config: quinn::ServerConfig) -> Self {
         Self(config)
+    }
+
+    /// Build a `QuicConfig` from a [`rustls::server::ResolvesServerCert`] cert resolver.
+    ///
+    /// Use this to bring your own dynamic certificate source — for example, an ACME integration
+    /// that rotates certificates over time. The resolver is consulted on every new connection,
+    /// so renewals take effect immediately without rebuilding the QUIC server config.
+    ///
+    /// If the resolver returns `None` for a given `ClientHello` (e.g. before the first
+    /// certificate has been obtained), the TLS handshake fails and the connection is rejected.
+    /// This makes it safe to bind the endpoint before any certificate is available.
+    ///
+    /// Automatically configures ALPN for HTTP/3 (`h3`).
+    pub fn from_cert_resolver(resolver: Arc<dyn ResolvesServerCert>) -> Self {
+        let tls_config =
+            rustls::ServerConfig::builder_with_provider(crate::crypto_provider::crypto_provider())
+                .with_safe_default_protocol_versions()
+                .expect("building TLS config with protocol versions")
+                .with_no_client_auth()
+                .with_cert_resolver(resolver);
+        Self::from_rustls_server_config(tls_config)
     }
 }
 

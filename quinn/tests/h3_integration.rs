@@ -1,7 +1,7 @@
 #![cfg(quinn_testing)]
 
 use rcgen::generate_simple_self_signed;
-use std::net::SocketAddr;
+use std::{io, net::SocketAddr, sync::Arc};
 use trillium::{Conn, KnownHeaderName};
 use trillium_client::{Client, Version};
 use trillium_quinn::{ClientQuicConfig, QuicConfig};
@@ -55,6 +55,23 @@ async fn start_server(handler: impl trillium::Handler, tc: &TestCert) -> SocketA
         .with_quic(QuicConfig::from_single_cert(&tc.cert_pem, &tc.key_pem))
         .spawn(handler);
     *handle.info().await.tcp_socket_addr().unwrap()
+}
+
+/// Build an `Arc<dyn ResolvesServerCert>` that always returns the test cert.
+fn static_cert_resolver(tc: &TestCert) -> Arc<dyn rustls::server::ResolvesServerCert> {
+    let certs: Vec<_> = rustls_pemfile::certs(&mut io::BufReader::new(&tc.cert_pem[..]))
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let key = rustls_pemfile::private_key(&mut io::BufReader::new(&tc.key_pem[..]))
+        .unwrap()
+        .unwrap();
+    let certified_key = rustls::sign::CertifiedKey::from_der(
+        certs,
+        key,
+        &rustls::crypto::aws_lc_rs::default_provider(),
+    )
+    .unwrap();
+    Arc::new(rustls::sign::SingleCertAndKey::from(certified_key))
 }
 
 /// Build a trillium client configured for both H1 (TLS) and H3 with the test cert trusted.
@@ -176,6 +193,37 @@ async fn trillium_client_alt_svc_upgrade() -> TestResult {
     assert!(
         version_str.contains("Http3"),
         "expected H3 for second request after alt-svc, got: {version_str}"
+    );
+    Ok(())
+}
+
+#[test(harness)]
+async fn trillium_client_h3_via_cert_resolver() -> TestResult {
+    // Verifies QuicConfig::from_cert_resolver wires a rustls cert resolver through to a
+    // live H3 handshake. The static resolver here stands in for a dynamic source like ACME.
+    let tc = test_cert();
+    let handle = config()
+        .with_port(0)
+        .with_host("localhost")
+        .without_signals()
+        .with_acceptor(trillium_rustls::RustlsAcceptor::from_single_cert(
+            &tc.cert_pem,
+            &tc.key_pem,
+        ))
+        .with_quic(QuicConfig::from_cert_resolver(static_cert_resolver(&tc)))
+        .spawn(|conn: Conn| async move { conn.ok("hello via resolver") });
+    let addr = *handle.info().await.tcp_socket_addr().unwrap();
+
+    let client = trillium_client(&tc);
+    let mut conn = client
+        .get(format!("https://localhost:{}/", addr.port()))
+        .with_http_version(Version::Http3)
+        .await?;
+
+    assert_eq!(conn.status().unwrap(), 200u16);
+    assert_eq!(
+        conn.response_body().read_string().await?,
+        "hello via resolver"
     );
     Ok(())
 }
