@@ -1,9 +1,10 @@
-use crate::{Pool, ResponseBody, h3::H3ClientState, util::encoding};
+use crate::{Pool, ResponseBody, h3::H3ClientState, response_body::SyntheticResponseBody, util::encoding};
 use encoding_rs::Encoding;
-use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
+use futures_lite::AsyncRead;
+use std::{borrow::Cow, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use trillium_http::{
-    Body, Buffer, HeaderName, HeaderValues, Headers, HttpContext, Method, ProtocolSession,
-    ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
+    Body, Buffer, Error, HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method,
+    ProtocolSession, ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
 };
 use trillium_server_common::{
     ArcedConnector, Transport,
@@ -92,7 +93,7 @@ pub struct Conn {
     #[field(get, get_mut)]
     pub(crate) request_headers: Headers,
 
-    #[field(get, get_mut)]
+    #[field(get, get_mut, set)]
     /// the response headers
     pub(crate) response_headers: Headers,
 
@@ -115,7 +116,7 @@ pub struct Conn {
     ///     Ok(())
     /// });
     /// ```
-    #[field(get, copy)]
+    #[field(get, copy, set, with, option_set_some)]
     pub(crate) status: Option<Status>,
 
     /// the request body
@@ -153,6 +154,32 @@ pub struct Conn {
     /// and [`Client::with_timeout`](crate::Client::with_timeout)
     #[field(with, set, get, get_mut, take, copy, option_set_some)]
     pub(crate) timeout: Option<Duration>,
+
+    /// whether this conn is halted.
+    ///
+    /// When set to `true` before execution, the network round-trip is skipped — the conn is
+    /// returned to the caller with whatever response state has been populated synthetically
+    /// (status, headers, body). Used by client middleware to short-circuit on cache hits,
+    /// mocked responses, or open circuit-breakers. Mirrors the server-side `trillium::Conn`
+    /// halt mechanism.
+    #[field(rename_predicates, get, set)]
+    pub(crate) halted: bool,
+
+    /// transport-level error from the round-trip, if any.
+    ///
+    /// When the network call fails (connect refused, TLS handshake error, malformed HTTP frame,
+    /// timeout, etc.) the framework stashes the error here and runs the handler chain's
+    /// [`after_response`](crate::ClientHandler::after_response) anyway. A handler that recovers
+    /// (stale-if-error cache, retry-with-fallback) calls [`Conn::take_error`] to clear the error
+    /// and populates response state synthetically; if the error is still present after all
+    /// handlers finish, it propagates as `Err` from the awaited conn.
+    #[field(get, get_mut, set, take, option_set_some)]
+    pub(crate) error: Option<Error>,
+
+    /// a synthetic response body installed by middleware via [`Conn::set_response_body`] or
+    /// [`Conn::with_response_body`]. When set, [`Conn::response_body`] returns a
+    /// [`ResponseBody`] backed by this reader instead of the transport.
+    pub(crate) synthetic_response_body: Option<Pin<Box<dyn AsyncRead + Send + Sync>>>,
 
     /// the http version for this conn
     ///
@@ -208,8 +235,12 @@ pub struct Conn {
     ///
     /// For H3, these are decoded from the trailing HEADERS frame. For H1, from chunked trailers
     /// (once H1 trailer receive is implemented).
-    #[field(get)]
+    #[field(get, set, get_mut, option_set_some)]
     pub(crate) response_trailers: Option<Headers>,
+
+    /// type-erased middleware stack, copied from the [`Client`][crate::Client] that built this
+    /// conn. Driven from inside [`Conn::exec`].
+    pub(crate) handler: crate::client_handler::ArcedClientHandler,
 }
 
 /// default http user-agent header
@@ -347,17 +378,25 @@ impl Conn {
     /// ```
     #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
     pub fn response_body(&mut self) -> ResponseBody<'_> {
-        ReceivedBody::new(
-            self.response_content_length(),
-            &mut self.buffer,
-            self.transport.as_mut().unwrap(),
-            &mut self.response_body_state,
-            None,
-            encoding(&self.response_headers),
-        )
-        .with_trailers(&mut self.response_trailers)
-        .with_protocol_session(self.protocol_session.clone())
-        .into()
+        let content_length = self.response_content_length();
+        let encoding = encoding(&self.response_headers);
+
+        if let Some(synthetic) = self.synthetic_response_body.as_mut().map(|s| s.as_mut()) {
+            let max_len = self.context.config().received_body_max_len();
+            SyntheticResponseBody::new(synthetic, content_length, encoding, max_len).into()
+        } else {
+            ReceivedBody::new(
+                content_length,
+                &mut self.buffer,
+                self.transport.as_mut().unwrap(),
+                &mut self.response_body_state,
+                None,
+                encoding,
+            )
+            .with_trailers(&mut self.response_trailers)
+            .with_protocol_session(self.protocol_session.clone())
+            .into()
+        }
     }
 
     /// Attempt to deserialize the response body. Note that this consumes the body content.
@@ -406,6 +445,60 @@ impl Conn {
             Some(status) if status.is_success() => Ok(self),
             _ => Err(self.into()),
         }
+    }
+
+    /// Marks this conn as halted, skipping the network round-trip on the next execution.
+    ///
+    /// Use this in combination with synthetic response state ([`Conn::set_status`],
+    /// [`Conn::response_headers_mut`], request-/response-body setters) when middleware
+    /// wants to fully synthesize a response — e.g. cache hits, mocked responses, or
+    /// circuit-breaker short-circuits. See [`Conn::is_halted`] for the predicate.
+    pub fn halt(&mut self) -> &mut Self {
+        self.set_halted(true)
+    }
+
+    /// Installs a synthetic response body, replacing any transport-backed body that would
+    /// otherwise be read from the network.
+    ///
+    /// Used by middleware that wants to short-circuit a request — cache hits, mocked
+    /// responses, circuit-breaker open states. Typically combined with [`Conn::set_status`],
+    /// [`Conn::response_headers_mut`], and [`Conn::halt`] to construct a complete synthetic
+    /// response.
+    ///
+    /// Accepts anything convertible to a [`Body`], so common patterns work directly:
+    ///
+    /// ```ignore
+    /// conn.set_response_body("hello");        // &'static str
+    /// conn.set_response_body(vec![1, 2, 3]);  // Vec<u8>
+    /// conn.set_response_body(Body::new_streaming(file_reader, Some(file_size)));
+    /// ```
+    ///
+    /// Encoding for [`ResponseBody::read_string`] is determined by the response headers'
+    /// Content-Type, just like a transport-backed body — set the appropriate header before or
+    /// after this call as needed. The user-set `max_len` on the resulting `ResponseBody` is
+    /// enforced for synthetic bodies as well as transport-backed ones.
+    pub fn set_response_body(&mut self, body: impl Into<Body>) -> &mut Self {
+        let body: Body = body.into();
+        if let Some(len) = body.len() {
+            self.response_headers_mut()
+                .insert(KnownHeaderName::ContentLength, len.to_string())
+                .remove(KnownHeaderName::TransferEncoding);
+        } else {
+            self.response_headers_mut()
+                .remove(KnownHeaderName::ContentLength);
+            if self.http_version == Version::Http1_1 {
+                self.response_headers_mut()
+                    .insert(KnownHeaderName::TransferEncoding, "chunked");
+            }
+        }
+        self.synthetic_response_body = Some(body.into_reader());
+        self
+    }
+
+    /// Owned chainable variant of [`Conn::set_response_body`].
+    pub fn with_response_body(mut self, body: impl Into<Body>) -> Self {
+        self.set_response_body(body);
+        self
     }
 
     /// Returns this conn to the connection pool if it is keepalive, and

@@ -1,5 +1,5 @@
 use super::{Body, Conn, ReceivedBody, ReceivedBodyState, Transport, TypeSet, encoding};
-use crate::{Error, Result, Version, pool::PoolEntry};
+use crate::{ClientHandler, Error, Result, Version, pool::PoolEntry};
 use futures_lite::{AsyncWriteExt, io};
 use std::{
     fmt::{self, Debug, Formatter},
@@ -32,6 +32,39 @@ pub enum ClientSerdeError {
 
 impl Conn {
     pub(crate) async fn exec(&mut self) -> Result<()> {
+        // Handler.run runs before the network round-trip, in declared order. A handler may halt
+        // (e.g. on a cache hit) to short-circuit the network entirely. The handler is stored on
+        // the conn as a cheap Arc clone, so taking another clone here doesn't conflict with the
+        // mut borrow we need to pass `self` into `run`.
+        let handler = self.handler.clone();
+        handler.run(self).await?;
+
+        if !self.halted {
+            // Stash transport errors on the conn so the handler chain's `after_response` runs
+            // and can recover (e.g. stale-if-error cache, retry-with-fallback). If no handler
+            // takes the error, it propagates from this fn at the end.
+            if let Err(e) = self.exec_network().await {
+                self.error = Some(e);
+            }
+        } else {
+            log::trace!("conn is halted, skipping network round-trip");
+        }
+
+        // Handler.after_response runs after the network call (or after a halt-skipped network
+        // call) in *reverse* order, regardless of halt status or transport error. This mirrors
+        // server-side `before_send` semantics so that loggers and metrics handlers placed after
+        // a cache see both cache hits and transport-backed responses, and recovery handlers
+        // (stale-if-error, retry) get a chance to clear `conn.error`.
+        handler.after_response(self).await?;
+
+        if let Some(e) = self.error.take() {
+            Err(e)
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn exec_network(&mut self) -> Result<()> {
         if matches!(self.http_version, Version::Http0_9) {
             return Err(Error::UnsupportedVersion(self.http_version));
         }
@@ -142,7 +175,15 @@ impl Drop for Conn {
 }
 
 impl From<Conn> for Body {
-    fn from(conn: Conn) -> Body {
+    fn from(mut conn: Conn) -> Body {
+        // A synthetic response body (installed by middleware via `set_response_body`, e.g. on
+        // a cache hit) bypasses the transport entirely. We hand it through as a streaming
+        // Body; the transport — if any is still present — is left on the conn for `Drop` to
+        // pool or close as usual.
+        if let Some(synthetic) = conn.synthetic_response_body.take() {
+            let len = conn.response_content_length();
+            return Body::new_streaming(synthetic, len);
+        }
         let received_body: ReceivedBody<'static, _> = conn.into();
         received_body.into()
     }
