@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-05-11
+
+### Fixed
+
+- HTTP/1.1, HTTP/2, HTTP/3: interim 1xx responses (early hints / RFC 8297, and any other informational status that isn't `100 Continue` or `101 Switching Protocols`) are now correctly skipped and their headers discarded rather than merged into the final response, per RFC 9110 §15.2 and RFC 8297 §2. While awaiting `100 Continue` before sending a request body, an unrelated interim status is now skipped instead of suppressing the body.
+- HTTP/1.1: a response whose `Transfer-Encoding` last coding is not `chunked` is now rejected as `Error::UnexpectedHeader(TransferEncoding)` rather than being parsed as chunked over raw bytes. Per RFC 9112 §6.3 the framing is ambiguous in that case; the previous behavior left a connection in a state where pool reuse would be a response-smuggling vector.
+
 ## [0.8.3] - 2026-05-07
 
 ### Fixed

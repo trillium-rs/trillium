@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-05-11
+
+### Fixed
+
+- HTTP/2 client: interim 1xx HEADERS frames (early hints, etc.) are now discarded instead of being latched as the final response. Per RFC 9113 §8.1 a response may include zero or more informational HEADERS before the final, and per RFC 9110 §15.2 / RFC 8297 §2 their headers must not be merged into the final. `101 Switching Protocols` continues to be treated as a final response. An interim HEADERS frame that erroneously carries `END_STREAM` now surfaces `ConnectionAborted` to the conn task instead of hanging.
+
 ## [1.2.0] - 2026-05-07
 
 ### Added
