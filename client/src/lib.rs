@@ -114,7 +114,7 @@ pub use trillium_http::{
     Method, Result, Status, Version,
 };
 pub use trillium_server_common::{
-    ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Url,
+    ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Url, url,
 };
 #[cfg(feature = "websockets")]
 pub use trillium_websockets::{WebSocketConfig, WebSocketConn, async_tungstenite, tungstenite};

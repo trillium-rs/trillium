@@ -27,7 +27,7 @@ impl Conn {
     /// Returns `Ok(false)` if H3 is unavailable or failed pre-stream, signalling the caller
     /// to fall back to HTTP/1.1. Mid-stream failures are returned as `Err`.
     pub(super) async fn try_exec_h3(&mut self) -> Result<bool> {
-        let Some(h3) = self.h3_client_state.clone() else {
+        let Some(h3) = self.client.h3().cloned() else {
             return Ok(false);
         };
 
@@ -56,7 +56,7 @@ impl Conn {
 
         // Get an existing pooled connection or establish a new one.
         let entry = match h3
-            .get_or_create_quic_conn(&origin, &host, port, &self.config, &self.context)
+            .get_or_create_quic_conn(&origin, &host, port, self.client.connector(), &self.context)
             .await
         {
             Ok(entry) => entry,

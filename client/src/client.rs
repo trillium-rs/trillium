@@ -30,8 +30,14 @@ const DEFAULT_H2_IDLE_PING_TIMEOUT: Duration = Duration::from_secs(20);
 #[derive(Clone, Debug, fieldwork::Fieldwork)]
 pub struct Client {
     config: ArcedConnector,
+
+    #[field(vis = "pub(crate)", get)]
     h3: Option<H3ClientState>,
+
+    #[field(vis = "pub(crate)", get)]
     pool: Option<Pool<Origin, Box<dyn Transport>>>,
+
+    #[field(vis = "pub(crate)", get)]
     h2_pool: Option<Pool<Origin, H2Pooled>>,
 
     /// Maximum idle time for a pooled HTTP/2 connection. `None` disables expiry.
@@ -75,6 +81,7 @@ pub struct Client {
     /// type-erased middleware stack. Defaults to a no-op `()` handler. Set via
     /// [`Client::with_handler`] / [`Client::set_handler`]; recover the concrete type via
     /// [`Client::downcast_handler`].
+    #[field(vis = "pub(crate)", get)]
     handler: ArcedClientHandler,
 }
 
@@ -300,18 +307,11 @@ impl Client {
             transport: None,
             status: None,
             request_body: None,
-            pool: self.pool.clone(),
-            h2_pool: self.h2_pool.clone(),
-            h2_idle_timeout: self.h2_idle_timeout,
-            h2_idle_ping_threshold: self.h2_idle_ping_threshold,
-            h2_idle_ping_timeout: self.h2_idle_ping_timeout,
-            h3_client_state: self.h3.clone(),
             protocol_session: ProtocolSession::Http1,
             #[cfg(feature = "webtransport")]
             wt_pool_entry: None,
             buffer: Vec::with_capacity(128).into(),
             response_body_state: ReceivedBodyState::Start,
-            config: self.config.clone(),
             headers_finalized: false,
             halted: false,
             error: None,
@@ -327,7 +327,7 @@ impl Client {
             protocol: None,
             request_trailers: None,
             response_trailers: None,
-            handler: self.handler.clone(),
+            client: self.clone(),
         }
     }
 
