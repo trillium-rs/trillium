@@ -4,7 +4,7 @@ use memchr::memmem::Finder;
 use size::{Base, Size};
 use std::io::{ErrorKind, Write};
 use trillium_http::{
-    BufWriter, Error,
+    BufWriter, Error, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBodyState, Result, Status, Version,
 };
@@ -269,30 +269,53 @@ impl Conn {
             .eq_ignore_ascii_case(Expect, "100-continue")
         {
             log::trace!("Expecting 100-continue");
-            self.parse_head().await?;
-            if self.status == Some(Status::Continue) {
-                self.status = None;
-                log::trace!("Received 100-continue, sending request body");
-            } else {
-                self.request_body.take();
-                log::trace!(
-                    "Received a status code other than 100-continue, not sending request body"
-                );
-                return Ok(());
+            loop {
+                self.parse_head().await?;
+                match self.status {
+                    Some(Status::Continue) => {
+                        self.reset_interim_response_state();
+                        log::trace!("Received 100-continue, sending request body");
+                        break;
+                    }
+                    Some(other) if is_interim(other) => {
+                        log::trace!(
+                            "Received interim response {other} while awaiting 100-continue, \
+                             continuing to wait"
+                        );
+                        self.reset_interim_response_state();
+                    }
+                    _ => {
+                        self.request_body.take();
+                        log::trace!(
+                            "Received a status code other than 100-continue, not sending request \
+                             body"
+                        );
+                        return Ok(());
+                    }
+                }
             }
         }
 
         self.send_body().await?;
         loop {
             self.parse_head().await?;
-            if self.status == Some(Status::Continue) {
-                self.status = None;
-            } else {
-                break;
+            match self.status {
+                Some(other) if is_interim(other) => {
+                    log::trace!("Received interim response {other}, continuing to read");
+                    self.reset_interim_response_state();
+                }
+                _ => break,
             }
         }
 
         Ok(())
+    }
+
+    fn reset_interim_response_state(&mut self) {
+        // Per RFC 9110 §15.2 interim responses must not contribute headers to the final
+        // response, so clear them before reading the next head.
+        self.status = None;
+        self.response_headers = Headers::new();
     }
 
     async fn send_body(&mut self) -> Result<()> {
@@ -356,16 +379,30 @@ impl Conn {
     }
 
     fn validate_response_headers(&self) -> Result<()> {
+        // Per RFC 9112 §6.3, if Transfer-Encoding is present its last coding must be `chunked`;
+        // otherwise the message framing is ambiguous and the response is malformed. Reject early
+        // rather than fall through to chunked framing on raw bytes (which silently corrupts the
+        // body read and leaves a connection in a state where pool reuse would be a response-
+        // smuggling vector).
+        let te_last_chunked = self
+            .response_headers
+            .get_values(TransferEncoding)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .flat_map(|s| s.split(','))
+                    .map(str::trim)
+                    .rfind(|s| !s.is_empty())
+                    .is_some_and(|last| last.eq_ignore_ascii_case("chunked"))
+            });
+
         let content_length = self.response_headers.has_header(ContentLength);
 
-        let transfer_encoding_chunked = self
-            .response_headers
-            .eq_ignore_ascii_case(TransferEncoding, "chunked");
-
-        if content_length && transfer_encoding_chunked {
-            Err(Error::UnexpectedHeader(ContentLength.into()))
-        } else {
-            Ok(())
+        match (te_last_chunked, content_length) {
+            (None, _) | (Some(true), false) => Ok(()),
+            (Some(true), true) => Err(Error::UnexpectedHeader(ContentLength.into())),
+            (Some(false), _) => Err(Error::UnexpectedHeader(TransferEncoding.into())),
         }
     }
 
@@ -420,6 +457,12 @@ impl Conn {
             TransportAcquisition::H2(transport) => self.try_exec_h2_with_transport(transport).await,
         }
     }
+}
+
+/// All 1xx codes are interim *except* `101 Switching Protocols`, which is a final response
+/// that hands the connection off to a different protocol.
+fn is_interim(status: Status) -> bool {
+    status.is_informational() && status != Status::SwitchingProtocols
 }
 
 pub(super) enum TransportAcquisition {

@@ -35,7 +35,10 @@ async fn extra_one_hundred_continue() -> TestResult {
     transport.write_all("HTTP/1.1 100 Continue\r\n\r\n");
     assert_eq!("body", transport.read_available_string().await);
 
-    transport.write_all("HTTP/1.1 100 Continue\r\nServer: Caddy\r\n\r\n"); //<-
+    // Interim 1xx response carries an unrelated header. Per RFC 8297 §2 (and RFC 9110 §15.2
+    // more generally), headers on an interim response MUST NOT be treated as part of the
+    // final response — the recipient cannot rely on them being included in the final.
+    transport.write_all("HTTP/1.1 100 Continue\r\nServer: Caddy\r\n\r\n");
 
     let response_head = formatdoc! {"
         HTTP/1.1 200 Ok\r
@@ -57,7 +60,7 @@ async fn extra_one_hundred_continue() -> TestResult {
 
     assert_eq!(
         conn.response_headers().get_values("Server").unwrap(),
-        ["Caddy", "text"].as_slice()
+        ["text"].as_slice()
     );
 
     assert_eq!(Some(Status::Ok), conn.status());
