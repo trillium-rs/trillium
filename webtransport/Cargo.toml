@@ -22,7 +22,6 @@ swansong = "0.3"
 trillium-macros.workspace = true
 trillium-server-common.workspace = true
 futures-lite = "2.6.1"
-trillium-logger.workspace = true
 
 [dev-dependencies]
 env_logger = "0.11.10"
@@ -30,6 +29,7 @@ rcgen = "0.14.7"
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 tokio = { version = "1.51.1", features = ["rt", "macros", "time"] }
 trillium-client = { workspace = true, features = ["webtransport"] }
+trillium-logger.workspace = true
 trillium-quinn.workspace = true
 trillium-rustls.workspace = true
 trillium-smol.workspace = true
