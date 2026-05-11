@@ -1,14 +1,11 @@
-use crate::{Pool, ResponseBody, h3::H3ClientState, util::encoding};
+use crate::{Client, ResponseBody, util::encoding};
 use encoding_rs::Encoding;
 use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
     Body, Buffer, Error, HeaderName, HeaderValues, Headers, HttpContext, Method, ProtocolSession,
     ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
 };
-use trillium_server_common::{
-    ArcedConnector, Transport,
-    url::{Origin, Url},
-};
+use trillium_server_common::{Transport, url::Url};
 
 mod h1;
 mod h2;
@@ -26,12 +23,6 @@ pub use unexpected_status_error::UnexpectedStatusError;
 #[must_use]
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn {
-    pub(crate) pool: Option<Pool<Origin, Box<dyn Transport>>>,
-    pub(crate) h2_pool: Option<Pool<Origin, H2Pooled>>,
-    pub(crate) h2_idle_timeout: Option<Duration>,
-    pub(crate) h2_idle_ping_threshold: Option<Duration>,
-    pub(crate) h2_idle_ping_timeout: Duration,
-    pub(crate) h3_client_state: Option<H3ClientState>,
     pub(crate) protocol_session: ProtocolSession,
     /// QUIC-connection WebTransport dispatcher slot (lazy-init) and the QUIC connection
     /// itself, retained on extended-CONNECT-with-`:protocol = webtransport` requests so
@@ -41,7 +32,6 @@ pub struct Conn {
     pub(crate) wt_pool_entry: Option<crate::h3::H3PoolEntry>,
     pub(crate) buffer: Buffer,
     pub(crate) response_body_state: ReceivedBodyState,
-    pub(crate) config: ArcedConnector,
     pub(crate) headers_finalized: bool,
     pub(crate) max_head_length: usize,
     pub(crate) state: TypeSet,
@@ -144,7 +134,7 @@ pub struct Conn {
     ///     Ok(())
     /// });
     /// ```
-    #[field(with = with_body, argument = body, set, into, take, option_set_some)]
+    #[field(get, with = with_body, argument = body, set, into, take, option_set_some)]
     pub(crate) request_body: Option<Body>,
 
     /// the timeout for this conn
@@ -229,9 +219,9 @@ pub struct Conn {
     #[field(get, set, get_mut, option_set_some)]
     pub(crate) response_trailers: Option<Headers>,
 
-    /// type-erased middleware stack, copied from the [`Client`][crate::Client] that built this
-    /// conn. Driven from inside [`Conn::exec`].
-    pub(crate) handler: crate::client_handler::ArcedClientHandler,
+    /// the [`Client`] that built this conn.
+    #[field(get)]
+    pub(crate) client: Client,
 }
 
 /// default http user-agent header
@@ -444,8 +434,8 @@ impl Conn {
     /// task when the conn is dropped, but calling it explicitly allows
     /// you to block on it and control where it happens.
     pub async fn recycle(mut self) {
-        if self.is_keep_alive() && self.transport.is_some() && self.pool.is_some() {
-            self.finish_reading_body().await;
+        if let Some(rb) = self.take_response_body() {
+            rb.recycle().await;
         }
     }
 

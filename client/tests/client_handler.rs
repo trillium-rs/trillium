@@ -52,11 +52,7 @@ impl ClientHandler for Tagged {
     }
 
     async fn after_response(&self, _conn: &mut Conn) -> trillium_client::Result<()> {
-        self.recorder
-            .after_responses
-            .lock()
-            .unwrap()
-            .push(self.tag);
+        self.recorder.after_responses.lock().unwrap().push(self.tag);
         Ok(())
     }
 }
@@ -67,7 +63,9 @@ async fn single_handler_runs_both_passes() -> TestResult {
 
     let _conn = client.get("http://example.com/").await?;
 
-    let counter = client.downcast_handler::<Counter>().expect("handler installed");
+    let counter = client
+        .downcast_handler::<Counter>()
+        .expect("handler installed");
     assert_eq!(counter.runs.load(Ordering::SeqCst), 1);
     assert_eq!(counter.after_responses.load(Ordering::SeqCst), 1);
     Ok(())

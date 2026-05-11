@@ -96,7 +96,7 @@ impl Conn {
 
         // Get-or-init the router and start the routing task. Idempotent across sessions on
         // the same QUIC connection.
-        let runtime = self.config.runtime();
+        let runtime = self.client.connector().runtime();
         let max_datagram_buffer = DEFAULT_MAX_DATAGRAM_BUFFER;
         let Some(router) = dispatcher.get_or_init_with(|| Router::new(max_datagram_buffer)) else {
             return Err(WebTransportConnectError::new(

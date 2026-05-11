@@ -75,7 +75,7 @@ impl Conn {
     /// Returns `Ok(false)` if no pooled h2 connection is available, signalling the caller to
     /// fall through to the h1 / fresh-connect path.
     pub(super) async fn try_exec_h2_pooled(&mut self) -> Result<bool> {
-        let Some(h2_pool) = &self.h2_pool else {
+        let Some(h2_pool) = self.client.h2_pool() else {
             return Ok(false);
         };
         let origin = self.url.origin();
@@ -92,15 +92,16 @@ impl Conn {
             return Ok(false);
         };
 
-        if let Some(threshold) = self.h2_idle_ping_threshold
+        if let Some(threshold) = self.client.h2_idle_ping_threshold()
             && pooled.idle_for() > threshold
         {
             let opaque = fresh_ping_opaque();
             let ping = pooled.connection().send_ping(opaque);
             match self
-                .config
+                .client
+                .connector()
                 .runtime()
-                .timeout(self.h2_idle_ping_timeout, ping)
+                .timeout(self.client.h2_idle_ping_timeout(), ping)
                 .await
             {
                 Some(Ok(rtt)) => {
@@ -133,7 +134,7 @@ impl Conn {
     /// Either way there is no h1 fallback: the preface bytes commit the connection, so a
     /// non-h2-speaking server surfaces as a plain IO error from the h2 driver.
     pub(super) async fn exec_h2_prior_knowledge(&mut self) -> Result<()> {
-        let transport = self.config.connect(&self.url).await?;
+        let transport = self.client.connector().connect(&self.url).await?;
         self.try_exec_h2_with_transport(transport).await
     }
 
@@ -145,14 +146,14 @@ impl Conn {
     ) -> Result<()> {
         let h2 = H2Connection::new(self.context.clone());
         let initiator = h2.clone().run_client(transport);
-        self.config.runtime().spawn(async move {
+        self.client.connector().runtime().spawn(async move {
             if let Err(e) = initiator.await {
                 log::debug!("h2 client connection terminated: {e}");
             }
         });
 
-        if let Some(h2_pool) = &self.h2_pool {
-            let expiry = self.h2_idle_timeout.map(|d| Instant::now() + d);
+        if let Some(h2_pool) = self.client.h2_pool() {
+            let expiry = self.client.h2_idle_timeout().map(|d| Instant::now() + d);
             h2_pool.insert(
                 self.url.origin(),
                 crate::pool::PoolEntry::new(H2Pooled::new(h2.clone()), expiry),
