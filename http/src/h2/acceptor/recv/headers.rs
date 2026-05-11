@@ -13,7 +13,7 @@
 //! All methods are on [`super::super::H2Driver`].
 
 use crate::{
-    Conn,
+    Conn, Status,
     h2::{
         H2Error, H2ErrorCode,
         acceptor::{Action, CloseOutcome, H2Driver, Role, StreamEntry, frame_slice},
@@ -276,6 +276,13 @@ where
     /// waker, and (if `END_STREAM` is set) flip recv-side eof and try to close the stream
     /// if our send half has already completed.
     ///
+    /// Interim (1xx) HEADERS frames are discarded: per RFC 9113 §8.1 the response may include
+    /// zero or more informational HEADERS frames before the final, and per RFC 9110 §15.2 /
+    /// RFC 8297 §2 their headers must not be merged into the final response. Discarding
+    /// without latching `first_response_headers_seen` routes the next HEADERS arrival through
+    /// this function as the final response. Surfacing interim sections to the conn task (for
+    /// proxy forwarding etc.) is a future enhancement.
+    ///
     /// Validation of pseudo-headers (e.g. presence of `:status`) is left to the conn task
     /// in trillium-client, mirroring how the h3 client decomposes the `FieldSection`
     /// returned by `recv_h3_response_headers`.
@@ -285,6 +292,29 @@ where
         end_stream: bool,
         field_section: crate::headers::hpack::FieldSection<'static>,
     ) {
+        let status = field_section.pseudo_headers().status();
+        if status.is_some_and(|s| s.is_informational() && s != Status::SwitchingProtocols) {
+            log::trace!("h2 stream {stream_id}: discarding interim response {status:?}");
+            if end_stream {
+                // §8.1 forbids END_STREAM on an interim HEADERS frame. Honor it anyway so
+                // the conn task surfaces `ConnectionAborted` rather than hanging on a
+                // final-response HEADERS frame that won't arrive.
+                let state = self
+                    .streams
+                    .get(&stream_id)
+                    .expect("caller verified stream is present")
+                    .shared
+                    .clone();
+                let recv_buf = state.recv.buf.lock().expect("recv buf mutex poisoned");
+                state.recv.eof.store(true, Ordering::Release);
+                drop(recv_buf);
+                state.recv.response_headers_waker.wake();
+                state.recv.waker.wake();
+                self.try_close_if_both_done(stream_id);
+            }
+            return;
+        }
+
         let entry = self
             .streams
             .get(&stream_id)

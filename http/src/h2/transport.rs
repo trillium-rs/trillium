@@ -380,12 +380,14 @@ pub(super) struct RecvState {
     pub(super) trailers: Mutex<Option<Headers>>,
 
     /// Client-role: response HEADERS field section, populated by the driver on the first
-    /// HEADERS frame arrival for a client-initiated stream. Server role doesn't use this slot
-    /// (response HEADERS go *out* on the server, not in). Single-shot: the conn task takes
-    /// the `FieldSection` via [`H2Connection::response_headers`][super::H2Connection] once;
-    /// subsequent HEADERS arrivals on the same stream are interpreted as trailers and routed
-    /// to the [`Self::trailers`] slot. 1xx interim responses are not modeled — the slot is
-    /// one `FieldSection` per stream, matching the same constraint elsewhere in trillium.
+    /// non-1xx HEADERS frame arrival for a client-initiated stream. Server role doesn't use
+    /// this slot (response HEADERS go *out* on the server, not in). Single-shot: the conn
+    /// task takes the `FieldSection` via [`H2Connection::response_headers`][super::H2Connection]
+    /// once; subsequent HEADERS arrivals on the same stream are interpreted as trailers and
+    /// routed to the [`Self::trailers`] slot. Interim 1xx HEADERS frames are discarded by
+    /// the driver (see `finalize_response_headers` in `acceptor/recv/headers.rs`) without
+    /// touching this slot or latching `first_response_headers_seen`; surfacing them is a
+    /// future enhancement for downstream consumers like trillium-proxy.
     pub(super) response_headers: Mutex<Option<FieldSection<'static>>>,
 
     /// Client-role: latching flag for "first HEADERS arrived for this stream." Distinct from
