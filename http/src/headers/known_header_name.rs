@@ -204,6 +204,7 @@ known_headers! {
     ("Authentication-Info", AuthenticationInfo, "authentication-info"),
     ("Authorization", Authorization, "authorization"),
     ("Cache-Control", CacheControl, "cache-control"),
+    ("CDN-Cache-Control", CdnCacheControl, "cdn-cache-control"),
     ("Clear-Site-Data", ClearSiteData, "clear-site-data"),
     ("Connection", Connection, "connection"),
     ("Content-DPR", ContentDpr, "content-dpr"),
