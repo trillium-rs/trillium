@@ -76,6 +76,11 @@ impl ServerHandle {
     pub fn runtime(&self) -> Runtime {
         self.runtime.clone()
     }
+
+    /// park the current thread until this server shuts down
+    pub fn block(self) {
+        self.into_future().block()
+    }
 }
 
 impl IntoFuture for ServerHandle {

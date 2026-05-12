@@ -1,6 +1,6 @@
 [package]
 name = "trillium-server-common"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
 description = "server utilities for trillium.rs"
 license = "MIT OR Apache-2.0"
