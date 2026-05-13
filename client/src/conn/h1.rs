@@ -1,12 +1,11 @@
 use super::Conn;
 use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once, io};
 use memchr::memmem::Finder;
-use size::{Base, Size};
 use std::io::{ErrorKind, Write};
 use trillium_http::{
     BufWriter, Error, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
-    Method, ReceivedBodyState, Result, Status, Version,
+    Method, Result, Status, Version,
 };
 use trillium_server_common::{Connector, Transport};
 
@@ -415,19 +414,6 @@ impl Conn {
             && self
                 .response_headers
                 .eq_ignore_ascii_case(Connection, "keep-alive")
-    }
-
-    pub(super) async fn finish_reading_body(&mut self) {
-        if self.response_body_state != ReceivedBodyState::End {
-            let body = self.response_body();
-            match body.drain().await {
-                Ok(drain) => log::debug!(
-                    "drained {}",
-                    Size::from_bytes(drain).format().with_base(Base::Base10)
-                ),
-                Err(e) => log::warn!("failed to drain body, {:?}", e),
-            }
-        }
     }
 
     pub(super) fn response_content_length(&self) -> Option<u64> {

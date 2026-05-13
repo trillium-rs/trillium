@@ -315,6 +315,7 @@ impl Client {
             headers_finalized: false,
             halted: false,
             error: None,
+            body_override: None,
             timeout: self.timeout,
             http_version: Http1_1,
             max_head_length: 8 * 1024,

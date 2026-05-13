@@ -1,6 +1,5 @@
-use super::{Body, Conn, ReceivedBody, ReceivedBodyState, Transport, TypeSet, encoding};
-use crate::{ClientHandler, Error, Result, Version, pool::PoolEntry};
-use futures_lite::{AsyncWriteExt, io};
+use super::{Body, Conn, Transport, TypeSet};
+use crate::{ClientHandler, Error, Result, Version};
 use std::{
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},
@@ -109,100 +108,23 @@ impl Conn {
 impl Drop for Conn {
     fn drop(&mut self) {
         log::trace!("dropping client conn");
-        let Some(mut transport) = self.transport.take() else {
-            log::trace!("no transport, nothing to do");
-
-            return;
-        };
-
-        if !self.is_keep_alive() {
-            log::trace!("not keep alive, closing");
-
-            self.client
-                .connector()
-                .runtime()
-                .clone()
-                .spawn(async move { transport.close().await });
-
-            return;
-        }
-
-        let Some(pool) = self.client.pool().cloned() else {
-            return;
-        };
-
-        let origin = self.url.origin();
-
-        if self.response_body_state == ReceivedBodyState::End {
-            log::trace!(
-                "response body has been read to completion, checking transport back into pool for \
-                 {origin:?} ({:?})",
-                transport.peer_addr()
-            );
-            pool.insert(origin, PoolEntry::new(transport, None));
-        } else {
-            let content_length = self.response_content_length();
-            let buffer = mem::take(&mut self.buffer);
-            let response_body_state = self.response_body_state;
-            let encoding = encoding(&self.response_headers);
-            self.client.connector().runtime().spawn(async move {
-                let mut response_body = ReceivedBody::new(
-                    content_length,
-                    buffer,
-                    transport,
-                    response_body_state,
-                    None,
-                    encoding,
-                );
-
-                match io::copy(&mut response_body, io::sink()).await {
-                    Ok(bytes) => {
-                        let transport = response_body.take_transport().unwrap();
-                        log::trace!("read {bytes} bytes in order to recycle conn",);
-                        pool.insert(origin, PoolEntry::new(transport, None));
-                    }
-
-                    Err(ioerror) => log::error!("unable to recycle conn due to {}", ioerror),
-                };
-            });
-        }
+        drop(self.take_response_body());
     }
 }
 
 impl From<Conn> for Body {
-    fn from(conn: Conn) -> Body {
-        let received_body: ReceivedBody<'static, _> = conn.into();
-        received_body.into()
-    }
-}
+    fn from(mut conn: Conn) -> Body {
+        // An override response body (installed by middleware via `set_response_body`, e.g. on
+        // a cache hit) bypasses the transport entirely. The transport — if any is still
+        // present — is left on the conn for `Drop` to pool or close as usual.
+        if let Some(body) = conn.body_override.take() {
+            return body;
+        }
 
-impl From<Conn> for ReceivedBody<'static, Box<dyn Transport>> {
-    fn from(mut conn: Conn) -> Self {
-        let _ = conn.finalize_headers();
-        let runtime = conn.client.connector().runtime();
-        let origin = conn.url.origin();
-
-        let on_completion = if conn.is_keep_alive()
-            && let Some(pool) = conn.client.pool().cloned()
-        {
-            Box::new(move |transport: Box<dyn Transport>| {
-                log::trace!("body transferred, returning to pool");
-                pool.insert(origin.clone(), PoolEntry::new(transport, None));
-            }) as Box<dyn FnOnce(Box<dyn Transport>) + Send + Sync + 'static>
-        } else {
-            Box::new(move |mut transport: Box<dyn Transport>| {
-                runtime.spawn(async move { transport.close().await });
-            }) as Box<dyn FnOnce(Box<dyn Transport>) + Send + Sync + 'static>
-        };
-
-        ReceivedBody::new(
-            conn.response_content_length(),
-            mem::take(&mut conn.buffer),
-            conn.transport.take().unwrap(),
-            conn.response_body_state,
-            Some(on_completion),
-            conn.response_encoding(),
-        )
+        match conn.take_received_body(true) {
+            Some(rb) => rb.into(),
+            None => Body::default(),
+        }
     }
 }
 

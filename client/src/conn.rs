@@ -1,9 +1,12 @@
-use crate::{Client, ResponseBody, util::encoding};
-use encoding_rs::Encoding;
-use std::{borrow::Cow, net::SocketAddr, sync::Arc, time::Duration};
+use crate::{
+    Client, ResponseBody,
+    response_body::{CleanupContext, OverrideBody},
+    util::encoding,
+};
+use std::{borrow::Cow, mem, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
-    Body, Buffer, Error, HeaderName, HeaderValues, Headers, HttpContext, Method, ProtocolSession,
-    ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
+    Body, Buffer, Error, HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method,
+    ProtocolSession, ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
 };
 use trillium_server_common::{Transport, url::Url};
 
@@ -165,6 +168,11 @@ pub struct Conn {
     #[field(get, get_mut, set, take, option_set_some)]
     pub(crate) error: Option<Error>,
 
+    /// An override response body installed by middleware via [`Conn::set_response_body`] or
+    /// [`Conn::with_response_body`]. When set, [`Conn::response_body`] returns a
+    /// [`ResponseBody`] backed by this body instead of the transport.
+    pub(crate) body_override: Option<Body>,
+
     /// the http version for this conn
     ///
     /// Pre-execution this is the version *hint* (prior knowledge), not the version that will
@@ -209,8 +217,7 @@ pub struct Conn {
     /// trailers sent with the request body, populated after the body has been fully sent.
     ///
     /// Only present when the request body was constructed with [`Body::new_with_trailers`] and
-    /// the body has been fully sent. For H3, this is populated after `send_h3_request`; for H1,
-    /// after `send_body` with a chunked body.
+    /// the body has been fully sent.
     #[field(get)]
     pub(crate) request_trailers: Option<Headers>,
 
@@ -333,10 +340,6 @@ impl Conn {
             .with_request_header(KnownHeaderName::ContentType, "application/json"))
     }
 
-    pub(crate) fn response_encoding(&self) -> &'static Encoding {
-        encoding(&self.response_headers)
-    }
-
     /// returns a [`ResponseBody`](crate::ResponseBody) that borrows the connection inside this
     /// conn.
     /// ```
@@ -357,18 +360,25 @@ impl Conn {
     ///     Ok(())
     /// });
     /// ```
+    #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
     pub fn response_body(&mut self) -> ResponseBody<'_> {
-        ReceivedBody::new(
-            self.response_content_length(),
-            &mut self.buffer,
-            self.transport.as_mut().unwrap(),
-            &mut self.response_body_state,
-            None,
-            encoding(&self.response_headers),
-        )
-        .with_trailers(&mut self.response_trailers)
-        .with_protocol_session(self.protocol_session.clone())
-        .into()
+        let content_length = self.response_content_length();
+        let encoding = encoding(&self.response_headers);
+        if let Some(body) = self.body_override.as_mut() {
+            OverrideBody::new(body, encoding, self.context.config()).into()
+        } else {
+            ReceivedBody::new(
+                content_length,
+                &mut self.buffer,
+                self.transport.as_mut().unwrap(),
+                &mut self.response_body_state,
+                None,
+                encoding,
+            )
+            .with_trailers(&mut self.response_trailers)
+            .with_protocol_session(self.protocol_session.clone())
+            .into()
+        }
     }
 
     /// Attempt to deserialize the response body. Note that this consumes the body content.
@@ -427,6 +437,130 @@ impl Conn {
     /// circuit-breaker short-circuits. See [`Conn::is_halted`] for the predicate.
     pub fn halt(&mut self) -> &mut Self {
         self.set_halted(true)
+    }
+
+    /// Installs a synthetic response body, replacing any transport-backed body that would
+    /// otherwise be read from the network.
+    ///
+    /// Used by middleware that wants to short-circuit a request — cache hits, mocked
+    /// responses, circuit-breaker open states. Typically combined with [`Conn::set_status`],
+    /// [`Conn::response_headers_mut`], and [`Conn::halt`] to construct a complete synthetic
+    /// response.
+    ///
+    /// Accepts anything convertible to a [`Body`], so common patterns work directly:
+    ///
+    /// ```ignore
+    /// conn.set_response_body("hello");        // &'static str
+    /// conn.set_response_body(vec![1, 2, 3]);  // Vec<u8>
+    /// conn.set_response_body(Body::new_streaming(file_reader, Some(file_size)));
+    /// ```
+    ///
+    /// Encoding for [`ResponseBody::read_string`] is determined by the response headers'
+    /// Content-Type, just like a transport-backed body — set the appropriate header before or
+    /// after this call as needed. The user-set `max_len` on the resulting `ResponseBody` is
+    /// enforced for synthetic bodies as well as transport-backed ones.
+    pub fn set_response_body(&mut self, body: impl Into<Body>) -> &mut Self {
+        let body: Body = body.into().without_chunked_framing();
+        if let Some(len) = body.len() {
+            self.response_headers_mut()
+                .insert(KnownHeaderName::ContentLength, len.to_string())
+                .remove(KnownHeaderName::TransferEncoding);
+        } else {
+            self.response_headers_mut()
+                .remove(KnownHeaderName::ContentLength);
+            if self.http_version == Version::Http1_1 {
+                self.response_headers_mut()
+                    .insert(KnownHeaderName::TransferEncoding, "chunked");
+            }
+        }
+        // Recycle whatever body was here — once the override is installed, the transport
+        // (if any) won't be read from again.
+        drop(self.take_response_body());
+        self.body_override = Some(body);
+        self
+    }
+
+    /// Owned chainable variant of [`Conn::set_response_body`].
+    pub fn with_response_body(mut self, body: impl Into<Body>) -> Self {
+        self.set_response_body(body);
+        self
+    }
+
+    /// Detach the response body as an owned, `'static` value.
+    ///
+    /// Returns `None` if there is no body to take — neither an override has been installed nor
+    /// a transport-backed body is available. Subsequent calls return `None`. Callers who want
+    /// to wrap-and-replace the body (e.g. tee through a cache) compose this with
+    /// [`Conn::set_response_body`]; the conn's body slot is empty between the two calls and
+    /// that's fine.
+    ///
+    /// For a transport-backed body, this moves the transport into the returned
+    /// `ResponseBody<'static>`. Drop on that value drains-and-pools (keepalive) or closes
+    /// (otherwise) the transport via a spawned task; [`ResponseBody::recycle`] is the
+    /// `await`-able variant. For an override body, the inner [`Body`] is moved out and any
+    /// leftover transport on the conn is recycled immediately.
+    #[must_use]
+    pub fn take_response_body(&mut self) -> Option<ResponseBody<'static>> {
+        let encoding = encoding(&self.response_headers);
+        if let Some(body) = self.body_override.take() {
+            return Some(OverrideBody::new(body, encoding, self.context.config()).into());
+        }
+
+        let cleanup = self.build_cleanup_context();
+        let received = self.take_received_body(false)?;
+        Some(ResponseBody::received_owned(received, cleanup))
+    }
+
+    /// Build a [`CleanupContext`] capturing the runtime and (if keepalive + pool configured)
+    /// the pool + origin to insert into. Single source of truth for "what should happen to
+    /// this conn's transport when its body is released" — both the on_completion callback
+    /// wired into the body and the [`ResponseBody::recycle`] / `Drop` paths consume clones
+    /// of this same context, so the user-driven and Drop-driven release paths agree.
+    fn build_cleanup_context(&self) -> CleanupContext {
+        let h1_pool_origin = if self.is_keep_alive()
+            && let Some(pool) = self.client.pool().cloned()
+        {
+            Some((pool, self.url.origin()))
+        } else {
+            None
+        };
+
+        CleanupContext {
+            runtime: self.client.connector().runtime(),
+            h1_pool_origin,
+        }
+    }
+
+    /// Detach the transport-backed receive side of this conn as an owned `ReceivedBody`.
+    ///
+    /// Returns `None` when no transport is attached.
+    ///
+    /// `cleanup: true` wires a spawn-on-End callback inside the body for callers that hand
+    /// the body off without awaiting it (`From<Conn> for Body`). `cleanup: false` is for
+    /// callers that drive the body to End themselves and release the transport inline in
+    /// their own poll loop — `take_response_body` does this so callers get a "transport is
+    /// settled when read_to_end returns Ok(0)" guarantee instead of racing a spawned task.
+    pub(crate) fn take_received_body(
+        &mut self,
+        cleanup: bool,
+    ) -> Option<ReceivedBody<'static, Box<dyn Transport>>> {
+        let _ = self.finalize_headers();
+        let transport = self.transport.take()?;
+
+        let on_completion = cleanup.then(|| {
+            let cleanup = self.build_cleanup_context();
+            Box::new(move |transport| cleanup.handoff(transport))
+                as Box<dyn FnOnce(Box<dyn Transport>) + Send + Sync + 'static>
+        });
+
+        Some(ReceivedBody::new(
+            self.response_content_length(),
+            mem::take(&mut self.buffer),
+            transport,
+            self.response_body_state,
+            on_completion,
+            encoding(&self.response_headers),
+        ))
     }
 
     /// Returns this conn to the connection pool if it is keepalive, and

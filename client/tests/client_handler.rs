@@ -12,6 +12,7 @@ use std::{
     },
 };
 use trillium_client::{Client, ClientHandler, Conn, Status, Url};
+use trillium_http::KnownHeaderName::ContentLength;
 use trillium_server_common::Connector;
 use trillium_testing::{ServerConnector, TestResult, harness, test};
 
@@ -29,6 +30,18 @@ impl ClientHandler for Counter {
 
     async fn after_response(&self, _conn: &mut Conn) -> trillium_client::Result<()> {
         self.after_responses.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct Halter;
+
+impl ClientHandler for Halter {
+    async fn run(&self, conn: &mut Conn) -> trillium_client::Result<()> {
+        conn.set_status(Status::Ok).set_response_body("synthesized");
+        conn.response_headers_mut().insert(ContentLength, "11");
+        conn.halt();
         Ok(())
     }
 }
@@ -72,6 +85,39 @@ async fn single_handler_runs_both_passes() -> TestResult {
 }
 
 #[test(harness)]
+async fn handler_can_halt_and_synthesize_response() -> TestResult {
+    // 500 from network, but Halter halts — so success means the chain short-circuited.
+    let client =
+        Client::new(ServerConnector::new(Status::InternalServerError)).with_handler(Halter);
+
+    let mut conn = client.get("http://synthetic.invalid/").await?;
+    assert_eq!(conn.status(), Some(Status::Ok));
+    assert_eq!(conn.response_body().read_string().await?, "synthesized");
+    Ok(())
+}
+
+#[test(harness)]
+async fn tuple_after_response_runs_in_reverse_after_halt() -> TestResult {
+    // (Halter, Counter): Halter halts in run (skipping Counter::run), but after_response always
+    // runs in reverse order, so Counter::after_response fires first, then Halter::after_response.
+    let client = Client::new(ServerConnector::new(Status::InternalServerError))
+        .with_handler((Halter, Counter::default()));
+
+    let mut conn = client.get("http://synthetic.invalid/").await?;
+    assert_eq!(conn.status(), Some(Status::Ok));
+    assert_eq!(conn.response_body().read_string().await?, "synthesized");
+
+    let (_halter, counter) = client
+        .downcast_handler::<(Halter, Counter)>()
+        .expect("handler installed");
+    // Halter halts before Counter::run gets a chance.
+    assert_eq!(counter.runs.load(Ordering::SeqCst), 0);
+    // But after_response runs regardless of halt.
+    assert_eq!(counter.after_responses.load(Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[test(harness)]
 async fn tuple_runs_forward_and_after_responses_in_reverse() -> TestResult {
     let recorder = std::sync::Arc::new(OrderRecorder::default());
     let a = Tagged {
@@ -104,6 +150,14 @@ async fn unit_handler_is_default_and_no_op() -> TestResult {
     let client = Client::new(ServerConnector::new(Status::Ok));
     let conn = client.get("http://example.com/").await?;
     assert_eq!(conn.status(), Some(Status::Ok));
+    Ok(())
+}
+
+#[test(harness)]
+async fn downcast_handler_returns_none_for_wrong_type() -> TestResult {
+    let client = Client::new(ServerConnector::new(Status::Ok)).with_handler(Counter::default());
+    assert!(client.downcast_handler::<Halter>().is_none());
+    assert!(client.downcast_handler::<Counter>().is_some());
     Ok(())
 }
 
@@ -190,3 +244,26 @@ async fn after_response_runs_on_transport_error() -> TestResult {
     Ok(())
 }
 
+// A handler that synthesizes a recovery response and clears the error,
+// causing the awaited conn to return Ok despite the transport failure.
+#[derive(Debug)]
+struct Recoverer;
+
+impl ClientHandler for Recoverer {
+    async fn after_response(&self, conn: &mut Conn) -> trillium_client::Result<()> {
+        if conn.take_error().is_some() {
+            conn.set_status(Status::Ok).set_response_body("recovered");
+        }
+        Ok(())
+    }
+}
+
+#[test(harness)]
+async fn after_response_can_recover_from_transport_error() -> TestResult {
+    let client = Client::new(FailingConnector::new()).with_handler(Recoverer);
+
+    let mut conn = client.get("http://example.com/").await?;
+    assert_eq!(conn.status(), Some(Status::Ok));
+    assert_eq!(conn.response_body().read_string().await?, "recovered");
+    Ok(())
+}
