@@ -71,6 +71,10 @@ where
         {
             let chunked = body.len().is_none();
 
+            // Make absolutely sure that even if someone handed us a body that had chunked framing
+            // turned off, that it's on here, since this is the only reader that actually needs it
+            body.ensure_chunked_framing();
+
             let loops_per_yield = self.context.config.copy_loops_per_yield;
 
             bufwriter.copy_from(&mut body, loops_per_yield).await?;

@@ -33,6 +33,20 @@ impl<T> MutCow<'_, T> {
             MutCow::Borrowed(_) => panic!("attempted to unwrap a borrow"),
         }
     }
+
+    /// Retype as `MutCow<'static, T>` if this is an `Owned` variant.
+    ///
+    /// Returns `None` for `Borrowed` (in which case the borrow is dropped).
+    /// `Owned(T)` carries no reference, so the lifetime parameter is unused for that
+    /// variant — re-wrapping it as `'static` is purely a type-level rename.
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
+    pub fn try_into_owned(self) -> Option<MutCow<'static, T>> {
+        match self {
+            MutCow::Owned(t) => Some(MutCow::Owned(t)),
+            MutCow::Borrowed(_) => None,
+        }
+    }
 }
 
 impl<T> Deref for MutCow<'_, T> {
