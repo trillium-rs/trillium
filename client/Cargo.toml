@@ -27,7 +27,6 @@ encoding_rs = "0.8.35"
 futures-lite = "2.6.1"
 httparse = "1.10.1"
 log = "0.4.29"
-size = "0.5.0"
 trillium-server-common.workspace = true
 trillium-websockets = { workspace = true, optional = true }
 mime = "0.3.17"
