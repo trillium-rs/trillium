@@ -97,6 +97,7 @@ impl AsyncRead for H3Body {
                 len: Some(len),
                 done,
                 progress,
+                ..
             } => {
                 if *done {
                     return Poll::Ready(Ok(0));
@@ -139,6 +140,7 @@ impl AsyncRead for H3Body {
                 len: None,
                 done,
                 progress,
+                ..
             } => {
                 if *done {
                     return Poll::Ready(Ok(0));

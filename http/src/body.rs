@@ -75,7 +75,45 @@ impl Body {
             len,
             done: false,
             progress: 0,
+            chunked_framing: true,
         })
+    }
+
+    /// Disable RFC 9112 chunked-encoding framing emitted by [`AsyncRead`] for streaming
+    /// bodies of unknown length.
+    ///
+    /// By default, when a streaming body has no known length, this type's [`AsyncRead`]
+    /// implementation emits the wire-format chunked framing (chunk-size prefix, terminating
+    /// `0\r\n` marker) so the h1 codec can write its bytes directly. That framing is wrong
+    /// for any consumer that wants raw body bytes — e.g., installing a Body as the override
+    /// source on a client `Conn` for cache replay or middleware tee.
+    ///
+    /// This method is `#[doc(hidden)]` and `unstable`-feature-gated; it exists for internal
+    /// use by trillium-client. External code has no reason to set this flag.
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
+    #[must_use]
+    pub fn without_chunked_framing(mut self) -> Self {
+        if let Streaming {
+            ref mut chunked_framing,
+            ..
+        } = self.0
+        {
+            *chunked_framing = false;
+        }
+        self
+    }
+
+    pub(crate) fn ensure_chunked_framing(&mut self) -> &mut Self {
+        if let Streaming {
+            ref mut chunked_framing,
+            ..
+        } = self.0
+        {
+            *chunked_framing = true;
+        }
+
+        self
     }
 
     /// Returns trailers from the body source, if any.
@@ -145,6 +183,7 @@ impl Body {
                 len,
                 progress: 0,
                 done: false,
+                ..
             } => {
                 let mut async_read = async_read.into_inner();
                 let mut buf = len
@@ -295,6 +334,7 @@ impl AsyncRead for Body {
                 len: Some(len),
                 done,
                 progress,
+                ..
             } => {
                 if *done {
                     return Poll::Ready(Ok(0));
@@ -326,9 +366,20 @@ impl AsyncRead for Body {
                 len: None,
                 done,
                 progress,
+                chunked_framing,
             } => {
                 if *done {
                     return Poll::Ready(Ok(0));
+                }
+
+                if !*chunked_framing {
+                    let bytes = ready!(async_read.get_mut().as_mut().poll_read(cx, buf))?;
+                    if bytes == 0 {
+                        *done = true;
+                    } else {
+                        *progress += bytes as u64;
+                    }
+                    return Poll::Ready(Ok(bytes));
                 }
 
                 let max_bytes_to_read = max_bytes_to_read(buf.len());
@@ -410,6 +461,12 @@ pub(crate) enum BodyType {
         progress: u64,
         len: Option<u64>,
         done: bool,
+        /// When true (the default), [`Body`]'s [`AsyncRead`] impl emits RFC 9112
+        /// chunked-encoding framing for the `len: None` case so the h1 codec can
+        /// write the bytes directly. When false (set via
+        /// [`Body::without_chunked_framing`]), the same path passes through raw
+        /// bytes from the inner [`BodySource`].
+        chunked_framing: bool,
     },
 }
 

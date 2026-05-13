@@ -327,6 +327,66 @@ impl<T> ReceivedBody<'static, T> {
     pub fn take_transport(&mut self) -> Option<T> {
         self.transport.take().map(MutCow::unwrap_owned)
     }
+
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
+    pub fn state(&self) -> ReceivedBodyState {
+        *self.state
+    }
+}
+
+impl<T> ReceivedBody<'_, T> {
+    /// Retype as `ReceivedBody<'static, T>` if every internal `MutCow` field is `Owned`.
+    ///
+    /// Returns `None` if any field is `Borrowed`, in which case `self` is dropped (the
+    /// borrows can't be extended, and there is no useful way to hand the half-destructured
+    /// body back to the caller). Used by trillium-client's `Drop for ResponseBody` to
+    /// promote a body whose runtime-invariant guarantees full ownership but whose
+    /// type-level `'a` parameter the compiler can't see is `'static`.
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
+    pub fn try_into_owned(self) -> Option<ReceivedBody<'static, T>> {
+        let Self {
+            content_length,
+            buffer,
+            transport,
+            state,
+            on_completion,
+            encoding,
+            max_len,
+            initial_len,
+            copy_loops_per_yield,
+            max_preallocate,
+            max_header_list_size,
+            trailers,
+            send_100_continue_offset,
+            protocol_session,
+            h3_trailer_future,
+        } = self;
+
+        let transport = match transport {
+            None => None,
+            Some(t) => Some(t.try_into_owned()?),
+        };
+
+        Some(ReceivedBody {
+            content_length,
+            buffer: buffer.try_into_owned()?,
+            transport,
+            state: state.try_into_owned()?,
+            on_completion,
+            encoding,
+            max_len,
+            initial_len,
+            copy_loops_per_yield,
+            max_preallocate,
+            max_header_list_size,
+            trailers: trailers.try_into_owned()?,
+            send_100_continue_offset,
+            protocol_session,
+            h3_trailer_future,
+        })
+    }
 }
 
 pub(crate) fn read_buffered<Transport>(
@@ -492,6 +552,15 @@ where
     }
 }
 
+impl<Transport> crate::BodySource for ReceivedBody<'static, Transport>
+where
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+{
+    fn trailers(self: Pin<&mut Self>) -> Option<Headers> {
+        self.get_mut().trailers.take()
+    }
+}
+
 impl<Transport> Debug for ReceivedBody<'_, Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ReceivedBody")
@@ -614,6 +683,6 @@ where
 {
     fn from(rb: ReceivedBody<'static, Transport>) -> Self {
         let len = rb.content_length;
-        Body::new_streaming(rb, len)
+        Body::new_with_trailers(rb, len)
     }
 }

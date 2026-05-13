@@ -164,6 +164,10 @@ pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderNam
 pub use http_config::HttpConfig;
 pub use http_context::{HttpContext, run_with_initial_bytes};
 pub use method::Method;
+#[cfg(feature = "unstable")]
+#[doc(hidden)]
+pub use mut_cow::MutCow;
+#[cfg(not(feature = "unstable"))]
 pub(crate) use mut_cow::MutCow;
 #[cfg(feature = "unstable")]
 pub use protocol_session::ProtocolSession;
