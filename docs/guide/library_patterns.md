@@ -7,7 +7,7 @@ Most Trillium libraries follow a consistent pattern for extending `Conn` with ne
 1. A **handler** runs early in the chain and stores data in the conn's state set using a private newtype wrapper.
 2. A **`[Something]ConnExt` trait** provides typed accessor methods on `Conn` for reading that data.
 
-Using a private newtype ensures that only your library's handler sets that state — no other crate can accidentally overwrite it, because `StateSet` holds exactly one value per type and the type is not accessible outside your crate.
+Using a private newtype ensures that only your library's handler sets that state — no other crate can accidentally overwrite it, because `TypeSet` holds exactly one value per type and the type is not accessible outside your crate.
 
 Here's a worked example: a handler that numbers each conn in order and makes that number available to downstream handlers.
 
