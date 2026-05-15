@@ -90,6 +90,7 @@ mod readme {}
 mod client;
 mod client_handler;
 mod conn;
+mod conn_handler_ext;
 mod h3;
 mod into_url;
 mod pool;
@@ -105,6 +106,7 @@ pub use client_handler::ClientHandler;
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 pub use conn::ClientSerdeError;
 pub use conn::{Conn, USER_AGENT, UnexpectedStatusError};
+pub use conn_handler_ext::ConnExt;
 pub use into_url::IntoUrl;
 // open an issue if you have a reason for pool to be public
 pub(crate) use pool::Pool;

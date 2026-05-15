@@ -26,7 +26,7 @@ use std::{
     time::Duration,
 };
 use trillium::{Body, Conn as ServerConn, Handler};
-use trillium_client::Client;
+use trillium_client::{Client, ConnExt as _};
 use trillium_http::KnownHeaderName;
 use trillium_server_common::{Connector, Runtime, RuntimeTrait, Transport, Url};
 use trillium_testing::{

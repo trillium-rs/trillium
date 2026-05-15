@@ -4,6 +4,88 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-05-15
+
+### Added
+
+#### Client middleware: `ClientHandler` and `ConnExt`
+
+`trillium-client` gains an extension point comparable to `trillium::Handler`, with a similar
+`Handler` / tuple-composition / `halt`-to-short-circuit shape, adapted to client ownership semantics.
+
+**`ClientHandler` trait.** Two async hooks, both with no-op defaults:
+
+- `run(&self, conn: &mut Conn)` — fires before the network round-trip, in declared order. May mutate
+  the request, halt to short-circuit (cache hit, mocked response), or fail.
+- `after_response(&self, conn: &mut Conn)` — fires after the network round-trip in *reverse*
+  declared order, *always* (including on transport error and on halt-and-synthesize). Observer
+  handlers see every response; recovery handlers can clear a stashed transport error and synthesize
+  a fallback.
+
+Tuples up to 15 elements implement `ClientHandler`, as does `()` and `Option<H>`. Implementors write
+the trait with native `async fn`.
+
+**Installation and recovery.** `Client::with_handler` / `Client::set_handler` install a handler on a
+client, and `Client::downcast_handler` recovers the concrete type for inspection (counters on a
+metrics handler, etc.).
+
+**`ConnExt` extension trait.** The lifecycle-driving methods — queueing a follow-up request,
+stashing/recovering the transport error, halting, and the response-state synthesis surface
+(`set_status`, `set_response_body`, `response_headers_mut`, etc.) — live on a separate extension
+trait that handler authors bring into scope with `use trillium_client::ConnExt;`. These
+operations are intended only for use from inside a handler and do not appear on `Conn`'s inherent
+surface.
+
+**Re-issuing requests from a handler.** Awaiting a `Conn` may now execute an unbounded chain of
+follow-up requests within a single await. Handlers that re-issue (following redirects, retry logic,
+auth-refresh, etc.) build a fresh `Conn` from `conn.client()`, configure it, and queue it via
+`ConnExt::set_followup` from inside `after_response`; once the current cycle's
+`after_response` fully unwinds, the current response body is recycled, the follow-up is swapped into
+place, and another full handler cycle runs on it. The `Conn` left in place when the await resolves
+may therefore be a follow-up rather than the one the caller started with.
+
+#### Override response bodies and the `ResponseBody` lifecycle
+
+Supporting infrastructure for the ability for handlers to synthesize a response body without hitting
+the network, for use cases such as cache-populated responses:
+
+- `ConnExt::set_response_body` / `with_response_body` — install an
+  override body that bypasses the transport. Accepts anything convertible to
+  a `Body`; `Content-Length` / `Transfer-Encoding` are reconciled to the
+  body's length, and the user-set `max_len` is enforced for override bodies
+  as well as transport-backed ones.
+- `Conn::take_response_body(&mut self) -> Option<ResponseBody<'static>>` —
+  detaches the body so the caller can wrap, replace, drain, or hold it.
+  Returns `None` on the second call.
+- `ResponseBody::recycle` (consuming, async) — drains the body and returns
+  the connection to the pool when reuse is possible, otherwise closes it.
+- `Drop for ResponseBody<'static>` — the same drain-and-recycle-or-close
+  runs when a `ResponseBody` is dropped without being explicitly recycled.
+
+#### Other additions
+
+- `Conn::client() -> &Client` — handlers building a follow-up conn use this
+  to reach the originating client.
+- `Conn::request_body() -> Option<&Body>` — request-body accessor.
+- `pub use url` — the `url` crate is re-exported at the crate root, so
+  callers don't need to depend on `url` separately to write `IntoUrl` impls
+  or inspect a `Conn::url()`.
+
+### Removed
+
+- `From<ResponseBody<'a>> for ReceivedBody<'a, _>` and
+  `From<Conn> for ReceivedBody<'static, _>` — the two are no longer
+  directly interchangeable.
+- `AsyncRead::poll_read_vectored for ResponseBody` — the override path has
+  no meaningful vectored read; the default (single-buffer) impl applies
+  uniformly.
+
+### Fixed
+
+- `InvalidStatus` is now propagated as an error from the awaited conn
+  instead of panicking when the server returns an unrecognized response
+  code.
+
 ## [0.8.4] - 2026-05-11
 
 ### Fixed

@@ -15,11 +15,11 @@ use trillium_server_common::{Runtime, Transport, url::Origin};
 /// A response body received from a server.
 ///
 /// Most of the time this represents a body that will be read from the underlying transport, but it
-/// can also wrap an override body installed by middleware via [`Conn::set_response_body`] —
-/// e.g. cache hits, mocked responses, or circuit-breaker short-circuits. Reads, encoding handling,
-/// and `max_len` enforcement work transparently across both cases.
+/// can also wrap an override body installed by middleware via [`ConnExt::set_response_body`]
+/// — e.g. cache hits, mocked responses, or circuit-breaker short-circuits. Reads, encoding
+/// handling, and `max_len` enforcement work transparently across both cases.
 ///
-/// [`Conn::set_response_body`]: crate::Conn::set_response_body
+/// [`ConnExt::set_response_body`]: crate::ConnExt::set_response_body
 ///
 /// ```rust
 /// use trillium_client::Client;
@@ -57,7 +57,7 @@ pub struct ResponseBody<'a> {
 enum ResponseBodyInner<'a> {
     Received(ReceivedBody<'a, Box<dyn Transport>>),
     Override(OverrideBody<'a>),
-    Closing(Pin<Box<dyn Future<Output = ()> + Send + 'static>>),
+    Closing(Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>),
     Closed,
 }
 
@@ -483,3 +483,9 @@ impl<'a> IntoFuture for ResponseBody<'a> {
         Box::pin(async move { self.read_string().await })
     }
 }
+
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync + ?Sized>() {}
+    assert_send_sync::<ResponseBody<'static>>();
+    assert_send_sync::<ResponseBody<'_>>();
+};

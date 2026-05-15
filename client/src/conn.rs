@@ -5,8 +5,8 @@ use crate::{
 };
 use std::{borrow::Cow, mem, net::SocketAddr, sync::Arc, time::Duration};
 use trillium_http::{
-    Body, Buffer, Error, HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method,
-    ProtocolSession, ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
+    Body, Buffer, Error, HeaderName, HeaderValues, Headers, HttpContext, Method, ProtocolSession,
+    ReceivedBody, ReceivedBodyState, Status, TypeSet, Version,
 };
 use trillium_server_common::{Transport, url::Url};
 
@@ -85,7 +85,7 @@ pub struct Conn {
     #[field(get, get_mut)]
     pub(crate) request_headers: Headers,
 
-    #[field(get, get_mut, set)]
+    #[field(get)]
     /// the response headers
     pub(crate) response_headers: Headers,
 
@@ -108,7 +108,7 @@ pub struct Conn {
     ///     Ok(())
     /// });
     /// ```
-    #[field(get, copy, set, with, option_set_some)]
+    #[field(get, copy)]
     pub(crate) status: Option<Status>,
 
     /// the request body
@@ -152,9 +152,10 @@ pub struct Conn {
     /// When set to `true` before execution, the network round-trip is skipped — the conn is
     /// returned to the caller with whatever response state has been populated synthetically
     /// (status, headers, body). Used by client middleware to short-circuit on cache hits,
-    /// mocked responses, or open circuit-breakers. Mirrors the server-side `trillium::Conn`
-    /// halt mechanism.
-    #[field(rename_predicates, get, set)]
+    /// mocked responses, or open circuit-breakers. The trampoline clears it on egress so the
+    /// user's conn handle never observes residual halt state after the awaited conn returns.
+    ///
+    /// Driven via [`ConnExt`](crate::ConnExt) — `halt` / `set_halted` / `is_halted`.
     pub(crate) halted: bool,
 
     /// transport-level error from the round-trip, if any.
@@ -162,15 +163,17 @@ pub struct Conn {
     /// When the network call fails (connect refused, TLS handshake error, malformed HTTP frame,
     /// timeout, etc.) the framework stashes the error here and runs the handler chain's
     /// [`after_response`](crate::ClientHandler::after_response) anyway. A handler that recovers
-    /// (stale-if-error cache, retry-with-fallback) calls [`Conn::take_error`] to clear the error
+    /// (stale-if-error cache, retry-with-fallback) calls
+    /// [`ConnExt::take_error`](crate::ConnExt::take_error) to clear the error
     /// and populates response state synthetically; if the error is still present after all
     /// handlers finish, it propagates as `Err` from the awaited conn.
-    #[field(get, get_mut, set, take, option_set_some)]
     pub(crate) error: Option<Error>,
 
-    /// An override response body installed by middleware via [`Conn::set_response_body`] or
-    /// [`Conn::with_response_body`]. When set, [`Conn::response_body`] returns a
-    /// [`ResponseBody`] backed by this body instead of the transport.
+    /// An override response body installed by middleware via
+    /// [`ConnExt::set_response_body`](crate::ConnExt::set_response_body) or
+    /// [`ConnExt::with_response_body`](crate::ConnExt::with_response_body). When
+    /// set, [`Conn::response_body`] returns a [`ResponseBody`] backed by this body instead of
+    /// the transport.
     pub(crate) body_override: Option<Body>,
 
     /// the http version for this conn
@@ -223,12 +226,22 @@ pub struct Conn {
 
     /// trailers received with the response body, populated after the response body has been fully
     /// read.
-    #[field(get, set, get_mut, option_set_some)]
+    #[field(get)]
     pub(crate) response_trailers: Option<Headers>,
 
     /// the [`Client`] that built this conn.
     #[field(get)]
     pub(crate) client: Client,
+
+    /// A queued follow-up conn installed by middleware via
+    /// [`ConnExt::set_followup`](crate::ConnExt::set_followup).
+    ///
+    /// When `Some` after the handler chain's `after_response` has fully unwound, the
+    /// [`IntoFuture`][std::future::IntoFuture] trampoline picks it up: the current conn's
+    /// response body is recycled, then the trampoline swaps in the follow-up and runs another
+    /// full `(run → network → after_response)` cycle on it. Used by re-issuing handlers
+    /// (`FollowRedirects`, retry, auth-refresh) instead of recursing into a nested `.await`.
+    pub(crate) followup: Option<Box<Conn>>,
 }
 
 /// default http user-agent header
@@ -429,70 +442,13 @@ impl Conn {
         }
     }
 
-    /// Marks this conn as halted, skipping the network round-trip on the next execution.
-    ///
-    /// Use this in combination with synthetic response state ([`Conn::set_status`],
-    /// [`Conn::response_headers_mut`], request-/response-body setters) when middleware
-    /// wants to fully synthesize a response — e.g. cache hits, mocked responses, or
-    /// circuit-breaker short-circuits. See [`Conn::is_halted`] for the predicate.
-    pub fn halt(&mut self) -> &mut Self {
-        self.set_halted(true)
-    }
-
-    /// Installs a synthetic response body, replacing any transport-backed body that would
-    /// otherwise be read from the network.
-    ///
-    /// Used by middleware that wants to short-circuit a request — cache hits, mocked
-    /// responses, circuit-breaker open states. Typically combined with [`Conn::set_status`],
-    /// [`Conn::response_headers_mut`], and [`Conn::halt`] to construct a complete synthetic
-    /// response.
-    ///
-    /// Accepts anything convertible to a [`Body`], so common patterns work directly:
-    ///
-    /// ```ignore
-    /// conn.set_response_body("hello");        // &'static str
-    /// conn.set_response_body(vec![1, 2, 3]);  // Vec<u8>
-    /// conn.set_response_body(Body::new_streaming(file_reader, Some(file_size)));
-    /// ```
-    ///
-    /// Encoding for [`ResponseBody::read_string`] is determined by the response headers'
-    /// Content-Type, just like a transport-backed body — set the appropriate header before or
-    /// after this call as needed. The user-set `max_len` on the resulting `ResponseBody` is
-    /// enforced for synthetic bodies as well as transport-backed ones.
-    pub fn set_response_body(&mut self, body: impl Into<Body>) -> &mut Self {
-        let body: Body = body.into().without_chunked_framing();
-        if let Some(len) = body.len() {
-            self.response_headers_mut()
-                .insert(KnownHeaderName::ContentLength, len.to_string())
-                .remove(KnownHeaderName::TransferEncoding);
-        } else {
-            self.response_headers_mut()
-                .remove(KnownHeaderName::ContentLength);
-            if self.http_version == Version::Http1_1 {
-                self.response_headers_mut()
-                    .insert(KnownHeaderName::TransferEncoding, "chunked");
-            }
-        }
-        // Recycle whatever body was here — once the override is installed, the transport
-        // (if any) won't be read from again.
-        drop(self.take_response_body());
-        self.body_override = Some(body);
-        self
-    }
-
-    /// Owned chainable variant of [`Conn::set_response_body`].
-    pub fn with_response_body(mut self, body: impl Into<Body>) -> Self {
-        self.set_response_body(body);
-        self
-    }
-
     /// Detach the response body as an owned, `'static` value.
     ///
     /// Returns `None` if there is no body to take — neither an override has been installed nor
     /// a transport-backed body is available. Subsequent calls return `None`. Callers who want
     /// to wrap-and-replace the body (e.g. tee through a cache) compose this with
-    /// [`Conn::set_response_body`]; the conn's body slot is empty between the two calls and
-    /// that's fine.
+    /// [`ConnExt::set_response_body`][crate::ConnExt::set_response_body]; the conn's
+    /// body slot is empty between the two calls.
     ///
     /// For a transport-backed body, this moves the transport into the returned
     /// `ResponseBody<'static>`. Drop on that value drains-and-pools (keepalive) or closes

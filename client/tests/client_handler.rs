@@ -11,7 +11,7 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
-use trillium_client::{Client, ClientHandler, Conn, Status, Url};
+use trillium_client::{Client, ClientHandler, Conn, ConnExt, Status, Url};
 use trillium_http::KnownHeaderName::ContentLength;
 use trillium_server_common::Connector;
 use trillium_testing::{ServerConnector, TestResult, harness, test};
@@ -265,5 +265,50 @@ async fn after_response_can_recover_from_transport_error() -> TestResult {
     let mut conn = client.get("http://example.com/").await?;
     assert_eq!(conn.status(), Some(Status::Ok));
     assert_eq!(conn.response_body().read_string().await?, "recovered");
+    Ok(())
+}
+
+// A handler that queues a follow-up *and* leaves the error stashed —
+// i.e. doesn't call `take_error()`. The trampoline should propagate the
+// error and discard the queued follow-up.
+#[derive(Debug, Default, Clone)]
+struct ErroringFollowupQueuer {
+    after_response_runs: Arc<AtomicUsize>,
+}
+
+impl ClientHandler for ErroringFollowupQueuer {
+    async fn after_response(&self, conn: &mut Conn) -> trillium_client::Result<()> {
+        self.after_response_runs.fetch_add(1, Ordering::SeqCst);
+        if conn.error().is_some() {
+            // Don't clear the error; just queue a follow-up. The trampoline should
+            // refuse to pick the follow-up up and let the error win.
+            let followup = conn.client().get("http://example.com/followup");
+            conn.set_followup(followup);
+        }
+        Ok(())
+    }
+}
+
+#[test(harness)]
+async fn error_wins_over_queued_followup() -> TestResult {
+    let handler = ErroringFollowupQueuer::default();
+    let client = Client::new(FailingConnector::new()).with_handler(handler.clone());
+
+    let mut conn = client.get("http://example.com/");
+    let result = (&mut conn).await;
+
+    assert!(
+        result.is_err(),
+        "transport error should propagate when after_response leaves it stashed, got {result:?}"
+    );
+    assert_eq!(
+        handler.after_response_runs.load(Ordering::SeqCst),
+        1,
+        "after_response should run exactly once — the queued follow-up must not be picked up"
+    );
+    assert!(
+        conn.followup().is_none(),
+        "trampoline should clear the queued follow-up before propagating the error"
+    );
     Ok(())
 }
