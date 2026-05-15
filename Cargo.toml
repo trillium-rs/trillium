@@ -53,7 +53,7 @@ trillium-askama = { version = "0.4", path = "askama" }
 trillium-async-std = { version = "0.6", path = "async-std" }
 trillium-aws-lambda = { version = "0.4", path = "aws-lambda" }
 trillium-caching-headers = { version = "0.3", path = "caching-headers" }
-trillium-client = { version = "0.8", path = "client" }
+trillium-client = { version = "0.9", path = "client" }
 trillium-compression = { version = "0.3", path = "compression" }
 trillium-conn-id = { version = "0.3", path = "conn-id" }
 trillium-cookies = { version = "0.5", path = "cookies" }
@@ -65,7 +65,7 @@ trillium-macros = { version = "0.1", path = "macros" }
 trillium-method-override = { version = "0.3", path = "method-override" }
 trillium-native-tls = { version = "0.6", path = "native-tls" }
 trillium-openssl = { version = "0.2", path = "openssl" }
-trillium-proxy = { version = "0.7", path = "proxy" }
+trillium-proxy = { version = "0.8", path = "proxy" }
 trillium-quinn = { version = "0.1", path = "quinn" }
 trillium-router = { version = "0.5", path = "router" }
 trillium-rustls = { version = "0.11", path = "rustls" }

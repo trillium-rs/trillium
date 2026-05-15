@@ -329,6 +329,7 @@ impl Client {
             request_trailers: None,
             response_trailers: None,
             client: self.clone(),
+            followup: None,
         }
     }
 

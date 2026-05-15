@@ -1,4 +1,4 @@
-use crate::{Conn, Result};
+use crate::{Conn, ConnExt, Result};
 use std::{
     any::Any,
     borrow::Cow,
@@ -21,7 +21,7 @@ use std::{
 ///
 /// ## Lifecycle
 ///
-/// Each `Conn::exec` call runs handlers in two passes:
+/// Each `Conn::exec` call runs handlers in three steps:
 ///
 /// 1. **Forward pass — `run`.** Each handler runs in declared order. A handler may mutate the
 ///    request, short-circuit by [calling `Conn::halt`] + populating synthetic response state (cache
@@ -29,20 +29,29 @@ use std::{
 /// 2. **Network round-trip.** Skipped if the conn is halted.
 /// 3. **Reverse pass — `after_response`.** Each handler's `after_response` runs in *reverse* order,
 ///    *regardless of halt status*. This mirrors `trillium::Handler::before_send` and lets handlers
-///    that observe the response (loggers, metrics, status checkers) record cache hits and
-///    short-circuited responses, not just transport-backed ones.
+///    that observe the response record cache hits and short-circuited responses, not just
+///    transport-backed ones.
 ///
 /// [calling `Conn::halt`]: crate::Conn::halt
 ///
 /// ## Re-execution
 ///
-/// Handlers that need to re-issue a request (follow-redirects, retry, auth-refresh) construct a
-/// fresh `Conn` from a `Client` they own — typically a separate one without recursion into the
-/// same handler chain — execute it, and `std::mem::swap` it with the user's conn. See the
-/// `follow_redirects` and `retry` handlers for examples.
+/// Handlers that need to re-issue a request (follow-redirects, retry, auth-refresh) build a fresh
+/// `Conn` from `conn.client()` in `after_response`, configure it (filtered headers, replayed body,
+/// handler-internal state), and queue it via
+/// [`ConnExt::set_followup`][crate::ConnExt::set_followup]. The trampoline in
+/// [`IntoFuture for &mut Conn`][std::future::IntoFuture] picks the follow-up up after the current
+/// cycle's `after_response` has fully unwound: it recycles the current response body, swaps the
+/// follow-up into place, and runs another full `(run → network → after_response)` cycle on it.
 ///
-/// Pre-executing the same conn from inside `run` is undefined: the conn is mid-pipeline at that
-/// point and re-entering `IntoFuture` recurses through the same handler chain. Don't.
+/// ## Handler-author affordances on `Conn`
+///
+/// Lifecycle-driving methods — queue a follow-up, stash or recover the transport-level error —
+/// live on the [`ConnExt`][crate::ConnExt] extension trait rather than directly on
+/// [`Conn`]. Bring them into scope with `use trillium_client::ConnExt;`. The split is
+/// intentional: those operations are meaningful only from inside a handler, and keeping them off
+/// `Conn`'s inherent surface stops them from appearing in IDE completion for user code that holds
+/// a `Conn` directly.
 ///
 /// ## Type erasure
 ///
@@ -71,14 +80,17 @@ pub trait ClientHandler: Send + Sync + 'static {
     /// recover from a transport-level error, or fail.
     ///
     /// **Transport errors.** If the network call failed (connect refused, TLS handshake error,
-    /// malformed HTTP frame, timeout), the framework stashes the error on
-    /// [`Conn::error`][crate::Conn::error] and runs `after_response` anyway. A handler that
-    /// recovers (stale-if-error cache, retry-with-fallback, circuit breaker) should:
-    /// 1. Inspect [`conn.error()`][crate::Conn::error] to detect the failure.
+    /// malformed HTTP frame, timeout), the framework stashes the error on the conn and runs
+    /// `after_response` anyway. A handler that recovers from an error should:
+    /// 1. Inspect [`conn.error()`][crate::ConnExt::error] to detect the failure.
     /// 2. Populate response state synthetically (`set_status`, `response_headers_mut`,
-    ///    `set_response_body`).
-    /// 3. Call [`conn.take_error()`][crate::Conn::take_error] to clear the error so the awaited
+    ///    `set_response_body`) or enqueue a new followup conn.
+    /// 3. Call [`conn.take_error()`][crate::ConnExt::take_error] to clear the error so the awaited
     ///    conn returns `Ok`.
+    ///
+    /// The `error` / `take_error` / `set_error` methods live on the
+    /// [`ConnExt`][crate::ConnExt] extension trait — `use
+    /// trillium_client::ConnExt;` to bring them into scope.
     ///
     /// If no handler clears the error, it propagates as `Err` from the awaited conn.
     ///

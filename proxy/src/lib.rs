@@ -30,6 +30,7 @@ use trillium::{
     Status::{NotFound, SwitchingProtocols},
     Upgrade,
 };
+use trillium_client::ConnExt as _;
 pub use trillium_client::{Client, Connector};
 use trillium_forwarding::Forwarded;
 use trillium_http::{HeaderName, Headers, HttpContext, Status, Version};

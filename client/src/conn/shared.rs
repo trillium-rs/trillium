@@ -1,5 +1,5 @@
 use super::{Body, Conn, Transport, TypeSet};
-use crate::{ClientHandler, Error, Result, Version};
+use crate::{ClientHandler, ConnExt, Error, Result, Version};
 use std::{
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},
@@ -156,15 +156,51 @@ impl<'conn> IntoFuture for &'conn mut Conn {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            if let Some(duration) = self.timeout {
-                self.client
-                    .connector()
-                    .runtime()
-                    .timeout(duration, self.exec())
-                    .await
-                    .unwrap_or(Err(Error::TimedOut("Conn", duration)))?;
-            } else {
-                self.exec().await?;
+            // The trampoline: a re-issuing handler (FollowRedirects, retry, auth-refresh)
+            // queues a follow-up via `conn.set_followup(...)` from its `after_response`.
+            // We pick it up here, recycle the current response body so the next request can
+            // reuse the pooled h1 transport synchronously, then swap the follow-up into place
+            // and run another full cycle on it. The displaced conn drops at the end of the
+            // iteration; we've already taken its body so Drop is a no-op for transport
+            // recycling.
+            //
+            // Error precedence: an unrecovered error wins over a queued follow-up. If exec
+            // returns Err, we discard any queued follow-up before propagating so the conn
+            // doesn't carry a stale follow-up out to the caller (which would otherwise be
+            // picked up on a subsequent `.await`). Recovery handlers that want the follow-up
+            // to run must `take_error()` to clear the stash inside `after_response`.
+            //
+            // Egress hygiene: `halted` is handler-internal state — once exec finishes its
+            // cycle, the user's conn handle should never observe residual halt. We clear it
+            // on both the success and error return paths.
+            loop {
+                let result = if let Some(duration) = self.timeout {
+                    self.client
+                        .connector()
+                        .runtime()
+                        .timeout(duration, self.exec())
+                        .await
+                        .unwrap_or(Err(Error::TimedOut("Conn", duration)))
+                } else {
+                    self.exec().await
+                };
+
+                self.halted = false;
+
+                if let Err(e) = result {
+                    self.followup = None;
+                    return Err(e);
+                }
+
+                let Some(next) = self.take_followup() else {
+                    break;
+                };
+
+                if let Some(body) = self.take_response_body() {
+                    body.recycle().await;
+                }
+
+                let _displaced = mem::replace(self, next);
             }
             Ok(())
         })

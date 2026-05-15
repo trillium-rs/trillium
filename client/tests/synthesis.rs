@@ -5,7 +5,7 @@
 //! that the network round-trip was skipped.
 
 use futures_lite::AsyncReadExt;
-use trillium_client::{Client, Status};
+use trillium_client::{Client, ConnExt as _, Status};
 use trillium_http::KnownHeaderName::{ContentLength, ContentType};
 use trillium_testing::{ServerConnector, TestResult, harness, test};
 

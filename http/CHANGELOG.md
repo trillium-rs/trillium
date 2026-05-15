@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-05-15
+
+### Added
+
+- `Error::Other` and the `Error::other(impl Error)` constructor — a catchall variant for application-level errors that need to flow through `trillium_http::Result`.
+
+### Changed
+
+- `From<ReceivedBody<'static, _>> for Body` now propagates trailers from
+  the source body through the conversion. Behavior change for the
+  trailer-carrying case; equivalent for bodies without trailers.
+
 ## [1.2.1] - 2026-05-11
 
 ### Fixed
