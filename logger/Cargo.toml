@@ -25,9 +25,9 @@ url = "2.5.8"
 
 [dev-dependencies]
 access_log_parser = "0.11.0"
-trillium-smol.workspace = true
-trillium-testing.workspace = true
-trillium-http = { workspace = true, features = ["http-compat-1"] }
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
+trillium-http = { path = "../http", features = ["http-compat-1"] }
 async-channel = "2.5.0"
 
 [package.metadata.cargo-udeps.ignore]

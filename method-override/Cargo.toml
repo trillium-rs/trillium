@@ -16,5 +16,5 @@ querystrong = "0.4.0"
 trillium-http.workspace = true
 
 [dev-dependencies]
-trillium-smol.workspace = true
-trillium-testing.workspace = true
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }

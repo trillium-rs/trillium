@@ -23,14 +23,14 @@ trillium.workspace = true
 trillium-websockets.workspace = true
 
 [dev-dependencies]
-trillium-api.workspace = true
-trillium-caching-headers.workspace = true
-trillium-conn-id.workspace = true
-trillium-logger.workspace = true
-trillium-router.workspace = true
-trillium-smol.workspace = true
-trillium-static-compiled.workspace = true
-trillium-testing.workspace = true
+trillium-api = { path = "../api" }
+trillium-caching-headers = { path = "../caching-headers" }
+trillium-conn-id = { path = "../conn-id" }
+trillium-logger = { path = "../logger" }
+trillium-router = { path = "../router" }
+trillium-smol = { path = "../smol" }
+trillium-static-compiled = { path = "../static-compiled" }
+trillium-testing = { path = "../testing" }
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

@@ -16,7 +16,7 @@ httpdate = "1.0.3"
 trillium.workspace = true
 
 [dev-dependencies]
-trillium-smol.workspace = true
-trillium-static = { workspace = true, features = ["smol"] }
+trillium-smol = { path = "../smol" }
+trillium-static = { path = "../static", features = ["smol"] }
 
 [features]

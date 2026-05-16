@@ -37,11 +37,11 @@ webpki-roots = { version = "1.0", optional = true }
 env_logger = "0.11.10"
 portpicker = "0.1.1"
 test-harness = "0.3.1"
-trillium.workspace = true
-trillium-client.workspace = true
-trillium-native-tls.workspace = true
-trillium-smol.workspace = true
-trillium-testing.workspace = true
+trillium = { path = "../trillium" }
+trillium-client = { path = "../client" }
+trillium-native-tls = { path = "../native-tls" }
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
 
 [package.metadata.cargo-udeps.ignore]
 # because there is no way to say [dependencies.'cfg(not(feature = "platform-verifier"))']

@@ -33,4 +33,4 @@ trillium-caching-headers.workspace = true
 trillium-compression.workspace = true
 
 [dev-dependencies]
-trillium-testing.workspace = true
+trillium-testing = { path = "../testing" }

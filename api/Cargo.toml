@@ -35,10 +35,10 @@ url = { version = "2.5.8", optional = true }
 async-io = "2.6.0"
 env_logger = "0.11.10"
 serde = { version = "1.0.228", features = ["derive"] }
-trillium-logger.workspace = true
-trillium-router.workspace = true
-trillium-smol.workspace = true
-trillium-testing.workspace = true
+trillium-logger = { path = "../logger" }
+trillium-router = { path = "../router" }
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
 trillium-api = { path = ".", features = ["url", "sonic-rs", "forms"] }
 test-harness = "0.3.1"
 async-channel = "2.5.0"

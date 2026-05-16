@@ -17,6 +17,6 @@ trillium.workspace = true
 
 [dev-dependencies]
 env_logger = "0.11.10"
-trillium-logger.workspace = true
-trillium-smol.workspace = true
-trillium-testing.workspace = true
+trillium-logger = { path = "../logger" }
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }

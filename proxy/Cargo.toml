@@ -32,7 +32,7 @@ url = "2.5.8"
 [dev-dependencies]
 env_logger = "0.11.10"
 querystrong = { version = "0.4.0", features = ["serde"] }
-trillium-api.workspace = true
-trillium-http = { workspace = true, features = ["serde"] }
-trillium-logger.workspace = true
-trillium-smol.workspace = true
+trillium-api = { path = "../api" }
+trillium-http = { path = "../http", features = ["serde"] }
+trillium-logger = { path = "../logger" }
+trillium-smol = { path = "../smol" }

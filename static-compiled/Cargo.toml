@@ -22,10 +22,10 @@ trillium-static-compiled-macros.workspace = true
 
 [dev-dependencies]
 etag = { version = "4.0.0", features = ["std"] }
-trillium-caching-headers.workspace = true
-trillium-logger.workspace = true
-trillium-smol.workspace = true
-trillium-testing.workspace = true
+trillium-caching-headers = { path = "../caching-headers" }
+trillium-logger = { path = "../logger" }
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
 
 [features]
 default = []
