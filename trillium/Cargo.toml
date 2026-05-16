@@ -28,10 +28,10 @@ futures-lite = "2.6.1"
 async-channel = "2.5.0"
 async-io = "2.6.0"
 fastrand = "2.3.0"
-trillium-smol.workspace = true
-trillium-testing.workspace = true
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
 env_logger = "0.11.10"
-trillium-client.workspace = true
+trillium-client = { path = "../client" }
 test-harness = "0.3.1"
 
 [package.metadata.cargo-udeps.ignore]

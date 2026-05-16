@@ -16,8 +16,8 @@ log = "0.4.29"
 trillium.workspace = true
 
 [dev-dependencies]
-trillium-smol.workspace = true
-trillium-testing.workspace = true
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing"]

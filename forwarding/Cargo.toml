@@ -17,6 +17,6 @@ trillium.workspace = true
 trillium-http.workspace = true
 
 [dev-dependencies]
-trillium-logger.workspace = true
-trillium-smol.workspace = true
-trillium-testing.workspace = true
+trillium-logger = { path = "../logger" }
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }

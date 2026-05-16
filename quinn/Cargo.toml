@@ -36,12 +36,12 @@ async-channel = "2.5.0"
 env_logger = "0.11.10"
 h3i = "0.6.0"
 rcgen = "0.14.7"
-trillium.workspace = true
-trillium-client.workspace = true
-trillium-logger.workspace = true
-trillium-rustls.workspace = true
-trillium-testing.workspace = true
-trillium-tokio.workspace = true
+trillium = { path = "../trillium" }
+trillium-client = { path = "../client" }
+trillium-logger = { path = "../logger" }
+trillium-rustls = { path = "../rustls" }
+trillium-testing = { path = "../testing" }
+trillium-tokio = { path = "../tokio" }
 
 [package.metadata.cargo-udeps.ignore]
 development = ["h3i", "rcgen", "trillium-testing"]

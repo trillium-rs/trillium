@@ -28,11 +28,11 @@ env_logger = "0.11.10"
 rcgen = "0.14.7"
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 tokio = { version = "1.51.1", features = ["rt", "macros", "time"] }
-trillium-client = { workspace = true, features = ["webtransport"] }
-trillium-logger.workspace = true
-trillium-quinn.workspace = true
-trillium-rustls.workspace = true
-trillium-smol.workspace = true
-trillium-static-compiled.workspace = true
-trillium-testing.workspace = true
-trillium-tokio.workspace = true
+trillium-client = { path = "../client", features = ["webtransport"] }
+trillium-logger = { path = "../logger" }
+trillium-quinn = { path = "../quinn" }
+trillium-rustls = { path = "../rustls" }
+trillium-smol = { path = "../smol" }
+trillium-static-compiled = { path = "../static-compiled" }
+trillium-testing = { path = "../testing" }
+trillium-tokio = { path = "../tokio" }

@@ -22,8 +22,8 @@ trillium-server-common.workspace = true
 env_logger = "0.11.10"
 portpicker = "0.1.1"
 test-harness = "0.3.1"
-trillium.workspace = true
-trillium-client.workspace = true
-trillium-rustls.workspace = true
-trillium-smol.workspace = true
-trillium-testing.workspace = true
+trillium = { path = "../trillium" }
+trillium-client = { path = "../client" }
+trillium-rustls = { path = "../rustls" }
+trillium-smol = { path = "../smol" }
+trillium-testing = { path = "../testing" }

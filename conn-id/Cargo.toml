@@ -15,5 +15,5 @@ fastrand = "2.3.0"
 trillium.workspace = true
 
 [dev-dependencies]
-trillium-testing.workspace = true
+trillium-testing = { path = "../testing" }
 uuid = { version = "1.23.0", features = ["v4"] }
