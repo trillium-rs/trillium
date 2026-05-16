@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1](https://github.com/trillium-rs/trillium/compare/trillium-static-v0.5.0...trillium-static-v0.5.1) - 2026-05-16
+
+### Added
+
+- *(static)* range requests
+- *(static)* serve precompressed sidecars
+
+### Other
+
+- use workspace deps to avoid release mistakes
+- re-release client, runtime adapters, quinn, and rustls
+
 ### Added
 - HTTP Range request support. Every response advertises `Accept-Ranges:
   bytes`. When a client sends a single-range `Range: bytes=...` header

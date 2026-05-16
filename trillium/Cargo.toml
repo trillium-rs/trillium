@@ -1,6 +1,6 @@
 [package]
 name = "trillium"
-version = "1.1.0"
+version = "1.2.0"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "a modular toolkit for building async web apps"
