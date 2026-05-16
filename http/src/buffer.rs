@@ -47,7 +47,7 @@ impl Buffer {
     pub fn truncate(&mut self, n: usize) {
         if n == 0 {
             self.0 = 0;
-            self.1.truncate(0);
+            self.1.clear();
         } else {
             self.1.truncate(self.0 + n);
         }
@@ -60,7 +60,7 @@ impl Buffer {
     pub fn ignore_front(&mut self, n: usize) {
         self.0 += n;
         if self.0 >= self.1.len() {
-            self.1.truncate(0);
+            self.1.clear();
             self.0 = 0;
         }
     }
