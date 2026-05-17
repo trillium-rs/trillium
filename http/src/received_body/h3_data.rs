@@ -98,6 +98,7 @@ where
             Ready(
                 H3Frame {
                     self_buffer: &mut self.buffer,
+                    trailer_payload_buffer: &mut self.h3_trailer_payload_buffer,
                     remaining_in_frame,
                     total,
                     frame_type,
@@ -128,6 +129,7 @@ where
             Ready(
                 H3Frame {
                     self_buffer: &mut self.buffer,
+                    trailer_payload_buffer: &mut self.h3_trailer_payload_buffer,
                     remaining_in_frame,
                     total,
                     frame_type,
@@ -145,7 +147,13 @@ where
 }
 
 struct H3Frame<'a> {
+    /// Pre-read transport bytes and frame-header reassembly scratch for headers split
+    /// across reads.
     self_buffer: &'a mut Buffer,
+    /// Accumulator for the QPACK-encoded trailer payload. Separate from `self_buffer` so
+    /// the read-buffered drain on subsequent polls doesn't recycle accumulated trailer
+    /// bytes back through the frame decoder.
+    trailer_payload_buffer: &'a mut Vec<u8>,
     remaining_in_frame: u64,
     total: u64,
     frame_type: H3BodyFrameType,
@@ -166,6 +174,7 @@ impl H3Frame<'_> {
     fn decode(self) -> io::Result<(ReceivedBodyState, usize)> {
         let Self {
             self_buffer,
+            trailer_payload_buffer,
             mut remaining_in_frame,
             mut total,
             mut frame_type,
@@ -210,7 +219,7 @@ impl H3Frame<'_> {
                     }
 
                     H3BodyFrameType::Trailers => {
-                        self_buffer.extend_from_slice(&buf[pos..pos + consume]);
+                        trailer_payload_buffer.extend_from_slice(&buf[pos..pos + consume]);
                     }
 
                     _ => {}
@@ -224,11 +233,10 @@ impl H3Frame<'_> {
                     && let Some((connection, stream_id)) = connection
                 {
                     let connection = Arc::clone(connection);
-                    // Taking is safe: nothing is expected on a bidi stream after trailers.
-                    let self_buffer = std::mem::take(self_buffer);
+                    let encoded = std::mem::take(trailer_payload_buffer);
                     *trailers_future = Some(Box::pin(async move {
                         let field_section = connection
-                            .decode_field_section(&self_buffer, stream_id)
+                            .decode_field_section(&encoded, stream_id)
                             .await
                             .map_err(|e| {
                                 log::error!(

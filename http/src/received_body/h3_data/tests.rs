@@ -124,10 +124,12 @@ fn decode_with_limits(
 ) -> io::Result<(ReceivedBodyState, Vec<u8>)> {
     let mut buf = input.to_vec();
     let mut self_buffer = Buffer::default();
+    let mut trailer_payload_buffer = Vec::new();
     let h3 = H3Connection::new(Default::default());
     let stream_id = 1;
     let (state, bytes) = H3Frame {
         self_buffer: &mut self_buffer,
+        trailer_payload_buffer: &mut trailer_payload_buffer,
         remaining_in_frame,
         total,
         frame_type,
@@ -408,12 +410,14 @@ fn trailers_decoded_into_destination() {
     input.extend_from_slice(&trailers_buf);
     let mut buf = input.clone();
     let mut self_buffer = Buffer::default();
+    let mut trailer_payload_buffer = Vec::new();
     let mut trailers_fut = None;
     let stream_id = 1;
     let h3 = H3Connection::new(Default::default());
 
     let (state, bytes) = H3Frame {
         self_buffer: &mut self_buffer,
+        trailer_payload_buffer: &mut trailer_payload_buffer,
         remaining_in_frame: 0,
         total: 0,
         frame_type: H3BodyFrameType::Start,

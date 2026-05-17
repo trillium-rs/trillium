@@ -2,7 +2,15 @@ use super::{
     AsyncRead, AsyncWrite, Buffer, Chunked, Context, End, ErrorKind, Headers, PartialChunkSize,
     Pin, Ready, ReceivedBody, ReceivedBodyState, StateOutput, io, ready, slice_from,
 };
-use std::io::ErrorKind::InvalidData;
+use std::io::{ErrorKind::InvalidData, Write};
+
+/// Append `payload` to `out` framed as a single chunk (`{len:X}\r\n<payload>\r\n`). No
+/// last-chunk marker — callers handle stream termination separately.
+pub(crate) fn write_chunk(out: &mut Vec<u8>, payload: &[u8]) {
+    let _ = write!(out, "{:X}\r\n", payload.len());
+    out.extend_from_slice(payload);
+    out.extend_from_slice(b"\r\n");
+}
 
 #[cfg(feature = "parse")]
 fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {

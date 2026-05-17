@@ -33,7 +33,13 @@ where
             });
 
         if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
-            let has_content_length = if let Some(len) = self.body_len() {
+            // Upgrade path: don't default to `Content-Length: 0` — body bytes will be
+            // written post-handoff. Honor an explicit Content-Length; otherwise fall
+            // through to chunked.
+            let has_content_length = if self.upgrade {
+                self.response_headers
+                    .has_header(KnownHeaderName::ContentLength)
+            } else if let Some(len) = self.body_len() {
                 self.response_headers
                     .try_insert(KnownHeaderName::ContentLength, len);
                 true
@@ -250,6 +256,7 @@ where
             protocol: None,
             protocol_session: ProtocolSession::Http1,
             request_trailers: None,
+            upgrade: false,
         })
     }
 
@@ -325,6 +332,7 @@ where
             protocol: None,
             protocol_session: ProtocolSession::Http1,
             request_trailers: None,
+            upgrade: false,
         })
     }
 
@@ -479,7 +487,7 @@ where
 }
 
 /// Writes the HTTP/1.1 chunked header or trailer section + terminating CRLF to `writer`.
-fn write_headers_or_trailers(
+pub(crate) fn write_headers_or_trailers(
     output_buffer: &mut Vec<u8>,
     headers: &Headers,
     context: &HttpContext,

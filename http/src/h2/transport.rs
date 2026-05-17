@@ -11,7 +11,7 @@
 //! - **Normal HTTP/2 request/response**: handlers usually don't touch [`H2Transport`] directly
 //!   (same sharp edge h1 and h3 document). [`ReceivedBody`][crate::ReceivedBody] reads request body
 //!   bytes through the transport's `AsyncRead` via
-//!   [`ReceivedBody::handle_h2_data`][crate::ReceivedBody::handle_h2_data]. Response bytes flow
+//!   [`ReceivedBody::handle_raw`][crate::ReceivedBody::handle_raw]. Response bytes flow
 //!   through [`H2Connection::submit_send`][submit_send] to the driver's send pump, which frames
 //!   HEADERS + DATA + trailing HEADERS onto the connection without ever touching this `AsyncWrite`.
 //!
@@ -124,6 +124,21 @@ impl Drop for H2Transport {
         if !self.connection.streams_lock().contains_key(&self.stream_id) {
             return;
         }
+        // Graceful close in flight — let the driver finish.
+        //
+        // Must precede the `send_done && recv_done` check: on the extended-CONNECT /
+        // framed-upgrade server path, `send.completed` flips at END_HEADERS so the conn
+        // task can dispatch `handler.upgrade(...)`. Paired with a zero-body request
+        // (`recv.eof = true` immediately), that would falsely satisfy "both done" while
+        // outbound body + staged trailers are still owed.
+        if self
+            .state
+            .send
+            .outbound_close_requested
+            .load(Ordering::Acquire)
+        {
+            return;
+        }
         let send_done = self.state.send.completed.load(Ordering::Acquire);
         let recv_done = self.state.recv.eof.load(Ordering::Acquire);
         if send_done && recv_done {
@@ -134,13 +149,23 @@ impl Drop for H2Transport {
             self.connection.release_stream(self.stream_id);
             return;
         }
-        // Upgrade path graceful close in flight — let the driver finish.
-        if self
-            .state
-            .send
-            .outbound_close_requested
-            .load(Ordering::Acquire)
-        {
+        // Mid-stream drop with graceful-drop armed (the transport has crossed into user
+        // ownership, so a drop means "done", not "handler panicked"): schedule graceful
+        // close so the driver drains outbound bytes and emits END_STREAM rather than
+        // RST_STREAM(Cancel).
+        if self.state.send.graceful_drop.load(Ordering::Acquire) {
+            log::trace!(
+                "h2 stream {}: H2Transport dropped — scheduling graceful close \
+                 (send_done={send_done}, recv_done={recv_done})",
+                self.stream_id,
+            );
+            self.state
+                .send
+                .outbound_close_requested
+                .store(true, Ordering::Release);
+            self.state.needs_servicing.store(true, Ordering::Release);
+            self.state.send.outbound_waker.wake();
+            self.connection.outbound_waker().wake();
             return;
         }
         log::debug!(
@@ -474,6 +499,17 @@ pub(super) struct SendState {
     /// it, a slow or unresponsive peer's closed window would let `outbound` grow without
     /// bound.
     pub(super) outbound_write_waker: AtomicWaker,
+
+    /// Mailbox for trailers staged out-of-band by
+    /// [`H2Connection::submit_trailers`][super::H2Connection::submit_trailers]. The
+    /// driver moves these onto the send cursor when it next services the stream.
+    pub(super) pending_trailers: Mutex<Option<Headers>>,
+
+    /// When `true`, a mid-stream [`H2Transport`] drop schedules graceful close instead
+    /// of `RST_STREAM(Cancel)`. Flipped by
+    /// [`H2Connection::mark_drop_graceful`][super::H2Connection::mark_drop_graceful]
+    /// once stream ownership has crossed into user code.
+    pub(super) graceful_drop: AtomicBool,
 }
 
 /// `AsyncRead` source the driver uses as the response body for an extended-CONNECT upgrade.
@@ -669,5 +705,182 @@ mod tests {
             Poll::Ready(Ok(4)) => {}
             other => panic!("expected Ready(Ok(4)), got {other:?}"),
         }
+    }
+
+    /// `pair_with_cap` variant that also inserts the per-stream [`StreamState`] into the
+    /// connection's streams map, so `H2Connection::submit_*` methods see the stream as
+    /// registered. Returns the [`H2Connection`] for direct API access too.
+    #[cfg(feature = "unstable")]
+    fn registered_pair(
+        cap: usize,
+        stream_id: u32,
+    ) -> (Arc<H2Connection>, H2Transport, H2OutboundReader) {
+        let mut context = HttpContext::new();
+        context.config.response_buffer_max_len = cap;
+        let connection = H2Connection::new(Arc::new(context));
+        let state = Arc::new(StreamState::default());
+        connection.streams_lock().insert(stream_id, state.clone());
+        let transport = H2Transport::new(connection.clone(), stream_id, state.clone());
+        let reader = H2OutboundReader::new(state, stream_id);
+        (connection, transport, reader)
+    }
+
+    #[cfg(feature = "unstable")]
+    #[test]
+    fn submit_trailers_stages_pending_trailers_and_flips_close() {
+        use crate::Headers;
+
+        let stream_id = 1;
+        let (connection, _transport, _reader) = registered_pair(64, stream_id);
+
+        let mut trailers = Headers::new();
+        trailers.insert("grpc-status", "0");
+        trailers.insert("grpc-message", "OK");
+
+        connection
+            .submit_trailers(stream_id, trailers)
+            .expect("submit_trailers on a registered stream");
+
+        let state = connection
+            .streams_lock()
+            .get(&stream_id)
+            .cloned()
+            .expect("stream still in map");
+
+        let pending = state
+            .send
+            .pending_trailers
+            .lock()
+            .expect("pending_trailers mutex");
+        let pending = pending.as_ref().expect("pending_trailers populated");
+        assert_eq!(pending.get_str("grpc-status"), Some("0"));
+        assert_eq!(pending.get_str("grpc-message"), Some("OK"));
+
+        assert!(
+            state.send.outbound_close_requested.load(Ordering::Acquire),
+            "submit_trailers must flip outbound_close_requested"
+        );
+        assert!(
+            state.needs_servicing.load(Ordering::Acquire),
+            "submit_trailers must raise needs_servicing"
+        );
+    }
+
+    #[cfg(feature = "unstable")]
+    #[test]
+    fn submit_trailers_returns_not_connected_for_unknown_stream() {
+        use crate::Headers;
+        use std::io;
+
+        let connection = H2Connection::new(Arc::new(HttpContext::new()));
+        let err = connection
+            .submit_trailers(99, Headers::new())
+            .expect_err("unknown stream should be NotConnected");
+        assert_eq!(err.kind(), io::ErrorKind::NotConnected);
+    }
+
+    #[cfg(feature = "unstable")]
+    #[test]
+    fn submit_trailers_wakes_outbound_reader_to_eof() {
+        // Once `submit_trailers` flips close_requested + the outbound queue is empty, the
+        // `H2OutboundReader` should observe EOF (`Ready(Ok(0))`) — that's the signal the
+        // driver's send pump needs to transition the cursor from Body → Trailers and
+        // ultimately emit the trailing HEADERS frame.
+        use crate::Headers;
+
+        let stream_id = 1;
+        let (connection, _transport, mut reader) = registered_pair(64, stream_id);
+
+        connection
+            .submit_trailers(stream_id, Headers::new())
+            .expect("submit_trailers");
+
+        let waker = Waker::from(Arc::new(CountingWaker(AtomicBool::new(false))));
+        let mut cx = Context::from_waker(&waker);
+        let mut sink = [0u8; 4];
+        match Pin::new(&mut reader).poll_read(&mut cx, &mut sink) {
+            Poll::Ready(Ok(0)) => {}
+            other => panic!("expected Ready(Ok(0)) (EOF), got {other:?}"),
+        }
+    }
+
+    /// Regression: while a stream still lives inside a `Conn` handler, dropping the
+    /// `H2Transport` mid-stream signals "handler panicked" — the driver must RST so the
+    /// peer learns the work is cancelled. `mark_drop_graceful` has *not* been called, so
+    /// drop falls into the RST branch.
+    #[cfg(feature = "unstable")]
+    #[test]
+    fn drop_in_conn_state_rsts_mid_stream() {
+        use crate::h2::H2ErrorCode;
+
+        let stream_id = 1;
+        let (connection, transport, _reader) = registered_pair(64, stream_id);
+        let state = connection
+            .streams_lock()
+            .get(&stream_id)
+            .cloned()
+            .expect("stream registered");
+
+        drop(transport);
+
+        assert!(
+            !state.send.outbound_close_requested.load(Ordering::Acquire),
+            "Conn-state drop must not flip outbound_close_requested",
+        );
+        let pending_reset = state
+            .pending_reset
+            .lock()
+            .expect("pending_reset mutex poisoned");
+        assert_eq!(
+            *pending_reset,
+            Some(H2ErrorCode::Cancel),
+            "Conn-state drop must schedule RST_STREAM(Cancel)",
+        );
+    }
+
+    /// Regression: once `mark_drop_graceful` flips the per-stream flag (the
+    /// `Conn → Upgrade` transition), dropping the `H2Transport` schedules graceful
+    /// close instead — the driver drains pending outbound bytes and emits
+    /// `DATA(END_STREAM)` on its normal complete-and-remove path, no RST.
+    #[cfg(feature = "unstable")]
+    #[test]
+    fn drop_after_mark_drop_graceful_schedules_close() {
+        let stream_id = 1;
+        let (connection, transport, _reader) = registered_pair(64, stream_id);
+        let state = connection
+            .streams_lock()
+            .get(&stream_id)
+            .cloned()
+            .expect("stream registered");
+
+        connection.mark_drop_graceful(stream_id);
+        drop(transport);
+
+        assert!(
+            state.send.outbound_close_requested.load(Ordering::Acquire),
+            "graceful drop must flip outbound_close_requested",
+        );
+        assert!(
+            state.needs_servicing.load(Ordering::Acquire),
+            "graceful drop must raise needs_servicing so the driver picks the stream up",
+        );
+        let pending_reset = state
+            .pending_reset
+            .lock()
+            .expect("pending_reset mutex poisoned");
+        assert!(
+            pending_reset.is_none(),
+            "graceful drop must not schedule RST",
+        );
+    }
+
+    /// `mark_drop_graceful` on an unknown stream id silently no-ops — it's called from
+    /// the `Conn → Upgrade` transition where the stream may already have been torn down
+    /// (e.g. peer RST arrived before the handler finished). Should not panic.
+    #[cfg(feature = "unstable")]
+    #[test]
+    fn mark_drop_graceful_no_ops_for_unknown_stream() {
+        let connection = H2Connection::new(Arc::new(HttpContext::new()));
+        connection.mark_drop_graceful(99);
     }
 }

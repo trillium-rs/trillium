@@ -6,7 +6,7 @@ use std::{
     mem,
     pin::Pin,
 };
-use trillium_http::Upgrade;
+use trillium_http::{ProtocolSession, Upgrade};
 
 /// A wrapper error for [`trillium_http::Error`] or, depending on json serializer feature, either
 /// `sonic_rs::Error` or `serde_json::Error`. Only available when either the `sonic-rs` or
@@ -118,14 +118,53 @@ impl From<Conn> for Body {
 }
 
 impl From<Conn> for Upgrade<Box<dyn Transport>> {
+    /// Convert a client conn into a [`trillium_http::Upgrade`] after response headers
+    /// arrive, handing off the open transport for direct `AsyncRead` / `AsyncWrite`
+    /// exchange with per-protocol framing applied.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the conn has no live transport (request not yet sent, or transport
+    /// already taken).
     fn from(mut conn: Conn) -> Self {
-        Upgrade::new(
+        // `Conn: Drop` rules out destructuring — pull each field with `mem::take` /
+        // `mem::replace`. New fields on `Conn` won't show up here automatically.
+        let path = conn.path.take().unwrap_or_else(|| match conn.url.query() {
+            Some(q) => std::borrow::Cow::Owned(format!("{}?{q}", conn.url.path())),
+            None => std::borrow::Cow::Owned(conn.url.path().to_owned()),
+        });
+        let secure = conn.url.scheme() == "https";
+
+        // Flip h2's drop-on-cancel default to graceful close: stream ownership is moving
+        // into user code, so a drop now means "done", not "handler panicked".
+        if let Some((h2, stream_id)) = conn.protocol_session.as_h2() {
+            h2.mark_drop_graceful(stream_id);
+        }
+
+        Upgrade::from_parts(
             mem::take(&mut conn.request_headers),
-            conn.url.path().to_string(),
+            mem::take(&mut conn.response_headers),
+            path,
             conn.method,
-            conn.transport.take().unwrap(),
+            conn.transport
+                .take()
+                .expect("client conn has no transport — request not yet sent"),
             mem::take(&mut conn.buffer),
-            conn.http_version(),
+            mem::take(&mut conn.state),
+            conn.context.clone(),
+            None,
+            conn.authority.take(),
+            conn.scheme.take(),
+            mem::replace(&mut conn.protocol_session, ProtocolSession::Http1),
+            conn.protocol.take(),
+            conn.http_version,
+            conn.status,
+            secure,
+            // Client-side inbound = response body.
+            mem::take(&mut conn.response_body_state),
+            // Carry through any pre-upgrade-decoded trailers so a downstream reader
+            // can observe them.
+            conn.response_trailers.take(),
         )
     }
 }

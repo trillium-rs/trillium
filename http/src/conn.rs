@@ -135,7 +135,8 @@ use std::{
 mod h1;
 mod h2;
 mod h3;
-pub(crate) use h3::H3FirstFrame;
+pub(crate) use h1::write_headers_or_trailers;
+pub(crate) use h3::{H3FirstFrame, encode_field_section_h3};
 
 /// An HTTP connection.
 ///
@@ -260,6 +261,9 @@ pub struct Conn<Transport> {
     /// request trailers, populated after the request body has been fully read
     #[field(get, get_mut)]
     pub(crate) request_trailers: Option<Headers>,
+
+    /// Marker set via [`Conn::upgrade`].
+    pub(crate) upgrade: bool,
 }
 
 impl<Transport> Debug for Conn<Transport> {
@@ -286,6 +290,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("protocol", &self.protocol)
             .field("protocol_session", &self.protocol_session)
             .field("request_trailers", &self.request_trailers)
+            .field("upgrade", &self.upgrade)
             .finish()
     }
 }
@@ -597,13 +602,26 @@ where
             protocol: self.protocol,
             protocol_session: self.protocol_session,
             request_trailers: self.request_trailers,
+            upgrade: self.upgrade,
         }
     }
 
     /// whether this conn is suitable for an http upgrade to another protocol
     pub fn should_upgrade(&self) -> bool {
-        (self.method() == Method::Connect && self.status == Some(Status::Ok))
+        self.upgrade
+            || (self.method() == Method::Connect && self.status == Some(Status::Ok))
             || self.status == Some(Status::SwitchingProtocols)
+    }
+
+    /// Mark this conn to be handed off as an upgrade once the response headers are sent.
+    /// Set the response status (typically `200`) and any headers describing the upgraded
+    /// byte stream before calling; the handler's `upgrade` method receives an [`Upgrade`]
+    /// with per-protocol framing applied on its `AsyncRead`/`AsyncWrite`.
+    #[cfg(feature = "unstable")]
+    #[doc(hidden)]
+    pub fn upgrade(mut self) -> Self {
+        self.upgrade = true;
+        self
     }
 
     #[doc(hidden)]

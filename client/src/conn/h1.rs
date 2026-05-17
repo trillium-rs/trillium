@@ -27,22 +27,31 @@ impl Conn {
             self.request_headers.try_insert(Connection, "close");
         }
 
-        match self.body_len() {
-            Some(0) => {}
-            Some(len) => {
-                if self.http_version >= Version::Http1_1 {
-                    self.request_headers.insert(Expect, "100-continue");
-                }
-                self.request_headers.insert(ContentLength, len);
+        if self.upgrade {
+            // Upgrade path: caller writes body bytes via `Upgrade` post-handoff. Default
+            // to chunked (unless Content-Length is set) so the server keeps reading past
+            // the response head.
+            if !self.request_headers.has_header(ContentLength) {
+                self.request_headers.try_insert(TransferEncoding, "chunked");
             }
-            None => {
-                if self.http_version >= Version::Http1_1 {
-                    self.request_headers
-                        .insert(Expect, "100-continue")
-                        .insert(TransferEncoding, "chunked");
+        } else {
+            match self.body_len() {
+                Some(0) => {}
+                Some(len) => {
+                    if self.http_version >= Version::Http1_1 {
+                        self.request_headers.insert(Expect, "100-continue");
+                    }
+                    self.request_headers.insert(ContentLength, len);
                 }
-                // HTTP/1.0: no chunked encoding; raw bytes are sent and connection close
-                // signals end-of-body
+                None => {
+                    if self.http_version >= Version::Http1_1 {
+                        self.request_headers
+                            .insert(Expect, "100-continue")
+                            .insert(TransferEncoding, "chunked");
+                    }
+                    // HTTP/1.0: no chunked encoding; raw bytes are sent and connection close
+                    // signals end-of-body
+                }
             }
         }
 
@@ -267,6 +276,22 @@ impl Conn {
     }
 
     async fn send_body_and_parse_head(&mut self) -> Result<()> {
+        if self.upgrade {
+            // Upgrade path: skip auto-body-drain — the caller writes body bytes via
+            // `Upgrade` after consuming this conn.
+            loop {
+                self.parse_head().await?;
+                match self.status {
+                    Some(other) if is_interim(other) => {
+                        log::trace!("Received interim response {other}, continuing to read");
+                        self.reset_interim_response_state();
+                    }
+                    _ => break,
+                }
+            }
+            return Ok(());
+        }
+
         if self
             .request_headers
             .eq_ignore_ascii_case(Expect, "100-continue")

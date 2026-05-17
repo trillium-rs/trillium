@@ -148,6 +148,15 @@ pub trait QuicEndpoint: Send + Sync + 'static {
         addr: SocketAddr,
         server_name: &str,
     ) -> impl Future<Output = io::Result<Self::Connection>> + Send;
+
+    /// The local address this endpoint is bound to. The default impl returns
+    /// `Unsupported`; adapters override when a bound UDP socket is available.
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "QuicEndpoint::local_addr not implemented for this adapter",
+        ))
+    }
 }
 
 /// Uninhabited type used by the `()` [`QuicEndpoint`] implementation.

@@ -12,8 +12,10 @@ use std::{
 
 mod chunked;
 mod fixed_length;
-mod h2_data;
 mod h3_data;
+mod raw;
+
+pub(crate) use chunked::write_chunk;
 
 /// A received http body
 ///
@@ -121,10 +123,16 @@ pub struct ReceivedBody<'conn, Transport> {
     /// driver-decoded trailers (h2 synchronously, h3 asynchronously).
     protocol_session: ProtocolSession,
 
-    /// pending h3 trailer-decode future
-    h3_trailer_future:
-        Option<Pin<Box<dyn Future<Output = io::Result<Headers>> + Send + Sync + 'static>>>,
+    /// Pending h3 trailer-decode future
+    h3_trailer_future: MutCow<'conn, Option<H3TrailerFuture>>,
+
+    /// Accumulator for the QPACK-encoded trailer payload
+    h3_trailer_payload_buffer: MutCow<'conn, Vec<u8>>,
 }
+
+/// Boxed future returned by the QPACK decoder for trailing HEADERS on an h3 body.
+pub(crate) type H3TrailerFuture =
+    Pin<Box<dyn Future<Output = io::Result<Headers>> + Send + Sync + 'static>>;
 
 fn slice_from(min: u64, buf: &[u8]) -> Option<&[u8]> {
     buf.get(usize::try_from(min).unwrap_or(usize::MAX)..)
@@ -182,8 +190,33 @@ where
             trailers: None.into(),
             send_100_continue_offset: None,
             protocol_session: ProtocolSession::Http1,
-            h3_trailer_future: None,
+            h3_trailer_future: None.into(),
+            h3_trailer_payload_buffer: Vec::new().into(),
         }
+    }
+
+    /// Park the QPACK trailer-decode future in caller-owned storage. Required when this
+    /// body is rebuilt per `poll_read` (the future's registered waker would otherwise be
+    /// dropped along with the future on `Pending`).
+    #[must_use]
+    pub(crate) fn with_h3_trailer_future(
+        mut self,
+        future: impl Into<MutCow<'conn, Option<H3TrailerFuture>>>,
+    ) -> Self {
+        self.h3_trailer_future = future.into();
+        self
+    }
+
+    /// Park the QPACK trailer-payload accumulator in caller-owned storage. Required when
+    /// this body is rebuilt per `poll_read` so the partial accumulation persists across
+    /// polls.
+    #[must_use]
+    pub(crate) fn with_h3_trailer_payload_buffer(
+        mut self,
+        buffer: impl Into<MutCow<'conn, Vec<u8>>>,
+    ) -> Self {
+        self.h3_trailer_payload_buffer = buffer.into();
+        self
     }
 
     /// Sets the destination for trailers decoded from the request body.
@@ -348,6 +381,7 @@ impl<T> ReceivedBody<'_, T> {
             send_100_continue_offset,
             protocol_session,
             h3_trailer_future,
+            h3_trailer_payload_buffer,
         } = self;
 
         let transport = match transport {
@@ -370,7 +404,8 @@ impl<T> ReceivedBody<'_, T> {
             trailers: trailers.try_into_owned()?,
             send_100_continue_offset,
             protocol_session,
-            h3_trailer_future,
+            h3_trailer_future: h3_trailer_future.try_into_owned()?,
+            h3_trailer_payload_buffer: h3_trailer_payload_buffer.try_into_owned()?,
         })
     }
 }
@@ -477,7 +512,7 @@ where
                     current_index,
                     total,
                 } => self.handle_fixed_length(cx, buf, current_index, total),
-                ReceivedBodyState::H2Data { total } => self.handle_h2_data(cx, buf, total),
+                ReceivedBodyState::Raw { total } => self.handle_raw(cx, buf, total),
                 ReceivedBodyState::H3Data {
                     remaining_in_frame,
                     total,
@@ -501,11 +536,11 @@ where
 
             if *self.state == End {
                 if bytes == 0
-                    && let Some(h3_trailer_future) = &mut self.h3_trailer_future
+                    && let Some(h3_trailer_future) = self.h3_trailer_future.as_mut()
                 {
                     let trailers = ready!(h3_trailer_future.as_mut().poll(cx))?;
                     *self.trailers = Some(trailers);
-                    self.h3_trailer_future = None;
+                    *self.h3_trailer_future = None;
                 }
 
                 // h2 trailers are stashed on the per-stream `StreamState` before EOF, so
@@ -606,12 +641,15 @@ pub enum ReceivedBodyState {
         total: u64,
     },
 
-    /// read state for an H2 body. The h2 driver demuxes DATA frames into a per-stream recv
-    /// ring on a separate task before we see them, so there's no frame-boundary state here —
-    /// just a running byte total for `max_len` / content-length enforcement. Transitions to
-    /// [`End`] when the transport yields `Ready(0)`. Initial state for any h2 body.
-    H2Data {
-        /// total body bytes read across all DATA frames.
+    /// Raw transport passthrough with optional content-length bound. The transport yields
+    /// plain payload bytes; no framing happens here, just `max_len` / content-length
+    /// enforcement against a running total. Transitions to [`End`] on EOF.
+    ///
+    /// Used for HTTP/2 bodies (the h2 driver demuxes DATA frames into a per-stream
+    /// receive ring upstream of this), HTTP/1.0 read-to-close response bodies, and raw
+    /// upgrade transports (CONNECT, websockets-over-h1).
+    Raw {
+        /// total body bytes read.
         total: u64,
     },
 
@@ -646,10 +684,13 @@ pub enum ReceivedBodyState {
 }
 
 impl ReceivedBodyState {
+    /// Initial state for an HTTP/2 body — [`Self::Raw`] with a zero running total,
+    /// since the h2 transport already yields plain payload bytes.
     pub fn new_h2() -> Self {
-        Self::H2Data { total: 0 }
+        Self::Raw { total: 0 }
     }
 
+    /// Initial state for an HTTP/3 body framed as DATA frames.
     pub fn new_h3() -> Self {
         Self::H3Data {
             remaining_in_frame: 0,
@@ -657,6 +698,13 @@ impl ReceivedBodyState {
             frame_type: H3BodyFrameType::Start,
             partial_frame_header: false,
         }
+    }
+
+    /// Initial state for a raw transport that already yields plain payload bytes —
+    /// HTTP/1.0 read-to-close response bodies, and raw upgrade transports (CONNECT,
+    /// websockets-over-h1).
+    pub fn new_raw() -> Self {
+        Self::Raw { total: 0 }
     }
 }
 

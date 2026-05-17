@@ -182,6 +182,13 @@ impl Conn {
 
         let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
 
+        if self.upgrade {
+            // Upgrade path: send headers only and leave the stream open. The caller writes
+            // further DATA frames, trailing HEADERS, and FIN via `Upgrade`.
+            bufwriter.flush().await?;
+            return Ok(());
+        }
+
         if let Some(body) = self.request_body.take() {
             let mut body = body.into_h3();
             bufwriter.copy_from(&mut body, copy_loops_per_yield).await?;
@@ -357,8 +364,9 @@ fn encode_field_section_h3(
 
     let frame = Frame::Headers(field_section_buf.len() as u64);
     let frame_header_len = frame.encoded_len();
-    buffer.resize(frame_header_len, 0);
-    frame.encode(buffer);
+    let start = buffer.len();
+    buffer.resize(start + frame_header_len, 0);
+    frame.encode(&mut buffer[start..]);
     buffer.extend_from_slice(&field_section_buf);
 
     Ok(())

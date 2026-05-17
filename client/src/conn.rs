@@ -241,6 +241,11 @@ pub struct Conn {
     /// `(run → network → after_response)` cycle. Used by re-issuing handlers
     /// (`FollowRedirects`, retry, auth-refresh) instead of recursing into a nested `.await`.
     pub(crate) followup: Option<Box<Conn>>,
+
+    /// Whether this conn is armed for an upgrade. When set, the protocol drivers
+    /// transmit only request headers and leave the outbound direction open. Armed via
+    /// [`ConnExt::upgrade`](crate::ConnExt::upgrade).
+    pub(crate) upgrade: bool,
 }
 
 /// default http user-agent header

@@ -195,6 +195,16 @@ impl Conn {
                     "h2 connection is shutting down",
                 ))
             })?
+        } else if self.upgrade {
+            // Upgrade path. Same wire shape as extended-CONNECT (HEADERS without
+            // END_STREAM, per-stream outbound queue becomes the request body), but no
+            // `enable_connect_protocol` gating since no `:protocol` is sent.
+            h2.open_connect_stream(pseudos, headers).ok_or_else(|| {
+                Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionAborted,
+                    "h2 connection is shutting down",
+                ))
+            })?
         } else {
             let body = self.request_body.take();
             let (stream_id, _submit, transport) =

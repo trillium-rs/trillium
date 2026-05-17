@@ -210,6 +210,7 @@ where
                 stream_id,
             },
             request_trailers: None,
+            upgrade: false,
         }
     }
 
@@ -240,7 +241,14 @@ where
     }
 }
 
-fn encode_field_section_h3(
+/// Encode an HTTP/3 HEADERS frame (type+length prefix followed by the QPACK-encoded
+/// field section) and append it to `buffer`.
+///
+/// # Errors
+///
+/// Returns the QPACK encoder's error if encoding fails, or [`io::ErrorKind::InvalidData`]
+/// if the field-section size exceeds the peer's `SETTINGS_MAX_FIELD_SECTION_SIZE`.
+pub(crate) fn encode_field_section_h3(
     h3: &H3Connection,
     field_section: &FieldSection<'_>,
     max_peer_field_section_size: Option<u64>,
@@ -267,8 +275,9 @@ fn encode_field_section_h3(
 
     let frame = Frame::Headers(field_section_buf.len() as u64);
     let frame_header_len = frame.encoded_len();
-    buffer.resize(frame_header_len, 0);
-    frame.encode(buffer);
+    let start = buffer.len();
+    buffer.resize(start + frame_header_len, 0);
+    frame.encode(&mut buffer[start..]);
     buffer.extend_from_slice(&field_section_buf);
 
     Ok(())

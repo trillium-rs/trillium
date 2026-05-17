@@ -151,6 +151,51 @@ impl H2Connection {
         SubmitSend { stream_id, stream }
     }
 
+    /// Stage trailing HEADERS for an active upgrade stream and close the outbound write
+    /// half. Fire-and-forget — the driver task emits the trailing HEADERS frame with
+    /// `END_STREAM` and tears the stream down.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::ErrorKind::NotConnected`] if the stream is no longer in the
+    /// connection's streams map.
+    pub(crate) fn submit_trailers(&self, stream_id: u32, trailers: Headers) -> io::Result<()> {
+        let stream = self
+            .streams_lock()
+            .get(&stream_id)
+            .cloned()
+            .ok_or(io::ErrorKind::NotConnected)?;
+        // Trailers, then close flag, then needs_servicing: the Release on each pairs
+        // with the driver's AcqRel-swap so both prior writes are visible once the driver
+        // sees the flag set.
+        *stream
+            .send
+            .pending_trailers
+            .lock()
+            .expect("pending_trailers mutex poisoned") = Some(trailers);
+        stream
+            .send
+            .outbound_close_requested
+            .store(true, Ordering::Release);
+        stream.needs_servicing.store(true, Ordering::Release);
+        stream.send.outbound_waker.wake();
+        self.outbound_waker.wake();
+        log::trace!("h2 stream {stream_id}: submit_trailers staged trailers + close");
+        Ok(())
+    }
+
+    /// Flip the h2 stream's drop default from `RST_STREAM(Cancel)` to graceful close, so
+    /// dropping the per-stream transport drains outbound bytes and emits `END_STREAM`
+    /// rather than cancelling. Silently no-ops if the stream is no longer registered.
+    #[cfg(feature = "unstable")]
+    #[doc(hidden)]
+    pub fn mark_drop_graceful(&self, stream_id: u32) {
+        if let Some(stream) = self.streams_lock().get(&stream_id).cloned() {
+            stream.send.graceful_drop.store(true, Ordering::Release);
+            log::trace!("h2 stream {stream_id}: drop default flipped to graceful close");
+        }
+    }
+
     /// Client-role primitive: allocate a fresh outbound stream id, stage a request submission
     /// for the driver, and return the id, a [`SubmitSend`] tracking the request's send half,
     /// and the per-stream [`H2Transport`] for response-body reads.
