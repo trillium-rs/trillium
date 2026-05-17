@@ -53,8 +53,9 @@ pub(super) struct SendCursor {
     body_len: Option<u64>,
     /// Cumulative DATA payload bytes emitted from the body.
     body_bytes_emitted: u64,
-    /// Trailers, populated from `body.trailers()` once the body is fully drained.
-    trailers: Option<Headers>,
+    /// Trailers, populated from `body.trailers()` once the body is fully drained, or by
+    /// [`H2Connection::submit_trailers`][crate::h2::H2Connection::submit_trailers].
+    pub(super) trailers: Option<Headers>,
     /// Where we are in the response.
     phase: SendPhase,
     /// `true` if this stream is in extended-CONNECT upgrade mode (RFC 8441):
@@ -507,11 +508,16 @@ where
     }
 }
 
-/// Body drained (or content-length reached) — pull trailers off the body, drop the body
-/// handle, and transition the cursor into `Trailers`. The next tick emits either a
-/// trailing HEADERS (if trailers) or an empty `DATA(END_STREAM)`.
+/// Body drained — pull trailers off the body, drop the body handle, transition to
+/// `Trailers`.
+///
+/// The `is_none()` guard preserves trailers set out-of-band by
+/// [`H2Connection::submit_trailers`][crate::h2::H2Connection::submit_trailers], whose
+/// body reports no trailers of its own.
 fn transition_to_trailers(send: &mut SendCursor) {
-    send.trailers = send.body.as_mut().and_then(H2Body::trailers);
+    if send.trailers.is_none() {
+        send.trailers = send.body.as_mut().and_then(H2Body::trailers);
+    }
     send.body = None;
     send.phase = SendPhase::Trailers;
 }

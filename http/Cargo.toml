@@ -48,8 +48,15 @@ async-net = "2.0.0"
 env_logger = "0.11.10"
 smol = "2.0.2"
 trillium-client = { path = "../client" }
+trillium-http = { path = ".", features = ["unstable"] }
+trillium-quinn = { path = "../quinn" }
+trillium-rustls = { path = "../rustls" }
+trillium-server-common = { path = "../server-common" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+rustls-pemfile = "2"
 futures-lite = "2"
 pretty_assertions = "1.4.1"
 test-harness = "0.3.1"

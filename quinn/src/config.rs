@@ -158,4 +158,8 @@ impl QuicEndpoint for QuinnEndpoint {
             .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, e))?;
         Ok(QuinnConnection::new(connection))
     }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.0.local_addr()
+    }
 }

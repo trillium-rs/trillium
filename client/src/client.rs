@@ -330,6 +330,7 @@ impl Client {
             response_trailers: None,
             client: self.clone(),
             followup: None,
+            upgrade: false,
         }
     }
 

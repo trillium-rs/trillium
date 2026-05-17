@@ -165,6 +165,15 @@ pub trait ConnExt {
 
     /// Install response trailers — handler-author synthesis.
     fn set_response_trailers(&mut self, response_trailers: Headers) -> &mut Self;
+
+    /// Mark this conn as eligible for an upgrade.
+    ///
+    /// This will not send a request body, and instead will leave the Conn in a state that can be
+    /// converted into an Upgrade after execution.
+    fn upgrade(self) -> Self;
+
+    /// Whether this conn is armed for an upgrade. See [`ConnExt::upgrade`].
+    fn is_upgrade(&self) -> bool;
 }
 
 impl ConnExt for Conn {
@@ -260,5 +269,14 @@ impl ConnExt for Conn {
     fn set_response_trailers(&mut self, response_trailers: Headers) -> &mut Self {
         self.response_trailers = Some(response_trailers);
         self
+    }
+
+    fn upgrade(mut self) -> Self {
+        self.upgrade = true;
+        self
+    }
+
+    fn is_upgrade(&self) -> bool {
+        self.upgrade
     }
 }

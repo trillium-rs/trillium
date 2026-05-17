@@ -158,6 +158,7 @@ impl Conn<Synthetic> {
             protocol: None,
             protocol_session: ProtocolSession::Http1,
             request_trailers: None,
+            upgrade: false,
         }
     }
 

@@ -8,14 +8,15 @@ impl<Transport> ReceivedBody<'_, Transport>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
-    /// Read the next chunk of the body, tracking total bytes against
-    /// [`max_len`][ReceivedBody::max_len] and (if declared) content-length.
-    /// Transitions to [`End`] when the driver signals EOF.
+    /// Read the next chunk of body bytes from a transport that already yields plain
+    /// payload (h2 driver-demuxed bodies, h1.0 read-to-close responses, raw upgrade
+    /// transports). Tracks total bytes against [`max_len`][ReceivedBody::max_len] and
+    /// (if declared) content-length. Transitions to [`End`] on EOF.
     ///
-    /// On content-length mismatch, signals `RST_STREAM(PROTOCOL_ERROR)` via the driver
-    /// and surfaces an `io::Error` to the caller.
+    /// A content-length mismatch surfaces `io::Error` to the caller, and on h2 sessions
+    /// also signals `RST_STREAM(PROTOCOL_ERROR)` via the driver.
     #[inline]
-    pub(super) fn handle_h2_data(
+    pub(super) fn handle_raw(
         &mut self,
         cx: &mut Context<'_>,
         buf: &mut [u8],
@@ -26,7 +27,7 @@ where
             return if let Some(expected) = self.content_length
                 && total != expected
             {
-                self.h2_protocol_error(
+                self.protocol_error(
                     ErrorKind::InvalidData,
                     format!("content-length mismatch, {expected} != {total}"),
                 )
@@ -37,24 +38,25 @@ where
 
         let total = total + bytes as u64;
         if total > self.max_len {
-            return self.h2_protocol_error(ErrorKind::Unsupported, "content too long".into());
+            return self.protocol_error(ErrorKind::Unsupported, "content too long".into());
         }
         if let Some(expected) = self.content_length
             && total > expected
         {
-            return self.h2_protocol_error(
+            return self.protocol_error(
                 ErrorKind::InvalidData,
                 format!("body exceeds content-length, {total} > {expected}"),
             );
         }
 
-        Ready(Ok((ReceivedBodyState::H2Data { total }, bytes)))
+        Ready(Ok((ReceivedBodyState::Raw { total }, bytes)))
     }
 
-    /// Signal the driver to emit `RST_STREAM(PROTOCOL_ERROR)` for this stream and return a
-    /// matching `io::Error` to the caller. The caller's error and the peer-visible RST
-    /// track from the same detection point.
-    fn h2_protocol_error(&self, kind: ErrorKind, msg: String) -> StateOutput {
+    /// Surface an `io::Error` to the caller, and on h2 sessions also signal
+    /// `RST_STREAM(PROTOCOL_ERROR)` so caller-error and peer-visible RST share one
+    /// detection point. No-op for h1.0 read-to-close and raw upgrades, which have no
+    /// per-stream control channel.
+    fn protocol_error(&self, kind: ErrorKind, msg: String) -> StateOutput {
         if let Some((connection, stream_id)) = self.protocol_session.as_h2() {
             connection.stream_error(stream_id, H2ErrorCode::ProtocolError);
         }

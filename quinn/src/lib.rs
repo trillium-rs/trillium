@@ -23,4 +23,5 @@ mod runtime;
 
 pub use client::ClientQuicConfig;
 pub use config::{QuicConfig, QuinnEndpoint};
+pub use connection::{QuinnConnection, QuinnRecv, QuinnSend, QuinnTransport};
 pub use quinn;

@@ -78,6 +78,7 @@ where
                 stream_id,
             },
             request_trailers: None,
+            upgrade: false,
         })
     }
 
