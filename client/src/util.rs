@@ -3,8 +3,8 @@ use mime::Mime;
 use std::str::FromStr;
 use trillium_http::{Headers, KnownHeaderName::ContentType};
 
-/// a utility function for extracting a character encoding from a set
-/// of [`Headers`][trillium::Headers]
+/// Extract the character encoding declared by the `Content-Type` charset parameter, falling
+/// back to WINDOWS-1252 when missing or unrecognized.
 pub fn encoding(headers: &Headers) -> &'static Encoding {
     headers
         .get_str(ContentType)

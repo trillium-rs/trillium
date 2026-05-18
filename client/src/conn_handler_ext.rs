@@ -6,28 +6,26 @@ use trillium_http::{Body, Error, Headers, KnownHeaderName, Status, Version};
 /// [`ClientHandler`]: crate::ClientHandler
 ///
 /// These methods govern flow within the handler chain — queue a follow-up request for the
-/// [`IntoFuture for &mut Conn`][std::future::IntoFuture] trampoline to re-execute, or
-/// stash / inspect / recover the transport-level error that runs through
-/// `after_response`. They are meaningful only from inside a [`ClientHandler`]
-/// implementation: external user code holding a [`Conn`] has no reason to call them. A
-/// queued follow-up is picked up only by the trampoline the handler chain runs through;
-/// an externally-installed error just turns into an `Err` on the next `.await`.
+/// [`IntoFuture for &mut Conn`][std::future::IntoFuture] loop to re-execute, or stash /
+/// inspect / recover the transport-level error that runs through `after_response`. They
+/// are meaningful only from inside a [`ClientHandler`] implementation: external user code
+/// holding a [`Conn`] has no reason to call them. A queued follow-up is picked up only by
+/// the handler-chain loop; an externally-installed error just turns into an `Err` on the
+/// next `.await`.
 ///
 /// Bring the methods into scope with `use trillium_client::ConnExt;`. The split
 /// from [`Conn`]'s inherent methods is intentional — these affordances live on a trait
 /// so handler authors opt into them explicitly and user code holding a `Conn` directly
 /// doesn't see them in IDE completion.
-///
-/// [`ClientHandler`]: crate::ClientHandler
 pub trait ConnExt {
     /// Queue a follow-up [`Conn`] to be executed after the current cycle's
     /// `after_response` chain has fully unwound.
     ///
     /// The follow-up is picked up by the [`IntoFuture for &mut Conn`][std::future::IntoFuture]
-    /// trampoline, which drains and recycles the current conn's response body, then runs
-    /// a fresh `(run → network → after_response)` cycle on the follow-up. After the
-    /// trampoline finishes, the user's conn handle holds the *terminal* response — the
-    /// same shape they see today after a redirect chain.
+    /// loop, which drains and recycles the current conn's response body, then runs a fresh
+    /// `(run → network → after_response)` cycle on the follow-up. After the loop finishes,
+    /// the user's conn handle holds the *terminal* response — the same shape they see
+    /// after a redirect chain.
     ///
     /// Setting a follow-up while one is already queued replaces the previous one
     /// (last-writer-wins). Handlers that want to be polite about not clobbering a
@@ -35,11 +33,10 @@ pub trait ConnExt {
     /// or take via [`ConnExt::take_followup`] first.
     ///
     /// An unrecovered error stash on the conn (see [`ConnExt::error`] and
-    /// [`ConnExt::take_error`]) wins over a queued follow-up: when the current
-    /// cycle ends with `Err`, the trampoline discards the queued follow-up and propagates
-    /// the error. Recovery handlers that want the follow-up to run anyway (retry-on-error,
-    /// stale-if-error cache) must call `take_error()` inside `after_response` before
-    /// queuing.
+    /// [`ConnExt::take_error`]) wins over a queued follow-up: when the current cycle ends
+    /// with `Err`, the queued follow-up is discarded and the error propagates. Recovery
+    /// handlers that want the follow-up to run anyway (retry-on-error, stale-if-error
+    /// cache) must call `take_error()` inside `after_response` before queuing.
     fn set_followup(&mut self, conn: Conn) -> &mut Self;
 
     /// Borrow the queued follow-up [`Conn`], if any, without consuming it.
@@ -86,12 +83,12 @@ pub trait ConnExt {
 
     /// Mark this conn halted, skipping the network round-trip in the current cycle.
     ///
-    /// Use this in combination with synthetic response state ([`Conn::set_status`],
-    /// [`Conn::response_headers_mut`], [`ConnExt::set_response_body`]) when a handler
+    /// Use this in combination with synthetic response state ([`ConnExt::set_status`],
+    /// [`ConnExt::response_headers_mut`], [`ConnExt::set_response_body`]) when a handler
     /// wants to fully synthesize a response — cache hits, mocked responses, or
-    /// circuit-breaker short-circuits. The halt flag is internal to the handler chain: the
-    /// trampoline clears it on egress so the user's conn handle never observes residual
-    /// halt state after the awaited conn returns.
+    /// circuit-breaker short-circuits. The halt flag is internal to the handler chain and
+    /// is cleared on egress, so the user's conn handle never observes residual halt state
+    /// after the awaited conn returns.
     fn halt(&mut self) -> &mut Self;
 
     /// Set the halt flag explicitly.
@@ -112,8 +109,8 @@ pub trait ConnExt {
     /// otherwise be read from the network.
     ///
     /// Used by handlers that synthesize responses — cache hits, mocked responses,
-    /// stale-if-error fallbacks. Typically combined with [`Conn::set_status`],
-    /// [`Conn::response_headers_mut`], and [`ConnExt::halt`] to construct a complete
+    /// stale-if-error fallbacks. Typically combined with [`ConnExt::set_status`],
+    /// [`ConnExt::response_headers_mut`], and [`ConnExt::halt`] to construct a complete
     /// synthetic response.
     ///
     /// Accepts anything convertible to a [`Body`], so common patterns work directly:

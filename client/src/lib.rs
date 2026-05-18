@@ -10,9 +10,9 @@
     unused_qualifications
 )]
 
-//! trillium client is a http client that uses the same `conn` approach as
+//! trillium client is an HTTP client that uses the same `conn` approach as
 //! [`trillium`](https://trillium.rs) but which can be used
-//! independently for any http client application.
+//! independently for any HTTP client application.
 //!
 //! ## Connector
 //!
@@ -41,9 +41,8 @@
 //! - Over `https://` with `h2` removed from the ALPN list (e.g. `RustlsConfig::without_http2()`):
 //!   h1 only.
 //! - Over `https://` with a TLS connector that doesn't surface ALPN selection
-//!   (`trillium_native_tls` at time of writing): h1 only by default, since trillium can't tell
-//!   whether the server picked h2. Use the `Version::Http2` hint described below to force h2 over
-//!   TLS in that case.
+//!   (`trillium_native_tls`): h1 only by default, since trillium can't tell whether the server
+//!   picked h2. Use the `Version::Http2` hint described below to force h2 over TLS in that case.
 //! - Over `https://` when the [`Client`] was built with
 //!   [`Client::new_with_quic`](Client::new_with_quic): the client may use h3 for origins that have
 //!   advertised it via [`Alt-Svc`][altsvc] or that the user has hinted (see below).

@@ -4,10 +4,10 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
     ops::{Deref, DerefMut},
 };
-/// An unexpected http status code was received. Transform this back
+/// An unexpected HTTP status code was received. Transform this back
 /// into the conn with [`From::from`]/[`Into::into`].
 ///
-/// Currently only returned by [`Conn::success`]
+/// Returned by [`Conn::success`].
 #[derive(Debug)]
 pub struct UnexpectedStatusError(Box<Conn>);
 impl From<Conn> for UnexpectedStatusError {

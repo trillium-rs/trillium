@@ -25,8 +25,9 @@ const DEFAULT_H2_IDLE_PING_THRESHOLD: Duration = Duration::from_secs(10);
 /// connection is treated as dead and a fresh one is established instead.
 const DEFAULT_H2_IDLE_PING_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// A HTTP Client supporting HTTP/1.x and, when configured with a quic implementation, HTTP/3. See
-/// [`Client::new`] and [`Client::new_with_quic`] for construction information.
+/// An HTTP client supporting HTTP/1.x, HTTP/2 (via ALPN), and — when configured with a QUIC
+/// implementation — HTTP/3. See [`Client::new`] and [`Client::new_with_quic`] for construction
+/// information.
 #[derive(Clone, Debug, fieldwork::Fieldwork)]
 pub struct Client {
     config: ArcedConnector,
@@ -166,7 +167,7 @@ impl Client {
     ///
     /// When H3 is configured, the client will track `Alt-Svc` headers in responses and
     /// automatically use HTTP/3 for subsequent requests to origins that advertise it.
-    /// Requests to origins without a cached alt-svc entry continue to use HTTP/1.1.
+    /// Other requests follow the standard h1 / h2-via-ALPN path.
     pub fn new_with_quic<C: Connector, Q: QuicClientConfig<C>>(connector: C, quic: Q) -> Self {
         // Bind the runtime into the QUIC client config before consuming `connector`.
         let arced_quic = ArcedQuicClientConfig::new(&connector, quic);
@@ -271,9 +272,8 @@ impl Client {
 
     /// builds a new conn.
     ///
-    /// if the client has pooling enabled and there is
-    /// an available connection to the dns-resolved socket (ip and port),
-    /// the new conn will reuse that when it is sent.
+    /// if the client has pooling enabled and there is an available connection for this
+    /// origin (scheme + host + port), the new conn will reuse it when sent.
     ///
     /// ```
     /// use trillium_client::{Client, Method};
@@ -338,10 +338,9 @@ impl Client {
         &self.config
     }
 
-    /// The pool implementation currently accumulates a small memory
-    /// footprint for each new host. If your application is reusing a pool
-    /// against a large number of unique hosts, call this method
-    /// intermittently.
+    /// The pool implementation accumulates a small memory footprint for each new host. If
+    /// your application is reusing a pool against a large number of unique hosts, call this
+    /// method intermittently.
     pub fn clean_up_pool(&self) {
         if let Some(pool) = &self.pool {
             pool.cleanup();

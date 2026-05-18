@@ -33,8 +33,6 @@ impl Conn {
 
         let origin = self.url.origin();
 
-        // Check whether we have a usable alt-svc entry for this origin, or whether the caller
-        // has hinted that the server supports H3 (skipping the alt-svc dance).
         let (host, port) = if self.http_version == Version::Http3 {
             let host = self
                 .url
@@ -54,7 +52,6 @@ impl Conn {
             return Ok(false);
         };
 
-        // Get an existing pooled connection or establish a new one.
         let entry = match h3
             .get_or_create_quic_conn(&origin, &host, port, self.client.connector(), &self.context)
             .await
@@ -67,9 +64,8 @@ impl Conn {
             }
         };
 
-        // Extended-CONNECT precondition (RFC 9220 §3): the peer must have advertised
-        // SETTINGS_ENABLE_CONNECT_PROTOCOL before we send a `:protocol` HEADERS. Park on the
-        // peer's first SETTINGS, then check.
+        // Park on the peer's first SETTINGS before sending a `:protocol` HEADERS — required
+        // by RFC 9220 for extended CONNECT.
         if self.protocol.is_some() {
             let Some(settings) = entry.h3.peer_settings_ready().await else {
                 return Err(Error::Closed);
@@ -93,7 +89,6 @@ impl Conn {
             }
         }
 
-        // Open a bidirectional stream for this request/response pair.
         let (stream_id, transport) = match entry.quic_conn.open_bidi().await {
             Ok(t) => t,
             Err(e) => {
@@ -111,8 +106,8 @@ impl Conn {
             stream_id,
         };
 
-        // Retain the pool entry on the conn for `into_webtransport`: it needs the dispatcher
-        // OnceLock and the QUIC connection to set up the multiplexed session after the 200 OK.
+        // Retain the pool entry on the conn — the dispatcher OnceLock and QUIC connection are
+        // needed to set up the multiplexed session after the 200 OK.
         #[cfg(feature = "webtransport")]
         if self.protocol.as_deref() == Some("webtransport") {
             self.wt_pool_entry = Some(entry.clone());
@@ -139,8 +134,6 @@ impl Conn {
                     .ok_or(Error::UnexpectedUriFormat)?,
             );
 
-        // Plain CONNECT omits :scheme and :path (RFC 9114 §4.4); extended CONNECT (RFC 9220)
-        // keeps both alongside the :protocol pseudo-header.
         if self.method != Method::Connect {
             pseudo_headers
                 .set_path(Some(
@@ -209,8 +202,8 @@ impl Conn {
 
         bufwriter.flush().await?;
 
-        // Half-close the write side to signal end of request (RFC 9114 §4.1).
-        // For QUIC bidi streams this sends a FIN without closing the read side.
+        // Half-close the write side to signal end of request. For QUIC bidi streams this
+        // sends a FIN without closing the read side.
         bufwriter.close().await?;
 
         Ok(())
@@ -221,8 +214,6 @@ impl Conn {
             return Ok(());
         }
 
-        // Resolve :authority from explicit Host header (virtual hosting / proxy)
-        // or fall back to the URL.
         let authority = self
             .request_headers
             .remove(KnownHeaderName::Host)
@@ -245,8 +236,6 @@ impl Conn {
             self.scheme = Some(Cow::Owned(self.url.scheme().to_string()));
             self.path = Some(target.clone());
         } else if self.method == Method::Connect && self.protocol.is_none() {
-            // Plain CONNECT: :scheme and :path are omitted (RFC 9114 §4.4).
-            // Extended CONNECT (RFC 9220) keeps both — falls through to the else below.
             self.scheme = None;
             self.path = None;
         } else {
@@ -261,7 +250,6 @@ impl Conn {
             }));
         }
 
-        // Set Content-Length for known-size bodies.
         if let Some(len) = self.body_len()
             && len > 0
         {
@@ -269,7 +257,6 @@ impl Conn {
                 .insert(KnownHeaderName::ContentLength, len);
         }
 
-        // Strip connection-specific headers prohibited in HTTP/3 (RFC 9114 §4.2).
         self.request_headers.remove_all([
             KnownHeaderName::Connection,
             KnownHeaderName::TransferEncoding,
@@ -291,13 +278,8 @@ impl Conn {
         let transport = self.transport.as_mut().ok_or(Error::Closed)?;
         let mut frame_stream = FrameStream::new(transport, &mut self.buffer);
 
-        // Outer loop: per RFC 9114 §4.1, an HTTP/3 response is zero or more 1xx informational
-        // HEADERS frames followed by the final-response HEADERS frame. Per RFC 9110 §15.2 and
-        // RFC 8297 §2, headers from interim responses MUST NOT be merged into the final
-        // response. We read HEADERS frames in a loop, discarding any whose `:status` is 1xx
-        // (except 101 Switching Protocols, which is itself a final response), until we get
-        // the final one. Surfacing interim sections to the conn task (for proxy forwarding
-        // etc.) is a future enhancement.
+        // Interim 1xx headers must not be merged into the final response, so discard them.
+        // 101 Switching Protocols is itself a final response.
         let (status, headers) = loop {
             let field_section = loop {
                 let Some(mut frame) = frame_stream
@@ -339,8 +321,8 @@ impl Conn {
 
     /// Scan the response headers for `Alt-Svc` and update the cache accordingly.
     ///
-    /// Only called when H3 is configured on the client. Only the first `h3` entry is used;
-    /// a value of `clear` removes the cached entry entirely.
+    /// Only the first `h3` entry is used; a value of `clear` removes the cached entry
+    /// entirely.
     pub(super) fn update_alt_svc_from_response(&self, h3: &H3ClientState) {
         if let Some(alt_svc) = self.response_headers.get_str(KnownHeaderName::AltSvc) {
             h3.update_alt_svc(alt_svc, &self.url);

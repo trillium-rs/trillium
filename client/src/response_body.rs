@@ -270,11 +270,10 @@ impl ResponseBody<'_> {
         Ok(vec)
     }
 
-    /// # Reads the entire body to `String`.
+    /// Reads the entire body to a `String`.
     ///
-    /// This uses the encoding determined by the content-type (mime) charset. If an encoding problem
-    /// is encountered, the String returned by [`ResponseBody::read_string`] will contain utf8
-    /// replacement characters.
+    /// Uses the encoding determined by the content-type (mime) charset. If an encoding problem
+    /// is encountered, the returned `String` will contain utf8 replacement characters.
     ///
     /// Note that this can only be performed once per Conn, as the underlying data is not cached
     /// anywhere. This is the only copy of the body contents.
@@ -299,7 +298,7 @@ impl ResponseBody<'_> {
 
     /// Set the maximum content length to read, returning self
     ///
-    /// This protects against an memory-use denial-of-service attack wherein an untrusted peer sends
+    /// This protects against a memory-use denial-of-service attack wherein an untrusted peer sends
     /// an unbounded request body. This is especially important when using
     /// [`ResponseBody::read_string`] and [`ResponseBody::read_bytes`] instead of streaming with
     /// `AsyncRead`.
@@ -314,7 +313,7 @@ impl ResponseBody<'_> {
 
     /// Set the maximum content length to read
     ///
-    /// This protects against an memory-use denial-of-service attack wherein an untrusted peer sends
+    /// This protects against a memory-use denial-of-service attack wherein an untrusted peer sends
     /// an unbounded request body. This is especially important when using
     /// [`ResponseBody::read_string`] and [`ResponseBody::read_bytes`] instead of streaming with
     /// `AsyncRead`.
@@ -336,8 +335,8 @@ impl ResponseBody<'_> {
 
     /// The content-length of this body, if available.
     ///
-    /// This value usually is derived from the content-length header. If the request that this body
-    /// is attached to uses transfer-encoding chunked, this will be None.
+    /// Usually derived from the content-length header. If the response uses
+    /// transfer-encoding chunked, this will be `None`.
     pub fn content_length(&self) -> Option<u64> {
         match &self.inner {
             ResponseBodyInner::Received(rb) => rb.content_length(),
@@ -364,7 +363,6 @@ impl ResponseBody<'_> {
     }
 }
 
-// local &mut version of trillium-http's drain
 async fn drain(rb: &mut ReceivedBody<'static, Box<dyn Transport + 'static>>) -> io::Result<u64> {
     let copy_loops_per_yield = rb.copy_loops_per_yield();
     trillium_http::copy(rb, futures_lite::io::sink(), copy_loops_per_yield).await

@@ -21,7 +21,7 @@ use std::{
 ///
 /// ## Lifecycle
 ///
-/// Each `Conn::exec` call runs handlers in three steps:
+/// Awaiting a [`Conn`] runs handlers in three steps:
 ///
 /// 1. **Forward pass — `run`.** Each handler runs in declared order. A handler may mutate the
 ///    request, short-circuit by [calling `Conn::halt`] + populating synthetic response state (cache
@@ -39,10 +39,11 @@ use std::{
 /// Handlers that need to re-issue a request (follow-redirects, retry, auth-refresh) build a fresh
 /// `Conn` from `conn.client()` in `after_response`, configure it (filtered headers, replayed body,
 /// handler-internal state), and queue it via
-/// [`ConnExt::set_followup`][crate::ConnExt::set_followup]. The trampoline in
-/// [`IntoFuture for &mut Conn`][std::future::IntoFuture] picks the follow-up up after the current
-/// cycle's `after_response` has fully unwound: it recycles the current response body, swaps the
-/// follow-up into place, and runs another full `(run → network → after_response)` cycle on it.
+/// [`ConnExt::set_followup`][crate::ConnExt::set_followup]. The
+/// [`IntoFuture for &mut Conn`][std::future::IntoFuture] loop picks the follow-up up after the
+/// current cycle's `after_response` has fully unwound: it recycles the current response body,
+/// swaps the follow-up into place, and runs another full `(run → network → after_response)`
+/// cycle on it.
 ///
 /// ## Handler-author affordances on `Conn`
 ///

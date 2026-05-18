@@ -14,13 +14,11 @@ use trillium_server_common::{Connector, Transport};
 
 /// Client-side wrapper for a pooled HTTP/2 connection.
 ///
-/// Bundles the shared `Arc<H2Connection>` with per-pool-entry liveness state — currently
-/// just the `last_used` instant for idle-ping decisions in [`Conn::try_exec_h2_pooled`].
+/// Bundles the shared `Arc<H2Connection>` with the `last_used` instant used for idle-ping
+/// decisions.
 ///
-/// Cloned via `Arc` shares;
-/// [`Pool::peek_candidate_classify`][crate::pool::Pool::peek_candidate_classify] clones an entry to
-/// hand it out while keeping the original in the queue, so cloning needs to be cheap and observably
-/// equivalent to the original (both clones touch the same `last_used`).
+/// Both fields are `Arc`-shared, so clones the pool hands out stay observably equivalent to
+/// the original entry (both touch the same `last_used`).
 #[derive(Clone)]
 pub(crate) struct H2Pooled {
     connection: Arc<H2Connection>,
@@ -59,7 +57,7 @@ impl H2Pooled {
 
 /// Generate an 8-byte opaque payload for an active PING frame. Uses the low 64 bits of
 /// system-time nanoseconds since the unix epoch — collisions on a single connection are
-/// effectively impossible, and the byte sequence is opaque on the wire (RFC 9113 §6.7).
+/// effectively impossible, and the byte sequence is opaque on the wire.
 fn fresh_ping_opaque() -> [u8; 8] {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -125,11 +123,10 @@ impl Conn {
 
     /// Open an h2 connection by prior knowledge and execute the request on it.
     ///
-    /// Called when the user has set `http_version = Version::Http2` — see the crate-level
-    /// "Protocol selection" docs. Over `http://` this is h2c (cleartext); over `https://`
-    /// this skips the ALPN-readback dance and starts the h2 driver immediately after the TLS
-    /// handshake, which is the only way to use h2 with a TLS connector that doesn't expose
-    /// `negotiated_alpn` (e.g. native-tls today).
+    /// Used when the user has set `http_version = Version::Http2`. Over `http://` this is h2c
+    /// (cleartext); over `https://` this skips the ALPN-readback dance and starts the h2
+    /// driver immediately after the TLS handshake, which is the only way to use h2 with a TLS
+    /// connector that doesn't expose `negotiated_alpn` (e.g. native-tls).
     ///
     /// Either way there is no h1 fallback: the preface bytes commit the connection, so a
     /// non-h2-speaking server surfaces as a plain IO error from the h2 driver.
@@ -168,7 +165,6 @@ impl Conn {
         self.headers_finalized = false;
         self.finalize_headers_h2()?;
 
-        // Variant A: hand owned (pseudos, headers) to the driver instead of pre-planning.
         // Headers are cloned (not taken) — `request_headers` is part of the client's public
         // API contract: the caller can re-read sent headers after send for logging, retries,
         // observability. Pseudo-headers are upgraded to 'static via `into_owned`.
@@ -180,15 +176,10 @@ impl Conn {
         }
 
         let (stream_id, transport) = if self.protocol.is_some() {
-            // Extended CONNECT bootstrap (RFC 8441). The HEADERS frame goes out without
-            // END_STREAM and the per-stream outbound queue becomes the request body; the
-            // application reads/writes via the returned `H2Transport`.
-            //
-            // RFC 8441 §3 forbids sending a `:protocol` HEADERS until the peer has
-            // advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL`. On a pooled connection the
-            // peer's first SETTINGS arrived long ago; on a fresh one we may need to park
-            // briefly. `peer_settings` resolves on either receipt or
-            // shutdown — disambiguated via the returned `Option`.
+            // Park on peer SETTINGS before sending `:protocol` — required by RFC 8441 for
+            // extended CONNECT. On a pooled connection SETTINGS arrived long ago; on a fresh
+            // one we may park briefly. `peer_settings` resolves on either receipt or
+            // shutdown, disambiguated via the returned `Option`.
             let Some(settings) = h2.peer_settings().await else {
                 return Err(Error::Io(std::io::Error::new(
                     std::io::ErrorKind::ConnectionAborted,
@@ -251,9 +242,8 @@ impl Conn {
                 ));
         }
 
-        // Extended-CONNECT (RFC 8441 §4) — also requires `:scheme` and `:path` alongside the
-        // CONNECT method, contrary to plain CONNECT. set_path/set_scheme above were skipped
-        // when `method == CONNECT`, so layer them on here when bootstrapping an upgrade.
+        // set_path/set_scheme above were skipped for CONNECT; layer them on for extended
+        // CONNECT.
         if let Some(protocol) = &self.protocol {
             pseudo.set_protocol(Some(protocol.as_ref()));
             if self.method == Method::Connect {
@@ -275,8 +265,6 @@ impl Conn {
             return Ok(());
         }
 
-        // :authority resolves the same way h3 does — Host header takes precedence (proxy /
-        // virtual hosting), URL is the fallback.
         let authority = self
             .request_headers
             .remove(KnownHeaderName::Host)
@@ -298,8 +286,6 @@ impl Conn {
             self.scheme = Some(Cow::Owned(self.url.scheme().to_string()));
             self.path = Some(target.clone());
         } else if self.method == Method::Connect && self.protocol.is_none() {
-            // Plain CONNECT: :scheme and :path are omitted (RFC 9113 §8.5).
-            // Extended CONNECT (RFC 8441 §4) keeps both — falls through to the else below.
             self.scheme = None;
             self.path = None;
         } else {
@@ -321,9 +307,8 @@ impl Conn {
                 .insert(KnownHeaderName::ContentLength, len);
         }
 
-        // RFC 9113 §8.2.2: connection-specific headers MUST NOT appear, and Expect:100-continue
-        // is an h1-only mechanism. Any of these may have been added by a prior
-        // `finalize_headers_h1` call before we diverted to h2 via ALPN.
+        // Any of these may have been added by a prior `finalize_headers_h1` call before we
+        // diverted to h2 via ALPN.
         self.request_headers.remove_all([
             KnownHeaderName::Connection,
             KnownHeaderName::TransferEncoding,

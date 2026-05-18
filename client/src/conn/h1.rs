@@ -315,8 +315,8 @@ impl Conn {
     }
 
     fn reset_interim_response_state(&mut self) {
-        // Per RFC 9110 §15.2 interim responses must not contribute headers to the final
-        // response, so clear them before reading the next head.
+        // Interim responses must not contribute headers to the final response, so clear them
+        // before reading the next head.
         self.status = None;
         self.response_headers = Headers::new();
     }
@@ -382,11 +382,11 @@ impl Conn {
     }
 
     fn validate_response_headers(&self) -> Result<()> {
-        // Per RFC 9112 §6.3, if Transfer-Encoding is present its last coding must be `chunked`;
-        // otherwise the message framing is ambiguous and the response is malformed. Reject early
-        // rather than fall through to chunked framing on raw bytes (which silently corrupts the
-        // body read and leaves a connection in a state where pool reuse would be a response-
-        // smuggling vector).
+        // If Transfer-Encoding is present (RFC 9112), its last coding must be `chunked`;
+        // otherwise the message framing is ambiguous and the response is malformed. Reject
+        // early rather than fall through to chunked framing on raw bytes — that silently
+        // corrupts the body read and leaves a connection in a state where pool reuse would
+        // be a response-smuggling vector.
         let te_last_chunked = self
             .response_headers
             .get_values(TransferEncoding)
