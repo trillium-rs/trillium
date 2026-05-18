@@ -152,8 +152,8 @@ pub struct Conn {
     /// When set to `true` before execution, the network round-trip is skipped — the conn is
     /// returned to the caller with whatever response state has been populated synthetically
     /// (status, headers, body). Used by client middleware to short-circuit on cache hits,
-    /// mocked responses, or open circuit-breakers. The trampoline clears it on egress so the
-    /// user's conn handle never observes residual halt state after the awaited conn returns.
+    /// mocked responses, or open circuit-breakers. Cleared on egress so the user's conn handle
+    /// never observes residual halt state after the awaited conn returns.
     ///
     /// Driven via [`ConnExt`](crate::ConnExt) — `halt` / `set_halted` / `is_halted`.
     pub(crate) halted: bool,
@@ -188,15 +188,15 @@ pub struct Conn {
     #[field(get, set, with, copy)]
     pub(crate) http_version: Version,
 
-    /// the :authority pseudo-header, populated during h3 header finalization
+    /// the :authority pseudo-header, populated during h2 or h3 header finalization
     #[field(get)]
     pub(crate) authority: Option<Cow<'static, str>>,
-    /// the :scheme pseudo-header, populated during h3 header finalization
+    /// the :scheme pseudo-header, populated during h2 or h3 header finalization
 
     #[field(get)]
     pub(crate) scheme: Option<Cow<'static, str>>,
 
-    /// the :path pseudo-header, populated during h3 header finalization
+    /// the :path pseudo-header, populated during h2 or h3 header finalization
     #[field(get)]
     pub(crate) path: Option<Cow<'static, str>>,
 
@@ -207,10 +207,9 @@ pub struct Conn {
     #[field(with, set, get, option_set_some, into)]
     pub(crate) request_target: Option<Cow<'static, str>>,
 
-    /// the `:protocol` pseudo-header for an extended-CONNECT bootstrap (RFC 8441 §4 over h2,
-    /// RFC 9220 §3 over h3). Set internally by [`Conn::into_websocket`] to `"websocket"`;
-    /// triggers the h2/h3 exec paths to send HEADERS without `END_STREAM` and leave the stream
-    /// open as a bidirectional byte channel.
+    /// the `:protocol` pseudo-header for an extended-CONNECT bootstrap (RFC 8441 over h2,
+    /// RFC 9220 over h3). Triggers the h2/h3 exec paths to send HEADERS without `END_STREAM`
+    /// and leave the stream open as a bidirectional byte channel.
     ///
     /// Only meaningful when method is `CONNECT` and [`http_version`][Self::http_version] is
     /// `Http2` or `Http3`. h1 and prior-version requests ignore this field.
@@ -237,9 +236,9 @@ pub struct Conn {
     /// [`ConnExt::set_followup`](crate::ConnExt::set_followup).
     ///
     /// When `Some` after the handler chain's `after_response` has fully unwound, the
-    /// [`IntoFuture`][std::future::IntoFuture] trampoline picks it up: the current conn's
-    /// response body is recycled, then the trampoline swaps in the follow-up and runs another
-    /// full `(run → network → after_response)` cycle on it. Used by re-issuing handlers
+    /// [`IntoFuture`][std::future::IntoFuture] loop picks it up: the current conn's response
+    /// body is recycled, then the follow-up is swapped in and runs another full
+    /// `(run → network → after_response)` cycle. Used by re-issuing handlers
     /// (`FollowRedirects`, retry, auth-refresh) instead of recursing into a nested `.await`.
     pub(crate) followup: Option<Box<Conn>>,
 }

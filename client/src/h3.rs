@@ -70,7 +70,7 @@ impl H3ClientState {
     /// Get a pooled QUIC connection for this origin, or establish a new one.
     ///
     /// When a new connection is established, spawns the mandatory HTTP/3 control and QPACK
-    /// streams using `H3Connection` from trillium-http.
+    /// streams.
     pub(crate) async fn get_or_create_quic_conn(
         &self,
         origin: &Origin,
@@ -134,9 +134,6 @@ impl H3ClientState {
 }
 
 /// Spawn the mandatory HTTP/3 streams on a newly established QUIC connection.
-///
-/// This mirrors the server-side `run_h3_connection` in trillium-server-common,
-/// using the same `H3Connection` from trillium-http for wire-protocol handling.
 fn setup_h3_connection(
     quic_conn: QuicConnection,
     context: &Arc<HttpContext>,
@@ -146,15 +143,10 @@ fn setup_h3_connection(
     #[cfg(feature = "webtransport")]
     let dispatcher = Arc::new(OnceLock::new());
 
-    // Outbound control stream — sends SETTINGS, then GOAWAY on shutdown.
     spawn_outbound_control_stream(&quic_conn, &h3, runtime);
-
-    // Outbound QPACK encoder/decoder streams — held open for the connection lifetime.
     spawn_qpack_encoder_stream(&quic_conn, &h3, runtime);
     spawn_qpack_decoder_stream(&quic_conn, &h3, runtime);
 
-    // Inbound uni streams — handles the server's control, QPACK, and (when WT is enabled and
-    // a session has been opened) routes WT uni streams to the dispatcher.
     spawn_inbound_uni_streams(
         &quic_conn,
         &h3,
@@ -163,8 +155,8 @@ fn setup_h3_connection(
         &dispatcher,
     );
 
-    // Inbound bidi streams: only valid for WebTransport (RFC 9114 §6.1 forbids server-initiated
-    // request bidi). Rejects everything else.
+    // Inbound bidi streams are only valid for WebTransport; RFC 9114 forbids
+    // server-initiated request bidi.
     spawn_inbound_bidi_streams(
         &quic_conn,
         &h3,
@@ -270,12 +262,10 @@ fn spawn_inbound_bidi_streams(
                         transport.reset(H3ErrorCode::StreamCreationError.into());
                     }
                     Ok(H3StreamResult::Request(_)) => {
-                        // RFC 9114 §6.1: servers must not open request bidi streams to clients.
-                        // process_inbound_bidi already invoked our identity handler, which
-                        // results in a default response being sent back. Log the violation.
+                        // process_inbound_bidi already sent a default response via our identity
+                        // handler; just log the spec violation.
                         log::warn!(
-                            "server opened a request bidi stream to client (RFC 9114 §6.1 \
-                             violation)"
+                            "server opened a request bidi stream to client (RFC 9114 violation)"
                         );
                     }
                     Err(error) => {

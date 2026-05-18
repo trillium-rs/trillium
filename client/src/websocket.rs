@@ -38,10 +38,8 @@ impl Conn {
     /// `SETTINGS_ENABLE_CONNECT_PROTOCOL`, the upgrade hard-errors — there is no silent
     /// fallback to h1 from a non-capable h2 peer.
     ///
-    /// HTTP/3 (RFC 9220) extended CONNECT is not yet supported on the client. The h3 transport
-    /// would need to wrap post-upgrade bytes in h3 DATA frames on both client and server before
-    /// the byte channel will round-trip, and that framing layer doesn't exist yet. A `Http3`
-    /// hint here surfaces as `ErrorKind::ExtendedConnectUnsupported`.
+    /// HTTP/3 (RFC 9220) extended CONNECT is not yet supported on the client; a `Http3` hint
+    /// here surfaces as [`ErrorKind::ExtendedConnectUnsupported`].
     pub async fn into_websocket(self) -> Result<WebSocketConn, WebSocketUpgradeError> {
         self.into_websocket_with_config(WebSocketConfig::default())
             .await
@@ -96,17 +94,17 @@ impl Conn {
         mut self,
         config: WebSocketConfig,
     ) -> Result<WebSocketConn, WebSocketUpgradeError> {
-        // RFC 8441 §4 / RFC 9220 §3: the upgrade carries `Sec-WebSocket-Version: 13` and the
-        // optional `Sec-WebSocket-Protocol`, but skips the `Sec-WebSocket-Key` /
-        // `Sec-WebSocket-Accept` SHA1 dance — those are h1-only artifacts. The
-        // `Connection: upgrade` / `Upgrade: websocket` headers are likewise h1-only and would
-        // be stripped by `finalize_headers_h2` / `_h3` even if we set them.
+        // Extended CONNECT carries `Sec-WebSocket-Version: 13` and the optional
+        // `Sec-WebSocket-Protocol`, but skips the `Sec-WebSocket-Key` / `Sec-WebSocket-Accept`
+        // SHA1 dance — those are h1-only artifacts. The `Connection: upgrade` /
+        // `Upgrade: websocket` headers are likewise h1-only and would be stripped by
+        // `finalize_headers_h2` / `_h3` even if we set them.
         self.request_headers_mut()
             .try_insert(SecWebsocketVersion, "13");
         self.set_method(Method::Connect);
         self.protocol = Some(Cow::Borrowed("websocket"));
 
-        // The peer-capability gate (RFC 8441 §3 — server must have advertised
+        // The peer-capability gate (server must have advertised
         // `SETTINGS_ENABLE_CONNECT_PROTOCOL` before the client may send a `:protocol`
         // HEADERS) lives inside the h2 client send path, where it can park on the peer's
         // first SETTINGS *before* putting any HEADERS on the wire. A "not supported"

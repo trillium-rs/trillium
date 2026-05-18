@@ -109,7 +109,7 @@ pub enum H3ErrorCode {
 }
 
 impl H3ErrorCode {
-    /// A "reason phrase" suitable for inclusion in a CONNECTION_CLOSE frame.
+    /// A "reason phrase" suitable for inclusion in a `CONNECTION_CLOSE` frame.
     pub fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(format!("{self}"))
     }

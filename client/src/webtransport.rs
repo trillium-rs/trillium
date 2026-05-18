@@ -57,7 +57,7 @@ impl Conn {
             return Err(WebTransportConnectError::new(self, ErrorKind::InvalidConn));
         }
 
-        // The peer-capability check (RFC 9220 §3 — server must have advertised
+        // The peer-capability check (server must have advertised
         // SETTINGS_ENABLE_CONNECT_PROTOCOL, plus SETTINGS_ENABLE_WEBTRANSPORT and
         // SETTINGS_H3_DATAGRAM for WT) lives inside `try_exec_h3`, where it can park on
         // the peer's first SETTINGS *before* opening the CONNECT stream. The dispatcher is
@@ -94,8 +94,7 @@ impl Conn {
             .get_or_init(WebTransportDispatcher::new)
             .clone();
 
-        // Get-or-init the router and start the routing task. Idempotent across sessions on
-        // the same QUIC connection.
+        // Idempotent across sessions on the same QUIC connection.
         let runtime = self.client.connector().runtime();
         let max_datagram_buffer = DEFAULT_MAX_DATAGRAM_BUFFER;
         let Some(router) = dispatcher.get_or_init_with(|| Router::new(max_datagram_buffer)) else {
@@ -108,14 +107,12 @@ impl Conn {
             .clone()
             .spawn_routing_task(entry.quic_conn.clone(), runtime.clone());
 
-        // Register the session and pull receivers.
         let (bidi_rx, uni_rx, datagram_rx) = router.sessions().lock().await.register(session_id);
 
         let session_swansong = h3_connection.swansong().child();
         let path = self.path.clone();
         let authority = self.authority.clone();
 
-        // Drop the inner Conn, retaining the parts we need for the WebTransportConnection.
         let request_headers = std::mem::take(&mut self.request_headers);
         let response_headers = std::mem::take(&mut self.response_headers);
         let state = std::mem::take(&mut self.state);
