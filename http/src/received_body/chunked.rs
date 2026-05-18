@@ -60,12 +60,9 @@ where
         buf: &mut [u8],
         total: u64,
     ) -> StateOutput {
-        // 1. Try parsing what's already in self.buffer before touching the transport. The buffer
-        //    may already carry enough bytes to parse a header from a prior poll's leftover (e.g.
-        //    chunk_decode's prepend pushback) or from the conn's pre-read scratch carrying a
-        //    fully-buffered request body. Touching the transport when the buffer already has the
-        //    answer would incorrectly surface `ConnectionAborted` if the transport happens to be
-        //    exhausted.
+        // Try the buffer first: if the transport is already exhausted but the buffer
+        // has enough bytes to complete the header, polling would incorrectly surface
+        // `ConnectionAborted`.
         let parse_result = parse_chunk_size(&self.buffer);
         if !matches!(parse_result, Ok(None)) {
             return Ready(interpret_parse_result(
@@ -76,7 +73,6 @@ where
             ));
         }
 
-        // 2. Buffer is still partial. Pull more bytes from the transport.
         let transport = self
             .transport
             .as_deref_mut()
@@ -89,11 +85,9 @@ where
 
         self.buffer.extend_from_slice(&buf[..bytes]);
 
-        // 3. Re-parse. The cap is meant to bound how long the chunk-size *header line* can grow
-        //    before failing — only meaningful while we still can't parse a complete header. Once
-        //    `parse_chunk_size` returns `Some`, the bytes past the header are legitimate
-        //    post-header data (body bytes + maybe more chunks) that will be drained back to the
-        //    caller via `read_buffered` on the next `handle_chunked` pass.
+        // The 256-byte cap bounds the chunk-size header line; once parsing succeeds,
+        // bytes past the header are legitimate post-header data drained on the next
+        // `handle_chunked` pass.
         let parse_result = parse_chunk_size(&self.buffer);
         if matches!(parse_result, Ok(None)) && self.buffer.len() > 256 {
             return Ready(Err(io::Error::new(InvalidData, "chunk header too long")));
@@ -108,11 +102,8 @@ where
     }
 }
 
-/// Translate a `parse_chunk_size` result into the next [`ReceivedBodyState`].
-/// Shared between [`handle_partial`]'s pre-read and post-read parse attempts.
-///
-/// On `Ok(Some)`, advances `buffer` past the chunk-size header bytes and transitions
-/// to either `Chunked` (regular chunk) or `End` via `finish_terminal_chunk` (terminator).
+/// Translate a `parse_chunk_size` result into the next [`ReceivedBodyState`],
+/// advancing `buffer` past the chunk-size header bytes.
 fn interpret_parse_result(
     buffer: &mut Buffer,
     trailers: &mut Option<Headers>,
@@ -220,16 +211,10 @@ pub(super) fn chunk_decode(
                     .ok_or_else(|| io::Error::new(InvalidData, "chunk size too long"))?;
 
                 if chunk_size == 2 {
-                    // Terminal chunk — `chunk_start` is the start of the trailer-section.
-                    // The 2 bytes already "consumed" by chunk_size may be real trailer data,
-                    // so scan from chunk_start (not chunk_end) for the trailer terminator.
-                    //
-                    // The bytes in `buf[trailer_start..]` are chronologically *earlier* than
-                    // whatever residual `read_buffered` left in `self_buffer` (it drained the
-                    // head of `self_buffer` into `buf` before we ran). Prepend them so the
-                    // combined `self_buffer` is in stream order; then call
-                    // `finish_terminal_chunk` with empty `trailer_bytes` — it'll process
-                    // `self_buffer` as the complete in-order trailer-section input.
+                    // Terminal chunk — the 2 "consumed" bytes may be real trailer data,
+                    // so scan from chunk_start. The remaining buf bytes are earlier in
+                    // stream than any residual self_buffer (read_buffered drained
+                    // self_buffer's head into buf), so prepend rather than extend.
                     let trailer_start = usize::try_from(chunk_start)
                         .unwrap_or(buf.len())
                         .min(buf.len());
@@ -240,11 +225,8 @@ pub(super) fn chunk_decode(
             }
 
             Ok(None) => {
-                // `buf_to_read` came chronologically *before* whatever's currently in
-                // `self_buffer` (read_buffered drained `self_buffer`'s head into `buf`,
-                // and these partial bytes are from inside that drained region). Prepend
-                // so the bytes stay in stream order; `extend_from_slice` would scramble
-                // them when `self_buffer` has residual.
+                // Partial bytes here are earlier in stream than any residual self_buffer
+                // (read_buffered drained the head into buf). Prepend, not extend.
                 self_buffer.prepend(buf_to_read);
                 break PartialChunkSize { total };
             }
@@ -281,7 +263,6 @@ fn finish_terminal_chunk(
     total: u64,
     trailers: &mut Option<Headers>,
 ) -> io::Result<(ReceivedBodyState, usize)> {
-    // Combine any previously buffered partial trailer bytes with the new bytes.
     let combined: Vec<u8> = if self_buffer.is_empty() {
         trailer_bytes.to_vec()
     } else {
@@ -302,7 +283,6 @@ fn finish_terminal_chunk(
         }
         Ok((End, 0))
     } else {
-        // Need more bytes — stash what we have and wait
         self_buffer.extend_from_slice(&combined);
         Ok((ReceivedBodyState::ReadingH1Trailers { total }, 0))
     }
@@ -583,8 +563,6 @@ mod tests {
     #[test(harness)]
     async fn test_fixed_length_exactly_at_max_len() {
         // A body of exactly max_len bytes must succeed (not be rejected).
-        // Previously handle_start used `<` instead of `<=`, so a body of exactly
-        // max_len was incorrectly rejected before reading a single byte.
         let body = "x".repeat(50);
         let config = HttpConfig::default().with_received_body_max_len(50);
         let result = ReceivedBody::new_with_config(
@@ -622,12 +600,9 @@ mod tests {
 
     #[test(harness)]
     async fn test_chunk_header_too_long() {
-        // Build a chunk size line that is valid so far but never terminates:
-        // 16 hex digits + CR, then 300 arbitrary non-LF bytes.
-        // The buffer cap (256 bytes) should fire before we ever see a complete
-        // size line, returning an error rather than growing forever.
-        // 16 hex digits + CR, then 300 arbitrary non-LF bytes. The buffer cap
-        // (256 bytes) should fire before a complete size line arrives.
+        // Chunk-size line that is valid so far but never terminates: 16 hex digits +
+        // CR, then 300 arbitrary non-LF bytes. The buffer cap (256 bytes) should fire
+        // before a complete size line arrives.
         let mut input = "FFFFFFFFFFFFFFFF\r".to_string();
         input.extend(std::iter::repeat_n('x', 300));
         assert!(decode(input, 1).await.is_err());
@@ -1002,10 +977,10 @@ mod tests {
         /// the hand-picked matrix dimensions don't enumerate.
         #[test]
         fn round_trip_proptest(
-            // Chunk sizes start at 1: a 0-size chunk IS the RFC 9112 §7.1 last-chunk
-            // marker, so emitting a 0-size chunk mid-body would be malformed wire
-            // (and `build_chunked` would dutifully encode it, then the decoder would
-            // correctly stop early, producing a false-positive test failure).
+            // Chunk sizes start at 1: a 0-size chunk IS the last-chunk marker, so
+            // emitting one mid-body would be malformed wire — `build_chunked` would
+            // encode it, the decoder would stop early, and the test would
+            // false-positive.
             chunk_sizes in proptest::collection::vec(1usize..512, 0..30),
             read_size in 1usize..2048,
             transport_cap in proptest::option::of(1usize..2048),

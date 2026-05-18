@@ -1,4 +1,4 @@
-//! GOAWAY frame (RFC 9113 §6.8).
+//! GOAWAY frame.
 
 use super::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader, FrameType};
 use crate::h2::H2ErrorCode;

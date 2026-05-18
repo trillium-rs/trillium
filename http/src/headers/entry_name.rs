@@ -1,14 +1,12 @@
 //! A name as it can appear in an HPACK or QPACK dynamic table entry.
 //!
-//! [`EntryName`] is a superset of [`StaticHeaderName`]: it admits arbitrary unknown
-//! header names (for entries inserted via Insert With Literal Name or dynamic-name
-//! references) in addition to the known-header and pseudo-header variants that the static
-//! table contains.
+//! `EntryName` is a superset of `StaticHeaderName`: it admits arbitrary unknown header
+//! names (for entries inserted via Insert With Literal Name or dynamic-name references)
+//! in addition to the known-header and pseudo-header variants the static table contains.
 //!
 //! Pseudo-headers never reach the dynamic table via a *literal* insert (the static name
 //! reference is always strictly cheaper on the wire), but they can arrive via Insert With
-//! Name Reference against a static pseudo-header slot, and propagate further via Duplicate
-//! and Insert With Name Reference (dynamic).
+//! Name Reference against a static pseudo-header slot and propagate via Duplicate.
 use crate::{
     HeaderName, KnownHeaderName,
     headers::{HeaderNameInner, UnknownHeaderName, header_observer::NameKey},
@@ -18,27 +16,26 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-/// A dynamic table entry's name — either a known/pseudo-header (sealed enums)
-/// or a regular unknown header name. Unknown names are split into two variants:
+/// A dynamic table entry's name — either a known/pseudo-header (sealed enums) or a
+/// regular unknown header name. Unknown names are split into two variants:
 /// `UnknownStatic` for names recoverable as `&'static str` (literals normalized
 /// through the lowercase interner), and `Unknown` for everything else (owned, or
 /// borrowed-non-static). The split lets the encoder hot path query "is this name
 /// static?" without checking lifetimes.
 ///
-/// Equality and hashing compare by [`as_str`](Self::as_str) — the storage variant
-/// is purely an indexing-into-priming-eligibility distinction, not a content one.
-/// `Unknown("x-custom")`, `UnknownStatic("x-custom")` collide as map keys; only
-/// the variant tag determines [`name_key`](Self::name_key) eligibility.
+/// Equality and hashing compare by [`as_str`](Self::as_str) — the storage variant only
+/// affects [`name_key`](Self::name_key) eligibility, not content. `Unknown("x-custom")`
+/// and `UnknownStatic("x-custom")` collide as map keys.
 pub(in crate::headers) enum EntryName<'a> {
     Known(KnownHeaderName),
     /// An HTTP pseudo-header name (e.g. `:method`, `:path`).
     Pseudo(PseudoHeaderName),
     /// An unknown header name backed by a `&'static str` (typically a literal,
     /// possibly re-interned to its lowercased form). Eligible for cross-connection
-    /// QPACK observer tracking.
+    /// priming.
     UnknownStatic(&'static str),
     /// An unknown header name backed by a non-static reference or owned storage.
-    /// Not tracked cross-connection.
+    /// Not eligible for cross-connection priming.
     Unknown(UnknownHeaderName<'a>),
 }
 
@@ -93,9 +90,8 @@ impl EntryName<'_> {
         }
     }
 
-    /// Length in bytes of the name. Equivalent for the wire form and the natural form since
-    /// ASCII case conversion preserves length. Used for entry-size calculation
-    /// (RFC 9204 §3.2.1).
+    /// Length in bytes of the name. Equivalent for the wire form and the natural form
+    /// since ASCII case conversion preserves length.
     pub(in crate::headers) fn len(&self) -> usize {
         self.as_bytes().len()
     }
@@ -118,14 +114,11 @@ impl EntryName<'_> {
         }
     }
 
-    /// Stable, content-equal observer key for this name, if eligible for
-    /// cross-connection priming. Returns `Some` only for variants whose value
-    /// is known to be program-controlled by construction
-    /// ([`Known`](Self::Known), [`Pseudo`](Self::Pseudo), and
-    /// [`UnknownStatic`](Self::UnknownStatic) — the latter is `&'static str`
-    /// because it came from a literal and was passed through the lowercase
-    /// interner). Returns `None` for [`Unknown`](Self::Unknown), whose contents
-    /// can be user-derived.
+    /// Stable, content-equal key for this name when eligible for cross-connection
+    /// priming. Returns `Some` only for variants whose value is program-controlled
+    /// by construction ([`Known`](Self::Known), [`Pseudo`](Self::Pseudo), and
+    /// [`UnknownStatic`](Self::UnknownStatic)); `None` for [`Unknown`](Self::Unknown),
+    /// whose contents can be user-derived.
     pub(in crate::headers) fn name_key(&self) -> Option<NameKey> {
         match self {
             Self::Known(k) => Some(NameKey::Known(*k)),
@@ -139,13 +132,12 @@ impl EntryName<'_> {
     /// privacy reasons — caching would let a CRIME-style length side-channel against a
     /// shared dynamic table learn secret values.
     ///
-    /// Stand-in for propagating the RFC 9204 §4.5.4 N ("Never Indexed") bit through
-    /// trillium-proxy; see the `qpack-n-bit-gap` memory note.
+    /// Stand-in for propagating the QPACK "Never Indexed" bit end-to-end.
     ///
     /// This predicate is a *ban* — callers that additionally want to skip names whose
-    /// caching is merely *unprofitable* (e.g. `date`, whose rapidly-changing value the
-    /// header observer filters on the cost-model side) should add their own check on top
-    /// rather than widening this list.
+    /// caching is merely *unprofitable* (e.g. `date`, whose rapidly-changing value is
+    /// filtered on the cost-model side) should add their own check on top rather than
+    /// widening this list.
     pub(in crate::headers) fn has_uncacheable_value(&self) -> bool {
         matches!(
             self,
@@ -183,12 +175,8 @@ impl EntryName<'static> {
     }
 }
 
-// `EntryName` is shared by HPACK and QPACK, so these `TryFrom` impls deliberately yield
-// `Err = ()`: the call site knows which protocol it lives in and maps to the right error
-// (`H3ErrorCode::QpackEncoderStreamError` for the QPACK encoder stream;
-// `CompressionError::InvalidHeaderName` for HPACK and the QPACK field-section decoder).
-// All current call sites discarded the variant anyway — only one variant was ever
-// returned — so removing it loses no information.
+// `EntryName` is shared by HPACK and QPACK, so these `TryFrom` impls yield `Err = ()`:
+// the call site knows which protocol it lives in and maps to the right error.
 impl<'a> TryFrom<&'a [u8]> for EntryName<'a> {
     type Error = ();
 
@@ -288,9 +276,8 @@ impl From<PseudoHeaderName> for EntryName<'static> {
     }
 }
 
-/// The HTTP pseudo-header names (RFC 9113 §8.3 / RFC 9114 §4.3, extended by RFC 9220).
-///
-/// These form a closed set; an unknown `:foo` on the wire is a protocol error.
+/// The HTTP pseudo-header names. These form a closed set; an unknown `:foo` on
+/// the wire is a protocol error.
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 #[repr(u8)]
 pub(in crate::headers) enum PseudoHeaderName {

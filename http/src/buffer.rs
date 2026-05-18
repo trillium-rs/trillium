@@ -60,12 +60,8 @@ impl Buffer {
     /// Insert `slice` at the front of the active region, chronologically before the
     /// existing contents.
     ///
-    /// Cheap when `slice.len() <= self.0` — writes into the already-consumed-prefix
-    /// space left at the front by prior [`ignore_front`][Self::ignore_front] calls.
-    /// In any other case allocates / shifts.
-    ///
-    /// Used by the h1 chunked-body decoder to push partial chunk-size bytes back into
-    /// the stream when a chunk header straddles the end of the caller's read buffer.
+    /// Cheap when `slice.len() <= self.0` — writes into the already-consumed prefix left
+    /// by prior [`ignore_front`][Self::ignore_front] calls. Otherwise allocates / shifts.
     pub fn prepend(&mut self, slice: &[u8]) {
         if slice.len() <= self.0 {
             self.0 -= slice.len();
@@ -202,9 +198,9 @@ mod tests {
 
     #[test]
     fn prepend_preserves_order_after_extend() {
-        // The bug-#2 shape: residual content sits in the buffer (chronologically
-        // *later* bytes), then a prepend pushes chronologically *earlier* bytes onto
-        // the front. The final order must match stream order.
+        // Residual content sits in the buffer (chronologically *later* bytes), then a
+        // prepend pushes chronologically *earlier* bytes onto the front. The final order
+        // must match stream order.
         let mut buf = Buffer::default();
         buf.extend_from_slice(b"later"); // chronologically later bytes
         buf.prepend(b"earlier "); // chronologically earlier bytes

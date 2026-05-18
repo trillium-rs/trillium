@@ -19,7 +19,7 @@ where
     #[allow(
         clippy::too_many_arguments,
         clippy::too_many_lines,
-        reason = "internal api, will revisit later"
+        reason = "single state-machine arm; splitting would obscure the control flow"
     )]
     pub(super) fn handle_h3_data(
         &mut self,
@@ -41,13 +41,11 @@ where
             }
             self.buffer.extend_from_slice(&buf[..bytes]);
 
-            // Try to decode the frame header from the reassembled buffer
             let (remaining_in_frame, frame_type, consumed) = match Frame::decode(&self.buffer) {
                 Ok((Frame::Data(len), consumed)) => (len, H3BodyFrameType::Data, consumed),
                 Ok((Frame::Headers(len), consumed)) => (len, H3BodyFrameType::Trailers, consumed),
                 Ok((Frame::Unknown(len), consumed)) => (len, H3BodyFrameType::Unknown, consumed),
                 Err(FrameDecodeError::Incomplete) => {
-                    // Still not enough bytes — stay in partial state
                     return Ready(Ok((
                         ReceivedBodyState::H3Data {
                             remaining_in_frame: 0,
@@ -83,7 +81,6 @@ where
             let leftover = self.buffer.len();
 
             if leftover == 0 {
-                // Frame header decoded but no payload bytes yet
                 return Ready(Ok((
                     ReceivedBodyState::H3Data {
                         remaining_in_frame,
@@ -95,7 +92,6 @@ where
                 )));
             }
 
-            // Copy leftover payload bytes from self.buffer into buf
             buf[..leftover].copy_from_slice(&self.buffer);
             self.buffer.ignore_front(leftover);
 
@@ -163,7 +159,10 @@ struct H3Frame<'a> {
 }
 
 impl H3Frame<'_> {
-    #[allow(clippy::too_many_lines, reason = "internal api, will revisit later")]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "single state-machine arm; splitting would obscure the control flow"
+    )]
     fn decode(self) -> io::Result<(ReceivedBodyState, usize)> {
         let Self {
             self_buffer,
@@ -186,7 +185,6 @@ impl H3Frame<'_> {
         let mut pos = 0usize;
 
         let state = loop {
-            // Consume bytes from the current frame
             if remaining_in_frame > 0 {
                 let available = buf.len() - pos;
                 let consume =
@@ -221,13 +219,13 @@ impl H3Frame<'_> {
                 pos += consume;
                 remaining_in_frame -= consume as u64;
 
-                // If we finished a trailers frame, body is done
                 if remaining_in_frame == 0
                     && frame_type == H3BodyFrameType::Trailers
                     && let Some((connection, stream_id)) = connection
                 {
                     let connection = Arc::clone(connection);
-                    let self_buffer = std::mem::take(self_buffer); // this is ok because there's nothing expected on a bidi stream after trailers
+                    // Taking is safe: nothing is expected on a bidi stream after trailers.
+                    let self_buffer = std::mem::take(self_buffer);
                     *trailers_future = Some(Box::pin(async move {
                         let field_section = connection
                             .decode_field_section(&self_buffer, stream_id)
@@ -257,7 +255,6 @@ impl H3Frame<'_> {
                 }
             }
 
-            // If we've consumed the whole buffer, done for this read
             if pos >= buf.len() {
                 break ReceivedBodyState::H3Data {
                     remaining_in_frame,
@@ -267,7 +264,6 @@ impl H3Frame<'_> {
                 };
             }
 
-            // Decode next frame header
             match Frame::decode(&buf[pos..]) {
                 Ok((Frame::Data(len), consumed)) => {
                     pos += consumed;
@@ -313,7 +309,6 @@ impl H3Frame<'_> {
             }
         };
 
-        // Compact: squeeze out non-body bytes
         let mut bytes = 0;
         for range in ranges_to_keep {
             let len = range.end - range.start;

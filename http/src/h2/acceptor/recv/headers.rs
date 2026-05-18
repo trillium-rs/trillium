@@ -40,9 +40,9 @@ where
     /// A HEADERS frame arrived. Either `END_HEADERS` is set (emit the stream immediately) or
     /// we accumulate the fragment into `pending_headers` and wait for CONTINUATION.
     ///
-    /// A HEADERS frame on an *existing* stream is trailers (RFC 9113 §8.1). Accumulation is
-    /// identical to an initial HEADERS block; the branch between "initial request HEADERS"
-    /// and "trailers" happens in [`Self::finalize_headers`] against the current streams map.
+    /// A HEADERS frame on an *existing* stream is trailers. Accumulation is identical to an
+    /// initial HEADERS block; the branch between "initial request HEADERS" and "trailers"
+    /// happens in [`Self::finalize_headers`] against the current streams map.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn handle_headers(
         &mut self,
@@ -54,19 +54,19 @@ where
         payload_start: usize,
         total: usize,
     ) -> Result<Action, CloseOutcome> {
-        // §5.1.1: a peer-initiated stream id must be odd.
+        // A peer-initiated stream id must be odd.
         if stream_id.is_multiple_of(2) {
             return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
         // Trailer HEADERS on an existing stream: must be strictly equal to a known id.
         // New-stream HEADERS: strictly greater than `last_peer_stream_id`. A lower id
-        // that is no longer active splits three ways per RFC 9113:
-        // - Closed via `RST_STREAM` (either direction) → stream-level `STREAM_CLOSED` per §5.1
-        //   closed-state rule. Ledger lookup returns `ClosedReason::Reset`.
-        // - Closed via `END_STREAM` on both sides → connection-level `STREAM_CLOSED` per §5.1
-        //   closed-state rule. Ledger lookup returns `ClosedReason::EndStream`.
+        // that is no longer active splits three ways:
+        // - Closed via `RST_STREAM` (either direction) → stream-level `STREAM_CLOSED`. Ledger
+        //   lookup returns `ClosedReason::Reset`.
+        // - Closed via `END_STREAM` on both sides → connection-level `STREAM_CLOSED`. Ledger lookup
+        //   returns `ClosedReason::EndStream`.
         // - Never opened (implicitly closed by a higher-id HEADERS, or evicted from the bounded
-        //   ledger) → connection-level `PROTOCOL_ERROR` per §5.1.1's "stream identifiers MUST be
+        //   ledger) → connection-level `PROTOCOL_ERROR` per the spec's "stream identifiers MUST be
         //   numerically greater than all streams the initiating endpoint has opened".
         let is_new_stream = !self.streams.contains_key(&stream_id);
         if is_new_stream && stream_id <= self.last_peer_stream_id {
@@ -84,8 +84,8 @@ where
             }
         }
 
-        // §5.3.1: a stream cannot depend on itself. Stream-level PROTOCOL_ERROR — the
-        // connection stays alive; just RST this stream and advance past it.
+        // A stream cannot depend on itself. Stream-level PROTOCOL_ERROR — the connection
+        // stays alive; just RST this stream and advance past it.
         if let Some(p) = priority
             && p.stream_dependency == stream_id
         {
@@ -98,10 +98,9 @@ where
             return Ok(Action::Continue);
         }
 
-        // §5.1.2: peer-initiated streams beyond our advertised
-        // `SETTINGS_MAX_CONCURRENT_STREAMS` get `RST_STREAM(RefusedStream)`. The identifier
-        // is still "consumed" per §5.1.1 ("The identifier of a refused stream is not
-        // reused") so bump `last_peer_stream_id`.
+        // Peer-initiated streams beyond our advertised `SETTINGS_MAX_CONCURRENT_STREAMS`
+        // get `RST_STREAM(RefusedStream)`. The identifier is still "consumed" ("The
+        // identifier of a refused stream is not reused") so bump `last_peer_stream_id`.
         let max_concurrent = self.config.max_concurrent_streams() as usize;
         if is_new_stream && self.streams.len() >= max_concurrent {
             log::debug!(
@@ -161,12 +160,12 @@ where
     /// The complete header block is now available (whether from a single HEADERS or from
     /// HEADERS + CONTINUATION*). Branches on whether the stream is already open:
     /// - **New stream:** HPACK-decode, open the stream, validate the request via [`Conn::new_h2`],
-    ///   emit the [`Conn`] on success; on a §8.1.2 malformed-request rejection, queue
+    ///   emit the [`Conn`] on success; on a malformed-request rejection, queue
     ///   `RST_STREAM(PROTOCOL_ERROR)` and drop the stream before a handler task ever sees it.
     /// - **Existing stream (trailers):** HPACK-decode, validate `END_STREAM` is set and no
-    ///   pseudo-headers present (§8.1), stash on `StreamState.recv.trailers`, then signal EOF. A
-    ///   stream-level §8.1 violation queues `RST_STREAM(PROTOCOL_ERROR)` on the offending stream
-    ///   and leaves the connection open.
+    ///   pseudo-headers present, stash on `StreamState.recv.trailers`, then signal EOF. A
+    ///   stream-level violation queues `RST_STREAM(PROTOCOL_ERROR)` on the offending stream and
+    ///   leaves the connection open.
     ///
     /// HPACK decode failures split by variant: wire-format compression errors are
     /// connection-level (dynamic table now untrusted for every future stream — bubble up as
@@ -189,9 +188,8 @@ where
             }
             Err(HpackDecodeError::MalformedRequest(reason)) => {
                 log::debug!("h2 stream {stream_id}: malformed request headers: {reason:?}");
-                // Stream-level per §8.1.2. Pre-stream-open: just RST; post-open
-                // (trailer path): drive through the completion helper to clean up send
-                // state if any.
+                // Stream-level. Pre-stream-open: just RST; post-open (trailer path):
+                // drive through the completion helper to clean up send state if any.
                 if self.streams.contains_key(&stream_id) {
                     self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
                     self.complete_and_remove_stream(
@@ -208,7 +206,7 @@ where
         };
 
         if let Some(entry) = self.streams.get(&stream_id) {
-            // §5.1 half-closed (remote): once we've observed the peer's `END_STREAM`, any
+            // Half-closed (remote): once we've observed the peer's `END_STREAM`, any
             // further HEADERS on that stream is a stream-level `STREAM_CLOSED`. This is
             // the case where `recv.eof` was already set by a prior DATA(END_STREAM) or a
             // prior trailer HEADERS — trailers themselves arrive while the stream is
@@ -276,16 +274,12 @@ where
     /// waker, and (if `END_STREAM` is set) flip recv-side eof and try to close the stream
     /// if our send half has already completed.
     ///
-    /// Interim (1xx) HEADERS frames are discarded: per RFC 9113 §8.1 the response may include
-    /// zero or more informational HEADERS frames before the final, and per RFC 9110 §15.2 /
-    /// RFC 8297 §2 their headers must not be merged into the final response. Discarding
-    /// without latching `first_response_headers_seen` routes the next HEADERS arrival through
-    /// this function as the final response. Surfacing interim sections to the conn task (for
-    /// proxy forwarding etc.) is a future enhancement.
+    /// Interim (1xx) HEADERS frames are discarded: the response may include zero or more
+    /// informational HEADERS frames before the final, and their headers must not be merged
+    /// into the final response. Discarding without latching `first_response_headers_seen`
+    /// routes the next HEADERS arrival through this function as the final response.
     ///
-    /// Validation of pseudo-headers (e.g. presence of `:status`) is left to the conn task
-    /// in trillium-client, mirroring how the h3 client decomposes the `FieldSection`
-    /// returned by `recv_h3_response_headers`.
+    /// Validation of pseudo-headers (e.g. presence of `:status`) is left to the conn task.
     fn finalize_response_headers(
         &mut self,
         stream_id: u32,
@@ -296,9 +290,9 @@ where
         if status.is_some_and(|s| s.is_informational() && s != Status::SwitchingProtocols) {
             log::trace!("h2 stream {stream_id}: discarding interim response {status:?}");
             if end_stream {
-                // §8.1 forbids END_STREAM on an interim HEADERS frame. Honor it anyway so
-                // the conn task surfaces `ConnectionAborted` rather than hanging on a
-                // final-response HEADERS frame that won't arrive.
+                // The spec forbids END_STREAM on an interim HEADERS frame. Honor it
+                // anyway so the conn task surfaces `ConnectionAborted` rather than hanging
+                // on a final-response HEADERS frame that won't arrive.
                 let state = self
                     .streams
                     .get(&stream_id)
@@ -350,8 +344,8 @@ where
 
     /// Server-role handler for HEADERS on a stream id we've not seen before: open the
     /// stream, validate the request via [`Conn::new_h2`], and emit the [`Conn`] on
-    /// success. On a §8.1.2 rejection the stream is dropped with `RST_STREAM` before a
-    /// handler task ever sees it.
+    /// success. On rejection the stream is dropped with `RST_STREAM` before a handler task
+    /// ever sees it.
     fn finalize_new_request_stream(
         &mut self,
         stream_id: u32,
@@ -395,7 +389,7 @@ where
         }
     }
 
-    /// Receive-side trailers (§8.1): stash on `StreamState.recv.trailers` and signal EOF.
+    /// Receive-side trailers: stash on `StreamState.recv.trailers` and signal EOF.
     /// Pseudo-header or missing-END_STREAM violations are stream-level errors —
     /// `RST_STREAM(PROTOCOL_ERROR)` and leave the connection alive.
     fn finalize_trailers(
@@ -427,8 +421,8 @@ where
             .expect("caller verified stream is present");
         let state = &entry.shared;
 
-        // §8.1 race ordering: store trailers first, then flip eof. Both under the recv
-        // buf lock so observers of eof see trailers populated.
+        // Race ordering: store trailers first, then flip eof. Both under the recv buf
+        // lock so observers of eof see trailers populated.
         let recv_buf = state.recv.buf.lock().expect("recv buf mutex poisoned");
         *state
             .recv

@@ -1,5 +1,4 @@
-//! Typed parser and wire-format encoders for QPACK decoder-stream instructions
-//! (RFC 9204 §4.4).
+//! Typed parser and wire-format encoders for QPACK decoder-stream instructions.
 //!
 //! [`parse`] reads one instruction off the wire and returns it as a [`DecoderInstruction`]
 //! without applying it to any table. The consumer ([`encoder_dynamic_table::EncoderDynamicTable`])
@@ -19,23 +18,23 @@ use crate::{
 };
 use futures_lite::io::AsyncRead;
 
-// §4.4.1: Section Acknowledgement — first byte pattern 1xxxxxxx with 7-bit prefix stream ID.
+// Section Acknowledgement — first byte pattern 1xxxxxxx with 7-bit prefix stream ID.
 const SECTION_ACK: u8 = 0x80;
-// §4.4.2: Stream Cancellation — first byte pattern 01xxxxxx with 6-bit prefix stream ID.
+// Stream Cancellation — first byte pattern 01xxxxxx with 6-bit prefix stream ID.
 const STREAM_CANCEL: u8 = 0x40;
-// §4.4.3: Insert Count Increment — first byte pattern 00xxxxxx with 6-bit prefix increment.
+// Insert Count Increment — first byte pattern 00xxxxxx with 6-bit prefix increment.
 // High bits are zero, so the constant is just documentation for the encode path (no OR-in
 // needed).
 const INSERT_COUNT_INC: u8 = 0x00;
 
-/// One parsed decoder-stream instruction (RFC 9204 §4.4).
+/// One parsed decoder-stream instruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::headers) enum DecoderInstruction {
-    /// §4.4.1: Section Acknowledgement.
+    /// Section Acknowledgement.
     SectionAcknowledgement { stream_id: u64 },
-    /// §4.4.2: Stream Cancellation.
+    /// Stream Cancellation.
     StreamCancellation { stream_id: u64 },
-    /// §4.4.3: Insert Count Increment.
+    /// Insert Count Increment.
     InsertCountIncrement { increment: u64 },
 }
 
@@ -76,16 +75,16 @@ async fn parse_inner(
     Ok(Some(instr))
 }
 
-// --- §4.4 wire encoders ---
+// --- wire encoders ---
 
-/// Section Acknowledgement (§4.4.1): `1XXXXXXX` with a 7-bit prefix integer for the stream ID.
+/// Section Acknowledgement: `1XXXXXXX` with a 7-bit prefix integer for the stream ID.
 pub(in crate::headers) fn encode_section_ack(stream_id: u64, buf: &mut Vec<u8>) {
     let start = buf.len();
     integer_prefix::encode_into(usize::try_from(stream_id).unwrap_or(usize::MAX), 7, buf);
     buf[start] |= SECTION_ACK;
 }
 
-/// Insert Count Increment (§4.4.3): `00XXXXXX` with a 6-bit prefix integer for the increment.
+/// Insert Count Increment: `00XXXXXX` with a 6-bit prefix integer for the increment.
 pub(in crate::headers) fn encode_insert_count_increment(increment: u64, buf: &mut Vec<u8>) {
     let start = buf.len();
     integer_prefix::encode_into(usize::try_from(increment).unwrap_or(usize::MAX), 6, buf);

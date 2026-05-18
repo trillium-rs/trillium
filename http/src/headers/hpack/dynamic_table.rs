@@ -1,10 +1,9 @@
-//! HPACK dynamic table (RFC 7541 §2.3.2, §4).
+//! HPACK dynamic table (RFC 7541).
 //!
-//! A FIFO of `(name, value)` entries sized by per-entry byte weight: `name.len() +
-//! value.len() + 32` per RFC 7541 §4.1. The newest entry sits at dynamic index 1 (which
-//! maps to HPACK absolute index `62`); oldest at the back. Insertion may evict from the
-//! tail until the new entry fits; a new entry larger than `max_size` by itself clears the
-//! table without being stored (§4.4).
+//! A FIFO of `(name, value)` entries with per-entry byte weight `name.len() + value.len() +
+//! 32`. The newest entry sits at dynamic index 1 (which maps to HPACK absolute index 62);
+//! oldest at the back. Insertion may evict from the tail until the new entry fits; a new
+//! entry larger than `max_size` by itself clears the table without being stored.
 //!
 //! This table is agnostic to the protocol-advertised `SETTINGS_HEADER_TABLE_SIZE` upper
 //! bound — that check lives at the decoder, which rejects a size-update that exceeds it.
@@ -12,7 +11,7 @@
 use crate::headers::{entry_name::EntryName, field_section::FieldLineValue};
 use std::collections::VecDeque;
 
-/// Per-entry overhead used in the size calculation (RFC 7541 §4.1).
+/// Per-entry overhead used in the size calculation.
 const ENTRY_OVERHEAD: usize = 32;
 
 /// One entry in the dynamic table.
@@ -23,7 +22,7 @@ pub(in crate::headers) struct Entry {
 }
 
 impl Entry {
-    /// Size contribution of this entry per RFC 7541 §4.1.
+    /// Size contribution of this entry.
     fn size(&self) -> usize {
         self.name.len() + self.value.as_bytes().len() + ENTRY_OVERHEAD
     }
@@ -37,8 +36,8 @@ pub(in crate::headers) struct DynamicTable {
     entries: VecDeque<Entry>,
     /// Sum of `entry.size()` for all live entries.
     size: usize,
-    /// Current limit. Shrinks via §6.3 Dynamic Table Size Update; never exceeds the
-    /// protocol limit (enforcement at the decoder layer).
+    /// Current limit. Shrinks via Dynamic Table Size Update; never exceeds the protocol
+    /// limit (enforcement at the decoder layer).
     max_size: usize,
 }
 
@@ -62,8 +61,7 @@ impl DynamicTable {
         self.entries.get(dyn_index - 1)
     }
 
-    /// Apply a §6.3 Dynamic Table Size Update. Evicts oldest entries until the new size
-    /// fits.
+    /// Apply a Dynamic Table Size Update. Evicts oldest entries until the new size fits.
     pub(in crate::headers) fn set_max_size(&mut self, new_max: usize) {
         self.max_size = new_max;
         self.evict_until_fits(0);
@@ -71,9 +69,9 @@ impl DynamicTable {
 
     /// Insert `(name, value)` at the newest end.
     ///
-    /// Per RFC 7541 §4.4, if the new entry's §4.1 size alone exceeds `max_size`, the entire
-    /// table is cleared and the entry is not stored. Otherwise oldest entries are evicted
-    /// until the new entry fits.
+    /// If the new entry's size alone exceeds `max_size`, the entire table is cleared and
+    /// the entry is not stored. Otherwise oldest entries are evicted until the new entry
+    /// fits.
     pub(in crate::headers) fn insert(
         &mut self,
         name: EntryName<'static>,
@@ -83,7 +81,6 @@ impl DynamicTable {
         let entry_size = entry.size();
 
         if entry_size > self.max_size {
-            // §4.4: oversized entry — clear the table and drop the insert.
             self.entries.clear();
             self.size = 0;
             return;
@@ -106,10 +103,7 @@ impl DynamicTable {
     }
 }
 
-/// Test-only accessors used by `tests` here and by HPACK encoder/decoder test modules
-/// to assert on post-mutation state. Not used on production paths — the decoder / encoder
-/// consult the table via [`DynamicTable::get`] / [`DynamicTable::insert`] / size updates
-/// without needing to read these fields directly.
+/// Test-only accessors for inspecting internal state.
 #[cfg(test)]
 impl DynamicTable {
     pub(in crate::headers) fn max_size(&self) -> usize {
@@ -205,8 +199,6 @@ mod tests {
 
     #[test]
     fn oversized_entry_clears_table() {
-        // §4.4: inserting an entry larger than max_size evicts everything without
-        // storing the new one.
         let mut t = DynamicTable::new(128);
         t.insert(
             EntryName::Known(KnownHeaderName::Date),

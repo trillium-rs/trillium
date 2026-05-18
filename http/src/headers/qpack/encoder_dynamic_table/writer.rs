@@ -1,4 +1,4 @@
-//! Writes this connection's QPACK encoder stream (RFC 9204 §4.2).
+//! Writes this connection's QPACK encoder stream.
 //!
 //! Runs as a connection-scoped task. Sends the stream type byte, then loops draining
 //! already-encoded instructions from the [`EncoderDynamicTable`] op queue, writing each

@@ -1,3 +1,5 @@
+//! RFC 9204 Appendix A static table (99 entries, 0-indexed).
+
 use crate::{
     KnownHeaderName::{
         self, Accept, AcceptEncoding, AcceptLanguage, AcceptRanges, AccessControlAllowCredentials,
@@ -25,6 +27,7 @@ mod lookup;
 pub(super) use lookup::first_match;
 pub(in crate::headers) use lookup::static_table_lookup;
 
+/// A name in the QPACK static table — either a regular header or a pseudo-header.
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub(in crate::headers) enum StaticHeaderName {
     Header(KnownHeaderName),
@@ -32,7 +35,7 @@ pub(in crate::headers) enum StaticHeaderName {
 }
 
 impl StaticHeaderName {
-    /// Retrieve a 'static str representation
+    /// The canonical wire-form string for this name.
     pub fn as_str(self) -> &'static str {
         match self {
             Header(known_header_name) => known_header_name.as_str(),
@@ -62,6 +65,11 @@ impl From<StaticHeaderName> for EntryName<'static> {
     }
 }
 
+/// Look up entry at the given 0-based index (0..=98).
+///
+/// # Errors
+///
+/// Returns [`CompressionError::InvalidStaticIndex`] if `index` is greater than 98.
 pub(in crate::headers) fn static_entry(
     index: usize,
 ) -> Result<&'static (StaticHeaderName, &'static str), CompressionError> {

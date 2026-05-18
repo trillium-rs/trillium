@@ -1,9 +1,6 @@
-//! QUIC Variable-length integer coding
+//! QUIC variable-length integer coding (RFC 9000).
 //!
-//! Caveat usor: This is only public under cfg("unstable"), and is, as it says on the tin,
-//! semver-unstable.
-//!
-//! See [RFC 9000 §16](https://datatracker.ietf.org/doc/html/rfc9000#section-16) for specification
+//! Public only under `cfg(unstable)` and semver-unstable.
 
 /// Errors that can occur during QUIC variable-length integer decoding.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
@@ -23,21 +20,15 @@ pub enum QuicVarIntError {
     },
 }
 
-/// Decode a QUIC variable-length integer per [RFC 9000
-/// §16](https://datatracker.ietf.org/doc/html/rfc9000#section-16).
+/// Decode a QUIC variable-length integer, converting the result to `T` via `TryFrom<u64>`.
 ///
-/// The 2-bit prefix of the first byte encodes the length:
-/// `00` = 1 byte (6-bit value), `01` = 2 bytes (14-bit),
-/// `10` = 4 bytes (30-bit), `11` = 8 bytes (62-bit).
-///
-/// The decoded varint is converted to `T` via `TryFrom<u64>`.
-/// Returns the decoded value and the unconsumed remainder of the input.
+/// Returns the decoded value and the number of bytes consumed.
 ///
 /// # Errors
 ///
 /// Returns a [`QuicVarIntError`] if:
 /// - input does not contain a full varint
-/// - we were not able to convert the decoded u64 into the provided T
+/// - the decoded u64 does not convert into `T`
 pub fn decode<T: TryFrom<u64>>(input: &[u8]) -> Result<(T, usize), QuicVarIntError> {
     let [first, ..] = input else {
         return Err(QuicVarIntError::UnexpectedEnd);
@@ -63,17 +54,14 @@ pub fn decode<T: TryFrom<u64>>(input: &[u8]) -> Result<(T, usize), QuicVarIntErr
 
 /// The number of bytes needed to encode `value` as a QUIC varint.
 ///
-/// Asymmetric with [`encode`] on purpose: this function has only one possible failure
-/// mode (overflow), and every in-tree caller passes a value bounded by surrounding
-/// invariants — QUIC stream IDs, frame types, setting IDs, or payload lengths, all
-/// guaranteed < 2^62. Returning `Option` would force `?`/`unwrap` through accumulator
-/// chains for a case that can't happen. [`encode`] returns `Option` because it has
-/// the additional "buffer too small" failure mode, which is a runtime concern.
+/// Returns `usize` rather than `Option<usize>` so accumulator chains can use it
+/// directly: varints encode any value in `0..2^62`, and callers are expected to
+/// have bounded the value upstream. [`encode`] returns `Option` because it has
+/// the additional buffer-too-small failure mode.
 ///
 /// # Panics
 ///
-/// Panics if the value exceeds 2^62 - 1. If a future caller can produce values in
-/// that range, it should validate upstream rather than rely on graceful failure here.
+/// Panics if the value exceeds 2^62 - 1.
 pub fn encoded_len(value: impl Into<u64>) -> usize {
     let value = value.into();
     if value < (1 << 6) {
@@ -90,21 +78,14 @@ pub fn encoded_len(value: impl Into<u64>) -> usize {
 
 /// Encode a QUIC variable-length integer into a byte slice.
 ///
-/// Returns the number of bytes written, or `None` if the value exceeds
-/// 2^62 - 1 or `buf` is too small (caller should check with
-/// [`encoded_len`] first).
-///
-/// Returns `Option` rather than panicking because of the buffer-too-small case —
-/// that's a runtime fact about the caller's allocation, not a value-range invariant.
-/// [`encoded_len`] panics on overflow because it has only the value-range concern,
-/// and every in-tree caller has already bounded the value upstream.
+/// Returns the number of bytes written, or `None` if the value exceeds 2^62 - 1
+/// or `buf` is too small. Check [`encoded_len`] first.
 pub fn encode(value: impl Into<u64>, buf: &mut [u8]) -> Option<usize> {
     let value = value.into();
     let bytes = value.to_be_bytes();
 
-    // The 2-bit length prefix and the byte range within `bytes` are determined
-    // by the magnitude of the value.  After copying the relevant big-endian
-    // tail into `buf`, we OR the prefix into the first byte.
+    // The 2-bit length prefix and big-endian byte range are chosen by magnitude;
+    // the prefix is OR'd into the first byte of the copied tail.
     let (prefix, start) = if value < (1 << 6) {
         (0x00_u8, 7)
     } else if value < (1 << 14) {
@@ -114,7 +95,7 @@ pub fn encode(value: impl Into<u64>, buf: &mut [u8]) -> Option<usize> {
     } else if value < (1 << 62) {
         (0xC0, 0)
     } else {
-        return None; // value exceeds 2^62 - 1
+        return None;
     };
 
     let dest = buf.get_mut(..8 - start)?;

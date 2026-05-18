@@ -36,12 +36,12 @@ macro_rules! known_headers {
         ),+
     ) => {
 
-        /// A short non-exhaustive enum of headers that trillium represents as an enum.
+        /// Non-exhaustive enum of well-known HTTP header names.
         ///
-        /// Use a `KnownHeaderName` variant instead of a &'static str anywhere possible, as it
-        /// allows trillium to skip parsing the header entirely.
+        /// Prefer a `KnownHeaderName` variant over a `&'static str` where possible — it lets
+        /// trillium skip parsing the header entirely.
         ///
-        /// Please do not rely on the u8 representation being stable between releases.
+        /// Do not rely on the u8 representation being stable between releases.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
         #[non_exhaustive]
         #[repr(u8)]

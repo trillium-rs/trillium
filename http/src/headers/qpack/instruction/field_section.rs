@@ -1,18 +1,18 @@
-//! Typed parser and wire-format encoders for QPACK field-section bytes (RFC 9204 §4.5).
+//! Typed parser and wire-format encoders for QPACK field-section bytes.
 //!
 //! Field sections are the payload of HTTP/3 `HEADERS` and `PUSH_PROMISE` frames. Unlike the
-//! encoder-stream (§3.2) and decoder-stream (§4.4) wire vocabularies, a field section arrives
-//! as a complete byte slice, so [`FieldLineInstruction::parse`] is synchronous and borrows
-//! from the input.
+//! encoder-stream and decoder-stream wire vocabularies, a field section arrives as a
+//! complete byte slice, so [`FieldLineInstruction::parse`] is synchronous and borrows from
+//! the input.
 //!
 //! [`FieldLineInstruction`] is the pure wire representation — each variant carries raw
 //! indices (static / relative / post-base) and a [`FieldLineValue`] for literal values.
 //! Dynamic-table resolution (turning a relative index into an entry name+value) is the
 //! consumer's job; the parser has no table reference.
 //!
-//! [`FieldSectionPrefix`] carries the §4.5.1 prefix in its encoded form. Converting the
-//! encoded Required Insert Count to an actual insert count requires table state (`max_entries`
-//! and `total_inserts`), so that step lives at the semantic layer.
+//! [`FieldSectionPrefix`] carries the prefix in its encoded form. Converting the encoded
+//! Required Insert Count to an actual insert count requires table state (`max_entries` and
+//! `total_inserts`), so that step lives at the semantic layer.
 
 use crate::headers::{
     compression_error::CompressionError,
@@ -21,77 +21,79 @@ use crate::headers::{
     qpack::{FieldLineValue, instruction::encode_string},
 };
 
-// --- §4.5.1 Field Section Prefix ---
+// --- Field Section Prefix ---
 
-/// Sign bit of the delta-base (§4.5.1.2). Set when `base < required_insert_count`.
+/// Sign bit of the delta-base. Set when `base < required_insert_count`.
 const BASE_DELTA_SIGN: u8 = 0x80;
 
-// --- §4.5.2 Indexed Field Line: 1Txxxxxx ---
+// --- Indexed Field Line: 1Txxxxxx ---
 
 const INDEXED_FIELD_LINE: u8 = 0x80;
-/// T bit inside §4.5.2 (static when set, dynamic when clear).
+/// T bit inside Indexed Field Line (static when set, dynamic when clear).
 const INDEXED_STATIC_FLAG: u8 = 0x40;
 
-// --- §4.5.3 Indexed Field Line with Post-Base Index: 0001xxxx ---
+// --- Indexed Field Line with Post-Base Index: 0001xxxx ---
 
 const POST_BASE_INDEXED: u8 = 0x10;
 
-// --- §4.5.4 Literal Field Line with Name Reference: 01NTxxxx ---
+// --- Literal Field Line with Name Reference: 01NTxxxx ---
 
 const LITERAL_WITH_NAME_REF: u8 = 0x40;
-/// N (Never-Indexed) bit inside §4.5.4.
+/// N (Never-Indexed) bit inside Literal With Name Reference.
 const NAME_REF_NEVER_INDEXED_FLAG: u8 = 0x20;
-/// T bit inside §4.5.4 (static when set, dynamic when clear).
+/// T bit inside Literal With Name Reference (static when set, dynamic when clear).
 const NAME_REF_STATIC_FLAG: u8 = 0x10;
 
-// --- §4.5.5 Literal Field Line with Post-Base Name Reference: 0000Nxxx ---
+// --- Literal Field Line with Post-Base Name Reference: 0000Nxxx ---
 
-/// N (Never-Indexed) bit inside §4.5.5.
+/// N (Never-Indexed) bit inside Literal With Post-Base Name Reference.
 const POST_BASE_NAME_REF_NEVER_INDEXED_FLAG: u8 = 0x08;
 
-// --- §4.5.6 Literal Field Line with Literal Name: 001NHxxx ---
+// --- Literal Field Line with Literal Name: 001NHxxx ---
 
 const LITERAL_WITH_LITERAL_NAME: u8 = 0x20;
-/// N (Never-Indexed) bit inside §4.5.6.
+/// N (Never-Indexed) bit inside Literal With Literal Name.
 const LITERAL_NAME_NEVER_INDEXED_FLAG: u8 = 0x10;
 
-/// One field line in its wire-encoded form (RFC 9204 §4.5.2–§4.5.6).
+/// One field line in its wire-encoded form.
 ///
 /// Indexed variants carry only the raw wire index. Literal variants carry the literal value
-/// (and literal name, in the §4.5.6 case) as a [`FieldLineValue`] borrowing from the input
-/// bytes on the non-Huffman path. The `never_indexed` flag on the four literal variants
-/// carries the N bit per spec — preserved across decode and encode so intermediaries
-/// (trillium-proxy) can re-emit sensitive headers without inserting them into a shared
+/// (and literal name, in the Literal With Literal Name case) as a [`FieldLineValue`]
+/// borrowing from the input bytes on the non-Huffman path. The `never_indexed` flag on the
+/// four literal variants carries the N bit per spec — preserved across decode and encode so
+/// intermediaries can re-emit sensitive headers without inserting them into a shared
 /// dynamic table.
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::headers) enum FieldLineInstruction<'a> {
-    /// §4.5.2 (T=1): reference to the static table.
+    /// Indexed Field Line (T=1): reference to the static table.
     IndexedStatic { index: usize },
-    /// §4.5.2 (T=0): reference to a dynamic-table entry with absolute index
+    /// Indexed Field Line (T=0): reference to a dynamic-table entry with absolute index
     /// `base - 1 - relative_index`.
     IndexedDynamic { relative_index: usize },
-    /// §4.5.3: reference to a dynamic-table entry with absolute index
-    /// `base + post_base_index`.
+    /// Indexed Field Line with Post-Base Index: reference to a dynamic-table entry with
+    /// absolute index `base + post_base_index`.
     IndexedPostBase { post_base_index: usize },
-    /// §4.5.4 (T=1): literal value with a static-table name reference.
+    /// Literal With Name Reference (T=1): literal value with a static-table name reference.
     LiteralStaticNameRef {
         name_index: usize,
         value: FieldLineValue<'a>,
         never_indexed: bool,
     },
-    /// §4.5.4 (T=0): literal value with a dynamic-table pre-base name reference.
+    /// Literal With Name Reference (T=0): literal value with a dynamic-table pre-base name
+    /// reference.
     LiteralDynamicNameRef {
         relative_index: usize,
         value: FieldLineValue<'a>,
         never_indexed: bool,
     },
-    /// §4.5.5: literal value with a dynamic-table post-base name reference.
+    /// Literal With Post-Base Name Reference: literal value with a dynamic-table post-base
+    /// name reference.
     LiteralPostBaseNameRef {
         post_base_index: usize,
         value: FieldLineValue<'a>,
         never_indexed: bool,
     },
-    /// §4.5.6: literal name and literal value, no table reference.
+    /// Literal With Literal Name: literal name and literal value, no table reference.
     LiteralLiteralName {
         name: EntryName<'a>,
         value: FieldLineValue<'a>,
@@ -108,7 +110,7 @@ impl<'a> FieldLineInstruction<'a> {
         };
 
         if first & INDEXED_FIELD_LINE != 0 {
-            // §4.5.2: 1Txxxxxx
+            // Indexed Field Line: 1Txxxxxx
             let (index, rest) = integer_prefix::decode(input, 6)?;
             let instr = if first & INDEXED_STATIC_FLAG != 0 {
                 FieldLineInstruction::IndexedStatic { index }
@@ -119,7 +121,7 @@ impl<'a> FieldLineInstruction<'a> {
             };
             Ok((instr, rest))
         } else if first & LITERAL_WITH_NAME_REF != 0 {
-            // §4.5.4: 01NTxxxx
+            // Literal With Name Reference: 01NTxxxx
             let never_indexed = first & NAME_REF_NEVER_INDEXED_FLAG != 0;
             let is_static = first & NAME_REF_STATIC_FLAG != 0;
             let (index, rest) = integer_prefix::decode(input, 4)?;
@@ -139,7 +141,7 @@ impl<'a> FieldLineInstruction<'a> {
             };
             Ok((instr, rest))
         } else if first & LITERAL_WITH_LITERAL_NAME != 0 {
-            // §4.5.6: 001NHxxx
+            // Literal With Literal Name: 001NHxxx
             let never_indexed = first & LITERAL_NAME_NEVER_INDEXED_FLAG != 0;
             let (name, rest) = decode_name(input, 3)?;
             let (value, rest) = decode_string(rest, 7)?;
@@ -152,14 +154,14 @@ impl<'a> FieldLineInstruction<'a> {
                 rest,
             ))
         } else if first & POST_BASE_INDEXED != 0 {
-            // §4.5.3: 0001xxxx
+            // Indexed Post-Base: 0001xxxx
             let (post_base_index, rest) = integer_prefix::decode(input, 4)?;
             Ok((
                 FieldLineInstruction::IndexedPostBase { post_base_index },
                 rest,
             ))
         } else {
-            // §4.5.5: 0000Nxxx
+            // Literal With Post-Base Name Reference: 0000Nxxx
             let never_indexed = first & POST_BASE_NAME_REF_NEVER_INDEXED_FLAG != 0;
             let (post_base_index, rest) = integer_prefix::decode(input, 3)?;
             let (value, rest) = decode_string(rest, 7)?;
@@ -256,19 +258,19 @@ impl<'a> FieldLineInstruction<'a> {
     }
 }
 
-/// The §4.5.1 Field Section Prefix in its encoded form.
+/// The Field Section Prefix in its encoded form.
 ///
 /// `encoded_required_insert_count` is the on-wire value — converting it to an actual insert
 /// count requires the table's `max_entries` and `total_inserts`, which is table-state
 /// business that lives at the semantic layer.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub(in crate::headers) struct FieldSectionPrefix {
-    /// §4.5.1.1 encoded Required Insert Count (8-bit prefix varint). Zero means the section
+    /// Encoded Required Insert Count (8-bit prefix varint). Zero means the section
     /// references no dynamic-table entries.
     pub encoded_required_insert_count: usize,
-    /// §4.5.1.2 S bit: set when `base < required_insert_count`.
+    /// S bit: set when `base < required_insert_count`.
     pub base_is_negative: bool,
-    /// §4.5.1.2 Delta Base (7-bit prefix varint).
+    /// Delta Base (7-bit prefix varint).
     pub delta_base: usize,
 }
 
@@ -302,7 +304,7 @@ impl FieldSectionPrefix {
 
 // --- sync wire-read helpers ---
 
-/// Decode a §4.1.2 string literal: H flag at bit `prefix_size`, then length (in the low
+/// Decode a string literal: H flag at bit `prefix_size`, then length (in the low
 /// `prefix_size` bits as a varint), then the body.
 ///
 /// On the non-Huffman path the returned value is `FieldLineValue::Borrowed(&input[..])` —
@@ -328,8 +330,8 @@ fn decode_string(
     Ok((value, rest))
 }
 
-/// Decode a §4.1.2 name string into a [`EntryName`], preserving the borrow on the
-/// non-Huffman path.
+/// Decode a name string into an [`EntryName`], preserving the borrow on the non-Huffman
+/// path.
 fn decode_name(input: &[u8], prefix_size: u8) -> Result<(EntryName<'_>, &[u8]), CompressionError> {
     let &[first, ..] = input else {
         return Err(CompressionError::UnexpectedEnd);
@@ -566,11 +568,11 @@ mod tests {
     mod spec_vectors {
         //! Wire-level parse tests against the worked examples in RFC 9204 Appendix B.
         //!
-        //! These assert that our §4.5 parser produces the exact typed instructions the
-        //! spec documents for a given byte sequence. They don't attempt to round-trip
-        //! through our encoder — our encoder makes different (and legitimate) policy
-        //! choices around Huffman selection, base selection (pre-base vs post-base), and
-        //! Duplicate emission.
+        //! These assert that our parser produces the exact typed instructions the spec
+        //! documents for a given byte sequence. They don't attempt to round-trip through
+        //! our encoder — our encoder makes different (and legitimate) policy choices around
+        //! Huffman selection, base selection (pre-base vs post-base), and Duplicate
+        //! emission.
 
         use super::*;
 

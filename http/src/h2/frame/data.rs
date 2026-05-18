@@ -1,4 +1,4 @@
-//! DATA frame (RFC 9113 §6.1).
+//! DATA frame.
 //!
 //! Decode consumes only the 9-byte header plus the optional pad-length byte; the `data_length`
 //! data bytes and `padding_length` padding bytes remain in the caller's input slice for streaming.
@@ -22,7 +22,6 @@ pub(crate) fn decode_prefix(
     let (padding_length, prefix_len) = if padded {
         let pad_length = *prefix_input.first().ok_or(FrameDecodeError::Incomplete)?;
         if u32::from(pad_length) >= header.length {
-            // RFC 9113 §6.1: pad length ≥ rest of payload ⇒ PROTOCOL_ERROR
             return Err(H2ErrorCode::ProtocolError.into());
         }
         (pad_length, 1u32)

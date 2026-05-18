@@ -14,9 +14,9 @@ pub(crate) struct UnknownHeaderName<'a>(SmartCow<'a>);
 
 impl UnknownHeaderName<'_> {
     pub(crate) fn is_valid_lower(&self) -> bool {
-        // Lowercase tchar per RFC 9110 §5.6.2 — the uppercase-letter branch is dropped
-        // because HTTP/2 and HTTP/3 require field names to be lowercase on the wire
-        // (RFC 9113 §8.2.1, RFC 9114 §4.2). The set otherwise matches `is_tchar`.
+        // Lowercase tchar — the uppercase-letter branch is dropped because HTTP/2 and
+        // HTTP/3 require field names to be lowercase on the wire. Otherwise matches
+        // `is_tchar`.
         !self.is_empty()
             && self.chars().all(|c| {
                 matches!(c,
@@ -145,8 +145,6 @@ fn is_tchar(c: char) -> bool {
 
 impl UnknownHeaderName<'_> {
     pub(crate) fn is_valid(&self) -> bool {
-        // token per https://www.rfc-editor.org/rfc/rfc9110#section-5.1
-        // tchar per https://www.rfc-editor.org/rfc/rfc9110#section-5.6.2
         !self.is_empty() && self.0.chars().all(is_tchar)
     }
 
@@ -240,18 +238,13 @@ fn intern_table() -> &'static RwLock<HashSet<InternKey>> {
 
 /// Return a canonical lowercased `&'static str` for `s`.
 ///
-/// - If `s` is already all-lowercase: returns `s` directly. No lock, no alloc. Pure-lowercase
-///   literals are already `&'static`; they do not need to be interned. (The QPACK observer keys by
-///   content equality, not pointer identity, so two distinct `&'static str` pointers with identical
-///   bytes collide in the same observer entry.)
-///
+/// - If `s` is already all-lowercase: returns `s` directly. No lock, no alloc.
 /// - Otherwise: probes the intern table with a case-insensitive hash. On hit, returns the stored
 ///   canonical pointer. On miss, allocates the lowercased form, leaks it to obtain a `&'static
 ///   str`, and inserts.
 ///
-/// The leak is bounded by the number of distinct uppercase-containing
-/// lowercased literals in the binary — typically zero or single digits for
-/// well-behaved code.
+/// The leak is bounded by the number of distinct uppercase-containing lowercased
+/// literals in the binary — typically zero or single digits for well-behaved code.
 fn intern_lowercase(s: &'static str) -> &'static str {
     if !s.bytes().any(|b| b.is_ascii_uppercase()) {
         return s;
@@ -280,8 +273,7 @@ fn intern_lowercase(s: &'static str) -> &'static str {
 impl UnknownHeaderName<'static> {
     /// Recover the underlying `&'static str` if this name is backed by a borrowed
     /// reference into static memory (a literal or an interned lowercased literal).
-    /// Returns `None` for runtime-allocated names (`SmartCow::Owned`), which are
-    /// excluded from cross-connection QPACK observer tracking.
+    /// Returns `None` for runtime-allocated names (`SmartCow::Owned`).
     pub(crate) fn as_static_str(&self) -> Option<&'static str> {
         match self.0 {
             SmartCow::Borrowed(s) => Some(s),
@@ -332,9 +324,8 @@ mod tests {
 
     #[test]
     fn intern_lowercase_input_is_passthrough() {
-        // Pure-lowercase input never enters the intern table — caller's pointer
-        // is returned directly. The observer keys by content, not pointer
-        // identity, so cross-casing duplicates collide on content alone.
+        // Pure-lowercase input bypasses the intern table — caller's pointer is
+        // returned directly.
         let original: &'static str = "x-already-lowercase";
         let got = ensure_interned(original);
         assert!(
@@ -348,8 +339,7 @@ mod tests {
         let upper = ensure_interned("X-Cross-Casing-Header");
         let lower = ensure_interned("x-cross-casing-header");
         assert_eq!(upper, lower);
-        // (Pointer identity may or may not hold depending on which call ran first;
-        // observer correctness depends on content equality only.)
+        // Pointer identity may or may not hold depending on which call ran first.
     }
 
     #[test]

@@ -26,8 +26,8 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-/// The client connection preface (RFC 9113 §3.4). 24 bytes the client MUST send before any
-/// HTTP/2 frames.
+/// The client connection preface — 24 bytes the client MUST send before any HTTP/2
+/// frames.
 pub(super) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 impl<T> H2Driver<T>
@@ -51,10 +51,9 @@ where
                 ready!(self.poll_fill_to(FRAME_HEADER_LEN, cx)).map_err(CloseOutcome::Io)?;
                 let header = FrameHeader::decode(&self.read_buf[..FRAME_HEADER_LEN])
                     .expect("FRAME_HEADER_LEN bytes already filled");
-                // RFC 9113 §4.2: a frame whose length exceeds the receiver-advertised
-                // `SETTINGS_MAX_FRAME_SIZE` is a `FRAME_SIZE_ERROR`. We also enforce
-                // [`MAX_BUFFER_SIZE`] as a DoS guard — it's the higher of the two limits,
-                // but belt-and-suspenders against a future change that raises the
+                // A frame whose length exceeds our advertised `SETTINGS_MAX_FRAME_SIZE`
+                // is a `FRAME_SIZE_ERROR`. We also enforce [`MAX_BUFFER_SIZE`] as a DoS
+                // guard — belt-and-suspenders against a future change that raises the
                 // advertised max.
                 let max_frame_size = self.config.max_frame_size() as usize;
                 let payload_len = usize::try_from(header.length)
@@ -87,7 +86,7 @@ where
         Poll::Ready(Ok(action))
     }
 
-    /// Read the 24-byte client connection preface (§3.4) and validate it. Uses `read_buf` /
+    /// Read the 24-byte client connection preface and validate it. Uses `read_buf` /
     /// `read_filled` so a partial preface survives a return to `Poll::Pending`.
     pub(super) fn poll_read_preface(
         &mut self,
@@ -117,9 +116,9 @@ where
         payload_start: usize,
         total: usize,
     ) -> Result<Action, CloseOutcome> {
-        // §6.10: while a HEADERS block is in progress (pending_headers.is_some()), the
-        // ONLY frame the peer may send on any stream is the matching CONTINUATION.
-        // Anything else is a connection-level PROTOCOL_ERROR.
+        // While a HEADERS block is in progress (pending_headers.is_some()), the ONLY
+        // frame the peer may send on any stream is the matching CONTINUATION. Anything
+        // else is a connection-level PROTOCOL_ERROR.
         if self.pending_headers.is_some() && !matches!(frame, Frame::Continuation { .. }) {
             return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
@@ -187,8 +186,8 @@ where
                 Ok(Action::Continue)
             }
             Frame::RstStream { stream_id, .. } => {
-                // §5.1: `RST_STREAM` on an idle stream is a connection-level
-                // `PROTOCOL_ERROR`; on a closed or active stream it's benign.
+                // `RST_STREAM` on an idle stream is a connection-level `PROTOCOL_ERROR`;
+                // on a closed or active stream it's benign.
                 if stream_id > self.last_peer_stream_id && !self.streams.contains_key(&stream_id) {
                     return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
                 }
@@ -210,12 +209,12 @@ where
                 }
                 Ok(Action::Continue)
             }
-            // §6.6 PUSH_PROMISE from a client is a connection error; §6.10 CONTINUATION
-            // without an in-progress header block is too (but pending_headers==Some is
-            // handled via the match arm above).
+            // PUSH_PROMISE from a client is a connection error; bare CONTINUATION without
+            // an in-progress header block is too (but pending_headers==Some is handled via
+            // the match arm above).
             Frame::PushPromise { .. } => Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)),
             // PING ACK: complete the matching `H2Connection::send_ping` future, recording
-            // the RTT. Unsolicited ACKs (no matching opaque) are silently tolerated per §6.7.
+            // the RTT. Unsolicited ACKs (no matching opaque) are silently tolerated.
             Frame::Ping {
                 opaque_data,
                 ack: true,
@@ -224,19 +223,19 @@ where
                 Ok(Action::Continue)
             }
             // Informational-only for our current feature set:
-            // - `SETTINGS_ACK` (§6.5.3): confirms the peer is using our advertised SETTINGS. We
-            //   start enforcing our values immediately on send, not on ack, so there's no deferred
-            //   state to apply. We also don't implement `SETTINGS_TIMEOUT` — a peer that never acks
-            //   our SETTINGS stays connected.
-            // - `Unknown` (§5.5): unknown frame types MUST be ignored.
+            // - `SETTINGS_ACK`: confirms the peer is using our advertised SETTINGS. We start
+            //   enforcing our values immediately on send, not on ack, so there's no deferred state
+            //   to apply. We also don't implement `SETTINGS_TIMEOUT` — a peer that never acks our
+            //   SETTINGS stays connected.
+            // - `Unknown`: unknown frame types MUST be ignored.
             Frame::SettingsAck | Frame::Unknown { .. } => Ok(Action::Continue),
         }
     }
 
-    /// §5.3.1 / §6.3: PRIORITY frames on idle streams are allowed (they don't open the
-    /// stream but record priority). A PRIORITY frame that names its own stream as its
-    /// dependency is a stream-level `PROTOCOL_ERROR`. We don't use the priority info
-    /// ourselves — RFC 9113 deprecated the scheme — but we validate for conformance.
+    /// PRIORITY frames on idle streams are allowed (they don't open the stream but record
+    /// priority). A PRIORITY frame that names its own stream as its dependency is a
+    /// stream-level `PROTOCOL_ERROR`. We don't use the priority info ourselves — the spec
+    /// deprecated the scheme — but we validate for conformance.
     fn handle_priority(&mut self, stream_id: u32, priority: crate::h2::frame::PriorityInfo) {
         if priority.stream_dependency == stream_id {
             self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
@@ -247,7 +246,7 @@ where
     /// wake the handler. Padding bytes are part of the already-read frame body and are
     /// skipped (they're in the buffer but not pushed).
     ///
-    /// Stream-state errors per RFC 9113 §5.1 / §6.1:
+    /// Stream-state errors:
     /// - **Idle** (`stream_id` > `last_peer_stream_id`): DATA on an unopened stream is a
     ///   connection-level `PROTOCOL_ERROR`.
     /// - **Closed** (`stream_id` ≤ `last_peer_stream_id`, not in active map): stream-level
@@ -256,12 +255,11 @@ where
     /// - **Half-closed remote** (in map, `recv.eof` already set): same stream-level
     ///   `STREAM_CLOSED`.
     ///
-    /// Flow-control accounting per RFC 9113 §6.9.1: the entire DATA payload (including
-    /// pad length byte + padding) counts against both the per-stream and connection-level
-    /// recv windows. We track both for correct refill accounting but enforce leniently —
-    /// a peer that sends past our advertised window is simply violating the SETTINGS
-    /// hint; the real `DoS` bound is the per-stream buffer cap
-    /// (`HttpConfig::h2_max_stream_recv_window_size`).
+    /// Flow-control accounting: the entire DATA payload (including pad length byte +
+    /// padding) counts against both the per-stream and connection-level recv windows. We
+    /// track both for correct refill accounting but enforce leniently — a peer that sends
+    /// past our advertised window is simply violating the SETTINGS hint; the real `DoS`
+    /// bound is the per-stream buffer cap (`HttpConfig::h2_max_stream_recv_window_size`).
     /// This keeps trillium's lazy-WU default (`SETTINGS_INITIAL_WINDOW_SIZE = 0`) working
     /// against h2spec-style peers that send DATA immediately after HEADERS without
     /// respecting the server's advertised initial window.
@@ -279,7 +277,7 @@ where
         let flow_controlled = i64::try_from(total - FRAME_HEADER_LEN)
             .map_err(|_| CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
 
-        // Connection-level accounting runs regardless of stream state (§6.9.1).
+        // Connection-level accounting runs regardless of stream state.
         self.connection_recv_window -= flow_controlled;
 
         if !self.streams.contains_key(&stream_id) {
@@ -343,16 +341,16 @@ where
     /// present (`Some`) in the incoming settings are applied; the rest keep their
     /// previously-negotiated value.
     ///
-    /// Per RFC 9113 §6.5.3, all values MUST be processed in order before we ack; because
-    /// our applied state is derived from the already-decoded `H2Settings` (which parses
-    /// each entry sequentially into its typed fields), that order is preserved for
-    /// everything except duplicate ids within the same frame — in which case `H2Settings`
-    /// itself keeps only the last value, matching "process in order".
+    /// All values MUST be processed in order before we ack; because our applied state is
+    /// derived from the already-decoded `H2Settings` (which parses each entry sequentially
+    /// into its typed fields), that order is preserved for everything except duplicate ids
+    /// within the same frame — in which case `H2Settings` itself keeps only the last
+    /// value, matching "process in order".
     ///
     /// A change to `INITIAL_WINDOW_SIZE` must be applied as a *delta* (new − previously
-    /// effective) to every open stream's send window, per RFC 9113 §6.9.2. The delta can
-    /// drive a window negative (legal); it cannot push it past `2^31 − 1` (connection-
-    /// level `FLOW_CONTROL_ERROR`).
+    /// effective) to every open stream's send window. The delta can drive a window
+    /// negative (legal); it cannot push it past `2^31 − 1` (connection-level
+    /// `FLOW_CONTROL_ERROR`).
     fn apply_peer_settings(&mut self, settings: &H2Settings) -> Result<(), CloseOutcome> {
         // Compute INITIAL_WINDOW_SIZE delta against the previously effective value before
         // we take the lock, so the per-stream adjustment below doesn't need to reenter it.
@@ -369,9 +367,9 @@ where
         // (the only failure mode here) must leave the stored setting consistent with
         // the per-stream `send_window`s we actually applied — otherwise a later
         // `effective_initial_window_size()` read would compute the wrong delta
-        // against the *next* SETTINGS frame. SETTINGS frames are atomic per RFC 9113
-        // §6.5.3: accepted whole or treated as a connection error. Do not reorder
-        // without preserving that invariant.
+        // against the *next* SETTINGS frame. SETTINGS frames are atomic: accepted whole
+        // or treated as a connection error. Do not reorder without preserving that
+        // invariant.
         if let Some(delta) = initial_window_delta
             && delta != 0
         {
@@ -410,12 +408,12 @@ where
         // push is never emitted, and the peer's MAX_CONCURRENT_STREAMS applies to
         // peer-initiated streams (we don't initiate). They're stored here regardless so
         // conn-task code that inspects the settings sees a complete picture.
-        // ENABLE_CONNECT_PROTOCOL (RFC 8441 §3) is read by client-role conn tasks to gate
+        // ENABLE_CONNECT_PROTOCOL (RFC 8441) is read by client-role conn tasks to gate
         // sending extended CONNECT for WebSocket-over-h2.
         drop(current);
         // Apply peer's HEADER_TABLE_SIZE to the HPACK encoder. The encoder caps its
         // operational size at `min(local_preferred, peer_advertised)`; a change queues a
-        // §6.3 Dynamic Table Size Update for emission on the next encode (RFC 7541 §4.2).
+        // Dynamic Table Size Update for emission on the next encode (per RFC 7541).
         if let Some(v) = settings.header_table_size() {
             self.hpack_encoder
                 .set_protocol_max_size(usize::try_from(v).unwrap_or(usize::MAX));
@@ -431,14 +429,14 @@ where
     /// the driver's `connection_send_window`; stream-level updates credit the matching
     /// `StreamEntry.send_window`.
     ///
-    /// RFC 9113 §6.9.1 bounds every flow-control window at `2^31 - 1`. An increment that
-    /// would push a window past that maximum is a `FLOW_CONTROL_ERROR`, handled at the
-    /// appropriate level:
+    /// Every flow-control window is bounded at `2^31 - 1`. An increment that would push a
+    /// window past that maximum is a `FLOW_CONTROL_ERROR`, handled at the appropriate
+    /// level:
     /// - Connection window overflow → connection-level GOAWAY (via the returned error).
     /// - Stream window overflow → stream-level `RST_STREAM`, stream cleanup, connection continues.
     ///
-    /// A `WINDOW_UPDATE` on a stream we don't know is benign per §6.9 (the peer may send
-    /// one after the stream has closed): log and move on.
+    /// A `WINDOW_UPDATE` on a stream we don't know is benign (the peer may send one after
+    /// the stream has closed): log and move on.
     fn apply_window_update(&mut self, stream_id: u32, increment: u32) -> Result<(), CloseOutcome> {
         let inc = i64::from(increment);
 
@@ -452,7 +450,7 @@ where
         }
 
         let Some(entry) = self.streams.get_mut(&stream_id) else {
-            // §5.1: WINDOW_UPDATE on an idle stream is a connection error. On a closed
+            // WINDOW_UPDATE on an idle stream is a connection error. On a closed
             // stream it's benign (the peer may credit a just-closed stream before it
             // observed our END_STREAM).
             if stream_id > self.last_peer_stream_id {

@@ -28,7 +28,10 @@ use swansong::{ShutdownCompletion, Swansong};
 
 /// The result of processing an HTTP/3 bidirectional stream.
 #[derive(Debug)]
-#[allow(clippy::large_enum_variant)] // Request is the hot path; boxing it would add an allocation per request
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Request is the hot path; boxing it would add an allocation per request"
+)]
 pub enum H3StreamResult<Transport> {
     /// The stream carried a normal HTTP/3 request.
     Request(Conn<Transport>),
@@ -77,11 +80,10 @@ pub enum UniStreamResult<T> {
     /// A stream whose type is recognized but unsupported (e.g. `Push`) or not recognized
     /// at all by this crate.
     ///
-    /// The caller is responsible for disposing of the stream — the in-tree consumers
-    /// (`trillium-server-common` for servers, `trillium-client` for clients) RST it with
-    /// `H3_STREAM_CREATION_ERROR`. `process_inbound_uni` deliberately does *not* close
-    /// the stream itself: handing it back gives a downstream extension the option to
-    /// implement a stream type trillium-http doesn't yet know about (a future RFC, an
+    /// The caller is responsible for disposing of the stream — the in-tree consumers RST
+    /// it with `H3_STREAM_CREATION_ERROR`. `process_inbound_uni` deliberately does *not*
+    /// close the stream itself: handing it back gives a downstream extension the option to
+    /// implement a stream type trillium-http doesn't know about (a future RFC, an
     /// experiment, etc.) without forking the codec.
     Unknown {
         /// The raw stream type value.
@@ -113,7 +115,7 @@ pub enum UniStreamResult<T> {
 /// futures on one task instead, with different perf characteristics.
 #[derive(Debug)]
 pub struct H3Connection {
-    /// Shared configuration for the entire server, including tcp-based listeners
+    /// Shared configuration across all protocols.
     context: Arc<HttpContext>,
 
     /// Connection-scoped shutdown signal. Shut down when we receive GOAWAY from the peer or when
@@ -125,9 +127,10 @@ pub struct H3Connection {
     /// consult these (e.g. max field section size).
     pub(super) peer_settings: OnceLock<H3Settings>,
 
-    /// Multi-listener wake source for [`PeerSettings`]. Notified by `run_inbound_control` after
-    /// applying peer SETTINGS, and again on connection close, so any number of concurrently-
-    /// parked `PeerSettings` futures all unblock together.
+    /// Multi-listener wake source for
+    /// [`PeerSettingsReady`][peer_settings_wait::PeerSettingsReady]. Notified by
+    /// `run_inbound_control` after applying peer SETTINGS, and again on connection
+    /// close, so any number of concurrently-parked futures all unblock together.
     pub(super) peer_settings_event: Event,
 
     /// The highest bidirectional stream ID we have accepted.  Used to compute the GOAWAY value
@@ -237,7 +240,7 @@ impl H3Connection {
     #[deprecated(
         since = "1.2.0",
         note = "use `process_inbound_bidi_with_reset` so stream-level protocol errors RST the \
-                stream as required by RFC 9114 §4.1.2"
+                stream as required by RFC 9114"
     )]
     pub async fn process_inbound_bidi<Transport, Handler, Fut>(
         self: Arc<Self>,
@@ -261,7 +264,7 @@ impl H3Connection {
     /// `H3Error::Protocol(code)` produced by first-frame processing (HEADERS decode,
     /// pseudo-header validation, etc.), `reset` is invoked with the still-owned transport and
     /// the error code before the error is returned. This lets callers RST both the recv and
-    /// send halves of the bidi stream — required by RFC 9114 §4.1.2 for stream errors like
+    /// send halves of the bidi stream — required by RFC 9114 for stream errors like
     /// `H3_MESSAGE_ERROR`. I/O errors and successful runs do not invoke `reset`.
     ///
     /// `reset` is a `FnOnce` taking `(&mut Transport, H3ErrorCode)`. trillium-http does not
@@ -324,8 +327,8 @@ impl H3Connection {
     /// dynamic table has received enough entries. Returns an error on protocol violations or
     /// if the encoder stream fails while waiting.
     ///
-    /// Duplicate pseudo-headers are silently ignored (first value wins).
-    /// Unknown pseudo-headers are rejected per RFC 9114 §4.1.1.
+    /// Duplicate pseudo-headers are silently ignored (first value wins). Unknown
+    /// pseudo-headers are rejected.
     ///
     /// # Errors
     ///
@@ -348,10 +351,9 @@ impl H3Connection {
         self.decoder_dynamic_table.decode(encoded, stream_id).await
     }
 
-    /// Encode a QPACK field section from pseudo-headers and headers.
-    ///
-    /// This currently uses only the static table (no dynamic table).
-    /// Decode a QPACK-encoded field section, consulting the dynamic table as needed.
+    /// Encode a QPACK field section from pseudo-headers and headers, consulting the encoder
+    /// dynamic table to emit literal-with-name-reference or indexed representations as the
+    /// table's contents allow.
     ///
     /// # Errors
     ///
@@ -382,11 +384,11 @@ impl H3Connection {
         Ok(())
     }
 
-    /// Run this server's HTTP/3 outbound control stream.
+    /// Run this connection's HTTP/3 outbound control stream.
     ///
     /// Sends the initial SETTINGS frame, then sends GOAWAY when the connection shuts down.
     /// Returns after GOAWAY is sent; keep the stream open until the QUIC connection closes
-    /// (closing a control stream is a connection error per RFC 9114 §6.2.1).
+    /// (closing a control stream is a connection error).
     ///
     /// # Errors
     ///
@@ -397,7 +399,6 @@ impl H3Connection {
     {
         let mut buf = vec![0; 128];
 
-        // Stream type + SETTINGS frame
         let settings = Frame::Settings(H3Settings::from(&self.context.config));
         log::trace!(
             "H3 outbound control: sending SETTINGS: {:?}",
@@ -412,10 +413,8 @@ impl H3Connection {
         .await?;
         log::trace!("H3 outbound control: SETTINGS sent");
 
-        // Wait for shutdown
         self.swansong.clone().await;
 
-        // Send GOAWAY
         write(&mut buf, &mut stream, |buf| {
             Frame::Goaway(self.goaway_id()).encode(buf)
         })
@@ -495,12 +494,11 @@ impl H3Connection {
     /// close the QUIC connection if a connection-level protocol error is detected.
     ///
     /// Identical to [`process_inbound_uni`][Self::process_inbound_uni] except that on
-    /// any `H3Error::Protocol(code)` whose code is a connection-level error
-    /// (RFC 9114 §8.1, RFC 9204 §6), `on_close` is invoked with that code while the
-    /// recv stream is still alive. This lets callers send a `CONNECTION_CLOSE` before
-    /// the stream drops — if the close call sets quinn's `conn.error`, quinn's
-    /// `RecvStream::drop` skips `STOP_SENDING`, eliminating a peer race that otherwise
-    /// causes `FINAL_SIZE_ERROR` to override the app error code.
+    /// any `H3Error::Protocol(code)` whose code is a connection-level error (RFC 9114,
+    /// RFC 9204), `on_close` is invoked with that code while the recv stream is still alive. This
+    /// lets callers send a `CONNECTION_CLOSE` before the stream drops — if the close call sets
+    /// quinn's `conn.error`, quinn's `RecvStream::drop` skips `STOP_SENDING`, eliminating a
+    /// peer race that otherwise causes `FINAL_SIZE_ERROR` to override the app error code.
     ///
     /// `on_close` is a `FnOnce` taking `H3ErrorCode`. trillium-http does not itself
     /// hold the QUIC connection; callers wire up the actual `connection.close()` call
@@ -631,11 +629,9 @@ impl H3Connection {
             }
 
             Ok(UniStreamType::Push) => {
-                // Push streams are server→client per RFC 9114 §4.6. Trillium does
-                // not support HTTP/3 push as initiator or recipient, so we hand
-                // these back as `Unknown` for the caller to dispose of identically
-                // to truly-unknown stream types — the explicit arm exists so trace
-                // output names "push stream" rather than a bare type id.
+                // Trillium does not support HTTP/3 push, so we hand these back as `Unknown`
+                // identically to truly-unknown stream types — the explicit arm exists so
+                // trace output names "push stream" rather than a bare type id.
                 log::trace!("H3 inbound uni: push stream (push not supported)");
                 Ok(UniInnerResult::Unknown { stream_type })
             }
@@ -652,8 +648,6 @@ impl H3Connection {
     /// # Errors
     ///
     /// Returns a `H3Error` in case of io error or HTTP/3 semantic error.
-    // The first frame must be SETTINGS. After that, watches for
-    // GOAWAY to initiate connection shutdown.
     async fn run_inbound_control<T>(
         &self,
         buf: &mut Vec<u8>,
@@ -663,10 +657,9 @@ impl H3Connection {
     where
         T: AsyncRead + Unpin + Send,
     {
-        // First frame must be SETTINGS (§6.2.1). A non-SETTINGS first frame OR a malformed
-        // first frame whose payload doesn't decode are both H3_MISSING_SETTINGS. *But* if
-        // the first frame is a SETTINGS frame whose payload is itself invalid (e.g.
-        // forbidden HTTP/2 setting IDs per §7.2.4.1), that's H3_SETTINGS_ERROR — preserve.
+        // SettingsError takes priority: a SETTINGS frame whose payload is itself invalid
+        // (e.g. forbidden HTTP/2 setting IDs) is reported as SETTINGS_ERROR, not the
+        // MISSING_SETTINGS we report for everything else here.
         let settings = read(buf, filled, stream, |data| match Frame::decode(data) {
             Ok((Frame::Settings(s), consumed)) => Ok(Some((s, consumed))),
             Err(FrameDecodeError::Incomplete) => Ok(None),
@@ -688,7 +681,6 @@ impl H3Connection {
         self.encoder_dynamic_table
             .initialize_from_peer_settings(settings);
 
-        // Read subsequent frames, watching for GOAWAY
         loop {
             let frame = self
                 .swansong
@@ -716,8 +708,7 @@ impl H3Connection {
                 }
 
                 Some(Frame::Unknown(n)) => {
-                    // RFC 9114 §7.2.8: unknown frame types MUST be ignored.
-                    // We must also consume the payload bytes so the stream stays synchronized.
+                    // Consume the payload bytes so the stream stays synchronized.
                     log::trace!("H3 control stream: skipping unknown frame (payload {n} bytes)");
                     let n = usize::try_from(n).unwrap_or(usize::MAX);
                     let in_buf = n.min(*filled);
@@ -738,10 +729,6 @@ impl H3Connection {
                     }
                 }
 
-                // RFC 9114 §7.2.4: a second SETTINGS frame is H3_FRAME_UNEXPECTED.
-                // RFC 9114 §7.2.1 / §7.2.2 / §7.2.5: DATA, HEADERS, and PUSH_PROMISE are
-                // not permitted on the control stream; same H3_FRAME_UNEXPECTED. The
-                // WebTransport bidi-signal (0x41) similarly has no business here.
                 Some(
                     Frame::Settings(_)
                     | Frame::Data(_)
@@ -752,8 +739,7 @@ impl H3Connection {
                     return Err(H3ErrorCode::FrameUnexpected.into());
                 }
 
-                // CANCEL_PUSH and MAX_PUSH_ID are valid control-stream frames; we don't push,
-                // so we ignore them.
+                // Trillium doesn't implement push, so these are ignored rather than acted on.
                 Some(Frame::CancelPush(_) | Frame::MaxPushId(_)) => {
                     log::trace!("H3 control stream: ignoring {frame:?}");
                 }
@@ -763,9 +749,9 @@ impl H3Connection {
 }
 
 /// Map an `UnexpectedEof` I/O error (the `read` helper's "stream FIN'd" signal) to
-/// `H3_CLOSED_CRITICAL_STREAM`. RFC 9114 §6.2.1 forbids closure of the control stream;
-/// closure of either QPACK side-channel is the same connection error per RFC 9204 §4.2.
-/// Other I/O errors and any protocol error are passed through unchanged.
+/// `H3_CLOSED_CRITICAL_STREAM`. Closure of the control stream or of either QPACK
+/// side-channel is a connection error. Other I/O errors and any protocol error are passed
+/// through unchanged.
 fn map_critical_stream_eof(error: H3Error) -> H3Error {
     match error {
         H3Error::Io(e) if e.kind() == ErrorKind::UnexpectedEof => {
@@ -797,8 +783,8 @@ async fn write(
 
 /// An `AsyncRead` adapter that drains a byte slice before reading from an inner stream.
 ///
-/// Used in `process_inbound_uni` to replay bytes that were read ahead while
-/// parsing the stream-type varint before dispatching to `run_inbound_encoder`.
+/// Used to replay bytes that were read ahead while parsing a stream-type varint, before
+/// dispatching to the inner runner that consumes the rest of the stream.
 struct Prepended<'a, T> {
     head: &'a [u8],
     tail: T,

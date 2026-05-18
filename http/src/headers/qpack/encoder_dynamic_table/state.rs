@@ -2,7 +2,7 @@
 //!
 //! [`TableState`] holds the entries, capacity, KRC, outstanding sections, reverse-index, and
 //! pending op queue. Single mutating entry point: [`TableState::insert`] picks the smallest
-//! §3.2 wire format from the table's current contents — including a Duplicate fast-path when
+//! wire format from the table's current contents — including a Duplicate fast-path when
 //! `(name, value)` already matches a live entry.
 //!
 //! Wire-format selection lives in `insert`, not in callers. Policy code says "insert this
@@ -73,7 +73,7 @@ pub(super) struct TableState {
     /// Per-connection ring of recently-seen `(name, value)` pair hashes. Consulted by
     /// the planner before each warming insert.
     pub(super) recent_pairs: RecentPairs,
-    /// Running total of §3.2.1 entry sizes for priming inserts that succeeded at
+    /// Running total of entry sizes for priming inserts that succeeded at
     /// connection start. Read by the encode-path dup-drain gate: refresh kicks in when
     /// `headroom < primed_bytes` — i.e. when the table is close enough to full that the
     /// oldest (by construction of initial inserts, the primed) entries are at risk.
@@ -151,7 +151,7 @@ impl Debug for NameIndex {
 pub(super) struct Entry {
     pub(super) name: EntryName<'static>,
     pub(super) value: Cow<'static, [u8]>,
-    /// `name.len() + value.len() + 32` per RFC 9204 §3.2.1.
+    /// `name.len() + value.len() + 32` per RFC 9204.
     pub(super) size: usize,
 }
 
@@ -202,11 +202,11 @@ impl TableState {
         }
     }
 
-    /// Insert `(name, value)` into the table, smart-picking the §3.2 wire format.
+    /// Insert `(name, value)` into the table, smart-picking the wire format.
     ///
     /// Selection order (smallest wire encoding first):
-    /// 1. **Duplicate** (§3.2.4) if `(name, value)` already matches a live entry — refreshes that
-    ///    entry to the head of the table without re-sending name or value bytes.
+    /// 1. **Duplicate** if `(name, value)` already matches a live entry — refreshes that entry to
+    ///    the head of the table without re-sending name or value bytes.
     /// 2. **Insert With Name Reference, T=1** if `name` has any static slot.
     /// 3. **Insert With Name Reference, T=0** if a live entry already has this `name`.
     /// 4. **Insert With Literal Name**.
@@ -269,14 +269,10 @@ impl TableState {
         Ok(self.insert_entry(name, value, entry_size, wire))
     }
 
-    /// §3.2.4 Duplicate. Called by [`insert`](Self::insert)'s smart-pick fast-path when the
-    /// caller's `(name, value)` already matches a live entry: the source's stored
-    /// name+value are cloned (cheap `Cow` clones in the common `'static` case) rather than
-    /// allocating fresh owned copies from the borrowed inputs.
-    ///
-    /// Reserved as the underlying primitive for a future dup-draining refresh pass — the
-    /// wire form (a Duplicate instruction referencing the source by relative index)
-    /// doesn't care whether the caller is servicing a field line or refreshing the tail.
+    /// Emit a Duplicate instruction for the entry at `abs_idx`, copying its stored
+    /// `(name, value)` to the head of the table without re-sending the bytes. The
+    /// source's stored values are cloned (cheap `Cow` clones in the common `'static`
+    /// case) rather than re-allocated from borrowed inputs.
     ///
     /// The source `abs_idx` is added to the eviction floor for the duration of
     /// `make_room_for` so it remains live for the post-eviction clone.
@@ -303,9 +299,9 @@ impl TableState {
         Ok(self.insert_entry(name, value, entry_size, wire))
     }
 
-    /// Set the working capacity and emit a Set Dynamic Table Capacity instruction
-    /// (RFC 9204 §3.2.1, §4.3.1). Evicts oldest entries that no longer fit, respecting the
-    /// outstanding-sections pin floor.
+    /// Set the working capacity and emit a Set Dynamic Table Capacity instruction.
+    /// Evicts oldest entries that no longer fit, respecting the outstanding-sections
+    /// pin floor.
     ///
     /// # Errors
     ///
@@ -407,7 +403,7 @@ impl TableState {
     }
 
     /// Count of distinct streams with at least one section whose RIC exceeds the current
-    /// Known Received Count. RFC 9204 §2.1.2 bounds this count by the peer's advertised
+    /// Known Received Count. Bounded by the peer's advertised
     /// `SETTINGS_QPACK_BLOCKED_STREAMS`.
     pub(super) fn currently_blocked_streams(&self) -> usize {
         let krc = self.known_received_count;

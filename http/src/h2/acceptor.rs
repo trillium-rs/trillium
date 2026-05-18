@@ -120,12 +120,12 @@ pub struct H2Driver<T> {
     streams: HashMap<u32, StreamEntry>,
 
     /// Highest peer-initiated stream id seen so far. Peer-initiated (client) stream ids
-    /// must be odd and strictly increasing per RFC 9113 §5.1.1.
+    /// must be odd and strictly increasing.
     last_peer_stream_id: u32,
 
     /// Accumulator for an in-progress HEADERS block that is waiting on further CONTINUATION
-    /// frames. `None` outside a HEADERS block. §6.10 forbids any frame on any stream from
-    /// interleaving while this is `Some`.
+    /// frames. `None` outside a HEADERS block. The spec forbids any frame on any stream
+    /// from interleaving while this is `Some`.
     pending_headers: Option<PendingHeaders>,
 
     /// Set once the driver decides to close: graceful (peer GOAWAY / server swansong / peer
@@ -143,21 +143,21 @@ pub struct H2Driver<T> {
     /// DATA emissions here to bound per-connection memory.
     body_scratch: Vec<u8>,
 
-    /// Connection-level send flow-control window (RFC 9113 §6.9). Tracked as [`i64`] so
-    /// mid-connection `INITIAL_WINDOW_SIZE` reductions can drive per-stream windows
-    /// temporarily negative (§6.9.2) — kept here to the connection window for symmetry
-    /// though the connection window itself is *not* affected by `SETTINGS_INITIAL_WINDOW_SIZE`.
-    /// Decremented as we emit DATA; incremented by peer `WINDOW_UPDATE(stream_id=0, inc)`.
-    /// Overflow past [`MAX_FLOW_CONTROL_WINDOW`] is a connection-level `FLOW_CONTROL_ERROR`.
+    /// Connection-level send flow-control window. Tracked as [`i64`] so mid-connection
+    /// `INITIAL_WINDOW_SIZE` reductions can drive per-stream windows temporarily negative
+    /// — kept here to the connection window for symmetry though the connection window
+    /// itself is *not* affected by `SETTINGS_INITIAL_WINDOW_SIZE`. Decremented as we emit
+    /// DATA; incremented by peer `WINDOW_UPDATE(stream_id=0, inc)`. Overflow past
+    /// [`MAX_FLOW_CONTROL_WINDOW`] is a connection-level `FLOW_CONTROL_ERROR`.
     connection_send_window: i64,
 
-    /// Connection-level recv flow-control window. Starts at the RFC 9113 §6.9.2 baseline of
-    /// 65535 octets and is raised to [`MAX_CONNECTION_RECV_WINDOW`] via an initial
-    /// `WINDOW_UPDATE(0)` right after SETTINGS — §6.9.2 forbids SETTINGS from altering it,
-    /// so WU is the only path. Decremented as peer DATA frames arrive (across all streams);
-    /// incremented as the handler-task-side consumption signal is picked up and we emit
-    /// `WINDOW_UPDATE(0, consumed)`. A negative value means the peer overran the window —
-    /// connection-level `FLOW_CONTROL_ERROR`.
+    /// Connection-level recv flow-control window. Starts at the spec's baseline of 65535
+    /// octets and is raised to [`MAX_CONNECTION_RECV_WINDOW`] via an initial
+    /// `WINDOW_UPDATE(0)` right after SETTINGS — the spec forbids SETTINGS from altering
+    /// it, so WU is the only path. Decremented as peer DATA frames arrive (across all
+    /// streams); incremented as the handler-task-side consumption signal is picked up and
+    /// we emit `WINDOW_UPDATE(0, consumed)`. A negative value means the peer overran the
+    /// window — connection-level `FLOW_CONTROL_ERROR`.
     connection_recv_window: i64,
 
     /// Bounded ledger of recently-closed streams and why they closed. Consulted by
@@ -226,10 +226,10 @@ where
     /// fatal protocol or I/O error occurs.
     ///
     /// Returns `Ok(Some(conn))` for each new request stream — the runtime adapter is
-    /// expected to spawn a handler task that consumes the [`Conn`]. Malformed requests
-    /// (RFC 9113 §8.1.2) are handled internally with a stream-level `RST_STREAM` and never
-    /// surfaced. Returns `Ok(None)` when the connection has been shut down cleanly (peer
-    /// GOAWAY, our own swansong shutdown, peer EOF at a frame boundary).
+    /// expected to spawn a handler task that consumes the [`Conn`]. Malformed requests are
+    /// handled internally with a stream-level `RST_STREAM` and never surfaced. Returns
+    /// `Ok(None)` when the connection has been shut down cleanly (peer GOAWAY, our own
+    /// swansong shutdown, peer EOF at a frame boundary).
     ///
     /// # Errors
     ///
@@ -334,10 +334,10 @@ where
 
                 DriverState::NeedsServerSettings => {
                     self.queue_settings();
-                    // §6.9.2 forbids SETTINGS from altering the connection-level flow-control
-                    // window — it stays at the 65535 RFC baseline unless we raise it via
-                    // `WINDOW_UPDATE(0)`. Do that immediately after SETTINGS so peer bulk
-                    // uploads aren't capped at ~5 Mbit/s × RTT.
+                    // The spec forbids SETTINGS from altering the connection-level
+                    // flow-control window — it stays at the 65535 baseline unless we raise
+                    // it via `WINDOW_UPDATE(0)`. Do that immediately after SETTINGS so peer
+                    // bulk uploads aren't capped at ~5 Mbit/s × RTT.
                     let raise = i64::from(self.config.initial_connection_window_size())
                         - INITIAL_CONNECTION_RECV_WINDOW;
                     if raise > 0 {
@@ -446,8 +446,7 @@ where
     /// already placed are preserved in the buffer.
     ///
     /// A 0-byte read is surfaced as `UnexpectedEof`. The caller maps this to a terminal
-    /// I/O error; we don't emit a GOAWAY on peer-initiated close (consistent with the pre-
-    /// poll driver).
+    /// I/O error; we don't emit a GOAWAY on peer-initiated close.
     fn poll_fill_to(&mut self, target: usize, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if self.read_buf.len() < target {
             self.read_buf.resize(target, 0);
@@ -502,7 +501,7 @@ where
     }
 
     /// Look up why a stream is closed. `None` means either never-opened or evicted from the
-    /// bounded ledger — both fall through to the connection-level §5.1.1 default.
+    /// bounded ledger — both fall through to the connection-level default.
     pub(super) fn closed_reason(&self, stream_id: u32) -> Option<ClosedReason> {
         self.closed_streams.reason(stream_id)
     }

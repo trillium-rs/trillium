@@ -50,10 +50,8 @@ mod h3_data;
 /// result in an error.
 #[derive(fieldwork::Fieldwork)]
 pub struct ReceivedBody<'conn, Transport> {
-    /// The content-length of this body, if available. This
-    /// usually is derived from the content-length header. If the http
-    /// request or response that this body is attached to uses
-    /// transfer-encoding chunked, this will be None.
+    /// The content-length of this body, derived from the content-length header.
+    /// `None` for transfer-encoding chunked bodies.
     ///
     /// ```rust
     /// # use trillium_testing::HttpTest;
@@ -119,14 +117,11 @@ pub struct ReceivedBody<'conn, Transport> {
     /// first read. `None` means no pending write.
     send_100_continue_offset: Option<usize>,
 
-    /// The protocol session this body belongs to. Used by the body state machine's `End`
-    /// transition to pull driver-decoded trailers into
-    /// [`Conn::request_trailers`][crate::Conn]: h2 trailers come synchronously off
-    /// [`H2Connection::take_trailers`][H2Connection::take_trailers], h3 trailers come back
-    /// asynchronously via `h3_trailer_future`.
+    /// Protocol session this body belongs to; used by the `End` transition to pull
+    /// driver-decoded trailers (h2 synchronously, h3 asynchronously).
     protocol_session: ProtocolSession,
 
-    /// a boxed future that handles decoding h3 trailers
+    /// pending h3 trailer-decode future
     h3_trailer_future:
         Option<Pin<Box<dyn Future<Output = io::Result<Headers>> + Send + Sync + 'static>>>,
 }
@@ -230,20 +225,13 @@ where
         self
     }
 
-    // pub fn content_length(&self) -> Option<u64> {
-    //     self.content_length
-    // }
-
     /// # Reads entire body to String.
     ///
-    /// This uses the encoding determined by the content-type (mime)
-    /// charset. If an encoding problem is encountered, the String
-    /// returned by [`ReceivedBody::read_string`] will contain utf8
+    /// This uses the encoding determined by the content-type (mime) charset. If an
+    /// encoding problem is encountered, the returned String will contain utf8
     /// replacement characters.
     ///
-    /// Note that this can only be performed once per Conn, as the
-    /// underlying data is not cached anywhere. This is the only copy of
-    /// the body contents.
+    /// Can only be performed once per Conn — the body bytes are not cached.
     ///
     /// # Errors
     ///
@@ -295,10 +283,6 @@ where
         Ok(vec)
     }
 
-    // pub fn encoding(&self) -> &'static Encoding {
-    //     self.encoding
-    // }
-
     fn read_raw(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         if let Some(transport) = self.transport.as_deref_mut() {
             read_buffered(&mut self.buffer, transport, cx, buf)
@@ -315,7 +299,10 @@ where
     ///
     /// This will return an [`std::io::Result::Err`] if there is an io error on the underlying
     /// transport, such as a disconnect
-    #[allow(clippy::missing_errors_doc)] // false positive
+    #[allow(
+        clippy::missing_errors_doc,
+        reason = "errors are documented above; clippy doesn't detect the section"
+    )]
     pub async fn drain(self) -> io::Result<u64> {
         let copy_loops_per_yield = self.copy_loops_per_yield;
         copy(self, futures_lite::io::sink(), copy_loops_per_yield).await
@@ -338,10 +325,9 @@ impl<T> ReceivedBody<'static, T> {
 impl<T> ReceivedBody<'_, T> {
     /// Retype as `ReceivedBody<'static, T>` if every internal `MutCow` field is `Owned`.
     ///
-    /// Returns `None` if any field is `Borrowed`, in which case `self` is dropped (the
-    /// borrows can't be extended, and there is no useful way to hand the half-destructured
-    /// body back to the caller). Used by trillium-client's `Drop for ResponseBody` to
-    /// promote a body whose runtime-invariant guarantees full ownership but whose
+    /// Returns `None` if any field is `Borrowed`, in which case `self` is dropped — the
+    /// borrows can't be extended, and there's no useful way to hand a half-destructured
+    /// body back. For callers whose runtime invariants guarantee ownership but whose
     /// type-level `'a` parameter the compiler can't see is `'static`.
     #[doc(hidden)]
     #[cfg(feature = "unstable")]
@@ -522,11 +508,9 @@ where
                     self.h3_trailer_future = None;
                 }
 
-                // h2 trailer handoff. The driver decodes trailers on a separate task and
-                // stashes them on the per-stream `StreamState` *before* signalling EOF, so
-                // by the time we reach `End` the trailers (if any) are present — no boxed
-                // future required. Replacing the session with `Http1` after the drain is the
-                // idempotency mechanism: subsequent `End` re-entries see no h2 session.
+                // h2 trailers are stashed on the per-stream `StreamState` before EOF, so
+                // they're already present at `End` — no boxed future needed. Replacing
+                // the session with `Http1` makes subsequent `End` re-entries idempotent.
                 if bytes == 0
                     && let Some((h2_connection, stream_id)) =
                         std::mem::replace(&mut self.protocol_session, ProtocolSession::Http1)
@@ -625,8 +609,7 @@ pub enum ReceivedBodyState {
     /// read state for an H2 body. The h2 driver demuxes DATA frames into a per-stream recv
     /// ring on a separate task before we see them, so there's no frame-boundary state here —
     /// just a running byte total for `max_len` / content-length enforcement. Transitions to
-    /// [`End`] when the transport yields `Ready(0)` (the driver's signal that `END_STREAM`
-    /// was observed). Initial state for any body on an h2 request.
+    /// [`End`] when the transport yields `Ready(0)`. Initial state for any h2 body.
     H2Data {
         /// total body bytes read across all DATA frames.
         total: u64,

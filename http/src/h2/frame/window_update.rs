@@ -1,4 +1,4 @@
-//! `WINDOW_UPDATE` frame (RFC 9113 §6.9).
+//! `WINDOW_UPDATE` frame.
 
 use super::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader, FrameType};
 use crate::h2::H2ErrorCode;
@@ -10,11 +10,11 @@ pub(crate) fn decode(header: FrameHeader, payload: &[u8]) -> Result<Frame, Frame
     if payload.len() != PAYLOAD_LEN as usize {
         return Err(H2ErrorCode::FrameSizeError.into());
     }
-    // Top bit is reserved and MUST be ignored.
+    // Top bit is reserved; mask it off.
     let increment =
         u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]) & 0x7FFF_FFFF;
-    // §6.9: a 0 increment on the connection is a connection error; on a stream it's a stream
-    // error. Report as ProtocolError; the caller classifies using stream_id.
+    // Report 0-increment as ProtocolError unconditionally; the caller classifies
+    // connection vs. stream scope using stream_id.
     if increment == 0 {
         return Err(H2ErrorCode::ProtocolError.into());
     }

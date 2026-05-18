@@ -83,9 +83,7 @@ impl<'a> HeaderName<'a> {
         self.clone().into_owned()
     }
 
-    /// Determine if this header name contains only the appropriate characters
-    ///
-    /// since 0.3.12
+    /// Determine if this header name contains only valid token characters.
     pub fn is_valid(&self) -> bool {
         match &self.0 {
             KnownHeader(_) => true,

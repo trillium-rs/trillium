@@ -23,13 +23,12 @@ impl DecoderDynamicTable {
     /// Decode a QPACK-encoded field section, consulting the dynamic table as needed.
     ///
     /// If the field section's Required Insert Count is greater than zero, waits until the
-    /// dynamic table has received enough entries. Returns an error on protocol violations or
-    /// if the encoder stream fails while waiting.
+    /// dynamic table has received enough entries. Returns an error on protocol violations
+    /// or if the encoder stream fails while waiting.
     ///
-    /// Duplicate pseudo-headers and pseudo-headers appearing after a regular header are
-    /// rejected per RFC 9114 §4.1.1 (malformed message → stream error
-    /// `H3_MESSAGE_ERROR`), mirroring HPACK's behavior. Unknown pseudo-headers are
-    /// rejected on the same grounds.
+    /// Duplicate pseudo-headers, pseudo-headers after a regular header, and unknown
+    /// pseudo-headers are rejected as malformed messages (stream error
+    /// `H3_MESSAGE_ERROR`).
     ///
     /// # Errors
     ///
@@ -69,17 +68,16 @@ impl DecoderDynamicTable {
         let mut pseudo_headers = PseudoHeaders::default();
         let mut headers = Headers::new();
         let mut saw_regular = false;
-        // Once any malformed-message condition fires, the section is malformed (RFC 9114
-        // §4.1.1). We continue parsing the remaining instructions instead of bailing
-        // immediately so the decoder dynamic table stays in sync with the encoder (every
-        // dynamic reference in the section must be applied), then surface the error at
-        // the end of the section.
+        // Once any malformed-message condition fires, the section is malformed. We continue
+        // parsing the remaining instructions instead of bailing immediately so the decoder
+        // dynamic table stays in sync with the encoder (every dynamic reference in the
+        // section must be applied), then surface the error at the end of the section.
         let mut malformed = false;
 
         while !rest.is_empty() {
-            // Use `?` so `CompressionError::InvalidHeaderName` (e.g. unknown pseudo, uppercase
-            // chars) routes through `From<CompressionError> for H3Error` to MessageError per
-            // RFC 9114 §4.2 / §4.3.1; codec failures still surface as QpackDecompressionFailed.
+            // Use `?` so `CompressionError::InvalidHeaderName` (e.g. unknown pseudo,
+            // uppercase chars) routes through `From<CompressionError> for H3Error` to
+            // MessageError; codec failures still surface as QpackDecompressionFailed.
             // Aborting mid-section here is safe: HEADERS instructions only *read* from the
             // dynamic table — they don't mutate it — so table state stays consistent with
             // the encoder regardless of how many later instructions we skip.
@@ -120,9 +118,9 @@ impl DecoderDynamicTable {
 
 /// Resolve a parsed [`FieldLineInstruction`] into a [`FieldLine`]. Dynamic-index variants
 /// consult `table` (may await entries that aren't yet inserted); literal-value variants
-/// carry the value on the instruction itself. The §4.5.4 N (Never-Indexed) bit on the four
-/// literal variants is lifted onto the produced [`HeaderValue`] so encoders downstream
-/// (trillium-proxy) can re-emit it faithfully.
+/// carry the value on the instruction itself. The N (Never-Indexed) bit on the four
+/// literal variants is lifted onto the produced [`HeaderValue`] so downstream encoders can
+/// re-emit it faithfully.
 async fn apply_instruction(
     instruction: FieldLineInstruction<'_>,
     base: u64,
@@ -218,13 +216,11 @@ fn static_table_field_line(name: StaticHeaderName, value: &'static str) -> Field
     }
 }
 
-/// Build a `FieldLine` from a resolved entry name and an owned value. Used for every path
-/// that produces a `FieldLine` from decoded wire bytes or a dynamic-table lookup.
+/// Build a `FieldLine` from a resolved entry name and an owned value.
 ///
-/// Rejects values containing CR, LF, or NUL per RFC 9113 §8.2.1 / RFC 9114 §4.2. Values
-/// reached via a dynamic-table lookup are pre-validated on insert, so this check is the
-/// load-bearing one for literal field-line variants whose values were not seen by the
-/// encoder-stream parser.
+/// Rejects values containing CR, LF, or NUL. Values reached via a dynamic-table lookup are
+/// pre-validated on insert, so this check is the load-bearing one for literal field-line
+/// variants whose values were not seen by the encoder-stream parser.
 fn entry_field_line(
     name: EntryName<'_>,
     value: Cow<'static, [u8]>,
@@ -237,9 +233,9 @@ fn entry_field_line(
         EntryName::UnknownStatic(s) => HeaderName::from(s),
         EntryName::Unknown(u) => u.into_owned().into(),
         EntryName::Pseudo(PseudoHeaderName::Method) => {
-            // The §4.5.4 N bit on a pseudo header has no place to live — pseudos route to
-            // typed fields on Conn (Method/Status/Cow), not into Headers — so we drop it.
-            // For proxy round-trip this is fine: pseudos are rebuilt from the typed fields,
+            // The N bit on a pseudo header has no place to live — pseudos route to typed
+            // fields on Conn (Method/Status/Cow), not into Headers — so we drop it. For
+            // proxy round-trip this is fine: pseudos are rebuilt from the typed fields,
             // not re-emitted from the original wire bits.
             return Ok(FieldLine::Pseudo(PseudoHeader::Method(
                 Method::parse(&value).map_err(|_| err())?,
@@ -292,14 +288,12 @@ impl Display for FieldLine {
 enum PseudoHeader {
     Method(Method),
     Status(Status),
-    // intention: these will eventually be split out into appropriately parsed and validated types
     Other(PseudoHeaderName, Option<Cow<'static, str>>),
 }
 impl PseudoHeader {
     /// Set the corresponding field on `PseudoHeaders`. Returns `false` if the slot was
     /// already occupied (duplicate pseudo-header) — the caller MUST treat this as a
-    /// malformed message per RFC 9114 §4.1.1, mirroring HPACK's `DuplicatePseudoHeader`
-    /// detection in `hpack/decoder.rs::insert_pseudo`.
+    /// malformed message.
     ///
     /// Returns `true` for the no-op `Method`/`Status` constructed via the `Other` variant
     /// (which shouldn't happen but is handled gracefully) and for the value-less `Other`

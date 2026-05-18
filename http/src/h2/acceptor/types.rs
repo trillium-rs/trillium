@@ -61,9 +61,9 @@ pub(super) enum DriverState {
     Closing,
     /// Our outbound bytes are on the wire (including our GOAWAY). Now we're waiting for
     /// the peer to close its write half (recv returns 0) so our Drop doesn't look like a
-    /// reset to the client — the sequence the h2 spec and most clients (hyper-h2 in
-    /// particular) assume. Any inbound bytes the peer happens to send during this window
-    /// are discarded; we've already committed to closing.
+    /// reset to the client — the sequence the h2 spec and most clients assume. Any
+    /// inbound bytes the peer happens to send during this window are discarded; we've
+    /// already committed to closing.
     Drained,
 }
 
@@ -106,18 +106,18 @@ pub(super) struct StreamEntry {
     /// [`H2Connection::submit_send`]: super::H2Connection::submit_send
     pub(super) send: Option<SendCursor>,
 
-    /// Per-stream send flow-control window (RFC 9113 §6.9). Seeded from
+    /// Per-stream send flow-control window. Seeded from
     /// `peer_settings.effective_initial_window_size()` when the stream is opened;
     /// decremented as we emit DATA frames; incremented by peer
     /// `WINDOW_UPDATE(stream_id, inc)`; adjusted by `SETTINGS_INITIAL_WINDOW_SIZE` delta on
-    /// mid-connection SETTINGS change (§6.9.2 — may drive negative). Overflow past
+    /// mid-connection SETTINGS change (may drive negative). Overflow past
     /// [`MAX_FLOW_CONTROL_WINDOW`] is a stream-level `FLOW_CONTROL_ERROR` (→ `RST_STREAM`).
     pub(super) send_window: i64,
 
-    /// Per-stream recv flow-control window (RFC 9113 §6.9) — how many bytes we've told
-    /// the peer it may still send on this stream. Starts at the server's advertised
-    /// `SETTINGS_INITIAL_WINDOW_SIZE` (currently 0 — lazy-WU pattern); decremented as the
-    /// peer's DATA frames arrive; incremented as we emit stream-level `WINDOW_UPDATE`
+    /// Per-stream recv flow-control window — how many bytes we've told the peer it may
+    /// still send on this stream. Starts at the server's advertised
+    /// `SETTINGS_INITIAL_WINDOW_SIZE` (0 in the lazy-WU pattern we use); decremented as
+    /// the peer's DATA frames arrive; incremented as we emit stream-level `WINDOW_UPDATE`
     /// (both the initial raise on the handler's `is_reading` signal and every subsequent
     /// refill crediting bytes the handler has consumed). A negative value means the peer
     /// overran the window — connection-level `FLOW_CONTROL_ERROR`.

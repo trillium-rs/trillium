@@ -12,27 +12,27 @@ pub use stream::FrameStream;
 #[cfg(test)]
 mod tests;
 
-/// H3 frame types per RFC 9114 §7.2.
+/// H3 frame types per RFC 9114.
 ///
 /// Each frame on the wire is: varint(type) + varint(length) + payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum FrameType {
-    /// §7.2.1 — carries request/response body data.
+    /// Carries request/response body data.
     Data = 0x00,
-    /// §7.2.2 — carries a QPACK-encoded field section (headers or trailers).
+    /// Carries a QPACK-encoded field section (headers or trailers).
     Headers = 0x01,
-    /// §7.2.3 — cancels a server push (referenced by push ID).
+    /// Cancels a server push (referenced by push ID).
     CancelPush = 0x03,
-    /// §7.2.4 — conveys configuration parameters.
+    /// Conveys configuration parameters.
     Settings = 0x04,
-    /// §7.2.5 — initiates a server push.
+    /// Initiates a server push.
     PushPromise = 0x05,
-    /// §7.2.6 — initiates graceful shutdown.
+    /// Initiates graceful shutdown.
     Goaway = 0x07,
-    /// §7.2.7 — controls the number of server pushes.
+    /// Controls the number of server pushes.
     MaxPushId = 0x0d,
-    /// WebTransport bidi stream signal (draft-ietf-webtrans-http3 §4.2).
+    /// WebTransport bidi stream signal (draft-ietf-webtrans-http3).
     ///
     /// On the wire this looks like a frame header (`varint(0x41) + varint(session_id)`),
     /// but it is not a proper H3 frame — there is no length-delimited payload.
@@ -49,8 +49,7 @@ impl From<FrameType> for u64 {
 impl TryFrom<u64> for FrameType {
     type Error = u64;
 
-    /// Unrecognized frame types are returned as `Err(value)`.
-    /// Per §7.2.8, unknown types MUST be ignored.
+    /// Unrecognized frame types are returned as `Err(value)`. Unknown types must be ignored.
     fn try_from(value: u64) -> Result<Self, u64> {
         match value {
             0x00 => Ok(Self::Data),
@@ -75,7 +74,7 @@ impl TryFrom<u64> for FrameType {
 /// `payload_length` bytes of payload (not included here).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FrameHeader {
-    /// `None` for unknown frame types (which per §7.2.8 MUST be ignored).
+    /// `None` for unknown frame types (which must be ignored).
     frame_type: Option<FrameType>,
     /// Length of the frame payload in bytes.
     payload_length: u64,
@@ -191,9 +190,8 @@ impl Frame {
     ///
     /// Returns a `FrameDecodeError` if we have not read sufficient content or if we encounter a
     /// protocol error
-    // Note: on incomplete input this re-parses the frame header from
-    // scratch, which is fine — frame headers are at most 16 bytes.
-    // Revisit if profiling shows this is hot.
+    // On incomplete input this re-parses the frame header from scratch, which is fine —
+    // frame headers are at most 16 bytes.
     pub fn decode(input: &[u8]) -> Result<(Self, usize), FrameDecodeError> {
         let mut bytes_read = 0;
         let (header, header_len) = FrameHeader::decode(input)?;
@@ -423,19 +421,19 @@ fn decode_single_varint(
     Ok((wrap(value), header_len + payload.len()))
 }
 
-/// Unidirectional stream types per RFC 9114 §6.2 and RFC 9204 §4.2.
+/// Unidirectional stream types per RFC 9114 (with QPACK streams from RFC 9204).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum UniStreamType {
-    /// H3 control stream (§6.2.1).
+    /// H3 control stream.
     Control = 0x00,
-    /// Server push stream (§6.2.2).
+    /// Server push stream.
     Push = 0x01,
-    /// QPACK encoder stream (RFC 9204 §4.2).
+    /// QPACK encoder stream (RFC 9204).
     QpackEncoder = 0x02,
-    /// QPACK decoder stream (RFC 9204 §4.2).
+    /// QPACK decoder stream (RFC 9204).
     QpackDecoder = 0x03,
-    /// WebTransport unidirectional stream (draft-ietf-webtrans-http3 §4.1).
+    /// WebTransport unidirectional stream (draft-ietf-webtrans-http3).
     WebTransport = 0x54,
 }
 
@@ -448,8 +446,7 @@ impl From<UniStreamType> for u64 {
 impl TryFrom<u64> for UniStreamType {
     type Error = u64;
 
-    /// Unrecognized stream types are returned as `Err(value)`.
-    /// Per §6.2, unknown types MUST be ignored.
+    /// Unrecognized stream types are returned as `Err(value)`. Unknown types must be ignored.
     fn try_from(value: u64) -> Result<Self, u64> {
         match value {
             0x00 => Ok(Self::Control),

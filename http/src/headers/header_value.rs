@@ -12,10 +12,10 @@ use std::{
 #[derive(Clone)]
 pub struct HeaderValue {
     pub(crate) inner: HeaderValueInner,
-    /// RFC 7541 §6.2.3 / RFC 9204 §4.5.4 "Never-Indexed" bit. Carried for proxy
-    /// round-trip fidelity: HPACK / QPACK decoders set it from the wire bit, and
-    /// HPACK / QPACK encoders re-emit a never-indexed literal when it is set.
-    /// Not part of value identity (`PartialEq` / `Hash` ignore it).
+    /// HPACK / QPACK "Never-Indexed" bit, carried for proxy round-trip fidelity:
+    /// decoders set it from the wire bit and encoders re-emit a never-indexed
+    /// literal when it is set. Not part of value identity (`PartialEq` / `Hash`
+    /// ignore it).
     pub(crate) never_indexed: bool,
 }
 
@@ -126,17 +126,12 @@ impl HeaderValue {
     }
 
     /// determine if this header contains no unsafe characters (\r, \n, \0)
-    ///
-    /// since 0.3.12
     pub fn is_valid(&self) -> bool {
         memchr::memchr3(b'\r', b'\n', 0, self.as_ref()).is_none()
     }
 
-    /// Returns this header value as a &str if it is utf8, None
-    /// otherwise. If you need to convert non-utf8 bytes to a string
-    /// somehow, match directly on the `HeaderValue` as an enum and
-    /// handle that case. If you need a byte slice regardless of
-    /// whether it's utf8, use the `AsRef<[u8]>` impl
+    /// Returns this header value as a &str if it is utf8, `None` otherwise. For
+    /// a byte slice regardless of utf8-ness, use the `AsRef<[u8]>` impl.
     pub fn as_str(&self) -> Option<&str> {
         match &self.inner {
             Utf8(utf8) => Some(utf8),

@@ -1,7 +1,7 @@
 //! Trillium HTTP/2 types (RFC 9113).
 //!
 //! This module is the server-side HTTP/2 implementation used by `trillium-http`. Most items are
-//! crate-private; only the error types are currently part of the public surface.
+//! crate-private; only the error types are part of the public surface.
 mod acceptor;
 mod body_wrapper;
 mod connection;
@@ -45,7 +45,7 @@ pub enum H2Error {
     Io(#[from] std::io::Error),
 }
 
-/// HPACK decoding failures map to `COMPRESSION_ERROR` per RFC 9113 §4.3.1.
+/// HPACK decoding failures map to `COMPRESSION_ERROR`.
 impl From<CompressionError> for H2Error {
     fn from(_: CompressionError) -> Self {
         Self::Protocol(H2ErrorCode::CompressionError)

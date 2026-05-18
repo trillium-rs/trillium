@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 
-/// H3 error codes per RFC 9114 §8.1.
+/// H3 error codes (RFC 9114).
 ///
-/// Used when closing connections or resetting streams.
-/// Unknown error codes are mapped to `NoError` per spec.
+/// Used when closing connections or resetting streams. Unknown error codes
+/// decode as `NoError`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum H3ErrorCode {
@@ -75,7 +75,6 @@ pub enum H3ErrorCode {
     #[error("Requested operation cannot be served over HTTP/3.")]
     VersionFallback = 0x0110,
 
-    // -- WebTransport error codes (draft-ietf-webtrans-http3) --
     /// WebTransport data stream rejected due to lack of associated session.
     #[error("WebTransport data stream rejected due to lack of associated session.")]
     WebTransportBufferedStreamRejected = 0x3994_bd84,
@@ -96,7 +95,6 @@ pub enum H3ErrorCode {
     #[error("WebTransport requirements not met.")]
     WebTransportRequirementsNotMet = 0x212c_0d48,
 
-    // -- QPACK error codes (RFC 9204 §6) --
     /// The decoder failed to interpret a header block.
     #[error("QPACK decompression failed.")]
     QpackDecompressionFailed = 0x200,
@@ -111,9 +109,8 @@ pub enum H3ErrorCode {
 }
 
 impl H3ErrorCode {
-    /// A "reason phrase" per rfc9000 §19.19
+    /// A "reason phrase" suitable for inclusion in a CONNECTION_CLOSE frame.
     pub fn reason(&self) -> Cow<'static, str> {
-        // eventually this probably should either be &'static str or callsite-specific
         Cow::Owned(format!("{self}"))
     }
 
@@ -143,8 +140,7 @@ impl H3ErrorCode {
 }
 
 impl From<u64> for H3ErrorCode {
-    /// All unknown error codes are treated as equivalent to `NoError`
-    /// per RFC 9114 §9.
+    /// Unknown error codes decode as `NoError`.
     fn from(value: u64) -> Self {
         match value {
             0x0101 => Self::GeneralProtocolError,
@@ -178,8 +174,7 @@ impl From<u64> for H3ErrorCode {
 
 impl From<H3ErrorCode> for u64 {
     /// Encodes the error code. `NoError` emits a random GREASE value
-    /// (`0x1f * N + 0x21`) per RFC 9114 §8.1 to exercise peer handling
-    /// of unknown codes.
+    /// (`0x1f * N + 0x21`) to exercise peer handling of unknown codes.
     fn from(code: H3ErrorCode) -> u64 {
         match code {
             H3ErrorCode::NoError => {

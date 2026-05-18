@@ -1,21 +1,12 @@
-//! HPACK decoder (RFC 7541 §6).
+//! HPACK decoder (RFC 7541).
 //!
 //! Consumes a complete header block (HEADERS + CONTINUATION already reassembled by the
 //! caller) and produces a [`FieldSection`]. Stateful across calls: the [`DynamicTable`]
 //! passed in persists between header blocks on a single HTTP/2 connection.
 //!
-//! Handles all five wire representations:
-//! - §6.1 Indexed Header Field (`1xxxxxxx`)
-//! - §6.2.1 Literal Header Field with Incremental Indexing (`01xxxxxx`)
-//! - §6.2.2 Literal Header Field without Indexing (`0000xxxx`)
-//! - §6.2.3 Literal Header Field Never Indexed (`0001xxxx`)
-//! - §6.3 Dynamic Table Size Update (`001xxxxx`)
-//!
-//! §4.2 ordering is enforced: size updates MUST appear before any field representation.
+//! Ordering is enforced: size updates MUST appear before any field representation.
 //! `protocol_max_table_size` (the peer's `SETTINGS_HEADER_TABLE_SIZE`) is an upper bound on
-//! size updates; exceeding it is a decoding error (§6.3).
-//!
-//! The "Never Indexed" bit from §6.2.3 is preserved on decode but not yet plumbed through
+//! size updates; exceeding it is a decoding error.
 #[cfg(test)]
 mod rfc7541_vectors;
 #[cfg(test)]
@@ -37,37 +28,37 @@ use crate::{
 };
 use std::borrow::Cow;
 
-/// Spec-defined request malformations (RFC 9113 §8.1.2) the decoder is in a position to
-/// detect. Each variant maps to a stream-level `PROTOCOL_ERROR`.
+/// Spec-defined request malformations (RFC 9113) the decoder is in a position to detect.
+/// Each variant maps to a stream-level `PROTOCOL_ERROR`.
 ///
 /// Intentionally payload-free — the caller only needs to know *that* something was
-/// malformed to decide the response; which specific pseudo triggered it lives in the
-/// debug log via trace-level logging inside the decoder.
+/// malformed to decide the response. Trace-level logging inside the decoder records which
+/// specific pseudo triggered it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MalformedRequest {
-    /// A pseudo-header field appeared twice in the same block (§8.1.2.3). First occurrence
-    /// is kept in the returned section; the duplicate is dropped. This reason still
-    /// surfaces as an error so the caller doesn't proceed with a silently truncated set.
+    /// A pseudo-header field appeared twice in the same block. First occurrence is kept in
+    /// the returned section; the duplicate is dropped. This still surfaces as an error so
+    /// the caller doesn't proceed with a silently truncated set.
     DuplicatePseudoHeader,
-    /// A pseudo-header appeared after a regular header (§8.1.2.1). Pseudos MUST precede
-    /// every regular header in the block.
+    /// A pseudo-header appeared after a regular header. Pseudos MUST precede every regular
+    /// header in the block.
     PseudoHeaderAfterRegular,
 }
 
-// First-byte masks (RFC 7541 §6).
+// First-byte masks (RFC 7541).
 //
 // Patterns listed in the order [`decode`] tests them in — each mask identifies a family of
 // representations; the next-more-specific mask refines within it.
-const INDEXED: u8 = 0b1000_0000; // §6.1    1xxxxxxx
-const LITERAL_WITH_INDEXING: u8 = 0b0100_0000; // §6.2.1  01xxxxxx
-const SIZE_UPDATE: u8 = 0b0010_0000; // §6.3    001xxxxx
-const LITERAL_NEVER_INDEXED: u8 = 0b0001_0000; // §6.2.3  0001xxxx
-// §6.2.2 Literal Header Field without Indexing: 0000xxxx — the "everything else" case.
+const INDEXED: u8 = 0b1000_0000; // 1xxxxxxx
+const LITERAL_WITH_INDEXING: u8 = 0b0100_0000; // 01xxxxxx
+const SIZE_UPDATE: u8 = 0b0010_0000; // 001xxxxx
+const LITERAL_NEVER_INDEXED: u8 = 0b0001_0000; // 0001xxxx
+// Literal Header Field without Indexing: 0000xxxx — the "everything else" case.
 
 /// Decode an HPACK-encoded header block into a [`FieldSection`].
 ///
-/// `protocol_max_table_size` is the maximum value a §6.3 Dynamic Table Size Update is
-/// allowed to carry — typically the peer's `SETTINGS_HEADER_TABLE_SIZE`.
+/// `protocol_max_table_size` is the maximum value a Dynamic Table Size Update is allowed to
+/// carry — typically the peer's `SETTINGS_HEADER_TABLE_SIZE`.
 ///
 /// # Errors
 ///
@@ -82,8 +73,8 @@ pub(in crate::headers) fn decode(
     let mut pseudo_headers = PseudoHeaders::default();
     let mut headers = Headers::new();
     let mut size_updates_allowed = true;
-    // §8.1.2.1 ordering: pseudos MUST precede all regular headers. Set once the first
-    // regular header lands; any subsequent pseudo is malformed.
+    // Pseudos MUST precede all regular headers. Set once the first regular header lands;
+    // any subsequent pseudo is malformed.
     let mut saw_regular = false;
     // First malformation detected. We keep decoding after detection so the dynamic table
     // stays consistent with the peer's model (aborting mid-block would leave their
@@ -94,7 +85,6 @@ pub(in crate::headers) fn decode(
         let first = input[0];
 
         if first & INDEXED != 0 {
-            // §6.1 Indexed Header Field
             let (index, rest) = integer_prefix::decode(input, 7)?;
             if index == 0 {
                 return Err(CompressionError::InvalidStaticIndex(0).into());
@@ -110,16 +100,11 @@ pub(in crate::headers) fn decode(
                 &mut malformed,
             )?;
         } else if first & LITERAL_WITH_INDEXING != 0 {
-            // §6.2.1 Literal Header Field with Incremental Indexing
             let (index, rest) = integer_prefix::decode(input, 6)?;
             let (name, value, rest) = read_literal_name_value(rest, index, table)?;
             size_updates_allowed = false;
             input = rest;
 
-            // Insert into the dynamic table — §6.2.1: "A literal header field with
-            // incremental indexing representation results in appending a header field to
-            // the decoded header list and inserting it as a new entry into the dynamic
-            // table."
             table.insert(name.clone(), value.clone());
             emit_literal(
                 name,
@@ -131,22 +116,18 @@ pub(in crate::headers) fn decode(
                 &mut malformed,
             )?;
         } else if first & SIZE_UPDATE != 0 {
-            // §6.3 Dynamic Table Size Update
             if !size_updates_allowed {
-                // §4.2: updates MUST occur before any field representation.
                 return Err(CompressionError::UnexpectedEnd.into());
             }
             let (new_max, rest) = integer_prefix::decode(input, 5)?;
             if new_max > protocol_max_table_size {
-                // §6.3: MUST treat as decoding error.
                 return Err(CompressionError::InvalidStaticIndex(new_max).into());
             }
             input = rest;
             table.set_max_size(new_max);
         } else if first & LITERAL_NEVER_INDEXED != 0 {
-            // §6.2.3 Literal Header Field Never Indexed. The N bit is lifted onto the
-            // produced HeaderValue so a downstream re-encoder (e.g. trillium-proxy) emits
-            // §6.2.3 again rather than degrading to §6.2.2.
+            // The N bit is lifted onto the produced HeaderValue so a downstream re-encoder
+            // emits Never Indexed again rather than degrading to without-indexing.
             let (index, rest) = integer_prefix::decode(input, 4)?;
             let (name, value, rest) = read_literal_name_value(rest, index, table)?;
             size_updates_allowed = false;
@@ -161,7 +142,6 @@ pub(in crate::headers) fn decode(
                 &mut malformed,
             )?;
         } else {
-            // §6.2.2 Literal Header Field without Indexing — 0000xxxx prefix
             let (index, rest) = integer_prefix::decode(input, 4)?;
             let (name, value, rest) = read_literal_name_value(rest, index, table)?;
             size_updates_allowed = false;
@@ -184,8 +164,8 @@ pub(in crate::headers) fn decode(
     Ok(FieldSection::from_owned(pseudo_headers, headers))
 }
 
-/// Emit an `Indexed` (§6.1) field line by resolving `index` against the static or dynamic
-/// table and routing to pseudo/regular header accumulators.
+/// Emit an indexed field line by resolving `index` against the static or dynamic table and
+/// routing to pseudo/regular header accumulators.
 fn emit_indexed(
     index: usize,
     table: &DynamicTable,
@@ -221,7 +201,7 @@ fn emit_indexed(
     }
 }
 
-/// Read the `(name, value)` pair of a §6.2.x literal representation.
+/// Read the `(name, value)` pair of a literal representation.
 ///
 /// `index` is the first-byte prefix integer already consumed from `input`. When `index > 0`
 /// the name comes from the static or dynamic table; when `0`, the name is a literal string
@@ -239,8 +219,8 @@ fn read_literal_name_value<'a>(
         let (name, _) = static_entry(index)?;
         (EntryName::from(*name), input)
     } else {
-        // Dynamic-table name reference. Clone the name — the caller may mutate the table
-        // (§6.2.1 insert) while this EntryName is still live.
+        // Dynamic-table name reference. Clone the name — the caller may insert into the
+        // table while this EntryName is still live.
         let dyn_index = index - 61;
         let entry = table
             .get(dyn_index)
@@ -253,8 +233,8 @@ fn read_literal_name_value<'a>(
     Ok((name, value, rest))
 }
 
-/// Read a §5.2 string literal: H-flag (1 bit) + length (7-bit prefix integer) + bytes.
-/// Returns the decoded bytes (Huffman-decoded if H was set) and the unconsumed tail.
+/// Read a string literal: H-flag (1 bit) + length (7-bit prefix integer) + bytes. Returns
+/// the decoded bytes (Huffman-decoded if H was set) and the unconsumed tail.
 fn read_string(input: &[u8]) -> Result<(Vec<u8>, &[u8]), CompressionError> {
     let [first, ..] = input else {
         return Err(CompressionError::UnexpectedEnd);
@@ -274,7 +254,7 @@ fn read_string(input: &[u8]) -> Result<(Vec<u8>, &[u8]), CompressionError> {
 }
 
 /// Route an owned-form `(EntryName, FieldLineValue)` into pseudos or headers. `never_indexed`
-/// is the §6.2.3 N bit lifted onto the produced `HeaderValue` for round-trip fidelity.
+/// is the N bit lifted onto the produced `HeaderValue` for round-trip fidelity.
 fn emit_literal(
     name: EntryName<'static>,
     value: FieldLineValue<'static>,
@@ -295,7 +275,7 @@ fn emit_literal(
 }
 
 /// Route a `StaticHeaderName` + static `FieldLineValue` into pseudos or headers. Indexed
-/// representations (§6.1) never carry the N bit, so callers always pass `never_indexed=false`.
+/// representations never carry the N bit, so callers always pass `never_indexed=false`.
 fn emit_from_entry_ref(
     name: StaticHeaderName,
     value: FieldLineValue<'static>,
@@ -319,10 +299,9 @@ fn emit_from_entry_ref(
 }
 
 /// Shared emission path — takes a borrowed entry (owned by caller, cloned into Headers when
-/// needed) and dispatches to pseudo/header accumulators. Tracks §8.1.2.1 ordering
-/// (pseudos-before-regulars) and §8.1.2.3 pseudo uniqueness — both surface as
-/// [`MalformedRequest`] via the shared `malformed` slot so the caller can translate to the
-/// appropriate stream-level error.
+/// needed) and dispatches to pseudo/header accumulators. Tracks pseudos-before-regulars
+/// ordering and pseudo uniqueness — both surface as [`MalformedRequest`] via the shared
+/// `malformed` slot so the caller can translate to the appropriate stream-level error.
 fn emit_from_entry(
     entry: &Entry,
     never_indexed: bool,
@@ -365,9 +344,9 @@ fn emit_from_entry(
 }
 
 /// Insert a decoded pseudo-header with first-wins semantics, flagging duplicates via the
-/// shared `malformed` slot (§8.1.2.3). The second occurrence is dropped; the caller is
-/// expected to fail the stream once decode returns, so preserving faithful "original order"
-/// content doesn't matter — the invariant that matters is that `malformed` is set.
+/// shared `malformed` slot. The second occurrence is dropped; the caller is expected to
+/// fail the stream once decode returns, so preserving faithful "original order" content
+/// doesn't matter — the invariant that matters is that `malformed` is set.
 fn insert_pseudo(
     pseudo: PseudoHeaderName,
     value_bytes: &[u8],

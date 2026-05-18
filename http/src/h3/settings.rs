@@ -2,32 +2,30 @@ use super::quic_varint;
 use crate::HttpConfig;
 use fieldwork::Fieldwork;
 
-/// H3 settings identifiers that are forbidden because they belong to HTTP/2.
-/// Receiving any of these is a connection error of type `H3_SETTINGS_ERROR`
-/// per RFC 9114 §7.2.4.1.
+/// H3 settings identifiers that belong to HTTP/2. Receiving any of these is a
+/// connection error of type `H3_SETTINGS_ERROR`.
 const FORBIDDEN_H2_SETTINGS: &[u64] = &[0x00, 0x02, 0x03, 0x04, 0x05];
 
 /// Known H3 setting identifiers.
 const SETTINGS_QPACK_MAX_TABLE_CAPACITY: u64 = 0x01;
 const SETTINGS_MAX_FIELD_SECTION_SIZE: u64 = 0x06;
 const SETTINGS_QPACK_BLOCKED_STREAMS: u64 = 0x07;
-/// RFC 9297 §2.1 — enables QUIC DATAGRAM frames for HTTP/3.
+/// Enables QUIC DATAGRAM frames for HTTP/3 (RFC 9297).
 const SETTINGS_H3_DATAGRAM: u64 = 0x33;
-/// draft-ietf-webtrans-http3 — enables WebTransport over HTTP/3.
+/// Enables WebTransport over HTTP/3 (draft-ietf-webtrans-http3).
 const SETTINGS_ENABLE_WEBTRANSPORT: u64 = 0x2b60_3742;
-/// RFC 9220 §3 — reuses the HTTP/2 identifier (RFC 8441) to signal that the
-/// server accepts extended CONNECT requests carrying a `:protocol`
-/// pseudo-header (e.g. WebSocket-over-h3).
+/// Signals that the peer accepts extended CONNECT requests carrying a `:protocol`
+/// pseudo-header (e.g. WebSocket-over-h3). Reuses the HTTP/2 identifier (RFC 9220).
 const SETTINGS_ENABLE_CONNECT_PROTOCOL: u64 = 0x08;
 
-/// H3 connection settings per RFC 9114 §7.2.4.
+/// H3 connection settings.
 ///
-/// Sent once at the beginning of each control stream. `None` fields
-/// mean the setting was absent, implying the default value
-/// (unlimited for `max_field_section_size`, 0 for the QPACK settings).
+/// Sent once at the beginning of each control stream. `None` fields mean the setting
+/// was absent, implying the default value (unlimited for `max_field_section_size`,
+/// 0 for the QPACK settings).
 ///
-/// Use [`H3Settings::new`] to create outgoing settings (generates GREASE
-/// values). [`H3Settings::decode`] is used for incoming settings.
+/// [`H3Settings::new`] generates outgoing settings with random GREASE; [`H3Settings::decode`]
+/// parses an incoming SETTINGS frame payload.
 #[derive(Clone, Copy, Eq, Fieldwork, Default)]
 #[fieldwork(get, set, with(option_set_some))]
 pub struct H3Settings {
@@ -46,26 +44,25 @@ pub struct H3Settings {
     /// Default: 0.
     qpack_blocked_streams: Option<u64>,
 
-    /// Whether QUIC DATAGRAM frames are enabled for HTTP/3 (RFC 9297 §2.1).
+    /// Whether QUIC DATAGRAM frames are enabled for HTTP/3 (RFC 9297).
     ///
     /// Default: false (disabled).
     h3_datagram: bool,
 
-    /// Whether WebTransport is enabled (draft-ietf-webtrans-http3).
+    /// Whether WebTransport is enabled.
     ///
     /// Default: false (disabled).
     enable_webtransport: bool,
 
-    /// Whether extended CONNECT (RFC 9220, reusing the RFC 8441 mechanism for HTTP/3) is
-    /// advertised. Required by clients to attempt protocols layered on extended CONNECT,
-    /// such as WebSocket-over-h3.
+    /// Whether extended CONNECT is advertised. Peers need this to attempt protocols
+    /// layered on extended CONNECT, such as WebSocket-over-h3.
     ///
     /// Default: false (disabled).
     enable_connect_protocol: bool,
 
-    // GREASE setting included in encoded output per RFC 9114 §7.2.4.1.
-    // Chosen at construction time so encoded_len() and encode() agree.
-    // Zero when decoded from a peer (GREASE is skipped during decode).
+    // GREASE setting included in encoded output. Chosen at construction time
+    // so encoded_len() and encode() agree. Zero when decoded from a peer
+    // (GREASE is skipped during decode).
     #[field = false]
     grease_id: u64,
 
@@ -116,9 +113,7 @@ impl PartialEq for H3Settings {
 }
 
 impl H3Settings {
-    /// Create a new settings struct for sending to a peer.
-    ///
-    /// Generates random GREASE values per RFC 9114 §7.2.4.1.
+    /// Create a new settings struct for sending to a peer. Generates random GREASE values.
     pub fn new() -> Self {
         let n = u64::from(fastrand::u16(..));
         Self {

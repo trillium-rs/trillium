@@ -10,8 +10,7 @@
 //! Aggregate bytes-on-the-wire hides that distinction. These counters separate eager from
 //! load-bearing, track how often primed entries actually get referenced, and emit a
 //! per-connection summary on drop so a real-server run against real browsers can be
-//! evaluated without a synthetic harness. Expected to be removed once the direction is
-//! confirmed or falsified.
+//! evaluated without a synthetic harness.
 
 use super::super::FieldLineValue;
 use crate::headers::entry_name::EntryName;
@@ -102,9 +101,8 @@ pub(super) struct PrimedEntry {
 }
 
 impl ConnectionMetrics {
-    /// Record a primed entry after the insert succeeded during
-    /// `initialize_from_peer_settings`. `wire_bytes` is the length of the encoder-stream
-    /// instruction pushed onto `pending_ops` for this insert.
+    /// Record a primed entry after the insert succeeded. `wire_bytes` is the length of
+    /// the encoder-stream instruction pushed onto `pending_ops` for this insert.
     pub(super) fn record_primed_insert(
         &self,
         abs_idx: u64,
@@ -212,7 +210,6 @@ impl ConnectionMetrics {
         let entries = self.primed_entries.lock().unwrap();
         let priming_entries_referenced = entries.values().filter(|e| e.ref_count > 0).count();
 
-        // "n/a" before the first section is recorded, raw count after.
         let first_section_acked = if primed_acked_at_first_section < 0 {
             "n/a".to_string()
         } else {

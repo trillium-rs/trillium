@@ -4,8 +4,8 @@
 //!
 //! Picks up new submissions from per-stream `StreamState.send.submission` slots in the
 //! parent's `service_handler_signals`. Per-tick, advances each active send by one frame
-//! (with the §6.10 exception: HEADERS+CONTINUATION runs to `END_HEADERS` without yielding to
-//! other streams).
+//! (with the HEADERS+CONTINUATION exception: that pair runs to `END_HEADERS` without
+//! yielding to other streams, per the spec).
 //!
 //! All methods are on [`super::H2Driver`].
 
@@ -122,14 +122,14 @@ where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {
     /// Advance every active send by at most one step per tick (headers fragments are
-    /// emitted atomically per stream — RFC 9113 §6.10 forbids interleaving
-    /// HEADERS+CONTINUATION with any other frame on any other stream). Body reads that
-    /// return Pending leave the cursor in place; the body's source will wake the driver
-    /// task when bytes are available.
+    /// emitted atomically per stream — the spec forbids interleaving HEADERS+CONTINUATION
+    /// with any other frame on any other stream). Body reads that return Pending leave the
+    /// cursor in place; the body's source will wake the driver task when bytes are
+    /// available.
     ///
     /// No-op outside [`DriverState::Running`]: in earlier states the connection preface
     /// and our initial SETTINGS haven't reached the wire yet, and emitting HEADERS before
-    /// them would violate RFC 9113 §3.4 / §6.5. Server-side this is moot (no streams exist
+    /// them would violate the spec. Server-side this is moot (no streams exist
     /// pre-Running); client-side it matters because `H2Connection::open_stream` can stage
     /// a submission any time after the connection is created.
     pub(super) fn advance_outbound_sends(&mut self, cx: &mut Context<'_>) {
@@ -163,10 +163,10 @@ where
         })
     }
 
-    /// Advance one stream's `SendCursor` by one frame's worth of work, with the §6.10
-    /// exception: in `Headers` phase we keep emitting fragments back-to-back until
-    /// `END_HEADERS` is set. Other phases emit at most one frame per tick to keep streams
-    /// roughly fair.
+    /// Advance one stream's `SendCursor` by one frame's worth of work, with the
+    /// HEADERS+CONTINUATION exception: in `Headers` phase we keep emitting fragments
+    /// back-to-back until `END_HEADERS` is set. Other phases emit at most one frame per
+    /// tick to keep streams roughly fair.
     fn advance_one_send(&mut self, stream_id: u32, cx: &mut Context<'_>) {
         let Some(mut send) = self.streams.get_mut(&stream_id).and_then(|e| e.send.take()) else {
             return;
@@ -175,7 +175,7 @@ where
         loop {
             match send.phase {
                 SendPhase::Headers => {
-                    // §6.10 forbids interleaving HEADERS+CONTINUATION with any other frame,
+                    // Spec forbids interleaving HEADERS+CONTINUATION with any other frame,
                     // including frames on other streams. The unconditional loop iteration
                     // that follows keeps emitting fragments while still in Headers, or
                     // moves into the new phase this tick if transitioned (avoiding an
@@ -220,8 +220,8 @@ where
     /// and resolve.
     ///
     /// Records the close reason in the driver's closed-stream ledger so that any late
-    /// peer frames on this stream get the correct error category (§5.1): an `Err` result
-    /// — which always follows a `queue_rst_stream` call in the error paths — records as
+    /// peer frames on this stream get the correct error category: an `Err` result —
+    /// which always follows a `queue_rst_stream` call in the error paths — records as
     /// `Reset`, and an `Ok` result (clean `END_STREAM` completion from the send pump)
     /// records as `EndStream`.
     ///
@@ -316,9 +316,9 @@ where
     /// Performs the wire-close work (closed-streams ledger + send-completion signaling +
     /// response-headers waker fire) but **keeps the entry in both stream maps** so the
     /// application's [`H2Transport`][super::super::H2Transport] retains a working handle
-    /// for response-trailer access, etc. — mirroring h1/h3, where the stream lives until
-    /// the application drops its conn. Map removal happens via `pending_release` triggered
-    /// by `H2Transport::Drop` and serviced in `service_handler_signals`.
+    /// for response-trailer access, etc.; the stream lives until the application drops
+    /// its conn. Map removal happens via `pending_release` triggered by `H2Transport::Drop`
+    /// and serviced in `service_handler_signals`.
     ///
     /// No-op if either side is still in flight.
     pub(super) fn try_close_if_both_done(&mut self, stream_id: u32) {
@@ -400,17 +400,17 @@ where
             } else {
                 // Multi-fragment + no-body case: END_STREAM was not set on the first
                 // HEADERS (because end_headers was false then), and CONTINUATION has no
-                // END_STREAM flag per §6.10. Transition to Trailers so the next tick
-                // emits an empty DATA(END_STREAM) as the stream terminator. Rare in
-                // practice — response headers usually fit in one peer-default 16 KiB
-                // frame — but spec-correct when a response has lots of large headers.
+                // END_STREAM flag. Transition to Trailers so the next tick emits an
+                // empty DATA(END_STREAM) as the stream terminator. Rare in practice —
+                // response headers usually fit in one peer-default 16 KiB frame — but
+                // spec-correct when a response has lots of large headers.
                 SendPhase::Trailers
             };
         }
     }
 
     /// Poll the body for one DATA chunk, respecting both per-stream and connection send
-    /// flow-control windows (RFC 9113 §6.9). On `Ready(Ok(0))`, takes trailers off the
+    /// flow-control windows. On `Ready(Ok(0))`, takes trailers off the
     /// body and transitions to `Trailers`. On `Ready(Ok(n))`, emits one DATA frame (no
     /// `END_STREAM`) and decrements both windows by `n`. On `Pending`, the cursor stays in
     /// `Body`:

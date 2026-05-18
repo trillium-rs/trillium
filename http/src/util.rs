@@ -3,8 +3,8 @@ use encoding_rs::Encoding;
 use mime::Mime;
 use std::str::FromStr;
 
-/// a utility function for extracting a character encoding from a set
-/// of [`Headers`][trillium::Headers]
+/// The character encoding declared by the `Content-Type` header's `charset` parameter, or
+/// Windows-1252 if absent or unparseable.
 pub fn encoding(headers: &Headers) -> &'static Encoding {
     headers
         .get_str(KnownHeaderName::ContentType)

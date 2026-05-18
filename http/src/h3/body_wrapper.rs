@@ -2,26 +2,18 @@ use crate::{Body, Headers, body::BodyType, h3::Frame};
 use futures_lite::{AsyncRead, ready};
 use std::{io, pin::Pin, task::Poll};
 
-/// h3 view over a [`Body`] that prepends HTTP/3 DATA frame headers (RFC 9114 §7.2.1)
-/// to the payload yielded by the inner [`BodyType`].
+/// h3 view over a [`Body`] that prepends HTTP/3 DATA frame headers to the payload.
 ///
-/// h3 frames DATA inline with the body bytes (unlike h2, which frames at the driver layer
-/// in the send pump): each `poll_read` writes a varint-length DATA frame header followed
-/// by payload into the caller's buffer. Known-length bodies emit one frame whose payload
-/// spans the whole body and stream into it across polls; unknown-length bodies emit one
-/// frame per `poll_read` (the per-frame length must be known when the header is written,
-/// so we can't open a single frame ahead of time).
-///
-/// Mirrors [`H2Body`][crate::h2::H2Body] in role — both peel off the chunked-transfer
-/// wrapping that [`Body::poll_read`] applies for the h1 path on streaming bodies of
-/// unknown length — and adds the h3-specific DATA framing on top.
+/// Each `poll_read` writes a varint-length DATA frame header followed by payload into
+/// the caller's buffer. Known-length bodies open one frame whose payload spans the
+/// whole body and stream into it across polls; unknown-length bodies emit one frame
+/// per `poll_read` — the per-frame length must be known when the header is written,
+/// so a single frame can't be opened ahead of time.
 #[derive(Debug)]
 pub struct H3Body {
     body: BodyType,
-    /// Whether the single DATA frame header has been written. Only meaningful for
-    /// known-length bodies, which open one frame whose payload spans the whole body
-    /// and stream into it across polls. Stays false for unknown-length bodies (each
-    /// poll opens a new frame, so there is no persistent "header already written" state).
+    /// True once the single DATA frame header has been emitted for a known-length body.
+    /// Unused for unknown-length bodies, which open a new frame per `poll_read`.
     header_written: bool,
 }
 
@@ -59,12 +51,6 @@ impl AsyncRead for H3Body {
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        // Each branch encodes the body as one or more HTTP/3 DATA frames (RFC 9114 §7.2.1).
-        // Known-length bodies (Static, Streaming { len: Some(_) }) emit one DATA frame whose
-        // payload length spans the whole body; later polls deliver more bytes into that
-        // already-opened frame. Unknown-length bodies (Streaming { len: None }) emit one
-        // DATA frame per poll — the per-frame length must be known when the header is
-        // written, so we can't open a single frame ahead of time.
         match &mut this.body {
             BodyType::Empty => Poll::Ready(Ok(0)),
 

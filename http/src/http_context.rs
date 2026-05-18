@@ -6,11 +6,11 @@ use fieldwork::Fieldwork;
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{future::Future, sync::Arc};
 use swansong::{ShutdownCompletion, Swansong};
-/// This struct represents the shared configuration and context for a http server.
+/// Shared configuration and context for an http server.
 ///
-/// This currently contains tunable parameters in a [`HttpConfig`], the [`Swansong`] graceful
-/// shutdown control interface, and a shared [`TypeSet`] that contains application-specific
-/// information about the running server
+/// Contains tunable parameters in a [`HttpConfig`], the [`Swansong`] graceful shutdown control
+/// interface, and a shared [`TypeSet`] that contains application-specific information about the
+/// running server.
 #[derive(Default, Debug, Fieldwork)]
 #[fieldwork(get, set, get_mut, with)]
 pub struct HttpContext {
@@ -65,9 +65,6 @@ impl HttpContext {
     /// For any given invocation of `HttpContext::run`, the handler function may run any number of
     /// times, depending on whether the connection is reused by the client.
     ///
-    /// This can only be called on an `Arc<HttpContext>` because an arc clone is moved into the
-    /// Conn.
-    ///
     /// # Errors
     ///
     /// This function will return an [`Error`](crate::Error) if any of the http requests is
@@ -97,13 +94,13 @@ impl HttpContext {
 
     /// Replace this context's QPACK header observer with a fresh, empty one.
     ///
-    /// Runtime adapters (trillium-server-common, trillium-client) call this during listener
-    /// setup so that each hop-and-direction pair in a deployment gets its own observer. A
-    /// reverse proxy's inbound server observer is distinct from its outbound client observer
-    /// by construction, so header values one hop forwards (e.g. `authorization`, `cookie`)
-    /// cannot reach the QPACK state of unrelated clients on the other hop.
+    /// Adapter crates call this during listener setup so each hop-and-direction pair in a
+    /// deployment gets its own observer. A reverse proxy's inbound server observer is distinct
+    /// from its outbound client observer by construction, so header values one hop forwards
+    /// (e.g. `authorization`, `cookie`) cannot reach the QPACK state of unrelated clients on
+    /// the other hop.
     ///
-    /// Not part of the stable public API; exposed only so adapter crates can call it.
+    /// Not part of the stable public API; exposed only for adapter crates.
     #[doc(hidden)]
     pub fn __isolate_qpack_observer(&mut self) -> &mut Self {
         self.observer = Arc::new(HeaderObserver::default());
@@ -119,13 +116,10 @@ impl HttpContext {
 /// Like [`HttpContext::run`], but starts with the supplied bytes pre-filled into the request
 /// buffer.
 ///
-/// Used by runtime adapters that need to peek the first few bytes off a cleartext TCP stream
-/// to decide between HTTP/1.1 and HTTP/2 prior-knowledge dispatch, and then hand those bytes
-/// into the HTTP/1 parser without re-reading them.
-///
-/// The mechanism is the same one the keep-alive / pipelining path already uses when a follow-up
-/// request arrives on the tail of the previous response: any bytes already in the buffer are
-/// consumed by the parser before the next transport read.
+/// For adapters that peek the first few bytes off a cleartext TCP stream to decide between
+/// HTTP/1.1 and HTTP/2 prior-knowledge dispatch, then need to hand those bytes into the HTTP/1
+/// parser without re-reading. Bytes already in the buffer are consumed by the parser before
+/// any transport read happens.
 ///
 /// # Errors
 ///

@@ -13,11 +13,8 @@ use std::{
     time::{Instant, SystemTime},
 };
 
-/// What `Conn::process_first_frame_h3` resolved a bidi stream's first frame to.
-///
-/// Split apart from the actual `Conn` construction so the orchestrating caller
-/// (`H3Connection::process_inbound_bidi_with_reset`) can apply a stream RST against
-/// the still-owned transport on the error path before constructing anything.
+/// Resolution of an H3 bidi stream's first frame. Returned before `Conn`
+/// construction so the caller can issue a stream RST on the error path.
 pub(crate) enum H3FirstFrame {
     /// First frame was HEADERS, decoded and validated.
     Request {
@@ -34,15 +31,9 @@ where
 {
     /// Read and classify the first frame on an H3 bidi stream.
     ///
-    /// On success returns either a [`H3FirstFrame::Request`] (HEADERS, decoded + validated)
-    /// or a [`H3FirstFrame::WebTransport`] (0x41 signal). On error the borrowed transport is
-    /// returned to the caller intact so it can issue a stream RST before propagating.
-    ///
-    /// RFC 9114 §4.1: the first frame on a request stream MUST be HEADERS (or — extension —
-    /// the WebTransport 0x41 signal). DATA, `CANCEL_PUSH`, etc. before HEADERS is
-    /// `H3_FRAME_UNEXPECTED`. A first-frame *decode* failure is also `H3_FRAME_UNEXPECTED`:
-    /// anything we can't recognize as HEADERS up-front is by definition out of place. I/O
-    /// errors pass through unchanged.
+    /// Any first frame other than HEADERS or the WebTransport signal — including a
+    /// HEADERS frame that fails to decode — is `H3_FRAME_UNEXPECTED`. I/O errors pass
+    /// through.
     pub(crate) async fn process_first_frame_h3(
         h3_connection: &H3Connection,
         transport: &mut Transport,
@@ -224,15 +215,12 @@ where
 
     /// Apply h3-flavored finalizations to the response headers: insert a Date header if absent,
     /// surface content-length if known, strip h1-only connection-management headers (forbidden
-    /// in h3 per RFC 9114 §4.2).
+    /// in h3 per RFC 9114).
     ///
-    /// Skips Content-Length insertion on the extended-CONNECT upgrade path (RFC 9220 §3 reusing
-    /// RFC 8441): the response is HEADERS-only with the QUIC stream staying open as a bidi byte
-    /// channel.
+    /// Skips Content-Length insertion on the extended-CONNECT upgrade path: the response is
+    /// HEADERS-only with the QUIC stream staying open as a bidi byte channel.
     ///
-    /// Parallel to
-    /// [`Conn::finalize_response_headers_1x`][super::Conn::finalize_response_headers_1x]
-    /// (h1) and [`Conn::finalize_response_headers_h2`][super::Conn::finalize_response_headers_h2]
+    /// Parallel to `finalize_response_headers_1x` (h1) and `finalize_response_headers_h2`
     /// (h2); keep the three in sync when changing universal policy.
     pub(super) fn finalize_response_headers_h3(&mut self) {
         self.response_headers

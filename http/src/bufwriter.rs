@@ -100,13 +100,12 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for BufWriter<W> {
             max_buffer_bytes,
         } = &mut *self;
 
-        // Absorb into existing capacity if there's room
         if buffer.len() + additional.len() <= buffer.capacity() {
             buffer.extend_from_slice(additional);
             return Poll::Ready(Ok(additional.len()));
         }
 
-        // Buffer would overflow capacity — flush pending via vectored write
+        // Buffer would overflow — vector pending + new bytes in one syscall.
         while *buffer_flushed < buffer.len() {
             let pending = &buffer[*buffer_flushed..];
             let written = ready!(
@@ -131,7 +130,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for BufWriter<W> {
             }
         }
 
-        // Buffer now empty after flushing — try absorbing again
+        // Retry absorption now that the buffer is empty.
         if additional.len() <= buffer.capacity() {
             buffer.extend_from_slice(additional);
             return Poll::Ready(Ok(additional.len()));
@@ -458,7 +457,7 @@ mod tests {
             // Simulate body streaming
             bw.write_all(&body).await.unwrap();
 
-            // Append trailers via buffer_mut — this was broken before
+            // Append trailers via buffer_mut after body has streamed through.
             bw.buffer_mut().extend_from_slice(trailer);
 
             // Flush should send trailers

@@ -26,11 +26,6 @@ use std::{
 /// Future returned by the various send-staging primitives on [`H2Connection`]; resolves once
 /// the driver has fully framed and flushed the submitted message (request on the client,
 /// response on the server), or with the relevant `io::Error` on failure.
-///
-/// Holds the per-stream [`StreamState`] Arc (cloned out of the streams map at submit time),
-/// not a connection backref + id — so dropping the future doesn't require another map
-/// lookup and the conn task's wake registration stays local to the per-stream sync
-/// primitives.
 #[must_use = "futures do nothing unless awaited"]
 #[derive(Debug)]
 pub struct SubmitSend {
@@ -84,19 +79,12 @@ impl Future for SubmitSend {
 impl H2Connection {
     /// Hand a response off to the driver for framing and transmission.
     ///
-    /// The conn task hands owned `pseudos + headers + body` to the driver via the per-stream
-    /// submission slot and `await`s the returned future. On its next
-    /// `service_handler_signals` tick, the driver builds a [`FieldSection`] from the owned
-    /// data, HPACK-encodes it via [`HpackEncoder::encode`][hpack_encode], frames the
+    /// The conn task stages owned `pseudos + headers + body` in the per-stream submission
+    /// slot and `await`s the returned future. The driver HPACK-encodes the headers, frames
     /// HEADERS + DATA, and signals completion.
     ///
-    /// [hpack_encode]: crate::headers::hpack::HpackEncoder::encode
-    ///
     /// Trailers are not a separate argument: the driver pulls them off the body via
-    /// [`Body::trailers`] once the body is fully drained, mirroring how h1's send path
-    /// works.
-    ///
-    /// [`FieldSection`]: crate::headers::hpack::FieldSection
+    /// [`Body::trailers`] once the body is fully drained.
     pub(crate) fn submit_send(
         &self,
         stream_id: u32,
@@ -125,24 +113,16 @@ impl H2Connection {
 
     /// Hand a response off for an extended-CONNECT (RFC 8441) upgrade.
     ///
-    /// Frames the response HEADERS without `END_STREAM` and signals
-    /// [`SubmitSend`] completion the moment the HEADERS frame is on the wire — instead of
-    /// after the body finishes, as [`submit_send`][Self::submit_send] does. That early
-    /// completion lets [`Conn::send_h2`][crate::Conn::send_h2] return so the runtime
-    /// adapter can dispatch [`Handler::upgrade`][trillium::Handler::upgrade] while the
-    /// stream stays open as a bidirectional byte channel.
+    /// Frames the response HEADERS without `END_STREAM` and signals [`SubmitSend`]
+    /// completion the moment the HEADERS frame is on the wire — earlier than
+    /// [`submit_send`][Self::submit_send], which waits for the body to finish. The early
+    /// completion lets the upgrade handler take over while the stream stays open as a
+    /// bidirectional byte channel.
     ///
-    /// Internally constructs an [`H2OutboundReader`][crate::h2::transport::H2OutboundReader]
-    /// over the per-stream outbound queue ([`SendState::outbound`][outbound]) and submits
-    /// it as the response body. The upgrade handler appends bytes via
-    /// [`H2Transport`][crate::h2::transport::H2Transport]'s `AsyncWrite::poll_write`; the
-    /// driver's send pump pulls them via the body's `AsyncRead::poll_read` and frames them
-    /// as DATA frames bounded by per-stream + connection send windows. When the handler
-    /// closes the transport (or drops it), the reader returns `Ready(0)`, the send pump
-    /// emits `DATA(END_STREAM)`, and the stream tears down via the normal
-    /// `complete_and_remove_stream` path.
-    ///
-    /// [outbound]: crate::h2::transport::SendState::outbound
+    /// The stream's body is sourced from the per-stream outbound queue; the upgrade handler
+    /// writes bytes through the returned transport and the send pump frames them as DATA
+    /// bounded by per-stream + connection send windows. Closing or dropping the transport
+    /// emits `DATA(END_STREAM)` and tears the stream down.
     pub(crate) fn submit_upgrade(
         &self,
         stream_id: u32,
@@ -181,36 +161,21 @@ impl H2Connection {
     ///
     /// Returns `None` when:
     /// - The 2^31 odd-id space is exhausted (caller should fail over to a new connection), or
-    /// - The connection is shutting down (we've received GOAWAY or our own swansong has been asked
-    ///   to shut down) — opening another stream would just produce a stream the peer has promised
-    ///   to ignore.
-    ///
-    /// Staging is synchronous and infallible past the `None` checks: the submission is
-    /// published via the per-stream [`SendState::submission`][submission] slot and the driver
-    /// is woken via [`outbound_waker`][outbound_waker]. The driver's pickup pass observes the
-    /// new id in the shared streams map, allocates per-stream flow-control state, and the
-    /// existing send pump frames HEADERS + DATA + optional trailing HEADERS as if the
-    /// submission had come from the server-side path.
+    /// - The connection is shutting down (GOAWAY received or local shutdown requested).
     ///
     /// The returned [`SubmitSend`] resolves once the request has been fully framed and
     /// flushed, or with the relevant `io::Error` on failure. The response side is awaited
     /// separately via [`response_headers`][Self::response_headers] for the response HEADERS,
     /// and the [`H2Transport`]'s `AsyncRead` impl for the response body.
     ///
-    /// **`SubmitSend` is drop-safe.** The body, once handed off here, is owned by the
-    /// driver's per-stream `SendState`; the driver continues to drain it, frame DATA, emit
-    /// trailers / `END_STREAM`, and tear the stream down regardless of whether the caller
-    /// awaits or drops the returned `SubmitSend`. Clients that only care about the response
-    /// (the typical case) may drop it without polling.
+    /// **`SubmitSend` is drop-safe.** Once handed off here, the body is owned by the driver,
+    /// which continues to drain it, frame DATA, emit trailers / `END_STREAM`, and tear the
+    /// stream down whether or not the caller awaits the returned future. Clients that only
+    /// care about the response (the typical case) may drop it without polling.
     ///
     /// # Panics
     ///
-    /// Panics if any of the per-connection / per-stream mutexes is poisoned (a previous
-    /// thread panicked while holding the lock) — same posture as the rest of the h2
-    /// driver's mutex usage.
-    ///
-    /// [submission]: crate::h2::transport::SendState::submission
-    /// [outbound_waker]: Self::outbound_waker
+    /// Panics if any per-connection or per-stream mutex is poisoned.
     #[cfg(feature = "unstable")]
     pub fn open_stream(
         self: &Arc<Self>,
@@ -231,28 +196,25 @@ impl H2Connection {
             })
     }
 
-    /// Client-role: open a stream for an extended-CONNECT bootstrap (RFC 8441 §3 — WebSocket-
-    /// over-h2; the in-progress `draft-ietf-webtrans-http2` for WebTransport-over-h2).
+    /// Client-role: open a stream for an extended-CONNECT bootstrap (RFC 8441 for
+    /// WebSocket-over-h2; `draft-ietf-webtrans-http2` for WebTransport-over-h2).
     ///
-    /// `headers_plan` is the HPACK plan for the HEADERS block; the caller is responsible for
-    /// ensuring it carries `:method = CONNECT` and a `:protocol` pseudo-header. This is the
-    /// only case where staging a stream without a request body is *not* terminated by
-    /// `END_STREAM` on the initial HEADERS — instead, the per-stream outbound queue (the same
-    /// one [`H2Transport`]'s `AsyncWrite::poll_write` appends to) becomes the request body
-    /// and stays open until the application closes the transport.
+    /// `headers_plan` is the HPACK plan for the HEADERS block; the caller is responsible
+    /// for ensuring it carries `:method = CONNECT` and a `:protocol` pseudo-header. The
+    /// initial HEADERS is sent without `END_STREAM`; the per-stream outbound queue becomes
+    /// the request body and stays open until the application closes the returned transport.
     ///
-    /// Returns `(stream_id, H2Transport)` — no [`SubmitSend`]. The application reads response
-    /// HEADERS via [`Self::response_headers`] and then exchanges bytes over the returned
-    /// transport's `AsyncRead` + `AsyncWrite`.
+    /// Returns `(stream_id, H2Transport)` — no [`SubmitSend`]. The application reads
+    /// response HEADERS via [`Self::response_headers`] and then exchanges bytes over the
+    /// returned transport's `AsyncRead` + `AsyncWrite`.
     ///
     /// Returns `None` under the same conditions as [`Self::open_stream`]: stream-id space
     /// exhausted, or connection shutting down.
     ///
-    /// **Caller MUST first await
-    /// [`peer_settings`][Self::peer_settings] and verify the
+    /// **Caller MUST first await [`peer_settings`][Self::peer_settings] and verify the
     /// returned snapshot's `enable_connect_protocol() == Some(true)` before calling this.**
     /// Sending extended CONNECT to a peer that hasn't advertised
-    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` is a protocol violation per RFC 8441 §3.
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` is a protocol violation.
     #[cfg(feature = "unstable")]
     pub fn open_connect_stream(
         self: &Arc<Self>,
@@ -292,11 +254,9 @@ impl H2Connection {
 
         let state = Arc::new(StreamState::default());
 
-        // For an extended-CONNECT bootstrap, the body field of the submission must be the
-        // per-stream outbound queue — same shape the server-side `submit_upgrade` uses.
-        // That keeps HEADERS flowing without END_STREAM and turns the per-stream
-        // outbound buffer into the writeback channel reachable through `H2Transport`'s
-        // `AsyncWrite`.
+        // Extended-CONNECT bootstrap: sourcing the body from the per-stream outbound
+        // queue keeps HEADERS flowing without END_STREAM and lets the application's
+        // writes through `H2Transport`'s `AsyncWrite` flow out as DATA frames.
         let body = if is_upgrade {
             let reader = crate::h2::transport::H2OutboundReader::new(state.clone(), stream_id);
             Some(Body::new_streaming(reader, None))
@@ -304,11 +264,9 @@ impl H2Connection {
             body
         };
 
-        // Stage submission *before* publishing the stream id to the shared map. The driver's
-        // client-pickup pass scans the shared map, allocates a `StreamEntry`, and on the same
-        // tick the existing submission-pickup loop promotes this submission to a `SendCursor`.
-        // Doing it in this order means the submission is guaranteed visible the first time
-        // the driver sees the stream — no second tick needed to start framing.
+        // Stage submission *before* publishing the stream id to the shared map so the
+        // submission is guaranteed visible the first time the driver sees the stream —
+        // otherwise a second tick would be needed to start framing.
         *state
             .send
             .submission

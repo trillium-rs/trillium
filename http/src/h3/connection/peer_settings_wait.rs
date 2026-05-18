@@ -26,9 +26,9 @@ use {
 /// but did not enable the field the caller cares about", which a plain accessor on the
 /// snapshot otherwise can't tell apart — both yield `None`/`false` for the underlying field.
 ///
-/// Per RFC 9114 §7.2.4, an HTTP/3 endpoint sends SETTINGS exactly once at the start of its
-/// control stream; subsequent SETTINGS frames are a connection error. The snapshot is
-/// therefore stable for the life of the connection.
+/// An HTTP/3 endpoint sends SETTINGS exactly once at the start of its control stream;
+/// subsequent SETTINGS frames are a connection error. The snapshot is therefore stable for
+/// the life of the connection.
 ///
 /// Multiple `PeerSettingsReady` futures can park concurrently on the same connection; all
 /// wake together when the driver fires the underlying [`Event`][event_listener::Event].
@@ -76,17 +76,16 @@ impl Future for PeerSettingsReady<'_> {
 impl H3Connection {
     /// Park until the inbound control stream has applied the peer's SETTINGS frame.
     ///
-    /// The returned [`PeerSettingsReady`] future resolves to `Some(snapshot)` once a peer
-    /// SETTINGS frame has been applied, or to `None` if the connection was asked to shut
-    /// down before SETTINGS arrived. On a pooled connection that has already exchanged
-    /// SETTINGS, the future resolves on the first poll; only fresh, just-handshaked
-    /// connections actually park.
+    /// Resolves to `Some(snapshot)` once a peer SETTINGS frame has been applied, or to
+    /// `None` if the connection was asked to shut down before SETTINGS arrived. On a pooled
+    /// connection that has already exchanged SETTINGS, the future resolves on the first
+    /// poll; only fresh, just-handshaked connections actually park.
     ///
     /// Required for callers that send extended-CONNECT requests (RFC 9220 — WebSocket-over-h3,
     /// WebTransport-over-h3): the spec forbids sending a `:protocol` pseudo-header until the
     /// peer has advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL`. Awaiting this future and then
-    /// inspecting the returned [`H3Settings`] snapshot resolves the "peer hasn't sent SETTINGS
-    /// yet" vs "peer sent SETTINGS without the field" ambiguity in a single step:
+    /// inspecting the returned snapshot resolves the "peer hasn't sent SETTINGS yet" vs
+    /// "peer sent SETTINGS without the field" ambiguity in a single step:
     ///
     /// ```ignore
     /// let Some(settings) = h3.peer_settings_ready().await else {
@@ -100,8 +99,7 @@ impl H3Connection {
     /// For a non-blocking accessor that returns the current snapshot or `None` if SETTINGS
     /// have not yet been applied, see [`Self::peer_settings`].
     ///
-    /// Multiple awaiters on the same connection are supported — internally backed by an
-    /// [`Event`][event_listener::Event] rather than a single waker.
+    /// Multiple awaiters on the same connection are supported.
     #[cfg(feature = "unstable")]
     pub fn peer_settings_ready(&self) -> PeerSettingsReady<'_> {
         PeerSettingsReady(self, None)

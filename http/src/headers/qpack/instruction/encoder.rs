@@ -1,5 +1,4 @@
-//! Typed parser and wire-format encoders for QPACK encoder-stream instructions
-//! (RFC 9204 §3.2).
+//! Typed parser and wire-format encoders for QPACK encoder-stream instructions.
 //!
 //! [`parse`] reads one instruction off the wire and returns it as an [`EncoderInstruction`]
 //! without applying it to any table. The consumer ([`decoder_dynamic_table::DecoderDynamicTable`],
@@ -26,59 +25,59 @@ use crate::{
 };
 use futures_lite::io::AsyncRead;
 
-// §3.2.2: Insert With Name Reference — first byte pattern 1xxxxxxx.
+// Insert With Name Reference — first byte pattern 1xxxxxxx.
 const INSERT_WITH_NAME_REF: u8 = 0x80;
 // T bit within Insert With Name Reference — set for static-table references.
 const NAME_REF_STATIC_FLAG: u8 = 0x40;
 
-// §3.2.3: Insert With Literal Name — first byte pattern 01xxxxxx.
+// Insert With Literal Name — first byte pattern 01xxxxxx.
 const INSERT_WITH_LITERAL_NAME: u8 = 0x40;
 // H bit for the name string of Insert With Literal Name. Same role as the H flag
-// in a standalone §4.1.2 string-literal (Huffman-encoded on the wire), but packed
-// at bit 5 here because the surrounding instruction header eats the top two bits
-// and the name gets a 5-bit length prefix rather than §4.1.2's 7-bit one. The
-// value field of this same instruction *does* use the §4.1.2 wrapper, via
+// in a standalone string-literal (Huffman-encoded on the wire), but packed at bit
+// 5 here because the surrounding instruction header eats the top two bits and the
+// name gets a 5-bit length prefix rather than the standalone 7-bit one. The value
+// field of this same instruction *does* use the standalone wrapper, via
 // `read_string_with_huffman` / `encode_string`.
 const LITERAL_NAME_HUFFMAN_FLAG: u8 = 0x20;
 
-// §3.2.1: Set Dynamic Table Capacity — first byte pattern 001xxxxx.
+// Set Dynamic Table Capacity — first byte pattern 001xxxxx.
 const SET_DYNAMIC_TABLE_CAPACITY: u8 = 0x20;
 
-// §3.2.4: Duplicate — first byte pattern 000xxxxx. The high bits are already zero, so the
+// Duplicate — first byte pattern 000xxxxx. The high bits are already zero, so the
 // constant is just documentation for the encode path (no OR-in needed).
 const DUPLICATE: u8 = 0x00;
 
-/// One parsed encoder-stream instruction (RFC 9204 §3.2).
+/// One parsed encoder-stream instruction.
 ///
 /// Dynamic-name-ref variants carry the relative index rather than the resolved name: the
 /// parser has no dynamic-table reference and callers resolve indices at apply time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::headers) enum EncoderInstruction {
-    /// §3.2.1: Set Dynamic Table Capacity.
+    /// Set Dynamic Table Capacity.
     SetCapacity(usize),
-    /// §3.2.2: Insert With Name Reference (T=1, static table).
+    /// Insert With Name Reference (T=1, static table).
     InsertWithStaticNameRef { name_index: usize, value: Vec<u8> },
-    /// §3.2.2: Insert With Name Reference (T=0, dynamic table). `relative_index` is as seen
+    /// Insert With Name Reference (T=0, dynamic table). `relative_index` is as seen
     /// on the wire; the dispatcher resolves it against the current dynamic-table contents.
     InsertWithDynamicNameRef {
         relative_index: usize,
         value: Vec<u8>,
     },
-    /// §3.2.3: Insert With Literal Name.
+    /// Insert With Literal Name.
     InsertWithLiteralName {
         name: EntryName<'static>,
         value: Vec<u8>,
     },
-    /// §3.2.4: Duplicate.
+    /// Duplicate.
     Duplicate { relative_index: usize },
 }
 
 /// Parse the next encoder-stream instruction from `stream`.
 ///
 /// `max_entry_size` is our advertised `SETTINGS_QPACK_MAX_TABLE_CAPACITY` and bounds each
-/// individual name/value string length before allocation (RFC 9204 §3.2.2). Entries larger
-/// than our advertised capacity are invalid regardless, so rejecting at read time prevents
-/// a peer from forcing a huge allocation via a single length prefix.
+/// individual name/value string length before allocation. Entries larger than our
+/// advertised capacity are invalid regardless, so rejecting at read time prevents a peer
+/// from forcing a huge allocation via a single length prefix.
 ///
 /// Returns `Ok(None)` on clean EOF between instructions. `Ok(Some(_))` is a parsed
 /// instruction; `Err(H3Error::Io)` propagates an underlying transport I/O error
@@ -105,7 +104,7 @@ async fn parse_inner(
     };
 
     let instr = if first & INSERT_WITH_NAME_REF != 0 {
-        // §3.2.2: Insert With Name Reference — 1Txxxxxx
+        // Insert With Name Reference — 1Txxxxxx
         let is_static = first & NAME_REF_STATIC_FLAG != 0;
         let index = read_varint(first, 6, stream).await?;
         let value = read_string_with_huffman(max_entry_size, stream).await?;
@@ -122,7 +121,7 @@ async fn parse_inner(
             }
         }
     } else if first & INSERT_WITH_LITERAL_NAME != 0 {
-        // §3.2.3: Insert With Literal Name — 01HXXXXX
+        // Insert With Literal Name — 01HXXXXX
         let is_huffman = first & LITERAL_NAME_HUFFMAN_FLAG != 0;
         let name_len = read_varint(first, 5, stream).await?;
         let name_bytes = read_exact(name_len, max_entry_size, stream).await?;
@@ -142,11 +141,11 @@ async fn parse_inner(
         validate_value(&value)?;
         EncoderInstruction::InsertWithLiteralName { name, value }
     } else if first & SET_DYNAMIC_TABLE_CAPACITY != 0 {
-        // §3.2.1: Set Dynamic Table Capacity — 001XXXXX
+        // Set Dynamic Table Capacity — 001XXXXX
         let capacity = read_varint(first, 5, stream).await?;
         EncoderInstruction::SetCapacity(capacity)
     } else {
-        // §3.2.4: Duplicate — 000XXXXX
+        // Duplicate — 000XXXXX
         let relative_index = read_varint(first, 5, stream).await?;
         EncoderInstruction::Duplicate { relative_index }
     };
@@ -154,9 +153,9 @@ async fn parse_inner(
     Ok(Some(instr))
 }
 
-// --- §3.2 wire encoders ---
+// --- wire encoders ---
 
-/// Set Dynamic Table Capacity (§3.2.1): `001xxxxx` with a 5-bit prefix integer.
+/// Set Dynamic Table Capacity: `001xxxxx` with a 5-bit prefix integer.
 pub(in crate::headers) fn encode_set_capacity(capacity: usize) -> Vec<u8> {
     let mut buf = Vec::with_capacity(integer_prefix::encoded_length(capacity, 5));
     integer_prefix::encode_into(capacity, 5, &mut buf);
@@ -164,7 +163,7 @@ pub(in crate::headers) fn encode_set_capacity(capacity: usize) -> Vec<u8> {
     buf
 }
 
-/// Insert With Literal Name (§3.2.3): `01HNNNNN` with a 5-bit name-length prefix, followed
+/// Insert With Literal Name: `01HNNNNN` with a 5-bit name-length prefix, followed
 /// by the name bytes, then a string literal for the value.
 pub(in crate::headers) fn encode_insert_with_literal_name(name: &[u8], value: &[u8]) -> Vec<u8> {
     let mut buf = Vec::with_capacity(name.len() + value.len() + 4);
@@ -175,7 +174,7 @@ pub(in crate::headers) fn encode_insert_with_literal_name(name: &[u8], value: &[
     buf
 }
 
-/// Insert With Name Reference (§3.2.2): `1THNNNNN...` — 6-bit prefix integer for the name
+/// Insert With Name Reference: `1THNNNNN...` — 6-bit prefix integer for the name
 /// index (T selects static vs dynamic), followed by a string literal for the value.
 pub(in crate::headers) fn encode_insert_with_name_ref(
     name_index: usize,
@@ -190,7 +189,7 @@ pub(in crate::headers) fn encode_insert_with_name_ref(
     buf
 }
 
-/// Duplicate (§3.2.4): `000xxxxx` — 5-bit prefix integer for the relative index.
+/// Duplicate: `000xxxxx` — 5-bit prefix integer for the relative index.
 pub(in crate::headers) fn encode_duplicate(relative_index: usize) -> Vec<u8> {
     let mut buf = Vec::with_capacity(integer_prefix::encoded_length(relative_index, 5));
     integer_prefix::encode_into(relative_index, 5, &mut buf);
@@ -202,10 +201,10 @@ pub(in crate::headers) fn encode_duplicate(relative_index: usize) -> Vec<u8> {
 mod spec_vectors {
     //! Wire-level parse tests against the worked examples in RFC 9204 Appendix B.
     //!
-    //! These assert that our §3.2 parser produces the exact interpretation the spec
-    //! documents for a given byte sequence. They don't attempt to round-trip through our
-    //! encoder — our encoder makes different (and legitimate) policy choices around
-    //! Huffman selection, Duplicate emission, and base selection
+    //! These assert that our parser produces the exact interpretation the spec documents
+    //! for a given byte sequence. They don't attempt to round-trip through our encoder —
+    //! our encoder makes different (and legitimate) policy choices around Huffman
+    //! selection, Duplicate emission, and base selection
 
     use super::*;
     use futures_lite::future::block_on;

@@ -1,10 +1,10 @@
 use std::fmt;
 
-/// H2 error codes per RFC 9113 §7.
+/// H2 error codes per RFC 9113.
 ///
 /// The same codes appear in both GOAWAY (connection errors) and `RST_STREAM` (stream errors);
 /// whether a given use is connection- or stream-level is determined by context, not by the code
-/// itself. Unknown wire values decode to [`Self::NoError`] per §5.4.4 / §5.4.5.
+/// itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum H2ErrorCode {
@@ -84,7 +84,7 @@ impl fmt::Display for H2ErrorCode {
 impl std::error::Error for H2ErrorCode {}
 
 impl From<u32> for H2ErrorCode {
-    /// Unknown error codes decode to [`Self::NoError`] per RFC 9113 §5.4.4 / §5.4.5.
+    /// Unknown error codes decode to [`Self::NoError`].
     fn from(value: u32) -> Self {
         match value {
             0x1 => Self::ProtocolError,

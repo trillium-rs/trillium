@@ -1,4 +1,4 @@
-//! Reads the peer's QPACK decoder stream (RFC 9204 §4.4).
+//! Reads the peer's QPACK decoder stream.
 //!
 //! Runs as a connection-scoped task: parses a continuous stream of Section Acknowledgement,
 //! Stream Cancellation, and Insert Count Increment instructions via
@@ -29,10 +29,10 @@ impl EncoderDynamicTable {
         T: AsyncRead + Unpin + Send,
     {
         log::trace!("QPACK decoder stream reader: started");
-        // RFC 9204 §4.2: closure of the decoder stream is a connection error of type
-        // H3_CLOSED_CRITICAL_STREAM. process_instructions returns Ok on clean EOF; here we
-        // promote that to an error and mark the table failed. Graceful server-side
-        // shutdown drops this future via swansong before reaching that arm.
+        // Closure of the decoder stream is H3_CLOSED_CRITICAL_STREAM. process_instructions
+        // returns Ok on clean EOF; here we promote that to an error and mark the table
+        // failed. Graceful server-side shutdown drops this future via swansong before
+        // reaching that arm.
         let result = match self.process_instructions(stream).await {
             Ok(()) => {
                 log::debug!(
@@ -60,7 +60,7 @@ impl EncoderDynamicTable {
     /// Loop-body of [`run_reader`] separated for tests and corpus replay: parse and apply
     /// peer instructions until clean EOF or error, but **do not** convert EOF into
     /// `H3_CLOSED_CRITICAL_STREAM` and **do not** mark the table failed. Production wiring
-    /// goes through [`run_reader`], which does both per RFC 9204 §4.2.
+    /// goes through [`run_reader`], which does both.
     pub(crate) async fn process_instructions<T>(&self, stream: &mut T) -> Result<(), H3Error>
     where
         T: AsyncRead + Unpin + Send,
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn peer_eof_is_closed_critical_stream() {
-        // RFC 9204 §4.2: peer FIN on the decoder stream is H3_CLOSED_CRITICAL_STREAM.
+        // peer FIN on the decoder stream is H3_CLOSED_CRITICAL_STREAM.
         let table = EncoderDynamicTable::default();
         let mut wire: &[u8] = &[];
         let err = block_on(table.run_reader(&mut wire)).unwrap_err();

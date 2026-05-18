@@ -1,11 +1,8 @@
 //! Internal storage and mutation logic for the HPACK encoder dynamic table.
 //!
 //! [`TableState`] holds the entries, capacity, reverse-index, and the per-connection
-//! observation accumulator. Smaller than its QPACK cousin: HPACK has no encoder stream,
-//! no Known Received Count, no outstanding-section pinning, no blocked-streams budget,
-//! and no Duplicate instruction. Inserts are inline in the HEADERS block (RFC 7541
-//! §6.2.1), so this module emits no wire bytes — `encode.rs` writes the §6.2.1 wire
-//! form, and `insert` only mutates the table.
+//! observation accumulator. Inserts are inline in the HEADERS block, so this module emits
+//! no wire bytes — `encode.rs` writes the wire form, and `insert` only mutates the table.
 //!
 //! ## Index translation
 //!
@@ -25,7 +22,7 @@ use std::{
     fmt::{self, Debug},
 };
 
-/// Per-entry overhead used in the size calculation (RFC 7541 §4.1).
+/// Per-entry overhead used in the size calculation.
 const ENTRY_OVERHEAD: usize = 32;
 
 #[derive(Debug)]
@@ -36,23 +33,20 @@ pub(super) struct TableState {
     /// Sum of `entry.size` for all live entries.
     pub(super) current_size: usize,
     /// Working capacity (bytes). Caps the dynamic table; entries are evicted FIFO when
-    /// an insert would exceed it. Per §4.4, an insert whose own size exceeds `max_size`
-    /// clears the table and is not stored.
+    /// an insert would exceed it. An insert whose own size exceeds `max_size` clears the
+    /// table and is not stored.
     ///
-    /// Starts at 0 — the encoder reduces to static-or-literal until peer SETTINGS
-    /// arrives. RFC 7541 §4.2's default of 4096 is the *protocol's permission ceiling*
-    /// for what we may use, not what we MUST use; matching QPACK's "wait for peer to
-    /// advertise" model removes the client-side race where pre-SETTINGS HEADERS get
-    /// emitted assuming 4096 against a peer that intends to advertise less. See
-    /// [`HpackEncoder::set_protocol_max_size`][super::HpackEncoder::set_protocol_max_size].
+    /// Starts at 0; raised when peer SETTINGS arrives. See
+    /// [`HpackEncoder::set_protocol_max_size`][super::HpackEncoder::set_protocol_max_size]
+    /// for the "wait for peer" rationale.
     pub(super) max_size: usize,
     /// Encoder's local preferred operational size, fixed at construction. `max_size` is
     /// `min(local_preferred_size, peer_advertised_max)` — `peer_advertised_max` arrives
     /// via [`HpackEncoder::set_protocol_max_size`].
     pub(super) local_preferred_size: usize,
-    /// Queued §6.3 Dynamic Table Size Update. Set whenever `max_size` changes;
-    /// drained by [`HpackEncoder::encode`] which prepends the §6.3 instruction
-    /// before the first field representation of the next HEADERS block (RFC 7541 §4.2).
+    /// Queued Dynamic Table Size Update. Set whenever `max_size` changes; drained by
+    /// [`HpackEncoder::encode`] which prepends the instruction before the first field
+    /// representation of the next HEADERS block.
     pub(super) pending_size_update: Option<usize>,
     /// Total entries ever inserted (monotonically increasing). Equals one past the
     /// absolute index of the most-recently inserted entry.
@@ -107,7 +101,7 @@ impl Debug for NameIndex {
 pub(super) struct Entry {
     pub(super) name: EntryName<'static>,
     pub(super) value: Cow<'static, [u8]>,
-    /// `name.len() + value.len() + 32` per RFC 7541 §4.1.
+    /// `name.len() + value.len() + 32`.
     pub(super) size: usize,
 }
 
@@ -141,7 +135,7 @@ impl TableState {
 
     /// Apply peer's advertised `SETTINGS_HEADER_TABLE_SIZE`. Recomputes the operational
     /// `max_size` as `min(local_preferred_size, peer_advertised)`, evicts to fit if
-    /// shrinking, and queues a §6.3 Dynamic Table Size Update for the next encode.
+    /// shrinking, and queues a Dynamic Table Size Update for the next encode.
     ///
     /// Idempotent: a no-op if the new operational size matches the current one.
     pub(super) fn set_protocol_max_size(&mut self, peer_advertised: usize) {
@@ -170,7 +164,6 @@ impl TableState {
 
     /// Convert an absolute index to a 1-based dynamic index. Caller has already
     /// verified the entry is live (typically by reading the `abs_idx` from `by_name`).
-    /// The HPACK wire absolute index for §6.1 is `dyn_idx + 61`.
     pub(super) fn dyn_idx_of(&self, abs_idx: u64) -> usize {
         usize::try_from(self.insert_count - abs_idx).expect("dyn_idx fits in usize")
     }
@@ -186,16 +179,15 @@ impl TableState {
         Some(self.dyn_idx_of(abs_idx))
     }
 
-    /// Insert `(name, value)` at the newest end. Per RFC 7541 §4.4, an entry whose
-    /// own size exceeds `max_size` clears the table and is not stored — the wire
-    /// §6.2.1 instruction has already been written by the caller, and the decoder
-    /// applies the same §4.4 rule on its side, so the table stays in sync.
-    /// Otherwise, oldest entries are evicted FIFO until the new entry fits.
+    /// Insert `(name, value)` at the newest end. An entry whose own size exceeds
+    /// `max_size` clears the table and is not stored — the wire instruction has already
+    /// been written by the caller, and the decoder applies the same rule on its side, so
+    /// the table stays in sync. Otherwise, oldest entries are evicted FIFO until the new
+    /// entry fits.
     pub(super) fn insert(&mut self, name: EntryName<'_>, value: FieldLineValue<'_>) {
         let entry_size = name.len() + value.len() + ENTRY_OVERHEAD;
 
         if entry_size > self.max_size {
-            // §4.4: oversized entry — clear and don't store.
             self.entries.clear();
             self.current_size = 0;
             self.by_name.clear();
