@@ -1,5 +1,5 @@
-//! Typed parsers and wire-format encoders for QPACK encoder-stream (RFC 9204 §3.2) and
-//! decoder-stream (§4.4) instructions.
+//! Typed parsers and wire-format encoders for QPACK encoder-stream and decoder-stream
+//! instructions.
 //!
 //! The two directions carry different wire vocabularies, so each gets its own enum, parser,
 //! and wire encoders ([`encoder::EncoderInstruction`] and [`decoder::DecoderInstruction`]).
@@ -9,7 +9,7 @@
 //!
 //! Shared between submodules: the low-level wire-read helpers ([`read_first_byte`],
 //! [`read_varint`], [`read_exact`], [`read_string_with_huffman`], [`validate_value`]) and the
-//! §4.1.2 string encoder ([`encode_string`], also used by the §4.5 field-section emitter).
+//! string encoder ([`encode_string`], also used by the field-section emitter).
 //! Read helpers return `Result<_, ReadError>` — the per-direction `parse` function maps
 //! [`ReadError::Io`] to `H3Error::Io` and [`ReadError::Violation`] to the appropriate stream
 //! error code. Distinguishing the two matters because a connection-lost I/O error during a
@@ -23,7 +23,7 @@ use crate::headers::{huffman, integer_prefix};
 use futures_lite::io::{AsyncRead, AsyncReadExt};
 use std::io;
 
-// §4.1.2: H flag in a string literal with a 7-bit length prefix.
+// H flag in a string literal with a 7-bit length prefix.
 const STRING_HUFFMAN_FLAG: u8 = 0x80;
 
 /// Failure mode of an instruction-stream read helper.
@@ -74,8 +74,8 @@ async fn read_byte(stream: &mut (impl AsyncRead + Unpin)) -> Result<u8, ReadErro
     Ok(b[0])
 }
 
-/// Read a QPACK prefix-coded integer (RFC 9204 §4.1.1) whose first byte has already been
-/// consumed. `prefix_size` is the number of low bits of `first` occupied by the integer
+/// Read a QPACK prefix-coded integer whose first byte has already been consumed.
+/// `prefix_size` is the number of low bits of `first` occupied by the integer
 /// (remaining bits are flags the caller has already extracted).
 pub(super) async fn read_varint(
     first: u8,
@@ -117,10 +117,9 @@ pub(super) async fn read_varint(
 ///
 /// `max` is the caller-supplied ceiling on a single length-prefixed field — for the
 /// encoder-stream this is our advertised `SETTINGS_QPACK_MAX_TABLE_CAPACITY`, since any
-/// string larger than that would produce an entry the decoder would reject on apply
-/// (RFC 9204 §3.2.2). Bounding before allocation prevents a peer from triggering a
-/// multi-gigabyte allocation via a single 10-byte length prefix without delivering any
-/// payload.
+/// string larger than that would produce an entry the decoder would reject on apply.
+/// Bounding before allocation prevents a peer from triggering a multi-gigabyte
+/// allocation via a single 10-byte length prefix without delivering any payload.
 pub(super) async fn read_exact(
     len: usize,
     max: usize,
@@ -138,8 +137,8 @@ pub(super) async fn read_exact(
     Ok(buf)
 }
 
-/// Read a QPACK string literal (RFC 9204 §4.1.2): H flag + 7-bit length prefix, then the
-/// body. Huffman-decodes into plain bytes when the H flag is set.
+/// Read a QPACK string literal: H flag + 7-bit length prefix, then the body.
+/// Huffman-decodes into plain bytes when the H flag is set.
 ///
 /// `max` bounds the raw (on-wire) byte length; see [`read_exact`].
 pub(super) async fn read_string_with_huffman(
@@ -160,7 +159,7 @@ pub(super) async fn read_string_with_huffman(
     }
 }
 
-/// Reject values containing CR, LF, or NUL bytes — RFC 9114 §4.2 field-value sanitation.
+/// Reject values containing CR, LF, or NUL bytes — RFC 9114 field-value sanitation.
 pub(super) fn validate_value(value: &[u8]) -> Result<(), ReadError> {
     if memchr::memchr3(b'\r', b'\n', 0, value).is_some() {
         Err(ReadError::Violation)
@@ -169,13 +168,13 @@ pub(super) fn validate_value(value: &[u8]) -> Result<(), ReadError> {
     }
 }
 
-/// Encode a string literal per RFC 9204 §4.1.2.
+/// Encode a string literal.
 ///
 /// Tries Huffman encoding and uses it when strictly shorter. The H flag is placed at bit
 /// `prefix_size` of the first byte; the length occupies the low `prefix_size` bits as a
 /// varint. The caller is responsible for OR-ing any additional flags into the byte at
-/// `buf.len()` prior to the call after this returns. Shared between the §3.2 encoder-stream
-/// insert instructions and the §4.5 field-section emitter.
+/// `buf.len()` prior to the call after this returns. Shared between the encoder-stream
+/// insert instructions and the field-section emitter.
 ///
 /// No intermediate allocation: the Huffman-vs-raw decision is made from
 /// [`huffman::encoded_length_if_shorter`] without materializing the encoded form, and the

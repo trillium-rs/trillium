@@ -17,11 +17,10 @@ where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     /// HTTP/1.x response-header finalization. Parallel to
-    /// [`Conn::finalize_response_headers_h2`][super::Conn::finalize_response_headers_h2]
-    /// and [`Conn::finalize_response_headers_h3`][super::Conn::finalize_response_headers_h3]
-    /// — keep the three in sync when changing universal policy (e.g. how Date is set).
-    /// Differences are version-intrinsic: chunked Transfer-Encoding and `Connection: close`
-    /// are h1-only; the h2/h3 paths instead strip [`H1_ONLY_HEADERS`][super::H1_ONLY_HEADERS]
+    /// `finalize_response_headers_h2` and `finalize_response_headers_h3` — keep the
+    /// three in sync when changing universal policy (e.g. how Date is set).
+    /// Differences are version-intrinsic: chunked Transfer-Encoding and
+    /// `Connection: close` are h1-only; the h2/h3 paths strip `H1_ONLY_HEADERS`
     /// and let the framing layer signal end-of-stream.
     pub(super) fn finalize_response_headers_1x(&mut self) {
         if self.status == Some(Status::SwitchingProtocols) {
@@ -71,19 +70,17 @@ where
         {
             let chunked = body.len().is_none();
 
-            // Make absolutely sure that even if someone handed us a body that had chunked framing
-            // turned off, that it's on here, since this is the only reader that actually needs it
             body.ensure_chunked_framing();
 
             let loops_per_yield = self.context.config.copy_loops_per_yield;
 
             bufwriter.copy_from(&mut body, loops_per_yield).await?;
 
-            // Chunked-trailer-section stitch (RFC 9112 §7.1.2). `Body::poll_read` emitted
-            // the last-chunk marker `0\r\n` at EOF and stopped there; we own the rest of
-            // the framing because trailers are structured `Headers` (not bytes) and the
-            // terminating CRLF closes the trailer-section. See `Body::poll_read`'s
-            // `len: None` branch for the full rationale.
+            // Chunked-trailer-section stitch. `Body::poll_read` emitted the last-chunk
+            // marker `0\r\n` at EOF and stopped there; we own the rest of the framing
+            // because trailers are structured `Headers` (not bytes) and the terminating
+            // CRLF closes the trailer-section. See `Body::poll_read`'s `len: None`
+            // branch for the full rationale.
             if let Some(trailers) = body.trailers() {
                 log::trace!("sending trailers:\n{trailers}");
                 write_headers_or_trailers(bufwriter.buffer_mut(), &trailers, &self.context)?;

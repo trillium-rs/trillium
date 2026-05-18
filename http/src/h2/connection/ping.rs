@@ -83,24 +83,22 @@ impl H2Connection {
     /// Send a `PING` frame to the peer and resolve when its `PING ACK` arrives, returning
     /// the round-trip time.
     ///
-    /// `opaque` is the 8-byte payload echoed back by the peer (RFC 9113 §6.7). Caller picks
-    /// the value — typically a counter or a random nonce. A `PING` whose opaque payload is
-    /// already in flight on this connection resolves to `io::ErrorKind::AlreadyExists`.
+    /// `opaque` is the 8-byte payload the peer echoes back; the caller picks the value
+    /// (typically a counter or random nonce). A `PING` whose opaque payload is already
+    /// in flight resolves to `io::ErrorKind::AlreadyExists`.
     ///
     /// No internal timeout. Wrap the returned future with the runtime's
     /// `race_with_timeout` (or equivalent) to bound the wait.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the returned future before completion removes the pending entry from this
-    /// connection's tracking map. The PING frame may still go out (or already have gone
-    /// out) and the peer's ACK is silently dropped. Re-using the same `opaque` after drop
-    /// is safe.
+    /// Dropping the returned future before completion removes the pending entry. The PING
+    /// frame may still go out (or already have gone out) and the peer's ACK is silently
+    /// dropped. Re-using the same `opaque` after drop is safe.
     ///
     /// # Panics
     ///
-    /// Panics if any of the per-connection mutexes is poisoned (a previous thread panicked
-    /// while holding the lock) — same posture as the rest of the h2 driver's mutex usage.
+    /// Panics if any per-connection mutex is poisoned.
     pub fn send_ping(&self, opaque: [u8; 8]) -> SendPing<'_> {
         let mut pending = self
             .pending_pings
@@ -134,8 +132,7 @@ impl H2Connection {
         }
     }
 
-    /// Driver-side: drain the queue of outbound active PING opaque payloads. Called from
-    /// the driver's `service_handler_signals` tick.
+    /// Driver-side: drain the queue of outbound active PING opaque payloads for emission.
     pub(in crate::h2) fn drain_pending_ping_outbound(&self) -> Vec<[u8; 8]> {
         let mut queue = self
             .pending_ping_outbound

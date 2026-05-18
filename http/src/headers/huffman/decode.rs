@@ -50,7 +50,10 @@ const fn build_decode_tree() -> [Node; TREE_CAPACITY] {
                 let new = next_free;
                 next_free += 1;
 
-                #[allow(clippy::cast_possible_truncation)] // sym < 256
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "sym < 256 inside this branch"
+                )]
                 {
                     tree[new as usize] = if bit == 0 {
                         if sym < 256 {
@@ -93,7 +96,7 @@ struct NibbleEntry {
     symbol: u8,
     /// Whether a complete Huffman code was decoded in this nibble.
     emit: bool,
-    /// Whether the EOS marker was encountered (decoding error per RFC 7541 §5.2).
+    /// Whether the EOS marker was encountered (a decoding error).
     eos: bool,
 }
 
@@ -110,13 +113,15 @@ struct NibbleDecoder {
     /// the last decoded symbol). Used for end-of-input padding validation.
     depth: [u8; NUM_STATES],
 
-    /// Whether each state lies on the all-ones path from the root.
-    /// Combined with `depth ≤ 7`, determines whether end-of-input
-    /// padding is valid per RFC 7541 §5.2.
+    /// Whether each state lies on the all-ones path from the root. Combined with
+    /// `depth ≤ 7`, determines whether end-of-input padding is valid.
     padding_valid: [bool; NUM_STATES],
 }
 
-#[allow(clippy::too_many_lines)] // single const construction with sequential phases
+#[allow(
+    clippy::too_many_lines,
+    reason = "single const construction with sequential phases — splitting would obscure data flow"
+)]
 const fn build_nibble_decoder() -> NibbleDecoder {
     let tree = build_decode_tree();
 
@@ -132,7 +137,10 @@ const fn build_nibble_decoder() -> NibbleDecoder {
     let mut i = 1_usize;
     while i < TREE_CAPACITY {
         if let Node::Internal(_, _) = tree[i] {
-            #[allow(clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "num_states < NUM_STATES=256 fits u8; i < TREE_CAPACITY=514 fits u16"
+            )]
             {
                 node_to_state[i] = num_states as u8;
                 state_to_node[num_states] = i as u16;
@@ -307,11 +315,11 @@ pub(super) fn decode_bitwise(input: &[u8]) -> Result<Vec<u8>, HuffmanError> {
     Ok(output)
 }
 
-/// Huffman-decode a byte string per RFC 7541 §5.2.
+/// Huffman-decode a byte string.
 ///
-/// Uses a precomputed nibble-indexed state machine: each input byte
-/// requires exactly two table lookups (high nibble, low nibble),
-/// processing 4 bits per step instead of the naive 1 bit at a time.
+/// Uses a precomputed nibble-indexed state machine: each input byte requires exactly two
+/// table lookups (high nibble, low nibble), processing 4 bits per step instead of the
+/// naive 1 bit at a time.
 pub(in crate::headers) fn decode(input: &[u8]) -> Result<Vec<u8>, HuffmanError> {
     let mut output = Vec::with_capacity(input.len());
     let mut state = 0_usize; // state 0 = root

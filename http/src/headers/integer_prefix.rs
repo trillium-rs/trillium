@@ -11,11 +11,11 @@ pub enum IntegerPrefixError {
     UnexpectedEnd,
 }
 
-/// Decode a prefix-coded integer per RFC 7541 §5.1.
+/// Decode a prefix-coded integer per RFC 7541.
 ///
-/// `prefix_size` is the number of bits in the first byte used for the
-/// integer (the low bits). The remaining high bits belong to the
-/// caller (flags, type indicators, etc.).
+/// `prefix_size` is the number of bits in the first byte used for the integer (the
+/// low bits). The remaining high bits belong to the caller (flags, type indicators,
+/// etc.).
 ///
 /// Returns the decoded value and the unconsumed remainder of the input.
 pub(in crate::headers) fn decode(
@@ -35,7 +35,6 @@ pub(in crate::headers) fn decode(
         return Ok((value, rest));
     }
 
-    // Value continues in subsequent bytes
     let mut shift = 0_u32;
     for (i, &byte) in rest.iter().enumerate() {
         let payload = usize::from(byte & 0x7F);
@@ -55,9 +54,8 @@ pub(in crate::headers) fn decode(
     Err(IntegerPrefixError::UnexpectedEnd)
 }
 
-/// Encoded length of `value` under a prefix-coded integer with `prefix_size`-bit prefix
-/// (RFC 7541 §5.1), in bytes. Used to project wire sizes without materializing the
-/// encoding.
+/// Encoded length of `value` under a prefix-coded integer with `prefix_size`-bit
+/// prefix, in bytes. Projects wire sizes without materializing the encoding.
 pub(in crate::headers) fn encoded_length(value: usize, prefix_size: u8) -> usize {
     debug_assert!((1..=8).contains(&prefix_size));
 
@@ -76,11 +74,14 @@ pub(in crate::headers) fn encoded_length(value: usize, prefix_size: u8) -> usize
     1 + continuation
 }
 
-/// Encode a prefix-coded integer per RFC 7541 §5.1, appending the encoded bytes to `buf`.
+/// Encode a prefix-coded integer per RFC 7541, appending the encoded bytes to `buf`.
 ///
 /// The first byte appended contains the integer value in its low `prefix_size` bits; the
 /// caller is responsible for OR-ing in any flags in the high bits.
-#[allow(clippy::cast_possible_truncation)] // all casts are bounded: value < prefix_max <= 255, remaining < 128
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "all casts are bounded: value < prefix_max <= 255, remaining < 128"
+)]
 pub(in crate::headers) fn encode_into(value: usize, prefix_size: u8, buf: &mut Vec<u8>) {
     debug_assert!((1..=8).contains(&prefix_size));
 
@@ -130,7 +131,6 @@ mod tests {
         assert!(rest.is_empty());
     }
 
-    // High bits in first byte should be ignored
     #[test]
     fn decode_ignores_high_bits() {
         let (value, rest) = decode(&[0b111_01010], 5).unwrap();
@@ -138,7 +138,6 @@ mod tests {
         assert!(rest.is_empty());
     }
 
-    // Trailing bytes should be returned unconsumed
     #[test]
     fn decode_returns_remainder() {
         let (value, rest) = decode(&[10, 0xAA, 0xBB], 8).unwrap();

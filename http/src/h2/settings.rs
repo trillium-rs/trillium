@@ -1,43 +1,31 @@
+//! HTTP/2 SETTINGS frame contents.
+
 use super::H2ErrorCode;
 use crate::HttpConfig;
 use fieldwork::Fieldwork;
 
-/// `SETTINGS_HEADER_TABLE_SIZE` (RFC 9113 §6.5.2).
 const SETTINGS_HEADER_TABLE_SIZE: u16 = 0x1;
-/// `SETTINGS_ENABLE_PUSH` (RFC 9113 §6.5.2).
 const SETTINGS_ENABLE_PUSH: u16 = 0x2;
-/// `SETTINGS_MAX_CONCURRENT_STREAMS` (RFC 9113 §6.5.2).
 const SETTINGS_MAX_CONCURRENT_STREAMS: u16 = 0x3;
-/// `SETTINGS_INITIAL_WINDOW_SIZE` (RFC 9113 §6.5.2).
 const SETTINGS_INITIAL_WINDOW_SIZE: u16 = 0x4;
-/// `SETTINGS_MAX_FRAME_SIZE` (RFC 9113 §6.5.2).
 const SETTINGS_MAX_FRAME_SIZE: u16 = 0x5;
-/// `SETTINGS_MAX_HEADER_LIST_SIZE` (RFC 9113 §6.5.2).
 const SETTINGS_MAX_HEADER_LIST_SIZE: u16 = 0x6;
-/// `SETTINGS_ENABLE_CONNECT_PROTOCOL` (RFC 8441 §3) — advertises that the server
-/// accepts extended CONNECT requests carrying a `:protocol` pseudo-header.
+/// Extended CONNECT (RFC 8441): advertises that the server accepts CONNECT requests
+/// carrying a `:protocol` pseudo-header.
 const SETTINGS_ENABLE_CONNECT_PROTOCOL: u16 = 0x8;
 
-/// The upper bound on `SETTINGS_INITIAL_WINDOW_SIZE` (RFC 9113 §6.5.2).
 const MAX_INITIAL_WINDOW_SIZE: u32 = (1 << 31) - 1;
-/// The lower bound on `SETTINGS_MAX_FRAME_SIZE` (RFC 9113 §6.5.2).
 const MIN_MAX_FRAME_SIZE: u32 = 16_384;
-/// The upper bound on `SETTINGS_MAX_FRAME_SIZE` (RFC 9113 §6.5.2).
 const MAX_MAX_FRAME_SIZE: u32 = (1 << 24) - 1;
 
 /// Each setting on the wire is (id:u16, value:u32).
 const SETTING_ENTRY_LEN: usize = 6;
 
-/// H2 connection settings per RFC 9113 §6.5.2.
+/// H2 connection settings.
 ///
 /// `None` fields mean the setting was absent, implying the RFC default
 /// (4096 for header table, 1 for push, unlimited for concurrent streams / header list size,
 /// 65535 for initial window, 16384 for max frame size).
-///
-/// Use [`H2Settings::server_defaults`] for a reasonable outgoing configuration; use [`decode`] for
-/// incoming settings.
-///
-/// [`decode`]: H2Settings::decode
 #[derive(Clone, Copy, Eq, Fieldwork, Default)]
 #[fieldwork(get, set, with(option_set_some))]
 pub struct H2Settings {
@@ -48,14 +36,14 @@ pub struct H2Settings {
 
     /// Whether the peer is permitted to initiate server push.
     ///
-    /// Default: true. Trillium always advertises `Some(false)` from [`Self::from_config`]
-    /// because we never send `PUSH_PROMISE`; a peer that advertises `Some(true)` is a protocol
-    /// error for a server since clients cannot push.
+    /// Default: true. Trillium always advertises `Some(false)` because we never send
+    /// `PUSH_PROMISE`; a peer that advertises `Some(true)` is a protocol error for a server
+    /// since clients cannot push.
     enable_push: Option<bool>,
 
     /// The maximum number of concurrent streams the peer may initiate.
     ///
-    /// Default: unlimited. RFC 9113 recommends at least 100.
+    /// Default: unlimited. The spec recommends at least 100.
     max_concurrent_streams: Option<u32>,
 
     /// The initial flow-control window size for streams, in octets.
@@ -73,12 +61,12 @@ pub struct H2Settings {
     /// Default: unlimited.
     max_header_list_size: Option<u32>,
 
-    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL` (RFC 8441 §3) — when `Some(true)`, advertises
+    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL` (RFC 8441) — when `Some(true)`, advertises
     /// that the server accepts extended CONNECT requests (with a `:protocol`
     /// pseudo-header), enabling WebSocket-over-h2 and WebTransport-over-h2.
     ///
     /// `None` means the setting is absent (peer-default false). Peers MUST treat values
-    /// other than 0/1 as a connection-level `PROTOCOL_ERROR` per RFC 8441 §3.
+    /// other than 0/1 as a connection-level `PROTOCOL_ERROR`.
     enable_connect_protocol: Option<bool>,
 
     // GREASE setting included in encoded output per RFC 8701 when non-zero.
@@ -119,24 +107,22 @@ impl PartialEq for H2Settings {
 }
 
 impl H2Settings {
-    /// [`max_frame_size`][Self::max_frame_size] with the RFC 9113 §6.5.2 default of 16384
-    /// applied when the field is `None`. Use this when you need a concrete value for
-    /// framing.
+    /// [`max_frame_size`][Self::max_frame_size] with the default of 16384 applied when the
+    /// field is `None`. Use this when you need a concrete value for framing.
     pub(crate) fn effective_max_frame_size(&self) -> u32 {
         self.max_frame_size.unwrap_or(16_384)
     }
 
-    /// [`initial_window_size`][Self::initial_window_size] with the RFC 9113 §6.5.2 default
-    /// of 65535 applied when the field is `None`. Use this when seeding a new stream's send
-    /// window.
+    /// [`initial_window_size`][Self::initial_window_size] with the default of 65535 applied
+    /// when the field is `None`. Use this when seeding a new stream's send window.
     pub(crate) fn effective_initial_window_size(&self) -> u32 {
         self.initial_window_size.unwrap_or(65_535)
     }
 
-    /// [`max_concurrent_streams`][Self::max_concurrent_streams] with the RFC 9113 §6.5.2
-    /// "no limit" default applied when the field is `None`. The spec leaves the initial
-    /// value unbounded, so callers should treat the absence of an advertised limit as
-    /// permission to open as many streams as the stream-id space allows.
+    /// [`max_concurrent_streams`][Self::max_concurrent_streams] with the "no limit" default
+    /// applied when the field is `None`. The spec leaves the initial value unbounded, so
+    /// callers should treat the absence of an advertised limit as permission to open as
+    /// many streams as the stream-id space allows.
     #[cfg(feature = "unstable")]
     pub(crate) fn effective_max_concurrent_streams(&self) -> u32 {
         self.max_concurrent_streams.unwrap_or(u32::MAX)
@@ -167,7 +153,7 @@ impl H2Settings {
             initial_window_size: Some(config.h2_initial_stream_window_size()),
             max_frame_size: Some(config.h2_max_frame_size()),
             // Only advertise SETTINGS_ENABLE_CONNECT_PROTOCOL when actually enabled —
-            // omitting it (None) is equivalent to advertising 0 per RFC 8441 §3 default.
+            // omitting it (None) is equivalent to advertising 0 by default.
             enable_connect_protocol: config.extended_connect_enabled().then_some(true),
             grease_id,
             grease_value: fastrand::u32(..),

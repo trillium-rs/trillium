@@ -8,10 +8,10 @@ use std::{
 /// A view into the storage for a particular header name
 #[derive(Debug)]
 pub enum Entry<'a> {
-    /// A mutable view into the location that header values would be inserted into this
-    /// [`Headers`][super::Headers] for the specified `HeaderName`
+    /// A mutable view into the slot where header values would be inserted for the
+    /// specified `HeaderName`.
     Vacant(VacantEntry<'a>),
-    /// A mutable view into the header values are stored for the specified `HeaderName`
+    /// A mutable view into the header values stored for the specified `HeaderName`.
     Occupied(OccupiedEntry<'a>),
 }
 

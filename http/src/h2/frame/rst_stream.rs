@@ -1,4 +1,4 @@
-//! `RST_STREAM` frame (RFC 9113 §6.4).
+//! `RST_STREAM` frame.
 
 use super::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader, FrameType};
 use crate::h2::H2ErrorCode;

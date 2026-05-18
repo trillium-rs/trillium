@@ -1,7 +1,4 @@
 //! RFC 7541 Appendix A static table (61 entries, 1-indexed).
-//!
-//! HPACK indices 1..=61 refer to this table. Indices >= 62 refer to the dynamic table.
-//! Index 0 is reserved and MUST be treated as a decoding error (RFC 7541 §2.3.3).
 
 // Bring every KnownHeaderName variant the table uses into scope with the `K::` alias so
 // `KnownHeaderName::From` (the HTTP `From` header) doesn't shadow `std::convert::From`.
@@ -20,9 +17,6 @@ mod lookup;
 pub(in crate::headers) use lookup::static_table_lookup;
 
 /// A name in the HPACK static table — either a regular header or a pseudo-header.
-///
-/// Structurally parallel to the QPACK equivalent; kept local to HPACK so the two tables
-/// can evolve independently.
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub(in crate::headers) enum StaticHeaderName {
     Header(K),
@@ -76,7 +70,7 @@ pub(in crate::headers) fn static_entry(
         .ok_or(CompressionError::InvalidStaticIndex(index))
 }
 
-/// RFC 7541 Appendix A. Physically 0-indexed; callers add 1 via [`static_entry`].
+/// Physically 0-indexed; callers add 1 via [`static_entry`].
 pub(super) const STATIC_TABLE: [(StaticHeaderName, &str); 61] = [
     (Pseudo(Authority), ""),
     (Pseudo(Method), "GET"),
@@ -209,7 +203,7 @@ mod tests {
         assert_eq!(*v, "");
     }
 
-    /// Every entry's name should be ascii-lowercase (RFC 7540 §8.1.2 forbids uppercase).
+    /// Every entry's name should be ascii-lowercase.
     #[test]
     fn all_names_lowercase() {
         for (i, (name, _)) in STATIC_TABLE.iter().enumerate() {

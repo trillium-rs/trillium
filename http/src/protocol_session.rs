@@ -18,7 +18,7 @@ pub enum ProtocolSession {
         /// the [`H2Connection`] driver shared across every request on the wire
         #[field = "h2_connection"]
         connection: Arc<H2Connection>,
-        /// 31-bit stream id per RFC 9113 §5.1.1
+        /// 31-bit stream id per RFC 9113
         #[field = "h2_stream_id"]
         stream_id: u32,
     },
@@ -27,7 +27,7 @@ pub enum ProtocolSession {
         /// the [`H3Connection`] driver shared across every request on the wire
         #[field = "h3_connection"]
         connection: Arc<H3Connection>,
-        /// QUIC varint stream id per RFC 9000 §2.1
+        /// QUIC varint stream id per RFC 9000
         #[field = "h3_stream_id"]
         stream_id: u64,
     },

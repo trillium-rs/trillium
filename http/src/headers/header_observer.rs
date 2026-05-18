@@ -3,7 +3,6 @@
 //! Tracks the *set* of `(name, value)` pairs (and the set of names) the application
 //! has emitted across the lifetime of this listener, so each new connection's dynamic
 //! table can be pre-warmed with literals that the encoder is likely to emit again.
-//! Private to `trillium-http`; never appears in a public signature.
 //!
 //! Protocol-agnostic: the observation pool is shared across HPACK and QPACK encoders
 //! on the same listener (HTTP/2 and HTTP/3 see the same application headers, so an
@@ -61,24 +60,27 @@ use std::{
     sync::Mutex,
 };
 
-/// RFC 9204 §3.2.1 / RFC 7541 §4.1 per-entry overhead in the dynamic table
-/// (entry size = overhead + name bytes + value bytes). Identical for HPACK and QPACK.
+/// Per-entry overhead in the dynamic table (entry size = overhead + name bytes +
+/// value bytes). Identical for HPACK and QPACK.
 const ENTRY_OVERHEAD: u32 = 32;
 
 /// Which header-compression scheme to cost a priming candidate against. Selects
 /// per-protocol wire-byte constants in [`CostModel::estimate`]; the observation pool
 /// itself is protocol-agnostic.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[allow(dead_code)] // `Hpack` arm consumed by the HPACK encoder once it grows a dynamic table.
+#[allow(
+    dead_code,
+    reason = "Hpack arm currently unused; the cost model already supports it"
+)]
 pub(crate) enum HeaderCompression {
-    /// HPACK (RFC 7541) — HTTP/2 header compression. Inserts inline in HEADERS blocks.
+    /// HPACK — HTTP/2 header compression. Inserts inline in HEADERS blocks.
     Hpack,
-    /// QPACK (RFC 9204) — HTTP/3 header compression. Inserts on the encoder stream.
+    /// QPACK — HTTP/3 header compression. Inserts on the encoder stream.
     Qpack,
 }
 
-/// Stable, content-equal key for a header name in the cross-connection observer.
-/// All three variants are `Copy` and program-controlled by construction.
+/// Stable, content-equal key for a header name. All three variants are `Copy` and
+/// program-controlled by construction.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub(in crate::headers) enum NameKey {
     Known(KnownHeaderName),
@@ -116,12 +118,9 @@ pub(crate) struct HeaderObserver {
 
 #[derive(Default)]
 struct ObserverInner {
-    /// All `(name, &'static [u8])` pairs ever observed across connections. Bounded
-    /// by source-code-reachable `(NameKey, FieldLineValue::Static)` emit sites.
+    /// All `(name, &'static [u8])` pairs ever observed across connections.
     seen_pairs: HashSet<(NameKey, &'static [u8])>,
-    /// All names ever observed across connections. Bounded by the union of
-    /// `KnownHeaderName`, `PseudoHeaderName`, and `&'static str` literals reachable
-    /// as Unknown names in the binary.
+    /// All names ever observed across connections.
     seen_names: HashSet<NameKey>,
 }
 
@@ -174,12 +173,11 @@ impl HeaderObserver {
     }
 
     /// True iff `name` (with optional `value`) has ever been observed across any
-    /// connection. Consulted by the encoder's dup-drain refresh pass.
+    /// connection.
     ///
     /// For `value = Some(FieldLineValue::Static(s))`, looks up the exact pair.
     /// For other value variants (or `None`), falls back to the name-only set —
-    /// runtime-allocated values aren't paired but their name dimension is, and
-    /// "is this name in the priming set?" answers the dup-drain question.
+    /// runtime-allocated values aren't paired but their name dimension is.
     pub(in crate::headers) fn is_hot(
         &self,
         name: &EntryName<'_>,
@@ -360,16 +358,13 @@ impl ConnectionAccumulator {
         self.record(key, static_value);
     }
 
-    /// Pre-extracted form of [`observe`](Self::observe). The HPACK encoder's
-    /// per-line walk extracts the `(NameKey, static_value)` pair from the
-    /// field-line shape and calls this directly, skipping the [`observe`]
-    /// matching logic — the encoder already has the variants in hand.
+    /// Pre-extracted form of [`observe`](Self::observe) for callers that already
+    /// have the `(NameKey, static_value)` pair in hand.
     ///
     /// `static_value` is `Some(s)` only for non-uncacheable names with
     /// `FieldLineValue::Static` values — exactly the cases [`observe`] would
     /// have considered for full-pair tracking. `None` covers both the
-    /// uncacheable-name and non-Static-value cases (which produce identical
-    /// effects in the accumulator: name-only observation).
+    /// uncacheable-name and non-Static-value cases.
     pub(in crate::headers) fn record(&mut self, key: NameKey, static_value: Option<&'static [u8]>) {
         if !self.seen_names.contains(&key) {
             self.seen_names.push(key);
@@ -382,7 +377,6 @@ impl ConnectionAccumulator {
             return;
         }
 
-        // Linear scan for an existing entry under this name.
         let mut same_pos: Option<usize> = None;
         let mut diff_pos: Option<usize> = None;
         for (i, (kk, ss)) in self.seen_pairs.iter().enumerate() {
@@ -436,7 +430,11 @@ impl CostModel {
     /// Indexed form is 1 byte at typical dynamic indices while QPACK's
     /// `IndexedDynamic` is ~2 bytes; the cost-model output is rough enough that the
     /// difference only matters at the ranking margins.
-    #[allow(clippy::match_same_arms)]
+    #[allow(
+        clippy::match_same_arms,
+        reason = "arms differ semantically (None vs StaticHit::Full/Name) and are kept separate \
+                  for clarity"
+    )]
     fn estimate(
         compression: HeaderCompression,
         name: &EntryName<'_>,

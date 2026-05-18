@@ -71,8 +71,7 @@ pub(in crate::headers) const fn static_lookup_name(name: &EntryName) -> Option<&
 /// Look up a field name + value pair in the HPACK static table.
 ///
 /// Walks only the candidate indices for the given name (typically 1; up to 7 for
-/// `:status`), avoiding the 61-entry linear scan that the previous encoder did per
-/// header line.
+/// `:status`).
 pub(in crate::headers) fn static_table_lookup(name: &EntryName, value: &[u8]) -> StaticHit {
     let Some(indices) = static_lookup_name(name) else {
         return StaticHit::None;

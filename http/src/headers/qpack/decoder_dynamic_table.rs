@@ -1,3 +1,10 @@
+//! QPACK decoder dynamic table (RFC 9204).
+//!
+//! Per-connection state for the decoder side: the dynamic-table entries, the
+//! blocked-streams budget, the waiter registry for header blocks whose Required Insert
+//! Count is not yet satisfied, and the Section Acknowledgement queue feeding the decoder
+//! stream.
+
 use crate::{
     h3::{H3Error, H3ErrorCode},
     headers::entry_name::EntryName,
@@ -21,10 +28,8 @@ mod writer;
 
 /// The QPACK dynamic table for a single HTTP/3 connection (decoder side).
 ///
-/// Entries are added by `run_inbound_encoder` as it processes the peer's encoder stream.
-/// Request streams that reference the dynamic table call
-/// [`get`](DecoderDynamicTable::get) and await it — it resolves once the required number
-/// of inserts have arrived.
+/// Entries are added as encoder-stream instructions arrive. Request streams that reference
+/// the dynamic table park until the required number of inserts have arrived.
 #[derive(Debug)]
 pub struct DecoderDynamicTable {
     inner: Mutex<DecoderDynamicTableInner>,
@@ -50,10 +55,10 @@ struct DecoderDynamicTableInner {
     insert_count: u64,
     /// Set when the encoder stream fails, to propagate the error to blocked waiters.
     failed: Option<H3ErrorCode>,
-    /// Pending Section Acknowledgements for streams whose header blocks have been successfully
-    /// decoded with a non-zero Required Insert Count. Drained by `run_decoder` to send Section
-    /// Acknowledgement instructions; the `required_insert_count` is needed so `run_decoder`
-    /// can avoid double-counting inserts that the SA already covers via Known Received Count.
+    /// Pending Section Acknowledgements for streams whose header blocks have been
+    /// successfully decoded with a non-zero Required Insert Count. Drained when emitting
+    /// Section Acknowledgement instructions; the `required_insert_count` is needed to avoid
+    /// double-counting inserts that the SA already covers via Known Received Count.
     pending_section_acks: Vec<PendingSectionAck>,
     /// `SETTINGS_QPACK_BLOCKED_STREAMS` — what we advertised; fixed for the connection.
     max_blocked_streams: usize,
@@ -98,6 +103,7 @@ impl Debug for DecoderDynamicTableInner {
     }
 }
 
+/// Queued Section Acknowledgement awaiting emission on the decoder stream.
 #[derive(Debug, Clone, Copy)]
 pub(in crate::headers) struct PendingSectionAck {
     pub(in crate::headers) stream_id: u64,
@@ -108,7 +114,7 @@ pub(in crate::headers) struct PendingSectionAck {
 struct DynamicEntry {
     name: EntryName<'static>,
     value: Cow<'static, [u8]>,
-    /// `name.len() + value.len() + 32` per RFC 9204 §3.2.1.
+    /// `name.len() + value.len() + 32`.
     size: usize,
 }
 
@@ -137,6 +143,9 @@ impl Drop for BlockedStreamGuard<'_> {
 }
 
 impl DecoderDynamicTable {
+    /// Construct with our advertised `SETTINGS_QPACK_MAX_TABLE_CAPACITY` and
+    /// `SETTINGS_QPACK_BLOCKED_STREAMS`. The operational `capacity` starts at 0 until the
+    /// peer sends a Set Dynamic Table Capacity instruction on the encoder stream.
     pub(crate) fn new(max_capacity: usize, max_blocked_streams: usize) -> Self {
         Self {
             inner: Mutex::new(DecoderDynamicTableInner {
@@ -188,7 +197,7 @@ impl DecoderDynamicTable {
         self.inner.lock().unwrap().max_capacity
     }
 
-    /// Reconstruct the Required Insert Count from its encoded form per RFC 9204 §4.5.1.
+    /// Reconstruct the Required Insert Count from its encoded form.
     ///
     /// Returns `0` for a static-only field section (encoded value 0). Returns an error if
     /// the encoded value is invalid given the current table state.
@@ -249,8 +258,8 @@ impl DecoderDynamicTable {
     ///
     /// # Errors
     ///
-    /// Returns an error if the entry alone exceeds the current capacity (encoder violated
-    /// RFC 9204 §3.2.2).
+    /// Returns an error if the entry alone exceeds the current capacity (encoder protocol
+    /// violation).
     pub(in crate::headers) fn insert(
         &self,
         name: impl Into<EntryName<'static>>,
@@ -300,7 +309,7 @@ impl DecoderDynamicTable {
     }
 
     /// Duplicate an existing entry by current relative index (0 = most recently inserted).
-    /// Used for the Duplicate encoder instruction (RFC 9204 §3.2.4).
+    /// Used for the Duplicate encoder instruction.
     pub(in crate::headers) fn duplicate(&self, relative_index: usize) -> Result<(), H3Error> {
         let (name, value) = {
             let inner = self.inner.lock().unwrap();
@@ -327,8 +336,8 @@ impl DecoderDynamicTable {
             .map(|e| e.name.clone())
     }
 
-    /// Record that a request stream's header block has been successfully decoded and requires
-    /// a Section Acknowledgement. Wakes `run_decoder` to send the instruction.
+    /// Record that a request stream's header block has been successfully decoded and
+    /// requires a Section Acknowledgement. Wakes the decoder-stream sender.
     pub(in crate::headers) fn acknowledge_section(
         &self,
         stream_id: u64,
@@ -346,7 +355,6 @@ impl DecoderDynamicTable {
     }
 
     /// Drain all pending Section Acknowledgements and return the current insert count.
-    /// Called by `run_decoder` on each wakeup.
     pub(in crate::headers) fn drain_pending_acks_and_count(&self) -> (Vec<PendingSectionAck>, u64) {
         let mut inner = self.inner.lock().unwrap();
         let acks = inner.pending_section_acks.drain(..).collect();
@@ -354,9 +362,8 @@ impl DecoderDynamicTable {
         (acks, count)
     }
 
-    /// Create an [`EventListener`] that resolves the next time the table is updated (insert,
-    /// capacity change, new pending ack, or failure). Used by `run_decoder` to wake when
-    /// there is work to do.
+    /// Create an [`EventListener`] that resolves the next time the table is updated
+    /// (insert, capacity change, new pending ack, or failure).
     pub(in crate::headers) fn listen(&self) -> EventListener {
         self.event.listen()
     }

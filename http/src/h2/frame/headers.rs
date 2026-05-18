@@ -1,4 +1,4 @@
-//! HEADERS frame (RFC 9113 §6.2).
+//! HEADERS frame.
 //!
 //! Decode consumes the 9-byte header plus any PADDED pad-length byte and/or PRIORITY 5-byte
 //! block; the `header_block_length` field-fragment bytes and `padding_length` padding bytes stay
@@ -73,9 +73,6 @@ pub(crate) fn encoded_prefix_len(padding_length: u8, has_priority: bool) -> usiz
 /// Write the frame prefix (9-byte header + optional pad-length + optional priority) into `buf`.
 /// The caller writes the `header_block_length` header-block bytes and `padding_length` padding
 /// bytes that follow.
-///
-/// `trillium-http` never emits the deprecated PRIORITY flag itself; `priority` is wired up for
-/// completeness and covered by tests, but server code paths should always pass `None`.
 pub(crate) fn encode_prefix(
     stream_id: u32,
     end_stream: bool,

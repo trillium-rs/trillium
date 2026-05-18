@@ -1,4 +1,4 @@
-//! CONTINUATION frame (RFC 9113 §6.10).
+//! CONTINUATION frame.
 //!
 //! Decode returns the `header_block_length` field-fragment length; the fragment bytes stay in
 //! the caller's input slice. Encode writes only the 9-byte header.

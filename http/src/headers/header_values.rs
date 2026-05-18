@@ -6,9 +6,8 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-/// A header value is a collection of one or more [`HeaderValue`]. It
-/// has been optimized for the "one [`HeaderValue`]" case, but can
-/// accomodate more than one value.
+/// A collection of one or more [`HeaderValue`], optimized for the
+/// single-value case.
 #[derive(Clone, Eq, PartialEq)]
 pub struct HeaderValues(SmallVec<[HeaderValue; 1]>);
 impl Deref for HeaderValues {
@@ -99,18 +98,14 @@ impl HeaderValues {
         Self(SmallVec::from_const([HeaderValue::const_new(value)]))
     }
 
-    /// If there is only a single value, returns that header as a
-    /// borrowed string slice if it is utf8. If there are more than
-    /// one header value, or if the singular header value is not utf8,
-    /// `as_str` returns None.
+    /// Returns the singular value as a borrowed string slice if there is exactly one
+    /// and it is utf8; `None` otherwise.
     pub fn as_str(&self) -> Option<&str> {
         self.one().and_then(HeaderValue::as_str)
     }
 
-    /// If there is only a single `HeaderValue` inside this
-    /// `HeaderValues`, `one` returns a reference to that value. If
-    /// there are more than one header value inside this
-    /// `HeaderValues`, `one` returns None.
+    /// Returns a reference to the singular value if there is exactly one;
+    /// `None` otherwise.
     pub fn one(&self) -> Option<&HeaderValue> {
         if self.len() == 1 {
             self.0.first()
@@ -130,12 +125,6 @@ impl HeaderValues {
         self.0.extend(values);
     }
 }
-
-// impl AsRef<[u8]> for HeaderValues {
-//     fn as_ref(&self) -> &[u8] {
-//         self.one().as_ref()
-//     }
-// }
 
 macro_rules! delegate_from_to_header_value {
     ($($t:ty),*) => {

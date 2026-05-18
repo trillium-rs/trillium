@@ -66,9 +66,9 @@ where
         });
     }
 
-    /// Append the 24-byte RFC 9113 §3.4 client connection preface to `write_buf`. The
-    /// next outbound drain flushes it, and the `NeedsServerSettings` state follows up
-    /// with our initial SETTINGS frame. Client role only.
+    /// Append the 24-byte client connection preface to `write_buf`. The next outbound
+    /// drain flushes it, and the `NeedsServerSettings` state follows up with our initial
+    /// SETTINGS frame. Client role only.
     pub(super) fn queue_client_preface(&mut self) {
         self.write_buf
             .extend_from_slice(super::recv::CLIENT_PREFACE);
@@ -111,8 +111,7 @@ where
             frame::rst_stream::encode(stream_id, code, buf)
         });
         // Record in the ledger so subsequent frames the peer sends on this stream get
-        // stream-level `STREAM_CLOSED` rather than connection-level `PROTOCOL_ERROR`
-        // (§5.1 closed-state rule for RST_STREAM-closed streams).
+        // stream-level `STREAM_CLOSED` rather than connection-level `PROTOCOL_ERROR`.
         self.closed_streams.record(stream_id, ClosedReason::Reset);
     }
 }

@@ -1,4 +1,4 @@
-//! Dynamic-table-aware QPACK field section encoder (RFC 9204 §4.5).
+//! Dynamic-table-aware QPACK field section encoder (RFC 9204).
 //!
 //! Two-phase design:
 //!
@@ -8,8 +8,7 @@
 //!    min-referenced `abs_idx`. Section registration happens inside the same critical section so
 //!    the blocked-streams accounting is atomic.
 //!
-//! 2. **Emit phase** runs lock-free. It converts the planned [`Emission`] list into wire bytes
-//!    using the §4.5 wire helpers.
+//! 2. **Emit phase** runs lock-free. It converts the planned [`Emission`] list into wire bytes.
 //!
 //! ## Per-line decision
 //!
@@ -36,9 +35,8 @@
 //! ## Sensitive headers
 //!
 //! Headers whose name marks the value uncacheable
-//! ([`EntryName::has_uncacheable_value`]) are excluded from the predictor and never
-//! warm-inserted. This is a conservative stand-in for the RFC 9204 §4.5.4 N bit until
-//! `FieldLine` carries the bit through end-to-end.
+//! ([`EntryName::has_uncacheable_value`]) and values explicitly marked Never-Indexed are
+//! excluded from the predictor and never warm-inserted.
 
 use super::{EncoderDynamicTable, SectionRefs, state::TableState};
 use crate::headers::{
@@ -152,38 +150,37 @@ impl EncoderDynamicTable {
 
 /// A single field-line encoding decision produced by the plan phase.
 ///
-/// Borrows name/value slices from the caller's `FieldSection` — the plan lives only for the
-/// duration of one `encode()` call, so the lifetime is always trivially satisfied.
+/// Borrows name/value slices from the caller's `FieldSection` — the plan lives only for
+/// the duration of one `encode()` call, so the lifetime is always trivially satisfied.
 ///
-/// The literal variants carry a `never_indexed` flag (RFC 9204 §4.5.4 N bit). The flag is
-/// sourced from the per-value `HeaderValue::is_never_indexed()` set by the QPACK decoder
-/// when re-emitting a section round-tripped through `Headers` (e.g. through trillium-proxy).
+/// The literal variants carry a `never_indexed` flag (the N bit). The flag is sourced from
+/// the per-value `HeaderValue::is_never_indexed()` set by the QPACK decoder when
+/// re-emitting a section round-tripped through `Headers`.
 #[derive(Debug)]
 enum Emission<'lines, 'names> {
-    /// §4.5.2: Indexed Field Line referencing the QPACK static table (T=1).
+    /// Indexed Field Line referencing the QPACK static table (T=1).
     IndexedStatic(u8),
 
-    /// §4.5.2: Indexed Field Line referencing the dynamic table (T=0), pre-base. Stored as
-    /// the absolute table index; converted to the relative index at emit time.
+    /// Indexed Field Line referencing the dynamic table (T=0), pre-base. Stored as the
+    /// absolute table index; converted to the relative index at emit time.
     IndexedDynamicPreBase(u64),
 
-    /// §4.5.4: Literal Field Line with Name Reference, against the QPACK static table (T=1).
+    /// Literal Field Line with Name Reference, against the QPACK static table (T=1).
     LiteralStaticNameRef {
         name_index: u8,
         value: FieldLineValue<'lines>,
         never_indexed: bool,
     },
 
-    /// §4.5.4: Literal Field Line with Name Reference, against the dynamic table (T=0),
-    /// pre-base. Stored as the absolute table index; converted to the relative index at emit
-    /// time.
+    /// Literal Field Line with Name Reference, against the dynamic table (T=0), pre-base.
+    /// Stored as the absolute table index; converted to the relative index at emit time.
     LiteralDynamicNameRefPreBase {
         abs_idx: u64,
         value: FieldLineValue<'lines>,
         never_indexed: bool,
     },
 
-    /// §4.5.6: Literal Field Line with Literal Name.
+    /// Literal Field Line with Literal Name.
     LiteralLiteralName {
         name: &'lines EntryName<'names>,
         value: FieldLineValue<'lines>,
@@ -302,9 +299,9 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     ) -> Emission<'lines, 'names> {
         let static_match = static_table_lookup(name, Some(value.as_bytes()));
 
-        // 1. Static full match: cheapest possible encoding, no dynamic-table interaction. RFC 9204
-        //    §4.5.4 requires N=1 fields to use a literal representation, so we skip the indexed
-        //    shortcut when never_indexed.
+        // 1. Static full match: cheapest possible encoding, no dynamic-table interaction. N=1
+        //    fields must use a literal representation, so we skip the indexed shortcut when
+        //    never_indexed.
         if !never_indexed && let StaticHit::Full(i) = static_match {
             return Emission::IndexedStatic(i);
         }
@@ -351,8 +348,8 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
 
         // 5. Literal form: static name ref → pre-insert dyn name ref (still live and referenceable)
         //    → literal-literal. Section never references the freshly- inserted entry from step 4. A
-        //    `StaticHit::Full` reaches step 5 only when `never_indexed` blocked the §4.5.2 indexed
-        //    shortcut; the static index is still a valid name reference for §4.5.4.
+        //    `StaticHit::Full` reaches step 5 only when `never_indexed` blocked the indexed
+        //    shortcut; the static index is still a valid name reference for the literal form.
         let static_name_index = match static_match {
             StaticHit::Name(i) => Some(i),
             StaticHit::Full(i) if never_indexed => Some(i),
@@ -475,14 +472,14 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
     }
 }
 
-/// Write the section prefix (§4.5.1). For a section with no dynamic references this is the
-/// fixed two-byte `[0x00, 0x00]` prefix. Otherwise it encodes the Required Insert Count per
-/// §4.5.1.1 and a Delta Base of zero (base = RIC, sign = 0) per §4.5.1.2.
+/// Write the section prefix. For a section with no dynamic references this is the fixed
+/// two-byte `[0x00, 0x00]` prefix. Otherwise it encodes the Required Insert Count and a
+/// Delta Base of zero (base = RIC, sign = 0).
 ///
-/// **Always `base = RIC` — post-base references unimplemented.** Setting `base < RIC` would
-/// let us emit references in `[base, RIC)` via the post-base instruction shapes (§4.5.4 +
-/// §4.5.5), which yields smaller varints than the pre-base form when many references sit
-/// near the section's RIC. The win is meaningful only for high-cardinality sections (e.g.
+/// **Always `base = RIC` — post-base references unimplemented.** Setting `base < RIC`
+/// would let us emit references in `[base, RIC)` via the post-base instruction shapes,
+/// which yields smaller varints than the pre-base form when many references sit near the
+/// section's RIC. The win is meaningful only for high-cardinality sections (e.g.
 /// reverse-proxy traffic forwarding many distinct headers per request); typical
 /// request/response flows don't benefit. Decoder side already supports both shapes
 /// (`apply_indexed_with_post_base` etc.), so adding encoder-side post-base emission is a
@@ -561,7 +558,7 @@ fn emit(emission: &Emission<'_, '_>, section_ric: u64, buf: &mut Vec<u8>) {
     instruction.encode(buf);
 }
 
-/// Encode a Required Insert Count per RFC 9204 §4.5.1.1.
+/// Encode a Required Insert Count.
 ///
 /// Returns 0 for a section that references no dynamic-table entries. Otherwise returns
 /// `(ric mod (2 * max_entries)) + 1`, where `max_entries = max_capacity / 32`.

@@ -68,9 +68,8 @@ impl H2Connection {
     ///
     /// Resolves to the decoded [`FieldSection`] (including h2 pseudo-headers like `:status`)
     /// once the driver receives and stashes the peer's first HEADERS frame on this stream.
-    /// Callers typically split pseudos out via [`FieldSection::pseudo_headers`] /
-    /// [`into_headers`][FieldSection::into_headers] before populating user-facing
-    /// `Headers` + status.
+    /// Callers typically decompose it via [`FieldSection::into_parts`] to populate
+    /// user-facing `Headers` + status.
     ///
     /// Single-shot: the `FieldSection` is moved out on a successful poll, so subsequent calls
     /// for the same stream id will surface `ConnectionAborted` rather than re-deliver the
@@ -82,8 +81,7 @@ impl H2Connection {
     ///   stream, sent GOAWAY, or otherwise tore the connection down).
     ///
     /// [`FieldSection`]: crate::headers::hpack::FieldSection
-    /// [`FieldSection::pseudo_headers`]: crate::headers::hpack::FieldSection::pseudo_headers
-    /// [`FieldSection::into_headers`]: crate::headers::hpack::FieldSection::into_headers
+    /// [`FieldSection::into_parts`]: crate::headers::hpack::FieldSection::into_parts
     #[cfg(feature = "unstable")]
     pub fn response_headers(&self, stream_id: u32) -> ResponseHeaders<'_> {
         ResponseHeaders {
@@ -92,10 +90,8 @@ impl H2Connection {
         }
     }
 
-    /// Remove and return trailers stashed on the stream's recv state. Called by
-    /// [`ReceivedBody`][crate::ReceivedBody]'s End transition after the request body is
-    /// fully drained. Returns `None` if the stream is gone (already closed) or no trailers
-    /// were received.
+    /// Remove and return trailers stashed on the stream's recv state. Returns `None` if
+    /// the stream is gone (already closed) or no trailers were received.
     pub(crate) fn take_trailers(&self, stream_id: u32) -> Option<Headers> {
         let stream = self.streams_lock().get(&stream_id).cloned()?;
         stream

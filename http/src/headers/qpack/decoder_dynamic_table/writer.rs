@@ -1,3 +1,8 @@
+//! QPACK decoder stream emission.
+//!
+//! The decoder stream is a unidirectional stream we send to the peer carrying Section
+//! Acknowledgement and Insert Count Increment instructions.
+
 use crate::{
     h3::{H3Error, MAX_BUFFER_SIZE, UniStreamType, quic_varint},
     headers::qpack::{
@@ -10,6 +15,10 @@ use std::io::{self, ErrorKind};
 use swansong::Swansong;
 
 impl DecoderDynamicTable {
+    /// Run the decoder-stream emitter for the lifetime of the connection. Drains pending
+    /// Section Acknowledgements and emits Insert Count Increments whenever the table
+    /// updates, sleeping on the table's event until either fires or `swansong` requests
+    /// shutdown.
     pub(crate) async fn run_writer<T: AsyncWrite + Unpin + Send>(
         &self,
         stream: &mut T,
@@ -36,8 +45,7 @@ impl DecoderDynamicTable {
                 );
                 encode_section_ack(ack.stream_id, &mut instructions);
                 // A Section Acknowledgement implicitly tells the encoder KRC >=
-                // required_insert_count, so those inserts must not also be counted
-                // in ICI (RFC 9204 §4.4.3).
+                // required_insert_count, so those inserts must not also be counted in ICI.
                 last_reported_insert_count =
                     last_reported_insert_count.max(ack.required_insert_count);
             }

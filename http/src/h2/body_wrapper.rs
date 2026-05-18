@@ -11,9 +11,6 @@ use std::{io, pin::Pin, task::Poll};
 /// `poll_read` for streaming bodies, and copies-out for static bodies. Trailers are
 /// preserved: [`H2Body::trailers`] forwards to the inner `BodySource::trailers` once the
 /// stream is fully drained, so the send pump's trailing-HEADERS emission still works.
-///
-/// Mirrors [`H3Body`][crate::h3::H3Body] in role, minus the per-chunk DATA frame header
-/// (h2's send pump frames DATA itself; h3 prepends frame headers inside the body).
 #[derive(Debug)]
 pub(crate) struct H2Body {
     body: BodyType,

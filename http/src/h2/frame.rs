@@ -10,40 +10,40 @@ pub(crate) mod rst_stream;
 pub(crate) mod settings;
 pub(crate) mod window_update;
 
-/// Length of the fixed frame header on the wire (RFC 9113 §4.1).
+/// Length of the fixed frame header on the wire.
 pub(crate) const FRAME_HEADER_LEN: usize = 9;
 
-/// HTTP/2 frame type identifiers (RFC 9113 §11.2).
+/// HTTP/2 frame type identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum FrameType {
-    /// §6.1 — carries stream body data.
+    /// Carries stream body data.
     Data = 0x0,
-    /// §6.2 — opens a stream and carries a header block fragment.
+    /// Opens a stream and carries a header block fragment.
     Headers = 0x1,
-    /// §6.3 — deprecated stream priority signal. Parse and discard.
+    /// Deprecated stream priority signal. Parse and discard.
     Priority = 0x2,
-    /// §6.4 — abnormally terminates a stream.
+    /// Abnormally terminates a stream.
     RstStream = 0x3,
-    /// §6.5 — conveys connection parameters.
+    /// Conveys connection parameters.
     Settings = 0x4,
-    /// §6.6 — initiates a server push. Trillium is server-only so we never send these; receiving
-    /// one is a connection error.
+    /// Initiates a server push. Receiving one is a connection error here — server push is
+    /// never sent, so the variant exists only for the connection layer to reject it.
     PushPromise = 0x5,
-    /// §6.7 — connection-level liveness probe.
+    /// Connection-level liveness probe.
     Ping = 0x6,
-    /// §6.8 — begins graceful connection shutdown.
+    /// Begins graceful connection shutdown.
     Goaway = 0x7,
-    /// §6.9 — advances a flow-control window.
+    /// Advances a flow-control window.
     WindowUpdate = 0x8,
-    /// §6.10 — continues an unfinished header block.
+    /// Continues an unfinished header block.
     Continuation = 0x9,
 }
 
 impl TryFrom<u8> for FrameType {
     type Error = u8;
 
-    /// Unknown frame types return `Err(value)`. Per §5.5 these MUST be ignored.
+    /// Unknown frame types return `Err(value)`; the caller ignores them.
     fn try_from(value: u8) -> Result<Self, u8> {
         match value {
             0x0 => Ok(Self::Data),
@@ -61,7 +61,7 @@ impl TryFrom<u8> for FrameType {
     }
 }
 
-// Flag bits (RFC 9113 §6.*). Each is interpreted only on the frame types that define it.
+// Flag bits. Each is interpreted only on the frame types that define it.
 pub(crate) const FLAG_END_STREAM: u8 = 0x01;
 pub(crate) const FLAG_ACK: u8 = 0x01;
 pub(crate) const FLAG_END_HEADERS: u8 = 0x04;
@@ -70,7 +70,7 @@ pub(crate) const FLAG_PRIORITY: u8 = 0x20;
 
 /// A parsed HTTP/2 frame header: length, type, flags, stream id.
 ///
-/// On the wire (§4.1):
+/// On the wire:
 /// ```text
 /// length:24 | type:8 | flags:8 | R:1 + stream_id:31
 /// ```
@@ -106,17 +106,11 @@ impl FrameHeader {
 
     /// Encode the 9-byte frame header into the first [`FRAME_HEADER_LEN`] bytes of `buf`.
     ///
-    /// The caller must ensure `buf.len() >= FRAME_HEADER_LEN`; debug builds check this, release
-    /// builds panic on out-of-bounds access.
-    ///
-    /// Also debug-asserts that `length` fits in 24 bits and `stream_id` fits in 31 bits.
-    /// In release, an out-of-range `length` silently encodes only its low 24 bits — the
-    /// resulting frame is malformed and the peer will misframe everything after it.
-    /// Returning `Result` would force unwrap noise at every emit site for a case that can't
-    /// occur: every in-tree caller computes `length` from a payload already chunked against
-    /// `SETTINGS_MAX_FRAME_SIZE` (≤ 2^24 − 1), and `stream_id` from a 31-bit allocator. If a
-    /// future caller can produce values out of these ranges, validate upstream rather than
-    /// rely on graceful failure here.
+    /// Debug-asserts that `buf.len() >= FRAME_HEADER_LEN`, `length` fits in 24 bits, and
+    /// `stream_id` fits in 31 bits. In release, an out-of-range `length` silently encodes
+    /// only its low 24 bits — callers are expected to have bounded `length` against
+    /// `SETTINGS_MAX_FRAME_SIZE` (≤ 2^24 − 1) and `stream_id` against the 31-bit range
+    /// upstream.
     pub(crate) fn encode(&self, buf: &mut [u8]) {
         debug_assert!(
             buf.len() >= FRAME_HEADER_LEN,
@@ -157,7 +151,7 @@ impl From<H2ErrorCode> for FrameDecodeError {
 /// consumes from the input slice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Frame {
-    /// DATA (§6.1). `data_length` bytes of stream payload follow; then `padding_length` bytes of
+    /// DATA. `data_length` bytes of stream payload follow; then `padding_length` bytes of
     /// padding to skip.
     Data {
         /// Stream identifier.
@@ -170,7 +164,7 @@ pub(crate) enum Frame {
         padding_length: u8,
     },
 
-    /// HEADERS (§6.2). `header_block_length` bytes of header block fragment follow; then
+    /// HEADERS. `header_block_length` bytes of header block fragment follow; then
     /// `padding_length` bytes of padding to skip.
     Headers {
         /// Stream identifier.
@@ -179,8 +173,8 @@ pub(crate) enum Frame {
         end_stream: bool,
         /// Whether `END_HEADERS` is set.
         end_headers: bool,
-        /// Priority block, if `PRIORITY` was set (§6.2). Parsed and reported; the scheme is
-        /// deprecated by RFC 9113 §5.3.2.
+        /// Priority block, if `PRIORITY` was set. Parsed and reported; the scheme is
+        /// deprecated by RFC 9113.
         priority: Option<PriorityInfo>,
         /// Number of header block bytes the caller should consume from the transport.
         header_block_length: u32,
@@ -188,8 +182,8 @@ pub(crate) enum Frame {
         padding_length: u8,
     },
 
-    /// PRIORITY (§6.3). RFC 9113 §5.3.2 deprecates the scheme, but §5.3.1 still requires
-    /// rejecting self-dependency, so the priority block is surfaced to the connection layer.
+    /// PRIORITY. RFC 9113 deprecates the priority scheme, but self-dependency rejection still
+    /// applies, so the priority block is surfaced to the connection layer.
     Priority {
         /// Stream identifier the priority applies to.
         stream_id: u32,
@@ -197,7 +191,7 @@ pub(crate) enum Frame {
         priority: PriorityInfo,
     },
 
-    /// `RST_STREAM` (§6.4).
+    /// `RST_STREAM`.
     RstStream {
         /// Stream identifier being reset.
         stream_id: u32,
@@ -205,14 +199,14 @@ pub(crate) enum Frame {
         error_code: H2ErrorCode,
     },
 
-    /// SETTINGS (§6.5) with fully decoded parameters.
+    /// SETTINGS with fully decoded parameters.
     Settings(H2Settings),
 
     /// SETTINGS with the ACK flag set; the payload must be empty.
     SettingsAck,
 
-    /// `PUSH_PROMISE` (§6.6). Trillium rejects these on receipt (server-only implementation with
-    /// push disabled). The variant exists so the connection layer can report `PROTOCOL_ERROR`.
+    /// `PUSH_PROMISE`. Surfaced for rejection: server push is disabled, so the connection
+    /// layer responds with `PROTOCOL_ERROR`.
     PushPromise {
         /// Stream identifier the promise is announced on.
         stream_id: u32,
@@ -220,7 +214,7 @@ pub(crate) enum Frame {
         length: u32,
     },
 
-    /// PING (§6.7).
+    /// PING.
     Ping {
         /// Opaque 8-byte payload to echo back.
         opaque_data: [u8; 8],
@@ -228,7 +222,7 @@ pub(crate) enum Frame {
         ack: bool,
     },
 
-    /// GOAWAY (§6.8). `debug_data_length` bytes of opaque debug data follow; the caller may read
+    /// GOAWAY. `debug_data_length` bytes of opaque debug data follow; the caller may read
     /// and log them or discard.
     Goaway {
         /// Highest stream id processed by the peer.
@@ -239,7 +233,7 @@ pub(crate) enum Frame {
         debug_data_length: u32,
     },
 
-    /// `WINDOW_UPDATE` (§6.9). `stream_id == 0` means the connection-level window.
+    /// `WINDOW_UPDATE`. `stream_id == 0` means the connection-level window.
     WindowUpdate {
         /// Stream identifier (0 for the connection-level window).
         stream_id: u32,
@@ -247,7 +241,7 @@ pub(crate) enum Frame {
         increment: u32,
     },
 
-    /// CONTINUATION (§6.10). `header_block_length` bytes of header block fragment follow.
+    /// CONTINUATION. `header_block_length` bytes of header block fragment follow.
     Continuation {
         /// Stream identifier this continuation belongs to.
         stream_id: u32,
@@ -257,7 +251,7 @@ pub(crate) enum Frame {
         header_block_length: u32,
     },
 
-    /// An unrecognized frame type (§5.5). The caller skips `length` bytes.
+    /// An unrecognized frame type. The caller skips `length` bytes.
     Unknown {
         /// Stream identifier.
         stream_id: u32,
@@ -270,8 +264,8 @@ pub(crate) enum Frame {
     },
 }
 
-/// Stream priority parameters from a HEADERS or PRIORITY frame (§6.3). Deprecated by RFC 9113
-/// §5.3.2 — the decoder surfaces them but no enforcement is performed.
+/// Stream priority parameters from a HEADERS or PRIORITY frame. Deprecated by RFC 9113 —
+/// the decoder surfaces them but no enforcement is performed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PriorityInfo {
     /// Whether the dependency is exclusive.
@@ -387,11 +381,8 @@ pub(crate) fn require_payload(
         .ok_or(FrameDecodeError::Incomplete)
 }
 
-/// Test-only helper for child frame-type modules: build a complete h2 frame
-/// (9-byte header + payload) from explicit field values. Shared via
-/// `super::encode_frame` from `frame/{data,headers,settings,...}::tests` so
-/// each frame-type's tests can construct fixtures without redefining the same
-/// helper nine times.
+/// Test helper: build a complete h2 frame (9-byte header + payload) from explicit
+/// field values.
 #[cfg(test)]
 pub(crate) fn encode_frame(
     frame_type: FrameType,

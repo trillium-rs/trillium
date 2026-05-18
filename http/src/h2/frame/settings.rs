@@ -1,4 +1,4 @@
-//! SETTINGS frame (RFC 9113 §6.5).
+//! SETTINGS frame.
 
 use super::{FLAG_ACK, FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader, FrameType};
 use crate::h2::{H2ErrorCode, H2Settings};

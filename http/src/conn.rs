@@ -13,11 +13,8 @@ use crate::{
 
 /// Header names whose semantics only apply at the HTTP/1 layer.
 ///
-/// HTTP/2 (RFC 9113 §8.2.2) and HTTP/3 (RFC 9114 §4.2) call these
-/// "connection-specific" headers and forbid them in requests and responses on those
-/// transports. Used both for incoming-request validation in `Conn::new_h2` /
-/// `Conn::build_h3` and for response-header sanitation in
-/// `finalize_response_headers_h2` / `finalize_response_headers_h3`.
+/// HTTP/2 (RFC 9113) and HTTP/3 (RFC 9114) call these "connection-specific"
+/// and forbid them in requests and responses.
 pub(super) const H1_ONLY_HEADERS: [KnownHeaderName; 5] = [
     KnownHeaderName::Connection,
     KnownHeaderName::KeepAlive,
@@ -37,21 +34,20 @@ pub(super) struct ValidatedRequest {
     pub request_headers: Headers,
 }
 
-/// Shared HTTP/2 + HTTP/3 request-validation per RFC 9113 §8.1.2 and RFC 9114 §4.3.1.
+/// Shared HTTP/2 + HTTP/3 request-validation per RFC 9113 and RFC 9114.
 ///
 /// Both protocols apply the same malformed-message rules to incoming requests:
 /// no `:status` pseudo, required `:method`, non-empty `:path` (or CONNECT default),
 /// `:scheme` required for non-CONNECT, `:authority` required for CONNECT, `:authority`
 /// or `Host` required when `:scheme` is `http`/`https`, no `Host`/`:authority`
 /// mismatch, no [`H1_ONLY_HEADERS`], and `TE` restricted to `trailers`. Returns `None`
-/// on any violation; the caller maps to its protocol-specific error code (e.g.
-/// `H2ErrorCode::ProtocolError`, `H3ErrorCode::MessageError`) via `.ok_or(...)`.
+/// on any violation; the caller maps to its protocol-specific error code.
 pub(super) fn validate_h2h3_request(
     mut field_section: FieldSection<'static>,
 ) -> Option<ValidatedRequest> {
     let pseudo_headers = field_section.pseudo_headers_mut();
 
-    // §8.1.2.1 / §4.3.1: `:status` is response-only; reject it on requests.
+    // `:status` is response-only; reject it on requests.
     if pseudo_headers.status().is_some() {
         return None;
     }
@@ -93,13 +89,12 @@ pub(super) fn validate_h2h3_request(
         return None;
     }
 
-    // RFC 9114 §4.3.1 / RFC 9113 §8.3.1: when :scheme names a scheme with a mandatory
-    // authority component, the request MUST carry either :authority or a Host header.
-    // The spec gives "http" and "https" as the canonical examples; we also include "ws"
-    // and "wss" (RFC 6455 §3, same hierarchical-with-mandatory-authority shape) so the
-    // rule applies consistently if a non-standard sender uses those. Exotic schemes
-    // without mandatory authority (file, data, mailto, urn) are exempt; CONNECT is
-    // handled above.
+    // When :scheme names a scheme with a mandatory authority component, the request
+    // MUST carry either :authority or a Host header. The spec gives "http" and "https"
+    // as the canonical examples; we also include "ws" and "wss" (same
+    // hierarchical-with-mandatory-authority shape) so the rule applies consistently if
+    // a non-standard sender uses those. Exotic schemes without mandatory authority
+    // (file, data, mailto, urn) are exempt; CONNECT is handled above.
     if method != Method::Connect
         && matches!(scheme.as_deref(), Some("http" | "https" | "ws" | "wss"))
         && authority.is_none()
@@ -142,11 +137,10 @@ mod h2;
 mod h3;
 pub(crate) use h3::H3FirstFrame;
 
-/// A http connection
+/// An HTTP connection.
 ///
-/// Unlike in other rust http implementations, this struct represents both
-/// the request and the response, and holds the transport over which the
-/// response will be sent.
+/// This struct represents both the request and the response, and holds the
+/// transport over which the response will be sent.
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn<Transport> {
     #[field(get)]
@@ -177,20 +171,11 @@ pub struct Conn<Transport> {
     #[field(get, copy)]
     pub(crate) status: Option<Status>,
 
-    /// The HTTP protocol version in use on this connection — HTTP/1.x, HTTP/2, or HTTP/3.
-    /// Populated by whichever protocol dispatcher opened the stream; handlers that need to
-    /// branch on version (e.g. to emit protocol-specific response headers, or to avoid
-    /// features that are only meaningful in one version) read it here.
-    ///
-    /// See [`HttpConfig`][crate::HttpConfig] for the full dispatch matrix and per-version
-    /// tuning knobs.
+    /// The HTTP protocol version in use on this connection.
     ///
     /// ```
     /// # use trillium_http::{Conn, Method, Version};
     /// let conn = Conn::new_synthetic(Method::Get, "/", ());
-    /// // Synthetic conns default to HTTP/1.1; real conns reflect what the peer actually
-    /// // spoke (h2 when ALPN negotiated `h2` or when the prior-knowledge preface matched
-    /// // on either cleartext or TLS-without-ALPN-h2; h3 when the listener is a QUIC endpoint).
     /// assert_eq!(conn.http_version(), Version::Http1_1);
     /// ```
     #[field(get = http_version, copy)]
@@ -254,11 +239,11 @@ pub struct Conn<Transport> {
     #[field(set, get, copy, into)]
     pub(crate) peer_ip: Option<IpAddr>,
 
-    /// the :authority http/3 pseudo-header
+    /// the `:authority` pseudo-header
     #[field(set, get, into)]
     pub(crate) authority: Option<Cow<'static, str>>,
 
-    /// the :scheme http/3 pseudo-header
+    /// the `:scheme` pseudo-header
     #[field(set, get, into)]
     pub(crate) scheme: Option<Cow<'static, str>>,
 
@@ -268,7 +253,7 @@ pub struct Conn<Transport> {
     /// h1 / synthetic conns.
     pub(crate) protocol_session: ProtocolSession,
 
-    /// the :protocol http/3 pseudo-header
+    /// the `:protocol` pseudo-header (extended CONNECT)
     #[field(set, get, into)]
     pub(crate) protocol: Option<Cow<'static, str>>,
 
@@ -309,7 +294,7 @@ impl<Transport> Conn<Transport>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
-    /// Returns the shared state on this conn, if set
+    /// Returns the shared state typemap for this conn.
     pub fn shared_state(&self) -> &TypeSet {
         &self.context.shared_state
     }
@@ -561,15 +546,12 @@ where
     ///
     /// Because firing is ordered by send-completion rather than handler return,
     /// this is the right hook for instrumentation that wants to report what the
-    /// peer actually observed (`trillium-logger` and the out-of-tree
-    /// `trillium-opentelemetry` handler both depend on this property).
+    /// peer actually observed.
     ///
-    /// Please note that this is a sync function and should be computationally
-    /// lightweight. If your _application_ needs additional async processing,
-    /// use your runtime's task spawn within this hook. If your _library_ needs
-    /// additional async processing in an `after_send` hook, please open an
-    /// issue. This hook is currently designed for simple instrumentation and
-    /// logging, and should be thought of as equivalent to a Drop hook.
+    /// This is a sync function and should be computationally lightweight. If
+    /// your _application_ needs additional async processing, use your runtime's
+    /// task spawn within this hook. If your _library_ needs additional async
+    /// processing in an `after_send` hook, please open an issue.
     pub fn after_send<F>(&mut self, after_send: F)
     where
         F: FnOnce(SendStatus) + Send + Sync + 'static,

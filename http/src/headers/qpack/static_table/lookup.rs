@@ -7,6 +7,9 @@ use crate::{
     },
 };
 
+/// Map an [`EntryName`] to the (0-based) static-table indices that share that name, or
+/// `None` if the name is not in the table. Compiled to a jump table over the `EntryName`
+/// enum, so name-side lookup is O(1).
 pub(in crate::headers) const fn static_lookup_name(name: &EntryName) -> Option<&'static [u8]> {
     match name {
         EntryName::Pseudo(P::Authority) => Some(&[0]),
@@ -67,6 +70,7 @@ pub(in crate::headers) const fn static_lookup_name(name: &EntryName) -> Option<&
     }
 }
 
+/// First static-table index with this name, or `None` if not present.
 pub(in crate::headers) const fn first_match(name: &EntryName) -> Option<u8> {
     if let Some(indices) = static_lookup_name(name) {
         Some(indices[0])
@@ -75,7 +79,10 @@ pub(in crate::headers) const fn first_match(name: &EntryName) -> Option<u8> {
     }
 }
 
-/// Look up a field name (regular header or pseudo-header) in the QPACK static table.
+/// Look up a field name + optional value in the QPACK static table.
+///
+/// Walks only the candidate indices for the given name (typically 1; up to 14 for
+/// `:status`). Pass `None` for `value` for a name-only lookup.
 pub(in crate::headers) fn static_table_lookup(name: &EntryName, value: Option<&[u8]>) -> StaticHit {
     let Some(indices) = static_lookup_name(name) else {
         return StaticHit::None;

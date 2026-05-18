@@ -11,14 +11,12 @@ use std::{
 };
 use sync_wrapper::SyncWrapper;
 
-/// Trait for streaming body sources that can optionally produce trailers.
+/// Streaming body source that can optionally produce trailers.
 ///
 /// Implement this on types that compute trailer headers dynamically as the body
 /// is read — for example, a hashing wrapper that produces a `Digest` trailer
-/// after all bytes have been streamed.
-///
-/// For plain [`AsyncRead`] sources with no trailers, use [`Body::new_streaming`].
-/// `BodySource` is only needed when trailers must be produced.
+/// after all bytes have been streamed. For plain [`AsyncRead`] sources with no
+/// trailers, [`Body::new_streaming`] is simpler.
 pub trait BodySource: AsyncRead + Send + 'static {
     /// Returns the trailers for this body, called after the body has been fully read.
     ///
@@ -79,17 +77,12 @@ impl Body {
         })
     }
 
-    /// Disable RFC 9112 chunked-encoding framing emitted by [`AsyncRead`] for streaming
-    /// bodies of unknown length.
+    /// Disable chunked-encoding framing emitted by [`AsyncRead`] for streaming bodies
+    /// of unknown length.
     ///
     /// By default, when a streaming body has no known length, this type's [`AsyncRead`]
-    /// implementation emits the wire-format chunked framing (chunk-size prefix, terminating
-    /// `0\r\n` marker) so the h1 codec can write its bytes directly. That framing is wrong
-    /// for any consumer that wants raw body bytes — e.g., installing a Body as the override
-    /// source on a client `Conn` for cache replay or middleware tee.
-    ///
-    /// This method is `#[doc(hidden)]` and `unstable`-feature-gated; it exists for internal
-    /// use by trillium-client. External code has no reason to set this flag.
+    /// implementation emits chunked framing so the h1 codec can write its bytes directly.
+    /// That framing is wrong for any consumer that wants raw body bytes.
     #[doc(hidden)]
     #[cfg(feature = "unstable")]
     #[must_use]
@@ -121,7 +114,7 @@ impl Body {
     /// Only meaningful after the body has been fully read (i.e., [`AsyncRead::poll_read`]
     /// has returned `Ok(0)`). Returns `None` for bodies constructed with
     /// [`Body::new_streaming`] or [`Body::new_static`].
-    #[doc(hidden)] // this isn't really a user-facing interface
+    #[doc(hidden)]
     pub fn trailers(&mut self) -> Option<Headers> {
         match &mut self.0 {
             Streaming {
@@ -150,10 +143,9 @@ impl Body {
         }
     }
 
-    /// Transform this Body into a dyn [`AsyncRead`]. This will wrap
-    /// static content in a [`Cursor`]. Note that this is different
-    /// from reading directly from the Body, which includes chunked
-    /// encoding.
+    /// Transform this Body into a dyn [`AsyncRead`], wrapping static content in
+    /// a [`Cursor`]. Unlike reading from the Body directly, this does not apply
+    /// chunked encoding.
     pub fn into_reader(self) -> Pin<Box<dyn AsyncRead + Send + Sync + 'static>> {
         match self.0 {
             Streaming { async_read, .. } => Box::pin(SyncAsyncReader(async_read)),
@@ -162,18 +154,14 @@ impl Body {
         }
     }
 
-    /// Consume this body and return the full content. If the body was
-    /// constructed with [`Body::new_streaming`], this will read the
-    /// entire streaming body into memory, awaiting the streaming
-    /// source's completion. This function will return an error if a
-    /// streaming body has already been partially or fully read.
+    /// Consume this body and return the full content. If the body was constructed
+    /// with [`Body::new_streaming`], this will read the entire streaming body into
+    /// memory, awaiting the streaming source's completion.
     ///
     /// # Errors
     ///
-    /// This returns an error variant if either of the following conditions are met:
-    ///
-    /// there is an io error when reading from the underlying transport such as a disconnect
-    /// the body has already been read to completion
+    /// Returns an error if the underlying transport errors, or if a streaming body
+    /// has already been partially or fully read.
     pub async fn into_bytes(self) -> Result<Cow<'static, [u8]>> {
         match self.0 {
             Static { content, .. } => Ok(content),
@@ -231,16 +219,10 @@ impl Body {
 
     /// Attempt to clone this body. Returns `None` for streaming bodies, which are one-shot.
     ///
-    /// Static bodies (constructed via [`Body::new_static`] or any `From` conversion for
-    /// `Vec<u8>`, `&'static [u8]`, `String`, `&'static str`, etc.) clone cheaply — just a
-    /// `Cow` clone, which is a pointer copy for borrowed `&'static` content and a `Vec` clone
-    /// for owned content. The clone resets read progress, so it can be sent again from the
-    /// beginning.
-    ///
-    /// Empty bodies always clone successfully.
-    ///
-    /// This is useful for client middleware that needs to retransmit a body — e.g., redirect
-    /// handlers, retry handlers, or auth-refresh handlers.
+    /// Static bodies clone cheaply — a `Cow` clone, which is a pointer copy for borrowed
+    /// `&'static` content and a `Vec` clone for owned content. The clone resets read
+    /// progress, so it can be sent again from the beginning. Empty bodies always clone
+    /// successfully.
     #[doc(hidden)]
     #[cfg(feature = "unstable")]
     pub fn try_clone(&self) -> Option<Self> {
@@ -280,7 +262,9 @@ impl Body {
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
-    clippy::cast_precision_loss
+    clippy::cast_precision_loss,
+    reason = "buffers are well below petabyte scale; log2/4 of a usize stays in f64 range, and \
+              the subtraction always yields a non-negative usize-representable value"
 )]
 fn max_bytes_to_read(buf_len: usize) -> usize {
     assert!(
@@ -289,24 +273,9 @@ fn max_bytes_to_read(buf_len: usize) -> usize {
             if this is a problem for you, please open an issue"
     );
 
-    // #[allow(clippy::cast_precision_loss)] applied to the function
-    // is for this line. We do not expect our buffers to be on the
-    // order of petabytes, so we will not fall outside of the range of
-    // integers that can be represented by f64
     let bytes_remaining_after_two_cr_lns = (buf_len - 4) as f64;
-
-    // #[allow(clippy::cast_sign_loss)] applied to the function is for
-    // this line. This is ok because we know buf_len is already a
-    // usize and we are just converting it to an f64 in order to do
-    // float log2(x)/4
-    //
-    // the maximum number of bytes that the hex representation of remaining bytes might take
+    // maximum number of bytes the hex representation of the remaining bytes might take
     let max_bytes_of_hex_framing = (bytes_remaining_after_two_cr_lns).log2() / 4f64;
-
-    // #[allow(clippy::cast_sign_loss)] applied to the function is for
-    // this line.  This is ok because max_bytes_of_hex_framing will
-    // always be smaller than bytes_remaining_after_two_cr_lns, and so
-    // there is no risk of sign loss
     (bytes_remaining_after_two_cr_lns - max_bytes_of_hex_framing.ceil()) as usize
 }
 
@@ -393,25 +362,11 @@ impl AsyncRead for Body {
 
                 if bytes == 0 {
                     *done = true;
-                    // Write only the last-chunk marker (`0\r\n`). The caller must then
-                    // emit the trailer-section (possibly empty) followed by the
-                    // terminating `\r\n` to complete RFC 9112 §7.1.2 chunked framing.
-                    //
-                    // This split is structural, not a missed opportunity to encapsulate:
-                    //   * Trailers come from `BodySource::trailers() -> Option<Headers>` after EOF,
-                    //     not from this `AsyncRead` path. They are structured `Headers` data, not
-                    //     bytes.
-                    //   * Formatting them needs `HttpContext` config (e.g.
-                    //     `panic_on_invalid_response_headers`) that `Body` does not carry, and
-                    //     reuses the same `write_headers_or_trailers` helper used for the
-                    //     response-header section.
-                    //   * Trailers can be arbitrarily large; emitting them from inside `poll_read`
-                    //     would force a multi-poll state machine to span buffers. The caller writes
-                    //     them in one shot via `BufWriter::buffer_mut()`, which has no such
-                    //     constraint.
-                    //
-                    // Caller stitch lives in `conn/h1.rs::Conn::send` after the
-                    // `bufwriter.copy_from(&mut body, ...)` drain.
+                    // Last-chunk marker only; the caller emits the trailer-section
+                    // (possibly empty) followed by the terminating `\r\n`. Trailers come
+                    // from `BodySource::trailers()` as structured `Headers`, not bytes,
+                    // and the caller writes them in one shot so this path doesn't need
+                    // a multi-poll state machine spanning buffers.
                     buf[..3].copy_from_slice(b"0\r\n");
                     return Poll::Ready(Ok(3));
                 }
@@ -461,11 +416,9 @@ pub(crate) enum BodyType {
         progress: u64,
         len: Option<u64>,
         done: bool,
-        /// When true (the default), [`Body`]'s [`AsyncRead`] impl emits RFC 9112
-        /// chunked-encoding framing for the `len: None` case so the h1 codec can
-        /// write the bytes directly. When false (set via
-        /// [`Body::without_chunked_framing`]), the same path passes through raw
-        /// bytes from the inner [`BodySource`].
+        /// When true (the default), [`Body`]'s [`AsyncRead`] impl emits chunked
+        /// framing for the `len: None` case; when false (via
+        /// [`Body::without_chunked_framing`]), it passes through raw bytes.
         chunked_framing: bool,
     },
 }

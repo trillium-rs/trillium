@@ -17,13 +17,11 @@ use std::{
 };
 use trillium_macros::AsyncWrite;
 
-/// This struct represents a http upgrade. It contains all of the data available on a Conn, as well
-/// as owning the underlying transport.
+/// An HTTP upgrade — owns the underlying transport along with all the data from the
+/// originating [`Conn`].
 ///
-/// **Important implementation note**: When reading directly from the transport, ensure that you
-/// read from `buffer` first if there are bytes in it. Alternatively, read directly from the
-/// Upgrade, as that [`AsyncRead`] implementation will drain the buffer first before reading from
-/// the transport.
+/// **Reading the transport directly**: drain `buffer` first if it has bytes in it. Reading
+/// via the [`AsyncRead`] impl on `Upgrade` handles this automatically.
 #[derive(AsyncWrite, Fieldwork)]
 #[fieldwork(get, get_mut, set, with, take, into_field, rename_predicates)]
 pub struct Upgrade<Transport> {

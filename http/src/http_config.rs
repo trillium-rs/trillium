@@ -6,31 +6,8 @@ use fieldwork::Fieldwork;
 /// and this escape hatch allows an application to be tuned. It is best to tune these parameters in
 /// context of realistic benchmarks for your application.
 ///
-/// Long term, trillium may export several standard defaults for different constraints and
-/// application types. In the distant future, these may turn into initial values and trillium will
-/// tune itself based on values seen at runtime.
-///
-/// ## HTTP version dispatch
-///
-/// trillium accepts HTTP/1.x, HTTP/2, and HTTP/3 connections on the same listener without
-/// any per-version configuration. The version a given connection speaks is decided at accept
-/// time based on ALPN (for TLS listeners with ALPN), or by peeking the first 24 bytes for
-/// the HTTP/2 client preface (for cleartext listeners and TLS listeners where ALPN was
-/// absent or returned an unrecognized value):
-///
-/// | Listener | ALPN result | First bytes | Protocol |
-/// |---|---|---|---|
-/// | TCP + TLS | `h2` | — | HTTP/2 |
-/// | TCP + TLS | `http/1.1` | — | HTTP/1.1 |
-/// | TCP + TLS | absent / other | match HTTP/2 preface | HTTP/2 (TLS prior-knowledge) |
-/// | TCP + TLS | absent / other | anything else | HTTP/1.1 |
-/// | TCP, cleartext | — | match HTTP/2 preface | HTTP/2 prior-knowledge (h2c) |
-/// | TCP, cleartext | — | anything else | HTTP/1.x |
-/// | QUIC (via `trillium-quinn`) | — | — | HTTP/3 |
-///
-/// h2c via the HTTP/1.1 `Upgrade` mechanism (RFC 7540 §3.2, removed in RFC 9113) is not
-/// supported. The `h2_*` fields on this struct tune the HTTP/2 advertised settings + recv
-/// windows; the `h3_*` fields tune HTTP/3. None of them affect HTTP/1.x.
+/// The `h2_*` fields tune HTTP/2 advertised settings and recv windows; `h3_*` fields tune HTTP/3.
+/// None affect HTTP/1.x. See the [crate-level docs][crate] for the protocol-dispatch table.
 ///
 /// ```
 /// # use trillium_http::HttpConfig;
@@ -112,7 +89,7 @@ pub struct HttpConfig {
     /// **Unit**: Header count
     pub(crate) response_header_initial_capacity: usize,
 
-    /// A sort of cooperative task yielding knob.
+    /// Cooperative task-yielding knob.
     ///
     /// Decreasing this number will improve tail latencies at a slight cost to total throughput for
     /// fast clients. This will have more of an impact on servers that spend a lot of time in IO
@@ -156,10 +133,10 @@ pub struct HttpConfig {
 
     /// The maximum cumulative size of a header block the peer may send.
     ///
-    /// Advertised in SETTINGS as `SETTINGS_MAX_HEADER_LIST_SIZE` on HTTP/2 (RFC 9113 §6.5.2)
-    /// and `SETTINGS_MAX_FIELD_SECTION_SIZE` on HTTP/3 (RFC 9114 §7.2.4.1). Guards against
-    /// pathological header lists inflating memory per stream during HPACK/QPACK decode.
-    /// Currently advertised only — the peer is expected to self-police.
+    /// Advertised in SETTINGS as `SETTINGS_MAX_HEADER_LIST_SIZE` on HTTP/2 (RFC 9113) and
+    /// `SETTINGS_MAX_FIELD_SECTION_SIZE` on HTTP/3 (RFC 9114). Guards against pathological
+    /// header lists inflating memory per stream during HPACK/QPACK decode. Currently
+    /// advertised only — the peer is expected to self-police.
     ///
     /// **Default**: `32 KiB`
     ///
@@ -168,8 +145,8 @@ pub struct HttpConfig {
 
     /// Maximum capacity of the dynamic header-compression table.
     ///
-    /// Advertised to peers as `SETTINGS_HEADER_TABLE_SIZE` (HPACK / RFC 7541 §6.5.2) and
-    /// `SETTINGS_QPACK_MAX_TABLE_CAPACITY` (QPACK / RFC 9204 §5). Bounds both the decoder's
+    /// Advertised to peers as `SETTINGS_HEADER_TABLE_SIZE` (HPACK / RFC 7541) and
+    /// `SETTINGS_QPACK_MAX_TABLE_CAPACITY` (QPACK / RFC 9204). Bounds both the decoder's
     /// inbound table and our encoder's outbound table; set to `0` to disable dynamic-table
     /// compression entirely (encoder reduces to static-or-literal).
     ///
@@ -248,10 +225,10 @@ pub struct HttpConfig {
     /// connection-level window topped up as handlers consume bytes.
     ///
     /// Raised via an initial `WINDOW_UPDATE(stream_id=0)` right after SETTINGS (RFC 9113
-    /// §6.9.2 forbids SETTINGS from altering the connection window), then refilled on
-    /// consumption. Bounds total concurrent in-flight request-body bytes across all streams on
-    /// a single HTTP/2 connection. Leaving at the RFC baseline of `65_535` would cap bulk
-    /// uploads at ~5 Mbit/s × RTT.
+    /// forbids SETTINGS from altering the connection window), then refilled on consumption.
+    /// Bounds total concurrent in-flight request-body bytes across all streams on a single
+    /// HTTP/2 connection. Leaving at the RFC baseline of `65_535` would cap bulk uploads at
+    /// ~5 Mbit/s × RTT.
     ///
     /// **Default**: `2 MiB`
     ///
@@ -261,10 +238,10 @@ pub struct HttpConfig {
     /// HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` — the maximum number of concurrent
     /// peer-initiated streams the server will accept.
     ///
-    /// Peer-opened streams beyond this count get `RST_STREAM(RefusedStream)` per RFC 9113
-    /// §5.1.2. A value in the 100–250 range is the post-Rapid-Reset (CVE-2023-44487)
-    /// consensus; lower values cap parallelism, higher values need per-connection reset-rate
-    /// limiting to avoid `DoS` exposure.
+    /// Peer-opened streams beyond this count get `RST_STREAM(RefusedStream)` per RFC 9113.
+    /// A value in the 100–250 range is the post-Rapid-Reset (CVE-2023-44487) consensus;
+    /// lower values cap parallelism, higher values need per-connection reset-rate limiting
+    /// to avoid `DoS` exposure.
     ///
     /// **Default**: `100`
     ///
@@ -273,8 +250,8 @@ pub struct HttpConfig {
 
     /// HTTP/2 `SETTINGS_MAX_FRAME_SIZE` — the largest frame payload the server will accept.
     ///
-    /// Peer frames whose payload exceeds this get `FRAME_SIZE_ERROR` per RFC 9113 §4.2. The
-    /// RFC floor is `16_384`; the ceiling is `16_777_215`. Larger values amortize per-frame
+    /// Peer frames whose payload exceeds this get `FRAME_SIZE_ERROR` per RFC 9113. The RFC
+    /// floor is `16_384`; the ceiling is `16_777_215`. Larger values amortize per-frame
     /// overhead on bulk transfers but increase the upper bound on a single read.
     ///
     /// **Default**: `16_384`
@@ -302,7 +279,7 @@ pub struct HttpConfig {
     /// `SETTINGS_ENABLE_CONNECT_PROTOCOL` — advertises that the server accepts extended
     /// CONNECT requests, enabling protocols layered on top of HTTP that bootstrap via a
     /// CONNECT with a `:protocol` pseudo-header. The same identifier (0x08) is used by
-    /// HTTP/2 (RFC 8441 §3) and HTTP/3 (RFC 9220 §3).
+    /// HTTP/2 (RFC 8441) and HTTP/3 (RFC 9220).
     ///
     /// Use cases include WebSocket-over-h2 (RFC 8441), WebSocket-over-h3 (RFC 9220),
     /// and WebTransport (`draft-ietf-webtrans-http2` and `draft-ietf-webtrans-http3`).
@@ -313,9 +290,8 @@ pub struct HttpConfig {
     /// won't attempt extended CONNECT, which is the correct default — handlers that don't
     /// expect extended CONNECT shouldn't see those requests.
     ///
-    /// You don't need to set this manually if using a handler that requires it (e.g. an
-    /// h2 websocket handler will flip it from `Handler::init`, the same way the
-    /// trillium-webtransport handler flips `webtransport_enabled`).
+    /// You don't need to set this manually if using a handler that requires it; such handlers
+    /// flip it from `Handler::init`.
     ///
     /// **Default**: false
     pub(crate) extended_connect_enabled: bool,

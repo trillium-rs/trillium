@@ -1,8 +1,7 @@
-//! QPACK encoder stream processing (RFC 9204 §3.2).
+//! QPACK encoder stream processing.
 //!
 //! The encoder stream is a unidirectional stream sent by the peer carrying instructions
-//! that modify the dynamic table: Set Dynamic Table Capacity, Insert With Name Reference,
-//! Insert With Literal Name, and Duplicate.
+//! that modify the dynamic table.
 
 use crate::{
     h3::{H3Error, H3ErrorCode},
@@ -33,7 +32,7 @@ impl DecoderDynamicTable {
         &self,
         stream: &mut T,
     ) -> Result<(), H3Error> {
-        // RFC 9204 §4.2: closure of the encoder stream is a connection error of type
+        // Closure of the encoder stream is a connection error of type
         // H3_CLOSED_CRITICAL_STREAM. process_instructions returns Ok on clean EOF; here we
         // promote that to an error and fail the table. (Graceful server-side shutdown drops
         // this future via swansong before reaching that arm; reaching it means the peer
@@ -67,7 +66,7 @@ impl DecoderDynamicTable {
     /// Loop-body of [`run_reader`] separated for tests and corpus replay: parse and apply
     /// peer instructions until clean EOF or error, but **do not** convert EOF into
     /// `H3_CLOSED_CRITICAL_STREAM` and **do not** mark the table failed. Production wiring
-    /// goes through [`run_reader`], which does both per RFC 9204 §4.2.
+    /// goes through [`run_reader`], which does both.
     pub(crate) async fn process_instructions<T>(&self, stream: &mut T) -> Result<(), H3Error>
     where
         T: AsyncRead + Unpin + Send,

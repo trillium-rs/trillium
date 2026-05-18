@@ -1,4 +1,4 @@
-//! Single-pass HPACK encoder (RFC 7541 §6).
+//! Single-pass HPACK encoder (RFC 7541).
 //!
 //! [`HpackEncoder::encode`] walks the field section once, emitting wire bytes for each line
 //! against the live dynamic-table state and applying any inserts inline. Reads (full-pair
@@ -9,16 +9,16 @@
 //!
 //! ## Per-line decision
 //!
-//! 1. **§6.1 `IndexedStatic`** — full pair match in the static table. Emit the §6.1 prefix
-//!    + index varint.
-//! 2. **§6.1 `IndexedDynamic`** — full pair match in the (live) dynamic table. Emit §6.1 prefix +
+//! 1. **`IndexedStatic`** — full pair match in the static table. Emit the Indexed prefix + index
+//!    varint.
+//! 2. **`IndexedDynamic`** — full pair match in the (live) dynamic table. Emit the Indexed prefix +
 //!    (61 + `dyn_idx`) varint.
 //! 3. **`should_index` gate** — second sighting on this connection (via [`RecentPairs::seen`]) OR
 //!    cross-connection observer hot-flag (via [`HeaderObserver::is_hot`]). Sensitive
 //!    (uncacheable-value) names are excluded.
-//! 4. **§6.2.1 `LiteralWithIncrementalIndexing`** when `should_index`. Emit prefix + name reference
-//!    + value-string, then run the insert (§4.4 oversized-clears handled inside).
-//! 5. **§6.2.2 `LiteralWithoutIndexing`** otherwise. Emit prefix + name reference + value-string.
+//! 4. **`LiteralWithIncrementalIndexing`** when `should_index`. Emit prefix + name reference +
+//!    value-string, then run the insert (oversized-clears handled inside).
+//! 5. **`LiteralWithoutIndexing`** otherwise. Emit prefix + name reference + value-string.
 //!
 //! [`RecentPairs::seen`]: crate::headers::recent_pairs::RecentPairs::seen
 //! [`HeaderObserver::is_hot`]: crate::headers::header_observer::HeaderObserver::is_hot
@@ -36,16 +36,16 @@ use crate::headers::{
 
 impl HpackEncoder {
     /// Encode `field_section` into `out` against this encoder's dynamic table, mutating the
-    /// table inline as §6.2.1 inserts fire. The driver task calls this in pickup order;
-    /// the dynamic-table mutation order matches the wire-emission order, as required by
-    /// HPACK's stateful decoder.
+    /// table inline as incremental-indexing inserts fire. The driver task calls this in
+    /// pickup order; the dynamic-table mutation order matches the wire-emission order, as
+    /// required by HPACK's stateful decoder.
     ///
     /// If the operational table size has changed since the last encode (e.g. peer's
-    /// `SETTINGS_HEADER_TABLE_SIZE` arrived or shrank), a §6.3 Dynamic Table Size Update
-    /// is emitted before the first field representation per RFC 7541 §4.2.
+    /// `SETTINGS_HEADER_TABLE_SIZE` arrived or shrank), a Dynamic Table Size Update is
+    /// emitted before the first field representation.
     pub fn encode(&mut self, field_section: &FieldSection<'_>, out: &mut Vec<u8>) {
         if let Some(new_size) = self.state.pending_size_update.take() {
-            // §6.3 Dynamic Table Size Update: 001xxxxx, 5-bit-prefix integer.
+            // Dynamic Table Size Update: 001xxxxx, 5-bit-prefix integer.
             let len_before = out.len();
             integer_prefix::encode_into(new_size, 5, out);
             out[len_before] |= 0b0010_0000;
@@ -88,13 +88,13 @@ fn encode_line(
     let value_bytes = value.as_bytes();
     let static_match = static_table_lookup(name, value_bytes);
 
-    // 1. §6.1 IndexedStatic. RFC 7541 §6.2.3 forbids indexed representations when N=1.
+    // 1. IndexedStatic. Indexed forms are forbidden when N=1.
     if !never_indexed && let StaticHit::Full(i) = static_match {
         emit_indexed(usize::from(i), out);
         return;
     }
 
-    // 2. §6.1 IndexedDynamic — full pair match in the live dynamic table. Same N=1 rule.
+    // 2. IndexedDynamic — full pair match in the live dynamic table. Same N=1 rule.
     let dyn_full_abs = state
         .by_name
         .get(name)
@@ -109,7 +109,6 @@ fn encode_line(
         return;
     }
 
-    // Pre-extract dyn-name lookup for use in the literal cases below.
     let dyn_name_abs = state.by_name.get(name).map(|ni| ni.latest_any);
 
     // 3. should-index gate. Never-indexed values are excluded from the recent-pairs ring and
@@ -126,7 +125,7 @@ fn encode_line(
     let name_ref_idx = match static_match {
         StaticHit::Name(i) => Some(usize::from(i)),
         // Step 1 returned for Full only when not never_indexed; under never_indexed the
-        // static index is still a valid name reference for the literal forms (§6.2.x).
+        // static index is still a valid name reference for the literal forms.
         StaticHit::Full(i) if never_indexed => Some(usize::from(i)),
         StaticHit::Full(_) => unreachable!("step 1 returned for Full when not never_indexed"),
         StaticHit::None => dyn_name_abs
@@ -135,23 +134,22 @@ fn encode_line(
     };
 
     if never_indexed {
-        // 6. §6.2.3 LiteralNeverIndexed — never insert into the dynamic table.
+        // LiteralNeverIndexed — never insert into the dynamic table.
         if let Some(idx) = name_ref_idx {
             emit_literal_never_indexed_name_ref(idx, value_bytes, out);
         } else {
             emit_literal_never_indexed_literal_name(name.as_bytes(), value_bytes, out);
         }
     } else if should_index {
-        // 4. §6.2.1 LiteralWithIncrementalIndexing — emit then insert.
+        // 4. LiteralWithIncrementalIndexing — emit then insert.
         if let Some(idx) = name_ref_idx {
             emit_literal_with_indexing_name_ref(idx, value_bytes, out);
         } else {
             emit_literal_with_indexing_literal_name(name.as_bytes(), value_bytes, out);
         }
-        // Run the insert. §4.4 oversized-clears is handled inside.
         state.insert(name.reborrow(), value);
     } else {
-        // 5. §6.2.2 LiteralWithoutIndexing.
+        // 5. LiteralWithoutIndexing.
         if let Some(idx) = name_ref_idx {
             emit_literal_without_indexing_name_ref(idx, value_bytes, out);
         } else {
@@ -162,14 +160,14 @@ fn encode_line(
 
 // ---------- emit helpers ----------
 
-/// §6.1 Indexed: `1xxxxxxx` with `index` packed into the low 7 bits + continuation.
+/// Indexed: `1xxxxxxx` with `index` packed into the low 7 bits + continuation.
 fn emit_indexed(index: usize, out: &mut Vec<u8>) {
     let start = out.len();
     integer_prefix::encode_into(index, 7, out);
     out[start] |= 0b1000_0000;
 }
 
-/// §6.2.1 `LiteralWithIncrementalIndexing`, name reference: `01xxxxxx` + name index + value
+/// `LiteralWithIncrementalIndexing`, name reference: `01xxxxxx` + name index + value
 /// string.
 fn emit_literal_with_indexing_name_ref(name_index: usize, value: &[u8], out: &mut Vec<u8>) {
     let start = out.len();
@@ -178,28 +176,27 @@ fn emit_literal_with_indexing_name_ref(name_index: usize, value: &[u8], out: &mu
     encode_string(value, out);
 }
 
-/// §6.2.1 `LiteralWithIncrementalIndexing`, literal name: `01000000` + name string + value
-/// string.
+/// `LiteralWithIncrementalIndexing`, literal name: `01000000` + name string + value string.
 fn emit_literal_with_indexing_literal_name(name: &[u8], value: &[u8], out: &mut Vec<u8>) {
     out.push(0b0100_0000);
     encode_string(name, out);
     encode_string(value, out);
 }
 
-/// §6.2.2 `LiteralWithoutIndexing`, name reference: `0000xxxx` + name index + value string.
+/// `LiteralWithoutIndexing`, name reference: `0000xxxx` + name index + value string.
 fn emit_literal_without_indexing_name_ref(name_index: usize, value: &[u8], out: &mut Vec<u8>) {
     integer_prefix::encode_into(name_index, 4, out);
     encode_string(value, out);
 }
 
-/// §6.2.2 `LiteralWithoutIndexing`, literal name: `00000000` + name string + value string.
+/// `LiteralWithoutIndexing`, literal name: `00000000` + name string + value string.
 fn emit_literal_without_indexing_literal_name(name: &[u8], value: &[u8], out: &mut Vec<u8>) {
     out.push(0);
     encode_string(name, out);
     encode_string(value, out);
 }
 
-/// §6.2.3 `LiteralNeverIndexed`, name reference: `0001xxxx` + name index + value string.
+/// `LiteralNeverIndexed`, name reference: `0001xxxx` + name index + value string.
 fn emit_literal_never_indexed_name_ref(name_index: usize, value: &[u8], out: &mut Vec<u8>) {
     let start = out.len();
     integer_prefix::encode_into(name_index, 4, out);
@@ -207,15 +204,15 @@ fn emit_literal_never_indexed_name_ref(name_index: usize, value: &[u8], out: &mu
     encode_string(value, out);
 }
 
-/// §6.2.3 `LiteralNeverIndexed`, literal name: `00010000` + name string + value string.
+/// `LiteralNeverIndexed`, literal name: `00010000` + name string + value string.
 fn emit_literal_never_indexed_literal_name(name: &[u8], value: &[u8], out: &mut Vec<u8>) {
     out.push(0b0001_0000);
     encode_string(name, out);
     encode_string(value, out);
 }
 
-/// §5.2 string literal: H flag + 7-bit length prefix + bytes. Huffman-encodes when
-/// strictly shorter.
+/// String literal: H flag + 7-bit length prefix + bytes. Huffman-encodes when strictly
+/// shorter.
 fn encode_string(s: &[u8], buf: &mut Vec<u8>) {
     let start = buf.len();
     if let Some(huffman_len) = huffman::encoded_length_if_shorter(s) {

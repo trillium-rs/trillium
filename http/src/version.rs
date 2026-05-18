@@ -49,14 +49,22 @@ impl<'de> serde::Deserialize<'de> for Version {
 }
 
 impl PartialEq<&Version> for Version {
-    #[allow(clippy::unconditional_recursion)] // false positive
+    #[allow(
+        clippy::unconditional_recursion,
+        reason = "*other deref'd to &Version dispatches to the derived PartialEq, not back to \
+                  this impl"
+    )]
     fn eq(&self, other: &&Version) -> bool {
         self == *other
     }
 }
 
 impl PartialEq<Version> for &Version {
-    #[allow(clippy::unconditional_recursion)] // false positive
+    #[allow(
+        clippy::unconditional_recursion,
+        reason = "*self deref'd to Version dispatches to the derived PartialEq, not back to this \
+                  impl"
+    )]
     fn eq(&self, other: &Version) -> bool {
         *self == other
     }

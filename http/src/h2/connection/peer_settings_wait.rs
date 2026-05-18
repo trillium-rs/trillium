@@ -22,19 +22,15 @@ use {
 ///
 /// Resolves to `Some(snapshot)` once the driver has applied the peer's first SETTINGS frame,
 /// or to `None` if the connection was asked to shut down before any SETTINGS arrived. The
-/// `Option` disambiguates "peer never sent SETTINGS" from "peer sent SETTINGS but did not
-/// enable the field the caller cares about", which a plain accessor on the snapshot
-/// otherwise can't tell apart — both yield `None` for the underlying field.
+/// `Option` disambiguates "peer never sent SETTINGS" from "peer sent SETTINGS but didn't
+/// enable the field the caller cares about" — both yield `None` from a plain field accessor.
 ///
-/// The snapshot is a copy of the peer's most recently applied SETTINGS at the moment the
-/// future resolves. The peer may send further SETTINGS frames later; for fields where that
-/// matters (peer-settable limits like `MAX_CONCURRENT_STREAMS`), follow up with
-/// [`H2Connection::peer_settings_snapshot`]. RFC 8441 §3 forbids revoking
-/// `SETTINGS_ENABLE_CONNECT_PROTOCOL` once enabled, so a snapshot is sufficient for the
-/// extended-CONNECT gate.
+/// The snapshot is taken at resolve time; the peer may send further SETTINGS frames later.
+/// For limits that can change over time (like `MAX_CONCURRENT_STREAMS`), follow up with
+/// [`H2Connection::peer_settings_snapshot`].
 ///
 /// Multiple `PeerSettings` futures can park concurrently on the same connection; all wake
-/// together when the driver fires the underlying [`Event`][event_listener::Event].
+/// together.
 #[cfg(feature = "unstable")]
 #[must_use = "futures do nothing unless awaited"]
 #[derive(Debug)]
@@ -77,19 +73,18 @@ impl Future for PeerSettings<'_> {
 }
 
 impl H2Connection {
-    /// Park until the driver has applied the peer's first SETTINGS frame.
+    /// Park until the driver has applied the peer's first SETTINGS frame. On a pooled
+    /// connection that has already exchanged SETTINGS, the future resolves on the first
+    /// poll; only fresh, just-handshaked connections actually park.
     ///
-    /// The returned [`PeerSettings`] future resolves to `Some(snapshot)` once a peer
-    /// SETTINGS frame has been applied at least once, or to `None` if the connection was
-    /// asked to shut down before any SETTINGS arrived. On a pooled connection that has
-    /// already exchanged SETTINGS, the future resolves on the first poll. Only fresh,
-    /// just-handshaked connections actually park.
+    /// Resolves to `Some(snapshot)` once a peer SETTINGS frame has been applied, or to
+    /// `None` if the connection was asked to shut down before SETTINGS arrived. The
+    /// snapshot is taken at resolve time; subsequent peer SETTINGS frames are not
+    /// reflected — for limits that can change (`MAX_CONCURRENT_STREAMS`), follow up
+    /// with [`Self::peer_settings_snapshot`]. Multiple awaiters on the same connection
+    /// are supported.
     ///
-    /// Required for callers that send extended-CONNECT requests (RFC 8441 §3 — WebSocket-
-    /// over-h2): the spec forbids sending a `:protocol` pseudo-header until the peer has
-    /// advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL`. Awaiting this future and then
-    /// inspecting the returned [`H2Settings`] snapshot resolves the "peer hasn't sent
-    /// SETTINGS yet" vs "peer sent SETTINGS without the field" ambiguity in a single step:
+    /// Canonical use for extended CONNECT (WebSocket-over-h2):
     ///
     /// ```ignore
     /// let Some(settings) = h2.peer_settings().await else {
@@ -99,9 +94,6 @@ impl H2Connection {
     ///     // peer doesn't support extended CONNECT
     /// }
     /// ```
-    ///
-    /// Multiple awaiters on the same connection are supported — internally backed by an
-    /// [`Event`][event_listener::Event] rather than a single waker.
     #[cfg(feature = "unstable")]
     pub fn peer_settings(&self) -> PeerSettings<'_> {
         PeerSettings(self, None)
@@ -112,12 +104,10 @@ impl H2Connection {
     /// `Copy` value owned by the caller; subsequent peer SETTINGS frames will not be
     /// reflected. For a synchronization primitive that parks until the first frame arrives,
     /// see [`Self::peer_settings`].
-    ///
-    /// Acquire-loaded so the SETTINGS values themselves — written under the
-    /// `peer_settings` mutex in [`H2Driver::apply_peer_settings`][crate::h2::H2Driver] — are
-    /// visible to any reader who observes the latch as `true`.
     #[cfg(feature = "unstable")]
     pub fn peer_settings_snapshot(&self) -> Option<H2Settings> {
+        // Acquire-loaded: pairs with the Release-store in `apply_peer_settings` so the
+        // settings written under the peer_settings mutex are visible without taking it.
         self.peer_settings_received
             .load(Ordering::Acquire)
             .then(|| *self.current_peer_settings())

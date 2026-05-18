@@ -5,8 +5,8 @@
 //! Unlike the server-side [`H2Driver::next`] loop, the client has no `Conn`-emission
 //! cadence — streams are initiated locally and responses are awaited per-stream, not
 //! dequeued from the driver. An `Action::Emit` on a client-role driver would mean a peer-
-//! initiated stream (server push), which is unreachable today because our advertised
-//! SETTINGS disable push; the guard here logs + drops just in case.
+//! initiated stream (server push), which is unreachable because our advertised SETTINGS
+//! disable push; the guard here logs + drops just in case.
 //!
 //! [`H2Connection::run_client`]: super::H2Connection::run_client
 
@@ -18,11 +18,8 @@ use std::{
     task::{Context, Poll},
 };
 
-/// Background-task future for a client-role HTTP/2 connection. Spawned by the client
-/// crate after [`H2Connection::run_client`]; resolves with `Ok(())` on graceful close or
-/// `Err(H2Error)` on a protocol/I/O failure.
-///
-/// [`H2Connection::run_client`]: super::H2Connection::run_client
+/// Background-task future for a client-role HTTP/2 connection. Resolves with `Ok(())` on
+/// graceful close or `Err(H2Error)` on a protocol/I/O failure.
 #[must_use = "futures do nothing unless awaited"]
 #[derive(Debug)]
 pub struct H2Initiator<T> {
@@ -51,10 +48,8 @@ where
                 Poll::Ready(Some(Err(e))) => return Poll::Ready(Err(e)),
                 Poll::Ready(Some(Ok(_conn))) => {
                     // Push is disabled in our advertised SETTINGS, so a peer-initiated
-                    // stream shouldn't reach us. Log and discard rather than propagate —
-                    // the driver's own `unreachable!` guards cover the spec-violation
-                    // case; this is a belt-and-suspenders catch for any reshape down the
-                    // line that lets `Action::Emit` fire on a client driver.
+                    // stream shouldn't reach us. The driver's own `unreachable!` guards
+                    // cover the spec-violation case; this is a belt-and-suspenders log.
                     log::error!(
                         "h2 client driver: unexpected peer-initiated stream — dropping conn"
                     );

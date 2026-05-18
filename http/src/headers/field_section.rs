@@ -2,8 +2,7 @@
 //!
 //! An HTTP field section is the combined pseudo-headers + regular headers payload of a
 //! request or response. The same structure is decoded from HPACK (HTTP/2) and QPACK
-//! (HTTP/3); moving it here (out of [`crate::headers::qpack`]) lets HPACK share the type
-//! verbatim when it lands.
+//! (HTTP/3).
 //!
 //! [`FieldLineValue`] tracks provenance (static / borrowed / owned) of a value slice so the
 //! encoder and dynamic-table code paths can defer cloning until the last possible moment.
@@ -23,7 +22,7 @@ use std::{
     ops::Deref,
 };
 
-/// The six defined HTTP pseudo-header fields (RFC 9113 §8.3, RFC 9114 §4.3, RFC 9220).
+/// The six defined HTTP pseudo-header fields.
 ///
 /// Unlike regular headers, pseudo-headers are a fixed set — unknown pseudo-headers are a
 /// protocol error. Each may appear at most once.
@@ -60,8 +59,7 @@ pub struct PseudoHeaders<'a> {
 }
 
 impl PseudoHeaders<'_> {
-    /// `true` when no pseudo-header fields are set. Useful for validating trailer sections,
-    /// which per RFC 9113 §8.1 (h2) and RFC 9114 §4.4 (h3) MUST NOT include pseudo-headers.
+    /// `true` when no pseudo-header fields are set.
     pub fn is_empty(&self) -> bool {
         self.method.is_none()
             && self.status.is_none()
@@ -72,11 +70,9 @@ impl PseudoHeaders<'_> {
     }
 
     /// Convert into a `PseudoHeaders<'static>` by allocating any borrowed string fields.
-    /// Used by callers that need to move pseudo-headers across an async boundary that
-    /// outlives the original borrow.
     #[allow(
         dead_code,
-        reason = "consumed by trillium-client; not visible in this crate's build"
+        reason = "consumed by external callers; not visible in this crate's build"
     )]
     pub fn into_owned(self) -> PseudoHeaders<'static> {
         PseudoHeaders {
@@ -157,9 +153,8 @@ impl<'a> FieldSection<'a> {
     /// Pseudo-headers come first in RFC-mandated order; regular headers follow.
     /// `FieldLineValue` provenance is preserved so a downstream encoder can elide
     /// allocations for already-static slices. The `never_indexed` flag carries the
-    /// RFC 7541 §6.2.3 / RFC 9204 §4.5.4 N bit per value; pseudo-headers are always
-    /// `false` (the bit has no place to live for pseudos — they round-trip through
-    /// typed `Conn` fields, not the `Headers` map).
+    /// HPACK / QPACK N bit per value; pseudo-headers are always `false` because they
+    /// round-trip through typed `Conn` fields, not the `Headers` map.
     pub(in crate::headers) fn field_lines(&self) -> Vec<(EntryName<'_>, FieldLineValue<'_>, bool)> {
         fn field_line_value_from(v: &crate::HeaderValue) -> FieldLineValue<'_> {
             if let HeaderValueInner::Utf8(SmartCow::Borrowed(b)) = &v.inner {
@@ -231,13 +226,9 @@ impl<'a> FieldSection<'a> {
         for (uhn, hv) in &self.headers.unknown {
             for v in hv {
                 let value = field_line_value_from(v);
-                // Headers stores `UnknownHeaderName<'static>`, so route the clone
-                // through the lowercase interner — uppercase literals get
-                // interned to a canonical `&'static str` and uppercase Owned
-                // names allocate a lowercased copy. The resulting
-                // `&'static str` (when present) survives lifetime erasure into
-                // `Vec<(EntryName<'_>, _)>` via the `UnknownStatic`
-                // variant tag, regardless of what '_ is.
+                // Route the clone through the lowercase interner so any recoverable
+                // `&'static str` survives lifetime erasure via the `UnknownStatic`
+                // variant tag.
                 let lowered = uhn.clone().into_lower_static();
                 let name = match lowered.as_static_str() {
                     Some(s) => EntryName::UnknownStatic(s),

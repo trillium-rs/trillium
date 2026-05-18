@@ -1,8 +1,4 @@
-/// Coarse outcome reported to [`Conn::after_send`][crate::Conn::after_send] callbacks.
-///
-/// Currently a binary success/failure signal; the enum shape exists so additional
-/// termination detail (e.g. partial-send byte counts, error categorization) can be
-/// added without breaking the callback signature.
+/// Outcome reported to [`Conn::after_send`][crate::Conn::after_send] callbacks.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum SendStatus {

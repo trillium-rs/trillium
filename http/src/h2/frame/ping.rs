@@ -1,4 +1,4 @@
-//! PING frame (RFC 9113 §6.7).
+//! PING frame.
 
 use super::{FLAG_ACK, FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader, FrameType};
 use crate::h2::H2ErrorCode;

@@ -1,16 +1,16 @@
-//! Outbound QPACK dynamic table (RFC 9204 §3.2).
+//! Outbound QPACK dynamic table (RFC 9204).
 //!
-//! Mirror of [`super::DecoderDynamicTable`] for the *encoder* side of a connection. Mutations
-//! are enqueued as already-encoded encoder-stream instructions and drained by
-//! [`EncoderDynamicTable::run_writer`]. Acknowledgements read from the peer's decoder stream
-//! by [`EncoderDynamicTable::run_reader`] advance the Known Received Count and release
-//! pinned references.
+//! Mirror of [`super::DecoderDynamicTable`] for the *encoder* side of a connection.
+//! Mutations are enqueued as already-encoded encoder-stream instructions and drained by
+//! [`EncoderDynamicTable::run_writer`]. Acknowledgements read from the peer's decoder
+//! stream by [`EncoderDynamicTable::run_reader`] advance the Known Received Count and
+//! release pinned references.
 //!
 //! ## Module layout
 //!
 //! - [`state`] — `TableState`, `insert`, eviction and reverse-index helpers. Single insert entry
 //!   point; smart wire-format selection lives here, not in callers.
-//! - [`encode`](self::encode) — §4.5 field-section planner and emit phase. Plans entries and drives
+//! - [`encode`](self::encode) — field-section planner and emit phase. Plans entries and drives
 //!   `TableState::insert` directly under the state lock; there is no public per-insert entry point
 //!   on [`EncoderDynamicTable`].
 //! - [`reader`](self::reader), [`writer`](self::writer) — encoder/decoder stream tasks.
@@ -69,9 +69,7 @@ pub struct EncoderDynamicTable {
 
 impl Default for EncoderDynamicTable {
     /// Construct an empty encoder dynamic table with a fresh, empty observer and
-    /// default config. Intended for tests and fixtures; production callers should use
-    /// [`EncoderDynamicTable::new`] so the observer is shared across connections on the
-    /// same listener.
+    /// default config.
     fn default() -> Self {
         Self::new(&HttpContext::default())
     }
@@ -108,8 +106,7 @@ impl EncoderDynamicTable {
     /// Initialize the table from peer settings. Sets `max_capacity` (and the working
     /// `capacity`) to `min(our_max_capacity, peer_qpack_max_table_capacity)`, records
     /// `max_blocked_streams` from the peer's settings, and, if the chosen capacity is
-    /// non-zero, enqueues a Set Dynamic Table Capacity instruction (RFC 9204 §3.2.1,
-    /// §4.3.1).
+    /// non-zero, enqueues a Set Dynamic Table Capacity instruction.
     ///
     /// Must be called exactly once, immediately after the peer's `SETTINGS` frame is parsed
     /// on the control stream.
@@ -209,11 +206,10 @@ impl EncoderDynamicTable {
         self.event.listen()
     }
 
-    /// Record a Section Acknowledgement received from the peer's decoder stream
-    /// (RFC 9204 §4.4.1). Pops the oldest outstanding section for `stream_id` and, if its
-    /// `required_insert_count` exceeds the current known-received count, advances the
-    /// latter. Returns an error if no section is outstanding for this stream (protocol
-    /// error by the peer).
+    /// Record a Section Acknowledgement received from the peer's decoder stream. Pops the
+    /// oldest outstanding section for `stream_id` and, if its `required_insert_count`
+    /// exceeds the current known-received count, advances the latter. Returns an error if
+    /// no section is outstanding for this stream (protocol error by the peer).
     pub(in crate::headers) fn on_section_ack(&self, stream_id: u64) -> Result<(), H3Error> {
         let mut state = self.state.lock().unwrap();
         let section = state
@@ -236,9 +232,8 @@ impl EncoderDynamicTable {
         Ok(())
     }
 
-    /// Record a Stream Cancellation received from the peer's decoder stream
-    /// (RFC 9204 §4.4.2). Drops all outstanding sections for `stream_id` without advancing
-    /// known-received.
+    /// Record a Stream Cancellation received from the peer's decoder stream. Drops all
+    /// outstanding sections for `stream_id` without advancing known-received.
     pub(in crate::headers) fn on_stream_cancel(&self, stream_id: u64) {
         let mut state = self.state.lock().unwrap();
         state.outstanding_sections.remove(&stream_id);
@@ -246,9 +241,9 @@ impl EncoderDynamicTable {
         self.event.notify(usize::MAX);
     }
 
-    /// Record an Insert Count Increment received from the peer's decoder stream
-    /// (RFC 9204 §4.4.3). Advances known-received by `increment`. Returns an error if this
-    /// would exceed `insert_count` (protocol error by the peer).
+    /// Record an Insert Count Increment received from the peer's decoder stream. Advances
+    /// known-received by `increment`. Returns an error if this would exceed `insert_count`
+    /// (protocol error by the peer).
     pub(in crate::headers) fn on_insert_count_increment(
         &self,
         increment: u64,
