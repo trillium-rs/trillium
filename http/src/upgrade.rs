@@ -63,26 +63,6 @@ fn compute_write_state(version: Version, outbound_headers: &Headers) -> WriteSta
     }
 }
 
-/// Pick the inbound state machine's starting state for an upgrade. When the carried-over
-/// state is `Start` and the inbound headers signal no length, force `Raw` so the upgrade
-/// stream reads as transport passthrough rather than being mis-decoded as chunked.
-fn resolve_upgrade_read_state(
-    state: ReceivedBodyState,
-    version: Version,
-    inbound_headers: &Headers,
-    content_length_in: Option<u64>,
-) -> ReceivedBodyState {
-    if matches!(state, ReceivedBodyState::Start)
-        && matches!(version, Version::Http1_0 | Version::Http1_1)
-        && content_length_in.is_none()
-        && !has_chunked_encoding(inbound_headers)
-    {
-        ReceivedBodyState::new_raw()
-    } else {
-        state
-    }
-}
-
 /// True if `Transfer-Encoding` includes `chunked`. Tolerant of multi-codings like
 /// `gzip, chunked`; no ordering enforcement.
 fn has_chunked_encoding(headers: &Headers) -> bool {
@@ -301,8 +281,8 @@ impl<Transport> Upgrade<Transport> {
             secure: false,
             version,
             status: None,
-            read_state: ReceivedBodyState::default(),
-            trailers_in: None,
+            received_body_state: ReceivedBodyState::Raw { total: 0 },
+            received_trailers: None,
             content_length_in: None,
             write_state: WriteState::Raw,
             inbound_encoding: encoding_rs::WINDOWS_1252,
@@ -364,8 +344,8 @@ impl<Transport> Upgrade<Transport> {
             version,
             status,
             secure,
-            read_state,
-            trailers_in,
+            received_body_state,
+            received_trailers,
             content_length_in,
             write_state,
             inbound_encoding,
@@ -633,13 +613,8 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
         let write_state = compute_write_state(version, &response_headers);
         let content_length_in = parse_content_length(&request_headers);
         let inbound_encoding = encoding(&request_headers);
-        let read_state = resolve_upgrade_read_state(
-            request_body_state,
-            version,
-            &request_headers,
-            content_length_in,
-        );
-        let trailers_in = request_trailers.filter(|t| !t.is_empty());
+        let received_body_state = request_body_state;
+        let received_trailers = request_trailers.filter(|t| !t.is_empty());
 
         // Flip h2's drop-on-cancel default to graceful close: stream ownership is moving
         // from the driver into user code, so a drop now means "done", not "handler

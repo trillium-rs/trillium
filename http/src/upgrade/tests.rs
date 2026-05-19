@@ -113,7 +113,10 @@ async fn decode_chunked(wire: Vec<u8>) -> crate::Result<(Vec<u8>, Option<Headers
         None,
         Buffer::default(),
         Cursor::new(wire),
-        ReceivedBodyState::default(),
+        ReceivedBodyState::Chunked {
+            remaining: 0,
+            total: 0,
+        },
         None,
         UTF_8,
     )
@@ -127,7 +130,7 @@ async fn h1_round_trip_no_trailers_simple() {
     let payload = b"hello world".to_vec();
     let transport = RecordingTransport::new();
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h1_upgrade(transport);
+    let mut upgrade = h1_upgrade(transport);
 
     upgrade.write_all(&payload).await.unwrap();
     upgrade.close().await.unwrap();
@@ -153,7 +156,7 @@ async fn h1_round_trip_varying_write_chunk_sizes() {
     for write_chunk_size in [1, 2, 7, 16, 64, 255, 256, 1024, 4096, 8192] {
         let transport = RecordingTransport::new();
         let wire_ref = transport.wire.clone();
-        let mut upgrade =h1_upgrade(transport);
+        let mut upgrade = h1_upgrade(transport);
 
         write_with_chunks_of_size(&mut upgrade, &payload, write_chunk_size)
             .await
@@ -184,7 +187,7 @@ async fn h1_round_trip_varying_transport_accept_cap() {
         for write_chunk_size in [1usize, 16, 256, 2048] {
             let transport = RecordingTransport::with_accept_cap(accept_per_poll);
             let wire_ref = transport.wire.clone();
-            let mut upgrade =h1_upgrade(transport);
+            let mut upgrade = h1_upgrade(transport);
 
             write_with_chunks_of_size(&mut upgrade, &payload, write_chunk_size)
                 .await
@@ -211,7 +214,7 @@ async fn h1_send_trailers_round_trip() {
     let payload = b"body before trailers".to_vec();
     let transport = RecordingTransport::new();
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h1_upgrade(transport);
+    let mut upgrade = h1_upgrade(transport);
 
     upgrade.write_all(&payload).await.unwrap();
 
@@ -241,7 +244,7 @@ async fn h1_send_trailers_under_partial_accept() {
     let payload = b"x".repeat(200);
     let transport = RecordingTransport::with_accept_cap(3);
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h1_upgrade(transport);
+    let mut upgrade = h1_upgrade(transport);
 
     write_with_chunks_of_size(&mut upgrade, &payload, 17)
         .await
@@ -265,7 +268,7 @@ async fn h1_send_trailers_under_partial_accept() {
 #[test(harness)]
 async fn h1_write_after_close_errors() {
     let transport = RecordingTransport::new();
-    let mut upgrade =h1_upgrade(transport);
+    let mut upgrade = h1_upgrade(transport);
 
     upgrade.write_all(b"hi").await.unwrap();
     upgrade.close().await.unwrap();
@@ -277,7 +280,7 @@ async fn h1_write_after_close_errors() {
 #[test(harness)]
 async fn h1_send_trailers_after_close_errors() {
     let transport = RecordingTransport::new();
-    let mut upgrade =h1_upgrade(transport);
+    let mut upgrade = h1_upgrade(transport);
 
     upgrade.write_all(b"hi").await.unwrap();
     upgrade.close().await.unwrap();
@@ -293,7 +296,7 @@ async fn h1_empty_payload_close_emits_terminator_only() {
     // (just the terminator `0\r\n\r\n`), which decodes to empty payload + no trailers.
     let transport = RecordingTransport::new();
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h1_upgrade(transport);
+    let mut upgrade = h1_upgrade(transport);
 
     upgrade.close().await.unwrap();
 
@@ -314,7 +317,7 @@ async fn h1_vectored_write_emits_single_chunk() {
     // vectored shim would have written one chunk per buf.
     let transport = RecordingTransport::new();
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h1_upgrade(transport);
+    let mut upgrade = h1_upgrade(transport);
 
     let parts: [&[u8]; 3] = [b"alpha-", b"beta-", b"gamma"];
     let slices: Vec<IoSlice<'_>> = parts.iter().map(|p| IoSlice::new(p)).collect();
@@ -385,7 +388,7 @@ async fn h3_round_trip_data_frames_simple() {
     let payload = b"hello h3 framed upgrade".to_vec();
     let transport = RecordingTransport::new();
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h3_upgrade(transport);
+    let mut upgrade = h3_upgrade(transport);
 
     upgrade.write_all(&payload).await.unwrap();
     upgrade.close().await.unwrap();
@@ -406,7 +409,7 @@ async fn h3_data_frame_per_poll_write() {
     let payload: Vec<u8> = (0..200).map(|i| (i % 256) as u8).collect();
     let transport = RecordingTransport::new();
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h3_upgrade(transport);
+    let mut upgrade = h3_upgrade(transport);
 
     for slice in payload.chunks(40) {
         upgrade.write_all(slice).await.unwrap();
@@ -425,7 +428,7 @@ async fn h3_data_frame_under_partial_transport_accept() {
     let payload: Vec<u8> = (0..512).map(|i| (i % 256) as u8).collect();
     let transport = RecordingTransport::with_accept_cap(3);
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h3_upgrade(transport);
+    let mut upgrade = h3_upgrade(transport);
 
     for slice in payload.chunks(17) {
         upgrade.write_all(slice).await.unwrap();
@@ -446,7 +449,7 @@ async fn h3_vectored_writes_single_frame() {
     let total: usize = parts.iter().map(|p| p.len()).sum();
     let transport = RecordingTransport::new();
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h3_upgrade(transport);
+    let mut upgrade = h3_upgrade(transport);
 
     let slices: Vec<IoSlice<'_>> = parts.iter().map(|p| IoSlice::new(p)).collect();
     let n = upgrade.write_vectored(&slices).await.unwrap();
@@ -469,7 +472,7 @@ async fn h3_empty_payload_close_writes_nothing() {
     // empty.
     let transport = RecordingTransport::new();
     let wire_ref = transport.wire.clone();
-    let mut upgrade =h3_upgrade(transport);
+    let mut upgrade = h3_upgrade(transport);
 
     upgrade.close().await.unwrap();
 
@@ -484,7 +487,7 @@ async fn h3_empty_payload_close_writes_nothing() {
 #[test(harness)]
 async fn h3_write_after_close_errors() {
     let transport = RecordingTransport::new();
-    let mut upgrade =h3_upgrade(transport);
+    let mut upgrade = h3_upgrade(transport);
 
     upgrade.write_all(b"first").await.unwrap();
     upgrade.close().await.unwrap();
@@ -496,7 +499,7 @@ async fn h3_write_after_close_errors() {
 #[test(harness)]
 async fn h3_send_trailers_after_close_errors() {
     let transport = RecordingTransport::new();
-    let mut upgrade =h3_upgrade(transport);
+    let mut upgrade = h3_upgrade(transport);
 
     upgrade.close().await.unwrap();
 
@@ -513,7 +516,7 @@ async fn h3_send_trailers_without_h3_protocol_session_errors() {
     // arm of `send_trailers` finds no live connection via `as_h3()` and surfaces
     // `NotConnected`. The DATA-frame tests above don't exercise this path.
     let transport = RecordingTransport::new();
-    let upgrade =h3_upgrade(transport);
+    let upgrade = h3_upgrade(transport);
 
     let err = upgrade
         .send_trailers(Headers::new())

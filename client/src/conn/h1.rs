@@ -5,7 +5,7 @@ use std::io::{ErrorKind, Write};
 use trillium_http::{
     BufWriter, Error, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
-    Method, Result, Status, Version,
+    Method, ReceivedBodyState, Result, Status, Version,
 };
 use trillium_server_common::{Connector, Transport};
 
@@ -289,6 +289,7 @@ impl Conn {
                     _ => break,
                 }
             }
+            self.response_body_state = self.initial_response_body_state();
             return Ok(());
         }
 
@@ -318,6 +319,7 @@ impl Conn {
                             "Received a status code other than 100-continue, not sending request \
                              body"
                         );
+                        self.response_body_state = self.initial_response_body_state();
                         return Ok(());
                     }
                 }
@@ -336,6 +338,7 @@ impl Conn {
             }
         }
 
+        self.response_body_state = self.initial_response_body_state();
         Ok(())
     }
 
@@ -452,6 +455,33 @@ impl Conn {
                 .get_str(ContentLength)
                 .and_then(|c| c.parse().ok())
         }
+    }
+
+    /// Resolve the initial [`ReceivedBodyState`] for the inbound response body from
+    /// the parsed status, method, and response headers. HEAD requests and 204/304
+    /// responses produce [`ReceivedBodyState::End`] regardless of headers; chunked
+    /// transfer-encoding produces [`ReceivedBodyState::Chunked`]; everything else —
+    /// including responses without explicit framing, which become read-to-close —
+    /// produces [`ReceivedBodyState::Raw`].
+    fn initial_response_body_state(&self) -> ReceivedBodyState {
+        if self.status == Some(Status::NoContent)
+            || self.status == Some(Status::NotModified)
+            || self.method == Method::Head
+        {
+            return ReceivedBodyState::End;
+        }
+        let chunked = self
+            .response_headers
+            .get_str(TransferEncoding)
+            .is_some_and(|v| {
+                v.split(',')
+                    .any(|coding| coding.trim().eq_ignore_ascii_case("chunked"))
+            });
+        let content_length = self
+            .response_headers
+            .get_str(ContentLength)
+            .and_then(|c| c.parse().ok());
+        ReceivedBodyState::new_h1(content_length, chunked)
     }
 
     pub(super) async fn exec_h1_or_promote_h2(&mut self) -> Result<()> {

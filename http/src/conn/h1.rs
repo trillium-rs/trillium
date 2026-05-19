@@ -105,7 +105,7 @@ where
     }
 
     pub(super) fn needs_100_continue(&self) -> bool {
-        self.request_body_state == ReceivedBodyState::Start
+        self.request_body_state.is_unread()
             && self.version == Version::Http1_1
             && self
                 .request_headers
@@ -125,6 +125,22 @@ where
         )
         .with_trailers(&mut self.request_trailers)
         .with_protocol_session(self.protocol_session.clone())
+    }
+
+    /// Resolve the initial [`ReceivedBodyState`] for the incoming h1 request body from
+    /// the parsed headers. h1 requests without explicit framing default to an empty
+    /// body — read-to-close on inbound has no sender-side end-of-request signal.
+    fn initial_request_body_state(request_headers: &Headers) -> ReceivedBodyState {
+        let chunked = request_headers.has_header(KnownHeaderName::TransferEncoding);
+        let content_length = if chunked {
+            None
+        } else {
+            request_headers
+                .get_str(KnownHeaderName::ContentLength)
+                .and_then(|s| s.parse().ok())
+                .or(Some(0))
+        };
+        ReceivedBodyState::new_h1(content_length, chunked)
     }
 
     fn validate_headers(request_headers: &Headers) -> Result<()> {
@@ -234,6 +250,8 @@ where
 
         buffer.ignore_front(head_size);
 
+        let request_body_state = Self::initial_request_body_state(&request_headers);
+
         Ok(Self {
             transport,
             request_headers,
@@ -245,7 +263,7 @@ where
             status: None,
             state: TypeSet::new(),
             response_body: None,
-            request_body_state: ReceivedBodyState::Start,
+            request_body_state,
             secure: false,
             after_send: AfterSend::default(),
             start_time,
@@ -310,6 +328,8 @@ where
 
         buffer.ignore_front(head_size);
 
+        let request_body_state = Self::initial_request_body_state(&request_headers);
+
         Ok(Self {
             context,
             transport,
@@ -322,7 +342,7 @@ where
             status: None,
             state: TypeSet::new(),
             response_body: None,
-            request_body_state: ReceivedBodyState::Start,
+            request_body_state,
             secure: false,
             after_send: AfterSend::default(),
             start_time,
@@ -391,7 +411,9 @@ where
     }
 
     async fn next(mut self) -> Result<Self> {
-        if !self.needs_100_continue() || self.request_body_state != ReceivedBodyState::Start {
+        // Drain unless we set up 100-continue and the client never started sending: in
+        // that case no body bytes are coming and draining would block.
+        if !self.needs_100_continue() {
             self.build_request_body().drain().await?;
         }
         Conn::new_internal(self.context, self.transport, self.buffer).await

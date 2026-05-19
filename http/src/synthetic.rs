@@ -135,6 +135,7 @@ impl Conn<Synthetic> {
         let transport = body.into();
         let mut request_headers = Headers::new();
         request_headers.insert(KnownHeaderName::ContentLength, transport.len().to_string());
+        let request_body_state = ReceivedBodyState::new_h1(Some(transport.len() as u64), false);
 
         Self {
             context: Arc::default(),
@@ -148,7 +149,7 @@ impl Conn<Synthetic> {
             state: TypeSet::new(),
             response_body: None,
             buffer: Vec::with_capacity(HttpConfig::DEFAULT.request_buffer_initial_len).into(),
-            request_body_state: ReceivedBodyState::Start,
+            request_body_state,
             secure: false,
             after_send: AfterSend::default(),
             start_time: Instant::now(),
@@ -188,7 +189,7 @@ impl Conn<Synthetic> {
         let transport = body.into();
         self.request_headers_mut()
             .insert(KnownHeaderName::ContentLength, transport.len().to_string());
+        self.request_body_state = ReceivedBodyState::new_h1(Some(transport.len() as u64), false);
         self.transport = transport;
-        self.request_body_state = ReceivedBodyState::default();
     }
 }
