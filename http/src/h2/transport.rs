@@ -11,9 +11,9 @@
 //! - **Normal HTTP/2 request/response**: handlers usually don't touch [`H2Transport`] directly
 //!   (same sharp edge h1 and h3 document). [`ReceivedBody`][crate::ReceivedBody] reads request body
 //!   bytes through the transport's `AsyncRead` via
-//!   [`ReceivedBody::handle_raw`][crate::ReceivedBody::handle_raw]. Response bytes flow
-//!   through [`H2Connection::submit_send`][submit_send] to the driver's send pump, which frames
-//!   HEADERS + DATA + trailing HEADERS onto the connection without ever touching this `AsyncWrite`.
+//!   [`ReceivedBody::handle_raw`][crate::ReceivedBody::handle_raw]. Response bytes flow through
+//!   [`H2Connection::submit_send`][submit_send] to the driver's send pump, which frames HEADERS +
+//!   DATA + trailing HEADERS onto the connection without ever touching this `AsyncWrite`.
 //!
 //! - **Extended-CONNECT upgrades** ([RFC 8441] WebSocket-over-h2, plus the in-progress
 //!   `draft-ietf-webtrans-http2` for WebTransport-over-h2): after the handler responds 200 to a

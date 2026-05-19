@@ -311,7 +311,7 @@ impl Client {
             #[cfg(feature = "webtransport")]
             wt_pool_entry: None,
             buffer: Vec::with_capacity(128).into(),
-            response_body_state: ReceivedBodyState::Start,
+            response_body_state: ReceivedBodyState::End,
             headers_finalized: false,
             halted: false,
             error: None,

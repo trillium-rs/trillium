@@ -499,10 +499,7 @@ where
 {
     let mut trailers = Headers::new();
     trailers.insert("x-result", "ok");
-    upgrade
-        .send_trailers(&trailers)
-        .await
-        .unwrap();
+    upgrade.send_trailers(trailers).await.unwrap();
 }
 
 async fn assert_empty_body_with_ok_trailer(mut conn: trillium_client::Conn) -> TestResult {

@@ -424,7 +424,10 @@ mod tests {
             None,
             Buffer::from(Vec::with_capacity(config.response_header_initial_capacity)),
             Cursor::new(input.into_bytes()),
-            ReceivedBodyState::Start,
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
             None,
             UTF_8,
             config,
@@ -569,7 +572,7 @@ mod tests {
     }
 
     #[test(harness)]
-    async fn test_fixed_length_exactly_at_max_len() {
+    async fn test_content_length_exactly_at_max_len() {
         // A body of exactly max_len bytes must succeed (not be rejected).
         let body = "x".repeat(50);
         let config = HttpConfig::default().with_received_body_max_len(50);
@@ -577,7 +580,7 @@ mod tests {
             Some(50),
             Buffer::default(),
             Cursor::new(body.clone().into_bytes()),
-            ReceivedBodyState::Start,
+            ReceivedBodyState::Raw { total: 0 },
             None,
             UTF_8,
             &config,
@@ -596,7 +599,7 @@ mod tests {
             Some(51),
             Buffer::default(),
             Cursor::new(over.into_bytes()),
-            ReceivedBodyState::Start,
+            ReceivedBodyState::Raw { total: 0 },
             None,
             UTF_8,
             &config,
@@ -682,7 +685,10 @@ mod tests {
             None,
             Buffer::default(),
             Cursor::new(input.as_bytes().to_vec()),
-            ReceivedBodyState::Start,
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
             None,
             UTF_8,
             &HttpConfig::DEFAULT,
@@ -700,7 +706,10 @@ mod tests {
                 None,
                 Buffer::default(),
                 Cursor::new(input.as_bytes().to_vec()),
-                ReceivedBodyState::Start,
+                ReceivedBodyState::Chunked {
+                    remaining: 0,
+                    total: 0,
+                },
                 None,
                 UTF_8,
                 &HttpConfig::DEFAULT,
@@ -735,7 +744,10 @@ mod tests {
             None,
             Buffer::default(),
             Cursor::new(wire),
-            ReceivedBodyState::Start,
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
             None,
             UTF_8,
         );
@@ -774,7 +786,10 @@ mod tests {
             None,
             Buffer::from(pre_buffer),
             Cursor::new(continuation),
-            ReceivedBodyState::Start,
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
             None,
             UTF_8,
         );
@@ -865,7 +880,10 @@ mod tests {
             None,
             prefill,
             transport,
-            ReceivedBodyState::Start,
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
             None,
             UTF_8,
         );
@@ -956,7 +974,10 @@ mod tests {
             Buffer::from(wire),
             // Empty transport — every byte must come from the pre-loaded buffer.
             Cursor::new(Vec::<u8>::new()),
-            ReceivedBodyState::Start,
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
             None,
             UTF_8,
         );
@@ -1030,7 +1051,10 @@ mod tests {
             None,
             Buffer::default(),
             Cursor::new(input.as_bytes().to_vec()),
-            ReceivedBodyState::Start,
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
             None,
             UTF_8,
             &HttpConfig::DEFAULT,

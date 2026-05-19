@@ -214,6 +214,39 @@ async fn little_continue_big_continue() -> TestResult {
     Ok(())
 }
 
+#[test(harness)]
+async fn final_response_before_continue_has_readable_body() -> TestResult {
+    let (transport, conn_fut) =
+        test_conn(|client| client.post("http://example.com").with_body("body")).await;
+
+    let expected_request = formatdoc! {"
+        POST / HTTP/1.1\r
+        Host: example.com\r
+        Accept: */*\r
+        Content-Length: 4\r
+        Expect: 100-continue\r
+        User-Agent: {USER_AGENT}\r
+        \r
+    "};
+
+    assert_eq!(expected_request, transport.read_available_string().await);
+
+    transport.write_all(formatdoc! {"
+        HTTP/1.1 415 Unsupported Media Type\r
+        Date: {TEST_DATE}\r
+        Connection: close\r
+        Content-Length: 9\r
+        \r
+        rejected!\
+    "});
+
+    let mut conn = conn_fut.await.unwrap();
+    assert_eq!(Some(Status::UnsupportedMediaType), conn.status());
+    assert_eq!("rejected!", conn.response_body().read_string().await?);
+
+    Ok(())
+}
+
 const TEST_DATE: &str = "Tue, 21 Nov 2023 21:27:21 GMT";
 
 struct TestConnector<R>(Sender<TestTransport>, R);

@@ -1,6 +1,6 @@
 use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, ProtocolSession, copy};
 use Poll::{Pending, Ready};
-use ReceivedBodyState::{Chunked, End, FixedLength, PartialChunkSize, Start};
+use ReceivedBodyState::{Chunked, End, PartialChunkSize, Raw};
 use encoding_rs::Encoding;
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, ready};
 use std::{
@@ -11,7 +11,6 @@ use std::{
 };
 
 mod chunked;
-mod fixed_length;
 mod h3_data;
 mod raw;
 
@@ -440,38 +439,6 @@ where
 
 type StateOutput = Poll<io::Result<(ReceivedBodyState, usize)>>;
 
-impl<Transport> ReceivedBody<'_, Transport>
-where
-    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
-{
-    #[inline]
-    fn handle_start(&mut self) -> StateOutput {
-        Ready(Ok((
-            match self.content_length {
-                Some(0) => End,
-
-                Some(total_length) if total_length <= self.max_len => FixedLength {
-                    current_index: 0,
-                    total: total_length,
-                },
-
-                Some(_) => {
-                    return Ready(Err(io::Error::new(
-                        ErrorKind::Unsupported,
-                        "content too long",
-                    )));
-                }
-
-                None => Chunked {
-                    remaining: 0,
-                    total: 0,
-                },
-            },
-            0,
-        )))
-    }
-}
-
 impl<Transport> AsyncRead for ReceivedBody<'_, Transport>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
@@ -505,14 +472,9 @@ where
 
         for _ in 0..self.copy_loops_per_yield {
             let (new_body_state, bytes) = ready!(match *self.state {
-                Start => self.handle_start(),
                 Chunked { remaining, total } => self.handle_chunked(cx, buf, remaining, total),
                 PartialChunkSize { total } => self.handle_partial(cx, buf, total),
-                FixedLength {
-                    current_index,
-                    total,
-                } => self.handle_fixed_length(cx, buf, current_index, total),
-                ReceivedBodyState::Raw { total } => self.handle_raw(cx, buf, total),
+                Raw { total } => self.handle_raw(cx, buf, total),
                 ReceivedBodyState::H3Data {
                     remaining_in_frame,
                     total,
@@ -611,10 +573,6 @@ pub enum H3BodyFrameType {
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub enum ReceivedBodyState {
-    /// initial state
-    #[default]
-    Start,
-
     /// read state for a chunked-encoded body. the number of bytes that have been read from the
     /// current chunk is the difference between remaining and total.
     Chunked {
@@ -630,24 +588,15 @@ pub enum ReceivedBodyState {
     /// overlapped a buffer boundary
     PartialChunkSize { total: u64 },
 
-    /// read state for a fixed-length body.
-    FixedLength {
-        /// current index represents the bytes that have already been
-        /// read. initial state is zero
-        current_index: u64,
-
-        /// total length indicates the claimed length, usually
-        /// determined by the content-length header
-        total: u64,
-    },
-
-    /// Raw transport passthrough with optional content-length bound. The transport yields
-    /// plain payload bytes; no framing happens here, just `max_len` / content-length
-    /// enforcement against a running total. Transitions to [`End`] on EOF.
+    /// Plain payload bytes from the transport, with optional content-length bound. No
+    /// framing happens here, just `max_len` / content-length enforcement against a
+    /// running total. With a declared length, reads are clamped to the remaining
+    /// declared bytes and the state ends at the boundary; without one, ends on EOF.
     ///
-    /// Used for HTTP/2 bodies (the h2 driver demuxes DATA frames into a per-stream
-    /// receive ring upstream of this), HTTP/1.0 read-to-close response bodies, and raw
-    /// upgrade transports (CONNECT, websockets-over-h1).
+    /// Used for HTTP/1.x bodies declared via `Content-Length`, HTTP/2 bodies (the h2
+    /// driver demuxes DATA frames into a per-stream receive ring upstream of this),
+    /// HTTP/1.0 read-to-close response bodies, and raw upgrade transports (CONNECT,
+    /// websockets-over-h1).
     Raw {
         /// total body bytes read.
         total: u64,
@@ -680,10 +629,29 @@ pub enum ReceivedBodyState {
     },
 
     /// the terminal read state
+    #[default]
     End,
 }
 
 impl ReceivedBodyState {
+    /// Initial state for an HTTP/1.x body framed via `Content-Length` and/or
+    /// `Transfer-Encoding: chunked`. Chunked encoding produces [`Self::Chunked`];
+    /// `Some(0)` collapses to [`Self::End`]; everything else — including `None` for
+    /// HTTP/1.0 read-to-close — produces [`Self::Raw`], whose handler clamps reads to
+    /// the declared length when one is present.
+    pub fn new_h1(content_length: Option<u64>, transfer_encoding_chunked: bool) -> Self {
+        if transfer_encoding_chunked {
+            Self::Chunked {
+                remaining: 0,
+                total: 0,
+            }
+        } else if let Some(0) = content_length {
+            Self::End
+        } else {
+            Self::Raw { total: 0 }
+        }
+    }
+
     /// Initial state for an HTTP/2 body — [`Self::Raw`] with a zero running total,
     /// since the h2 transport already yields plain payload bytes.
     pub fn new_h2() -> Self {
@@ -700,11 +668,19 @@ impl ReceivedBodyState {
         }
     }
 
-    /// Initial state for a raw transport that already yields plain payload bytes —
-    /// HTTP/1.0 read-to-close response bodies, and raw upgrade transports (CONNECT,
-    /// websockets-over-h1).
-    pub fn new_raw() -> Self {
-        Self::Raw { total: 0 }
+    /// Whether the body's read state is one whose first poll has not yet produced any
+    /// bytes. False for [`Self::End`] (terminal) and for the intermediate states
+    /// [`Self::PartialChunkSize`] / [`Self::ReadingH1Trailers`] that are only reached
+    /// after some reading has occurred.
+    pub fn is_unread(&self) -> bool {
+        matches!(
+            self,
+            Self::Chunked {
+                total: 0,
+                remaining: 0
+            } | Self::Raw { total: 0 }
+                | Self::H3Data { total: 0, .. }
+        )
     }
 }
 

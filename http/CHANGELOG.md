@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Reading an HTTP/1.1 chunked-encoded body — request bodies in the server role, response bodies in the client role — could in rare cases fail to decode despite the wire being well-formed, surfacing as one of `chunk header too long`, `invalid chunk size`, `ConnectionAborted`, or `UnexpectedEof`. The triggers all sat at the intersection of partial chunk-size headers (caused by transport segmentation landing inside the few-byte chunk-size header window) and content already buffered for processing (either residual from the conn's pre-read scratch, or partial header bytes stashed by a prior poll). Well-behaved clients use sensible chunk sizes, and reverse proxies typically re-frame chunked bodies before forwarding to the backend, so traffic in typical deployments was very unlikely to hit any of these. Decode errors are now surfaced only for genuinely malformed bodies or actual transport closure. Outbound chunked encoding (the write path in either role) was never affected.
+- Client-role responses from HTTP/1.0 servers that omit `Content-Length` (read-to-close framing) now decode correctly. Previously these surfaced as chunked-decode errors because the inbound body was routed through the chunked decoder.
 
 ## [1.2.2] - 2026-05-15
 

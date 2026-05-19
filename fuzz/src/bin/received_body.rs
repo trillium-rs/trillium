@@ -31,12 +31,13 @@ fn received_body_fuzzer(input: FuzzInput) {
     eprintln!("{strings:?}");
 
     let transport = FuzzTransport::new(input.socket_reads.clone());
+    // None means "Transfer-Encoding: chunked", Some(_) means "Content-Length: <length>".
+    let state = ReceivedBodyState::new_h1(input.content_length, input.content_length.is_none());
     let body = ReceivedBody::new(
-        // None means "Transfer-Encoding: chunked", Some(_) means "Content-Length: <length>".
         input.content_length,
         trillium_http::Buffer::default(),
         transport,
-        ReceivedBodyState::Start,
+        state,
         None,
         encoding_rs::UTF_8,
     );
