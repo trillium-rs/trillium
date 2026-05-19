@@ -6,8 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Upgrade::send_trailers(self, &Headers) -> io::Result<()>` — emit trailing headers and finish the outbound stream. On HTTP/1.1 with `Transfer-Encoding: chunked` set on the response, writes the last-chunk marker, trailer section, and final CRLF, then closes the transport. On HTTP/2, enqueues a trailing `HEADERS` frame with `END_STREAM` via the connection driver. On HTTP/3, encodes a trailing `HEADERS` frame via QPACK and closes the stream. On HTTP/1.x without chunked framing trailers are dropped with a `log::warn!`.
+- `Upgrade::received_trailers() -> Option<&Headers>` (with `_mut` and `take_` variants) — inbound trailers carried across the upgrade transition or decoded by the post-upgrade inbound state machine.
+
+### Changed
+
+- `Upgrade::request_headers` and associated accessors are deprecated in preference to `Upgrade::received_headers`
+- `Upgrade::response_headers` and associated accessors are deprecated in preference to `Upgrade::sent_headers`
+
 ### Fixed
 
+- The `AsyncWrite`/`AsyncRead` implementations on `Upgrade` now correctly applies per-protocol framing/deframing instead of raw passthrough. Previously, only HTTP/2 applied framing. Now, HTTP/1.1 with `Transfer-Encoding: chunked` headers encodes/decodes appropriate chunk framing, and HTTP/3 encodes/decodes DATA framing. HTTP/1.x without `Transfer-Encoding: Chunked` continues to pass through transparently.
 - Reading an HTTP/1.1 chunked-encoded body — request bodies in the server role, response bodies in the client role — could in rare cases fail to decode despite the wire being well-formed, surfacing as one of `chunk header too long`, `invalid chunk size`, `ConnectionAborted`, or `UnexpectedEof`. The triggers all sat at the intersection of partial chunk-size headers (caused by transport segmentation landing inside the few-byte chunk-size header window) and content already buffered for processing (either residual from the conn's pre-read scratch, or partial header bytes stashed by a prior poll). Well-behaved clients use sensible chunk sizes, and reverse proxies typically re-frame chunked bodies before forwarding to the backend, so traffic in typical deployments was very unlikely to hit any of these. Decode errors are now surfaced only for genuinely malformed bodies or actual transport closure. Outbound chunked encoding (the write path in either role) was never affected.
 - Client-role responses from HTTP/1.0 servers that omit `Content-Length` (read-to-close framing) now decode correctly. Previously these surfaced as chunked-decode errors because the inbound body was routed through the chunked decoder.
 

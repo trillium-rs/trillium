@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `ConnExt::upgrade(&mut self)` and `ConnExt::is_upgrade(&self) -> bool` — arm a client conn for an upgrade. With `upgrade` armed, awaiting the conn transmits only the request headers and leaves the outbound direction open; the conn can then be converted into a `trillium_http::Upgrade<Box<dyn Transport>>` once response headers arrive (`Upgrade::from(conn)`), and the caller exchanges body bytes through the upgrade's `AsyncRead` / `AsyncWrite` with per-protocol framing applied.
+
 ## [0.9.0] - 2026-05-15
 
 ### Added

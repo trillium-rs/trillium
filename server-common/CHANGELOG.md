@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `QuicEndpoint::local_addr(&self) -> io::Result<SocketAddr>` — the local address the endpoint is bound to. The default implementation returns `io::ErrorKind::Unsupported`; adapters with a bound UDP socket override it to return the actual address.
+
 ## [0.7.2] - 2026-05-11
 
 ### Added
