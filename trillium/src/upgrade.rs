@@ -151,4 +151,32 @@ impl Upgrade {
     pub fn h3_connection(&self) -> Option<Arc<trillium_http::h3::H3Connection>> {
         self.0.h3_connection().cloned()
     }
+
+    /// Inbound trailers, populated conditionally when we have read this upgrade to completion
+    pub fn request_trailers(&self) -> Option<&Headers> {
+        self.0.received_trailers()
+    }
+
+    /// Emit trailing headers and finish the outbound stream. Consumes `self`; further
+    /// writes are statically prevented.
+    ///
+    /// Per-protocol behavior:
+    /// - HTTP/1.1 with `Transfer-Encoding: chunked`: writes the last-chunk marker (`0\r\n`), the
+    ///   trailer section, and a final CRLF, then closes the transport.
+    /// - HTTP/2: enqueues a trailing `HEADERS` frame with `END_STREAM` via the connection driver
+    ///   and returns. The driver finishes the stream after draining any pending DATA frames.
+    /// - HTTP/3: encodes a trailing `HEADERS` frame via QPACK, writes it to the stream, then closes
+    ///   the stream (QUIC `FIN`).
+    /// - HTTP/1.1 without chunked encoding (raw upgrade, CONNECT tunnel, websocket-over-h1):
+    ///   trailers can't be expressed on the wire; dropped with a `log::warn!` and `Ok(())`
+    ///   returned.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying [`std::io::Error`] when the wire write fails, `BrokenPipe` if
+    /// the stream has already been closed, and `NotConnected` if the carried
+    /// `ProtocolSession` is missing the expected driver for h2/h3.
+    pub async fn send_trailers(self, trailers: Headers) -> std::io::Result<()> {
+        self.0.send_trailers(trailers).await
+    }
 }
