@@ -214,7 +214,7 @@ where
             // correctly picks out "second HEADERS after eof flipped", not the trailer
             // itself. Role-agnostic: applies symmetrically to server (peer-sent EOS) and
             // client (peer-sent response EOS).
-            if entry.shared.recv.eof.load(Ordering::Acquire) {
+            if entry.shared.lifecycle_lock().recv_eof() {
                 log::debug!("h2 stream {stream_id}: HEADERS on half-closed-remote stream");
                 self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
                 self.complete_and_remove_stream(
@@ -299,9 +299,7 @@ where
                     .expect("caller verified stream is present")
                     .shared
                     .clone();
-                let recv_buf = state.recv.buf.lock().expect("recv buf mutex poisoned");
-                state.recv.eof.store(true, Ordering::Release);
-                drop(recv_buf);
+                state.lifecycle_lock().mark_recv_eof();
                 state.recv.response_headers_waker.wake();
                 state.recv.waker.wake();
                 self.try_close_if_both_done(stream_id);
@@ -323,18 +321,17 @@ where
             .first_response_headers_seen
             .store(true, Ordering::Release);
 
-        // Stash headers under the recv buf lock to give body readers + eof observers a
-        // consistent ordering: by the time eof is visible, response_headers is too.
-        let recv_buf = state.recv.buf.lock().expect("recv buf mutex poisoned");
+        // Stash headers, then flip recv-eof via the lifecycle if appropriate. Order:
+        // headers slot first, then lifecycle — by the time a recv reader observes eof,
+        // response_headers is also visible.
         *state
             .recv
             .response_headers
             .lock()
             .expect("response_headers mutex poisoned") = Some(field_section);
         if end_stream {
-            state.recv.eof.store(true, Ordering::Release);
+            state.lifecycle_lock().mark_recv_eof();
         }
-        drop(recv_buf);
         state.recv.response_headers_waker.wake();
         if end_stream {
             state.recv.waker.wake();
@@ -354,8 +351,7 @@ where
     ) -> Action {
         let state = Arc::new(StreamState::default());
         if end_stream {
-            let _guard = state.recv.buf.lock().expect("recv buf mutex poisoned");
-            state.recv.eof.store(true, Ordering::Release);
+            state.lifecycle_lock().mark_recv_eof();
         }
         let send_window = i64::from(
             self.connection
@@ -421,16 +417,15 @@ where
             .expect("caller verified stream is present");
         let state = &entry.shared;
 
-        // Race ordering: store trailers first, then flip eof. Both under the recv buf
-        // lock so observers of eof see trailers populated.
-        let recv_buf = state.recv.buf.lock().expect("recv buf mutex poisoned");
+        // Race ordering: store trailers first, then flip recv-eof via the lifecycle.
+        // The lifecycle transition is the publication edge — observers that load eof
+        // through the lifecycle see the trailers populated first.
         *state
             .recv
             .trailers
             .lock()
             .expect("recv trailers mutex poisoned") = Some(trailers);
-        state.recv.eof.store(true, Ordering::Release);
-        drop(recv_buf);
+        state.lifecycle_lock().mark_recv_eof();
         state.recv.waker.wake();
     }
 }

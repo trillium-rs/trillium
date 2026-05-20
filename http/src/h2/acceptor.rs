@@ -250,6 +250,10 @@ where
     /// [`H2Driver`], and [`H2Initiator`][super::H2Initiator]'s client-side Future impl.
     ///
     /// [`Stream`]: futures_lite::stream::Stream
+    #[allow(
+        clippy::too_many_lines,
+        reason = "state-machine orchestration; splitting muddies the read-as-a-recipe shape"
+    )]
     pub(super) fn drive(
         &mut self,
         cx: &mut Context<'_>,
@@ -338,7 +342,7 @@ where
                     };
                     match poll {
                         Poll::Ready(Ok(())) => {
-                            self.set_state(DriverState::NeedsServerSettings, "preface complete")
+                            self.set_state(DriverState::NeedsServerSettings, "preface complete");
                         }
                         Poll::Ready(Err(e)) => {
                             self.close_outcome = Some(e);
@@ -514,16 +518,12 @@ where
             return;
         }
         for (id, entry) in &self.streams {
-            let send_active = entry.send.is_some();
-            let recv_eof = entry
-                .shared
-                .recv
-                .eof
-                .load(std::sync::atomic::Ordering::Acquire);
-            if send_active || !recv_eof {
+            let lifecycle = entry.shared.lifecycle_lock();
+            if entry.send.is_some() || lifecycle.has_active_send() || lifecycle.has_pending_recv() {
                 log::trace!(
-                    "h2 driver: Closing — stream {id} blocking drain \
-                     (send_cursor_active={send_active}, recv_eof={recv_eof})",
+                    "h2 driver: Closing — stream {id} blocking drain (lifecycle={lifecycle:?}, \
+                     cursor_present={})",
+                    entry.send.is_some(),
                 );
             }
         }

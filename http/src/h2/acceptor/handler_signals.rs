@@ -5,7 +5,7 @@
 //! tick consults the mailbox per stream, so idle streams cost a single atomic RMW per tick.
 
 use super::{H2Driver, Role, StreamEntry, send::SendCursor};
-use crate::h2::{H2ErrorCode, transport::StreamState};
+use crate::h2::{H2ErrorCode, lifecycle::StreamLifecycle, transport::StreamState};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     io,
@@ -16,17 +16,18 @@ impl<T> H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {
-    /// Scan streams for conn-task signals and turn each into driver-internal state. Five
-    /// per-stream signals, all gated by the
-    /// [`StreamState::needs_servicing`][StreamState] mailbox flag:
-    /// - `recv.is_reading`: handler ready to read body — emit initial stream `WINDOW_UPDATE`.
-    /// - `recv.bytes_consumed`: handler drained N bytes — emit stream + connection `WINDOW_UPDATE`.
-    /// - `send.submission`: conn task called `submit_send` — promote into `SendCursor` for the next
-    ///   outbound tick.
-    /// - `pending_reset`: conn task requested a stream error (e.g. content-length guard) — emit
-    ///   `RST_STREAM`, clean up.
-    /// - `pending_release`: client-role wire-closed stream drop — remove from both maps without
-    ///   emitting `RST_STREAM`.
+    /// Walk every active stream, consult the per-stream mailbox, and turn each signal
+    /// into driver-internal state. Three classes of signal:
+    ///
+    /// - **Recv flow control** (`recv.is_reading`, `recv.bytes_consumed`): independent of the
+    ///   lifecycle; emits `WINDOW_UPDATE` frames to top up the per-stream and connection-level recv
+    ///   windows.
+    /// - **Lifecycle transitions** that the driver picks up: `Submitted → Sending` / `Submitted →
+    ///   UpgradeOpen` (build a `SendCursor`); `ResetRequested → Reset` (queue `RST_STREAM` + clean
+    ///   up); `AwaitingRelease → removed` (remove from both stream maps without emitting any
+    ///   frame).
+    /// - **PING outbound queue** (a connection-level mailbox, not per-stream): drain and queue any
+    ///   pending PING frames.
     pub(super) fn service_handler_signals(&mut self) {
         // Must run before the per-stream walk so new streams' submissions are picked up
         // on the same tick.
@@ -49,8 +50,10 @@ where
                 continue;
             }
 
-            // First credit: peer hasn't been credited any recv window yet and the handler
-            // signaled it's reading.
+            // Recv-side flow control. Lifecycle-independent — `is_reading` and
+            // `bytes_consumed` track the handler's read cadence on a normal request
+            // body. First credit: peer hasn't been credited any recv window yet and the
+            // handler signaled it's reading.
             if entry.peer_recv_window <= 0 && entry.shared.recv.is_reading.load(Ordering::Acquire) {
                 stream_updates.push((id, max_stream_recv_window));
                 entry.peer_recv_window += i64::from(max_stream_recv_window);
@@ -64,34 +67,45 @@ where
                 connection_credit = connection_credit.saturating_add(u64::from(credit));
             }
 
-            if entry.send.is_none() {
-                let submission = entry
-                    .shared
-                    .send
-                    .submission
-                    .lock()
-                    .expect("send submission mutex poisoned")
-                    .take();
-                if let Some(submission) = submission {
-                    log::trace!("h2 stream {id}: driver picked up submission");
-                    entry.send = Some(SendCursor::new(submission, &mut self.hpack_encoder));
+            // Lifecycle pickup. Take the lock briefly, decide what to do, perform the
+            // transition. The branches are mutually exclusive — exactly one applies per
+            // pickup.
+            let mut lifecycle = entry.shared.lifecycle_lock();
+            match &mut *lifecycle {
+                StreamLifecycle::Submitted { .. } if entry.send.is_none() => {
+                    // Take the submission by value, transition to Sending/UpgradeOpen,
+                    // build the cursor.
+                    let prior = std::mem::take(&mut *lifecycle);
+                    let StreamLifecycle::Submitted {
+                        submission,
+                        recv_eof,
+                    } = prior
+                    else {
+                        unreachable!("matched Submitted above");
+                    };
+                    let is_upgrade = submission.is_upgrade;
+                    *lifecycle = if is_upgrade {
+                        StreamLifecycle::UpgradeOpen { recv_eof }
+                    } else {
+                        StreamLifecycle::Sending { recv_eof }
+                    };
+                    drop(lifecycle);
+                    log::trace!(
+                        "h2 stream {id}: driver picked up submission (upgrade={is_upgrade})"
+                    );
+                    entry.send = Some(SendCursor::new(*submission, &mut self.hpack_encoder));
                 }
-            }
-
-            if let Some(code) = entry
-                .shared
-                .pending_reset
-                .lock()
-                .expect("pending_reset mutex poisoned")
-                .take()
-            {
-                resets.push((id, code));
-            }
-
-            // Client-role wire-closed-but-held stream — set by `H2Transport::Drop`. No
-            // RST_STREAM, wire is already closed.
-            if entry.shared.pending_release.swap(false, Ordering::AcqRel) {
-                releases.push(id);
+                StreamLifecycle::ResetRequested(code) => {
+                    let code = *code;
+                    *lifecycle = StreamLifecycle::Reset(code);
+                    drop(lifecycle);
+                    resets.push((id, code));
+                }
+                StreamLifecycle::AwaitingRelease => {
+                    drop(lifecycle);
+                    releases.push(id);
+                }
+                _ => {}
             }
         }
 

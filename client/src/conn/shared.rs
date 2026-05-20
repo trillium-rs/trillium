@@ -1,6 +1,7 @@
 use super::{Body, Conn, Transport, TypeSet};
 use crate::{ClientHandler, ConnExt, Error, Result, Version};
 use std::{
+    borrow::Cow,
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},
     mem,
@@ -130,16 +131,10 @@ impl From<Conn> for Upgrade<Box<dyn Transport>> {
         // `Conn: Drop` rules out destructuring — pull each field with `mem::take` /
         // `mem::replace`. New fields on `Conn` won't show up here automatically.
         let path = conn.path.take().unwrap_or_else(|| match conn.url.query() {
-            Some(q) => std::borrow::Cow::Owned(format!("{}?{q}", conn.url.path())),
-            None => std::borrow::Cow::Owned(conn.url.path().to_owned()),
+            Some(q) => Cow::Owned(format!("{}?{q}", conn.url.path())),
+            None => Cow::Owned(conn.url.path().to_owned()),
         });
         let secure = conn.url.scheme() == "https";
-
-        // Flip h2's drop-on-cancel default to graceful close: stream ownership is moving
-        // into user code, so a drop now means "done", not "handler panicked".
-        if let Some((h2, stream_id)) = conn.protocol_session.as_h2() {
-            h2.mark_drop_graceful(stream_id);
-        }
 
         Upgrade::from_parts(
             mem::take(&mut conn.request_headers),

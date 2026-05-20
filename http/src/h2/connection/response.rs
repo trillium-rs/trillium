@@ -11,7 +11,6 @@ use std::{
     future::Future,
     io,
     pin::Pin,
-    sync::atomic::Ordering,
     task::{Context, Poll},
 };
 
@@ -47,7 +46,7 @@ impl Future for ResponseHeaders<'_> {
         if let Some(fs) = try_take() {
             return Poll::Ready(Ok(fs));
         }
-        if state.recv.eof.load(Ordering::Acquire) {
+        if state.lifecycle_lock().recv_eof() {
             return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
         }
         state.recv.response_headers_waker.register(cx.waker());
@@ -56,7 +55,7 @@ impl Future for ResponseHeaders<'_> {
         if let Some(fs) = try_take() {
             return Poll::Ready(Ok(fs));
         }
-        if state.recv.eof.load(Ordering::Acquire) {
+        if state.lifecycle_lock().recv_eof() {
             return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
         }
         Poll::Pending

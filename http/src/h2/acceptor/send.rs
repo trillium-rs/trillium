@@ -12,10 +12,7 @@
 use super::{ClosedReason, DriverState, H2Driver, Role};
 use crate::{
     Body, Headers,
-    h2::{
-        H2Body, frame,
-        transport::{StreamState, Submission},
-    },
+    h2::{H2Body, frame, lifecycle::Submission, transport::StreamState},
     headers::hpack::{FieldSection, HpackEncoder, PseudoHeaders},
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -150,24 +147,25 @@ where
         }
     }
 
-    /// True if any stream still has a `SendCursor` (i.e. the send half hasn't reached
-    /// `Complete` and `finalize_send` hasn't run yet). Used to defer the
+    /// True if any stream has an in-flight send — either a `SendCursor` already built on
+    /// the driver side (cursor exists, framing in progress) OR a submission staged by the
+    /// conn task that the driver hasn't yet picked up. Used to defer the
     /// `Closing → Drained` transition: we must keep ticking the send pump until every
-    /// active stream has emitted its trailers / `END_STREAM`, otherwise late submissions
-    /// (e.g. trailers from a handler that just observed swansong) get stranded.
+    /// active stream has emitted its trailers / `END_STREAM`.
     pub(super) fn has_active_send_cursors(&self) -> bool {
-        self.streams.values().any(|e| e.send.is_some())
+        self.streams
+            .values()
+            .any(|e| e.send.is_some() || e.shared.lifecycle_lock().has_active_send())
     }
 
     /// True if any stream's recv half hasn't observed `END_STREAM` yet (peer might
-    /// still send DATA or trailing HEADERS). Mirror of `has_active_send_cursors` for
-    /// the read side; used by the `Closing → Drained` transition so we keep the recv
-    /// pump running for in-flight streams after our (or the peer's) GOAWAY.
+    /// still send DATA or trailing HEADERS). Used by the `Closing → Drained` transition
+    /// so we keep the recv pump running for in-flight streams after our (or the peer's)
+    /// GOAWAY.
     pub(super) fn has_pending_recv(&self) -> bool {
-        use std::sync::atomic::Ordering;
         self.streams
             .values()
-            .any(|e| !e.shared.recv.eof.load(Ordering::Acquire))
+            .any(|e| e.shared.lifecycle_lock().has_pending_recv())
     }
 
     /// True if any active stream has more outbound work that could make progress on the next
@@ -354,7 +352,7 @@ where
             return;
         };
         let send_done = entry.shared.send.completed.load(Ordering::Acquire);
-        let recv_done = entry.shared.recv.eof.load(Ordering::Acquire);
+        let recv_done = entry.shared.lifecycle_lock().recv_eof();
         if send_done && recv_done {
             self.signal_close(stream_id, Ok(()));
         }
@@ -560,20 +558,25 @@ where
     }
 }
 
-/// Body drained — pull trailers off the body or off the out-of-band
-/// [`H2Connection::submit_trailers`][crate::h2::H2Connection::submit_trailers] mailbox,
-/// drop the body handle, transition to `Trailers`.
+/// Body drained — pull trailers off the body or off the `UpgradeClosing` lifecycle
+/// variant's `pending_trailers` slot (the out-of-band mailbox
+/// [`H2Connection::submit_trailers`][crate::h2::H2Connection::submit_trailers] writes
+/// into), drop the body handle, transition to `Trailers`.
 fn transition_to_trailers(send: &mut SendCursor, shared: &StreamState) {
     if send.trailers.is_none() {
         send.trailers = send.body.as_mut().and_then(H2Body::trailers);
     }
     if send.trailers.is_none() {
-        send.trailers = shared
-            .send
-            .pending_trailers
-            .lock()
-            .expect("pending_trailers mutex poisoned")
-            .take();
+        // Drain pending_trailers if the lifecycle is `UpgradeClosing`. On any other
+        // variant there are no out-of-band trailers — `submit_trailers` only stages onto
+        // `UpgradeClosing`.
+        let mut lifecycle = shared.lifecycle_lock();
+        if let crate::h2::lifecycle::StreamLifecycle::UpgradeClosing {
+            pending_trailers, ..
+        } = &mut *lifecycle
+        {
+            send.trailers = pending_trailers.take();
+        }
     }
     send.body = None;
     send.phase = SendPhase::Trailers;
@@ -620,43 +623,52 @@ mod tests {
         h
     }
 
-    /// Regression for the trailers-stranding bug the patch fixes: when neither the cursor
-    /// nor the body produces trailers, `transition_to_trailers` must fall back to draining
-    /// `StreamState::send::pending_trailers` (the out-of-band mailbox
+    use crate::h2::lifecycle::StreamLifecycle;
+
+    /// Regression for the trailers-stranding bug fixed by the FSM refactor: when neither
+    /// the cursor nor the body produces trailers, `transition_to_trailers` must fall back
+    /// to draining the `UpgradeClosing` variant's `pending_trailers` payload (the
+    /// out-of-band mailbox
     /// [`H2Connection::submit_trailers`][crate::h2::H2Connection::submit_trailers] writes
     /// into). Without this fallback, trailers submitted between driver ticks while a
-    /// cursor was parked in `Body` were lost — the EOF path emitted an empty
-    /// `DATA(END_STREAM)` terminator and never picked the trailers up.
+    /// cursor was parked in `Body` were lost.
     #[test]
     fn pending_trailers_picked_up_when_cursor_and_body_have_none() {
         let shared = StreamState::default();
-        *shared.send.pending_trailers.lock().unwrap() = Some(one_trailer("grpc-status", "0"));
+        *shared.lifecycle_lock() = StreamLifecycle::UpgradeClosing {
+            recv_eof: true,
+            pending_trailers: Some(one_trailer("grpc-status", "0")),
+        };
 
         let mut send = cursor_in_body();
         transition_to_trailers(&mut send, &shared);
 
         let trailers = send
             .trailers
-            .expect("trailers drained from pending_trailers");
+            .expect("trailers drained from UpgradeClosing payload");
         assert_eq!(trailers.get_str("grpc-status"), Some("0"));
         assert_eq!(send.phase, SendPhase::Trailers);
         assert!(send.body.is_none());
-        assert!(
-            shared.send.pending_trailers.lock().unwrap().is_none(),
-            "pending_trailers must be drained, not just copied",
+        let drained = matches!(
+            &*shared.lifecycle_lock(),
+            StreamLifecycle::UpgradeClosing {
+                pending_trailers: None,
+                ..
+            },
         );
+        assert!(drained, "pending_trailers must be drained, not just copied");
     }
 
-    /// Pre-staged cursor trailers (the previous pickup site in `service_handler_signals`,
-    /// or any future caller that sets `cursor.trailers` before the transition) win over
-    /// the `pending_trailers` fallback. Also verifies the fallback isn't drained
-    /// unnecessarily — leaving `pending_trailers` populated would be a leak of a
-    /// future-submission's trailers across stream boundaries.
+    /// Pre-staged cursor trailers win over the `UpgradeClosing` payload fallback. The
+    /// payload isn't drained unnecessarily — leaving it populated avoids leaking
+    /// trailers across stream boundaries.
     #[test]
     fn cursor_trailers_preserved_pending_not_drained() {
         let shared = StreamState::default();
-        *shared.send.pending_trailers.lock().unwrap() =
-            Some(one_trailer("from-pending", "ignored"));
+        *shared.lifecycle_lock() = StreamLifecycle::UpgradeClosing {
+            recv_eof: true,
+            pending_trailers: Some(one_trailer("from-pending", "ignored")),
+        };
 
         let mut send = cursor_in_body();
         send.trailers = Some(one_trailer("from-cursor", "kept"));
@@ -666,20 +678,27 @@ mod tests {
         assert_eq!(trailers.get_str("from-cursor"), Some("kept"));
         assert_eq!(trailers.get_str("from-pending"), None);
         assert_eq!(send.phase, SendPhase::Trailers);
+        let still_populated = matches!(
+            &*shared.lifecycle_lock(),
+            StreamLifecycle::UpgradeClosing {
+                pending_trailers: Some(_),
+                ..
+            },
+        );
         assert!(
-            shared.send.pending_trailers.lock().unwrap().is_some(),
-            "pending_trailers must not be drained when cursor already had trailers",
+            still_populated,
+            "UpgradeClosing payload must not be drained when cursor already had trailers",
         );
     }
 
-    /// Empty `pending_trailers` is treated as "no trailers at all" — the cursor's
-    /// `trailers` slot stays `None` and the send pump's downstream code knows to emit an
-    /// empty `DATA(END_STREAM)` as the stream terminator instead of a trailing HEADERS
-    /// frame. (The send pump's `emit_trailers_or_end_stream` branches on
-    /// `send.trailers.take()`.)
+    /// Empty trailers from every source: cursor's `trailers` stays `None` so the send
+    /// pump emits an empty `DATA(END_STREAM)` as the terminator instead of trailing
+    /// HEADERS. Uses a non-upgrade lifecycle (`Sending`) so there's no payload to drain
+    /// in the first place.
     #[test]
     fn no_trailers_anywhere_leaves_cursor_trailers_none() {
         let shared = StreamState::default();
+        *shared.lifecycle_lock() = StreamLifecycle::Sending { recv_eof: true };
         let mut send = cursor_in_body();
         transition_to_trailers(&mut send, &shared);
 
