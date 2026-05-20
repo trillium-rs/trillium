@@ -39,6 +39,8 @@ mod handler_signals;
 mod outbound;
 mod recv;
 mod send;
+#[cfg(test)]
+mod tests;
 mod types;
 
 use super::{
@@ -302,7 +304,10 @@ where
                 if self.has_active_send_cursors() || self.has_pending_recv() {
                     self.log_closing_blockers();
                 } else {
-                    self.set_state(DriverState::Drained, "outbound drained, no in-flight streams");
+                    self.set_state(
+                        DriverState::Drained,
+                        "outbound drained, no in-flight streams",
+                    );
                 }
             }
 
@@ -332,8 +337,9 @@ where
                         }
                     };
                     match poll {
-                        Poll::Ready(Ok(())) => self
-                            .set_state(DriverState::NeedsServerSettings, "preface complete"),
+                        Poll::Ready(Ok(())) => {
+                            self.set_state(DriverState::NeedsServerSettings, "preface complete")
+                        }
                         Poll::Ready(Err(e)) => {
                             self.close_outcome = Some(e);
                             return Poll::Ready(self.finish_with_current_outcome());
@@ -509,7 +515,11 @@ where
         }
         for (id, entry) in &self.streams {
             let send_active = entry.send.is_some();
-            let recv_eof = entry.shared.recv.eof.load(std::sync::atomic::Ordering::Acquire);
+            let recv_eof = entry
+                .shared
+                .recv
+                .eof
+                .load(std::sync::atomic::Ordering::Acquire);
             if send_active || !recv_eof {
                 log::trace!(
                     "h2 driver: Closing — stream {id} blocking drain \

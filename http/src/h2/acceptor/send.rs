@@ -153,7 +153,7 @@ where
     /// True if any stream still has a `SendCursor` (i.e. the send half hasn't reached
     /// `Complete` and `finalize_send` hasn't run yet). Used to defer the
     /// `Closing → Drained` transition: we must keep ticking the send pump until every
-    /// active stream has emitted its trailers / END_STREAM, otherwise late submissions
+    /// active stream has emitted its trailers / `END_STREAM`, otherwise late submissions
     /// (e.g. trailers from a handler that just observed swansong) get stranded.
     pub(super) fn has_active_send_cursors(&self) -> bool {
         self.streams.values().any(|e| e.send.is_some())
@@ -380,8 +380,8 @@ where
             // Final HEADERS fragment with no body and no trailers carries END_STREAM.
             let end_stream = end_headers && !send.has_body;
             log::trace!(
-                "h2 emit: HEADERS stream={stream_id} len={chunk_len} \
-                 end_headers={end_headers} end_stream={end_stream}",
+                "h2 emit: HEADERS stream={stream_id} len={chunk_len} end_headers={end_headers} \
+                 end_stream={end_stream}",
             );
             self.queue_frame(frame::headers::encoded_prefix_len(0, false), |buf| {
                 frame::headers::encode_prefix(
@@ -396,7 +396,8 @@ where
             });
         } else {
             log::trace!(
-                "h2 emit: CONTINUATION stream={stream_id} len={chunk_len} end_headers={end_headers}",
+                "h2 emit: CONTINUATION stream={stream_id} len={chunk_len} \
+                 end_headers={end_headers}",
             );
             self.queue_frame(frame::continuation::ENCODED_PREFIX_LEN, |buf| {
                 frame::continuation::encode_prefix(stream_id, end_headers, chunk_len_u32, buf)
@@ -629,13 +630,14 @@ mod tests {
     #[test]
     fn pending_trailers_picked_up_when_cursor_and_body_have_none() {
         let shared = StreamState::default();
-        *shared.send.pending_trailers.lock().unwrap() =
-            Some(one_trailer("grpc-status", "0"));
+        *shared.send.pending_trailers.lock().unwrap() = Some(one_trailer("grpc-status", "0"));
 
         let mut send = cursor_in_body();
         transition_to_trailers(&mut send, &shared);
 
-        let trailers = send.trailers.expect("trailers drained from pending_trailers");
+        let trailers = send
+            .trailers
+            .expect("trailers drained from pending_trailers");
         assert_eq!(trailers.get_str("grpc-status"), Some("0"));
         assert_eq!(send.phase, SendPhase::Trailers);
         assert!(send.body.is_none());

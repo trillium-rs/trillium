@@ -160,8 +160,8 @@ impl Drop for H2Transport {
                 .swap(true, Ordering::AcqRel)
             {
                 log::trace!(
-                    "h2 stream {}: H2Transport dropped with graceful close already in \
-                     flight — letting driver finish",
+                    "h2 stream {}: H2Transport dropped with graceful close already in flight — \
+                     letting driver finish",
                     self.stream_id,
                 );
                 return;
@@ -910,7 +910,10 @@ mod tests {
         // Simulate the pool-return path calling `poll_close` on the transport's
         // `AsyncWrite` half before drop — this is routine cleanup, not an upgrade-style
         // graceful close.
-        state.send.outbound_close_requested.store(true, Ordering::Release);
+        state
+            .send
+            .outbound_close_requested
+            .store(true, Ordering::Release);
 
         drop(transport);
 
@@ -963,8 +966,8 @@ mod tests {
         );
         assert!(
             !state.pending_release.load(Ordering::Acquire),
-            "Drop with graceful close already in flight must not signal pending_release \
-             — the driver is responsible for finalizing the upgrade",
+            "Drop with graceful close already in flight must not signal pending_release — the \
+             driver is responsible for finalizing the upgrade",
         );
         let pending_reset = state
             .pending_reset
