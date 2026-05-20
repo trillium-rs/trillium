@@ -497,40 +497,70 @@ fn log_received_frame(frame: &Frame) {
         return;
     }
     match frame {
-        Frame::Data { stream_id, end_stream, data_length, .. } => log::trace!(
+        Frame::Data {
+            stream_id,
+            end_stream,
+            data_length,
+            ..
+        } => log::trace!(
             "h2 recv: DATA stream={stream_id} len={data_length} end_stream={end_stream}",
         ),
-        Frame::Headers { stream_id, end_stream, end_headers, header_block_length, .. } => log::trace!(
+        Frame::Headers {
+            stream_id,
+            end_stream,
+            end_headers,
+            header_block_length,
+            ..
+        } => log::trace!(
             "h2 recv: HEADERS stream={stream_id} block_len={header_block_length} \
              end_headers={end_headers} end_stream={end_stream}",
         ),
-        Frame::Continuation { stream_id, end_headers, header_block_length } => log::trace!(
+        Frame::Continuation {
+            stream_id,
+            end_headers,
+            header_block_length,
+        } => log::trace!(
             "h2 recv: CONTINUATION stream={stream_id} block_len={header_block_length} \
              end_headers={end_headers}",
         ),
         Frame::Settings(s) => log::trace!("h2 recv: SETTINGS {s:?}"),
         Frame::SettingsAck => log::trace!("h2 recv: SETTINGS ACK"),
-        Frame::Ping { opaque_data, ack } => log::trace!(
-            "h2 recv: PING opaque={opaque_data:?} ack={ack}",
-        ),
-        Frame::Goaway { last_stream_id, error_code, .. } => log::trace!(
-            "h2 recv: GOAWAY last_stream_id={last_stream_id} code={error_code:?}",
-        ),
-        Frame::WindowUpdate { stream_id, increment } => log::trace!(
-            "h2 recv: WINDOW_UPDATE stream={stream_id} increment={increment}",
-        ),
-        Frame::RstStream { stream_id, error_code } => log::trace!(
-            "h2 recv: RST_STREAM stream={stream_id} code={error_code:?}",
-        ),
-        Frame::Priority { stream_id, priority } => log::trace!(
+        Frame::Ping { opaque_data, ack } => {
+            log::trace!("h2 recv: PING opaque={opaque_data:?} ack={ack}",)
+        }
+        Frame::Goaway {
+            last_stream_id,
+            error_code,
+            ..
+        } => log::trace!("h2 recv: GOAWAY last_stream_id={last_stream_id} code={error_code:?}",),
+        Frame::WindowUpdate {
+            stream_id,
+            increment,
+        } => log::trace!("h2 recv: WINDOW_UPDATE stream={stream_id} increment={increment}",),
+        Frame::RstStream {
+            stream_id,
+            error_code,
+        } => log::trace!("h2 recv: RST_STREAM stream={stream_id} code={error_code:?}",),
+        Frame::Priority {
+            stream_id,
+            priority,
+        } => log::trace!(
             "h2 recv: PRIORITY stream={stream_id} dep={} excl={} weight={}",
-            priority.stream_dependency, priority.exclusive, priority.weight,
+            priority.stream_dependency,
+            priority.exclusive,
+            priority.weight,
         ),
-        Frame::PushPromise { stream_id, length } => log::trace!(
-            "h2 recv: PUSH_PROMISE stream={stream_id} length={length}",
-        ),
-        Frame::Unknown { stream_id, frame_type, flags, length } => log::trace!(
-            "h2 recv: UNKNOWN type={frame_type} stream={stream_id} flags={flags:#04x} length={length}",
+        Frame::PushPromise { stream_id, length } => {
+            log::trace!("h2 recv: PUSH_PROMISE stream={stream_id} length={length}",)
+        }
+        Frame::Unknown {
+            stream_id,
+            frame_type,
+            flags,
+            length,
+        } => log::trace!(
+            "h2 recv: UNKNOWN type={frame_type} stream={stream_id} flags={flags:#04x} \
+             length={length}",
         ),
     }
 }
