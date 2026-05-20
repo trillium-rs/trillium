@@ -6,15 +6,22 @@
 //! [`open_connect_stream`][super::H2Connection::open_connect_stream] allocate a fresh
 //! peer-initiated stream id and stage a request submission.
 //!
-//! All four entry points share the same shape: lock the streams map, populate the per-stream
-//! [`SendState::submission`][crate::h2::transport::SendState] slot, raise
-//! `needs_servicing`, wake the driver. The returned [`SubmitSend`] future resolves once the
-//! driver signals send completion.
+//! All four entry points share the same shape: lock the streams map, transition the
+//! per-stream lifecycle to [`StreamLifecycle::Submitted`], raise `needs_servicing`, wake
+//! the driver. The returned [`SubmitSend`] future resolves once the driver signals send
+//! completion (early at `END_HEADERS` for upgrades; after `END_STREAM` otherwise).
 
 use super::H2Connection;
 #[cfg(feature = "unstable")]
 use crate::h2::transport::H2Transport;
-use crate::{Body, Headers, h2::transport::StreamState, headers::hpack::PseudoHeaders};
+use crate::{
+    Body, Headers,
+    h2::{
+        lifecycle::{StreamLifecycle, Submission},
+        transport::StreamState,
+    },
+    headers::hpack::PseudoHeaders,
+};
 use std::{
     future::Future,
     io,
@@ -94,18 +101,15 @@ impl H2Connection {
     ) -> SubmitSend {
         let stream = self.streams_lock().get(&stream_id).cloned();
         if let Some(state) = &stream {
-            *state
-                .send
-                .submission
-                .lock()
-                .expect("send submission mutex poisoned") =
-                Some(crate::h2::transport::Submission {
+            stage_submission(
+                state,
+                Submission {
                     pseudos,
                     headers,
                     body,
                     is_upgrade: false,
-                });
-            state.needs_servicing.store(true, Ordering::Release);
+                },
+            );
             self.outbound_waker.wake();
         }
         SubmitSend { stream_id, stream }
@@ -133,19 +137,16 @@ impl H2Connection {
         if let Some(state) = &stream {
             let reader = crate::h2::transport::H2OutboundReader::new(state.clone(), stream_id);
             let body = Body::new_streaming(reader, None);
-            *state
-                .send
-                .submission
-                .lock()
-                .expect("send submission mutex poisoned") =
-                Some(crate::h2::transport::Submission {
+            stage_submission(
+                state,
+                Submission {
                     pseudos,
                     headers,
                     body: Some(body),
                     is_upgrade: true,
-                });
+                },
+            );
             log::trace!("h2 stream {stream_id}: submit_upgrade — submission staged");
-            state.needs_servicing.store(true, Ordering::Release);
             self.outbound_waker.wake();
         }
         SubmitSend { stream_id, stream }
@@ -165,35 +166,43 @@ impl H2Connection {
             .get(&stream_id)
             .cloned()
             .ok_or(io::ErrorKind::NotConnected)?;
-        // Trailers, then close flag, then needs_servicing: the Release on each pairs
-        // with the driver's AcqRel-swap so both prior writes are visible once the driver
-        // sees the flag set.
-        *stream
-            .send
-            .pending_trailers
-            .lock()
-            .expect("pending_trailers mutex poisoned") = Some(trailers);
-        stream
-            .send
-            .outbound_close_requested
-            .store(true, Ordering::Release);
+        // Lifecycle transition `UpgradeOpen → UpgradeClosing(trailers)`. Stages the
+        // trailers as the variant payload so the driver's send pump picks them up at the
+        // Body → Trailers transition. No-op on any non-`UpgradeOpen` state (already
+        // closing / already reset / not an upgrade) — `Ok(())` is returned in those cases
+        // since the trailers can't physically land on the wire but the caller's intent is
+        // best-effort.
+        let mut lifecycle = stream.lifecycle_lock();
+        match &*lifecycle {
+            StreamLifecycle::UpgradeOpen { recv_eof } => {
+                *lifecycle = StreamLifecycle::UpgradeClosing {
+                    recv_eof: *recv_eof,
+                    pending_trailers: Some(trailers),
+                };
+            }
+            StreamLifecycle::UpgradeClosing { recv_eof, .. } => {
+                // Already closing — overwrite the pending trailers slot with the newer
+                // set. (Realistically `submit_trailers` is called once, but a second call
+                // shouldn't silently drop the input.)
+                *lifecycle = StreamLifecycle::UpgradeClosing {
+                    recv_eof: *recv_eof,
+                    pending_trailers: Some(trailers),
+                };
+            }
+            _ => {
+                log::trace!(
+                    "h2 stream {stream_id}: submit_trailers on lifecycle {:?} — dropped",
+                    *lifecycle,
+                );
+                return Ok(());
+            }
+        }
+        drop(lifecycle);
         stream.needs_servicing.store(true, Ordering::Release);
         stream.send.outbound_waker.wake();
         self.outbound_waker.wake();
         log::trace!("h2 stream {stream_id}: submit_trailers staged trailers + close");
         Ok(())
-    }
-
-    /// Flip the h2 stream's drop default from `RST_STREAM(Cancel)` to graceful close, so
-    /// dropping the per-stream transport drains outbound bytes and emits `END_STREAM`
-    /// rather than cancelling. Silently no-ops if the stream is no longer registered.
-    #[cfg(feature = "unstable")]
-    #[doc(hidden)]
-    pub fn mark_drop_graceful(&self, stream_id: u32) {
-        if let Some(stream) = self.streams_lock().get(&stream_id).cloned() {
-            stream.send.graceful_drop.store(true, Ordering::Release);
-            log::trace!("h2 stream {stream_id}: drop default flipped to graceful close");
-        }
     }
 
     /// Client-role primitive: allocate a fresh outbound stream id, stage a request submission
@@ -312,21 +321,48 @@ impl H2Connection {
         // Stage submission *before* publishing the stream id to the shared map so the
         // submission is guaranteed visible the first time the driver sees the stream —
         // otherwise a second tick would be needed to start framing.
-        *state
-            .send
-            .submission
-            .lock()
-            .expect("send submission mutex poisoned") = Some(crate::h2::transport::Submission {
-            pseudos,
-            headers,
-            body,
-            is_upgrade,
-        });
-        state.needs_servicing.store(true, Ordering::Release);
+        stage_submission(
+            &state,
+            Submission {
+                pseudos,
+                headers,
+                body,
+                is_upgrade,
+            },
+        );
         self.streams_lock().insert(stream_id, state.clone());
         log::trace!("h2 client: open_stream allocated stream {stream_id} (upgrade={is_upgrade})");
         self.outbound_waker.wake();
         let transport = H2Transport::new(Arc::clone(self), stream_id, state.clone());
         Some((stream_id, state, transport))
     }
+}
+
+/// Transition a stream's lifecycle to [`StreamLifecycle::Submitted`] (preserving
+/// `recv_eof` from the prior state) and raise the per-stream `needs_servicing` mailbox
+/// flag. The caller is responsible for waking the connection-level driver waker.
+///
+/// No-op (warning logged) if the stream is in a terminal variant — the submission can't
+/// land on a stream that's already reset or released, and the staged headers/body would
+/// just leak.
+fn stage_submission(state: &Arc<StreamState>, submission: Submission) {
+    let mut lifecycle = state.lifecycle_lock();
+    let recv_eof = lifecycle.recv_eof();
+    match &*lifecycle {
+        StreamLifecycle::Idle { .. } | StreamLifecycle::Submitted { .. } => {
+            *lifecycle = StreamLifecycle::Submitted {
+                submission: Box::new(submission),
+                recv_eof,
+            };
+        }
+        _ => {
+            log::warn!(
+                "h2 stage_submission on lifecycle {:?} — dropped",
+                *lifecycle,
+            );
+            return;
+        }
+    }
+    drop(lifecycle);
+    state.needs_servicing.store(true, Ordering::Release);
 }

@@ -35,18 +35,15 @@
 //! [submit_upgrade]: super::H2Connection::submit_upgrade
 //! [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
 
-use super::{H2Connection, H2ErrorCode};
-use crate::{
-    Body, Buffer, Headers,
-    headers::hpack::{FieldSection, PseudoHeaders},
-};
+use super::{H2Connection, H2ErrorCode, lifecycle::StreamLifecycle};
+use crate::{Buffer, Headers, headers::hpack::FieldSection};
 use atomic_waker::AtomicWaker;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     fmt, io,
     pin::Pin,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, MutexGuard,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     task::{Context, Poll},
@@ -99,25 +96,18 @@ impl H2Transport {
 }
 
 impl Drop for H2Transport {
-    /// Application-side release / cancel signal, depending on stream state:
+    /// Application-side release / cancel signal. A single flat match on the lifecycle
+    /// variant — the variant *is* the answer, so there is no ordering between checks to
+    /// get wrong:
     ///
-    /// - **Wire-closed cleanly** (`send.completed && recv.eof`): the application is done with a
-    ///   stream that already finished on the wire. The client-role lifecycle keeps such streams in
-    ///   the map after wire-close (see [`H2Driver::try_close_if_both_done`][super::H2Driver]) so
-    ///   the application's transport handle remains valid for trailer / late-read access. Dropping
-    ///   the transport is the signal that the application is done, and we forward it to the
-    ///   connection so the driver removes the entry from both maps.
-    ///
-    /// - **Wire-incomplete** (handler panic, conn task abandoned, client awaiting a response that
-    ///   never came): emit `RST_STREAM(Cancel)` so the peer learns we're abandoning the stream.
-    ///   Without this the leak persists until the entire connection tears down. Symmetric for both
-    ///   roles.
-    ///
-    /// - **Already gone from the shared map**: driver beat us to cleanup; no-op.
-    ///
-    /// - **Upgrade path graceful close in flight** (`outbound_close_requested`): user has already
-    ///   asked for graceful close via [`Self::poll_close`]; the driver is draining the outbound
-    ///   queue + emitting `DATA(END_STREAM)`. Don't RST in that window.
+    /// - `Reset` / `ResetRequested`: stream is already torn down or about to be; no-op.
+    /// - `AwaitingRelease`: client-only wire-closed-but-held lifecycle. Signal release so the
+    ///   driver removes the entry from both maps.
+    /// - `UpgradeOpen` / `UpgradeClosing`: extended-CONNECT lifecycle. Schedule graceful close —
+    ///   the variant itself records that this stream's drop semantics are "graceful," no separate
+    ///   `graceful_drop` flag needed. Wake is idempotent if already in `UpgradeClosing`.
+    /// - Anything else (`Idle` / `Submitted` / `Sending`): mid-stream drop on a normal
+    ///   request/response — emit `RST_STREAM(Cancel)` so the peer learns we abandoned it.
     fn drop(&mut self) {
         // Cheap pre-check: if the stream is no longer in the shared map the driver has
         // already cleaned up; nothing to do.
@@ -129,62 +119,79 @@ impl Drop for H2Transport {
             return;
         }
 
-        let send_done = self.state.send.completed.load(Ordering::Acquire);
-        let recv_done = self.state.recv.eof.load(Ordering::Acquire);
-
-        // Both halves wire-closed: release the held entry regardless of whether
-        // `poll_close` was called. The connection-pool return path calls `poll_close`
-        // on routine cleanup, which sets `outbound_close_requested` on streams that
-        // have already completed normally; we must still release rather than treat the
-        // flag as "graceful close in flight."
-        if send_done && recv_done {
-            log::trace!(
-                "h2 stream {}: H2Transport dropped on wire-closed stream — releasing",
-                self.stream_id,
-            );
-            self.connection.release_stream(self.stream_id);
-            return;
-        }
-
-        // Upgrade lifecycle: `mark_drop_graceful` has flipped the per-stream flag,
-        // signaling that this transport has crossed into user code and a drop means
-        // "done" rather than "handler panicked." Schedule graceful close so the
-        // driver drains outbound bytes and emits END_STREAM rather than
-        // RST_STREAM(Cancel). If the flag is *already* set the driver is already
-        // draining; just leave it running.
-        if self.state.send.graceful_drop.load(Ordering::Acquire) {
-            if self
-                .state
-                .send
-                .outbound_close_requested
-                .swap(true, Ordering::AcqRel)
-            {
+        let mut lifecycle = self.state.lifecycle_lock();
+        match &*lifecycle {
+            StreamLifecycle::Reset(_) | StreamLifecycle::ResetRequested(_) => {
                 log::trace!(
-                    "h2 stream {}: H2Transport dropped with graceful close already in flight — \
-                     letting driver finish",
+                    "h2 stream {}: H2Transport dropped on already-reset stream",
                     self.stream_id,
                 );
-                return;
             }
-            log::trace!(
-                "h2 stream {}: H2Transport dropped (upgrade) — scheduling graceful close \
-                 (send_done={send_done}, recv_done={recv_done})",
-                self.stream_id,
-            );
-            self.state.needs_servicing.store(true, Ordering::Release);
-            self.state.send.outbound_waker.wake();
-            self.connection.outbound_waker().wake();
-            return;
+            StreamLifecycle::AwaitingRelease => {
+                // Shouldn't ordinarily happen — this branch's Drop path is what
+                // *transitions* a stream into AwaitingRelease. Reaching it again means
+                // a second Drop, which is structurally impossible (`H2Transport` is not
+                // `Clone`); leaving it as a defensive no-op.
+                log::trace!(
+                    "h2 stream {}: H2Transport dropped while already AwaitingRelease",
+                    self.stream_id,
+                );
+            }
+            StreamLifecycle::UpgradeOpen { recv_eof } => {
+                let recv_eof = *recv_eof;
+                log::trace!(
+                    "h2 stream {}: H2Transport dropped (upgrade) — scheduling graceful close",
+                    self.stream_id,
+                );
+                *lifecycle = StreamLifecycle::UpgradeClosing {
+                    recv_eof,
+                    pending_trailers: None,
+                };
+                drop(lifecycle);
+                self.state.needs_servicing.store(true, Ordering::Release);
+                self.state.send.outbound_waker.wake();
+                self.connection.outbound_waker().wake();
+            }
+            StreamLifecycle::UpgradeClosing { .. } => {
+                log::trace!(
+                    "h2 stream {}: H2Transport dropped — graceful close already in flight",
+                    self.stream_id,
+                );
+                // Driver is already draining; just nudge in case it parked.
+                drop(lifecycle);
+                self.state.needs_servicing.store(true, Ordering::Release);
+                self.state.send.outbound_waker.wake();
+                self.connection.outbound_waker().wake();
+            }
+            _ => {
+                // Idle / Submitted / Sending: mid-stream drop. Check the wire-closed
+                // case first — recv_eof + send.completed means the application is done
+                // with a stream that already finished on the wire, and we forward to
+                // release (client-role keeps streams in the map past wire-close so
+                // late-trailer / late-read access works). Otherwise RST_STREAM(Cancel).
+                let send_done = self.state.send.completed.load(Ordering::Acquire);
+                let recv_done = lifecycle.recv_eof();
+                if send_done && recv_done {
+                    log::trace!(
+                        "h2 stream {}: H2Transport dropped on wire-closed stream — releasing",
+                        self.stream_id,
+                    );
+                    *lifecycle = StreamLifecycle::AwaitingRelease;
+                    drop(lifecycle);
+                    self.state.needs_servicing.store(true, Ordering::Release);
+                    self.connection.outbound_waker().wake();
+                } else {
+                    log::debug!(
+                        "h2 stream {}: H2Transport dropped mid-stream — RST_STREAM(Cancel)",
+                        self.stream_id,
+                    );
+                    *lifecycle = StreamLifecycle::ResetRequested(H2ErrorCode::Cancel);
+                    drop(lifecycle);
+                    self.state.needs_servicing.store(true, Ordering::Release);
+                    self.connection.outbound_waker().wake();
+                }
+            }
         }
-
-        // Mid-stream drop on a non-upgrade stream: RST so the peer learns we're done.
-        log::debug!(
-            "h2 stream {}: H2Transport dropped mid-stream — RST_STREAM(Cancel) \
-             (send_done={send_done}, recv_done={recv_done})",
-            self.stream_id,
-        );
-        self.connection
-            .stream_error(self.stream_id, H2ErrorCode::Cancel);
     }
 }
 
@@ -234,14 +241,19 @@ impl AsyncRead for H2Transport {
             return Poll::Ready(Ok(take));
         }
 
-        // Buffer empty. EOF if END_STREAM was observed, otherwise register and wait.
-        // The driver acquires the same `buf` lock to push data and to set `eof`, so holding
-        // it here is enough to make the eof check final — no register-then-check race window
-        // between us and the driver's wake.
-        if recv_state.eof.load(Ordering::Acquire) {
+        // Buffer empty. Register the waker *before* releasing the buf lock so a driver
+        // push between this poll and the lifecycle-eof check is guaranteed to wake us:
+        //   1. We take buf lock (driver-push blocked).
+        //   2. We register waker.
+        //   3. We drop buf lock (driver-push may now proceed and fire waker).
+        //   4. We take lifecycle lock to check eof.
+        //   5. Return Pending or Ready(0); if a push raced through step 3, the waker is registered
+        //      and a fresh poll will see the new bytes.
+        recv_state.waker.register(cx.waker());
+        drop(recv);
+        if self.state.lifecycle_lock().recv_eof() {
             return Poll::Ready(Ok(0));
         }
-        recv_state.waker.register(cx.waker());
         Poll::Pending
     }
 }
@@ -264,7 +276,18 @@ impl AsyncWrite for H2Transport {
         // (`H2OutboundReader::poll_read`) wakes `outbound_write_waker` after each take.
         let send = &self.state.send;
 
-        if send.outbound_close_requested.load(Ordering::Acquire) {
+        // Reject writes once the upgrade has begun closing — either the user called
+        // `poll_close`, or `submit_trailers` staged trailers + close. Reject as well in
+        // terminal states. Anything else (normal upgrade flow) is `UpgradeOpen` and
+        // accepts writes.
+        // Only `UpgradeOpen` accepts writes. Anything else (upgrade past close, terminal
+        // states, or a non-upgrade lifecycle that never had an `H2OutboundReader` to
+        // drain) returns `BrokenPipe` — the `AsyncWrite` impl is structurally meaningful
+        // only during an active extended-CONNECT upgrade.
+        if !matches!(
+            &*self.state.lifecycle_lock(),
+            StreamLifecycle::UpgradeOpen { .. }
+        ) {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
 
@@ -306,18 +329,24 @@ impl AsyncWrite for H2Transport {
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // Mark the upgrade write-half closed. Once the driver drains the remaining
-        // outbound bytes, the upgrade body's `poll_read` will return `Ready(0)`, the
-        // send pump transitions through trailers (none) into `DATA(END_STREAM)`, and the
-        // stream tears down via the normal `complete_and_remove_stream` path.
+        // Mark the upgrade write-half closed by transitioning `UpgradeOpen` →
+        // `UpgradeClosing`. Once the driver drains the remaining outbound bytes, the
+        // upgrade body's `poll_read` will return `Ready(0)`, the send pump transitions
+        // through trailers (none) into `DATA(END_STREAM)`, and the stream tears down via
+        // the normal `complete_and_remove_stream` path. Idempotent on any non-`UpgradeOpen`
+        // state — `poll_close` is allowed to be called multiple times.
         log::trace!(
             "h2 stream {}: H2Transport::poll_close marking outbound closed",
             self.stream_id,
         );
-        self.state
-            .send
-            .outbound_close_requested
-            .store(true, Ordering::Release);
+        let mut lifecycle = self.state.lifecycle_lock();
+        if let StreamLifecycle::UpgradeOpen { recv_eof } = &*lifecycle {
+            *lifecycle = StreamLifecycle::UpgradeClosing {
+                recv_eof: *recv_eof,
+                pending_trailers: None,
+            };
+        }
+        drop(lifecycle);
         self.state.send.outbound_waker.wake();
         self.connection.outbound_waker().wake();
         Poll::Ready(Ok(()))
@@ -326,50 +355,46 @@ impl AsyncWrite for H2Transport {
 
 /// Shared per-stream state. Owned by an [`Arc`] held jointly by the driver (via the connection's
 /// stream table) and the handler task (via [`H2Transport`]).
+///
+/// The cross-task-visible state machine is the [`StreamLifecycle`] held in [`Self::lifecycle`];
+/// the recv buffer / wakers / completion signal channel are independent data and stay as
+/// sibling fields. See the [`lifecycle`][super::lifecycle] module docs for the rationale.
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
-    /// Recv side: inbound DATA payloads, EOF flag, handler waker, handler-intent signal.
+    /// Cross-task-visible per-stream state machine. The variants encode the legal
+    /// observable states of a stream; predicates ([`StreamLifecycle::is_in_flight`],
+    /// [`StreamLifecycle::has_pending_recv`], [`StreamLifecycle::recv_eof`],
+    /// [`StreamLifecycle::has_active_send`]) and code that needs to make decisions
+    /// match on the variants directly.
+    pub(super) lifecycle: Mutex<StreamLifecycle>,
+
+    /// Recv side: inbound DATA payloads, handler waker, handler-intent signal, trailers.
+    /// Independent of [`Self::lifecycle`] — these are data, not state.
     pub(super) recv: RecvState,
-    /// Send side: handoff slot from the conn task's `submit_send`, plus completion signaling
-    /// the conn task awaits.
+
+    /// Send side: outbound upgrade buffer + wakers + the driver→conn-task completion
+    /// signal channel. Independent of [`Self::lifecycle`].
     pub(super) send: SendState,
-    /// Stream-error request raised from the conn-task side. Populated by
-    /// [`H2Connection::stream_error`][super::H2Connection::stream_error] when something on
-    /// the conn-task side (a body-read that detects content-length mismatch, a handler
-    /// that wants to abort) needs the driver to emit `RST_STREAM` and clean up. The driver
-    /// picks this up in `service_handler_signals` on its next tick and routes through
-    /// [`H2Driver::complete_and_remove_stream`][super::H2Driver]'s normal cleanup path.
-    ///
-    /// [`H2Driver`]: super::H2Driver
-    pub(super) pending_reset: Mutex<Option<H2ErrorCode>>,
 
-    /// Client-role: the application has dropped its [`H2Transport`] handle on a stream that
-    /// already wire-closed cleanly (both halves observed `END_STREAM`). The driver removes
-    /// the stream from both maps on its next `service_handler_signals` tick. No `RST_STREAM`
-    /// — the wire-side is already closed; this is purely application-side resource cleanup.
-    /// Distinct from [`Self::pending_reset`], which emits `RST_STREAM` for unclean teardown.
+    /// Mailbox flag for conn-task → driver work signaling. Set by conn-task code
+    /// whenever it produces work the driver should service (lifecycle transition,
+    /// [`RecvState::bytes_consumed`] increment, [`RecvState::is_reading`] transition).
+    /// The driver's `service_handler_signals` consults this via `swap(false, AcqRel)` —
+    /// only streams where it returns `true` pay for the lifecycle-lock pickup. Idle
+    /// streams cost a single atomic RMW per tick.
     ///
-    /// Server role never sets this — server streams are removed eagerly when the response
-    /// finishes sending (no held-after-close lifecycle).
-    pub(super) pending_release: AtomicBool,
-
-    /// Mailbox flag for conn-task → driver work signaling.
-    ///
-    /// Set to `true` by conn-task code whenever it produces work the driver should service
-    /// (new submission, [`Self::pending_reset`], [`Self::pending_release`], a
-    /// [`RecvState::bytes_consumed`] increment, or a [`RecvState::is_reading`] transition).
-    /// The driver's `service_handler_signals` walks every stream and consults this flag via
-    /// `swap(false, AcqRel)` — only streams where it returns `true` pay for the per-field
-    /// pickup (mutex acquires for `submission` / `pending_reset`, etc.). Idle streams cost a
-    /// single atomic RMW per tick.
-    ///
-    /// **Setter ordering rule**: write the underlying state first, then store `true` with
-    /// `Release`, then call [`H2Connection::outbound_waker`][super::H2Connection]`.wake()`.
-    /// The `Release` store + driver's `AcqRel` swap form the synchronization edge that
-    /// publishes the underlying state to the driver. Over-notification (driver clears, finds
-    /// nothing, moves on) is harmless; under-notification would lose a signal — which is why
-    /// the underlying state must be written *before* the flag store.
+    /// **Setter ordering rule**: write the underlying state first, then store `true`
+    /// with `Release`, then call [`H2Connection::outbound_waker`][super::H2Connection]`.wake()`.
+    /// Over-notification is harmless; under-notification would lose a signal.
     pub(super) needs_servicing: AtomicBool,
+}
+
+impl StreamState {
+    /// Lock the per-stream lifecycle. Convenience wrapper around the inner mutex's
+    /// `lock().expect(...)` — every call site treats poisoning as a programming error.
+    pub(super) fn lifecycle_lock(&self) -> MutexGuard<'_, StreamLifecycle> {
+        self.lifecycle.lock().expect("lifecycle mutex poisoned")
+    }
 }
 
 /// Receive-side per-stream state.
@@ -383,13 +408,9 @@ pub(super) struct RecvState {
     /// traffic — zero amortized allocations per DATA frame.
     pub(super) buf: Mutex<Buffer>,
 
-    /// `true` once `END_STREAM` has been observed for this stream's recv side. Set by the
-    /// driver under the same `buf` lock used for pushes; checked by `poll_read` while
-    /// holding that lock to decide between EOF and Pending.
-    pub(super) eof: AtomicBool,
-
     /// Handler-task waker, fired by the driver after pushing DATA into `buf` or after
-    /// setting `eof`. Single-waiter: only one task ever polls a given `H2Transport`.
+    /// the lifecycle transitions to recv-eof. Single-waiter: only one task ever polls a
+    /// given `H2Transport`.
     pub(super) waker: AtomicWaker,
 
     /// Set by the handler's first [`H2Transport::poll_read`] to declare intent to consume the
@@ -467,13 +488,12 @@ pub(super) struct RecvState {
 /// [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
 #[derive(Debug, Default)]
 pub(super) struct SendState {
-    /// Slot for the conn task's submission. Some between `submit_send` and the driver's
-    /// pickup tick; None at all other times.
-    pub(super) submission: Mutex<Option<Submission>>,
-
     /// Set to `true` by the driver once the response has been fully framed, flushed, or
     /// errored. The conn task's `SubmitSend` future polls this atomic and registers on
-    /// `completion_waker`.
+    /// `completion_waker`. Independent signal channel from the lifecycle — on the
+    /// extended-CONNECT upgrade path completion is signalled *early* (at `END_HEADERS`,
+    /// before the body is on the wire) so the runtime can dispatch `Handler::upgrade`;
+    /// the lifecycle stays in `UpgradeOpen` past that point.
     pub(super) completed: AtomicBool,
 
     /// The driver writes the final result here before flipping `completed`. The conn task
@@ -490,16 +510,10 @@ pub(super) struct SendState {
     /// Empty for normal responses — the driver pumps the response [`Body`] directly.
     pub(super) outbound: Mutex<Buffer>,
 
-    /// Set by [`H2Transport::poll_close`] to mark the upgrade-side write half closed.
-    /// The upgrade body's `poll_read` returns `Ready(0)` once `outbound` is empty and
-    /// this flag is set, which transitions the driver's send pump into the
-    /// trailers/`DATA(END_STREAM)` phase.
-    pub(super) outbound_close_requested: AtomicBool,
-
     /// Waker for the upgrade body's `poll_read`. Fired by [`H2Transport::poll_write`]
-    /// after appending bytes and by [`H2Transport::poll_close`] after flipping
-    /// `outbound_close_requested`. Registered by the body during its `poll_read` when
-    /// it observes an empty buffer and no close flag.
+    /// after appending bytes and by [`H2Transport::poll_close`] after the lifecycle
+    /// transitions to `UpgradeClosing`. Registered by the body during its `poll_read`
+    /// when it observes an empty buffer and an `UpgradeOpen` lifecycle.
     pub(super) outbound_waker: AtomicWaker,
 
     /// Reverse-direction waker: registered by [`H2Transport::poll_write`] when `outbound`
@@ -509,17 +523,6 @@ pub(super) struct SendState {
     /// it, a slow or unresponsive peer's closed window would let `outbound` grow without
     /// bound.
     pub(super) outbound_write_waker: AtomicWaker,
-
-    /// Mailbox for trailers staged out-of-band by
-    /// [`H2Connection::submit_trailers`][super::H2Connection::submit_trailers]. The
-    /// driver moves these onto the send cursor when it next services the stream.
-    pub(super) pending_trailers: Mutex<Option<Headers>>,
-
-    /// When `true`, a mid-stream [`H2Transport`] drop schedules graceful close instead
-    /// of `RST_STREAM(Cancel)`. Flipped by
-    /// [`H2Connection::mark_drop_graceful`][super::H2Connection::mark_drop_graceful]
-    /// once stream ownership has crossed into user code.
-    pub(super) graceful_drop: AtomicBool,
 }
 
 /// `AsyncRead` source the driver uses as the response body for an extended-CONNECT upgrade.
@@ -574,15 +577,23 @@ impl AsyncRead for H2OutboundReader {
             return Poll::Ready(Ok(take));
         }
 
-        // Queue empty. Register first, then re-check the close flag. This closes the
-        // register-then-check race against `poll_close` (which doesn't take the buf
-        // lock — it just stores the flag and fires the waker). Holding the buf lock
-        // means `poll_write` can't race here; only `poll_close` can.
+        // Queue empty. Register first, then re-check the lifecycle. This closes the
+        // register-then-check race against `poll_close` / `submit_trailers` (both of
+        // which transition the lifecycle but don't take the outbound buf lock).
         send.outbound_waker.register(cx.waker());
 
-        if send.outbound_close_requested.load(Ordering::Acquire) {
+        // EOF when the lifecycle has moved past `UpgradeOpen` — `UpgradeClosing`
+        // (`poll_close`/`submit_trailers` fired), `Reset*` (peer reset / local error),
+        // or terminal. Anything that hasn't reached EOF stays `UpgradeOpen` and we
+        // park.
+        let lifecycle_says_eof = !matches!(
+            &*self.state.lifecycle_lock(),
+            StreamLifecycle::UpgradeOpen { .. }
+        );
+        if lifecycle_says_eof {
             log::trace!(
-                "h2 stream {}: H2OutboundReader::poll_read EOF (close_requested + empty)",
+                "h2 stream {}: H2OutboundReader::poll_read EOF (lifecycle past UpgradeOpen, queue \
+                 empty)",
                 self.stream_id,
             );
             return Poll::Ready(Ok(0));
@@ -591,41 +602,8 @@ impl AsyncRead for H2OutboundReader {
     }
 }
 
-/// What the conn task hands the driver to begin a send on a stream.
-///
-/// `body` carries either a normal response body or, for extended-CONNECT (RFC 8441)
-/// upgrades, a streaming body that reads from [`SendState::outbound`] (which the upgrade
-/// handler's [`H2Transport`] `AsyncWrite` writes into). Trailers (if any) come from
-/// [`Body::trailers`] after drain — not a separate field.
-///
-/// `is_upgrade` flips the driver's completion semantics: instead of signaling
-/// [`SubmitSend`][super::SubmitSend] completion after the body is fully on the wire, the
-/// driver signals completion as soon as the response HEADERS frame is flushed. That lets
-/// [`Conn::send_h2`][crate::Conn::send_h2] return so the runtime can dispatch
-/// [`Handler::upgrade`][trillium::Handler::upgrade], while the body keeps streaming in the
-/// background.
-#[derive(Debug)]
-pub(super) struct Submission {
-    /// Owned pseudo-headers for the response/request. Combined with `headers` on the driver
-    /// task to form a [`FieldSection`] which is then HPACK-encoded synchronously via
-    /// [`HpackEncoder`][crate::headers::hpack::HpackEncoder] at submission pickup. The
-    /// encoder runs only on the driver task: each pickup-tick encodes its submissions
-    /// against the live dynamic-table state, then frames HEADERS in the order they were
-    /// encoded — matching the wire-emission order that HPACK's stateful decoder requires.
-    pub(super) pseudos: PseudoHeaders<'static>,
-    /// Owned headers for the block. Cloned from the conn task's `request_headers` /
-    /// `response_headers` so those remain readable to caller and middleware after the send.
-    pub(super) headers: Headers,
-    pub(super) body: Option<Body>,
-    pub(super) is_upgrade: bool,
-}
-
-impl Submission {
-    /// Borrow this submission's headers as a [`FieldSection`] for encoding.
-    pub(super) fn field_section(&self) -> FieldSection<'_> {
-        FieldSection::new(self.pseudos.clone(), &self.headers)
-    }
-}
+// `Submission` lives in [`super::lifecycle`] — it's the payload of
+// `StreamLifecycle::Submitted`.
 
 #[cfg(test)]
 mod tests {
@@ -647,11 +625,15 @@ mod tests {
         }
     }
 
+    /// Build a `(transport, reader)` pair against a fresh `H2Connection`, with the
+    /// stream's lifecycle pre-set to `UpgradeOpen` — `H2Transport::poll_write` only
+    /// accepts writes for upgrade-lifecycle streams.
     fn pair_with_cap(cap: usize) -> (H2Transport, H2OutboundReader) {
         let mut context = HttpContext::new();
         context.config.response_buffer_max_len = cap;
         let connection = H2Connection::new(Arc::new(context));
         let state = Arc::new(StreamState::default());
+        *state.lifecycle_lock() = StreamLifecycle::UpgradeOpen { recv_eof: true };
         let transport = H2Transport::new(connection.clone(), 1, state.clone());
         let reader = H2OutboundReader::new(state, 1);
         (transport, reader)
@@ -717,275 +699,8 @@ mod tests {
         }
     }
 
-    /// `pair_with_cap` variant that also inserts the per-stream [`StreamState`] into the
-    /// connection's streams map, so `H2Connection::submit_*` methods see the stream as
-    /// registered. Returns the [`H2Connection`] for direct API access too.
-    #[cfg(feature = "unstable")]
-    fn registered_pair(
-        cap: usize,
-        stream_id: u32,
-    ) -> (Arc<H2Connection>, H2Transport, H2OutboundReader) {
-        let mut context = HttpContext::new();
-        context.config.response_buffer_max_len = cap;
-        let connection = H2Connection::new(Arc::new(context));
-        let state = Arc::new(StreamState::default());
-        connection.streams_lock().insert(stream_id, state.clone());
-        let transport = H2Transport::new(connection.clone(), stream_id, state.clone());
-        let reader = H2OutboundReader::new(state, stream_id);
-        (connection, transport, reader)
-    }
-
-    #[cfg(feature = "unstable")]
-    #[test]
-    fn submit_trailers_stages_pending_trailers_and_flips_close() {
-        use crate::Headers;
-
-        let stream_id = 1;
-        let (connection, _transport, _reader) = registered_pair(64, stream_id);
-
-        let mut trailers = Headers::new();
-        trailers.insert("grpc-status", "0");
-        trailers.insert("grpc-message", "OK");
-
-        connection
-            .submit_trailers(stream_id, trailers)
-            .expect("submit_trailers on a registered stream");
-
-        let state = connection
-            .streams_lock()
-            .get(&stream_id)
-            .cloned()
-            .expect("stream still in map");
-
-        let pending = state
-            .send
-            .pending_trailers
-            .lock()
-            .expect("pending_trailers mutex");
-        let pending = pending.as_ref().expect("pending_trailers populated");
-        assert_eq!(pending.get_str("grpc-status"), Some("0"));
-        assert_eq!(pending.get_str("grpc-message"), Some("OK"));
-
-        assert!(
-            state.send.outbound_close_requested.load(Ordering::Acquire),
-            "submit_trailers must flip outbound_close_requested"
-        );
-        assert!(
-            state.needs_servicing.load(Ordering::Acquire),
-            "submit_trailers must raise needs_servicing"
-        );
-    }
-
-    #[cfg(feature = "unstable")]
-    #[test]
-    fn submit_trailers_returns_not_connected_for_unknown_stream() {
-        use crate::Headers;
-        use std::io;
-
-        let connection = H2Connection::new(Arc::new(HttpContext::new()));
-        let err = connection
-            .submit_trailers(99, Headers::new())
-            .expect_err("unknown stream should be NotConnected");
-        assert_eq!(err.kind(), io::ErrorKind::NotConnected);
-    }
-
-    #[cfg(feature = "unstable")]
-    #[test]
-    fn submit_trailers_wakes_outbound_reader_to_eof() {
-        // Once `submit_trailers` flips close_requested + the outbound queue is empty, the
-        // `H2OutboundReader` should observe EOF (`Ready(Ok(0))`) — that's the signal the
-        // driver's send pump needs to transition the cursor from Body → Trailers and
-        // ultimately emit the trailing HEADERS frame.
-        use crate::Headers;
-
-        let stream_id = 1;
-        let (connection, _transport, mut reader) = registered_pair(64, stream_id);
-
-        connection
-            .submit_trailers(stream_id, Headers::new())
-            .expect("submit_trailers");
-
-        let waker = Waker::from(Arc::new(CountingWaker(AtomicBool::new(false))));
-        let mut cx = Context::from_waker(&waker);
-        let mut sink = [0u8; 4];
-        match Pin::new(&mut reader).poll_read(&mut cx, &mut sink) {
-            Poll::Ready(Ok(0)) => {}
-            other => panic!("expected Ready(Ok(0)) (EOF), got {other:?}"),
-        }
-    }
-
-    /// Regression: while a stream still lives inside a `Conn` handler, dropping the
-    /// `H2Transport` mid-stream signals "handler panicked" — the driver must RST so the
-    /// peer learns the work is cancelled. `mark_drop_graceful` has *not* been called, so
-    /// drop falls into the RST branch.
-    #[cfg(feature = "unstable")]
-    #[test]
-    fn drop_in_conn_state_rsts_mid_stream() {
-        use crate::h2::H2ErrorCode;
-
-        let stream_id = 1;
-        let (connection, transport, _reader) = registered_pair(64, stream_id);
-        let state = connection
-            .streams_lock()
-            .get(&stream_id)
-            .cloned()
-            .expect("stream registered");
-
-        drop(transport);
-
-        assert!(
-            !state.send.outbound_close_requested.load(Ordering::Acquire),
-            "Conn-state drop must not flip outbound_close_requested",
-        );
-        let pending_reset = state
-            .pending_reset
-            .lock()
-            .expect("pending_reset mutex poisoned");
-        assert_eq!(
-            *pending_reset,
-            Some(H2ErrorCode::Cancel),
-            "Conn-state drop must schedule RST_STREAM(Cancel)",
-        );
-    }
-
-    /// Regression: once `mark_drop_graceful` flips the per-stream flag (the
-    /// `Conn → Upgrade` transition), dropping the `H2Transport` schedules graceful
-    /// close instead — the driver drains pending outbound bytes and emits
-    /// `DATA(END_STREAM)` on its normal complete-and-remove path, no RST.
-    #[cfg(feature = "unstable")]
-    #[test]
-    fn drop_after_mark_drop_graceful_schedules_close() {
-        let stream_id = 1;
-        let (connection, transport, _reader) = registered_pair(64, stream_id);
-        let state = connection
-            .streams_lock()
-            .get(&stream_id)
-            .cloned()
-            .expect("stream registered");
-
-        connection.mark_drop_graceful(stream_id);
-        drop(transport);
-
-        assert!(
-            state.send.outbound_close_requested.load(Ordering::Acquire),
-            "graceful drop must flip outbound_close_requested",
-        );
-        assert!(
-            state.needs_servicing.load(Ordering::Acquire),
-            "graceful drop must raise needs_servicing so the driver picks the stream up",
-        );
-        let pending_reset = state
-            .pending_reset
-            .lock()
-            .expect("pending_reset mutex poisoned");
-        assert!(
-            pending_reset.is_none(),
-            "graceful drop must not schedule RST",
-        );
-    }
-
-    /// Regression: dropping the `H2Transport` on a wire-closed stream
-    /// (`send.completed && recv.eof`) must release the held entry **regardless** of
-    /// whether `outbound_close_requested` is set. The pool-return path calls `poll_close`
-    /// on streams that have already completed normally — setting that flag — and prior
-    /// to the Drop reordering fix the early-return on `outbound_close_requested` would
-    /// suppress the release, leaving the stream pinned in the connection's map and
-    /// blocking `Closing → Drained` for the duration of the held conn.
-    #[cfg(feature = "unstable")]
-    #[test]
-    fn drop_on_wire_closed_with_close_requested_still_releases() {
-        let stream_id = 1;
-        let (connection, transport, _reader) = registered_pair(64, stream_id);
-        let state = connection
-            .streams_lock()
-            .get(&stream_id)
-            .cloned()
-            .expect("stream registered");
-
-        // Simulate the wire-closed state both halves reach at the end of a normal
-        // request: server's response framed (send.completed), peer's END_STREAM observed
-        // (recv.eof).
-        state.send.completed.store(true, Ordering::Release);
-        state.recv.eof.store(true, Ordering::Release);
-        // Simulate the pool-return path calling `poll_close` on the transport's
-        // `AsyncWrite` half before drop — this is routine cleanup, not an upgrade-style
-        // graceful close.
-        state
-            .send
-            .outbound_close_requested
-            .store(true, Ordering::Release);
-
-        drop(transport);
-
-        assert!(
-            state.pending_release.load(Ordering::Acquire),
-            "Drop on wire-closed stream must signal pending_release even when \
-             outbound_close_requested was set by routine cleanup",
-        );
-        let pending_reset = state
-            .pending_reset
-            .lock()
-            .expect("pending_reset mutex poisoned");
-        assert!(
-            pending_reset.is_none(),
-            "Drop on wire-closed stream must not schedule RST",
-        );
-    }
-
-    /// Regression: dropping the `H2Transport` while an upgrade's graceful close is
-    /// already in flight (`graceful_drop` set AND `outbound_close_requested` already set
-    /// by a prior `poll_close`) must be a no-op — re-raising `needs_servicing` or
-    /// re-firing wakers risks the driver picking up the stream a second time after it
-    /// has already begun finalizing the upgrade.
-    #[cfg(feature = "unstable")]
-    #[test]
-    fn drop_with_graceful_close_already_in_flight_is_noop() {
-        let stream_id = 1;
-        let (connection, transport, _reader) = registered_pair(64, stream_id);
-        let state = connection
-            .streams_lock()
-            .get(&stream_id)
-            .cloned()
-            .expect("stream registered");
-
-        connection.mark_drop_graceful(stream_id);
-        // Simulate `poll_close` having already fired (user explicitly closed the upgrade
-        // write half). The driver is already draining outbound + will emit END_STREAM.
-        state
-            .send
-            .outbound_close_requested
-            .store(true, Ordering::Release);
-        // Clear `needs_servicing` so we can detect whether Drop spuriously re-raises it.
-        state.needs_servicing.store(false, Ordering::Release);
-
-        drop(transport);
-
-        assert!(
-            !state.needs_servicing.load(Ordering::Acquire),
-            "Drop with graceful close already in flight must not re-raise needs_servicing",
-        );
-        assert!(
-            !state.pending_release.load(Ordering::Acquire),
-            "Drop with graceful close already in flight must not signal pending_release — the \
-             driver is responsible for finalizing the upgrade",
-        );
-        let pending_reset = state
-            .pending_reset
-            .lock()
-            .expect("pending_reset mutex poisoned");
-        assert!(
-            pending_reset.is_none(),
-            "Drop with graceful close already in flight must not schedule RST",
-        );
-    }
-
-    /// `mark_drop_graceful` on an unknown stream id silently no-ops — it's called from
-    /// the `Conn → Upgrade` transition where the stream may already have been torn down
-    /// (e.g. peer RST arrived before the handler finished). Should not panic.
-    #[cfg(feature = "unstable")]
-    #[test]
-    fn mark_drop_graceful_no_ops_for_unknown_stream() {
-        let connection = H2Connection::new(Arc::new(HttpContext::new()));
-        connection.mark_drop_graceful(99);
-    }
+    // Drop / submit_trailers / mark_drop_graceful unit tests are gone — those behaviors
+    // are now covered end-to-end by the wire-level fixture in
+    // [`super::super::acceptor::tests`] and by the `h2c_*` integration tests in
+    // `http/tests/upgrade_matrix.rs`.
 }

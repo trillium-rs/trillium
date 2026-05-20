@@ -616,13 +616,6 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
         let received_body_state = request_body_state;
         let received_trailers = request_trailers.filter(|t| !t.is_empty());
 
-        // Flip h2's drop-on-cancel default to graceful close: stream ownership is moving
-        // from the driver into user code, so a drop now means "done", not "handler
-        // panicked". h1 (TCP FIN on drop) and h3 (quinn) are already graceful.
-        if let Some((h2, stream_id)) = protocol_session.as_h2() {
-            h2.mark_drop_graceful(stream_id);
-        }
-
         Self {
             request_headers,
             response_headers,

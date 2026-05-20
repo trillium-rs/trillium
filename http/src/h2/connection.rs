@@ -180,7 +180,7 @@ impl H2Connection {
             .streams_lock()
             .values()
             .filter(|s| {
-                !(s.send.completed.load(Ordering::Acquire) && s.recv.eof.load(Ordering::Acquire))
+                !(s.send.completed.load(Ordering::Acquire) && s.lifecycle_lock().recv_eof())
             })
             .count()
             .try_into()
@@ -213,43 +213,35 @@ impl H2Connection {
             .expect("peer_settings mutex poisoned")
     }
 
-    /// Client-role: signal that the application has dropped its [`H2Transport`] for a
-    /// cleanly wire-closed stream and the driver should now remove the entry from both
-    /// stream maps. No `RST_STREAM` is emitted — the wire side already closed cleanly
-    /// via `END_STREAM` in both directions.
-    ///
-    /// Side effects: sets `StreamState.pending_release` and wakes the driver. No-op on a
-    /// stream that's already gone from the map. Server-role streams never reach here —
-    /// they're removed eagerly when the response finishes sending.
-    pub(crate) fn release_stream(&self, stream_id: u32) {
-        let stream = self.streams_lock().get(&stream_id).cloned();
-        if let Some(stream) = stream {
-            stream.pending_release.store(true, Ordering::Release);
-            stream.needs_servicing.store(true, Ordering::Release);
-            self.outbound_waker.wake();
-        }
-    }
+    // `release_stream` (previously a conn-level helper called from `H2Transport::Drop`)
+    // is no longer needed — the Drop impl transitions the lifecycle to `AwaitingRelease`
+    // directly. The transition has the same observable effects (wake driver, raise
+    // `needs_servicing`, mark variant) and removes one indirection.
 
     /// Request that the driver emit `RST_STREAM` on this stream with the given error code
-    /// and clean up.
+    /// and clean up. Transitions the lifecycle to
+    /// [`StreamLifecycle::ResetRequested`][super::lifecycle::StreamLifecycle::ResetRequested]
+    /// and wakes the driver.
     ///
-    /// Side effects: stashes the code on `StreamState.pending_reset` and wakes the driver.
-    /// A no-op if the stream is already gone from the shared map. Idempotent — only the
-    /// first call takes effect; subsequent calls see the slot still filled and do nothing.
+    /// First-wins idempotent: a stream already in `ResetRequested` or terminal `Reset`
+    /// state does not have its code overwritten. No-op if the stream is already gone from
+    /// the shared map.
     pub(crate) fn stream_error(&self, stream_id: u32, code: super::H2ErrorCode) {
         let Some(stream) = self.streams_lock().get(&stream_id).cloned() else {
             return;
         };
-        let mut slot = stream
-            .pending_reset
-            .lock()
-            .expect("pending_reset mutex poisoned");
-        if slot.is_none() {
-            *slot = Some(code);
-            drop(slot);
-            stream.needs_servicing.store(true, Ordering::Release);
-            self.outbound_waker.wake();
+        let mut lifecycle = stream.lifecycle_lock();
+        if matches!(
+            &*lifecycle,
+            super::lifecycle::StreamLifecycle::ResetRequested(_)
+                | super::lifecycle::StreamLifecycle::Reset(_)
+        ) {
+            return;
         }
+        *lifecycle = super::lifecycle::StreamLifecycle::ResetRequested(code);
+        drop(lifecycle);
+        stream.needs_servicing.store(true, Ordering::Release);
+        self.outbound_waker.wake();
     }
 
     /// Bind this `H2Connection` to a TCP transport and return an [`H2Driver`] that drives

@@ -21,10 +21,7 @@ use crate::h2::{
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
 pub(super) use headers::PendingHeaders;
-use std::{
-    sync::atomic::Ordering,
-    task::{Context, Poll, ready},
-};
+use std::task::{Context, Poll, ready};
 
 /// The client connection preface — 24 bytes the client MUST send before any HTTP/2
 /// frames.
@@ -195,9 +192,9 @@ where
                 if let Some(entry) = self.streams.get(&stream_id) {
                     // Unblock any handler task blocked on `poll_read` — the peer has
                     // abandoned this stream so no more request body bytes are coming.
-                    // `eof` plus a waker wake is how we tell the recv side "end of data"
-                    // in the normal path too.
-                    entry.shared.recv.eof.store(true, Ordering::Release);
+                    // The lifecycle transition to recv-eof is how we tell the recv side
+                    // "end of data" in the normal path too.
+                    entry.shared.lifecycle_lock().mark_recv_eof();
                     entry.shared.recv.waker.wake();
                     self.complete_and_remove_stream(
                         stream_id,
@@ -301,7 +298,7 @@ where
 
         // Half-closed remote: peer already sent END_STREAM on this stream; any DATA after
         // that is stream-level STREAM_CLOSED. Flow-control accounting above still applies.
-        if state.recv.eof.load(Ordering::Acquire) {
+        if state.lifecycle_lock().recv_eof() {
             self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
             self.complete_and_remove_stream(
                 stream_id,
@@ -323,9 +320,9 @@ where
             if !data.is_empty() {
                 recv.extend_from_slice(data);
             }
-            if end_stream {
-                state.recv.eof.store(true, Ordering::Release);
-            }
+        }
+        if end_stream {
+            state.lifecycle_lock().mark_recv_eof();
         }
         state.recv.waker.wake();
         // Client-role lifecycle: peer END_STREAM on the response body might be the second
@@ -526,21 +523,21 @@ fn log_received_frame(frame: &Frame) {
         Frame::Settings(s) => log::trace!("h2 recv: SETTINGS {s:?}"),
         Frame::SettingsAck => log::trace!("h2 recv: SETTINGS ACK"),
         Frame::Ping { opaque_data, ack } => {
-            log::trace!("h2 recv: PING opaque={opaque_data:?} ack={ack}",)
+            log::trace!("h2 recv: PING opaque={opaque_data:?} ack={ack}");
         }
         Frame::Goaway {
             last_stream_id,
             error_code,
             ..
-        } => log::trace!("h2 recv: GOAWAY last_stream_id={last_stream_id} code={error_code:?}",),
+        } => log::trace!("h2 recv: GOAWAY last_stream_id={last_stream_id} code={error_code:?}"),
         Frame::WindowUpdate {
             stream_id,
             increment,
-        } => log::trace!("h2 recv: WINDOW_UPDATE stream={stream_id} increment={increment}",),
+        } => log::trace!("h2 recv: WINDOW_UPDATE stream={stream_id} increment={increment}"),
         Frame::RstStream {
             stream_id,
             error_code,
-        } => log::trace!("h2 recv: RST_STREAM stream={stream_id} code={error_code:?}",),
+        } => log::trace!("h2 recv: RST_STREAM stream={stream_id} code={error_code:?}"),
         Frame::Priority {
             stream_id,
             priority,
@@ -551,7 +548,7 @@ fn log_received_frame(frame: &Frame) {
             priority.weight,
         ),
         Frame::PushPromise { stream_id, length } => {
-            log::trace!("h2 recv: PUSH_PROMISE stream={stream_id} length={length}",)
+            log::trace!("h2 recv: PUSH_PROMISE stream={stream_id} length={length}");
         }
         Frame::Unknown {
             stream_id,
