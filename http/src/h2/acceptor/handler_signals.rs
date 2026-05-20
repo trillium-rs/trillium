@@ -78,19 +78,6 @@ where
                 }
             }
 
-            if let Some(cursor) = entry.send.as_mut()
-                && let Some(trailers) = entry
-                    .shared
-                    .send
-                    .pending_trailers
-                    .lock()
-                    .expect("pending_trailers mutex poisoned")
-                    .take()
-            {
-                log::trace!("h2 stream {id}: driver picked up pending trailers");
-                cursor.trailers = Some(trailers);
-            }
-
             if let Some(code) = entry
                 .shared
                 .pending_reset

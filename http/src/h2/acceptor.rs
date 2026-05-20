@@ -286,11 +286,24 @@ where
             //    shutdowns, transition to `Drained` and wait for the peer to close its write half —
             //    otherwise the peer sees our drop as a reset rather than a clean close. For
             //    I/O-error shutdowns the transport is already untrustworthy, so skip the drain.
+            //
+            //    Defer the transition while in-flight streams still have outbound (SendCursor
+            //    not yet `Complete`) OR inbound (`recv.eof` not yet set) work. Without this, a
+            //    handler that submits trailers *after* the cancellation race resolves (gRPC
+            //    `Cancellation::race`) gets stranded with bytes parked in mailboxes, and a
+            //    client receiving GOAWAY mid-stream stops decoding incoming frames before the
+            //    server's trailing HEADERS arrive. Falls through to step 6 so the recv pump
+            //    (also gated on Running|Closing now) keeps running and parks on the transport
+            //    read waker rather than the outbound-only `park` here.
             if self.state == DriverState::Closing {
                 if matches!(self.close_outcome, Some(CloseOutcome::Io(_))) {
                     return Poll::Ready(self.finish_with_current_outcome());
                 }
-                self.state = DriverState::Drained;
+                if self.has_active_send_cursors() || self.has_pending_recv() {
+                    self.log_closing_blockers();
+                } else {
+                    self.set_state(DriverState::Drained, "outbound drained, no in-flight streams");
+                }
             }
 
             // 5. Server-initiated shutdown check. Only relevant while we're running — once we're
@@ -319,7 +332,8 @@ where
                         }
                     };
                     match poll {
-                        Poll::Ready(Ok(())) => self.state = DriverState::NeedsServerSettings,
+                        Poll::Ready(Ok(())) => self
+                            .set_state(DriverState::NeedsServerSettings, "preface complete"),
                         Poll::Ready(Err(e)) => {
                             self.close_outcome = Some(e);
                             return Poll::Ready(self.finish_with_current_outcome());
@@ -345,22 +359,39 @@ where
                         self.queue_window_update(0, raise);
                         self.connection_recv_window += i64::from(raise);
                     }
-                    self.state = DriverState::Running;
+                    self.set_state(DriverState::Running, "initial SETTINGS queued");
                 }
 
-                DriverState::Running => match self.poll_advance_read(cx) {
+                // Read pump runs in both Running and Closing so a Closing-side driver
+                // (we sent or received GOAWAY) keeps decoding inbound frames for streams
+                // that haven't reached `recv.eof` yet — e.g. trailing HEADERS for an
+                // in-flight server-stream the peer is about to send. New `Action::Emit`
+                // streams are ignored in Closing: post-GOAWAY the peer shouldn't be
+                // opening new ones (and we wouldn't want to dispatch handlers for them
+                // even if it did).
+                DriverState::Running | DriverState::Closing => match self.poll_advance_read(cx) {
                     Poll::Ready(Ok(Action::Continue)) => {}
                     Poll::Ready(Ok(Action::Emit(conn))) => {
-                        return Poll::Ready(Some(Ok(*conn)));
+                        if self.state == DriverState::Running {
+                            return Poll::Ready(Some(Ok(*conn)));
+                        }
+                        // Closing — drop the conn; outer loop continues processing
+                        // remaining in-flight streams until drained.
                     }
                     Poll::Ready(Ok(Action::Close(outcome))) => {
                         self.begin_close(outcome);
                     }
                     // Protocol errors need a GOAWAY on the wire before we terminate;
                     // `begin_close` queues that and transitions us to Closing so the next
-                    // outer-loop iteration drains the frame. Io errors short-circuit with
-                    // no GOAWAY (`begin_close` already skips queuing for those).
+                    // outer-loop iteration drains the frame. Io errors short-circuit:
+                    // if we're already Closing, the transport is gone, so finish without
+                    // looping forever waiting for in-flight streams (`has_pending_recv`
+                    // can't decide on its own that the peer is never sending again).
                     Poll::Ready(Err(e)) => {
+                        if self.state == DriverState::Closing {
+                            self.close_outcome.get_or_insert(e);
+                            return Poll::Ready(self.finish_with_current_outcome());
+                        }
                         self.begin_close(e);
                     }
                     Poll::Pending => {
@@ -369,8 +400,6 @@ where
                         }
                     }
                 },
-
-                DriverState::Closing => unreachable!("handled above once write_buf is drained"),
 
                 DriverState::Drained => match self.poll_drain_peer(cx) {
                     Poll::Ready(()) => {
@@ -424,7 +453,18 @@ where
     /// Enter the closing state: record the outcome and queue a GOAWAY (only for outcomes
     /// that warrant one). The main loop will drain `write_buf` and then finish.
     fn begin_close(&mut self, outcome: CloseOutcome) {
-        log::trace!("h2 driver: begin_close({outcome:?})");
+        // Idempotent: with the recv pump now running in Closing (so we keep
+        // decoding inbound frames for in-flight streams across GOAWAY), a peer
+        // GOAWAY arriving after we've already begun closing would otherwise
+        // re-queue our own GOAWAY and re-enter Closing, ping-ponging forever
+        // with a peer that mirrors the behavior.
+        if self.state == DriverState::Closing || self.state == DriverState::Drained {
+            log::trace!(
+                "h2 driver: begin_close({outcome:?}) — already in {:?}, ignoring",
+                self.state,
+            );
+            return;
+        }
         // Don't overwrite a prior outcome (e.g. if an error fires in the middle of a
         // graceful shutdown, keep the error).
         let code = match &outcome {
@@ -432,13 +472,51 @@ where
             CloseOutcome::Protocol(code) => Some(*code),
             CloseOutcome::Io(_) => None,
         };
+        let reason = match &outcome {
+            CloseOutcome::Graceful => "graceful close",
+            CloseOutcome::Protocol(_) => "protocol error",
+            CloseOutcome::Io(_) => "i/o error",
+        };
         if self.close_outcome.is_none() {
             self.close_outcome = Some(outcome);
         }
         if let Some(code) = code {
             self.queue_goaway(self.last_peer_stream_id, code);
         }
-        self.state = DriverState::Closing;
+        self.set_state(DriverState::Closing, reason);
+    }
+
+    /// The sole mutator of `self.state`. Logs every transition so a trace log reads as
+    /// a sequence of named lifecycle events.
+    fn set_state(&mut self, new: DriverState, reason: &'static str) {
+        if self.state == new {
+            return;
+        }
+        log::trace!(
+            "h2 driver: state {old:?} → {new:?} ({reason})",
+            old = self.state,
+        );
+        self.state = new;
+    }
+
+    /// Log which in-flight streams are blocking the `Closing → Drained` transition.
+    /// Called from the closing-state check when at least one predicate (`has_active_send_cursors`
+    /// or `has_pending_recv`) is still true, so a trace log shows exactly which streams the
+    /// driver is waiting on.
+    fn log_closing_blockers(&self) {
+        if !log::log_enabled!(log::Level::Trace) {
+            return;
+        }
+        for (id, entry) in &self.streams {
+            let send_active = entry.send.is_some();
+            let recv_eof = entry.shared.recv.eof.load(std::sync::atomic::Ordering::Acquire);
+            if send_active || !recv_eof {
+                log::trace!(
+                    "h2 driver: Closing — stream {id} blocking drain \
+                     (send_cursor_active={send_active}, recv_eof={recv_eof})",
+                );
+            }
+        }
     }
 
     /// Read bytes from the transport into `read_buf[read_filled..target]` until

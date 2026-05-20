@@ -120,6 +120,7 @@ async fn into_websocket_after_execution_is_an_error() -> TestResult {
     let err = conn.into_websocket().await.expect_err("expected error");
     assert!(matches!(err.kind, websocket::ErrorKind::AlreadyExecuted));
 
+    drop(err);
     server.shut_down().await;
     Ok(())
 }

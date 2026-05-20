@@ -61,6 +61,7 @@ where
 
     pub(super) fn queue_settings(&mut self) {
         let settings = H2Settings::from_config(self.connection.context().config());
+        log::trace!("h2 emit: SETTINGS {settings:?}");
         self.queue_frame(frame::settings::encoded_len(&settings), |buf| {
             frame::settings::encode(&settings, buf)
         });
@@ -70,12 +71,14 @@ where
     /// drain flushes it, and the `NeedsServerSettings` state follows up with our initial
     /// SETTINGS frame. Client role only.
     pub(super) fn queue_client_preface(&mut self) {
+        log::trace!("h2 emit: client connection preface (24 bytes)");
         self.write_buf
             .extend_from_slice(super::recv::CLIENT_PREFACE);
         self.write_flush_pending = true;
     }
 
     pub(super) fn queue_settings_ack(&mut self) {
+        log::trace!("h2 emit: SETTINGS ACK");
         self.queue_frame(
             frame::settings::ACK_ENCODED_LEN,
             frame::settings::encode_ack,
@@ -83,30 +86,35 @@ where
     }
 
     pub(super) fn queue_ping_ack(&mut self, opaque_data: [u8; 8]) {
+        log::trace!("h2 emit: PING ACK opaque={opaque_data:?}");
         self.queue_frame(frame::ping::ENCODED_LEN, |buf| {
             frame::ping::encode(opaque_data, true, buf)
         });
     }
 
     pub(super) fn queue_active_ping(&mut self, opaque_data: [u8; 8]) {
+        log::trace!("h2 emit: PING opaque={opaque_data:?}");
         self.queue_frame(frame::ping::ENCODED_LEN, |buf| {
             frame::ping::encode(opaque_data, false, buf)
         });
     }
 
     pub(super) fn queue_window_update(&mut self, stream_id: u32, increment: u32) {
+        log::trace!("h2 emit: WINDOW_UPDATE stream={stream_id} increment={increment}");
         self.queue_frame(frame::window_update::ENCODED_LEN, |buf| {
             frame::window_update::encode(stream_id, increment, buf)
         });
     }
 
     pub(super) fn queue_goaway(&mut self, last_stream_id: u32, code: H2ErrorCode) {
+        log::trace!("h2 emit: GOAWAY last_stream_id={last_stream_id} code={code:?}");
         self.queue_frame(frame::goaway::encoded_len(0), |buf| {
             frame::goaway::encode(last_stream_id, code, &[], buf)
         });
     }
 
     pub(super) fn queue_rst_stream(&mut self, stream_id: u32, code: H2ErrorCode) {
+        log::trace!("h2 emit: RST_STREAM stream={stream_id} code={code:?}");
         self.queue_frame(frame::rst_stream::ENCODED_LEN, |buf| {
             frame::rst_stream::encode(stream_id, code, buf)
         });
