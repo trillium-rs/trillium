@@ -22,7 +22,7 @@ use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     io,
     pin::Pin,
-    sync::atomic::Ordering,
+    sync::{Arc, atomic::Ordering},
     task::{Context, Poll, ready},
 };
 
@@ -134,13 +134,40 @@ where
     /// pre-Running); client-side it matters because `H2Connection::open_stream` can stage
     /// a submission any time after the connection is created.
     pub(super) fn advance_outbound_sends(&mut self, cx: &mut Context<'_>) {
-        if self.state != DriverState::Running {
+        // Run in both Running and Closing. After `begin_close` queues GOAWAY, in-flight
+        // streams must still be able to emit DATA / trailing HEADERS / END_STREAM —
+        // the spec allows frames after GOAWAY for streams whose ids are at or below the
+        // `last-stream-id` we advertised, and gRPC handlers (etc.) typically submit
+        // trailers *after* their cancellation race has resolved, which is *after*
+        // begin_close has already fired. Without this, late trailers stay parked in
+        // `pending_trailers` forever and the peer hangs waiting for them.
+        if !matches!(self.state, DriverState::Running | DriverState::Closing) {
             return;
         }
         let stream_ids: Vec<u32> = self.streams.keys().copied().collect();
         for stream_id in stream_ids {
             self.advance_one_send(stream_id, cx);
         }
+    }
+
+    /// True if any stream still has a `SendCursor` (i.e. the send half hasn't reached
+    /// `Complete` and `finalize_send` hasn't run yet). Used to defer the
+    /// `Closing → Drained` transition: we must keep ticking the send pump until every
+    /// active stream has emitted its trailers / END_STREAM, otherwise late submissions
+    /// (e.g. trailers from a handler that just observed swansong) get stranded.
+    pub(super) fn has_active_send_cursors(&self) -> bool {
+        self.streams.values().any(|e| e.send.is_some())
+    }
+
+    /// True if any stream's recv half hasn't observed `END_STREAM` yet (peer might
+    /// still send DATA or trailing HEADERS). Mirror of `has_active_send_cursors` for
+    /// the read side; used by the `Closing → Drained` transition so we keep the recv
+    /// pump running for in-flight streams after our (or the peer's) GOAWAY.
+    pub(super) fn has_pending_recv(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.streams
+            .values()
+            .any(|e| !e.shared.recv.eof.load(Ordering::Acquire))
     }
 
     /// True if any active stream has more outbound work that could make progress on the next
@@ -352,6 +379,10 @@ where
         if is_first {
             // Final HEADERS fragment with no body and no trailers carries END_STREAM.
             let end_stream = end_headers && !send.has_body;
+            log::trace!(
+                "h2 emit: HEADERS stream={stream_id} len={chunk_len} \
+                 end_headers={end_headers} end_stream={end_stream}",
+            );
             self.queue_frame(frame::headers::encoded_prefix_len(0, false), |buf| {
                 frame::headers::encode_prefix(
                     stream_id,
@@ -364,6 +395,9 @@ where
                 )
             });
         } else {
+            log::trace!(
+                "h2 emit: CONTINUATION stream={stream_id} len={chunk_len} end_headers={end_headers}",
+            );
             self.queue_frame(frame::continuation::ENCODED_PREFIX_LEN, |buf| {
                 frame::continuation::encode_prefix(stream_id, end_headers, chunk_len_u32, buf)
             });
@@ -424,13 +458,23 @@ where
         send: &mut SendCursor,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<()>> {
+        // Cloned once so `transition_to_trailers` can drain `pending_trailers` without
+        // contending with the body poll's `&mut self.body_scratch` borrow.
+        let shared = Arc::clone(
+            &self
+                .streams
+                .get(&stream_id)
+                .expect("stream id present; cursor was taken from this entry")
+                .shared,
+        );
+
         // Fast path — body already drained (poll_read returned Ready(0) on a prior tick)
         // OR we've already emitted the declared body length. Transition without polling.
         // The Content-Length-known check is what lets us close out a stream whose window
         // just barely sufficed for the body without waiting on a superfluous WINDOW_UPDATE
         // to detect EOF.
         if send.body.is_none() || send.body_len == Some(send.body_bytes_emitted) {
-            transition_to_trailers(send);
+            transition_to_trailers(send, &shared);
             return Poll::Ready(Ok(()));
         }
 
@@ -449,11 +493,12 @@ where
         let n = ready!(Pin::new(body).poll_read(cx, &mut self.body_scratch[..cap]))?;
         if n == 0 {
             // Body drained via a 0-byte read (unknown-length body reached EOF).
-            transition_to_trailers(send);
+            transition_to_trailers(send, &shared);
             return Poll::Ready(Ok(()));
         }
 
         let n_u32 = u32::try_from(n).expect("read n <= body_scratch.len() fits u32");
+        log::trace!("h2 emit: DATA stream={stream_id} len={n} end_stream=false");
         self.queue_frame(frame::data::encoded_prefix_len(0), |buf| {
             // Never END_STREAM here; trailers / empty-DATA carries END_STREAM.
             frame::data::encode_prefix(stream_id, false, n_u32, 0, buf)
@@ -474,7 +519,7 @@ where
         // `emit_trailers_or_end_stream` — otherwise we'd park in Body and wait for an
         // external wake to notice EOF, which never comes (peer has nothing more to send).
         if send.body_len == Some(send.body_bytes_emitted) {
-            transition_to_trailers(send);
+            transition_to_trailers(send, &shared);
         }
 
         Poll::Ready(Ok(()))
@@ -494,12 +539,18 @@ where
             );
             // Trailing HEADERS: END_HEADERS=true, END_STREAM=true.
             let block_len_u32 = u32::try_from(block.len()).expect("trailers block fits u32");
+            log::trace!(
+                "h2 emit: HEADERS (trailers) stream={stream_id} len={} end_headers=true \
+                 end_stream=true",
+                block.len(),
+            );
             self.queue_frame(frame::headers::encoded_prefix_len(0, false), |buf| {
                 frame::headers::encode_prefix(stream_id, true, true, None, block_len_u32, 0, buf)
             });
             self.write_buf.extend_from_slice(&block);
         } else {
             // No trailers — empty DATA frame with END_STREAM as the stream terminator.
+            log::trace!("h2 emit: DATA stream={stream_id} len=0 end_stream=true (terminator)");
             self.queue_frame(frame::data::encoded_prefix_len(0), |buf| {
                 frame::data::encode_prefix(stream_id, true, 0, 0, buf)
             });
@@ -508,15 +559,20 @@ where
     }
 }
 
-/// Body drained — pull trailers off the body, drop the body handle, transition to
-/// `Trailers`.
-///
-/// The `is_none()` guard preserves trailers set out-of-band by
-/// [`H2Connection::submit_trailers`][crate::h2::H2Connection::submit_trailers], whose
-/// body reports no trailers of its own.
-fn transition_to_trailers(send: &mut SendCursor) {
+/// Body drained — pull trailers off the body or off the out-of-band
+/// [`H2Connection::submit_trailers`][crate::h2::H2Connection::submit_trailers] mailbox,
+/// drop the body handle, transition to `Trailers`.
+fn transition_to_trailers(send: &mut SendCursor, shared: &StreamState) {
     if send.trailers.is_none() {
         send.trailers = send.body.as_mut().and_then(H2Body::trailers);
+    }
+    if send.trailers.is_none() {
+        send.trailers = shared
+            .send
+            .pending_trailers
+            .lock()
+            .expect("pending_trailers mutex poisoned")
+            .take();
     }
     send.body = None;
     send.phase = SendPhase::Trailers;
@@ -533,4 +589,100 @@ fn signal_send_completion(state: &StreamState, result: io::Result<()>) {
         .expect("completion_result mutex poisoned") = Some(result);
     state.send.completed.store(true, Ordering::Release);
     state.send.completion_waker.wake();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Headers;
+
+    /// Build a minimal `SendCursor` in `Body` phase with no body and no trailers — the
+    /// natural state for an empty-body response that's about to transition.
+    fn cursor_in_body() -> SendCursor {
+        SendCursor {
+            encoded_headers: Vec::new(),
+            headers_offset: 0,
+            has_body: false,
+            body: None,
+            body_len: None,
+            body_bytes_emitted: 0,
+            trailers: None,
+            phase: SendPhase::Body,
+            is_upgrade: false,
+            completion_signaled: false,
+        }
+    }
+
+    fn one_trailer(name: &'static str, value: &'static str) -> Headers {
+        let mut h = Headers::new();
+        h.insert(name, value);
+        h
+    }
+
+    /// Regression for the trailers-stranding bug the patch fixes: when neither the cursor
+    /// nor the body produces trailers, `transition_to_trailers` must fall back to draining
+    /// `StreamState::send::pending_trailers` (the out-of-band mailbox
+    /// [`H2Connection::submit_trailers`][crate::h2::H2Connection::submit_trailers] writes
+    /// into). Without this fallback, trailers submitted between driver ticks while a
+    /// cursor was parked in `Body` were lost — the EOF path emitted an empty
+    /// `DATA(END_STREAM)` terminator and never picked the trailers up.
+    #[test]
+    fn pending_trailers_picked_up_when_cursor_and_body_have_none() {
+        let shared = StreamState::default();
+        *shared.send.pending_trailers.lock().unwrap() =
+            Some(one_trailer("grpc-status", "0"));
+
+        let mut send = cursor_in_body();
+        transition_to_trailers(&mut send, &shared);
+
+        let trailers = send.trailers.expect("trailers drained from pending_trailers");
+        assert_eq!(trailers.get_str("grpc-status"), Some("0"));
+        assert_eq!(send.phase, SendPhase::Trailers);
+        assert!(send.body.is_none());
+        assert!(
+            shared.send.pending_trailers.lock().unwrap().is_none(),
+            "pending_trailers must be drained, not just copied",
+        );
+    }
+
+    /// Pre-staged cursor trailers (the previous pickup site in `service_handler_signals`,
+    /// or any future caller that sets `cursor.trailers` before the transition) win over
+    /// the `pending_trailers` fallback. Also verifies the fallback isn't drained
+    /// unnecessarily — leaving `pending_trailers` populated would be a leak of a
+    /// future-submission's trailers across stream boundaries.
+    #[test]
+    fn cursor_trailers_preserved_pending_not_drained() {
+        let shared = StreamState::default();
+        *shared.send.pending_trailers.lock().unwrap() =
+            Some(one_trailer("from-pending", "ignored"));
+
+        let mut send = cursor_in_body();
+        send.trailers = Some(one_trailer("from-cursor", "kept"));
+        transition_to_trailers(&mut send, &shared);
+
+        let trailers = send.trailers.expect("cursor trailers preserved");
+        assert_eq!(trailers.get_str("from-cursor"), Some("kept"));
+        assert_eq!(trailers.get_str("from-pending"), None);
+        assert_eq!(send.phase, SendPhase::Trailers);
+        assert!(
+            shared.send.pending_trailers.lock().unwrap().is_some(),
+            "pending_trailers must not be drained when cursor already had trailers",
+        );
+    }
+
+    /// Empty `pending_trailers` is treated as "no trailers at all" — the cursor's
+    /// `trailers` slot stays `None` and the send pump's downstream code knows to emit an
+    /// empty `DATA(END_STREAM)` as the stream terminator instead of a trailing HEADERS
+    /// frame. (The send pump's `emit_trailers_or_end_stream` branches on
+    /// `send.trailers.take()`.)
+    #[test]
+    fn no_trailers_anywhere_leaves_cursor_trailers_none() {
+        let shared = StreamState::default();
+        let mut send = cursor_in_body();
+        transition_to_trailers(&mut send, &shared);
+
+        assert!(send.trailers.is_none(), "no trailers from any source");
+        assert_eq!(send.phase, SendPhase::Trailers);
+        assert!(send.body.is_none());
+    }
 }

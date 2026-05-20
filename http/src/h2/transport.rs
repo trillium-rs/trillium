@@ -122,25 +122,21 @@ impl Drop for H2Transport {
         // Cheap pre-check: if the stream is no longer in the shared map the driver has
         // already cleaned up; nothing to do.
         if !self.connection.streams_lock().contains_key(&self.stream_id) {
+            log::trace!(
+                "h2 stream {}: H2Transport dropped on already-released stream",
+                self.stream_id,
+            );
             return;
         }
-        // Graceful close in flight — let the driver finish.
-        //
-        // Must precede the `send_done && recv_done` check: on the extended-CONNECT /
-        // framed-upgrade server path, `send.completed` flips at END_HEADERS so the conn
-        // task can dispatch `handler.upgrade(...)`. Paired with a zero-body request
-        // (`recv.eof = true` immediately), that would falsely satisfy "both done" while
-        // outbound body + staged trailers are still owed.
-        if self
-            .state
-            .send
-            .outbound_close_requested
-            .load(Ordering::Acquire)
-        {
-            return;
-        }
+
         let send_done = self.state.send.completed.load(Ordering::Acquire);
         let recv_done = self.state.recv.eof.load(Ordering::Acquire);
+
+        // Both halves wire-closed: release the held entry regardless of whether
+        // `poll_close` was called. The connection-pool return path calls `poll_close`
+        // on routine cleanup, which sets `outbound_close_requested` on streams that
+        // have already completed normally; we must still release rather than treat the
+        // flag as "graceful close in flight."
         if send_done && recv_done {
             log::trace!(
                 "h2 stream {}: H2Transport dropped on wire-closed stream — releasing",
@@ -149,25 +145,39 @@ impl Drop for H2Transport {
             self.connection.release_stream(self.stream_id);
             return;
         }
-        // Mid-stream drop with graceful-drop armed (the transport has crossed into user
-        // ownership, so a drop means "done", not "handler panicked"): schedule graceful
-        // close so the driver drains outbound bytes and emits END_STREAM rather than
-        // RST_STREAM(Cancel).
+
+        // Upgrade lifecycle: `mark_drop_graceful` has flipped the per-stream flag,
+        // signaling that this transport has crossed into user code and a drop means
+        // "done" rather than "handler panicked." Schedule graceful close so the
+        // driver drains outbound bytes and emits END_STREAM rather than
+        // RST_STREAM(Cancel). If the flag is *already* set the driver is already
+        // draining; just leave it running.
         if self.state.send.graceful_drop.load(Ordering::Acquire) {
+            if self
+                .state
+                .send
+                .outbound_close_requested
+                .swap(true, Ordering::AcqRel)
+            {
+                log::trace!(
+                    "h2 stream {}: H2Transport dropped with graceful close already in \
+                     flight — letting driver finish",
+                    self.stream_id,
+                );
+                return;
+            }
             log::trace!(
-                "h2 stream {}: H2Transport dropped — scheduling graceful close \
+                "h2 stream {}: H2Transport dropped (upgrade) — scheduling graceful close \
                  (send_done={send_done}, recv_done={recv_done})",
                 self.stream_id,
             );
-            self.state
-                .send
-                .outbound_close_requested
-                .store(true, Ordering::Release);
             self.state.needs_servicing.store(true, Ordering::Release);
             self.state.send.outbound_waker.wake();
             self.connection.outbound_waker().wake();
             return;
         }
+
+        // Mid-stream drop on a non-upgrade stream: RST so the peer learns we're done.
         log::debug!(
             "h2 stream {}: H2Transport dropped mid-stream — RST_STREAM(Cancel) \
              (send_done={send_done}, recv_done={recv_done})",
@@ -871,6 +881,98 @@ mod tests {
         assert!(
             pending_reset.is_none(),
             "graceful drop must not schedule RST",
+        );
+    }
+
+    /// Regression: dropping the `H2Transport` on a wire-closed stream
+    /// (`send.completed && recv.eof`) must release the held entry **regardless** of
+    /// whether `outbound_close_requested` is set. The pool-return path calls `poll_close`
+    /// on streams that have already completed normally — setting that flag — and prior
+    /// to the Drop reordering fix the early-return on `outbound_close_requested` would
+    /// suppress the release, leaving the stream pinned in the connection's map and
+    /// blocking `Closing → Drained` for the duration of the held conn.
+    #[cfg(feature = "unstable")]
+    #[test]
+    fn drop_on_wire_closed_with_close_requested_still_releases() {
+        let stream_id = 1;
+        let (connection, transport, _reader) = registered_pair(64, stream_id);
+        let state = connection
+            .streams_lock()
+            .get(&stream_id)
+            .cloned()
+            .expect("stream registered");
+
+        // Simulate the wire-closed state both halves reach at the end of a normal
+        // request: server's response framed (send.completed), peer's END_STREAM observed
+        // (recv.eof).
+        state.send.completed.store(true, Ordering::Release);
+        state.recv.eof.store(true, Ordering::Release);
+        // Simulate the pool-return path calling `poll_close` on the transport's
+        // `AsyncWrite` half before drop — this is routine cleanup, not an upgrade-style
+        // graceful close.
+        state.send.outbound_close_requested.store(true, Ordering::Release);
+
+        drop(transport);
+
+        assert!(
+            state.pending_release.load(Ordering::Acquire),
+            "Drop on wire-closed stream must signal pending_release even when \
+             outbound_close_requested was set by routine cleanup",
+        );
+        let pending_reset = state
+            .pending_reset
+            .lock()
+            .expect("pending_reset mutex poisoned");
+        assert!(
+            pending_reset.is_none(),
+            "Drop on wire-closed stream must not schedule RST",
+        );
+    }
+
+    /// Regression: dropping the `H2Transport` while an upgrade's graceful close is
+    /// already in flight (`graceful_drop` set AND `outbound_close_requested` already set
+    /// by a prior `poll_close`) must be a no-op — re-raising `needs_servicing` or
+    /// re-firing wakers risks the driver picking up the stream a second time after it
+    /// has already begun finalizing the upgrade.
+    #[cfg(feature = "unstable")]
+    #[test]
+    fn drop_with_graceful_close_already_in_flight_is_noop() {
+        let stream_id = 1;
+        let (connection, transport, _reader) = registered_pair(64, stream_id);
+        let state = connection
+            .streams_lock()
+            .get(&stream_id)
+            .cloned()
+            .expect("stream registered");
+
+        connection.mark_drop_graceful(stream_id);
+        // Simulate `poll_close` having already fired (user explicitly closed the upgrade
+        // write half). The driver is already draining outbound + will emit END_STREAM.
+        state
+            .send
+            .outbound_close_requested
+            .store(true, Ordering::Release);
+        // Clear `needs_servicing` so we can detect whether Drop spuriously re-raises it.
+        state.needs_servicing.store(false, Ordering::Release);
+
+        drop(transport);
+
+        assert!(
+            !state.needs_servicing.load(Ordering::Acquire),
+            "Drop with graceful close already in flight must not re-raise needs_servicing",
+        );
+        assert!(
+            !state.pending_release.load(Ordering::Acquire),
+            "Drop with graceful close already in flight must not signal pending_release \
+             — the driver is responsible for finalizing the upgrade",
+        );
+        let pending_reset = state
+            .pending_reset
+            .lock()
+            .expect("pending_reset mutex poisoned");
+        assert!(
+            pending_reset.is_none(),
+            "Drop with graceful close already in flight must not schedule RST",
         );
     }
 

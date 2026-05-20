@@ -302,6 +302,7 @@ impl H2Connection {
         Handler: FnOnce(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>>,
     {
+        let _guard = conn.context().swansong().guard();
         handler(conn).await.send_h2().await
     }
 }
