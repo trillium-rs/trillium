@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Conn::into_websocket` now works over HTTP/3, in addition to the existing HTTP/2 and HTTP/1.1 support. Hint the conn with `Version::Http3` to upgrade a WebSocket over an HTTP/3 connection.
 - `ConnExt::upgrade(&mut self)` and `ConnExt::is_upgrade(&self) -> bool` — arm a client conn for an upgrade. With `upgrade` armed, awaiting the conn transmits only the request headers and leaves the outbound direction open; the conn can then be converted into a `trillium_http::Upgrade<Box<dyn Transport>>` once response headers arrive (`Upgrade::from(conn)`), and the caller exchanges body bytes through the upgrade's `AsyncRead` / `AsyncWrite` with per-protocol framing applied.
 
 ## [0.9.0] - 2026-05-15

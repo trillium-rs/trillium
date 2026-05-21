@@ -33,13 +33,10 @@ impl Conn {
     /// it yourself first.
     ///
     /// Protocol selection follows the conn's [`http_version`][Conn::http_version] hint:
-    /// `Http2` uses the extended-CONNECT bootstrap (RFC 8441); the default uses an h1
-    /// `Upgrade` handshake (RFC 6455). If the peer is h2 but doesn't advertise
-    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL`, the upgrade hard-errors — there is no silent
-    /// fallback to h1 from a non-capable h2 peer.
-    ///
-    /// HTTP/3 (RFC 9220) extended CONNECT is not yet supported on the client; a `Http3` hint
-    /// here surfaces as [`ErrorKind::ExtendedConnectUnsupported`].
+    /// `Http2` and `Http3` use the extended-CONNECT bootstrap (RFC 8441 over h2, RFC 9220
+    /// over h3); the default uses an h1 `Upgrade` handshake (RFC 6455). If the peer is h2/h3
+    /// but doesn't advertise `SETTINGS_ENABLE_CONNECT_PROTOCOL`, the upgrade hard-errors —
+    /// there is no silent fallback to h1 from a non-capable peer.
     pub async fn into_websocket(self) -> Result<WebSocketConn, WebSocketUpgradeError> {
         self.into_websocket_with_config(WebSocketConfig::default())
             .await
@@ -55,11 +52,7 @@ impl Conn {
         }
 
         match self.http_version() {
-            Version::Http2 => self.into_websocket_extended_connect(config).await,
-            Version::Http3 => Err(WebSocketUpgradeError::new(
-                self,
-                ErrorKind::ExtendedConnectUnsupported,
-            )),
+            Version::Http2 | Version::Http3 => self.into_websocket_extended_connect(config).await,
             _ => self.into_websocket_h1(config).await,
         }
     }
@@ -157,13 +150,10 @@ pub enum ErrorKind {
     )]
     AlreadyExecuted,
 
-    /// h2 peer did not advertise `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, so the extended-CONNECT
-    /// bootstrap (RFC 8441) is not available on this connection.
-    ///
-    /// Also surfaced when the conn was hinted as `Version::Http3`: client-side WebSocket-over-h3
-    /// (RFC 9220) requires h3 DATA-frame wrapping for the post-upgrade byte channel and that
-    /// framing layer doesn't exist yet.
-    #[error("peer does not support extended CONNECT, or h3 client websocket framing is missing")]
+    /// The h2 or h3 peer did not advertise `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, so the
+    /// extended-CONNECT bootstrap (RFC 8441 over h2, RFC 9220 over h3) is not available on this
+    /// connection.
+    #[error("peer does not support extended CONNECT")]
     ExtendedConnectUnsupported,
 }
 
