@@ -1,7 +1,6 @@
 [package]
 name = "trillium-static"
-version = "0.5.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.6.0"
 edition = "2024"
 description = "filesystem-backed static assets for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -9,6 +8,9 @@ repository = "https://github.com/trillium-rs/trillium"
 readme = "README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]
 
 [features]
 async-std = ["async_std_crate"]
@@ -45,5 +47,3 @@ trillium-testing = { path = "../testing" }
 trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }
 
-[package.metadata.cargo-udeps.ignore]
-development = ["trillium-testing"]
