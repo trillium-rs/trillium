@@ -182,9 +182,11 @@ impl Conn {
 
         let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
 
-        if self.upgrade {
-            // Upgrade path: send headers only and leave the stream open. The caller writes
-            // further DATA frames, trailing HEADERS, and FIN via `Upgrade`.
+        if self.upgrade || self.protocol.is_some() {
+            // Upgrade / extended-CONNECT path: send headers only and leave the stream open.
+            // The caller writes further DATA frames, trailing HEADERS, and FIN via `Upgrade`.
+            // `protocol.is_some()` covers extended CONNECT (RFC 9220 websocket, webtransport),
+            // mirroring the h2 send path; raw CONNECT tunnels set `upgrade` instead.
             bufwriter.flush().await?;
             return Ok(());
         }
