@@ -69,6 +69,7 @@ jobs:
         run: ${{ matrix.cmd }}
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
+          NEXTEST_PROFILE: ci
 
   doctests:
     name: doctests
