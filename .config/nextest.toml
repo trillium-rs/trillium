@@ -1,0 +1,9 @@
+[profile.terse]
+status-level = "fail"
+final-status-level = "fail"
+failure-output = "never"
+slow-timeout = { period = "30s", terminate-after = 2 }
+
+[profile.ci]
+retries = 2
+slow-timeout = { period = "30s", terminate-after = 2 }

@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: --cfg=quinn_testing
+      NEXTEST_PROFILE: ci
     steps:
       - name: Install mkcert
         run: curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64" && chmod +x mkcert-v*-linux-amd64 && sudo cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert
