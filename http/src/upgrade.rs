@@ -150,12 +150,14 @@ fn encode_h3_data_header(out: &mut Vec<u8>, payload_len: u64) {
 #[derive(Fieldwork)]
 #[fieldwork(get, get_mut, set, with, take, into_field, rename_predicates)]
 pub struct Upgrade<Transport> {
-    /// The http request headers
-    pub(crate) request_headers: Headers,
+    /// The http headers the peer sent to us
+    #[field(deprecate(was = "request_headers", since = "1.3.0"))]
+    pub(crate) received_headers: Headers,
 
-    /// The http response headers as set before the upgrade was negotiated and sent
+    /// The http headers as set before the upgrade was negotiated and sent
     /// to the peer.
-    pub(crate) response_headers: Headers,
+    #[field(deprecate(was = "response_headers", since = "1.3.0"))]
+    pub(crate) sent_headers: Headers,
 
     /// The request path
     #[field(get = false)]
@@ -256,7 +258,7 @@ pub struct Upgrade<Transport> {
 impl<Transport> Upgrade<Transport> {
     #[doc(hidden)]
     pub fn new(
-        request_headers: Headers,
+        received_headers: Headers,
         path: impl Into<Cow<'static, str>>,
         method: Method,
         transport: Transport,
@@ -264,8 +266,8 @@ impl<Transport> Upgrade<Transport> {
         version: Version,
     ) -> Self {
         Self {
-            request_headers,
-            response_headers: Headers::new(),
+            received_headers,
+            sent_headers: Headers::new(),
             path: path.into(),
             method,
             transport,
@@ -291,19 +293,12 @@ impl<Transport> Upgrade<Transport> {
         }
     }
 
-    /// Construct an [`Upgrade`] from all parts, for client-side assembly outside a
-    /// finished `Conn`. Server upgrades use [`From<Conn<T>>`][From] instead.
-    ///
-    /// Framing assumes the client perspective: outbound framing comes from
-    /// `request_headers` (what this side sends), inbound `Content-Length` from
-    /// `response_headers` (what the peer sends). `received_trailers` carries any pre-upgrade
-    /// trailers already decoded from the inbound body.
     #[cfg(feature = "unstable")]
     #[doc(hidden)]
     #[allow(clippy::too_many_arguments)]
     pub fn from_parts(
-        request_headers: Headers,
-        response_headers: Headers,
+        received_headers: Headers,
+        sent_headers: Headers,
         path: Cow<'static, str>,
         method: Method,
         transport: Transport,
@@ -321,14 +316,13 @@ impl<Transport> Upgrade<Transport> {
         received_body_state: ReceivedBodyState,
         received_trailers: Option<Headers>,
     ) -> Self {
-        // Client-side: outbound = request_headers, inbound = response_headers.
-        let write_state = compute_write_state(version, &request_headers);
-        let content_length_in = parse_content_length(&response_headers);
-        let inbound_encoding = encoding(&response_headers);
+        let write_state = compute_write_state(version, &sent_headers);
+        let content_length_in = parse_content_length(&received_headers);
+        let inbound_encoding = encoding(&received_headers);
 
         Self {
-            request_headers,
-            response_headers,
+            received_headers,
+            sent_headers,
             path,
             method,
             state,
@@ -421,8 +415,8 @@ impl<Transport> Upgrade<Transport> {
             method: self.method,
             state: self.state,
             buffer: self.buffer,
-            request_headers: self.request_headers,
-            response_headers: self.response_headers,
+            received_headers: self.received_headers,
+            sent_headers: self.sent_headers,
             context: self.context,
             peer_ip: self.peer_ip,
             start_time: self.start_time,
@@ -533,8 +527,8 @@ impl<Transport: AsyncWrite + Unpin> Upgrade<Transport> {
 impl<Transport> Debug for Upgrade<Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct(&format!("Upgrade<{}>", std::any::type_name::<Transport>()))
-            .field("request_headers", &self.request_headers)
-            .field("response_headers", &self.response_headers)
+            .field("received_headers", &self.received_headers)
+            .field("sent_headers", &self.sent_headers)
             .field("path", &self.path)
             .field("method", &self.method)
             .field("buffer", &self.buffer)
@@ -617,8 +611,8 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
         let received_trailers = request_trailers.filter(|t| !t.is_empty());
 
         Self {
-            request_headers,
-            response_headers,
+            received_headers: request_headers,
+            sent_headers: response_headers,
             path,
             method,
             state,

@@ -137,8 +137,8 @@ impl From<Conn> for Upgrade<Box<dyn Transport>> {
         let secure = conn.url.scheme() == "https";
 
         Upgrade::from_parts(
-            mem::take(&mut conn.request_headers),
             mem::take(&mut conn.response_headers),
+            mem::take(&mut conn.request_headers),
             path,
             conn.method,
             conn.transport

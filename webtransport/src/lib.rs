@@ -36,7 +36,7 @@ use async_channel::Receiver;
 use futures_lite::AsyncWriteExt;
 use std::{
     borrow::Cow,
-    io,
+    io, mem,
     net::SocketAddr,
     sync::{Arc, OnceLock},
 };
@@ -414,11 +414,11 @@ where
         let runtime = self.runtime().clone();
 
         let inner = upgrade.as_mut();
-        let request_headers = std::mem::take(inner.request_headers_mut());
-        let response_headers = std::mem::take(inner.response_headers_mut());
-        let state = std::mem::take(inner.state_mut());
+        let request_headers = mem::take(inner.received_headers_mut());
+        let response_headers = mem::take(inner.sent_headers_mut());
+        let state = mem::take(inner.state_mut());
         let authority = inner.take_authority();
-        let path = Some(std::mem::take(inner.path_mut()));
+        let path = Some(mem::take(inner.path_mut()));
 
         self.handler
             .run(WebTransportConnection {

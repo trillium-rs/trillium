@@ -1,6 +1,6 @@
 use crate::{Headers, HttpContext, Method, Transport, TypeSet, Version};
 use futures_lite::{AsyncRead, AsyncWrite};
-use std::{net::IpAddr, sync::Arc};
+use std::{mem, net::IpAddr, sync::Arc};
 use trillium_http::Swansong;
 use trillium_macros::{AsyncRead, AsyncWrite};
 
@@ -41,12 +41,12 @@ impl AsMut<trillium_http::Upgrade<Box<dyn Transport>>> for Upgrade {
 impl Upgrade {
     /// Borrows the HTTP request headers
     pub fn request_headers(&self) -> &Headers {
-        self.0.request_headers()
+        self.0.received_headers()
     }
 
     /// Take the HTTP request headers
     pub fn take_request_headers(&mut self) -> Headers {
-        std::mem::take(self.0.request_headers_mut())
+        mem::take(self.0.received_headers_mut())
     }
 
     /// Returns a copy of the HTTP request method
@@ -61,7 +61,7 @@ impl Upgrade {
 
     /// Takes the [`TypeSet`] accumulated on the Conn before negotiating the upgrade
     pub fn take_state(&mut self) -> TypeSet {
-        std::mem::take(self.0.state_mut())
+        mem::take(self.0.state_mut())
     }
 
     /// Mutably borrow the [`TypeSet`] accumulated on the Conn before negotiating the upgrade
