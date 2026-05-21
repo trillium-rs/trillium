@@ -689,6 +689,13 @@ impl Conn {
     pub fn swansong(&self) -> Swansong {
         self.inner.swansong()
     }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn upgrade(mut self) -> Self {
+        self.inner = self.inner.upgrade();
+        self
+    }
 }
 
 impl AsMut<trillium_http::Conn<Box<dyn Transport>>> for Conn {
