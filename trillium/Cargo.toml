@@ -1,7 +1,6 @@
 [package]
 name = "trillium"
-version = "1.1.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "1.2.0"
 edition = "2024"
 description = "a modular toolkit for building async web apps"
 license = "MIT OR Apache-2.0"
@@ -9,6 +8,9 @@ repository = "https://github.com/trillium-rs/trillium"
 readme = "README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]
 
 [features]
 unstable = ["trillium-http/unstable"]
@@ -34,5 +36,3 @@ env_logger = "0.11.10"
 trillium-client = { path = "../client" }
 test-harness = "0.3.1"
 
-[package.metadata.cargo-udeps.ignore]
-development = ["trillium-testing"]
