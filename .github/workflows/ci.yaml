@@ -12,11 +12,27 @@ on:
 
 jobs:
   test:
-    name: Build and Test
+    name: ${{ matrix.name }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macOS-latest, windows-latest]
+        include:
+          # Runtimeless is the default transport the bulk of the suite runs
+          # under during development; it's exercised on every OS.
+          - { name: runtimeless, os: ubuntu-latest,  cmd: "cargo nextest run --workspace", rustflags: "" }
+          - { name: runtimeless, os: macOS-latest,   cmd: "cargo nextest run --workspace", rustflags: "" }
+          - { name: runtimeless, os: windows-latest, cmd: "cargo nextest run --workspace", rustflags: "" }
+
+          # Real-runtime slice: client <-> in-process server across protocols
+          # (h1/h2/h3), plus quinn (h3/QUIC over real UDP) and static (runtime
+          # selection feature). The smol workspace run lives in the coverage job.
+          - { name: tokio,     os: ubuntu-latest,  cmd: "cargo nextest run -p trillium-client -p trillium-quinn -p trillium-static --features trillium-testing/tokio,trillium-static/tokio", rustflags: "--cfg=quinn_testing" }
+          - { name: tokio,     os: macOS-latest,   cmd: "cargo nextest run -p trillium-client -p trillium-quinn -p trillium-static --features trillium-testing/tokio,trillium-static/tokio", rustflags: "--cfg=quinn_testing" }
+          - { name: tokio,     os: windows-latest, cmd: "cargo nextest run -p trillium-client -p trillium-quinn -p trillium-static --features trillium-testing/tokio,trillium-static/tokio", rustflags: "--cfg=quinn_testing" }
+          - { name: async-std, os: ubuntu-latest,  cmd: "cargo nextest run -p trillium-client -p trillium-quinn -p trillium-static --features trillium-testing/async-std,trillium-static/async-std", rustflags: "--cfg=quinn_testing" }
+          - { name: async-std, os: macOS-latest,   cmd: "cargo nextest run -p trillium-client -p trillium-quinn -p trillium-static --features trillium-testing/async-std,trillium-static/async-std", rustflags: "--cfg=quinn_testing" }
+          - { name: async-std, os: windows-latest, cmd: "cargo nextest run -p trillium-client -p trillium-quinn -p trillium-static --features trillium-testing/async-std,trillium-static/async-std", rustflags: "--cfg=quinn_testing" }
     steps:
       - uses: actions/checkout@master
         with:
@@ -41,50 +57,37 @@ jobs:
           echo "OPENSSL_INCLUDE_DIR=C:\Program Files\OpenSSL\include" >> $env:GITHUB_ENV
 
       - name: Install stable
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2.9.1
 
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --workspace
-
-      - name: Run tests (parse)
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: -p trillium-http -p trillium-client --features parse
-
-      - name: Run tests (smol)
-        uses: actions-rs/cargo@v1
+        run: ${{ matrix.cmd }}
         env:
-          RUSTFLAGS: --cfg=quinn_testing
-        with:
-          command: test
-          args: --workspace --features trillium-static/smol,trillium-testing/smol
+          RUSTFLAGS: ${{ matrix.rustflags }}
 
-      - name: Run tests (tokio)
-        uses: actions-rs/cargo@v1
-        env:
-          RUSTFLAGS: --cfg=quinn_testing
+  doctests:
+    name: doctests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
         with:
-          command: test
-          args: --workspace --features trillium-static/tokio,trillium-testing/tokio
-
-      - name: Run tests (async-std)
-        uses: actions-rs/cargo@v1
-        env:
-          RUSTFLAGS: --cfg=quinn_testing
-        with:
-          command: test
-          args: --workspace --features trillium-static/async-std,trillium-testing/async-std
-
+          submodules: recursive
+      - name: Install mkcert
+        run: curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64" && chmod +x mkcert-v*-linux-amd64 && sudo cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert && mkcert -install && mkcert localhost
+      - name: get-cmake
+        uses: lukka/get-cmake@v4.3.1
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.9.1
+      # Doctests run once, under the runtimeless default; nextest can't run them.
+      - name: Run doctests
+        run: cargo test --doc --workspace
 
   check_fmt_and_docs:
     name: Lints and Docs
