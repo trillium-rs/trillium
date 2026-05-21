@@ -617,8 +617,8 @@ where
     /// Set the response status (typically `200`) and any headers describing the upgraded
     /// byte stream before calling; the handler's `upgrade` method receives an [`Upgrade`]
     /// with per-protocol framing applied on its `AsyncRead`/`AsyncWrite`.
-    #[cfg(feature = "unstable")]
     #[doc(hidden)]
+    #[must_use]
     pub fn upgrade(mut self) -> Self {
         self.upgrade = true;
         self
