@@ -20,7 +20,7 @@ use std::{
     io,
     pin::Pin,
     sync::{Arc, atomic::Ordering},
-    task::{Context, Poll, ready},
+    task::{Context, Poll},
 };
 
 /// Driver-private state for an in-progress response on a single stream. Never observed
@@ -107,8 +107,14 @@ impl SendCursor {
 enum SendPhase {
     /// Still emitting HEADERS + CONTINUATION fragments.
     Headers,
-    /// HEADERS done; pumping body bytes into DATA frames.
-    Body,
+    /// HEADERS done; pumping body bytes into DATA frames. `parked` is `true` when the last
+    /// body `poll_read` returned `Pending` — the body registered its own waker (an
+    /// extended-CONNECT upgrade reader waiting on the handler to write, or a genuinely async
+    /// response body), so an external wake is what advances us, not another driver tick.
+    /// Read by [`has_pending_outbound_progress`][H2Driver::has_pending_outbound_progress] so
+    /// a parked body doesn't keep the driver awake busy-looping. Reset to `false` whenever a
+    /// poll yields bytes.
+    Body { parked: bool },
     /// Body fully drained; emit trailing HEADERS (if trailers) or empty `DATA(END_STREAM)`.
     Trailers,
     /// Completion has been signaled to the conn task; entry can be cleaned up.
@@ -170,12 +176,17 @@ where
 
     /// True if any active stream has more outbound work that could make progress on the next
     /// tick — a `SendCursor` mid-Headers / Trailers / Complete (no flow control gates these),
-    /// or a `SendCursor` in Body with a positive per-stream send window AND a positive
-    /// connection send window. Used by [`park`][super::H2Driver::park] to keep the driver
-    /// awake when there are body bytes left to emit and budget to emit them with — the body
-    /// source wouldn't wake us in that case (it already returned `Ready` on the prior poll),
-    /// and the only frame the peer is obliged to send is a `WINDOW_UPDATE` once our budget
-    /// runs out, not before.
+    /// or a `SendCursor` in Body that returned bytes on its last poll, has a positive
+    /// per-stream send window, AND a positive connection send window. Used by
+    /// [`park`][super::H2Driver::park] to keep the driver awake when there are body bytes
+    /// left to emit and budget to emit them with — the body source wouldn't wake us in that
+    /// case (it already returned `Ready` on the prior poll), and the only frame the peer is
+    /// obliged to send is a `WINDOW_UPDATE` once our budget runs out, not before.
+    ///
+    /// A body whose last poll returned `Pending` (`Body { parked: true }`) is excluded: it
+    /// registered its own waker, so an external wake — a handler write on an extended-CONNECT
+    /// upgrade stream, or an async body becoming readable — is what resumes us. Counting it
+    /// here would defeat `park` and busy-spin the driver.
     pub(super) fn has_pending_outbound_progress(&self) -> bool {
         if self.connection_send_window <= 0 {
             return false;
@@ -184,7 +195,7 @@ where
             None => false,
             Some(send) => match send.phase {
                 SendPhase::Headers | SendPhase::Trailers | SendPhase::Complete => true,
-                SendPhase::Body => entry.send_window > 0,
+                SendPhase::Body { parked } => entry.send_window > 0 && !parked,
             },
         })
     }
@@ -208,12 +219,12 @@ where
                     // extra park cycle).
                     self.emit_one_headers_fragment(stream_id, &mut send);
                 }
-                SendPhase::Body => match self.poll_emit_one_data(stream_id, &mut send, cx) {
+                SendPhase::Body { .. } => match self.poll_emit_one_data(stream_id, &mut send, cx) {
                     Poll::Ready(Ok(())) => {
                         // Body returned Ready(N>0) (emitted DATA, still Body) or Ready(0)
                         // (transitioned to Trailers). On transition, run the new phase
                         // this tick; on stay-in-Body, yield to the next stream.
-                        if send.phase == SendPhase::Body {
+                        if matches!(send.phase, SendPhase::Body { .. }) {
                             break;
                         }
                     }
@@ -454,7 +465,7 @@ where
             }
 
             send.phase = if send.has_body {
-                SendPhase::Body
+                SendPhase::Body { parked: false }
             } else if is_first {
                 // Single HEADERS carried END_STREAM; nothing more to emit.
                 SendPhase::Complete
@@ -516,7 +527,18 @@ where
             .min(self.body_scratch.len());
 
         let body = send.body.as_mut().expect("checked above");
-        let n = ready!(Pin::new(body).poll_read(cx, &mut self.body_scratch[..cap]))?;
+        let n = match Pin::new(body).poll_read(cx, &mut self.body_scratch[..cap]) {
+            Poll::Ready(result) => result?,
+            Poll::Pending => {
+                // No bytes available now; the body registered its own waker (upgrade
+                // reader awaiting a handler write, or an async body). Record the park so
+                // `has_pending_outbound_progress` lets the driver sleep instead of
+                // busy-looping — the external wake is what resumes us.
+                send.phase = SendPhase::Body { parked: true };
+                return Poll::Pending;
+            }
+        };
+        send.phase = SendPhase::Body { parked: false };
         if n == 0 {
             // Body drained via a 0-byte read (unknown-length body reached EOF).
             transition_to_trailers(send, &shared);
@@ -638,7 +660,7 @@ mod tests {
             body_len: None,
             body_bytes_emitted: 0,
             trailers: None,
-            phase: SendPhase::Body,
+            phase: SendPhase::Body { parked: false },
             is_upgrade: false,
             completion_signaled: false,
         }
