@@ -402,6 +402,64 @@ fn submit_trailers_lands_on_wire_after_body_parked() {
     );
 }
 
+/// An extended-CONNECT upgrade stream sitting at `UpgradeOpen` with an empty outbound
+/// queue (handler hasn't written, peer hasn't sent more) must let the driver park —
+/// returning `Poll::Pending` *without* self-waking. The `SendCursor` is parked in `Body`
+/// because the upgrade body's `poll_read` returned `Pending` (it registered the outbound
+/// waker), so there's no progress to make until an external wake arrives.
+///
+/// Regression: `has_pending_outbound_progress` used to report `true` for any `Body`-phase
+/// cursor with a positive send window, ignoring that the body had parked. That defeated
+/// `park`, so the driver burned through `copy_loops_per_yield` every poll and re-armed via
+/// the cooperative-yield `wake_by_ref` — a busy-spin emitting hundreds of thousands of
+/// `drive` log lines instead of sleeping. Asserting the waker isn't fired pins the park.
+#[test]
+fn idle_upgrade_open_stream_parks_without_self_waking() {
+    /// Wake counter so we can tell a clean park (no wake) from a self-wake spin.
+    struct CountingWaker(std::sync::atomic::AtomicUsize);
+    impl Wake for CountingWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+
+    // Drive into the parked-upgrade state: HEADERS go out, the cursor parks in Body with an
+    // empty outbound queue and no close requested.
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let _submit = fx.connection.submit_upgrade(1, pseudos, Headers::new());
+    let _ = fx.tick();
+    let _ = fx.next_outbound_bytes();
+
+    // The next poll has no work: no inbound frame, no outbound bytes, body parked. The
+    // driver must register on its wakers and return Pending without re-arming itself.
+    let counter = Arc::new(CountingWaker(std::sync::atomic::AtomicUsize::new(0)));
+    let waker = Waker::from(counter.clone());
+    let mut cx = Context::from_waker(&waker);
+    let polled = fx.driver.drive(&mut cx);
+    assert!(
+        matches!(polled, Poll::Pending),
+        "idle upgrade-open driver should park, got {polled:?}",
+    );
+    assert_eq!(
+        counter.0.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "driver self-woke instead of parking — busy-spin on an idle UpgradeOpen stream",
+    );
+}
+
 /// A server that finishes responding (trailing HEADERS + END_STREAM) while the peer's
 /// request half is still open is only at half-closed (local), not closed (RFC 9113
 /// §5.1). The peer's subsequent END_STREAM — a zero-length DATA frame closing its

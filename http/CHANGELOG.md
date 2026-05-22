@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Reading an HTTP/3 body — request bodies in the server role, response bodies in the client role — could hang or fail to decode when a DATA frame had been buffered alongside the headers (read off the wire in the same poll) and was then read with a buffer smaller than the frame header, as happens reading a body one byte at a time. The partial-frame-header recovery read from the (possibly idle) transport instead of draining the already-buffered bytes — hanging an open stream or raising a spurious `UnexpectedEof` on a closed one — and reassembled the split header by appending rather than prepending, which reordered it. Reads with a buffer at least as large as the frame header, or where the body arrived separately from the headers, were unaffected. The buffered frame is now decoded directly and any split header is reassembled in order.
+- HTTP/2 server: an idle extended-CONNECT (RFC 8441) upgrade stream could busy-spin the connection driver instead of sleeping. While the upgrade handler had written nothing and the peer was sending nothing, the driver treated the parked outbound body as having work to do, so it never parked — burning CPU and emitting a flood of `drive` trace lines. The driver now recognizes a body that has parked on its own waker and sleeps until a handler write (or other external event) wakes it. The same fix covers any response body whose source returns `Pending`.
 
 ## [1.3.1] - 2026-05-21
 
