@@ -116,8 +116,8 @@ impl FollowRedirects {
     }
 
     /// Restrict redirects to the given allowlist of origins. Each `Url`'s
-    /// [origin][url::Url::origin] (scheme + host + port) is added to the allowlist; the
-    /// path/query/fragment of the input URLs is ignored.
+    /// [origin][trillium_client::url::Url::origin] (scheme + host + port) is added to the
+    /// allowlist; the path/query/fragment of the input URLs is ignored.
     ///
     /// When set, redirects to any other origin error with [`RedirectError::OriginNotAllowed`].
     /// When unset (the default), all origins are permitted.

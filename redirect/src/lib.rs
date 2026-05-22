@@ -8,12 +8,14 @@
     nonstandard_style,
     unused_qualifications
 )]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
 mod readme {}
 
 #[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod client;
 
 use std::borrow::Cow;

@@ -12,6 +12,9 @@ categories = [
     "web-programming::http-client",
     "web-programming",
 ]
+[package.metadata.docs.rs]
+features = ["client"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
