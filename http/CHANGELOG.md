@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-05-21
+
+### Fixed
+
+- HTTP/2 server: an HTTP/2 response could end with a stream reset instead of its trailing headers when the client hadn't finished sending its request before the response completed. Under load this dropped trailers. The server now waits for the client to finish its half of the stream before closing, so the trailers arrive intact.
+
 ## [1.3.0] - 2026-05-21
 
 ### Added

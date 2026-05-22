@@ -328,7 +328,7 @@ where
             }
         }
         match self.role {
-            Role::Server => self.complete_and_remove_stream(stream_id, Ok(())),
+            Role::Server => self.close_server_stream_if_both_done(stream_id),
             Role::Client => self.try_close_if_both_done(stream_id),
         }
     }
@@ -355,6 +355,33 @@ where
         let recv_done = entry.shared.lifecycle_lock().recv_eof();
         if send_done && recv_done {
             self.signal_close(stream_id, Ok(()));
+        }
+    }
+
+    /// Server-role: fully close and remove the stream once *both* halves are done.
+    ///
+    /// Sending our complete response (`END_STREAM`) only moves the stream to half-closed
+    /// (local) — RFC 9113 §5.1 keeps it open for receiving until the peer also half-closes.
+    /// Tearing it down on send completion alone makes the peer's subsequent (legal)
+    /// `END_STREAM` look like a frame on a closed stream, which earns a spurious
+    /// `RST_STREAM(STREAM_CLOSED)` that races back and destroys trailers we already sent.
+    /// So removal waits until the peer's `END_STREAM` has arrived too. Driven from both ends:
+    /// [`finalize_send`][Self::finalize_send] when send completes, and
+    /// [`route_data`][super::recv] when the peer's `END_STREAM` lands.
+    ///
+    /// Unlike the client-role [`try_close_if_both_done`][Self::try_close_if_both_done],
+    /// which keeps the entry in the map for the application's trailer access, the server
+    /// has no handle left once the response is sent, so this removes the stream outright.
+    ///
+    /// No-op if either side is still in flight.
+    pub(super) fn close_server_stream_if_both_done(&mut self, stream_id: u32) {
+        let Some(entry) = self.streams.get(&stream_id) else {
+            return;
+        };
+        let send_done = entry.shared.send.completed.load(Ordering::Acquire);
+        let recv_done = entry.shared.lifecycle_lock().recv_eof();
+        if send_done && recv_done {
+            self.complete_and_remove_stream(stream_id, Ok(()));
         }
     }
 

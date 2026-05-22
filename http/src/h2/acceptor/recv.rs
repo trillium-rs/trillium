@@ -325,12 +325,16 @@ where
             state.lifecycle_lock().mark_recv_eof();
         }
         state.recv.waker.wake();
-        // Client-role lifecycle: peer END_STREAM on the response body might be the second
-        // half of "both halves done" — if our send pump has already signaled completion,
-        // close the stream now. Server-role removal happens on send completion (via
-        // `finalize_send`); recv-side END_STREAM there is informational.
-        if end_stream && self.role == Role::Client {
-            self.try_close_if_both_done(stream_id);
+        // Peer END_STREAM may be the second half of "both halves done". If our response
+        // already completed, this closes the stream now; otherwise `finalize_send` closes
+        // it when the response completes (recv_eof, set above, is the gate). The two roles
+        // differ only in whether the entry lingers in the map after close: the client keeps
+        // it for trailer access, the server removes it.
+        if end_stream {
+            match self.role {
+                Role::Client => self.try_close_if_both_done(stream_id),
+                Role::Server => self.close_server_stream_if_both_done(stream_id),
+            }
         }
         Ok(())
     }

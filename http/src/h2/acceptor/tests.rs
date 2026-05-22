@@ -402,6 +402,71 @@ fn submit_trailers_lands_on_wire_after_body_parked() {
     );
 }
 
+/// A server that finishes responding (trailing HEADERS + END_STREAM) while the peer's
+/// request half is still open is only at half-closed (local), not closed (RFC 9113
+/// §5.1). The peer's subsequent END_STREAM — a zero-length DATA frame closing its
+/// request half — is legal and must complete the stream cleanly. The bug this pins:
+/// server-role teardown removes the stream on send completion regardless of recv state,
+/// so the peer's END_STREAM lands on a stream the driver has already forgotten and is
+/// answered with a spurious `RST_STREAM(STREAM_CLOSED)`. That RST races back to the peer
+/// and destroys the just-delivered trailers — the gRPC "stream ended without grpc-status
+/// trailer" failure under load.
+#[test]
+fn peer_end_stream_after_server_trailers_is_not_reset() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    // Open the request stream WITHOUT END_STREAM — the peer's request half stays open,
+    // exactly as a gRPC client's upgrade-style request stream does before it has sent its
+    // own terminator.
+    fx.peer_open_stream(1, Method::Post, "/", false);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+
+    // Server responds via the upgrade path and stages trailers, completing its send half
+    // while the peer's request half is still open.
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let _submit = fx.connection.submit_upgrade(1, pseudos, Headers::new());
+    let _ = fx.tick();
+    let _ = fx.next_outbound_frames();
+
+    let mut trailers = Headers::new();
+    trailers.insert("grpc-status", "0");
+    fx.connection
+        .submit_trailers(1, trailers)
+        .expect("submit_trailers on a live stream");
+    let _ = fx.tick();
+    let trailing = fx.next_outbound_frames();
+    assert!(
+        trailing.iter().any(|f| matches!(
+            f,
+            Frame::Headers {
+                stream_id: 1,
+                end_stream: true,
+                ..
+            }
+        )),
+        "server's trailing HEADERS with END_STREAM should be on the wire; got {trailing:?}",
+    );
+
+    // Now the peer closes its request half: a zero-length DATA frame with END_STREAM.
+    // This arrives strictly after the server's trailers — the deterministic version of
+    // the load-dependent race.
+    fx.peer_data(1, &[], true);
+    let _ = fx.tick();
+
+    let after = fx.next_outbound_frames();
+    assert!(
+        !after
+            .iter()
+            .any(|f| matches!(f, Frame::RstStream { stream_id: 1, .. })),
+        "peer's END_STREAM on a half-closed-local stream must close cleanly, not earn a \
+         RST_STREAM; got {after:?}",
+    );
+}
+
 /// The send pump runs in `Closing` (not just `Running`): once we've begun closing, any
 /// stream with a staged submission must still be framed and put on the wire — gRPC and
 /// other late-trailer patterns submit the response right around the same time the
