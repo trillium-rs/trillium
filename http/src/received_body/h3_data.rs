@@ -31,21 +31,32 @@ where
         partial_frame_header: bool,
     ) -> StateOutput {
         if partial_frame_header {
-            let transport = self
-                .transport
-                .as_deref_mut()
-                .ok_or_else(|| io::Error::from(ErrorKind::NotConnected))?;
-            let bytes = ready!(Pin::new(transport).poll_read(cx, buf))?;
-            if bytes == 0 {
-                return Ready(Err(io::Error::from(ErrorKind::UnexpectedEof)));
+            // Decode the next frame header. It may already be fully buffered — e.g. it
+            // arrived in the same read as the response headers and was over-read into
+            // `buffer`. Only pull from the transport when the buffer can't yet complete the
+            // header; otherwise an idle stream (peer waiting on us) would hang a read, or a
+            // closed one would raise a spurious EOF, that the buffer could already satisfy.
+            if matches!(
+                Frame::decode(&self.buffer),
+                Err(FrameDecodeError::Incomplete)
+            ) {
+                let transport = self
+                    .transport
+                    .as_deref_mut()
+                    .ok_or_else(|| io::Error::from(ErrorKind::NotConnected))?;
+                let bytes = ready!(Pin::new(transport).poll_read(cx, buf))?;
+                if bytes == 0 {
+                    return Ready(Err(io::Error::from(ErrorKind::UnexpectedEof)));
+                }
+                self.buffer.extend_from_slice(&buf[..bytes]);
             }
-            self.buffer.extend_from_slice(&buf[..bytes]);
 
             let (remaining_in_frame, frame_type, consumed) = match Frame::decode(&self.buffer) {
                 Ok((Frame::Data(len), consumed)) => (len, H3BodyFrameType::Data, consumed),
                 Ok((Frame::Headers(len), consumed)) => (len, H3BodyFrameType::Trailers, consumed),
                 Ok((Frame::Unknown(len), consumed)) => (len, H3BodyFrameType::Unknown, consumed),
                 Err(FrameDecodeError::Incomplete) => {
+                    // Read some bytes but still short of a full header — stay partial.
                     return Ready(Ok((
                         ReceivedBodyState::H3Data {
                             remaining_in_frame: 0,
@@ -78,39 +89,18 @@ where
                 return Ready(Err(io::Error::other(H3ErrorCode::MessageError)));
             }
 
-            let leftover = self.buffer.len();
-
-            if leftover == 0 {
-                return Ready(Ok((
-                    ReceivedBodyState::H3Data {
-                        remaining_in_frame,
-                        total,
-                        frame_type,
-                        partial_frame_header: false,
-                    },
-                    0,
-                )));
-            }
-
-            buf[..leftover].copy_from_slice(&self.buffer);
-            self.buffer.ignore_front(leftover);
-
-            Ready(
-                H3Frame {
-                    self_buffer: &mut self.buffer,
-                    trailer_payload_buffer: &mut self.h3_trailer_payload_buffer,
+            // Header complete. Hand the payload off to the non-partial path on the next poll
+            // iteration, which drains it from the buffer (then transport) honoring `buf`'s
+            // length — rather than assuming `buf` can hold the whole buffered frame.
+            Ready(Ok((
+                ReceivedBodyState::H3Data {
                     remaining_in_frame,
                     total,
                     frame_type,
-                    buf: &mut buf[..leftover],
-                    content_length: self.content_length,
-                    max_len: self.max_len,
-                    max_trailer_size: self.max_header_list_size,
-                    connection: self.protocol_session.as_h3_borrowed(),
-                    trailers_future: &mut self.h3_trailer_future,
-                }
-                .decode(),
-            )
+                    partial_frame_header: false,
+                },
+                0,
+            )))
         } else {
             let bytes = ready!(self.read_raw(cx, buf)?);
             if bytes == 0 {
@@ -295,7 +285,10 @@ impl H3Frame<'_> {
                 }
 
                 Err(FrameDecodeError::Incomplete) => {
-                    self_buffer.extend_from_slice(&buf[pos..]);
+                    // These bytes were drained from the *front* of `self_buffer` (or read
+                    // from the transport) and precede whatever remains buffered, so they go
+                    // back at the front — appending would reorder them after the remainder.
+                    self_buffer.prepend(&buf[pos..]);
                     break ReceivedBodyState::H3Data {
                         remaining_in_frame: 0,
                         total,
