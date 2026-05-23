@@ -28,10 +28,15 @@ impl Conn {
         }
 
         if self.upgrade {
-            // Upgrade path: caller writes body bytes via `Upgrade` post-handoff. Default
-            // to chunked (unless Content-Length is set) so the server keeps reading past
-            // the response head.
-            if !self.request_headers.has_header(ContentLength) {
+            if self.request_body.is_some() {
+                // A prelude body is sent as an open chunked stream (see `Body::keep_open`),
+                // continuing into the post-handoff `Upgrade`. Force chunked framing and drop
+                // any Content-Length — the stream is length-indeterminate.
+                self.request_headers.remove(ContentLength);
+                self.request_headers.insert(TransferEncoding, "chunked");
+            } else if !self.request_headers.has_header(ContentLength) {
+                // No prelude body: default the post-handoff stream to chunked framing so
+                // the server keeps reading past the response head.
                 self.request_headers.try_insert(TransferEncoding, "chunked");
             }
         } else {
@@ -276,23 +281,10 @@ impl Conn {
     }
 
     async fn send_body_and_parse_head(&mut self) -> Result<()> {
-        if self.upgrade {
-            // Upgrade path: skip auto-body-drain — the caller writes body bytes via
-            // `Upgrade` after consuming this conn.
-            loop {
-                self.parse_head().await?;
-                match self.status {
-                    Some(other) if is_interim(other) => {
-                        log::trace!("Received interim response {other}, continuing to read");
-                        self.reset_interim_response_state();
-                    }
-                    _ => break,
-                }
-            }
-            self.response_body_state = self.initial_response_body_state();
-            return Ok(());
-        }
-
+        // The upgrade path needs no special case here: `finalize_headers_h1` never sets
+        // `Expect: 100-continue` for an upgrade, so the 100-continue block is skipped, and
+        // `send_body` leaves the stream open (via `Body::keep_open`) instead of terminating
+        // it. The caller continues writing through `Upgrade` after consuming the conn.
         if self
             .request_headers
             .eq_ignore_ascii_case(Expect, "100-continue")
@@ -354,6 +346,12 @@ impl Conn {
             return Ok(());
         };
 
+        let upgrade = self.upgrade;
+        if upgrade {
+            // Leave the chunked stream unterminated; the `Upgrade` owns the terminator.
+            body = body.keep_open();
+        }
+
         // HTTP/1.0 doesn't support chunked transfer encoding. Stream raw bytes directly;
         // connection close signals end-of-body to the server.
         if self.http_version < Version::Http1_1 && body.len().is_none() {
@@ -380,29 +378,34 @@ impl Conn {
 
         bufwriter.copy_from(&mut body, copy_loops_per_yield).await?;
 
-        *request_trailers = body.trailers();
-        if let Some(trailers) = &*request_trailers {
-            let buf = bufwriter.buffer_mut();
-            for (name, values) in trailers {
-                if !name.is_valid() {
-                    return Err(Error::InvalidHeaderName);
+        // When an upgrade follows, the `Upgrade` owns the terminator; the body's trailers
+        // (if any) ride onto it and merge with whatever the caller emits. Skip the
+        // trailer-section + terminating CRLF here.
+        if !upgrade {
+            *request_trailers = body.trailers();
+            if let Some(trailers) = &*request_trailers {
+                let buf = bufwriter.buffer_mut();
+                for (name, values) in trailers {
+                    if !name.is_valid() {
+                        return Err(Error::InvalidHeaderName);
+                    }
+
+                    for value in values {
+                        if !value.is_valid() {
+                            return Err(Error::InvalidHeaderValue(name.to_owned()));
+                        }
+                        write!(buf, "{name}: ")?;
+                        buf.extend_from_slice(value.as_ref());
+                        write!(buf, "\r\n")?;
+                    }
                 }
 
-                for value in values {
-                    if !value.is_valid() {
-                        return Err(Error::InvalidHeaderValue(name.to_owned()));
-                    }
-                    write!(buf, "{name}: ")?;
-                    buf.extend_from_slice(value.as_ref());
-                    write!(buf, "\r\n")?;
-                }
+                log::trace!("sending request trailers: {trailers:?}");
             }
 
-            log::trace!("sending request trailers: {trailers:?}");
-        }
-
-        if body.len().is_none() {
-            write!(bufwriter.buffer_mut(), "\r\n")?;
+            if body.len().is_none() {
+                write!(bufwriter.buffer_mut(), "\r\n")?;
+            }
         }
 
         bufwriter.flush().await?;

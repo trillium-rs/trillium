@@ -12,7 +12,7 @@
 use super::{ClosedReason, DriverState, H2Driver, Role};
 use crate::{
     Body, Headers,
-    h2::{H2Body, frame, lifecycle::Submission, transport::StreamState},
+    h2::{H2Body, frame, lifecycle::Submission, transport::{H2OutboundReader, StreamState}},
     headers::hpack::{FieldSection, HpackEncoder, PseudoHeaders},
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -55,13 +55,18 @@ pub(super) struct SendCursor {
     pub(super) trailers: Option<Headers>,
     /// Where we are in the response.
     phase: SendPhase,
-    /// `true` if this stream is in extended-CONNECT upgrade mode (RFC 8441):
-    /// signal [`SubmitSend`][super::super::SubmitSend] completion the moment `END_HEADERS`
-    /// goes out instead of waiting for `END_STREAM`, so the runtime can dispatch
-    /// [`Handler::upgrade`][trillium::Handler::upgrade] while the streaming body keeps
-    /// pumping bytes from [`SendState::outbound`][super::super::transport::SendState] into
-    /// DATA frames in the background.
+    /// `true` if this stream is an upgrade (extended-CONNECT RFC 8441, or a raw
+    /// `Conn::upgrade`): HEADERS goes out without `END_STREAM`, the cursor frames the
+    /// prelude body (if any), and on prelude drain it signals
+    /// [`SubmitSend`][super::super::SubmitSend] completion and switches to sourcing DATA
+    /// from [`SendState::outbound`][super::super::transport::SendState] (the upgrade
+    /// handler's post-handoff writes) — see [`Self::continuation_started`].
     is_upgrade: bool,
+    /// Upgrade only: `false` while framing the prelude body, flipped `true` at prelude
+    /// drain when the cursor swaps to the `H2OutboundReader` continuation source. Gates
+    /// the one-time "signal completion + swap body" step so a draining continuation
+    /// terminates the stream instead of swapping again.
+    continuation_started: bool,
     /// `true` once `signal_send_completion` has been called for this cursor — prevents the
     /// upgrade-early-completion path and the eventual `complete_and_remove_stream` call from
     /// double-signaling the conn task's `SubmitSend` future.
@@ -77,7 +82,10 @@ impl SendCursor {
     /// `write_buf`, so the wire order matches the dynamic-table mutation order — required
     /// by HPACK's stateful decoder.
     pub(super) fn new(submission: Submission, encoder: &mut HpackEncoder) -> Self {
-        let has_body = submission.body.is_some();
+        // An upgrade always keeps the stream open (HEADERS without END_STREAM) even with no
+        // prelude body — the post-upgrade continuation arrives via the outbound queue, which
+        // the pump sources lazily once the prelude (if any) drains.
+        let has_body = submission.is_upgrade || submission.body.is_some();
         // Capture `Body::len` before the `into_h2()` consumes it — H2Body intentionally
         // doesn't expose the inner length (the send pump uses it for the early-EOF
         // optimization in `poll_emit_one_data`).
@@ -97,6 +105,7 @@ impl SendCursor {
             trailers: None,
             phase: SendPhase::Headers,
             is_upgrade: submission.is_upgrade,
+            continuation_started: false,
             completion_signaled: false,
         }
     }
@@ -447,23 +456,10 @@ where
         send.headers_offset += chunk_len;
 
         if end_headers {
-            // Extended-CONNECT (RFC 8441): signal `SubmitSend` completion as
-            // soon as the response HEADERS frame is on the wire so `Conn::send_h2`
-            // returns and the runtime can dispatch `handler.upgrade(...)`. The body
-            // (an `H2OutboundReader` over `SendState.outbound`) keeps streaming in the
-            // background — the eventual `complete_and_remove_stream` call sees
-            // `completion_signaled` and skips re-signaling.
-            if send.is_upgrade && !send.completion_signaled {
-                if let Some(entry) = self.streams.get(&stream_id) {
-                    log::trace!(
-                        "h2 stream {stream_id}: upgrade — signaling SubmitSend completion at \
-                         END_HEADERS"
-                    );
-                    signal_send_completion(&entry.shared, Ok(()));
-                }
-                send.completion_signaled = true;
-            }
-
+            // For an upgrade, completion is signaled later — when the prelude body drains
+            // and the cursor swaps to the outbound continuation (see `end_of_body`) — so
+            // control returns to the conn task only after the prelude is on the wire,
+            // matching h1/h3.
             send.phase = if send.has_body {
                 SendPhase::Body { parked: false }
             } else if is_first {
@@ -511,7 +507,7 @@ where
         // just barely sufficed for the body without waiting on a superfluous WINDOW_UPDATE
         // to detect EOF.
         if send.body.is_none() || send.body_len == Some(send.body_bytes_emitted) {
-            transition_to_trailers(send, &shared);
+            end_of_body(send, &shared, stream_id);
             return Poll::Ready(Ok(()));
         }
 
@@ -541,7 +537,7 @@ where
         send.phase = SendPhase::Body { parked: false };
         if n == 0 {
             // Body drained via a 0-byte read (unknown-length body reached EOF).
-            transition_to_trailers(send, &shared);
+            end_of_body(send, &shared, stream_id);
             return Poll::Ready(Ok(()));
         }
 
@@ -567,7 +563,7 @@ where
         // `emit_trailers_or_end_stream` — otherwise we'd park in Body and wait for an
         // external wake to notice EOF, which never comes (peer has nothing more to send).
         if send.body_len == Some(send.body_bytes_emitted) {
-            transition_to_trailers(send, &shared);
+            end_of_body(send, &shared, stream_id);
         }
 
         Poll::Ready(Ok(()))
@@ -604,6 +600,32 @@ where
             });
         }
         send.phase = SendPhase::Complete;
+    }
+}
+
+/// The cursor's current body has drained. For an upgrade whose prelude just finished,
+/// this is the handoff point: signal `SubmitSend` completion (the prelude is fully framed,
+/// so the conn task returns and the upgrade handler runs) and swap in the per-stream
+/// outbound queue as the continuation source, staying in `Body` phase. Otherwise — a
+/// non-upgrade body, or an upgrade whose continuation has now also drained (handler
+/// closed) — fall through to `transition_to_trailers` and terminate the stream.
+fn end_of_body(send: &mut SendCursor, shared: &Arc<StreamState>, stream_id: u32) {
+    if send.is_upgrade && !send.continuation_started {
+        if !send.completion_signaled {
+            log::trace!(
+                "h2 stream {stream_id}: upgrade — prelude framed, signaling SubmitSend \
+                 completion and switching to outbound continuation"
+            );
+            signal_send_completion(shared, Ok(()));
+            send.completion_signaled = true;
+        }
+        send.body = Some(Body::new_streaming(H2OutboundReader::new(shared.clone(), stream_id), None).into_h2());
+        send.body_len = None;
+        send.body_bytes_emitted = 0;
+        send.continuation_started = true;
+        send.phase = SendPhase::Body { parked: false };
+    } else {
+        transition_to_trailers(send, shared);
     }
 }
 
@@ -662,6 +684,7 @@ mod tests {
             trailers: None,
             phase: SendPhase::Body { parked: false },
             is_upgrade: false,
+            continuation_started: false,
             completion_signaled: false,
         }
     }

@@ -102,6 +102,11 @@ where
 
         self.encode_headers_h3(&mut output_buffer)?;
 
+        // Read before the bufwriter borrows `self.transport`. On an upgrade the response
+        // body is a prelude on the still-open stream, so its trailers belong at the eventual
+        // close (carried via `Upgrade`), not inline.
+        let upgrading = self.should_upgrade();
+
         let loops_per_yield = self.context.config.copy_loops_per_yield;
         let max_peer_field_section_size = self.max_peer_field_section_size();
         let initial_cap = self.context.config.request_buffer_initial_len;
@@ -117,7 +122,7 @@ where
 
             bufwriter.copy_from(&mut body, loops_per_yield).await?;
 
-            if let Some(trailers) = body.trailers() {
+            if !upgrading && let Some(trailers) = body.trailers() {
                 let Some((h3, stream_id)) = self.protocol_session.as_h3() else {
                     return Err(io::ErrorKind::NotConnected.into());
                 };

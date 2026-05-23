@@ -109,7 +109,12 @@ where
         let is_upgrade = self.should_upgrade();
         let result = if is_upgrade {
             log::trace!("h2 stream {stream_id}: send_h2 submitting upgrade");
-            h2.submit_upgrade(stream_id, pseudos, headers).await
+            // The response body (if any) is a prelude sent before the upgrade transition.
+            // The driver frames it as DATA, signals completion once it's on the wire (so this
+            // `await` returns only after the prelude is sent — matching h1/h3), then keeps the
+            // stream open for the handler's post-handoff writes.
+            let body = self.response_body.take();
+            h2.submit_upgrade(stream_id, pseudos, headers, body).await
         } else {
             // HEAD / 304 / 204 responses carry no body. Take unconditionally (so post-send
             // Conn state is consistent) and filter out the body itself for those statuses.
