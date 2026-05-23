@@ -12,7 +12,11 @@
 use super::{ClosedReason, DriverState, H2Driver, Role};
 use crate::{
     Body, Headers,
-    h2::{H2Body, frame, lifecycle::Submission, transport::{H2OutboundReader, StreamState}},
+    h2::{
+        H2Body, frame,
+        lifecycle::Submission,
+        transport::{H2OutboundReader, StreamState},
+    },
     headers::hpack::{FieldSection, HpackEncoder, PseudoHeaders},
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -26,6 +30,11 @@ use std::{
 /// Driver-private state for an in-progress response on a single stream. Never observed
 /// concurrently — only the driver task touches this.
 #[derive(Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "driver-private framing flags, each tracking an independent step of the send \
+              sequence — not a cross-task state set (that's StreamLifecycle)"
+)]
 pub(super) struct SendCursor {
     /// Materialized HEADERS bytes — produced at submission pickup by committing the
     /// conn-task-built [`crate::headers::hpack::EncodedBlock`] under the encoder's write
@@ -67,7 +76,7 @@ pub(super) struct SendCursor {
     /// the one-time "signal completion + swap body" step so a draining continuation
     /// terminates the stream instead of swapping again.
     continuation_started: bool,
-    /// `true` once `signal_send_completion` has been called for this cursor — prevents the
+    /// `true` once `signal_submit_resolved` has been called for this cursor — prevents the
     /// upgrade-early-completion path and the eventual `complete_and_remove_stream` call from
     /// double-signaling the conn task's `SubmitSend` future.
     completion_signaled: bool,
@@ -302,11 +311,11 @@ where
             let already_signaled = entry.send.as_ref().is_some_and(|c| c.completion_signaled);
             if already_signaled {
                 log::trace!(
-                    "h2 stream {stream_id}: skipping signal_send_completion (already signaled by \
+                    "h2 stream {stream_id}: skipping signal_submit_resolved (already resolved by \
                      upgrade path)"
                 );
             } else {
-                signal_send_completion(&entry.shared, result);
+                signal_submit_resolved(&entry.shared, result);
             }
             // Wake any conn task parked on `H2Connection::response_headers` — the slot
             // is empty (we never stashed for this id, otherwise the take would have already
@@ -326,26 +335,29 @@ where
         self.connection.streams_lock().remove(&stream_id);
     }
 
-    /// Send pump's success-path completion. Signals the conn task's pending
-    /// [`SubmitSend`][super::super::SubmitSend], then for **server** role removes the
-    /// stream immediately (response done = stream done) and for **client** role defers
-    /// removal until the recv side has also observed `END_STREAM` — the request being
-    /// fully sent doesn't end the stream from the client's perspective; we still need to
-    /// receive the response.
+    /// Send pump's success-path completion: the `END_STREAM` terminator has been framed.
+    /// Resolves the conn task's pending [`SubmitSend`][super::super::SubmitSend] (a no-op
+    /// on the upgrade path, which resolved it early at handoff), then records the send
+    /// half wire-closed via [`StreamLifecycle::mark_send_closed`] — the lifecycle's
+    /// `LocalClosed` is the canonical "send done" fact the close paths read.
     ///
-    /// The deferred client-role completion is finalized either by the peer's response
-    /// reaching `END_STREAM` (via [`route_data`][super::recv] or the HEADERS-with-END_STREAM
-    /// case in [`finalize_response_headers`][super::recv]) or by an error/RST path on
-    /// either side (which routes through [`Self::complete_and_remove_stream`] directly).
+    /// For **server** role this removes the stream once the peer's `END_STREAM` has also
+    /// arrived; for **client** role it keeps the entry (for trailer access) and just
+    /// signals close. Either way, if the recv side is still open the stream stays in
+    /// `LocalClosed { recv_eof: false }` until the peer's `END_STREAM` lands (via
+    /// [`route_data`][super::recv] or the HEADERS-with-`END_STREAM` case in
+    /// [`finalize_response_headers`][super::recv]), or an error/RST routes through
+    /// [`Self::complete_and_remove_stream`] directly.
     pub(super) fn finalize_send(&mut self, stream_id: u32) {
         if let Some(entry) = self.streams.get_mut(&stream_id) {
             let already_signaled = entry.send.as_ref().is_some_and(|c| c.completion_signaled);
             if !already_signaled {
-                signal_send_completion(&entry.shared, Ok(()));
+                signal_submit_resolved(&entry.shared, Ok(()));
                 if let Some(c) = entry.send.as_mut() {
                     c.completion_signaled = true;
                 }
             }
+            entry.shared.lifecycle_lock().mark_send_closed();
         }
         match self.role {
             Role::Server => self.close_server_stream_if_both_done(stream_id),
@@ -371,9 +383,7 @@ where
         let Some(entry) = self.streams.get(&stream_id) else {
             return;
         };
-        let send_done = entry.shared.send.completed.load(Ordering::Acquire);
-        let recv_done = entry.shared.lifecycle_lock().recv_eof();
-        if send_done && recv_done {
+        if entry.shared.lifecycle_lock().is_fully_closed() {
             self.signal_close(stream_id, Ok(()));
         }
     }
@@ -398,9 +408,7 @@ where
         let Some(entry) = self.streams.get(&stream_id) else {
             return;
         };
-        let send_done = entry.shared.send.completed.load(Ordering::Acquire);
-        let recv_done = entry.shared.lifecycle_lock().recv_eof();
-        if send_done && recv_done {
+        if entry.shared.lifecycle_lock().is_fully_closed() {
             self.complete_and_remove_stream(stream_id, Ok(()));
         }
     }
@@ -604,22 +612,26 @@ where
 }
 
 /// The cursor's current body has drained. For an upgrade whose prelude just finished,
-/// this is the handoff point: signal `SubmitSend` completion (the prelude is fully framed,
+/// this is the handoff point: resolve the `SubmitSend` future (the prelude is fully framed,
 /// so the conn task returns and the upgrade handler runs) and swap in the per-stream
-/// outbound queue as the continuation source, staying in `Body` phase. Otherwise — a
-/// non-upgrade body, or an upgrade whose continuation has now also drained (handler
-/// closed) — fall through to `transition_to_trailers` and terminate the stream.
+/// outbound queue as the continuation source, staying in `Body` phase. Resolving the submit
+/// future here is *not* a send-half close — the lifecycle stays `UpgradeOpen` and the stream
+/// streams on. Otherwise — a non-upgrade body, or an upgrade whose continuation has now also
+/// drained (handler closed) — fall through to `transition_to_trailers` and terminate the
+/// stream.
 fn end_of_body(send: &mut SendCursor, shared: &Arc<StreamState>, stream_id: u32) {
     if send.is_upgrade && !send.continuation_started {
         if !send.completion_signaled {
             log::trace!(
-                "h2 stream {stream_id}: upgrade — prelude framed, signaling SubmitSend \
-                 completion and switching to outbound continuation"
+                "h2 stream {stream_id}: upgrade — prelude framed, resolving SubmitSend and \
+                 switching to outbound continuation"
             );
-            signal_send_completion(shared, Ok(()));
+            signal_submit_resolved(shared, Ok(()));
             send.completion_signaled = true;
         }
-        send.body = Some(Body::new_streaming(H2OutboundReader::new(shared.clone(), stream_id), None).into_h2());
+        send.body = Some(
+            Body::new_streaming(H2OutboundReader::new(shared.clone(), stream_id), None).into_h2(),
+        );
         send.body_len = None;
         send.body_bytes_emitted = 0;
         send.continuation_started = true;
@@ -653,16 +665,18 @@ fn transition_to_trailers(send: &mut SendCursor, shared: &StreamState) {
     send.phase = SendPhase::Trailers;
 }
 
-/// Store the send result on `StreamState`, flip `completed`, wake the conn-task waker.
+/// Resolve the conn task's [`SubmitSend`][super::super::SubmitSend] future: store the
+/// result, flip `submit_resolved`, wake its waker. Does **not** mark the send half closed
+/// — that's [`StreamLifecycle::mark_send_closed`], a separate lifecycle transition.
 /// Free fn so the driver can call it from inside an `&mut self` borrow chain without a
 /// re-lookup.
-fn signal_send_completion(state: &StreamState, result: io::Result<()>) {
+fn signal_submit_resolved(state: &StreamState, result: io::Result<()>) {
     *state
         .send
         .completion_result
         .lock()
         .expect("completion_result mutex poisoned") = Some(result);
-    state.send.completed.store(true, Ordering::Release);
+    state.send.submit_resolved.store(true, Ordering::Release);
     state.send.completion_waker.wake();
 }
 

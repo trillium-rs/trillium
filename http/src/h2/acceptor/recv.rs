@@ -183,19 +183,26 @@ where
                 self.handle_priority(stream_id, priority);
                 Ok(Action::Continue)
             }
-            Frame::RstStream { stream_id, .. } => {
+            Frame::RstStream {
+                stream_id,
+                error_code,
+            } => {
                 // `RST_STREAM` on an idle stream is a connection-level `PROTOCOL_ERROR`;
                 // on a closed or active stream it's benign.
                 if stream_id > self.last_peer_stream_id && !self.streams.contains_key(&stream_id) {
                     return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
                 }
                 if let Some(entry) = self.streams.get(&stream_id) {
-                    // Unblock any handler task blocked on `poll_read` — the peer has
-                    // abandoned this stream so no more request body bytes are coming.
-                    // The lifecycle transition to recv-eof is how we tell the recv side
-                    // "end of data" in the normal path too.
-                    entry.shared.lifecycle_lock().mark_recv_eof();
+                    // Move the stream to the terminal `Reset` state before removing it.
+                    // This is load-bearing for an upgraded stream: leaving the lifecycle at
+                    // `UpgradeOpen` would let the handler's `H2Transport::poll_write` keep
+                    // accepting bytes into an outbound buffer the driver has stopped
+                    // draining (silent data loss). `Reset` makes writes return `BrokenPipe`
+                    // and reads return EOF. The wakes unblock a handler parked on either.
+                    *entry.shared.lifecycle_lock() =
+                        crate::h2::lifecycle::StreamLifecycle::Reset(error_code);
                     entry.shared.recv.waker.wake();
+                    entry.shared.send.outbound_write_waker.wake();
                     self.complete_and_remove_stream(
                         stream_id,
                         Err(std::io::Error::other("peer RST_STREAM")),
