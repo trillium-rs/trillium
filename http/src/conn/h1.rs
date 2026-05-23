@@ -34,11 +34,17 @@ where
 
         if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
             // Upgrade path: don't default to `Content-Length: 0` — body bytes will be
-            // written post-handoff. Honor an explicit Content-Length; otherwise fall
-            // through to chunked.
+            // written post-handoff. A prelude response body is sent as an open chunked
+            // stream (see `Body::keep_open`), so force chunked and drop any Content-Length.
+            // With no prelude body, honor an explicit Content-Length; otherwise chunked.
             let has_content_length = if self.upgrade {
-                self.response_headers
-                    .has_header(KnownHeaderName::ContentLength)
+                if self.response_body.as_ref().is_some_and(|b| !b.is_empty()) {
+                    self.response_headers.remove(KnownHeaderName::ContentLength);
+                    false
+                } else {
+                    self.response_headers
+                        .has_header(KnownHeaderName::ContentLength)
+                }
             } else if let Some(len) = self.body_len() {
                 self.response_headers
                     .try_insert(KnownHeaderName::ContentLength, len);
@@ -67,6 +73,9 @@ where
         let mut output_buffer = Vec::with_capacity(self.context.config.response_buffer_len);
         self.write_headers(&mut output_buffer)?;
 
+        // Read before the bufwriter borrows `self.transport`, so the body block can consult it.
+        let upgrading = self.should_upgrade();
+
         let max_buf = self.context.config.response_buffer_max_len;
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
 
@@ -77,24 +86,33 @@ where
             let chunked = body.len().is_none();
 
             body.ensure_chunked_framing();
+            if upgrading {
+                // Leave the chunked stream unterminated for the following upgrade to close.
+                body.set_keep_open();
+            }
 
             let loops_per_yield = self.context.config.copy_loops_per_yield;
 
             bufwriter.copy_from(&mut body, loops_per_yield).await?;
 
-            // Chunked-trailer-section stitch. `Body::poll_read` emitted the last-chunk
-            // marker `0\r\n` at EOF and stopped there; we own the rest of the framing
-            // because trailers are structured `Headers` (not bytes) and the terminating
-            // CRLF closes the trailer-section. See `Body::poll_read`'s `len: None`
-            // branch for the full rationale.
-            if let Some(trailers) = body.trailers() {
-                log::trace!("sending trailers:\n{trailers}");
-                write_headers_or_trailers(bufwriter.buffer_mut(), &trailers, &self.context)?;
-                // we don't store the trailers anywhere because the conn is about to be dropped
-            }
+            // When an upgrade follows, the upgrade owns the terminator; the body's trailers
+            // (if any) ride onto the `Upgrade` and merge with whatever the upgrade handler
+            // emits. Skip the terminator stitch here.
+            if !upgrading {
+                // Chunked-trailer-section stitch. `Body::poll_read` emitted the last-chunk
+                // marker `0\r\n` at EOF and stopped there; we own the rest of the framing
+                // because trailers are structured `Headers` (not bytes) and the terminating
+                // CRLF closes the trailer-section. See `Body::poll_read`'s `len: None`
+                // branch for the full rationale.
+                if let Some(trailers) = body.trailers() {
+                    log::trace!("sending trailers:\n{trailers}");
+                    write_headers_or_trailers(bufwriter.buffer_mut(), &trailers, &self.context)?;
+                    // we don't store the trailers anywhere because the conn is about to be dropped
+                }
 
-            if chunked {
-                write!(bufwriter.buffer_mut(), "\r\n")?;
+                if chunked {
+                    write!(bufwriter.buffer_mut(), "\r\n")?;
+                }
             }
         }
 

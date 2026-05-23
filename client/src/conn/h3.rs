@@ -182,38 +182,41 @@ impl Conn {
 
         let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
 
-        if self.upgrade || self.protocol.is_some() {
-            // Upgrade / extended-CONNECT path: send headers only and leave the stream open.
-            // The caller writes further DATA frames, trailing HEADERS, and FIN via `Upgrade`.
-            // `protocol.is_some()` covers extended CONNECT (RFC 9220 websocket, webtransport),
-            // mirroring the h2 send path; raw CONNECT tunnels set `upgrade` instead.
-            bufwriter.flush().await?;
-            return Ok(());
-        }
+        // Upgrade / extended CONNECT (RFC 9220 websocket, webtransport, or a raw CONNECT
+        // tunnel via `upgrade`) leaves the write side open: any prelude body streams out as
+        // DATA frames, then the caller continues writing DATA, trailing HEADERS, and the FIN
+        // via `Upgrade`.
+        let is_upgrade = self.upgrade || self.protocol.is_some();
 
         if let Some(body) = self.request_body.take() {
             let mut body = body.into_h3();
             bufwriter.copy_from(&mut body, copy_loops_per_yield).await?;
-            self.request_trailers = body.trailers();
-            if let Some(trailers) = &self.request_trailers {
-                let field_section = FieldSection::new(PseudoHeaders::default(), trailers);
-                log::trace!("sending trailers:\n{field_section}");
-                encode_field_section_h3(
-                    h3,
-                    &field_section,
-                    max_peer_field_section_size,
-                    initial_cap,
-                    bufwriter.buffer_mut(),
-                    stream_id,
-                )?;
+            // On an open upgrade stream the body's trailers belong at the eventual close
+            // (carried via `Upgrade`), not inline after the prelude.
+            if !is_upgrade {
+                self.request_trailers = body.trailers();
+                if let Some(trailers) = &self.request_trailers {
+                    let field_section = FieldSection::new(PseudoHeaders::default(), trailers);
+                    log::trace!("sending trailers:\n{field_section}");
+                    encode_field_section_h3(
+                        h3,
+                        &field_section,
+                        max_peer_field_section_size,
+                        initial_cap,
+                        bufwriter.buffer_mut(),
+                        stream_id,
+                    )?;
+                }
             }
         }
 
         bufwriter.flush().await?;
 
-        // Half-close the write side to signal end of request. For QUIC bidi streams this
-        // sends a FIN without closing the read side.
-        bufwriter.close().await?;
+        // Half-close the write side to signal end of request (QUIC FIN without closing the
+        // read side). Skipped for upgrades — the caller sends the FIN via `Upgrade`.
+        if !is_upgrade {
+            bufwriter.close().await?;
+        }
 
         Ok(())
     }
@@ -259,7 +262,11 @@ impl Conn {
             }));
         }
 
-        if let Some(len) = self.body_len()
+        if self.upgrade || self.protocol.is_some() {
+            // Upgrade / extended-CONNECT streams stay open past any prelude body, so a
+            // Content-Length would mislead the peer into ending the request body early.
+            self.request_headers.remove(KnownHeaderName::ContentLength);
+        } else if let Some(len) = self.body_len()
             && len > 0
         {
             self.request_headers

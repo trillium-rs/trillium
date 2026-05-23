@@ -270,6 +270,231 @@ async fn h3_ping_pong_bidi() -> TestResult {
     Ok(())
 }
 
+// ----- prelude body before upgrade (`Body::keep_open`) -----
+//
+// An initial request/response body is sent without terminating the stream; the peer
+// reads response headers and both sides then continue a framed bidi exchange over the
+// resulting `Upgrade`. This is the lifecycle state the old "upgrade discards the body"
+// path couldn't express. h1 only for now — the h2/h3 variants land with their send-path
+// changes. Both directions use a fixed-length (`&str`) prelude on purpose: `keep_open`
+// re-sources it through the chunked path, so the headline `with_body("…").upgrade()`
+// ergonomics work without hand-wrapping a length-less streaming body.
+
+#[test(harness)]
+async fn h1_client_prelude_body_then_bidi() -> TestResult {
+    let (tx, rx) = async_channel::bounded(1);
+    let server = H1Server::with_upgrade(
+        |conn: Conn<_>| async move { conn.upgrade().with_status(200) },
+        move |mut upgrade: Upgrade<_>| {
+            let tx = tx.clone();
+            async move {
+                // The prelude the client sent before the upgrade arrives on the inbound
+                // side as the leading bytes of the (still-open) request body.
+                let prelude = read_line_async(&mut upgrade)
+                    .await
+                    .unwrap()
+                    .expect("client prelude before EOF");
+                tx.send(prelude).await.unwrap();
+                server_pong_to_eof(upgrade).await.unwrap();
+            }
+        },
+    )
+    .await;
+
+    let client = Client::new(trillium_smol::ClientConfig::default());
+    let conn = client
+        .post(server.base_url())
+        .with_body("prelude\n")
+        .upgrade()
+        .await?;
+    assert_eq!(conn.status().unwrap(), 200);
+
+    let mut upgrade = Upgrade::from(conn);
+    assert_eq!(rx.recv().await?, "prelude\n");
+
+    client_ping(&mut upgrade, PING_ROUNDS).await?;
+    upgrade.close().await?;
+    let mut drained = Vec::new();
+    upgrade.read_to_end(&mut drained).await?;
+
+    server.shut_down().await;
+    Ok(())
+}
+
+#[test(harness)]
+async fn h1_server_prelude_body_then_bidi() -> TestResult {
+    let server = H1Server::with_upgrade(
+        |conn: Conn<_>| async move {
+            conn.upgrade().with_status(200).with_response_body("server-prelude\n")
+        },
+        |upgrade: Upgrade<_>| async move {
+            server_pong_to_eof(upgrade).await.unwrap();
+        },
+    )
+    .await;
+
+    let client = Client::new(trillium_smol::ClientConfig::default());
+    let conn = client.post(server.base_url()).upgrade().await?;
+    assert_eq!(conn.status().unwrap(), 200);
+
+    let mut upgrade = Upgrade::from(conn);
+    // The server's prelude arrives as the leading bytes of the (still-open) response body.
+    let prelude = read_line_async(&mut upgrade)
+        .await?
+        .expect("server prelude before EOF");
+    assert_eq!(prelude, "server-prelude\n");
+
+    client_ping(&mut upgrade, PING_ROUNDS).await?;
+    upgrade.close().await?;
+    let mut drained = Vec::new();
+    upgrade.read_to_end(&mut drained).await?;
+
+    server.shut_down().await;
+    Ok(())
+}
+
+#[test(harness)]
+async fn h2c_client_prelude_body_then_bidi() -> TestResult {
+    let (tx, rx) = async_channel::bounded(1);
+    let server = H2cServer::with_upgrade(
+        |conn: Conn<_>| async move { conn.upgrade().with_status(200) },
+        move |mut upgrade: Upgrade<_>| {
+            let tx = tx.clone();
+            async move {
+                let prelude = read_line_async(&mut upgrade)
+                    .await
+                    .unwrap()
+                    .expect("client prelude before EOF");
+                tx.send(prelude).await.unwrap();
+                server_pong(&mut upgrade, PING_ROUNDS).await.unwrap();
+            }
+        },
+    )
+    .await;
+
+    let client = Client::new(trillium_smol::ClientConfig::default());
+    let conn = client
+        .post(server.base_url())
+        .with_http_version(Version::Http2)
+        .with_body("prelude\n")
+        .upgrade()
+        .await?;
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.http_version(), Version::Http2);
+
+    let mut upgrade = Upgrade::from(conn);
+    assert_eq!(rx.recv().await?, "prelude\n");
+    client_ping(&mut upgrade, PING_ROUNDS).await?;
+
+    server.shut_down().await;
+    Ok(())
+}
+
+#[test(harness)]
+async fn h2c_server_prelude_body_then_bidi() -> TestResult {
+    let server = H2cServer::with_upgrade(
+        |conn: Conn<_>| async move {
+            conn.upgrade()
+                .with_status(200)
+                .with_response_body("server-prelude\n")
+        },
+        |mut upgrade: Upgrade<_>| async move {
+            server_pong(&mut upgrade, PING_ROUNDS).await.unwrap();
+        },
+    )
+    .await;
+
+    let client = Client::new(trillium_smol::ClientConfig::default());
+    let conn = client
+        .post(server.base_url())
+        .with_http_version(Version::Http2)
+        .upgrade()
+        .await?;
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.http_version(), Version::Http2);
+
+    let mut upgrade = Upgrade::from(conn);
+    let prelude = read_line_async(&mut upgrade)
+        .await?
+        .expect("server prelude before EOF");
+    assert_eq!(prelude, "server-prelude\n");
+    client_ping(&mut upgrade, PING_ROUNDS).await?;
+
+    server.shut_down().await;
+    Ok(())
+}
+
+#[test(harness)]
+async fn h3_client_prelude_body_then_bidi() -> TestResult {
+    let (tx, rx) = async_channel::bounded(1);
+    let server = H3Server::with_upgrade(
+        |conn: Conn<_>| async move { conn.upgrade().with_status(200) },
+        move |mut upgrade: Upgrade<_>| {
+            let tx = tx.clone();
+            async move {
+                let prelude = read_line_async(&mut upgrade)
+                    .await
+                    .unwrap()
+                    .expect("client prelude before EOF");
+                tx.send(prelude).await.unwrap();
+                server_pong(&mut upgrade, PING_ROUNDS).await.unwrap();
+            }
+        },
+    )
+    .await;
+
+    let client = h3_client(&server);
+    let conn = client
+        .post(server.base_url())
+        .with_http_version(Version::Http3)
+        .with_body("prelude\n")
+        .upgrade()
+        .await?;
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.http_version(), Version::Http3);
+
+    let mut upgrade = Upgrade::from(conn);
+    assert_eq!(rx.recv().await?, "prelude\n");
+    client_ping(&mut upgrade, PING_ROUNDS).await?;
+
+    server.shut_down().await;
+    Ok(())
+}
+
+#[test(harness)]
+async fn h3_server_prelude_body_then_bidi() -> TestResult {
+    let server = H3Server::with_upgrade(
+        |conn: Conn<_>| async move {
+            conn.upgrade()
+                .with_status(200)
+                .with_response_body("server-prelude\n")
+        },
+        |mut upgrade: Upgrade<_>| async move {
+            server_pong(&mut upgrade, PING_ROUNDS).await.unwrap();
+        },
+    )
+    .await;
+
+    let client = h3_client(&server);
+    let conn = client
+        .post(server.base_url())
+        .with_http_version(Version::Http3)
+        .upgrade()
+        .await?;
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.http_version(), Version::Http3);
+
+    let mut upgrade = Upgrade::from(conn);
+    let prelude = read_line_async(&mut upgrade)
+        .await?
+        .expect("server prelude before EOF");
+    assert_eq!(prelude, "server-prelude\n");
+    client_ping(&mut upgrade, PING_ROUNDS).await?;
+
+    server.shut_down().await;
+    Ok(())
+}
+
 /// Captured inbound-side state from a server upgrade handler.
 type InboundCapture = (Vec<u8>, Option<Headers>);
 

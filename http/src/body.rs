@@ -74,6 +74,7 @@ impl Body {
             done: false,
             progress: 0,
             chunked_framing: true,
+            keep_open: false,
         })
     }
 
@@ -95,6 +96,50 @@ impl Body {
             *chunked_framing = false;
         }
         self
+    }
+
+    /// Normalize this body to an open, chunk-framed stream: its content goes out as
+    /// chunked-transfer chunks with **no** terminating `0\r\n`, leaving the outbound
+    /// stream open for a following upgrade to continue and eventually close.
+    ///
+    /// Fixed-length content (`Static`, or a streaming body with a known length) is
+    /// re-sourced through the chunked path so it too flows as ordinary chunks rather than
+    /// raw bytes — the caller doesn't have to hand-wrap it in a length-less streaming body.
+    /// An empty body stays empty (it contributes no bytes; the upgrade owns the whole
+    /// stream).
+    ///
+    /// The send site that consumes the body is responsible for *not* writing the
+    /// trailer-section terminator either; trailers (if any) ride onto the upgrade.
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
+    #[must_use]
+    pub fn keep_open(mut self) -> Self {
+        self.set_keep_open();
+        self
+    }
+
+    /// In-crate counterpart to [`keep_open`](Self::keep_open) — the server send path sets
+    /// this from `should_upgrade()` and can't reach the `unstable`-gated public builder.
+    pub(crate) fn set_keep_open(&mut self) {
+        // Re-source fixed content through the chunked streaming path so it goes out as
+        // chunks instead of raw bytes. Streaming bodies are left in place (preserving their
+        // `BodySource`, hence any trailers) and just have their framing flags flipped below.
+        if matches!(self.0, Static { .. }) {
+            let reader = std::mem::take(self).into_reader();
+            *self = Self::new_streaming(reader, None);
+        }
+
+        if let Streaming {
+            ref mut len,
+            ref mut chunked_framing,
+            ref mut keep_open,
+            ..
+        } = self.0
+        {
+            *len = None;
+            *chunked_framing = true;
+            *keep_open = true;
+        }
     }
 
     pub(crate) fn ensure_chunked_framing(&mut self) -> &mut Self {
@@ -336,6 +381,7 @@ impl AsyncRead for Body {
                 done,
                 progress,
                 chunked_framing,
+                keep_open,
             } => {
                 if *done {
                     return Poll::Ready(Ok(0));
@@ -362,6 +408,11 @@ impl AsyncRead for Body {
 
                 if bytes == 0 {
                     *done = true;
+                    if *keep_open {
+                        // The outbound stream continues into an upgrade; the upgrade owns
+                        // the terminator. Emit no last-chunk marker.
+                        return Poll::Ready(Ok(0));
+                    }
                     // Last-chunk marker only; the caller emits the trailer-section
                     // (possibly empty) followed by the terminating `\r\n`. Trailers come
                     // from `BodySource::trailers()` as structured `Headers`, not bytes,
@@ -420,6 +471,10 @@ pub(crate) enum BodyType {
         /// framing for the `len: None` case; when false (via
         /// [`Body::without_chunked_framing`]), it passes through raw bytes.
         chunked_framing: bool,
+        /// When true (via [`Body::keep_open`]), the chunked `len: None` read does not
+        /// emit the `0\r\n` last-chunk marker at EOF — the outbound stream is left open
+        /// for a following upgrade to terminate. Default false.
+        keep_open: bool,
     },
 }
 

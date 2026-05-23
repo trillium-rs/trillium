@@ -350,11 +350,12 @@ fn submit_trailers_lands_on_wire_after_body_parked() {
         other => panic!("expected Conn yielded for stream 1, got {other:?}"),
     };
 
-    // submit_upgrade installs an `H2OutboundReader` as the body, signals submission
-    // completion at END_HEADERS, and leaves the cursor parked in Body until either bytes
-    // appear in the outbound queue or `outbound_close_requested` flips.
+    // With no prelude body, submit_upgrade frames HEADERS, then on the first Body tick
+    // signals submission completion and lazily swaps in an `H2OutboundReader` as the
+    // continuation source, leaving the cursor parked in Body until either bytes appear in
+    // the outbound queue or `outbound_close_requested` flips.
     let pseudos = PseudoHeaders::default().with_status(Status::Ok);
-    let _submit = fx.connection.submit_upgrade(1, pseudos, Headers::new());
+    let _submit = fx.connection.submit_upgrade(1, pseudos, Headers::new(), None);
 
     // Tick: HEADERS go out, cursor parks in Body (empty outbound, close not requested).
     let _ = fx.tick();
@@ -439,7 +440,7 @@ fn idle_upgrade_open_stream_parks_without_self_waking() {
     // Drive into the parked-upgrade state: HEADERS go out, the cursor parks in Body with an
     // empty outbound queue and no close requested.
     let pseudos = PseudoHeaders::default().with_status(Status::Ok);
-    let _submit = fx.connection.submit_upgrade(1, pseudos, Headers::new());
+    let _submit = fx.connection.submit_upgrade(1, pseudos, Headers::new(), None);
     let _ = fx.tick();
     let _ = fx.next_outbound_bytes();
 
@@ -486,7 +487,7 @@ fn peer_end_stream_after_server_trailers_is_not_reset() {
     // Server responds via the upgrade path and stages trailers, completing its send half
     // while the peer's request half is still open.
     let pseudos = PseudoHeaders::default().with_status(Status::Ok);
-    let _submit = fx.connection.submit_upgrade(1, pseudos, Headers::new());
+    let _submit = fx.connection.submit_upgrade(1, pseudos, Headers::new(), None);
     let _ = fx.tick();
     let _ = fx.next_outbound_frames();
 

@@ -117,32 +117,30 @@ impl H2Connection {
 
     /// Hand a response off for an extended-CONNECT (RFC 8441) upgrade.
     ///
-    /// Frames the response HEADERS without `END_STREAM` and signals [`SubmitSend`]
-    /// completion the moment the HEADERS frame is on the wire — earlier than
-    /// [`submit_send`][Self::submit_send], which waits for the body to finish. The early
-    /// completion lets the upgrade handler take over while the stream stays open as a
-    /// bidirectional byte channel.
+    /// Frames the response HEADERS without `END_STREAM`, then the optional `body` (a prelude
+    /// sent before the upgrade transition) as DATA. [`SubmitSend`] completion is signaled
+    /// once the prelude is fully framed — so the conn task returns and the upgrade handler
+    /// runs only after the prelude is on the wire (matching h1/h3), not at `END_HEADERS`.
     ///
-    /// The stream's body is sourced from the per-stream outbound queue; the upgrade handler
-    /// writes bytes through the returned transport and the send pump frames them as DATA
-    /// bounded by per-stream + connection send windows. Closing or dropping the transport
-    /// emits `DATA(END_STREAM)` and tears the stream down.
+    /// After the prelude drains, the send pump switches to sourcing DATA from the per-stream
+    /// outbound queue: the upgrade handler writes bytes through the returned transport and
+    /// the pump frames them, bounded by per-stream + connection send windows. Closing or
+    /// dropping the transport emits the terminator and tears the stream down.
     pub(crate) fn submit_upgrade(
         &self,
         stream_id: u32,
         pseudos: PseudoHeaders<'static>,
         headers: Headers,
+        body: Option<Body>,
     ) -> SubmitSend {
         let stream = self.streams_lock().get(&stream_id).cloned();
         if let Some(state) = &stream {
-            let reader = crate::h2::transport::H2OutboundReader::new(state.clone(), stream_id);
-            let body = Body::new_streaming(reader, None);
             stage_submission(
                 state,
                 Submission {
                     pseudos,
                     headers,
-                    body: Some(body),
+                    body,
                     is_upgrade: true,
                 },
             );
@@ -255,12 +253,14 @@ impl H2Connection {
     ///
     /// `headers_plan` is the HPACK plan for the HEADERS block; the caller is responsible
     /// for ensuring it carries `:method = CONNECT` and a `:protocol` pseudo-header. The
-    /// initial HEADERS is sent without `END_STREAM`; the per-stream outbound queue becomes
-    /// the request body and stays open until the application closes the returned transport.
+    /// initial HEADERS is sent without `END_STREAM`; the optional `body` (a prelude sent
+    /// before the upgrade transition) goes out as DATA, then the per-stream outbound queue
+    /// stays open until the application closes the returned transport.
     ///
-    /// Returns `(stream_id, H2Transport)` — no [`SubmitSend`]. The application reads
-    /// response HEADERS via [`Self::response_headers`] and then exchanges bytes over the
-    /// returned transport's `AsyncRead` + `AsyncWrite`.
+    /// Returns `(stream_id, SubmitSend, H2Transport)`. The caller `await`s the [`SubmitSend`]
+    /// so control returns only once the prelude is on the wire (matching h1/h3), then reads
+    /// response HEADERS via [`Self::response_headers`] and exchanges bytes over the returned
+    /// transport's `AsyncRead` + `AsyncWrite`.
     ///
     /// Returns `None` under the same conditions as [`Self::open_stream`]: stream-id space
     /// exhausted, or connection shutting down.
@@ -274,19 +274,27 @@ impl H2Connection {
         self: &Arc<Self>,
         pseudos: PseudoHeaders<'static>,
         headers: Headers,
-    ) -> Option<(u32, H2Transport)> {
-        let (id, _state, transport) = self.open_stream_inner(pseudos, headers, None, true)?;
-        Some((id, transport))
+        body: Option<Body>,
+    ) -> Option<(u32, SubmitSend, H2Transport)> {
+        self.open_stream_inner(pseudos, headers, body, true)
+            .map(|(id, state, transport)| {
+                (
+                    id,
+                    SubmitSend {
+                        stream_id: id,
+                        stream: Some(state),
+                    },
+                    transport,
+                )
+            })
     }
 
     /// Shared id-allocate-and-stage logic backing [`Self::open_stream`] and
-    /// [`Self::open_connect_stream`]. The `is_upgrade` flag controls two things in the driver's
-    /// send pump: HEADERS does not carry `END_STREAM` (because the body field is `Some`), and
-    /// the body is sourced from the per-stream outbound queue ([`H2OutboundReader`]) rather
-    /// than the caller-supplied `Body`. For the non-upgrade path, the caller-supplied `body`
-    /// is used as-is and `END_STREAM` semantics fall out of `body.is_none()`.
-    ///
-    /// [`H2OutboundReader`]: crate::h2::transport::H2OutboundReader
+    /// [`Self::open_connect_stream`]. The `is_upgrade` flag means HEADERS does not carry
+    /// `END_STREAM` and the stream stays open after the body drains — the send pump then
+    /// sources the post-handoff continuation from the per-stream outbound queue (see
+    /// `end_of_body` in the send pump). The caller-supplied `body` is the prelude in both
+    /// cases; for the non-upgrade path `END_STREAM` semantics fall out of `body.is_none()`.
     #[cfg(feature = "unstable")]
     fn open_stream_inner(
         self: &Arc<Self>,
@@ -307,16 +315,6 @@ impl H2Connection {
             .ok()?;
 
         let state = Arc::new(StreamState::default());
-
-        // Extended-CONNECT bootstrap: sourcing the body from the per-stream outbound
-        // queue keeps HEADERS flowing without END_STREAM and lets the application's
-        // writes through `H2Transport`'s `AsyncWrite` flow out as DATA frames.
-        let body = if is_upgrade {
-            let reader = crate::h2::transport::H2OutboundReader::new(state.clone(), stream_id);
-            Some(Body::new_streaming(reader, None))
-        } else {
-            body
-        };
 
         // Stage submission *before* publishing the stream id to the shared map so the
         // submission is guaranteed visible the first time the driver sees the stream —

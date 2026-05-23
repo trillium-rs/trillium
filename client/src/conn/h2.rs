@@ -189,22 +189,36 @@ impl Conn {
             if settings.enable_connect_protocol() != Some(true) {
                 return Err(Error::ExtendedConnectUnsupported);
             }
-            h2.open_connect_stream(pseudos, headers).ok_or_else(|| {
-                Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionAborted,
-                    "h2 connection is shutting down",
-                ))
-            })?
+            // Extended CONNECT (websocket/webtransport) carries no prelude body. Await the
+            // submission so the HEADERS are framed before we read the response, matching the
+            // raw-upgrade and h1/h3 sequencing.
+            let (stream_id, submit, transport) = h2
+                .open_connect_stream(pseudos, headers, None)
+                .ok_or_else(|| {
+                    Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionAborted,
+                        "h2 connection is shutting down",
+                    ))
+                })?;
+            submit.await?;
+            (stream_id, transport)
         } else if self.upgrade {
-            // Upgrade path. Same wire shape as extended-CONNECT (HEADERS without
-            // END_STREAM, per-stream outbound queue becomes the request body), but no
-            // `enable_connect_protocol` gating since no `:protocol` is sent.
-            h2.open_connect_stream(pseudos, headers).ok_or_else(|| {
-                Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionAborted,
-                    "h2 connection is shutting down",
-                ))
-            })?
+            // Upgrade path. Same wire shape as extended-CONNECT (HEADERS without END_STREAM,
+            // stream stays open), but no `enable_connect_protocol` gating since no
+            // `:protocol` is sent. A prelude request body (if any) goes out as DATA before
+            // the upgrade transition; `submit.await` returns only once it's on the wire, so
+            // the post-`Upgrade` write ordering is well-defined — matching h1/h3.
+            let body = self.request_body.take();
+            let (stream_id, submit, transport) = h2
+                .open_connect_stream(pseudos, headers, body)
+                .ok_or_else(|| {
+                    Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionAborted,
+                        "h2 connection is shutting down",
+                    ))
+                })?;
+            submit.await?;
+            (stream_id, transport)
         } else {
             let body = self.request_body.take();
             let (stream_id, _submit, transport) =
@@ -310,7 +324,11 @@ impl Conn {
             }));
         }
 
-        if let Some(len) = self.body_len()
+        if self.upgrade || self.protocol.is_some() {
+            // Upgrade / extended-CONNECT streams stay open past any prelude body, so a
+            // Content-Length would mislead the peer into ending the request body early.
+            self.request_headers.remove(KnownHeaderName::ContentLength);
+        } else if let Some(len) = self.body_len()
             && len > 0
         {
             self.request_headers
