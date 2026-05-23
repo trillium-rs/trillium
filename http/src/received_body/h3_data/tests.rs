@@ -753,3 +753,34 @@ async fn async_grease_only_buffer() {
         assert_eq!(output, "finally data", "buf_size: {size}");
     }
 }
+
+/// Like [`new_h3_body`] but the framed bytes start *pre-buffered* (as if over-read into the
+/// conn buffer alongside the response headers) with an empty transport — nothing left on the
+/// wire. The body must drain from the buffer without depending on the transport.
+fn new_h3_body_prebuffered(input: Vec<u8>) -> ReceivedBody<'static, Cursor<Vec<u8>>> {
+    ReceivedBody::new_with_config(
+        None,
+        Buffer::from(input),
+        Cursor::new(Vec::new()),
+        ReceivedBodyState::new_h3(),
+        None,
+        UTF_8,
+        &HttpConfig::DEFAULT,
+    )
+}
+
+#[test(harness)]
+async fn buffered_h3_body_drains_without_transport() {
+    // Regression: a DATA frame fully buffered (e.g. read alongside the response headers)
+    // with an idle/closed transport must still be readable, including with a read buffer
+    // smaller than the frame header. The `partial_frame_header` recovery previously read the
+    // transport instead of draining `self.buffer`, hanging an open idle stream / erroring a
+    // closed one. The 200-byte payload gives a 3-byte DATA header, so 1- and 2-byte reads
+    // both land in the partial path.
+    let payload = "abcdefghij".repeat(20);
+    for size in [1usize, 2, 3, 7, 64, 4096] {
+        let mut rb = new_h3_body_prebuffered(data_frame(payload.as_bytes()));
+        let output = read_with_buffers_of_size(&mut rb, size).await.unwrap();
+        assert_eq!(output, payload, "buf_size: {size}");
+    }
+}
