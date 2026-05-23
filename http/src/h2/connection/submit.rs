@@ -53,7 +53,7 @@ impl Future for SubmitSend {
 
         let stream_id = self.stream_id;
         let try_take = || -> Option<io::Result<()>> {
-            state.send.completed.load(Ordering::Acquire).then(|| {
+            state.send.submit_resolved.load(Ordering::Acquire).then(|| {
                 state
                     .send
                     .completion_result
@@ -62,8 +62,8 @@ impl Future for SubmitSend {
                     .take()
                     .unwrap_or_else(|| {
                         log::error!(
-                            "h2 stream {stream_id}: completed without a completion_result — \
-                             driver should write the result before flipping completed"
+                            "h2 stream {stream_id}: submit_resolved without a completion_result — \
+                             driver should write the result before flipping submit_resolved"
                         );
                         Ok(())
                     })

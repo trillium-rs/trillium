@@ -93,6 +93,20 @@ pub(super) enum StreamLifecycle {
     /// peer sees.
     Reset(#[allow(dead_code)] H2ErrorCode),
 
+    /// Send half wire-closed: the `END_STREAM` terminator (empty `DATA(END_STREAM)` or a
+    /// trailing HEADERS block) has been framed, but the stream is still in the map. This
+    /// is HTTP/2 half-closed (local) (RFC 9113 §5.1): the server holds here awaiting the
+    /// peer's `END_STREAM`, and the client holds here (with `recv_eof: true`) for
+    /// post-EOF trailer/response access until the application drops its transport.
+    ///
+    /// This is the *only* "send is done on the wire" signal — distinct from
+    /// [`SendState::submit_resolved`][super::transport::SendState::submit_resolved], which
+    /// resolves the conn task's [`SubmitSend`][super::SubmitSend] future and fires *early*
+    /// on the upgrade path (at handoff, while the stream stays `UpgradeOpen`). Teardown
+    /// decisions read this variant, never that flag — conflating the two tore down open
+    /// bidi upgrade streams the moment the peer half-closed its request side.
+    LocalClosed { recv_eof: bool },
+
     /// Client-role terminal: both halves wire-closed (send `END_STREAM` emitted, peer
     /// `END_STREAM` observed), but the application still holds the per-stream
     /// `H2Transport` (e.g. to read trailers post-EOF). The driver picks this up in its
@@ -118,7 +132,43 @@ impl StreamLifecycle {
                   `has_active_send` + `has_pending_recv` directly"
     )]
     pub(super) fn is_in_flight(&self) -> bool {
-        !matches!(self, Self::Reset(_) | Self::AwaitingRelease)
+        !matches!(
+            self,
+            Self::Reset(_) | Self::AwaitingRelease | Self::LocalClosed { recv_eof: true }
+        )
+    }
+
+    /// `true` once both halves are wire-closed: the send `END_STREAM` terminator has been
+    /// framed (`LocalClosed`) *and* the peer's `END_STREAM` has been observed. The single
+    /// teardown predicate the both-done close paths consult — replacing the former
+    /// `send.completed && recv_eof` read that misfired on open upgrade streams.
+    pub(super) fn is_fully_closed(&self) -> bool {
+        matches!(self, Self::LocalClosed { recv_eof: true })
+    }
+
+    /// `true` if the stream is wire-closed from the connection's accounting perspective —
+    /// fully closed, reset, or awaiting application release. Such streams no longer count
+    /// against the peer's `MAX_CONCURRENT_STREAMS` even while the application still holds
+    /// the transport.
+    pub(super) fn is_wire_closed(&self) -> bool {
+        matches!(
+            self,
+            Self::LocalClosed { recv_eof: true } | Self::AwaitingRelease | Self::Reset(_)
+        )
+    }
+
+    /// Mark the send half wire-closed — the `END_STREAM` terminator has been framed.
+    /// Carries the currently-observed `recv_eof` into [`Self::LocalClosed`]. No-op on the
+    /// terminal teardown variants so a late call can't resurrect a reset/released stream.
+    pub(super) fn mark_send_closed(&mut self) {
+        if matches!(
+            self,
+            Self::Reset(_) | Self::ResetRequested(_) | Self::AwaitingRelease
+        ) {
+            return;
+        }
+        let recv_eof = self.recv_eof();
+        *self = Self::LocalClosed { recv_eof };
     }
 
     /// `true` if the peer still owes us body bytes — the recv half is in `Open` state
@@ -139,6 +189,7 @@ impl StreamLifecycle {
                     recv_eof: false,
                     ..
                 }
+                | Self::LocalClosed { recv_eof: false }
         )
     }
 
@@ -151,7 +202,8 @@ impl StreamLifecycle {
             | Self::Submitted { recv_eof, .. }
             | Self::Sending { recv_eof }
             | Self::UpgradeOpen { recv_eof }
-            | Self::UpgradeClosing { recv_eof, .. } => *recv_eof,
+            | Self::UpgradeClosing { recv_eof, .. }
+            | Self::LocalClosed { recv_eof } => *recv_eof,
             // Terminal states: stream is torn down or about to be; recv is no longer
             // meaningful, but report eof so any lingering `poll_read` returns Ready(0)
             // rather than parking forever.
@@ -183,7 +235,8 @@ impl StreamLifecycle {
             | Self::Submitted { recv_eof, .. }
             | Self::Sending { recv_eof }
             | Self::UpgradeOpen { recv_eof }
-            | Self::UpgradeClosing { recv_eof, .. } => *recv_eof = true,
+            | Self::UpgradeClosing { recv_eof, .. }
+            | Self::LocalClosed { recv_eof } => *recv_eof = true,
             Self::ResetRequested(_) | Self::Reset(_) | Self::AwaitingRelease => {}
         }
     }

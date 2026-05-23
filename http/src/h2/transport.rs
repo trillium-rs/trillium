@@ -163,33 +163,31 @@ impl Drop for H2Transport {
                 self.state.send.outbound_waker.wake();
                 self.connection.outbound_waker().wake();
             }
+            StreamLifecycle::LocalClosed { recv_eof: true } => {
+                // Both halves wire-closed; the application is releasing a stream that's
+                // done on the wire (client-role keeps streams in the map past wire-close
+                // so late-trailer / late-read access works). Forward to release.
+                log::trace!(
+                    "h2 stream {}: H2Transport dropped on wire-closed stream — releasing",
+                    self.stream_id,
+                );
+                *lifecycle = StreamLifecycle::AwaitingRelease;
+                drop(lifecycle);
+                self.state.needs_servicing.store(true, Ordering::Release);
+                self.connection.outbound_waker().wake();
+            }
             _ => {
-                // Idle / Submitted / Sending: mid-stream drop. Check the wire-closed
-                // case first — recv_eof + send.completed means the application is done
-                // with a stream that already finished on the wire, and we forward to
-                // release (client-role keeps streams in the map past wire-close so
-                // late-trailer / late-read access works). Otherwise RST_STREAM(Cancel).
-                let send_done = self.state.send.completed.load(Ordering::Acquire);
-                let recv_done = lifecycle.recv_eof();
-                if send_done && recv_done {
-                    log::trace!(
-                        "h2 stream {}: H2Transport dropped on wire-closed stream — releasing",
-                        self.stream_id,
-                    );
-                    *lifecycle = StreamLifecycle::AwaitingRelease;
-                    drop(lifecycle);
-                    self.state.needs_servicing.store(true, Ordering::Release);
-                    self.connection.outbound_waker().wake();
-                } else {
-                    log::debug!(
-                        "h2 stream {}: H2Transport dropped mid-stream — RST_STREAM(Cancel)",
-                        self.stream_id,
-                    );
-                    *lifecycle = StreamLifecycle::ResetRequested(H2ErrorCode::Cancel);
-                    drop(lifecycle);
-                    self.state.needs_servicing.store(true, Ordering::Release);
-                    self.connection.outbound_waker().wake();
-                }
+                // Idle / Submitted / Sending, or LocalClosed with the recv half still
+                // open: a mid-stream drop. The application is abandoning a stream that
+                // hasn't finished on both halves — RST_STREAM(Cancel) so the peer learns.
+                log::debug!(
+                    "h2 stream {}: H2Transport dropped mid-stream — RST_STREAM(Cancel)",
+                    self.stream_id,
+                );
+                *lifecycle = StreamLifecycle::ResetRequested(H2ErrorCode::Cancel);
+                drop(lifecycle);
+                self.state.needs_servicing.store(true, Ordering::Release);
+                self.connection.outbound_waker().wake();
             }
         }
     }
@@ -464,19 +462,20 @@ pub(super) struct RecvState {
 /// plus the outbound byte queue for extended-CONNECT upgraded streams.
 ///
 /// **Normal response path**: the conn task fills `submission` once via
-/// [`H2Connection::submit_send`][submit] and waits on `completion_waker` for `completed` to
-/// flip. The driver picks up the submission on its next `drive` tick, frames it (HEADERS,
-/// DATA, optional trailing HEADERS) into the connection's outbound buffer as send-side flow
-/// control allows, and on completion stores the `completion_result`, sets `completed = true`,
-/// and wakes the conn task.
+/// [`H2Connection::submit_send`][submit] and waits on `completion_waker` for
+/// `submit_resolved` to flip. The driver picks up the submission on its next `drive` tick,
+/// frames it (HEADERS, DATA, optional trailing HEADERS) into the connection's outbound
+/// buffer as send-side flow control allows, and on completion stores the
+/// `completion_result`, sets `submit_resolved = true`, and wakes the conn task.
 ///
 /// **Extended-CONNECT upgrade path** ([RFC 8441]): the conn task calls
 /// [`H2Connection::submit_upgrade`][submit_upgrade], which constructs an
 /// [`H2OutboundReader`] over `outbound` / `outbound_close_requested` /
-/// `outbound_waker` and submits it as the response body. The driver signals
-/// `completion_waker` as soon as the response HEADERS frame is on the wire (instead of
-/// waiting for the body to drain), so the conn task's `submit_upgrade().await` returns and
-/// the runtime adapter can dispatch [`Handler::upgrade`][trillium::Handler::upgrade]. The
+/// `outbound_waker` and submits it as the response body. The driver resolves the submit
+/// future (`submit_resolved`) once the prelude — the optional body framed before the
+/// handoff — is on the wire, *not* when the send half closes, so the conn task's
+/// `submit_upgrade().await` returns and the runtime adapter can dispatch
+/// [`Handler::upgrade`][trillium::Handler::upgrade] while the stream stays open. The
 /// upgrade handler then writes through [`H2Transport`]'s `AsyncWrite`, which appends to
 /// `outbound`; the driver's send pump pulls those bytes out via the body's `AsyncRead`
 /// and frames them as DATA. Closing the transport sets `outbound_close_requested`, the
@@ -488,20 +487,24 @@ pub(super) struct RecvState {
 /// [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
 #[derive(Debug, Default)]
 pub(super) struct SendState {
-    /// Set to `true` by the driver once the response has been fully framed, flushed, or
-    /// errored. The conn task's `SubmitSend` future polls this atomic and registers on
-    /// `completion_waker`. Independent signal channel from the lifecycle — on the
-    /// extended-CONNECT upgrade path completion is signalled *early* (at `END_HEADERS`,
-    /// before the body is on the wire) so the runtime can dispatch `Handler::upgrade`;
-    /// the lifecycle stays in `UpgradeOpen` past that point.
-    pub(super) completed: AtomicBool,
+    /// Set to `true` by the driver once the conn task's [`SubmitSend`][super::SubmitSend]
+    /// future may resolve and its `completion_result` is readable. The future polls this
+    /// atomic and registers on `completion_waker`.
+    ///
+    /// This signals *only* "the submit future is done," **not** "the send half is closed
+    /// on the wire." On the extended-CONNECT upgrade path it fires *early* — at the
+    /// prelude handoff, while the lifecycle stays `UpgradeOpen` and the stream goes on
+    /// streaming for the whole bidi phase. The wire-close fact lives in
+    /// [`StreamLifecycle::LocalClosed`][super::lifecycle::StreamLifecycle::LocalClosed];
+    /// teardown reads that, never this flag.
+    pub(super) submit_resolved: AtomicBool,
 
-    /// The driver writes the final result here before flipping `completed`. The conn task
-    /// takes it once `completed` is observed true.
+    /// The driver writes the final result here before flipping `submit_resolved`. The
+    /// conn task takes it once `submit_resolved` is observed true.
     pub(super) completion_result: Mutex<Option<io::Result<()>>>,
 
     /// The conn task's waker, registered by `SubmitSend::poll` and fired by the driver
-    /// after `completed` is set.
+    /// after `submit_resolved` is set.
     pub(super) completion_waker: AtomicWaker,
 
     /// Outbound bytes for an extended-CONNECT (RFC 8441) upgraded stream.
