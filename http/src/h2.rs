@@ -12,6 +12,7 @@ mod initiator;
 mod lifecycle;
 mod role;
 mod settings;
+mod stream_state;
 mod transport;
 
 use crate::headers::compression_error::CompressionError;
