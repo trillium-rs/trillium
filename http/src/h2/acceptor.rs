@@ -453,6 +453,28 @@ where
         // SETTINGS doesn't strand them. Their `poll` rechecks swansong state and returns
         // Ready; the caller's follow-up operation surfaces the connection-closed error.
         self.connection.wake_peer_settings_waiters();
+        // Resolve every still-live stream's recv-side waiters. A connection that dies with
+        // an in-flight stream (server GOAWAY + close, peer FIN, I/O error) leaves any task
+        // parked on the response — `response_headers`, a body `poll_read`, an upgrade
+        // `poll_write` — with no other wake source. Without this a client request hangs
+        // forever on a graceful server shutdown. Mirror the per-stream RST teardown:
+        // terminal `Reset` (recv reports eof → `ResponseHeaders` yields `ConnectionAborted`,
+        // reads return EOF, writes `BrokenPipe`) + the same waker fan-out.
+        let reset_code = match &self.close_outcome {
+            Some(CloseOutcome::Protocol(code)) => *code,
+            _ => H2ErrorCode::NoError,
+        };
+        for entry in self.streams.values() {
+            {
+                let mut lifecycle = entry.shared.lifecycle_lock();
+                if !matches!(&*lifecycle, crate::h2::lifecycle::StreamLifecycle::Reset(_)) {
+                    *lifecycle = crate::h2::lifecycle::StreamLifecycle::Reset(reset_code);
+                }
+            }
+            entry.shared.recv.waker.wake();
+            entry.shared.recv.response_headers_waker.wake();
+            entry.shared.send.outbound_write_waker.wake();
+        }
         match self.close_outcome.take() {
             None | Some(CloseOutcome::Graceful) => None,
             Some(CloseOutcome::Protocol(code)) => Some(Err(H2Error::Protocol(code))),
