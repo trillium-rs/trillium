@@ -53,9 +53,12 @@ fn send_window_exhaustion_parks_then_resumes_on_window_update() {
     // 12-byte body, 5-byte window: the pump should frame exactly the first 5 bytes, then
     // park on the exhausted window without sending END_STREAM.
     let pseudos = PseudoHeaders::default().with_status(Status::Ok);
-    let _submit =
-        fx.connection
-            .submit_send(1, pseudos, Headers::new(), Some(Body::new_static(b"hello world!" as &[u8])));
+    let _submit = fx.connection.submit_send(
+        1,
+        pseudos,
+        Headers::new(),
+        Some(Body::new_static(b"hello world!" as &[u8])),
+    );
     let _ = fx.tick();
 
     let first = fx.next_outbound_frames();
@@ -142,9 +145,7 @@ fn peer_window_update_overflow_resets_stream() {
         "the overflowed stream should be removed",
     );
     assert!(
-        !frames
-            .iter()
-            .any(|f| matches!(f, Frame::Goaway { .. })),
+        !frames.iter().any(|f| matches!(f, Frame::Goaway { .. })),
         "a stream-level flow-control error must not tear down the connection; got {frames:?}",
     );
 }
@@ -179,8 +180,9 @@ fn peer_window_update_overflow_on_connection_goaways() {
 /// test sends a handful of bytes rather than the 1 MiB default.
 #[test]
 fn peer_data_past_stream_buffer_cap_is_connection_error() {
-    let mut fx =
-        DriverFixture::new_server_with_config(HttpConfig::default().with_h2_max_stream_recv_window_size(100));
+    let mut fx = DriverFixture::new_server_with_config(
+        HttpConfig::default().with_h2_max_stream_recv_window_size(100),
+    );
     fx.complete_handshake();
 
     // Recv half left open so the DATA is routed into the recv ring rather than rejected.
@@ -213,8 +215,7 @@ fn peer_data_past_stream_buffer_cap_is_connection_error() {
 /// ignores it: no error, no GOAWAY, connection stays running.
 #[test]
 fn peer_window_update_on_closed_stream_is_ignored() {
-    use crate::headers::hpack::PseudoHeaders;
-    use crate::h2::acceptor::types::DriverState;
+    use crate::{h2::acceptor::types::DriverState, headers::hpack::PseudoHeaders};
 
     let mut fx = DriverFixture::new_server();
     fx.complete_handshake();

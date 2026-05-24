@@ -1,25 +1,23 @@
 //! Conn-task → driver submission API.
 //!
 //! Server-side: [`H2Connection::submit_send`][super::H2Connection::submit_send] /
-//! [`submit_upgrade`][super::H2Connection::submit_upgrade] hand a fully-encoded response off
-//! to the driver for framing. Client-side: [`open_stream`][super::H2Connection::open_stream] /
+//! [`submit_upgrade`][super::H2Connection::submit_upgrade] hand a response off to the driver for
+//! framing. Client-side: [`open_stream`][super::H2Connection::open_stream] /
 //! [`open_connect_stream`][super::H2Connection::open_connect_stream] allocate a fresh
-//! peer-initiated stream id and stage a request submission.
+//! peer-initiated stream id and stage a request.
 //!
-//! All four entry points share the same shape: lock the streams map, transition the
-//! per-stream lifecycle to [`StreamLifecycle::Submitted`], raise `needs_servicing`, wake
-//! the driver. The returned [`SubmitSend`] future resolves once the driver signals send
-//! completion (early at `END_HEADERS` for upgrades; after `END_STREAM` otherwise).
+//! All four entry points share the same shape: stage a batch of [`OutboundPart`]s on the stream's
+//! send queue, raise `needs_servicing`, wake the driver. A `Close` terminator is included for a
+//! determinate send (normal response / request) and omitted for a bidirectional upgrade, which
+//! stays open. The returned [`SubmitSend`] future resolves once the queue first drains (the
+//! prelude handoff for an upgrade; `END_STREAM` otherwise).
 
 use super::H2Connection;
 #[cfg(feature = "unstable")]
 use crate::h2::transport::H2Transport;
 use crate::{
     Body, Headers,
-    h2::{
-        lifecycle::{StreamLifecycle, Submission},
-        transport::StreamState,
-    },
+    h2::transport::{OutboundPart, StreamState},
     headers::hpack::PseudoHeaders,
 };
 use std::{
@@ -101,15 +99,7 @@ impl H2Connection {
     ) -> SubmitSend {
         let stream = self.streams_lock().get(&stream_id).cloned();
         if let Some(state) = &stream {
-            stage_submission(
-                state,
-                Submission {
-                    pseudos,
-                    headers,
-                    body,
-                    is_upgrade: false,
-                },
-            );
+            state.stage(submission_parts(pseudos, headers, body, true));
             self.outbound_waker.wake();
         }
         SubmitSend { stream_id, stream }
@@ -135,16 +125,8 @@ impl H2Connection {
     ) -> SubmitSend {
         let stream = self.streams_lock().get(&stream_id).cloned();
         if let Some(state) = &stream {
-            stage_submission(
-                state,
-                Submission {
-                    pseudos,
-                    headers,
-                    body,
-                    is_upgrade: true,
-                },
-            );
-            log::trace!("h2 stream {stream_id}: submit_upgrade — submission staged");
+            state.stage(submission_parts(pseudos, headers, body, false));
+            log::trace!("h2 stream {stream_id}: submit_upgrade — parts staged");
             self.outbound_waker.wake();
         }
         SubmitSend { stream_id, stream }
@@ -164,42 +146,13 @@ impl H2Connection {
             .get(&stream_id)
             .cloned()
             .ok_or(io::ErrorKind::NotConnected)?;
-        // Lifecycle transition `UpgradeOpen → UpgradeClosing(trailers)`. Stages the
-        // trailers as the variant payload so the driver's send pump picks them up at the
-        // Body → Trailers transition. No-op on any non-`UpgradeOpen` state (already
-        // closing / already reset / not an upgrade) — `Ok(())` is returned in those cases
-        // since the trailers can't physically land on the wire but the caller's intent is
-        // best-effort.
-        let mut lifecycle = stream.lifecycle_lock();
-        match &*lifecycle {
-            StreamLifecycle::UpgradeOpen { recv_eof } => {
-                *lifecycle = StreamLifecycle::UpgradeClosing {
-                    recv_eof: *recv_eof,
-                    pending_trailers: Some(trailers),
-                };
-            }
-            StreamLifecycle::UpgradeClosing { recv_eof, .. } => {
-                // Already closing — overwrite the pending trailers slot with the newer
-                // set. (Realistically `submit_trailers` is called once, but a second call
-                // shouldn't silently drop the input.)
-                *lifecycle = StreamLifecycle::UpgradeClosing {
-                    recv_eof: *recv_eof,
-                    pending_trailers: Some(trailers),
-                };
-            }
-            _ => {
-                log::trace!(
-                    "h2 stream {stream_id}: submit_trailers on lifecycle {:?} — dropped",
-                    *lifecycle,
-                );
-                return Ok(());
-            }
-        }
-        drop(lifecycle);
-        stream.needs_servicing.store(true, Ordering::Release);
-        stream.send.outbound_waker.wake();
+        // Enqueue trailing HEADERS as the terminator (it carries `END_STREAM`). The send pump
+        // drains the streaming ring first, then frames these. Best-effort: if the send half is
+        // already closed the part is harmlessly ignored, so we don't gate on state here.
+        stream.stage([OutboundPart::Trailers(trailers)]);
+        stream.send.outbound_write_waker.wake();
         self.outbound_waker.wake();
-        log::trace!("h2 stream {stream_id}: submit_trailers staged trailers + close");
+        log::trace!("h2 stream {stream_id}: submit_trailers staged trailing HEADERS terminator");
         Ok(())
     }
 
@@ -316,18 +269,11 @@ impl H2Connection {
 
         let state = Arc::new(StreamState::default());
 
-        // Stage submission *before* publishing the stream id to the shared map so the
-        // submission is guaranteed visible the first time the driver sees the stream —
-        // otherwise a second tick would be needed to start framing.
-        stage_submission(
-            &state,
-            Submission {
-                pseudos,
-                headers,
-                body,
-                is_upgrade,
-            },
-        );
+        // Stage the request parts *before* publishing the stream id to the shared map so they're
+        // visible the first time the driver sees the stream — otherwise a second tick would be
+        // needed to start framing. A non-upgrade request closes after its body; an extended-CONNECT
+        // bootstrap stays open.
+        state.stage(submission_parts(pseudos, headers, body, !is_upgrade));
         self.streams_lock().insert(stream_id, state.clone());
         log::trace!("h2 client: open_stream allocated stream {stream_id} (upgrade={is_upgrade})");
         self.outbound_waker.wake();
@@ -336,31 +282,22 @@ impl H2Connection {
     }
 }
 
-/// Transition a stream's lifecycle to [`StreamLifecycle::Submitted`] (preserving
-/// `recv_eof` from the prior state) and raise the per-stream `needs_servicing` mailbox
-/// flag. The caller is responsible for waking the connection-level driver waker.
-///
-/// No-op (warning logged) if the stream is in a terminal variant — the submission can't
-/// land on a stream that's already reset or released, and the staged headers/body would
-/// just leak.
-fn stage_submission(state: &Arc<StreamState>, submission: Submission) {
-    let mut lifecycle = state.lifecycle_lock();
-    let recv_eof = lifecycle.recv_eof();
-    match &*lifecycle {
-        StreamLifecycle::Idle { .. } | StreamLifecycle::Submitted { .. } => {
-            *lifecycle = StreamLifecycle::Submitted {
-                submission: Box::new(submission),
-                recv_eof,
-            };
-        }
-        _ => {
-            log::warn!(
-                "h2 stage_submission on lifecycle {:?} — dropped",
-                *lifecycle,
-            );
-            return;
-        }
+/// Build the ordered [`OutboundPart`]s for a submission: the HEADERS block, an optional body, and
+/// — for a determinate send — a `Close` terminator. An extended-CONNECT upgrade passes
+/// `close = false` so the stream stays open for the bidirectional phase.
+fn submission_parts(
+    pseudos: PseudoHeaders<'static>,
+    headers: Headers,
+    body: Option<Body>,
+    close: bool,
+) -> Vec<OutboundPart> {
+    let mut parts = Vec::with_capacity(3);
+    parts.push(OutboundPart::Headers { pseudos, headers });
+    if let Some(body) = body {
+        parts.push(OutboundPart::Body(body));
     }
-    drop(lifecycle);
-    state.needs_servicing.store(true, Ordering::Release);
+    if close {
+        parts.push(OutboundPart::Close);
+    }
+    parts
 }

@@ -46,7 +46,7 @@ impl Future for ResponseHeaders<'_> {
         if let Some(fs) = try_take() {
             return Poll::Ready(Ok(fs));
         }
-        if state.lifecycle_lock().recv_eof() {
+        if state.fsm_lock().recv_closed() {
             return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
         }
         state.recv.response_headers_waker.register(cx.waker());
@@ -55,7 +55,7 @@ impl Future for ResponseHeaders<'_> {
         if let Some(fs) = try_take() {
             return Poll::Ready(Ok(fs));
         }
-        if state.lifecycle_lock().recv_eof() {
+        if state.fsm_lock().recv_closed() {
             return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
         }
         Poll::Pending

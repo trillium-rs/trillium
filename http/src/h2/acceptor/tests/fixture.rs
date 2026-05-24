@@ -2,17 +2,14 @@ use crate::{
     Conn, Headers, HttpConfig, HttpContext, Method, Status,
     h2::{
         H2Driver, H2Error, H2ErrorCode, H2Transport,
-        acceptor::{
-            recv::CLIENT_PREFACE,
-            types::DriverState,
-        },
+        acceptor::{recv::CLIENT_PREFACE, types::DriverState},
         connection::H2Connection,
-        role::Role,
         frame::{
             FRAME_HEADER_LEN, Frame, FrameHeader, data as data_frame, goaway as goaway_frame,
             headers as headers_frame, rst_stream as rst_stream_frame, settings,
             window_update as window_update_frame,
         },
+        role::Role,
         settings::H2Settings,
     },
     headers::{
@@ -144,7 +141,12 @@ impl DriverFixture {
     /// Client-role fixtures: write a peer-side (server) *response* HEADERS frame on
     /// `stream_id`, carrying a `:status` pseudo-header. `end_stream = true` terminates the
     /// response at this frame (no body); otherwise the caller follows up with DATA / trailers.
-    pub(super) fn peer_response_headers(&mut self, stream_id: u32, status: Status, end_stream: bool) {
+    pub(super) fn peer_response_headers(
+        &mut self,
+        stream_id: u32,
+        status: Status,
+        end_stream: bool,
+    ) {
         let pseudos = PseudoHeaders::default().with_status(status);
         let headers = Headers::new();
         let field_section = FieldSection::new(pseudos, &headers);

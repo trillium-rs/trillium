@@ -10,14 +10,32 @@
 use super::fixture::*;
 use crate::{
     Headers, Method, Status,
-    h2::{H2ErrorCode, H2Transport, SubmitSend, frame::Frame},
+    h2::{H2ErrorCode, H2Transport, SubmitSend, acceptor::types::DriverState, frame::Frame},
 };
 use std::{
     future::Future,
     net::Shutdown,
     pin::Pin,
-    task::{Context, Poll},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    task::{Context, Poll, Wake, Waker},
 };
+
+/// A waker that counts how many times it (or a clone) was woken. Lets a test assert that an
+/// event which arrives *after* the driver parked actually re-wakes the driver task — the
+/// thing a synchronous re-`tick()` would paper over.
+struct CountingWaker(AtomicUsize);
+impl Wake for CountingWaker {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
 
 /// Open a body-less GET on a freshly-handshaked client fixture, returning the stream id and
 /// the held `SubmitSend` + `H2Transport` (kept alive by the caller so the stream isn't
@@ -68,7 +86,9 @@ fn client_request_response_round_trip() {
     let mut resp = fx.connection.response_headers(id);
     match Pin::new(&mut resp).poll(&mut cx) {
         Poll::Ready(Ok(_fields)) => {}
-        other => panic!("response_headers should resolve Ok after the peer's HEADERS; got {other:?}"),
+        other => {
+            panic!("response_headers should resolve Ok after the peer's HEADERS; got {other:?}")
+        }
     }
 }
 
@@ -138,6 +158,107 @@ fn server_goaway_resolves_pending_response_waiter() {
              (per its documented ConnectionAborted contract); got {other:?}",
         ),
     }
+}
+
+/// Regression probe
+///
+/// The deadlock's hung side is the *client* (GOAWAY `last_stream_id=0`): it enters `Closing`
+/// by mirroring the server's GOAWAY while a request stream is still recv-open (awaiting a
+/// response that will never come), then must consume the server's `RST_STREAM` to clear its
+/// `has_pending_recv` drain gate. The pass/hang traces are identical up to entering `Closing`;
+/// in the hang the client parks without ever consuming that RST.
+///
+/// This buffers GOAWAY *and* the RST together, then ticks: if the client processes only the
+/// GOAWAY (→ Closing) but fails to drain the already-buffered RST, it stays stuck — exactly
+/// the hang. We hold the request transport so the stream isn't torn down by a local drop (the
+/// gate must clear from the inbound RST, not from our own teardown).
+#[test]
+fn client_drains_buffered_rst_after_mirroring_peer_goaway() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+    let (id, _submit, _transport) = open_get(&mut fx);
+
+    // Both frames land in the client's read buffer at once: a graceful GOAWAY, then the
+    // server's RST for the in-flight stream.
+    fx.peer_goaway(1, H2ErrorCode::NoError);
+    fx.peer_rst_stream(id, H2ErrorCode::Cancel);
+    for _ in 0..4 {
+        let _ = fx.tick();
+    }
+
+    assert!(
+        !fx.connection.streams_lock().contains_key(&id),
+        "client must consume the buffered RST_STREAM and remove the stream; got it still present",
+    );
+    assert_eq!(
+        fx.driver.state,
+        DriverState::Drained,
+        "after mirroring GOAWAY and consuming the RST, the client's drain gate should clear",
+    );
+}
+
+/// Regression probe
+///
+/// The hung side is the client driver task: it mirrors the server's GOAWAY into `Closing`
+/// with a stream still recv-open, parks, and must be re-woken when the server's `RST_STREAM`
+/// arrives so it can drain the gate. Unlike
+/// [`client_drains_buffered_rst_after_mirroring_peer_goaway`] (which buffers both frames and
+/// re-`tick()`s synchronously — masking any lost wake), this separates them in time and drives with
+/// a [`CountingWaker`]:
+///
+/// 1. deliver only the GOAWAY; drive until the driver returns `Pending` (parked in `Closing`);
+/// 2. snapshot the wake count;
+/// 3. deliver the RST; a correctly-registered read waker fires (the `TestTransport` write wakes
+///    whatever waker the last `poll_read` registered).
+///
+/// If the wake count does *not* advance, the parked driver never learns the RST arrived — a
+/// lost-wake deadlock, exactly the production hang. If it *does* advance, the fixture can't
+/// reproduce it and the real cause is something `TestTransport` doesn't model (socket write
+/// backpressure / a cross-thread wake race).
+#[test]
+fn client_parked_in_closing_is_rewoken_by_late_rst() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+    let (id, _submit, _transport) = open_get(&mut fx);
+
+    let counter = Arc::new(CountingWaker(AtomicUsize::new(0)));
+    let waker = Waker::from(counter.clone());
+    let mut cx = Context::from_waker(&waker);
+
+    // Server announces graceful shutdown — but no RST yet. The client mirrors it into Closing
+    // and, with the stream still recv-open, parks awaiting more inbound.
+    fx.peer_goaway(1, H2ErrorCode::NoError);
+    let mut polls = 0;
+    loop {
+        match fx.driver.drive(&mut cx) {
+            Poll::Pending => break,
+            Poll::Ready(Some(_)) => {}
+            Poll::Ready(None) => panic!("driver finished before the in-flight stream drained"),
+        }
+        polls += 1;
+        assert!(polls < 100, "driver never settled to Pending");
+    }
+    assert_eq!(
+        fx.driver.state,
+        DriverState::Closing,
+        "client should be Closing after mirroring the peer GOAWAY",
+    );
+    assert!(
+        fx.connection.streams_lock().contains_key(&id),
+        "the in-flight recv-open stream should still be holding the drain gate",
+    );
+
+    let wakes_before = counter.0.load(Ordering::SeqCst);
+
+    // The server's RST for the in-flight stream lands *after* the driver parked.
+    fx.peer_rst_stream(id, H2ErrorCode::Cancel);
+
+    let wakes_after = counter.0.load(Ordering::SeqCst);
+    assert!(
+        wakes_after > wakes_before,
+        "an RST arriving after the driver parked in Closing must re-wake the driver task (was \
+         {wakes_before}, now {wakes_after}); no wake means the lost-wake deadlock",
+    );
 }
 
 /// A server DATA frame after its own response `END_STREAM` is illegal — the client must

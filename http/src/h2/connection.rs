@@ -38,6 +38,8 @@ use atomic_waker::AtomicWaker;
 use event_listener::Event;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use ping::PendingPing;
+#[cfg(feature = "unstable")]
+use std::sync::atomic::Ordering;
 use std::{
     collections::{HashMap, VecDeque},
     future::Future,
@@ -179,7 +181,7 @@ impl H2Connection {
         let inflight: u32 = self
             .streams_lock()
             .values()
-            .filter(|s| !s.lifecycle_lock().is_wire_closed())
+            .filter(|s| !s.fsm_lock().is_closed())
             .count()
             .try_into()
             .unwrap_or(u32::MAX);
@@ -211,34 +213,20 @@ impl H2Connection {
             .expect("peer_settings mutex poisoned")
     }
 
-    // `release_stream` (previously a conn-level helper called from `H2Transport::Drop`)
-    // is no longer needed — the Drop impl transitions the lifecycle to `AwaitingRelease`
-    // directly. The transition has the same observable effects (wake driver, raise
-    // `needs_servicing`, mark variant) and removes one indirection.
-
-    /// Request that the driver emit `RST_STREAM` on this stream with the given error code
-    /// and clean up. Transitions the lifecycle to
-    /// [`StreamLifecycle::ResetRequested`][super::lifecycle::StreamLifecycle::ResetRequested]
-    /// and wakes the driver.
+    /// Request that the driver emit `RST_STREAM` on this stream with the given error code and clean
+    /// up. Clears any queued outbound parts and enqueues an [`OutboundPart::Reset`][reset] —
+    /// nothing else is valid to send after a reset — then wakes the driver, which frames the
+    /// `RST_STREAM` and tears the stream down.
     ///
-    /// First-wins idempotent: a stream already in `ResetRequested` or terminal `Reset`
-    /// state does not have its code overwritten. No-op if the stream is already gone from
-    /// the shared map.
+    /// First-wins idempotent: a stream already reset-requested keeps its original code. No-op if
+    /// the stream is already gone from the shared map.
+    ///
+    /// [reset]: super::transport::OutboundPart::Reset
     pub(crate) fn stream_error(&self, stream_id: u32, code: super::H2ErrorCode) {
         let Some(stream) = self.streams_lock().get(&stream_id).cloned() else {
             return;
         };
-        let mut lifecycle = stream.lifecycle_lock();
-        if matches!(
-            &*lifecycle,
-            super::lifecycle::StreamLifecycle::ResetRequested(_)
-                | super::lifecycle::StreamLifecycle::Reset(_)
-        ) {
-            return;
-        }
-        *lifecycle = super::lifecycle::StreamLifecycle::ResetRequested(code);
-        drop(lifecycle);
-        stream.needs_servicing.store(true, Ordering::Release);
+        stream.request_reset(code);
         self.outbound_waker.wake();
     }
 
