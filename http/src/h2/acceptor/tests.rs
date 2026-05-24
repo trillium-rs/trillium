@@ -16,5 +16,6 @@ mod client;
 mod fixture;
 mod flow_control;
 mod lifecycle;
+mod send;
 mod shutdown;
 mod two_driver;
