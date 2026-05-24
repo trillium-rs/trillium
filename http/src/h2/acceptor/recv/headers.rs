@@ -208,14 +208,14 @@ where
 
         if let Some(entry) = self.streams.get(&stream_id) {
             // Half-closed (remote): once we've observed the peer's `END_STREAM`, any
-            // further HEADERS on that stream is a stream-level `STREAM_CLOSED`. This is
-            // the case where `recv.eof` was already set by a prior DATA(END_STREAM) or a
-            // prior trailer HEADERS — trailers themselves arrive while the stream is
-            // still "open" and flip `eof` as part of the transition, so this check
-            // correctly picks out "second HEADERS after eof flipped", not the trailer
-            // itself. Role-agnostic: applies symmetrically to server (peer-sent EOS) and
-            // client (peer-sent response EOS).
-            if entry.shared.fsm_lock().recv_closed() {
+            // further HEADERS on that stream is a stream-level `STREAM_CLOSED`. The lifecycle is
+            // recv-closed here because a prior DATA(END_STREAM) or trailer HEADERS
+            // transitioned it — trailers themselves arrive while the stream is still
+            // recv-open and close it as part of their own transition, so this check picks
+            // out "second HEADERS after recv-close", not the trailer itself. Role-agnostic:
+            // applies symmetrically to server (peer-sent EOS) and client (peer-sent
+            // response EOS).
+            if entry.shared.lifecycle_lock().recv_closed() {
                 log::debug!("h2 stream {stream_id}: HEADERS on half-closed-remote stream");
                 self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
                 self.complete_and_remove_stream(
@@ -300,7 +300,7 @@ where
                     .expect("caller verified stream is present")
                     .shared
                     .clone();
-                let _ = state.fsm_event(StreamEvent::RecvHeaders { end_stream: true });
+                let _ = state.apply_event(StreamEvent::RecvHeaders { end_stream: true });
                 state.recv.response_headers_waker.wake();
                 state.recv.waker.wake();
                 self.close_if_both_done(stream_id);
@@ -322,16 +322,16 @@ where
             .first_response_headers_seen
             .store(true, Ordering::Release);
 
-        // Stash headers, then transition recv via the FSM if `END_STREAM`. Order: headers slot
-        // first, then FSM — by the time a recv reader observes recv-closed, response_headers is
-        // also visible.
+        // Stash headers, then transition recv via the lifecycle if `END_STREAM`. Order: headers
+        // slot first, then lifecycle — by the time a recv reader observes recv-closed,
+        // response_headers is also visible.
         *state
             .recv
             .response_headers
             .lock()
             .expect("response_headers mutex poisoned") = Some(field_section);
         if end_stream {
-            let _ = state.fsm_event(StreamEvent::RecvHeaders { end_stream: true });
+            let _ = state.apply_event(StreamEvent::RecvHeaders { end_stream: true });
         }
         state.recv.response_headers_waker.wake();
         if end_stream {
@@ -352,7 +352,7 @@ where
     ) -> Action {
         let state = Arc::new(StreamState::default());
         // Opening HEADERS: Idle → Open (or HalfClosedRemote if it carried END_STREAM).
-        let _ = state.fsm_event(StreamEvent::RecvHeaders { end_stream });
+        let _ = state.apply_event(StreamEvent::RecvHeaders { end_stream });
         let send_window = i64::from(
             self.connection
                 .current_peer_settings()
@@ -417,16 +417,16 @@ where
             .expect("caller verified stream is present");
         let state = &entry.shared;
 
-        // Race ordering: store trailers first, then transition recv via the FSM. The FSM
-        // transition is the publication edge — observers that load recv-closed through the FSM see
-        // the trailers populated first.
+        // Race ordering: store trailers first, then transition recv via the lifecycle. The
+        // lifecycle transition is the publication edge — observers that load recv-closed
+        // through the lifecycle see the trailers populated first.
         *state
             .recv
             .trailers
             .lock()
             .expect("recv trailers mutex poisoned") = Some(trailers);
         // Trailing HEADERS always carry END_STREAM (validated above).
-        let _ = state.fsm_event(StreamEvent::RecvHeaders { end_stream: true });
+        let _ = state.apply_event(StreamEvent::RecvHeaders { end_stream: true });
         state.recv.waker.wake();
         // Recv is now closed; if our send half already completed, tear the stream down (server) or
         // signal close keeping it for trailer access (client).

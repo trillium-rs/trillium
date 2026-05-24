@@ -195,12 +195,13 @@ where
                 }
                 if let Some(entry) = self.streams.get(&stream_id) {
                     // Move the stream to the terminal `Closed{Reset}` state before removing it.
-                    // Load-bearing for an upgraded stream: leaving the FSM send-open would let the
-                    // handler's `H2Transport::poll_write` keep accepting bytes into a ring the
-                    // driver has stopped draining (silent data loss). `Closed` makes writes return
+                    // Load-bearing for an upgraded stream: leaving the lifecycle send-open would
+                    // let the handler's `H2Transport::poll_write` keep
+                    // accepting bytes into a ring the driver has stopped
+                    // draining (silent data loss). `Closed` makes writes return
                     // `BrokenPipe` and reads return EOF. The wakes unblock a handler parked on
                     // either.
-                    let _ = entry.shared.fsm_event(StreamEvent::RecvReset(error_code));
+                    let _ = entry.shared.apply_event(StreamEvent::RecvReset(error_code));
                     entry.shared.recv.waker.wake();
                     entry.shared.send.outbound_write_waker.wake();
                     self.complete_and_remove_stream(
@@ -257,7 +258,7 @@ where
     /// - **Closed** (`stream_id` ≤ `last_peer_stream_id`, not in active map): stream-level
     ///   `RST_STREAM(STREAM_CLOSED)`. Sent after-the-fact — peer has already written this frame and
     ///   we've already read it off the wire.
-    /// - **Half-closed remote** (in map, `recv.eof` already set): same stream-level
+    /// - **Half-closed remote** (in map, lifecycle already recv-closed): same stream-level
     ///   `STREAM_CLOSED`.
     ///
     /// Flow-control accounting: the entire DATA payload (including pad length byte +
@@ -282,8 +283,14 @@ where
         let flow_controlled = i64::try_from(total - FRAME_HEADER_LEN)
             .map_err(|_| CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
 
-        // Connection-level accounting runs regardless of stream state.
+        // Connection-level accounting runs regardless of stream state. A protocol-respecting
+        // peer never drives this negative (it can't exceed what we advertised, and SETTINGS
+        // doesn't alter the connection window), so a negative value is unambiguous peer
+        // overrun — connection-level FLOW_CONTROL_ERROR.
         self.connection_recv_window -= flow_controlled;
+        if self.connection_recv_window < 0 {
+            return Err(CloseOutcome::Protocol(H2ErrorCode::FlowControlError));
+        }
 
         if !self.streams.contains_key(&stream_id) {
             return if stream_id > self.last_peer_stream_id {
@@ -305,7 +312,7 @@ where
 
         // Half-closed remote / closed: peer already sent END_STREAM on this stream; any DATA after
         // that is stream-level STREAM_CLOSED. Flow-control accounting above still applies.
-        if state.fsm_lock().recv_closed() {
+        if state.lifecycle_lock().recv_closed() {
             self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
             self.complete_and_remove_stream(
                 stream_id,
@@ -331,12 +338,12 @@ where
         // Transition recv-closed *after* the data is in the ring, so a reader that observes
         // recv-closed is guaranteed to see the buffered bytes first.
         if end_stream {
-            let _ = state.fsm_event(StreamEvent::RecvData { end_stream: true });
+            let _ = state.apply_event(StreamEvent::RecvData { end_stream: true });
         }
         state.recv.waker.wake();
         // Peer END_STREAM may be the second half of "both halves done". If our response already
-        // completed (FSM `HalfClosedLocal`), this transition reached `Closed` and we tear down now;
-        // otherwise `finalize_send` closes it when the response completes.
+        // completed (lifecycle `HalfClosedLocal`), this transition reached `Closed` and we tear
+        // down now; otherwise `finalize_send` closes it when the response completes.
         if end_stream {
             self.close_if_both_done(stream_id);
         }

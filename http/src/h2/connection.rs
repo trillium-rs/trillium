@@ -44,10 +44,7 @@ use std::{
     collections::{HashMap, VecDeque},
     future::Future,
     io,
-    sync::{
-        Arc, Mutex, MutexGuard,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool},
 };
 use swansong::{ShutdownCompletion, Swansong};
 #[cfg(feature = "unstable")]
@@ -181,7 +178,7 @@ impl H2Connection {
         let inflight: u32 = self
             .streams_lock()
             .values()
-            .filter(|s| !s.fsm_lock().is_closed())
+            .filter(|s| !s.lifecycle_lock().is_closed())
             .count()
             .try_into()
             .unwrap_or(u32::MAX);

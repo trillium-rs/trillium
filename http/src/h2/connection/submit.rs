@@ -245,9 +245,10 @@ impl H2Connection {
     /// Shared id-allocate-and-stage logic backing [`Self::open_stream`] and
     /// [`Self::open_connect_stream`]. The `is_upgrade` flag means HEADERS does not carry
     /// `END_STREAM` and the stream stays open after the body drains — the send pump then
-    /// sources the post-handoff continuation from the per-stream outbound queue (see
-    /// `end_of_body` in the send pump). The caller-supplied `body` is the prelude in both
-    /// cases; for the non-upgrade path `END_STREAM` semantics fall out of `body.is_none()`.
+    /// sources the post-handoff continuation from the per-stream outbound ring (the bytes
+    /// the handler writes through `H2Transport`). The caller-supplied `body` is the prelude
+    /// in both cases; for the non-upgrade path `END_STREAM` semantics fall out of
+    /// `body.is_none()`.
     #[cfg(feature = "unstable")]
     fn open_stream_inner(
         self: &Arc<Self>,
