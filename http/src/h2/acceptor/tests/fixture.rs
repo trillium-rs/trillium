@@ -5,9 +5,9 @@ use crate::{
         acceptor::{recv::CLIENT_PREFACE, types::DriverState},
         connection::H2Connection,
         frame::{
-            FRAME_HEADER_LEN, Frame, FrameHeader, data as data_frame, goaway as goaway_frame,
-            headers as headers_frame, rst_stream as rst_stream_frame, settings,
-            window_update as window_update_frame,
+            FRAME_HEADER_LEN, Frame, FrameHeader, continuation as continuation_frame,
+            data as data_frame, goaway as goaway_frame, headers as headers_frame,
+            rst_stream as rst_stream_frame, settings, window_update as window_update_frame,
         },
         role::Role,
         settings::H2Settings,
@@ -135,6 +135,82 @@ impl DriverFixture {
         headers_frame::encode_prefix(stream_id, end_stream, true, None, block_len, 0, &mut frame)
             .expect("encode HEADERS prefix");
         frame[FRAME_HEADER_LEN..].copy_from_slice(&block);
+        self.peer.write_all(&frame);
+    }
+
+    /// Open a peer-initiated request stream with a HEADERS frame that does *not* set
+    /// `END_HEADERS` — the header block continues in [`Self::peer_continuation`] frames. For
+    /// exercising the inbound HEADERS + CONTINUATION accumulation path (and its flood guard).
+    pub(super) fn peer_open_stream_no_end_headers(
+        &mut self,
+        stream_id: u32,
+        method: Method,
+        path: &str,
+        end_stream: bool,
+    ) {
+        let pseudos = PseudoHeaders::default()
+            .with_method(method)
+            .with_path(path)
+            .with_scheme("http")
+            .with_authority("test");
+        let headers = Headers::new();
+        let field_section = FieldSection::new(pseudos, &headers);
+        let mut block = Vec::new();
+        self.peer_hpack.encode(&field_section, &mut block);
+
+        let block_len = u32::try_from(block.len()).expect("block fits u32");
+        let mut frame = vec![0u8; FRAME_HEADER_LEN + block.len()];
+        headers_frame::encode_prefix(stream_id, end_stream, false, None, block_len, 0, &mut frame)
+            .expect("encode HEADERS prefix");
+        frame[FRAME_HEADER_LEN..].copy_from_slice(&block);
+        self.peer.write_all(&frame);
+    }
+
+    /// Open a peer request stream whose HPACK header block is split across a HEADERS frame
+    /// (no `END_HEADERS`) followed by a single CONTINUATION frame (`END_HEADERS`), to exercise
+    /// inbound block reassembly. The block is encoded whole, then split at `split_at` bytes
+    /// (clamped to the block length) — HPACK fragments reassemble byte-wise, so any split is
+    /// valid.
+    pub(super) fn peer_open_stream_split(
+        &mut self,
+        stream_id: u32,
+        method: Method,
+        path: &str,
+        end_stream: bool,
+        split_at: usize,
+    ) {
+        let pseudos = PseudoHeaders::default()
+            .with_method(method)
+            .with_path(path)
+            .with_scheme("http")
+            .with_authority("test");
+        let headers = Headers::new();
+        let field_section = FieldSection::new(pseudos, &headers);
+        let mut block = Vec::new();
+        self.peer_hpack.encode(&field_section, &mut block);
+        let split_at = split_at.min(block.len());
+
+        let head = &block[..split_at];
+        let head_len = u32::try_from(head.len()).expect("fragment fits u32");
+        let mut frame = vec![0u8; FRAME_HEADER_LEN + head.len()];
+        headers_frame::encode_prefix(stream_id, end_stream, false, None, head_len, 0, &mut frame)
+            .expect("encode HEADERS prefix");
+        frame[FRAME_HEADER_LEN..].copy_from_slice(head);
+        self.peer.write_all(&frame);
+
+        self.peer_continuation(stream_id, &block[split_at..], true);
+    }
+
+    /// Write a raw CONTINUATION frame carrying `fragment` header-block bytes on `stream_id`,
+    /// with the given `END_HEADERS` flag. Bytes are written verbatim, not HPACK-encoded —
+    /// tests of the accumulation *bound* pass filler; tests of the happy path pass a real
+    /// HPACK fragment.
+    pub(super) fn peer_continuation(&mut self, stream_id: u32, fragment: &[u8], end_headers: bool) {
+        let len = u32::try_from(fragment.len()).expect("fragment fits u32");
+        let mut frame = vec![0u8; continuation_frame::ENCODED_PREFIX_LEN + fragment.len()];
+        continuation_frame::encode_prefix(stream_id, end_headers, len, &mut frame)
+            .expect("encode CONTINUATION prefix");
+        frame[continuation_frame::ENCODED_PREFIX_LEN..].copy_from_slice(fragment);
         self.peer.write_all(&frame);
     }
 

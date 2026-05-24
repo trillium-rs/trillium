@@ -292,3 +292,60 @@ fn server_data_after_its_own_end_stream_is_reset() {
          {frames:?}",
     );
 }
+
+/// An interim (1xx) response HEADERS frame must be discarded, not surfaced as the response:
+/// the client waits for the final HEADERS. RFC 9110 §15.2 — informational responses precede
+/// the final and their headers must not be merged into it. The h2 path
+/// (`finalize_response_headers`) is distinct from the h1 interim handling tested in
+/// `client/tests/{one_hundred_continue,early_hints}.rs`, so it gets its own coverage here.
+#[test]
+fn client_discards_interim_response_and_surfaces_final() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+    let (id, _submit, _transport) = open_get(&mut fx);
+
+    // Interim 100 Continue (no END_STREAM) — discarded.
+    fx.peer_response_headers(id, Status::Continue, false);
+    let _ = fx.tick();
+    // The final response.
+    fx.peer_response_headers(id, Status::Ok, true);
+    let _ = fx.tick();
+
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut resp = fx.connection.response_headers(id);
+    match Pin::new(&mut resp).poll(&mut cx) {
+        Poll::Ready(Ok(fields)) => assert_eq!(
+            fields.pseudo_headers().status(),
+            Some(Status::Ok),
+            "the surfaced response must be the final 200, not the discarded interim 1xx",
+        ),
+        other => panic!("expected the final response headers to surface, got {other:?}"),
+    }
+}
+
+/// A spec-forbidden `END_STREAM` on an interim (1xx) HEADERS frame must abort the response
+/// waiter rather than hang it: the driver honors the `END_STREAM` (recv half closes) so an
+/// awaiting `response_headers` resolves with a connection-aborted error instead of blocking
+/// forever on a final response that the (now closed) stream can never deliver. This
+/// hang-prevention edge has no h1 analog.
+#[test]
+fn client_interim_response_with_end_stream_aborts_waiter() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+    let (id, _submit, _transport) = open_get(&mut fx);
+
+    fx.peer_response_headers(id, Status::Continue, true);
+    let _ = fx.tick();
+
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut resp = fx.connection.response_headers(id);
+    match Pin::new(&mut resp).poll(&mut cx) {
+        Poll::Ready(Err(_)) => {}
+        other => panic!(
+            "an interim response with END_STREAM should abort the response waiter, not hang or \
+             surface a response; got {other:?}",
+        ),
+    }
+}
