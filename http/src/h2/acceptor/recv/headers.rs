@@ -118,6 +118,9 @@ where
             let block = fragment.to_vec();
             self.finalize_headers(stream_id, end_stream, &block)
         } else {
+            if fragment.len() as u64 > self.config.max_header_list_size() {
+                return Err(CloseOutcome::Protocol(H2ErrorCode::EnhanceYourCalm));
+            }
             self.pending_headers = Some(PendingHeaders {
                 stream_id,
                 end_stream,
@@ -135,6 +138,7 @@ where
         header_block_length: u32,
         total: usize,
     ) -> Result<Action, CloseOutcome> {
+        let max_block = self.config.max_header_list_size();
         let pending = self
             .pending_headers
             .as_mut()
@@ -144,6 +148,13 @@ where
         }
 
         let fragment = frame_slice(&self.read_buf, FRAME_HEADER_LEN, header_block_length, total)?;
+        // CONTINUATION-flood guard (CVE-2024-27316 class): a peer that never sets END_HEADERS
+        // can grow this block without bound. Cap the accumulated *compressed* bytes at the
+        // MAX_HEADER_LIST_SIZE we advertised — a compliant peer's wire bytes never exceed that
+        // uncompressed budget, so overflow is abuse. Reject before decoding so junk can't OOM us.
+        if pending.assembled.len() as u64 + fragment.len() as u64 > max_block {
+            return Err(CloseOutcome::Protocol(H2ErrorCode::EnhanceYourCalm));
+        }
         pending.assembled.extend_from_slice(fragment);
 
         if end_headers {

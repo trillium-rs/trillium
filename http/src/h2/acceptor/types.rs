@@ -26,6 +26,7 @@ pub(in crate::h2) struct AcceptorConfig {
     initial_connection_window_size: u32,
     max_concurrent_streams: u32,
     max_frame_size: u32,
+    max_header_list_size: u64,
     copy_loops_per_yield: usize,
     hpack_table_capacity: usize,
 }
@@ -38,6 +39,7 @@ impl AcceptorConfig {
             initial_connection_window_size: config.h2_initial_connection_window_size(),
             max_concurrent_streams: config.h2_max_concurrent_streams(),
             max_frame_size: config.h2_max_frame_size(),
+            max_header_list_size: config.max_header_list_size(),
             copy_loops_per_yield: config.copy_loops_per_yield(),
             hpack_table_capacity: config.dynamic_table_capacity(),
         }

@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP/2 server: an idle extended-CONNECT (RFC 8441) upgrade — or any response whose body source is not yet ready to produce data — could busy-spin the connection, burning CPU and flooding logs with `drive` trace lines while waiting for the next write. The connection now sleeps until there is work to do.
 - HTTP/2 client: a request could hang forever when the connection closed without delivering a response — a graceful `GOAWAY`, a peer FIN, or an I/O error — unless the server had explicitly reset that stream. In-flight requests (awaiting response headers, reading a response body, or writing to an upgraded stream) now surface a connection-aborted / broken-pipe error instead of hanging.
 
+### Security
+
+- HTTP/2 server: a peer could exhaust server memory by opening a header block (a `HEADERS` frame without `END_HEADERS`) and then sending an unbounded stream of `CONTINUATION` frames without ever ending it — the "CONTINUATION flood" (CVE-2024-27316 class). The cumulative compressed header block is now bounded by the advertised `SETTINGS_MAX_HEADER_LIST_SIZE` (`HttpConfig::max_header_list_size`, default 32 KiB); a block exceeding it closes the connection with `GOAWAY(ENHANCE_YOUR_CALM)` before decoding.
+
 ## [1.3.1] - 2026-05-21
 
 ### Fixed

@@ -135,8 +135,12 @@ pub struct HttpConfig {
     ///
     /// Advertised in SETTINGS as `SETTINGS_MAX_HEADER_LIST_SIZE` on HTTP/2 (RFC 9113) and
     /// `SETTINGS_MAX_FIELD_SECTION_SIZE` on HTTP/3 (RFC 9114). Guards against pathological
-    /// header lists inflating memory per stream during HPACK/QPACK decode. Currently
-    /// advertised only — the peer is expected to self-police.
+    /// header lists inflating memory per stream during HPACK/QPACK decode.
+    ///
+    /// On HTTP/2 this also bounds the cumulative compressed bytes of a header block
+    /// accumulated across HEADERS + CONTINUATION frames: a block exceeding this limit closes
+    /// the connection with `ENHANCE_YOUR_CALM`, mitigating the CONTINUATION-flood `DoS`
+    /// (CVE-2024-27316 class). Otherwise the peer is expected to self-police.
     ///
     /// **Default**: `32 KiB`
     ///
