@@ -14,14 +14,6 @@
 //!
 //! Design notes and the decisions behind the lenient error categories live in
 //! `internal/h2-stream-state-redesign.md`.
-//!
-//! Not yet wired into the driver — landing the pure machine + its tests first, then
-//! switching the driver over under the wire-test safety net.
-#![allow(
-    dead_code,
-    reason = "new stream-state FSM; consumed by tests now, wired into the driver in a \
-              follow-up"
-)]
 
 use super::H2ErrorCode;
 
@@ -30,7 +22,7 @@ use super::H2ErrorCode;
 /// The reserved (pushed) states are intentionally absent — we don't implement server push.
 /// Adding it later is additive (two variants + their transitions); see the redesign doc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) enum StreamState {
+pub(super) enum StreamFsm {
     /// Neither half opened yet. Transient: the opening HEADERS leaves it immediately. The
     /// driver only ever constructs a stream from its opening HEADERS, so in practice a
     /// stream barely exists in this state — it's kept as the natural initial value and the
@@ -106,7 +98,7 @@ pub(super) enum ErrorLevel {
     Connection,
 }
 
-impl StreamState {
+impl StreamFsm {
     /// `true` once the stream is fully closed (both halves done, or reset).
     pub(super) fn is_closed(self) -> bool {
         matches!(self, Self::Closed { .. })
@@ -133,43 +125,76 @@ impl StreamState {
         use CloseReason::{EndStream, Reset};
         use ErrorLevel::{Connection, Stream};
         use StreamEvent::{RecvData, RecvHeaders, RecvReset, SendData, SendHeaders, SendReset};
-        use StreamState::{Closed, HalfClosedLocal, HalfClosedRemote, Idle, Open};
+        use StreamFsm::{Closed, HalfClosedLocal, HalfClosedRemote, Idle, Open};
 
         // A reset from either side collapses any live stream; a reset on an already-closed
         // stream is ignored (§5.1 tolerates a late RST after close).
         if let SendReset(code) | RecvReset(code) = ev {
             if !self.is_closed() {
-                *self = Closed { reason: Reset(code) };
+                *self = Closed {
+                    reason: Reset(code),
+                };
             }
             return Ok(());
         }
 
+        // Some arms coincide in their *result* (e.g. `Idle`/`Open` on `SendHeaders` both yield
+        // `HalfClosedLocal`/`Open`) but are kept per-state on purpose: the §5.1 structure is the
+        // point, and merging would route `(Idle, SendData)` — a local desync — into the wrong arm.
+        #[allow(
+            clippy::match_same_arms,
+            reason = "per-state arms kept for §5.1 legibility"
+        )]
         let next = match (*self, ev) {
             // Opening — Idle is transient; the first HEADERS leaves it at once.
             (Idle, SendHeaders { end_stream }) => {
-                if end_stream { HalfClosedLocal } else { Open }
+                if end_stream {
+                    HalfClosedLocal
+                } else {
+                    Open
+                }
             }
             (Idle, RecvHeaders { end_stream }) => {
-                if end_stream { HalfClosedRemote } else { Open }
+                if end_stream {
+                    HalfClosedRemote
+                } else {
+                    Open
+                }
             }
 
             // Both halves open.
             (Open, SendHeaders { end_stream } | SendData { end_stream }) => {
-                if end_stream { HalfClosedLocal } else { Open }
+                if end_stream {
+                    HalfClosedLocal
+                } else {
+                    Open
+                }
             }
             (Open, RecvHeaders { end_stream } | RecvData { end_stream }) => {
-                if end_stream { HalfClosedRemote } else { Open }
+                if end_stream {
+                    HalfClosedRemote
+                } else {
+                    Open
+                }
             }
 
             // Our send half closed; only the peer may still send.
             (HalfClosedLocal, RecvHeaders { end_stream } | RecvData { end_stream }) => {
-                if end_stream { Closed { reason: EndStream } } else { HalfClosedLocal }
+                if end_stream {
+                    Closed { reason: EndStream }
+                } else {
+                    HalfClosedLocal
+                }
             }
 
             // Peer's send half closed; only we may still send. (This is the bidi-upgrade
             // case once the peer half-closes: the handler keeps framing here, legally.)
             (HalfClosedRemote, SendHeaders { end_stream } | SendData { end_stream }) => {
-                if end_stream { Closed { reason: EndStream } } else { HalfClosedRemote }
+                if end_stream {
+                    Closed { reason: EndStream }
+                } else {
+                    HalfClosedRemote
+                }
             }
 
             // Illegal inbound after the peer's END_STREAM, or any inbound on a closed
@@ -185,13 +210,19 @@ impl StreamState {
             // FSM, and a stream only enters here via its opening HEADERS); encoded for
             // honesty.
             (Idle, RecvData { .. }) => {
-                return Err(StreamProtocolError::new(Connection, H2ErrorCode::ProtocolError));
+                return Err(StreamProtocolError::new(
+                    Connection,
+                    H2ErrorCode::ProtocolError,
+                ));
             }
 
             // Reject-by-default: everything left is a *local* send in a state where our send
             // half is closed or not yet open — our desync, not the peer's. Absorb + assert.
             (_, SendHeaders { .. } | SendData { .. }) => {
-                debug_assert!(false, "illegal local h2 send transition: {self:?} <- {ev:?}");
+                debug_assert!(
+                    false,
+                    "illegal local h2 send transition: {self:?} <- {ev:?}"
+                );
                 return Ok(());
             }
 
@@ -210,13 +241,13 @@ mod tests {
         CloseReason::{EndStream, Reset},
         ErrorLevel::{Connection, Stream},
         StreamEvent::{RecvData, RecvHeaders, RecvReset, SendData, SendHeaders, SendReset},
+        StreamFsm::{self, Closed, HalfClosedLocal, HalfClosedRemote, Idle, Open},
         StreamProtocolError,
-        StreamState::{self, Closed, HalfClosedLocal, HalfClosedRemote, Idle, Open},
     };
     use crate::h2::H2ErrorCode;
 
     /// Run an event against a starting state, returning the resulting state or the error.
-    fn step(state: StreamState, ev: super::StreamEvent) -> Result<StreamState, StreamProtocolError> {
+    fn step(state: StreamFsm, ev: super::StreamEvent) -> Result<StreamFsm, StreamProtocolError> {
         let mut state = state;
         state.on_event(ev)?;
         Ok(state)
@@ -224,7 +255,7 @@ mod tests {
 
     /// Apply a sequence, asserting each step lands on the expected state.
     #[track_caller]
-    fn walk(start: StreamState, steps: &[(super::StreamEvent, StreamState)]) {
+    fn walk(start: StreamFsm, steps: &[(super::StreamEvent, StreamFsm)]) {
         let mut state = start;
         for (ev, expected) in steps {
             state.on_event(*ev).expect("legal transition");
@@ -266,7 +297,10 @@ mod tests {
             Idle,
             &[
                 (RecvHeaders { end_stream: true }, HalfClosedRemote),
-                (SendHeaders { end_stream: true }, Closed { reason: EndStream }),
+                (
+                    SendHeaders { end_stream: true },
+                    Closed { reason: EndStream },
+                ),
             ],
         );
     }
@@ -294,12 +328,16 @@ mod tests {
         for start in [Idle, Open, HalfClosedLocal, HalfClosedRemote] {
             assert_eq!(
                 step(start, RecvReset(H2ErrorCode::Cancel)),
-                Ok(Closed { reason: Reset(H2ErrorCode::Cancel) }),
+                Ok(Closed {
+                    reason: Reset(H2ErrorCode::Cancel)
+                }),
                 "peer RST from {start:?}",
             );
             assert_eq!(
                 step(start, SendReset(H2ErrorCode::InternalError)),
-                Ok(Closed { reason: Reset(H2ErrorCode::InternalError) }),
+                Ok(Closed {
+                    reason: Reset(H2ErrorCode::InternalError)
+                }),
                 "local RST from {start:?}",
             );
         }
@@ -314,7 +352,10 @@ mod tests {
         );
         let prior = Reset(H2ErrorCode::Cancel);
         assert_eq!(
-            step(Closed { reason: prior }, RecvReset(H2ErrorCode::InternalError)),
+            step(
+                Closed { reason: prior },
+                RecvReset(H2ErrorCode::InternalError)
+            ),
             Ok(Closed { reason: prior }),
         );
     }
@@ -324,18 +365,41 @@ mod tests {
         // Peer already sent END_STREAM (half-closed remote); more inbound is STREAM_CLOSED
         // at stream level, and the state is left unchanged so the driver can RST + tear down
         // on its own terms.
-        let err = StreamProtocolError { level: Stream, code: H2ErrorCode::StreamClosed };
-        assert_eq!(step(HalfClosedRemote, RecvData { end_stream: false }), Err(err));
-        assert_eq!(step(HalfClosedRemote, RecvData { end_stream: true }), Err(err));
-        assert_eq!(step(HalfClosedRemote, RecvHeaders { end_stream: true }), Err(err));
+        let err = StreamProtocolError {
+            level: Stream,
+            code: H2ErrorCode::StreamClosed,
+        };
+        assert_eq!(
+            step(HalfClosedRemote, RecvData { end_stream: false }),
+            Err(err)
+        );
+        assert_eq!(
+            step(HalfClosedRemote, RecvData { end_stream: true }),
+            Err(err)
+        );
+        assert_eq!(
+            step(HalfClosedRemote, RecvHeaders { end_stream: true }),
+            Err(err)
+        );
     }
 
     #[test]
     fn inbound_on_closed_stream_is_stream_error_regardless_of_reason() {
-        let err = StreamProtocolError { level: Stream, code: H2ErrorCode::StreamClosed };
-        assert_eq!(step(Closed { reason: EndStream }, RecvData { end_stream: false }), Err(err));
+        let err = StreamProtocolError {
+            level: Stream,
+            code: H2ErrorCode::StreamClosed,
+        };
         assert_eq!(
-            step(Closed { reason: Reset(H2ErrorCode::Cancel) }, RecvHeaders { end_stream: true }),
+            step(Closed { reason: EndStream }, RecvData { end_stream: false }),
+            Err(err)
+        );
+        assert_eq!(
+            step(
+                Closed {
+                    reason: Reset(H2ErrorCode::Cancel)
+                },
+                RecvHeaders { end_stream: true }
+            ),
             Err(err),
         );
     }
@@ -344,7 +408,10 @@ mod tests {
     fn peer_data_before_headers_is_connection_error() {
         assert_eq!(
             step(Idle, RecvData { end_stream: false }),
-            Err(StreamProtocolError { level: Connection, code: H2ErrorCode::ProtocolError }),
+            Err(StreamProtocolError {
+                level: Connection,
+                code: H2ErrorCode::ProtocolError
+            }),
         );
     }
 

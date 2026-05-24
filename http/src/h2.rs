@@ -9,7 +9,6 @@ mod error;
 mod frame;
 #[cfg(feature = "unstable")]
 mod initiator;
-mod lifecycle;
 mod role;
 mod settings;
 mod stream_state;

@@ -1,10 +1,7 @@
 use super::fixture::*;
 use crate::{
     Headers, Method, Status,
-    h2::{
-        H2ErrorCode,
-        frame::Frame,
-    },
+    h2::{H2ErrorCode, frame::Frame},
 };
 use futures_lite::AsyncWrite;
 use std::{
@@ -21,8 +18,7 @@ use std::{
 /// only pickup site for `pending_trailers` had already run, and the trailers were lost.
 #[test]
 fn submit_trailers_lands_on_wire_after_body_parked() {
-    use crate::h2::frame::Frame;
-    use crate::headers::hpack::PseudoHeaders;
+    use crate::{h2::frame::Frame, headers::hpack::PseudoHeaders};
 
     let mut fx = DriverFixture::new_server();
     fx.complete_handshake();
@@ -146,7 +142,7 @@ fn idle_upgrade_open_stream_parks_without_self_waking() {
     assert_eq!(
         counter.0.load(std::sync::atomic::Ordering::SeqCst),
         0,
-        "driver self-woke instead of parking — busy-spin on an idle UpgradeOpen stream",
+        "driver self-woke instead of parking — busy-spin on an idle bidi/upgrade tunnel",
     );
 }
 

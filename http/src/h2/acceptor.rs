@@ -45,7 +45,7 @@ mod types;
 
 use super::{
     H2Error, H2ErrorCode, connection::H2Connection, frame::FRAME_HEADER_LEN, role::Role,
-    transport::H2Transport,
+    stream_state::StreamEvent, transport::H2Transport,
 };
 use crate::{
     Conn,
@@ -292,20 +292,25 @@ where
             //    shutdowns, transition to `Drained` and wait for the peer to close its write half —
             //    otherwise the peer sees our drop as a reset rather than a clean close. For
             //    I/O-error shutdowns the transport is already untrustworthy, so skip the drain.
-            //
-            //    Defer the transition while in-flight streams still have outbound (SendCursor
-            //    not yet `Complete`) OR inbound (`recv.eof` not yet set) work. Without this, a
-            //    handler that submits trailers *after* the cancellation race resolves (gRPC
-            //    `Cancellation::race`) gets stranded with bytes parked in mailboxes, and a
-            //    client receiving GOAWAY mid-stream stops decoding incoming frames before the
-            //    server's trailing HEADERS arrive. Falls through to step 6 so the recv pump
-            //    (also gated on Running|Closing now) keeps running and parks on the transport
-            //    read waker rather than the outbound-only `park` here.
+            //    Defer the transition while in-flight streams still have outbound (an active
+            //    SendCursor or queued parts), an open send half (a handler that hasn't submitted
+            //    its response yet — half-closed-remote is *not* drained), OR inbound (recv half not
+            //    yet closed) work. Without this, a handler that submits trailers *after* the
+            //    cancellation race resolves gets stranded with bytes parked in mailboxes; a handler
+            //    that hasn't responded yet when shutdown begins has its response `SubmitSend`
+            //    orphaned by a driver that finished out from under it; and a client receiving
+            //    GOAWAY mid-stream stops decoding incoming frames before the server's trailing
+            //    HEADERS arrive. Falls through to step 6 so the recv pump (also gated on
+            //    Running|Closing now) keeps running and parks on the transport read waker rather
+            //    than the outbound-only `park` here.
             if self.state == DriverState::Closing {
                 if matches!(self.close_outcome, Some(CloseOutcome::Io(_))) {
                     return Poll::Ready(self.finish_with_current_outcome());
                 }
-                if self.has_active_send_cursors() || self.has_pending_recv() {
+                if self.has_active_send_cursors()
+                    || self.has_open_send_half()
+                    || self.has_pending_recv()
+                {
                     self.log_closing_blockers();
                 } else {
                     self.set_state(
@@ -465,12 +470,10 @@ where
             _ => H2ErrorCode::NoError,
         };
         for entry in self.streams.values() {
-            {
-                let mut lifecycle = entry.shared.lifecycle_lock();
-                if !matches!(&*lifecycle, crate::h2::lifecycle::StreamLifecycle::Reset(_)) {
-                    *lifecycle = crate::h2::lifecycle::StreamLifecycle::Reset(reset_code);
-                }
-            }
+            // Move each still-live stream to `Closed{Reset}` (a no-op on streams already closed, so
+            // an existing reason isn't clobbered), then fan out every recv/send waker so parked
+            // tasks observe the close instead of hanging.
+            let _ = entry.shared.fsm_event(StreamEvent::RecvReset(reset_code));
             entry.shared.recv.waker.wake();
             entry.shared.recv.response_headers_waker.wake();
             entry.shared.send.outbound_write_waker.wake();
@@ -540,11 +543,18 @@ where
             return;
         }
         for (id, entry) in &self.streams {
-            let lifecycle = entry.shared.lifecycle_lock();
-            if entry.send.is_some() || lifecycle.has_active_send() || lifecycle.has_pending_recv() {
+            let fsm = *entry.shared.fsm_lock();
+            let queued = !entry
+                .shared
+                .send
+                .queue
+                .lock()
+                .expect("send queue mutex poisoned")
+                .is_empty();
+            if entry.send.is_some() || queued || !fsm.recv_closed() {
                 log::trace!(
-                    "h2 driver: Closing — stream {id} blocking drain (lifecycle={lifecycle:?}, \
-                     cursor_present={})",
+                    "h2 driver: Closing — stream {id} blocking drain (fsm={fsm:?}, \
+                     cursor_present={}, queued={queued})",
                     entry.send.is_some(),
                 );
             }

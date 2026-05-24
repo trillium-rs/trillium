@@ -13,11 +13,12 @@ mod headers;
 
 use super::{
     Action, CloseOutcome, ClosedReason, H2Driver, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
-    ReadPhase, Role, frame_slice,
+    ReadPhase, frame_slice,
 };
 use crate::h2::{
     H2ErrorCode, H2Settings,
     frame::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader},
+    stream_state::StreamEvent,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
 pub(super) use headers::PendingHeaders;
@@ -193,14 +194,13 @@ where
                     return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
                 }
                 if let Some(entry) = self.streams.get(&stream_id) {
-                    // Move the stream to the terminal `Reset` state before removing it.
-                    // This is load-bearing for an upgraded stream: leaving the lifecycle at
-                    // `UpgradeOpen` would let the handler's `H2Transport::poll_write` keep
-                    // accepting bytes into an outbound buffer the driver has stopped
-                    // draining (silent data loss). `Reset` makes writes return `BrokenPipe`
-                    // and reads return EOF. The wakes unblock a handler parked on either.
-                    *entry.shared.lifecycle_lock() =
-                        crate::h2::lifecycle::StreamLifecycle::Reset(error_code);
+                    // Move the stream to the terminal `Closed{Reset}` state before removing it.
+                    // Load-bearing for an upgraded stream: leaving the FSM send-open would let the
+                    // handler's `H2Transport::poll_write` keep accepting bytes into a ring the
+                    // driver has stopped draining (silent data loss). `Closed` makes writes return
+                    // `BrokenPipe` and reads return EOF. The wakes unblock a handler parked on
+                    // either.
+                    let _ = entry.shared.fsm_event(StreamEvent::RecvReset(error_code));
                     entry.shared.recv.waker.wake();
                     entry.shared.send.outbound_write_waker.wake();
                     self.complete_and_remove_stream(
@@ -303,9 +303,9 @@ where
         entry.peer_recv_window -= flow_controlled;
         let state = entry.shared.clone();
 
-        // Half-closed remote: peer already sent END_STREAM on this stream; any DATA after
+        // Half-closed remote / closed: peer already sent END_STREAM on this stream; any DATA after
         // that is stream-level STREAM_CLOSED. Flow-control accounting above still applies.
-        if state.lifecycle_lock().recv_eof() {
+        if state.fsm_lock().recv_closed() {
             self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
             self.complete_and_remove_stream(
                 stream_id,
@@ -328,20 +328,17 @@ where
                 recv.extend_from_slice(data);
             }
         }
+        // Transition recv-closed *after* the data is in the ring, so a reader that observes
+        // recv-closed is guaranteed to see the buffered bytes first.
         if end_stream {
-            state.lifecycle_lock().mark_recv_eof();
+            let _ = state.fsm_event(StreamEvent::RecvData { end_stream: true });
         }
         state.recv.waker.wake();
-        // Peer END_STREAM may be the second half of "both halves done". If our response
-        // already completed, this closes the stream now; otherwise `finalize_send` closes
-        // it when the response completes (recv_eof, set above, is the gate). The two roles
-        // differ only in whether the entry lingers in the map after close: the client keeps
-        // it for trailer access, the server removes it.
+        // Peer END_STREAM may be the second half of "both halves done". If our response already
+        // completed (FSM `HalfClosedLocal`), this transition reached `Closed` and we tear down now;
+        // otherwise `finalize_send` closes it when the response completes.
         if end_stream {
-            match self.role {
-                Role::Client => self.try_close_if_both_done(stream_id),
-                Role::Server => self.close_server_stream_if_both_done(stream_id),
-            }
+            self.close_if_both_done(stream_id);
         }
         Ok(())
     }
