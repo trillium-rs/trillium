@@ -8,9 +8,9 @@
 //!
 //! Keeping this small and pure is the point. It is simultaneously the mental model, the
 //! property-test oracle, and — because impossible transitions are unrepresentable — the
-//! thing that retires the consistency-bug class the old `StreamLifecycle` enum kept
-//! producing (send-progress, recv-eof, and upgrade state fused into one type that several
-//! sites had to keep mutually consistent by hand).
+//! reason a whole class of consistency bugs can't arise: protocol state is never fused with
+//! send-framing progress, recv buffering, or I/O bookkeeping, so no two representations of
+//! the same stream can drift out of agreement.
 //!
 //! Design notes and the decisions behind the lenient error categories live in
 //! `internal/h2-stream-state-redesign.md`.
@@ -22,7 +22,7 @@ use super::H2ErrorCode;
 /// The reserved (pushed) states are intentionally absent — we don't implement server push.
 /// Adding it later is additive (two variants + their transitions); see the redesign doc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) enum StreamFsm {
+pub(super) enum StreamLifecycle {
     /// Neither half opened yet. Transient: the opening HEADERS leaves it immediately. The
     /// driver only ever constructs a stream from its opening HEADERS, so in practice a
     /// stream barely exists in this state — it's kept as the natural initial value and the
@@ -40,9 +40,9 @@ pub(super) enum StreamFsm {
     Closed { reason: CloseReason },
 }
 
-/// How a stream reached [`StreamState::Closed`]. The error *level* of a late inbound frame
-/// no longer branches on this (we answer all post-close inbound with a lenient stream-level
-/// `STREAM_CLOSED` — see the redesign doc); it survives to tell the driver whether to
+/// How a stream reached [`StreamLifecycle::Closed`]. The error *level* of a late inbound frame
+/// doesn't branch on this — all post-close inbound gets a lenient stream-level
+/// `STREAM_CLOSED` (see the redesign doc); the reason survives to tell the driver whether to
 /// resolve the send with `Ok` vs `Err` and how to categorize the closed-streams ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CloseReason {
@@ -98,7 +98,7 @@ pub(super) enum ErrorLevel {
     Connection,
 }
 
-impl StreamFsm {
+impl StreamLifecycle {
     /// `true` once the stream is fully closed (both halves done, or reset).
     pub(super) fn is_closed(self) -> bool {
         matches!(self, Self::Closed { .. })
@@ -125,7 +125,7 @@ impl StreamFsm {
         use CloseReason::{EndStream, Reset};
         use ErrorLevel::{Connection, Stream};
         use StreamEvent::{RecvData, RecvHeaders, RecvReset, SendData, SendHeaders, SendReset};
-        use StreamFsm::{Closed, HalfClosedLocal, HalfClosedRemote, Idle, Open};
+        use StreamLifecycle::{Closed, HalfClosedLocal, HalfClosedRemote, Idle, Open};
 
         // A reset from either side collapses any live stream; a reset on an already-closed
         // stream is ignored (§5.1 tolerates a late RST after close).
@@ -207,7 +207,7 @@ impl StreamFsm {
 
             // Peer DATA before any HEADERS — connection PROTOCOL_ERROR. Unreachable in
             // practice (the driver's id-level checks catch never-opened streams before the
-            // FSM, and a stream only enters here via its opening HEADERS); encoded for
+            // lifecycle, and a stream only enters here via its opening HEADERS); encoded for
             // honesty.
             (Idle, RecvData { .. }) => {
                 return Err(StreamProtocolError::new(
@@ -241,13 +241,16 @@ mod tests {
         CloseReason::{EndStream, Reset},
         ErrorLevel::{Connection, Stream},
         StreamEvent::{RecvData, RecvHeaders, RecvReset, SendData, SendHeaders, SendReset},
-        StreamFsm::{self, Closed, HalfClosedLocal, HalfClosedRemote, Idle, Open},
+        StreamLifecycle::{self, Closed, HalfClosedLocal, HalfClosedRemote, Idle, Open},
         StreamProtocolError,
     };
     use crate::h2::H2ErrorCode;
 
     /// Run an event against a starting state, returning the resulting state or the error.
-    fn step(state: StreamFsm, ev: super::StreamEvent) -> Result<StreamFsm, StreamProtocolError> {
+    fn step(
+        state: StreamLifecycle,
+        ev: super::StreamEvent,
+    ) -> Result<StreamLifecycle, StreamProtocolError> {
         let mut state = state;
         state.on_event(ev)?;
         Ok(state)
@@ -255,7 +258,7 @@ mod tests {
 
     /// Apply a sequence, asserting each step lands on the expected state.
     #[track_caller]
-    fn walk(start: StreamFsm, steps: &[(super::StreamEvent, StreamFsm)]) {
+    fn walk(start: StreamLifecycle, steps: &[(super::StreamEvent, StreamLifecycle)]) {
         let mut state = start;
         for (ev, expected) in steps {
             state.on_event(*ev).expect("legal transition");
@@ -307,10 +310,9 @@ mod tests {
 
     #[test]
     fn bidi_upgrade_survives_peer_half_close_then_completes() {
-        // The exact shape of the old half-closed-upgrade teardown bug, now ordinary
-        // transitions: response HEADERS without END_STREAM keeps the stream Open, the peer
-        // half-closes its request side (→ half-closed remote), and the handler keeps
-        // framing legally until it ends the stream.
+        // A bidirectional upgrade: response HEADERS without END_STREAM keeps the stream
+        // Open, the peer half-closes its request side (→ half-closed remote), and the
+        // handler keeps framing legally until it ends the stream.
         walk(
             Idle,
             &[

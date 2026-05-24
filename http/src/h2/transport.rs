@@ -34,7 +34,7 @@
 
 use super::{
     H2Connection, H2ErrorCode,
-    stream_state::{StreamEvent, StreamFsm},
+    stream_state::{StreamEvent, StreamLifecycle},
 };
 use crate::{
     Body, Buffer, Headers,
@@ -105,10 +105,10 @@ impl Drop for H2Transport {
     ///
     /// - **Already removed from the shared map** — the driver beat us to cleanup; no-op.
     /// - **`Closed`** (both halves done on the wire; client-role streams linger in the map for
-    ///   post-EOF trailer/response access) — set [`SendState::transport_dropped`] so the driver GCs
+    ///   post-EOF trailer/response access) — set `SendState::transport_dropped` so the driver GCs
     ///   the lingering entry.
     /// - **Send half still open + a response was submitted** (`submit_resolved`) — a bidirectional
-    ///   upgrade tunnel the handler is dropping; enqueue [`OutboundPart::Close`] for a graceful
+    ///   upgrade tunnel the handler is dropping; enqueue `OutboundPart::Close` for a graceful
     ///   `END_STREAM`.
     /// - **Anything else** (`HalfClosedLocal` awaiting the peer, or send-open with no response ever
     ///   submitted) — abandoning the stream; enqueue `RST_STREAM(Cancel)`.
@@ -121,8 +121,8 @@ impl Drop for H2Transport {
             return;
         }
 
-        let fsm = *self.state.fsm_lock();
-        if fsm.is_closed() {
+        let lifecycle = *self.state.lifecycle_lock();
+        if lifecycle.is_closed() {
             log::trace!(
                 "h2 stream {}: H2Transport dropped on wire-closed stream — releasing",
                 self.stream_id,
@@ -131,7 +131,9 @@ impl Drop for H2Transport {
                 .send
                 .transport_dropped
                 .store(true, Ordering::Release);
-        } else if !fsm.send_closed() && self.state.send.submit_resolved.load(Ordering::Acquire) {
+        } else if !lifecycle.send_closed()
+            && self.state.send.submit_resolved.load(Ordering::Acquire)
+        {
             // Send half open and a response is on the wire: an upgrade tunnel being dropped.
             // Graceful close.
             log::trace!(
@@ -198,12 +200,12 @@ impl AsyncRead for H2Transport {
         //   1. We take buf lock (driver-push blocked).
         //   2. We register waker.
         //   3. We drop buf lock (driver-push may now proceed and fire waker).
-        //   4. We read recv-closed from the FSM.
+        //   4. We read recv-closed from the lifecycle.
         //   5. Return Pending or Ready(0); if a push raced through step 3, the waker is registered
         //      and a fresh poll will see the new bytes.
         recv_state.waker.register(cx.waker());
         drop(recv);
-        if self.state.fsm_lock().recv_closed() {
+        if self.state.lifecycle_lock().recv_closed() {
             return Poll::Ready(Ok(0));
         }
         Poll::Pending
@@ -220,7 +222,7 @@ impl AsyncWrite for H2Transport {
         // `END_STREAM`, or reset) is a `BrokenPipe` rather than silently swallowed bytes.
         // Otherwise we always accept the write — the "don't write at an inappropriate time"
         // contract is the caller's, same as borrowing the raw transport in h1/h3.
-        if self.state.fsm_lock().send_closed() {
+        if self.state.lifecycle_lock().send_closed() {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
 
@@ -316,16 +318,16 @@ impl OutboundPart {
 /// Shared per-stream state. Owned by an [`Arc`] held jointly by the driver (via the connection's
 /// stream table) and the handler task (via [`H2Transport`]).
 ///
-/// The cross-task-visible protocol state machine is the [`StreamFsm`] in [`Self::fsm`] — written
-/// only by the driver (which feeds it [`StreamEvent`]s as it frames/receives) and read by both
-/// sides. Everything else is data and mailbox plumbing: the recv ring, the outbound parts queue +
-/// streaming ring, and the conn-task → driver signals.
+/// The cross-task-visible protocol state machine is the [`StreamLifecycle`] in [`Self::lifecycle`]
+/// — written only by the driver (which feeds it [`StreamEvent`]s as it frames/receives) and read by
+/// both sides. Everything else is data and mailbox plumbing: the recv ring, the outbound parts
+/// queue + streaming ring, and the conn-task → driver signals.
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
     /// Protocol state (RFC 9113 §5.1). Driver is the sole writer; the handler side reads it for
     /// recv-EOF (`poll_read`) and send-closed (`poll_write`) decisions. Held under a `Mutex` so
     /// observe-then-act sequences are atomic.
-    fsm: Mutex<StreamFsm>,
+    lifecycle: Mutex<StreamLifecycle>,
 
     /// Recv side: inbound DATA payloads, handler waker, handler-intent signal, trailers.
     pub(super) recv: RecvState,
@@ -347,18 +349,18 @@ pub(super) struct StreamState {
 }
 
 impl StreamState {
-    /// Lock the per-stream protocol FSM. Convenience wrapper — every site treats poisoning as a
-    /// programming error.
-    pub(super) fn fsm_lock(&self) -> MutexGuard<'_, StreamFsm> {
-        self.fsm.lock().expect("fsm mutex poisoned")
+    /// Lock the per-stream protocol lifecycle. Convenience wrapper — every site treats poisoning as
+    /// a programming error.
+    pub(super) fn lifecycle_lock(&self) -> MutexGuard<'_, StreamLifecycle> {
+        self.lifecycle.lock().expect("lifecycle mutex poisoned")
     }
 
-    /// Apply a [`StreamEvent`] to the FSM. Driver-only — the sole writer of protocol state.
-    pub(super) fn fsm_event(
+    /// Apply a [`StreamEvent`] to the lifecycle. Driver-only — the sole writer of protocol state.
+    pub(super) fn apply_event(
         &self,
         event: StreamEvent,
     ) -> Result<(), super::stream_state::StreamProtocolError> {
-        self.fsm_lock().on_event(event)
+        self.lifecycle_lock().on_event(event)
     }
 
     /// Stage a full submission of outbound parts atomically, so the send pump sees a complete
@@ -376,7 +378,7 @@ impl StreamState {
     /// Enqueue the `END_STREAM` terminator unless one (or a reset) is already queued or the send
     /// half is already closed. Idempotent — safe to call from repeated `poll_close` / Drop.
     pub(super) fn request_close(&self) {
-        if self.fsm_lock().send_closed() {
+        if self.lifecycle_lock().send_closed() {
             return;
         }
         let mut queue = self.send.queue.lock().expect("send queue mutex poisoned");
@@ -413,8 +415,9 @@ pub(super) struct RecvState {
     /// amortized allocations per DATA frame.
     pub(super) buf: Mutex<Buffer>,
 
-    /// Handler-task waker, fired by the driver after pushing DATA into `buf` or after the FSM
-    /// transitions to recv-closed. Single-waiter: only one task ever polls a given `H2Transport`.
+    /// Handler-task waker, fired by the driver after pushing DATA into `buf` or after the
+    /// lifecycle transitions to recv-closed. Single-waiter: only one task ever polls a given
+    /// `H2Transport`.
     pub(super) waker: AtomicWaker,
 
     /// Set by the handler's first [`H2Transport::poll_read`] to declare intent to consume the
@@ -430,8 +433,9 @@ pub(super) struct RecvState {
     pub(super) bytes_consumed: AtomicU64,
 
     /// Trailers, populated by the driver if a trailing HEADERS frame arrives for this stream.
-    /// Always written *before* the FSM transitions to recv-closed, so once the handler observes
-    /// `Ready(0)` on the recv side, any trailers for this request are guaranteed to be in place.
+    /// Always written *before* the lifecycle transitions to recv-closed, so once the handler
+    /// observes `Ready(0)` on the recv side, any trailers for this request are guaranteed to
+    /// be in place.
     pub(super) trailers: Mutex<Option<Headers>>,
 
     /// Client-role: response HEADERS field section, populated by the driver on the first non-1xx
@@ -509,10 +513,10 @@ pub(super) struct SendState {
     /// `submit_resolved` is set.
     pub(super) completion_waker: AtomicWaker,
 
-    /// Set by [`H2Transport::Drop`] when the FSM is already `Closed` and the application is
+    /// Set by [`H2Transport::Drop`] when the lifecycle is already `Closed` and the application is
     /// releasing a stream that lingered in the map for post-EOF access (client role). The driver
     /// picks it up and removes the entry from both maps. Not protocol state — a local
-    /// resource-ownership fact the FSM can't represent.
+    /// resource-ownership fact the lifecycle can't represent.
     pub(super) transport_dropped: AtomicBool,
 }
 
@@ -524,7 +528,7 @@ mod tests {
     #[test]
     fn request_close_enqueues_single_close() {
         let state = StreamState::default();
-        *state.fsm_lock() = StreamFsm::Open;
+        *state.lifecycle_lock() = StreamLifecycle::Open;
         state.request_close();
         state.request_close();
         let queue = state.send.queue.lock().unwrap();
@@ -535,7 +539,7 @@ mod tests {
     #[test]
     fn request_close_noop_when_send_closed() {
         let state = StreamState::default();
-        *state.fsm_lock() = StreamFsm::HalfClosedLocal;
+        *state.lifecycle_lock() = StreamLifecycle::HalfClosedLocal;
         state.request_close();
         assert!(
             state.send.queue.lock().unwrap().is_empty(),
@@ -546,7 +550,7 @@ mod tests {
     #[test]
     fn request_reset_clears_queue_and_is_first_wins() {
         let state = StreamState::default();
-        *state.fsm_lock() = StreamFsm::Open;
+        *state.lifecycle_lock() = StreamLifecycle::Open;
         state.stage([OutboundPart::Body(Body::default()), OutboundPart::Close]);
         state.request_reset(H2ErrorCode::Cancel);
         state.request_reset(H2ErrorCode::InternalError);
@@ -569,7 +573,7 @@ mod tests {
         context.config.response_buffer_max_len = 16;
         let connection = H2Connection::new(Arc::new(context));
         let state = Arc::new(StreamState::default());
-        *state.fsm_lock() = StreamFsm::Open;
+        *state.lifecycle_lock() = StreamLifecycle::Open;
         let mut transport = H2Transport::new(connection, 1, state);
         let waker = Waker::noop();
         let mut cx = Context::from_waker(waker);

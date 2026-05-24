@@ -137,7 +137,7 @@ where
     pub(super) fn has_pending_recv(&self) -> bool {
         self.streams
             .values()
-            .any(|e| !e.shared.fsm_lock().recv_closed())
+            .any(|e| !e.shared.lifecycle_lock().recv_closed())
     }
 
     /// True if any stream's send half is still open — the half-closed-remote case is a server
@@ -217,7 +217,7 @@ where
             }
 
             let front_terminal = cursor.parts.front().is_some_and(OutboundPart::is_terminal);
-            let send_open = !self.fsm_send_closed(stream_id);
+            let send_open = !self.lifecycle_send_closed(stream_id);
 
             // Drain the streaming ring before a terminator, and while the queue is empty but the
             // send half is still open (a bidi tunnel awaiting handler writes).
@@ -306,18 +306,18 @@ where
     }
 
     /// `true` if the stream's send half is closed (or the stream is gone).
-    fn fsm_send_closed(&self, stream_id: u32) -> bool {
+    fn lifecycle_send_closed(&self, stream_id: u32) -> bool {
         self.streams
             .get(&stream_id)
-            .is_none_or(|e| e.shared.fsm_lock().send_closed())
+            .is_none_or(|e| e.shared.lifecycle_lock().send_closed())
     }
 
-    /// Feed a send-side event to the stream's FSM. Send transitions are driver-controlled and
+    /// Feed a send-side event to the stream's lifecycle. Send transitions are driver-controlled and
     /// always legal if the pump respects the machine; an illegal one is `debug_assert`ed and
     /// absorbed inside `on_event`, so the result is intentionally ignored.
     fn feed_send(&self, stream_id: u32, event: StreamEvent) {
         if let Some(entry) = self.streams.get(&stream_id) {
-            let _ = entry.shared.fsm_event(event);
+            let _ = entry.shared.apply_event(event);
         }
     }
 
@@ -502,25 +502,25 @@ where
         });
     }
 
-    /// Send pump's success-path completion: the terminator has been framed and the FSM transitioned
-    /// (the terminator's event was fed before this call). Resolves the conn task's `SubmitSend`,
-    /// then — if the stream is now fully `Closed` — tears it down: the server removes it; the
-    /// client keeps the entry in the map for post-EOF trailer access and removes it on
-    /// transport drop. If the recv half is still open (`HalfClosedLocal`) the stream lingers
-    /// until the peer's `END_STREAM` lands via [`route_data`][super::recv].
+    /// Send pump's success-path completion: the terminator has been framed and the lifecycle
+    /// transitioned (the terminator's event was fed before this call). Resolves the conn task's
+    /// `SubmitSend`, then — if the stream is now fully `Closed` — tears it down: the server
+    /// removes it; the client keeps the entry in the map for post-EOF trailer access and
+    /// removes it on transport drop. If the recv half is still open (`HalfClosedLocal`) the
+    /// stream lingers until the peer's `END_STREAM` lands via [`route_data`][super::recv].
     pub(super) fn finalize_send(&mut self, stream_id: u32) {
         self.resolve_submit_send(stream_id, Ok(()));
         self.close_if_both_done(stream_id);
     }
 
-    /// Close and tear down the stream if both halves are done (`fsm.is_closed()`). Server removes
-    /// the entry; client keeps it (for trailer access) and signals close. No-op otherwise. Called
-    /// from both the send terminator path and the recv `END_STREAM` path.
+    /// Close and tear down the stream if both halves are done (`lifecycle.is_closed()`). Server
+    /// removes the entry; client keeps it (for trailer access) and signals close. No-op
+    /// otherwise. Called from both the send terminator path and the recv `END_STREAM` path.
     pub(super) fn close_if_both_done(&mut self, stream_id: u32) {
         let closed = self
             .streams
             .get(&stream_id)
-            .is_some_and(|e| e.shared.fsm_lock().is_closed());
+            .is_some_and(|e| e.shared.lifecycle_lock().is_closed());
         if !closed {
             return;
         }

@@ -7,7 +7,13 @@
     nonstandard_style,
     unused_qualifications
 )]
-#![warn(missing_docs, clippy::pedantic, clippy::perf, clippy::cargo)]
+#![warn(
+    missing_docs,
+    clippy::pedantic,
+    clippy::perf,
+    clippy::cargo,
+    rustdoc::broken_intra_doc_links
+)]
 #![allow(
     clippy::must_use_candidate,
     clippy::module_name_repetitions,

@@ -145,17 +145,17 @@ pub struct H2Driver<T> {
     /// DATA emissions here to bound per-connection memory.
     body_scratch: Vec<u8>,
 
-    /// Connection-level send flow-control window. Tracked as [`i64`] so mid-connection
-    /// `INITIAL_WINDOW_SIZE` reductions can drive per-stream windows temporarily negative
-    /// — kept here to the connection window for symmetry though the connection window
-    /// itself is *not* affected by `SETTINGS_INITIAL_WINDOW_SIZE`. Decremented as we emit
-    /// DATA; incremented by peer `WINDOW_UPDATE(stream_id=0, inc)`. Overflow past
-    /// [`MAX_FLOW_CONTROL_WINDOW`] is a connection-level `FLOW_CONTROL_ERROR`.
+    /// Connection-level send flow-control window. Tracked as [`i64`] for symmetry with the
+    /// per-stream windows, which a mid-connection `INITIAL_WINDOW_SIZE` reduction can drive
+    /// temporarily negative; the connection window itself is *not* affected by
+    /// `SETTINGS_INITIAL_WINDOW_SIZE`. Decremented as we emit DATA; incremented by peer
+    /// `WINDOW_UPDATE(stream_id=0, inc)`. Overflow past [`MAX_FLOW_CONTROL_WINDOW`] is a
+    /// connection-level `FLOW_CONTROL_ERROR`.
     connection_send_window: i64,
 
     /// Connection-level recv flow-control window. Starts at the spec's baseline of 65535
-    /// octets and is raised to [`MAX_CONNECTION_RECV_WINDOW`] via an initial
-    /// `WINDOW_UPDATE(0)` right after SETTINGS — the spec forbids SETTINGS from altering
+    /// octets and is raised to the configured `h2_initial_connection_window_size` via an
+    /// initial `WINDOW_UPDATE(0)` right after SETTINGS — the spec forbids SETTINGS from altering
     /// it, so WU is the only path. Decremented as peer DATA frames arrive (across all
     /// streams); incremented as the handler-task-side consumption signal is picked up and
     /// we emit `WINDOW_UPDATE(0, consumed)`. A negative value means the peer overran the
@@ -379,7 +379,7 @@ where
 
                 // Read pump runs in both Running and Closing so a Closing-side driver
                 // (we sent or received GOAWAY) keeps decoding inbound frames for streams
-                // that haven't reached `recv.eof` yet — e.g. trailing HEADERS for an
+                // that haven't reached recv-closed yet — e.g. trailing HEADERS for an
                 // in-flight server-stream the peer is about to send. New `Action::Emit`
                 // streams are ignored in Closing: post-GOAWAY the peer shouldn't be
                 // opening new ones (and we wouldn't want to dispatch handlers for them
@@ -473,7 +473,7 @@ where
             // Move each still-live stream to `Closed{Reset}` (a no-op on streams already closed, so
             // an existing reason isn't clobbered), then fan out every recv/send waker so parked
             // tasks observe the close instead of hanging.
-            let _ = entry.shared.fsm_event(StreamEvent::RecvReset(reset_code));
+            let _ = entry.shared.apply_event(StreamEvent::RecvReset(reset_code));
             entry.shared.recv.waker.wake();
             entry.shared.recv.response_headers_waker.wake();
             entry.shared.send.outbound_write_waker.wake();
@@ -543,7 +543,7 @@ where
             return;
         }
         for (id, entry) in &self.streams {
-            let fsm = *entry.shared.fsm_lock();
+            let lifecycle = *entry.shared.lifecycle_lock();
             let queued = !entry
                 .shared
                 .send
@@ -551,9 +551,9 @@ where
                 .lock()
                 .expect("send queue mutex poisoned")
                 .is_empty();
-            if entry.send.is_some() || queued || !fsm.recv_closed() {
+            if entry.send.is_some() || queued || !lifecycle.recv_closed() {
                 log::trace!(
-                    "h2 driver: Closing — stream {id} blocking drain (fsm={fsm:?}, \
+                    "h2 driver: Closing — stream {id} blocking drain (lifecycle={lifecycle:?}, \
                      cursor_present={}, queued={queued})",
                     entry.send.is_some(),
                 );

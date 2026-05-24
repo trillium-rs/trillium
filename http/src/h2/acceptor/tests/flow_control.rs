@@ -210,6 +210,55 @@ fn peer_data_past_stream_buffer_cap_is_connection_error() {
     );
 }
 
+/// The connection-level recv window is enforced, not merely tracked: aggregate inbound DATA
+/// that overruns it is a connection-level `FLOW_CONTROL_ERROR` → GOAWAY, even when no single
+/// stream exceeds the per-stream buffer cap. Pins the connection window to its 65535 floor
+/// (the configured target only ever raises it, never lowers) and floods just past that on one
+/// stream whose 1 MiB per-stream cap stays untouched — so the connection window is the only
+/// bound that can fire.
+#[test]
+fn peer_data_past_connection_window_is_connection_error() {
+    let mut fx = DriverFixture::new_server_with_config(
+        HttpConfig::default().with_h2_initial_connection_window_size(65_535),
+    );
+    fx.complete_handshake();
+
+    // Recv half left open so the DATA routes into the recv ring rather than being rejected.
+    fx.peer_open_stream(1, Method::Post, "/", false);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+
+    // Four 16384-byte DATA frames total 65536 — one byte past the 65535 connection window, so
+    // the fourth tips it negative. Each frame is within the default max frame size, and the
+    // running total (≤ 65536) stays under the 1 MiB per-stream cap.
+    let chunk = [0u8; 16_384];
+    for _ in 0..4 {
+        fx.peer_data(1, &chunk, false);
+    }
+
+    let mut frames = Vec::new();
+    for _ in 0..6 {
+        let _ = fx.tick();
+        frames.extend(fx.next_outbound_frames());
+        if frames.iter().any(|f| matches!(f, Frame::Goaway { .. })) {
+            break;
+        }
+    }
+    assert!(
+        frames.iter().any(|f| matches!(
+            f,
+            Frame::Goaway {
+                error_code: H2ErrorCode::FlowControlError,
+                ..
+            }
+        )),
+        "DATA past the connection recv window must be a connection FLOW_CONTROL_ERROR; got \
+         {frames:?}",
+    );
+}
+
 /// A `WINDOW_UPDATE` arriving on a stream that has already closed is benign — the peer may
 /// credit a stream it hasn't yet observed our END_STREAM on (RFC 9113 §5.1). The driver
 /// ignores it: no error, no GOAWAY, connection stays running.
