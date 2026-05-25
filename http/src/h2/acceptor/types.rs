@@ -124,15 +124,32 @@ pub(super) struct StreamEntry {
     /// refill crediting bytes the handler has consumed). A negative value means the peer
     /// overran the window — connection-level `FLOW_CONTROL_ERROR`.
     pub(super) peer_recv_window: i64,
+
+    /// Declared request-body length from the `content-length` request header, if present and
+    /// parseable. The driver tallies inbound DATA octets against this to enforce RFC 9113
+    /// §8.1.2.6: a body whose length disagrees with `content-length` is a stream-level
+    /// `PROTOCOL_ERROR`. `None` means no declared length, so no check applies.
+    pub(super) expected_content_length: Option<u64>,
+
+    /// Running total of inbound DATA payload octets (body bytes only — pad-length byte and
+    /// padding excluded) received on this stream, compared against `expected_content_length`.
+    pub(super) received_body_len: u64,
 }
 
 impl StreamEntry {
-    pub(super) fn new(shared: Arc<StreamState>, send_window: i64, peer_recv_window: i64) -> Self {
+    pub(super) fn new(
+        shared: Arc<StreamState>,
+        send_window: i64,
+        peer_recv_window: i64,
+        expected_content_length: Option<u64>,
+    ) -> Self {
         Self {
             shared,
             send: None,
             send_window,
             peer_recv_window,
+            expected_content_length,
+            received_body_len: 0,
         }
     }
 }

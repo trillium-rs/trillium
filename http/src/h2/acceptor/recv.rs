@@ -305,6 +305,15 @@ where
             .get_mut(&stream_id)
             .expect("checked above under shared borrow");
         entry.peer_recv_window -= flow_controlled;
+        entry.received_body_len += u64::from(data_length);
+        // RFC 9113 §8.1.2.6: a declared content-length must equal the total DATA payload. A
+        // running total past the declared length is a violation as soon as it's seen; a
+        // total that still disagrees at END_STREAM is one too. Either way, stream-level
+        // PROTOCOL_ERROR.
+        let content_length_mismatch = entry.expected_content_length.is_some_and(|expected| {
+            entry.received_body_len > expected
+                || (end_stream && entry.received_body_len != expected)
+        });
         let state = entry.shared.clone();
 
         // Half-closed remote / closed: peer already sent END_STREAM on this stream; any DATA after
@@ -314,6 +323,15 @@ where
             self.complete_and_remove_stream(
                 stream_id,
                 Err(std::io::Error::other("DATA after END_STREAM on h2 stream")),
+            );
+            return Ok(());
+        }
+
+        if content_length_mismatch {
+            self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
+            self.complete_and_remove_stream(
+                stream_id,
+                Err(std::io::Error::other("h2 content-length mismatch")),
             );
             return Ok(());
         }

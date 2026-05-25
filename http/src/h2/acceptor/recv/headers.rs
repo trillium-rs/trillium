@@ -13,7 +13,7 @@
 //! All methods are on [`super::super::H2Driver`].
 
 use crate::{
-    Conn, Status,
+    Conn, KnownHeaderName, Status,
     h2::{
         H2Error, H2ErrorCode,
         acceptor::{Action, CloseOutcome, H2Driver, Role, StreamEntry, frame_slice},
@@ -319,10 +319,19 @@ where
             return;
         }
 
+        // Declared response-body length, for the §8.1.2.6 cross-check in `route_data` (which
+        // is role-agnostic — inbound DATA on a client stream is the response body). Set on
+        // the final response only; interim responses returned above carry no body.
+        let expected_content_length = field_section
+            .headers()
+            .get_str(KnownHeaderName::ContentLength)
+            .and_then(|cl| cl.parse::<u64>().ok());
+
         let entry = self
             .streams
-            .get(&stream_id)
+            .get_mut(&stream_id)
             .expect("caller verified stream is present");
+        entry.expected_content_length = expected_content_length;
         let state = entry.shared.clone();
 
         // Latch the "we've seen the first HEADERS" flag *before* writing the slot. Subsequent
@@ -374,12 +383,24 @@ where
         // handler calls `H2Transport::poll_read` and the driver observes `is_reading` on
         // a subsequent tick. Configurable via `HttpConfig::h2_initial_stream_window_size`.
         let peer_recv_window = i64::from(self.config.initial_stream_window_size());
+        // Declared body length, for the §8.1.2.6 content-length / DATA-length cross-check in
+        // `route_data`. An unparseable value reads as "no declared length" — matching the
+        // request-body reader, which also tolerates it rather than failing the request here.
+        let expected_content_length = field_section
+            .headers()
+            .get_str(KnownHeaderName::ContentLength)
+            .and_then(|cl| cl.parse::<u64>().ok());
         self.connection
             .streams_lock()
             .insert(stream_id, state.clone());
         self.streams.insert(
             stream_id,
-            StreamEntry::new(state.clone(), send_window, peer_recv_window),
+            StreamEntry::new(
+                state.clone(),
+                send_window,
+                peer_recv_window,
+                expected_content_length,
+            ),
         );
         self.last_peer_stream_id = stream_id;
 
