@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - HTTP/2 server: a peer could exhaust server memory by opening a header block (a `HEADERS` frame without `END_HEADERS`) and then sending an unbounded stream of `CONTINUATION` frames without ever ending it — the "CONTINUATION flood" (CVE-2024-27316 class). The cumulative compressed header block is now bounded by the advertised `SETTINGS_MAX_HEADER_LIST_SIZE` (`HttpConfig::max_header_list_size`, default 32 KiB); a block exceeding it closes the connection with `GOAWAY(ENHANCE_YOUR_CALM)` before decoding.
+- HTTP/2: a message whose `content-length` header disagreed with the actual length of its body was accepted rather than rejected — on the server for request bodies, and on the client for response bodies. A body longer than declared was silently truncated at the declared length; a shorter one was only caught if the body happened to be read to its end. The gap between a declared and actual body length is a request/response-smuggling / desync primitive, most concretely when the message is forwarded to an HTTP/1 peer whose parser trusts `content-length`. Both directions are now rejected with a stream error: a body that overruns its declared length the moment it does so, and a short one when the stream ends.
 
 ## [1.3.1] - 2026-05-21
 

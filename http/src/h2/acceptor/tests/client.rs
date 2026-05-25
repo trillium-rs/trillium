@@ -9,8 +9,9 @@
 
 use super::fixture::*;
 use crate::{
-    Headers, Method, Status,
+    Headers, KnownHeaderName, Method, Status,
     h2::{H2ErrorCode, H2Transport, SubmitSend, acceptor::types::DriverState, frame::Frame},
+    headers::hpack::PseudoHeaders,
 };
 use std::{
     future::Future,
@@ -41,7 +42,6 @@ impl Wake for CountingWaker {
 /// the held `SubmitSend` + `H2Transport` (kept alive by the caller so the stream isn't
 /// torn down by a dropped transport). Asserts the request HEADERS(END_STREAM) is framed.
 fn open_get(fx: &mut DriverFixture) -> (u32, SubmitSend, H2Transport) {
-    use crate::headers::hpack::PseudoHeaders;
     let pseudos = PseudoHeaders::default()
         .with_method(Method::Get)
         .with_path("/")
@@ -322,6 +322,68 @@ fn client_discards_interim_response_and_surfaces_final() {
         ),
         other => panic!("expected the final response headers to surface, got {other:?}"),
     }
+}
+
+/// Response-side §8.1.2.6: a response body longer than its declared `content-length` is a
+/// stream-level `PROTOCOL_ERROR`. The client must `RST_STREAM(PROTOCOL_ERROR)` rather than
+/// silently truncate the body at the declared length. Server-role dual:
+/// `data_exceeding_content_length_is_protocol_error`.
+#[test]
+fn server_response_body_exceeding_content_length_is_reset() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+    let (id, _submit, _transport) = open_get(&mut fx);
+
+    // Response declares content-length: 1 but the body is 4 bytes.
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let mut fields = Headers::new();
+    fields.insert(KnownHeaderName::ContentLength, "1");
+    fx.peer_headers(id, pseudos, &fields, false);
+    let _ = fx.tick();
+    let _ = fx.next_outbound_frames();
+
+    fx.peer_data(id, b"test", true);
+    let _ = fx.tick();
+
+    let frames = fx.next_outbound_frames();
+    assert!(
+        frames.iter().any(|f| matches!(
+            f,
+            Frame::RstStream { stream_id, error_code: H2ErrorCode::ProtocolError }
+                if *stream_id == id
+        )),
+        "a response body past content-length must earn RST_STREAM(PROTOCOL_ERROR); got {frames:?}",
+    );
+    assert!(!fx.connection.streams_lock().contains_key(&id));
+}
+
+/// Control for the response-side §8.1.2.6 check: a response body matching its declared
+/// `content-length` is well-formed — no reset, stream survives to deliver the body.
+#[test]
+fn server_response_body_matching_content_length_is_accepted() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+    let (id, _submit, _transport) = open_get(&mut fx);
+
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let mut fields = Headers::new();
+    fields.insert(KnownHeaderName::ContentLength, "4");
+    fx.peer_headers(id, pseudos, &fields, false);
+    let _ = fx.tick();
+    let _ = fx.next_outbound_frames();
+
+    fx.peer_data(id, b"test", true);
+    let _ = fx.tick();
+
+    let frames = fx.next_outbound_frames();
+    assert!(
+        !frames.iter().any(|f| matches!(
+            f,
+            Frame::RstStream { stream_id, error_code: H2ErrorCode::ProtocolError }
+                if *stream_id == id
+        )),
+        "a response body matching content-length must not be reset; got {frames:?}",
+    );
 }
 
 /// A spec-forbidden `END_STREAM` on an interim (1xx) HEADERS frame must abort the response

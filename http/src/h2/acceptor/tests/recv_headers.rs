@@ -7,7 +7,7 @@
 
 use super::fixture::*;
 use crate::{
-    Headers, HttpConfig, Method, Status,
+    Headers, HttpConfig, KnownHeaderName, Method, Status,
     h2::{H2ErrorCode, frame::Frame},
     headers::hpack::PseudoHeaders,
 };
@@ -18,6 +18,27 @@ fn goaway_with(frames: &[Frame], code: H2ErrorCode) -> bool {
     frames
         .iter()
         .any(|f| matches!(f, Frame::Goaway { error_code, .. } if *error_code == code))
+}
+
+/// True if any frame in the batch is a `RST_STREAM` on `stream_id` carrying `code`.
+fn rst_with(frames: &[Frame], stream_id: u32, code: H2ErrorCode) -> bool {
+    frames.iter().any(|f| {
+        matches!(f, Frame::RstStream { stream_id: s, error_code }
+            if *s == stream_id && *error_code == code)
+    })
+}
+
+/// Pseudo-headers + fields for a POST carrying a `content-length` declaration, for the
+/// §8.1.2.6 cross-check tests below.
+fn post_with_content_length(content_length: u64) -> (PseudoHeaders<'static>, Headers) {
+    let pseudos = PseudoHeaders::default()
+        .with_method(Method::Post)
+        .with_path("/")
+        .with_scheme("http")
+        .with_authority("test");
+    let mut fields = Headers::new();
+    fields.insert(KnownHeaderName::ContentLength, content_length.to_string());
+    (pseudos, fields)
 }
 
 /// A peer that opens a header block (HEADERS without `END_HEADERS`) and then floods
@@ -371,5 +392,126 @@ fn headers_on_never_opened_lower_id_is_protocol_error() {
     assert!(
         goaway_with(&frames, H2ErrorCode::ProtocolError),
         "HEADERS on a never-opened lower id must be a connection PROTOCOL_ERROR; got {frames:?}",
+    );
+}
+
+/// RFC 9113 §8.1.2.6: a single DATA frame longer than the declared `content-length` is a
+/// stream-level `PROTOCOL_ERROR`, caught the moment the running tally passes the declared
+/// length — before END_STREAM. Mirrors h2spec http2/8.1.2.6 case 1.
+#[test]
+fn data_exceeding_content_length_is_protocol_error() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    let (pseudos, fields) = post_with_content_length(1);
+    fx.peer_headers(1, pseudos, &fields, false);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn for stream 1, got {other:?}"),
+    };
+    let _ = fx.next_outbound_frames();
+
+    // Declared 1, send 4 with END_STREAM.
+    fx.peer_data(1, b"test", true);
+    let _ = fx.tick();
+
+    let frames = fx.next_outbound_frames();
+    assert!(
+        rst_with(&frames, 1, H2ErrorCode::ProtocolError),
+        "DATA longer than content-length must earn RST_STREAM(PROTOCOL_ERROR); got {frames:?}",
+    );
+    assert!(
+        !fx.connection.streams_lock().contains_key(&1),
+        "the stream should be removed after the content-length violation",
+    );
+}
+
+/// RFC 9113 §8.1.2.6: a body *shorter* than the declared `content-length` is also a
+/// stream-level `PROTOCOL_ERROR` — detected at END_STREAM, where the final tally still
+/// disagrees with the declared length.
+#[test]
+fn data_short_of_content_length_at_end_stream_is_protocol_error() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    let (pseudos, fields) = post_with_content_length(10);
+    fx.peer_headers(1, pseudos, &fields, false);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn for stream 1, got {other:?}"),
+    };
+    let _ = fx.next_outbound_frames();
+
+    // Declared 10, send 4 with END_STREAM — the body ends short.
+    fx.peer_data(1, b"test", true);
+    let _ = fx.tick();
+
+    let frames = fx.next_outbound_frames();
+    assert!(
+        rst_with(&frames, 1, H2ErrorCode::ProtocolError),
+        "a body short of content-length must earn RST_STREAM(PROTOCOL_ERROR) at END_STREAM; got \
+         {frames:?}",
+    );
+    assert!(!fx.connection.streams_lock().contains_key(&1));
+}
+
+/// RFC 9113 §8.1.2.6: the declared length is checked against the *sum* of DATA frames. A
+/// first frame within budget followed by a second that overshoots is a stream-level
+/// `PROTOCOL_ERROR`. Mirrors h2spec http2/8.1.2.6 case 2.
+#[test]
+fn multiple_data_frames_summing_past_content_length_is_protocol_error() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    let (pseudos, fields) = post_with_content_length(5);
+    fx.peer_headers(1, pseudos, &fields, false);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn for stream 1, got {other:?}"),
+    };
+    let _ = fx.next_outbound_frames();
+
+    // 4 (within the declared 5), then another 4 → sum 8 > 5.
+    fx.peer_data(1, b"test", false);
+    let _ = fx.tick();
+    fx.peer_data(1, b"test", true);
+    let _ = fx.tick();
+
+    let frames = fx.next_outbound_frames();
+    assert!(
+        rst_with(&frames, 1, H2ErrorCode::ProtocolError),
+        "DATA frames summing past content-length must earn RST_STREAM(PROTOCOL_ERROR); got \
+         {frames:?}",
+    );
+    assert!(!fx.connection.streams_lock().contains_key(&1));
+}
+
+/// Control case for the §8.1.2.6 checks: a body whose length exactly matches the declared
+/// `content-length` is well-formed — no RST, and the stream survives (recv half closes to
+/// half-closed-remote, awaiting the handler's response).
+#[test]
+fn data_matching_content_length_is_accepted() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    let (pseudos, fields) = post_with_content_length(4);
+    fx.peer_headers(1, pseudos, &fields, false);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn for stream 1, got {other:?}"),
+    };
+    let _ = fx.next_outbound_frames();
+
+    fx.peer_data(1, b"test", true);
+    let _ = fx.tick();
+
+    let frames = fx.next_outbound_frames();
+    assert!(
+        !rst_with(&frames, 1, H2ErrorCode::ProtocolError),
+        "a body matching content-length must not be reset; got {frames:?}",
+    );
+    assert!(
+        fx.connection.streams_lock().contains_key(&1),
+        "a well-formed request stream should remain open for its response",
     );
 }
