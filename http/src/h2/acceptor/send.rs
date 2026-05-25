@@ -348,22 +348,53 @@ where
             .unwrap_or(usize::MAX)
             .min(self.body_scratch.len());
 
+        // Single-copy framing: read the body straight into the tail of `write_buf` behind a
+        // reserved DATA-header prefix, then backfill the header. `write_buf` is
+        // driver-exclusive, so this needs no lock and no `unsafe`. The zero-init that
+        // `resize` performs is what makes the `poll_read` slice safe to hand out; it costs
+        // one memset in place of the eliminated scratch→`write_buf` memcpy. (The streaming
+        // ring in `poll_emit_ring` keeps `body_scratch` — its bytes come from another task.)
+        //
+        // Every early return below must `truncate(header_pos)` to undo this reservation —
+        // otherwise the zero-filled tail leaks onto the wire as a malformed DATA payload.
+        let prefix_len = frame::data::encoded_prefix_len(0);
+        let header_pos = self.write_buf.len();
+        let payload_start = header_pos + prefix_len;
+        self.write_buf.resize(payload_start + cap, 0);
+
         let body = cursor.body.as_mut().expect("caller checked body.is_some()");
-        let n = match Pin::new(body).poll_read(cx, &mut self.body_scratch[..cap]) {
-            Poll::Ready(result) => result?,
-            Poll::Pending => return Poll::Pending,
+        let n = match Pin::new(body).poll_read(cx, &mut self.write_buf[payload_start..]) {
+            Poll::Ready(Ok(n)) => n,
+            Poll::Ready(Err(e)) => {
+                self.write_buf.truncate(header_pos);
+                return Poll::Ready(Err(e));
+            }
+            Poll::Pending => {
+                self.write_buf.truncate(header_pos);
+                return Poll::Pending;
+            }
         };
         if n == 0 {
+            self.write_buf.truncate(header_pos);
             cursor.drain_body_into_trailers();
             return Poll::Ready(Ok(true));
         }
 
         let n_u32 = u32::try_from(n).expect("read n <= body_scratch.len() fits u32");
         log::trace!("h2 emit: DATA stream={stream_id} len={n} end_stream=false");
-        self.queue_frame(frame::data::encoded_prefix_len(0), |buf| {
-            frame::data::encode_prefix(stream_id, false, n_u32, 0, buf)
-        });
-        self.write_buf.extend_from_slice(&self.body_scratch[..n]);
+        // Backfill the 9-byte DATA header in front of the payload, then drop the unused
+        // tail of the reservation (a short read gives `n < cap`).
+        frame::data::encode_prefix(
+            stream_id,
+            // Never END_STREAM here; trailers / empty-DATA carries END_STREAM.
+            false,
+            n_u32,
+            0,
+            &mut self.write_buf[header_pos..payload_start],
+        )
+        .expect("prefix slice sized from encoded_prefix_len");
+        self.write_buf.truncate(payload_start + n);
+        self.write_flush_pending = true;
 
         let charge = i64::try_from(n).expect("n <= body_scratch.len() fits i64");
         self.connection_send_window -= charge;
