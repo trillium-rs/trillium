@@ -1,6 +1,6 @@
 [package]
 name = "trillium-client"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2024"
 description = "http client for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -40,7 +40,7 @@ sonic-rs = { version = "0.5.8", optional = true }
 fieldwork = "0.5.0"
 trillium-macros.workspace = true
 trillium-webtransport = { workspace = true, optional = true }
-trillium-http = { version = "1.2.2", path = "../http", features = ["unstable"] }
+trillium-http = { version = "1.3.2", path = "../http", features = ["unstable"] }
 
 [dev-dependencies]
 async-channel = "2.5.0"

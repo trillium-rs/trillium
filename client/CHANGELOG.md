@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-05-25
+
+### Changed
+
+- A request body set on a conn marked for upgrade (`ConnExt::upgrade`) is now sent as a
+  prelude before the connection transitions to the bidirectional/upgraded stream, across
+  HTTP/1.1, HTTP/2, and HTTP/3. Previously the body was silently dropped. `Content-Length`
+  is stripped on these requests, since the stream stays open past the prelude.
+
+### Fixed
+
+- HTTP/2: a request could hang forever when the connection closed without delivering a
+  response — a graceful `GOAWAY`, a peer FIN, or an I/O error — unless the server had
+  explicitly reset that stream. In-flight requests (awaiting response headers, reading a
+  response body, or writing to an upgraded stream) now surface a connection-aborted /
+  broken-pipe error instead of hanging.
+- HTTP/3: reading a response body could hang or fail with a spurious `UnexpectedEof` when
+  the body's first DATA frame had been buffered alongside the headers and was then read with
+  a buffer smaller than a frame header — as happens reading a body one byte at a time.
+  Bodies read with a larger buffer, or whose body arrived separately from the headers, were
+  unaffected. These now decode correctly.
+- HTTP/1.1: reading a chunked-encoded response body could in rare cases fail to decode
+  despite the wire being well-formed, surfacing as one of `chunk header too long`,
+  `invalid chunk size`, `ConnectionAborted`, or `UnexpectedEof`. Decode errors are now
+  surfaced only for genuinely malformed bodies or actual transport closure.
+- HTTP/1.0: responses from servers that omit `Content-Length` (read-to-close framing) now
+  decode correctly. Previously these surfaced as chunked-decode errors.
+
+### Security
+
+- HTTP/2: a response whose `content-length` header disagreed with the actual length of its
+  body was accepted rather than rejected. A body longer than declared was silently truncated
+  at the declared length; a shorter one was only caught if it happened to be read to its end.
+  The gap between a declared and actual body length is a response-smuggling / desync
+  primitive. Such responses are now rejected with a stream error.
+
 ## [0.9.1] - 2026-05-15
 
 ### Added
