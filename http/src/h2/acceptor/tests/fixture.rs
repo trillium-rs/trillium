@@ -37,6 +37,32 @@ pub(super) fn noop_waker() -> Waker {
     Waker::from(Arc::new(NoopWaker))
 }
 
+/// A waker that counts wakes — for asserting that a teardown path actually fires a parked
+/// task's waker (the recv/send-completion fan-out a stranded handler depends on).
+pub(super) struct CountingWaker(pub(super) std::sync::atomic::AtomicUsize);
+impl Wake for CountingWaker {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl CountingWaker {
+    pub(super) fn count(&self) -> usize {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// A fresh counting waker plus a [`Waker`] backed by it.
+pub(super) fn counting_waker() -> (Arc<CountingWaker>, Waker) {
+    let counting = Arc::new(CountingWaker(std::sync::atomic::AtomicUsize::new(0)));
+    let waker = Waker::from(counting.clone());
+    (counting, waker)
+}
+
 /// Paired-transport `H2Driver` test fixture. The driver runs over one half of a
 /// `TestTransport` pair; the test code drives "the peer" through the other half — writing
 /// frames synchronously into the driver's read side and pulling outbound bytes from the

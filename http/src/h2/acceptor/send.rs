@@ -287,8 +287,9 @@ where
                 }
                 OutboundPart::Reset(code) => {
                     log::debug!("h2 stream {stream_id}: conn-task-requested RST_STREAM({code:?})");
+                    // `queue_rst_stream` now feeds the terminal `SendReset` to the lifecycle
+                    // itself.
                     self.queue_rst_stream(stream_id, code);
-                    self.feed_send(stream_id, StreamEvent::SendReset(code));
                     self.complete_and_remove_stream(
                         stream_id,
                         Err(io::Error::other(format!(
@@ -575,9 +576,16 @@ where
         self.closed_streams.record(stream_id, reason);
         if let Some(entry) = self.streams.get(&stream_id) {
             resolve_submit_send(&entry.shared, result);
-            // Wake a conn task parked on `response_headers` so a stream going away surfaces
-            // `NotConnected` rather than hanging. No-op on server-role streams.
+            // Wake every conn-task-side waiter so a handler parked on this stream observes the
+            // teardown instead of hanging (and leaking its swansong guard). A stream the driver
+            // tears down on its own — stream-level RST, flow-control overflow, malformed trailers —
+            // strands a handler parked reading the request body (`recv.waker`) or writing a bidi
+            // response (`outbound_write_waker`) unless we wake them here; the FSM is already
+            // recv/send-closed, so they re-poll to EOF / `BrokenPipe`. `response_headers_waker` is
+            // the client-role analog (no-op on server streams).
+            entry.shared.recv.waker.wake();
             entry.shared.recv.response_headers_waker.wake();
+            entry.shared.send.outbound_write_waker.wake();
         }
     }
 

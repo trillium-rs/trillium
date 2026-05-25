@@ -104,6 +104,20 @@ impl StreamLifecycle {
         matches!(self, Self::Closed { .. })
     }
 
+    /// `true` if the stream closed via `RST_STREAM` (either direction) rather than a clean
+    /// `END_STREAM`. A reset means an in-flight send was aborted — distinct from a completed
+    /// one, which closes with [`CloseReason::EndStream`] after `submit_resolved` has already
+    /// flipped. Checking `Reset` specifically (not `is_closed`) keeps a clean send from being
+    /// misreported as an error in the window before its `submit_resolved` store is visible.
+    pub(super) fn is_reset(self) -> bool {
+        matches!(
+            self,
+            Self::Closed {
+                reason: CloseReason::Reset(_)
+            }
+        )
+    }
+
     /// `true` once the recv half is done — the peer's `END_STREAM` has been observed, or
     /// the stream is closed. `poll_read` returns EOF here; further inbound DATA is illegal.
     pub(super) fn recv_closed(self) -> bool {

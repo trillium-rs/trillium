@@ -194,16 +194,13 @@ where
                     return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
                 }
                 if let Some(entry) = self.streams.get(&stream_id) {
-                    // Move the stream to the terminal `Closed{Reset}` state before removing it.
-                    // Load-bearing for an upgraded stream: leaving the lifecycle send-open would
-                    // let the handler's `H2Transport::poll_write` keep
-                    // accepting bytes into a ring the driver has stopped
-                    // draining (silent data loss). `Closed` makes writes return
-                    // `BrokenPipe` and reads return EOF. The wakes unblock a handler parked on
-                    // either.
+                    // Move the stream to the terminal `Closed{Reset}` state before removing it, so
+                    // a handler parked on it re-polls to EOF / `BrokenPipe` rather than accepting
+                    // writes into a ring the driver has stopped draining (silent data loss on an
+                    // upgraded stream). `complete_and_remove_stream` → `signal_close` then fires
+                    // the conn-task wakers so the parked handler actually
+                    // observes the close.
                     let _ = entry.shared.apply_event(StreamEvent::RecvReset(error_code));
-                    entry.shared.recv.waker.wake();
-                    entry.shared.send.outbound_write_waker.wake();
                     self.complete_and_remove_stream(
                         stream_id,
                         Err(std::io::Error::other("peer RST_STREAM")),

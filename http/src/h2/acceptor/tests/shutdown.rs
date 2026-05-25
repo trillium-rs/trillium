@@ -71,6 +71,207 @@ fn closing_to_drained_waits_for_in_flight_stream() {
     );
 }
 
+/// Regression for the orphaned-handler swansong-guard leak (surfaced by the h2spec conformance
+/// runner hanging on `shut_down()`).
+///
+/// When a connection dies mid-flight (i/o error / peer FIN — the dominant conformance trigger,
+/// "unexpected end of file") the driver's teardown wakes any handler parked reading the request
+/// body. That handler then runs to completion and submits its response — *into a connection whose
+/// driver has already exited*. Nothing will ever frame that submission. `SubmitSend` must observe
+/// the stream's terminal (reset) state and resolve with an error instead of parking forever; a
+/// parked handler holds its swansong guard, so graceful shutdown never completes.
+///
+/// This reproduces the exact ordering: kill the connection first, *then* submit (the handler only
+/// wakes and responds after the recv fan-out).
+#[test]
+fn submit_after_connection_death_resolves_instead_of_hanging() {
+    use std::{
+        future::Future,
+        task::{Context, Poll as TaskPoll},
+    };
+
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    // Open a request stream with an open body (no END_STREAM): a real handler parks reading it.
+    fx.peer_open_stream(1, Method::Post, "/", false);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+
+    // The connection dies: the peer closes the transport, the driver reads EOF and finishes with
+    // an i/o error. (`run_h2` would now break and drop the driver.)
+    fx.peer.close();
+    match fx.tick() {
+        Poll::Ready(Some(Err(_))) => {}
+        other => panic!("expected the driver to finish with an i/o error, got {other:?}"),
+    }
+
+    // The handler wakes (recv EOF), produces a response, and submits — but the driver is gone.
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let submit = fx.connection.submit_send(
+        1,
+        pseudos,
+        Headers::new(),
+        Some(Body::new_static(b"ok" as &[u8])),
+    );
+
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut submit = Box::pin(submit);
+    assert!(
+        matches!(submit.as_mut().poll(&mut cx), TaskPoll::Ready(Err(_))),
+        "SubmitSend on a connection whose driver has exited must resolve with an error, not park \
+         forever — a parked handler holds its swansong guard and hangs graceful shutdown",
+    );
+}
+
+/// Companion to [`submit_after_connection_death_resolves_instead_of_hanging`] for the *other*
+/// ordering: the handler has already submitted and is parked in `SubmitSend` (response staged,
+/// awaiting the driver to frame it) when the connection dies. The connection-death fan-out must
+/// wake the send-completion waiter — the recv-side wakes don't reach it — so a real executor
+/// re-polls and the future resolves. A zero peer send window keeps the staged body from being
+/// framed, so the only thing that can wake the parked submit is the teardown.
+#[test]
+fn connection_death_wakes_parked_submit() {
+    use std::{
+        future::Future,
+        task::{Context, Poll as TaskPoll},
+    };
+
+    let mut fx = DriverFixture::new_server();
+    // Zero peer send window: a staged response body cannot be framed, so `submit_resolved`
+    // never flips on its own — the submit stays parked until the connection dies.
+    fx.complete_handshake_with_peer_settings(H2Settings::default().with_initial_window_size(0));
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let submit = fx.connection.submit_send(
+        1,
+        pseudos,
+        Headers::new(),
+        Some(Body::new_static(b"stalled-body" as &[u8])),
+    );
+    let _ = fx.tick(); // driver picks up the submission; HEADERS may frame, body stalls on window 0.
+
+    let (counting, waker) = counting_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut submit = Box::pin(submit);
+    assert!(
+        matches!(submit.as_mut().poll(&mut cx), TaskPoll::Pending),
+        "window-stalled submit should be Pending before the connection dies",
+    );
+    assert_eq!(counting.count(), 0, "no wake yet");
+
+    // Connection dies. The teardown must wake the parked submit's completion waker.
+    fx.peer.close();
+    match fx.tick() {
+        Poll::Ready(Some(Err(_))) => {}
+        other => panic!("expected the driver to finish with an i/o error, got {other:?}"),
+    }
+    assert!(
+        counting.count() >= 1,
+        "connection death must wake a parked SubmitSend's completion waker",
+    );
+    assert!(
+        matches!(submit.as_mut().poll(&mut cx), TaskPoll::Ready(Err(_))),
+        "after the connection dies the parked submit must resolve with an error",
+    );
+}
+
+/// Regression for the second orphaned-handler leak the conformance runner surfaced (h2spec
+/// `http2/6.9`, `http2/8.1`): a single-stream teardown (peer `RST_STREAM`, a flow-control
+/// overflow, a malformed trailing HEADERS — anything routed through `complete_and_remove_stream`)
+/// must wake a handler parked reading the request body. The teardown chokepoint (`signal_close`)
+/// previously woke only the response-headers waiter, not the recv waiter, so a body-reading
+/// handler parked on a stream torn down this way never observed EOF and leaked its swansong guard.
+///
+/// Uses a peer `RST_STREAM` as the trigger — the simplest of the family, and the one whose path
+/// no longer wakes the recv waiter explicitly (it now relies on `signal_close`).
+#[test]
+fn stream_reset_wakes_handler_parked_reading_body() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    // Open with an open body (no END_STREAM): a real handler parks reading it.
+    fx.peer_open_stream(1, Method::Post, "/", false);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+    let state = fx
+        .connection
+        .streams_lock()
+        .get(&1)
+        .cloned()
+        .expect("stream 1 registered");
+
+    // Simulate the handler parked in a body `poll_read`: a waker registered on recv.waker.
+    let (counting, waker) = counting_waker();
+    state.recv.waker.register(&waker);
+
+    // Peer resets the stream — the driver moves it to `Closed{Reset}` and removes it.
+    fx.peer_rst_stream(1, H2ErrorCode::Cancel);
+    let _ = fx.tick();
+
+    assert!(
+        state.lifecycle_lock().recv_closed(),
+        "a reset stream must report recv-closed so the body read sees EOF",
+    );
+    assert!(
+        counting.count() >= 1,
+        "tearing the stream down must wake a handler parked reading the request body — otherwise \
+         it never observes EOF and leaks its swansong guard",
+    );
+}
+
+/// Companion to [`stream_reset_wakes_handler_parked_reading_body`] for the *other* ordering — the
+/// actual h2spec `http2/6.9` leak. A driver-initiated stream RST (here a peer `WINDOW_UPDATE`
+/// overflowing the stream send window) must leave the stream's protocol state terminal, so a
+/// handler that polls the request body *after* the reset sees EOF rather than parking. The leak
+/// was a handler task spawned but not yet polled when the overflow RST fired: the reset removed
+/// the stream and emitted RST_STREAM but never transitioned the lifecycle, so the handler's first
+/// `poll_read` saw an open stream, parked on a waker nothing would ever fire, and leaked its guard.
+#[test]
+fn flow_control_rst_leaves_stream_terminal() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    fx.peer_open_stream(1, Method::Post, "/", false);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+    let state = fx
+        .connection
+        .streams_lock()
+        .get(&1)
+        .cloned()
+        .expect("stream 1 registered");
+
+    // Peer overflows the stream send window (default 65535 + 2^31-1) → stream-level RST + removal.
+    fx.peer_window_update(1, i32::MAX as u32);
+    let _ = fx.tick();
+
+    let frames = fx.next_outbound_frames();
+    assert_eq!(
+        count_rst(&frames, 1),
+        1,
+        "a stream send-window overflow must emit a stream-level RST_STREAM; got {frames:?}",
+    );
+    assert!(
+        state.lifecycle_lock().recv_closed(),
+        "a flow-control RST must leave the stream recv-closed so a handler polling the body after \
+         the reset sees EOF instead of parking forever (the http2/6.9 guard leak)",
+    );
+}
+
 /// The send pump runs in `Closing` (not just `Running`): once we've begun closing, any
 /// stream with a staged submission must still be framed and put on the wire — gRPC and
 /// other late-trailer patterns submit the response right around the same time the

@@ -477,6 +477,10 @@ where
             entry.shared.recv.waker.wake();
             entry.shared.recv.response_headers_waker.wake();
             entry.shared.send.outbound_write_waker.wake();
+            // A handler already parked in `SubmitSend` (response staged, awaiting the driver to
+            // frame it) needs this wake to re-poll and observe the now-reset stream — the recv
+            // fan-out above doesn't reach the send-completion waiter.
+            entry.shared.send.completion_waker.wake();
         }
         match self.close_outcome.take() {
             None | Some(CloseOutcome::Graceful) => None,
