@@ -71,11 +71,23 @@ impl Future for SubmitSend {
         if let Some(result) = try_take() {
             return Poll::Ready(result);
         }
+        // A connection that dies mid-flight (i/o error, peer FIN, GOAWAY) moves every live
+        // stream to `Closed{Reset}` via the driver's teardown without ever flipping
+        // `submit_resolved` — the driver exited before framing this submission. A handler woken
+        // by that teardown then submits into a dead connection; resolve with an error so it
+        // doesn't park forever holding its swansong guard. `is_reset` (not `is_closed`) so a
+        // clean send isn't misreported in the window before its `submit_resolved` is visible.
+        if state.lifecycle_lock().is_reset() {
+            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
+        }
         state.send.completion_waker.register(cx.waker());
-        // Re-check after registering so we don't miss a wake fired between the load above
-        // and the registration.
+        // Re-check after registering so we don't miss a wake fired between the loads above and
+        // the registration (both the normal completion and the connection-death reset).
         if let Some(result) = try_take() {
             return Poll::Ready(result);
+        }
+        if state.lifecycle_lock().is_reset() {
+            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
         }
         Poll::Pending
     }

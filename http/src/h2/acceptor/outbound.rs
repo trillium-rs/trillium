@@ -9,7 +9,7 @@
 //! All methods are on [`super::H2Driver`].
 
 use super::{ClosedReason, H2Driver};
-use crate::h2::{H2ErrorCode, H2Settings, frame};
+use crate::h2::{H2ErrorCode, H2Settings, frame, stream_state::StreamEvent};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     io,
@@ -121,5 +121,13 @@ where
         // Record in the ledger so subsequent frames the peer sends on this stream get
         // stream-level `STREAM_CLOSED` rather than connection-level `PROTOCOL_ERROR`.
         self.closed_streams.record(stream_id, ClosedReason::Reset);
+        // Reflect the reset in the stream's protocol state at the single point we emit an
+        // RST_STREAM, so every reset path (flow-control overflow, late DATA, send error, conn-task
+        // request) leaves the stream terminal. A handler parked on — or about to poll — this stream
+        // then sees recv EOF / send `BrokenPipe` instead of hanging on a stream the driver has
+        // already abandoned. First-wins: a no-op if the stream is gone or already closed.
+        if let Some(entry) = self.streams.get(&stream_id) {
+            let _ = entry.shared.apply_event(StreamEvent::SendReset(code));
+        }
     }
 }
