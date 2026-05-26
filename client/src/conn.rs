@@ -513,14 +513,17 @@ impl Conn {
                 as Box<dyn FnOnce(Box<dyn Transport>) + Send + Sync + 'static>
         });
 
-        Some(ReceivedBody::new(
-            self.response_content_length(),
-            mem::take(&mut self.buffer),
-            transport,
-            self.response_body_state,
-            on_completion,
-            encoding(&self.response_headers),
-        ))
+        Some(
+            ReceivedBody::new(
+                self.response_content_length(),
+                mem::take(&mut self.buffer),
+                transport,
+                self.response_body_state,
+                on_completion,
+                encoding(&self.response_headers),
+            )
+            .with_protocol_session(self.protocol_session.clone()),
+        )
     }
 
     /// Returns this conn to the connection pool if it is keepalive, and

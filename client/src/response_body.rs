@@ -51,6 +51,11 @@ pub struct ResponseBody<'a> {
     /// transport is attached at this layer — `take_response_body` already evicted any leftover
     /// transport before returning).
     cleanup: Option<CleanupContext>,
+    /// Trailers harvested off the inner [`ReceivedBody`] when it reaches `End`. The
+    /// EOF-driven recycle in `poll_read` moves the `ReceivedBody` out before the caller can
+    /// observe its trailers, so they're captured here to outlive it and surfaced through
+    /// [`BodySource::trailers`].
+    trailers: Option<Headers>,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -180,6 +185,7 @@ impl AsyncRead for ResponseBody<'_> {
                 && rb.state() == ReceivedBodyState::End
                 && let Some(mut transport) = rb.take_transport()
             {
+                self.trailers = Pin::new(&mut rb).trailers();
                 if let Some((pool, origin)) = cleanup.h1_pool_origin {
                     pool.insert(origin, PoolEntry::new(transport, None));
                 } else {
@@ -333,6 +339,21 @@ impl ResponseBody<'_> {
         self
     }
 
+    /// The trailers received after the response body, if any.
+    ///
+    /// Returns `None` until the body has been read to end-of-stream, and only on protocols
+    /// that delivered a trailer section (HTTP/1.1 chunked with trailers, HTTP/2, HTTP/3).
+    /// Reading the body via [`read_string`](Self::read_string)/[`read_bytes`](Self::read_bytes)
+    /// consumes it, so to observe trailers drive the body to completion through its
+    /// [`AsyncRead`](futures_lite::AsyncRead) interface and then call this.
+    pub fn trailers(&self) -> Option<&Headers> {
+        match &self.inner {
+            ResponseBodyInner::Received(rb) => rb.trailers_ref(),
+            // Captured off the inner ReceivedBody when it was recycled at end-of-stream.
+            _ => self.trailers.as_ref(),
+        }
+    }
+
     /// The content-length of this body, if available.
     ///
     /// Usually derived from the content-length header. If the response uses
@@ -417,10 +438,13 @@ impl Drop for ResponseBody<'_> {
 
 impl BodySource for ResponseBody<'static> {
     fn trailers(self: Pin<&mut Self>) -> Option<Headers> {
-        match &mut self.get_mut().inner {
+        let this = self.get_mut();
+        match &mut this.inner {
             ResponseBodyInner::Received(rb) => Pin::new(rb).trailers(),
             ResponseBodyInner::Override(o) => o.body.trailers(),
-            _ => None,
+            // Recycled at EOF — trailers were captured off the ReceivedBody before it was
+            // moved out. See `ResponseBody::trailers`.
+            _ => this.trailers.take(),
         }
     }
 }
@@ -430,6 +454,7 @@ impl<'a> From<ReceivedBody<'a, Box<dyn Transport>>> for ResponseBody<'a> {
         Self {
             inner: ResponseBodyInner::Received(received_body),
             cleanup: None,
+            trailers: None,
         }
     }
 }
@@ -439,6 +464,7 @@ impl<'a> From<OverrideBody<'a>> for ResponseBody<'a> {
         Self {
             inner: ResponseBodyInner::Override(o),
             cleanup: None,
+            trailers: None,
         }
     }
 }
@@ -451,6 +477,7 @@ impl ResponseBody<'static> {
         Self {
             inner: ResponseBodyInner::Received(body),
             cleanup: Some(cleanup),
+            trailers: None,
         }
     }
 

@@ -4,7 +4,7 @@
 //! ALPN) and a trillium client whose rustls config trusts the test cert and advertises the
 //! same ALPN list. The client request should be transparently dispatched over HTTP/2.
 
-use futures_lite::{AsyncRead, io::Cursor};
+use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor};
 use std::{
     io,
     pin::Pin,
@@ -217,6 +217,56 @@ async fn h2_bidirectional_trailers() -> TestResult {
             .as_ref()
             .and_then(|t| t.get_str("x-pong")),
         Some("pong"),
+    );
+
+    server.shut_down().await;
+    Ok(())
+}
+
+/// The owned-body path (`take_response_body`) must carry the h2 protocol session through
+/// to the detached `ResponseBody`, or trailers decoded by the driver at end-of-stream are
+/// never harvested. Reads them back via `ResponseBody::trailers`.
+#[test(harness)]
+async fn h2_owned_body_trailers() -> TestResult {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let cert = test_cert();
+
+    let server = trillium_smol::config()
+        .with_host("localhost")
+        .with_port(0)
+        .with_acceptor(RustlsAcceptor::from_single_cert(
+            &cert.cert_pem,
+            &cert.key_pem,
+        ))
+        .spawn(trailer_handler);
+    let info = server.info().await;
+    let port = info.tcp_socket_addr().unwrap().port();
+
+    let client = Client::new(RustlsConfig::new(
+        Arc::new(rustls_client_config(&cert)),
+        trillium_smol::ClientConfig::default(),
+    ))
+    .with_base(format!("https://localhost:{port}"));
+
+    let req_trailers = one_trailer("x-ping", "ping");
+    let mut conn = client
+        .post("/")
+        .with_body(Body::new_with_trailers(
+            BodyWithTrailers::new("data", req_trailers),
+            None,
+        ))
+        .await?;
+
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.http_version(), Version::Http2);
+
+    let mut body = conn.take_response_body().expect("response body");
+    let mut read = String::new();
+    body.read_to_string(&mut read).await?;
+    assert_eq!(read, "ping:data");
+    assert_eq!(
+        body.trailers().and_then(|t| t.get_str("x-pong")),
+        Some("pong")
     );
 
     server.shut_down().await;
