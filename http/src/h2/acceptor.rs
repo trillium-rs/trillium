@@ -56,9 +56,9 @@ use constants::{
     INITIAL_CONNECTION_RECV_WINDOW, MAX_BUFFER_SIZE, MAX_DATA_CHUNK_SIZE, MAX_FLOW_CONTROL_WINDOW,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
-use hashbrown::HashMap;
 use recv::PendingHeaders;
 use std::{
+    collections::BTreeMap,
     future::Future,
     io,
     pin::Pin,
@@ -119,7 +119,14 @@ pub struct H2Driver<T> {
     /// `Arc<StreamState>` via [`H2Transport`] and don't consult this table. The entry
     /// bundles the shared state with driver-private bookkeeping (e.g. "have we already
     /// advertised the recv window after seeing `is_reading`?").
-    streams: HashMap<u32, StreamEntry>,
+    ///
+    /// A `BTreeMap` (not a hash map) so the send pump iterates streams in ascending
+    /// stream-id order. For the client role this is load-bearing: a client MUST send
+    /// opening HEADERS in monotonically increasing stream-id order (RFC 9113 §5.1.1),
+    /// and concurrent `open_stream` calls would otherwise let the pump frame a higher
+    /// id before a lower one, drawing a `GOAWAY(PROTOCOL_ERROR)` from the peer. (See
+    /// also the allocate-under-`streams_lock` ordering in `open_stream`.)
+    streams: BTreeMap<u32, StreamEntry>,
 
     /// Highest peer-initiated stream id seen so far. Peer-initiated (client) stream ids
     /// must be odd and strictly increasing.
@@ -206,7 +213,7 @@ where
             write_flush_pending: false,
             hpack: HpackDecoder::new(config.hpack_table_capacity()),
             hpack_encoder,
-            streams: HashMap::new(),
+            streams: BTreeMap::new(),
             last_peer_stream_id: 0,
             pending_headers: None,
             close_outcome: None,
