@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Connecting over TLS to a host given as an IP address (e.g. `https://127.0.0.1`) failed with a `missing domain` transport error; only DNS hostnames worked. IP-address hosts now connect, validated against the certificate's IP SAN (no SNI is sent for them, per the TLS spec).
+
 ## [0.11.1] - 2026-05-05
 
 ### Fixed

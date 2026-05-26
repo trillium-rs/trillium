@@ -16,7 +16,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url};
+use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url, url::Host};
 
 #[derive(Clone, Debug)]
 pub struct RustlsClientConfig(Arc<ClientConfig>);
@@ -132,10 +132,18 @@ impl<C: Connector> Connector for RustlsConfig<C> {
                 http.set_port(url.port_or_known_default()).ok();
 
                 let connector: TlsConnector = Arc::clone(&self.rustls_config.0).into();
-                let domain = url
-                    .domain()
-                    .and_then(|dns_name| ServerName::try_from(dns_name.to_string()).ok())
-                    .ok_or_else(|| Error::other("missing domain"))?;
+                // Derive the TLS server name from the URL host. A domain becomes a DNS
+                // `ServerName` (sent via SNI); an IP literal becomes an `IpAddress` server
+                // name (no SNI, validated against the certificate's IP SAN) — `url.domain()`
+                // returns `None` for IPs, so matching on `host()` is what lets us connect to
+                // an IP address over TLS at all.
+                let domain = match url.host() {
+                    Some(Host::Domain(domain)) => ServerName::try_from(domain.to_owned())
+                        .map_err(|e| Error::other(format!("invalid server name {domain:?}: {e}")))?,
+                    Some(Host::Ipv4(ip)) => ServerName::IpAddress(std::net::IpAddr::V4(ip).into()),
+                    Some(Host::Ipv6(ip)) => ServerName::IpAddress(std::net::IpAddr::V6(ip).into()),
+                    None => return Err(Error::other("url has no host")),
+                };
 
                 connector
                     .connect(domain, self.tcp_config.connect(&http).await?)
