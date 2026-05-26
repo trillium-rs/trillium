@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.3] - 2026-05-26
 
 ### Added
 
@@ -15,10 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - HTTP/2 and HTTP/3 response trailers are now surfaced on the owned response body taken via
-  `Conn::take_response_body` (and the `From<Conn> for Body` proxy path). Previously the
-  protocol session wasn't carried onto the detached body, so driver-decoded trailers were
-  never harvested, and even when present they were discarded by the body's EOF recycle
-  before a caller could read them. The borrowed `Conn::response_body` path was unaffected.
+  `Conn::take_response_body` (and the `From<Conn> for Body` proxy path). Previously the protocol
+  session wasn't carried onto the detached body, so driver-decoded trailers were never harvested,
+  and even when present they were discarded by the body's EOF recycle before a caller could read
+  them. The borrowed `Conn::response_body` path was unaffected.
+
+- HTTP/2: response trailers could go missing when talking to a server that responds and resets the
+  stream before reading the full request body (common for unary gRPC and early error responses) —
+  the body ended cleanly but the trailers the server had already sent were dropped. Trailers are now
+  delivered in this case.
+
 
 ## [0.9.2] - 2026-05-25
 
