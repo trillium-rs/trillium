@@ -18,6 +18,7 @@ use super::{
 use crate::h2::{
     H2ErrorCode, H2Settings,
     frame::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader},
+    role::Role,
     stream_state::StreamEvent,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -194,17 +195,27 @@ where
                     return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
                 }
                 if let Some(entry) = self.streams.get(&stream_id) {
-                    // Move the stream to the terminal `Closed{Reset}` state before removing it, so
+                    // Move the stream to the terminal `Closed{Reset}` state before tearing down, so
                     // a handler parked on it re-polls to EOF / `BrokenPipe` rather than accepting
                     // writes into a ring the driver has stopped draining (silent data loss on an
-                    // upgraded stream). `complete_and_remove_stream` → `signal_close` then fires
-                    // the conn-task wakers so the parked handler actually
-                    // observes the close.
+                    // upgraded stream). `signal_close` then fires the conn-task wakers so the
+                    // parked handler actually observes the close.
+                    let recv_closed = entry.shared.lifecycle_lock().recv_closed();
                     let _ = entry.shared.apply_event(StreamEvent::RecvReset(error_code));
-                    self.complete_and_remove_stream(
-                        stream_id,
-                        Err(std::io::Error::other("peer RST_STREAM")),
-                    );
+                    if self.role == Role::Client && recv_closed {
+                        // The full response — including any trailers the driver already stashed —
+                        // arrived before this RST, which only aborts our still-open send half (a
+                        // server that responds without consuming the request body resets it with
+                        // NoError). Keep the stream in the map exactly as a clean close does, so
+                        // the application can still read the body to EOF and collect its trailers;
+                        // it's GC'd on transport drop.
+                        self.signal_close(stream_id, Err(std::io::Error::other("peer RST_STREAM")));
+                    } else {
+                        self.complete_and_remove_stream(
+                            stream_id,
+                            Err(std::io::Error::other("peer RST_STREAM")),
+                        );
+                    }
                 } else {
                     // Already closed from our side; still record (idempotent) so later
                     // stray peer frames on this id map to the right error category.

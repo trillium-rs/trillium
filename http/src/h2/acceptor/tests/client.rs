@@ -9,7 +9,7 @@
 
 use super::fixture::*;
 use crate::{
-    Headers, KnownHeaderName, Method, Status,
+    Body, Headers, KnownHeaderName, Method, Status,
     h2::{H2ErrorCode, H2Transport, SubmitSend, acceptor::types::DriverState, frame::Frame},
     headers::hpack::PseudoHeaders,
 };
@@ -258,6 +258,62 @@ fn client_parked_in_closing_is_rewoken_by_late_rst() {
         wakes_after > wakes_before,
         "an RST arriving after the driver parked in Closing must re-wake the driver task (was \
          {wakes_before}, now {wakes_after}); no wake means the lost-wake deadlock",
+    );
+}
+
+/// Regression: when the client has already received the full response — including trailers —
+/// and the server then sends `RST_STREAM(NoError)` (because the client's request/send half was
+/// still open), the already-received trailers must still be surfaced. The RST path used to
+/// remove the stream from the map outright, so the body's EOF `take_trailers` found nothing and
+/// the application saw a clean EOF with no trailers.
+#[test]
+fn server_rst_after_trailers_preserves_trailers_while_send_half_open() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+
+    // A request whose body is larger than the peer's default 65535-byte initial window: after
+    // HEADERS + one full window of DATA the send half is still Open (the body can't finish
+    // until the peer grants more window, which it never does).
+    let pseudos = PseudoHeaders::default()
+        .with_method(Method::Post)
+        .with_path("/")
+        .with_scheme("http")
+        .with_authority("test");
+    let (id, _submit, _transport) = fx
+        .connection
+        .open_stream(
+            pseudos,
+            Headers::new(),
+            Some(Body::new_static(vec![0u8; 70_000])),
+        )
+        .expect("open_stream on a running client connection");
+    let _ = fx.tick();
+    let _ = fx.next_outbound_frames();
+
+    // Full response: HEADERS (no END_STREAM) then a trailing HEADERS (END_STREAM).
+    fx.peer_response_headers(id, Status::Ok, false);
+    let _ = fx.tick();
+    let mut trailers = Headers::new();
+    trailers.insert("grpc-status", "0");
+    fx.peer_trailers(id, &trailers);
+    let _ = fx.tick();
+
+    assert!(
+        fx.connection.streams_lock().contains_key(&id),
+        "stream should still be tracked after receiving trailers (send half still open)",
+    );
+
+    // The server resets our still-open send half with NoError — it has what it needs and
+    // doesn't want the rest of the request body.
+    fx.peer_rst_stream(id, H2ErrorCode::NoError);
+    let _ = fx.tick();
+
+    // The trailers received before the RST must still be retrievable — this is exactly what
+    // `ReceivedBody` calls at EOF to populate `conn.response_trailers`.
+    let recovered = fx.connection.take_trailers(id);
+    assert!(
+        recovered.is_some_and(|t| t.get_str("grpc-status") == Some("0")),
+        "trailers received before RST_STREAM(NoError) must be preserved, not discarded",
     );
 }
 
