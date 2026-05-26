@@ -11,7 +11,11 @@ use crate::{
     h2::{H2ErrorCode, frame::Frame},
     headers::hpack::PseudoHeaders,
 };
-use std::task::Poll;
+use futures_lite::io::AsyncRead;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 /// True if any frame in the batch is a `GOAWAY` carrying `code`.
 fn goaway_with(frames: &[Frame], code: H2ErrorCode) -> bool {
@@ -513,5 +517,64 @@ fn data_matching_content_length_is_accepted() {
     assert!(
         fx.connection.streams_lock().contains_key(&1),
         "a well-formed request stream should remain open for its response",
+    );
+}
+
+/// Server-role dual of trillium-http's client-side
+/// `content_length_response_defers_eof_until_end_stream_so_trailers_survive`: a *request* body
+/// that advertises `content-length` must not let `request_body()` report end-of-input (and
+/// harvest request trailers) until the peer's `END_STREAM`. In HTTP/2 a request may carry
+/// trailing HEADERS after its DATA, so a body that ends the instant `content-length` is
+/// satisfied would complete before the trailers arrive and drop them. `content-length: 0` is the
+/// deterministic case — the body would otherwise complete on its very first poll.
+#[test]
+fn request_content_length_defers_eof_until_end_stream_so_trailers_survive() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    // Peer opens a POST declaring `content-length: 0` with NO END_STREAM — trailers still to come.
+    let (pseudos, fields) = post_with_content_length(0);
+    fx.peer_headers(1, pseudos, &fields, false);
+    let mut conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn for stream 1, got {other:?}"),
+    };
+
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut buf = [0u8; 16];
+
+    // Before END_STREAM the request body must park, not report EOF. With the content-length-
+    // terminal bug this returns `Ready(Ok(0))` on the first poll and harvests no trailers.
+    {
+        let mut body = conn.request_body();
+        assert!(
+            Pin::new(&mut body).poll_read(&mut cx, &mut buf).is_pending(),
+            "request body must not declare EOF on content-length alone before END_STREAM \
+             (would lose trailers)",
+        );
+    }
+
+    // Trailing HEADERS (END_STREAM) arrive carrying a request trailer.
+    let mut trailers = Headers::new();
+    trailers.insert("x-trailer", "present");
+    fx.peer_trailers(1, &trailers);
+    let _ = fx.tick();
+
+    // Now the body reaches clean EOF and the trailers it had to wait for are on the Conn.
+    {
+        let mut body = conn.request_body();
+        assert!(
+            matches!(
+                Pin::new(&mut body).poll_read(&mut cx, &mut buf),
+                Poll::Ready(Ok(0))
+            ),
+            "request body should reach clean EOF once END_STREAM has arrived",
+        );
+    }
+    assert_eq!(
+        conn.request_trailers.as_ref().and_then(|t| t.get_str("x-trailer")),
+        Some("present"),
+        "request trailers delivered with END_STREAM must be surfaced, not dropped",
     );
 }

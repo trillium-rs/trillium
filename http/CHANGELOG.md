@@ -8,7 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- HTTP/2 client: response trailers could go missing when talking to a server that responds and resets the stream before reading the full request body (common for unary gRPC and early error responses) — the body ended cleanly but the trailers the server had already sent were dropped. Trailers are now delivered in this case.
+- HTTP/2: a received body that carried a `content-length` header could report end-of-input before
+  the stream's trailing headers arrived, so `request_trailers()` (server) / `response_trailers()`
+  (client) came back empty even though the peer had sent trailers. The effect was a timing-dependent
+  race condition. Bodies now wait for the end of the stream before reporting end-of-input, so the
+  trailers are always delivered.
 
 ## [1.3.2] - 2026-05-24
 

@@ -2,7 +2,7 @@ use super::{
     AsyncRead, AsyncWrite, Context, End, ErrorKind, Ready, ReceivedBody, ReceivedBodyState,
     StateOutput, io, ready,
 };
-use crate::h2::H2ErrorCode;
+use crate::{ProtocolSession, h2::H2ErrorCode};
 
 impl<Transport> ReceivedBody<'_, Transport>
 where
@@ -21,7 +21,17 @@ where
         buf: &mut [u8],
         total: u64,
     ) -> StateOutput {
-        let buf = if let Some(expected) = self.content_length {
+        // Whether `content-length` *frames* the body (so it's terminal) or is merely advisory.
+        // In h1, content-length defines the body length and the next request's bytes follow on
+        // the same transport, so we clamp reads to the declared length and end on it. In h2/h3
+        // the driver demuxes DATA per stream and the authoritative end-of-body is the stream's
+        // `END_STREAM` — after which a trailing HEADERS frame may still deliver trailers. Ending
+        // on content-length there would complete the body *before* the trailers arrive and drop
+        // them (the gRPC unary/client-stream "empty trailers → Unknown" race). content-length
+        // stays a cross-check, validated against the byte total at EOF below.
+        let length_is_terminal = matches!(self.protocol_session, ProtocolSession::Http1);
+
+        let buf = if let Some(expected) = self.content_length.filter(|_| length_is_terminal) {
             let remaining = usize::try_from(expected - total).unwrap_or(usize::MAX);
             let len = buf.len().min(remaining);
             &mut buf[..len]
@@ -47,7 +57,8 @@ where
         if total > self.max_len {
             return self.protocol_error(ErrorKind::Unsupported, "content too long".into());
         }
-        if let Some(expected) = self.content_length
+        if length_is_terminal
+            && let Some(expected) = self.content_length
             && total == expected
         {
             return Ready(Ok((End, bytes)));
