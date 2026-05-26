@@ -549,9 +549,11 @@ fn request_content_length_defers_eof_until_end_stream_so_trailers_survive() {
     {
         let mut body = conn.request_body();
         assert!(
-            Pin::new(&mut body).poll_read(&mut cx, &mut buf).is_pending(),
-            "request body must not declare EOF on content-length alone before END_STREAM \
-             (would lose trailers)",
+            Pin::new(&mut body)
+                .poll_read(&mut cx, &mut buf)
+                .is_pending(),
+            "request body must not declare EOF on content-length alone before END_STREAM (would \
+             lose trailers)",
         );
     }
 
@@ -573,7 +575,9 @@ fn request_content_length_defers_eof_until_end_stream_so_trailers_survive() {
         );
     }
     assert_eq!(
-        conn.request_trailers.as_ref().and_then(|t| t.get_str("x-trailer")),
+        conn.request_trailers
+            .as_ref()
+            .and_then(|t| t.get_str("x-trailer")),
         Some("present"),
         "request trailers delivered with END_STREAM must be surfaced, not dropped",
     );

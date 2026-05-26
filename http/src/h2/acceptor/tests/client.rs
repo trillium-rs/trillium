@@ -517,7 +517,9 @@ fn content_length_response_defers_eof_until_end_stream_so_trailers_survive() {
     // Before END_STREAM the body must park, not report EOF. With the content-length-terminal
     // bug this returns `Ready(Ok(0))` on the first poll and harvests no trailers.
     assert!(
-        Pin::new(&mut body).poll_read(&mut cx, &mut buf).is_pending(),
+        Pin::new(&mut body)
+            .poll_read(&mut cx, &mut buf)
+            .is_pending(),
         "body must not declare EOF on content-length alone before END_STREAM (would lose trailers)",
     );
 
@@ -536,7 +538,9 @@ fn content_length_response_defers_eof_until_end_stream_so_trailers_survive() {
         "body should reach clean EOF once END_STREAM has arrived",
     );
     assert_eq!(
-        received_trailers.as_ref().and_then(|t| t.get_str("grpc-status")),
+        received_trailers
+            .as_ref()
+            .and_then(|t| t.get_str("grpc-status")),
         Some("0"),
         "trailers delivered with END_STREAM must be surfaced through the body, not dropped",
     );
