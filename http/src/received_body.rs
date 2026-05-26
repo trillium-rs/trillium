@@ -355,6 +355,17 @@ impl<T> ReceivedBody<'static, T> {
 }
 
 impl<T> ReceivedBody<'_, T> {
+    /// Borrow the trailers decoded from this body, if any. Unlike [`BodySource::trailers`],
+    /// this does not take them. Only `Some` after the body has been read to end-of-stream on
+    /// a protocol that carried a trailer section.
+    ///
+    /// [`BodySource::trailers`]: crate::BodySource::trailers
+    #[doc(hidden)]
+    #[cfg(feature = "unstable")]
+    pub fn trailers_ref(&self) -> Option<&Headers> {
+        self.trailers.as_ref()
+    }
+
     /// Retype as `ReceivedBody<'static, T>` if every internal `MutCow` field is `Owned`.
     ///
     /// Returns `None` if any field is `Borrowed`, in which case `self` is dropped — the
