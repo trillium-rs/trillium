@@ -9,10 +9,12 @@
 
 use super::fixture::*;
 use crate::{
-    Body, Headers, KnownHeaderName, Method, Status,
+    Body, Buffer, Headers, KnownHeaderName, Method, ProtocolSession, ReceivedBody,
+    ReceivedBodyState, Status,
     h2::{H2ErrorCode, H2Transport, SubmitSend, acceptor::types::DriverState, frame::Frame},
     headers::hpack::PseudoHeaders,
 };
+use futures_lite::io::AsyncRead;
 use std::{
     future::Future,
     net::Shutdown,
@@ -466,4 +468,76 @@ fn client_interim_response_with_end_stream_aborts_waiter() {
              surface a response; got {other:?}",
         ),
     }
+}
+
+/// Regression: a response carrying `content-length` must not let the body declare EOF (and
+/// harvest trailers) until the stream's `END_STREAM` arrives. In HTTP/2 the trailing HEADERS
+/// follow the DATA, so a body that ends the instant `content-length` is satisfied races the
+/// driver's trailer stash and loses — surfacing an empty trailer set. gRPC unary/client-stream
+/// responses set `content-length` (connect-go buffers them), which made the rotating conformance
+/// "empty trailers → Unknown" flake. `content-length: 0` (an empty/no-message response) is the
+/// deterministic case: the body would otherwise complete on the very first poll, before any
+/// trailer could possibly have arrived.
+#[test]
+fn content_length_response_defers_eof_until_end_stream_so_trailers_survive() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+    let (id, _submit, mut transport) = open_get(&mut fx);
+
+    // Response head: 200 with `content-length: 0`, NO END_STREAM — trailers still to come.
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let mut fields = Headers::new();
+    fields.insert(KnownHeaderName::ContentLength, "0");
+    fx.peer_headers(id, pseudos, &fields, false);
+    let _ = fx.tick();
+
+    // Read the response body exactly as trillium-client does: `content_length` from the head,
+    // an h2 protocol session so the End transition harvests trailers via `take_trailers`.
+    let mut buffer = Buffer::with_capacity(64);
+    let mut state = ReceivedBodyState::new_h2();
+    let mut received_trailers: Option<Headers> = None;
+    let mut body: ReceivedBody<'_, H2Transport> = ReceivedBody::new(
+        Some(0),
+        &mut buffer,
+        &mut transport,
+        &mut state,
+        None,
+        encoding_rs::UTF_8,
+    )
+    .with_protocol_session(ProtocolSession::Http2 {
+        connection: fx.connection.clone(),
+        stream_id: id,
+    })
+    .with_trailers(&mut received_trailers);
+
+    let waker = Waker::from(Arc::new(CountingWaker(AtomicUsize::new(0))));
+    let mut cx = Context::from_waker(&waker);
+    let mut buf = [0u8; 16];
+
+    // Before END_STREAM the body must park, not report EOF. With the content-length-terminal
+    // bug this returns `Ready(Ok(0))` on the first poll and harvests no trailers.
+    assert!(
+        Pin::new(&mut body).poll_read(&mut cx, &mut buf).is_pending(),
+        "body must not declare EOF on content-length alone before END_STREAM (would lose trailers)",
+    );
+
+    // Trailing HEADERS (END_STREAM) arrive carrying grpc-status.
+    let mut trailers = Headers::new();
+    trailers.insert("grpc-status", "0");
+    fx.peer_trailers(id, &trailers);
+    let _ = fx.tick();
+
+    // Now the body reaches EOF and surfaces the trailers it had to wait for.
+    assert!(
+        matches!(
+            Pin::new(&mut body).poll_read(&mut cx, &mut buf),
+            Poll::Ready(Ok(0))
+        ),
+        "body should reach clean EOF once END_STREAM has arrived",
+    );
+    assert_eq!(
+        received_trailers.as_ref().and_then(|t| t.get_str("grpc-status")),
+        Some("0"),
+        "trailers delivered with END_STREAM must be surfaced through the body, not dropped",
+    );
 }

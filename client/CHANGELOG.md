@@ -14,17 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- HTTP/2: a received body that carried a `content-length` header could report end-of-input before
+  the stream's trailing headers arrived, so `request_trailers()` (server) / `response_trailers()`
+  (client) came back empty even though the peer had sent trailers. The effect was a timing-dependent
+  race condition. Bodies now wait for the end of the stream before reporting end-of-input, so the
+  trailers are always delivered.
 - HTTP/2 and HTTP/3 response trailers are now surfaced on the owned response body taken via
   `Conn::take_response_body` (and the `From<Conn> for Body` proxy path). Previously the protocol
   session wasn't carried onto the detached body, so driver-decoded trailers were never harvested,
   and even when present they were discarded by the body's EOF recycle before a caller could read
   them. The borrowed `Conn::response_body` path was unaffected.
-
 - HTTP/2: response trailers could go missing when talking to a server that responds and resets the
-  stream before reading the full request body (common for unary gRPC and early error responses) —
-  the body ended cleanly but the trailers the server had already sent were dropped. Trailers are now
-  delivered in this case.
-
+  stream before reading the full request body — the body ended cleanly but the trailers the server
+  had already sent were dropped. Trailers are now delivered in this case.
 - HTTP/2: issuing several requests concurrently through one `Client` to the same origin could abort
   the connection with a protocol error, failing those requests and any others in flight on the same
   connection with a connection-aborted error. Concurrent requests over a shared connection now
