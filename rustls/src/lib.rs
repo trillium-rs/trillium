@@ -8,6 +8,7 @@
     nonstandard_style,
     unused_qualifications
 )]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //!  This crate provides rustls trait implementations for trillium client ([`RustlsConfig`]) and
 //! server ([`RustlsAcceptor`]).
@@ -65,6 +66,17 @@
 //! the selected cryptographic backend and uses
 //! [`rustls-platform-verifier`](https://docs.rs/rustls-platform-verifier/). This feature is enabled by
 //! default. If you disable the feature, [`webpki_roots`] will be used.
+//!
+//! To trust a specific private or self-signed certificate without dropping into raw rustls, use
+//! [`RustlsClientConfig::from_root_cert_pem`], which trusts exactly the provided roots while
+//! keeping certificate verification intact.
+//!
+//! ## `dangerous` feature
+//!
+//! ⚠️ This feature enables [`RustlsClientConfig::dangerously_accept_any_cert`], which builds a
+//! client configuration that disables server authentication entirely. It is not enabled by
+//! default and should only be used for development or explicit `--insecure`-style opt-ins. Prefer
+//! [`RustlsClientConfig::from_root_cert_pem`] whenever the certificate is known in advance.
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
@@ -73,7 +85,7 @@ mod readme {}
 #[cfg(feature = "client")]
 mod client;
 #[cfg(feature = "client")]
-pub use client::{RustlsClientTransport, RustlsConfig};
+pub use client::{RustlsClientConfig, RustlsClientTransport, RustlsConfig};
 
 #[cfg(feature = "server")]
 mod server;

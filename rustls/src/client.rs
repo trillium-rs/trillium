@@ -1,10 +1,19 @@
 use crate::crypto_provider;
 use RustlsClientTransportInner::{Tcp, Tls};
+#[cfg(feature = "dangerous")]
+use futures_rustls::rustls::{
+    DigitallySignedStruct, SignatureScheme,
+    client::danger::{HandshakeSignatureValid, ServerCertVerified},
+    crypto::{verify_tls12_signature, verify_tls13_signature},
+    pki_types::{CertificateDer, UnixTime},
+};
 use futures_rustls::{
     TlsConnector,
     client::TlsStream,
     rustls::{
-        ClientConfig, ClientConnection, client::danger::ServerCertVerifier, crypto::CryptoProvider,
+        ClientConfig, ClientConnection, RootCertStore,
+        client::{WebPkiServerVerifier, danger::ServerCertVerifier},
+        crypto::CryptoProvider,
         pki_types::ServerName,
     },
 };
@@ -18,6 +27,12 @@ use std::{
 };
 use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url, url::Host};
 
+/// Rustls [`ClientConfig`] wrapper used by [`RustlsConfig`].
+///
+/// [`RustlsClientConfig::default`] trusts the platform or webpki roots (depending on the
+/// `platform-verifier` feature). Use [`RustlsClientConfig::from_root_cert_pem`] to trust a specific
+/// private or self-signed certificate instead, or convert an existing [`ClientConfig`] via
+/// [`From`].
 #[derive(Clone, Debug)]
 pub struct RustlsClientConfig(Arc<ClientConfig>);
 
@@ -54,19 +69,16 @@ fn verifier(provider: Arc<CryptoProvider>) -> Arc<dyn ServerCertVerifier> {
 
 #[cfg(not(feature = "platform-verifier"))]
 fn verifier(provider: Arc<CryptoProvider>) -> Arc<dyn ServerCertVerifier> {
-    let roots = Arc::new(futures_rustls::rustls::RootCertStore::from_iter(
+    let roots = Arc::new(RootCertStore::from_iter(
         webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
     ));
-    futures_rustls::rustls::client::WebPkiServerVerifier::builder_with_provider(roots, provider)
+    WebPkiServerVerifier::builder_with_provider(roots, provider)
         .build()
         .unwrap()
 }
 
-fn default_client_config() -> ClientConfig {
-    let provider = crypto_provider();
-    let verifier = verifier(Arc::clone(&provider));
-
-    let mut config = ClientConfig::builder_with_provider(provider)
+fn client_config_with_verifier(verifier: Arc<dyn ServerCertVerifier>) -> ClientConfig {
+    let mut config = ClientConfig::builder_with_provider(crypto_provider())
         .with_safe_default_protocol_versions()
         .expect("crypto provider did not support safe default protocol versions")
         .dangerous()
@@ -78,6 +90,49 @@ fn default_client_config() -> ClientConfig {
     config
 }
 
+fn default_client_config() -> ClientConfig {
+    client_config_with_verifier(verifier(crypto_provider()))
+}
+
+impl RustlsClientConfig {
+    /// Build a client configuration that trusts exactly the certificate(s) in `pem`.
+    ///
+    /// Unlike [`RustlsClientConfig::default`], this consults neither the platform trust store nor
+    /// the webpki root bundle — the provided roots are the only trust anchors. Server
+    /// authentication is otherwise unchanged: certificate chains, signatures, expiry, and server
+    /// name are all still verified against these roots. This is the right tool for talking to a
+    /// service that presents a private or self-signed certificate.
+    ///
+    /// The crate's configured crypto provider and default ALPN protocol list (`h2`, `http/1.1`)
+    /// are reused.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `pem` contains no certificates or cannot be parsed, or if the resulting
+    /// trust anchors are rejected by the verifier builder.
+    pub fn from_root_cert_pem(pem: &[u8]) -> Result<Self> {
+        let mut roots = RootCertStore::empty();
+        let mut reader = pem;
+        for cert in rustls_pemfile::certs(&mut reader) {
+            roots.add(cert?).map_err(Error::other)?;
+        }
+
+        if roots.is_empty() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "no certificates found in pem",
+            ));
+        }
+
+        let verifier =
+            WebPkiServerVerifier::builder_with_provider(Arc::new(roots), crypto_provider())
+                .build()
+                .map_err(Error::other)?;
+
+        Ok(Self(Arc::new(client_config_with_verifier(verifier))))
+    }
+}
+
 impl From<ClientConfig> for RustlsClientConfig {
     fn from(rustls_config: ClientConfig) -> Self {
         Self(Arc::new(rustls_config))
@@ -87,6 +142,80 @@ impl From<ClientConfig> for RustlsClientConfig {
 impl From<Arc<ClientConfig>> for RustlsClientConfig {
     fn from(rustls_config: Arc<ClientConfig>) -> Self {
         Self(rustls_config)
+    }
+}
+
+#[cfg(feature = "dangerous")]
+#[derive(Debug)]
+struct AcceptAnyServerCert(Arc<CryptoProvider>);
+
+#[cfg(feature = "dangerous")]
+impl ServerCertVerifier for AcceptAnyServerCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> std::result::Result<ServerCertVerified, futures_rustls::rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, futures_rustls::rustls::Error> {
+        verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, futures_rustls::rustls::Error> {
+        verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
+    }
+}
+
+#[cfg(feature = "dangerous")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dangerous")))]
+impl RustlsClientConfig {
+    /// Build a client configuration that accepts **any** server certificate without verification.
+    ///
+    /// ⚠️ This disables server authentication entirely: handshake signatures are still checked,
+    /// but the certificate is never validated against any trust anchor, so the connection is
+    /// vulnerable to man-in-the-middle attacks. It exists for development against throwaway
+    /// self-signed certificates and for `--insecure`-style CLI flags. For talking to a service
+    /// with a known private certificate, prefer [`RustlsClientConfig::from_root_cert_pem`], which
+    /// keeps authentication intact.
+    ///
+    /// This constructor is only available with the `dangerous` crate feature enabled, and logs a
+    /// warning when called.
+    pub fn dangerously_accept_any_cert() -> Self {
+        log::warn!(
+            "constructing a rustls client config that accepts any server certificate; server \
+             authentication is disabled and connections are vulnerable to interception"
+        );
+        let verifier = Arc::new(AcceptAnyServerCert(crypto_provider()));
+        Self(Arc::new(client_config_with_verifier(verifier)))
     }
 }
 
@@ -138,8 +267,11 @@ impl<C: Connector> Connector for RustlsConfig<C> {
                 // returns `None` for IPs, so matching on `host()` is what lets us connect to
                 // an IP address over TLS at all.
                 let domain = match url.host() {
-                    Some(Host::Domain(domain)) => ServerName::try_from(domain.to_owned())
-                        .map_err(|e| Error::other(format!("invalid server name {domain:?}: {e}")))?,
+                    Some(Host::Domain(domain)) => {
+                        ServerName::try_from(domain.to_owned()).map_err(|e| {
+                            Error::other(format!("invalid server name {domain:?}: {e}"))
+                        })?
+                    }
                     Some(Host::Ipv4(ip)) => ServerName::IpAddress(std::net::IpAddr::V4(ip).into()),
                     Some(Host::Ipv6(ip)) => ServerName::IpAddress(std::net::IpAddr::V6(ip).into()),
                     None => return Err(Error::other("url has no host")),
