@@ -1,5 +1,5 @@
 use crate::{
-    StaticConnExt,
+    ResolvedDirectory, StaticConnExt,
     fs_shims::{File, fs},
     options::StaticOptions,
     range,
@@ -441,11 +441,15 @@ impl Handler for StaticFileHandler {
             }
 
             Some(Record::Dir(path)) => {
-                let index = conn_unwrap!(self.index_file.as_ref(), conn);
+                let Some(index) = self.index_file.as_ref() else {
+                    return conn.with_state(ResolvedDirectory::new(path));
+                };
                 let index_path = path.join(index);
 
                 if let Some(spec) = range_spec {
-                    let file = conn_unwrap!(File::open(&index_path).await.ok(), conn);
+                    let Some(file) = File::open(&index_path).await.ok() else {
+                        return conn.with_state(ResolvedDirectory::new(path));
+                    };
                     self.serve_range(conn, file, &index_path, spec, if_range.as_deref())
                         .await
                 } else {
@@ -456,7 +460,9 @@ impl Handler for StaticFileHandler {
                         Some((sidecar, encoding)) => (sidecar, Some(encoding)),
                         None => (index_path.clone(), None),
                     };
-                    let file = conn_unwrap!(File::open(&open_path).await.ok(), conn);
+                    let Some(file) = File::open(&open_path).await.ok() else {
+                        return conn.with_state(ResolvedDirectory::new(path));
+                    };
                     let conn = match encoding {
                         Some(enc) => conn.with_response_header(ContentEncoding, enc),
                         None => conn,

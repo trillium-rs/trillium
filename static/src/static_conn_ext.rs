@@ -1,4 +1,4 @@
-use crate::{fs_shims::File, options::StaticOptions};
+use crate::{ResolvedDirectory, fs_shims::File, options::StaticOptions};
 use etag::EntityTag;
 use std::{future::Future, path::Path};
 use trillium::{
@@ -37,6 +37,13 @@ pub trait StaticConnExt: Send {
     /// [`mime_guess`](https://docs.rs/mime_guess/) and set the
     /// content-type header
     fn with_mime_from_path(self, path: impl AsRef<Path>) -> Self;
+
+    /// If [`StaticFileHandler`][crate::StaticFileHandler] resolved this
+    /// request's path to a directory but did not serve a file from it (no
+    /// index file configured, or the configured index was absent), returns the
+    /// resolved directory. A downstream handler can use this to render a
+    /// directory listing.
+    fn resolved_directory(&self) -> Option<&ResolvedDirectory>;
 }
 
 impl StaticConnExt for Conn {
@@ -84,6 +91,10 @@ impl StaticConnExt for Conn {
         let file = async_compat::Compat::new(file);
 
         self.ok(Body::new_streaming(file, Some(metadata.len())))
+    }
+
+    fn resolved_directory(&self) -> Option<&ResolvedDirectory> {
+        self.state()
     }
 
     fn with_mime_from_path(self, path: impl AsRef<Path>) -> Self {
