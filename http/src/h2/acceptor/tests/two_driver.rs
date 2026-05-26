@@ -87,6 +87,55 @@ fn client_get_pseudos() -> PseudoHeaders<'static> {
         .with_authority("test")
 }
 
+/// Several client requests opened back-to-back before the driver runs must reach the wire with
+/// their opening HEADERS in ascending stream-id order — RFC 9113 §5.1.1 requires a client to
+/// open streams in monotonically increasing order, and a peer rejects an out-of-order open with
+/// `GOAWAY(PROTOCOL_ERROR)`, tearing down the whole connection. Regression for concurrent
+/// `open_stream` calls being framed in (nondeterministic) hash order rather than id order.
+#[test]
+fn concurrent_client_streams_open_in_id_order() {
+    let mut d = TwoDrivers::new();
+    d.pump();
+    assert_eq!(d.client.state, DriverState::Running, "client handshake");
+    assert_eq!(d.server.state, DriverState::Running, "server handshake");
+
+    // Stage a batch of requests with no driver step in between, so they're all queued before the
+    // send pump frames any of them — the case where pickup/framing order decides wire order.
+    const N: usize = 8;
+    let handles: Vec<_> = (0..N)
+        .map(|_| {
+            d.client_conn
+                .open_stream(client_get_pseudos(), Headers::new(), None)
+                .expect("open_stream on a running client connection")
+        })
+        .collect();
+    let ids: Vec<u32> = handles.iter().map(|(id, _, _)| *id).collect();
+    assert_eq!(
+        ids,
+        vec![1, 3, 5, 7, 9, 11, 13, 15],
+        "client ids are sequential odd"
+    );
+
+    let conns = d.pump();
+
+    // The server accepts every stream and never errors: out-of-order opening HEADERS would have
+    // drawn a connection-level PROTOCOL_ERROR before all N streams were yielded.
+    assert_eq!(
+        conns.len(),
+        N,
+        "server should yield a Conn for every opened stream"
+    );
+    assert!(
+        d.server.close_outcome.is_none() && d.server.state == DriverState::Running,
+        "server must not protocol-error on the stream opens (state={:?}, outcome={:?})",
+        d.server.state,
+        d.server.close_outcome,
+    );
+
+    // Held so the streams aren't reset by a local drop before the assertions above.
+    drop(handles);
+}
+
 /// Trace-faithful reproduction: client opens a request, server yields the `Conn`, then both
 /// peers abandon the stream at once (each drops its transport → `RST_STREAM(Cancel)`) while
 /// the server begins a graceful shutdown. Both drivers must finish their close-out; a driver

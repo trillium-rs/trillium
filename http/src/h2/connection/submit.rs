@@ -273,13 +273,6 @@ impl H2Connection {
             return None;
         }
 
-        let stream_id = self
-            .next_client_stream_id
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                (n < (1u32 << 31)).then_some(n + 2)
-            })
-            .ok()?;
-
         let state = Arc::new(StreamState::default());
 
         // Stage the request parts *before* publishing the stream id to the shared map so they're
@@ -287,7 +280,25 @@ impl H2Connection {
         // needed to start framing. A non-upgrade request closes after its body; an extended-CONNECT
         // bootstrap stays open.
         state.stage(submission_parts(pseudos, headers, body, !is_upgrade));
-        self.streams_lock().insert(stream_id, state.clone());
+
+        // Allocate the id and publish the stream *atomically under the shared map lock*. The id and
+        // its wire HEADERS must go out in monotonically increasing order (RFC 9113 §5.1.1); holding
+        // the lock across allocation + insertion means a concurrent opener can't allocate a higher
+        // id and make it visible to the driver while this lower id is still mid-publish — which
+        // would let the driver frame the higher id's HEADERS first and trip GOAWAY(PROTOCOL_ERROR).
+        // (The driver completes the guarantee by framing streams in id order — see the `BTreeMap`
+        // streams table in the acceptor.)
+        let stream_id = {
+            let mut streams = self.streams_lock();
+            let stream_id = self
+                .next_client_stream_id
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                    (n < (1u32 << 31)).then_some(n + 2)
+                })
+                .ok()?;
+            streams.insert(stream_id, state.clone());
+            stream_id
+        };
         log::trace!("h2 client: open_stream allocated stream {stream_id} (upgrade={is_upgrade})");
         self.outbound_waker.wake();
         let transport = H2Transport::new(Arc::clone(self), stream_id, state.clone());

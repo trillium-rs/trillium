@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the body ended cleanly but the trailers the server had already sent were dropped. Trailers are now
   delivered in this case.
 
+- HTTP/2: issuing several requests concurrently through one `Client` to the same origin could abort
+  the connection with a protocol error, failing those requests and any others in flight on the same
+  connection with a connection-aborted error. Concurrent requests over a shared connection now
+  proceed normally.
+
 
 ## [0.9.2] - 2026-05-25
 
