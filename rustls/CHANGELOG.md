@@ -4,7 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.2] - 2026-05-26
+
+### Added
+- `RustlsClientConfig::from_root_cert_pem(pem)` — build a client config that trusts exactly the certificate(s) in the provided PEM (ignoring platform/webpki defaults) while keeping certificate verification intact. Useful for connecting to a service with a private or self-signed certificate without reconstructing the crate's provider/ALPN defaults by hand.
+- `RustlsClientConfig` is now re-exported from the crate root.
+- `dangerous` cargo feature, gating `RustlsClientConfig::dangerously_accept_any_cert()` — a client config that disables server authentication entirely.
 
 ### Fixed
 - Connecting over TLS to a host given as an IP address (e.g. `https://127.0.0.1`) failed with a `missing domain` transport error; only DNS hostnames worked. IP-address hosts now connect, validated against the certificate's IP SAN (no SNI is sent for them, per the TLS spec).
