@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- When a request resolves to a directory that the handler does not serve a
+  file from (no index file configured, or the configured index is absent),
+  the resolved directory is now stored in conn state as a `ResolvedDirectory`
+  rather than silently 404ing. The conn is left unhalted so a downstream
+  handler can enumerate it and render a directory listing. Retrieve it via
+  `StaticConnExt::resolved_directory`. The contained path has already passed
+  the traversal-containment check.
+
 ## [0.6.0] - 2026-05-21
 
 ### Added

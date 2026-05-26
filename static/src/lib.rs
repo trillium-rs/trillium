@@ -103,10 +103,12 @@ mod fs_shims;
 mod handler;
 mod options;
 mod range;
+mod resolved_directory;
 mod static_conn_ext;
 
 pub use handler::StaticFileHandler;
 pub use relative_path;
+pub use resolved_directory::ResolvedDirectory;
 pub use static_conn_ext::StaticConnExt;
 
 /// a convenient helper macro to build a str relative to the crate root

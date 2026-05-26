@@ -9,7 +9,7 @@
 use std::{fs, path::PathBuf};
 use tempfile::TempDir;
 use trillium::Status;
-use trillium_static::StaticFileHandler;
+use trillium_static::{StaticConnExt, StaticFileHandler};
 use trillium_testing::{TestServer, block_on};
 
 // ---------------------------------------------------------------------------
@@ -73,6 +73,43 @@ fn serves_file_in_subdir() {
     block_on(async {
         let app = TestServer::new(StaticFileHandler::new(&www)).await;
         app.get("/subdir/nested.txt")
+            .await
+            .assert_ok()
+            .assert_body("nested content");
+    });
+}
+
+#[test]
+fn dir_without_index_file() {
+    let (_outer, www) = setup();
+    block_on(async {
+        let app = TestServer::new((
+            StaticFileHandler::new(&www),
+            |conn: trillium::Conn| async move {
+                if let Some(dir) = conn.resolved_directory() {
+                    let body = format!("resolved directory: {}", dir.path().display());
+                    conn.ok(body)
+                } else {
+                    conn
+                }
+            },
+        ))
+        .await;
+
+        app.get("/subdir").await.assert_ok().assert_body(&format!(
+            "resolved directory: {}",
+            www.canonicalize().unwrap().join("subdir").display()
+        ));
+    });
+}
+
+#[test]
+fn dir_with_index_file() {
+    let (_outer, www) = setup();
+    block_on(async {
+        let app = TestServer::new(StaticFileHandler::new(&www).with_index_file("nested.txt")).await;
+
+        app.get("/subdir/")
             .await
             .assert_ok()
             .assert_body("nested content");
