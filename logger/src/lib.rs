@@ -177,6 +177,7 @@ pub struct Logger<F> {
     format: F,
     color_mode: ColorMode,
     target: Arc<dyn Targetable>,
+    init_message: bool,
 }
 
 impl Logger<()> {
@@ -187,11 +188,13 @@ impl Logger<()> {
     /// * formatter: [`dev_formatter`]
     /// * color mode: [`ColorMode::Auto`]
     /// * target: [`Target::Stdout`]
+    /// * init message: true
     pub fn new() -> Logger<impl LogFormatter> {
         Logger {
             format: dev_formatter,
             color_mode: ColorMode::Auto,
             target: Arc::new(Target::Stdout),
+            init_message: true,
         }
     }
 }
@@ -214,6 +217,7 @@ impl<T> Logger<T> {
             format: formatter,
             color_mode: self.color_mode,
             target: self.target,
+            init_message: self.init_message,
         }
     }
 }
@@ -245,6 +249,12 @@ impl<F: LogFormatter> Logger<F> {
         self.target = Arc::new(target);
         self
     }
+
+    /// Opt out of the init message
+    pub fn without_init_message(mut self) -> Self {
+        self.init_message = false;
+        self
+    }
 }
 
 /// An easily-named `Arc<dyn Targetable>` that is stored in trillium shared state
@@ -269,24 +279,26 @@ where
     F: LogFormatter,
 {
     async fn init(&mut self, info: &mut Info) {
-        let mut string = "\nTrillium started\n".to_string();
+        if self.init_message {
+            let mut string = "\nTrillium started\n".to_string();
 
-        if let Some(url) = info.shared_state::<url::Url>() {
-            writeln!(string, "✾ Listening at {}", url.as_str()).unwrap();
+            if let Some(url) = info.shared_state::<url::Url>() {
+                writeln!(string, "✾ Listening at {}", url.as_str()).unwrap();
+            }
+
+            if let Some(tcp) = info.tcp_socket_addr() {
+                writeln!(string, "✾ Bound as tcp://{tcp}").unwrap();
+            }
+
+            #[cfg(unix)]
+            if let Some(unix) = info.unix_socket_addr().and_then(|unix| unix.as_pathname()) {
+                writeln!(string, "✾ Bound as unix://{}", unix.display()).unwrap();
+            }
+
+            writeln!(string, "Control-c to quit").unwrap();
+            self.target.write(string);
         }
 
-        if let Some(tcp) = info.tcp_socket_addr() {
-            writeln!(string, "✾ Bound as tcp://{tcp}").unwrap();
-        }
-
-        #[cfg(unix)]
-        if let Some(unix) = info.unix_socket_addr().and_then(|unix| unix.as_pathname()) {
-            writeln!(string, "✾ Bound as unix://{}", unix.display()).unwrap();
-        }
-
-        writeln!(string, "Control-c to quit").unwrap();
-
-        self.target.write(string);
         info.insert_shared_state(LogTarget(Arc::clone(&self.target)));
     }
 
