@@ -1,6 +1,6 @@
 [package]
 name = "trillium-logger"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 description = "logger for trillium.rs"
 license = "MIT OR Apache-2.0"
