@@ -19,7 +19,7 @@ use std::{
     io::IsTerminal,
     sync::Arc,
 };
-use trillium::{Conn, Handler, Info, Transport};
+use trillium::{Conn, Handler, Info, ListenerKind, Transport};
 /// Components with which common log formats can be constructed
 pub mod formatters;
 
@@ -282,17 +282,27 @@ where
         if self.init_message {
             let mut string = "\nTrillium started\n".to_string();
 
+            // The canonical URL, when known, can differ from any bound address (e.g. a configured
+            // DNS name behind a load balancer), so it is reported separately from the sockets.
             if let Some(url) = info.shared_state::<url::Url>() {
                 writeln!(string, "✾ Listening at {}", url.as_str()).unwrap();
             }
 
-            if let Some(tcp) = info.tcp_socket_addr() {
-                writeln!(string, "✾ Bound as tcp://{tcp}").unwrap();
+            // A TCP-TLS listener and a QUIC listener on the same address render to the same URL;
+            // collapse them onto one line, marking `h3` where a QUIC listener is part of the group.
+            let mut bound: Vec<(String, bool)> = Vec::new();
+            for listener in info.listeners() {
+                let rendered = listener.to_string();
+                let is_h3 = matches!(listener.kind(), ListenerKind::Quic(_));
+                if let Some((_, h3)) = bound.iter_mut().find(|(r, _)| *r == rendered) {
+                    *h3 |= is_h3;
+                } else {
+                    bound.push((rendered, is_h3));
+                }
             }
-
-            #[cfg(unix)]
-            if let Some(unix) = info.unix_socket_addr().and_then(|unix| unix.as_pathname()) {
-                writeln!(string, "✾ Bound as unix://{}", unix.display()).unwrap();
+            for (rendered, is_h3) in &bound {
+                let h3 = if *is_h3 { " (h3)" } else { "" };
+                writeln!(string, "✾ Bound to {rendered}{h3}").unwrap();
             }
 
             writeln!(string, "Control-c to quit").unwrap();

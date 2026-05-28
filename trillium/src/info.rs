@@ -1,3 +1,4 @@
+use crate::{Listener, Listeners};
 use std::net::SocketAddr;
 use trillium_http::{HttpConfig, HttpContext, Swansong, TypeSet, type_set::entry::Entry};
 
@@ -35,6 +36,13 @@ impl Info {
     /// thing exists for this server
     pub fn tcp_socket_addr(&self) -> Option<&SocketAddr> {
         self.shared_state()
+    }
+
+    /// Returns every [`Listener`] this server is bound to, in registration order.
+    ///
+    /// Empty until the server populates its listener set during startup.
+    pub fn listeners(&self) -> &[Listener] {
+        self.shared_state::<Listeners>().map_or(&[], |l| &l.0)
     }
 
     /// Returns the `local_addr` of a bound unix listener, if such a

@@ -46,49 +46,11 @@ pub trait Server: Sized + Send + Sync + 'static {
     /// [`Server::from_tcp`] and
     /// [`Server::from_unix`].
     fn from_host_and_port(host: &str, port: u16) -> Self {
-        #[cfg(unix)]
-        if host.starts_with(['/', '.', '~']) {
-            log::debug!("using unix listener at {host}");
-            return UnixListener::bind(host)
-                .inspect(|unix_listener| {
-                    log::debug!("listening at {:?}", unix_listener.local_addr().unwrap());
-                })
-                .map(Self::from_unix)
-                .unwrap();
+        match resolve_listener(host, port).unwrap() {
+            PreboundListener::Tcp(tcp_listener) => Self::from_tcp(tcp_listener),
+            #[cfg(unix)]
+            PreboundListener::Unix(unix_listener) => Self::from_unix(unix_listener),
         }
-
-        let mut listen_fd = ListenFd::from_env();
-
-        #[cfg(unix)]
-        if let Ok(Some(unix_listener)) = listen_fd.take_unix_listener(0) {
-            log::debug!(
-                "using unix listener from systemfd environment {:?}",
-                unix_listener.local_addr().unwrap()
-            );
-            return Self::from_unix(unix_listener);
-        }
-
-        let tcp_listener = listen_fd
-            .take_tcp_listener(0)
-            .ok()
-            .flatten()
-            .inspect(|tcp_listener| {
-                log::debug!(
-                    "using tcp listener from systemfd environment, listening at {:?}",
-                    tcp_listener.local_addr()
-                )
-            })
-            .unwrap_or_else(|| {
-                log::debug!("using tcp listener at {host}:{port}");
-                TcpListener::bind((host, port))
-                    .inspect(|tcp_listener| {
-                        log::debug!("listening at {:?}", tcp_listener.local_addr().unwrap())
-                    })
-                    .unwrap()
-            });
-
-        tcp_listener.set_nonblocking(true).unwrap();
-        Self::from_tcp(tcp_listener)
     }
 
     /// Build a Self::Listener from a tcp listener. This is called by
@@ -114,4 +76,66 @@ pub trait Server: Sized + Send + Sync + 'static {
     fn handle_signals(_swansong: Swansong) -> impl Future<Output = ()> + Send {
         async {}
     }
+}
+
+/// A listener claimed by [`resolve_listener`] before it has been adopted into a runtime: either a
+/// freshly-bound (or inherited) TCP listener, or, on unix, a Unix-domain-socket listener.
+#[derive(Debug)]
+pub(crate) enum PreboundListener {
+    Tcp(TcpListener),
+    #[cfg(unix)]
+    Unix(UnixListener),
+}
+
+/// Resolve a `host`/`port` into a freshly-claimed std listener following trillium's 12-factor
+/// binding rules:
+///
+/// - on unix, a `host` beginning with `/`, `.`, or `~` is treated as a path and bound as a
+///   Unix-domain socket (the `port` is ignored);
+/// - otherwise, a listener inherited via the `LISTEN_FDS` socket-activation protocol at fd index 0
+///   (unix listener preferred, then TCP) is adopted if present;
+/// - otherwise a TCP listener is bound to `host:port`.
+///
+/// This is the fallible core of the default [`Server::from_host_and_port`] (which `.unwrap()`s the
+/// result, preserving its panic-on-failure contract) and of the multi-listener builder's `bind_env`
+/// (which propagates the error). TCP listeners are set non-blocking; the Unix path mirrors the
+/// historical `from_host_and_port` behavior and does not.
+pub(crate) fn resolve_listener(host: &str, port: u16) -> Result<PreboundListener> {
+    #[cfg(unix)]
+    if host.starts_with(['/', '.', '~']) {
+        log::debug!("using unix listener at {host}");
+        let unix_listener = UnixListener::bind(host)?;
+        log::debug!("listening at {:?}", unix_listener.local_addr());
+        return Ok(PreboundListener::Unix(unix_listener));
+    }
+
+    let mut listen_fd = ListenFd::from_env();
+
+    #[cfg(unix)]
+    if let Ok(Some(unix_listener)) = listen_fd.take_unix_listener(0) {
+        log::debug!(
+            "using unix listener from systemfd environment {:?}",
+            unix_listener.local_addr()
+        );
+        return Ok(PreboundListener::Unix(unix_listener));
+    }
+
+    let tcp_listener = match listen_fd.take_tcp_listener(0).ok().flatten() {
+        Some(tcp_listener) => {
+            log::debug!(
+                "using tcp listener from systemfd environment, listening at {:?}",
+                tcp_listener.local_addr()
+            );
+            tcp_listener
+        }
+        None => {
+            log::debug!("using tcp listener at {host}:{port}");
+            let tcp_listener = TcpListener::bind((host, port))?;
+            log::debug!("listening at {:?}", tcp_listener.local_addr());
+            tcp_listener
+        }
+    };
+
+    tcp_listener.set_nonblocking(true)?;
+    Ok(PreboundListener::Tcp(tcp_listener))
 }

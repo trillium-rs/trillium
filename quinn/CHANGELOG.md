@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `QuinnConnection`, `QuinnTransport`, `QuinnSend`, `QuinnRecv` — re-exported at the crate root.
 - `QuinnEndpoint::local_addr` — returns the address the underlying `quinn::Endpoint` is bound to.
 
+### Changed
+
+- `QuicConfig::bind_with_socket` is overridden to consume a pre-claimed `std::net::UdpSocket` directly, used by the new `trillium-server-common` `ServerBuilder::bind_quic` path. The existing `QuicConfig::bind(addr, …)` path is unchanged; it now binds the socket and delegates to `bind_with_socket`.
+
 ## [0.1.3] - 2026-05-11
 
 ### Added

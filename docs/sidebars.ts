@@ -10,7 +10,18 @@ const sidebars: SidebarsConfig = {
       items: [
         'overview/handlers',
         'overview/conn',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Serving',
+      items: [
         'overview/runtimes',
+        'overview/listeners',
+        'overview/graceful-shutdown',
+        'overview/tls',
+        'overview/http2',
+        'overview/http3',
       ],
     },
     {

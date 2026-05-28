@@ -10,7 +10,7 @@ WebTransport is a browser API and protocol built on HTTP/3 and QUIC. It gives ea
 
 This makes WebTransport well-suited for applications where WebSockets fall short: games, real-time audio/video signaling, live telemetry, and anything where head-of-line blocking or connection setup latency matters.
 
-WebTransport requires an HTTP/3-capable server. See [Runtime Adapters, TLS, and HTTP/3](../overview/runtimes.md) for setup.
+WebTransport requires an HTTP/3-capable server. See [HTTP/3](../overview/http3.md) for setup.
 
 ## Handler
 

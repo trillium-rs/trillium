@@ -12,6 +12,13 @@ categories = ["web-programming::http-server", "web-programming"]
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing", "trillium-smol"]
 
+[features]
+# SO_REUSEPORT thread-per-core fan-out (`ListenerConfig::bind_reuseport_*`). Only does anything on
+# platforms where SO_REUSEPORT load-balances connections (Linux and other non-Apple Unixes); pulls
+# in socket2. Runtime adapters that expose reuseport (e.g. trillium-tokio) forward their own
+# `reuseport` feature to this one.
+reuseport = ["dep:socket2"]
+
 [dependencies]
 async-channel = "2.5.0"
 async_cell = "0.2.3"
@@ -20,6 +27,7 @@ futures-lite = "2.6.1"
 listenfd = "1.0.2"
 log = "0.4.29"
 pin-project-lite = "0.2.17"
+socket2 = { version = "0.6", features = ["all"], optional = true }
 swansong = "0.3.4"
 trillium.workspace = true
 trillium-http = { version = "1.2", path = "../http" }
@@ -27,6 +35,9 @@ url = "2.5.8"
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.11.0"
+
+[build-dependencies]
+cfg_aliases = "0.2.1"
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

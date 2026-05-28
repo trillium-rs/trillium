@@ -28,13 +28,18 @@
 //!     .await;
 //! }
 //! ```
+//!
+//! For advanced binding — several listeners on one server, fallible binds you
+//! can recover from, or adopting an already-bound socket — call `.listeners()`
+//! on a [`config()`](crate::config) to get a
+//! [`ListenerConfig`](crate::ListenerConfig).
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
 mod readme {}
 
 use trillium::Handler;
-pub use trillium_server_common::{Binding, Swansong};
+pub use trillium_server_common::{Binding, IntoListenAddr, ListenerConfig, Swansong};
 
 mod client;
 pub use client::ClientConfig;
