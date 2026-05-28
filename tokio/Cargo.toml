@@ -10,6 +10,10 @@ readme = "README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[features]
+# SO_REUSEPORT thread-per-core fan-out entrypoint (Unix only). See `run_reuseport`.
+reuseport = []
+
 [dependencies]
 async-compat = "0.2.5"
 log = "0.4.29"
@@ -30,3 +34,7 @@ signal-hook-tokio = { version = "0.4.0", features = ["futures-v0_3"] }
 [dev-dependencies]
 env_logger = "0.11.10"
 tokio = { version = "1.50.0", features = ["full"] }
+
+[[example]]
+name = "reuseport"
+required-features = ["reuseport"]

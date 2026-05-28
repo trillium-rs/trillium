@@ -53,6 +53,27 @@ mod arc_handler;
 pub(crate) use arc_handler::ArcHandler;
 pub use swansong::Swansong;
 
+mod shared_server;
+#[doc(hidden)]
+pub use shared_server::SharedServer;
+
+#[cfg(all(
+    unix,
+    not(target_os = "solaris"),
+    not(target_os = "illumos"),
+    not(target_os = "cygwin"),
+    not(target_vendor = "apple")
+))]
+mod reuse_port;
+#[cfg(all(
+    unix,
+    not(target_os = "solaris"),
+    not(target_os = "illumos"),
+    not(target_os = "cygwin"),
+    not(target_vendor = "apple")
+))]
+pub use reuse_port::bind_reuse_port;
+
 mod runtime;
 pub use runtime::{DroppableFuture, Runtime, RuntimeTrait};
 

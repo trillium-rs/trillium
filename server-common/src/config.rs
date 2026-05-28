@@ -1,10 +1,6 @@
-use crate::{
-    Acceptor, ArcHandler, QuicConfig, RuntimeTrait, Server, ServerHandle,
-    running_config::RunningConfig,
-};
+use crate::{Acceptor, QuicConfig, RuntimeTrait, Server, ServerHandle, SharedServer};
 use async_cell::sync::AsyncCell;
-use futures_lite::StreamExt;
-use std::{cell::OnceCell, net::SocketAddr, pin::pin, sync::Arc};
+use std::{cell::OnceCell, net::SocketAddr, sync::Arc};
 use trillium::{Handler, Headers, HttpConfig, Info, KnownHeaderName, Swansong, TypeSet};
 use trillium_http::HttpContext;
 use url::Url;
@@ -86,13 +82,12 @@ where
     /// for an application that needs to spawn async tasks that are
     /// unrelated to the trillium application. If you do not need to spawn
     /// other tasks, [`Config::run`] is the preferred entrypoint
-    pub async fn run_async(self, mut handler: impl Handler) {
-        #[cfg_attr(not(unix), allow(unused_mut))]
+    pub async fn run_async(self, handler: impl Handler) {
         let Self {
             runtime,
             acceptor,
             quic,
-            mut max_connections,
+            max_connections,
             nodelay,
             binding,
             host,
@@ -101,16 +96,6 @@ where
             context,
             context_cell,
         } = self;
-
-        #[cfg(unix)]
-        if max_connections.is_none() {
-            max_connections = rlimit::getrlimit(rlimit::Resource::NOFILE)
-                .ok()
-                .and_then(|(soft, _hard)| soft.try_into().ok())
-                .map(|limit: usize| ((limit as f32) * 0.75) as usize);
-        };
-
-        log::debug!("using max connections of {:?}", max_connections);
 
         let host = host
             .or_else(|| std::env::var("HOST").ok())
@@ -127,89 +112,92 @@ where
             .inspect(|_| log::debug!("taking prebound listener"))
             .unwrap_or_else(|| ServerType::from_host_and_port(&host, port));
 
-        let swansong = context.swansong().clone();
-
-        let mut info = Info::from(context)
-            .with_shared_state(runtime.clone().into())
-            .with_shared_state(runtime.clone());
-
-        info.shared_state_entry::<Headers>()
-            .or_default()
-            .try_insert(KnownHeaderName::Server, trillium::headers::server_header());
-
+        let mut info = info_with_server_header::<ServerType>(context, &runtime);
         listener.init(&mut info);
 
-        let quic_binding = if let Some(socket_addr) = info.tcp_socket_addr().copied() {
-            let quic_binding = quic
-                .bind(socket_addr, runtime.clone(), &mut info)
-                .map(|r| r.expect("failed to bind QUIC endpoint"));
+        let (shared, quic_binding) = finish_init(
+            info,
+            runtime.clone(),
+            acceptor,
+            quic,
+            max_connections,
+            nodelay,
+            register_signals,
+            handler,
+        )
+        .await;
 
-            if quic_binding.is_some() {
-                info.shared_state_entry::<Headers>()
-                    .or_default()
-                    .try_insert_with(KnownHeaderName::AltSvc, || -> &'static str {
-                        format!("h3=\":{}\"", socket_addr.port()).leak()
-                    });
-            }
+        context_cell.set(shared.context().clone());
 
-            quic_binding
-        } else {
-            None
-        };
-
-        insert_url(info.as_mut(), acceptor.is_secure());
-
-        handler.init(&mut info).await;
-
-        let context = Arc::new(HttpContext::from(info));
-
-        context_cell.set(context.clone());
-
-        if register_signals {
-            let runtime = runtime.clone();
-            runtime.clone().spawn(async move {
-                let mut signals = pin!(runtime.hook_signals([2, 3, 15]));
-                while signals.next().await.is_some() {
-                    let guard_count = swansong.guard_count();
-                    if swansong.state().is_shutting_down() {
-                        eprintln!(
-                            "\nSecond interrupt, shutting down harshly (dropping {guard_count} \
-                             guards)"
-                        );
-                        std::process::exit(1);
-                    } else {
-                        println!(
-                            "\nShutting down gracefully. Waiting for {guard_count} shutdown \
-                             guards to drop.\nControl-c again to force."
-                        );
-                        swansong.shut_down();
-                    }
-                }
-            });
-        }
-
-        let handler = ArcHandler::new(handler);
+        shared.spawn_signals(runtime.clone());
 
         if let Some(quic_binding) = quic_binding {
-            let context = context.clone();
-            let handler = handler.clone();
-            runtime.clone().spawn(crate::h3::run_h3(
-                quic_binding,
-                context,
-                handler,
-                runtime.clone(),
-            ));
+            let shared = shared.clone();
+            let h3_runtime = runtime.clone();
+            runtime
+                .clone()
+                .spawn(async move { shared.h3_accept_loop(h3_runtime, quic_binding).await });
         }
 
-        let running_config = Arc::new(RunningConfig {
-            acceptor,
-            max_connections,
-            context,
-            runtime,
-            nodelay,
-        });
+        shared.accept_loop(runtime, listener).await;
+    }
 
-        running_config.run_async(listener, handler).await;
+    /// Runs one-time initialization — including [`Handler::init`] — exactly once, producing a
+    /// [`SharedServer`] that can drive any number of accept loops, the bound QUIC endpoint if
+    /// HTTP/3 was configured, and a [`ServerHandle`] backed by the provided `runtime`.
+    ///
+    /// `socket_addr` is the already-resolved bound address (the caller is responsible for binding),
+    /// and `runtime` is the runtime that QUIC I/O and any application-initiated spawns will use.
+    /// This is the entry point for runtimes that fan a single shared handler out across multiple
+    /// listeners or runtimes (e.g. a SO_REUSEPORT per-core deployment); the standard single-server
+    /// path is [`run_async`](Self::run_async).
+    #[doc(hidden)]
+    pub async fn initialize<H: Handler>(
+        self,
+        runtime: ServerType::Runtime,
+        socket_addr: SocketAddr,
+        handler: H,
+    ) -> (
+        SharedServer<ServerType, AcceptorType, H>,
+        Option<QuicType::Endpoint>,
+        ServerHandle,
+    ) {
+        let Self {
+            acceptor,
+            quic,
+            max_connections,
+            nodelay,
+            register_signals,
+            context,
+            context_cell,
+            ..
+        } = self;
+
+        let mut info = info_with_server_header::<ServerType>(context, &runtime);
+        info.insert_shared_state(socket_addr);
+
+        let (shared, quic_binding) = finish_init(
+            info,
+            runtime.clone(),
+            acceptor,
+            quic,
+            max_connections,
+            nodelay,
+            register_signals,
+            handler,
+        )
+        .await;
+
+        context_cell.set(shared.context().clone());
+
+        let server_handle = ServerHandle {
+            swansong: shared.context().swansong().clone(),
+            context: context_cell,
+            received_context: OnceCell::new(),
+            runtime: runtime.into(),
+        };
+
+        (shared, quic_binding, server_handle)
     }
 
     /// Spawns the server onto the async runtime, returning a [`ServerHandle`].
@@ -454,6 +442,91 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
             context: Default::default(),
         }
     }
+}
+
+fn info_with_server_header<ServerType: Server>(
+    context: HttpContext,
+    runtime: &ServerType::Runtime,
+) -> Info {
+    let mut info = Info::from(context)
+        .with_shared_state(runtime.clone().into())
+        .with_shared_state(runtime.clone());
+
+    info.shared_state_entry::<Headers>()
+        .or_default()
+        .try_insert(KnownHeaderName::Server, trillium::headers::server_header());
+
+    info
+}
+
+/// Shared tail of [`Config::run_async`] and [`Config::initialize`]: given an `Info` whose bound
+/// address has already been populated, bind QUIC, run [`Handler::init`] once, and assemble the
+/// [`SharedServer`].
+#[cfg_attr(not(unix), allow(unused_mut))]
+#[allow(clippy::too_many_arguments)]
+async fn finish_init<ServerType, AcceptorType, QuicType, H>(
+    mut info: Info,
+    runtime: ServerType::Runtime,
+    acceptor: AcceptorType,
+    quic: QuicType,
+    mut max_connections: Option<usize>,
+    nodelay: bool,
+    register_signals: bool,
+    mut handler: H,
+) -> (
+    SharedServer<ServerType, AcceptorType, H>,
+    Option<QuicType::Endpoint>,
+)
+where
+    ServerType: Server,
+    AcceptorType: Acceptor<ServerType::Transport>,
+    QuicType: QuicConfig<ServerType>,
+    H: Handler,
+{
+    #[cfg(unix)]
+    if max_connections.is_none() {
+        max_connections = rlimit::getrlimit(rlimit::Resource::NOFILE)
+            .ok()
+            .and_then(|(soft, _hard)| soft.try_into().ok())
+            .map(|limit: usize| ((limit as f32) * 0.75) as usize);
+    }
+
+    log::debug!("using max connections of {max_connections:?}");
+
+    let quic_binding = if let Some(socket_addr) = info.tcp_socket_addr().copied() {
+        let quic_binding = quic
+            .bind(socket_addr, runtime, &mut info)
+            .map(|r| r.expect("failed to bind QUIC endpoint"));
+
+        if quic_binding.is_some() {
+            info.shared_state_entry::<Headers>()
+                .or_default()
+                .try_insert_with(KnownHeaderName::AltSvc, || -> &'static str {
+                    format!("h3=\":{}\"", socket_addr.port()).leak()
+                });
+        }
+
+        quic_binding
+    } else {
+        None
+    };
+
+    insert_url(info.as_mut(), acceptor.is_secure());
+
+    handler.init(&mut info).await;
+
+    let context = Arc::new(HttpContext::from(info));
+
+    let shared = SharedServer::new(
+        acceptor,
+        max_connections,
+        nodelay,
+        register_signals,
+        context,
+        handler,
+    );
+
+    (shared, quic_binding)
 }
 
 fn insert_url(state: &mut TypeSet, secure: bool) -> Option<()> {

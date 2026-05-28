@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `QuicEndpoint::local_addr(&self) -> io::Result<SocketAddr>` — the local address the endpoint is bound to. The default implementation returns `io::ErrorKind::Unsupported`; adapters with a bound UDP socket override it to return the actual address.
+- `bind_reuse_port(addr) -> io::Result<TcpListener>` (Unix only, excluding Apple platforms) — bind a non-blocking std `TcpListener` with `SO_REUSEPORT` + `SO_REUSEADDR` for kernel connection fan-out across a listener group. Gated off on Apple platforms, where `SO_REUSEPORT` delivers every connection to a single listener rather than fanning out.
+- `SharedServer` and `Config::initialize` (both `#[doc(hidden)]`) — split one-time `Handler::init` from the per-runtime accept loops so a single initialized handler can be shared across many listeners/runtimes. Supports the new `trillium-tokio` `reuseport` entrypoint.
 
 ## [0.7.2] - 2026-05-11
 

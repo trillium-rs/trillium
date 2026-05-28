@@ -104,5 +104,24 @@ pub fn config() -> Config<()> {
 mod runtime;
 pub use runtime::TokioRuntime;
 
+#[cfg(all(
+    feature = "reuseport",
+    unix,
+    not(target_os = "solaris"),
+    not(target_os = "illumos"),
+    not(target_os = "cygwin"),
+    not(target_vendor = "apple")
+))]
+mod reuseport;
+#[cfg(all(
+    feature = "reuseport",
+    unix,
+    not(target_os = "solaris"),
+    not(target_os = "illumos"),
+    not(target_os = "cygwin"),
+    not(target_vendor = "apple")
+))]
+pub use reuseport::{ReuseportConfigExt, ReuseportHandle};
+
 mod udp;
 pub use udp::TokioUdpSocket;

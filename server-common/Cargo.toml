@@ -27,6 +27,7 @@ url = "2.5.8"
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.11.0"
+socket2 = { version = "0.6", features = ["all"] }
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }

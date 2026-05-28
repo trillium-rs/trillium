@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `reuseport` feature (Unix only, excluding Apple platforms) adding `ReuseportConfigExt` with `spawn_reuseport`/`run_reuseport`: a thread-per-core entrypoint that binds one `SO_REUSEPORT` listener per worker for kernel connection fan-out, runs each accept loop on its own single-threaded runtime, and shares one initialized handler across all of them. A separate multi-threaded runtime hosts HTTP/3 and application spawns. Worker counts come from the `WORKERS` and `QUIC_THREADS` environment variables. Gated off on Apple platforms, where `SO_REUSEPORT` delivers every connection to a single listener rather than fanning out, so a thread-per-core listener group would offer no benefit.
+
 ## [0.6.1] - 2026-05-05
 
 ### Fixed
