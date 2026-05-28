@@ -2,11 +2,11 @@
 
 pub mod web_transport;
 use crate::{
-    ArcHandler, QuicConnection, QuicConnectionTrait, QuicEndpoint, QuicTransportReceive,
+    ArcHandler, ArcedQuicEndpoint, BoxedBidiStream, QuicConnection, QuicTransportReceive,
     QuicTransportSend, RuntimeTrait,
 };
 use std::sync::Arc;
-use trillium::{Handler, Upgrade};
+use trillium::{Handler, KnownHeaderName, Listener, Upgrade};
 use trillium_http::{
     HttpContext,
     h3::{H3Connection, H3Error, H3ErrorCode, H3StreamResult, UniStreamResult},
@@ -28,28 +28,37 @@ impl From<u64> for StreamId {
     }
 }
 
-pub(crate) async fn run_h3<QE: QuicEndpoint>(
-    quic_binding: QE,
+pub(crate) async fn run_h3(
+    quic_binding: ArcedQuicEndpoint,
     context: Arc<HttpContext>,
     handler: ArcHandler<impl Handler>,
     runtime: impl RuntimeTrait,
+    listener: Option<Listener>,
+    local_alt_svc: Option<&'static str>,
 ) {
     let swansong = context.swansong();
     while let Some(connection) = swansong.interrupt(quic_binding.accept()).await.flatten() {
         let h3 = H3Connection::new(context.clone());
         let handler = handler.clone();
         let runtime = runtime.clone();
-        runtime
-            .clone()
-            .spawn(run_h3_connection(connection, h3, handler, runtime));
+        runtime.clone().spawn(run_h3_connection(
+            connection,
+            h3,
+            handler,
+            runtime,
+            listener.clone(),
+            local_alt_svc,
+        ));
     }
 }
 
-async fn run_h3_connection<QC: QuicConnectionTrait>(
-    connection: QC,
+async fn run_h3_connection(
+    connection: QuicConnection,
     h3: Arc<H3Connection>,
     handler: ArcHandler<impl Handler>,
     runtime: impl RuntimeTrait,
+    listener: Option<Listener>,
+    local_alt_svc: Option<&'static str>,
 ) {
     let wt_dispatcher = h3
         .context()
@@ -63,15 +72,26 @@ async fn run_h3_connection<QC: QuicConnectionTrait>(
     spawn_qpack_encoder_stream(&connection, &h3, &runtime);
     spawn_qpack_decoder_stream(&connection, &h3, &runtime);
     spawn_inbound_uni_streams(&connection, &h3, &runtime, &wt_dispatcher);
-    handle_inbound_bidi_streams(connection, h3.clone(), handler, runtime, wt_dispatcher).await;
+    handle_inbound_bidi_streams(
+        connection,
+        h3.clone(),
+        handler,
+        runtime,
+        wt_dispatcher,
+        listener,
+        local_alt_svc,
+    )
+    .await;
 }
 
-async fn handle_inbound_bidi_streams<QC: QuicConnectionTrait>(
-    connection: QC,
+async fn handle_inbound_bidi_streams(
+    connection: QuicConnection,
     h3: Arc<H3Connection>,
     handler: ArcHandler<impl Handler>,
     runtime: impl RuntimeTrait,
     wt_dispatcher: Option<WebTransportDispatcher>,
+    listener: Option<Listener>,
+    local_alt_svc: Option<&'static str>,
 ) {
     loop {
         match h3.swansong().interrupt(connection.accept_bidi()).await {
@@ -92,6 +112,8 @@ async fn handle_inbound_bidi_streams<QC: QuicConnectionTrait>(
                     &connection,
                     &runtime,
                     &wt_dispatcher,
+                    listener.clone(),
+                    local_alt_svc,
                 );
             }
         }
@@ -100,14 +122,17 @@ async fn handle_inbound_bidi_streams<QC: QuicConnectionTrait>(
     h3.shut_down();
 }
 
-fn handle_bidi_stream<QC: QuicConnectionTrait>(
+#[allow(clippy::too_many_arguments)]
+fn handle_bidi_stream(
     stream_id: u64,
-    transport: QC::BidiStream,
+    transport: BoxedBidiStream,
     h3: &Arc<H3Connection>,
     handler: &ArcHandler<impl Handler>,
-    connection: &QC,
+    connection: &QuicConnection,
     runtime: &impl RuntimeTrait,
     wt_dispatcher: &Option<WebTransportDispatcher>,
+    listener: Option<Listener>,
+    local_alt_svc: Option<&'static str>,
 ) {
     log::trace!("H3 bidi stream {stream_id}: spawning handler task");
     let (h3, handler, connection, wt_dispatcher) = (
@@ -130,11 +155,20 @@ fn handle_bidi_stream<QC: QuicConnectionTrait>(
                 conn.set_secure(true);
 
                 let state = conn.state_mut();
-                state.insert(quic_connection.clone());
-                state.insert(QuicConnection::from(quic_connection));
+                state.insert(quic_connection);
                 state.insert(StreamId(stream_id));
+                if let Some(listener) = listener {
+                    if let Some(addr) = listener.socket_addr() {
+                        state.insert(addr);
+                    }
+                    state.insert(listener);
+                }
                 if let Some(dispatcher) = wt_dispatcher {
                     state.insert(dispatcher);
+                }
+                if let Some(alt_svc) = local_alt_svc {
+                    conn.response_headers_mut()
+                        .try_insert(KnownHeaderName::AltSvc, alt_svc);
                 }
 
                 let conn = handler.run(conn.into()).await;
@@ -195,8 +229,8 @@ fn handle_bidi_stream<QC: QuicConnectionTrait>(
     });
 }
 
-fn spawn_inbound_uni_streams<QC: QuicConnectionTrait>(
-    connection: &QC,
+fn spawn_inbound_uni_streams(
+    connection: &QuicConnection,
     h3: &Arc<H3Connection>,
     runtime: &impl RuntimeTrait,
     wt_dispatcher: &Option<WebTransportDispatcher>,
@@ -270,8 +304,8 @@ fn spawn_inbound_uni_streams<QC: QuicConnectionTrait>(
     });
 }
 
-fn spawn_qpack_decoder_stream<QC: QuicConnectionTrait>(
-    connection: &QC,
+fn spawn_qpack_decoder_stream(
+    connection: &QuicConnection,
     h3: &Arc<H3Connection>,
     runtime: &impl RuntimeTrait,
 ) {
@@ -298,8 +332,8 @@ fn spawn_qpack_decoder_stream<QC: QuicConnectionTrait>(
     });
 }
 
-fn spawn_qpack_encoder_stream<QC: QuicConnectionTrait>(
-    connection: &QC,
+fn spawn_qpack_encoder_stream(
+    connection: &QuicConnection,
     h3: &Arc<H3Connection>,
     runtime: &impl RuntimeTrait,
 ) {
@@ -325,8 +359,8 @@ fn spawn_qpack_encoder_stream<QC: QuicConnectionTrait>(
     });
 }
 
-fn spawn_outbound_control_stream<QC: QuicConnectionTrait>(
-    connection: &QC,
+fn spawn_outbound_control_stream(
+    connection: &QuicConnection,
     h3: &Arc<H3Connection>,
     runtime: &impl RuntimeTrait,
 ) {
@@ -352,7 +386,7 @@ fn spawn_outbound_control_stream<QC: QuicConnectionTrait>(
     });
 }
 
-fn handle_h3_error(error: H3Error, connection: &impl QuicConnectionTrait, h3: &H3Connection) {
+fn handle_h3_error(error: H3Error, connection: &QuicConnection, h3: &H3Connection) {
     log::debug!("H3 error: {error}");
     if let H3Error::Protocol(code) = error
         && code.is_connection_error()

@@ -33,6 +33,13 @@ impl BoundInfo {
         self.shared_state()
     }
 
+    /// Returns every [`Listener`](trillium::Listener) this server is bound to, in registration
+    /// order. Empty if the server has not populated its listener set.
+    pub fn listeners(&self) -> &[trillium::Listener] {
+        self.shared_state::<trillium::Listeners>()
+            .map_or(&[], |l| &l.0)
+    }
+
     /// Returns the URL of this server, derived from the bound address, if available
     pub fn url(&self) -> Option<&url::Url> {
         self.shared_state()

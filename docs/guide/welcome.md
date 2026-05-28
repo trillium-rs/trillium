@@ -87,13 +87,13 @@ handler early in the tuple stores the current user in state, and later handlers 
 TCP connections, and drives the async executor. Adapters are available for smol, tokio, async-std,
 and AWS Lambda. TLS, HTTP/2, and HTTP/3 are also configured at this layer.
 
-See [Runtime Adapters, TLS, HTTP/2, and HTTP/3](./overview/runtimes.md) for the full picture.
+See [Runtime adapters](./overview/runtimes.md) for the full picture, along with [Listeners](./overview/listeners.md), [Graceful shutdown](./overview/graceful-shutdown.md), [TLS](./overview/tls.md), [HTTP/2](./overview/http2.md), and [HTTP/3](./overview/http3.md).
 
 ## Where to go next
 
 - [Handlers in depth](./overview/handlers.md) — the trait, built-in implementations, and the `init`
   lifecycle
 - [Conn in depth](./overview/conn.md) — request access, state, and the conn extension pattern
-- [Runtime Adapters, TLS, HTTP/2, and HTTP/3](./overview/runtimes.md) — runtime selection,
-  configuration, TLS, and the H2/H3 protocol stack
+- [Runtime adapters](./overview/runtimes.md) — runtime selection, and the hub for binding,
+  shutdown, TLS, and the H2/H3 protocol stack
 - [Handler Libraries](./handlers.md) — a tour of all official handler crates

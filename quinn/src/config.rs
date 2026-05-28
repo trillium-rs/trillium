@@ -106,23 +106,31 @@ where
         self,
         addr: SocketAddr,
         runtime: S::Runtime,
-        _info: &mut Info,
+        info: &mut Info,
     ) -> Option<io::Result<Self::Endpoint>> {
-        let quinn_runtime = TrilliumRuntime::<S::Runtime, S::UdpTransport>::new(runtime);
         let socket = match std::net::UdpSocket::bind(addr) {
             Ok(s) => s,
             Err(e) => return Some(Err(e)),
         };
+        Some(<Self as QuicConfigTrait<S>>::bind_with_socket(
+            self, socket, runtime, info,
+        ))
+    }
 
-        Some(
-            quinn::Endpoint::new(
-                quinn::EndpointConfig::default(),
-                Some(self.0),
-                socket,
-                quinn_runtime,
-            )
-            .map(QuinnEndpoint::new),
+    fn bind_with_socket(
+        self,
+        socket: std::net::UdpSocket,
+        runtime: S::Runtime,
+        _info: &mut Info,
+    ) -> io::Result<Self::Endpoint> {
+        let quinn_runtime = TrilliumRuntime::<S::Runtime, S::UdpTransport>::new(runtime);
+        quinn::Endpoint::new(
+            quinn::EndpointConfig::default(),
+            Some(self.0),
+            socket,
+            quinn_runtime,
         )
+        .map(QuinnEndpoint::new)
     }
 }
 

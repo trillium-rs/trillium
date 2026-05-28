@@ -33,6 +33,10 @@
 //!     .run(|conn: trillium::Conn| async move { conn.ok("hello smol") });
 //! ```
 //!
+//! For advanced binding — several listeners on one server, fallible binds you
+//! can recover from, or adopting an already-bound socket — call `.listeners()`
+//! to get a [`ListenerConfig`](crate::ListenerConfig).
+//!
 //! ## Client
 //!
 //! ```rust
@@ -56,7 +60,9 @@
 mod readme {}
 
 use trillium::Handler;
-pub use trillium_server_common::{Binding, Connector, Runtime, RuntimeTrait, Swansong};
+pub use trillium_server_common::{
+    Binding, Connector, IntoListenAddr, ListenerConfig, Runtime, RuntimeTrait, Swansong,
+};
 
 mod client;
 pub use client::ClientConfig;

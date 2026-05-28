@@ -1,7 +1,7 @@
 use crate::{Acceptor, ArcHandler, RuntimeTrait, Server, h2};
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use std::{io::ErrorKind, sync::Arc};
-use trillium::{Handler, Transport};
+use trillium::{Conn, Handler, KnownHeaderName, Listener, Transport};
 use trillium_http::{Error, HttpContext, SERVICE_UNAVAILABLE, Upgrade};
 
 /// How a freshly-accepted connection should be dispatched based on ALPN result.
@@ -23,6 +23,14 @@ pub struct RunningConfig<ServerType: Server, AcceptorType> {
     pub(crate) nodelay: bool,
     pub(crate) runtime: ServerType::Runtime,
     pub(crate) context: Arc<HttpContext>,
+    /// The listener feeding this loop, stamped into each conn's state as its provenance (and, for
+    /// an addressed listener, its [`SocketAddr`](std::net::SocketAddr) as the ingress
+    /// address). `None` if unknown.
+    pub(crate) listener: Option<Listener>,
+    /// `alt-svc` header value to set on every response from this listener, if any. Pre-merged
+    /// (multiple alternatives joined into one comma-separated value) and `'static` so it can be
+    /// shared cheaply and benefits from h2/h3 dynamic-table reuse.
+    pub(crate) local_alt_svc: Option<&'static str>,
 }
 
 impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
@@ -33,6 +41,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
     ) {
         let swansong = self.context.as_ref().swansong();
         let runtime = self.runtime.clone();
+        let clean_up_guard = swansong.guard();
         while let Some(transport) = swansong.interrupt(listener.accept()).await {
             match transport {
                 Ok(stream) => {
@@ -44,8 +53,9 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
             }
         }
 
-        self.context.swansong().shut_down().await;
         listener.clean_up().await;
+        drop(clean_up_guard);
+        swansong.shut_down().await;
     }
 
     async fn handle_stream(
@@ -63,6 +73,8 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         trillium::log_error!(stream.set_nodelay(self.nodelay));
 
         let peer_ip = stream.peer_addr().ok().flatten().map(|addr| addr.ip());
+        let listener = self.listener.clone();
+        let local_alt_svc = self.local_alt_svc;
 
         let mut transport = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
@@ -71,9 +83,6 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                 return;
             }
         };
-
-        let is_secure = self.acceptor.is_secure();
-        let runtime: crate::Runtime = self.runtime.clone().into();
 
         // Dispatch by ALPN if present:
         //   - `h2`        → run HTTP/2 directly
@@ -87,15 +96,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
 
         match alpn_dispatch {
             AlpnDispatch::H2 => {
-                h2::run_h2(
-                    transport,
-                    self.context.clone(),
-                    handler,
-                    runtime,
-                    peer_ip,
-                    is_secure,
-                )
-                .await;
+                self.run_h2(transport, handler, peer_ip).await;
                 return;
             }
             AlpnDispatch::H1 => {
@@ -103,11 +104,22 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                 let result = self
                     .context
                     .clone()
-                    .run(transport, |mut conn| async move {
-                        conn.set_peer_ip(peer_ip);
-                        let conn = handler_ref.run(conn.into()).await;
-                        let conn = handler_ref.before_send(conn).await;
-                        conn.into_inner()
+                    .run(transport, |mut conn| {
+                        // cloned per request: this closure is `FnMut`, invoked once per keep-alive
+                        // request, and each `async move` body takes ownership of its provenance.
+                        let listener = listener.clone();
+                        async move {
+                            conn.set_peer_ip(peer_ip);
+                            let mut conn = Conn::from(conn);
+                            stamp_listener(&mut conn, listener);
+                            if let Some(alt_svc) = local_alt_svc {
+                                conn.response_headers_mut()
+                                    .try_insert(KnownHeaderName::AltSvc, alt_svc);
+                            }
+                            let conn = handler_ref.run(conn).await;
+                            let conn = handler_ref.before_send(conn).await;
+                            conn.into_inner()
+                        }
                     })
                     .await;
                 handle_h1_result(result, &handler).await;
@@ -129,15 +141,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         };
         if peek.as_slice() == h2::CLIENT_PREFACE {
             let transport = h2::Prefixed::new(peek, transport);
-            h2::run_h2(
-                transport,
-                self.context.clone(),
-                handler,
-                runtime,
-                peer_ip,
-                is_secure,
-            )
-            .await;
+            self.run_h2(transport, handler, peer_ip).await;
             return;
         }
         let handler_ref = &handler;
@@ -145,11 +149,20 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
             self.context.clone(),
             transport,
             peek,
-            |mut conn| async move {
-                conn.set_peer_ip(peer_ip);
-                let conn = handler_ref.run(conn.into()).await;
-                let conn = handler_ref.before_send(conn).await;
-                conn.into_inner()
+            |mut conn| {
+                let listener = listener.clone();
+                async move {
+                    conn.set_peer_ip(peer_ip);
+                    let mut conn = Conn::from(conn);
+                    stamp_listener(&mut conn, listener);
+                    if let Some(alt_svc) = local_alt_svc {
+                        conn.response_headers_mut()
+                            .try_insert(KnownHeaderName::AltSvc, alt_svc);
+                    }
+                    let conn = handler_ref.run(conn).await;
+                    let conn = handler_ref.before_send(conn).await;
+                    conn.into_inner()
+                }
             },
         )
         .await;
@@ -159,6 +172,18 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
     fn over_capacity(&self) -> bool {
         self.max_connections
             .is_some_and(|m| self.context.swansong().guard_count() >= m)
+    }
+}
+
+/// Stamp a conn's listener provenance: the [`Listener`] itself, plus its
+/// [`SocketAddr`](std::net::SocketAddr) as the ingress address when the listener is addressed
+/// (TCP/QUIC, not a Unix socket).
+fn stamp_listener(conn: &mut Conn, listener: Option<Listener>) {
+    if let Some(listener) = listener {
+        if let Some(addr) = listener.socket_addr() {
+            conn.insert_state(addr);
+        }
+        conn.insert_state(listener);
     }
 }
 

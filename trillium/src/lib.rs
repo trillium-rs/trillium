@@ -58,6 +58,9 @@ pub use log;
 mod info;
 pub use info::Info;
 
+mod listeners;
+pub use listeners::{Listener, ListenerKind, Listeners};
+
 mod boxed_handler;
 pub use boxed_handler::BoxedHandler;
 

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Listener` / `ListenerKind` — the minimal network-provenance vocabulary describing one listener a server is bound to (`Tcp`/`Quic`/`Unix`/`Other` kind, plus `is_secure`). `Listener` is a cheap-to-clone `Arc` newtype with `socket_addr()` / `port()` / `kind()` / `is_secure()` accessors and a URL-ish `Display`; `ListenerKind` is `#[non_exhaustive]`. Defined here (not in a server crate) so runtime-neutral handlers can read both the server's listener set and a conn's provenance without coupling to a particular server implementation.
+- `Listeners(pub Vec<Listener>)` — the full set of a server's listeners, dereferencing to `[Listener]`.
+- `Info::listeners() -> &[Listener]` — every listener the server is bound to. Populated by the server during startup (the single-listener `Config` path and the multi-listener `ListenerConfig` both produce it).
+
 ## [1.2.0] - 2026-05-21
 
 ### Added

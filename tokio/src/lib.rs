@@ -25,13 +25,50 @@
 //!         .await;
 //! }
 //! ```
+//!
+//! For advanced binding — several listeners on one server, fallible binds you
+//! can recover from, or adopting an already-bound socket — call `.listeners()`
+//! on a [`config()`](crate::config) to get a [`ListenerConfig`].
+//!
+//! ## Thread-per-core with `SO_REUSEPORT` on Linux
+//!
+//! `SO_REUSEPORT` is a socket option that lets several sockets bind the same
+//! address and port at once, with the kernel distributing incoming connections
+//! across them. Enable the `reuseport` cargo feature on Linux to use it for
+//! thread-per-core fan-out:
+//!
+//! ```rust,ignore
+//! use trillium::Conn;
+//!
+//! fn main() -> std::io::Result<()> {
+//!     trillium_tokio::config()
+//!         .listeners()
+//!         .bind_reuseport_tcp(8080)?
+//!         .run(|conn: Conn| async move { conn.ok("hello") });
+//!     Ok(())
+//! }
+//! ```
+//!
+//! Each worker thread runs its own single-threaded runtime, pinned to a core,
+//! driving that worker's accept loop — one `SO_REUSEPORT` listener per worker.
+//! The standard multi-threaded work-stealing runtime is still present alongside
+//! them, hosting HTTP/3, signal handling, and the application tasks you spawn,
+//! so QUIC is never fanned out this way. Set the worker count with
+//! `.with_reuseport_workers(n)`; it defaults to the `WORKERS` environment
+//! variable, or if that's not set, to available parallelism.
+//!
+//! This trades the work-stealing runtime's load balancing for per-core
+//! locality, which can improve throughput for short, CPU-cheap requests served
+//! over many connections. It is gated off on platforms where plain
+//! `SO_REUSEPORT` does not distribute connections (including macOS), where it
+//! would offer no benefit.
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
 mod readme {}
 
 use trillium::Handler;
-pub use trillium_server_common::{Binding, Swansong};
+pub use trillium_server_common::{Binding, IntoListenAddr, ListenerConfig, Swansong};
 
 mod client;
 pub use client::ClientConfig;
@@ -103,6 +140,16 @@ pub fn config() -> Config<()> {
 
 mod runtime;
 pub use runtime::TokioRuntime;
+
+#[cfg(all(
+    feature = "reuseport",
+    unix,
+    not(target_os = "solaris"),
+    not(target_os = "illumos"),
+    not(target_os = "cygwin"),
+    not(target_vendor = "apple")
+))]
+mod reuseport;
 
 mod udp;
 pub use udp::TokioUdpSocket;

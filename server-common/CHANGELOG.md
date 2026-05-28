@@ -8,7 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `QuicEndpoint::local_addr(&self) -> io::Result<SocketAddr>` — the local address the endpoint is bound to. The default implementation returns `io::ErrorKind::Unsupported`; adapters with a bound UDP socket override it to return the actual address.
+- `QuicConfig::bind_with_socket(self, socket, runtime, info)` — new non-breaking trait method that
+  takes a pre-claimed `std::net::UdpSocket` instead of a `SocketAddr`. Default implementation
+  delegates back to `bind` via `socket.local_addr()`. Adapters should override to consume the
+  pre-claimed socket directly.
+- `ArcedQuicEndpoint::local_addr(&self) -> io::Result<SocketAddr>` — the local address the endpoint
+  is bound to.
+- `QuicEndpoint::local_addr(&self) -> io::Result<SocketAddr>` — the local address the endpoint is
+  bound to. The default implementation returns `io::ErrorKind::Unsupported`; adapters with a bound
+  UDP socket override it to return the actual address.
+- `bind_reuse_port(addr) -> io::Result<TcpListener>` (Unix only, excluding Apple platforms) — bind a
+  non-blocking std `TcpListener` with `SO_REUSEPORT` + `SO_REUSEADDR` for kernel connection fan-out
+  across a listener group. Gated off on Apple platforms, where `SO_REUSEPORT` delivers every
+  connection to a single listener rather than fanning out.
+- `Config::listeners(self) -> ListenerConfig` — bridge from the single-listener `Config` into the
+  multi-listener `ListenerConfig`, carrying over global server configuration (HTTP config, shared
+  state, swansong, nodelay, max-connections, signals) but no listener binding (bind explicitly on
+  the builder). Available before an acceptor/QUIC config is set.
+- `BoundInfo::listeners() -> &[trillium::Listener]` — every listener the server is bound to. The
+  builder produces one `trillium::Listener` per `bind_*` (TLS-vs-plaintext from each acceptor); the
+  single-listener `Config` path synthesizes its own.
+- Each `Conn` now carries its originating `trillium::Listener` in state (readable via
+  `conn.state::<Listener>()`), across HTTP/1, HTTP/2, and HTTP/3. The ingress `SocketAddr` continues
+  to be stamped alongside it for addressed listeners, so existing `conn.state::<SocketAddr>()`
+  readers are unaffected; Unix-socket conns now have provenance they previously lacked.
 
 ## [0.7.2] - 2026-05-11
 
