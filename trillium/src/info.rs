@@ -30,11 +30,32 @@ impl AsMut<TypeSet> for Info {
     }
 }
 
+/// Storage newtype for the full set of bound TCP listener addresses, in registration order. Read
+/// via [`Info::tcp_addrs`]; a multi-listener server inserts it during startup, while
+/// single-listener servers store only the primary [`SocketAddr`].
+#[derive(Debug, Clone, Default)]
+#[doc(hidden)]
+pub struct BoundTcpAddrs(pub Vec<SocketAddr>);
+
 impl Info {
     /// Returns the `local_addr` of a bound tcp listener, if such a
     /// thing exists for this server
     pub fn tcp_socket_addr(&self) -> Option<&SocketAddr> {
         self.shared_state()
+    }
+
+    /// Returns the local addresses of every bound TCP listener, in registration order.
+    ///
+    /// For a single-listener server this is the one bound address; for a multi-listener server it
+    /// is every bound TCP address. Returns an empty slice if no TCP listener has been bound.
+    pub fn tcp_addrs(&self) -> &[SocketAddr] {
+        if let Some(BoundTcpAddrs(addrs)) = self.shared_state::<BoundTcpAddrs>() {
+            addrs.as_slice()
+        } else if let Some(addr) = self.shared_state::<SocketAddr>() {
+            std::slice::from_ref(addr)
+        } else {
+            &[]
+        }
     }
 
     /// Returns the `local_addr` of a bound unix listener, if such a

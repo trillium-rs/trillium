@@ -1,4 +1,4 @@
-use crate::{Acceptor, QuicConfig, RuntimeTrait, Server, ServerHandle, SharedServer};
+use crate::{Acceptor, ArcHandler, QuicConfig, RuntimeTrait, Server, ServerHandle, SharedServer};
 use async_cell::sync::AsyncCell;
 use std::{cell::OnceCell, net::SocketAddr, sync::Arc};
 use trillium::{Handler, Headers, HttpConfig, Info, KnownHeaderName, Swansong, TypeSet};
@@ -444,7 +444,7 @@ impl<ServerType: Server> Default for Config<ServerType, ()> {
     }
 }
 
-fn info_with_server_header<ServerType: Server>(
+pub(crate) fn info_with_server_header<ServerType: Server>(
     context: HttpContext,
     runtime: &ServerType::Runtime,
 ) -> Info {
@@ -459,27 +459,30 @@ fn info_with_server_header<ServerType: Server>(
     info
 }
 
-/// Shared tail of [`Config::run_async`] and [`Config::initialize`]: given an `Info` whose bound
-/// address has already been populated, bind QUIC, run [`Handler::init`] once, and assemble the
-/// [`SharedServer`].
+/// Acceptor-independent one-time server initialization: given an `Info` whose bound address has
+/// already been populated, bind QUIC if configured, run [`Handler::init`] exactly once, and produce
+/// the `Arc`-shared [`HttpContext`] and handler that any number of per-acceptor accept loops can
+/// share.
+///
+/// `is_secure` governs URL-scheme derivation and is supplied by the caller rather than read from an
+/// acceptor, because a single shared handler may front listeners with differing security (e.g. a
+/// plaintext listener alongside a TLS one).
 #[cfg_attr(not(unix), allow(unused_mut))]
-#[allow(clippy::too_many_arguments)]
-async fn finish_init<ServerType, AcceptorType, QuicType, H>(
+pub(crate) async fn init_shared<ServerType, QuicType, H>(
     mut info: Info,
     runtime: ServerType::Runtime,
-    acceptor: AcceptorType,
     quic: QuicType,
     mut max_connections: Option<usize>,
-    nodelay: bool,
-    register_signals: bool,
+    is_secure: bool,
     mut handler: H,
 ) -> (
-    SharedServer<ServerType, AcceptorType, H>,
+    Arc<HttpContext>,
+    ArcHandler<H>,
     Option<QuicType::Endpoint>,
+    Option<usize>,
 )
 where
     ServerType: Server,
-    AcceptorType: Acceptor<ServerType::Transport>,
     QuicType: QuicConfig<ServerType>,
     H: Handler,
 {
@@ -511,16 +514,59 @@ where
         None
     };
 
-    insert_url(info.as_mut(), acceptor.is_secure());
+    insert_url(info.as_mut(), is_secure);
 
     handler.init(&mut info).await;
 
     let context = Arc::new(HttpContext::from(info));
+    let handler = ArcHandler::new(handler);
+
+    (context, handler, quic_binding, max_connections)
+}
+
+/// Shared tail of [`Config::run_async`] and [`Config::initialize`]: run the acceptor-independent
+/// [`init_shared`] once, then pair the resulting shared handler/context with this config's single
+/// acceptor to assemble the [`SharedServer`].
+#[allow(clippy::too_many_arguments)]
+async fn finish_init<ServerType, AcceptorType, QuicType, H>(
+    info: Info,
+    runtime: ServerType::Runtime,
+    acceptor: AcceptorType,
+    quic: QuicType,
+    max_connections: Option<usize>,
+    nodelay: bool,
+    register_signals: bool,
+    handler: H,
+) -> (
+    SharedServer<ServerType, AcceptorType, H>,
+    Option<QuicType::Endpoint>,
+)
+where
+    ServerType: Server,
+    AcceptorType: Acceptor<ServerType::Transport>,
+    QuicType: QuicConfig<ServerType>,
+    H: Handler,
+{
+    let is_secure = acceptor.is_secure();
+    let local_addr = info.tcp_socket_addr().copied();
+
+    let (context, handler, quic_binding, max_connections) =
+        init_shared::<ServerType, QuicType, H>(
+            info,
+            runtime,
+            quic,
+            max_connections,
+            is_secure,
+            handler,
+        )
+        .await;
 
     let shared = SharedServer::new(
         acceptor,
         max_connections,
         nodelay,
+        local_addr,
+        None,
         register_signals,
         context,
         handler,

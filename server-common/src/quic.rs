@@ -115,6 +115,34 @@ pub trait QuicConfig<S: Server>: Send + 'static {
         runtime: S::Runtime,
         info: &mut Info,
     ) -> Option<io::Result<Self::Endpoint>>;
+
+    /// Bind a QUIC endpoint over a pre-claimed [`std::net::UdpSocket`].
+    ///
+    /// The multi-listener server builder claims the UDP socket eagerly (fail-fast at
+    /// `bind_quic` time) and hands it through to the adapter when the runtime is available.
+    /// The default implementation reads the socket's local address and delegates to
+    /// [`bind`](Self::bind), which is correct but rebinds the address; adapters should override
+    /// to consume the pre-claimed socket directly (e.g. quinn accepts a `std::net::UdpSocket`
+    /// in `Endpoint::new`).
+    fn bind_with_socket(
+        self,
+        socket: std::net::UdpSocket,
+        runtime: S::Runtime,
+        info: &mut Info,
+    ) -> io::Result<Self::Endpoint>
+    where
+        Self: Sized,
+    {
+        let addr = socket.local_addr()?;
+        drop(socket);
+        self.bind(addr, runtime, info).unwrap_or_else(|| {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "QuicConfig::bind returned None; this QuicConfig is a no-op and cannot be bound \
+                 with bind_with_socket",
+            ))
+        })
+    }
 }
 
 impl<S: Server> QuicConfig<S> for () {
@@ -266,9 +294,59 @@ impl QuicEndpoint for () {
 // -- Type-erased QuicConnection --
 
 type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-pub(crate) type BoxedRecvStream = Box<dyn QuicTransportReceive + Unpin + Send + Sync>;
-pub(crate) type BoxedSendStream = Box<dyn QuicTransportSend + Unpin + Send + Sync>;
-pub(crate) type BoxedBidiStream = Box<dyn QuicTransportBidi + Unpin + Send + Sync>;
+
+/// A type-erased [`QuicTransportReceive`] stream — `Box<dyn QuicTransportReceive + Unpin + Send + Sync>`.
+pub type BoxedRecvStream = Box<dyn QuicTransportReceive + Unpin + Send + Sync>;
+
+/// A type-erased [`QuicTransportSend`] stream — `Box<dyn QuicTransportSend + Unpin + Send + Sync>`.
+pub type BoxedSendStream = Box<dyn QuicTransportSend + Unpin + Send + Sync>;
+
+/// A type-erased [`QuicTransportBidi`] stream — `Box<dyn QuicTransportBidi + Unpin + Send + Sync>`.
+pub type BoxedBidiStream = Box<dyn QuicTransportBidi + Unpin + Send + Sync>;
+
+impl QuicTransportReceive for BoxedRecvStream {
+    fn stop(&mut self, code: u64) {
+        (**self).stop(code);
+    }
+}
+
+impl QuicTransportSend for BoxedSendStream {
+    fn reset(&mut self, code: u64) {
+        (**self).reset(code);
+    }
+}
+
+impl QuicTransportReceive for BoxedBidiStream {
+    fn stop(&mut self, code: u64) {
+        (**self).stop(code);
+    }
+}
+
+impl QuicTransportSend for BoxedBidiStream {
+    fn reset(&mut self, code: u64) {
+        (**self).reset(code);
+    }
+}
+
+impl QuicTransportBidi for BoxedBidiStream {}
+
+impl Transport for BoxedBidiStream {
+    fn set_linger(&mut self, linger: Option<std::time::Duration>) -> io::Result<()> {
+        (**self).set_linger(linger)
+    }
+    fn set_nodelay(&mut self, nodelay: bool) -> io::Result<()> {
+        (**self).set_nodelay(nodelay)
+    }
+    fn set_ip_ttl(&mut self, ttl: u32) -> io::Result<()> {
+        (**self).set_ip_ttl(ttl)
+    }
+    fn peer_addr(&self) -> io::Result<Option<SocketAddr>> {
+        (**self).peer_addr()
+    }
+    fn negotiated_alpn(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+        (**self).negotiated_alpn()
+    }
+}
 
 type ReceiveDatagramCallback<'a> = Box<dyn FnOnce(&[u8]) + Send + 'a>;
 
@@ -421,6 +499,7 @@ trait ObjectSafeQuicEndpoint: Send + Sync {
         addr: SocketAddr,
         server_name: &'a str,
     ) -> BoxedFuture<'a, io::Result<QuicConnection>>;
+    fn local_addr(&self) -> io::Result<SocketAddr>;
 }
 
 impl<T: QuicEndpoint> ObjectSafeQuicEndpoint for T {
@@ -438,6 +517,10 @@ impl<T: QuicEndpoint> ObjectSafeQuicEndpoint for T {
                 .await
                 .map(QuicConnection::from)
         })
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        QuicEndpoint::local_addr(self)
     }
 }
 
@@ -467,5 +550,10 @@ impl ArcedQuicEndpoint {
     /// Initiate a QUIC connection to the given address.
     pub async fn connect(&self, addr: SocketAddr, server_name: &str) -> io::Result<QuicConnection> {
         self.0.connect(addr, server_name).await
+    }
+
+    /// The local address this endpoint is bound to, if the adapter supports reporting it.
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.0.local_addr()
     }
 }

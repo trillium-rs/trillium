@@ -46,6 +46,14 @@ pub use client::{ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientCon
 mod acceptor;
 pub use acceptor::Acceptor;
 
+mod boxed_acceptor;
+#[doc(hidden)]
+pub use boxed_acceptor::{BoxedAcceptError, BoxedAcceptor};
+
+mod boxed_quic;
+#[doc(hidden)]
+pub use boxed_quic::BoxedQuicConfig;
+
 mod server_handle;
 pub use server_handle::{BoundInfo, ServerHandle};
 
@@ -56,6 +64,10 @@ pub use swansong::Swansong;
 mod shared_server;
 #[doc(hidden)]
 pub use shared_server::SharedServer;
+
+mod server_builder;
+#[doc(hidden)]
+pub use server_builder::{IntoListenAddr, ServerBuilder};
 
 #[cfg(all(
     unix,
@@ -75,12 +87,15 @@ mod reuse_port;
 pub use reuse_port::bind_reuse_port;
 
 mod runtime;
+#[doc(hidden)]
+pub use runtime::FanOut;
 pub use runtime::{DroppableFuture, Runtime, RuntimeTrait};
 
 mod quic;
 pub use quic::{
-    ArcedQuicEndpoint, QuicConfig, QuicConnection, QuicConnectionTrait, QuicEndpoint,
-    QuicTransportBidi, QuicTransportReceive, QuicTransportSend,
+    ArcedQuicEndpoint, BoxedBidiStream, BoxedRecvStream, BoxedSendStream, QuicConfig,
+    QuicConnection, QuicConnectionTrait, QuicEndpoint, QuicTransportBidi, QuicTransportReceive,
+    QuicTransportSend,
 };
 
 mod udp_transport;

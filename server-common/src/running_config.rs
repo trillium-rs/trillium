@@ -1,7 +1,7 @@
 use crate::{Acceptor, ArcHandler, RuntimeTrait, Server, h2};
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
-use std::{io::ErrorKind, sync::Arc};
-use trillium::{Handler, Transport};
+use std::{io::ErrorKind, net::SocketAddr, sync::Arc};
+use trillium::{Conn, Handler, KnownHeaderName, Transport};
 use trillium_http::{Error, HttpContext, SERVICE_UNAVAILABLE, Upgrade};
 
 /// How a freshly-accepted connection should be dispatched based on ALPN result.
@@ -23,6 +23,13 @@ pub struct RunningConfig<ServerType: Server, AcceptorType> {
     pub(crate) nodelay: bool,
     pub(crate) runtime: ServerType::Runtime,
     pub(crate) context: Arc<HttpContext>,
+    /// The bound address of the listener feeding this loop, stamped into each conn's state as the
+    /// ingress (local) address. `None` if unknown.
+    pub(crate) local_addr: Option<SocketAddr>,
+    /// `alt-svc` header value to set on every response from this listener, if any. Pre-merged
+    /// (multiple alternatives joined into one comma-separated value) and `'static` so it can be
+    /// shared cheaply and benefits from h2/h3 dynamic-table reuse.
+    pub(crate) local_alt_svc: Option<&'static str>,
 }
 
 impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
@@ -63,6 +70,8 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         trillium::log_error!(stream.set_nodelay(self.nodelay));
 
         let peer_ip = stream.peer_addr().ok().flatten().map(|addr| addr.ip());
+        let local_addr = self.local_addr;
+        let local_alt_svc = self.local_alt_svc;
 
         let mut transport = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
@@ -93,6 +102,8 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                     handler,
                     runtime,
                     peer_ip,
+                    local_addr,
+                    local_alt_svc,
                     is_secure,
                 )
                 .await;
@@ -105,7 +116,15 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                     .clone()
                     .run(transport, |mut conn| async move {
                         conn.set_peer_ip(peer_ip);
-                        let conn = handler_ref.run(conn.into()).await;
+                        let mut conn = Conn::from(conn);
+                        if let Some(local_addr) = local_addr {
+                            conn.insert_state(local_addr);
+                        }
+                        if let Some(alt_svc) = local_alt_svc {
+                            conn.response_headers_mut()
+                                .try_insert(KnownHeaderName::AltSvc, alt_svc);
+                        }
+                        let conn = handler_ref.run(conn).await;
                         let conn = handler_ref.before_send(conn).await;
                         conn.into_inner()
                     })
@@ -135,6 +154,8 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                 handler,
                 runtime,
                 peer_ip,
+                local_addr,
+                local_alt_svc,
                 is_secure,
             )
             .await;
@@ -147,7 +168,15 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
             peek,
             |mut conn| async move {
                 conn.set_peer_ip(peer_ip);
-                let conn = handler_ref.run(conn.into()).await;
+                let mut conn = Conn::from(conn);
+                if let Some(local_addr) = local_addr {
+                    conn.insert_state(local_addr);
+                }
+                if let Some(alt_svc) = local_alt_svc {
+                    conn.response_headers_mut()
+                        .try_insert(KnownHeaderName::AltSvc, alt_svc);
+                }
+                let conn = handler_ref.run(conn).await;
                 let conn = handler_ref.before_send(conn).await;
                 conn.into_inner()
             },

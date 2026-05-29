@@ -13,6 +13,9 @@ pub use droppable_future::DroppableFuture;
 mod runtime_trait;
 pub use runtime_trait::RuntimeTrait;
 
+mod fan_out;
+pub use fan_out::FanOut;
+
 mod object_safe_runtime;
 use object_safe_runtime::ObjectSafeRuntime;
 

@@ -56,6 +56,8 @@ mod macros;
 pub use log;
 
 mod info;
+#[doc(hidden)]
+pub use info::BoundTcpAddrs;
 pub use info::Info;
 
 mod boxed_handler;

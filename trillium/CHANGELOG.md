@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Info::tcp_addrs() -> &[SocketAddr]` — every bound TCP listener address, in registration order. For single-listener servers this is the one primary address; for multi-listener servers (via `trillium-server-common`'s new `ServerBuilder`) it is the full set.
+- `BoundTcpAddrs(pub Vec<SocketAddr>)` (`#[doc(hidden)]`) — storage newtype that backs `Info::tcp_addrs`. Multi-listener servers insert this during startup.
+
 ## [1.2.0] - 2026-05-21
 
 ### Added

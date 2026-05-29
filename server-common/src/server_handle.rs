@@ -33,6 +33,20 @@ impl BoundInfo {
         self.shared_state()
     }
 
+    /// Returns the local addresses of every bound TCP listener, in registration order.
+    ///
+    /// For a single-listener server this is the one bound address; for a multi-listener server it
+    /// is every bound TCP address. Returns an empty slice if no TCP listener has been bound.
+    pub fn tcp_addrs(&self) -> &[SocketAddr] {
+        if let Some(addrs) = self.shared_state::<trillium::BoundTcpAddrs>() {
+            addrs.0.as_slice()
+        } else if let Some(addr) = self.tcp_socket_addr() {
+            std::slice::from_ref(addr)
+        } else {
+            &[]
+        }
+    }
+
     /// Returns the URL of this server, derived from the bound address, if available
     pub fn url(&self) -> Option<&url::Url> {
         self.shared_state()

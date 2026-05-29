@@ -8,9 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ServerBuilder` (`#[doc(hidden)]`) — multi-listener server builder. Methods: `bind_tcp(addr)`, `bind_tls(addr, acceptor)`, `bind_quic(addr, quic_config)`, `with_alt_svc(from, to)`, plus the usual `with_swansong` / `with_shared_state` / `with_http_config` / `with_max_connections` / `with_nodelay` / `without_signals`. Each `bind_*` eagerly claims its address (fail-fast). The handler is supplied at `spawn`/`run`/`run_async`. Runtime adapters expose a constructor (e.g. `trillium_tokio::server()`).
+- `with_alt_svc(from_port, to_port)` — declare `alt-svc: h3=":<to>"` advertisement from a TCP/TLS listener pointing at a QUIC listener. Chainable, with multiple `to` ports for one `from` port merged into a single comma-joined header value. Same-port pairs (a `bind_quic(p)` matching a `bind_tcp(p)`/`bind_tls(p, _)`) auto-pair without an explicit call.
+- `QuicConfig::bind_with_socket(self, socket, runtime, info)` — new non-breaking trait method that takes a pre-claimed `std::net::UdpSocket` instead of a `SocketAddr`. Default implementation delegates back to `bind` via `socket.local_addr()` (lossy but functional fallback). Adapters should override to consume the pre-claimed socket directly.
+- `ArcedQuicEndpoint::local_addr(&self) -> io::Result<SocketAddr>` — the local address the endpoint is bound to.
 - `QuicEndpoint::local_addr(&self) -> io::Result<SocketAddr>` — the local address the endpoint is bound to. The default implementation returns `io::ErrorKind::Unsupported`; adapters with a bound UDP socket override it to return the actual address.
+- `BoxedQuicConfig<S>` (`#[doc(hidden)]`) — type-erased one-shot binding closure for QUIC configurations, sibling to `BoxedAcceptor`. Lets the multi-listener builder hold heterogeneous `QuicConfig` instances behind one concrete type.
+- `BoxedBidiStream`, `BoxedRecvStream`, `BoxedSendStream` are now `pub` (previously `pub(crate)`), with corresponding `QuicTransportReceive` / `QuicTransportSend` / `QuicTransportBidi` impls and a `Transport` impl on `BoxedBidiStream`.
 - `bind_reuse_port(addr) -> io::Result<TcpListener>` (Unix only, excluding Apple platforms) — bind a non-blocking std `TcpListener` with `SO_REUSEPORT` + `SO_REUSEADDR` for kernel connection fan-out across a listener group. Gated off on Apple platforms, where `SO_REUSEPORT` delivers every connection to a single listener rather than fanning out.
+- `FanOut` (`#[doc(hidden)]`) — a `RuntimeTrait` sub-trait for runtimes that can run one OS thread per core, each driving its own single-threaded executor (`thread_per_core(count, worker)`). The presence of a `FanOut` impl is what enables `ServerBuilder::bind_reuseport_*`; a runtime without one simply does not have those methods.
+- `ServerBuilder::bind_reuseport_tcp(addr)` / `bind_reuseport_tls(addr, acceptor)` / `with_reuseport_workers(n)` (Unix only, excluding Apple platforms; require `ServerType::Runtime: FanOut`) — register listeners fanned across per-core worker threads via `SO_REUSEPORT`, each accept loop pinned to the core the kernel delivered the connection to. Worker count defaults to the `WORKERS` environment variable, falling back to the available parallelism. Reuseport and non-reuseport listeners can be freely mixed in one server; QUIC and non-reuseport listeners stay on the shared runtime.
 - `SharedServer` and `Config::initialize` (both `#[doc(hidden)]`) — split one-time `Handler::init` from the per-runtime accept loops so a single initialized handler can be shared across many listeners/runtimes. Supports the new `trillium-tokio` `reuseport` entrypoint.
+
+### Changed
+
+- HTTP/3 driver (`run_h3` and downstream) now operates on concrete `ArcedQuicEndpoint` / `QuicConnection` / `BoxedBidiStream` instead of generics over `QuicEndpoint` / `QuicConnectionTrait`. Per-stream dispatch cost is unchanged (the erasure was already happening at the conn-state insertion step). Single-listener `Config` callers see no surface change; per-connection state now holds `QuicConnection` only (previously held both the concrete adapter connection type and `QuicConnection`).
 
 ## [0.7.2] - 2026-05-11
 

@@ -8,8 +8,7 @@
 //! deliver every connection to a single listener, so all requests land on one worker — the feature
 //! is gated off there and this example prints a notice instead.
 //!
-//! `WORKERS` sets the number of per-core TCP listeners (default: available parallelism) and
-//! `QUIC_THREADS` sets the shared multi-threaded runtime's thread count.
+//! `WORKERS` sets the number of per-core TCP listeners (default: available parallelism).
 
 #[cfg(all(
     unix,
@@ -20,12 +19,12 @@
 ))]
 fn main() {
     use trillium::Conn;
-    use trillium_tokio::ReuseportConfigExt;
 
     env_logger::init();
-    trillium_tokio::config()
-        .with_port(8080)
-        .run_reuseport(|conn: Conn| async move {
+    trillium_tokio::server()
+        .bind_reuseport_tcp(8080)
+        .unwrap()
+        .run(|conn: Conn| async move {
             let worker = std::thread::current().name().unwrap_or("?").to_owned();
             log::info!("{worker}");
             conn.ok(format!("hello from {worker}\n"))

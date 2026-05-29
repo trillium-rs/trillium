@@ -5,6 +5,7 @@ use futures_lite::StreamExt;
 use std::{
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
+    net::SocketAddr,
     pin::pin,
     sync::Arc,
 };
@@ -27,6 +28,8 @@ where
     acceptor: AcceptorType,
     max_connections: Option<usize>,
     nodelay: bool,
+    local_addr: Option<SocketAddr>,
+    local_alt_svc: Option<&'static str>,
     register_signals: bool,
     context: Arc<HttpContext>,
     handler: ArcHandler<H>,
@@ -41,6 +44,8 @@ impl<ServerType: Server, AcceptorType: Clone, H: Handler> Clone
             acceptor: self.acceptor.clone(),
             max_connections: self.max_connections,
             nodelay: self.nodelay,
+            local_addr: self.local_addr,
+            local_alt_svc: self.local_alt_svc,
             register_signals: self.register_signals,
             context: self.context.clone(),
             handler: self.handler.clone(),
@@ -71,17 +76,21 @@ where
         acceptor: AcceptorType,
         max_connections: Option<usize>,
         nodelay: bool,
+        local_addr: Option<SocketAddr>,
+        local_alt_svc: Option<&'static str>,
         register_signals: bool,
         context: Arc<HttpContext>,
-        handler: H,
+        handler: ArcHandler<H>,
     ) -> Self {
         Self {
             acceptor,
             max_connections,
             nodelay,
+            local_addr,
+            local_alt_svc,
             register_signals,
             context,
-            handler: ArcHandler::new(handler),
+            handler,
             _server: PhantomData,
         }
     }
@@ -101,6 +110,8 @@ where
             context: self.context.clone(),
             runtime,
             nodelay: self.nodelay,
+            local_addr: self.local_addr,
+            local_alt_svc: self.local_alt_svc,
         })
         .run_async(listener, self.handler.clone())
         .await;
@@ -111,10 +122,12 @@ where
     #[doc(hidden)]
     pub async fn h3_accept_loop(&self, runtime: ServerType::Runtime, endpoint: impl QuicEndpoint) {
         crate::h3::run_h3(
-            endpoint,
+            crate::ArcedQuicEndpoint::from(endpoint),
             self.context.clone(),
             self.handler.clone(),
             runtime,
+            self.local_addr,
+            self.local_alt_svc,
         )
         .await;
     }
@@ -123,28 +136,38 @@ where
     /// Intended to be called once for the whole server, regardless of how many accept loops run.
     #[doc(hidden)]
     pub fn spawn_signals(&self, runtime: ServerType::Runtime) {
-        if !self.register_signals {
-            return;
-        }
-
-        let swansong = self.context.swansong().clone();
-        runtime.clone().spawn(async move {
-            let mut signals = pin!(runtime.hook_signals([2, 3, 15]));
-            while signals.next().await.is_some() {
-                let guard_count = swansong.guard_count();
-                if swansong.state().is_shutting_down() {
-                    eprintln!(
-                        "\nSecond interrupt, shutting down harshly (dropping {guard_count} guards)"
-                    );
-                    std::process::exit(1);
-                } else {
-                    println!(
-                        "\nShutting down gracefully. Waiting for {guard_count} shutdown guards to \
-                         drop.\nControl-c again to force."
-                    );
-                    swansong.shut_down();
-                }
-            }
-        });
+        spawn_signals_loop(self.context.clone(), self.register_signals, runtime);
     }
+}
+
+/// Spawn the OS-signal graceful-shutdown handler onto `runtime` if `register` is set. Standalone
+/// of any [`SharedServer`] so multi-listener flows can register signals once regardless of which
+/// (or whether any) TCP or QUIC listener is involved.
+pub(crate) fn spawn_signals_loop<R: RuntimeTrait>(
+    context: Arc<HttpContext>,
+    register: bool,
+    runtime: R,
+) {
+    if !register {
+        return;
+    }
+    let swansong = context.swansong().clone();
+    runtime.clone().spawn(async move {
+        let mut signals = pin!(runtime.hook_signals([2, 3, 15]));
+        while signals.next().await.is_some() {
+            let guard_count = swansong.guard_count();
+            if swansong.state().is_shutting_down() {
+                eprintln!(
+                    "\nSecond interrupt, shutting down harshly (dropping {guard_count} guards)"
+                );
+                std::process::exit(1);
+            } else {
+                println!(
+                    "\nShutting down gracefully. Waiting for {guard_count} shutdown guards to \
+                     drop.\nControl-c again to force."
+                );
+                swansong.shut_down();
+            }
+        }
+    });
 }

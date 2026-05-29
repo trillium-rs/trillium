@@ -10,12 +10,12 @@ use crate::{ArcHandler, Runtime};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     io,
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium::{Handler, Transport, Upgrade};
+use trillium::{Conn, Handler, KnownHeaderName, Transport, Upgrade};
 use trillium_http::{
     HttpContext,
     h2::{H2Connection, H2Transport},
@@ -29,8 +29,10 @@ pub(crate) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 /// Drive an HTTP/2 connection end-to-end: construct the [`H2Connection`], run its driver
 /// loop, and spawn a per-stream task running the user handler for every emitted [`Conn`].
 ///
-/// `peer_ip` and `is_secure` are populated onto each per-stream [`Conn`] before the handler
-/// runs, matching [`crate::running_config`]'s HTTP/1.1 path. `is_secure` reflects the
+/// `peer_ip`, `local_addr` and `is_secure` are populated onto each per-stream [`Conn`] before the
+/// handler runs, matching [`crate::running_config`]'s HTTP/1.1 path. `local_addr`, when present, is
+/// inserted into the conn's state as the ingress (listener) address. `local_alt_svc`, when present,
+/// is set as the `alt-svc` response header on every emitted stream. `is_secure` reflects the
 /// underlying transport: cleartext h2c sets it to `false`; ALPN-negotiated h2 and
 /// TLS-prior-knowledge h2 both set it to whatever the TLS acceptor reports.
 pub(crate) async fn run_h2<T>(
@@ -39,6 +41,8 @@ pub(crate) async fn run_h2<T>(
     handler: ArcHandler<impl Handler>,
     runtime: Runtime,
     peer_ip: Option<IpAddr>,
+    local_addr: Option<SocketAddr>,
+    local_alt_svc: Option<&'static str>,
     is_secure: bool,
 ) where
     T: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
@@ -58,7 +62,15 @@ pub(crate) async fn run_h2<T>(
                         let handler = &inner_handler;
                         conn.set_peer_ip(peer_ip);
                         conn.set_secure(is_secure);
-                        let conn = handler.run(conn.into()).await;
+                        let mut conn = Conn::from(conn);
+                        if let Some(local_addr) = local_addr {
+                            conn.insert_state(local_addr);
+                        }
+                        if let Some(alt_svc) = local_alt_svc {
+                            conn.response_headers_mut()
+                                .try_insert(KnownHeaderName::AltSvc, alt_svc);
+                        }
+                        let conn = handler.run(conn).await;
                         let conn = handler.before_send(conn).await;
                         conn.into_inner::<H2Transport>()
                     })
@@ -171,7 +183,7 @@ impl<T: Transport> Transport for Prefixed<T> {
         self.inner.set_ip_ttl(ttl)
     }
 
-    fn peer_addr(&self) -> io::Result<Option<std::net::SocketAddr>> {
+    fn peer_addr(&self) -> io::Result<Option<SocketAddr>> {
         self.inner.peer_addr()
     }
 

@@ -31,7 +31,7 @@
 mod readme {}
 
 use trillium::Handler;
-pub use trillium_server_common::{Binding, Swansong};
+pub use trillium_server_common::{Binding, IntoListenAddr, ServerBuilder, Swansong};
 
 mod client;
 pub use client::ClientConfig;
@@ -101,6 +101,31 @@ pub fn config() -> Config<()> {
     Config::new()
 }
 
+/// # Configures a multi-listener server before running it
+///
+/// Unlike [`config`], which drives a single listener, this builder can bind any number of
+/// listeners — each with its own address — sharing one initialized handler and shared state. The
+/// handler is supplied at [`ServerBuilder::spawn`]/[`ServerBuilder::run`] rather than on the
+/// builder, so the builder carries no handler type parameter.
+///
+/// ## Usage
+///
+/// ```rust
+/// let swansong = trillium_tokio::Swansong::new();
+/// # swansong.shut_down(); // stopping the server immediately for the test
+/// trillium_tokio::server()
+///     .without_signals()
+///     .with_swansong(swansong)
+///     .bind_tcp(0)
+///     .unwrap()
+///     .run(|conn: trillium::Conn| async move { conn.ok("hello tokio") });
+/// ```
+///
+/// See [`trillium_server_common::ServerBuilder`] for more details
+pub fn server() -> ServerBuilder<server::TokioServer> {
+    ServerBuilder::new()
+}
+
 mod runtime;
 pub use runtime::TokioRuntime;
 
@@ -113,15 +138,6 @@ pub use runtime::TokioRuntime;
     not(target_vendor = "apple")
 ))]
 mod reuseport;
-#[cfg(all(
-    feature = "reuseport",
-    unix,
-    not(target_os = "solaris"),
-    not(target_os = "illumos"),
-    not(target_os = "cygwin"),
-    not(target_vendor = "apple")
-))]
-pub use reuseport::{ReuseportConfigExt, ReuseportHandle};
 
 mod udp;
 pub use udp::TokioUdpSocket;

@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `reuseport` feature (Unix only, excluding Apple platforms) adding `ReuseportConfigExt` with `spawn_reuseport`/`run_reuseport`: a thread-per-core entrypoint that binds one `SO_REUSEPORT` listener per worker for kernel connection fan-out, runs each accept loop on its own single-threaded runtime, and shares one initialized handler across all of them. A separate multi-threaded runtime hosts HTTP/3 and application spawns. Worker counts come from the `WORKERS` and `QUIC_THREADS` environment variables. Gated off on Apple platforms, where `SO_REUSEPORT` delivers every connection to a single listener rather than fanning out, so a thread-per-core listener group would offer no benefit.
+- `trillium_tokio::server()` — multi-listener server builder constructor. Returns a `ServerBuilder<TokioServer>` (from `trillium-server-common`) with `.bind_tcp(addr)`, `.bind_tls(addr, acceptor)`, `.bind_quic(addr, quic_config)`, and `.with_alt_svc(from, to)` for binding any number of listeners — TCP, TLS, and HTTP/3 — sharing one initialized handler.
+- `reuseport` feature (Unix only, excluding Apple platforms) implementing `FanOut` for `TokioRuntime`, which enables `server().bind_reuseport_tcp(addr)` / `.bind_reuseport_tls(addr, acceptor)` / `.with_reuseport_workers(n)`. These bind one `SO_REUSEPORT` listener per worker thread for kernel connection fan-out and run each accept loop on its own single-threaded runtime pinned to that core, while the shared multi-threaded runtime continues to host HTTP/3, signals, and application spawns. Worker count defaults to the `WORKERS` environment variable, falling back to the available parallelism. Gated off on Apple platforms, where `SO_REUSEPORT` delivers every connection to a single listener rather than fanning out, so a thread-per-core listener group would offer no benefit.
 
 ## [0.6.1] - 2026-05-05
 
