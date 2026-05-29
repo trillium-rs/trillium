@@ -323,35 +323,47 @@ impl<ServerType: Server> ServerBuilder<ServerType> {
         spawn_signals_loop(context.clone(), register_signals, runtime.clone());
 
         // Spawn the reuseport worker fleet (if any). The join handles are dropped — workers are
-        // detached and drain via the shared swansong, like every other accept loop.
-        #[cfg(all(
-            unix,
-            not(target_os = "solaris"),
-            not(target_os = "illumos"),
-            not(target_os = "cygwin"),
-            not(target_vendor = "apple")
-        ))]
-        if let Some(invoke) = thread_per_core {
-            let _workers = spawn_reuseport_fleet::<ServerType, _>(
-                invoke,
-                reuseport_listeners,
-                reuseport_workers,
-                &runtime,
-                context.clone(),
-                handler.clone(),
-                max_connections,
-                nodelay,
-                &alt_svc_strs,
-            );
-        }
-        #[cfg(not(all(
-            unix,
-            not(target_os = "solaris"),
-            not(target_os = "illumos"),
-            not(target_os = "cygwin"),
-            not(target_vendor = "apple")
-        )))]
-        let _ = (thread_per_core, reuseport_listeners, reuseport_workers);
+        // detached and drain via the shared swansong, like every other accept loop. The flag lets
+        // the no-TCP-listener fallback below distinguish a reuseport-only server (hold open
+        // silently) from a server with genuinely nothing bound (warn).
+        let has_reuseport_workers = {
+            #[cfg(all(
+                unix,
+                not(target_os = "solaris"),
+                not(target_os = "illumos"),
+                not(target_os = "cygwin"),
+                not(target_vendor = "apple")
+            ))]
+            {
+                if let Some(invoke) = thread_per_core {
+                    let _workers = spawn_reuseport_fleet::<ServerType, _>(
+                        invoke,
+                        reuseport_listeners,
+                        reuseport_workers,
+                        &runtime,
+                        context.clone(),
+                        handler.clone(),
+                        max_connections,
+                        nodelay,
+                        &alt_svc_strs,
+                    );
+                    true
+                } else {
+                    false
+                }
+            }
+            #[cfg(not(all(
+                unix,
+                not(target_os = "solaris"),
+                not(target_os = "illumos"),
+                not(target_os = "cygwin"),
+                not(target_vendor = "apple")
+            )))]
+            {
+                let _ = (thread_per_core, reuseport_listeners, reuseport_workers);
+                false
+            }
+        };
 
         // Each TCP listener gets its own `SharedServer` carrying its (erased) acceptor, bound
         // address, and pre-resolved `alt-svc` value, all sharing the single initialized context +
@@ -395,7 +407,11 @@ impl<ServerType: Server> ServerBuilder<ServerType> {
         let mut adopted = adopted.into_iter();
         let Some((first_server, first_acceptor, first_addr)) = adopted.next() else {
             if joins.is_empty() {
-                log::warn!("server spawned with no listeners; awaiting shutdown");
+                if !has_reuseport_workers {
+                    log::warn!("server spawned with no listeners; awaiting shutdown");
+                }
+                // Reuseport-only server, or nothing bound: hold this future open until the swansong
+                // shuts down. Reuseport accept loops run on their own worker threads.
                 context.swansong().clone().await;
             } else {
                 for join in joins {
