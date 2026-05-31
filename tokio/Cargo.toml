@@ -1,6 +1,6 @@
 [package]
 name = "trillium-tokio"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "tokio runtime adapter for trillium.rs"
@@ -23,7 +23,7 @@ tokio-stream = { version = "0.1.18", features = ["net"] }
 trillium.workspace = true
 trillium-http.workspace = true
 trillium-macros.workspace = true
-trillium-server-common.workspace = true
+trillium-server-common = { version = "0.7.3", path = "../server-common" }
 
 [dependencies.tokio]
 version = "1.50.0"
