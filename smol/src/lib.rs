@@ -35,7 +35,7 @@
 //!
 //! For advanced binding — several listeners on one server, fallible binds you
 //! can recover from, or adopting an already-bound socket — call `.listeners()`
-//! to get a [`ListenerConfig`](crate::ListenerConfig).
+//! to get a [`ListenerConfig`].
 //!
 //! ## Thread-per-core with `SO_REUSEPORT` on Linux
 //!
