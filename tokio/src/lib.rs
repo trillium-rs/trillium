@@ -27,8 +27,9 @@
 //! ```
 //!
 //! For advanced binding — several listeners on one server, fallible binds you
-//! can recover from, or adopting an already-bound socket — call `.listeners()`
-//! on a [`config()`](crate::config) to get a [`ListenerConfig`].
+//! can recover from, or adopting an already-bound socket — call
+//! [`.listeners()`](trillium_server_common::Config::listeners)
+//! on a [`config()`](trillium_server_common::Config) to get a [`ListenerConfig`].
 //!
 //! ## Thread-per-core with `SO_REUSEPORT` on Linux
 //!

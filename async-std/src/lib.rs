@@ -32,7 +32,7 @@
 //! For advanced binding — several listeners on one server, fallible binds you
 //! can recover from, or adopting an already-bound socket — call `.listeners()`
 //! on a [`config()`](crate::config) to get a
-//! [`ListenerConfig`](crate::ListenerConfig).
+//! [`ListenerConfig`].
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
