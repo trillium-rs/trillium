@@ -10,7 +10,14 @@ readme = "README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[features]
+# SO_REUSEPORT thread-per-core fan-out entrypoint (Unix only). Enables the `FanOut` impl for
+# `SmolRuntime` and forwards to server-common's `reuseport` feature, which exposes
+# `ListenerConfig::bind_reuseport_*` and pulls in socket2.
+reuseport = ["trillium-server-common/reuseport"]
+
 [dependencies]
+async-executor = "1.14.0"
 async-global-executor = {version = "3.1.0", features = ["async-io"] }
 async-io = "2.6.0"
 async-net = "2.0.0"
@@ -37,6 +44,10 @@ trillium-testing = { path = "../testing" }
 [[example]]
 name = "smol"
 test = true
+
+[[example]]
+name = "reuseport"
+required-features = ["reuseport"]
 
 [package.metadata.cargo-udeps.ignore]
 development = ["trillium-testing", "trillium-client"]

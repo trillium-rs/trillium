@@ -37,6 +37,40 @@
 //! can recover from, or adopting an already-bound socket — call `.listeners()`
 //! to get a [`ListenerConfig`](crate::ListenerConfig).
 //!
+//! ## Thread-per-core with `SO_REUSEPORT` on Linux
+//!
+//! `SO_REUSEPORT` is a socket option that lets several sockets bind the same
+//! address and port at once, with the kernel distributing incoming connections
+//! across them. Enable the `reuseport` cargo feature on Linux to use it for
+//! thread-per-core fan-out:
+//!
+//! ```rust,ignore
+//! use trillium::Conn;
+//!
+//! fn main() -> std::io::Result<()> {
+//!     trillium_smol::config()
+//!         .listeners()
+//!         .bind_reuseport_tcp(8080)?
+//!         .run(|conn: Conn| async move { conn.ok("hello") });
+//!     Ok(())
+//! }
+//! ```
+//!
+//! Each worker thread runs its own single-threaded executor, pinned to a core,
+//! driving that worker's accept loop — one `SO_REUSEPORT` listener per worker,
+//! and every connection it accepts is handled on that same executor. The shared
+//! multi-threaded global executor is still present alongside them, hosting
+//! HTTP/3, signal handling, and the application tasks you spawn, so QUIC is
+//! never fanned out this way. Set the worker count with
+//! `.with_reuseport_workers(n)`; it defaults to the `WORKERS` environment
+//! variable, or if that's not set, to available parallelism.
+//!
+//! This trades the global executor's load balancing for per-core locality,
+//! which can improve throughput for short, CPU-cheap requests served over many
+//! connections. It is gated off on platforms where plain `SO_REUSEPORT` does
+//! not distribute connections (including macOS), where it would offer no
+//! benefit.
+//!
 //! ## Client
 //!
 //! ```rust
@@ -78,6 +112,16 @@ pub use transport::SmolTransport;
 
 mod runtime;
 pub use runtime::SmolRuntime;
+
+#[cfg(all(
+    feature = "reuseport",
+    unix,
+    not(target_os = "solaris"),
+    not(target_os = "illumos"),
+    not(target_os = "cygwin"),
+    not(target_vendor = "apple")
+))]
+mod reuseport;
 
 mod udp;
 pub use udp::SmolUdpSocket;
