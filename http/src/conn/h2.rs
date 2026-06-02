@@ -1,8 +1,12 @@
+use super::{H1_ONLY_HEADERS, ValidatedRequest, validate_h2h3_request};
 use crate::{
     Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet, Version,
     after_send::AfterSend,
     h2::{H2Connection, H2ErrorCode},
-    headers::hpack::{FieldSection, PseudoHeaders},
+    headers::{
+        date::current_date_header,
+        hpack::{FieldSection, PseudoHeaders},
+    },
     received_body::ReceivedBodyState,
 };
 use futures_lite::{AsyncRead, AsyncWrite};
@@ -33,14 +37,14 @@ where
     ) -> Result<Self, H2ErrorCode> {
         log::trace!("h2 stream {stream_id}: building Conn from\n{request_headers}");
 
-        let super::ValidatedRequest {
+        let ValidatedRequest {
             method,
             path,
             authority,
             scheme,
             protocol,
             request_headers,
-        } = super::validate_h2h3_request(request_headers).ok_or(H2ErrorCode::ProtocolError)?;
+        } = validate_h2h3_request(request_headers).ok_or(H2ErrorCode::ProtocolError)?;
 
         let response_headers = h2_connection
             .context()
@@ -139,10 +143,8 @@ where
     /// Parallel to `finalize_response_headers_1x` (h1) and `finalize_response_headers_h3`
     /// (h3); keep the three in sync when changing universal policy.
     fn finalize_response_headers_h2(&mut self) {
-        self.response_headers.try_insert_with(
-            KnownHeaderName::Date,
-            crate::headers::date::current_date_header,
-        );
+        self.response_headers
+            .try_insert_with(KnownHeaderName::Date, current_date_header);
 
         if !self.should_upgrade()
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
@@ -152,6 +154,6 @@ where
                 .try_insert(KnownHeaderName::ContentLength, len);
         }
 
-        self.response_headers.remove_all(super::H1_ONLY_HEADERS);
+        self.response_headers.remove_all(H1_ONLY_HEADERS);
     }
 }

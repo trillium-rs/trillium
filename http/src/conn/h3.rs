@@ -1,9 +1,13 @@
+use super::{H1_ONLY_HEADERS, ValidatedRequest, validate_h2h3_request};
 use crate::{
     BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet,
     Version,
     after_send::AfterSend,
     h3::{Frame, FrameStream, H3Connection, H3Error, H3ErrorCode},
-    headers::qpack::{FieldSection, PseudoHeaders},
+    headers::{
+        date::current_date_header,
+        qpack::{FieldSection, PseudoHeaders},
+    },
     received_body::ReceivedBodyState,
 };
 use futures_lite::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -14,7 +18,7 @@ use std::{io, sync::Arc, time::Instant};
 pub(crate) enum H3FirstFrame {
     /// First frame was HEADERS, decoded and validated.
     Request {
-        validated: super::ValidatedRequest,
+        validated: ValidatedRequest,
         start_time: Instant,
     },
     /// First "frame" was the WebTransport 0x41 bidi-stream signal.
@@ -78,8 +82,7 @@ where
         };
 
         log::trace!("received:\n{field_section}");
-        let validated =
-            super::validate_h2h3_request(field_section).ok_or(H3ErrorCode::MessageError)?;
+        let validated = validate_h2h3_request(field_section).ok_or(H3ErrorCode::MessageError)?;
         Ok(H3FirstFrame::Request {
             validated,
             start_time,
@@ -161,11 +164,11 @@ where
         h3_connection: Arc<H3Connection>,
         transport: Transport,
         buffer: Buffer,
-        validated: super::ValidatedRequest,
+        validated: ValidatedRequest,
         start_time: Instant,
         stream_id: u64,
     ) -> Self {
-        let super::ValidatedRequest {
+        let ValidatedRequest {
             method,
             path,
             authority,
@@ -222,10 +225,8 @@ where
     /// Parallel to `finalize_response_headers_1x` (h1) and `finalize_response_headers_h2`
     /// (h2); keep the three in sync when changing universal policy.
     pub(super) fn finalize_response_headers_h3(&mut self) {
-        self.response_headers.try_insert_with(
-            KnownHeaderName::Date,
-            crate::headers::date::current_date_header,
-        );
+        self.response_headers
+            .try_insert_with(KnownHeaderName::Date, current_date_header);
 
         if !self.should_upgrade()
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
@@ -235,7 +236,7 @@ where
                 .try_insert(KnownHeaderName::ContentLength, len);
         }
 
-        self.response_headers.remove_all(super::H1_ONLY_HEADERS);
+        self.response_headers.remove_all(H1_ONLY_HEADERS);
     }
 }
 

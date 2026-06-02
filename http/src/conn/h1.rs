@@ -1,7 +1,7 @@
 use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
     Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version, after_send::AfterSend,
-    conn::ReceivedBodyState, util::encoding,
+    conn::ReceivedBodyState, headers::date::current_date_header, util::encoding,
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use memchr::memmem::Finder;
@@ -22,10 +22,8 @@ where
             return;
         }
 
-        self.response_headers.try_insert_with(
-            KnownHeaderName::Date,
-            crate::headers::date::current_date_header,
-        );
+        self.response_headers
+            .try_insert_with(KnownHeaderName::Date, current_date_header);
 
         if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
             // Upgrade path: don't default to `Content-Length: 0` — body bytes will be
