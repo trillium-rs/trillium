@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Body` now supports `Arc<[u8]>` and `Arc<str>` fixed-length content via `From` conversions, for
+  cheaply-cloneable shared bodies that don't require `&'static` borrowing or per-send `Vec` clones.
+
 ## [1.3.3] - 2026-05-26
 
 ### Fixed

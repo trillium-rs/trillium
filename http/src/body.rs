@@ -7,6 +7,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     io::{Error, Result},
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 use sync_wrapper::SyncWrapper;
@@ -173,7 +174,7 @@ impl Body {
     /// [u8]`.
     pub fn new_static(content: impl Into<Cow<'static, [u8]>>) -> Self {
         Self(Static {
-            content: content.into(),
+            content: StaticContent::Cow(content.into()),
             cursor: 0,
         })
     }
@@ -209,7 +210,7 @@ impl Body {
     /// has already been partially or fully read.
     pub async fn into_bytes(self) -> Result<Cow<'static, [u8]>> {
         match self.0 {
-            Static { content, .. } => Ok(content),
+            Static { content, .. } => Ok(content.into_cow()),
 
             Streaming {
                 async_read,
@@ -452,13 +453,51 @@ impl AsyncRead for SyncAsyncReader {
     }
 }
 
+/// In-memory fixed-length body content. Each variant is cheap to clone: borrowed and
+/// shared variants copy a pointer, and the owned `Cow` variant clones its `Vec`.
+#[derive(Clone)]
+pub(crate) enum StaticContent {
+    Cow(Cow<'static, [u8]>),
+    Bytes(Arc<[u8]>),
+    Str(Arc<str>),
+}
+
+impl std::ops::Deref for StaticContent {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        match self {
+            StaticContent::Cow(content) => content,
+            StaticContent::Bytes(content) => content,
+            StaticContent::Str(content) => content.as_bytes(),
+        }
+    }
+}
+
+impl AsRef<[u8]> for StaticContent {
+    fn as_ref(&self) -> &[u8] {
+        self
+    }
+}
+
+impl StaticContent {
+    /// Materialize as an owned `Cow`. The `Cow` variant passes through without copying;
+    /// the shared variants copy their bytes into a `Vec`.
+    fn into_cow(self) -> Cow<'static, [u8]> {
+        match self {
+            StaticContent::Cow(content) => content,
+            other => Cow::Owned(other.to_vec()),
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) enum BodyType {
     #[default]
     Empty,
 
     Static {
-        content: Cow<'static, [u8]>,
+        content: StaticContent,
         cursor: usize,
     },
 
@@ -565,6 +604,65 @@ impl From<Cow<'static, str>> for Body {
             Cow::Borrowed(b) => b.into(),
             Cow::Owned(o) => o.into(),
         }
+    }
+}
+
+impl From<Arc<[u8]>> for Body {
+    fn from(content: Arc<[u8]>) -> Self {
+        Self(Static {
+            content: StaticContent::Bytes(content),
+            cursor: 0,
+        })
+    }
+}
+
+impl From<Arc<str>> for Body {
+    fn from(content: Arc<str>) -> Self {
+        Self(Static {
+            content: StaticContent::Str(content),
+            cursor: 0,
+        })
+    }
+}
+
+#[cfg(test)]
+mod test_shared_content {
+    use super::Body;
+    use futures_lite::future::block_on;
+    use std::sync::Arc;
+
+    #[test]
+    fn arc_bytes_roundtrips() {
+        let arc: Arc<[u8]> = Arc::from(&b"shared bytes"[..]);
+        let body = Body::from(Arc::clone(&arc));
+        assert_eq!(body.len(), Some(12));
+        assert_eq!(body.static_bytes(), Some(&b"shared bytes"[..]));
+        assert_eq!(
+            block_on(body.into_bytes()).unwrap().as_ref(),
+            b"shared bytes"
+        );
+        // the source Arc is still usable — the body shared, not consumed, the buffer
+        assert_eq!(&*arc, b"shared bytes");
+    }
+
+    #[test]
+    fn arc_str_roundtrips() {
+        let arc: Arc<str> = Arc::from("shared str");
+        let body = Body::from(arc);
+        assert_eq!(body.len(), Some(10));
+        assert_eq!(body.static_bytes(), Some(&b"shared str"[..]));
+        assert_eq!(block_on(body.into_bytes()).unwrap().as_ref(), b"shared str");
+    }
+
+    #[cfg(feature = "unstable")]
+    #[test]
+    fn shared_body_clones_without_copying_the_arc() {
+        let arc: Arc<[u8]> = Arc::from(&b"abc"[..]);
+        let body = Body::from(Arc::clone(&arc));
+        let clone = body.try_clone().expect("static bodies clone");
+        assert_eq!(clone.static_bytes(), Some(&b"abc"[..]));
+        // original + body + clone all reference the same allocation
+        assert_eq!(Arc::strong_count(&arc), 3);
     }
 }
 
