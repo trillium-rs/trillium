@@ -1,6 +1,6 @@
 [package]
 name = "trillium-server-common"
-version = "0.7.3"
+version = "0.7.4"
 edition = "2024"
 description = "server utilities for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -13,10 +13,6 @@ categories = ["web-programming::http-server", "web-programming"]
 development = ["trillium-testing", "trillium-smol"]
 
 [features]
-# SO_REUSEPORT thread-per-core fan-out (`ListenerConfig::bind_reuseport_*`). Only does anything on
-# platforms where SO_REUSEPORT load-balances connections (Linux and other non-Apple Unixes); pulls
-# in socket2. Runtime adapters that expose reuseport (e.g. trillium-tokio) forward their own
-# `reuseport` feature to this one.
 reuseport = ["dep:socket2"]
 
 [dependencies]
