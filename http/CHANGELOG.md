@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Body` now supports `Arc<[u8]>` and `Arc<str>` fixed-length content via `From` conversions, for
   cheaply-cloneable shared bodies that don't require `&'static` borrowing or per-send `Vec` clones.
 
+### Changed
+
+- `HeaderValue`'s internal non-UTF8 byte storage changed from an inline `SmallVec<[u8; 32]>` to a
+  heap `Box<[u8]>`. Since the rare bytes variant no longer dominates the enum size, `HeaderValue`
+  shrinks 56→40 bytes and `HeaderValues` 72→56, cutting the per-`Headers` map-node allocation (and
+  the memcpy on every clone) by ~22%. Non-UTF8 header values now cost one heap allocation; UTF-8
+  values (the overwhelming majority) are unaffected.
+
 ## [1.3.3] - 2026-05-26
 
 ### Fixed
