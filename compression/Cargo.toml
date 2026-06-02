@@ -1,18 +1,22 @@
 [package]
 name = "trillium-compression"
-version = "0.3.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.3.1"
 edition = "2024"
 description = "compression handler for trillium.rs"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/trillium-rs/trillium"
 readme = "README.md"
 keywords = ["trillium", "framework", "async"]
-categories = ["web-programming::http-server", "web-programming"]
+categories = [
+    "web-programming::http-server",
+    "web-programming::http-client",
+    "web-programming",
+]
 
 [dependencies]
 futures-lite = "2.6.1"
 trillium.workspace = true
+trillium-client = { workspace = true, optional = true }
 log = "0.4.29"
 
 [dependencies.async-compression]
@@ -27,5 +31,8 @@ trillium-smol = { path = "../smol" }
 trillium-static = { path = "../static", features = ["smol"] }
 trillium-static-compiled = { path = "../static-compiled" }
 trillium-testing = { path = "../testing" }
+trillium-compression = { path = ".", features = ["client"] }
 
 [features]
+default = []
+client = ["dep:trillium-client"]
