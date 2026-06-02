@@ -89,14 +89,7 @@ async fn empty_body() {
 #[test(harness)]
 async fn static_body() {
     let body = "hello world";
-    let result = round_trip(
-        BodyType::Static {
-            content: body.as_bytes().into(),
-            cursor: 0,
-        },
-        Some(body.len() as u64),
-    )
-    .await;
+    let result = round_trip(Body::from(body).0, Some(body.len() as u64)).await;
     assert_eq!(result, body);
 }
 
@@ -130,15 +123,7 @@ async fn streaming_unknown_length() {
 async fn static_body_various_buf_sizes() {
     let body = "hello world";
     for size in 3..=body.len() + 4 {
-        let result = round_trip_buf(
-            BodyType::Static {
-                content: body.as_bytes().into(),
-                cursor: 0,
-            },
-            Some(body.len() as u64),
-            size,
-        )
-        .await;
+        let result = round_trip_buf(Body::from(body).0, Some(body.len() as u64), size).await;
         assert_eq!(result, body, "buf_size={size}");
     }
 }
