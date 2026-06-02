@@ -1,5 +1,4 @@
 use HeaderValueInner::{Bytes, Utf8};
-use smallvec::SmallVec;
 use smartcow::SmartCow;
 use smartstring::SmartString;
 use std::{
@@ -81,7 +80,7 @@ impl From<Cow<'static, [u8]>> for HeaderValue {
 #[derive(Eq, PartialEq, Clone, Hash)]
 pub(crate) enum HeaderValueInner {
     Utf8(SmartCow<'static>),
-    Bytes(SmallVec<[u8; 32]>),
+    Bytes(Box<[u8]>),
 }
 
 impl PartialOrd for HeaderValueInner {
