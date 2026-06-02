@@ -5,12 +5,7 @@ use crate::{
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use memchr::memmem::Finder;
-use std::{
-    borrow::Cow,
-    io::Write,
-    sync::Arc,
-    time::{Instant, SystemTime},
-};
+use std::{borrow::Cow, io::Write, sync::Arc, time::Instant};
 
 impl<Transport> Conn<Transport>
 where
@@ -27,10 +22,10 @@ where
             return;
         }
 
-        self.response_headers
-            .try_insert_with(KnownHeaderName::Date, || {
-                httpdate::fmt_http_date(SystemTime::now())
-            });
+        self.response_headers.try_insert_with(
+            KnownHeaderName::Date,
+            crate::headers::date::current_date_header,
+        );
 
         if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
             // Upgrade path: don't default to `Content-Length: 0` — body bytes will be
