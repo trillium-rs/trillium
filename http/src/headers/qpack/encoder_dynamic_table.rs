@@ -28,7 +28,6 @@ use event_listener::{Event, EventListener};
 use state::TableState;
 use std::sync::{Arc, Mutex};
 
-mod connection_metrics;
 mod encode;
 mod reader;
 mod state;
@@ -36,7 +35,6 @@ mod state;
 mod tests;
 mod writer;
 
-use connection_metrics::ConnectionMetrics;
 pub(in crate::headers) use state::SectionRefs;
 
 /// The encoder-side QPACK dynamic table for a single HTTP/3 connection.
@@ -60,11 +58,6 @@ pub struct EncoderDynamicTable {
     /// Notified on: new op enqueued, peer ack received, failure. The encoder stream writer
     /// task awaits this to wake and drain `pending_ops`.
     event: Event,
-    /// Per-connection QPACK metrics for observer/priming evaluation. Research-mode
-    /// instrumentation; emitted on drop via `log::info!` at the
-    /// `trillium_http::qpack_metrics` target. See
-    /// [`connection_metrics`](self::connection_metrics) for the rationale.
-    metrics: ConnectionMetrics,
 }
 
 impl Default for EncoderDynamicTable {
@@ -97,7 +90,6 @@ impl EncoderDynamicTable {
             observer,
             our_max_capacity: context.config.dynamic_table_capacity,
             event: Event::new(),
-            metrics: ConnectionMetrics::default(),
         }
     }
 }
@@ -147,41 +139,13 @@ impl EncoderDynamicTable {
                 .set_capacity(chosen)
                 .expect("set_capacity within max_capacity at init");
             for candidate in prime_entries {
-                // Clone for the metrics record before consuming the pair in `insert`. The
-                // observer returned `'static` clones so this is cheap. A `None` value is
-                // a name-only candidate — primed as a `(name, "")` dynamic-table entry.
-                let name_for_metrics = candidate.name.clone();
-                let value_for_insert = candidate
-                    .value
-                    .clone()
-                    .unwrap_or(FieldLineValue::Static(b""));
-                let value_for_metrics = value_for_insert.clone();
-                let kind = if candidate.value.is_some() {
-                    "full-pair"
-                } else {
-                    "name-only"
-                };
+                // A `None` value is a name-only candidate — primed as a `(name, "")`
+                // dynamic-table entry.
+                let value_for_insert = candidate.value.unwrap_or(FieldLineValue::Static(b""));
                 let entry_size = candidate.name.len() + value_for_insert.as_bytes().len() + 32;
                 match state.insert(candidate.name, value_for_insert, None) {
-                    Ok(abs_idx) => {
+                    Ok(_) => {
                         state.primed_bytes = state.primed_bytes.saturating_add(entry_size);
-                        let wire_bytes = state
-                            .pending_ops
-                            .back()
-                            .map_or(0, |b| u64::try_from(b.len()).unwrap_or(u64::MAX));
-                        log::info!(
-                            target: "qpack_metrics",
-                            "priming insert ({kind}): abs_idx={abs_idx} wire_bytes={wire_bytes} \
-                             name={:?} value={:?}",
-                            name_for_metrics,
-                            String::from_utf8_lossy(value_for_metrics.as_bytes()),
-                        );
-                        self.metrics.record_primed_insert(
-                            abs_idx,
-                            name_for_metrics,
-                            value_for_metrics,
-                            wire_bytes,
-                        );
                     }
                     Err(err) => {
                         log::debug!("qpack observer priming insert failed: {err:?}");

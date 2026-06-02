@@ -14,6 +14,7 @@ use super::{
 };
 use crate::{Method, Status};
 use fieldwork::Fieldwork;
+use smallvec::SmallVec;
 use smartcow::SmartCow;
 use std::{
     borrow::Cow,
@@ -155,7 +156,7 @@ impl<'a> FieldSection<'a> {
     /// allocations for already-static slices. The `never_indexed` flag carries the
     /// HPACK / QPACK N bit per value; pseudo-headers are always `false` because they
     /// round-trip through typed `Conn` fields, not the `Headers` map.
-    pub(in crate::headers) fn field_lines(&self) -> Vec<(EntryName<'_>, FieldLineValue<'_>, bool)> {
+    pub(in crate::headers) fn field_lines(&self) -> FieldLines<'_> {
         fn field_line_value_from(v: &crate::HeaderValue) -> FieldLineValue<'_> {
             if let HeaderValueInner::Utf8(SmartCow::Borrowed(b)) = &v.inner {
                 FieldLineValue::Static(b.as_bytes())
@@ -164,7 +165,10 @@ impl<'a> FieldSection<'a> {
             }
         }
 
-        let mut lines = Vec::with_capacity(self.headers.len() + 6);
+        // Inline capacity covers a typical response (`:status` + a handful of headers) with no
+        // heap allocation; larger sections (e.g. proxied responses forwarding many headers)
+        // spill to a single right-sized heap allocation via `with_capacity`.
+        let mut lines = SmallVec::with_capacity(self.headers.len() + 6);
         if let Some(method) = &self.pseudo_headers.method {
             lines.push((
                 PseudoHeaderName::Method.into(),
@@ -258,6 +262,14 @@ impl Display for FieldSection<'_> {
         Ok(())
     }
 }
+
+/// An ordered list of `(name, value, never_indexed)` field-line triples, as produced by
+/// [`FieldSection::field_lines`] for a compression-aware encoder.
+///
+/// Inline storage holds 16 lines — enough for a typical response field section to stay on
+/// the stack — and spills to the heap beyond that.
+pub(in crate::headers) type FieldLines<'a> =
+    SmallVec<[(EntryName<'a>, FieldLineValue<'a>, bool); 16]>;
 
 /// A byte-slice value that tracks its provenance — static, externally borrowed, or owned.
 ///
