@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The response `Date` header is now formatted at most once per second per thread (via a thread-local
+  cache) instead of on every response. The per-response cost drops from two allocations plus
+  calendar formatting to a single allocation. Applies uniformly to HTTP/1.x, HTTP/2, and HTTP/3.
 - `HeaderValue`'s internal non-UTF8 byte storage changed from an inline `SmallVec<[u8; 32]>` to a
   heap `Box<[u8]>`. Since the rare bytes variant no longer dominates the enum size, `HeaderValue`
   shrinks 56→40 bytes and `HeaderValues` 72→56, cutting the per-`Headers` map-node allocation (and

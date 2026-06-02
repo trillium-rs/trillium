@@ -6,11 +6,7 @@ use crate::{
     received_body::ReceivedBodyState,
 };
 use futures_lite::{AsyncRead, AsyncWrite};
-use std::{
-    io,
-    sync::Arc,
-    time::{Instant, SystemTime},
-};
+use std::{io, sync::Arc, time::Instant};
 
 impl<Transport> Conn<Transport>
 where
@@ -143,10 +139,10 @@ where
     /// Parallel to `finalize_response_headers_1x` (h1) and `finalize_response_headers_h3`
     /// (h3); keep the three in sync when changing universal policy.
     fn finalize_response_headers_h2(&mut self) {
-        self.response_headers
-            .try_insert_with(KnownHeaderName::Date, || {
-                httpdate::fmt_http_date(SystemTime::now())
-            });
+        self.response_headers.try_insert_with(
+            KnownHeaderName::Date,
+            crate::headers::date::current_date_header,
+        );
 
         if !self.should_upgrade()
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
