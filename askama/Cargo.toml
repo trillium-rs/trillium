@@ -1,7 +1,6 @@
 [package]
 name = "trillium-askama"
-version = "0.4.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.5.0"
 edition = "2024"
 description = "askama templates for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -10,14 +9,15 @@ readme = "README.md"
 keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]
+
 [dependencies]
-askama = "0.15.6"
 log = "0.4.29"
+askama = "0.16.0"
 trillium.workspace = true
 
 [dev-dependencies]
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
-[package.metadata.cargo-udeps.ignore]
-development = ["trillium-testing"]

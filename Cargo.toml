@@ -49,7 +49,7 @@ exclude = ["controllers", "fuzz"]
 [workspace.dependencies]
 trillium = { version = "1", path = "trillium" }
 trillium-api = { version = "0.3", path = "api" }
-trillium-askama = { version = "0.4", path = "askama" }
+trillium-askama = { version = "0.5", path = "askama" }
 trillium-async-std = { version = "0.6", path = "async-std" }
 trillium-aws-lambda = { version = "0.4", path = "aws-lambda" }
 trillium-caching-headers = { version = "0.4", path = "caching-headers" }

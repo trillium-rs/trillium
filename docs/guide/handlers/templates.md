@@ -18,7 +18,7 @@ Hello, {{ name }}!
 # trillium = { path = "../trillium" }
 # trillium-smol = { path = "../smol" }
 # trillium-askama = { path = "../askama" }
-# askama = "0.15"
+# askama = "0.16"
 # file: askama/templates
 #
 use trillium::Conn;
