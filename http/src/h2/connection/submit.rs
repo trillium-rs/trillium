@@ -309,19 +309,16 @@ impl H2Connection {
 /// Build the ordered [`OutboundPart`]s for a submission: the HEADERS block, an optional body, and
 /// — for a determinate send — a `Close` terminator. An extended-CONNECT upgrade passes
 /// `close = false` so the stream stays open for the bidirectional phase.
+///
+/// Returned as a lazy iterator so the parts flow straight into the stream's send queue via
+/// [`StreamState::stage`]'s `extend` — no transient collection.
 fn submission_parts(
     pseudos: PseudoHeaders<'static>,
     headers: Headers,
     body: Option<Body>,
     close: bool,
-) -> Vec<OutboundPart> {
-    let mut parts = Vec::with_capacity(3);
-    parts.push(OutboundPart::Headers { pseudos, headers });
-    if let Some(body) = body {
-        parts.push(OutboundPart::Body(body));
-    }
-    if close {
-        parts.push(OutboundPart::Close);
-    }
-    parts
+) -> impl Iterator<Item = OutboundPart> {
+    std::iter::once(OutboundPart::Headers { pseudos, headers })
+        .chain(body.map(OutboundPart::Body))
+        .chain(close.then_some(OutboundPart::Close))
 }

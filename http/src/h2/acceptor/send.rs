@@ -477,7 +477,11 @@ where
         field_section: &FieldSection<'_>,
         end_stream: bool,
     ) {
-        let mut encoded = Vec::new();
+        // Reuse the retained scratch (take/restore so the chunking loop below can still borrow
+        // `self` for queue_frame / write_buf). After the first response grows it, the encode is
+        // allocation-free.
+        let mut encoded = std::mem::take(&mut self.headers_scratch);
+        encoded.clear();
         self.hpack_encoder.encode(field_section, &mut encoded);
         let max_payload = self
             .connection
@@ -524,6 +528,9 @@ where
                 break;
             }
         }
+
+        // Restore the (now grown) buffer for the next header block to reuse.
+        self.headers_scratch = encoded;
     }
 
     /// Emit an empty `DATA(END_STREAM)` frame as the stream terminator.

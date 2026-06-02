@@ -105,7 +105,6 @@ where
 
         let loops_per_yield = self.context.config.copy_loops_per_yield;
         let max_peer_field_section_size = self.max_peer_field_section_size();
-        let initial_cap = self.context.config.request_buffer_initial_len;
 
         let max_buf = self.context.config.response_buffer_max_len;
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
@@ -128,7 +127,6 @@ where
                     &h3,
                     &FieldSection::new(PseudoHeaders::default(), &trailers),
                     max_peer_field_section_size,
-                    initial_cap,
                     bufwriter.buffer_mut(),
                     stream_id,
                 )?;
@@ -154,7 +152,6 @@ where
             &h3,
             &field_section,
             self.max_peer_field_section_size(),
-            self.context.config.request_buffer_initial_len,
             buffer,
             stream_id,
         )
@@ -253,33 +250,36 @@ pub(crate) fn encode_field_section_h3(
     h3: &H3Connection,
     field_section: &FieldSection<'_>,
     max_peer_field_section_size: Option<u64>,
-    initial_cap: usize,
     buffer: &mut Vec<u8>,
     stream_id: u64,
 ) -> io::Result<()> {
-    let mut field_section_buf = Vec::with_capacity(initial_cap);
-    h3.encode_field_section(field_section, &mut field_section_buf, stream_id)
+    // Encode the QPACK field section directly onto `buffer`, then open a gap in front of it for
+    // the length-prefixed HEADERS frame header. This avoids a transient encode buffer + copy: the
+    // section bytes are written once, then shifted right by the (now-known) header length.
+    let start = buffer.len();
+    h3.encode_field_section(field_section, buffer, stream_id)
         .map_err(|error| {
             log::error!("encode error: {error:?}");
             io::Error::other(error)
         })?;
 
-    let size = field_section_buf.len() as u64;
+    let size = (buffer.len() - start) as u64;
     if let Some(max_size) = max_peer_field_section_size
         && size > max_size
     {
+        buffer.truncate(start);
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("field section would be longer than peer allows ({size} > {max_size})"),
         ));
     }
 
-    let frame = Frame::Headers(field_section_buf.len() as u64);
+    let frame = Frame::Headers(size);
     let frame_header_len = frame.encoded_len();
-    let start = buffer.len();
-    buffer.resize(start + frame_header_len, 0);
-    frame.encode(&mut buffer[start..]);
-    buffer.extend_from_slice(&field_section_buf);
+    let section_len = buffer.len() - start;
+    buffer.resize(buffer.len() + frame_header_len, 0);
+    buffer.copy_within(start..start + section_len, start + frame_header_len);
+    frame.encode(&mut buffer[start..start + frame_header_len]);
 
     Ok(())
 }
