@@ -62,7 +62,6 @@ pub(crate) use arc_handler::ArcHandler;
 pub use swansong::Swansong;
 
 mod listener_config;
-#[doc(hidden)]
 pub use listener_config::{IntoListenAddr, ListenerConfig};
 
 #[cfg(reuseport)]
