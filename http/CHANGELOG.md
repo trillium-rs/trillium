@@ -13,33 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- HTTP/3: removed the per-connection QPACK research-mode instrumentation (`ConnectionMetrics`).
-  This drops a per-section `Vec` of dynamic references that was collected solely to feed the
-  metrics, along with the per-section atomic/mutex bookkeeping and the per-priming-insert clones.
-  One fewer allocation per response on sections that reference the dynamic table.
-- HTTP/2 and HTTP/3: the two per-field-section scratch buffers in the header encoders — the
-  flattened field-line list (`FieldSection::field_lines`) and the QPACK planner's emission list —
-  are now `SmallVec`s with inline capacity for 16 lines instead of heap `Vec`s. A typical response
-  field section now encodes with zero scratch allocations (previously the emission list grew from
-  zero capacity, reallocating several times); large sections spill to a single right-sized heap
-  allocation. Measured ~3–4 fewer allocations per HTTP/3 response.
-- HTTP/2: the per-connection HPACK encoder now writes each HEADERS block into a retained scratch
-  buffer instead of a fresh `Vec` per response, so steady-state response-header encoding allocates
-  nothing (previously the output buffer reallocated several times as it grew from zero). Measured
-  ~1.5–3.5 fewer allocations per response on realistic header sets, scaling with header count.
-- HTTP/2: staging a submission no longer builds a transient `Vec` of outbound parts; the parts flow
-  directly into the per-stream send queue as a lazy iterator. One fewer allocation per response.
-- HTTP/3: the QPACK field section is now encoded directly into the output buffer and the HEADERS
-  frame header is opened in front of it via `copy_within`, instead of encoding into a transient
-  buffer and copying. One fewer allocation per response (and per trailer section).
-- The response `Date` header is now formatted at most once per second per thread (via a thread-local
-  cache) instead of on every response. The per-response cost drops from two allocations plus
-  calendar formatting to a single allocation. Applies uniformly to HTTP/1.x, HTTP/2, and HTTP/3.
-- `HeaderValue`'s internal non-UTF8 byte storage changed from an inline `SmallVec<[u8; 32]>` to a
-  heap `Box<[u8]>`. Since the rare bytes variant no longer dominates the enum size, `HeaderValue`
-  shrinks 56→40 bytes and `HeaderValues` 72→56, cutting the per-`Headers` map-node allocation (and
-  the memcpy on every clone) by ~22%. Non-UTF8 header values now cost one heap allocation; UTF-8
-  values (the overwhelming majority) are unaffected.
+- Reduced per-response heap allocations across HTTP/1.x, HTTP/2, and HTTP/3, concentrated in
+  response-header encoding. Steady-state response encoding now allocates several fewer times per
+  HTTP/2 and HTTP/3 response. Behavior and public API are unchanged.
 
 ## [1.3.3] - 2026-05-26
 
