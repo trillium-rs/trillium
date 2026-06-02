@@ -29,10 +29,15 @@
 #[doc = include_str!("../README.md")]
 mod readme {}
 
+#[cfg(feature = "client")]
+pub mod client;
+
 pub use async_compression::Level;
+#[cfg(feature = "client")]
+use async_compression::futures::bufread::{BrotliDecoder, GzipDecoder, ZstdDecoder};
 use async_compression::futures::bufread::{BrotliEncoder, GzipEncoder, ZstdEncoder};
 use futures_lite::{
-    AsyncReadExt,
+    AsyncBufRead, AsyncReadExt,
     io::{BufReader, Cursor},
 };
 use std::{
@@ -43,7 +48,7 @@ use std::{
 use trillium::{
     Body, Conn, Handler, HeaderValues,
     KnownHeaderName::{AcceptEncoding, ContentEncoding, ContentType, Vary},
-    conn_try, conn_unwrap,
+    conn_unwrap,
 };
 
 /// Algorithms supported by this crate
@@ -58,6 +63,10 @@ pub enum CompressionAlgorithm {
 
     /// Zstd algorithm
     Zstd,
+
+    /// The identity content-coding: no transformation. Set this on a client conn's state to opt
+    /// a single request out of a configured default request encoding.
+    Identity,
 }
 
 impl CompressionAlgorithm {
@@ -66,6 +75,7 @@ impl CompressionAlgorithm {
             CompressionAlgorithm::Brotli => "br",
             CompressionAlgorithm::Gzip => "gzip",
             CompressionAlgorithm::Zstd => "zstd",
+            CompressionAlgorithm::Identity => "identity",
         }
     }
 
@@ -75,6 +85,7 @@ impl CompressionAlgorithm {
             "gzip" => Some(CompressionAlgorithm::Gzip),
             "x-gzip" => Some(CompressionAlgorithm::Gzip),
             "zstd" => Some(CompressionAlgorithm::Zstd),
+            "identity" => Some(CompressionAlgorithm::Identity),
             _ => None,
         }
     }
@@ -167,6 +178,14 @@ impl Compression {
         self
     }
 
+    fn levels(&self) -> Levels {
+        Levels {
+            brotli: self.brotli_level,
+            gzip: self.gzip_level,
+            zstd: self.zstd_level,
+        }
+    }
+
     fn negotiate(&self, header: &str) -> Option<CompressionAlgorithm> {
         parse_accept_encoding(header)
             .into_iter()
@@ -254,6 +273,105 @@ fn is_already_compressed(content_type: &str) -> bool {
         || primary.starts_with("audio/")
 }
 
+/// Per-algorithm compression levels, threaded into the encode helpers.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Levels {
+    brotli: Level,
+    gzip: Level,
+    zstd: Level,
+}
+
+impl Default for Levels {
+    fn default() -> Self {
+        Self {
+            brotli: Level::Precise(4),
+            gzip: Level::Default,
+            zstd: Level::Default,
+        }
+    }
+}
+
+impl CompressionAlgorithm {
+    /// Apply this content-coding to `body`, returning the (possibly unchanged) body and whether
+    /// encoding was actually applied. The identity coding, an empty body, and any static body that
+    /// fails to shrink are returned untouched with `false`.
+    pub(crate) async fn encode(self, body: Body, levels: Levels) -> (Body, bool) {
+        if self == Self::Identity {
+            return (body, false);
+        }
+
+        if body.is_static() {
+            let bytes = body.static_bytes().unwrap();
+            match self.encode_static(bytes, levels).await {
+                Some(data) if data.len() < bytes.len() => {
+                    log::trace!(
+                        "compressed {} body {} → {} bytes",
+                        self.as_str(),
+                        bytes.len(),
+                        data.len()
+                    );
+                    (Body::new_static(data), true)
+                }
+                _ => (body, false),
+            }
+        } else if body.is_streaming() {
+            (
+                self.encode_streaming(BufReader::new(body.into_reader()), levels),
+                true,
+            )
+        } else {
+            (body, false)
+        }
+    }
+
+    /// Compress in-memory `bytes`, or `None` for the identity coding or on encoder error.
+    async fn encode_static(self, bytes: &[u8], levels: Levels) -> Option<Vec<u8>> {
+        let mut data = vec![];
+        let result = match self {
+            Self::Identity => return None,
+            Self::Zstd => {
+                ZstdEncoder::with_quality(Cursor::new(bytes), levels.zstd)
+                    .read_to_end(&mut data)
+                    .await
+            }
+            Self::Brotli => {
+                BrotliEncoder::with_quality(Cursor::new(bytes), levels.brotli)
+                    .read_to_end(&mut data)
+                    .await
+            }
+            Self::Gzip => {
+                GzipEncoder::with_quality(Cursor::new(bytes), levels.gzip)
+                    .read_to_end(&mut data)
+                    .await
+            }
+        };
+        result.ok().map(|_| data)
+    }
+
+    /// Wrap `reader` in a streaming encoder for this content-coding; identity passes through.
+    fn encode_streaming(self, reader: impl AsyncBufRead + Send + 'static, levels: Levels) -> Body {
+        match self {
+            Self::Identity => Body::new_streaming(reader, None),
+            Self::Zstd => Body::new_streaming(ZstdEncoder::with_quality(reader, levels.zstd), None),
+            Self::Brotli => {
+                Body::new_streaming(BrotliEncoder::with_quality(reader, levels.brotli), None)
+            }
+            Self::Gzip => Body::new_streaming(GzipEncoder::with_quality(reader, levels.gzip), None),
+        }
+    }
+
+    /// Wrap `reader` in a streaming decoder for this content-coding; identity passes through.
+    #[cfg(feature = "client")]
+    pub(crate) fn decode_streaming(self, reader: impl AsyncBufRead + Send + 'static) -> Body {
+        match self {
+            Self::Identity => Body::new_streaming(reader, None),
+            Self::Zstd => Body::new_streaming(ZstdDecoder::new(reader), None),
+            Self::Brotli => Body::new_streaming(BrotliDecoder::new(reader), None),
+            Self::Gzip => Body::new_streaming(GzipDecoder::new(reader), None),
+        }
+    }
+}
+
 impl Handler for Compression {
     async fn run(&self, mut conn: Conn) -> Conn {
         if let Some(header) = conn
@@ -286,71 +404,8 @@ impl Handler for Compression {
             return conn;
         };
 
-        let mut body = conn_unwrap!(conn.take_response_body(), conn);
-        let mut compression_used = false;
-
-        if body.is_static() {
-            let bytes = body.static_bytes().unwrap();
-            let mut data = vec![];
-            match algo {
-                CompressionAlgorithm::Zstd => {
-                    let mut encoder =
-                        ZstdEncoder::with_quality(Cursor::new(bytes), self.zstd_level);
-                    conn_try!(encoder.read_to_end(&mut data).await, conn);
-                }
-                CompressionAlgorithm::Brotli => {
-                    let mut encoder =
-                        BrotliEncoder::with_quality(Cursor::new(bytes), self.brotli_level);
-                    conn_try!(encoder.read_to_end(&mut data).await, conn);
-                }
-                CompressionAlgorithm::Gzip => {
-                    let mut encoder =
-                        GzipEncoder::with_quality(Cursor::new(bytes), self.gzip_level);
-                    conn_try!(encoder.read_to_end(&mut data).await, conn);
-                }
-            }
-            if data.len() < bytes.len() {
-                log::trace!(
-                    "{} body from {} to {}",
-                    algo.as_str(),
-                    bytes.len(),
-                    data.len()
-                );
-                compression_used = true;
-                body = Body::new_static(data);
-            }
-        } else if body.is_streaming() {
-            compression_used = true;
-            match algo {
-                CompressionAlgorithm::Zstd => {
-                    body = Body::new_streaming(
-                        ZstdEncoder::with_quality(
-                            BufReader::new(body.into_reader()),
-                            self.zstd_level,
-                        ),
-                        None,
-                    );
-                }
-                CompressionAlgorithm::Brotli => {
-                    body = Body::new_streaming(
-                        BrotliEncoder::with_quality(
-                            BufReader::new(body.into_reader()),
-                            self.brotli_level,
-                        ),
-                        None,
-                    );
-                }
-                CompressionAlgorithm::Gzip => {
-                    body = Body::new_streaming(
-                        GzipEncoder::with_quality(
-                            BufReader::new(body.into_reader()),
-                            self.gzip_level,
-                        ),
-                        None,
-                    );
-                }
-            }
-        }
+        let body = conn_unwrap!(conn.take_response_body(), conn);
+        let (body, compression_used) = algo.encode(body, self.levels()).await;
 
         if compression_used {
             let vary = conn

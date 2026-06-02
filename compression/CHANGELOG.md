@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-02
+
+### Added
+- Client-side `Compression` handler behind the new `client` feature
+  (`trillium_compression::client::Compression`). Implements `ClientHandler`
+  bidirectionally:
+  - Responses: advertises `Accept-Encoding` on outbound requests and
+    transparently decodes brotli/gzip/zstd response bodies, stripping
+    `Content-Encoding` so callers read plaintext.
+  - Requests (opt-in): compresses the request body and sets `Content-Encoding`
+    when a request encoding is selected — handler-wide via
+    `Compression::with_default_encoding`, or per request by setting a
+    `CompressionAlgorithm` on the conn's state (which overrides the default).
+- `CompressionAlgorithm::Identity`, the identity content-coding. As a per-conn
+  client state signal it opts a single request out of a configured default
+  request encoding.
+
 ## [0.3.0] - 2026-05-08
 
 ### Changed (breaking)
