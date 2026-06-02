@@ -1,7 +1,6 @@
 [package]
 name = "trillium-example"
 version = "0.1.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -21,7 +20,7 @@ trillium-websockets.workspace = true
 trillium-smol.workspace = true
 trillium-askama.workspace = true
 futures-lite = "2.6.1"
-askama = "0.15.6"
+askama = "0.16"
 trillium-static-compiled.workspace = true
 trillium-proxy.workspace = true
 trillium-rustls.workspace = true
