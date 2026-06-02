@@ -49,13 +49,12 @@ use crate::headers::{
     recent_pairs::RecentPairs,
     static_hit::StaticHit,
 };
+use smallvec::SmallVec;
 
-/// Saturating `usize` → `u32` conversion. Wire byte sizes never meaningfully exceed
-/// `u32::MAX`; clamping at the boundary keeps the metrics arithmetic honest without
-/// adding a panic on pathological inputs.
-fn to_u32(n: usize) -> u32 {
-    u32::try_from(n).unwrap_or(u32::MAX)
-}
+/// Inline storage for the planned emissions of one field section. Sized to keep a typical
+/// response (`:status` + a handful of headers) on the stack; larger sections spill to the
+/// heap.
+type Emissions<'lines, 'names> = SmallVec<[Emission<'lines, 'names>; 16]>;
 
 impl EncoderDynamicTable {
     /// Encode `field_section` onto `buf` for transmission on `stream_id`.
@@ -87,18 +86,15 @@ impl EncoderDynamicTable {
         let plan;
         let max_capacity;
         let made_inserts;
-        let enc_stream_bytes;
-        let krc_at_encode;
         {
             let mut state = self.state.lock().unwrap();
             max_capacity = state.max_capacity;
-            krc_at_encode = state.known_received_count;
-            let mut planner = Planner::new(&mut state, stream_id, &self.observer);
+            let mut planner =
+                Planner::new(&mut state, stream_id, &self.observer, field_lines.len());
             for (name, value, never_indexed) in field_lines {
                 planner.plan_header_line(name, value.reborrow(), *never_indexed);
             }
             made_inserts = planner.made_inserts;
-            enc_stream_bytes = planner.enc_stream_bytes;
             plan = planner.finish();
             if plan.section_ric > 0 {
                 state
@@ -117,34 +113,10 @@ impl EncoderDynamicTable {
             self.event.notify(usize::MAX);
         }
 
-        let section_start = buf.len();
         emit_section_prefix(plan.section_ric, max_capacity, buf);
         for emission in &plan.emissions {
             emit(emission, plan.section_ric, buf);
         }
-
-        let header_block_bytes = u32::try_from(buf.len() - section_start).unwrap_or(u32::MAX);
-
-        // Research-mode observer/priming metrics (see
-        // `encoder_dynamic_table::connection_metrics`). Field-section bytes are
-        // load-bearing for response latency; encoder-stream inserts enqueued here are
-        // load-bearing too (they gate the client's decoder on this section). Priming
-        // bytes (eager) were accounted separately in `initialize_from_peer_settings`.
-        let dynamic_refs: Vec<u64> = plan
-            .emissions
-            .iter()
-            .filter_map(|emission| match emission {
-                Emission::IndexedDynamicPreBase(abs_idx)
-                | Emission::LiteralDynamicNameRefPreBase { abs_idx, .. } => Some(*abs_idx),
-                _ => None,
-            })
-            .collect();
-        self.metrics.record_section(
-            header_block_bytes,
-            enc_stream_bytes,
-            &dynamic_refs,
-            krc_at_encode,
-        );
     }
 }
 
@@ -190,7 +162,7 @@ enum Emission<'lines, 'names> {
 
 /// Output of the plan phase.
 struct Plan<'lines, 'names> {
-    emissions: Vec<Emission<'lines, 'names>>,
+    emissions: Emissions<'lines, 'names>,
     section_ric: u64,
     min_ref_abs_idx: Option<u64>,
 }
@@ -203,7 +175,7 @@ struct Planner<'state, 'lines, 'names> {
     /// decide whether an about-to-be-pressed-off tail entry is still hot enough to
     /// warrant a Duplicate instruction.
     observer: &'state HeaderObserver,
-    emissions: Vec<Emission<'lines, 'names>>,
+    emissions: Emissions<'lines, 'names>,
     section_ric: u64,
     min_ref_abs_idx: Option<u64>,
     /// True iff this section may take dynamic references whose `abs_idx >= KRC`. Snapshot
@@ -215,11 +187,6 @@ struct Planner<'state, 'lines, 'names> {
     /// Set when the plan phase has enqueued at least one encoder-stream insert. The caller
     /// uses this flag after dropping the lock to notify the encoder-stream writer.
     made_inserts: bool,
-    /// Running total of encoder-stream bytes enqueued during planning. Consumed by the
-    /// per-section research-mode metrics in [`ConnectionMetrics::record_section`].
-    ///
-    /// [`ConnectionMetrics::record_section`]: super::connection_metrics::ConnectionMetrics::record_section
-    enc_stream_bytes: u32,
 }
 
 impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
@@ -227,18 +194,18 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         state: &'state mut TableState,
         stream_id: u64,
         observer: &'state HeaderObserver,
+        line_count: usize,
     ) -> Self {
         let can_block_section = state.is_stream_blocking(stream_id)
             || state.currently_blocked_streams() < state.max_blocked_streams;
         Self {
             state,
             observer,
-            emissions: Vec::new(),
+            emissions: SmallVec::with_capacity(line_count),
             section_ric: 0,
             min_ref_abs_idx: None,
             can_block_section,
             made_inserts: false,
-            enc_stream_bytes: 0,
         }
     }
 
@@ -339,10 +306,6 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
                 .insert(name.reborrow(), value.reborrow(), self.min_ref_abs_idx);
             if self.state.pending_ops.len() > pre_count {
                 self.made_inserts = true;
-                if let Some(wire) = self.state.pending_ops.back() {
-                    self.enc_stream_bytes =
-                        self.enc_stream_bytes.saturating_add(to_u32(wire.len()));
-                }
             }
         }
 
@@ -447,9 +410,6 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             && self.state.pending_ops.len() > pre_count
         {
             self.made_inserts = true;
-            if let Some(wire) = self.state.pending_ops.back() {
-                self.enc_stream_bytes = self.enc_stream_bytes.saturating_add(to_u32(wire.len()));
-            }
         }
     }
 

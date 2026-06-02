@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- HTTP/3: removed the per-connection QPACK research-mode instrumentation (`ConnectionMetrics`).
+  This drops a per-section `Vec` of dynamic references that was collected solely to feed the
+  metrics, along with the per-section atomic/mutex bookkeeping and the per-priming-insert clones.
+  One fewer allocation per response on sections that reference the dynamic table.
+- HTTP/2 and HTTP/3: the two per-field-section scratch buffers in the header encoders — the
+  flattened field-line list (`FieldSection::field_lines`) and the QPACK planner's emission list —
+  are now `SmallVec`s with inline capacity for 16 lines instead of heap `Vec`s. A typical response
+  field section now encodes with zero scratch allocations (previously the emission list grew from
+  zero capacity, reallocating several times); large sections spill to a single right-sized heap
+  allocation. Measured ~3–4 fewer allocations per HTTP/3 response.
 - HTTP/2: the per-connection HPACK encoder now writes each HEADERS block into a retained scratch
   buffer instead of a fresh `Vec` per response, so steady-state response-header encoding allocates
   nothing (previously the output buffer reallocated several times as it grew from zero). Measured
