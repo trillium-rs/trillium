@@ -152,6 +152,11 @@ pub struct H2Driver<T> {
     /// DATA emissions here to bound per-connection memory.
     body_scratch: Vec<u8>,
 
+    /// Reusable scratch the HPACK encoder writes a HEADERS block into before it is copied
+    /// into `write_buf` as HEADERS/CONTINUATION fragments. Retained across responses so the
+    /// steady-state header encode allocates nothing.
+    headers_scratch: Vec<u8>,
+
     /// Connection-level send flow-control window. Tracked as [`i64`] for symmetry with the
     /// per-stream windows, which a mid-connection `INITIAL_WINDOW_SIZE` reduction can drive
     /// temporarily negative; the connection window itself is *not* affected by
@@ -219,6 +224,7 @@ where
             close_outcome: None,
             finished: false,
             body_scratch: vec![0u8; MAX_DATA_CHUNK_SIZE as usize],
+            headers_scratch: Vec::new(),
             connection_send_window: INITIAL_CONNECTION_RECV_WINDOW,
             connection_recv_window: INITIAL_CONNECTION_RECV_WINDOW,
             closed_streams: ClosedStreams::default(),

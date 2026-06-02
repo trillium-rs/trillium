@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- HTTP/2: the per-connection HPACK encoder now writes each HEADERS block into a retained scratch
+  buffer instead of a fresh `Vec` per response, so steady-state response-header encoding allocates
+  nothing (previously the output buffer reallocated several times as it grew from zero). Measured
+  ~1.5–3.5 fewer allocations per response on realistic header sets, scaling with header count.
+- HTTP/2: staging a submission no longer builds a transient `Vec` of outbound parts; the parts flow
+  directly into the per-stream send queue as a lazy iterator. One fewer allocation per response.
+- HTTP/3: the QPACK field section is now encoded directly into the output buffer and the HEADERS
+  frame header is opened in front of it via `copy_within`, instead of encoding into a transient
+  buffer and copying. One fewer allocation per response (and per trailer section).
 - The response `Date` header is now formatted at most once per second per thread (via a thread-local
   cache) instead of on every response. The per-response cost drops from two allocations plus
   calendar formatting to a single allocation. Applies uniformly to HTTP/1.x, HTTP/2, and HTTP/3.

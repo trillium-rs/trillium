@@ -492,13 +492,11 @@ impl<Transport: AsyncWrite + Unpin> Upgrade<Transport> {
                 let max_field_section = h3
                     .peer_settings()
                     .and_then(H3Settings::max_field_section_size);
-                let initial_cap = context.config.request_buffer_initial_len;
                 let field_section = FieldSection::new(PseudoHeaders::default(), &trailers);
                 crate::conn::encode_field_section_h3(
                     &h3,
                     &field_section,
                     max_field_section,
-                    initial_cap,
                     &mut state.pending,
                     stream_id,
                 )?;
