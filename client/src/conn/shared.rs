@@ -33,7 +33,7 @@ pub enum ClientSerdeError {
 impl Conn {
     pub(crate) async fn exec(&mut self) -> Result<()> {
         // Arc-clone to dodge conflict with the `&mut self` we pass to `run`.
-        let handler = self.client.handler().clone();
+        let handler = self.client.arc_handler().clone();
         handler.run(self).await?;
 
         if !self.halted {
