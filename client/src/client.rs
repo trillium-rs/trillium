@@ -82,7 +82,7 @@ pub struct Client {
     /// type-erased middleware stack. Defaults to a no-op `()` handler. Set via
     /// [`Client::with_handler`] / [`Client::set_handler`]; recover the concrete type via
     /// [`Client::downcast_handler`].
-    #[field(vis = "pub(crate)", get)]
+    #[field(vis = "pub(crate)", get = arc_handler)]
     handler: ArcedClientHandler,
 }
 
@@ -222,6 +222,13 @@ impl Client {
     pub fn set_handler<H: ClientHandler>(&mut self, handler: H) -> &mut Self {
         self.handler = ArcedClientHandler::new(handler);
         self
+    }
+
+    /// Borrow the type-erased [`ClientHandler`]
+    ///
+    /// See also [`Client::downcast_handler`] if you can name the type
+    pub fn handler(&self) -> &impl ClientHandler {
+        &self.handler
     }
 
     /// Borrow the installed [`ClientHandler`] as the concrete type `T`, returning `None` if the
