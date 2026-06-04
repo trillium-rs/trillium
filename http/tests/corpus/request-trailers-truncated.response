@@ -1,6 +1,6 @@
 HTTP/1.1 500 Internal Server Error\r\n
 Date: Tue, 21 Nov 2023 21:27:21 GMT\r\n
-Content-Length: 162\r\n
+Content-Length: 181\r\n
 Server: corpus-test\r\n
 \r\n
 ===request===\n
@@ -9,6 +9,7 @@ path: /trailer-test\n
 version: HTTP/1.1\n
 \n
 ===headers===\n
+Host: example.org\r\n
 Connection: close\r\n
 Transfer-Encoding: chunked\r\n
 \n

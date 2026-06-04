@@ -1,0 +1,3 @@
+GET / HTTP/2.0\r\n
+Host: example.com\r\n
+\r\n

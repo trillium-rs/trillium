@@ -1,4 +1,4 @@
-use super::{H1_ONLY_HEADERS, ValidatedRequest, validate_h2h3_request};
+use super::shared::{H1_ONLY_HEADERS, ValidatedRequest};
 use crate::{
     BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet,
     Version,
@@ -82,7 +82,7 @@ where
         };
 
         log::trace!("received:\n{field_section}");
-        let validated = validate_h2h3_request(field_section).ok_or(H3ErrorCode::MessageError)?;
+        let validated = ValidatedRequest::new(field_section).ok_or(H3ErrorCode::MessageError)?;
         Ok(H3FirstFrame::Request {
             validated,
             start_time,
@@ -142,8 +142,7 @@ where
     }
 
     fn encode_headers_h3(&mut self, buffer: &mut Vec<u8>) -> io::Result<()> {
-        let pseudo_headers =
-            PseudoHeaders::default().with_status(self.status.unwrap_or(Status::NotFound));
+        let pseudo_headers = PseudoHeaders::default().with_status(self.response_status());
 
         let field_section = FieldSection::new(pseudo_headers, &self.response_headers);
         log::trace!("sending:\n{field_section}");

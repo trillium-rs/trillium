@@ -1,122 +1,14 @@
 use crate::{
-    Body, Buffer, Headers, HttpContext, KnownHeaderName,
+    Body, Buffer, Headers, HttpContext,
     KnownHeaderName::Host,
     Method, ProtocolSession, ReceivedBody, Status, Swansong, TypeSet, Version,
     after_send::{AfterSend, SendStatus},
     h2::H2Connection,
     h3::H3Connection,
-    headers::hpack::FieldSection,
     liveness::{CancelOnDisconnect, LivenessFut},
     received_body::ReceivedBodyState,
     util::encoding,
 };
-
-/// Header names whose semantics only apply at the HTTP/1 layer.
-///
-/// HTTP/2 (RFC 9113) and HTTP/3 (RFC 9114) call these "connection-specific"
-/// and forbid them in requests and responses.
-pub(super) const H1_ONLY_HEADERS: [KnownHeaderName; 5] = [
-    KnownHeaderName::Connection,
-    KnownHeaderName::KeepAlive,
-    KnownHeaderName::ProxyConnection,
-    KnownHeaderName::TransferEncoding,
-    KnownHeaderName::Upgrade,
-];
-
-/// Validated request pseudo-headers + headers, the common output of
-/// [`validate_h2h3_request`].
-pub(super) struct ValidatedRequest {
-    pub method: Method,
-    pub path: Cow<'static, str>,
-    pub authority: Option<Cow<'static, str>>,
-    pub scheme: Option<Cow<'static, str>>,
-    pub protocol: Option<Cow<'static, str>>,
-    pub request_headers: Headers,
-}
-
-/// Shared HTTP/2 + HTTP/3 request-validation per RFC 9113 and RFC 9114.
-///
-/// Both protocols apply the same malformed-message rules to incoming requests:
-/// no `:status` pseudo, required `:method`, non-empty `:path` (or CONNECT default),
-/// `:scheme` required for non-CONNECT, `:authority` required for CONNECT, `:authority`
-/// or `Host` required when `:scheme` is `http`/`https`, no `Host`/`:authority`
-/// mismatch, no [`H1_ONLY_HEADERS`], and `TE` restricted to `trailers`. Returns `None`
-/// on any violation; the caller maps to its protocol-specific error code.
-pub(super) fn validate_h2h3_request(
-    mut field_section: FieldSection<'static>,
-) -> Option<ValidatedRequest> {
-    let pseudo_headers = field_section.pseudo_headers_mut();
-
-    // `:status` is response-only; reject it on requests.
-    if pseudo_headers.status().is_some() {
-        return None;
-    }
-
-    let method = pseudo_headers.take_method();
-    let path = pseudo_headers.take_path();
-    let authority = pseudo_headers.take_authority();
-    let scheme = pseudo_headers.take_scheme();
-    let protocol = pseudo_headers.take_protocol();
-    let request_headers = field_section.into_headers().into_owned();
-
-    if let Some(host) = request_headers.get_str(Host)
-        && let Some(authority) = &authority
-        && host != authority.as_ref()
-    {
-        return None;
-    }
-
-    if H1_ONLY_HEADERS
-        .into_iter()
-        .any(|name| request_headers.has_header(name))
-    {
-        return None;
-    }
-
-    let method = method?;
-
-    if method != Method::Connect && scheme.is_none() {
-        return None;
-    }
-
-    let path = match (method, path) {
-        (_, Some(path)) if !path.is_empty() => path,
-        (Method::Connect, _) => Cow::Borrowed("/"),
-        _ => return None,
-    };
-
-    if method == Method::Connect && authority.is_none() {
-        return None;
-    }
-
-    // When :scheme names a scheme with a mandatory authority component, the request
-    // MUST carry either :authority or a Host header. The spec gives "http" and "https"
-    // as the canonical examples; we also include "ws" and "wss" (same
-    // hierarchical-with-mandatory-authority shape) so the rule applies consistently if
-    // a non-standard sender uses those. Exotic schemes without mandatory authority
-    // (file, data, mailto, urn) are exempt; CONNECT is handled above.
-    if method != Method::Connect
-        && matches!(scheme.as_deref(), Some("http" | "https" | "ws" | "wss"))
-        && authority.is_none()
-        && request_headers.get_str(Host).is_none()
-    {
-        return None;
-    }
-
-    match request_headers.get_str(KnownHeaderName::Te) {
-        None | Some("trailers") => {}
-        _ => return None,
-    }
-
-    Some(ValidatedRequest {
-        method,
-        path,
-        authority,
-        scheme,
-        protocol,
-        request_headers,
-    })
-}
 use encoding_rs::Encoding;
 use futures_lite::{
     future,
@@ -135,7 +27,8 @@ use std::{
 mod h1;
 mod h2;
 mod h3;
-pub(crate) use h1::write_headers_or_trailers;
+mod shared;
+pub(crate) use h1::{HeadError, write_headers_or_trailers};
 pub(crate) use h3::{H3FirstFrame, encode_field_section_h3};
 
 /// An HTTP connection.
@@ -332,6 +225,18 @@ where
     pub fn with_status(mut self, status: impl TryInto<Status>) -> Self {
         self.set_status(status);
         self
+    }
+
+    /// The status to send on the wire: the explicitly-set status, or a
+    /// method-appropriate default when a handler left it unset. Unhandled
+    /// requests default to `404 Not Found`, except CONNECT, which defaults to
+    /// `501 Not Implemented`: an origin server implements no tunnel, and 404's
+    /// resource model does not apply to CONNECT's authority-form target.
+    pub(crate) fn response_status(&self) -> Status {
+        self.status.unwrap_or(match self.method {
+            Method::Connect => Status::NotImplemented,
+            _ => Status::NotFound,
+        })
     }
 
     /// retrieves the path part of the request url, up to and excluding any query component

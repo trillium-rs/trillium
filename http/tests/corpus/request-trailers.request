@@ -1,4 +1,5 @@
 POST /trailer-test HTTP/1.1\r\n
+Host: example.org\r\n
 Transfer-Encoding: chunked\r\n
 Trailer: x-checksum\r\n
 Connection: close\r\n

@@ -101,23 +101,32 @@ impl Headers {
             }
 
             let line = &bytes[last_line..newline];
-            let colon = memchr::memchr(b':', line).ok_or(crate::Error::InvalidHead)?;
 
-            let header_name = HeaderName::parse(&line[..colon])?.to_owned();
+            // Validate each field line as it's parsed, appending the valid ones as we go. On the
+            // first violation we return `Err` with `self` still holding everything before it, so
+            // the request parser can synthesize a response from the partial parse
+            // rather than closing blind. A line with no colon — e.g. an obs-fold
+            // continuation — has no name and is rejected (obs-fold is forbidden in requests).
+            let colon = memchr::memchr(b':', line).ok_or(crate::Error::InvalidHeaderName)?;
+            let name = HeaderName::parse(&line[..colon])?;
+            if !name.is_valid() {
+                return Err(crate::Error::InvalidHeaderName);
+            }
 
-            let token_end = last_line + colon;
-
-            let mut value_start = token_end + 1;
-
-            while bytes
+            let mut value_start = colon + 1;
+            while line
                 .get(value_start)
                 .is_some_and(|b| matches!(b, b'\t' | b' '))
             {
                 value_start += 1;
             }
+            let value_bytes = line[value_start..].trim_ascii_end();
+            // A field value carries no C0 control except HTAB; obs-text (`0x80..=0xFF`) is allowed.
+            if !value_bytes.iter().all(|&b| b >= 0x20 || b == b'\t') {
+                return Err(crate::Error::InvalidHeaderValue(name.to_owned()));
+            }
 
-            let header_value = HeaderValue::parse(bytes[value_start..newline].trim_ascii_end());
-            self.append(header_name, header_value);
+            self.append(name.to_owned(), HeaderValue::parse(value_bytes));
             new_header_count += 1;
             last_line = newline + 2;
         }

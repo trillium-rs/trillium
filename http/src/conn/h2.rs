@@ -1,4 +1,4 @@
-use super::{H1_ONLY_HEADERS, ValidatedRequest, validate_h2h3_request};
+use super::shared::{H1_ONLY_HEADERS, ValidatedRequest};
 use crate::{
     Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet, Version,
     after_send::AfterSend,
@@ -44,7 +44,7 @@ where
             scheme,
             protocol,
             request_headers,
-        } = validate_h2h3_request(request_headers).ok_or(H2ErrorCode::ProtocolError)?;
+        } = ValidatedRequest::new(request_headers).ok_or(H2ErrorCode::ProtocolError)?;
 
         let response_headers = h2_connection
             .context()
@@ -103,7 +103,7 @@ where
 
         // Clone rather than take: the Conn is returned with response_headers intact so
         // after_send / drop hooks can observe them.
-        let pseudos = PseudoHeaders::default().with_status(self.status.unwrap_or(Status::NotFound));
+        let pseudos = PseudoHeaders::default().with_status(self.response_status());
         let headers = self.response_headers.clone();
 
         let is_upgrade = self.should_upgrade();

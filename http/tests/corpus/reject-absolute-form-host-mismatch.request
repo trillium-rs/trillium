@@ -1,0 +1,3 @@
+GET http://example.com/a HTTP/1.1\r\n
+Host: evil.example.com\r\n
+\r\n

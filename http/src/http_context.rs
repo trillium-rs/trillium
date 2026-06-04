@@ -1,5 +1,5 @@
 use crate::{
-    Buffer, Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade,
+    Buffer, Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade, conn::HeadError,
     headers::header_observer::HeaderObserver,
 };
 use fieldwork::Fieldwork;
@@ -138,7 +138,14 @@ where
 {
     let _guard = context.swansong.guard();
     let buffer: Buffer = initial_bytes.into();
-    let mut conn = Conn::new_internal(context, transport, buffer).await?;
+    let mut conn = match Conn::parse_head(context, transport, buffer).await {
+        Ok(conn) => conn,
+        Err(HeadError::BadRequest(bad)) => {
+            bad.send().await?;
+            return Ok(None);
+        }
+        Err(HeadError::Fatal(e)) => return Err(e),
+    };
 
     loop {
         conn = match handler(conn).await.send().await? {

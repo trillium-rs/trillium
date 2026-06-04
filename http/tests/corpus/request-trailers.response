@@ -1,6 +1,6 @@
 HTTP/1.1 200 OK\r\n
 Date: Tue, 21 Nov 2023 21:27:21 GMT\r\n
-Content-Length: 202\r\n
+Content-Length: 221\r\n
 Server: corpus-test\r\n
 \r\n
 ===request===\n
@@ -9,6 +9,7 @@ path: /trailer-test\n
 version: HTTP/1.1\n
 \n
 ===headers===\n
+Host: example.org\r\n
 Connection: close\r\n
 Trailer: x-checksum\r\n
 Transfer-Encoding: chunked\r\n
