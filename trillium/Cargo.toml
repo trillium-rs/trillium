@@ -17,7 +17,10 @@ unstable = ["trillium-http/unstable"]
 http-compat-0 = ["trillium-http/http-compat-0"]
 http-compat-1 = ["trillium-http/http-compat-1"]
 serde = ["trillium-http/serde"]
-parse = ["trillium-http/parse"]
+
+# Vestigial: the trillium-http http/1.x parser is now always selected. This feature is retained as a
+# no-op for semver compatibility
+parse = []
 
 [dependencies]
 futures-lite = "2.6.1"

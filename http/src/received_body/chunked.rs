@@ -13,7 +13,6 @@ pub(crate) fn write_chunk(out: &mut Vec<u8>, payload: &[u8]) {
     out.extend_from_slice(b"\r\n");
 }
 
-#[cfg(feature = "parse")]
 fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
     use memchr::memmem::Finder;
     use std::str;
@@ -54,7 +53,6 @@ fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
 /// empty when there's no extension. Each `;`-delimited segment must carry a non-empty token
 /// ext-name; ext-values are accepted permissively, since a quoted-string value may legitimately
 /// hold non-token bytes.
-#[cfg(feature = "parse")]
 fn valid_chunk_ext(ext: &[u8]) -> bool {
     ext.split(|&b| b == b';').skip(1).all(|segment| {
         // Whitespace is allowed around the `;` and `=` delimiters, so trim before checking the
@@ -67,38 +65,6 @@ fn valid_chunk_ext(ext: &[u8]) -> bool {
             .trim_ascii();
         !name.is_empty() && name.iter().all(|&b| is_tchar(b))
     })
-}
-
-#[cfg(feature = "parse")]
-fn is_tchar(b: u8) -> bool {
-    b.is_ascii_alphanumeric()
-        || matches!(
-            b,
-            b'!' | b'#'
-                | b'$'
-                | b'%'
-                | b'&'
-                | b'\''
-                | b'*'
-                | b'+'
-                | b'-'
-                | b'.'
-                | b'^'
-                | b'_'
-                | b'`'
-                | b'|'
-                | b'~'
-        )
-}
-
-#[cfg(not(feature = "parse"))]
-fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
-    use httparse::{Status, parse_chunk_size};
-    match parse_chunk_size(buf) {
-        Ok(Status::Complete((index, next_chunk))) => Ok(Some((index, next_chunk + 2))),
-        Ok(Status::Partial) => Ok(None),
-        Err(_) => Err(()),
-    }
 }
 
 impl<Transport> ReceivedBody<'_, Transport>
@@ -386,43 +352,9 @@ fn find_trailer_end(bytes: &[u8]) -> Option<(usize, usize)> {
 /// `bytes` must contain only the header fields, each terminated with `\r\n`, with no leading
 /// or trailing empty line (e.g. `"Name: Value\r\nOther: X\r\n"`).
 fn parse_h1_trailers(bytes: &[u8]) -> io::Result<Headers> {
-    #[cfg(feature = "parse")]
-    {
-        // `Headers::parse` validates each field line as it parses (RFC 9110 §5.5), so a malformed
-        // trailer is rejected here.
-        Headers::parse(bytes).map_err(|_| io::Error::new(InvalidData, "invalid trailer headers"))
-    }
-
-    #[cfg(not(feature = "parse"))]
-    {
-        use crate::{HeaderName, HeaderValue};
-        use std::str::FromStr;
-        const MAX_HEADERS: usize = 64;
-
-        // httparse::parse_headers expects the header section to be terminated by a blank line
-        // (\r\n\r\n). Our `bytes` contains only the field lines (each ending with \r\n) with no
-        // terminating blank line, so we append one before handing off to httparse.
-        let mut input = bytes.to_vec();
-        input.extend_from_slice(b"\r\n");
-
-        let mut raw = [httparse::EMPTY_HEADER; MAX_HEADERS];
-        let mut headers = Headers::new();
-        match httparse::parse_headers(&input, &mut raw) {
-            Ok(httparse::Status::Complete((_, parsed))) => {
-                for h in parsed {
-                    if h.name.is_empty() {
-                        break;
-                    }
-                    let name = HeaderName::from_str(h.name)
-                        .map_err(|_| io::Error::new(InvalidData, "invalid trailer header name"))?;
-                    let value = HeaderValue::from(h.value.to_owned());
-                    headers.append(name, value);
-                }
-                Ok(headers)
-            }
-            _ => Err(io::Error::new(InvalidData, "invalid trailer headers")),
-        }
-    }
+    // `Headers::parse` validates each field line as it parses, so a malformed trailer is
+    // rejected here.
+    Headers::parse(bytes).map_err(|_| io::Error::new(InvalidData, "invalid trailer headers"))
 }
 
 #[cfg(test)]
@@ -472,7 +404,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "parse")]
     fn assert_rejected((remaining, input_data): (u64, &str)) {
         let mut buf = input_data.to_string().into_bytes();
         let mut self_buf = Buffer::with_capacity(100);
@@ -630,9 +561,6 @@ mod tests {
         assert_decoded((7, "hello\r\n0\r\n\r\n"), (None, "hello", ""));
     }
 
-    // The `parse` chunk parser validates chunk extensions (non-empty token ext-name per `;`
-    // segment); the httparse path skips them. Gated accordingly.
-    #[cfg(feature = "parse")]
     #[test]
     fn test_chunk_start_with_ext() {
         let _ = env_logger::builder().is_test(true).try_init();

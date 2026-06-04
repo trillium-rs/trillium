@@ -40,9 +40,7 @@ jobs:
       # Doctests are intentionally excluded (nextest does not run them, and they
       # are correctness/freshness checks for the docs, not coverage targets).
       - name: Collect coverage (workspace under smol)
-        run: cargo llvm-cov --no-report nextest --workspace --features trillium-testing/smol,trillium-static/smol
-      - name: Collect coverage (http/client parse + serde paths)
-        run: cargo llvm-cov --no-report nextest -p trillium-http -p trillium-client --features trillium-http/parse,trillium-http/serde,trillium-client/parse
+        run: cargo llvm-cov --no-report nextest --workspace --features trillium-testing/smol,trillium-static/smol,trillium-http/serde
       - name: Generate codecov report
         run: cargo llvm-cov report --codecov --output-path codecov.json
 

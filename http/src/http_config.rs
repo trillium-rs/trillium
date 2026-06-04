@@ -41,10 +41,6 @@ pub struct HttpConfig {
     /// **Unit**: Byte count
     pub(crate) received_body_max_len: u64,
 
-    #[cfg(not(feature = "parse"))]
-    #[field = false] // this one is private for now
-    pub(crate) max_headers: usize,
-
     /// The initial buffer allocated for the response.
     ///
     /// Ideally this would be exactly the length of the combined response headers and body, if the
@@ -320,8 +316,6 @@ impl HttpConfig {
         response_buffer_max_len: 2 * 1024 * 1024,
         request_buffer_initial_len: 128,
         head_max_len: 8 * 1024,
-        #[cfg(not(feature = "parse"))]
-        max_headers: 128,
         response_header_initial_capacity: 16,
         copy_loops_per_yield: 16,
         received_body_max_len: 10 * 1024 * 1024,

@@ -1,6 +1,5 @@
-// The corpus golden files encode the `parse` request parser's behavior (notably synthesizing a
-// `400` response for malformed requests rather than closing). Only run under that feature.
-#![cfg(feature = "parse")]
+// The corpus golden files encode the request parser's behavior (notably synthesizing a
+// `400` response for malformed requests rather than closing).
 use indoc::formatdoc;
 use pretty_assertions::assert_str_eq;
 use std::{env, net::Shutdown, path::PathBuf, sync::Arc};

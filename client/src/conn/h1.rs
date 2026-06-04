@@ -211,50 +211,6 @@ impl Conn {
         }
     }
 
-    #[cfg(not(feature = "parse"))]
-    async fn parse_head(&mut self) -> Result<()> {
-        const MAX_HEADERS: usize = 128;
-        use crate::{HeaderName, HeaderValue};
-        use std::str::FromStr;
-
-        let head_offset = self.read_head().await?;
-        let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
-        let mut httparse_res = httparse::Response::new(&mut headers);
-        let parse_result =
-            httparse_res
-                .parse(&self.buffer[..head_offset])
-                .map_err(|e| match e {
-                    httparse::Error::HeaderName => Error::InvalidHeaderName,
-                    httparse::Error::HeaderValue => Error::InvalidHeaderValue("unknown".into()),
-                    httparse::Error::Status => Error::InvalidStatus,
-                    httparse::Error::TooManyHeaders => Error::HeadersTooLong,
-                    httparse::Error::Version => Error::InvalidVersion,
-                    _ => Error::InvalidHead,
-                })?;
-
-        match parse_result {
-            httparse::Status::Complete(n) if n == head_offset => {}
-            _ => return Err(Error::InvalidHead),
-        }
-
-        self.status = httparse_res
-            .code
-            .map(|code| code.try_into().map_err(|_| Error::InvalidStatus))
-            .transpose()?;
-
-        for header in httparse_res.headers {
-            let header_name = HeaderName::from_str(header.name)?;
-            let header_value = HeaderValue::from(header.value.to_owned());
-            self.response_headers.append(header_name, header_value);
-        }
-
-        self.buffer.ignore_front(head_offset);
-
-        self.validate_response_headers()?;
-        Ok(())
-    }
-
-    #[cfg(feature = "parse")]
     async fn parse_head(&mut self) -> Result<()> {
         use std::str;
 

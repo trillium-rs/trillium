@@ -82,7 +82,6 @@ impl Version {
         }
     }
 
-    #[cfg(feature = "parse")]
     pub(crate) fn parse(buf: &[u8]) -> crate::Result<Self> {
         // The request-line HTTP-version is case-sensitive (`HTTP-name` is the literal uppercase
         // bytes), unlike the lenient `FromStr` used elsewhere. Only HTTP/1.x can appear in an h1
