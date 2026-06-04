@@ -1,0 +1,5 @@
+HTTP/1.1 501 Not Implemented\r\n
+Date: Tue, 21 Nov 2023 21:27:21 GMT\r\n
+Connection: close\r\n
+Content-Length: 0\r\n
+\r\n

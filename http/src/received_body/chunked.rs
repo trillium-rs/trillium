@@ -2,6 +2,7 @@ use super::{
     AsyncRead, AsyncWrite, Buffer, Chunked, Context, End, ErrorKind, Headers, PartialChunkSize,
     Pin, Ready, ReceivedBody, ReceivedBodyState, StateOutput, io, ready, slice_from,
 };
+use crate::util::is_tchar;
 use std::io::{ErrorKind::InvalidData, Write};
 
 /// Append `payload` to `out` framed as a single chunk (`{len:X}\r\n<payload>\r\n`). No
@@ -17,14 +18,77 @@ fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
     use memchr::memmem::Finder;
     use std::str;
 
+    // A u64 chunk-size is at most 16 hex digits, so the size token + its `;`/CR
+    // delimiter must appear within 17 bytes; anything longer is a bad size token.
     let Some(index) = memchr::memchr2(b';', b'\r', &buf[..buf.len().min(17)]) else {
         return if buf.len() < 17 { Ok(None) } else { Err(()) };
     };
-    let src = str::from_utf8(&buf[..index]).map_err(|_| ())?;
-    let chunk_size = u64::from_str_radix(src, 16).map_err(|_| ())?;
-    Ok(Finder::new("\r\n")
-        .find(&buf[index..])
-        .map(|end| (index + end + 2, chunk_size + 2)))
+
+    let size_token = &buf[..index];
+    if size_token.is_empty() || !size_token.iter().all(u8::is_ascii_hexdigit) {
+        return Err(());
+    }
+    // hex digits are ASCII, so the utf8 step cannot fail and the value cannot overflow u64
+    let chunk_size =
+        u64::from_str_radix(str::from_utf8(size_token).map_err(|_| ())?, 16).map_err(|_| ())?;
+
+    let Some(end) = Finder::new(b"\r\n").find(&buf[index..]) else {
+        return Ok(None);
+    };
+
+    let ext = &buf[index..index + end];
+    // The chunk-ext region (size token's delimiter through the terminating CRLF) must not carry a
+    // bare CR/LF or NUL — those are framing-desync vectors...
+    if memchr::memchr3(b'\r', b'\n', 0, ext).is_some() {
+        return Err(());
+    }
+    // ...and each `;`-delimited extension must be well-formed.
+    if !valid_chunk_ext(ext) {
+        return Err(());
+    }
+
+    Ok(Some((index + end + 2, chunk_size + 2)))
+}
+
+/// `ext` is the chunk-ext region from the size token's `;` delimiter to the terminating CRLF, or
+/// empty when there's no extension. Each `;`-delimited segment must carry a non-empty token
+/// ext-name; ext-values are accepted permissively, since a quoted-string value may legitimately
+/// hold non-token bytes.
+#[cfg(feature = "parse")]
+fn valid_chunk_ext(ext: &[u8]) -> bool {
+    ext.split(|&b| b == b';').skip(1).all(|segment| {
+        // Whitespace is allowed around the `;` and `=` delimiters, so trim before checking the
+        // name.
+        let segment = segment.trim_ascii();
+        let name = segment
+            .split(|&b| b == b'=')
+            .next()
+            .unwrap_or(segment)
+            .trim_ascii();
+        !name.is_empty() && name.iter().all(|&b| is_tchar(b))
+    })
+}
+
+#[cfg(feature = "parse")]
+fn is_tchar(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || matches!(
+            b,
+            b'!' | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'|'
+                | b'~'
+        )
 }
 
 #[cfg(not(feature = "parse"))]
@@ -304,9 +368,13 @@ fn finish_terminal_chunk(
 ///
 /// Returns `None` if more bytes are needed.
 fn find_trailer_end(bytes: &[u8]) -> Option<(usize, usize)> {
-    if bytes.len() >= 2 && bytes.starts_with(b"\r\n") {
+    if bytes.starts_with(b"\r\n") {
         // No trailers — just the empty-line terminator
         Some((0, 2))
+    } else if bytes.starts_with(b"\n") {
+        // No trailers, terminated by a bare LF. Accepted leniently (as trillium does for bare LF in
+        // the request line and chunk-size lines) rather than blocking forever waiting for a CRLF.
+        Some((0, 1))
     } else {
         // Trailers present — look for \r\n\r\n (last header's CRLF + empty line)
         memchr::memmem::find(bytes, b"\r\n\r\n").map(|pos| (pos + 2, pos + 4))
@@ -320,6 +388,8 @@ fn find_trailer_end(bytes: &[u8]) -> Option<(usize, usize)> {
 fn parse_h1_trailers(bytes: &[u8]) -> io::Result<Headers> {
     #[cfg(feature = "parse")]
     {
+        // `Headers::parse` validates each field line as it parses (RFC 9110 §5.5), so a malformed
+        // trailer is rejected here.
         Headers::parse(bytes).map_err(|_| io::Error::new(InvalidData, "invalid trailer headers"))
     }
 
@@ -399,6 +469,24 @@ mod tests {
                 &*String::from_utf8_lossy(&self_buf)
             ),
             expected_output
+        );
+    }
+
+    #[cfg(feature = "parse")]
+    fn assert_rejected((remaining, input_data): (u64, &str)) {
+        let mut buf = input_data.to_string().into_bytes();
+        let mut self_buf = Buffer::with_capacity(100);
+        let result = chunk_decode(
+            &mut self_buf,
+            remaining,
+            0,
+            &mut buf,
+            HttpConfig::DEFAULT.received_body_max_len,
+            &mut None,
+        );
+        assert!(
+            result.is_err(),
+            "expected chunk decode to reject {input_data:?}, got {result:?}"
         );
     }
 
@@ -542,18 +630,20 @@ mod tests {
         assert_decoded((7, "hello\r\n0\r\n\r\n"), (None, "hello", ""));
     }
 
+    // The `parse` chunk parser validates chunk extensions (non-empty token ext-name per `;`
+    // segment); the httparse path skips them. Gated accordingly.
+    #[cfg(feature = "parse")]
     #[test]
     fn test_chunk_start_with_ext() {
         let _ = env_logger::builder().is_test(true).try_init();
 
+        // Well-formed extensions (token ext-name, optional value, BWS around delimiters) parse.
         assert_decoded((0, "5;abcdefg\r\n12345\r\n"), (Some(0), "12345", ""));
-        assert_decoded((0, "F;aaa\taaaaa\taaa aaa\r\n1"), (Some(14 + 2), "1", ""));
-        assert_decoded((0, "5;;;;;;;;;;;;;;;;\r\n123"), (Some(2 + 2), "123", ""));
         assert_decoded(
-            (0, "1;   a = b\"\" \r\nX\r\n1;;;\r\nX\r\n"),
+            (0, "1;   a = b\"\" \r\nX\r\n1\r\nX\r\n"),
             (Some(0), "XX", ""),
         );
-        assert_decoded((0, "1\r\nX\r\n1;\r\nX\r\n1"), (Some(0), "XX", "1"));
+        assert_decoded((0, "1\r\nX\r\n1\r\nX\r\n1"), (Some(0), "XX", "1"));
         assert_decoded((0, "FFF; 000\r\n"), (Some(0xfff + 2), "", ""));
         assert_decoded((10, "hello"), (Some(5), "hello", ""));
         assert_decoded(
@@ -565,10 +655,16 @@ mod tests {
             (None, "test test test", ""),
         );
         assert_decoded(
-            (0, "1;\r\n_\r\n0;\r\n\r\nnext request"),
+            (0, "1\r\n_\r\n0\r\n\r\nnext request"),
             (None, "_", "next request"),
         );
-        assert_decoded((7, "hello\r\n0;\r\n\r\n"), (None, "hello", ""));
+        assert_decoded((7, "hello\r\n0\r\n\r\n"), (None, "hello", ""));
+
+        // Malformed extensions are rejected (chunk-line desync / smuggling vectors).
+        assert_rejected((0, "5;\r\n12345\r\n")); // bare semicolon, empty ext-name
+        assert_rejected((0, "5;;;;\r\n12345\r\n")); // empty ext-names
+        assert_rejected((0, "5;bad[=x\r\n12345\r\n")); // invalid token char in ext-name
+        assert_rejected((0, "F;aaa\taaaaa\taaa aaa\r\n1")); // whitespace in ext-name
     }
 
     #[test(harness)]

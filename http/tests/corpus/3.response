@@ -1,11 +1,11 @@
 HTTP/1.1 200 OK\r\n
 Date: Tue, 21 Nov 2023 21:27:21 GMT\r\n
-Content-Length: 286\r\n
+Content-Length: 263\r\n
 Server: corpus-test\r\n
 \r\n
 ===request===\n
 method: POST\n
-path: http://example.com:8080/zcdkvxbjdgwt\n
+path: /zcdkvxbjdgwt\n
 version: HTTP/1.1\n
 \n
 ===headers===\n

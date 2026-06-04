@@ -1,11 +1,25 @@
 use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
     Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version, after_send::AfterSend,
-    conn::ReceivedBodyState, headers::date::current_date_header, util::encoding,
+    conn::ReceivedBodyState, headers::date::current_date_header,
+    util::{encoding, is_tchar},
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use memchr::memmem::Finder;
 use std::{borrow::Cow, io::Write, sync::Arc, time::Instant};
+
+/// Outcome of a failed [`Conn::parse_head`].
+pub(crate) enum HeadError<Transport> {
+    /// A complete but malformed or noncompliant request head. The carried `Conn` owns the
+    /// transport and is preset with an error status + `Connection: close`, ready for the caller to
+    /// `send()` as the response before closing the connection. Only the `parse` request parser
+    /// produces this; the httparse path always closes via [`Fatal`](Self::Fatal).
+    #[cfg_attr(not(feature = "parse"), allow(dead_code))]
+    BadRequest(Box<Conn<Transport>>),
+    /// An unrecoverable error (incomplete head, closed connection, or transport IO). The transport
+    /// is gone; the error is propagated to the server layer, which closes the connection.
+    Fatal(Error),
+}
 
 impl<Transport> Conn<Transport>
 where
@@ -154,17 +168,11 @@ where
         ReceivedBodyState::new_h1(content_length, chunked)
     }
 
-    fn validate_headers(request_headers: &Headers) -> Result<()> {
-        if request_headers
-            .get_values(KnownHeaderName::ContentLength)
-            .is_some_and(|v| v.len() > 1)
-        {
-            return Err(Error::UnexpectedHeader(
-                KnownHeaderName::ContentLength.into(),
-            ));
-        }
+    fn validate_headers(request_headers: &Headers, version: Version, method: Method) -> Result<()> {
+        let content_length = request_headers.get_values(KnownHeaderName::ContentLength);
+        let transfer_encoding = request_headers.get_values(KnownHeaderName::TransferEncoding);
 
-        if let Some(te) = request_headers.get_values(KnownHeaderName::TransferEncoding)
+        if let Some(te) = transfer_encoding
             && te
                 .as_str()
                 .is_none_or(|te_str| !te_str.eq_ignore_ascii_case("chunked"))
@@ -174,12 +182,79 @@ where
             ));
         }
 
-        if request_headers.has_header(KnownHeaderName::ContentLength)
-            && request_headers.has_header(KnownHeaderName::TransferEncoding)
-        {
+        if content_length.is_some() && transfer_encoding.is_some() {
             return Err(Error::UnexpectedHeader(
                 KnownHeaderName::ContentLength.into(),
             ));
+        }
+
+        if let Some(content_length) = content_length {
+            // RFC 9110 §8.6: exactly one Content-Length whose value is 1*DIGIT. `as_str` is None
+            // for multiple values or non-utf8; reject anything that isn't a single strict-digit
+            // value rather than coercing it to a 0-length body downstream — that silent coercion
+            // is a request-smuggling vector.
+            let valid = content_length.as_str().is_some_and(|cl| {
+                !cl.is_empty()
+                    && cl.bytes().all(|b| b.is_ascii_digit())
+                    && cl.parse::<u64>().is_ok()
+            });
+            if !valid {
+                return Err(Error::InvalidHeaderValue(
+                    KnownHeaderName::ContentLength.into(),
+                ));
+            }
+        }
+
+        // An HTTP/1.1 request must carry exactly one Host (CONNECT carries its authority in the
+        // request target instead), and a present Host must be a bare host[:port] — no userinfo
+        // (`@`), path (`/`), comma-list, empty value, or whitespace.
+        match request_headers.get_values(KnownHeaderName::Host) {
+            None => {
+                if version == Version::Http1_1 && method != Method::Connect {
+                    return Err(Error::HeaderMissing(KnownHeaderName::Host.into()));
+                }
+            }
+            Some(host) => {
+                let valid = host.as_str().is_some_and(|host| {
+                    !host.is_empty()
+                        && !host
+                            .bytes()
+                            .any(|b| matches!(b, b'@' | b'/' | b',') || b <= b' ')
+                });
+                if !valid {
+                    return Err(Error::InvalidHeaderValue(KnownHeaderName::Host.into()));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate the request target. The asterisk-form (`*`) is only valid for `OPTIONS`
+    /// (RFC 9112 §3.2.4). When absolute-form supplied an authority, it must agree with the
+    /// `Host` header (RFC 9112 §7.2), matching the h2/h3 pseudo-header check.
+    #[cfg(feature = "parse")]
+    fn validate_request_target(&self) -> Result<()> {
+        use super::shared::authority_matches_host;
+
+        // By this point the only well-formed targets are origin-form (path starts with `/`;
+        // absolute-form was reconstructed to it in `parse_head`), asterisk-form (`*`, OPTIONS
+        // only), and authority-form (CONNECT, whose path was set to `/`). Anything else — a
+        // rootless relative target like `foo` — is malformed.
+        if &*self.path == "*" {
+            if self.method != Method::Options {
+                return Err(Error::InvalidHead);
+            }
+        } else if self.method != Method::Connect && !self.path.starts_with('/') {
+            return Err(Error::InvalidHead);
+        }
+
+        if self.method != Method::Connect
+            && let Some(authority) = &self.authority
+            && let Some(host) = self.request_headers.get_str(KnownHeaderName::Host)
+            && !authority_matches_host(authority, host, self.scheme.as_deref())
+        {
+            return Err(Error::InvalidHeaderValue(KnownHeaderName::Host.into()));
         }
 
         Ok(())
@@ -235,7 +310,7 @@ where
             request_headers.append(header_name, header_value);
         }
 
-        Self::validate_headers(&request_headers)?;
+        Self::validate_headers(&request_headers, version, method)?;
 
         let mut path = Cow::Owned(
             httparse_req
@@ -290,45 +365,36 @@ where
     }
 
     #[cfg(feature = "parse")]
-    pub(crate) async fn new_internal(
+    pub(crate) async fn parse_head(
         context: Arc<HttpContext>,
         mut transport: Transport,
         mut buffer: Buffer,
-    ) -> Result<Self> {
-        let (head_size, start_time) = Self::head(&mut transport, &mut buffer, &context).await?;
+    ) -> std::result::Result<Self, HeadError<Transport>> {
+        let (head_size, start_time) = Self::head(&mut transport, &mut buffer, &context)
+            .await
+            .map_err(HeadError::Fatal)?;
 
         let first_line_index = Finder::new(b"\r\n")
             .find(&buffer)
-            .ok_or(Error::InvalidHead)?;
+            .ok_or(HeadError::Fatal(Error::InvalidHead))?;
 
-        let mut spaces = memchr::memchr_iter(b' ', &buffer[..first_line_index]);
-        let first_space = spaces.next().ok_or(Error::MissingMethod)?;
-        let method = Method::parse(&buffer[0..first_space])?;
-        let second_space = spaces.next().ok_or(Error::RequestPathMissing)?;
-        let mut path: Cow<'static, str> = Cow::Owned(
-            std::str::from_utf8(&buffer[first_space + 1..second_space])
-                .map_err(|_| Error::RequestPathMissing)?
-                .to_string(),
-        );
+        // `head()` has already required a CRLF-terminated head, so binary garbage (TLS, etc.) never
+        // reaches here. A line we still can't tokenize into `method SP target SP version` isn't
+        // recognizably a request-line and is closed (Fatal); a tokenizable line always yields a
+        // `RequestLine`, with any component-level violation carried in `error` to answer with an
+        // error-appropriate status rather than closing.
+        let RequestLine {
+            method,
+            path,
+            authority,
+            scheme,
+            version,
+            error: mut first_error,
+        } = RequestLine::parse(&buffer[..first_line_index]).map_err(HeadError::Fatal)?;
 
-        if path.is_empty() {
-            return Err(Error::InvalidHead);
-        }
-
-        let version = Version::parse(&buffer[second_space + 1..first_line_index])?;
-        if !matches!(version, Version::Http1_1 | Version::Http1_0) {
-            return Err(Error::UnsupportedVersion(version));
-        }
-
-        let request_headers = Headers::parse(&buffer[first_line_index + 2..head_size])?;
-
-        Self::validate_headers(&request_headers)?;
-
-        let mut authority = None;
-
-        if method == Method::Connect {
-            authority = Some(path);
-            path = Cow::Borrowed("/");
+        let mut request_headers = Headers::new();
+        if let Err(e) = request_headers.extend_parse(&buffer[first_line_index + 2..head_size]) {
+            first_error.get_or_insert(e);
         }
 
         let response_headers = context
@@ -341,7 +407,7 @@ where
 
         let request_body_state = Self::initial_request_body_state(&request_headers);
 
-        Ok(Self {
+        let mut conn = Self {
             context,
             transport,
             request_headers,
@@ -359,12 +425,54 @@ where
             start_time,
             peer_ip: None,
             authority,
-            scheme: None,
+            scheme,
             protocol: None,
             protocol_session: ProtocolSession::Http1,
             request_trailers: None,
             upgrade: false,
-        })
+        };
+
+        // Cross-header and request-target rules only apply to an otherwise-clean parse; once we
+        // already have a violation we're synthesizing a response regardless.
+        if first_error.is_none() {
+            first_error = Self::validate_headers(&conn.request_headers, conn.version, conn.method)
+                .and_then(|()| conn.validate_request_target())
+                .err();
+        }
+
+        match first_error {
+            None => {
+                log::trace!(
+                    "received:\n{} {} {}\n{}",
+                    conn.method,
+                    conn.path,
+                    conn.version,
+                    conn.request_headers
+                );
+                Ok(conn)
+            }
+            Some(e) => {
+                log::debug!("rejecting malformed request: {e}");
+                conn.status = Some(status_for_error(&e));
+                conn.response_headers
+                    .insert(KnownHeaderName::Connection, "close");
+                Err(HeadError::BadRequest(Box::new(conn)))
+            }
+        }
+    }
+
+    /// Non-parse wrapper bridging [`new_internal`](Self::new_internal) to the [`HeadError`]
+    /// interface. This path doesn't synthesize a `400` response — every error closes the
+    /// connection, as it always has.
+    #[cfg(not(feature = "parse"))]
+    pub(crate) async fn parse_head(
+        context: Arc<HttpContext>,
+        transport: Transport,
+        buffer: Buffer,
+    ) -> std::result::Result<Self, HeadError<Transport>> {
+        Self::new_internal(context, transport, buffer)
+            .await
+            .map_err(HeadError::Fatal)
     }
 
     async fn head(
@@ -421,13 +529,25 @@ where
         }
     }
 
-    async fn next(mut self) -> Result<Self> {
+    async fn next(mut self) -> Result<ConnectionStatus<Transport>> {
         // Drain unless we set up 100-continue and the client never started sending: in
         // that case no body bytes are coming and draining would block.
         if !self.needs_100_continue() {
             self.build_request_body().drain().await?;
         }
-        Conn::new_internal(self.context, self.transport, self.buffer).await
+        match Conn::parse_head(self.context, self.transport, self.buffer).await {
+            Ok(conn) => Ok(ConnectionStatus::Conn(conn)),
+            Err(HeadError::BadRequest(bad)) => {
+                // Box to break the `send -> finish -> next -> send` async-recursion type cycle.
+                Box::pin(bad.send()).await?;
+                Ok(ConnectionStatus::Close)
+            }
+            Err(HeadError::Fatal(Error::Closed)) => {
+                log::trace!("connection closed by client");
+                Ok(ConnectionStatus::Close)
+            }
+            Err(HeadError::Fatal(e)) => Err(e),
+        }
     }
 
     fn should_close(&self) -> bool {
@@ -454,14 +574,7 @@ where
         } else if self.should_upgrade() {
             Ok(ConnectionStatus::Upgrade(self.into()))
         } else {
-            match self.next().await {
-                Err(Error::Closed) => {
-                    log::trace!("connection closed by client");
-                    Ok(ConnectionStatus::Close)
-                }
-                Err(e) => Err(e),
-                Ok(conn) => Ok(ConnectionStatus::Conn(conn)),
-            }
+            self.next().await
         }
     }
 
@@ -492,7 +605,7 @@ where
     }
 
     fn write_headers(&mut self, output_buffer: &mut Vec<u8>) -> Result<()> {
-        let status = self.status().unwrap_or(Status::NotFound);
+        let status = self.response_status();
 
         write!(
             output_buffer,
@@ -519,7 +632,146 @@ where
     }
 }
 
-/// Writes the HTTP/1.1 chunked header or trailer section + terminating CRLF to `writer`.
+/// Split an absolute-form request target (`scheme "://" authority
+/// path-abempty [ "?" query ]`) into `(scheme, authority, origin-form-path)`. Returns
+/// `None` when `target` isn't absolute-form (no `://`, an invalid scheme, or an empty
+/// authority), leaving the caller to treat it as malformed.
+#[cfg(feature = "parse")]
+fn split_absolute_form(target: &str) -> Option<(String, String, String)> {
+    let (scheme, rest) = target.split_once("://")?;
+    let mut scheme_bytes = scheme.bytes();
+    let valid_scheme = scheme_bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
+        && scheme_bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'));
+    if !valid_scheme {
+        return None;
+    }
+
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    if authority.is_empty() {
+        return None;
+    }
+
+    let path = &rest[authority_end..];
+    // An empty path-abempty (or one that begins with the query/fragment) reconstructs to "/".
+    let path = if path.is_empty() || path.starts_with(['?', '#']) {
+        format!("/{path}")
+    } else {
+        path.to_string()
+    };
+
+    Some((scheme.to_string(), authority.to_string(), path))
+}
+
+/// The parsed components of an HTTP/1.x request-line (`method SP request-target SP HTTP-version`).
+#[cfg(feature = "parse")]
+struct RequestLine {
+    method: Method,
+    path: Cow<'static, str>,
+    authority: Option<Cow<'static, str>>,
+    scheme: Option<Cow<'static, str>>,
+    version: Version,
+    /// The first component-level violation, if any. `None` is a clean request-line; a `Some` is
+    /// carried up so the caller answers with a status derived from the error rather than closing.
+    error: Option<Error>,
+}
+
+#[cfg(feature = "parse")]
+impl RequestLine {
+    /// Parse the request-line bytes (everything before the first CRLF). Returns `Err` only when the
+    /// line can't be tokenized into `method SP target SP version` — an unrecognizable line the
+    /// caller closes. A tokenizable line always returns `Ok`, with any malformed component
+    /// defaulted and recorded in `error`.
+    fn parse(first_line: &[u8]) -> Result<Self> {
+        let mut spaces = memchr::memchr_iter(b' ', first_line);
+        let first_space = spaces.next().ok_or(Error::MissingMethod)?;
+        let second_space = spaces.next().ok_or(Error::RequestPathMissing)?;
+
+        let mut error: Option<Error> = None;
+
+        // The method token is case-sensitive. `Method::parse` is lenient (it also
+        // backs the h2/h3 `:method` pseudo), so a well-formed but unknown or non-canonically-cased
+        // method is unimplemented (→ 501). A method that isn't a valid `token` at all — empty, or
+        // carrying a non-tchar octet — is a malformed request-line (→ 400), not an unimplemented
+        // method.
+        let method_bytes = &first_line[..first_space];
+        let method = match Method::parse(method_bytes) {
+            Ok(method) if method.as_str().as_bytes() == method_bytes => method,
+            _ => {
+                error = Some(
+                    if !method_bytes.is_empty() && method_bytes.iter().all(|&b| is_tchar(b)) {
+                        Error::UnrecognizedMethod(String::from_utf8_lossy(method_bytes).into_owned())
+                    } else {
+                        Error::InvalidHead
+                    },
+                );
+                Method::Get
+            }
+        };
+
+        let version = match Version::parse(&first_line[second_space + 1..]) {
+            Ok(version) => version,
+            Err(e) => {
+                error.get_or_insert(e);
+                Version::Http1_1
+            }
+        };
+
+        let target = &first_line[first_space + 1..second_space];
+        let mut authority = None;
+        let mut scheme = None;
+        // A request target is a URI, defined over a limited ASCII set: only printable
+        // ASCII (0x21..=0x7e). This rejects controls, space, DEL, and raw non-ASCII (which must be
+        // percent-encoded); we don't do full URI-grammar validation beyond that.
+        let path = if target.is_empty() || target.iter().any(|&b| !(0x21..=0x7e).contains(&b)) {
+            error.get_or_insert(Error::InvalidHead);
+            Cow::Borrowed("/")
+        } else {
+            // every byte is printable ASCII, so this conversion cannot fail
+            let target = std::str::from_utf8(target).unwrap_or("/");
+            if method == Method::Connect {
+                authority = Some(Cow::Owned(target.to_string()));
+                Cow::Borrowed("/")
+            } else if target == "*" {
+                Cow::Borrowed("*")
+            } else if target.starts_with('/') {
+                Cow::Owned(target.to_string())
+            } else if let Some((parsed_scheme, parsed_authority, parsed_path)) =
+                split_absolute_form(target)
+            {
+                // Absolute-form: split scheme/authority off and reconstruct
+                // origin-form so routing sees the same path it would for origin-form, mirroring how
+                // h2/h3 carry `:scheme`/`:authority`/`:path`.
+                scheme = Some(Cow::Owned(parsed_scheme));
+                authority = Some(Cow::Owned(parsed_authority));
+                Cow::Owned(parsed_path)
+            } else {
+                // A non-origin, non-asterisk, non-absolute target — rootless and malformed. Carried
+                // as-is and rejected by `validate_request_target`.
+                Cow::Owned(target.to_string())
+            }
+        };
+
+        Ok(Self {
+            method,
+            path,
+            authority,
+            scheme,
+            version,
+            error,
+        })
+    }
+}
+
+/// The response status for a request rejected during head parsing.
+#[cfg(feature = "parse")]
+fn status_for_error(error: &Error) -> Status {
+    match error {
+        Error::UnrecognizedMethod(_) => Status::NotImplemented,
+        _ => Status::BadRequest,
+    }
+}
+
 pub(crate) fn write_headers_or_trailers(
     output_buffer: &mut Vec<u8>,
     headers: &Headers,

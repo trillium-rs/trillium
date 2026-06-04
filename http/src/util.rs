@@ -16,3 +16,26 @@ pub fn encoding(headers: &Headers) -> &'static Encoding {
         })
         .unwrap_or(encoding_rs::WINDOWS_1252)
 }
+
+/// Whether `b` is an RFC 9110 §5.6.2 `tchar` — the octets permitted in a `token` (method
+/// names, header names, chunk-extension names, etc.).
+pub(crate) fn is_tchar(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || matches!(
+            b,
+            b'!' | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'|'
+                | b'~'
+        )
+}

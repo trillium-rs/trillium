@@ -1,3 +1,6 @@
+// The corpus golden files encode the `parse` request parser's behavior (notably synthesizing a
+// `400` response for malformed requests rather than closing). Only run under that feature.
+#![cfg(feature = "parse")]
 use indoc::formatdoc;
 use pretty_assertions::assert_str_eq;
 use std::{env, net::Shutdown, path::PathBuf, sync::Arc};
@@ -49,6 +52,20 @@ async fn handler(mut conn: Conn<TestTransport>) -> Conn<TestTransport> {
     conn
 }
 
+fn normalize_date(response: &str) -> String {
+    response
+        .split("\r\n")
+        .map(|line| {
+            if line.starts_with("Date: ") {
+                format!("Date: {TEST_DATE}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
 #[test(harness)]
 async fn corpus_test() {
     let runtime = trillium_testing::runtime();
@@ -71,7 +88,8 @@ async fn corpus_test() {
             .unwrap_or_else(|_| panic!("could not read {}", file.display()))
             .replace(['\r', '\n'], "")
             .replace("\\r", "\r")
-            .replace("\\n", "\n");
+            .replace("\\n", "\n")
+            .replace("\\0", "\0");
 
         let (client, server) = TestTransport::new();
         let swansong = Swansong::new();
@@ -88,6 +106,11 @@ async fn corpus_test() {
             Err(e) => (e.to_string(), "error"),
             Ok(Some(_)) => ("".to_string(), "upgrade"),
         };
+
+        // Synthesized error responses (e.g. a `400` for a malformed request) don't run the handler,
+        // so `send()` stamps a live Date rather than the fixed `TEST_DATE`. Pin it for reproducible
+        // goldens; a no-op for handler responses, which already set `TEST_DATE`.
+        let response = normalize_date(&response);
 
         let response_file = file.with_extension(extension);
 

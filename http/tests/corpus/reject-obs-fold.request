@@ -1,0 +1,5 @@
+GET / HTTP/1.1\r\n
+Host: example.com\r\n
+X-Test: value\r\n
+ continued\r\n
+\r\n
