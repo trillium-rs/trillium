@@ -24,7 +24,7 @@ jobs:
       - name: generate a cert for tls testing
         run: mkcert -install && mkcert localhost
       - name: get-cmake
-        uses: lukka/get-cmake@v4.3.1
+        uses: lukka/get-cmake@v4.3.3
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:

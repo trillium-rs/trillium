@@ -42,7 +42,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
 
       - name: get-cmake
-        uses: lukka/get-cmake@v4.3.1
+        uses: lukka/get-cmake@v4.3.3
 
       - name: Install NASM for aws-lc-rs on Windows
         if: runner.os == 'Windows'
@@ -81,7 +81,7 @@ jobs:
       - name: Install mkcert
         run: curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64" && chmod +x mkcert-v*-linux-amd64 && sudo cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert && mkcert -install && mkcert localhost
       - name: get-cmake
-        uses: lukka/get-cmake@v4.3.1
+        uses: lukka/get-cmake@v4.3.3
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Rust Cache
