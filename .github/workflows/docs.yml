@@ -24,7 +24,7 @@ jobs:
         uses: Swatinem/rust-cache@v2.9.1
 
       - name: get-cmake
-        uses: lukka/get-cmake@v4.3.1
+        uses: lukka/get-cmake@v4.3.3
             
       - uses: dtolnay/install@cargo-docs-rs
       - name: Build Documentation
