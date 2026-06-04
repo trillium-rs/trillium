@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+The theme of this release is protocol correctness / conformance, with a focus on http/1.x.
+
+### Changed
+
+- The trillium HTTP/1.x response parser (formerly behind the `parse` feature) is now the exclusive
+  HTTP/1.x parser; the httparse-backed path has been removed and the `httparse` dependency
+  dropped. The `parse` cargo feature is retained as a no-op for semver compatibility (it still
+  forwards to the matching no-op feature in trillium-http).
+
 ## [0.9.4] - 2026-06-03
 
 ### Added

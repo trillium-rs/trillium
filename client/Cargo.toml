@@ -17,15 +17,17 @@ features = ["sonic-rs", "websockets"]
 
 [features]
 websockets = ["dep:trillium-websockets", "dep:thiserror"]
-parse = ["trillium-http/parse"]
 sonic-rs = ["dep:sonic-rs", "dep:serde", "dep:thiserror"]
 serde_json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
 webtransport = ["dep:trillium-webtransport", "dep:thiserror"]
 
+# Vestigial: the trillium-http http/1.x parser is now always selected. This feature is retained as a
+# no-op for semver compatibility
+parse = []
+
 [dependencies]
 encoding_rs = "0.8.35"
 futures-lite = "2.6.1"
-httparse = "1.10.1"
 log = "0.4.29"
 trillium-server-common.workspace = true
 trillium-websockets = { workspace = true, optional = true }

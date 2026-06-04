@@ -19,7 +19,6 @@ impl Debug for HeaderName<'_> {
     }
 }
 
-#[cfg(feature = "parse")]
 impl<'a> HeaderName<'a> {
     pub(crate) fn parse(bytes: &'a [u8]) -> Result<Self, Error> {
         std::str::from_utf8(bytes)

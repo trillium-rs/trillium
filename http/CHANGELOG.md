@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The trillium-native HTTP/1.x request parser (formerly behind the `parse` feature) is now the only
+  parser and is always compiled in; the httparse-backed path has been removed and the `httparse`
+  dependency dropped. The `parse` cargo feature is retained as a no-op for semver compatibility. All
+  the request-validation and `400`/`501`-synthesis behavior previously gated on `parse` is now
+  unconditional.
 - Under the `parse` request parser, a malformed or noncompliant HTTP/1.x request now receives a
   response (with `Connection: close`) before the connection closes, instead of the connection being
   dropped without a response (RFC 9112 §3.2 / RFC 9110 §15.5.1): `400 Bad Request` for a malformed

@@ -87,7 +87,6 @@ impl Display for Headers {
     }
 }
 
-#[cfg(feature = "parse")]
 impl Headers {
     #[doc(hidden)]
     pub fn extend_parse(&mut self, bytes: &[u8]) -> Result<usize, crate::Error> {

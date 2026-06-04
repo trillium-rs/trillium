@@ -382,7 +382,6 @@ fn header_names_are_case_insensitive_for_access_but_retain_initial_case_in_heade
     assert!(headers.is_empty());
 }
 
-#[cfg(feature = "parse")]
 #[test]
 fn parse_strips_trailing_ows() {
     let headers = Headers::parse(b"Content-Length: 42  \r\nHost: example.com\t\r\n\r\n").unwrap();

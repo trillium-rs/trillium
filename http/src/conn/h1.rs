@@ -1,7 +1,9 @@
 use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
-    Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version, after_send::AfterSend,
-    conn::ReceivedBodyState, headers::date::current_date_header,
+    Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version,
+    after_send::AfterSend,
+    conn::ReceivedBodyState,
+    headers::date::current_date_header,
     util::{encoding, is_tchar},
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -12,9 +14,7 @@ use std::{borrow::Cow, io::Write, sync::Arc, time::Instant};
 pub(crate) enum HeadError<Transport> {
     /// A complete but malformed or noncompliant request head. The carried `Conn` owns the
     /// transport and is preset with an error status + `Connection: close`, ready for the caller to
-    /// `send()` as the response before closing the connection. Only the `parse` request parser
-    /// produces this; the httparse path always closes via [`Fatal`](Self::Fatal).
-    #[cfg_attr(not(feature = "parse"), allow(dead_code))]
+    /// `send()` as the response before closing the connection.
     BadRequest(Box<Conn<Transport>>),
     /// An unrecoverable error (incomplete head, closed connection, or transport IO). The transport
     /// is gone; the error is propagated to the server layer, which closes the connection.
@@ -230,10 +230,8 @@ where
         Ok(())
     }
 
-    /// Validate the request target. The asterisk-form (`*`) is only valid for `OPTIONS`
-    /// (RFC 9112 §3.2.4). When absolute-form supplied an authority, it must agree with the
-    /// `Host` header (RFC 9112 §7.2), matching the h2/h3 pseudo-header check.
-    #[cfg(feature = "parse")]
+    /// Validate the request target. The asterisk-form (`*`) is only valid for `OPTIONS`. When
+    /// absolute-form supplied an authority, it must agree with the `Host` header.
     fn validate_request_target(&self) -> Result<()> {
         use super::shared::authority_matches_host;
 
@@ -260,111 +258,6 @@ where
         Ok(())
     }
 
-    #[cfg(not(feature = "parse"))]
-    pub(crate) async fn new_internal(
-        context: Arc<HttpContext>,
-        mut transport: Transport,
-        mut buffer: Buffer,
-    ) -> Result<Self> {
-        use crate::{HeaderName, HeaderValue};
-        use httparse::{EMPTY_HEADER, Request};
-
-        let (head_size, start_time) = Self::head(&mut transport, &mut buffer, &context).await?;
-
-        let mut headers = vec![EMPTY_HEADER; context.config.max_headers];
-        let mut httparse_req = Request::new(&mut headers);
-
-        let status = httparse_req.parse(&buffer[..]).map_err(|e| match e {
-            httparse::Error::HeaderName => Error::InvalidHeaderName,
-            httparse::Error::HeaderValue => Error::InvalidHeaderValue("unknown".into()),
-            httparse::Error::Status => Error::InvalidStatus,
-            httparse::Error::TooManyHeaders => Error::HeadersTooLong,
-            httparse::Error::Version => Error::InvalidVersion,
-            _ => Error::InvalidHead,
-        })?;
-
-        if status.is_partial() {
-            return Err(Error::InvalidHead);
-        }
-
-        let method = match httparse_req.method {
-            Some(method) => match method.parse() {
-                Ok(method) => method,
-                Err(_) => return Err(Error::UnrecognizedMethod(method.to_string())),
-            },
-            None => return Err(Error::MissingMethod),
-        };
-
-        let version = match httparse_req.version {
-            Some(0) => Version::Http1_0,
-            Some(1) => Version::Http1_1,
-            _ => return Err(Error::InvalidVersion),
-        };
-
-        let mut request_headers = Headers::new();
-        for header in httparse_req.headers {
-            use std::str::FromStr;
-
-            let header_name = HeaderName::from_str(header.name)?;
-            let header_value = HeaderValue::from(header.value.to_owned());
-            request_headers.append(header_name, header_value);
-        }
-
-        Self::validate_headers(&request_headers, version, method)?;
-
-        let mut path = Cow::Owned(
-            httparse_req
-                .path
-                .ok_or(Error::RequestPathMissing)?
-                .to_owned(),
-        );
-
-        let mut authority = None;
-
-        if method == Method::Connect {
-            authority = Some(path);
-            path = Cow::Borrowed("/");
-        }
-
-        log::trace!("received:\n{method} {path} {version}\n{request_headers}");
-
-        let response_headers = context
-            .shared_state()
-            .get::<Headers>()
-            .cloned()
-            .unwrap_or_default();
-
-        buffer.ignore_front(head_size);
-
-        let request_body_state = Self::initial_request_body_state(&request_headers);
-
-        Ok(Self {
-            transport,
-            request_headers,
-            method,
-            version,
-            path,
-            buffer,
-            response_headers,
-            status: None,
-            state: TypeSet::new(),
-            response_body: None,
-            request_body_state,
-            secure: false,
-            after_send: AfterSend::default(),
-            start_time,
-            peer_ip: None,
-            context,
-            authority,
-            scheme: None,
-            protocol: None,
-            protocol_session: ProtocolSession::Http1,
-            request_trailers: None,
-            upgrade: false,
-        })
-    }
-
-    #[cfg(feature = "parse")]
     pub(crate) async fn parse_head(
         context: Arc<HttpContext>,
         mut transport: Transport,
@@ -459,20 +352,6 @@ where
                 Err(HeadError::BadRequest(Box::new(conn)))
             }
         }
-    }
-
-    /// Non-parse wrapper bridging [`new_internal`](Self::new_internal) to the [`HeadError`]
-    /// interface. This path doesn't synthesize a `400` response — every error closes the
-    /// connection, as it always has.
-    #[cfg(not(feature = "parse"))]
-    pub(crate) async fn parse_head(
-        context: Arc<HttpContext>,
-        transport: Transport,
-        buffer: Buffer,
-    ) -> std::result::Result<Self, HeadError<Transport>> {
-        Self::new_internal(context, transport, buffer)
-            .await
-            .map_err(HeadError::Fatal)
     }
 
     async fn head(
@@ -636,7 +515,6 @@ where
 /// path-abempty [ "?" query ]`) into `(scheme, authority, origin-form-path)`. Returns
 /// `None` when `target` isn't absolute-form (no `://`, an invalid scheme, or an empty
 /// authority), leaving the caller to treat it as malformed.
-#[cfg(feature = "parse")]
 fn split_absolute_form(target: &str) -> Option<(String, String, String)> {
     let (scheme, rest) = target.split_once("://")?;
     let mut scheme_bytes = scheme.bytes();
@@ -664,7 +542,6 @@ fn split_absolute_form(target: &str) -> Option<(String, String, String)> {
 }
 
 /// The parsed components of an HTTP/1.x request-line (`method SP request-target SP HTTP-version`).
-#[cfg(feature = "parse")]
 struct RequestLine {
     method: Method,
     path: Cow<'static, str>,
@@ -676,7 +553,6 @@ struct RequestLine {
     error: Option<Error>,
 }
 
-#[cfg(feature = "parse")]
 impl RequestLine {
     /// Parse the request-line bytes (everything before the first CRLF). Returns `Err` only when the
     /// line can't be tokenized into `method SP target SP version` — an unrecognizable line the
@@ -700,7 +576,9 @@ impl RequestLine {
             _ => {
                 error = Some(
                     if !method_bytes.is_empty() && method_bytes.iter().all(|&b| is_tchar(b)) {
-                        Error::UnrecognizedMethod(String::from_utf8_lossy(method_bytes).into_owned())
+                        Error::UnrecognizedMethod(
+                            String::from_utf8_lossy(method_bytes).into_owned(),
+                        )
                     } else {
                         Error::InvalidHead
                     },
@@ -764,7 +642,6 @@ impl RequestLine {
 }
 
 /// The response status for a request rejected during head parsing.
-#[cfg(feature = "parse")]
 fn status_for_error(error: &Error) -> Status {
     match error {
         Error::UnrecognizedMethod(_) => Status::NotImplemented,
