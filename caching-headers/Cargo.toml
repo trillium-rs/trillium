@@ -1,6 +1,6 @@
 [package]
 name = "trillium-caching-headers"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 description = "http caching headers for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -17,5 +17,4 @@ trillium.workspace = true
 [dev-dependencies]
 trillium-smol = { path = "../smol" }
 trillium-static = { path = "../static", features = ["smol"] }
-
-[features]
+trillium-testing = { path = "../testing" }
