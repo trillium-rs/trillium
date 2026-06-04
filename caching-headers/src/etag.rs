@@ -1,6 +1,6 @@
 use crate::CachingHeadersExt;
 use etag::EntityTag;
-use trillium::{Conn, Handler, Status};
+use trillium::{Conn, Handler, KnownHeaderName, Status};
 
 /// # Etag and If-None-Match header handler
 ///
@@ -52,6 +52,16 @@ impl Handler for Etag {
     }
 
     async fn before_send(&self, mut conn: Conn) -> Conn {
+        // RFC 9110 §13.1.2: `If-None-Match: *` matches any current representation. When the
+        // response carries one (a successful status with a body), the precondition fails and
+        // we respond `304 Not Modified`.
+        if conn.request_headers().get_str(KnownHeaderName::IfNoneMatch) == Some("*") {
+            if conn.response_body().is_some() && conn.status().is_none_or(|s| s.is_success()) {
+                return conn.with_status(Status::NotModified);
+            }
+            return conn;
+        }
+
         let if_none_match = conn.if_none_match();
 
         let etag = conn.etag().or_else(|| {
