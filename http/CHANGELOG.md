@@ -6,67 +6,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- An unhandled `CONNECT` request (one a handler leaves without a status) now defaults to `501 Not
-  Implemented` rather than `404 Not Found`. An origin server implements no tunnel, and 404's
-  resource model does not apply to CONNECT's authority-form target. Handlers that do implement
-  CONNECT (e.g. a forward proxy) are unaffected, as they set a status explicitly. Applies to all
-  three protocols.
-- HTTP/1.x requests with a malformed `Content-Length` (a sign, internal space, non-digit, non-utf8,
-  or overflowing value) are now rejected rather than silently coerced to a 0-length body. The
-  previous coercion left the declared body bytes unread in the buffer as a request-smuggling vector.
-  This applies to both the default and `parse` request parsers.
-- HTTP/1.1 requests are now validated against the RFC 9112 §3.2 Host rules: a missing Host (except
-  on `CONNECT`), more than one Host, or a Host value containing userinfo, a path, a comma, an empty
-  value, or whitespace is rejected. Applies to both request parsers.
-- The opt-in `parse` request parser (the dependency-free alternative to httparse) now rejects
-  malformed request input that it previously accepted: empty or non-token header names, whitespace
-  before the header-name colon, obs-fold (line-folded) header continuations, control characters
-  (bare CR, NUL, and other C0 controls) in header values, control characters or non-ASCII bytes in
-  the request target, the asterisk-form target (`*`) on any method other than `OPTIONS`, a rootless
-  request target (one that is neither origin-form `/path`, absolute-form, asterisk-form, nor CONNECT
-  authority-form — RFC 9112 §3.2), a non-canonically-cased or unrecognized method (the method token
-  is case-sensitive, RFC 9110 §9.1), a non-`HTTP/1.x` request-line version (`HTTP/2.0` on an h1
-  connection is malformed, not an unsupported major), and malformed chunk framing (`+`-prefixed or
-  non-hex chunk sizes, and chunk extensions with a bare CR, an empty ext-name/bare semicolon, or
-  non-token characters). This closes a set of request-smuggling and parser-differential gaps
-  relative to the httparse-backed default.
-- A chunked request body whose last-chunk marker is followed by a bare LF (instead of the CRLF
-  trailer-section terminator) no longer hangs the connection waiting for bytes that never arrive;
-  the bare-LF terminator is accepted, consistent with trillium's existing bare-LF leniency in the
-  request line and chunk-size lines.
-- The `parse` request parser now accepts an absolute-form request target (RFC 9112 §3.2.2, e.g.
-  `GET http://example.com/path?q=1`) by splitting the scheme and authority off and reconstructing
-  the origin-form path for routing, mirroring how h2/h3 carry `:scheme`/`:authority`/`:path`.
-  Previously the whole absolute URI was treated as the path, so such requests failed to route.
-- When a request supplies both a target authority (absolute-form, or the `:authority` pseudo-header)
-  and a `Host` header, the two are now compared under RFC 9110 §4.2.3 scheme-based normalization —
-  case-insensitive host, with a missing port treated as the scheme's default (`80` for http/ws,
-  `443` for https/wss) — instead of byte-for-byte. This fixes h2/h3 spuriously rejecting equivalent
-  pairs such as `:authority: example.com:443` with `Host: example.com`, and applies the same
-  agreement check to h1 absolute-form (a genuine mismatch like a differing host or non-default port
-  is still rejected). Applies to all three protocols.
-- An HTTP/1.x request-line whose method is not a valid `token` — empty (e.g. a whitespace-only line)
-  or carrying a non-tchar octet — is now rejected with `400 Bad Request` rather than `501 Not
-  Implemented`. Per RFC 9110 §9.1 `method = token = 1*tchar`, so a non-token is a malformed
-  request-line, not an unimplemented method; only a well-formed but unknown or non-canonically-cased
-  method remains `501`.
-
 ### Changed
 
-- The trillium-native HTTP/1.x request parser (formerly behind the `parse` feature) is now the only
-  parser and is always compiled in; the httparse-backed path has been removed and the `httparse`
-  dependency dropped. The `parse` cargo feature is retained as a no-op for semver compatibility. All
-  the request-validation and `400`/`501`-synthesis behavior previously gated on `parse` is now
-  unconditional.
-- Under the `parse` request parser, a malformed or noncompliant HTTP/1.x request now receives a
-  response (with `Connection: close`) before the connection closes, instead of the connection being
-  dropped without a response (RFC 9112 §3.2 / RFC 9110 §15.5.1): `400 Bad Request` for a malformed
-  request-line component (bad target or non-`HTTP/1.x` version) or header, and `501 Not Implemented`
-  for an unrecognized or non-canonically-cased method (RFC 9110 §15.6.2). Only a request-line that
-  can't be tokenized into `method SP target SP version` at all (binary garbage and the like) is
-  still closed without a response. (The default httparse path still closes without responding.)
+- The HTTP/1.x request parser is now trillium's own implementation; the `httparse` dependency is
+  dropped and the `parse` cargo feature (which previously selected it) is retained as a no-op. The
+  new parser is stricter — it closes the conformance and security gaps below — but against
+  well-formed clients there is no observable difference.
+
+### Security
+
+- HTTP/1.x request smuggling: a malformed `Content-Length` was previously coerced to a zero-length
+  body, leaving the declared bytes unread in the buffer. Obs-fold header continuations, control
+  characters in header values and request targets, non-token header names, and malformed chunk
+  framing were also accepted. All are now rejected, closing request-smuggling and parser-differential
+  vectors.
+- HTTP/1.1 `Host`: a request with no `Host`, more than one, or a `Host` containing userinfo, a path,
+  whitespace, or other illegal content is now rejected rather than routed.
+
+### Fixed
+
+- Absolute-form request targets (`GET http://example.com/path`) now route correctly; previously the
+  entire URI was treated as the request path.
+- A request carrying both an authority (`:authority` or absolute-form) and a `Host` that differ only
+  by default port — e.g. `example.com:443` vs `example.com` — is no longer spuriously rejected; the
+  two are compared under scheme-based normalization (all three protocols).
+- A chunked request body terminated by a bare LF after the last chunk no longer hangs the connection.
+- Malformed HTTP/1.x requests now get a `400` (or `501` for an unrecognized method) before the
+  connection closes, instead of being dropped without a response. An unhandled `CONNECT` now defaults
+  to `501` rather than `404`.
 
 ## [1.3.4] - 2026-06-02
 
