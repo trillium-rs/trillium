@@ -213,4 +213,15 @@ impl<'r> RouterRef<'r> {
     pub fn set_options_handling(&mut self, options_enabled: bool) {
         self.0.set_options_handling(options_enabled);
     }
+
+    /// enable or disable the router's behavior of responding to a method mismatch on a known path
+    /// with `405 Method Not Allowed` plus an `Allow` header. The status is set without halting, so
+    /// a later handler can replace it.
+    ///
+    /// default: disabled
+    ///
+    /// see [`Router::with_method_not_allowed`] for further explanation.
+    pub fn set_method_not_allowed(&mut self, enabled: bool) {
+        self.0.set_method_not_allowed(enabled);
+    }
 }

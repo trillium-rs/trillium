@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-06-01
+
+### Added
+
+- Opt-in `405 Method Not Allowed` handling via `Router::with_method_not_allowed()` (and
+  `RouterRef::set_method_not_allowed`). When enabled, a request whose path matches a route but whose
+  method does not receives a `405` with an `Allow` header listing the path's supported methods —
+  the natural sibling of the existing default-on OPTIONS handling. The status is set *without
+  halting the conn*, so a later handler can replace it; the `405` only stands on true fall-through.
+  Opt-in because it changes responses that previously fell through (typically `404`) and because
+  advertising supported methods reveals that the path exists.
+
 ## [0.5.0] - 2026-05-02
 
 ### Changed

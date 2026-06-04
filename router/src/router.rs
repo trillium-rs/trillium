@@ -131,6 +131,7 @@ impl MethodRoutefinder {
 pub struct Router {
     routefinder: MethodRoutefinder,
     handle_options: bool,
+    handle_method_not_allowed: bool,
 }
 
 impl Default for Router {
@@ -138,6 +139,7 @@ impl Default for Router {
         Self {
             routefinder: MethodRoutefinder::default(),
             handle_options: true,
+            handle_method_not_allowed: false,
         }
     }
 }
@@ -255,6 +257,30 @@ impl Router {
     /// default: enabled
     pub(crate) fn set_options_handling(&mut self, options_enabled: bool) -> &mut Self {
         self.handle_options = options_enabled;
+        self
+    }
+
+    /// Enable responding to a request whose path matches a route but whose method does not with
+    /// `405 Method Not Allowed` and an `Allow` header listing the methods that path does support.
+    ///
+    /// The status is set *without halting the conn*, so a subsequent handler is free to replace it;
+    /// the `405` only stands if nothing else handles the request. Without this enabled (the
+    /// default), a method mismatch falls through unchanged, which typically results in a `404`.
+    ///
+    /// This is opt-in because enabling it changes the response to requests that previously fell
+    /// through the router, and because advertising the supported methods reveals that the path
+    /// exists.
+    pub fn with_method_not_allowed(mut self) -> Self {
+        self.set_method_not_allowed(true);
+        self
+    }
+
+    /// enable or disable the router's behavior of responding to a method mismatch on a known path
+    /// with `405 Method Not Allowed` plus an `Allow` header.
+    ///
+    /// default: disabled
+    pub(crate) fn set_method_not_allowed(&mut self, enabled: bool) -> &mut Self {
+        self.handle_method_not_allowed = enabled;
         self
     }
 
@@ -515,6 +541,22 @@ impl Handler for Router {
             conn.with_response_header(KnownHeaderName::Allow, allow)
                 .with_status(200)
                 .halt()
+        } else if let Some(allow) = self
+            .handle_method_not_allowed
+            .then(|| self.routefinder.methods_matching(path))
+            .filter(|methods| !methods.is_empty())
+            .map(|methods| {
+                methods
+                    .iter()
+                    .map(|m| m.as_ref())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+        {
+            // Soft default: set the status without halting, so a later handler can replace the
+            // 405. If nothing does, it stands as the fall-through response.
+            conn.with_response_header(KnownHeaderName::Allow, allow)
+                .with_status(405)
         } else {
             log::debug!("{} did not match any route", conn.path());
             conn
