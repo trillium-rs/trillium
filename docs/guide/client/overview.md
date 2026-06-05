@@ -191,5 +191,5 @@ If a single `Client` is used against a large number of distinct hosts, the pool 
 
 ## What's next
 
-- [Client middleware](./middleware.md) — logging, cookies, compression, redirect-following, and caching as composable `ClientHandler`s.
+- [Client middleware](./middleware.md) — logging, cookies, compression, redirect-following, retrying, and caching as composable `ClientHandler`s.
 - [WebSockets, WebTransport, and JSON](./extras.md) — feature-gated client capabilities.
