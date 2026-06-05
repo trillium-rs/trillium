@@ -151,6 +151,65 @@ let client = Client::new(client_config())
 # }
 ```
 
+## Retrying
+
+`trillium_client_retry::RetryHandler` re-issues a request that failed in a way worth retrying — a transport error (refused connection, reset, timeout) or a retryable status (429 and 503 by default) — spacing attempts with a backoff schedule and honoring a server's `Retry-After`.
+
+Each attempt is a full client-handler cycle re-queued through the same client, so a logger, conn-id, or metrics handler observes every attempt. Its position in the tuple doesn't much matter — what matters is that it's the only handler queuing follow-ups or handling transport errors, since two handlers each re-driving the conn would compound confusingly.
+
+```rust
+# [dependencies]
+# trillium-client = "0.9"
+# trillium-testing = "0.10"
+# trillium-logger = { version = "0.5", features = ["client"] }
+# trillium-client-retry = "0.0.1"
+#
+# fn main() {
+use trillium_client::Client;
+use trillium_testing::client_config;
+use trillium_logger::client::ClientLogger;
+use trillium_client_retry::RetryHandler;
+
+let client = Client::new(client_config()).with_handler((
+    RetryHandler::new(),
+    ClientLogger::new(),
+));
+# }
+```
+
+The defaults are conservative:
+
+- **Idempotent methods only** (GET, HEAD, PUT, DELETE, OPTIONS, TRACE), since replaying a POST risks a duplicate side effect. Opt in to all methods with `with_all_methods` when the endpoint is safe to replay (idempotent in practice, or guarded by an idempotency key).
+- **Static bodies only.** A request body is replayed only if it can be cloned (`Vec<u8>`, `String`, `&'static str`, …). A streaming one-shot body can't be replayed, so such a request is surfaced as-is rather than retried.
+- **Bounded by attempts and wall-clock.** Retrying stops at `with_max_attempts` total attempts (default 4 — the original plus 3) or the `with_max_elapsed` budget (default 30s), whichever comes first. The budget is a hard ceiling: each retry's timeout is clamped to the time remaining.
+- **Full jitter.** The actual delay is chosen uniformly from `0..=computed` to spread retries from many clients across time; turn it off with `without_jitter`.
+- **`Retry-After` honored.** A server's delta-seconds `Retry-After` overrides the computed backoff (capped by `with_max_retry_after` and the elapsed budget). HTTP-date values aren't yet parsed and fall back to the computed backoff.
+
+The backoff curve and limits are configurable:
+
+```rust
+# [dependencies]
+# trillium-client = "0.9"
+# trillium-testing = "0.10"
+# trillium-client-retry = "0.0.1"
+#
+# fn main() {
+use std::time::Duration;
+use trillium_client::Client;
+use trillium_testing::client_config;
+use trillium_client_retry::RetryHandler;
+
+let client = Client::new(client_config()).with_handler(
+    RetryHandler::new()
+        .with_exponential_backoff(Duration::from_millis(100))
+        .with_max_attempts(5)
+        .with_max_elapsed(Duration::from_secs(10)),
+);
+# }
+```
+
+`with_constant_backoff`, `with_linear_backoff`, and `with_custom_backoff` select other curves; `with_max_delay` caps the computed delay. To change *what* gets retried, `with_statuses` replaces the retryable status set and `with_transport_errors` toggles transport-error retries, or replace the whole decision with `retry_when` (a predicate over the conn) or `with_decision` (predicate plus backoff).
+
 ## Caching
 
 `trillium_cache::client::Cache` is an RFC 9111 HTTP cache. On a miss it streams the origin response to the caller and into storage simultaneously, so caching doesn't add a buffering hop; on a fresh hit it serves from storage without touching the network. It needs a `CacheStorage` backend — `InMemoryStorage` is built in.
