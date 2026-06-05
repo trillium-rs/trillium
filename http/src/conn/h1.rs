@@ -188,22 +188,7 @@ where
             ));
         }
 
-        if let Some(content_length) = content_length {
-            // RFC 9110 §8.6: exactly one Content-Length whose value is 1*DIGIT. `as_str` is None
-            // for multiple values or non-utf8; reject anything that isn't a single strict-digit
-            // value rather than coercing it to a 0-length body downstream — that silent coercion
-            // is a request-smuggling vector.
-            let valid = content_length.as_str().is_some_and(|cl| {
-                !cl.is_empty()
-                    && cl.bytes().all(|b| b.is_ascii_digit())
-                    && cl.parse::<u64>().is_ok()
-            });
-            if !valid {
-                return Err(Error::InvalidHeaderValue(
-                    KnownHeaderName::ContentLength.into(),
-                ));
-            }
-        }
+        crate::util::validate_content_length(content_length)?;
 
         // An HTTP/1.1 request must carry exactly one Host (CONNECT carries its authority in the
         // request target instead), and a present Host must be a bare host[:port] — no userinfo
@@ -430,10 +415,18 @@ where
     }
 
     fn should_close(&self) -> bool {
+        // Scan every Connection field line and every comma-token within it. `get_str` would miss a
+        // `Connection: close` split across multiple header lines (it returns `None` for more than
+        // one value), keeping alive a connection the peer asked to close. Mirrors the client's
+        // `is_keep_alive`.
         let has_token = |headers: &Headers, token: &str| {
-            headers
-                .get_str(KnownHeaderName::Connection)
-                .is_some_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case(token)))
+            headers.get_values(KnownHeaderName::Connection).is_some_and(|values| {
+                values
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .flat_map(|v| v.split(','))
+                    .any(|t| t.trim().eq_ignore_ascii_case(token))
+            })
         };
 
         if has_token(&self.request_headers, "close") || has_token(&self.response_headers, "close") {

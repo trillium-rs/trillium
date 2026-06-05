@@ -1,0 +1,15 @@
+===status===\n
+200 OK\n
+\n
+===version===\n
+HTTP/1.1\n
+\n
+===headers===\n
+Content-Length: 5\r\n
+X-Blank: \r\n
+\n
+===keep-alive===\n
+true\n
+\n
+===body===\n
+hello\n

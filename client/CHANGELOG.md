@@ -15,6 +15,42 @@ The theme of this release is protocol correctness / conformance, with a focus on
   dropped. The `parse` cargo feature is retained as a no-op for semver compatibility (it still
   forwards to the matching no-op feature in trillium-http).
 
+### Security
+
+- HTTP/1.x response smuggling: a malformed or duplicated `Content-Length` in a response was
+  previously coerced — a non-digit value (including a leading `+`, which the standard library parses)
+  or more than one `Content-Length` header silently fell back to read-to-close framing instead of
+  being rejected. Because this client backs trillium-proxy, that framing disagreement with an
+  upstream or downstream that trusts the literal `Content-Length` is a response-smuggling / desync
+  vector. Such responses are now rejected, sharing the exact validation the server uses for request
+  `Content-Length` so both halves of a proxy parse identically.
+- `Transfer-Encoding` framing is now strict and consistent. The only transfer-coding trillium
+  decodes is `chunked`, so a response's `Transfer-Encoding` must be exactly a single `chunked`;
+  anything else — a coding list (`gzip, chunked`), a repeated `chunked` (which RFC 9112 §6.1 forbids
+  a sender from producing), `chunked` not the final coding, or a value split across multiple header
+  lines — is now rejected. Previously some of these were accepted and then mis-framed (decoded once,
+  or silently downgraded to read-to-close), a framing/validation disagreement that is a
+  response-smuggling vector. This matches the server's request-side `Transfer-Encoding` rule.
+
+### Fixed
+
+- A `Connection: close` split across multiple `Connection` header lines was ignored when deciding
+  whether to reuse the connection, so the transport could be pooled and reused even though the peer
+  asked to close it. All `Connection` lines and tokens are now scanned.
+- A response status-line with a malformed status-code — more than three digits (`HTTP/1.1 2000 OK`)
+  or otherwise not terminated by a space or end-of-line after three digits — is now rejected instead
+  of being silently truncated to the first three digits.
+- Regression: HTTP/1.1 responses are treated as keep-alive unless either side sends `Connection:
+  close` (a 1.0 response still requires an explicit `Connection: keep-alive` on both
+  sides). Previously reuse required an explicit `Connection: keep-alive` even on 1.1, so the
+  overwhelming majority of 1.1 connections were closed and reopened instead of pooled.
+- A connection abandoned before its response head arrived — a timeout or transport error
+  mid-request — is no longer returned to the pool, where the next request could reuse the
+  half-spent transport.
+- The network response head now replaces, rather than merges with, any response headers a handler
+  set synthetically before the round-trip (e.g. a `Content-Length` from `set_response_body`), so the
+  parsed response can't end up with duplicated headers.
+
 ## [0.9.4] - 2026-06-03
 
 ### Added

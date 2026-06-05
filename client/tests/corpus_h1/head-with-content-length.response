@@ -1,0 +1,4 @@
+>>> HEAD HTTP/1.1
+HTTP/1.1 200 OK\r\n
+Content-Length: 5\r\n
+\r\n

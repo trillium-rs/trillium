@@ -1,0 +1,13 @@
+===status===\n
+200 OK\n
+\n
+===version===\n
+HTTP/1.0\n
+\n
+===headers===\n
+\n
+===keep-alive===\n
+false\n
+\n
+===body===\n
+hello[PIPELINED-SENTINEL]\n
