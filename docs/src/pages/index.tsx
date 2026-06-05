@@ -158,7 +158,7 @@ const ecosystem: EcosystemCategory[] = [
         name: "HTTP Client",
         description:
           "Async HTTP/1.0 / HTTP/1.1 / HTTP/2 / HTTP/3 client with connection pooling",
-        href: "/guide/handlers/http_client",
+        href: "/guide/client/overview",
       },
       {
         name: "Reverse Proxy",
@@ -178,17 +178,17 @@ const ecosystem: EcosystemCategory[] = [
       {
         name: "Rustls",
         description: "TLS via rustls",
-        href: "/guide/overview/runtimes#rustls",
+        href: "/guide/overview/tls#rustls",
       },
       {
         name: "Native TLS",
         description: "TLS via native-tls",
-        href: "/guide/overview/runtimes#native-tls",
+        href: "/guide/overview/tls#native-tls",
       },
       {
         name: "OpenSSL",
         description: "TLS via openssl",
-        href: "/guide/overview/runtimes#openssl",
+        href: "/guide/overview/tls#openssl",
       },
       {
         name: "ACME",
@@ -198,7 +198,7 @@ const ecosystem: EcosystemCategory[] = [
       {
         name: "Quinn",
         description: "HTTP/3 over QUIC",
-        href: "/guide/overview/runtimes#http3-and-quic",
+        href: "/guide/overview/http3",
       },
     ],
   },
@@ -208,22 +208,22 @@ const ecosystem: EcosystemCategory[] = [
       {
         name: "Tokio",
         description: "Tokio runtime adapter",
-        href: "/guide/overview/runtimes#runtime-adapters",
+        href: "/guide/overview/runtimes",
       },
       {
         name: "Smol",
         description: "Smol runtime adapter — lightweight and fast",
-        href: "/guide/overview/runtimes#runtime-adapters",
+        href: "/guide/overview/runtimes",
       },
       {
         name: "async-std",
         description: "async-std runtime adapter",
-        href: "/guide/overview/runtimes#runtime-adapters",
+        href: "/guide/overview/runtimes",
       },
       {
         name: "AWS Lambda",
         description: "Lambda adapter — TLS handled by the load balancer",
-        href: "/guide/overview/runtimes#runtime-adapters",
+        href: "/guide/overview/runtimes",
       },
     ],
   },

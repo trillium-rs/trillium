@@ -42,7 +42,7 @@ As with HTTP/2, the same handler receives `Conn` objects regardless of whether t
 
 ## HTTP/3 client
 
-The `trillium-client` HTTP client can upgrade to HTTP/3 automatically when a server advertises support via `Alt-Svc`. See the [HTTP Client](../handlers/http_client.md) page for details.
+The `trillium-client` HTTP client can upgrade to HTTP/3 automatically when a server advertises support via `Alt-Svc`. See the [HTTP Client](../client/overview.md) page for details.
 
 ## WebTransport
 
