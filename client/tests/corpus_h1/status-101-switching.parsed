@@ -1,0 +1,15 @@
+===status===\n
+101 Switching Protocols\n
+\n
+===version===\n
+HTTP/1.1\n
+\n
+===headers===\n
+Connection: Upgrade\r\n
+Upgrade: websocket\r\n
+\n
+===keep-alive===\n
+true\n
+\n
+===body===\n
+[PIPELINED-SENTINEL]\n

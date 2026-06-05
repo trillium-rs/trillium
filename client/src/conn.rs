@@ -477,7 +477,12 @@ impl Conn {
     /// wired into the body and the [`ResponseBody::recycle`] / `Drop` paths consume clones
     /// of this same context, so the user-driven and Drop-driven release paths agree.
     fn build_cleanup_context(&self) -> CleanupContext {
-        let h1_pool_origin = if self.is_keep_alive()
+        // Only pool a transport whose response head we actually received (`status.is_some()`): a
+        // conn abandoned before the response — a timeout or transport error mid-request — has an
+        // empty `response_headers`, which `is_keep_alive` would read as persistent and recycle a
+        // half-spent connection into the pool, poisoning the next request that reuses it.
+        let h1_pool_origin = if self.status.is_some()
+            && self.is_keep_alive()
             && let Some(pool) = self.client.pool().cloned()
         {
             Some((pool, self.url.origin()))

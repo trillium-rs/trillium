@@ -1,0 +1,16 @@
+===status===\n
+200 OK\n
+\n
+===version===\n
+HTTP/1.1\n
+\n
+===headers===\n
+Connection: keep-alive\r\n
+Connection: close\r\n
+Content-Length: 5\r\n
+\n
+===keep-alive===\n
+false\n
+\n
+===body===\n
+hello\n

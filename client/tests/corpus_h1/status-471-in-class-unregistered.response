@@ -1,0 +1,4 @@
+HTTP/1.1 471 Custom\r\n
+Content-Length: 5\r\n
+\r\n
+hello

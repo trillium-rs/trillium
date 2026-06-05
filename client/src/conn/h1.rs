@@ -222,12 +222,21 @@ impl Conn {
             .parse()
             .map_err(|_| Error::InvalidHead)?;
         self.status = Some(str::from_utf8(&self.buffer[space + 1..space + 4])?.parse()?);
+        // The status-code is exactly three digits; the next octet must terminate it —
+        // a SP before the reason-phrase, or the CR/LF ending the status-line. Reject a 4th digit so
+        // e.g. `2000` isn't silently truncated to `200`.
+        if !matches!(self.buffer.get(space + 4), Some(b' ' | b'\r' | b'\n')) {
+            return Err(Error::InvalidHead);
+        }
         let end_of_first_line = 2 + Finder::new("\r\n")
             .find(&self.buffer[..head_offset])
             .ok_or(Error::InvalidHead)?;
 
-        self.response_headers
-            .extend_parse(&self.buffer[end_of_first_line..head_offset])
+        // The network response head is authoritative: replace (not extend) any synthetic response
+        // headers a handler may have set — e.g. a `Content-Length` from `set_response_body` — so
+        // they can't merge with the wire headers into duplicates. Interim responses are cleared the
+        // same way in `reset_interim_response_state`.
+        self.response_headers = Headers::parse(&self.buffer[end_of_first_line..head_offset])
             .map_err(|_| Error::InvalidHead)?;
 
         self.buffer.ignore_front(head_offset);
@@ -369,38 +378,73 @@ impl Conn {
     }
 
     fn validate_response_headers(&self) -> Result<()> {
-        // If Transfer-Encoding is present (RFC 9112), its last coding must be `chunked`;
-        // otherwise the message framing is ambiguous and the response is malformed. Reject
-        // early rather than fall through to chunked framing on raw bytes — that silently
-        // corrupts the body read and leaves a connection in a state where pool reuse would
-        // be a response-smuggling vector.
-        let te_last_chunked = self
-            .response_headers
-            .get_values(TransferEncoding)
-            .map(|values| {
-                values
+        // `chunked` is the only transfer-coding trillium decodes, so the only Transfer-Encoding we
+        // can frame unambiguously is a single `chunked`. Multiple header lines coalesce into one
+        // ordered coding list, so we flatten across lines and commas, then require exactly one
+        // coding equal to `chunked`. Anything else — a repeated `chunked`, `chunked` not final,
+        // another/unknown coding, or an empty value — is rejected rather than decoded-once
+        // or read-to-close: those framing fallbacks are response-smuggling vectors. Matches
+        // the server's request-side rule so both halves of a proxy frame identically.
+        let transfer_encoding = self.response_headers.get_values(TransferEncoding);
+        let chunked = match transfer_encoding {
+            None => false,
+            Some(values) => {
+                let mut codings = values
                     .iter()
                     .filter_map(|v| v.as_str())
                     .flat_map(|s| s.split(','))
                     .map(str::trim)
-                    .rfind(|s| !s.is_empty())
-                    .is_some_and(|last| last.eq_ignore_ascii_case("chunked"))
-            });
+                    .filter(|s| !s.is_empty());
+                match (codings.next(), codings.next()) {
+                    (Some(only), None) if only.eq_ignore_ascii_case("chunked") => true,
+                    _ => return Err(Error::UnexpectedHeader(TransferEncoding.into())),
+                }
+            }
+        };
 
-        let content_length = self.response_headers.has_header(ContentLength);
+        let content_length = self.response_headers.get_values(ContentLength);
 
-        match (te_last_chunked, content_length) {
-            (None, _) | (Some(true), false) => Ok(()),
-            (Some(true), true) => Err(Error::UnexpectedHeader(ContentLength.into())),
-            (Some(false), _) => Err(Error::UnexpectedHeader(TransferEncoding.into())),
+        if chunked && content_length.is_some() {
+            return Err(Error::UnexpectedHeader(ContentLength.into()));
         }
+
+        // A malformed or duplicated Content-Length must be rejected, not coerced to read-to-close
+        // (as `get_str(..).parse().ok()` silently would) — that's a response-smuggling vector via
+        // trillium-proxy. Shared with the server request parser so both reject identically.
+        trillium_http::validate_content_length(content_length)?;
+        Ok(())
     }
 
-    pub(super) fn is_keep_alive(&self) -> bool {
-        self.http_version() == Version::Http1_1
-            && self
-                .response_headers
-                .eq_ignore_ascii_case(Connection, "keep-alive")
+    /// Whether the underlying h1 transport will be kept alive and pooled for reuse after this
+    /// response's body is consumed. Reflects the keep-alive decision the recycle path uses; not
+    /// meaningful for h2/h3 conns. Exposed (hidden) for the response-parser corpus harness.
+    ///
+    /// HTTP/1.1 is persistent unless a `Connection: close` appears on either side; HTTP/1.0 is
+    /// non-persistent unless both sides send `Connection: keep-alive`.
+    #[doc(hidden)]
+    pub fn is_keep_alive(&self) -> bool {
+        // Scan every Connection field line and every comma-token within it. `get_str` would miss a
+        // `Connection: close` split across multiple header lines (it returns `None` for more than
+        // one value), which would pool a connection the peer asked to close.
+        let has_token = |headers: &Headers, token: &str| {
+            headers.get_values(Connection).is_some_and(|values| {
+                values
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .flat_map(|v| v.split(','))
+                    .any(|t| t.trim().eq_ignore_ascii_case(token))
+            })
+        };
+
+        if has_token(&self.request_headers, "close") || has_token(&self.response_headers, "close") {
+            false
+        } else if has_token(&self.request_headers, "keep-alive")
+            && has_token(&self.response_headers, "keep-alive")
+        {
+            true
+        } else {
+            self.http_version() != Version::Http1_0
+        }
     }
 
     pub(super) fn response_content_length(&self) -> Option<u64> {
@@ -429,13 +473,10 @@ impl Conn {
         {
             return ReceivedBodyState::End;
         }
-        let chunked = self
-            .response_headers
-            .get_str(TransferEncoding)
-            .is_some_and(|v| {
-                v.split(',')
-                    .any(|coding| coding.trim().eq_ignore_ascii_case("chunked"))
-            });
+        // `validate_response_headers` (run during `parse_head`) has already established that a
+        // Transfer-Encoding, if present, is exactly a single `chunked` and never coexists with
+        // Content-Length — so its mere presence means chunked framing.
+        let chunked = self.response_headers.has_header(TransferEncoding);
         let content_length = self
             .response_headers
             .get_str(ContentLength)

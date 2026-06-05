@@ -189,6 +189,9 @@ pub use swansong::Swansong;
 pub use synthetic::Synthetic;
 pub use type_set::{self, TypeSet};
 pub use upgrade::Upgrade;
+#[cfg(feature = "unstable")]
+#[doc(hidden)]
+pub use util::validate_content_length;
 pub use version::Version;
 
 /// A pre-rendered http response to send when the server is at capacity.

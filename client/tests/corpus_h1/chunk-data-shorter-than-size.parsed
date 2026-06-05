@@ -1,0 +1,14 @@
+===status===\n
+200 OK\n
+\n
+===version===\n
+HTTP/1.1\n
+\n
+===headers===\n
+Transfer-Encoding: chunked\r\n
+\n
+===keep-alive===\n
+true\n
+\n
+===body===\n
+<body read error: connection aborted>\n

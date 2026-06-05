@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Malformed HTTP/1.x requests now get a `400` (or `501` for an unrecognized method) before the
   connection closes, instead of being dropped without a response. An unhandled `CONNECT` now defaults
   to `501` rather than `404`.
+- A `Connection: close` token split across multiple `Connection` header lines now closes the
+  connection as requested; previously the multi-line value was missed and the connection was kept
+  alive.
 
 ## [1.3.4] - 2026-06-02
 
