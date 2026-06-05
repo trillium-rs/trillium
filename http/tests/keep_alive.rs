@@ -33,8 +33,8 @@ async fn drive(requests: &str) -> String {
 #[test(harness)]
 async fn connection_close_split_across_lines() {
     let responses = drive(
-        "GET /1 HTTP/1.1\r\nHost: _\r\nConnection: keep-alive\r\nConnection: close\r\n\r\n\
-         GET /2 HTTP/1.1\r\nHost: _\r\n\r\n",
+        "GET /1 HTTP/1.1\r\nHost: _\r\nConnection: keep-alive\r\nConnection: close\r\n\r\nGET /2 \
+         HTTP/1.1\r\nHost: _\r\n\r\n",
     )
     .await;
     assert_eq!(response_count(&responses), 1, "{responses:?}");
@@ -44,10 +44,7 @@ async fn connection_close_split_across_lines() {
 /// both pipelined requests.
 #[test(harness)]
 async fn keep_alive_serves_pipelined_requests() {
-    let responses = drive(
-        "GET /1 HTTP/1.1\r\nHost: _\r\n\r\n\
-         GET /2 HTTP/1.1\r\nHost: _\r\n\r\n",
-    )
-    .await;
+    let responses =
+        drive("GET /1 HTTP/1.1\r\nHost: _\r\n\r\nGET /2 HTTP/1.1\r\nHost: _\r\n\r\n").await;
     assert_eq!(response_count(&responses), 2, "{responses:?}");
 }

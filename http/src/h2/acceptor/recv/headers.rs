@@ -13,7 +13,7 @@
 //! All methods are on [`super::super::H2Driver`].
 
 use crate::{
-    Conn, KnownHeaderName, Status,
+    Conn, Status,
     h2::{
         H2Error, H2ErrorCode,
         acceptor::{Action, CloseOutcome, H2Driver, Role, StreamEntry, frame_slice},
@@ -319,13 +319,32 @@ where
             return;
         }
 
-        // Declared response-body length, for the §8.1.2.6 cross-check in `route_data` (which
-        // is role-agnostic — inbound DATA on a client stream is the response body). Set on
-        // the final response only; interim responses returned above carry no body.
-        let expected_content_length = field_section
-            .headers()
-            .get_str(KnownHeaderName::ContentLength)
-            .and_then(|cl| cl.parse::<u64>().ok());
+        // A present Content-Length must be a single run of digits. The client conn
+        // task validates response pseudo-headers, but not this — and only the driver can answer a
+        // malformed framing header with the spec-mandated `RST_STREAM(PROTOCOL_ERROR)`, so the
+        // check lives here rather than in the conn task.
+        if crate::util::validate_content_length(
+            field_section
+                .headers()
+                .get_values(crate::KnownHeaderName::ContentLength),
+        )
+        .is_err()
+        {
+            log::debug!("h2 stream {stream_id}: malformed response content-length");
+            self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
+            self.complete_and_remove_stream(
+                stream_id,
+                Err(std::io::Error::other(
+                    "malformed h2 response content-length",
+                )),
+            );
+            return;
+        }
+
+        // Declared response-body length, for the content-length / DATA-length cross-check in
+        // `route_data` (which is role-agnostic — inbound DATA on a client stream is the response
+        // body). Set on the final response only; interim responses returned above carry no body.
+        let expected_content_length = field_section.headers().content_length();
 
         let entry = self
             .streams
@@ -383,13 +402,10 @@ where
         // handler calls `H2Transport::poll_read` and the driver observes `is_reading` on
         // a subsequent tick. Configurable via `HttpConfig::h2_initial_stream_window_size`.
         let peer_recv_window = i64::from(self.config.initial_stream_window_size());
-        // Declared body length, for the §8.1.2.6 content-length / DATA-length cross-check in
-        // `route_data`. An unparseable value reads as "no declared length" — matching the
-        // request-body reader, which also tolerates it rather than failing the request here.
-        let expected_content_length = field_section
-            .headers()
-            .get_str(KnownHeaderName::ContentLength)
-            .and_then(|cl| cl.parse::<u64>().ok());
+        // Declared body length, for the content-length / DATA-length cross-check in
+        // `route_data`. A malformed value reads as "no declared length" here; the conn task's
+        // `ValidatedRequest` rejects it independently, resetting the stream before any DATA flows.
+        let expected_content_length = field_section.headers().content_length();
         self.connection
             .streams_lock()
             .insert(stream_id, state.clone());

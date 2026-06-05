@@ -454,9 +454,7 @@ impl Conn {
         {
             Some(0)
         } else {
-            self.response_headers
-                .get_str(ContentLength)
-                .and_then(|c| c.parse().ok())
+            self.response_headers.content_length()
         }
     }
 
@@ -477,10 +475,7 @@ impl Conn {
         // Transfer-Encoding, if present, is exactly a single `chunked` and never coexists with
         // Content-Length — so its mere presence means chunked framing.
         let chunked = self.response_headers.has_header(TransferEncoding);
-        let content_length = self
-            .response_headers
-            .get_str(ContentLength)
-            .and_then(|c| c.parse().ok());
+        let content_length = self.response_headers.content_length();
         ReceivedBodyState::new_h1(content_length, chunked)
     }
 

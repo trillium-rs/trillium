@@ -4,7 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-06-05
+
+The theme of this release is protocol correctness / conformance, with a focus on http/1.x.
+
+### Added
+
+- `Headers::content_length()` parses the `Content-Length` header into an `Option<u64>`, accepting
+  only a single run of ASCII digits (rejecting a leading `+`/`-`, which `u64::from_str` would
+  otherwise accept, as well as multi-value, empty, and overflowing values). Prefer it over
+  `get_str(ContentLength).and_then(|c| c.parse().ok())`.
 
 ### Changed
 
@@ -37,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `Connection: close` token split across multiple `Connection` header lines now closes the
   connection as requested; previously the multi-line value was missed and the connection was kept
   alive.
+- HTTP/2 and HTTP/3 now reject a malformed `Content-Length` instead of coercing it to a body length:
+  a malformed request earns `RST_STREAM(PROTOCOL_ERROR)` (h2) / `H3_MESSAGE_ERROR` (h3), and a
+  malformed response on the client side earns `RST_STREAM(PROTOCOL_ERROR)` (h2). Previously such a
+  value was silently treated as "no declared length," skipping the content-length / DATA
+  cross-check.
 
 ## [1.3.4] - 2026-06-02
 

@@ -325,6 +325,13 @@ impl Conn {
                 log::trace!("h3 stream {stream_id}: discarding interim response {status:?}");
                 continue;
             }
+            // A present Content-Length must be a single run of digits. Reject a malformed
+            // framing header rather than coercing it to a body length.
+            trillium_http::validate_content_length(
+                field_section
+                    .headers()
+                    .get_values(KnownHeaderName::ContentLength),
+            )?;
             break (status, field_section.into_headers().into_owned());
         };
 

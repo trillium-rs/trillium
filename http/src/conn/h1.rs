@@ -140,7 +140,7 @@ where
     #[allow(clippy::needless_borrow, clippy::needless_borrows_for_generic_args)]
     pub(super) fn build_request_body(&mut self) -> ReceivedBody<'_, Transport> {
         ReceivedBody::new_with_config(
-            self.request_content_length().ok().flatten(),
+            self.request_content_length(),
             &mut self.buffer,
             &mut self.transport,
             &mut self.request_body_state,
@@ -160,10 +160,7 @@ where
         let content_length = if chunked {
             None
         } else {
-            request_headers
-                .get_str(KnownHeaderName::ContentLength)
-                .and_then(|s| s.parse().ok())
-                .or(Some(0))
+            request_headers.content_length().or(Some(0))
         };
         ReceivedBodyState::new_h1(content_length, chunked)
     }
@@ -420,13 +417,15 @@ where
         // one value), keeping alive a connection the peer asked to close. Mirrors the client's
         // `is_keep_alive`.
         let has_token = |headers: &Headers, token: &str| {
-            headers.get_values(KnownHeaderName::Connection).is_some_and(|values| {
-                values
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .flat_map(|v| v.split(','))
-                    .any(|t| t.trim().eq_ignore_ascii_case(token))
-            })
+            headers
+                .get_values(KnownHeaderName::Connection)
+                .is_some_and(|values| {
+                    values
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .flat_map(|v| v.split(','))
+                        .any(|t| t.trim().eq_ignore_ascii_case(token))
+                })
         };
 
         if has_token(&self.request_headers, "close") || has_token(&self.response_headers, "close") {
@@ -450,22 +449,20 @@ where
         }
     }
 
-    fn request_content_length(&self) -> Result<Option<u64>> {
+    fn request_content_length(&self) -> Option<u64> {
         if self
             .request_headers
             .has_header(KnownHeaderName::TransferEncoding)
         {
-            Ok(None)
-        } else if let Some(cl) = self.request_headers.get_str(KnownHeaderName::ContentLength) {
-            cl.parse()
-                .map(Some)
-                .map_err(|_| Error::InvalidHeaderValue(KnownHeaderName::ContentLength.into()))
+            None
+        } else if let Some(content_length) = self.request_headers.content_length() {
+            Some(content_length)
         } else if matches!(self.version, Version::Http2 | Version::Http3) {
             // h2 and h3 frame the body via stream-level END_STREAM; there's no equivalent of
             // h1's implicit "no content-length means empty body" default.
-            Ok(None)
+            None
         } else {
-            Ok(Some(0))
+            Some(0)
         }
     }
 

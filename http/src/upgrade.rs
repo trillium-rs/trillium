@@ -74,23 +74,12 @@ fn has_chunked_encoding(headers: &Headers) -> bool {
         })
 }
 
-/// Parse the inbound `Content-Length`. `None` for chunked, missing, or unparseable.
-/// Unparseable values are logged and treated as absent.
+/// Parse the inbound `Content-Length`. `None` for chunked, missing, or malformed.
 fn parse_content_length(inbound_headers: &Headers) -> Option<u64> {
     if inbound_headers.has_header(KnownHeaderName::TransferEncoding) {
         return None;
     }
-    let raw = inbound_headers.get_str(KnownHeaderName::ContentLength)?;
-    match raw.parse() {
-        Ok(n) => Some(n),
-        Err(e) => {
-            log::warn!(
-                "Upgrade: ignoring unparseable Content-Length {raw:?}: {e}; inbound length \
-                 validation disabled for this upgrade"
-            );
-            None
-        }
-    }
+    inbound_headers.content_length()
 }
 
 /// Drain `pending` to `transport`, returning `Pending` if the transport blocks.
@@ -229,7 +218,7 @@ pub struct Upgrade<Transport> {
     #[field(get, get_mut, take, set = false, with = false, into_field = false)]
     pub(crate) received_trailers: Option<Headers>,
 
-    /// Pre-parsed inbound `Content-Length`. `None` for chunked, missing, or unparseable.
+    /// Pre-parsed inbound `Content-Length`. `None` for chunked, missing, or malformed.
     #[field = false]
     pub(crate) content_length_in: Option<u64>,
 

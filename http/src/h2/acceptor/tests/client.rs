@@ -415,6 +415,34 @@ fn server_response_body_exceeding_content_length_is_reset() {
     assert!(!fx.connection.streams_lock().contains_key(&id));
 }
 
+/// Response-side malformed framing: a response `content-length` that isn't a single 1*DIGIT is
+/// a malformed message. The client driver must `RST_STREAM(PROTOCOL_ERROR)` at HEADERS time
+/// rather than coercing it to a body length — the `+`-prefixed value is the trap `u64::from_str`
+/// would otherwise accept. Server-role dual: `malformed_request_content_length_is_protocol_error`.
+#[test]
+fn malformed_response_content_length_is_reset() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+    let (id, _submit, _transport) = open_get(&mut fx);
+
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let mut fields = Headers::new();
+    fields.insert(KnownHeaderName::ContentLength, "+5");
+    fx.peer_headers(id, pseudos, &fields, false);
+    let _ = fx.tick();
+
+    let frames = fx.next_outbound_frames();
+    assert!(
+        frames.iter().any(|f| matches!(
+            f,
+            Frame::RstStream { stream_id, error_code: H2ErrorCode::ProtocolError }
+                if *stream_id == id
+        )),
+        "a malformed response content-length must earn RST_STREAM(PROTOCOL_ERROR); got {frames:?}",
+    );
+    assert!(!fx.connection.streams_lock().contains_key(&id));
+}
+
 /// Control for the response-side §8.1.2.6 check: a response body matching its declared
 /// `content-length` is well-formed — no reset, stream survives to deliver the body.
 #[test]
