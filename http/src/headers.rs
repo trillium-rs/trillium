@@ -290,6 +290,15 @@ impl Headers {
         self.get_values(name).and_then(HeaderValues::as_str)
     }
 
+    /// The body length declared by a single, well-formed `Content-Length` header
+    ///
+    /// Returns `None` when the header is absent, empty, present more than once, contains any
+    /// non-digit octet, or overflows `u64`. Prefer this over parsing `Content-Length`.
+    pub fn content_length(&self) -> Option<u64> {
+        self.get_values(KnownHeaderName::ContentLength)
+            .and_then(crate::util::parse_content_length)
+    }
+
     /// Retrieves a singular header value from this header map. If there are several headers with
     /// the same name, this follows the behavior defined at [`HeaderValues::one`]. Returns None if
     /// there is no header with the provided header name

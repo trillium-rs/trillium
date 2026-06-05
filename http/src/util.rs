@@ -33,15 +33,26 @@ pub fn encoding(headers: &Headers) -> &'static Encoding {
 /// (notably a leading `+`/`-`, which `u64::from_str` would otherwise accept), or a value that
 /// overflows `u64`.
 pub fn validate_content_length(values: Option<&HeaderValues>) -> Result<Option<u64>> {
-    let Some(values) = values else {
-        return Ok(None);
-    };
+    match values {
+        None => Ok(None),
+        Some(values) => parse_content_length(values)
+            .map(Some)
+            .ok_or_else(|| Error::InvalidHeaderValue(KnownHeaderName::ContentLength.into())),
+    }
+}
+
+/// Parse a `Content-Length` value set into a `u64`, returning `None` for a multi-value set, an
+/// empty value, any non-digit octet (notably a leading `+`/`-`, which `u64::from_str` would
+/// otherwise accept), or a value that overflows `u64`. Shared by [`validate_content_length`] (the
+/// strict ingress gate, which turns this `None` into an error) and [`Headers::content_length`]
+/// (the downstream read, which surfaces it directly).
+///
+/// [`Headers::content_length`]: crate::Headers::content_length
+pub(crate) fn parse_content_length(values: &HeaderValues) -> Option<u64> {
     values
         .as_str()
         .filter(|cl| !cl.is_empty() && cl.bytes().all(|b| b.is_ascii_digit()))
         .and_then(|cl| cl.parse::<u64>().ok())
-        .map(Some)
-        .ok_or_else(|| Error::InvalidHeaderValue(KnownHeaderName::ContentLength.into()))
 }
 
 /// Whether `b` is a `tchar` — the octets permitted in a `token` (method names, header names,

@@ -175,6 +175,17 @@ impl ValidatedRequest {
             return None;
         }
 
+        // A present Content-Length must be a single run of digits. A malformed value is a
+        // malformed request; reject it here rather than coercing it to a body length the DATA
+        // cross-check would then disagree with.
+        if crate::util::validate_content_length(
+            request_headers.get_values(KnownHeaderName::ContentLength),
+        )
+        .is_err()
+        {
+            return None;
+        }
+
         let method = method?;
 
         if method != Method::Connect && scheme.is_none() {

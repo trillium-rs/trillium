@@ -11,7 +11,7 @@ use std::{
     },
     task::{Context, Poll},
 };
-use trillium::{Conn, KnownHeaderName};
+use trillium::Conn;
 use trillium_http::Body;
 
 struct BodyProxyReader {
@@ -46,10 +46,7 @@ pub(crate) fn stream_body(conn: &mut Conn) -> (impl Future<Output = ()> + Send +
     let started = Arc::new((Event::new(), AtomicBool::from(false)));
     let started_clone = started.clone();
     let (reader, writer) = sluice::pipe::pipe();
-    let len = conn
-        .request_headers()
-        .get_str(KnownHeaderName::ContentLength)
-        .and_then(|s| s.parse().ok());
+    let len = conn.request_headers().content_length();
 
     (
         async move {

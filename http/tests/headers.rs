@@ -401,3 +401,37 @@ fn value_case_insensitive_comparison() {
     assert!(headers.eq_ignore_ascii_case(KnownHeaderName::Upgrade, "websocket"));
     assert!(headers.eq_ignore_ascii_case(KnownHeaderName::Connection, "Upgrade"));
 }
+
+#[test]
+fn content_length_accepts_only_a_single_run_of_digits() {
+    let with = |value: &str| {
+        let mut headers = Headers::new();
+        headers.insert(ContentLength, value.to_string());
+        headers.content_length()
+    };
+
+    assert_eq!(with("0"), Some(0));
+    assert_eq!(with("42"), Some(42));
+    assert_eq!(with(&u64::MAX.to_string()), Some(u64::MAX));
+
+    // Absent.
+    assert_eq!(Headers::new().content_length(), None);
+
+    // `u64::from_str` accepts a leading `+`; we must not.
+    assert_eq!(with("+5"), None);
+    assert_eq!(with("-5"), None);
+    // Other non-digit shapes.
+    assert_eq!(with(""), None);
+    assert_eq!(with("5 "), None);
+    assert_eq!(with(" 5"), None);
+    assert_eq!(with("0x10"), None);
+    assert_eq!(with("5,5"), None);
+    // Overflows u64.
+    assert_eq!(with("18446744073709551616"), None);
+
+    // More than one value is ambiguous framing — reject.
+    let mut multi = Headers::new();
+    multi.append(ContentLength, "5");
+    multi.append(ContentLength, "5");
+    assert_eq!(multi.content_length(), None);
+}

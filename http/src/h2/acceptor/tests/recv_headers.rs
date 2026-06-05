@@ -520,6 +520,37 @@ fn data_matching_content_length_is_accepted() {
     );
 }
 
+/// RFC 9113 §8.1.2.6: a `content-length` that isn't a single 1*DIGIT is a malformed request.
+/// The driver must reject it at HEADERS time with `RST_STREAM(PROTOCOL_ERROR)` and emit no
+/// `Conn`, rather than coercing it to a body length the DATA cross-check would then disagree
+/// with. The `+`-prefixed value is the trap: `u64::from_str` accepts it, so a naive parse would
+/// silently treat `+5` as `5`.
+#[test]
+fn malformed_request_content_length_is_protocol_error() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    let pseudos = PseudoHeaders::default()
+        .with_method(Method::Post)
+        .with_path("/")
+        .with_scheme("http")
+        .with_authority("test");
+    let mut fields = Headers::new();
+    fields.insert(KnownHeaderName::ContentLength, "+5");
+    fx.peer_headers(1, pseudos, &fields, true);
+
+    if let Poll::Ready(Some(Ok(_))) = fx.tick() {
+        panic!("a malformed content-length must not yield a request Conn");
+    }
+
+    let frames = fx.next_outbound_frames();
+    assert!(
+        rst_with(&frames, 1, H2ErrorCode::ProtocolError),
+        "a malformed request content-length must earn RST_STREAM(PROTOCOL_ERROR); got {frames:?}",
+    );
+    assert!(!fx.connection.streams_lock().contains_key(&1));
+}
+
 /// Server-role dual of trillium-http's client-side
 /// `content_length_response_defers_eof_until_end_stream_so_trailers_survive`: a *request* body
 /// that advertises `content-length` must not let `request_body()` report end-of-input (and

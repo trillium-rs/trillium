@@ -1,6 +1,6 @@
 [package]
 name = "trillium-http"
-version = "1.3.4"
+version = "1.3.5"
 edition = "2024"
 description = "the http implementation for the trillium toolkit"
 license = "MIT OR Apache-2.0"

@@ -7,7 +7,7 @@ use super::{ClientLogFormatter, RequestStart};
 use colored::{ColoredString, Colorize};
 use size::{Base, Size};
 use std::{borrow::Cow, fmt::Display, sync::Arc, time::Instant};
-use trillium_client::{Conn, ConnExt, HeaderName, KnownHeaderName, Method, Status, Version};
+use trillium_client::{Conn, ConnExt, HeaderName, Method, Status, Version};
 
 /// The default development-mode formatter.
 ///
@@ -155,7 +155,8 @@ pub use timestamp_mod::timestamp;
 /// Formatter for the response Content-Length as a human-readable string (`5 bytes`, `10.1 kb`).
 /// Produces `-` if no Content-Length is set.
 pub fn body_len_human(conn: &Conn, _color: bool) -> Cow<'static, str> {
-    response_content_length(conn)
+    conn.response_headers()
+        .content_length()
         .map(|l| {
             Size::from_bytes(l)
                 .format()
@@ -168,13 +169,7 @@ pub fn body_len_human(conn: &Conn, _color: bool) -> Cow<'static, str> {
 
 /// Formatter for the response Content-Length as a raw byte count, `0` if unknown.
 pub fn bytes(conn: &Conn, _color: bool) -> u64 {
-    response_content_length(conn).unwrap_or_default()
-}
-
-fn response_content_length(conn: &Conn) -> Option<u64> {
-    conn.response_headers()
-        .get_str(KnownHeaderName::ContentLength)
-        .and_then(|s| s.parse().ok())
+    conn.response_headers().content_length().unwrap_or_default()
 }
 
 /// Formatter for whether the request used a TLS-bearing scheme (https/wss).
