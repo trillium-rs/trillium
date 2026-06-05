@@ -2,8 +2,11 @@ use crate::Identity;
 use async_native_tls::{Error, TlsAcceptor, TlsStream};
 use pem::Pem;
 use pkcs8::{
-    AlgorithmIdentifierRef, ObjectIdentifier, PrivateKeyInfo,
-    der::{Decode, Encode, asn1::AnyRef},
+    AlgorithmIdentifierRef, ObjectIdentifier, PrivateKeyInfoRef,
+    der::{
+        Decode, Encode,
+        asn1::{AnyRef, OctetStringRef},
+    },
 };
 use std::{
     io::{self, IoSlice, IoSliceMut},
@@ -151,7 +154,9 @@ fn wrap_pkcs1_in_pkcs8(pkcs1_der: &[u8]) -> Vec<u8> {
         oid: RSA_ENCRYPTION_OID,
         parameters: Some(AnyRef::NULL),
     };
-    PrivateKeyInfo::new(algorithm, pkcs1_der)
+    let private_key =
+        OctetStringRef::new(pkcs1_der).expect("could not wrap PKCS#1 key as OCTET STRING");
+    PrivateKeyInfoRef::new(algorithm, private_key)
         .to_der()
         .expect("could not encode PKCS#1 key as PKCS#8")
 }
@@ -168,7 +173,9 @@ fn wrap_sec1_in_pkcs8(sec1_der: &[u8]) -> Vec<u8> {
         oid: EC_PUBLIC_KEY_OID,
         parameters: Some(curve_param),
     };
-    PrivateKeyInfo::new(algorithm, sec1_der)
+    let private_key =
+        OctetStringRef::new(sec1_der).expect("could not wrap SEC1 key as OCTET STRING");
+    PrivateKeyInfoRef::new(algorithm, private_key)
         .to_der()
         .expect("could not encode SEC1 key as PKCS#8")
 }
@@ -337,7 +344,7 @@ mod tests {
     use super::{
         EC_PUBLIC_KEY_OID, RSA_ENCRYPTION_OID, extract_cert_chain_der, normalize_key_to_pkcs8_der,
     };
-    use pkcs8::PrivateKeyInfo;
+    use pkcs8::PrivateKeyInfoRef;
 
     const RSA_CERT: &[u8] = include_bytes!("../tests/fixtures/rsa.crt");
     const RSA_PKCS1: &[u8] = include_bytes!("../tests/fixtures/rsa-pkcs1.key");
@@ -345,8 +352,8 @@ mod tests {
     const EC_SEC1: &[u8] = include_bytes!("../tests/fixtures/ec-sec1.key");
     const EC_PKCS8: &[u8] = include_bytes!("../tests/fixtures/ec-pkcs8.key");
 
-    fn parse_pkcs8_der(der: &[u8]) -> PrivateKeyInfo<'_> {
-        PrivateKeyInfo::try_from(der).expect("output not parseable as PKCS#8")
+    fn parse_pkcs8_der(der: &[u8]) -> PrivateKeyInfoRef<'_> {
+        PrivateKeyInfoRef::try_from(der).expect("output not parseable as PKCS#8")
     }
 
     #[test]

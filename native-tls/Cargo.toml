@@ -14,8 +14,8 @@ async-native-tls = "0.6.0"
 native-tls = "0.2.18"
 p12 = "0.6.3"
 pem = "3"
-pkcs8 = { version = "0.10", features = ["alloc"] }
-sec1 = "0.7"
+pkcs8 = { version = "0.11", features = ["alloc"] }
+sec1 = "0.8"
 trillium-server-common.workspace = true
 
 [dev-dependencies]
