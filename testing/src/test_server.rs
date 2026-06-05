@@ -81,7 +81,9 @@ impl<H: Handler> TestServer<H> {
             .with_runtime(rt);
         let (peer_ip_sender, receive) = async_channel::unbounded();
         connector.server_peer_ips_receiver = Some(receive);
-        let client = Client::new(connector.clone()).with_base(url);
+        let client = Client::new(connector.clone())
+            .without_keepalive()
+            .with_base(url);
 
         Self {
             client,
