@@ -40,9 +40,17 @@ const sidebars: SidebarsConfig = {
         'handlers/websockets',
         'handlers/channels',
         'handlers/webtransport',
-        'handlers/http_client',
         'handlers/proxy',
         'handlers/utilities',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'HTTP Client',
+      link: {type: 'doc', id: 'client/overview'},
+      items: [
+        'client/middleware',
+        'client/extras',
       ],
     },
     'testing',

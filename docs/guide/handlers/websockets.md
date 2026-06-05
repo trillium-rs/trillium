@@ -71,4 +71,4 @@ The same handler runs whether the WebSocket arrived via the HTTP/1.1 `Upgrade: w
 
 ## Client-side WebSocket
 
-The `trillium-client` crate can upgrade connections to WebSocket with the `websockets` feature. See the [HTTP Client](./http_client.md) page.
+The `trillium-client` crate can upgrade connections to WebSocket with the `websockets` feature. See [WebSockets, WebTransport, and JSON](../client/extras.md#websocket-client).

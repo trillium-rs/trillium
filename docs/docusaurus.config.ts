@@ -12,6 +12,18 @@ const config: Config = {
   projectName: 'trillium',
 
   onBrokenLinks: 'throw',
+
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [
+          {from: '/guide/handlers/http_client', to: '/guide/client/overview'},
+        ],
+      },
+    ],
+  ],
+
   markdown: {
     hooks: {
       onBrokenMarkdownLinks: 'warn',

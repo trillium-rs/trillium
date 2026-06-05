@@ -112,9 +112,7 @@ HTTP/2 connections are pooled and multiplex concurrent requests over a single TC
 
 ## HTTP/3
 
-When build using `Client::new_with_quic`, the client upgrades to HTTP/3 automatically when a server
-advertises support via `Alt-Svc`. The first request to a host uses HTTP/1.1; if the response
-includes `Alt-Svc: h3=...`, subsequent requests to that host use HTTP/3.
+When built using `Client::new_with_quic`, the client upgrades to HTTP/3 automatically when a server advertises support via `Alt-Svc`. The first request to a host uses HTTP/1.1; if the response includes `Alt-Svc: h3=...`, subsequent requests to that host use HTTP/3.
 
 ```rust
 # [dependencies]
@@ -169,32 +167,29 @@ println!("status: {}", conn.status().unwrap());
 # }); }
 ```
 
-## Connection pooling
-
-Connections are pooled and reused automatically across requests to the same host. HTTP/1.1, HTTP/2, and HTTP/3 each have their own pool; HTTP/2 multiplexes concurrent requests over a single connection.
-
-## WebSocket client
-
-With the `websockets` feature, the client can upgrade a connection to WebSocket:
+A `base` URL can be set on the `Client` so each request only names its own path:
 
 ```rust
 # [dependencies]
 # trillium-smol = { path = "../smol" }
-# trillium-client = { path = "../client", features = ["websockets"] }
-# trillium-testing = { path = "../testing" }
+# trillium-client = { path = "../client" }
 #
-# fn main() { trillium_testing::block_on(async {
+# fn main() {
 # use trillium_client::Client;
 # use trillium_smol::ClientConfig;
-# let client = Client::new(ClientConfig::default());
-let ws_conn = client
-    .get("wss://example.com/ws")
-    .await
-    .unwrap()
-    .into_websocket()
-    .await
-    .unwrap();
-# }); }
+let client = Client::new(ClientConfig::default()).with_base("https://api.example.com");
+let conn = client.get("/items"); // resolves against the base
+# let _ = conn;
+# }
 ```
 
-The resulting `WebSocketConn` exposes the same send/receive interface as the server-side WebSocket handler.
+## Connection pooling
+
+Connections are pooled and reused automatically across requests to the same host. HTTP/1.1, HTTP/2, and HTTP/3 each have their own pool; HTTP/2 multiplexes concurrent requests over a single connection.
+
+If a single `Client` is used against a large number of distinct hosts, the pool retains a small per-host footprint. Call `Client::clean_up_pool` intermittently to release idle entries.
+
+## What's next
+
+- [Client middleware](./middleware.md) — logging, cookies, compression, redirect-following, and caching as composable `ClientHandler`s.
+- [WebSockets, WebTransport, and JSON](./extras.md) — feature-gated client capabilities.
