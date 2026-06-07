@@ -269,14 +269,12 @@ where
     /// - **Half-closed remote** (in map, lifecycle already recv-closed): same stream-level
     ///   `STREAM_CLOSED`.
     ///
-    /// Flow-control accounting: the entire DATA payload (including pad length byte +
-    /// padding) counts against both the per-stream and connection-level recv windows. We
-    /// track both for correct refill accounting but enforce leniently — a peer that sends
-    /// past our advertised window is simply violating the SETTINGS hint; the real `DoS`
-    /// bound is the per-stream buffer cap (`HttpConfig::h2_max_stream_recv_window_size`).
-    /// This keeps trillium's lazy-WU default (`SETTINGS_INITIAL_WINDOW_SIZE = 0`) working
-    /// against h2spec-style peers that send DATA immediately after HEADERS without
-    /// respecting the server's advertised initial window.
+    /// Flow-control accounting: the entire DATA payload (including pad-length byte +
+    /// padding) counts against both the per-stream and connection-level recv windows
+    /// ([`Inflow::take`][super::inflow::Inflow::take]). Both are enforced strictly — a peer
+    /// that sends past the window we granted earns a connection-level `FLOW_CONTROL_ERROR`.
+    /// The `avail + buffered ≤ target` invariant means the granted window doubles as the
+    /// per-stream buffer bound, so there's no separate cap to reconcile.
     fn route_data(
         &mut self,
         stream_id: u32,
@@ -292,11 +290,9 @@ where
             .map_err(|_| CloseOutcome::Protocol(H2ErrorCode::FrameSizeError))?;
 
         // Connection-level accounting runs regardless of stream state. A protocol-respecting
-        // peer never drives this negative (it can't exceed what we advertised, and SETTINGS
-        // doesn't alter the connection window), so a negative value is unambiguous peer
-        // overrun — connection-level FLOW_CONTROL_ERROR.
-        self.connection_recv_window -= flow_controlled;
-        if self.connection_recv_window < 0 {
+        // peer can't exceed what we granted (SETTINGS doesn't alter the connection window), so a
+        // rejected take is unambiguous peer overrun — connection-level FLOW_CONTROL_ERROR.
+        if !self.connection_inflow.take(flow_controlled) {
             return Err(CloseOutcome::Protocol(H2ErrorCode::FlowControlError));
         }
 
@@ -315,7 +311,6 @@ where
             .streams
             .get_mut(&stream_id)
             .expect("checked above under shared borrow");
-        entry.peer_recv_window -= flow_controlled;
         entry.received_body_len += u64::from(data_length);
         // RFC 9113 §8.1.2.6: a declared content-length must equal the total DATA payload. A
         // running total past the declared length is a violation as soon as it's seen; a
@@ -326,6 +321,17 @@ where
                 || (end_stream && entry.received_body_len != expected)
         });
         let state = entry.shared.clone();
+
+        // Strict per-stream flow control, enforced only while the stream is still open for
+        // receiving and not already failing the content-length check — a closing stream's window
+        // is moot and it's about to be reset regardless. A compliant peer never overruns the
+        // window we granted, so a rejected take is unambiguous overrun.
+        if !content_length_mismatch
+            && !state.lifecycle_lock().recv_closed()
+            && !entry.stream_inflow.take(flow_controlled)
+        {
+            return Err(CloseOutcome::Protocol(H2ErrorCode::FlowControlError));
+        }
 
         // Half-closed remote / closed: peer already sent END_STREAM on this stream; any DATA after
         // that is stream-level STREAM_CLOSED. Flow-control accounting above still applies.
@@ -351,12 +357,14 @@ where
 
         {
             let mut recv = state.recv.buf.lock().expect("recv buf mutex poisoned");
-            // Per-stream buffer cap — this is our actual DoS bound, since
-            // `peer_recv_window` is tracked but not strictly enforced. A peer that
-            // floods us past the buffer cap earns a connection-level `FLOW_CONTROL_ERROR`.
-            if recv.len() + data.len() > self.config.max_stream_recv_window_size() as usize {
-                return Err(CloseOutcome::Protocol(H2ErrorCode::FlowControlError));
-            }
+            // Strict stream flow control bounds the buffer to the window target (the
+            // `avail + buffered ≤ target` invariant), so a compliant peer can't exceed it —
+            // asserted in debug to catch bookkeeping drift. `max_stream_recv_window_size` is
+            // coerced ≥ the initial at config snapshot, so it's the true upper bound on the target.
+            debug_assert!(
+                recv.len() + data.len() <= self.config.max_stream_recv_window_size() as usize,
+                "recv buffer exceeded the stream window target under strict flow control"
+            );
             if !data.is_empty() {
                 recv.extend_from_slice(data);
             }

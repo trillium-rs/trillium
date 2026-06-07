@@ -5,17 +5,6 @@ use fieldwork::Fieldwork;
 /// Trillium's http implementation is built with sensible defaults, but applications differ in usage
 /// and this escape hatch allows an application to be tuned. It is best to tune these parameters in
 /// context of realistic benchmarks for your application.
-///
-/// The `h2_*` fields tune HTTP/2 advertised settings and recv windows; `h3_*` fields tune HTTP/3.
-/// None affect HTTP/1.x. See the [crate-level docs][crate] for the protocol-dispatch table.
-///
-/// ```
-/// # use trillium_http::HttpConfig;
-/// // Accept body bytes eagerly (65535-byte initial window) instead of the default 100-
-/// // continue-like lazy window. Good for "always accept uploads" workloads.
-/// let config = HttpConfig::default().with_h2_initial_stream_window_size(65_535);
-/// assert_eq!(config.h2_initial_stream_window_size(), 65_535);
-/// ```
 #[derive(Clone, Copy, Debug, Fieldwork)]
 #[fieldwork(get, get_mut, set, with, without)]
 // `HttpConfig` is a user-facing tuning struct with documented per-field setters; the natural
@@ -138,7 +127,7 @@ pub struct HttpConfig {
     /// the connection with `ENHANCE_YOUR_CALM`, mitigating the CONTINUATION-flood `DoS`
     /// (CVE-2024-27316 class). Otherwise the peer is expected to self-police.
     ///
-    /// **Default**: `32 KiB`
+    /// **Default**: `32 KiB` in bytes
     ///
     /// **Unit**: byte count
     pub(crate) max_header_list_size: u64,
@@ -150,7 +139,7 @@ pub struct HttpConfig {
     /// inbound table and our encoder's outbound table; set to `0` to disable dynamic-table
     /// compression entirely (encoder reduces to static-or-literal).
     ///
-    /// **Default**: 4096 bytes
+    /// **Default**: `4 KiB` in bytes
     ///
     /// **Unit**: Byte count
     pub(crate) dynamic_table_capacity: usize,
@@ -187,36 +176,31 @@ pub struct HttpConfig {
     pub(crate) recent_pairs_size: usize,
 
     /// Initial HTTP/2 stream flow-control window advertised to peers as
-    /// `SETTINGS_INITIAL_WINDOW_SIZE`.
+    /// `SETTINGS_INITIAL_WINDOW_SIZE` — the lower tier of the two-tier per-stream window.
     ///
-    /// Controls how many request-body bytes the peer may send on a newly-opened stream before
-    /// waiting for a `WINDOW_UPDATE`. The default of `0` implements a lazy / 100-continue-like
-    /// pattern: the peer cannot send any body bytes until the handler calls `read` on the
-    /// request body, at which point the driver emits a `WINDOW_UPDATE` topping the window up
-    /// to [`h2_max_stream_recv_window_size`][Self::h2_max_stream_recv_window_size]. A handler
-    /// that returns an error from its header-level checks never pays the bandwidth cost of
-    /// reading the body.
-    ///
-    /// Set to `65_535` (the RFC 9113 baseline) to match nginx / Apache / hyper behavior — body
-    /// bytes arrive eagerly at the cost of 1 RTT less latency on the first DATA frame and the
-    /// possible waste of up to this many bytes on requests the handler rejects.
+    /// Controls how many request-body bytes the peer may send on a newly-opened stream before the
+    /// handler starts reading. Once the handler signals intent to read (first `poll_read` on the
+    /// request body), the window is promoted to `h2_max_stream_recv_window_size`; a stream whose
+    /// handler never reads the body stays at this initial.
     ///
     /// Must not exceed `2^31 - 1`.
     ///
-    /// **Default**: `0` (lazy-WU)
+    /// **Default**: `256 KiB`
     ///
     /// **Unit**: byte count
     pub(crate) h2_initial_stream_window_size: u32,
 
-    /// Per-stream recv window target — how high the driver keeps the peer's stream window
-    /// topped up as the handler consumes request-body bytes.
+    /// Per-stream recv window target — the upper tier of the two-tier window. A stream opens at
+    /// `h2_initial_stream_window_size` and is promoted to this value once the handler signals
+    /// intent to read the request body (first `poll_read`); the driver then tops the peer's window
+    /// back up to it via `WINDOW_UPDATE` as the handler drains. Because strict flow control bounds
+    /// the recv buffer to the granted window, this is also the per-stream buffer bound — a peer
+    /// that sends past the window earns a connection-level `FLOW_CONTROL_ERROR`.
     ///
-    /// After the handler signals intent to read (first `poll_read` on the request body), the
-    /// driver emits `WINDOW_UPDATE` frames to keep the effective peer window near this target.
-    /// Also serves as the hard per-stream buffer cap — a peer that sends past this amount of
-    /// unconsumed DATA on a single stream earns a connection-level `FLOW_CONTROL_ERROR`.
+    /// Must be `>= h2_initial_stream_window_size`; a smaller value is clamped up to the initial
+    /// (with a one-time log warning), since the window is only ever promoted upward.
     ///
-    /// **Default**: `1 MiB`
+    /// **Default**: `1 MiB` in bytes
     ///
     /// **Unit**: byte count
     pub(crate) h2_max_stream_recv_window_size: u32,
@@ -230,7 +214,7 @@ pub struct HttpConfig {
     /// HTTP/2 connection. Leaving at the RFC baseline of `65_535` would cap bulk uploads at
     /// ~5 Mbit/s × RTT.
     ///
-    /// **Default**: `2 MiB`
+    /// **Default**: `2 MiB` in bytes
     ///
     /// **Unit**: byte count
     pub(crate) h2_initial_connection_window_size: u32,
@@ -254,7 +238,7 @@ pub struct HttpConfig {
     /// floor is `16_384`; the ceiling is `16_777_215`. Larger values amortize per-frame
     /// overhead on bulk transfers but increase the upper bound on a single read.
     ///
-    /// **Default**: `16_384`
+    /// **Default**: `16 KiB` in bytes
     ///
     /// **Unit**: byte count
     pub(crate) h2_max_frame_size: u32,
@@ -278,26 +262,16 @@ pub struct HttpConfig {
 
     /// `SETTINGS_ENABLE_CONNECT_PROTOCOL` — advertises that the server accepts extended
     /// CONNECT requests, enabling protocols layered on top of HTTP that bootstrap via a
-    /// CONNECT with a `:protocol` pseudo-header. The same identifier (0x08) is used by
-    /// HTTP/2 (RFC 8441) and HTTP/3 (RFC 9220).
+    /// CONNECT with a `:protocol` pseudo-header.
     ///
-    /// Use cases include WebSocket-over-h2 (RFC 8441), WebSocket-over-h3 (RFC 9220),
-    /// and WebTransport (`draft-ietf-webtrans-http2` and `draft-ietf-webtrans-http3`).
-    ///
-    /// When set, the server's initial SETTINGS frame includes
-    /// `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` (on both HTTP/2 and HTTP/3) and the runtime
-    /// accepts CONNECT requests carrying a `:protocol` pseudo-header. Without it, clients
-    /// won't attempt extended CONNECT, which is the correct default — handlers that don't
-    /// expect extended CONNECT shouldn't see those requests.
-    ///
-    /// You don't need to set this manually if using a handler that requires it; such handlers
-    /// flip it from `Handler::init`.
+    /// You likely don't need to set this directly if using a trillium handler that uses extended
+    /// connect.
     ///
     /// **Default**: false
     pub(crate) extended_connect_enabled: bool,
 
-    /// whether to panic when a response header with an invalid value (containing `\r`, `\n`, or
-    /// `\0`) is encountered.
+    /// whether to panic when an outbound (app-controlled) header with an invalid value (containing
+    /// `\r`, `\n`, or `\0`) is encountered.
     ///
     /// Invalid header values are always skipped to prevent header injection. When this is `true`,
     /// Trillium will additionally panic, surfacing the bug loudly. When `false`, the skip is only
@@ -309,28 +283,31 @@ pub struct HttpConfig {
     pub(crate) panic_on_invalid_response_headers: bool,
 }
 
+const KB: u32 = 1024;
+const MB: u32 = 1024 * KB;
+
 impl HttpConfig {
     /// Default Config
     pub const DEFAULT: Self = HttpConfig {
         response_buffer_len: 512,
-        response_buffer_max_len: 2 * 1024 * 1024,
+        response_buffer_max_len: 2 * MB as usize,
         request_buffer_initial_len: 128,
-        head_max_len: 8 * 1024,
+        head_max_len: 8 * KB as usize,
         response_header_initial_capacity: 16,
         copy_loops_per_yield: 16,
-        received_body_max_len: 10 * 1024 * 1024,
+        received_body_max_len: 10 * MB as u64,
         received_body_initial_len: 128,
-        received_body_max_preallocate: 1024 * 1024,
-        max_header_list_size: 32 * 1024,
-        dynamic_table_capacity: 4096,
+        received_body_max_preallocate: MB as usize,
+        max_header_list_size: 32 * KB as u64,
+        dynamic_table_capacity: 4 * KB as usize,
         h3_blocked_streams: 100,
         recent_pairs_size: 64,
         h3_datagrams_enabled: false,
-        h2_initial_stream_window_size: 0,
-        h2_max_stream_recv_window_size: 1 << 20,
-        h2_initial_connection_window_size: 2 << 20,
+        h2_initial_stream_window_size: 256 * KB,
+        h2_max_stream_recv_window_size: MB,
+        h2_initial_connection_window_size: 2 * MB,
         h2_max_concurrent_streams: 100,
-        h2_max_frame_size: 16_384,
+        h2_max_frame_size: 16 * KB,
         webtransport_enabled: false,
         extended_connect_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),

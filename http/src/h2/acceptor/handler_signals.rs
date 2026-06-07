@@ -4,7 +4,7 @@
 //! operation; the driver's [`service_handler_signals`][H2Driver::service_handler_signals] tick
 //! consults the mailbox per stream, so idle streams cost a single atomic RMW per tick.
 
-use super::{H2Driver, Role, StreamEntry, send::SendCursor};
+use super::{H2Driver, Role, StreamEntry, inflow::Inflow, send::SendCursor};
 use crate::h2::transport::StreamState;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::sync::{Arc, atomic::Ordering};
@@ -36,27 +36,36 @@ where
         let mut stream_updates: Vec<(u32, u32)> = Vec::new();
         let mut connection_credit: u64 = 0;
         let mut releases: Vec<u32> = Vec::new();
-        let max_stream_recv_window = self.config.max_stream_recv_window_size();
+        let read_target = i64::from(self.config.max_stream_recv_window_size());
 
         for (&id, entry) in &mut self.streams {
             if !entry.shared.needs_servicing.swap(false, Ordering::AcqRel) {
                 continue;
             }
 
-            // Recv-side flow control. `is_reading` and `bytes_consumed` track the handler's read
-            // cadence on a normal request body. First credit: peer hasn't been credited any recv
-            // window yet and the handler signaled it's reading.
-            if entry.peer_recv_window <= 0 && entry.shared.recv.is_reading.load(Ordering::Acquire) {
-                stream_updates.push((id, max_stream_recv_window));
-                entry.peer_recv_window += i64::from(max_stream_recv_window);
+            // Lazy two-tier promotion: once the handler signals it intends to read the body, grow
+            // the stream window from the advertised initial to the read-target in one immediate
+            // WINDOW_UPDATE. A stream whose handler never reads stays at the modest initial —
+            // recv-side prioritization toward the streams the application actually cares about.
+            if entry.shared.recv.is_reading.load(Ordering::Acquire) {
+                let increment = entry.stream_inflow.raise_target(read_target);
+                if increment > 0 {
+                    stream_updates.push((id, u32::try_from(increment).unwrap_or(u32::MAX)));
+                }
             }
 
+            // Refill as the handler drains: re-grant consumed bytes up to target, batched by the
+            // `Inflow` hysteresis so a chunk-by-chunk reader doesn't trigger a WINDOW_UPDATE per
+            // read.
             let consumed = entry.shared.recv.bytes_consumed.swap(0, Ordering::AcqRel);
             if consumed > 0 {
-                let credit = u32::try_from(consumed).unwrap_or(u32::MAX);
-                stream_updates.push((id, credit));
-                entry.peer_recv_window += i64::from(credit);
-                connection_credit = connection_credit.saturating_add(u64::from(credit));
+                let increment = entry
+                    .stream_inflow
+                    .add(i64::try_from(consumed).unwrap_or(i64::MAX));
+                if increment > 0 {
+                    stream_updates.push((id, u32::try_from(increment).unwrap_or(u32::MAX)));
+                }
+                connection_credit = connection_credit.saturating_add(consumed);
             }
 
             // Drain staged outbound parts into the driver-private cursor.
@@ -85,9 +94,12 @@ where
             self.queue_window_update(stream_id, increment);
         }
         if connection_credit > 0 {
-            let credit = u32::try_from(connection_credit).unwrap_or(u32::MAX);
-            self.queue_window_update(0, credit);
-            self.connection_recv_window += i64::from(credit);
+            let increment = self
+                .connection_inflow
+                .add(i64::try_from(connection_credit).unwrap_or(i64::MAX));
+            if increment > 0 {
+                self.queue_window_update(0, u32::try_from(increment).unwrap_or(u32::MAX));
+            }
         }
         for stream_id in releases {
             log::trace!("h2 stream {stream_id}: application released held stream — removing");
@@ -139,12 +151,12 @@ where
                 .current_peer_settings()
                 .effective_initial_window_size(),
         );
-        let peer_recv_window = i64::from(self.config.initial_stream_window_size());
+        let stream_inflow = Inflow::new(i64::from(self.config.initial_stream_window_size()));
         for (id, shared) in new_streams {
             log::trace!("h2 client: driver picked up new client-opened stream {id}");
             self.streams.insert(
                 id,
-                StreamEntry::new(shared, send_window, peer_recv_window, None),
+                StreamEntry::new(shared, send_window, stream_inflow, None),
             );
         }
     }

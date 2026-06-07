@@ -36,6 +36,7 @@
 mod closed_streams;
 mod constants;
 mod handler_signals;
+mod inflow;
 mod outbound;
 mod recv;
 mod send;
@@ -56,6 +57,7 @@ use constants::{
     INITIAL_CONNECTION_RECV_WINDOW, MAX_BUFFER_SIZE, MAX_DATA_CHUNK_SIZE, MAX_FLOW_CONTROL_WINDOW,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
+use inflow::Inflow;
 use recv::PendingHeaders;
 use std::{
     collections::BTreeMap,
@@ -165,14 +167,12 @@ pub struct H2Driver<T> {
     /// connection-level `FLOW_CONTROL_ERROR`.
     connection_send_window: i64,
 
-    /// Connection-level recv flow-control window. Starts at the spec's baseline of 65535
-    /// octets and is raised to the configured `h2_initial_connection_window_size` via an
-    /// initial `WINDOW_UPDATE(0)` right after SETTINGS — the spec forbids SETTINGS from altering
-    /// it, so WU is the only path. Decremented as peer DATA frames arrive (across all
-    /// streams); incremented as the handler-task-side consumption signal is picked up and
-    /// we emit `WINDOW_UPDATE(0, consumed)`. A negative value means the peer overran the
-    /// window — connection-level `FLOW_CONTROL_ERROR`.
-    connection_recv_window: i64,
+    /// Connection-level receive flow-control window. Starts at the spec's 65535-octet baseline
+    /// (the spec forbids SETTINGS from altering it) and is promoted to the configured
+    /// `h2_initial_connection_window_size` via an initial `WINDOW_UPDATE(0)` right after SETTINGS,
+    /// then topped up as handlers drain across all streams. See [`Inflow`]. A peer that sends past
+    /// the granted window earns a connection-level `FLOW_CONTROL_ERROR`.
+    connection_inflow: Inflow,
 
     /// Bounded ledger of recently-closed streams and why they closed. Consulted by
     /// [`recv::H2Driver::finalize_headers`] when a HEADERS frame arrives on an id ≤
@@ -226,7 +226,7 @@ where
             body_scratch: vec![0u8; MAX_DATA_CHUNK_SIZE as usize],
             headers_scratch: Vec::new(),
             connection_send_window: INITIAL_CONNECTION_RECV_WINDOW,
-            connection_recv_window: INITIAL_CONNECTION_RECV_WINDOW,
+            connection_inflow: Inflow::new(INITIAL_CONNECTION_RECV_WINDOW),
             closed_streams: ClosedStreams::default(),
             config,
         }
@@ -380,12 +380,11 @@ where
                     // flow-control window — it stays at the 65535 baseline unless we raise
                     // it via `WINDOW_UPDATE(0)`. Do that immediately after SETTINGS so peer
                     // bulk uploads aren't capped at ~5 Mbit/s × RTT.
-                    let raise = i64::from(self.config.initial_connection_window_size())
-                        - INITIAL_CONNECTION_RECV_WINDOW;
+                    let raise = self
+                        .connection_inflow
+                        .raise_target(i64::from(self.config.initial_connection_window_size()));
                     if raise > 0 {
-                        let raise = u32::try_from(raise).unwrap_or(u32::MAX);
-                        self.queue_window_update(0, raise);
-                        self.connection_recv_window += i64::from(raise);
+                        self.queue_window_update(0, u32::try_from(raise).unwrap_or(u32::MAX));
                     }
                     self.set_state(DriverState::Running, "initial SETTINGS queued");
                 }
