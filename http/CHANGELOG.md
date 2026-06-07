@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-06-06
+
+The theme of this release is improved HTTP/2 flow control, informed by in-the-wild peer behavior.
+
+### Changed
+
+- The default HTTP/2 initial stream receive window (`HttpConfig::h2_initial_stream_window_size`) is
+  now 256 KiB, up from 0. A server accepts a request body up to this size on a newly-opened stream
+  before the handler starts reading it; the previous default of 0 required the client to wait for
+  the server to begin reading, which some peers never did, hanging the request. The window grows
+  to `h2_max_stream_recv_window_size` once the handler reads the body.
+- HTTP/2 receive flow control is now enforced strictly: a client that sends more request-body data
+  than the window it was granted is disconnected with a `FLOW_CONTROL_ERROR` (previously such
+  overruns were tolerated). If `h2_max_stream_recv_window_size` is configured below
+  `h2_initial_stream_window_size` it is raised to match it, with a warning logged.
+
 ## [1.4.0] - 2026-06-05
 
 The theme of this release is protocol correctness / conformance, with a focus on http/1.x.

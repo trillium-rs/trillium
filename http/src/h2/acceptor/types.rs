@@ -3,7 +3,8 @@
 use crate::{
     Conn, HttpConfig,
     h2::{
-        H2Driver, H2Error, H2ErrorCode, H2Transport, acceptor::send::SendCursor,
+        H2Driver, H2Error, H2ErrorCode, H2Transport,
+        acceptor::{inflow::Inflow, send::SendCursor},
         transport::StreamState,
     },
 };
@@ -33,9 +34,19 @@ pub(in crate::h2) struct AcceptorConfig {
 
 impl AcceptorConfig {
     pub(super) fn from_http_config(config: &HttpConfig) -> Self {
+        let initial_stream_window_size = config.h2_initial_stream_window_size();
+        let configured_max = config.h2_max_stream_recv_window_size();
+        // The post-read window target must be at least the advertised initial: a smaller `max`
+        // would leave the stream stuck above its own "max" (promotion via `Inflow::raise_target`
+        // can only grow the window, never shrink it). Coerce it up and warn once so the
+        // misconfiguration is visible without spamming the log on every connection.
+        let max_stream_recv_window_size = configured_max.max(initial_stream_window_size);
+        if max_stream_recv_window_size != configured_max {
+            warn_misordered_stream_window_config(initial_stream_window_size, configured_max);
+        }
         Self {
-            initial_stream_window_size: config.h2_initial_stream_window_size(),
-            max_stream_recv_window_size: config.h2_max_stream_recv_window_size(),
+            initial_stream_window_size,
+            max_stream_recv_window_size,
             initial_connection_window_size: config.h2_initial_connection_window_size(),
             max_concurrent_streams: config.h2_max_concurrent_streams(),
             max_frame_size: config.h2_max_frame_size(),
@@ -43,6 +54,21 @@ impl AcceptorConfig {
             copy_loops_per_yield: config.copy_loops_per_yield(),
             hpack_table_capacity: config.dynamic_table_capacity(),
         }
+    }
+}
+
+/// Warn (at most once per process) that `h2_max_stream_recv_window_size` was configured below
+/// `h2_initial_stream_window_size` and has been clamped up to it. Best-effort once — a second
+/// differently-misconfigured `HttpConfig` won't re-warn — which is fine for a setup-time hint.
+fn warn_misordered_stream_window_config(initial: u32, configured_max: u32) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    if !WARNED.swap(true, Ordering::Relaxed) {
+        log::warn!(
+            "h2_max_stream_recv_window_size ({configured_max}) is below \
+             h2_initial_stream_window_size ({initial}); clamping the per-stream recv window up to \
+             the initial. Set max >= initial to silence this."
+        );
     }
 }
 
@@ -116,14 +142,12 @@ pub(super) struct StreamEntry {
     /// [`MAX_FLOW_CONTROL_WINDOW`] is a stream-level `FLOW_CONTROL_ERROR` (→ `RST_STREAM`).
     pub(super) send_window: i64,
 
-    /// Per-stream recv flow-control window — how many bytes we've told the peer it may
-    /// still send on this stream. Starts at the server's advertised
-    /// `SETTINGS_INITIAL_WINDOW_SIZE` (0 in the lazy-WU pattern we use); decremented as
-    /// the peer's DATA frames arrive; incremented as we emit stream-level `WINDOW_UPDATE`
-    /// (both the initial raise on the handler's `is_reading` signal and every subsequent
-    /// refill crediting bytes the handler has consumed). A negative value means the peer
-    /// overran the window — connection-level `FLOW_CONTROL_ERROR`.
-    pub(super) peer_recv_window: i64,
+    /// Per-stream receive flow-control window (RFC 9113 §6.9). Seeded at the advertised
+    /// `SETTINGS_INITIAL_WINDOW_SIZE`; promoted to `h2_max_stream_recv_window_size` once the
+    /// handler signals it intends to read the body (`is_reading`), then topped up as the handler
+    /// drains. See [`Inflow`] for the accounting model. A peer that sends past the granted window
+    /// earns a connection-level `FLOW_CONTROL_ERROR`.
+    pub(super) stream_inflow: Inflow,
 
     /// Declared request-body length from the `content-length` request header, if present and
     /// parseable. The driver tallies inbound DATA octets against this to enforce RFC 9113
@@ -140,14 +164,14 @@ impl StreamEntry {
     pub(super) fn new(
         shared: Arc<StreamState>,
         send_window: i64,
-        peer_recv_window: i64,
+        stream_inflow: Inflow,
         expected_content_length: Option<u64>,
     ) -> Self {
         Self {
             shared,
             send: None,
             send_window,
-            peer_recv_window,
+            stream_inflow,
             expected_content_length,
             received_body_len: 0,
         }

@@ -16,7 +16,9 @@ use crate::{
     Conn, Status,
     h2::{
         H2Error, H2ErrorCode,
-        acceptor::{Action, CloseOutcome, H2Driver, Role, StreamEntry, frame_slice},
+        acceptor::{
+            Action, CloseOutcome, H2Driver, Role, StreamEntry, frame_slice, inflow::Inflow,
+        },
         frame::FRAME_HEADER_LEN,
         stream_state::StreamEvent,
         transport::{H2Transport, StreamState},
@@ -397,11 +399,10 @@ where
                 .current_peer_settings()
                 .effective_initial_window_size(),
         );
-        // Peer's recv window seed = what we advertised in SETTINGS_INITIAL_WINDOW_SIZE.
-        // Default is 0 (lazy-WU pattern) — the peer cannot send body bytes until the
-        // handler calls `H2Transport::poll_read` and the driver observes `is_reading` on
-        // a subsequent tick. Configurable via `HttpConfig::h2_initial_stream_window_size`.
-        let peer_recv_window = i64::from(self.config.initial_stream_window_size());
+        // Seed the recv window at what we advertised in SETTINGS_INITIAL_WINDOW_SIZE
+        // (`HttpConfig::h2_initial_stream_window_size`). The lazy two-tier promotion to the larger
+        // read-target happens in `service_handler_signals` once the handler signals `is_reading`.
+        let stream_inflow = Inflow::new(i64::from(self.config.initial_stream_window_size()));
         // Declared body length, for the content-length / DATA-length cross-check in
         // `route_data`. A malformed value reads as "no declared length" here; the conn task's
         // `ValidatedRequest` rejects it independently, resetting the stream before any DATA flows.
@@ -414,7 +415,7 @@ where
             StreamEntry::new(
                 state.clone(),
                 send_window,
-                peer_recv_window,
+                stream_inflow,
                 expected_content_length,
             ),
         );
