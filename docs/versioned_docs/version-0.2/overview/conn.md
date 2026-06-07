@@ -12,7 +12,7 @@ request-response cycle.
 > `TcpStream` that represents the connection with the http client, and
 > dropping a `Conn` will also disconnect the client as a result.
 
-The [rustdocs for Conn](https://docs.trillium.rs/trillium/struct.conn)
+The [rustdocs for Conn](https://docs.trillium.rs/trillium/struct.Conn)
 contain the full details for all of the things you can do with a conn.
 
 ## Returning Conn
@@ -51,7 +51,7 @@ store types that you define in state.
 > 🌊 Comparison with Tide: Tide has three different types of state:
 > Server state, request state, and response state. In Trillium, server
 > state is achieved using the
-> [`trillium::State`](https://docs.trillium.rs/trillium/struct.state)
+> [`trillium::State`](https://docs.trillium.rs/trillium/struct.State)
 > handler, which holds any type that is Clone and puts a clone of it
 > into the state of each Conn that passes through the handler.
 

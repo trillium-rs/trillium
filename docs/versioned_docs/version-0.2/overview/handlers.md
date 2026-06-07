@@ -41,7 +41,7 @@ will always send a `200 Ok` http status with the specified body of
 Trillium offers only one handler in the main `trillium` crate: The
 State handler, which places a clone of any type you provide into the
 state set of each conn that passes through it. See the
-[rustdocs for State](https://docs.trillium.rs/trillium/struct.state)
+[rustdocs for State](https://docs.trillium.rs/trillium/struct.State)
 for example usage.
 
 ## Tuple Handlers
@@ -84,7 +84,7 @@ request to http://localhost:8000, we'll see log output on stdout.
 ## Implementing Handler
 
 The [rustdocs for
-Handler](https://docs.trillium.rs/trillium/trait.handler) contains the
+Handler](https://docs.trillium.rs/trillium/trait.Handler) contains the
 full details of the Handler interface for library authors. For many
 applications, it will not be necessary to use anything other than an
 async function or closure, but Handler can contain its own state and be

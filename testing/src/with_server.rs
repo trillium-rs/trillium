@@ -10,7 +10,7 @@ use url::Url;
 /// integration tests that actually exercise the tcp layer.
 ///
 /// See
-/// [`trillium_client::Conn`](https://docs.trillium.rs/trillium_client/struct.conn)
+/// [`trillium_client::Conn`](https://docs.trillium.rs/trillium_client/struct.Conn)
 /// for usage examples.
 pub fn with_server<H, Fun, Fut>(handler: H, tests: Fun)
 where

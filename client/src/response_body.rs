@@ -310,7 +310,7 @@ impl ResponseBody<'_> {
     /// `AsyncRead`.
     ///
     /// The default value can be found documented [in the trillium-http
-    /// crate](https://docs.trillium.rs/trillium_http/struct.httpconfig#received_body_max_len)
+    /// crate](https://docs.trillium.rs/trillium_http/struct.HttpConfig#method.received_body_max_len)
     #[must_use]
     pub fn with_max_len(mut self, max_len: u64) -> Self {
         self.set_max_len(max_len);
@@ -325,7 +325,7 @@ impl ResponseBody<'_> {
     /// `AsyncRead`.
     ///
     /// The default value can be found documented [in the trillium-http
-    /// crate](https://docs.trillium.rs/trillium_http/struct.httpconfig#received_body_max_len)
+    /// crate](https://docs.trillium.rs/trillium_http/struct.HttpConfig#method.received_body_max_len)
     pub fn set_max_len(&mut self, max_len: u64) -> &mut Self {
         match &mut self.inner {
             ResponseBodyInner::Received(rb) => {
