@@ -87,7 +87,7 @@ Tuples are used here (rather than `Vec`) because Rust vectors are type-homogeneo
 
 ## Implementing Handler
 
-The `Handler` trait provides several lifecycle hooks beyond `run` — notably `init` (called once at startup) and `upgrade` (for WebSocket/WebTransport upgrades). For most applications, async functions and closures are sufficient. The [rustdocs for Handler](https://docs.trillium.rs/trillium/trait.handler) cover the full interface for library authors.
+The `Handler` trait provides several lifecycle hooks beyond `run` — notably `init` (called once at startup) and `upgrade` (for WebSocket/WebTransport upgrades). For most applications, async functions and closures are sufficient. The [rustdocs for Handler](https://docs.trillium.rs/trillium/trait.Handler) cover the full interface for library authors.
 
 ## Built-in implementations
 
