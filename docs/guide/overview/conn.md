@@ -4,7 +4,7 @@
 
 > 🧑‍🎓 The name "Conn" is borrowed from Elixir's [Plug](https://github.com/elixir-plug/plug) and [Phoenix](https://www.phoenixframework.org/). Like those, it carries the full lifecycle of one request through the handler chain. Unlike them, a Trillium `Conn` owns the transport (TCP socket, TLS stream, or QUIC stream) directly.
 
-The [rustdocs for Conn](https://docs.trillium.rs/trillium/struct.conn) cover every method. Here are the concepts you'll use most.
+The [rustdocs for Conn](https://docs.trillium.rs/trillium/struct.Conn) cover every method. Here are the concepts you'll use most.
 
 ## Building a response
 

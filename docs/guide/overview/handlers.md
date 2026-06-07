@@ -56,7 +56,7 @@ This handler responds to any request regardless of path, always with status 200.
 
 The `trillium` crate exports one handler: `State<T>`, which clones a value into the state set of each `Conn` that passes through it. This is how shared resources (database pools, configuration, broadcast senders) are made available to downstream handlers.
 
-See the [rustdocs for State](https://docs.trillium.rs/trillium/struct.state) for usage.
+See the [rustdocs for State](https://docs.trillium.rs/trillium/struct.State) for usage.
 
 ## Tuple handlers
 
