@@ -1,7 +1,6 @@
 [package]
 name = "trillium-websockets"
-version = "0.8.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.8.1"
 edition = "2024"
 description = "websocket support for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -12,6 +11,9 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [package.metadata.docs.rs]
 features = ["json"]
+
+[package.metadata.cargo-udeps.ignore]
+development = ["trillium-testing"]
 
 [features]
 default = []
@@ -44,5 +46,3 @@ trillium-websockets = { features = ["json"], path = "." }
 trillium-logger = { path = "../logger" }
 env_logger = "0.11.10"
 
-[package.metadata.cargo-udeps.ignore]
-development = ["trillium-testing"]
