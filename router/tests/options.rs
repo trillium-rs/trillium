@@ -13,7 +13,7 @@ async fn options_star_with_a_star_handler() {
 
     app.build(Method::Options, "*")
         .await
-        .assert_status(200)
+        .assert_status(204)
         .assert_header("allow", "GET, POST");
 }
 
@@ -29,17 +29,17 @@ async fn options_specific_route_with_several_matching_methods() {
 
     app.build(Method::Options, "/some/specific/route")
         .await
-        .assert_status(200)
+        .assert_status(204)
         .assert_header("allow", "DELETE, GET, POST");
 
     app.build(Method::Options, "/some/specific/other")
         .await
-        .assert_status(200)
+        .assert_status(204)
         .assert_header("allow", "DELETE, GET");
 
     app.build(Method::Options, "/only-get")
         .await
-        .assert_status(200)
+        .assert_status(204)
         .assert_header("allow", "GET");
 }
 
@@ -54,7 +54,7 @@ async fn options_specific_route_with_no_matching_routes() {
 
     app.build(Method::Options, "/other")
         .await
-        .assert_status(200)
+        .assert_status(204)
         .assert_header("allow", "");
 }
 
@@ -65,7 +65,7 @@ async fn options_any() {
 
     app.build(Method::Options, "*")
         .await
-        .assert_status(200)
+        .assert_status(204)
         .assert_header("allow", "DELETE, GET, PATCH");
 }
 
@@ -86,11 +86,11 @@ async fn nested_router() {
 
     app.build(Method::Options, "/nested/here")
         .await
-        .assert_status(200)
+        .assert_status(204)
         .assert_header("allow", "GET, POST");
 
     app.build(Method::Options, "*")
         .await
-        .assert_status(200)
+        .assert_status(204)
         .assert_header("allow", "DELETE, GET, PATCH, POST, PUT");
 }

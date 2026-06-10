@@ -539,7 +539,7 @@ impl Handler for Router {
                 .join(", ");
 
             conn.with_response_header(KnownHeaderName::Allow, allow)
-                .with_status(200)
+                .with_status(204)
                 .halt()
         } else if let Some(allow) = self
             .handle_method_not_allowed
