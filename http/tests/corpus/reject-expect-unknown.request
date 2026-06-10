@@ -1,0 +1,4 @@
+GET / HTTP/1.1\r\n
+Host: example.com\r\n
+Expect: 200-ok\r\n
+\r\n

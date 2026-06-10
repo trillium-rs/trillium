@@ -2,9 +2,9 @@ use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
     Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version,
     after_send::AfterSend,
-    conn::ReceivedBodyState,
+    conn::{ReceivedBodyState, shared::authority_matches_host},
     headers::date::current_date_header,
-    util::{encoding, is_tchar},
+    util::encoding,
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use memchr::memmem::Finder;
@@ -187,9 +187,19 @@ where
 
         crate::util::validate_content_length(content_length)?;
 
-        // An HTTP/1.1 request must carry exactly one Host (CONNECT carries its authority in the
-        // request target instead), and a present Host must be a bare host[:port] — no userinfo
-        // (`@`), path (`/`), comma-list, empty value, or whitespace.
+        if let Some(expect) = request_headers.get_values(KnownHeaderName::Expect) {
+            let all_continue = expect.iter().all(|value| {
+                value.as_str().is_some_and(|value| {
+                    value
+                        .split(',')
+                        .all(|token| token.trim().eq_ignore_ascii_case("100-continue"))
+                })
+            });
+            if !all_continue {
+                return Err(Error::ExpectationFailed);
+            }
+        }
+
         match request_headers.get_values(KnownHeaderName::Host) {
             None => {
                 if version == Version::Http1_1 && method != Method::Connect {
@@ -215,17 +225,17 @@ where
     /// Validate the request target. The asterisk-form (`*`) is only valid for `OPTIONS`. When
     /// absolute-form supplied an authority, it must agree with the `Host` header.
     fn validate_request_target(&self) -> Result<()> {
-        use super::shared::authority_matches_host;
-
-        // By this point the only well-formed targets are origin-form (path starts with `/`;
-        // absolute-form was reconstructed to it in `parse_head`), asterisk-form (`*`, OPTIONS
-        // only), and authority-form (CONNECT, whose path was set to `/`). Anything else — a
-        // rootless relative target like `foo` — is malformed.
         if &*self.path == "*" {
             if self.method != Method::Options {
                 return Err(Error::InvalidHead);
             }
-        } else if self.method != Method::Connect && !self.path.starts_with('/') {
+        } else if self.method == Method::Connect {
+            // authority-form; path was normalized to `/` in parse_head — nothing to validate here.
+        } else if self.path.starts_with('/') {
+            if self.path.contains(['#', '\\']) {
+                return Err(Error::InvalidHead);
+            }
+        } else {
             return Err(Error::InvalidHead);
         }
 
@@ -253,11 +263,6 @@ where
             .find(&buffer)
             .ok_or(HeadError::Fatal(Error::InvalidHead))?;
 
-        // `head()` has already required a CRLF-terminated head, so binary garbage (TLS, etc.) never
-        // reaches here. A line we still can't tokenize into `method SP target SP version` isn't
-        // recognizably a request-line and is closed (Fatal); a tokenizable line always yields a
-        // `RequestLine`, with any component-level violation carried in `error` to answer with an
-        // error-appropriate status rather than closing.
         let RequestLine {
             method,
             path,
@@ -265,7 +270,7 @@ where
             scheme,
             version,
             error: mut first_error,
-        } = RequestLine::parse(&buffer[..first_line_index]).map_err(HeadError::Fatal)?;
+        } = RequestLine::parse(&buffer[..first_line_index]);
 
         let mut request_headers = Headers::new();
         if let Err(e) = request_headers.extend_parse(&buffer[first_line_index + 2..head_size]) {
@@ -341,25 +346,31 @@ where
         buf: &mut Buffer,
         context: &HttpContext,
     ) -> Result<(usize, Instant)> {
-        let mut len = 0;
+        // `total` is the active byte count; `scanned` is how much of it the finder has already
+        // covered, so each read only rescans the 3-byte tail overlap plus the new bytes.
+        let mut total = 0;
+        let mut scanned = 0;
         let mut start_with_read = buf.is_empty();
         let mut instant = None;
+        // Leading empty lines discarded before the request-line (RFC 9112 §2.2). Counted against
+        // head_max_len so a peer streaming bare CRLFs hits the limit rather than looping forever.
+        let mut leading_skipped = 0;
         let finder = Finder::new(b"\r\n\r\n");
         loop {
-            if len >= context.config.head_max_len {
+            if total + leading_skipped >= context.config.head_max_len {
                 return Err(Error::HeadersTooLong);
             }
 
             let bytes = if start_with_read {
                 buf.expand();
-                if len == 0 {
+                if total == 0 {
                     context
                         .swansong
                         .interrupt(transport.read(buf))
                         .await
                         .ok_or(Error::Closed)??
                 } else {
-                    transport.read(&mut buf[len..]).await?
+                    transport.read(&mut buf[total..]).await?
                 }
             } else {
                 start_with_read = true;
@@ -370,23 +381,29 @@ where
                 instant = Some(Instant::now());
             }
 
-            let search_start = len.max(3) - 3;
-            let search = finder.find(&buf[search_start..]);
-
-            if let Some(index) = search {
-                buf.truncate(len + bytes);
-                return Ok((search_start + index + 4, instant.unwrap()));
-            }
-
-            len += bytes;
-
             if bytes == 0 {
-                return if len == 0 {
+                return if total == 0 {
                     Err(Error::Closed)
                 } else {
                     Err(Error::InvalidHead)
                 };
             }
+
+            total += bytes;
+
+            while buf[..total].starts_with(b"\r\n") {
+                buf.ignore_front(2);
+                total -= 2;
+                scanned = 0;
+                leading_skipped += 2;
+            }
+
+            let search_start = scanned.max(3) - 3;
+            if let Some(index) = finder.find(&buf[search_start..total]) {
+                buf.truncate(total);
+                return Ok((search_start + index + 4, instant.unwrap()));
+            }
+            scanned = total;
         }
     }
 
@@ -544,35 +561,22 @@ struct RequestLine {
 }
 
 impl RequestLine {
-    /// Parse the request-line bytes (everything before the first CRLF). Returns `Err` only when the
-    /// line can't be tokenized into `method SP target SP version` — an unrecognizable line the
-    /// caller closes. A tokenizable line always returns `Ok`, with any malformed component
-    /// defaulted and recorded in `error`.
-    fn parse(first_line: &[u8]) -> Result<Self> {
+    fn parse(first_line: &[u8]) -> Self {
         let mut spaces = memchr::memchr_iter(b' ', first_line);
-        let first_space = spaces.next().ok_or(Error::MissingMethod)?;
-        let second_space = spaces.next().ok_or(Error::RequestPathMissing)?;
+        let Some(first_space) = spaces.next() else {
+            return Self::malformed(Error::MissingMethod);
+        };
+        let Some(second_space) = spaces.next() else {
+            return Self::malformed(Error::RequestPathMissing);
+        };
 
         let mut error: Option<Error> = None;
 
-        // The method token is case-sensitive. `Method::parse` is lenient (it also
-        // backs the h2/h3 `:method` pseudo), so a well-formed but unknown or non-canonically-cased
-        // method is unimplemented (→ 501). A method that isn't a valid `token` at all — empty, or
-        // carrying a non-tchar octet — is a malformed request-line (→ 400), not an unimplemented
-        // method.
         let method_bytes = &first_line[..first_space];
         let method = match Method::parse(method_bytes) {
-            Ok(method) if method.as_str().as_bytes() == method_bytes => method,
-            _ => {
-                error = Some(
-                    if !method_bytes.is_empty() && method_bytes.iter().all(|&b| is_tchar(b)) {
-                        Error::UnrecognizedMethod(
-                            String::from_utf8_lossy(method_bytes).into_owned(),
-                        )
-                    } else {
-                        Error::InvalidHead
-                    },
-                );
+            Ok(method) => method,
+            Err(e) => {
+                error = Some(e);
                 Method::Get
             }
         };
@@ -588,14 +592,11 @@ impl RequestLine {
         let target = &first_line[first_space + 1..second_space];
         let mut authority = None;
         let mut scheme = None;
-        // A request target is a URI, defined over a limited ASCII set: only printable
-        // ASCII (0x21..=0x7e). This rejects controls, space, DEL, and raw non-ASCII (which must be
-        // percent-encoded); we don't do full URI-grammar validation beyond that.
+
         let path = if target.is_empty() || target.iter().any(|&b| !(0x21..=0x7e).contains(&b)) {
             error.get_or_insert(Error::InvalidHead);
             Cow::Borrowed("/")
         } else {
-            // every byte is printable ASCII, so this conversion cannot fail
             let target = std::str::from_utf8(target).unwrap_or("/");
             if method == Method::Connect {
                 authority = Some(Cow::Owned(target.to_string()));
@@ -607,27 +608,33 @@ impl RequestLine {
             } else if let Some((parsed_scheme, parsed_authority, parsed_path)) =
                 split_absolute_form(target)
             {
-                // Absolute-form: split scheme/authority off and reconstruct
-                // origin-form so routing sees the same path it would for origin-form, mirroring how
-                // h2/h3 carry `:scheme`/`:authority`/`:path`.
                 scheme = Some(Cow::Owned(parsed_scheme));
                 authority = Some(Cow::Owned(parsed_authority));
                 Cow::Owned(parsed_path)
             } else {
-                // A non-origin, non-asterisk, non-absolute target — rootless and malformed. Carried
-                // as-is and rejected by `validate_request_target`.
                 Cow::Owned(target.to_string())
             }
         };
 
-        Ok(Self {
+        Self {
             method,
             path,
             authority,
             scheme,
             version,
             error,
-        })
+        }
+    }
+
+    fn malformed(error: Error) -> Self {
+        Self {
+            method: Method::Get,
+            path: Cow::Borrowed("/"),
+            authority: None,
+            scheme: None,
+            version: Version::Http1_1,
+            error: Some(error),
+        }
     }
 }
 
@@ -635,6 +642,7 @@ impl RequestLine {
 fn status_for_error(error: &Error) -> Status {
     match error {
         Error::UnrecognizedMethod(_) => Status::NotImplemented,
+        Error::ExpectationFailed => Status::ExpectationFailed,
         _ => Status::BadRequest,
     }
 }
