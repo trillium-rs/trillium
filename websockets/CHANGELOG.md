@@ -4,10 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-06-10
+
+### Fixed
+- A WebSocket handshake carrying a `Sec-WebSocket-Version` other than `13` is now rejected with `426
+  Upgrade Required`
+- A WebSocket handshake is now only recognized for `GET` requests over HTTP/1.1.
+- A WebSocket handshake over HTTP/1.0 is not accepted.
+
 ## [0.8.0] - 2026-05-05
 
 ### Added
-- WebSockets over HTTP/2 (RFC 8441) — handled transparently when the request arrives via h2 with extended CONNECT. `WebSocketHandler::init` checks that the peer advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL` and turns the handler into a no-op for that connection if not.
+- WebSockets over HTTP/2 (RFC 8441) — handled transparently when the request arrives via h2 with
+  extended CONNECT. `WebSocketHandler::init` checks that the peer advertised
+  `SETTINGS_ENABLE_CONNECT_PROTOCOL` and turns the handler into a no-op for that connection if not.
 
 ## [0.7.0] - 2026-05-02
 

@@ -157,6 +157,10 @@ where
             }
         }
 
+        if !supported_websocket_version(&conn) {
+            return reject_unsupported_version(conn);
+        }
+
         let websocket_peer_ip = WebsocketPeerIp(conn.peer_ip());
 
         let Some(sec_websocket_key) = conn.request_headers().get_str(SecWebsocketKey) else {
@@ -246,6 +250,10 @@ where
             // bidirectional byte channel carrying WebSocket frames.
             Version::Http2 | Version::Http3 => {
                 if extended_connect_websocket_request(&conn) {
+                    if !supported_websocket_version(&conn) {
+                        return reject_unsupported_version(conn);
+                    }
+
                     let websocket_peer_ip = WebsocketPeerIp(conn.peer_ip());
                     let protocol = websocket_protocol(&conn, &self.protocols);
 
@@ -358,8 +366,21 @@ fn upgrade_to_websocket(conn: &Conn) -> bool {
         .eq_ignore_ascii_case(UpgradeHeader, "websocket")
 }
 
+fn supported_websocket_version(conn: &Conn) -> bool {
+    conn.request_headers().get_str(SecWebsocketVersion) == Some("13")
+}
+
+fn reject_unsupported_version(conn: Conn) -> Conn {
+    conn.with_status(Status::UpgradeRequired)
+        .with_response_header(SecWebsocketVersion, "13")
+        .halt()
+}
+
 fn upgrade_requested(conn: &Conn) -> bool {
-    connection_is_upgrade(conn) && upgrade_to_websocket(conn)
+    conn.method() == Method::Get
+        && conn.http_version() == Version::Http1_1
+        && connection_is_upgrade(conn)
+        && upgrade_to_websocket(conn)
 }
 
 /// Detect a WebSocket bootstrap over extended CONNECT (RFC 8441 for h2, RFC 9220 for h3).
