@@ -4,7 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.1] - 2026-06-06
+## [1.3.7] - 2026-06-10
+
+The theme of this release is HTTP/1.x SHOULD-level conformance.
+
+### Changed
+
+- An HTTP/1.x request-line that can't be parsed returns a `400 Bad Request` instead of closing the
+  connection.
+- An HTTP/1.x request-target containing `#` or `\` is now rejected with `400 Bad Request`.
+- Leading empty lines before a HTTP/1.x request-line are now ignored.
+- An HTTP/1.x request carrying an `Expect` field-value other than `100-continue` is now answered
+  with `417 Expectation Failed` rather than silently ignored.
+
+## [1.3.6] - 2026-06-06
 
 The theme of this release is improved HTTP/2 flow control, informed by in-the-wild peer behavior.
 
@@ -20,7 +33,7 @@ The theme of this release is improved HTTP/2 flow control, informed by in-the-wi
   overruns were tolerated). If `h2_max_stream_recv_window_size` is configured below
   `h2_initial_stream_window_size` it is raised to match it, with a warning logged.
 
-## [1.4.0] - 2026-06-05
+## [1.3.5] - 2026-06-05
 
 The theme of this release is protocol correctness / conformance, with a focus on http/1.x.
 

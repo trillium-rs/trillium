@@ -1,4 +1,5 @@
 // originally from https://github.com/http-rs/http-types/blob/main/src/method.rs
+use crate::{Error, util::is_tchar};
 use std::{
     fmt::{self, Display},
     str::{self, FromStr},
@@ -434,9 +435,57 @@ impl Method {
     }
 
     pub(crate) fn parse(bytes: &[u8]) -> crate::Result<Self> {
-        str::from_utf8(bytes)
-            .map_err(|_| crate::Error::UnrecognizedMethod(String::from_utf8_lossy(bytes).into()))?
-            .parse()
+        match bytes {
+            b"GET" => Ok(Self::Get),
+            b"OPTIONS" => Ok(Self::Options),
+            b"POST" => Ok(Self::Post),
+            b"PUT" => Ok(Self::Put),
+            b"PATCH" => Ok(Self::Patch),
+            b"DELETE" => Ok(Self::Delete),
+            b"HEAD" => Ok(Self::Head),
+            b"ACL" => Ok(Self::Acl),
+            b"BASELINE-CONTROL" => Ok(Self::BaselineControl),
+            b"BIND" => Ok(Self::Bind),
+            b"CHECKIN" => Ok(Self::Checkin),
+            b"CHECKOUT" => Ok(Self::Checkout),
+            b"CONNECT" => Ok(Self::Connect),
+            b"COPY" => Ok(Self::Copy),
+            b"LABEL" => Ok(Self::Label),
+            b"LINK" => Ok(Self::Link),
+            b"LOCK" => Ok(Self::Lock),
+            b"MERGE" => Ok(Self::Merge),
+            b"MKACTIVITY" => Ok(Self::MkActivity),
+            b"MKCALENDAR" => Ok(Self::MkCalendar),
+            b"MKCOL" => Ok(Self::MkCol),
+            b"MKREDIRECTREF" => Ok(Self::MkRedirectRef),
+            b"MKWORKSPACE" => Ok(Self::MkWorkspace),
+            b"MOVE" => Ok(Self::Move),
+            b"ORDERPATCH" => Ok(Self::OrderPatch),
+            b"PRI" => Ok(Self::Pri),
+            b"PROPFIND" => Ok(Self::PropFind),
+            b"PROPPATCH" => Ok(Self::PropPatch),
+            b"QUERY" => Ok(Self::Query),
+            b"REBIND" => Ok(Self::Rebind),
+            b"REPORT" => Ok(Self::Report),
+            b"SEARCH" => Ok(Self::Search),
+            b"TRACE" => Ok(Self::Trace),
+            b"UNBIND" => Ok(Self::Unbind),
+            b"UNCHECKOUT" => Ok(Self::Uncheckout),
+            b"UNLINK" => Ok(Self::Unlink),
+            b"UNLOCK" => Ok(Self::Unlock),
+            b"UPDATE" => Ok(Self::Update),
+            b"UPDATEREDIRECTREF" => Ok(Self::UpdateRedirectRef),
+            b"VERSION-CONTROL" => Ok(Self::VersionControl),
+            _ => {
+                if !bytes.is_empty() && bytes.iter().all(|&b| is_tchar(b)) {
+                    Err(Error::UnrecognizedMethod(
+                        String::from_utf8_lossy(bytes).into_owned(),
+                    ))
+                } else {
+                    Err(Error::InvalidHead)
+                }
+            }
+        }
     }
 }
 
@@ -447,57 +496,15 @@ impl Display for Method {
 }
 
 impl FromStr for Method {
-    type Err = crate::Error;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match &*s.to_ascii_uppercase() {
-            "GET" => Ok(Self::Get),
-            "OPTIONS" => Ok(Self::Options),
-            "POST" => Ok(Self::Post),
-            "PUT" => Ok(Self::Put),
-            "PATCH" => Ok(Self::Patch),
-            "DELETE" => Ok(Self::Delete),
-            "HEAD" => Ok(Self::Head),
-            "ACL" => Ok(Self::Acl),
-            "BASELINE-CONTROL" => Ok(Self::BaselineControl),
-            "BIND" => Ok(Self::Bind),
-            "CHECKIN" => Ok(Self::Checkin),
-            "CHECKOUT" => Ok(Self::Checkout),
-            "CONNECT" => Ok(Self::Connect),
-            "COPY" => Ok(Self::Copy),
-            "LABEL" => Ok(Self::Label),
-            "LINK" => Ok(Self::Link),
-            "LOCK" => Ok(Self::Lock),
-            "MERGE" => Ok(Self::Merge),
-            "MKACTIVITY" => Ok(Self::MkActivity),
-            "MKCALENDAR" => Ok(Self::MkCalendar),
-            "MKCOL" => Ok(Self::MkCol),
-            "MKREDIRECTREF" => Ok(Self::MkRedirectRef),
-            "MKWORKSPACE" => Ok(Self::MkWorkspace),
-            "MOVE" => Ok(Self::Move),
-            "ORDERPATCH" => Ok(Self::OrderPatch),
-            "PRI" => Ok(Self::Pri),
-            "PROPFIND" => Ok(Self::PropFind),
-            "PROPPATCH" => Ok(Self::PropPatch),
-            "QUERY" => Ok(Self::Query),
-            "REBIND" => Ok(Self::Rebind),
-            "REPORT" => Ok(Self::Report),
-            "SEARCH" => Ok(Self::Search),
-            "TRACE" => Ok(Self::Trace),
-            "UNBIND" => Ok(Self::Unbind),
-            "UNCHECKOUT" => Ok(Self::Uncheckout),
-            "UNLINK" => Ok(Self::Unlink),
-            "UNLOCK" => Ok(Self::Unlock),
-            "UPDATE" => Ok(Self::Update),
-            "UPDATEREDIRECTREF" => Ok(Self::UpdateRedirectRef),
-            "VERSION-CONTROL" => Ok(Self::VersionControl),
-            _ => Err(crate::Error::UnrecognizedMethod(s.to_string())),
-        }
+        Self::parse(s.to_ascii_uppercase().as_bytes())
     }
 }
 
 impl<'a> TryFrom<&'a str> for Method {
-    type Error = crate::Error;
+    type Error = Error;
 
     fn try_from(value: &'a str) -> Result<Self, Self::Error> {
         Self::from_str(value)

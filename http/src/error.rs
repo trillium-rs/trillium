@@ -60,6 +60,10 @@ pub enum Error {
     #[error("Missing method")]
     MissingMethod,
 
+    /// the request carried an `Expect` value that we do not handle
+    #[error("Unsupported expectation")]
+    ExpectationFailed,
+
     /// this request did not have a status code
     #[error("Missing status code")]
     MissingStatus,
@@ -92,8 +96,8 @@ pub enum Error {
     TimedOut(&'static str, Duration),
 
     /// HTTP/2 peer has not advertised `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, so an
-    /// extended-CONNECT (e.g. WebSocket-over-h2) request cannot be sent on this connection.
-    #[error("HTTP/2 peer does not support extended CONNECT (RFC 8441)")]
+    /// extended-CONNECT request cannot be sent on this connection.
+    #[error("HTTP/2 peer does not support extended CONNECT")]
     ExtendedConnectUnsupported,
 
     /// An error from middleware or other application-level code, type-erased into a boxed
