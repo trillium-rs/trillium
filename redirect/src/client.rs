@@ -64,7 +64,7 @@
 
 use std::{collections::HashSet, sync::Arc};
 use trillium_client::{
-    Body, ClientHandler, Conn,
+    Body, ClientHandler, Conn, ConnExt,
     KnownHeaderName::{
         Authorization, Connection, ContentEncoding, ContentLength, ContentType, Cookie, Expect,
         Host, Location, ProxyAuthorization, TransferEncoding,
@@ -243,21 +243,20 @@ impl ClientHandler for FollowRedirects {
             }
         };
 
-        if let Some(body) = conn.take_response_body() {
-            body.recycle().await;
-        }
+        let same_origin = conn.url().origin() == new_url.origin();
 
-        // Build a fresh sibling conn from the same client.
-        let mut new_conn = conn.client().build_conn(new_method, new_url.clone());
-
-        std::mem::swap(new_conn.as_mut(), conn.as_mut());
+        // Build a fresh sibling conn from the same client and queue it as a follow-up rather than
+        // awaiting it inline: the `IntoFuture for &mut Conn` loop recycles this conn's response
+        // body and re-executes the follow-up as a flat top-level cycle, so observer handlers
+        // (logger, conn-id, metrics) see every hop instead of having later hops nested inside the
+        // first's lifecycle.
+        let mut followup = conn.client().build_conn(new_method, new_url);
 
         // Copy request headers with a few categories stripped:
         // - protocol/transport-managed headers — `finalize_headers` will re-derive them for the new
         //   conn's body and url
         // - body-description headers — only meaningful when a body is being sent
         // - cross-origin credential headers — must not leak across origin boundaries
-        let same_origin = conn.url().origin() == new_url.origin();
         let mut new_headers = conn.request_headers().clone();
         new_headers.remove_all([Host, ContentLength, TransferEncoding, Expect, Connection]);
         if !keep_body {
@@ -266,23 +265,19 @@ impl ClientHandler for FollowRedirects {
         if !same_origin {
             new_headers.remove_all([Authorization, Cookie, ProxyAuthorization]);
         }
-        *new_conn.request_headers_mut() = new_headers;
+        *followup.request_headers_mut() = new_headers;
 
         // Replay the body if the redirect kind preserves it. Static bodies were snapshotted
         // in `run`; streaming bodies were one-shot and aren't replayable.
         if keep_body
-            && let Some(saved) = new_conn.state::<SavedBody>()
+            && let Some(saved) = conn.state::<SavedBody>()
             && let Some(replayed) = saved.0.try_clone()
         {
-            new_conn.set_request_body(replayed);
+            followup.set_request_body(replayed);
         }
 
-        // Stash count + execute the redirected request.
-        new_conn.insert_state(RedirectCount(count + 1));
-        (&mut new_conn).await?;
-
-        // Swap so the user sees the final response on their original conn handle.
-        std::mem::swap(conn, &mut new_conn);
+        followup.insert_state(RedirectCount(count + 1));
+        conn.set_followup(followup);
         Ok(())
     }
 
