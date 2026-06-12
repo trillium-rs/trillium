@@ -1,4 +1,5 @@
 use super::Conn;
+use crate::pool::{Acquire, PoolEntry, PoolEntryStatus, PrimerGuard};
 use std::{
     borrow::Cow,
     fmt::{self, Debug, Formatter},
@@ -10,7 +11,7 @@ use trillium_http::{
     h2::H2Connection,
     headers::hpack::{FieldSection, PseudoHeaders},
 };
-use trillium_server_common::{Connector, Transport};
+use trillium_server_common::{Connector, Transport, url::Origin};
 
 /// Client-side wrapper for a pooled HTTP/2 connection.
 ///
@@ -53,6 +54,23 @@ impl H2Pooled {
     fn idle_for(&self) -> Duration {
         self.last_used.lock().unwrap().elapsed()
     }
+
+    /// How the pool should treat this connection right now: gone ([`Dead`]) once its driver has
+    /// stopped, at capacity ([`Busy`]) while it can't open another stream, otherwise reusable
+    /// ([`Available`]).
+    ///
+    /// [`Dead`]: PoolEntryStatus::Dead
+    /// [`Busy`]: PoolEntryStatus::Busy
+    /// [`Available`]: PoolEntryStatus::Available
+    pub(crate) fn classify(&self) -> PoolEntryStatus {
+        if !self.connection.swansong().state().is_running() {
+            PoolEntryStatus::Dead
+        } else if !self.connection.can_open_stream() {
+            PoolEntryStatus::Busy
+        } else {
+            PoolEntryStatus::Available
+        }
+    }
 }
 
 /// Generate an 8-byte opaque payload for an active PING frame. Uses the low 64 bits of
@@ -73,20 +91,17 @@ impl Conn {
     /// Returns `Ok(false)` if no pooled h2 connection is available, signalling the caller to
     /// fall through to the h1 / fresh-connect path.
     pub(super) async fn try_exec_h2_pooled(&mut self) -> Result<bool> {
+        // A prior-knowledge version pin takes precedence: only reuse a pooled h2 connection when
+        // h2 is pinned explicitly or no preference was expressed (the `Http1_1` auto sentinel).
+        // An h3 or h1.0 pin means that protocol.
+        if !matches!(self.http_version, Version::Http2 | Version::Http1_1) {
+            return Ok(false);
+        }
         let Some(h2_pool) = self.client.h2_pool() else {
             return Ok(false);
         };
         let origin = self.url.origin();
-        let Some(pooled) = h2_pool.peek_candidate_classify(&origin, |p| {
-            let conn = p.connection();
-            if !conn.swansong().state().is_running() {
-                crate::pool::PoolEntryStatus::Dead
-            } else if !conn.can_open_stream() {
-                crate::pool::PoolEntryStatus::Busy
-            } else {
-                crate::pool::PoolEntryStatus::Available
-            }
-        }) else {
+        let Some(pooled) = h2_pool.peek_candidate_classify(&origin, |p| p.classify()) else {
             return Ok(false);
         };
 
@@ -130,17 +145,41 @@ impl Conn {
     ///
     /// Either way there is no h1 fallback: the preface bytes commit the connection, so a
     /// non-h2-speaking server surfaces as a plain IO error from the h2 driver.
+    ///
+    /// Concurrent cold-start connects to one origin are coalesced through the pool's in-flight
+    /// slot so a burst opens one connection rather than racing N.
     pub(super) async fn exec_h2_prior_knowledge(&mut self) -> Result<()> {
-        let transport = self.client.connector().connect(&self.url).await?;
-        self.try_exec_h2_with_transport(transport).await
+        if let Some(h2_pool) = self.client.h2_pool().cloned() {
+            match h2_pool.acquire(self.url.origin(), |p| p.classify()) {
+                Acquire::Ready(pooled) => {
+                    return self
+                        .exec_h2_on_connection(pooled.connection().clone())
+                        .await;
+                }
+                Acquire::Await(cell) => {
+                    if let Some(pooled) = cell.wait().await {
+                        return self
+                            .exec_h2_on_connection(pooled.connection().clone())
+                            .await;
+                    }
+                    // primer produced no connection; connect for ourselves below.
+                }
+                Acquire::Primer(guard) => {
+                    let destination = self.origin_destination().await?;
+                    let transport = self.client.connector().connect_to(destination).await?;
+                    return self.promote_and_exec_h2(transport, Some(guard)).await;
+                }
+            }
+        }
+
+        let destination = self.origin_destination().await?;
+        let transport = self.client.connector().connect_to(destination).await?;
+        self.promote_and_exec_h2(transport, None).await
     }
 
-    /// Promote a freshly-connected transport whose ALPN negotiated `h2` into an h2 connection,
-    /// install it in the pool, and execute the request on a fresh stream.
-    pub(super) async fn try_exec_h2_with_transport(
-        &mut self,
-        transport: Box<dyn Transport>,
-    ) -> Result<()> {
+    /// Build an h2 connection over a freshly-connected transport and spawn its driver task. Does
+    /// not pool it — recording is the caller's concern (a [`PrimerGuard`] or a direct insert).
+    pub(super) fn promote_h2(&self, transport: Box<dyn Transport>) -> Arc<H2Connection> {
         let h2 = H2Connection::new(self.context.clone());
         let initiator = h2.clone().run_client(transport);
         self.client.connector().runtime().spawn(async move {
@@ -148,19 +187,37 @@ impl Conn {
                 log::debug!("h2 client connection terminated: {e}");
             }
         });
+        h2
+    }
 
-        if let Some(h2_pool) = self.client.h2_pool() {
-            let expiry = self.client.h2_idle_timeout().map(|d| Instant::now() + d);
-            h2_pool.insert(
-                self.url.origin(),
-                crate::pool::PoolEntry::new(H2Pooled::new(h2.clone()), expiry),
-            );
+    /// Promote a freshly-connected transport whose ALPN negotiated `h2` into an h2 connection,
+    /// record it, and execute the request on a fresh stream.
+    ///
+    /// With a `guard`, we are the primer: resolving it pools the connection and hands waiters a
+    /// clone. Without one (pooling disabled, or a waiter that fell through), we insert directly
+    /// when a pool is configured.
+    pub(super) async fn promote_and_exec_h2(
+        &mut self,
+        transport: Box<dyn Transport>,
+        guard: Option<PrimerGuard<Origin, H2Pooled>>,
+    ) -> Result<()> {
+        let h2 = self.promote_h2(transport);
+        let pooled = H2Pooled::new(h2.clone());
+        let expiry = self.client.h2_idle_timeout().map(|d| Instant::now() + d);
+
+        match guard {
+            Some(guard) => guard.resolve_ready(pooled, expiry),
+            None => {
+                if let Some(h2_pool) = self.client.h2_pool() {
+                    h2_pool.insert(self.url.origin(), PoolEntry::new(pooled, expiry));
+                }
+            }
         }
 
         self.exec_h2_on_connection(h2).await
     }
 
-    async fn exec_h2_on_connection(&mut self, h2: Arc<H2Connection>) -> Result<()> {
+    pub(super) async fn exec_h2_on_connection(&mut self, h2: Arc<H2Connection>) -> Result<()> {
         self.http_version = Version::Http2;
         self.headers_finalized = false;
         self.finalize_headers_h2()?;
@@ -244,6 +301,13 @@ impl Conn {
         self.transport = Some(Box::new(transport));
 
         self.recv_h2_response_headers(&h2, stream_id).await?;
+
+        // Learn any h3 endpoint the response advertises via `Alt-Svc`, matching the h1 path.
+        // With h3 configured this makes subsequent requests to this origin prefer h3.
+        if let Some(h3) = self.client.h3() {
+            self.update_alt_svc_from_response(h3);
+        }
+
         Ok(())
     }
 

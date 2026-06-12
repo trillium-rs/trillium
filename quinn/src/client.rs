@@ -28,6 +28,12 @@ use trillium_server_common::{Connector, QuicClientConfig};
 /// ```
 pub struct ClientQuicConfig {
     client_config: quinn::ClientConfig,
+    /// Retained so the bound endpoint can rebuild a per-connection `quinn::ClientConfig` with a
+    /// different ALPN (e.g. `doq`) — ALPN is baked into `QuicClientConfig` at construction and
+    /// can't be changed on the assembled `client_config`. `None` when built from a pre-assembled
+    /// `quinn::ClientConfig` (no rustls config to rebuild from), which disables per-connection
+    /// ALPN.
+    base_tls: Option<Arc<rustls::ClientConfig>>,
 }
 
 impl Debug for ClientQuicConfig {
@@ -65,18 +71,25 @@ impl ClientQuicConfig {
         if !tls.alpn_protocols.contains(&b"h3".to_vec()) {
             tls.alpn_protocols.push(b"h3".to_vec());
         }
-        let quic_tls = quinn::crypto::rustls::QuicClientConfig::try_from(Arc::new(tls))
+        let tls = Arc::new(tls);
+        let quic_tls = quinn::crypto::rustls::QuicClientConfig::try_from(tls.clone())
             .expect("building QUIC client TLS config");
-        Self::from_quinn_client_config(quinn::ClientConfig::new(Arc::new(quic_tls)))
+        Self {
+            client_config: quinn::ClientConfig::new(Arc::new(quic_tls)),
+            base_tls: Some(tls),
+        }
     }
 
     /// Build from a pre-built [`quinn::ClientConfig`].
     ///
     /// Use this when you need full control over transport parameters or TLS. The caller is
-    /// responsible for including `h3` in ALPN protocols.
+    /// responsible for including `h3` in ALPN protocols. Per-connection ALPN override (used by
+    /// DNS-over-QUIC) is unavailable on configs built this way — there is no rustls config to
+    /// derive an alternate-ALPN config from.
     pub fn from_quinn_client_config(config: quinn::ClientConfig) -> Self {
         Self {
             client_config: config,
+            base_tls: None,
         }
     }
 }
@@ -99,6 +112,6 @@ where
             quinn_runtime,
         )?;
         endpoint.set_default_client_config(self.client_config.clone());
-        Ok(QuinnEndpoint::new(endpoint))
+        Ok(QuinnEndpoint::new_client(endpoint, self.base_tls.clone()))
     }
 }

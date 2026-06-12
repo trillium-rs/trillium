@@ -25,7 +25,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url, url::Host};
+use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Destination, Transport, Url};
 
 /// Rustls [`ClientConfig`] wrapper used by [`RustlsConfig`].
 ///
@@ -254,43 +254,62 @@ impl<C: Connector> Connector for RustlsConfig<C> {
     type Udp = C::Udp;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
-        match url.scheme() {
-            "https" => {
-                let mut http = url.clone();
-                http.set_scheme("http").ok();
-                http.set_port(url.port_or_known_default()).ok();
+        self.connect_to(Destination::from_url(url)?).await
+    }
 
-                let connector: TlsConnector = Arc::clone(&self.rustls_config.0).into();
-                // Derive the TLS server name from the URL host. A domain becomes a DNS
-                // `ServerName` (sent via SNI); an IP literal becomes an `IpAddress` server
-                // name (no SNI, validated against the certificate's IP SAN) — `url.domain()`
-                // returns `None` for IPs, so matching on `host()` is what lets us connect to
-                // an IP address over TLS at all.
-                let domain = match url.host() {
-                    Some(Host::Domain(domain)) => {
-                        ServerName::try_from(domain.to_owned()).map_err(|e| {
-                            Error::other(format!("invalid server name {domain:?}: {e}"))
-                        })?
-                    }
-                    Some(Host::Ipv4(ip)) => ServerName::IpAddress(std::net::IpAddr::V4(ip).into()),
-                    Some(Host::Ipv6(ip)) => ServerName::IpAddress(std::net::IpAddr::V6(ip).into()),
-                    None => return Err(Error::other("url has no host")),
-                };
-
-                connector
-                    .connect(domain, self.tcp_config.connect(&http).await?)
-                    .await
-                    .map_err(|e| Error::other(e.to_string()))
-                    .map(Into::into)
-            }
-
-            "http" => self.tcp_config.connect(url).await.map(Into::into),
-
-            unknown => Err(Error::new(
-                ErrorKind::InvalidInput,
-                format!("unknown scheme {unknown}"),
-            )),
+    async fn connect_to(&self, destination: Destination) -> Result<Self::Transport> {
+        if !destination.secure() {
+            return self
+                .tcp_config
+                .connect_to(destination)
+                .await
+                .map(Into::into);
         }
+
+        // A non-empty per-connection ALPN list overrides the config's default; an empty one leaves
+        // the config as-is. Only clone the (otherwise shared) config when an override is present.
+        let rustls_config = if destination.alpn().is_empty() {
+            Arc::clone(&self.rustls_config.0)
+        } else {
+            let mut config = (*self.rustls_config.0).clone();
+            config.alpn_protocols = destination.alpn().iter().map(|p| p.to_vec()).collect();
+            Arc::new(config)
+        };
+        let connector: TlsConnector = rustls_config.into();
+
+        // A domain destination's certificate identity (a DNS `ServerName`, sent via SNI) is fixed
+        // before the dial, so pre-resolved addresses can't influence validation. A host-less
+        // (bare-IP) destination has no SNI and validates against the address actually connected to,
+        // so its `IpAddress` server name is derived from the dialed stream below.
+        let domain_server_name = destination
+            .host()
+            .map(|domain| {
+                ServerName::try_from(domain.to_owned())
+                    .map_err(|e| Error::other(format!("invalid server name {domain:?}: {e}")))
+            })
+            .transpose()?;
+
+        let stream = self
+            .tcp_config
+            .connect_to(destination.with_secure(false))
+            .await?;
+
+        let server_name = match domain_server_name {
+            Some(server_name) => server_name,
+            None => {
+                let ip = stream
+                    .peer_addr()?
+                    .ok_or_else(|| Error::other("no peer address for bare-ip destination"))?
+                    .ip();
+                ServerName::IpAddress(ip.into())
+            }
+        };
+
+        connector
+            .connect(server_name, stream)
+            .await
+            .map_err(|e| Error::other(e.to_string()))
+            .map(Into::into)
     }
 
     fn runtime(&self) -> Self::Runtime {

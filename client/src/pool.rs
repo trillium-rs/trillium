@@ -1,3 +1,4 @@
+use async_lock::OnceCell;
 use crossbeam_queue::ArrayQueue;
 use dashmap::{DashMap, mapref::entry::Entry};
 use std::{
@@ -45,10 +46,33 @@ impl<V> PoolEntry<V> {
     }
 }
 
-pub struct PoolSet<V>(Arc<ArrayQueue<PoolEntry<V>>>);
+/// Shared handle to a single in-flight connection establishment for one pool key.
+///
+/// The primer (the caller that won the race to connect) fills this via a [`PrimerGuard`];
+/// concurrent callers await it. The inner `Option` is the outcome: `Some(v)` means a shareable
+/// (multiplexed) connection is now pooled and `v` is a clone of it to use directly; `None` means
+/// no shareable connection was produced — a non-multiplexed result, or a failed/cancelled connect
+/// — and the awaiting caller should establish its own.
+type Pending<V> = Arc<OnceCell<Option<V>>>;
+
+/// The reusable connections for one pool key: a queue of ready (resolved) entries plus, at most,
+/// one in-flight connect placeholder.
+///
+/// `ready` carries the existing behavior — h1 keepalive transports and live h2 connections, taken
+/// by drain ([`Pool::candidates`]) or shared by clone ([`Pool::peek_candidate_classify`]).
+/// `pending` is the single-in-flight coordination slot, only ever read or written while holding the
+/// [`DashMap`] entry lock, so it needs no lock of its own.
+pub struct PoolSet<V> {
+    ready: Arc<ArrayQueue<PoolEntry<V>>>,
+    pending: Option<Pending<V>>,
+}
+
 impl<V: Debug> Debug for PoolSet<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("PoolSet").field(&self.0).finish()
+        f.debug_struct("PoolSet")
+            .field("ready", &self.ready)
+            .field("pending", &self.pending.is_some())
+            .finish()
     }
 }
 
@@ -60,21 +84,30 @@ impl<V> Default for PoolSet<V> {
 
 impl<V> Clone for PoolSet<V> {
     fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
+        Self {
+            ready: Arc::clone(&self.ready),
+            pending: self.pending.clone(),
+        }
     }
 }
 
 impl<V> PoolSet<V> {
     pub fn insert(&self, entry: PoolEntry<V>) {
-        self.0.force_push(entry);
+        self.ready.force_push(entry);
     }
 
     pub fn new(size: usize) -> Self {
-        Self(Arc::new(ArrayQueue::new(size)))
+        Self {
+            ready: Arc::new(ArrayQueue::new(size)),
+            pending: None,
+        }
     }
 
+    /// Whether this set holds neither a ready connection nor an in-flight connect. An in-flight
+    /// connect keeps the key alive so [`Pool::cleanup`] can't drop the placeholder out from under
+    /// the primer.
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.ready.is_empty() && self.pending.is_none()
     }
 }
 
@@ -82,7 +115,7 @@ impl<V> Iterator for PoolSet<V> {
     type Item = PoolEntry<V>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.pop()
+        self.ready.pop()
     }
 }
 
@@ -100,7 +133,7 @@ where
         let mut map = f.debug_map();
         for item in self.0 {
             let (k, v) = item.pair();
-            map.entry(&k, &v.0.len());
+            map.entry(&k, &v.ready.len());
         }
 
         map.finish()
@@ -142,7 +175,7 @@ where
 
 impl<K, V> Pool<K, V>
 where
-    K: Hash + Debug + Eq + Clone + Debug,
+    K: Hash + Debug + Eq + Clone,
 {
     #[allow(dead_code)]
     pub fn new(max_set_size: usize) -> Self {
@@ -188,24 +221,10 @@ where
         self.connections.retain(|_k, v| !v.is_empty())
     }
 
-    /// Returns a clone of a live candidate for `key` without removing it from the pool.
-    ///
-    /// Unlike [`candidates`](Self::candidates), this does not drain the entry — suitable for
-    /// multiplexed connection types (e.g. QUIC) where the same connection handles concurrent
-    /// requests. Expired entries are discarded as they are encountered.
-    pub fn peek_candidate<Q>(&self, key: &Q) -> Option<V>
-    where
-        K: Borrow<Q>,
-        Q: Hash + Eq + ?Sized,
-        V: Clone,
-    {
-        self.peek_candidate_classify(key, |_| PoolEntryStatus::Available)
-    }
-
-    /// Like [`peek_candidate`](Self::peek_candidate), but asks `classify` how to treat each
-    /// non-expired entry: hand out, keep but skip, or drop. Returns the first entry classified
-    /// as [`Available`][PoolEntryStatus::Available]; entries classified as
-    /// [`Busy`][PoolEntryStatus::Busy] are re-pushed and skipped; entries classified as
+    /// Returns a clone of a live candidate for `key` without removing it from the pool, asking
+    /// `classify` how to treat each non-expired entry: hand out, keep but skip, or drop. Returns
+    /// the first entry classified as [`Available`][PoolEntryStatus::Available]; entries classified
+    /// as [`Busy`][PoolEntryStatus::Busy] are re-pushed and skipped; entries classified as
     /// [`Dead`][PoolEntryStatus::Dead] are dropped from the pool.
     ///
     /// Useful for multiplexed connections whose health and availability are independent — e.g.
@@ -222,9 +241,9 @@ where
         let pool_set = self.connections.get(key)?;
         // Bound the loop by the queue's snapshot length to guarantee termination even if every
         // entry classifies as `Busy` (re-push would otherwise feed `pop` indefinitely).
-        let mut remaining = pool_set.0.len();
+        let mut remaining = pool_set.ready.len();
         while remaining > 0
-            && let Some(entry) = pool_set.0.pop()
+            && let Some(entry) = pool_set.ready.pop()
         {
             remaining -= 1;
             if entry.is_expired() {
@@ -233,16 +252,133 @@ where
             match classify(&entry.item) {
                 PoolEntryStatus::Available => {
                     let value = entry.item.clone();
-                    pool_set.0.force_push(entry);
+                    pool_set.ready.force_push(entry);
                     return Some(value);
                 }
                 PoolEntryStatus::Busy => {
-                    pool_set.0.force_push(entry);
+                    pool_set.ready.force_push(entry);
                 }
                 PoolEntryStatus::Dead => {}
             }
         }
         None
+    }
+
+    /// Acquire a multiplexed connection for `key`, coalescing concurrent cold-start connects.
+    ///
+    /// Under the per-key entry lock (held only for this synchronous call — never across the
+    /// connect itself), this returns one of:
+    ///
+    /// - [`Acquire::Ready`] — an existing connection classified
+    ///   [`Available`][PoolEntryStatus::Available]; use it directly.
+    /// - [`Acquire::Await`] — another caller is already establishing a connection; await the
+    ///   returned handle, then use its `Some` value or, on `None`, connect for yourself.
+    /// - [`Acquire::Primer`] — no live or in-flight connection: you are the primer. Connect, then
+    ///   resolve the returned [`PrimerGuard`].
+    ///
+    /// `classify` treats existing ready entries exactly as [`peek_candidate_classify`] does. A
+    /// previously-resolved placeholder is reaped here (the caller becomes a new primer), so a
+    /// connection that has since died or been taken doesn't wedge the key.
+    ///
+    /// [`peek_candidate_classify`]: Self::peek_candidate_classify
+    pub fn acquire(&self, key: K, mut classify: impl FnMut(&V) -> PoolEntryStatus) -> Acquire<K, V>
+    where
+        V: Clone,
+    {
+        let mut slot = self.connections.entry(key.clone()).or_default();
+        let pool_set = slot.value_mut();
+
+        let mut remaining = pool_set.ready.len();
+        while remaining > 0
+            && let Some(entry) = pool_set.ready.pop()
+        {
+            remaining -= 1;
+            if entry.is_expired() {
+                continue;
+            }
+            match classify(&entry.item) {
+                PoolEntryStatus::Available => {
+                    let value = entry.item.clone();
+                    pool_set.ready.force_push(entry);
+                    return Acquire::Ready(value);
+                }
+                PoolEntryStatus::Busy => {
+                    pool_set.ready.force_push(entry);
+                }
+                PoolEntryStatus::Dead => {}
+            }
+        }
+
+        // A pending cell that has *not* yet been initialized is an in-flight connect to await. One
+        // that has been initialized is stale (the primer finished and any resulting connection has
+        // since left `ready`); fall through and become a fresh primer, reaping it.
+        if matches!(&pool_set.pending, Some(cell) if cell.get().is_none()) {
+            return Acquire::Await(pool_set.pending.clone().unwrap());
+        }
+
+        let pending: Pending<V> = Arc::new(OnceCell::new());
+        pool_set.pending = Some(pending.clone());
+        Acquire::Primer(PrimerGuard {
+            pool: self.clone(),
+            key,
+            pending,
+            resolved: false,
+        })
+    }
+}
+
+/// Outcome of [`Pool::acquire`].
+pub enum Acquire<K, V> {
+    /// An existing connection classified [`Available`][PoolEntryStatus::Available]; use it.
+    Ready(V),
+    /// Another caller is establishing a connection; await this handle. It resolves to `Some` (a
+    /// clone of the now-pooled shared connection) or `None` (no shareable connection — connect for
+    /// yourself).
+    Await(Pending<V>),
+    /// No live or in-flight connection: you are the primer. Connect, then resolve the guard.
+    Primer(PrimerGuard<K, V>),
+}
+
+/// Held by the primer (the caller [`Pool::acquire`] elected to establish the connection) for the
+/// duration of its connect. Resolving it publishes the outcome to any waiters; dropping it without
+/// resolving (a connect error or cancellation) wakes them to connect for themselves.
+pub struct PrimerGuard<K, V> {
+    pool: Pool<K, V>,
+    key: K,
+    pending: Pending<V>,
+    resolved: bool,
+}
+
+impl<K, V> PrimerGuard<K, V>
+where
+    K: Hash + Debug + Eq + Clone,
+    V: Clone,
+{
+    /// The primer produced a shareable (multiplexed) connection: pool it as a ready entry and wake
+    /// waiters with a clone.
+    pub fn resolve_ready(mut self, value: V, expiry: Option<Instant>) {
+        self.pool
+            .insert(self.key.clone(), PoolEntry::new(value.clone(), expiry));
+        let _ = self.pending.set_blocking(Some(value));
+        self.resolved = true;
+    }
+
+    /// The primer produced no shareable connection (a non-multiplexed result it will use itself):
+    /// wake waiters to connect on their own.
+    pub fn resolve_absent(mut self) {
+        let _ = self.pending.set_blocking(None);
+        self.resolved = true;
+    }
+}
+
+impl<K, V> Drop for PrimerGuard<K, V> {
+    fn drop(&mut self) {
+        // A primer dropped without resolving (connect error or cancellation) must still wake
+        // waiters — to `None`, so they connect for themselves rather than hang. `set_blocking`
+        // won't block: nothing else initializes this cell.
+        if !self.resolved {
+            let _ = self.pending.set_blocking(None);
+        }
     }
 }
 

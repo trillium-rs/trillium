@@ -94,7 +94,7 @@ impl CleanupContext {
             }
             None => {
                 self.runtime.clone().spawn(async move {
-                    let _ = transport.close().await;
+                    log_close_result(transport.close().await);
                 });
             }
         }
@@ -190,9 +190,7 @@ impl AsyncRead for ResponseBody<'_> {
                     pool.insert(origin, PoolEntry::new(transport, None));
                 } else {
                     self.inner = ResponseBodyInner::Closing(Box::pin(async move {
-                        if let Err(e) = transport.close().await {
-                            log::warn!("transport close failed during ResponseBody EOF: {e}");
-                        }
+                        log_close_result(transport.close().await);
                     }));
                 }
             } else {
@@ -389,6 +387,20 @@ async fn drain(rb: &mut ReceivedBody<'static, Box<dyn Transport + 'static>>) -> 
     trillium_http::copy(rb, futures_lite::io::sink(), copy_loops_per_yield).await
 }
 
+/// Report the result of closing a transport we're discarding. `NotConnected` is the expected
+/// "already closed" signal from a finished multiplexed stream — notably h3/QUIC, whose `close`
+/// (unlike h2's) isn't idempotent and errors once the stream has finished — so it's absorbed at
+/// trace. Other errors are unexpected and warned.
+fn log_close_result(result: io::Result<()>) {
+    match result {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotConnected => {
+            log::trace!("transport already closed during recycle: {e}");
+        }
+        Err(e) => log::warn!("transport close failed during recycle: {e}"),
+    }
+}
+
 async fn recycle(
     mut rb: ReceivedBody<'static, Box<dyn Transport + 'static>>,
     h1_pool_origin: Option<(H1Pool, Origin)>,
@@ -410,10 +422,8 @@ async fn recycle(
         }
     }
 
-    if let Some(mut transport) = rb.take_transport()
-        && let Err(e) = transport.close().await
-    {
-        log::warn!("transport close failed during recycle: {e}");
+    if let Some(mut transport) = rb.take_transport() {
+        log_close_result(transport.close().await);
     }
 }
 

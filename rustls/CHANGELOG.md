@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - 2026-06-16
+
+### Added
+
+- The connector now implements `Connector::connect_to` (new in `trillium-server-common`): the
+  pre-resolved addresses carried in the `Destination` are forwarded to the inner connector for the
+  TCP dial, while the TLS server name still comes from the destination host — so address-pinned
+  dialing works over TLS without affecting certificate validation.
+- A non-empty per-connection ALPN list (`Destination::alpn`) overrides the configured ALPN protocol
+  list for that single connection; an empty list (the default) leaves the connector's configured
+  ALPN in place.
+
 ## [0.11.2] - 2026-05-26
 
 ### Added

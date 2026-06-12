@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.5] - 2026-06-16
+
+### Added
+
+- `Connector::connect_to(Destination)` and the `Destination` type — describe a single connection
+  attempt in full: whether it is `secure` (TLS), the host (for resolution and certificate
+  validation), the port, any pre-resolved socket addresses to dial instead of resolving the host,
+  and any per-connection ALPN. Build with `Destination::new_with_host` (resolve a domain, or dial
+  pre-resolved addresses while validating against it) or `Destination::new_with_socket_addrs` (a
+  bare-IP connection with no SNI); `Destination::from_url` performs the scheme/host/port extraction
+  connectors previously did inline. Defaulted to reconstruct a url and call `connect`, so existing
+  `Connector` implementations are unaffected. Taken by value so connectors can adjust it (e.g.
+  clearing `secure` before delegating the TCP dial to an inner connector) without copying.
+- `Destination::with_alpn` / `alpn` — advertise a specific ALPN protocol list for a single
+  connection, overriding the connector's configured default (an empty list, the default, leaves
+  that default in place). TLS and QUIC connectors honor it; plaintext transports ignore it.
+- `QuicEndpoint::connect_with_alpn` (and the matching `ArcedQuicEndpoint` method) — initiate a QUIC
+  connection advertising a per-connection ALPN list, so one bound endpoint can negotiate different
+  application protocols per connection (e.g. `h3` and `doq`) over the same UDP socket. Defaulted to
+  ignore the ALPN and call `connect`, so existing `QuicEndpoint` implementations are unaffected.
+
 ## [0.7.4] - 2026-05-31
 
 ### Fixed

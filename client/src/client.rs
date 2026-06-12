@@ -84,6 +84,11 @@ pub struct Client {
     /// [`Client::downcast_handler`].
     #[field(vis = "pub(crate)", get = arc_handler)]
     handler: ArcedClientHandler,
+
+    /// Encrypted-DNS resolver, if configured via [`Client::with_doh`]. When set, all DNS
+    /// resolution for this client is routed through it.
+    #[cfg(feature = "hickory")]
+    pub(crate) resolver: Option<crate::dns::Resolver>,
 }
 
 macro_rules! method {
@@ -156,6 +161,8 @@ impl Client {
             timeout: None,
             context: Default::default(),
             handler: ArcedClientHandler::new(()),
+            #[cfg(feature = "hickory")]
+            resolver: None,
         }
     }
 
@@ -200,6 +207,8 @@ impl Client {
             timeout: None,
             context: Arc::new(context),
             handler: ArcedClientHandler::new(()),
+            #[cfg(feature = "hickory")]
+            resolver: None,
         }
     }
 

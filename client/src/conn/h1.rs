@@ -1,13 +1,14 @@
-use super::Conn;
+use super::{Conn, H2Pooled};
+use crate::pool::{Acquire, PrimerGuard};
 use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once, io};
 use memchr::memmem::Finder;
-use std::io::{ErrorKind, Write};
+use std::io::Write;
 use trillium_http::{
     BufWriter, Error, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBodyState, Result, Status, Version,
 };
-use trillium_server_common::{Connector, Transport};
+use trillium_server_common::{Connector, Transport, url::Origin};
 
 impl Conn {
     pub(super) fn finalize_headers_h1(&mut self) -> Result<()> {
@@ -76,39 +77,6 @@ impl Conn {
             }
         }
         Ok(None)
-    }
-
-    /// Acquire a transport for h1 from the pool or by fresh-connect, signalling whether a
-    /// fresh-connect ALPN-negotiated `h2` should divert to the h2 promotion path.
-    ///
-    /// On a pool hit the head is already written by `find_pool_candidate`. On a fresh
-    /// connect, the head is written iff ALPN did not negotiate h2 — when h2 is selected we
-    /// hand the transport back unwritten so the caller can promote it instead.
-    async fn acquire_transport(&mut self) -> Result<TransportAcquisition> {
-        if self.transport.is_some() {
-            return Err(Error::Io(std::io::Error::new(
-                ErrorKind::AlreadyExists,
-                "conn already connected",
-            )));
-        }
-
-        let head = self.build_head().await?;
-
-        if let Some(transport) = self.find_pool_candidate(&head).await? {
-            log::debug!("reusing connection to {:?}", transport.peer_addr()?);
-            return Ok(TransportAcquisition::H1Ready(transport));
-        }
-
-        let mut transport = self.client.connector().connect(&self.url).await?;
-        log::debug!("opened new connection to {:?}", transport.peer_addr()?);
-
-        if self.client.h2_pool().is_some() && transport.negotiated_alpn().as_deref() == Some(b"h2")
-        {
-            return Ok(TransportAcquisition::H2(transport));
-        }
-
-        transport.write_all(&head).await?;
-        Ok(TransportAcquisition::H1Ready(transport))
     }
 
     async fn build_head(&mut self) -> Result<Vec<u8>> {
@@ -415,14 +383,23 @@ impl Conn {
         Ok(())
     }
 
-    /// Whether the underlying h1 transport will be kept alive and pooled for reuse after this
-    /// response's body is consumed. Reflects the keep-alive decision the recycle path uses; not
-    /// meaningful for h2/h3 conns. Exposed (hidden) for the response-parser corpus harness.
+    /// Whether the underlying transport will be kept alive and pooled for h1 reuse after this
+    /// response's body is consumed — the keep-alive decision the recycle path acts on. Always
+    /// `false` for h2/h3: those connections are reused through their own multiplexing pools, and
+    /// the transport on the conn is a spent single-use stream rather than a poolable connection.
+    /// Exposed (hidden) for the response-parser corpus harness.
     ///
-    /// HTTP/1.1 is persistent unless a `Connection: close` appears on either side; HTTP/1.0 is
-    /// non-persistent unless both sides send `Connection: keep-alive`.
+    /// For h1: HTTP/1.1 is persistent unless a `Connection: close` appears on either side;
+    /// HTTP/1.0 is non-persistent unless both sides send `Connection: keep-alive`.
     #[doc(hidden)]
     pub fn is_keep_alive(&self) -> bool {
+        // Keep-alive is an HTTP/1.x connection-persistence concept. An h2/h3 conn's transport is a
+        // single-use stream and connection reuse lives in the h2/h3 pools, so it is never
+        // h1-poolable — without this guard the `!= Http1_0` fallback below would wrongly say it is.
+        if self.http_version() > Version::Http1_1 {
+            return false;
+        }
+
         // Scan every Connection field line and every comma-token within it. `get_str` would miss a
         // `Connection: close` split across multiple header lines (it returns `None` for more than
         // one value), which would pool a connection the peer asked to close.
@@ -485,17 +462,81 @@ impl Conn {
         }
 
         self.finalize_headers_h1()?;
-        match self.acquire_transport().await? {
-            TransportAcquisition::H1Ready(transport) => {
-                self.transport = Some(transport);
-                self.send_body_and_parse_head().await?;
-                if let Some(h3) = self.client.h3() {
-                    self.update_alt_svc_from_response(h3);
-                }
-                Ok(())
-            }
-            TransportAcquisition::H2(transport) => self.try_exec_h2_with_transport(transport).await,
+        let head = self.build_head().await?;
+
+        // An idle keepalive transport for this origin short-circuits the connect entirely.
+        if let Some(transport) = self.find_pool_candidate(&head).await? {
+            log::debug!("reusing connection to {:?}", transport.peer_addr()?);
+            return self.exec_h1_on_transport(transport).await;
         }
+
+        // Cold connect. Coalesce concurrent cold-starts to this origin through the h2 pool's
+        // in-flight slot: when the connection turns out to be multiplexed (ALPN `h2`), a burst
+        // opens one connection and the waiters share it rather than each opening their own.
+        if let Some(h2_pool) = self.client.h2_pool().cloned() {
+            match h2_pool.acquire(self.url.origin(), |p| p.classify()) {
+                Acquire::Ready(pooled) => {
+                    return self
+                        .exec_h2_on_connection(pooled.connection().clone())
+                        .await;
+                }
+                Acquire::Await(cell) => {
+                    if let Some(pooled) = cell.wait().await {
+                        return self
+                            .exec_h2_on_connection(pooled.connection().clone())
+                            .await;
+                    }
+                    // The primer produced no shareable connection (it went h1, or its connect
+                    // failed); connect for ourselves below.
+                }
+                Acquire::Primer(guard) => {
+                    return self.connect_and_dispatch(head, Some(guard)).await;
+                }
+            }
+        }
+
+        self.connect_and_dispatch(head, None).await
+    }
+
+    /// Run the request over an h1 transport (pooled or freshly connected), then learn any
+    /// h3 endpoint the response advertises via `Alt-Svc`.
+    async fn exec_h1_on_transport(&mut self, transport: Box<dyn Transport>) -> Result<()> {
+        self.transport = Some(transport);
+        self.send_body_and_parse_head().await?;
+        if let Some(h3) = self.client.h3() {
+            self.update_alt_svc_from_response(h3);
+        }
+        Ok(())
+    }
+
+    /// Open a fresh connection and dispatch the request: promote to h2 when ALPN negotiates it,
+    /// otherwise send over h1.
+    ///
+    /// `guard` is `Some` when we are the elected primer for this origin's in-flight slot —
+    /// resolving it (or dropping it on a connect error) releases any waiters. It is `None` when
+    /// pooling is disabled, or when we are a waiter that fell through to its own connect.
+    async fn connect_and_dispatch(
+        &mut self,
+        head: Vec<u8>,
+        guard: Option<PrimerGuard<Origin, H2Pooled>>,
+    ) -> Result<()> {
+        // On a connect error, `?` returns and `guard` drops here, waking any waiters to connect
+        // for themselves rather than hang.
+        let destination = self.origin_destination().await?;
+        let mut transport = self.client.connector().connect_to(destination).await?;
+        log::debug!("opened new connection to {:?}", transport.peer_addr()?);
+
+        if self.client.h2_pool().is_some() && transport.negotiated_alpn().as_deref() == Some(b"h2")
+        {
+            return self.promote_and_exec_h2(transport, guard).await;
+        }
+
+        // Not multiplexed: release any waiters to connect for themselves, then send over h1.
+        if let Some(guard) = guard {
+            guard.resolve_absent();
+        }
+        transport.write_all(&head).await?;
+        self.exec_h1_on_transport(transport).await
     }
 }
 
@@ -503,11 +544,4 @@ impl Conn {
 /// that hands the connection off to a different protocol.
 fn is_interim(status: Status) -> bool {
     status.is_informational() && status != Status::SwitchingProtocols
-}
-
-pub(super) enum TransportAcquisition {
-    /// Pooled or fresh h1 transport — head already written.
-    H1Ready(Box<dyn Transport>),
-    /// Fresh transport whose ALPN negotiated h2; caller promotes to h2.
-    H2(Box<dyn Transport>),
 }

@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2026-06-16
+
+### Added
+
+- `hickory` cargo feature: route all of the client's DNS through an encrypted resolver instead of
+  the operating system's. Four resolver configurators select the transport: `Client::with_doh`
+  (DNS-over-HTTPS, [RFC 8484]), `Client::with_doh3` (DNS-over-HTTPS reaching the resolver itself over
+  HTTP/3, for resolvers that serve it without advertising via Alt-Svc), `Client::with_dot`
+  (DNS-over-TLS, [RFC 7858]), and `Client::with_doq` (DNS-over-QUIC, [RFC 9250]). A client routes DNS
+  through at most one resolver; a later configurator replaces an earlier one. Resolution is
+  fail-closed: a lookup the resolver can't answer fails the request rather than falling back to the
+  system resolver, so a query never leaks to a local resolver. One resolution is cached and shared
+  across HTTP/1, HTTP/2, and HTTP/3. SVCB/HTTPS records ([RFC 9460]) are honored, so a domain
+  advertising `alpn=h3` is reached over HTTP/3 on the first request by an HTTP/3-capable client
+  (`Client::new_with_quic`), with no Alt-Svc round-trip; SVCB address hints are dialed on the
+  binding's own `port` SvcParam when it specifies one. A request to an IP-literal host (e.g.
+  `https://192.0.2.1/`) bypasses the resolver entirely — there is nothing to look up and no SVCB
+  records exist for a bare address — so it connects directly rather than failing closed. An
+  unreachable resolver — or one that doesn't speak the configured transport, such as a DoT host
+  addressed over DoQ — fails the lookup with a descriptive error rather than stalling. `with_dot`
+  requires a TLS connector; `with_doh3` and `with_doq` require an HTTP/3-capable client.
+
+[RFC 8484]: https://www.rfc-editor.org/rfc/rfc8484
+[RFC 7858]: https://www.rfc-editor.org/rfc/rfc7858
+[RFC 9250]: https://www.rfc-editor.org/rfc/rfc9250
+[RFC 9460]: https://www.rfc-editor.org/rfc/rfc9460
+
+### Changed
+
+- Concurrent first-time requests to an origin with no pooled connection now share a single connect
+  instead of each racing to open its own. When the connection is multiplexed (HTTP/2 or HTTP/3) the
+  whole burst shares it; this removes a multi-second first-request stall when several requests open a
+  cold HTTP/3 origin at once. HTTP/1 cold-starts still open their own connections but no longer race
+  redundantly.
+- `Alt-Svc` advertisements are now recorded from HTTP/2 responses, not only HTTP/1.x and HTTP/3. On
+  an HTTP/3-capable client, a recorded advertisement steers the next cold connection to that origin
+  onto HTTP/3.
+- On an HTTP/3-capable client, protocol selection now prefers reusing a live pooled connection over
+  opening a new one. A pooled HTTP/2 connection is kept rather than migrated to HTTP/3, and a live
+  HTTP/3 connection is reused even after its `Alt-Svc` advertisement expires (previously a lapsed
+  advertisement could drop a still-open connection back to HTTP/2). A cold connection still prefers
+  HTTP/3 when the origin advertises it. Explicit version pins (`Conn::with_http_version`) take strict
+  precedence: a request pinned to HTTP/2 or HTTP/1 is never upgraded to HTTP/3.
+
 ## [0.9.5] - 2026-06-05
 
 The theme of this release is protocol correctness / conformance, with a focus on http/1.x.

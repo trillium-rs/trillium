@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-06-16
+
+### Added
+
+- `QuinnEndpoint::connect_with_alpn` (implementing the new `trillium-server-common` seam) — initiate
+  a QUIC connection advertising a per-connection ALPN list, distinct from the endpoint's default, so
+  one endpoint can serve both `h3` and `doq` over a single UDP socket. Available when the
+  `ClientQuicConfig` was built from a rustls config; unavailable on configs built via
+  `from_quinn_client_config`.
+
 ## [0.1.4] - 2026-05-31
 
 ### Added

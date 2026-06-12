@@ -1,6 +1,7 @@
 use crate::{Server, Transport};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
+    borrow::Cow,
     fmt::Debug,
     future::Future,
     io,
@@ -190,6 +191,23 @@ pub trait QuicEndpoint: Send + Sync + 'static {
         server_name: &str,
     ) -> impl Future<Output = io::Result<Self::Connection>> + Send;
 
+    /// Initiate a QUIC connection advertising `alpn` for this connection only, overriding the
+    /// endpoint's configured default ALPN. An empty list uses the default.
+    ///
+    /// Lets one bound endpoint negotiate different application protocols per connection (e.g. `h3`
+    /// for HTTP/3 origins and `doq` for a DNS-over-QUIC resolver) over the same UDP socket. The
+    /// default implementation ignores `alpn` and calls [`connect`](QuicEndpoint::connect); adapters
+    /// that can vary ALPN per connection override it.
+    fn connect_with_alpn(
+        &self,
+        addr: SocketAddr,
+        server_name: &str,
+        alpn: &[Cow<'static, [u8]>],
+    ) -> impl Future<Output = io::Result<Self::Connection>> + Send {
+        let _ = alpn;
+        self.connect(addr, server_name)
+    }
+
     /// The local address this endpoint is bound to. The default impl returns
     /// `Unsupported`; adapters override when a bound UDP socket is available.
     fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -361,7 +379,7 @@ impl Transport for BoxedBidiStream {
         (**self).peer_addr()
     }
 
-    fn negotiated_alpn(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+    fn negotiated_alpn(&self) -> Option<Cow<'_, [u8]>> {
         (**self).negotiated_alpn()
     }
 }
@@ -517,6 +535,12 @@ trait ObjectSafeQuicEndpoint: Send + Sync {
         addr: SocketAddr,
         server_name: &'a str,
     ) -> BoxedFuture<'a, io::Result<QuicConnection>>;
+    fn connect_with_alpn<'a>(
+        &'a self,
+        addr: SocketAddr,
+        server_name: &'a str,
+        alpn: &'a [Cow<'static, [u8]>],
+    ) -> BoxedFuture<'a, io::Result<QuicConnection>>;
     fn local_addr(&self) -> io::Result<SocketAddr>;
 }
 
@@ -532,6 +556,19 @@ impl<T: QuicEndpoint> ObjectSafeQuicEndpoint for T {
     ) -> BoxedFuture<'a, io::Result<QuicConnection>> {
         Box::pin(async move {
             QuicEndpoint::connect(self, addr, server_name)
+                .await
+                .map(QuicConnection::from)
+        })
+    }
+
+    fn connect_with_alpn<'a>(
+        &'a self,
+        addr: SocketAddr,
+        server_name: &'a str,
+        alpn: &'a [Cow<'static, [u8]>],
+    ) -> BoxedFuture<'a, io::Result<QuicConnection>> {
+        Box::pin(async move {
+            QuicEndpoint::connect_with_alpn(self, addr, server_name, alpn)
                 .await
                 .map(QuicConnection::from)
         })
@@ -568,6 +605,17 @@ impl ArcedQuicEndpoint {
     /// Initiate a QUIC connection to the given address.
     pub async fn connect(&self, addr: SocketAddr, server_name: &str) -> io::Result<QuicConnection> {
         self.0.connect(addr, server_name).await
+    }
+
+    /// Initiate a QUIC connection advertising `alpn` for this connection only, overriding the
+    /// endpoint's configured default ALPN. An empty list uses the default.
+    pub async fn connect_with_alpn(
+        &self,
+        addr: SocketAddr,
+        server_name: &str,
+        alpn: &[Cow<'static, [u8]>],
+    ) -> io::Result<QuicConnection> {
+        self.0.connect_with_alpn(addr, server_name, alpn).await
     }
 
     /// The local address this endpoint is bound to, if the adapter supports reporting it.
