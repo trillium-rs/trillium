@@ -45,7 +45,9 @@
 //!   picked h2. Use the `Version::Http2` hint described below to force h2 over TLS in that case.
 //! - Over `https://` when the [`Client`] was built with
 //!   [`Client::new_with_quic`](Client::new_with_quic): the client may use h3 for origins that have
-//!   advertised it via [`Alt-Svc`][altsvc] or that the user has hinted (see below).
+//!   advertised it via [`Alt-Svc`][altsvc], that publish an `alpn=h3` SVCB/HTTPS DNS record (when
+//!   an encrypted resolver is configured — see [Encrypted DNS](#encrypted-dns)), or that the user
+//!   has hinted (see below).
 //! - Over `http://`: h1 only. There is no h2c probing without explicit prior knowledge.
 //!
 //! [altsvc]: https://datatracker.ietf.org/doc/html/rfc7838
@@ -82,6 +84,34 @@
 //! open a multiplexed WebTransport-over-h3 session (RFC 9220 +
 //! draft-ietf-webtrans-http3). Multiple WebTransport sessions to the same origin coalesce
 //! onto a single underlying QUIC connection — see the `webtransport` module for details.
+//!
+//! ## Encrypted DNS
+//!
+//! With the `hickory` cargo feature, the client can route all of its DNS through an encrypted
+//! resolver of your choice rather than sending plaintext queries to the operating system's
+//! resolver. `Client::with_doh` uses DNS-over-HTTPS ([RFC 8484]), `Client::with_dot` DNS-over-TLS
+//! ([RFC 7858]), and `Client::with_doq` DNS-over-QUIC ([RFC 9250]); a client uses at most one, and
+//! a later call replaces an earlier one. DoH lookups ride the client's own connection pool, so they
+//! reuse and multiplex like any other request. A single resolution is cached and shared across
+//! HTTP/1, HTTP/2, and HTTP/3.
+//!
+//! Resolution is fail-closed: once a resolver is configured, a lookup it can't answer fails the
+//! request rather than falling back to the system resolver, so a query never leaks to a (possibly
+//! plaintext) local resolver. The resolver's own host is the one exception — it's resolved once via
+//! the underlying connector to bootstrap the connection; give the resolver as an IP address to skip
+//! even that.
+//!
+//! SVCB and HTTPS DNS records ([RFC 9460]) are fetched too, letting a server advertise HTTP/3
+//! support directly in DNS. A domain publishing `alpn=h3` is reached over HTTP/3 on the first
+//! request by an HTTP/3-capable client ([`Client::new_with_quic`]), with no [`Alt-Svc`][altsvc]
+//! round-trip. The connection to a DoH resolver itself negotiates h1/h2 by default;
+//! `Client::with_doh3` pins it to HTTP/3 for resolvers that serve DoH over HTTP/3 without
+//! advertising it. `with_dot` requires a TLS connector and `with_doq` an HTTP/3-capable client.
+//!
+//! [RFC 8484]: https://www.rfc-editor.org/rfc/rfc8484
+//! [RFC 7858]: https://www.rfc-editor.org/rfc/rfc7858
+//! [RFC 9250]: https://www.rfc-editor.org/rfc/rfc9250
+//! [RFC 9460]: https://www.rfc-editor.org/rfc/rfc9460
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
@@ -90,6 +120,8 @@ mod client;
 mod client_handler;
 mod conn;
 mod conn_handler_ext;
+#[cfg(feature = "hickory")]
+mod dns;
 mod h3;
 mod into_url;
 mod pool;

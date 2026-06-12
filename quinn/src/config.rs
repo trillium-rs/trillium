@@ -3,7 +3,13 @@ use crate::{
     runtime::{SocketTransport, TrilliumRuntime},
 };
 use rustls::server::ResolvesServerCert;
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    io,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 use trillium_server_common::{Info, QuicConfig as QuicConfigTrait, QuicEndpoint, Server};
 
 /// User-facing QUIC configuration backed by quinn.
@@ -135,12 +141,65 @@ where
 }
 
 /// A bound quinn QUIC endpoint that accepts and initiates connections.
-pub struct QuinnEndpoint(quinn::Endpoint);
+pub struct QuinnEndpoint {
+    endpoint: quinn::Endpoint,
+    /// The rustls config the per-connection-ALPN configs are derived from, when this endpoint was
+    /// bound from a [`ClientQuicConfig`](crate::ClientQuicConfig) built from a rustls config.
+    /// `None` for server-bound endpoints and client configs built from a raw
+    /// `quinn::ClientConfig`.
+    base_tls: Option<Arc<rustls::ClientConfig>>,
+    /// Per-ALPN `quinn::ClientConfig`s derived from `base_tls`, keyed by the ALPN protocol list.
+    /// The set is small and closed (`h3`, `doq`), so caching avoids rebuilding the crypto config
+    /// on every connection.
+    alpn_configs: Mutex<HashMap<Vec<Vec<u8>>, quinn::ClientConfig>>,
+}
 
 impl QuinnEndpoint {
-    /// Wrap a quinn endpoint.
+    /// Wrap a quinn endpoint with no rustls config retained (server-bound, or a client built from a
+    /// pre-assembled `quinn::ClientConfig`).
     pub(crate) fn new(endpoint: quinn::Endpoint) -> Self {
-        Self(endpoint)
+        Self {
+            endpoint,
+            base_tls: None,
+            alpn_configs: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Wrap a client endpoint, retaining `base_tls` so per-connection ALPN configs can be derived.
+    pub(crate) fn new_client(
+        endpoint: quinn::Endpoint,
+        base_tls: Option<Arc<rustls::ClientConfig>>,
+    ) -> Self {
+        Self {
+            endpoint,
+            base_tls,
+            alpn_configs: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Build (and cache) a `quinn::ClientConfig` advertising exactly `alpn`, derived from the
+    /// retained rustls config. Returns `None` when no rustls config was retained.
+    fn client_config_for_alpn(
+        &self,
+        alpn: &[Cow<'static, [u8]>],
+    ) -> io::Result<Option<quinn::ClientConfig>> {
+        let Some(base) = &self.base_tls else {
+            return Ok(None);
+        };
+        let key: Vec<Vec<u8>> = alpn.iter().map(|a| a.to_vec()).collect();
+
+        let mut cache = self.alpn_configs.lock().unwrap();
+        if let Some(config) = cache.get(&key) {
+            return Ok(Some(config.clone()));
+        }
+
+        let mut tls = (**base).clone();
+        tls.alpn_protocols = key.clone();
+        let quic_tls = quinn::crypto::rustls::QuicClientConfig::try_from(Arc::new(tls))
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        let config = quinn::ClientConfig::new(Arc::new(quic_tls));
+        cache.insert(key, config.clone());
+        Ok(Some(config))
     }
 }
 
@@ -149,7 +208,7 @@ impl QuicEndpoint for QuinnEndpoint {
 
     async fn accept(&self) -> Option<Self::Connection> {
         loop {
-            let incoming = self.0.accept().await?;
+            let incoming = self.endpoint.accept().await?;
             match incoming.await {
                 Ok(connection) => return Some(QuinnConnection::new(connection)),
                 Err(e) => log::error!("QUIC accept failed: {e}"),
@@ -159,7 +218,7 @@ impl QuicEndpoint for QuinnEndpoint {
 
     async fn connect(&self, addr: SocketAddr, server_name: &str) -> io::Result<Self::Connection> {
         let connection = self
-            .0
+            .endpoint
             .connect(addr, server_name)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
             .await
@@ -167,7 +226,32 @@ impl QuicEndpoint for QuinnEndpoint {
         Ok(QuinnConnection::new(connection))
     }
 
+    async fn connect_with_alpn(
+        &self,
+        addr: SocketAddr,
+        server_name: &str,
+        alpn: &[Cow<'static, [u8]>],
+    ) -> io::Result<Self::Connection> {
+        // Empty ALPN, or no retained rustls config to rebuild from, falls back to the endpoint's
+        // default client config.
+        let Some(config) = (!alpn.is_empty())
+            .then(|| self.client_config_for_alpn(alpn))
+            .transpose()?
+            .flatten()
+        else {
+            return self.connect(addr, server_name).await;
+        };
+
+        let connection = self
+            .endpoint
+            .connect_with(config, addr, server_name)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, e))?;
+        Ok(QuinnConnection::new(connection))
+    }
+
     fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.0.local_addr()
+        self.endpoint.local_addr()
     }
 }

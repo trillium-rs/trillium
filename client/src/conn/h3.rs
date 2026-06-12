@@ -1,5 +1,5 @@
 use super::Conn;
-use crate::h3::H3ClientState;
+use crate::h3::{H3ClientState, H3PoolEntry};
 use futures_lite::AsyncWriteExt;
 use std::{
     borrow::Cow,
@@ -11,6 +11,7 @@ use trillium_http::{
     h3::{Frame, FrameStream, H3Connection, H3Error},
     headers::qpack::{FieldSection, PseudoHeaders},
 };
+use trillium_server_common::url::Origin;
 
 fn h3_to_io(e: H3Error) -> io::Error {
     match e {
@@ -20,17 +21,84 @@ fn h3_to_io(e: H3Error) -> io::Error {
     }
 }
 
+#[cfg(feature = "hickory")]
 impl Conn {
-    /// Attempt to execute this request over HTTP/3.
+    /// The (host, port) to attempt h3 against when the DoH HTTPS record for this origin advertises
+    /// `alpn=h3`, or `None` if it doesn't (or DoH isn't configured).
     ///
-    /// Returns `Ok(true)` if the request was sent and response headers received via H3.
-    /// Returns `Ok(false)` if H3 is unavailable or failed pre-stream, signalling the caller
-    /// to fall back to HTTP/1.1. Mid-stream failures are returned as `Err`.
-    pub(super) async fn try_exec_h3(&mut self) -> Result<bool> {
-        let Some(h3) = self.client.h3().cloned() else {
-            return Ok(false);
+    /// Resolving the origin here populates the shared cache, so the subsequent connect resolution
+    /// in [`resolve_socket_addrs`](Self::resolve_socket_addrs) is a cache hit in the common case
+    /// where the SVCB target is the origin itself.
+    async fn svcb_h3_target(&self) -> Result<Option<(String, u16)>> {
+        let Some(host) = self.url.host_str() else {
+            return Ok(None);
         };
+        let Some(origin_port) = self.url.port_or_known_default() else {
+            return Ok(None);
+        };
+        let Some(resolved) = self.resolve(host, origin_port).await? else {
+            return Ok(None);
+        };
+        Ok(resolved
+            .services
+            .iter()
+            .find(|s| s.advertises_h3())
+            .map(|binding| {
+                let port = binding.port.unwrap_or(origin_port);
+                let target = binding.target.clone().unwrap_or_else(|| host.to_string());
+                (target, port)
+            }))
+    }
+}
 
+#[cfg(not(feature = "hickory"))]
+impl Conn {
+    async fn svcb_h3_target(&self) -> Result<Option<(String, u16)>> {
+        Ok(None)
+    }
+}
+
+impl Conn {
+    /// Whether h3 may be used for this request: only when h3 is pinned explicitly or no version
+    /// preference was expressed (the `Http1_1` auto sentinel). A prior-knowledge h2 or h1.0 pin
+    /// takes precedence and forbids h3 even for an origin we know speaks it.
+    fn h3_permitted(&self) -> bool {
+        self.client.h3().is_some() && matches!(self.http_version, Version::Http3 | Version::Http1_1)
+    }
+
+    /// Reuse a live pooled HTTP/3 connection for this origin, if one exists.
+    ///
+    /// Returns `Ok(true)` if the request went out over a pooled connection. Checked before any
+    /// alt-svc/SVCB consideration: holding the connection is itself the decision to use h3, and
+    /// alt-svc freshness governs only whether to *establish* a new one. Gating reuse on a
+    /// still-usable alt-svc entry would abandon a live connection the moment its (separately
+    /// expiring, unrelated) advertisement lapsed.
+    pub(super) async fn try_reuse_h3_pool(&mut self) -> Result<bool> {
+        if !self.h3_permitted() {
+            return Ok(false);
+        }
+        let h3 = self.client.h3().cloned().unwrap();
+        let origin = self.url.origin();
+        match h3
+            .pool
+            .peek_candidate_classify(&origin, |entry| entry.classify())
+        {
+            Some(entry) => self.exec_h3_on_entry(entry, &h3, &origin).await,
+            None => Ok(false),
+        }
+    }
+
+    /// Establish a new HTTP/3 connection for this request when the origin is known to speak h3
+    /// (h3 pinned, a usable Alt-Svc entry, or a DoH HTTPS record advertising `alpn=h3`).
+    ///
+    /// Returns `Ok(true)` if the request was sent and response headers received over h3. Returns
+    /// `Ok(false)` if h3 isn't applicable or the connect failed pre-stream, signalling the caller
+    /// to fall back. Mid-stream failures are returned as `Err`.
+    pub(super) async fn try_establish_h3(&mut self) -> Result<bool> {
+        if !self.h3_permitted() {
+            return Ok(false);
+        }
+        let h3 = self.client.h3().cloned().unwrap();
         let origin = self.url.origin();
 
         let (host, port) = if self.http_version == Version::Http3 {
@@ -48,12 +116,27 @@ impl Conn {
             && entry.is_usable()
         {
             (entry.host.clone(), entry.port)
+        } else if let Some(target) = self.svcb_h3_target().await? {
+            // A DoH HTTPS record advertising `alpn=h3` lets us go straight to h3 on
+            // the very first request, without waiting for an Alt-Svc round-trip.
+            target
         } else {
             return Ok(false);
         };
 
+        // When DoH is configured, resolve the chosen h3 host through it (fail-closed,
+        // cached); otherwise this is empty and the QUIC path resolves via the connector.
+        let addrs = self.resolve_socket_addrs(&host, port).await?;
+
         let entry = match h3
-            .get_or_create_quic_conn(&origin, &host, port, self.client.connector(), &self.context)
+            .get_or_create_quic_conn(
+                &origin,
+                &host,
+                port,
+                &addrs,
+                self.client.connector(),
+                &self.context,
+            )
             .await
         {
             Ok(entry) => entry,
@@ -64,6 +147,20 @@ impl Conn {
             }
         };
 
+        self.exec_h3_on_entry(entry, &h3, &origin).await
+    }
+
+    /// Execute this request over an established HTTP/3 connection, pooled or freshly connected.
+    ///
+    /// Returns `Ok(false)` if the stream can't be opened (a dead connection), signalling the caller
+    /// to fall back. Once the request has been written we've committed to h3, so later failures
+    /// propagate as `Err`.
+    async fn exec_h3_on_entry(
+        &mut self,
+        entry: H3PoolEntry,
+        h3: &H3ClientState,
+        origin: &Origin,
+    ) -> Result<bool> {
         // Park on the peer's first SETTINGS before sending a `:protocol` HEADERS — required
         // by RFC 9220 for extended CONNECT.
         if self.protocol.is_some() {
@@ -93,7 +190,7 @@ impl Conn {
             Ok(t) => t,
             Err(e) => {
                 log::debug!("H3 open_bidi failed: {e}, falling back to H1");
-                h3.mark_broken(&origin);
+                h3.mark_broken(origin);
                 return Ok(false);
             }
         };
@@ -117,7 +214,7 @@ impl Conn {
         self.send_h3_request().await?;
         self.recv_h3_response_headers().await?;
 
-        self.update_alt_svc_from_response(&h3);
+        self.update_alt_svc_from_response(h3);
 
         Ok(true)
     }

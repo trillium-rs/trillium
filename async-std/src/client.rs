@@ -4,10 +4,7 @@ use std::{
     io::{Error, ErrorKind, Result},
     net::SocketAddr,
 };
-use trillium_server_common::{
-    Connector, Transport,
-    url::{Host, Url},
-};
+use trillium_server_common::{Connector, Destination, Transport, url::Url};
 
 /// configuration for the tcp Connector
 #[derive(Default, Debug, Clone, Copy)]
@@ -47,27 +44,28 @@ impl Connector for ClientConfig {
     type Udp = crate::AsyncStdUdpSocket;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
-        if url.scheme() != "http" {
+        self.connect_to(Destination::from_url(url)?).await
+    }
+
+    async fn connect_to(&self, destination: Destination) -> Result<Self::Transport> {
+        if destination.secure() {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
-                format!("unknown scheme {}", url.scheme()),
+                "this connector does not support TLS",
             ));
         }
 
-        let host = url
-            .host()
-            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, format!("{url} missing host")))?;
-
-        let port = url
-            .port_or_known_default()
-            // this should be ok because we already checked that the scheme is http, which has a
-            // default port
-            .ok_or_else(|| Error::new(ErrorKind::InvalidInput, format!("{url} missing port")))?;
-
-        let mut tcp = match host {
-            Host::Domain(domain) => Self::Transport::connect((domain, port)).await?,
-            Host::Ipv4(ip) => Self::Transport::connect((ip, port)).await?,
-            Host::Ipv6(ip) => Self::Transport::connect((ip, port)).await?,
+        let addrs = destination.addrs();
+        let mut tcp = if addrs.is_empty() {
+            let host = destination.host().ok_or_else(|| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "destination has neither host nor addresses",
+                )
+            })?;
+            Self::Transport::connect((host, destination.port())).await?
+        } else {
+            Self::Transport::connect(addrs).await?
         };
 
         if let Some(nodelay) = self.nodelay {

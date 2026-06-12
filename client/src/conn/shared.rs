@@ -1,13 +1,18 @@
 use super::{Body, Conn, Transport, TypeSet};
 use crate::{ClientHandler, ConnExt, Error, Result, Version};
+use smallvec::SmallVec;
+#[cfg(feature = "hickory")]
+use std::net::IpAddr;
 use std::{
     borrow::Cow,
     fmt::{self, Debug, Formatter},
     future::{Future, IntoFuture},
     mem,
+    net::SocketAddr,
     pin::Pin,
 };
 use trillium_http::{ProtocolSession, Upgrade};
+use trillium_server_common::Destination;
 
 /// A wrapper error for [`trillium_http::Error`] or, depending on json serializer feature, either
 /// `sonic_rs::Error` or `serde_json::Error`. Only available when either the `sonic-rs` or
@@ -61,10 +66,21 @@ impl Conn {
             return Err(Error::UnsupportedVersion(self.http_version));
         }
 
-        if self.try_exec_h3().await? {
+        // Phase 1 — reuse a live pooled connection, best protocol first. No DNS, no new connect.
+        // A pooled h2 connection is reused in preference to establishing a new h3 connection: we
+        // do not proactively migrate h2→h3, since a general-purpose client can't assume the
+        // request locality that makes eager migration pay off (see the migration-policy backlog
+        // item). A pooled h1 connection, by contrast, does not block establishing h3 below.
+        if self.try_reuse_h3_pool().await? {
             return Ok(());
         }
         if self.try_exec_h2_pooled().await? {
+            return Ok(());
+        }
+
+        // Phase 2/3 — establish a new connection, preferring h3 when the origin is known to speak
+        // it (pinned, Alt-Svc, or SVCB). This runs before the h1 path, so h1→h3 is immediate.
+        if self.try_establish_h3().await? {
             return Ok(());
         }
 
@@ -93,6 +109,85 @@ impl Conn {
             Version::Http3 if self.client.h3().is_some() => self.finalize_headers_h3(),
             other => Err(Error::UnsupportedVersion(other)),
         }
+    }
+
+    /// The [`Destination`] for connecting to this conn's origin over h1/h2: scheme, host, and port
+    /// from the URL, plus any DoH-resolved addresses. A bare-IP origin keeps the address
+    /// [`from_url`](Destination::from_url) derived and is never resolved.
+    pub(crate) async fn origin_destination(&self) -> Result<Destination> {
+        let mut destination = Destination::from_url(&self.url)?;
+        let addrs = self.origin_socket_addrs().await?;
+        if !addrs.is_empty() {
+            destination.set_addrs(addrs);
+        }
+        Ok(destination)
+    }
+
+    /// Pre-resolved socket addresses for this conn's origin host:port, for the protocols that
+    /// always connect to the origin (h1/h2). Empty when DoH is not configured or the host is an IP
+    /// literal, so the connector falls back to its own (trivial, for an IP) resolution.
+    pub(crate) async fn origin_socket_addrs(&self) -> Result<SmallVec<[SocketAddr; 4]>> {
+        let Some(host) = self.url.host_str() else {
+            return Ok(SmallVec::new());
+        };
+        let port = self.url.port_or_known_default().unwrap_or(443);
+        self.resolve_socket_addrs(host, port).await
+    }
+}
+
+#[cfg(feature = "hickory")]
+impl Conn {
+    /// Resolve `host:port` through the configured DoH resolver, or `None` when DoH is not
+    /// configured (so the caller falls back to the connector's own resolution).
+    ///
+    /// The single place this conn touches DNS. The resolver reads and populates a shared, TTL'd
+    /// cache as a side effect, so repeated calls for the same host — across protocols, and across
+    /// the SVCB decision and the eventual connect — issue at most one set of queries.
+    ///
+    /// Fail-closed: once DoH is configured, a lookup the resolver can't answer fails the request
+    /// rather than falling back to the (possibly plaintext) system resolver.
+    ///
+    /// An IP-literal host is returned as `None` without touching the resolver — there is nothing to
+    /// look up, and no SVCB/HTTPS records exist for a bare address.
+    pub(crate) async fn resolve(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> Result<Option<crate::dns::Resolved>> {
+        if host.parse::<IpAddr>().is_ok() {
+            return Ok(None);
+        }
+        match &self.client.resolver {
+            Some(resolver) => Ok(Some(
+                resolver
+                    .resolve(&self.client, host, port, self.timeout)
+                    .await?,
+            )),
+            None => Ok(None),
+        }
+    }
+
+    pub(crate) async fn resolve_socket_addrs(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> Result<SmallVec<[SocketAddr; 4]>> {
+        Ok(self
+            .resolve(host, port)
+            .await?
+            .map(|resolved| resolved.socket_addrs(port))
+            .unwrap_or_default())
+    }
+}
+
+#[cfg(not(feature = "hickory"))]
+impl Conn {
+    pub(crate) async fn resolve_socket_addrs(
+        &self,
+        _host: &str,
+        _port: u16,
+    ) -> Result<SmallVec<[SocketAddr; 4]>> {
+        Ok(SmallVec::new())
     }
 }
 

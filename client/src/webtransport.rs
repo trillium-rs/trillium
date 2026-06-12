@@ -59,10 +59,10 @@ impl Conn {
 
         // The peer-capability check (server must have advertised
         // SETTINGS_ENABLE_CONNECT_PROTOCOL, plus SETTINGS_ENABLE_WEBTRANSPORT and
-        // SETTINGS_H3_DATAGRAM for WT) lives inside `try_exec_h3`, where it can park on
-        // the peer's first SETTINGS *before* opening the CONNECT stream. The dispatcher is
-        // also lazy-initialized there, so any inbound WT streams that arrive during the
-        // round-trip land in the dispatcher's `Buffering` state.
+        // SETTINGS_H3_DATAGRAM for WT) lives inside the h3 exec path (`exec_h3_on_entry`),
+        // where it can park on the peer's first SETTINGS *before* opening the CONNECT stream.
+        // The dispatcher is also lazy-initialized there, so any inbound WT streams that arrive
+        // during the round-trip land in the dispatcher's `Buffering` state.
         if let Err(e) = (&mut self).await {
             let kind = match e {
                 trillium_http::Error::ExtendedConnectUnsupported => {
@@ -82,8 +82,8 @@ impl Conn {
         }
 
         let Some(entry) = self.wt_pool_entry.take() else {
-            // Should not happen: try_exec_h3 populates this for any conn whose protocol is
-            // webtransport.
+            // Should not happen: the h3 exec path populates this for any conn whose protocol
+            // is webtransport.
             return Err(WebTransportConnectError::new(self, ErrorKind::InvalidConn));
         };
         let Some((h3_connection, session_id)) = self.protocol_session.as_h3() else {

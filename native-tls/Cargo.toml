@@ -1,6 +1,6 @@
 [package]
 name = "trillium-native-tls"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2024"
 description = "native-tls adapter for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -16,7 +16,7 @@ p12 = "0.6.3"
 pem = "3"
 pkcs8 = { version = "0.11", features = ["alloc"] }
 sec1 = "0.8"
-trillium-server-common.workspace = true
+trillium-server-common = { version = "0.7.5", path = "../server-common" }
 
 [dev-dependencies]
 env_logger = "0.11.10"

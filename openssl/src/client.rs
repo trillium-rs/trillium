@@ -4,13 +4,13 @@ use async_openssl::SslStream;
 use openssl::ssl::{SslConnector, SslMethod};
 use std::{
     fmt::{self, Debug, Formatter},
-    io::{Error, ErrorKind, IoSliceMut, Result},
+    io::{Error, IoSliceMut, Result},
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url};
+use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Destination, Transport, Url};
 
 /// A reference-counted [`SslConnector`] with a sensible default.
 ///
@@ -98,41 +98,48 @@ impl<C: Connector> Connector for OpenSslConfig<C> {
     type Udp = C::Udp;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
-        match url.scheme() {
-            "https" => {
-                let mut http = url.clone();
-                http.set_scheme("http").ok();
-                http.set_port(url.port_or_known_default()).ok();
+        self.connect_to(Destination::from_url(url)?).await
+    }
 
-                let domain = url.domain().ok_or_else(|| Error::other("missing domain"))?;
-                let ssl = self
-                    .ssl_config
-                    .as_inner()
-                    .configure()
-                    .map_err(Error::other)?
-                    .into_ssl(domain)
-                    .map_err(Error::other)?;
-
-                let inner = self.tcp_config.connect(&http).await?;
-                let mut stream = SslStream::new(ssl, inner).map_err(Error::other)?;
-                Pin::new(&mut stream)
-                    .connect()
-                    .await
-                    .map_err(Error::other)?;
-                Ok(OpenSslClientTransport(Tls(Box::new(stream))))
-            }
-
-            "http" => self
+    async fn connect_to(&self, destination: Destination) -> Result<Self::Transport> {
+        if !destination.secure() {
+            return self
                 .tcp_config
-                .connect(url)
+                .connect_to(destination)
                 .await
-                .map(|t| OpenSslClientTransport(Tcp(t))),
-
-            unknown => Err(Error::new(
-                ErrorKind::InvalidInput,
-                format!("unknown scheme {unknown}"),
-            )),
+                .map(|t| OpenSslClientTransport(Tcp(t)));
         }
+
+        // OpenSSL's `into_ssl` requires a domain for SNI; a bare-IP destination has none.
+        let mut ssl = self
+            .ssl_config
+            .as_inner()
+            .configure()
+            .map_err(Error::other)?
+            .into_ssl(
+                destination
+                    .host()
+                    .ok_or_else(|| Error::other("missing domain"))?,
+            )
+            .map_err(Error::other)?;
+
+        // A non-empty per-connection ALPN list overrides the connector's default; an empty one
+        // leaves the configured default in place.
+        if !destination.alpn().is_empty() {
+            ssl.set_alpn_protos(&encode_alpn(destination.alpn()))
+                .map_err(Error::other)?;
+        }
+
+        let inner = self
+            .tcp_config
+            .connect_to(destination.with_secure(false))
+            .await?;
+        let mut stream = SslStream::new(ssl, inner).map_err(Error::other)?;
+        Pin::new(&mut stream)
+            .connect()
+            .await
+            .map_err(Error::other)?;
+        Ok(OpenSslClientTransport(Tls(Box::new(stream))))
     }
 
     fn runtime(&self) -> Self::Runtime {

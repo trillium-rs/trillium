@@ -41,7 +41,7 @@ mod binding;
 pub use binding::Binding;
 
 mod client;
-pub use client::{ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig};
+pub use client::{ArcedConnector, ArcedQuicClientConfig, Connector, Destination, QuicClientConfig};
 
 mod acceptor;
 pub use acceptor::Acceptor;

@@ -1,4 +1,8 @@
-use crate::{Pool, h3::alt_svc::DEFAULT_BROKEN_DURATION, pool::PoolEntry};
+use crate::{
+    Pool,
+    h3::alt_svc::DEFAULT_BROKEN_DURATION,
+    pool::{Acquire, PoolEntryStatus},
+};
 use alt_svc::AltSvcCache;
 use std::{
     io::{self, ErrorKind},
@@ -30,6 +34,23 @@ pub(crate) struct H3PoolEntry {
     pub(crate) h3: Arc<H3Connection>,
     #[cfg(feature = "webtransport")]
     pub(crate) dispatcher: Arc<OnceLock<WebTransportDispatcher>>,
+}
+
+impl H3PoolEntry {
+    /// How the pool should treat this entry: [`Dead`] once the H3 connection's swansong has left
+    /// the running state (shutting down or closed), otherwise [`Available`]. QUIC connections
+    /// multiplex, so a running connection is always reusable. This is the swansong-level signal;
+    /// a connection closed purely at the QUIC layer is caught on the next `open_bidi` instead.
+    ///
+    /// [`Dead`]: PoolEntryStatus::Dead
+    /// [`Available`]: PoolEntryStatus::Available
+    pub(crate) fn classify(&self) -> PoolEntryStatus {
+        if self.h3.swansong().state().is_running() {
+            PoolEntryStatus::Available
+        } else {
+            PoolEntryStatus::Dead
+        }
+    }
 }
 
 /// Shared state for HTTP/3 support on a [`Client`].
@@ -76,27 +97,75 @@ impl H3ClientState {
         origin: &Origin,
         host: &str,
         port: u16,
+        addrs: &[SocketAddr],
         connector: &ArcedConnector,
         context: &Arc<HttpContext>,
     ) -> io::Result<H3PoolEntry> {
-        if let Some(entry) = self.pool.peek_candidate(origin) {
-            return Ok(entry);
+        // QUIC connections are always multiplexed, so concurrent callers to a cold origin should
+        // open one connection, not race N handshakes (each of which then stalls ~30s before
+        // falling back). `acquire` elects one primer; the rest await its result.
+        loop {
+            match self.pool.acquire(origin.clone(), |entry| entry.classify()) {
+                Acquire::Ready(entry) => return Ok(entry),
+                Acquire::Await(cell) => match cell.wait().await {
+                    Some(entry) => return Ok(entry.clone()),
+                    // The primer's connect failed; take another lap to retry or re-await.
+                    None => continue,
+                },
+                Acquire::Primer(guard) => {
+                    // On error `?` returns and `guard` drops, waking waiters to retry; on success
+                    // `resolve_ready` pools the connection and hands waiters a clone.
+                    let entry = self
+                        .connect_quic(host, port, addrs, connector, context)
+                        .await?;
+                    guard.resolve_ready(entry.clone(), None);
+                    return Ok(entry);
+                }
+            }
         }
+    }
 
-        let addr = *connector
-            .resolve(host, port)
-            .await?
-            .first()
-            .ok_or_else(|| io::Error::new(ErrorKind::NotFound, "no addresses resolved for host"))?;
+    /// Establish a fresh QUIC connection to `host:port` and spawn its mandatory HTTP/3 streams.
+    async fn connect_quic(
+        &self,
+        host: &str,
+        port: u16,
+        addrs: &[SocketAddr],
+        connector: &ArcedConnector,
+        context: &Arc<HttpContext>,
+    ) -> io::Result<H3PoolEntry> {
+        // Pre-resolved addresses (e.g. from DoH) take precedence; otherwise fall
+        // back to the connector's own resolver.
+        let addr = match addrs.first() {
+            Some(addr) => *addr,
+            None => *connector
+                .resolve(host, port)
+                .await?
+                .first()
+                .ok_or_else(|| {
+                    io::Error::new(ErrorKind::NotFound, "no addresses resolved for host")
+                })?,
+        };
 
         let endpoint = self.endpoint_for(addr)?;
         let conn = endpoint.connect(addr, host).await?;
 
-        let entry = setup_h3_connection(conn, context, &connector.runtime());
+        Ok(setup_h3_connection(conn, context, &connector.runtime()))
+    }
 
-        self.pool
-            .insert(origin.clone(), PoolEntry::new(entry.clone(), None));
-        Ok(entry)
+    /// Open a bare QUIC connection to `host` at `addr` advertising `alpn`, reusing this state's UDP
+    /// endpoint but skipping all HTTP/3 setup (no control or QPACK streams). Used by DNS-over-QUIC,
+    /// which drives raw bidi streams itself.
+    #[cfg(feature = "hickory")]
+    pub(crate) async fn connect_with_alpn(
+        &self,
+        host: &str,
+        addr: SocketAddr,
+        alpn: &[std::borrow::Cow<'static, [u8]>],
+    ) -> io::Result<QuicConnection> {
+        self.endpoint_for(addr)?
+            .connect_with_alpn(addr, host, alpn)
+            .await
     }
 
     /// Get or create the endpoint for the given peer address family.

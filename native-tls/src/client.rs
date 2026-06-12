@@ -1,13 +1,13 @@
 use async_native_tls::{TlsConnector, TlsStream};
 use std::{
     fmt::{Debug, Formatter},
-    io::{Error, ErrorKind, IoSlice, IoSliceMut, Result},
+    io::{Error, IoSlice, IoSliceMut, Result},
     net::SocketAddr,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
-use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Transport, Url};
+use trillium_server_common::{AsyncRead, AsyncWrite, Connector, Destination, Transport, Url};
 
 /// Configuration for the native tls client connector
 #[derive(Clone)]
@@ -69,31 +69,43 @@ impl<T: Connector> Connector for NativeTlsConfig<T> {
     type Udp = T::Udp;
 
     async fn connect(&self, url: &Url) -> Result<Self::Transport> {
-        match url.scheme() {
-            "https" => {
-                let mut http = url.clone();
-                http.set_scheme("http").ok();
-                http.set_port(url.port_or_known_default()).ok();
-                let inner_stream = self.tcp_config.connect(&http).await?;
+        self.connect_to(Destination::from_url(url)?).await
+    }
 
-                self.tls_connector
-                    .connect(url, inner_stream)
-                    .await
-                    .map_err(|e| Error::other(e.to_string()))
-                    .map(NativeTlsClientTransport::from)
-            }
-
-            "http" => self
+    async fn connect_to(&self, destination: Destination) -> Result<Self::Transport> {
+        if !destination.secure() {
+            return self
                 .tcp_config
-                .connect(url)
+                .connect_to(destination)
                 .await
-                .map(NativeTlsClientTransport::from),
-
-            unknown => Err(Error::new(
-                ErrorKind::InvalidInput,
-                format!("unknown scheme {unknown}"),
-            )),
+                .map(NativeTlsClientTransport::from);
         }
+
+        // The server name comes from the destination, never the dialed address; capture a domain
+        // before the dial moves the destination, deferring the host-less (bare-IP) case to the
+        // address actually connected to.
+        let domain = destination.host().map(str::to_owned);
+        let inner_stream = self
+            .tcp_config
+            .connect_to(destination.with_secure(false))
+            .await?;
+        let host = match domain {
+            Some(domain) => domain,
+            None => inner_stream
+                .peer_addr()?
+                .ok_or_else(|| Error::other("no peer address for bare-ip destination"))?
+                .ip()
+                .to_string(),
+        };
+
+        // `destination.alpn()` is intentionally ignored: `async-native-tls` does not yet expose
+        // per-connection ALPN configuration. Honoring the override awaits the upstream ALPN support
+        // PR; until then this connector negotiates no ALPN (effectively h1-only).
+        self.tls_connector
+            .connect(host.as_str(), inner_stream)
+            .await
+            .map_err(|e| Error::other(e.to_string()))
+            .map(NativeTlsClientTransport::from)
     }
 
     fn runtime(&self) -> Self::Runtime {
