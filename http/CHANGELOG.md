@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.8](https://github.com/trillium-rs/trillium/compare/trillium-http-v1.3.7...trillium-http-v1.3.8) - 2026-06-13
+
+### Other
+
+- updated the following local packages: trillium-macros
+
 ## [1.3.7] - 2026-06-10
 
 The theme of this release is HTTP/1.x SHOULD-level conformance.

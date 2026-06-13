@@ -1,6 +1,6 @@
 [package]
 name = "trillium-server-common"
-version = "0.7.4"
+version = "0.7.5"
 edition = "2024"
 description = "server utilities for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -25,8 +25,8 @@ log = "0.4.29"
 pin-project-lite = "0.2.17"
 socket2 = { version = "0.6", features = ["all"], optional = true }
 swansong = "0.3.4"
-trillium = { version = "1.3", path = "../trillium" }
-trillium-http = { version = "1.2", path = "../http" }
+trillium = { version = "1.4", path = "../trillium" }
+trillium-http = { version = "1.3", path = "../http" }
 url = "2.5.8"
 
 [target.'cfg(unix)'.dependencies]
