@@ -50,6 +50,7 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'client/overview'},
       items: [
         'client/middleware',
+        'client/encrypted-dns',
         'client/extras',
       ],
     },

@@ -214,4 +214,5 @@ If a single `Client` is used against a large number of distinct hosts, the pool 
 ## What's next
 
 - [Client middleware](./middleware.md) — logging, cookies, compression, redirect-following, retrying, and caching as composable `ClientHandler`s.
+- [Encrypted DNS](./encrypted-dns.md) — route lookups through DoH/DoT/DoQ for privacy and DNS-level HTTP/3 discovery.
 - [WebSockets, WebTransport, and JSON](./extras.md) — feature-gated client capabilities.
