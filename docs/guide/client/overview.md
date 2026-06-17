@@ -84,6 +84,28 @@ let client = Client::new(RustlsConfig::<ClientConfig>::default().without_http2()
 # }
 ```
 
+That opts out for every request on the client. To force HTTP/1.1 for a single request instead — pinning h1.1 even when the connector would negotiate h2 via ALPN or h3 via `Alt-Svc` — set the per-request hint:
+
+```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client" }
+# trillium-testing = { path = "../testing" }
+#
+# fn main() { trillium_testing::block_on(async {
+# use trillium_client::Client;
+# use trillium_smol::ClientConfig;
+use trillium_client::Version;
+
+# let client = Client::new(ClientConfig::default());
+let conn = client
+    .get("https://example.com/")
+    .with_http_version(Version::Http1_1)
+    .await
+    .unwrap();
+# }); }
+```
+
 For TLS connectors that don't surface ALPN selection (`trillium-native-tls` at time of writing) or for cleartext h2c, set the per-request prior-knowledge hint:
 
 ```rust

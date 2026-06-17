@@ -55,23 +55,33 @@
 //! ### Prior-knowledge hints
 //!
 //! Setting [`Conn::http_version`](Conn::with_http_version) before sending the request
-//! signals **prior knowledge** of what the server speaks. The default value is
-//! [`Version::Http1_1`], which means "no hint — use auto-discovery."
+//! signals **prior knowledge** of what the server speaks. By default no hint is set, which means
+//! "use auto-discovery." Setting any explicit version **pins** the protocol and suppresses
+//! auto-discovery — no Alt-Svc h3, no ALPN/pooled h2 promotion — and constrains the connection's
+//! ALPN to match (an h1 pin advertises only `http/1.1`, an h2 pin only `h2`), so the pin is honored
+//! over TLS rather than overridden by ALPN. The [`http_version`](Conn::http_version) accessor
+//! reports the unset default as [`Version::Http1_1`].
 //!
 //! | hint | URL scheme | behavior | curl equivalent |
 //! |---|---|---|---|
-//! | `Version::Http3` | `https` | Skip the [`Alt-Svc`][altsvc] cache and dial QUIC directly. Falls back to h2 / h1 if QUIC connect fails. Requires [`Client::new_with_quic`](Client::new_with_quic). | `--http3` |
-//! | `Version::Http2` | `https` | TLS handshake (with whatever ALPN the connector advertises), then start the h2 driver immediately without checking the negotiated ALPN. **No fallback** — a non-h2-speaking server surfaces as an IO error. Useful with TLS connectors that don't surface ALPN selection. | (curl bundles this with `--http2-prior-knowledge`'s cleartext mode) |
+//! | `Version::Http3` | `https` | Skip the [`Alt-Svc`][altsvc] cache and dial QUIC directly. Falls back to auto-discovery (h2 / h1) if QUIC connect fails. Requires [`Client::new_with_quic`](Client::new_with_quic). | `--http3` |
+//! | `Version::Http2` | `https` | TLS handshake advertising only `h2` in ALPN, then start the h2 driver immediately without checking the negotiated ALPN. **No fallback** — a non-h2-speaking server surfaces as an IO error. Also works with TLS connectors that don't surface ALPN selection. | (curl bundles this with `--http2-prior-knowledge`'s cleartext mode) |
 //! | `Version::Http2` | `http` | h2c immediate preface (cleartext h2 prior knowledge). **No fallback**. | `--http2-prior-knowledge` |
-//! | `Version::Http1_1` (default) | any | Auto-discovery as described above. | (default) |
+//! | `Version::Http1_1` | any | Force HTTP/1.1: no h3 Alt-Svc, no h2 ALPN/pool promotion. | `--http1.1` |
 //! | `Version::Http1_0` | any | h1.0 wire format (no `Host`, no chunked encoding, etc.). | `--http1.0` |
+//! | _unset_ (default) | any | Auto-discovery as described above. | (default) |
 //!
 //! Hints are per-[`Conn`]; mix them freely on requests sharing one [`Client`].
 //!
-//! ### Forcing h1.1 (no h2 ALPN)
+//! ### Forcing h1.1
 //!
-//! There is no per-request knob equivalent to curl's `--http1.1`. Opting out of h2 ALPN
-//! advertisement is a TLS configuration concern, not a per-request concern: use
+//! Set the [`Version::Http1_1`] hint on the request — the per-request equivalent of curl's
+//! `--http1.1`. It pins HTTP/1.1 even when the connector would otherwise negotiate h2 via ALPN or
+//! use h3 via Alt-Svc, by advertising only `http/1.1` in this connection's ALPN. (Over
+//! `trillium_native_tls`, which doesn't yet honor per-connection ALPN, the pin still skips h2/h3
+//! promotion but can't constrain the handshake — in practice harmless, since native-tls advertises
+//! no ALPN by default.) To opt out of h2 ALPN advertisement at the connection level for *all*
+//! requests on a client, that remains a TLS configuration concern: use
 //! [`RustlsConfig::without_http2()`](https://docs.trillium.rs/trillium_rustls/struct.RustlsConfig.html#method.without_http2)
 //! (or the equivalent on whichever TLS crate you're using) when constructing the
 //! [`Client`].

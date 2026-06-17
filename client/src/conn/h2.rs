@@ -92,9 +92,9 @@ impl Conn {
     /// fall through to the h1 / fresh-connect path.
     pub(super) async fn try_exec_h2_pooled(&mut self) -> Result<bool> {
         // A prior-knowledge version pin takes precedence: only reuse a pooled h2 connection when
-        // h2 is pinned explicitly or no preference was expressed (the `Http1_1` auto sentinel).
-        // An h3 or h1.0 pin means that protocol.
-        if !matches!(self.http_version, Version::Http2 | Version::Http1_1) {
+        // h2 is pinned explicitly or no preference was expressed. An h3, h1.1, or h1.0 pin means
+        // that protocol.
+        if !matches!(self.http_version, None | Some(Version::Http2)) {
             return Ok(false);
         }
         let Some(h2_pool) = self.client.h2_pool() else {
@@ -218,7 +218,7 @@ impl Conn {
     }
 
     pub(super) async fn exec_h2_on_connection(&mut self, h2: Arc<H2Connection>) -> Result<()> {
-        self.http_version = Version::Http2;
+        self.http_version = Some(Version::Http2);
         self.headers_finalized = false;
         self.finalize_headers_h2()?;
 

@@ -17,9 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connectors previously did inline. Defaulted to reconstruct a url and call `connect`, so existing
   `Connector` implementations are unaffected. Taken by value so connectors can adjust it (e.g.
   clearing `secure` before delegating the TCP dial to an inner connector) without copying.
-- `Destination::with_alpn` / `alpn` — advertise a specific ALPN protocol list for a single
-  connection, overriding the connector's configured default (an empty list, the default, leaves
-  that default in place). TLS and QUIC connectors honor it; plaintext transports ignore it.
+- `Destination::with_alpn` / `set_alpn` / `without_alpn` / `alpn` — advertise a specific ALPN
+  protocol list for a single connection, overriding the connector's configured default. The
+  override is an `Option`: `None` (the default, also `without_alpn`) leaves the connector's
+  configured default in place, while `Some` advertises exactly the given list — including an empty
+  list, which advertises no ALPN at all. TLS and QUIC connectors honor it; plaintext transports
+  ignore it.
 - `QuicEndpoint::connect_with_alpn` (and the matching `ArcedQuicEndpoint` method) — initiate a QUIC
   connection advertising a per-connection ALPN list, so one bound endpoint can negotiate different
   application protocols per connection (e.g. `h3` and `doq`) over the same UDP socket. Defaulted to

@@ -266,14 +266,15 @@ impl<C: Connector> Connector for RustlsConfig<C> {
                 .map(Into::into);
         }
 
-        // A non-empty per-connection ALPN list overrides the config's default; an empty one leaves
-        // the config as-is. Only clone the (otherwise shared) config when an override is present.
-        let rustls_config = if destination.alpn().is_empty() {
-            Arc::clone(&self.rustls_config.0)
-        } else {
+        // A per-connection ALPN override replaces the config's default; absent one, the shared
+        // config is used as-is. Only clone the (otherwise shared) config when an override is
+        // present.
+        let rustls_config = if let Some(alpn) = destination.alpn() {
             let mut config = (*self.rustls_config.0).clone();
-            config.alpn_protocols = destination.alpn().iter().map(|p| p.to_vec()).collect();
+            config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
             Arc::new(config)
+        } else {
+            Arc::clone(&self.rustls_config.0)
         };
         let connector: TlsConnector = rustls_config.into();
 

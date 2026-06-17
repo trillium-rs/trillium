@@ -62,8 +62,8 @@ impl Conn {
     }
 
     async fn exec_network(&mut self) -> Result<()> {
-        if matches!(self.http_version, Version::Http0_9) {
-            return Err(Error::UnsupportedVersion(self.http_version));
+        if self.http_version == Some(Version::Http0_9) {
+            return Err(Error::UnsupportedVersion(Version::Http0_9));
         }
 
         // Phase 1 — reuse a live pooled connection, best protocol first. No DNS, no new connect.
@@ -87,7 +87,7 @@ impl Conn {
         // Prior-knowledge h2: caller asserted h2, skip h1/ALPN. Useful for TLS connectors
         // that don't expose `negotiated_alpn` (e.g. native-tls). No fallback — a non-h2
         // server here surfaces as a plain IO error.
-        if self.http_version == Version::Http2 {
+        if self.http_version == Some(Version::Http2) {
             return self.exec_h2_prior_knowledge().await;
         }
 
@@ -103,7 +103,7 @@ impl Conn {
     }
 
     pub(crate) fn finalize_headers(&mut self) -> Result<()> {
-        match self.http_version {
+        match self.http_version() {
             Version::Http1_0 | Version::Http1_1 => self.finalize_headers_h1(),
             Version::Http2 => self.finalize_headers_h2(),
             Version::Http3 if self.client.h3().is_some() => self.finalize_headers_h3(),
@@ -114,11 +114,25 @@ impl Conn {
     /// The [`Destination`] for connecting to this conn's origin over h1/h2: scheme, host, and port
     /// from the URL, plus any DoH-resolved addresses. A bare-IP origin keeps the address
     /// [`from_url`](Destination::from_url) derived and is never resolved.
+    ///
+    /// An explicit version pin constrains the connection's ALPN so the pin is honored over TLS: an
+    /// h1 pin advertises only `http/1.1` (a server that would otherwise negotiate `h2` falls back
+    /// to h1), an h2 pin advertises only `h2`. Without a pin the connector's configured default
+    /// ALPN is left in place, so auto-discovery can promote to h2 via ALPN.
     pub(crate) async fn origin_destination(&self) -> Result<Destination> {
         let mut destination = Destination::from_url(&self.url)?;
         let addrs = self.origin_socket_addrs().await?;
         if !addrs.is_empty() {
             destination.set_addrs(addrs);
+        }
+        match self.http_version {
+            Some(Version::Http1_0 | Version::Http1_1) => {
+                destination.set_alpn([Cow::Borrowed(b"http/1.1".as_slice())]);
+            }
+            Some(Version::Http2) => {
+                destination.set_alpn([Cow::Borrowed(b"h2".as_slice())]);
+            }
+            _ => {}
         }
         Ok(destination)
     }
@@ -247,7 +261,7 @@ impl From<Conn> for Upgrade<Box<dyn Transport>> {
             conn.scheme.take(),
             mem::replace(&mut conn.protocol_session, ProtocolSession::Http1),
             conn.protocol.take(),
-            conn.http_version,
+            conn.http_version(),
             conn.status,
             secure,
             // Client-side inbound = response body.

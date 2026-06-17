@@ -176,17 +176,18 @@ pub struct Conn {
     /// the transport.
     pub(crate) body_override: Option<Body>,
 
-    /// the http version for this conn
+    /// the http version *hint* for this conn
     ///
-    /// Pre-execution this is the version *hint* (prior knowledge), not the version that will
-    /// necessarily be on the wire — the default [`Version::Http1_1`] means "no hint, use
-    /// auto-discovery" rather than "force HTTP/1.1." Post-execution this reflects the version
-    /// the request was actually sent over.
+    /// Pre-execution this is the prior-knowledge hint, not the version that will necessarily be
+    /// on the wire. `None` means "no hint, use auto-discovery" (Alt-Svc h3, ALPN/pooled h2);
+    /// any `Some(version)` pins the protocol and suppresses auto-discovery. Post-execution this
+    /// is `Some(version)` reflecting the version the request was actually sent over.
     ///
-    /// See the crate-level [Protocol selection][crate#protocol-selection] documentation for
-    /// the full hint → behavior table.
-    #[field(get, set, with, copy)]
-    pub(crate) http_version: Version,
+    /// The public [`http_version`](Conn::http_version) accessor resolves `None` to
+    /// [`Version::Http1_1`]. See the crate-level [Protocol selection][crate#protocol-selection]
+    /// documentation for the full hint → behavior table.
+    #[field(set, with, option_set_some)]
+    pub(crate) http_version: Option<Version>,
 
     /// the :authority pseudo-header, populated during h2 or h3 header finalization
     #[field(get)]
@@ -252,6 +253,21 @@ pub struct Conn {
 pub const USER_AGENT: &str = concat!("trillium-client/", env!("CARGO_PKG_VERSION"));
 
 impl Conn {
+    /// the http version for this conn
+    ///
+    /// Pre-execution this resolves the version *hint* — the default (no hint) reports
+    /// [`Version::Http1_1`], which means "use auto-discovery," not "force HTTP/1.1." Setting any
+    /// explicit version via [`with_http_version`](Conn::with_http_version) pins the protocol and
+    /// suppresses auto-discovery. Post-execution this reflects the version the request was actually
+    /// sent over.
+    ///
+    /// See the crate-level [Protocol selection][crate#protocol-selection] documentation for the
+    /// full hint → behavior table.
+    #[must_use]
+    pub fn http_version(&self) -> Version {
+        self.http_version.unwrap_or(Version::Http1_1)
+    }
+
     /// chainable setter for [`inserting`](Headers::insert) a request header
     ///
     /// ```

@@ -123,10 +123,10 @@ impl<C: Connector> Connector for OpenSslConfig<C> {
             )
             .map_err(Error::other)?;
 
-        // A non-empty per-connection ALPN list overrides the connector's default; an empty one
-        // leaves the configured default in place.
-        if !destination.alpn().is_empty() {
-            ssl.set_alpn_protos(&encode_alpn(destination.alpn()))
+        // A per-connection ALPN override replaces the connector's default; absent one, the
+        // configured default stays in place.
+        if let Some(alpn) = destination.alpn() {
+            ssl.set_alpn_protos(&encode_alpn(alpn))
                 .map_err(Error::other)?;
         }
 

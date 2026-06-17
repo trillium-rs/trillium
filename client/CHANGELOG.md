@@ -31,7 +31,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [RFC 9250]: https://www.rfc-editor.org/rfc/rfc9250
 [RFC 9460]: https://www.rfc-editor.org/rfc/rfc9460
 
+- Per-request HTTP-version pinning. The `http_version` hint now distinguishes "no hint" from an
+  explicit version: an unset hint opts into auto-discovery (Alt-Svc h3, ALPN/pooled h2) as before,
+  while setting **any** explicit version — including `Version::Http1_1` — pins that protocol and
+  suppresses auto-discovery. A pin also constrains the connection's ALPN so it's honored over TLS:
+  an h1 pin advertises only `http/1.1` (a server that would otherwise negotiate `h2` falls back to
+  h1), an h2 pin only `h2`. This makes `with_http_version(Version::Http1_1)` the per-request
+  equivalent of curl's `--http1.1` — forcing HTTP/1.1 for a single request without disabling h2 on
+  the whole client. (`trillium-native-tls` does not yet honor per-connection ALPN, so over it a pin
+  skips h2/h3 promotion but can't constrain the handshake.)
+
 ### Changed
+
+- The `http_version` hint's default meaning is unchanged (unset = auto-discovery), and the
+  `http_version()` accessor still returns `Version`, reporting the unset default as `Http1_1`, so
+  the public signature is unchanged. The only behavior change is for callers who explicitly set
+  `Http1_1`/`Http2`/`Http3` and relied on the old "an explicit version still permits a different
+  negotiated protocol" semantics: an explicit version now pins. An explicit `Http3` hint that fails
+  its QUIC dial still falls back to auto-discovery.
 
 - Concurrent first-time requests to an origin with no pooled connection now share a single connect
   instead of each racing to open its own. When the connection is multiplexed (HTTP/2 or HTTP/3) the
