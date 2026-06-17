@@ -5,7 +5,7 @@ use crate::{
 use std::{any::Any, fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
     HeaderName, HeaderValues, Headers, HttpContext, KnownHeaderName, Method, ProtocolSession,
-    ReceivedBodyState, TypeSet, Version::Http1_1,
+    ReceivedBodyState, TypeSet,
 };
 use trillium_server_common::{
     ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Transport,
@@ -333,7 +333,7 @@ impl Client {
             error: None,
             body_override: None,
             timeout: self.timeout,
-            http_version: Http1_1,
+            http_version: None,
             max_head_length: 8 * 1024,
             state: TypeSet::new(),
             context: self.context.clone(),

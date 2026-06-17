@@ -226,7 +226,7 @@ impl ConnExt for Conn {
         } else {
             self.response_headers_mut()
                 .remove(KnownHeaderName::ContentLength);
-            if self.http_version == Version::Http1_1 {
+            if self.http_version() == Version::Http1_1 {
                 self.response_headers_mut()
                     .insert(KnownHeaderName::TransferEncoding, "chunked");
             }

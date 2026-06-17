@@ -26,7 +26,7 @@ impl Client {
     /// [`WebTransportConnection`].
     pub fn webtransport(&self, url: impl IntoUrl) -> Conn {
         let mut conn = self.build_conn(Method::Connect, url);
-        conn.http_version = Version::Http3;
+        conn.http_version = Some(Version::Http3);
         conn.protocol = Some(Cow::Borrowed("webtransport"));
         conn
     }

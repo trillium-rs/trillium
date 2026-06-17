@@ -25,7 +25,9 @@ pub struct Destination {
     host: Option<String>,
     port: u16,
     addrs: SmallVec<[SocketAddr; 4]>,
-    alpn: SmallVec<[Cow<'static, [u8]>; 4]>,
+    /// `None` leaves the connector's configured default ALPN in place; `Some` overrides it for
+    /// this connection — including `Some([])`, which advertises no ALPN at all.
+    alpn: Option<SmallVec<[Cow<'static, [u8]>; 4]>>,
 }
 
 impl Destination {
@@ -40,7 +42,7 @@ impl Destination {
             host: Some(host.into()),
             port,
             addrs: SmallVec::new(),
-            alpn: SmallVec::new(),
+            alpn: None,
         }
     }
 
@@ -58,7 +60,7 @@ impl Destination {
             host: None,
             port,
             addrs,
-            alpn: SmallVec::new(),
+            alpn: None,
         }
     }
 
@@ -156,11 +158,12 @@ impl Destination {
         &self.addrs
     }
 
-    /// The ALPN protocols to advertise for this connection, or an empty slice to use the
-    /// connector's configured default.
+    /// The per-connection ALPN override: `Some` advertises exactly these protocols for this
+    /// connection (`Some([])` advertises none), `None` leaves the connector's configured default in
+    /// place.
     #[must_use]
-    pub fn alpn(&self) -> &[Cow<'static, [u8]>] {
-        &self.alpn
+    pub fn alpn(&self) -> Option<&[Cow<'static, [u8]>]> {
+        self.alpn.as_deref()
     }
 
     /// Set the pre-resolved addresses to dial, replacing any already present.
@@ -176,16 +179,35 @@ impl Destination {
         self
     }
 
-    /// Set the ALPN protocols to advertise, replacing any already present.
+    /// Override the ALPN protocols to advertise for this connection, replacing any already present.
+    /// An empty iterator advertises no ALPN at all; to instead defer to the connector's configured
+    /// default, use [`without_alpn`](Destination::without_alpn).
     #[must_use]
     pub fn with_alpn(mut self, alpn: impl IntoIterator<Item = Cow<'static, [u8]>>) -> Self {
         self.set_alpn(alpn);
         self
     }
 
-    /// Set the ALPN protocols to advertise, replacing any already present.
+    /// Override the ALPN protocols to advertise for this connection, replacing any already present.
+    /// An empty iterator advertises no ALPN at all; to instead defer to the connector's configured
+    /// default, use [`clear_alpn`](Destination::clear_alpn).
     pub fn set_alpn(&mut self, alpn: impl IntoIterator<Item = Cow<'static, [u8]>>) -> &mut Self {
-        self.alpn = alpn.into_iter().collect();
+        self.alpn = Some(alpn.into_iter().collect());
+        self
+    }
+
+    /// Clear any per-connection ALPN override so this connection uses the connector's configured
+    /// default.
+    #[must_use]
+    pub fn without_alpn(mut self) -> Self {
+        self.clear_alpn();
+        self
+    }
+
+    /// Clear any per-connection ALPN override so this connection uses the connector's configured
+    /// default.
+    pub fn clear_alpn(&mut self) -> &mut Self {
+        self.alpn = None;
         self
     }
 

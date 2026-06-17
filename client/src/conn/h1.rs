@@ -44,13 +44,13 @@ impl Conn {
             match self.body_len() {
                 Some(0) => {}
                 Some(len) => {
-                    if self.http_version >= Version::Http1_1 {
+                    if self.http_version() >= Version::Http1_1 {
                         self.request_headers.insert(Expect, "100-continue");
                     }
                     self.request_headers.insert(ContentLength, len);
                 }
                 None => {
-                    if self.http_version >= Version::Http1_1 {
+                    if self.http_version() >= Version::Http1_1 {
                         self.request_headers
                             .insert(Expect, "100-continue")
                             .insert(TransferEncoding, "chunked");
@@ -104,7 +104,7 @@ impl Conn {
             }
         }
 
-        write!(buf, " {}\r\n", self.http_version)?;
+        write!(buf, " {}\r\n", self.http_version())?;
 
         for (name, values) in &self.request_headers {
             if !name.is_valid() {
@@ -185,10 +185,12 @@ impl Conn {
         let head_offset = self.read_head().await?;
 
         let space = memchr::memchr(b' ', &self.buffer[..head_offset]).ok_or(Error::InvalidHead)?;
-        self.http_version = str::from_utf8(&self.buffer[..space])
-            .map_err(|_| Error::InvalidHead)?
-            .parse()
-            .map_err(|_| Error::InvalidHead)?;
+        self.http_version = Some(
+            str::from_utf8(&self.buffer[..space])
+                .map_err(|_| Error::InvalidHead)?
+                .parse()
+                .map_err(|_| Error::InvalidHead)?,
+        );
         self.status = Some(str::from_utf8(&self.buffer[space + 1..space + 4])?.parse()?);
         // The status-code is exactly three digits; the next octet must terminate it —
         // a SP before the reason-phrase, or the CR/LF ending the status-line. Reject a 4th digit so
@@ -287,7 +289,7 @@ impl Conn {
 
         // HTTP/1.0 doesn't support chunked transfer encoding. Stream raw bytes directly;
         // connection close signals end-of-body to the server.
-        if self.http_version < Version::Http1_1 && body.len().is_none() {
+        if self.http_version() < Version::Http1_1 && body.len().is_none() {
             let transport = self.transport.as_mut().ok_or(Error::Closed)?;
             io::copy(&mut body.into_reader(), transport).await?;
             return Ok(());
@@ -457,8 +459,11 @@ impl Conn {
     }
 
     pub(super) async fn exec_h1_or_promote_h2(&mut self) -> Result<()> {
-        if self.http_version > Version::Http1_1 {
-            self.http_version = Version::Http1_1;
+        // An h3 hint reaches here only when no h3 client is configured to honor it; resume
+        // auto-discovery (h1 / ALPN-promoted h2) rather than pinning, matching the
+        // h3-connect-failure fallback. An explicit h1.1 / h1.0 pin is left intact.
+        if matches!(self.http_version, Some(v) if v > Version::Http1_1) {
+            self.http_version = None;
         }
 
         self.finalize_headers_h1()?;
@@ -470,10 +475,17 @@ impl Conn {
             return self.exec_h1_on_transport(transport).await;
         }
 
-        // Cold connect. Coalesce concurrent cold-starts to this origin through the h2 pool's
-        // in-flight slot: when the connection turns out to be multiplexed (ALPN `h2`), a burst
-        // opens one connection and the waiters share it rather than each opening their own.
-        if let Some(h2_pool) = self.client.h2_pool().cloned() {
+        // Cold connect. With no version pin, coalesce concurrent cold-starts to this origin through
+        // the h2 pool's in-flight slot: when the connection turns out to be multiplexed (ALPN
+        // `h2`), a burst opens one connection and the waiters share it rather than each opening
+        // their own. An explicit h1 pin skips this — it neither shares an h2 connection nor
+        // promotes one — and its connection advertises only `http/1.1` (see `origin_destination`).
+        let h2_pool = if self.http_version.is_none() {
+            self.client.h2_pool().cloned()
+        } else {
+            None
+        };
+        if let Some(h2_pool) = h2_pool {
             match h2_pool.acquire(self.url.origin(), |p| p.classify()) {
                 Acquire::Ready(pooled) => {
                     return self
@@ -526,7 +538,12 @@ impl Conn {
         let mut transport = self.client.connector().connect_to(destination).await?;
         log::debug!("opened new connection to {:?}", transport.peer_addr()?);
 
-        if self.client.h2_pool().is_some() && transport.negotiated_alpn().as_deref() == Some(b"h2")
+        // Promote to h2 only when auto-discovering: an explicit h1 pin advertised only `http/1.1`
+        // (see `origin_destination`), so a peer that nonetheless reports `h2` here is honored as an
+        // h1 connection rather than overriding the pin.
+        if self.http_version.is_none()
+            && self.client.h2_pool().is_some()
+            && transport.negotiated_alpn().as_deref() == Some(b"h2")
         {
             return self.promote_and_exec_h2(transport, guard).await;
         }

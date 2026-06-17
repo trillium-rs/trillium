@@ -60,10 +60,10 @@ impl Conn {
 
 impl Conn {
     /// Whether h3 may be used for this request: only when h3 is pinned explicitly or no version
-    /// preference was expressed (the `Http1_1` auto sentinel). A prior-knowledge h2 or h1.0 pin
-    /// takes precedence and forbids h3 even for an origin we know speaks it.
+    /// preference was expressed. A prior-knowledge h2, h1.1, or h1.0 pin takes precedence and
+    /// forbids h3 even for an origin we know speaks it.
     fn h3_permitted(&self) -> bool {
-        self.client.h3().is_some() && matches!(self.http_version, Version::Http3 | Version::Http1_1)
+        self.client.h3().is_some() && matches!(self.http_version, None | Some(Version::Http3))
     }
 
     /// Reuse a live pooled HTTP/3 connection for this origin, if one exists.
@@ -101,7 +101,7 @@ impl Conn {
         let h3 = self.client.h3().cloned().unwrap();
         let origin = self.url.origin();
 
-        let (host, port) = if self.http_version == Version::Http3 {
+        let (host, port) = if self.http_version == Some(Version::Http3) {
             let host = self
                 .url
                 .host_str()
@@ -112,7 +112,8 @@ impl Conn {
                 .port_or_known_default()
                 .ok_or(Error::UnexpectedUriFormat)?;
             (host, port)
-        } else if let Some(entry) = h3.alt_svc.get(&origin)
+        } else if self.http_version.is_none()
+            && let Some(entry) = h3.alt_svc.get(&origin)
             && entry.is_usable()
         {
             (entry.host.clone(), entry.port)
@@ -141,8 +142,11 @@ impl Conn {
         {
             Ok(entry) => entry,
             Err(e) => {
-                log::debug!("H3 connect to {host}:{port} failed: {e}, falling back to H1");
+                log::debug!("H3 connect to {host}:{port} failed: {e}, falling back");
                 h3.mark_broken(&origin);
+                // The h3 hint didn't pan out; resume auto-discovery (pooled/ALPN h2, then h1)
+                // rather than pinning h1, so an explicit Http3 hint still falls back to h2.
+                self.http_version = None;
                 return Ok(false);
             }
         };
@@ -189,14 +193,15 @@ impl Conn {
         let (stream_id, transport) = match entry.quic_conn.open_bidi().await {
             Ok(t) => t,
             Err(e) => {
-                log::debug!("H3 open_bidi failed: {e}, falling back to H1");
+                log::debug!("H3 open_bidi failed: {e}, falling back");
                 h3.mark_broken(origin);
+                self.http_version = None;
                 return Ok(false);
             }
         };
 
         self.transport = Some(transport);
-        self.http_version = Version::Http3;
+        self.http_version = Some(Version::Http3);
         self.finalize_headers_h3()?;
         self.protocol_session = ProtocolSession::Http3 {
             connection: entry.h3.clone(),

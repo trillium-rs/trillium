@@ -273,6 +273,40 @@ async fn h2_owned_body_trailers() -> TestResult {
     Ok(())
 }
 
+/// Regression test for the `http_version` pinning semantics: an explicit `Http1_1` hint must
+/// suppress ALPN h2 promotion even when both client and server advertise `h2` (the exact config
+/// that `alpn_negotiates_h2` uses to reach h2). Only an *unset* hint opts into auto-discovery.
+#[test(harness)]
+async fn explicit_http1_1_hint_suppresses_alpn_h2() -> TestResult {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let cert = test_cert();
+
+    let server = trillium_smol::config()
+        .with_host("localhost")
+        .with_port(0)
+        .with_acceptor(RustlsAcceptor::from_single_cert(
+            &cert.cert_pem,
+            &cert.key_pem,
+        ))
+        .spawn(version_handler);
+    let info = server.info().await;
+    let port = info.tcp_socket_addr().unwrap().port();
+
+    let client = Client::new(RustlsConfig::new(
+        Arc::new(rustls_client_config(&cert)),
+        trillium_smol::ClientConfig::default(),
+    ))
+    .with_base(format!("https://localhost:{port}"));
+
+    let mut conn = client.get("/").with_http_version(Version::Http1_1).await?;
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.http_version(), Version::Http1_1);
+    assert_eq!(conn.response_body().read_string().await?, "Http1_1");
+
+    server.shut_down().await;
+    Ok(())
+}
+
 #[test(harness)]
 async fn without_http2_forces_h1() -> TestResult {
     let _ = env_logger::builder().is_test(true).try_init();
