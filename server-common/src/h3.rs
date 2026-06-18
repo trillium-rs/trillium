@@ -1,10 +1,12 @@
 //! HTTP/3 specific exports
 
+mod priority;
 pub mod web_transport;
 use crate::{
     ArcHandler, ArcedQuicEndpoint, BoxedBidiStream, QuicConnection, QuicTransportReceive,
     QuicTransportSend, RuntimeTrait,
 };
+use priority::{PrioritizedStream, PriorityRegistry, transport_priority};
 use std::sync::Arc;
 use trillium::{Handler, KnownHeaderName, Listener, Upgrade};
 use trillium_http::{
@@ -68,6 +70,14 @@ async fn run_h3_connection(
 
     log::trace!("new quic connection from {}", connection.remote_address());
 
+    let priorities = PriorityRegistry::default();
+    h3.register_priority_callback({
+        let priorities = priorities.clone();
+        move |stream_id, priority, is_update| {
+            priorities.apply(stream_id, transport_priority(priority), is_update)
+        }
+    });
+
     spawn_outbound_control_stream(&connection, &h3, &runtime);
     spawn_qpack_encoder_stream(&connection, &h3, &runtime);
     spawn_qpack_decoder_stream(&connection, &h3, &runtime);
@@ -80,10 +90,12 @@ async fn run_h3_connection(
         wt_dispatcher,
         listener,
         local_alt_svc,
+        priorities,
     )
     .await;
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_inbound_bidi_streams(
     connection: QuicConnection,
     h3: Arc<H3Connection>,
@@ -92,6 +104,7 @@ async fn handle_inbound_bidi_streams(
     wt_dispatcher: Option<WebTransportDispatcher>,
     listener: Option<Listener>,
     local_alt_svc: Option<&'static str>,
+    priorities: PriorityRegistry,
 ) {
     loop {
         match h3.swansong().interrupt(connection.accept_bidi()).await {
@@ -114,6 +127,7 @@ async fn handle_inbound_bidi_streams(
                     &wt_dispatcher,
                     listener.clone(),
                     local_alt_svc,
+                    &priorities,
                 );
             }
         }
@@ -133,24 +147,32 @@ fn handle_bidi_stream(
     wt_dispatcher: &Option<WebTransportDispatcher>,
     listener: Option<Listener>,
     local_alt_svc: Option<&'static str>,
+    priorities: &PriorityRegistry,
 ) {
     log::trace!("H3 bidi stream {stream_id}: spawning handler task");
-    let (h3, handler, connection, wt_dispatcher) = (
+    let (h3, handler, connection, wt_dispatcher, priorities) = (
         h3.clone(),
         handler.clone(),
         connection.clone(),
         wt_dispatcher.clone(),
+        priorities.clone(),
     );
 
+    // Wrap the stream so RFC 9218 priority signals routed to its slot are applied to the QUIC
+    // send stream as it writes. trillium-http emits the initial priority and any PRIORITY_UPDATE
+    // to the connection callback, which stores into this slot.
+    let slot = priorities.register(stream_id);
+    let transport: BoxedBidiStream = Box::new(PrioritizedStream::new(transport, slot, stream_id));
+
     runtime.spawn(async move {
-        let handler = &handler;
         let peer_ip = connection.remote_address().ip();
         let quic_connection = connection.clone();
         let wt_dispatcher = wt_dispatcher.clone();
 
         let handler_fn = {
+            let handler = handler.clone();
             let wt_dispatcher = wt_dispatcher.clone();
-            |mut conn: trillium_http::Conn<_>| async move {
+            move |mut conn: trillium_http::Conn<_>| async move {
                 conn.set_peer_ip(Some(peer_ip));
                 conn.set_secure(true);
 
@@ -180,7 +202,8 @@ fn handle_bidi_stream(
 
         let result = h3
             .clone()
-            .process_inbound_bidi_with_reset(transport, handler_fn, stream_id, |t, code| {
+            .process_inbound_bidi(transport, handler_fn, stream_id)
+            .with_reset(|t, code| {
                 // RFC 9114 §4.1.2: stream-level protocol errors (notably H3_MESSAGE_ERROR)
                 // MUST RST the stream. We stop the recv side and reset the send side with
                 // the same code so the peer sees the error on whichever direction it's
@@ -226,6 +249,8 @@ fn handle_bidi_stream(
                 handle_h3_error(error, &connection, &h3);
             }
         }
+
+        priorities.deregister(stream_id);
     });
 }
 

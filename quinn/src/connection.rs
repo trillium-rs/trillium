@@ -42,6 +42,12 @@ impl QuicTransportSend for QuinnTransport {
         let error_code = VarInt::from_u64(code).unwrap_or_default();
         let _ = self.send.get_mut().reset(error_code);
     }
+
+    fn set_priority(&mut self, priority: i32) {
+        // Errors only when the stream is already gone, in which case there's nothing to
+        // prioritize.
+        let _ = self.send.get_mut().set_priority(priority);
+    }
 }
 
 impl QuicTransportBidi for QuinnTransport {}
@@ -98,6 +104,10 @@ impl QuicTransportSend for QuinnSend {
     fn reset(&mut self, code: u64) {
         let error_code = VarInt::from_u64(code).unwrap_or_default();
         let _ = self.0.get_mut().reset(error_code);
+    }
+
+    fn set_priority(&mut self, priority: i32) {
+        let _ = self.0.get_mut().set_priority(priority);
     }
 }
 

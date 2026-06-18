@@ -49,7 +49,7 @@ use super::{
     stream_state::StreamEvent, transport::H2Transport,
 };
 use crate::{
-    Conn,
+    Conn, Priority,
     headers::hpack::{HpackDecoder, HpackEncoder},
 };
 use closed_streams::{ClosedReason, ClosedStreams};
@@ -59,8 +59,9 @@ use constants::{
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use inflow::Inflow;
 use recv::PendingHeaders;
+use send::ScheduleEntry;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     future::Future,
     io,
     pin::Pin,
@@ -133,6 +134,21 @@ pub struct H2Driver<T> {
     /// Highest peer-initiated stream id seen so far. Peer-initiated (client) stream ids
     /// must be odd and strictly increasing.
     last_peer_stream_id: u32,
+
+    /// Latest RFC 9218 priority signaled per stream via `PRIORITY_UPDATE`, keyed by stream
+    /// id. Holds entries for streams not yet opened too (an update can precede its HEADERS),
+    /// so it is bounded by [`recv::MAX_TRACKED_PRIORITIES`] as a `DoS` guard. Latest signal
+    /// wins; the request's own `priority` header (on the [`StreamEntry`]) is the fallback when
+    /// no entry is present. See [`Self::effective_priority`].
+    ///
+    /// Lookups are by stream id and nothing iterates this in order, so it's a hash map.
+    stream_priorities: HashMap<u32, Priority>,
+
+    /// Reused scratch for the send pump's priority schedule ([`ScheduleEntry`] per active stream),
+    /// rebuilt and sorted each pump tick. Kept on the driver (rather than allocated per tick) so
+    /// the per-tick cost on this hot path is a clear + extend, not a fresh allocation. Empty
+    /// between ticks. See [`Self::advance_outbound_sends`].
+    send_schedule: Vec<ScheduleEntry>,
 
     /// Accumulator for an in-progress HEADERS block that is waiting on further CONTINUATION
     /// frames. `None` outside a HEADERS block. The spec forbids any frame on any stream
@@ -220,6 +236,8 @@ where
             hpack_encoder,
             streams: BTreeMap::new(),
             last_peer_stream_id: 0,
+            stream_priorities: HashMap::new(),
+            send_schedule: Vec::new(),
             pending_headers: None,
             close_outcome: None,
             finished: false,

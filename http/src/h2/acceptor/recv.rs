@@ -15,11 +15,14 @@ use super::{
     Action, CloseOutcome, ClosedReason, H2Driver, MAX_BUFFER_SIZE, MAX_FLOW_CONTROL_WINDOW,
     ReadPhase, frame_slice,
 };
-use crate::h2::{
-    H2ErrorCode, H2Settings,
-    frame::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader},
-    role::Role,
-    stream_state::StreamEvent,
+use crate::{
+    Priority,
+    h2::{
+        H2ErrorCode, H2Settings,
+        frame::{FRAME_HEADER_LEN, Frame, FrameDecodeError, FrameHeader},
+        role::Role,
+        stream_state::StreamEvent,
+    },
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
 pub(super) use headers::PendingHeaders;
@@ -28,6 +31,12 @@ use std::task::{Context, Poll, ready};
 /// The client connection preface — 24 bytes the client MUST send before any HTTP/2
 /// frames.
 pub(super) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
+/// Upper bound on per-stream `PRIORITY_UPDATE` signals retained at once. Updates may
+/// arrive before the stream they target opens, so the table can't be tied to the active
+/// stream set; this bounds it against a peer that floods updates for streams it never
+/// opens.
+pub(super) const MAX_TRACKED_PRIORITIES: usize = 128;
 
 impl<T> H2Driver<T>
 where
@@ -185,42 +194,18 @@ where
                 self.handle_priority(stream_id, priority);
                 Ok(Action::Continue)
             }
+            Frame::PriorityUpdate {
+                prioritized_stream_id,
+                priority,
+            } => {
+                self.handle_priority_update(prioritized_stream_id, priority);
+                Ok(Action::Continue)
+            }
             Frame::RstStream {
                 stream_id,
                 error_code,
             } => {
-                // `RST_STREAM` on an idle stream is a connection-level `PROTOCOL_ERROR`;
-                // on a closed or active stream it's benign.
-                if stream_id > self.last_peer_stream_id && !self.streams.contains_key(&stream_id) {
-                    return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
-                }
-                if let Some(entry) = self.streams.get(&stream_id) {
-                    // Move the stream to the terminal `Closed{Reset}` state before tearing down, so
-                    // a handler parked on it re-polls to EOF / `BrokenPipe` rather than accepting
-                    // writes into a ring the driver has stopped draining (silent data loss on an
-                    // upgraded stream). `signal_close` then fires the conn-task wakers so the
-                    // parked handler actually observes the close.
-                    let recv_closed = entry.shared.lifecycle_lock().recv_closed();
-                    let _ = entry.shared.apply_event(StreamEvent::RecvReset(error_code));
-                    if self.role == Role::Client && recv_closed {
-                        // The full response — including any trailers the driver already stashed —
-                        // arrived before this RST, which only aborts our still-open send half (a
-                        // server that responds without consuming the request body resets it with
-                        // NoError). Keep the stream in the map exactly as a clean close does, so
-                        // the application can still read the body to EOF and collect its trailers;
-                        // it's GC'd on transport drop.
-                        self.signal_close(stream_id, Err(std::io::Error::other("peer RST_STREAM")));
-                    } else {
-                        self.complete_and_remove_stream(
-                            stream_id,
-                            Err(std::io::Error::other("peer RST_STREAM")),
-                        );
-                    }
-                } else {
-                    // Already closed from our side; still record (idempotent) so later
-                    // stray peer frames on this id map to the right error category.
-                    self.closed_streams.record(stream_id, ClosedReason::Reset);
-                }
+                self.handle_rst_stream(stream_id, error_code)?;
                 Ok(Action::Continue)
             }
             // PUSH_PROMISE from a client is a connection error; bare CONTINUATION without
@@ -246,6 +231,46 @@ where
         }
     }
 
+    fn handle_rst_stream(
+        &mut self,
+        stream_id: u32,
+        error_code: H2ErrorCode,
+    ) -> Result<(), CloseOutcome> {
+        // `RST_STREAM` on an idle stream is a connection-level `PROTOCOL_ERROR`;
+        // on a closed or active stream it's benign.
+        if stream_id > self.last_peer_stream_id && !self.streams.contains_key(&stream_id) {
+            return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+        }
+        if let Some(entry) = self.streams.get(&stream_id) {
+            // Move the stream to the terminal `Closed{Reset}` state before tearing down, so
+            // a handler parked on it re-polls to EOF / `BrokenPipe` rather than accepting
+            // writes into a ring the driver has stopped draining (silent data loss on an
+            // upgraded stream). `signal_close` then fires the conn-task wakers so the
+            // parked handler actually observes the close.
+            let recv_closed = entry.shared.lifecycle_lock().recv_closed();
+            let _ = entry.shared.apply_event(StreamEvent::RecvReset(error_code));
+            if self.role == Role::Client && recv_closed {
+                // The full response — including any trailers the driver already stashed —
+                // arrived before this RST, which only aborts our still-open send half (a
+                // server that responds without consuming the request body resets it with
+                // NoError). Keep the stream in the map exactly as a clean close does, so
+                // the application can still read the body to EOF and collect its trailers;
+                // it's GC'd on transport drop.
+                self.signal_close(stream_id, Err(std::io::Error::other("peer RST_STREAM")));
+            } else {
+                self.complete_and_remove_stream(
+                    stream_id,
+                    Err(std::io::Error::other("peer RST_STREAM")),
+                );
+            }
+        } else {
+            // Already closed from our side; still record (idempotent) so later
+            // stray peer frames on this id map to the right error category.
+            self.closed_streams.record(stream_id, ClosedReason::Reset);
+        }
+        Ok(())
+    }
+
     /// PRIORITY frames on idle streams are allowed (they don't open the stream but record
     /// priority). A PRIORITY frame that names its own stream as its dependency is a
     /// stream-level `PROTOCOL_ERROR`. We don't use the priority info ourselves — the spec
@@ -254,6 +279,34 @@ where
         if priority.stream_dependency == stream_id {
             self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
         }
+    }
+
+    /// Record an RFC 9218 `PRIORITY_UPDATE` for later scheduling. The signal is advisory:
+    /// the latest value per stream wins, and an update that targets a stream not yet opened
+    /// is retained until its HEADERS arrive.
+    ///
+    /// Only the server role acts on these — a client emits them to prioritize the responses
+    /// it requested, so a client-role driver has nothing to schedule. The prioritized stream
+    /// id must name a client-initiated (odd, nonzero) request stream; anything else is
+    /// ignored rather than treated as an error, since priority never costs the connection.
+    fn handle_priority_update(&mut self, prioritized_stream_id: u32, priority: Priority) {
+        if self.role != Role::Server
+            || prioritized_stream_id == 0
+            || prioritized_stream_id.is_multiple_of(2)
+        {
+            return;
+        }
+        let at_capacity = self.stream_priorities.len() >= MAX_TRACKED_PRIORITIES;
+        if at_capacity && !self.stream_priorities.contains_key(&prioritized_stream_id) {
+            log::trace!(
+                "h2 stream {prioritized_stream_id}: dropping PRIORITY_UPDATE \"{priority}\" \
+                 (tracking table full)"
+            );
+            return;
+        }
+        log::trace!("h2 stream {prioritized_stream_id}: received PRIORITY_UPDATE \"{priority}\"");
+        self.stream_priorities
+            .insert(prioritized_stream_id, priority);
     }
 
     /// A DATA frame arrived — copy its payload into the matching stream's recv buffer and
@@ -595,6 +648,12 @@ fn log_received_frame(frame: &Frame) {
             priority.stream_dependency,
             priority.exclusive,
             priority.weight,
+        ),
+        Frame::PriorityUpdate {
+            prioritized_stream_id,
+            priority,
+        } => log::trace!(
+            "h2 recv: PRIORITY_UPDATE stream={prioritized_stream_id} priority=\"{priority}\"",
         ),
         Frame::PushPromise { stream_id, length } => {
             log::trace!("h2 recv: PUSH_PROMISE stream={stream_id} length={length}");

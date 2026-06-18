@@ -1,4 +1,5 @@
 use super::*;
+use crate::Priority;
 
 // -- FrameHeader tests --
 
@@ -198,6 +199,44 @@ fn frame_incomplete_empty() {
     assert_eq!(Frame::decode(&[]), Err(FrameDecodeError::Incomplete));
 }
 
+fn priority_update_payload(element_id: u64, field_value: &[u8]) -> Vec<u8> {
+    let mut payload = vec![0; 16];
+    let n = quic_varint::encode(element_id, &mut payload).unwrap();
+    payload.truncate(n);
+    payload.extend_from_slice(field_value);
+    payload
+}
+
+#[test]
+fn frame_priority_update() {
+    let buf = encode_raw_frame(
+        FrameType::PriorityUpdate,
+        &priority_update_payload(4, b"u=1, i"),
+    );
+    let (frame, consumed) = Frame::decode(&buf).unwrap();
+    assert_eq!(
+        frame,
+        Frame::PriorityUpdate {
+            prioritized_element_id: 4,
+            priority: Priority::new(1).with_incremental(true),
+        }
+    );
+    assert_eq!(consumed, buf.len());
+}
+
+#[test]
+fn frame_priority_update_empty_field_is_default() {
+    let buf = encode_raw_frame(FrameType::PriorityUpdate, &priority_update_payload(0, b""));
+    let (frame, _) = Frame::decode(&buf).unwrap();
+    assert_eq!(
+        frame,
+        Frame::PriorityUpdate {
+            prioritized_element_id: 0,
+            priority: Priority::default(),
+        }
+    );
+}
+
 // -- Frame encode tests --
 
 #[test]
@@ -243,6 +282,20 @@ fn encode_decode_roundtrip_push_promise() {
         field_section_length: 100,
     };
     let mut buf = [0u8; 16];
+    let n = frame.encode(&mut buf).unwrap();
+    assert_eq!(n, frame.encoded_len());
+    let (decoded, consumed) = Frame::decode(&buf[..n]).unwrap();
+    assert_eq!(decoded, frame);
+    assert_eq!(consumed, n);
+}
+
+#[test]
+fn encode_decode_roundtrip_priority_update() {
+    let frame = Frame::PriorityUpdate {
+        prioritized_element_id: 8,
+        priority: Priority::new(5),
+    };
+    let mut buf = [0u8; 32];
     let n = frame.encode(&mut buf).unwrap();
     assert_eq!(n, frame.encoded_len());
     let (decoded, consumed) = Frame::decode(&buf[..n]).unwrap();

@@ -3,6 +3,7 @@ use super::{
     quic_varint::{self, QuicVarIntError},
     settings::H3Settings,
 };
+use crate::Priority;
 
 mod stream;
 #[cfg(feature = "unstable")]
@@ -12,11 +13,12 @@ pub use stream::FrameStream;
 #[cfg(test)]
 mod tests;
 
-/// H3 frame types per RFC 9114.
+/// H3 frame types per RFC 9114, plus extension frames trillium understands.
 ///
-/// Each frame on the wire is: varint(type) + varint(length) + payload.
+/// Each frame on the wire is: varint(type) + varint(length) + payload. The widest type
+/// value here is `PriorityUpdate` (`0xF0700`), so the discriminant is `u64`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
+#[repr(u64)]
 pub(crate) enum FrameType {
     /// Carries request/response body data.
     Data = 0x00,
@@ -38,6 +40,8 @@ pub(crate) enum FrameType {
     /// but it is not a proper H3 frame — there is no length-delimited payload.
     /// The rest of the stream after the session ID is raw application data.
     WebTransport = 0x41,
+    /// Reprioritizes a request stream (RFC 9218). Carried on the peer's control stream.
+    PriorityUpdate = 0xF0700,
 }
 
 impl From<FrameType> for u64 {
@@ -60,6 +64,7 @@ impl TryFrom<u64> for FrameType {
             0x07 => Ok(Self::Goaway),
             0x0d => Ok(Self::MaxPushId),
             0x41 => Ok(Self::WebTransport),
+            0xF0700 => Ok(Self::PriorityUpdate),
             other => {
                 log::trace!("did not recognize frame type {value}");
                 Err(other)
@@ -174,6 +179,16 @@ pub enum Frame {
     /// stream is raw application data belonging to the WebTransport session.
     WebTransport(u64),
 
+    /// `PRIORITY_UPDATE` frame (RFC 9218) — reprioritizes the request stream identified by
+    /// `prioritized_element_id`. Fully parsed; the signaled priority substitutes defaults
+    /// for any malformed field.
+    PriorityUpdate {
+        /// The request stream this priority applies to.
+        prioritized_element_id: u64,
+        /// The signaled priority.
+        priority: Priority,
+    },
+
     /// Unknown frame type — `payload_length` bytes to skip follow in the rest slice.
     Unknown(u64),
 }
@@ -257,6 +272,25 @@ impl Frame {
                 header.payload_length,
                 Frame::MaxPushId,
             ),
+
+            Some(FrameType::PriorityUpdate) => {
+                let payload = require_payload(&input[bytes_read..], header.payload_length)?;
+                let (prioritized_element_id, id_len) =
+                    quic_varint::decode::<u64>(payload).map_err(|_| H3ErrorCode::FrameError)?;
+                // The remainder is the Priority Field Value. An empty value, non-ASCII
+                // bytes, or any malformed field resolve to the default priority.
+                let priority = std::str::from_utf8(&payload[id_len..])
+                    .ok()
+                    .and_then(|field| field.parse::<Priority>().ok())
+                    .unwrap_or_default();
+                Ok((
+                    Frame::PriorityUpdate {
+                        prioritized_element_id,
+                        priority,
+                    },
+                    header_len + payload.len(),
+                ))
+            }
         }
     }
 
@@ -293,6 +327,15 @@ impl Frame {
             Frame::WebTransport(session_id) => {
                 quic_varint::encoded_len(FrameType::WebTransport)
                     + quic_varint::encoded_len(*session_id)
+            }
+
+            Frame::PriorityUpdate {
+                prioritized_element_id,
+                priority,
+            } => {
+                let payload_len =
+                    quic_varint::encoded_len(*prioritized_element_id) + priority.to_string().len();
+                frame_header_len(FrameType::PriorityUpdate, payload_len as u64) + payload_len
             }
 
             Frame::Unknown(_) => 0,
@@ -352,6 +395,22 @@ impl Frame {
             Frame::WebTransport(session_id) => {
                 let mut written = quic_varint::encode(FrameType::WebTransport, buf)?;
                 written += quic_varint::encode(*session_id, &mut buf[written..])?;
+                Some(written)
+            }
+
+            Frame::PriorityUpdate {
+                prioritized_element_id,
+                priority,
+            } => {
+                let field = priority.to_string();
+                let payload_len =
+                    (quic_varint::encoded_len(*prioritized_element_id) + field.len()) as u64;
+                let mut written = encode_frame_header(FrameType::PriorityUpdate, payload_len, buf)?;
+                written += quic_varint::encode(*prioritized_element_id, &mut buf[written..])?;
+                let field = field.as_bytes();
+                buf.get_mut(written..written + field.len())?
+                    .copy_from_slice(field);
+                written += field.len();
                 Some(written)
             }
 

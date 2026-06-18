@@ -5,7 +5,7 @@
 //! consults the mailbox per stream, so idle streams cost a single atomic RMW per tick.
 
 use super::{H2Driver, Role, StreamEntry, inflow::Inflow, send::SendCursor};
-use crate::h2::transport::StreamState;
+use crate::{Priority, h2::transport::StreamState};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::sync::{Arc, atomic::Ordering};
 
@@ -156,7 +156,16 @@ where
             log::trace!("h2 client: driver picked up new client-opened stream {id}");
             self.streams.insert(
                 id,
-                StreamEntry::new(shared, send_window, stream_inflow, None),
+                // Client-role streams carry no scheduling signal of their own (we don't emit
+                // PRIORITY_UPDATE); the request priority a client expresses is for the *server* to
+                // schedule, so the default is correct here.
+                StreamEntry::new(
+                    shared,
+                    send_window,
+                    stream_inflow,
+                    None,
+                    Priority::default(),
+                ),
             );
         }
     }

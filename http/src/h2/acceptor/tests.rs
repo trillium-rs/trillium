@@ -16,6 +16,7 @@ mod client;
 mod fixture;
 mod flow_control;
 mod lifecycle;
+mod priority;
 mod recv_headers;
 mod send;
 mod shutdown;

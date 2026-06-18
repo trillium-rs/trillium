@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6] - 2026-06-18
+
+The theme of this release is [RFC 9218 priority](https://datatracker.ietf.org/doc/rfc9218/) support.
+
+### Added
+
+- `QuicTransportSend::set_priority` — set a QUIC send stream's transmission priority relative to
+  the connection's other streams; higher values are sent first when the connection is
+  send-constrained. Defaulted to a no-op, so existing implementations are unaffected.
+- HTTP/3 servers honor client-signaled RFC 9218 priority — the `priority` request header and
+  `PRIORITY_UPDATE` frames — applying it to each request's QUIC send stream so more urgent
+  responses are scheduled ahead of less urgent ones, and reprioritizing mid-response when a
+  `PRIORITY_UPDATE` arrives.
+
 ## [0.7.5] - 2026-06-16
 
 ### Added

@@ -1,12 +1,12 @@
 use crate::{
-    Conn, Headers, HttpConfig, HttpContext, Method, Status,
+    Conn, Headers, HttpConfig, HttpContext, Method, Priority, Status,
     h2::{
         H2Driver, H2Error, H2ErrorCode, H2Transport,
         acceptor::{recv::CLIENT_PREFACE, types::DriverState},
         connection::H2Connection,
         frame::{
-            FRAME_HEADER_LEN, Frame, FrameHeader, continuation as continuation_frame,
-            data as data_frame, goaway as goaway_frame, headers as headers_frame,
+            FRAME_HEADER_LEN, Frame, FrameHeader, FrameType, continuation as continuation_frame,
+            data as data_frame, encode_frame, goaway as goaway_frame, headers as headers_frame,
             rst_stream as rst_stream_frame, settings, window_update as window_update_frame,
         },
         role::Role,
@@ -161,6 +161,46 @@ impl DriverFixture {
         headers_frame::encode_prefix(stream_id, end_stream, true, None, block_len, 0, &mut frame)
             .expect("encode HEADERS prefix");
         frame[FRAME_HEADER_LEN..].copy_from_slice(&block);
+        self.peer.write_all(&frame);
+    }
+
+    /// Open a peer-initiated GET request stream carrying an RFC 9218 `priority` header, for
+    /// driving the send pump's priority scheduler. The header value is the canonical
+    /// structured-fields form of `priority` (e.g. `u=1, i`).
+    pub(super) fn peer_open_stream_with_priority(
+        &mut self,
+        stream_id: u32,
+        path: &str,
+        priority: Priority,
+        end_stream: bool,
+    ) {
+        let pseudos = PseudoHeaders::default()
+            .with_method(Method::Get)
+            .with_path(path)
+            .with_scheme("http")
+            .with_authority("test");
+        let mut headers = Headers::new();
+        headers.insert("priority", priority.to_string());
+        let field_section = FieldSection::new(pseudos, &headers);
+        let mut block = Vec::new();
+        self.peer_hpack.encode(&field_section, &mut block);
+
+        let block_len = u32::try_from(block.len()).expect("block fits u32");
+        let mut frame = vec![0u8; FRAME_HEADER_LEN + block.len()];
+        headers_frame::encode_prefix(stream_id, end_stream, true, None, block_len, 0, &mut frame)
+            .expect("encode HEADERS prefix");
+        frame[FRAME_HEADER_LEN..].copy_from_slice(&block);
+        self.peer.write_all(&frame);
+    }
+
+    /// Write a peer-side `PRIORITY_UPDATE` frame reprioritizing
+    /// `prioritized_stream_id` to `priority`. Carried on the connection control stream
+    /// (frame stream id 0); the payload is the 4-byte prioritized stream id plus the
+    /// priority's canonical structured-fields value.
+    pub(super) fn peer_priority_update(&mut self, prioritized_stream_id: u32, priority: Priority) {
+        let mut payload = (prioritized_stream_id & 0x7FFF_FFFF).to_be_bytes().to_vec();
+        payload.extend_from_slice(priority.to_string().as_bytes());
+        let frame = encode_frame(FrameType::PriorityUpdate, 0, 0, &payload);
         self.peer.write_all(&frame);
     }
 

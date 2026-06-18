@@ -13,20 +13,24 @@
 //! All methods are on [`super::super::H2Driver`].
 
 use crate::{
-    Conn, Status,
+    Conn, KnownHeaderName, Priority, Status,
     h2::{
         H2Error, H2ErrorCode,
         acceptor::{
-            Action, CloseOutcome, H2Driver, Role, StreamEntry, frame_slice, inflow::Inflow,
+            Action, CloseOutcome, ClosedReason, H2Driver, Role, StreamEntry, frame_slice,
+            inflow::Inflow,
         },
-        frame::FRAME_HEADER_LEN,
+        frame::{FRAME_HEADER_LEN, PriorityInfo},
         stream_state::StreamEvent,
         transport::{H2Transport, StreamState},
     },
     headers::hpack::HpackDecodeError,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
-use std::sync::{Arc, atomic::Ordering};
+use std::{
+    io::Error,
+    sync::{Arc, atomic::Ordering},
+};
 
 /// HEADERS + CONTINUATION assembly state.
 #[derive(Debug)]
@@ -52,7 +56,7 @@ where
         stream_id: u32,
         end_stream: bool,
         end_headers: bool,
-        priority: Option<crate::h2::frame::PriorityInfo>,
+        priority: Option<PriorityInfo>,
         header_block_length: u32,
         payload_start: usize,
         total: usize,
@@ -74,11 +78,11 @@ where
         let is_new_stream = !self.streams.contains_key(&stream_id);
         if is_new_stream && stream_id <= self.last_peer_stream_id {
             match self.closed_reason(stream_id) {
-                Some(super::super::ClosedReason::Reset) => {
+                Some(ClosedReason::Reset) => {
                     self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
                     return Ok(Action::Continue);
                 }
-                Some(super::super::ClosedReason::EndStream) => {
+                Some(ClosedReason::EndStream) => {
                     return Err(CloseOutcome::Protocol(H2ErrorCode::StreamClosed));
                 }
                 None => {
@@ -208,9 +212,7 @@ where
                     self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
                     self.complete_and_remove_stream(
                         stream_id,
-                        Err(std::io::Error::other(
-                            "malformed h2 request trailer header block",
-                        )),
+                        Err(Error::other("malformed h2 request trailer header block")),
                     );
                 } else {
                     self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
@@ -233,9 +235,7 @@ where
                 self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
                 self.complete_and_remove_stream(
                     stream_id,
-                    Err(std::io::Error::other(
-                        "HEADERS on half-closed-remote h2 stream",
-                    )),
+                    Err(Error::other("HEADERS on half-closed-remote h2 stream")),
                 );
                 return Ok(Action::Continue);
             }
@@ -328,7 +328,7 @@ where
         if crate::util::validate_content_length(
             field_section
                 .headers()
-                .get_values(crate::KnownHeaderName::ContentLength),
+                .get_values(KnownHeaderName::ContentLength),
         )
         .is_err()
         {
@@ -336,9 +336,7 @@ where
             self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
             self.complete_and_remove_stream(
                 stream_id,
-                Err(std::io::Error::other(
-                    "malformed h2 response content-length",
-                )),
+                Err(Error::other("malformed h2 response content-length")),
             );
             return;
         }
@@ -407,6 +405,15 @@ where
         // `route_data`. A malformed value reads as "no declared length" here; the conn task's
         // `ValidatedRequest` rejects it independently, resetting the stream before any DATA flows.
         let expected_content_length = field_section.headers().content_length();
+        // The request's `priority` header is the initial scheduling signal, until a
+        // `PRIORITY_UPDATE` overrides it. A malformed value parses to the default rather than
+        // erroring (the scheme mandates graceful degradation).
+        let priority = field_section
+            .headers()
+            .get_str(KnownHeaderName::Priority)
+            .map(Priority::parse)
+            .unwrap_or_default();
+        log::trace!("h2 stream {stream_id}: initial priority \"{priority}\"");
         self.connection
             .streams_lock()
             .insert(stream_id, state.clone());
@@ -417,6 +424,7 @@ where
                 send_window,
                 stream_inflow,
                 expected_content_length,
+                priority,
             ),
         );
         self.last_peer_stream_id = stream_id;
@@ -451,10 +459,7 @@ where
                 pseudos.is_empty()
             );
             self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
-            self.complete_and_remove_stream(
-                stream_id,
-                Err(std::io::Error::other("malformed h2 trailers")),
-            );
+            self.complete_and_remove_stream(stream_id, Err(Error::other("malformed h2 trailers")));
             return;
         }
 
