@@ -140,6 +140,7 @@ mod http_context;
 mod liveness;
 mod method;
 mod mut_cow;
+mod priority;
 mod protocol_session;
 mod received_body;
 mod status;
@@ -175,6 +176,7 @@ pub use method::Method;
 pub use mut_cow::MutCow;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use mut_cow::MutCow;
+pub use priority::Priority;
 #[cfg(feature = "unstable")]
 pub use protocol_session::ProtocolSession;
 #[cfg(not(feature = "unstable"))]

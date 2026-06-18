@@ -199,16 +199,12 @@ async fn accept_bidi_loop<C, H, HFut, U, UFut>(
                     };
                     let result = h3
                         .clone()
-                        .process_inbound_bidi_with_reset(
-                            transport,
-                            handler_fn,
-                            stream_id,
-                            |t, code| {
-                                let raw = u64::from(code);
-                                t.stop(raw);
-                                t.reset(raw);
-                            },
-                        )
+                        .process_inbound_bidi(transport, handler_fn, stream_id)
+                        .with_reset(|t, code| {
+                            let raw = u64::from(code);
+                            t.stop(raw);
+                            t.reset(raw);
+                        })
                         .await;
 
                     match result {

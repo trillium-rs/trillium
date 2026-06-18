@@ -1,7 +1,7 @@
 //! Component types used in the definition of `h2::acceptor`
 
 use crate::{
-    Conn, HttpConfig,
+    Conn, HttpConfig, Priority,
     h2::{
         H2Driver, H2Error, H2ErrorCode, H2Transport,
         acceptor::{inflow::Inflow, send::SendCursor},
@@ -158,6 +158,12 @@ pub(super) struct StreamEntry {
     /// Running total of inbound DATA payload octets (body bytes only — pad-length byte and
     /// padding excluded) received on this stream, compared against `expected_content_length`.
     pub(super) received_body_len: u64,
+
+    /// RFC 9218 priority parsed from the request's `priority` header at stream open (or the
+    /// default when absent). The send pump's fallback when no `PRIORITY_UPDATE` has overridden
+    /// it — see [`H2Driver::effective_priority`][super::H2Driver::effective_priority]. Always
+    /// the default on client-role streams, which carry no scheduling signal of their own.
+    pub(super) priority: Priority,
 }
 
 impl StreamEntry {
@@ -166,6 +172,7 @@ impl StreamEntry {
         send_window: i64,
         stream_inflow: Inflow,
         expected_content_length: Option<u64>,
+        priority: Priority,
     ) -> Self {
         Self {
             shared,
@@ -174,6 +181,7 @@ impl StreamEntry {
             stream_inflow,
             expected_content_length,
             received_body_len: 0,
+            priority,
         }
     }
 }

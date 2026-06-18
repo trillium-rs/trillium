@@ -34,7 +34,7 @@ pub enum H3Error {
 pub use body_wrapper::H3Body;
 #[cfg(not(feature = "unstable"))]
 pub(crate) use body_wrapper::H3Body;
-pub use connection::{H3Connection, H3StreamResult, UniStreamResult};
+pub use connection::{H3BidiRequest, H3Connection, H3StreamResult, UniStreamResult};
 pub use error::H3ErrorCode;
 pub(crate) use frame::UniStreamType;
 #[cfg(feature = "unstable")]

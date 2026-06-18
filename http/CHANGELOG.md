@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.8]
+
+The theme of this release is [RFC 9218 priority](https://datatracker.ietf.org/doc/rfc9218/) support.
+
+### Added
+
+- HTTP/2 responses are scheduled by client-signaled RFC 9218 priority — the `priority` request
+  header and `PRIORITY_UPDATE` frames. More urgent responses are written ahead of less urgent
+  ones; at equal urgency, responses the client marked incremental are interleaved frame-by-frame
+  while non-incremental ones are sent to completion one at a time.
+- `H3Connection::register_priority_callback` delivers RFC 9218 priority signals for HTTP/3 request
+  streams — each request's `priority` header and any subsequent `PRIORITY_UPDATE` — to the runtime
+  adapter that owns the QUIC streams, so it can apply them to the underlying send streams.
+- `H3Connection::process_inbound_bidi` returns a builder; attach a stream-reset hook with
+  `with_reset` and `.await` it to run the request/response cycle.
+
 ## [1.3.7] - 2026-06-10
 
 The theme of this release is HTTP/1.x SHOULD-level conformance.

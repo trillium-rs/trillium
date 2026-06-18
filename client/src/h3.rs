@@ -295,16 +295,12 @@ fn spawn_inbound_bidi_streams(
             runtime.spawn(async move {
                 let result = h3
                     .clone()
-                    .process_inbound_bidi_with_reset(
-                        transport,
-                        |conn| async move { conn },
-                        stream_id,
-                        |t, code| {
-                            let raw = u64::from(code);
-                            t.stop(raw);
-                            t.reset(raw);
-                        },
-                    )
+                    .process_inbound_bidi(transport, |conn| async move { conn }, stream_id)
+                    .with_reset(|t, code| {
+                        let raw = u64::from(code);
+                        t.stop(raw);
+                        t.reset(raw);
+                    })
                     .await;
 
                 match result {

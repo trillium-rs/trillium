@@ -1,4 +1,5 @@
 use super::{H2ErrorCode, H2Settings};
+use crate::Priority;
 
 pub(crate) mod continuation;
 pub(crate) mod data;
@@ -6,6 +7,7 @@ pub(crate) mod goaway;
 pub(crate) mod headers;
 pub(crate) mod ping;
 pub(crate) mod priority;
+pub(crate) mod priority_update;
 pub(crate) mod rst_stream;
 pub(crate) mod settings;
 pub(crate) mod window_update;
@@ -38,6 +40,8 @@ pub(crate) enum FrameType {
     WindowUpdate = 0x8,
     /// Continues an unfinished header block.
     Continuation = 0x9,
+    /// Reprioritizes a request stream (RFC 9218).
+    PriorityUpdate = 0x10,
 }
 
 impl TryFrom<u8> for FrameType {
@@ -56,6 +60,7 @@ impl TryFrom<u8> for FrameType {
             0x7 => Ok(Self::Goaway),
             0x8 => Ok(Self::WindowUpdate),
             0x9 => Ok(Self::Continuation),
+            0x10 => Ok(Self::PriorityUpdate),
             other => Err(other),
         }
     }
@@ -251,6 +256,15 @@ pub(crate) enum Frame {
         header_block_length: u32,
     },
 
+    /// `PRIORITY_UPDATE` (RFC 9218). Reprioritizes the request stream identified by
+    /// `prioritized_stream_id`. Carried on the connection control stream.
+    PriorityUpdate {
+        /// The request stream this priority applies to.
+        prioritized_stream_id: u32,
+        /// The signaled priority (defaults substituted for any malformed field).
+        priority: Priority,
+    },
+
     /// An unrecognized frame type. The caller skips `length` bytes.
     Unknown {
         /// Stream identifier.
@@ -356,6 +370,11 @@ impl Frame {
             Ok(FrameType::WindowUpdate) => {
                 let payload = require_payload(input, header)?;
                 window_update::decode(header, payload)
+                    .map(|f| (f, FRAME_HEADER_LEN + payload.len()))
+            }
+            Ok(FrameType::PriorityUpdate) => {
+                let payload = require_payload(input, header)?;
+                priority_update::decode(header, payload)
                     .map(|f| (f, FRAME_HEADER_LEN + payload.len()))
             }
             Err(frame_type) => Ok((

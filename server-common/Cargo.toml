@@ -1,6 +1,6 @@
 [package]
 name = "trillium-server-common"
-version = "0.7.5"
+version = "0.7.6"
 edition = "2024"
 description = "server utilities for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -18,6 +18,7 @@ reuseport = ["dep:socket2"]
 [dependencies]
 async-channel = "2.5.0"
 async_cell = "0.2.3"
+atomic-waker = "1.1"
 fieldwork = "0.5.0"
 futures-lite = "2.6.1"
 listenfd = "1.0.2"
@@ -27,7 +28,7 @@ smallvec = { version = "1.15.1", features = ["const_new"] }
 socket2 = { version = "0.6", features = ["all"], optional = true }
 swansong = "0.3.4"
 trillium = { version = "1.3", path = "../trillium" }
-trillium-http = { version = "1.2", path = "../http" }
+trillium-http = { version = "1.3.8", path = "../http" }
 url = "2.5.8"
 
 [target.'cfg(unix)'.dependencies]

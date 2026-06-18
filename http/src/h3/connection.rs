@@ -7,7 +7,7 @@ use super::{
     settings::H3Settings,
 };
 use crate::{
-    Buffer, Conn, HttpContext,
+    Buffer, Conn, HttpContext, KnownHeaderName, Priority,
     conn::H3FirstFrame,
     h3::{H3ErrorCode, MAX_BUFFER_SIZE},
     headers::qpack::{DecoderDynamicTable, EncoderDynamicTable, FieldSection},
@@ -15,7 +15,7 @@ use crate::{
 use event_listener::Event;
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::{
-    future::Future,
+    future::{Future, IntoFuture},
     io::{self, ErrorKind},
     pin::Pin,
     sync::{
@@ -146,6 +146,27 @@ pub struct H3Connection {
 
     /// The encoder-side QPACK dynamic table for this connection.
     encoder_dynamic_table: EncoderDynamicTable,
+
+    /// Sink for RFC 9218 priority signals, set via
+    /// [`register_priority_callback`][Self::register_priority_callback]. Unset until the runtime
+    /// adapter that owns the QUIC streams registers it.
+    priority_callback: PriorityCallback,
+}
+
+/// Boxed sink for `(stream_id, priority, is_update)` signals.
+type PriorityCallbackFn = Box<dyn Fn(u64, Priority, bool) + Send + Sync>;
+
+/// A registered sink for `(stream_id, priority, is_update)` signals. Newtype so [`H3Connection`]
+/// can keep deriving `Debug` despite holding a boxed closure.
+#[derive(Default)]
+struct PriorityCallback(OnceLock<PriorityCallbackFn>);
+
+impl std::fmt::Debug for PriorityCallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PriorityCallback")
+            .field(&self.0.get().map(|_| format_args!("..")))
+            .finish()
+    }
 }
 
 impl H3Connection {
@@ -164,7 +185,65 @@ impl H3Connection {
             has_accepted_stream: AtomicBool::new(false),
             decoder_dynamic_table: DecoderDynamicTable::new(max_table_capacity, blocked_streams),
             encoder_dynamic_table,
+            priority_callback: PriorityCallback::default(),
         })
+    }
+
+    /// Register the sink for RFC 9218 priority signals on this connection.
+    ///
+    /// The callback is invoked with `(stream_id, priority, is_update)` once per request when its
+    /// initial `priority` header is parsed (`is_update = false`), and again for every
+    /// `PRIORITY_UPDATE` received afterward (`is_update = true`). `is_update` lets the receiver
+    /// honor RFC 9218 precedence: a `PRIORITY_UPDATE` outranks the request's initial header
+    /// priority regardless of arrival order, including when it arrives before the stream is
+    /// accepted.
+    ///
+    /// This crate keeps no priority state of its own and does no scheduling: it parses each
+    /// signal and hands the [`Priority`] off through this callback, leaving the receiver to apply
+    /// it to whatever owns send scheduling. Without a registered callback, priority is parsed but
+    /// never applied.
+    ///
+    /// Has no effect if a callback is already registered.
+    pub fn register_priority_callback(
+        &self,
+        callback: impl Fn(u64, Priority, bool) + Send + Sync + 'static,
+    ) {
+        let _ = self.priority_callback.0.set(Box::new(callback));
+    }
+
+    /// Emit a priority signal for a request stream to the registered callback, if any.
+    /// `is_update` distinguishes a received `PRIORITY_UPDATE` from the request's initial header
+    /// priority so the receiver can honor the precedence rule.
+    fn emit_priority(&self, stream_id: u64, priority: Priority, is_update: bool) {
+        let kind = if is_update {
+            "PRIORITY_UPDATE"
+        } else {
+            "initial"
+        };
+        match self.priority_callback.0.get() {
+            Some(callback) => {
+                log::trace!("H3 stream {stream_id}: emitting {kind} priority \"{priority}\"");
+                callback(stream_id, priority, is_update);
+            }
+            None => log::trace!(
+                "H3 stream {stream_id}: {kind} priority \"{priority}\" parsed but no callback \
+                 registered"
+            ),
+        }
+    }
+
+    /// Handle an RFC 9218 `PRIORITY_UPDATE` received on the peer's control stream. The
+    /// prioritized element id must name a client-initiated bidirectional (request) stream —
+    /// `id % 4 == 0` in QUIC — and other ids are ignored rather than erroring, since the signal
+    /// is advisory.
+    fn emit_priority_update(&self, prioritized_element_id: u64, priority: Priority) {
+        if prioritized_element_id.is_multiple_of(4) {
+            self.emit_priority(prioritized_element_id, priority, true);
+        } else {
+            log::trace!(
+                "H3: ignoring PRIORITY_UPDATE for non-request stream {prioritized_element_id}"
+            );
+        }
     }
 
     /// Retrieve the [`Swansong`] shutdown handle for this HTTP/3 connection. See also
@@ -221,47 +300,40 @@ impl H3Connection {
         }
     }
 
-    /// Process a single HTTP/3 request-response cycle on a bidirectional stream.
+    /// Begin processing a single HTTP/3 request-response cycle on an accepted bidirectional
+    /// stream.
     ///
-    /// Call this once per accepted bidirectional stream. Returns
-    /// [`H3StreamResult::WebTransport`] if the stream opens a WebTransport session rather than
-    /// a standard HTTP/3 request.
+    /// Returns a builder. Attach an optional reset hook with
+    /// [`with_reset`][H3BidiRequest::with_reset], then `.await` it to run one request/response
+    /// cycle. Awaiting resolves to [`H3StreamResult::WebTransport`] if the stream opens a
+    /// WebTransport session rather than a standard HTTP/3 request.
     ///
-    /// On a stream-level protocol error (e.g. malformed pseudo-headers,
-    /// `H3_MESSAGE_ERROR`), this method drops the transport without resetting it. To honour
-    /// RFC 9114's stream-error MUSTs, callers should use [`process_inbound_bidi_with_reset`]
-    /// instead and pass a closure that issues a stream RST with the protocol error code.
+    /// Without a reset hook, a stream-level protocol error drops the transport without
+    /// resetting it; attach `with_reset` to issue the RST that RFC 9114 requires for stream
+    /// errors.
     ///
-    /// [`process_inbound_bidi_with_reset`]: Self::process_inbound_bidi_with_reset
-    ///
-    /// # Errors
-    ///
-    /// Returns an `H3Error` in case of io error or http/3 semantic error.
-    #[deprecated(
-        since = "1.2.0",
-        note = "use `process_inbound_bidi_with_reset` so stream-level protocol errors RST the \
-                stream as required by RFC 9114"
-    )]
-    pub async fn process_inbound_bidi<Transport, Handler, Fut>(
+    /// RFC 9218 priority is delivered out of band via the callback registered with
+    /// [`register_priority_callback`][Self::register_priority_callback]: this method emits the
+    /// request's initial priority once the headers are parsed.
+    pub fn process_inbound_bidi<Transport, Handler>(
         self: Arc<Self>,
         transport: Transport,
         handler: Handler,
         stream_id: u64,
-    ) -> Result<H3StreamResult<Transport>, H3Error>
-    where
-        Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
-        Handler: FnOnce(Conn<Transport>) -> Fut,
-        Fut: Future<Output = Conn<Transport>>,
-    {
-        self.process_inbound_bidi_with_reset(transport, handler, stream_id, |_, _| {})
-            .await
+    ) -> H3BidiRequest<Transport, Handler> {
+        H3BidiRequest {
+            h3: self,
+            transport,
+            handler,
+            stream_id,
+            reset: None,
+        }
     }
 
     /// Process a single HTTP/3 request-response cycle on a bidirectional stream, calling
     /// `reset` to issue a stream RST when a stream-level protocol error occurs.
     ///
-    /// Identical to [`process_inbound_bidi`][Self::process_inbound_bidi] except that on any
-    /// `H3Error::Protocol(code)` produced by first-frame processing (HEADERS decode,
+    /// On any `H3Error::Protocol(code)` produced by first-frame processing (HEADERS decode,
     /// pseudo-header validation, etc.), `reset` is invoked with the still-owned transport and
     /// the error code before the error is returned. This lets callers RST both the recv and
     /// send halves of the bidi stream — required by RFC 9114 for stream errors like
@@ -275,6 +347,8 @@ impl H3Connection {
     /// # Errors
     ///
     /// Returns an `H3Error` in case of io error or http/3 semantic error.
+    // This is not deprecated yet because it didn't make sense to release a new version of
+    // trillium-client just to avoid this deprecation, but the intention is to deprecate
     pub async fn process_inbound_bidi_with_reset<Transport, Handler, Fut, Reset>(
         self: Arc<Self>,
         mut transport: Transport,
@@ -739,12 +813,128 @@ impl H3Connection {
                     return Err(H3ErrorCode::FrameUnexpected.into());
                 }
 
+                Some(Frame::PriorityUpdate {
+                    prioritized_element_id,
+                    priority,
+                }) => {
+                    log::trace!(
+                        "H3 control stream: PRIORITY_UPDATE stream={prioritized_element_id} \
+                         priority=\"{priority}\""
+                    );
+                    self.emit_priority_update(prioritized_element_id, priority);
+                }
+
                 // Trillium doesn't implement push, so these are ignored rather than acted on.
                 Some(Frame::CancelPush(_) | Frame::MaxPushId(_)) => {
                     log::trace!("H3 control stream: ignoring {frame:?}");
                 }
             }
         }
+    }
+}
+
+/// A pending HTTP/3 request-response cycle on one bidirectional stream, with optional
+/// per-stream hooks.
+///
+/// Built by [`H3Connection::process_inbound_bidi`]. Configure hooks with the `with_*`
+/// methods and `.await` it to run the cycle. New per-stream extension points are added as
+/// further `with_*` methods, so the entry point's required arguments never change.
+pub struct H3BidiRequest<Transport, Handler> {
+    h3: Arc<H3Connection>,
+    transport: Transport,
+    handler: Handler,
+    stream_id: u64,
+    reset: Option<ResetHook<Transport>>,
+}
+
+/// Per-stream reset hook: RST both halves with the still-owned transport on a stream-level error.
+type ResetHook<Transport> = Box<dyn FnOnce(&mut Transport, H3ErrorCode) + Send>;
+
+impl<Transport, Handler> std::fmt::Debug for H3BidiRequest<Transport, Handler> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("H3BidiRequest")
+            .field("stream_id", &self.stream_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<Transport, Handler> H3BidiRequest<Transport, Handler> {
+    /// Issue a stream RST on a stream-level protocol error.
+    ///
+    /// On any `H3Error::Protocol(code)` from first-frame processing, `reset` is called with
+    /// the still-owned transport and the error code before the error is returned — letting the
+    /// caller RST both halves of the bidi stream as RFC 9114 requires. I/O errors and
+    /// successful runs do not invoke it. Without this hook, the transport is dropped without a
+    /// reset.
+    #[must_use]
+    pub fn with_reset<R>(mut self, reset: R) -> Self
+    where
+        R: FnOnce(&mut Transport, H3ErrorCode) + Send + 'static,
+    {
+        self.reset = Some(Box::new(reset));
+        self
+    }
+}
+
+impl<Transport, Handler, Fut> IntoFuture for H3BidiRequest<Transport, Handler>
+where
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+    Handler: FnOnce(Conn<Transport>) -> Fut + Send + 'static,
+    Fut: Future<Output = Conn<Transport>> + Send + 'static,
+{
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type Output = Result<H3StreamResult<Transport>, H3Error>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let Self {
+                h3,
+                mut transport,
+                handler,
+                stream_id,
+                reset,
+            } = self;
+
+            h3.record_accepted_stream(stream_id);
+            let _guard = h3.swansong.guard();
+            let mut buffer: Buffer =
+                Vec::with_capacity(h3.context.config.request_buffer_initial_len).into();
+
+            let outcome =
+                Conn::process_first_frame_h3(&h3, &mut transport, &mut buffer, stream_id).await;
+
+            match outcome {
+                Ok(H3FirstFrame::Request {
+                    validated,
+                    start_time,
+                }) => {
+                    let initial_priority = validated
+                        .request_headers
+                        .get_str(KnownHeaderName::Priority)
+                        .map(Priority::parse)
+                        .unwrap_or_default();
+                    h3.emit_priority(stream_id, initial_priority, false);
+                    let conn =
+                        Conn::build_h3(h3, transport, buffer, validated, start_time, stream_id);
+                    Ok(H3StreamResult::Request(
+                        handler(conn).await.send_h3().await?,
+                    ))
+                }
+                Ok(H3FirstFrame::WebTransport { session_id }) => Ok(H3StreamResult::WebTransport {
+                    session_id,
+                    transport,
+                    buffer,
+                }),
+                Err(error) => {
+                    if let H3Error::Protocol(code) = &error
+                        && let Some(reset) = reset
+                    {
+                        reset(&mut transport, *code);
+                    }
+                    Err(error)
+                }
+            }
+        })
     }
 }
 

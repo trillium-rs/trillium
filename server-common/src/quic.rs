@@ -22,6 +22,12 @@ pub trait QuicTransportReceive: AsyncRead {
 pub trait QuicTransportSend: AsyncWrite {
     /// Close the send stream immediately with the provided error code.
     fn reset(&mut self, code: u64);
+
+    /// Set this stream's transmission priority relative to other streams on the same
+    /// connection. Higher values are sent first when the connection is send-constrained.
+    ///
+    /// The default does nothing, for transports without per-stream prioritization.
+    fn set_priority(&mut self, _priority: i32) {}
 }
 
 /// Abstraction over a QUIC bidirectional stream
@@ -346,6 +352,10 @@ impl QuicTransportSend for BoxedSendStream {
     fn reset(&mut self, code: u64) {
         (**self).reset(code);
     }
+
+    fn set_priority(&mut self, priority: i32) {
+        (**self).set_priority(priority);
+    }
 }
 
 impl QuicTransportReceive for BoxedBidiStream {
@@ -357,6 +367,10 @@ impl QuicTransportReceive for BoxedBidiStream {
 impl QuicTransportSend for BoxedBidiStream {
     fn reset(&mut self, code: u64) {
         (**self).reset(code);
+    }
+
+    fn set_priority(&mut self, priority: i32) {
+        (**self).set_priority(priority);
     }
 }
 
