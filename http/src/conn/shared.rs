@@ -1,5 +1,8 @@
-use crate::{Headers, KnownHeaderName, Method, headers::hpack::FieldSection};
-use std::borrow::Cow;
+use crate::{
+    Buffer, Conn, Headers, HttpContext, KnownHeaderName, Method, headers::hpack::FieldSection,
+};
+use std::{borrow::Cow, sync::Arc};
+use type_set::TypeSet;
 
 /// Whether a request-target authority (absolute-form authority, or the `:authority`
 /// pseudo-header) is equivalent to a `Host` header value under scheme-based normalization:
@@ -37,80 +40,6 @@ fn split_host_port(authority: &str) -> (&str, Option<&str>) {
             Some((host, port)) => (host, Some(port)),
             None => (authority, None),
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::authority_matches_host;
-
-    #[test]
-    fn authority_host_equivalence() {
-        // exact match
-        assert!(authority_matches_host(
-            "example.com:8080",
-            "example.com:8080",
-            Some("http")
-        ));
-        // default-port normalization
-        assert!(authority_matches_host(
-            "example.com:443",
-            "example.com",
-            Some("https")
-        ));
-        assert!(authority_matches_host(
-            "example.com",
-            "example.com:443",
-            Some("https")
-        ));
-        assert!(authority_matches_host(
-            "example.com:80",
-            "example.com",
-            Some("http")
-        ));
-        // case-insensitive host
-        assert!(authority_matches_host(
-            "Example.COM",
-            "example.com",
-            Some("http")
-        ));
-        // userinfo excluded
-        assert!(authority_matches_host(
-            "user@example.com",
-            "example.com",
-            Some("http")
-        ));
-        // IPv6 literals
-        assert!(authority_matches_host(
-            "[::1]:8080",
-            "[::1]:8080",
-            Some("http")
-        ));
-        assert!(authority_matches_host("[::1]", "[::1]:443", Some("https")));
-
-        // a non-default port is significant
-        assert!(!authority_matches_host(
-            "example.com",
-            "example.com:8080",
-            Some("http")
-        ));
-        assert!(!authority_matches_host(
-            "example.com:8080",
-            "example.com:8081",
-            Some("http")
-        ));
-        // different hosts never match
-        assert!(!authority_matches_host(
-            "example.com",
-            "evil.example.com",
-            Some("http")
-        ));
-        // without a known scheme there is no default port to normalize against
-        assert!(!authority_matches_host(
-            "example.com:443",
-            "example.com",
-            None
-        ));
     }
 }
 
@@ -227,5 +156,124 @@ impl ValidatedRequest {
             protocol,
             request_headers,
         })
+    }
+}
+
+pub(crate) struct ConnParts<T> {
+    pub(crate) buffer: Buffer,
+    pub(crate) state: TypeSet,
+    pub(crate) request_headers: Headers,
+    pub(crate) response_headers: Headers,
+    pub(crate) context: Arc<HttpContext>,
+    pub(crate) transport: T,
+}
+
+impl<T> ConnParts<T> {
+    pub(crate) fn new(context: Arc<HttpContext>, transport: T, initial_bytes: Vec<u8>) -> Self {
+        Self {
+            buffer: initial_bytes.into(),
+            state: TypeSet::with_capacity(16),
+            request_headers: Headers::with_capacity(16),
+            response_headers: Headers::with_capacity(16),
+            context,
+            transport,
+        }
+    }
+}
+
+impl<T> From<Conn<T>> for ConnParts<T> {
+    fn from(conn: Conn<T>) -> Self {
+        let buffer = conn.buffer;
+        let mut state = conn.state;
+        let mut request_headers = conn.request_headers;
+        let mut response_headers = conn.response_headers;
+        let transport = conn.transport;
+        let context = conn.context;
+        state.clear();
+        request_headers.clear();
+        response_headers.clear();
+
+        Self {
+            buffer,
+            state,
+            request_headers,
+            response_headers,
+            context,
+            transport,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::authority_matches_host;
+
+    #[test]
+    fn authority_host_equivalence() {
+        // exact match
+        assert!(authority_matches_host(
+            "example.com:8080",
+            "example.com:8080",
+            Some("http")
+        ));
+        // default-port normalization
+        assert!(authority_matches_host(
+            "example.com:443",
+            "example.com",
+            Some("https")
+        ));
+        assert!(authority_matches_host(
+            "example.com",
+            "example.com:443",
+            Some("https")
+        ));
+        assert!(authority_matches_host(
+            "example.com:80",
+            "example.com",
+            Some("http")
+        ));
+        // case-insensitive host
+        assert!(authority_matches_host(
+            "Example.COM",
+            "example.com",
+            Some("http")
+        ));
+        // userinfo excluded
+        assert!(authority_matches_host(
+            "user@example.com",
+            "example.com",
+            Some("http")
+        ));
+        // IPv6 literals
+        assert!(authority_matches_host(
+            "[::1]:8080",
+            "[::1]:8080",
+            Some("http")
+        ));
+        assert!(authority_matches_host("[::1]", "[::1]:443", Some("https")));
+
+        // a non-default port is significant
+        assert!(!authority_matches_host(
+            "example.com",
+            "example.com:8080",
+            Some("http")
+        ));
+        assert!(!authority_matches_host(
+            "example.com:8080",
+            "example.com:8081",
+            Some("http")
+        ));
+        // different hosts never match
+        assert!(!authority_matches_host(
+            "example.com",
+            "evil.example.com",
+            Some("http")
+        ));
+        // without a known scheme there is no default port to normalize against
+        assert!(!authority_matches_host(
+            "example.com:443",
+            "example.com",
+            None
+        ));
     }
 }

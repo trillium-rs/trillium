@@ -36,20 +36,15 @@ use header_name::HeaderNameInner;
 pub use header_value::HeaderValue;
 pub use header_values::HeaderValues;
 pub use known_header_name::KnownHeaderName;
-use std::{
-    collections::{
-        BTreeMap,
-        btree_map::{self, Entry as BTreeEntry},
-    },
-    fmt::{self, Debug, Display, Formatter},
-};
+use smallvec::SmallVec;
+use std::fmt::{self, Debug, Display, Formatter};
 use unknown_header_name::UnknownHeaderName;
 
 /// Trillium's header map type
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[must_use]
 pub struct Headers {
-    pub(crate) known: BTreeMap<KnownHeaderName, HeaderValues>,
+    pub(crate) known: HashMap<KnownHeaderName, HeaderValues>,
     pub(crate) unknown: HashMap<UnknownHeaderName<'static>, HeaderValues>,
 }
 
@@ -88,6 +83,18 @@ impl Display for Headers {
 }
 
 impl Headers {
+    pub(crate) fn clear(&mut self) {
+        self.known.clear();
+        self.unknown.clear();
+    }
+
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            known: HashMap::with_capacity(capacity),
+            unknown: HashMap::new(),
+        }
+    }
+
     #[doc(hidden)]
     pub fn extend_parse(&mut self, bytes: &[u8]) -> Result<usize, crate::Error> {
         use memchr::memmem::Finder;
@@ -146,9 +153,10 @@ impl Headers {
         Self::default()
     }
 
-    /// Return an iterator over borrowed header names and header
-    /// values. First yields the known headers and then the unknown
-    /// headers, if any.
+    /// Return an iterator over borrowed header names and header values. Known headers are
+    /// yielded first, in name order — which places `Host`/`Date` first, per RFC 9110 §5.3 —
+    /// followed by the unknown headers in an unspecified order. This deterministic known-header
+    /// order is what makes serialized output reproducible; the underlying storage is unordered.
     pub fn iter(&self) -> Iter<'_> {
         self.into()
     }
@@ -183,10 +191,10 @@ impl Headers {
     pub fn append_all(&mut self, other: Headers) {
         for (name, value) in other.known {
             match self.known.entry(name) {
-                BTreeEntry::Occupied(mut entry) => {
+                HashbrownEntry::Occupied(mut entry) => {
                     entry.get_mut().extend(value);
                 }
-                BTreeEntry::Vacant(entry) => {
+                HashbrownEntry::Vacant(entry) => {
                     entry.insert(value);
                 }
             }
@@ -261,10 +269,10 @@ impl Headers {
     pub fn entry(&mut self, name: impl Into<HeaderName<'static>>) -> Entry<'_> {
         match name.into().0 {
             HeaderNameInner::KnownHeader(known) => match self.known.entry(known) {
-                BTreeEntry::Vacant(vacant) => {
+                HashbrownEntry::Vacant(vacant) => {
                     Entry::Vacant(VacantEntry(VacantEntryInner::Known(vacant)))
                 }
-                BTreeEntry::Occupied(occupied) => {
+                HashbrownEntry::Occupied(occupied) => {
                     Entry::Occupied(OccupiedEntry(OccupiedEntryInner::Known(occupied)))
                 }
             },
@@ -461,7 +469,7 @@ impl<'a> IntoIterator for &'a Headers {
 /// An owned iterator for Headers
 #[derive(Debug)]
 pub struct IntoIter {
-    known: btree_map::IntoIter<KnownHeaderName, HeaderValues>,
+    known: hash_map::IntoIter<KnownHeaderName, HeaderValues>,
     unknown: hash_map::IntoIter<UnknownHeaderName<'static>, HeaderValues>,
 }
 
@@ -489,14 +497,23 @@ impl From<Headers> for IntoIter {
 /// A borrowed iterator for Headers
 #[derive(Debug)]
 pub struct Iter<'a> {
-    known: btree_map::Iter<'a, KnownHeaderName, HeaderValues>,
+    // Known headers are collected and sorted by name up front so iteration order is
+    // deterministic despite the unordered backing map; see [`Headers::iter`]. The inline
+    // capacity covers a typical request/response without spilling to the heap.
+    known: smallvec::IntoIter<[(KnownHeaderName, &'a HeaderValues); 16]>,
     unknown: hash_map::Iter<'a, UnknownHeaderName<'static>, HeaderValues>,
 }
 
 impl<'a> From<&'a Headers> for Iter<'a> {
     fn from(value: &'a Headers) -> Self {
+        let mut known = value
+            .known
+            .iter()
+            .map(|(k, v)| (*k, v))
+            .collect::<SmallVec<[(KnownHeaderName, &'a HeaderValues); 16]>>();
+        known.sort_unstable_by_key(|(name, _)| *name);
         Iter {
-            known: value.known.iter(),
+            known: known.into_iter(),
             unknown: value.unknown.iter(),
         }
     }
@@ -509,7 +526,7 @@ impl<'a> Iterator for Iter<'a> {
         let Iter { known, unknown } = self;
         known
             .next()
-            .map(|(k, v)| (HeaderName::from(*k), v))
+            .map(|(k, v)| (HeaderName::from(k), v))
             .or_else(|| unknown.next().map(|(k, v)| (HeaderName::from(&**k), v)))
     }
 }

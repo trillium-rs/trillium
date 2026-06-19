@@ -1,5 +1,6 @@
 use crate::{
-    Buffer, Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade, conn::HeadError,
+    Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade,
+    conn::{ConnParts, HeadError},
     headers::header_observer::HeaderObserver,
 };
 use fieldwork::Fieldwork;
@@ -102,13 +103,8 @@ impl HttpContext {
     ///
     /// Not part of the stable public API; exposed only for adapter crates.
     #[doc(hidden)]
-    pub fn __isolate_qpack_observer(&mut self) -> &mut Self {
+    pub fn __isolate_header_observer(&mut self) -> &mut Self {
         self.observer = Arc::new(HeaderObserver::default());
-        log::trace!(
-            target: "qpack_metrics",
-            "isolated fresh QPACK observer for this context (ptr={:p})",
-            Arc::as_ptr(&self.observer),
-        );
         self
     }
 }
@@ -137,8 +133,10 @@ where
     Fut: Future<Output = Conn<Transport>>,
 {
     let _guard = context.swansong.guard();
-    let buffer: Buffer = initial_bytes.into();
-    let mut conn = match Conn::parse_head(context, transport, buffer).await {
+
+    let parts = ConnParts::new(context, transport, initial_bytes);
+
+    let mut conn = match parts.parse_head().await {
         Ok(conn) => conn,
         Err(HeadError::BadRequest(bad)) => {
             bad.send().await?;
