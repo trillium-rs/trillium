@@ -1,6 +1,6 @@
 [package]
 name = "trillium-smol"
-version = "0.6.3"
+version = "0.6.4"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "smol runtime adapter for trillium.rs"
@@ -27,7 +27,7 @@ log = "0.4.29"
 trillium.workspace = true
 trillium-http.workspace = true
 trillium-macros.workspace = true
-trillium-server-common = { version = "0.7.5", path = "../server-common" }
+trillium-server-common = { version = "0.7.7", path = "../server-common" }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.4.3"

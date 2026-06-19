@@ -1,6 +1,6 @@
 [package]
 name = "trillium-openssl"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "openssl adapter for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -15,7 +15,7 @@ vendored = ["openssl/vendored"]
 [dependencies]
 async-openssl = "0.2.2"
 openssl = "0.10.72"
-trillium-server-common = { version = "0.7.5", path = "../server-common" }
+trillium-server-common = { version = "0.7.7", path = "../server-common" }
 
 [dev-dependencies]
 env_logger = "0.11.10"
