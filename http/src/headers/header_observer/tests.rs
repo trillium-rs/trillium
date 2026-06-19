@@ -27,7 +27,7 @@ fn prime_emits_observed_pair_after_one_connection() {
         &observer,
         &[(name(KnownHeaderName::Server), value(b"trillium"))],
     );
-    let primed = observer.prime(4096, HeaderCompression::Qpack);
+    let primed = observer.prime(4096);
     assert_eq!(primed.len(), 1, "expected 1 candidate, got {primed:?}");
     assert_eq!(primed[0].name, name(KnownHeaderName::Server));
     assert_eq!(primed[0].value, Some(value(b"trillium")));
@@ -41,7 +41,7 @@ fn prime_skips_full_static_match() {
         &observer,
         &[(EntryName::Pseudo(PseudoHeaderName::Status), value(b"200"))],
     );
-    let primed = observer.prime(4096, HeaderCompression::Qpack);
+    let primed = observer.prime(4096);
     assert!(
         !primed.iter().any(
             |c| matches!(c.name, EntryName::Pseudo(PseudoHeaderName::Status)) && c.value.is_some()
@@ -63,7 +63,7 @@ fn prime_ranks_by_savings_per_ref() {
     let small = (name(KnownHeaderName::ContentLength), value(b"12"));
     observe_once(&observer, &[big.clone(), small.clone()]);
     // Big entry size: 32 + 12 + 31 = 75.
-    let primed = observer.prime(75, HeaderCompression::Qpack);
+    let primed = observer.prime(75);
     assert_eq!(primed.len(), 1);
     assert_eq!(primed[0].name, big.0);
     assert_eq!(primed[0].value, Some(big.1));
@@ -94,7 +94,7 @@ fn unknown_names_are_ignored() {
     assert!(accum.seen_pairs.is_empty());
     assert!(accum.seen_names.is_empty());
     observer.fold_connection(&accum);
-    assert!(observer.prime(4096, HeaderCompression::Qpack).is_empty());
+    assert!(observer.prime(4096).is_empty());
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn unknown_static_is_tracked() {
     let observer = HeaderObserver::default();
     let unknown_static = EntryName::UnknownStatic("x-trillium-flag");
     observe_once(&observer, &[(unknown_static.clone(), value(b"on"))]);
-    let primed = observer.prime(4096, HeaderCompression::Qpack);
+    let primed = observer.prime(4096);
     assert!(
         primed
             .iter()
@@ -146,7 +146,7 @@ fn fold_is_set_union() {
     let pair_b = (name(KnownHeaderName::UserAgent), value(b"test-agent/1.0"));
     observe_once(&observer, std::slice::from_ref(&pair_a));
     observe_once(&observer, std::slice::from_ref(&pair_b));
-    let primed = observer.prime(4096, HeaderCompression::Qpack);
+    let primed = observer.prime(4096);
     assert!(
         primed
             .iter()
@@ -157,19 +157,4 @@ fn fold_is_set_union() {
             .iter()
             .any(|c| c.name == pair_b.0 && c.value.as_ref() == Some(&pair_b.1))
     );
-}
-
-#[test]
-fn hpack_prime_emits_observed_pair() {
-    // Same observation, costed under HPACK — both NameMatch arms produce
-    // value-bytes savings, so the pair primes identically to QPACK.
-    let observer = HeaderObserver::default();
-    observe_once(
-        &observer,
-        &[(name(KnownHeaderName::Server), value(b"trillium"))],
-    );
-    let primed = observer.prime(4096, HeaderCompression::Hpack);
-    assert_eq!(primed.len(), 1);
-    assert_eq!(primed[0].name, name(KnownHeaderName::Server));
-    assert_eq!(primed[0].value, Some(value(b"trillium")));
 }
