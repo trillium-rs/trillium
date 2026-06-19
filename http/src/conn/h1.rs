@@ -1,14 +1,14 @@
 use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
-    Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version,
+    Method, ProtocolSession, ReceivedBody, Result, Status, Version,
     after_send::AfterSend,
-    conn::{ReceivedBodyState, shared::authority_matches_host},
+    conn::{ConnParts, ReceivedBodyState, shared::authority_matches_host},
     headers::date::current_date_header,
     util::encoding,
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use memchr::memmem::Finder;
-use std::{borrow::Cow, io::Write, sync::Arc, time::Instant};
+use std::{borrow::Cow, io::Write, time::Instant};
 
 /// Outcome of a failed [`Conn::parse_head`].
 pub(crate) enum HeadError<Transport> {
@@ -166,20 +166,13 @@ where
         .with_protocol_session(self.protocol_session.clone())
     }
 
-    /// Resolve the initial [`ReceivedBodyState`] for the incoming h1 request body from
-    /// the parsed headers. h1 requests without explicit framing default to an empty
-    /// body — read-to-close on inbound has no sender-side end-of-request signal.
-    fn initial_request_body_state(request_headers: &Headers) -> ReceivedBodyState {
-        let chunked = request_headers.has_header(KnownHeaderName::TransferEncoding);
-        let content_length = if chunked {
-            None
-        } else {
-            request_headers.content_length().or(Some(0))
-        };
-        ReceivedBodyState::new_h1(content_length, chunked)
-    }
-
-    fn validate_headers(request_headers: &Headers, version: Version, method: Method) -> Result<()> {
+    fn validate_headers_h1(&self) -> Result<()> {
+        let Self {
+            ref request_headers,
+            version,
+            method,
+            ..
+        } = *self;
         let content_length = request_headers.get_values(KnownHeaderName::ContentLength);
         let transfer_encoding = request_headers.get_values(KnownHeaderName::TransferEncoding);
 
@@ -264,97 +257,6 @@ where
         Ok(())
     }
 
-    pub(crate) async fn parse_head(
-        context: Arc<HttpContext>,
-        mut transport: Transport,
-        mut buffer: Buffer,
-    ) -> std::result::Result<Self, HeadError<Transport>> {
-        let (head_size, start_time) = Self::head(&mut transport, &mut buffer, &context)
-            .await
-            .map_err(HeadError::Fatal)?;
-
-        let first_line_index = Finder::new(b"\r\n")
-            .find(&buffer)
-            .ok_or(HeadError::Fatal(Error::InvalidHead))?;
-
-        let RequestLine {
-            method,
-            path,
-            authority,
-            scheme,
-            version,
-            error: mut first_error,
-        } = RequestLine::parse(&buffer[..first_line_index]);
-
-        let mut request_headers = Headers::new();
-        if let Err(e) = request_headers.extend_parse(&buffer[first_line_index + 2..head_size]) {
-            first_error.get_or_insert(e);
-        }
-
-        let response_headers = context
-            .shared_state()
-            .get::<Headers>()
-            .cloned()
-            .unwrap_or_default();
-
-        buffer.ignore_front(head_size);
-
-        let request_body_state = Self::initial_request_body_state(&request_headers);
-
-        let mut conn = Self {
-            context,
-            transport,
-            request_headers,
-            method,
-            version,
-            path,
-            buffer,
-            response_headers,
-            status: None,
-            state: TypeSet::new(),
-            response_body: None,
-            request_body_state,
-            secure: false,
-            after_send: AfterSend::default(),
-            start_time,
-            peer_ip: None,
-            authority,
-            scheme,
-            protocol: None,
-            protocol_session: ProtocolSession::Http1,
-            request_trailers: None,
-            upgrade: false,
-        };
-
-        // Cross-header and request-target rules only apply to an otherwise-clean parse; once we
-        // already have a violation we're synthesizing a response regardless.
-        if first_error.is_none() {
-            first_error = Self::validate_headers(&conn.request_headers, conn.version, conn.method)
-                .and_then(|()| conn.validate_request_target())
-                .err();
-        }
-
-        match first_error {
-            None => {
-                log::trace!(
-                    "received:\n{} {} {}\n{}",
-                    conn.method,
-                    conn.path,
-                    conn.version,
-                    conn.request_headers
-                );
-                Ok(conn)
-            }
-            Some(e) => {
-                log::debug!("rejecting malformed request: {e}");
-                conn.status = Some(status_for_error(&e));
-                conn.response_headers
-                    .insert(KnownHeaderName::Connection, "close");
-                Err(HeadError::BadRequest(Box::new(conn)))
-            }
-        }
-    }
-
     async fn head(
         transport: &mut Transport,
         buf: &mut Buffer,
@@ -427,17 +329,21 @@ where
         if !self.needs_100_continue() {
             self.build_request_body().drain().await?;
         }
-        match Conn::parse_head(self.context, self.transport, self.buffer).await {
+
+        match ConnParts::from(self).parse_head().await {
             Ok(conn) => Ok(ConnectionStatus::Conn(conn)),
+
             Err(HeadError::BadRequest(bad)) => {
                 // Box to break the `send -> finish -> next -> send` async-recursion type cycle.
                 Box::pin(bad.send()).await?;
                 Ok(ConnectionStatus::Close)
             }
+
             Err(HeadError::Fatal(Error::Closed)) => {
                 log::trace!("connection closed by client");
                 Ok(ConnectionStatus::Close)
             }
+
             Err(HeadError::Fatal(e)) => Err(e),
         }
     }
@@ -650,15 +556,6 @@ impl RequestLine {
     }
 }
 
-/// The response status for a request rejected during head parsing.
-fn status_for_error(error: &Error) -> Status {
-    match error {
-        Error::UnrecognizedMethod(_) => Status::NotImplemented,
-        Error::ExpectationFailed => Status::ExpectationFailed,
-        _ => Status::BadRequest,
-    }
-}
-
 pub(crate) fn write_headers_or_trailers(
     output_buffer: &mut Vec<u8>,
     headers: &Headers,
@@ -686,4 +583,116 @@ pub(crate) fn write_headers_or_trailers(
         }
     }
     Ok(())
+}
+
+impl<T> ConnParts<T>
+where
+    T: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+{
+    pub(crate) async fn parse_head(self) -> Result<Conn<T>, HeadError<T>> {
+        let Self {
+            mut buffer,
+            state,
+            mut request_headers,
+            mut response_headers,
+            context,
+            mut transport,
+        } = self;
+
+        let (head_size, start_time) = Conn::head(&mut transport, &mut buffer, &context)
+            .await
+            .map_err(HeadError::Fatal)?;
+
+        let first_line_index = Finder::new(b"\r\n")
+            .find(&buffer)
+            .ok_or(HeadError::Fatal(Error::InvalidHead))?;
+
+        let RequestLine {
+            method,
+            path,
+            authority,
+            scheme,
+            version,
+            error: mut first_error,
+        } = RequestLine::parse(&buffer[..first_line_index]);
+
+        if let Err(e) = request_headers.extend_parse(&buffer[first_line_index + 2..head_size]) {
+            first_error.get_or_insert(e);
+        }
+
+        if let Some(default_headers) = context.shared_state().get().cloned() {
+            response_headers.insert_all(default_headers);
+        }
+
+        buffer.ignore_front(head_size);
+
+        let request_body_state = Self::initial_request_body_state(&request_headers);
+
+        let mut conn = Conn {
+            context,
+            transport,
+            request_headers,
+            method,
+            version,
+            path,
+            buffer,
+            response_headers,
+            status: None,
+            state,
+            response_body: None,
+            request_body_state,
+            secure: false,
+            after_send: AfterSend::default(),
+            start_time,
+            peer_ip: None,
+            authority,
+            scheme,
+            protocol: None,
+            protocol_session: ProtocolSession::Http1,
+            request_trailers: None,
+            upgrade: false,
+        };
+
+        // Cross-header and request-target rules only apply to an otherwise-clean parse; once we
+        // already have a violation we're synthesizing a response regardless.
+        if first_error.is_none() {
+            first_error = conn
+                .validate_headers_h1()
+                .and_then(|()| conn.validate_request_target())
+                .err();
+        }
+
+        match first_error {
+            None => {
+                log::trace!(
+                    "received:\n{} {} {}\n{}",
+                    conn.method,
+                    conn.path,
+                    conn.version,
+                    conn.request_headers
+                );
+                Ok(conn)
+            }
+            Some(ref e) => {
+                log::debug!("rejecting malformed request: {e}");
+                conn.status = Some(e.into());
+                conn.response_headers
+                    .insert(KnownHeaderName::Connection, "close");
+                Err(HeadError::BadRequest(Box::new(conn)))
+            }
+        }
+    }
+
+    /// Resolve the initial [`ReceivedBodyState`] for the incoming h1 request body from
+    /// the parsed headers. h1 requests without explicit framing default to an empty
+    /// body — read-to-close on inbound has no sender-side end-of-request signal.
+    fn initial_request_body_state(request_headers: &Headers) -> ReceivedBodyState {
+        let chunked = request_headers.has_header(KnownHeaderName::TransferEncoding);
+        let content_length = if chunked {
+            None
+        } else {
+            request_headers.content_length().or(Some(0))
+        };
+        ReceivedBodyState::new_h1(content_length, chunked)
+    }
 }

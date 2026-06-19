@@ -79,7 +79,6 @@ impl EncoderDynamicTable {
         let observer = context.observer.clone();
         let recent_pairs_size = context.config.recent_pairs_size;
         log::trace!(
-            target: "qpack_metrics",
             "new EncoderDynamicTable: observer ptr={:p} our_max_capacity={} recent_pairs_size={}",
             Arc::as_ptr(&observer),
             context.config.dynamic_table_capacity,
@@ -119,7 +118,6 @@ impl EncoderDynamicTable {
         };
 
         log::info!(
-            target: "qpack_metrics",
             "initialize_from_peer_settings: peer_max_capacity={peer_max_capacity} \
              our_max_capacity={our} chosen={chosen} max_blocked_streams={max_blocked_streams} \
              prime_entries={}",

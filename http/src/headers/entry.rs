@@ -1,9 +1,6 @@
 use super::{HeaderName, HeaderValues, KnownHeaderName, UnknownHeaderName};
 use hashbrown::hash_map;
-use std::{
-    collections::btree_map,
-    fmt::{self, Debug, Formatter},
-};
+use std::fmt::{self, Debug, Formatter};
 
 /// A view into the storage for a particular header name
 #[derive(Debug)]
@@ -29,7 +26,7 @@ impl Debug for VacantEntry<'_> {
 }
 
 pub(super) enum VacantEntryInner<'a> {
-    Known(btree_map::VacantEntry<'a, KnownHeaderName, HeaderValues>),
+    Known(hash_map::VacantEntry<'a, KnownHeaderName, HeaderValues>),
     Unknown(hash_map::VacantEntry<'a, UnknownHeaderName<'static>, HeaderValues>),
 }
 
@@ -48,7 +45,7 @@ impl Debug for OccupiedEntry<'_> {
 }
 
 pub(super) enum OccupiedEntryInner<'a> {
-    Known(btree_map::OccupiedEntry<'a, KnownHeaderName, HeaderValues>),
+    Known(hash_map::OccupiedEntry<'a, KnownHeaderName, HeaderValues>),
     Unknown(hash_map::OccupiedEntry<'a, UnknownHeaderName<'static>, HeaderValues>),
 }
 

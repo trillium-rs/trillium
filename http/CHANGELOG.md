@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sent close-delimited — carrying neither `Content-Length` nor `Transfer-Encoding`, with the body
   running until the connection closes — rather than with chunked transfer-encoding. Responses that
   don't set `Connection: close` are unaffected and still use chunked encoding.
+- HTTP/1.x performance improvements
 
 ## [1.3.8]
 

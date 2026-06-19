@@ -1,4 +1,4 @@
-use crate::{HeaderName, Version};
+use crate::{HeaderName, Status, Version};
 use std::{num::TryFromIntError, str::Utf8Error, time::Duration};
 use thiserror::Error;
 
@@ -110,8 +110,19 @@ pub enum Error {
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl From<&Error> for Status {
+    fn from(error: &Error) -> Self {
+        match error {
+            Error::UnrecognizedMethod(_) => Status::NotImplemented,
+            Error::ExpectationFailed => Status::ExpectationFailed,
+            Error::Other(_) => Status::InternalServerError,
+            _ => Status::BadRequest,
+        }
+    }
+}
+
 /// this crate's result type
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl Error {
     /// Construct an Other variant
