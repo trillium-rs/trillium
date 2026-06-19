@@ -20,8 +20,10 @@ impl Debug for Buffer {
 }
 impl From<Buffer> for Vec<u8> {
     fn from(Buffer(offset, mut vec): Buffer) -> Self {
-        vec.copy_within(offset.., 0);
-        vec.truncate(vec.len() - offset);
+        if offset > 0 {
+            vec.copy_within(offset.., 0);
+            vec.truncate(vec.len() - offset);
+        }
         vec
     }
 }
@@ -104,7 +106,18 @@ impl Buffer {
 
     pub fn expand(&mut self) {
         if self.1.len() == self.1.capacity() {
-            self.1.reserve(32);
+            let live = self.len();
+            // Out of room. Compacting moves `live` bytes to reclaim `self.0` of tail space;
+            // reallocating moves up to `capacity` bytes (or none, if the allocator extends in
+            // place) but doubles the buffer. Shift down only when it reclaims at least what it
+            // moves — the 1:1 break-even, which holds regardless of allocator. Below that, grow.
+            if self.0 > 0 && self.0 >= live {
+                self.1.copy_within(self.0.., 0);
+                self.1.truncate(live);
+                self.0 = 0;
+            } else {
+                self.1.reserve(32);
+            }
         }
         self.fill_capacity();
     }
@@ -205,6 +218,69 @@ mod tests {
         buf.extend_from_slice(b"later"); // chronologically later bytes
         buf.prepend(b"earlier "); // chronologically earlier bytes
         assert_eq!(&*buf, b"earlier later");
+    }
+
+    #[test]
+    fn expand_compacts_when_offset_reclaims_enough() {
+        // Full buffer (len == cap) with a consumed prefix at least as large as the live
+        // region: compaction reclaims ≥ what it moves, so expand shifts down in place
+        // rather than reallocating.
+        let mut buf = Buffer::from(b"ABCDEFGH".to_vec()); // len 8 == cap 8
+        let cap_before = buf.1.capacity();
+        buf.ignore_front(5); // offset 5, live "FGH" (3); 5 >= 3
+        let ptr_before = buf.1.as_ptr();
+
+        buf.expand();
+
+        assert_eq!(buf.1.as_ptr(), ptr_before, "compaction must not reallocate");
+        assert_eq!(buf.1.capacity(), cap_before, "capacity unchanged by compaction");
+        assert_eq!(buf.0, 0, "offset reset to front");
+        assert_eq!(&buf[..3], b"FGH", "live content preserved in order");
+    }
+
+    #[test]
+    fn expand_grows_when_offset_too_small() {
+        // Consumed prefix smaller than the live region: compaction would move more than it
+        // reclaims, so expand reallocates instead and leaves the offset in place.
+        let mut buf = Buffer::from(b"ABCDEFGH".to_vec());
+        let cap_before = buf.1.capacity();
+        buf.ignore_front(2); // offset 2, live "CDEFGH" (6); 2 < 6
+
+        buf.expand();
+
+        assert!(buf.1.capacity() > cap_before, "must grow when offset is too small");
+        assert_eq!(buf.0, 2, "offset unchanged when growing");
+        assert_eq!(&buf[..6], b"CDEFGH", "live content preserved");
+    }
+
+    #[test]
+    fn expand_grows_default_buffer() {
+        // Degenerate case the offset > 0 guard protects: an empty zero-capacity buffer must
+        // grow, not loop forever compacting nothing.
+        let mut buf = Buffer::default();
+        buf.expand();
+        assert!(buf.1.capacity() >= 32);
+        assert_eq!(buf.len(), buf.1.capacity());
+    }
+
+    #[test]
+    fn expand_grows_full_buffer_with_no_offset() {
+        let mut buf = Buffer::from(b"ABCD".to_vec()); // full, offset 0
+        let cap_before = buf.1.capacity();
+        buf.expand();
+        assert!(buf.1.capacity() > cap_before);
+        assert_eq!(&buf[..4], b"ABCD");
+    }
+
+    #[test]
+    fn into_vec_round_trips_active_region() {
+        let mut buf = Buffer::from(b"abcdef".to_vec());
+        buf.ignore_front(2);
+        assert_eq!(Vec::from(buf), b"cdef");
+
+        // offset 0 path (the guarded no-op shift) is identity on contents.
+        let buf = Buffer::from(b"xyz".to_vec());
+        assert_eq!(Vec::from(buf), b"xyz");
     }
 
     #[test]
