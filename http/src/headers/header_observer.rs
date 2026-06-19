@@ -4,10 +4,15 @@
 //! has emitted across the lifetime of this listener, so each new connection's dynamic
 //! table can be pre-warmed with literals that the encoder is likely to emit again.
 //!
-//! Protocol-agnostic: the observation pool is shared across HPACK and QPACK encoders
-//! on the same listener (HTTP/2 and HTTP/3 see the same application headers, so an
-//! observation from either feeds both). The cost model branches on
-//! [`HeaderCompression`] at consultation time.
+//! The observation pool is shared across HPACK and QPACK encoders on the same listener
+//! (HTTP/2 and HTTP/3 see the same application headers, so an observation from either
+//! feeds both). The two protocols consume it differently: QPACK pre-warms a new
+//! connection's dynamic table out-of-band on its encoder stream (see
+//! [`HeaderObserver::prime`]), while HPACK — which has no encoder stream and can only
+//! insert inline within a HEADERS block — consumes the pool through
+//! [`HeaderObserver::is_hot`], promoting a hot pair to incremental-indexing on first
+//! sight. Priming is therefore QPACK-only by protocol design; the cost model is
+//! QPACK-specific.
 //!
 //! ## Type-narrowed exact-identity design
 //!
@@ -50,7 +55,7 @@ use crate::{
     headers::{
         entry_name::{EntryName, PseudoHeaderName},
         field_section::FieldLineValue,
-        hpack, qpack,
+        qpack,
         static_hit::StaticHit,
     },
 };
@@ -66,21 +71,6 @@ mod tests;
 /// Per-entry overhead in the dynamic table (entry size = overhead + name bytes + value
 /// bytes). Identical for HPACK and QPACK.
 const ENTRY_OVERHEAD: u32 = 32;
-
-/// Which header-compression scheme to cost a priming candidate against. Selects per-protocol
-/// wire-byte constants in [`CostModel::estimate`]; the observation pool itself is
-/// protocol-agnostic.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[allow(
-    dead_code,
-    reason = "Hpack arm currently unused; the cost model already supports it"
-)]
-pub(crate) enum HeaderCompression {
-    /// HPACK — HTTP/2 header compression. Inserts inline in HEADERS blocks.
-    Hpack,
-    /// QPACK — HTTP/3 header compression. Inserts on the encoder stream.
-    Qpack,
-}
 
 /// Stable, content-equal key for a header name. All three variants are `Copy` and
 /// program-controlled by construction.
@@ -200,15 +190,12 @@ impl HeaderObserver {
     /// Return priming-insert candidates ranked by `CostModel::savings_per_ref`
     /// (descending), fitting under `capacity` bytes. Each candidate is a pair or
     /// name-only entry the encoder would otherwise spend wire bytes on if literal-
-    /// emitted. The `compression` parameter selects the wire-byte cost model.
+    /// emitted. QPACK-only: the candidates are inserted out-of-band on the encoder
+    /// stream, which HPACK has no equivalent of.
     ///
     /// Empty when no observations have happened yet, no candidates pass the cost
     /// model, or capacity is zero.
-    pub(in crate::headers) fn prime(
-        &self,
-        capacity: u32,
-        compression: HeaderCompression,
-    ) -> Vec<PrimingCandidate> {
+    pub(in crate::headers) fn prime(&self, capacity: u32) -> Vec<PrimingCandidate> {
         if capacity == 0 {
             return Vec::new();
         }
@@ -223,11 +210,11 @@ impl HeaderObserver {
         for &(key, s) in &inner.seen_pairs {
             let name = key.into_entry_name();
             let value = FieldLineValue::Static(s);
-            push_candidate(&mut ranked, name, Some(value), compression);
+            push_candidate(&mut ranked, name, Some(value));
         }
         for &key in &inner.seen_names {
             let name = key.into_entry_name();
-            push_candidate(&mut ranked, name, None, compression);
+            push_candidate(&mut ranked, name, None);
         }
         let ranked_total = ranked.len();
 
@@ -270,7 +257,7 @@ impl HeaderObserver {
         }
 
         log::debug!(
-            "observer prime(capacity={capacity}, {compression:?}): observed \
+            "observer prime(capacity={capacity}): observed \
              pairs={observed_pairs} names={observed_names} cost-passing={ranked_total} packed={} \
              dropped_no_room={dropped_no_room} bytes_used={used}/{capacity}",
             out.len(),
@@ -283,9 +270,8 @@ fn push_candidate(
     ranked: &mut Vec<RankedCandidate>,
     name: EntryName<'static>,
     value: Option<FieldLineValue<'static>>,
-    compression: HeaderCompression,
 ) {
-    let Some(model) = CostModel::estimate(compression, &name, value.as_ref()) else {
+    let Some(model) = CostModel::estimate(&name, value.as_ref()) else {
         return;
     };
 
@@ -416,9 +402,8 @@ impl ConnectionAccumulator {
 /// miss in either direction just shifts the priming threshold by a byte or two.
 struct CostModel {
     /// Estimated bytes saved per reference: (no-priming encoding cost) − (indexed
-    /// reference encoding cost). The indexed cost differs per protocol (QPACK
-    /// indexed-dynamic ≈ 2 bytes; HPACK indexed ≈ 1 byte at typical dyn indices),
-    /// hence the [`HeaderCompression`] dispatch in [`Self::estimate`].
+    /// reference encoding cost), against QPACK's `IndexedDynamic` form (≈ 1 byte at
+    /// typical dynamic indices).
     savings_per_ref: u32,
 }
 
@@ -430,25 +415,15 @@ impl CostModel {
     ///
     /// - Full pair with a full static-table match — Indexed Static is already as cheap.
     /// - Name-only with a static name-table match — literals can use the static name ref for free.
-    ///
-    /// The `compression` parameter selects per-protocol wire-byte constants. The
-    /// `(NoMatch)` arms use slightly different overhead numbers because HPACK's
-    /// Indexed form is 1 byte at typical dynamic indices while QPACK's
-    /// `IndexedDynamic` is ~2 bytes; the cost-model output is rough enough that the
-    /// difference only matters at the ranking margins.
     #[allow(
         clippy::match_same_arms,
         reason = "arms differ semantically (None vs StaticHit::Full/Name) and are kept separate \
                   for clarity"
     )]
-    fn estimate(
-        compression: HeaderCompression,
-        name: &EntryName<'_>,
-        value: Option<&FieldLineValue<'_>>,
-    ) -> Option<Self> {
+    fn estimate(name: &EntryName<'_>, value: Option<&FieldLineValue<'_>>) -> Option<Self> {
         let name_len = u32::try_from(name.len()).unwrap_or(u32::MAX);
         let value_bytes = value.map(FieldLineValue::as_bytes);
-        let lookup = static_lookup(compression, name, value_bytes);
+        let lookup = qpack::static_table::static_table_lookup(name, value_bytes);
 
         match (value, lookup) {
             (Some(_), StaticHit::Full(_)) => None,
@@ -462,12 +437,8 @@ impl CostModel {
 
             (Some(v), StaticHit::None) => {
                 let value_len = u32::try_from(v.len()).unwrap_or(u32::MAX);
-                let overhead = match compression {
-                    HeaderCompression::Qpack => 1,
-                    HeaderCompression::Hpack => 2,
-                };
                 Some(Self {
-                    savings_per_ref: name_len.saturating_add(value_len).saturating_add(overhead),
+                    savings_per_ref: name_len.saturating_add(value_len).saturating_add(1),
                 })
             }
 
@@ -476,22 +447,6 @@ impl CostModel {
             (None, StaticHit::None) => Some(Self {
                 savings_per_ref: name_len,
             }),
-        }
-    }
-}
-
-/// Run the per-protocol static-table lookup. HPACK's lookup signature takes a
-/// non-optional `&[u8]`; for name-only candidates (`value = None`) we pass `b""` so
-/// shared-`""`-value entries surface as `Name`, not `Full`.
-fn static_lookup(
-    compression: HeaderCompression,
-    name: &EntryName<'_>,
-    value: Option<&[u8]>,
-) -> StaticHit {
-    match compression {
-        HeaderCompression::Qpack => qpack::static_table::static_table_lookup(name, value),
-        HeaderCompression::Hpack => {
-            hpack::static_table::static_table_lookup(name, value.unwrap_or_default())
         }
     }
 }

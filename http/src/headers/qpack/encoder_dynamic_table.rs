@@ -19,7 +19,6 @@ use crate::{
     HttpContext,
     h3::{H3Error, H3ErrorCode, H3Settings},
     headers::{
-        header_observer::HeaderCompression,
         qpack::{FieldLineValue, HeaderObserver},
         recent_pairs::RecentPairs,
     },
@@ -112,7 +111,7 @@ impl EncoderDynamicTable {
 
         let prime_entries = if chosen > 0 {
             let cap = u32::try_from(chosen).unwrap_or(u32::MAX);
-            self.observer.prime(cap, HeaderCompression::Qpack)
+            self.observer.prime(cap)
         } else {
             Vec::new()
         };
