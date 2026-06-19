@@ -18,7 +18,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: get-cmake
-        uses: lukka/get-cmake@v4.3.3
+        uses: lukka/get-cmake@v4.3.4
 
       - uses: Swatinem/rust-cache@v2
         with:
