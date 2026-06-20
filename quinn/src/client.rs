@@ -92,6 +92,19 @@ impl ClientQuicConfig {
             base_tls: None,
         }
     }
+
+    /// Override the quinn [`TransportConfig`](quinn::TransportConfig) governing flow-control
+    /// windows, congestion control, GSO, and related transport parameters.
+    ///
+    /// Composes with any of the `from_*` constructors — construct with TLS credentials, then call
+    /// this to replace quinn's default transport configuration. The mirror of
+    /// [`QuicConfig::with_transport_config`](crate::QuicConfig::with_transport_config) on the
+    /// client side.
+    #[must_use]
+    pub fn with_transport_config(mut self, transport: Arc<quinn::TransportConfig>) -> Self {
+        self.client_config.transport_config(transport);
+        self
+    }
 }
 
 impl<C> QuicClientConfig<C> for ClientQuicConfig

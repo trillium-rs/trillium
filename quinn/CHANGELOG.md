@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `QuicConfig::with_transport_config` — override the quinn `TransportConfig` (flow-control windows,
+  send fairness, congestion control, GSO) on a constructed config, composing with the `from_*`
+  constructors.
+- `ClientQuicConfig::with_transport_config` — the client-side mirror of the above, for tuning the
+  quinn `TransportConfig` on outbound HTTP/3 connections.
+
 ## [0.1.6] - 2026-06-18
 
 ### Added
