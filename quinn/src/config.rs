@@ -78,6 +78,17 @@ impl QuicConfig {
         Self(config)
     }
 
+    /// Override the quinn [`TransportConfig`](quinn::TransportConfig) governing flow-control
+    /// windows, send fairness, congestion control, GSO, and related transport parameters.
+    ///
+    /// Composes with any of the `from_*` constructors — construct with TLS credentials, then call
+    /// this to replace quinn's default transport configuration.
+    #[must_use]
+    pub fn with_transport_config(mut self, transport: Arc<quinn::TransportConfig>) -> Self {
+        self.0.transport_config(transport);
+        self
+    }
+
     /// Build a `QuicConfig` from a [`rustls::server::ResolvesServerCert`] cert resolver.
     ///
     /// Use this to bring your own dynamic certificate source — for example, an ACME integration
