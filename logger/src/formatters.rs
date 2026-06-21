@@ -57,6 +57,16 @@ pub fn method(conn: &Conn, _color: bool) -> Method {
     conn.method()
 }
 
+/// formatter for the request authority (host), as resolved by [`Conn::host`]
+///
+/// This is the host the request was addressed to — drawn from the `Host` header, the HTTP/2 or
+/// HTTP/3 `:authority` pseudo-header, or an absolute-form request target, depending on protocol.
+/// Displays `"-"` if no host is available.
+pub fn host(conn: &Conn, _color: bool) -> Cow<'static, str> {
+    conn.host()
+        .map_or(Cow::Borrowed("-"), |host| Cow::Owned(host.to_string()))
+}
+
 /// simple development-mode formatter
 ///
 /// composed of
@@ -166,6 +176,32 @@ pub fn request_header(header_name: impl Into<HeaderName<'static>>) -> impl LogFo
                 .unwrap_or("")
         )
     }
+}
+
+/// formatter for the request `User-Agent` header, wrapped in quotes. `""` if absent
+///
+/// Equivalent to [`request_header`]`(`[`KnownHeaderName::UserAgent`]`)`, provided as a bare
+/// formatter so it can be named directly in a format.
+pub fn user_agent(conn: &Conn, _color: bool) -> String {
+    format!(
+        "{:?}",
+        conn.request_headers()
+            .get_str(KnownHeaderName::UserAgent)
+            .unwrap_or("")
+    )
+}
+
+/// formatter for the request `Referer` header, wrapped in quotes. `""` if absent
+///
+/// Equivalent to [`request_header`]`(`[`KnownHeaderName::Referer`]`)`, provided as a bare formatter
+/// so it can be named directly in a format.
+pub fn referer(conn: &Conn, _color: bool) -> String {
+    format!(
+        "{:?}",
+        conn.request_headers()
+            .get_str(KnownHeaderName::Referer)
+            .unwrap_or("")
+    )
 }
 
 /// formatter-builder for a particular response header, formatted wrapped

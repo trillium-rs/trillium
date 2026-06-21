@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `log_format!` and (under the `client` feature) `client_log_format!` macros, which build a
+  formatter from a `format_args!`-style string. Bare `{name}` placeholders resolve to the
+  components in `formatters`; formatters that take arguments, closures, and other expressions are
+  supplied as named or positional arguments. Backed by the new internal `trillium-logger-macros`
+  crate.
+- Server formatters `host` (request authority), `user_agent`, and `referer`.
+- Client formatter `peer_addr` (the remote socket address connected to).
+
 ## [0.5.3] - 2026-05-31
 
 ### Changed

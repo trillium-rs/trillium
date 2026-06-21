@@ -7,7 +7,7 @@ use trillium::Conn as ServerConn;
 use trillium_client::{Client, ClientHandler, ConnExt, KnownHeaderName, Result, Status};
 use trillium_logger::{
     ColorMode, Targetable,
-    client::{ClientLogger, formatters},
+    client::{ClientLogger, client_log_format, formatters},
 };
 use trillium_testing::{ServerConnector, TestResult, harness, test};
 
@@ -156,5 +156,71 @@ async fn no_log_line_before_request_completes() -> TestResult {
 
     let _client = Client::new(ServerConnector::new(teapot)).with_handler(logger);
     assert!(target.try_next().is_none());
+    Ok(())
+}
+
+#[test(harness)]
+async fn macro_bare_names_and_named_args() -> TestResult {
+    let target = TestTarget::default();
+    let logger = ClientLogger::new()
+        .with_target(target.clone())
+        .with_color_mode(ColorMode::Off)
+        .with_formatter(client_log_format!(
+            "{method} {url} -> {status} ({ct})",
+            ct = formatters::response_header(KnownHeaderName::ContentType),
+        ));
+
+    let client = Client::new(ServerConnector::new(teapot)).with_handler(logger);
+    let _ = client.get("http://example.com/widgets").await?;
+
+    assert_eq!(
+        target.next().await,
+        r#"GET http://example.com/widgets -> 418 ("text/plain")"#
+    );
+    Ok(())
+}
+
+#[test(harness)]
+async fn secure_formatter_marks_tls_schemes() -> TestResult {
+    let target = TestTarget::default();
+    let logger = ClientLogger::new()
+        .with_target(target.clone())
+        .with_color_mode(ColorMode::Off)
+        .with_formatter(formatters::secure);
+
+    let client = Client::new(ServerConnector::new(teapot)).with_handler(logger);
+    let _ = client.get("https://example.com/").await?;
+
+    assert_eq!(target.next().await, "🔒");
+    Ok(())
+}
+
+#[test(harness)]
+async fn peer_addr_renders_dash_without_an_address() -> TestResult {
+    let target = TestTarget::default();
+    let logger = ClientLogger::new()
+        .with_target(target.clone())
+        .with_color_mode(ColorMode::Off)
+        .with_formatter(formatters::peer_addr);
+
+    let client = Client::new(ServerConnector::new(teapot)).with_handler(logger);
+    let _ = client.get("http://example.com/").await?;
+
+    assert_eq!(target.next().await, "-");
+    Ok(())
+}
+
+#[test(harness)]
+async fn bytes_uses_content_length() -> TestResult {
+    let target = TestTarget::default();
+    let logger = ClientLogger::new()
+        .with_target(target.clone())
+        .with_color_mode(ColorMode::Off)
+        .with_formatter(formatters::bytes);
+
+    let client = Client::new(ServerConnector::new(teapot)).with_handler(logger);
+    let _ = client.get("http://example.com/").await?;
+
+    assert_eq!(target.next().await, "2");
     Ok(())
 }

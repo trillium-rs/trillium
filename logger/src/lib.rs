@@ -7,7 +7,44 @@
     unused_qualifications
 )]
 
-//! Welcome to the trillium logger!
+//! Request logging for [`trillium`].
+//!
+//! [`Logger`] is a [`Handler`] that emits one line per request. Add it to a handler tuple ahead of
+//! the handlers whose work you want to time and observe:
+//!
+//! ```
+//! use trillium_logger::logger;
+//! let handler = (logger(), "hello");
+//! ```
+//!
+//! Out of the box it uses [`dev_formatter`], a compact colorized development format. To customize
+//! the line, hand [`Logger::with_formatter`] a format built from the components in [`formatters`].
+//!
+//! # The `log_format!` macro
+//!
+//! [`log_format!`] builds a formatter from a [`format_args!`]-style string. Bare `{name}`
+//! placeholders refer to the building blocks in [`formatters`]; literal text between them is
+//! emitted verbatim:
+//!
+//! ```
+//! use trillium_logger::{Logger, log_format};
+//! Logger::new().with_formatter(log_format!("{method} {url} -> {status}"));
+//! ```
+//!
+//! Anything that isn't a bare built-in — a formatter that takes arguments, a closure, a value from
+//! your own crate — is supplied as a named or positional argument, exactly as in [`format_args!`]:
+//!
+//! ```
+//! use trillium::KnownHeaderName::UserAgent;
+//! use trillium_logger::{Logger, formatters::request_header, log_format};
+//! Logger::new().with_formatter(log_format!(
+//!     "{ip} \"{method} {url}\" {status} {ua}",
+//!     ua = request_header(UserAgent),
+//! ));
+//! ```
+//!
+//! The macro expands to the same composable [`LogFormatter`] tuples you can also build by hand; see
+//! that trait for the lower-level interface and for writing your own components.
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
@@ -20,6 +57,7 @@ use std::{
     sync::Arc,
 };
 use trillium::{Conn, Handler, Info, ListenerKind, Transport};
+pub use trillium_logger_macros::log_format;
 /// Components with which common log formats can be constructed
 pub mod formatters;
 
@@ -124,6 +162,10 @@ where
 /// the calculation into a new type that implements Display, ensuring that
 /// it is calculated at the right time.
 ///
+///
+/// Most formats are more conveniently expressed with the [`log_format!`](crate::log_format) macro,
+/// which expands to the tuple composition described below. Reach for the implementations here when
+/// you want a named, reusable formatter or are writing your own component.
 ///
 /// ## Implementations
 ///

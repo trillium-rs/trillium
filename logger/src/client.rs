@@ -20,7 +20,14 @@
 //! # Formatters
 //!
 //! See [`ClientLogFormatter`] for the trait, and the [`formatters`] submodule for the building
-//! blocks. The default is [`dev_formatter`].
+//! blocks. The default is [`dev_formatter`]. The [`client_log_format!`] macro builds a formatter
+//! from a [`format_args!`]-style string, mirroring [`log_format!`](crate::log_format) on the server
+//! side:
+//!
+//! ```
+//! use trillium_logger::client::{ClientLogger, client_log_format};
+//! ClientLogger::new().with_formatter(client_log_format!("{method} {url} -> {status}"));
+//! ```
 //!
 //! # Example
 //!
@@ -44,6 +51,7 @@ use trillium_client::{ClientHandler, Conn, Result};
 
 pub mod formatters;
 pub use formatters::dev_formatter;
+pub use trillium_logger_macros::client_log_format;
 
 /// The interface to format a [`client::Conn`][Conn] as a [`Display`]-able output.
 ///

@@ -1,0 +1,18 @@
+[package]
+name = "trillium-logger-macros"
+version = "0.1.0"
+edition = "2024"
+description = "internal-use-only proc-macros for trillium-logger"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/trillium-rs/trillium"
+readme = "README.md"
+keywords = ["trillium", "framework", "async", "logging"]
+categories = ["web-programming::http-server", "web-programming"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.106"
+quote = "1.0.45"
+syn = { version = "2.0.117", features = ["full"] }
