@@ -1,6 +1,6 @@
 [package]
 name = "trillium-proxy"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 description = "reverse proxy for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -25,7 +25,7 @@ sluice = "0.6.0"
 trillium.workspace = true
 trillium-client.workspace = true
 trillium-forwarding.workspace = true
-trillium-http = { workspace = true, features = ["unstable"] }
+trillium-http = { version = "1.3.9", features = ["unstable"], path = "../http" }
 trillium-server-common = { workspace = true, optional = true }
 url = "2.5.8"
 
