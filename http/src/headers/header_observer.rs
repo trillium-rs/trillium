@@ -257,8 +257,8 @@ impl HeaderObserver {
         }
 
         log::debug!(
-            "observer prime(capacity={capacity}): observed \
-             pairs={observed_pairs} names={observed_names} cost-passing={ranked_total} packed={} \
+            "observer prime(capacity={capacity}): observed pairs={observed_pairs} \
+             names={observed_names} cost-passing={ranked_total} packed={} \
              dropped_no_room={dropped_no_room} bytes_used={used}/{capacity}",
             out.len(),
         );

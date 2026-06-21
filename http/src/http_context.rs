@@ -153,3 +153,32 @@ where
         }
     }
 }
+
+/// Parse a single HTTP/1.x request head off `transport` and return the resulting [`Conn`], without
+/// entering the handler/keepalive loop.
+///
+/// The request buffer is seeded at `request_buffer_initial_len` exactly as [`HttpContext::run`]
+/// seeds it, so this exercises the real head-read buffer-growth path. A complete-but-malformed head
+/// still yields a `Conn` (carrying the error status); only an incomplete head or transport IO error
+/// returns `Err`.
+///
+/// Exposed for microbenchmarking the parse path; not part of the stable public API.
+#[cfg(feature = "unstable")]
+#[doc(hidden)]
+pub async fn parse_head_for_bench<Transport>(
+    context: Arc<HttpContext>,
+    transport: Transport,
+) -> Result<Conn<Transport>>
+where
+    Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+{
+    let initial_bytes = Vec::with_capacity(context.config.request_buffer_initial_len);
+    match ConnParts::new(context, transport, initial_bytes)
+        .parse_head()
+        .await
+    {
+        Ok(conn) => Ok(conn),
+        Err(HeadError::BadRequest(bad)) => Ok(*bad),
+        Err(HeadError::Fatal(e)) => Err(e),
+    }
+}

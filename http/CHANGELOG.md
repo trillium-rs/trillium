@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Headers::token_iter(name)` iterates the comma-separated tokens of a list-typed header
   (`Connection`, `Transfer-Encoding`, `Accept-Encoding`, and the like), flattened across every
   field line, trimmed, with empty elements skipped.
+- `request_header_initial_capacity` sizes the request header map's preallocation, mirroring the
+  existing `response_header_initial_capacity`.
 
 ### Changed
 
@@ -19,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   running until the connection closes — rather than with chunked transfer-encoding. Responses that
   don't set `Connection: close` are unaffected and still use chunked encoding.
 - HTTP/1.x performance improvements
+- The default `request_buffer_initial_len` is now 1024 bytes (previously 128), eliminating several
+  buffer reallocations while parsing a typical request head, for a negligible increase in
+  per-connection initial memory.
+- `response_header_initial_capacity` now defaults to 32 (was 16), and the request header map is
+  sized from the new `request_header_initial_capacity` (default 32). Both preallocate closer to a
+  typical request's header count, measurably reducing the work to build the header map for
+  header-heavy requests.
 
 ## [1.3.8]
 

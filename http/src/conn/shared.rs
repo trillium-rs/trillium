@@ -170,11 +170,14 @@ pub(crate) struct ConnParts<T> {
 
 impl<T> ConnParts<T> {
     pub(crate) fn new(context: Arc<HttpContext>, transport: T, initial_bytes: Vec<u8>) -> Self {
+        // Split each "expected total headers" budget evenly across the known and unknown stores.
+        let request_cap = context.config.request_header_initial_capacity;
+        let response_cap = context.config.response_header_initial_capacity;
         Self {
             buffer: initial_bytes.into(),
             state: TypeSet::with_capacity(16),
-            request_headers: Headers::with_capacity(16),
-            response_headers: Headers::with_capacity(16),
+            request_headers: Headers::with_capacities(request_cap / 2, request_cap / 2),
+            response_headers: Headers::with_capacities(response_cap / 2, response_cap / 2),
             context,
             transport,
         }

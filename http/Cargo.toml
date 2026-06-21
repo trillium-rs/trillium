@@ -69,3 +69,16 @@ async-executor = "1.14.0"
 core_affinity = "0.8.3"
 unicycle = "0.10.2"
 proptest = "1.7.0"
+criterion = "0.5"
+
+[[bench]]
+name = "h1_head_parse"
+harness = false
+
+[[bench]]
+name = "h1_body_read"
+harness = false
+
+[[bench]]
+name = "headers_build"
+harness = false

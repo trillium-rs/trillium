@@ -88,10 +88,14 @@ impl Headers {
         self.unknown.clear();
     }
 
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
+    /// Preallocate the known and unknown header stores independently. Callers that have only a
+    /// single "expected total headers" budget should split it across the two. Exposed (hidden) for
+    /// benchmarking the sizing tradeoff; not part of the stable API.
+    #[doc(hidden)]
+    pub fn with_capacities(known: usize, unknown: usize) -> Self {
         Self {
-            known: HashMap::with_capacity(capacity),
-            unknown: HashMap::new(),
+            known: HashMap::with_capacity(known),
+            unknown: HashMap::with_capacity(unknown),
         }
     }
 
