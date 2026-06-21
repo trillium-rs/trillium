@@ -21,6 +21,7 @@ members = [
         "head",
         "http",
         "logger",
+        "logger-macros",
         "macros",
         "method-override",
         "native-tls",
@@ -61,6 +62,7 @@ trillium-forwarding = { version = "0.3", path = "forwarding" }
 trillium-head = { version = "0.3", path = "head" }
 trillium-http = { version = "1", path = "http" }
 trillium-logger = { version = "0.5", path = "logger" }
+trillium-logger-macros = { version = "0.1", path = "logger-macros" }
 trillium-macros = { version = "0.1", path = "macros" }
 trillium-method-override = { version = "0.3", path = "method-override" }
 trillium-native-tls = { version = "0.6", path = "native-tls" }

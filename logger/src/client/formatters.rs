@@ -44,6 +44,16 @@ pub fn url(conn: &Conn, _color: bool) -> String {
     conn.url().to_string()
 }
 
+/// Formatter for the remote socket address the request connected to, per
+/// [`Conn::peer_addr`][trillium_client::Conn::peer_addr].
+///
+/// Displays `"-"` when the address is unavailable, such as over a transport that does not expose
+/// one.
+pub fn peer_addr(conn: &Conn, _color: bool) -> Cow<'static, str> {
+    conn.peer_addr()
+        .map_or(Cow::Borrowed("-"), |addr| Cow::Owned(addr.to_string()))
+}
+
 /// Formatter for the HTTP version used on the wire.
 ///
 /// Because log output renders after the request executes, this reflects the version actually
