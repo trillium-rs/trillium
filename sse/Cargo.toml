@@ -19,5 +19,6 @@ broadcaster = "1.0.0"
 trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }
 trillium-static-compiled = { path = "../static-compiled" }
+trillium-testing = { path = "../testing" }
 
 [features]

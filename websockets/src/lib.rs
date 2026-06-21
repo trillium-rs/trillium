@@ -340,25 +340,15 @@ where
 
 fn websocket_protocol(conn: &Conn, protocols: &[String]) -> Option<String> {
     conn.request_headers()
-        .get_str(SecWebsocketProtocol)
-        .and_then(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .find(|req_p| protocols.iter().any(|x| x == req_p))
-                .map(|s| s.to_owned())
-        })
+        .token_iter(SecWebsocketProtocol)
+        .find(|req_p| protocols.iter().any(|x| x == req_p))
+        .map(str::to_owned)
 }
 
 fn connection_is_upgrade(conn: &Conn) -> bool {
     conn.request_headers()
-        .get_str(Connection)
-        .map(|connection| {
-            connection
-                .split(',')
-                .any(|c| c.trim().eq_ignore_ascii_case("upgrade"))
-        })
-        .unwrap_or(false)
+        .token_iter(Connection)
+        .any(|c| c.eq_ignore_ascii_case("upgrade"))
 }
 
 fn upgrade_to_websocket(conn: &Conn) -> bool {

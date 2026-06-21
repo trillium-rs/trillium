@@ -143,16 +143,19 @@ impl Body {
         }
     }
 
-    pub(crate) fn ensure_chunked_framing(&mut self) -> &mut Self {
+    /// Set whether this body's [`AsyncRead`] impl emits chunked framing for the
+    /// `len: None` case. The h1 send path drives this from the finalized response
+    /// headers: `chunked` when `Transfer-Encoding: chunked` is present, raw passthrough
+    /// (close-delimited) when neither it nor `Content-Length` is. Has no effect on
+    /// fixed-length or static bodies, which never chunk.
+    pub(crate) fn set_chunked_framing(&mut self, on: bool) {
         if let Streaming {
             ref mut chunked_framing,
             ..
         } = self.0
         {
-            *chunked_framing = true;
+            *chunked_framing = on;
         }
-
-        self
     }
 
     /// Returns trailers from the body source, if any.

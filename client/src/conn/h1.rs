@@ -355,21 +355,14 @@ impl Conn {
         // another/unknown coding, or an empty value — is rejected rather than decoded-once
         // or read-to-close: those framing fallbacks are response-smuggling vectors. Matches
         // the server's request-side rule so both halves of a proxy frame identically.
-        let transfer_encoding = self.response_headers.get_values(TransferEncoding);
-        let chunked = match transfer_encoding {
-            None => false,
-            Some(values) => {
-                let mut codings = values
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .flat_map(|s| s.split(','))
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty());
-                match (codings.next(), codings.next()) {
-                    (Some(only), None) if only.eq_ignore_ascii_case("chunked") => true,
-                    _ => return Err(Error::UnexpectedHeader(TransferEncoding.into())),
-                }
+        let chunked = if self.response_headers.has_header(TransferEncoding) {
+            let mut codings = self.response_headers.token_iter(TransferEncoding);
+            match (codings.next(), codings.next()) {
+                (Some(only), None) if only.eq_ignore_ascii_case("chunked") => true,
+                _ => return Err(Error::UnexpectedHeader(TransferEncoding.into())),
             }
+        } else {
+            false
         };
 
         let content_length = self.response_headers.get_values(ContentLength);
@@ -402,17 +395,10 @@ impl Conn {
             return false;
         }
 
-        // Scan every Connection field line and every comma-token within it. `get_str` would miss a
-        // `Connection: close` split across multiple header lines (it returns `None` for more than
-        // one value), which would pool a connection the peer asked to close.
         let has_token = |headers: &Headers, token: &str| {
-            headers.get_values(Connection).is_some_and(|values| {
-                values
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .flat_map(|v| v.split(','))
-                    .any(|t| t.trim().eq_ignore_ascii_case(token))
-            })
+            headers
+                .token_iter(Connection)
+                .any(|t| t.eq_ignore_ascii_case(token))
         };
 
         if has_token(&self.request_headers, "close") || has_token(&self.response_headers, "close") {

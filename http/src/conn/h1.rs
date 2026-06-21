@@ -62,8 +62,18 @@ where
             };
 
             if self.version == Version::Http1_1 && !has_content_length {
-                self.response_headers
-                    .insert(KnownHeaderName::TransferEncoding, "chunked");
+                // Close-delimited framing (RFC 9112 §6.3): `Connection: close` on an
+                // unknown-length response opts out of chunked transfer-encoding — the body
+                // runs until the connection closes, carrying neither `Content-Length` nor
+                // `Transfer-Encoding`. Upgrades own their framing separately (chunked
+                // keep-open prelude).
+                if !self.upgrade && self.response_requests_close() {
+                    self.response_headers
+                        .remove(KnownHeaderName::TransferEncoding);
+                } else {
+                    self.response_headers
+                        .insert(KnownHeaderName::TransferEncoding, "chunked");
+                }
             } else {
                 self.response_headers
                     .remove(KnownHeaderName::TransferEncoding);
@@ -90,9 +100,14 @@ where
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
             && let Some(mut body) = self.response_body.take()
         {
-            let chunked = body.len().is_none();
+            // Framing follows the finalized response headers: chunked when
+            // `Transfer-Encoding: chunked` is present, raw passthrough (close-delimited,
+            // run to connection close) when neither it nor `Content-Length` is.
+            let chunked = self
+                .response_headers
+                .has_header(KnownHeaderName::TransferEncoding);
 
-            body.ensure_chunked_framing();
+            body.set_chunked_framing(chunked);
             if upgrading {
                 // Leave the chunked stream unterminated for the following upgrade to close.
                 body.set_keep_open();
@@ -102,10 +117,11 @@ where
 
             bufwriter.copy_from(&mut body, loops_per_yield).await?;
 
-            // When an upgrade follows, the upgrade owns the terminator; the body's trailers
-            // (if any) ride onto the `Upgrade` and merge with whatever the upgrade handler
-            // emits. Skip the terminator stitch here.
-            if !upgrading {
+            // The trailer-section and its terminator only exist in chunked framing. When an
+            // upgrade follows, the upgrade owns the terminator and the body's trailers (if
+            // any) ride onto the `Upgrade`. A close-delimited body has no trailer-section —
+            // the connection close is the terminator — so trailers are dropped.
+            if !upgrading && chunked {
                 // Chunked-trailer-section stitch. `Body::poll_read` emitted the last-chunk
                 // marker `0\r\n` at EOF and stopped there; we own the rest of the framing
                 // because trailers are structured `Headers` (not bytes) and the terminating
@@ -117,9 +133,7 @@ where
                     // we don't store the trailers anywhere because the conn is about to be dropped
                 }
 
-                if chunked {
-                    write!(bufwriter.buffer_mut(), "\r\n")?;
-                }
+                write!(bufwriter.buffer_mut(), "\r\n")?;
             }
         }
 
@@ -428,21 +442,19 @@ where
         }
     }
 
+    /// True if the outbound headers carry a `Connection: close` token.
+    fn response_requests_close(&self) -> bool {
+        self.response_headers
+            .token_iter(KnownHeaderName::Connection)
+            .any(|t| t.eq_ignore_ascii_case("close"))
+    }
+
     fn should_close(&self) -> bool {
-        // Scan every Connection field line and every comma-token within it. `get_str` would miss a
-        // `Connection: close` split across multiple header lines (it returns `None` for more than
-        // one value), keeping alive a connection the peer asked to close. Mirrors the client's
-        // `is_keep_alive`.
+        // Mirrors the client's `is_keep_alive`.
         let has_token = |headers: &Headers, token: &str| {
             headers
-                .get_values(KnownHeaderName::Connection)
-                .is_some_and(|values| {
-                    values
-                        .iter()
-                        .filter_map(|v| v.as_str())
-                        .flat_map(|v| v.split(','))
-                        .any(|t| t.trim().eq_ignore_ascii_case(token))
-                })
+                .token_iter(KnownHeaderName::Connection)
+                .any(|t| t.eq_ignore_ascii_case(token))
         };
 
         if has_token(&self.request_headers, "close") || has_token(&self.response_headers, "close") {
