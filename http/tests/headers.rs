@@ -435,3 +435,33 @@ fn content_length_accepts_only_a_single_run_of_digits() {
     multi.append(ContentLength, "5");
     assert_eq!(multi.content_length(), None);
 }
+
+#[test]
+fn token_iter() {
+    use KnownHeaderName::Connection;
+
+    let collect = |headers: &Headers| -> Vec<String> {
+        headers.token_iter(Connection).map(str::to_owned).collect()
+    };
+
+    // Absent header yields nothing.
+    assert_eq!(collect(&Headers::new()), Vec::<String>::new());
+
+    // Comma-separated tokens on a single line are split and trimmed.
+    let mut single = Headers::new();
+    single.insert(Connection, "keep-alive,  Upgrade ");
+    assert_eq!(collect(&single), ["keep-alive", "Upgrade"]);
+
+    // Tokens are flattened across multiple field lines for the same name — the case `get_str`
+    // (which returns `None` for more than one value) misses.
+    let mut multi = Headers::new();
+    multi.append(Connection, "keep-alive");
+    multi.append(Connection, "Upgrade, close");
+    assert_eq!(multi.get_str(Connection), None);
+    assert_eq!(collect(&multi), ["keep-alive", "Upgrade", "close"]);
+
+    // Empty elements are skipped (RFC 9110 §5.6.1).
+    let mut empties = Headers::new();
+    empties.insert(Connection, " , close , ,");
+    assert_eq!(collect(&empties), ["close"]);
+}

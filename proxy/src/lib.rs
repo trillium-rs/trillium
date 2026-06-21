@@ -226,10 +226,8 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
         let mut connection_is_upgrade = false;
         for header in conn
             .request_headers()
-            .get_str(KnownHeaderName::Connection)
-            .unwrap_or_default()
-            .split(',')
-            .map(|h| HeaderName::from(h.trim()))
+            .token_iter(KnownHeaderName::Connection)
+            .map(HeaderName::from)
         {
             if header == KnownHeaderName::Upgrade {
                 connection_is_upgrade = true;

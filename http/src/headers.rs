@@ -349,6 +349,30 @@ impl Headers {
             .is_some_and(|v| v.eq_ignore_ascii_case(needle))
     }
 
+    /// Iterate the comma-separated tokens of a header — the [HTTP list
+    /// syntax](https://www.rfc-editor.org/rfc/rfc9110#section-5.6.1) used by `Connection`,
+    /// `Transfer-Encoding`, `Accept-Encoding`, and similar fields.
+    ///
+    /// Tokens are flattened across every field line for `name` (a list value may be split
+    /// across multiple header lines or combined on one), trimmed of surrounding whitespace,
+    /// with empty elements skipped. Returns an empty iterator when the header is absent.
+    ///
+    /// Comparison is left to the caller. Most list fields are case-insensitive —
+    /// `headers.token_iter(KnownHeaderName::Connection).any(|t| t.eq_ignore_ascii_case("close"))`
+    /// — but a few, like `Sec-WebSocket-Protocol`, are case-sensitive.
+    pub fn token_iter<'a>(
+        &'a self,
+        name: impl Into<HeaderName<'a>>,
+    ) -> impl Iterator<Item = &'a str> {
+        self.get_values(name)
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str())
+            .flat_map(|value| value.split(','))
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+    }
+
     /// Chainable method to insert a header
     pub fn with_inserted_header(
         mut self,

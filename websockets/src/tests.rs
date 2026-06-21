@@ -93,4 +93,12 @@ async fn test_connection_is_upgrade() {
         .await
         .assert_ok()
         .assert_body("no-upgrade");
+
+    // A `Connection` value split across multiple header lines coalesces into one token list
+    // (RFC 9110 §5.6.1), so the `Upgrade` token is found even on a separate line from `keep-alive`.
+    app.get("/")
+        .with_request_header("connection", ["keep-alive", "Upgrade"])
+        .await
+        .assert_ok()
+        .assert_body("upgrade");
 }

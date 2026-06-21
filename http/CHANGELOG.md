@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Headers::token_iter(name)` iterates the comma-separated tokens of a list-typed header
+  (`Connection`, `Transfer-Encoding`, `Accept-Encoding`, and the like), flattened across every
+  field line, trimmed, with empty elements skipped.
+
+### Changed
+
+- An HTTP/1.1 response that sets `Connection: close` on a streaming body of unknown length is now
+  sent close-delimited — carrying neither `Content-Length` nor `Transfer-Encoding`, with the body
+  running until the connection closes — rather than with chunked transfer-encoding. Responses that
+  don't set `Connection: close` are unaffected and still use chunked encoding.
+
 ## [1.3.8]
 
 The theme of this release is [RFC 9218 priority](https://datatracker.ietf.org/doc/rfc9218/) support.

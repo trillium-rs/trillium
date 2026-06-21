@@ -185,6 +185,10 @@ impl SseConnExt for Conn {
         let body = SseBody::new(self.swansong().interrupt(sse_stream));
         self.with_response_header(KnownHeaderName::ContentType, "text/event-stream")
             .with_response_header(KnownHeaderName::CacheControl, "no-cache")
+            // Close-delimited framing: the event stream carries neither `Content-Length`
+            // nor `Transfer-Encoding`, running until the connection closes. Chunked
+            // transfer-encoding can disrupt event delivery timing for this protocol.
+            .with_response_header(KnownHeaderName::Connection, "close")
             .with_body(body)
             .with_status(Status::Ok)
             .halt()

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- A WebSocket handshake whose `Connection` header is split across multiple header lines (for example
+  `Connection: keep-alive` and `Connection: Upgrade` on separate lines) is now recognized;
+  previously the `Upgrade` token was missed and the handshake was not performed.
+
 ## [0.8.1] - 2026-06-10
 
 ### Fixed

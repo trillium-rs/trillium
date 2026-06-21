@@ -67,11 +67,8 @@ fn compute_write_state(version: Version, outbound_headers: &Headers) -> WriteSta
 /// `gzip, chunked`; no ordering enforcement.
 fn has_chunked_encoding(headers: &Headers) -> bool {
     headers
-        .get_str(KnownHeaderName::TransferEncoding)
-        .is_some_and(|v| {
-            v.split(',')
-                .any(|coding| coding.trim().eq_ignore_ascii_case("chunked"))
-        })
+        .token_iter(KnownHeaderName::TransferEncoding)
+        .any(|coding| coding.eq_ignore_ascii_case("chunked"))
 }
 
 /// Parse the inbound `Content-Length`. `None` for chunked, missing, or malformed.
