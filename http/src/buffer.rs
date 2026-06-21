@@ -233,7 +233,11 @@ mod tests {
         buf.expand();
 
         assert_eq!(buf.1.as_ptr(), ptr_before, "compaction must not reallocate");
-        assert_eq!(buf.1.capacity(), cap_before, "capacity unchanged by compaction");
+        assert_eq!(
+            buf.1.capacity(),
+            cap_before,
+            "capacity unchanged by compaction"
+        );
         assert_eq!(buf.0, 0, "offset reset to front");
         assert_eq!(&buf[..3], b"FGH", "live content preserved in order");
     }
@@ -248,7 +252,10 @@ mod tests {
 
         buf.expand();
 
-        assert!(buf.1.capacity() > cap_before, "must grow when offset is too small");
+        assert!(
+            buf.1.capacity() > cap_before,
+            "must grow when offset is too small"
+        );
         assert_eq!(buf.0, 2, "offset unchanged when growing");
         assert_eq!(&buf[..6], b"CDEFGH", "live content preserved");
     }

@@ -441,7 +441,7 @@ mod tests {
     ) -> ReceivedBody<'static, Cursor<Vec<u8>>> {
         ReceivedBody::new_with_config(
             None,
-            Buffer::from(Vec::with_capacity(config.response_header_initial_capacity)),
+            Buffer::from(Vec::with_capacity(config.received_body_initial_len)),
             Cursor::new(input.into_bytes()),
             ReceivedBodyState::Chunked {
                 remaining: 0,

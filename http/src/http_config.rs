@@ -30,13 +30,15 @@ pub struct HttpConfig {
     /// **Unit**: Byte count
     pub(crate) received_body_max_len: u64,
 
-    /// The initial buffer allocated for the response.
+    /// The initial capacity of the buffer that serializes the response head and batches body
+    /// writes.
     ///
-    /// Ideally this would be exactly the length of the combined response headers and body, if the
-    /// body is short. If the value is shorter than the headers plus the body, multiple transport
-    /// writes will be performed, and if the value is longer, unnecessary memory will be allocated
-    /// for each conn. Although a tcp packet can be up to 64kb, it is probably better to use a
-    /// value less than 1.5kb.
+    /// The response head and as much of the body as fits are coalesced into a single transport
+    /// write, so a response up to a few KiB is sent in one write regardless of this value. It
+    /// matters only for large response bodies, where a larger buffer batches more bytes per write
+    /// and so reduces the number of write syscalls on a bulk transfer — at the cost of that much
+    /// initial memory per connection. On the common path the buffer flushes when full rather than
+    /// growing; `response_buffer_max_len` bounds only the separate backpressure-absorption path.
     ///
     /// **Default**: `512`
     ///
@@ -58,21 +60,34 @@ pub struct HttpConfig {
     /// The initial buffer allocated for the request headers.
     ///
     /// Ideally this is the length of the request headers. It will grow nonlinearly until
-    /// `max_head_len` or the end of the headers are reached, whichever happens first.
+    /// `head_max_len` or the end of the headers are reached, whichever happens first.
     ///
-    /// **Default**: `128`
+    /// **Default**: `1024`
     ///
     /// **Unit**: byte count
     pub(crate) request_buffer_initial_len: usize,
 
-    /// The number of response headers to allocate space for on conn creation.
+    /// The expected number of response headers, used to size the response header map on conn
+    /// creation.
     ///
-    /// Headers will grow on insertion when they reach this size.
+    /// The map grows on insertion beyond this. The value is split evenly across two internal
+    /// stores, so prefer to overestimate — an undersized map reallocates as it fills.
     ///
-    /// **Default**: `16`
+    /// **Default**: `32`
     ///
     /// **Unit**: Header count
     pub(crate) response_header_initial_capacity: usize,
+
+    /// The expected number of request headers, used to size the request header map while parsing.
+    ///
+    /// The map grows on insertion beyond this. The value is split evenly across two internal
+    /// stores, so prefer to overestimate — an undersized map reallocates as it fills, which is the
+    /// dominant cost of building the header map for header-heavy requests.
+    ///
+    /// **Default**: `32`
+    ///
+    /// **Unit**: Header count
+    pub(crate) request_header_initial_capacity: usize,
 
     /// Cooperative task-yielding knob.
     ///
@@ -291,9 +306,10 @@ impl HttpConfig {
     pub const DEFAULT: Self = HttpConfig {
         response_buffer_len: 512,
         response_buffer_max_len: 2 * MB as usize,
-        request_buffer_initial_len: 128,
+        request_buffer_initial_len: 1024,
         head_max_len: 8 * KB as usize,
-        response_header_initial_capacity: 16,
+        response_header_initial_capacity: 32,
+        request_header_initial_capacity: 32,
         copy_loops_per_yield: 16,
         received_body_max_len: 10 * MB as u64,
         received_body_initial_len: 128,
