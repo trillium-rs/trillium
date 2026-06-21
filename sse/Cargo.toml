@@ -1,7 +1,6 @@
 [package]
 name = "trillium-sse"
-version = "0.2.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.2.1"
 edition = "2024"
 description = "server sent events for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -20,5 +19,3 @@ trillium-logger = { path = "../logger" }
 trillium-smol = { path = "../smol" }
 trillium-static-compiled = { path = "../static-compiled" }
 trillium-testing = { path = "../testing" }
-
-[features]
