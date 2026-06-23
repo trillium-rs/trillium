@@ -95,6 +95,20 @@
 //! draft-ietf-webtrans-http3). Multiple WebTransport sessions to the same origin coalesce
 //! onto a single underlying QUIC connection — see the `webtransport` module for details.
 //!
+//! ## Server-Sent Events
+//!
+//! With the `sse` cargo feature, [`Conn::into_sse`](sse) executes a request and reads the
+//! response body as a `text/event-stream`, returning an [`EventStream`] — a [`Stream`] of
+//! [`Event`]s parsed per the [SSE specification][sse-spec]. Unlike the WebSocket and WebTransport
+//! upgrades, SSE is not a protocol switch: an event stream is an ordinary response whose body is
+//! read incrementally, so it works the same over HTTP/1.x, HTTP/2, and HTTP/3. This is a
+//! single-response stream — it ends when the connection closes and does not implement the
+//! [`EventSource`][es] automatic-reconnection behavior. See the [`sse`] module for details.
+//!
+//! [`Stream`]: https://docs.rs/futures-core/latest/futures_core/stream/trait.Stream.html
+//! [sse-spec]: https://html.spec.whatwg.org/multipage/server-sent-events.html
+//! [es]: https://developer.mozilla.org/en-US/docs/Web/API/EventSource
+//!
 //! ## Encrypted DNS
 //!
 //! With the `hickory` cargo feature, the client can route all of its DNS through an encrypted
@@ -136,6 +150,8 @@ mod h3;
 mod into_url;
 mod pool;
 mod response_body;
+#[cfg(feature = "sse")]
+pub mod sse;
 mod util;
 #[cfg(feature = "websockets")]
 pub mod websocket;
@@ -152,6 +168,8 @@ pub use into_url::IntoUrl;
 // open an issue if you have a reason for pool to be public
 pub(crate) use pool::Pool;
 pub use response_body::ResponseBody;
+#[cfg(feature = "sse")]
+pub use sse::{Event, EventStream, SseError, SseErrorKind};
 pub use trillium_http::{
     Body, BodySource, Error, HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName,
     Method, Result, Status, Version,

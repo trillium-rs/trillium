@@ -1,4 +1,4 @@
-# WebSockets, WebTransport, and JSON
+# WebSockets, WebTransport, SSE, and JSON
 
 A few client capabilities live behind cargo features, so they only pull in their dependencies when you ask for them.
 
@@ -18,8 +18,6 @@ With the `websockets` feature, a built conn can be upgraded to a WebSocket. This
 # let client = Client::new(ClientConfig::default());
 let ws_conn = client
     .get("wss://example.com/ws")
-    .await
-    .unwrap()
     .into_websocket()
     .await
     .unwrap();
@@ -60,6 +58,40 @@ let conn = client.webtransport("https://example.com/wt");
 ```
 
 Multiple sessions to the same origin coalesce onto a single underlying QUIC connection, matching how HTTP/3 request multiplexing already works.
+
+## Server-Sent Events
+
+[Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) is a one-way stream of text events over an ordinary HTTP response — the server holds the response open and writes `data:`/`event:`/`id:` lines as things happen. Unlike WebSockets and WebTransport, there is no protocol upgrade; it works the same over HTTP/1.1, HTTP/2, and HTTP/3.
+
+With the `sse` feature, `Conn::into_sse()` sends the request, checks for a success status and a `text/event-stream` content-type, and hands back an `EventStream` — a `Stream` of `Event`s. Note that `into_sse()` *is* the execution, so build the conn but don't await it yourself first.
+
+```rust
+# [dependencies]
+# trillium-smol = { path = "../smol" }
+# trillium-client = { path = "../client", features = ["sse"] }
+# trillium-testing = { path = "../testing" }
+# futures-lite = "2.6.1"
+#
+# fn main() { trillium_testing::block_on(async {
+use futures_lite::StreamExt;
+use trillium_client::Client;
+use trillium_smol::ClientConfig;
+
+# let client = Client::new(ClientConfig::default());
+let mut events = client
+    .get("https://example.com/events")
+    .into_sse()
+    .await
+    .unwrap();
+
+while let Some(event) = events.next().await {
+    let event = event.unwrap();
+    println!("{}", event.data());
+}
+# }); }
+```
+
+Each `Event` exposes `data()`, `event_type()` (`None` for the default `message` type), `id()`, and `retry()`. The stream yields `Result` items because reading the underlying connection can fail mid-stream; it ends when the connection closes. This is a single-response stream — it does not reconnect on its own. If you need the browser `EventSource`'s automatic reconnection (re-issuing the request with `Last-Event-ID`), build that on top, or drive the whole request through a retrying [`ClientHandler`](./middleware.md). On failure, `into_sse()` returns an `SseError` you can dereference as a `Conn` to inspect the response — for example, to read an error body returned with a non-2xx status.
 
 ## JSON bodies
 
