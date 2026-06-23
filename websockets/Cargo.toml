@@ -1,6 +1,6 @@
 [package]
 name = "trillium-websockets"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2024"
 description = "websocket support for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -32,7 +32,7 @@ sha-1 = "0.10.1"
 swansong = "0.3.4"
 thiserror = "2.0.18"
 trillium.workspace = true
-trillium-http = { version = "1.3.9", path = "../http" }
+trillium-http = { version = "1.3.10", path = "../http" }
 
 [dev-dependencies]
 async-tungstenite = { version = "0.34.0", default-features = false, features = ["handshake"] }

@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7](https://github.com/trillium-rs/trillium/compare/trillium-quinn-v0.1.6...trillium-quinn-v0.1.7) - 2026-06-23
+
+### Added
+
+- *(quinn)* add with_transport_config for client and server
+
 ### Added
 
 - `QuicConfig::with_transport_config` — override the quinn `TransportConfig` (flow-control windows,
