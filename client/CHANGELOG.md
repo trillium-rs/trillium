@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.7] - 2026-06-23
+
+### Added
+
+- `sse` cargo feature: `Conn::into_sse` executes a request and interprets the response body as a
+  `text/event-stream`, returning an `EventStream` — a `Stream` of `Event`s parsed per the
+  Server-Sent Events specification (multi-line `data`, `event`, `id`, `retry`, and comments;
+  CR/LF/CRLF terminators). This is a single-response stream that ends when the connection closes;
+  it does not implement `EventSource`-style automatic reconnection. On failure, `into_sse` returns
+  an `SseError` that dereferences to the `Conn` (and converts back via `From`) so the response can
+  be inspected. The feature pulls in no new external dependencies.
+
 ## [0.9.6] - 2026-06-16
 
 ### Added

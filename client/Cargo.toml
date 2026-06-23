@@ -1,6 +1,6 @@
 [package]
 name = "trillium-client"
-version = "0.9.6"
+version = "0.9.7"
 edition = "2024"
 description = "http client for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -13,10 +13,11 @@ categories = ["web-programming", "web-programming::http-client"]
 development = ["trillium"]
 
 [package.metadata.docs.rs]
-features = ["sonic-rs", "websockets", "hickory"]
+features = ["sonic-rs", "websockets", "hickory", "sse"]
 
 [features]
 websockets = ["dep:trillium-websockets", "dep:thiserror"]
+sse = ["dep:thiserror"]
 sonic-rs = ["dep:sonic-rs", "dep:serde", "dep:thiserror"]
 serde_json = ["dep:serde_json", "dep:serde", "dep:thiserror"]
 webtransport = ["dep:trillium-webtransport", "dep:thiserror"]
@@ -68,7 +69,8 @@ pretty_assertions = "1.4.1"
 rcgen = "0.14.7"
 test-harness = "0.3.1"
 trillium = { path = "../trillium" }
-trillium-client = { path = ".", features = ["websockets"] }
+trillium-client = { path = ".", features = ["websockets", "sse"] }
+trillium-sse = { path = "../sse" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-tokio = { path = "../tokio" }
