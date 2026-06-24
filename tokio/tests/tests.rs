@@ -29,6 +29,29 @@ async fn run_async() {
         .await;
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_socket_client_round_trip() {
+    use trillium_client::Client;
+    use trillium_tokio::UnixClientConfig;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path().join("socket");
+
+    let handle = config()
+        .without_signals()
+        .with_host(path.to_str().unwrap())
+        .spawn("ok");
+    handle.info().await;
+
+    let client = Client::new(UnixClientConfig::new(path));
+    let mut conn = client.get("http://localhost/").await.unwrap();
+
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.response_body().read_string().await.unwrap(), "ok");
+    handle.shut_down().await;
+}
+
 // Multi-listener `ListenerConfig` behavior is tested runtime-agnostically in
 // `trillium-server-common` (over smol). The reuseport tests below stay here because they exercise
 // `trillium-tokio`'s own `FanOut` impl, which is what enables `bind_reuseport_*`.
