@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.10] - 2026-06-24
+
+### Fixed
+
+- A streaming response body that pauses between writes — most visibly a long-lived Server-Sent
+  Events stream — no longer withholds already-written bytes from the client. Previously, output
+  small enough to fit the internal write buffer could sit unsent until the body produced enough
+  further data to overflow the buffer or until the stream ended; each chunk is now delivered as
+  soon as the body has nothing more ready. Bodies that run to completion without pausing are
+  unaffected.
+
 ## [1.3.9] - 2026-06-21
 
 ### Added
