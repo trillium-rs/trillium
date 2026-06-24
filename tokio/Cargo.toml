@@ -1,6 +1,6 @@
 [package]
 name = "trillium-tokio"
-version = "0.6.3"
+version = "0.6.4"
 authors = ["Jacob Rothstein <hi@jbr.me>"]
 edition = "2024"
 description = "tokio runtime adapter for trillium.rs"
@@ -35,7 +35,9 @@ signal-hook-tokio = { version = "0.4.0", features = ["futures-v0_3"] }
 
 [dev-dependencies]
 env_logger = "0.11.10"
+tempfile = "3.27.0"
 tokio = { version = "1.50.0", features = ["full"] }
+trillium-client = { path = "../client" }
 
 [[example]]
 name = "reuseport"

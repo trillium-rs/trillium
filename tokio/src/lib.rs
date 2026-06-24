@@ -73,6 +73,8 @@ pub use trillium_server_common::{Binding, IntoListenAddr, ListenerConfig, Swanso
 
 mod client;
 pub use client::ClientConfig;
+#[cfg(unix)]
+pub use client::UnixClientConfig;
 
 mod server;
 pub use async_compat;
