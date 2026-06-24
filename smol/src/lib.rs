@@ -100,6 +100,8 @@ pub use trillium_server_common::{
 
 mod client;
 pub use client::ClientConfig;
+#[cfg(unix)]
+pub use client::UnixClientConfig;
 
 mod server;
 use server::Config;

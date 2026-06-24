@@ -88,14 +88,58 @@ impl Connector for ClientConfig {
     }
 }
 
+/// A [`Connector`] that dials a fixed Unix domain socket path.
+///
+/// Every connection opens a fresh `UnixStream` to `path`, so a single `UnixClientConfig` is safe to
+/// share across a pooled [`Client`](https://docs.trillium.rs/trillium_client/struct.Client.html) making
+/// concurrent requests. The request URL's host and port are ignored — the socket path is the
+/// address — though the URL still supplies request metadata such as the `Host` header.
+///
+/// This handles only the single-socket case. To route different requests to different upstreams (a
+/// mix of TCP and Unix sockets, or several Unix sockets), compose connectors behind a routing
+/// [`Connector`] that dispatches on the [`Destination`].
 #[cfg(unix)]
-impl Connector for SmolTransport<async_net::unix::UnixStream> {
-    type Runtime = SmolRuntime;
-    type Transport = Self;
-    type Udp = crate::SmolUdpSocket;
+#[derive(Clone, Debug)]
+pub struct UnixClientConfig {
+    path: std::path::PathBuf,
+}
 
-    async fn connect(&self, _url: &Url) -> Result<Self::Transport> {
-        Ok(self.clone())
+#[cfg(unix)]
+impl UnixClientConfig {
+    /// Construct a `UnixClientConfig` that dials the provided Unix domain socket path.
+    pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    async fn dial(&self) -> Result<SmolTransport<async_net::unix::UnixStream>> {
+        SmolTransport::connect_unix(&self.path).await
+    }
+}
+
+#[cfg(unix)]
+impl Connector for UnixClientConfig {
+    type Runtime = SmolRuntime;
+    type Transport = SmolTransport<async_net::unix::UnixStream>;
+    type Udp = ();
+
+    async fn connect(&self, url: &Url) -> Result<Self::Transport> {
+        if url.scheme() == "https" {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "this connector does not support TLS",
+            ));
+        }
+        self.dial().await
+    }
+
+    async fn connect_to(&self, destination: Destination) -> Result<Self::Transport> {
+        if destination.secure() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "this connector does not support TLS",
+            ));
+        }
+        self.dial().await
     }
 
     fn runtime(&self) -> Self::Runtime {
