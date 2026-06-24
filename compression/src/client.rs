@@ -32,7 +32,7 @@ use futures_lite::io::BufReader;
 use trillium_client::{
     ClientHandler, Conn, ConnExt,
     KnownHeaderName::{AcceptEncoding, ContentEncoding},
-    Result,
+    Method, Result, Status,
 };
 
 /// The codings this handler advertises in `Accept-Encoding`, in preference order.
@@ -100,6 +100,16 @@ impl ClientHandler for Compression {
     }
 
     async fn after_response(&self, conn: &mut Conn) -> Result<()> {
+        // HEAD, 204, and 304 carry representation metadata — including Content-Encoding — that
+        // describes a resource the message itself has no body for. Feeding the empty body to a
+        // decoder fails with UnexpectedEof, so leave these untouched: the Content-Encoding stays
+        // accurate about what a GET would return.
+        if conn.method() == Method::Head
+            || matches!(conn.status(), Some(Status::NoContent | Status::NotModified))
+        {
+            return Ok(());
+        }
+
         let Some(encoding) = conn
             .response_headers()
             .get_str(ContentEncoding)
