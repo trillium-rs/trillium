@@ -98,14 +98,15 @@ pub(crate) enum PreboundListener {
 ///
 /// This is the fallible core of the default [`Server::from_host_and_port`] (which `.unwrap()`s the
 /// result, preserving its panic-on-failure contract) and of the multi-listener builder's `bind_env`
-/// (which propagates the error). TCP listeners are set non-blocking; the Unix path mirrors the
-/// historical `from_host_and_port` behavior and does not.
+/// (which propagates the error). Both TCP and Unix listeners are set non-blocking before adoption,
+/// as required by runtimes (notably tokio) that reject registering a blocking file descriptor.
 pub(crate) fn resolve_listener(host: &str, port: u16) -> Result<PreboundListener> {
     #[cfg(unix)]
     if host.starts_with(['/', '.', '~']) {
         log::debug!("using unix listener at {host}");
         let unix_listener = UnixListener::bind(host)?;
         log::debug!("listening at {:?}", unix_listener.local_addr());
+        unix_listener.set_nonblocking(true)?;
         return Ok(PreboundListener::Unix(unix_listener));
     }
 
@@ -117,6 +118,7 @@ pub(crate) fn resolve_listener(host: &str, port: u16) -> Result<PreboundListener
             "using unix listener from systemfd environment {:?}",
             unix_listener.local_addr()
         );
+        unix_listener.set_nonblocking(true)?;
         return Ok(PreboundListener::Unix(unix_listener));
     }
 
