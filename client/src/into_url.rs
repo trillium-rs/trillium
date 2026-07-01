@@ -36,8 +36,12 @@ impl IntoUrl for &str {
     fn into_url(self, base: Option<&Url>) -> Result<Url> {
         match (Url::from_str(self), base) {
             (Ok(url), base) => url.into_url(base),
+            // Prefix with `./` so `Url::join` treats the path as a relative
+            // *path* rather than a relative *reference*. Without this, a colon in
+            // the first path segment (e.g. `/trillium::Handler`) is parsed as a
+            // URL scheme, yielding a `cannot_be_a_base` url. See RFC 3986 §4.2.
             (Err(ParseError::RelativeUrlWithoutBase), Some(base)) => base
-                .join(self.trim_start_matches('/'))
+                .join(&format!("./{}", self.trim_start_matches('/')))
                 .map_err(|_| Error::UnexpectedUriFormat),
             _ => Err(Error::UnexpectedUriFormat),
         }
@@ -110,5 +114,99 @@ impl IntoUrl for IpAddr {
             IpAddr::V6(v6) => format!("http://[{v6}]"),
         }
         .into_url(base)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IntoUrl;
+    use trillium_server_common::url::Url;
+
+    fn base() -> Url {
+        Url::parse("https://something.real/").unwrap()
+    }
+
+    /// The security-critical invariant: a relative path resolved against a base
+    /// must never point at a host other than the base's. A colon in the first
+    /// path segment (`/x:y`) or an embedded absolute url (`/https://sneaky.com`)
+    /// used to escape the base origin, redirecting the request to an
+    /// attacker-controlled host. Rejecting an input (`Err`) is safe; resolving to
+    /// a foreign host is the vulnerability.
+    #[test]
+    fn relative_paths_never_escape_the_base_origin() {
+        let base = base();
+        let adversarial = [
+            "/https://sneaky.com",
+            "/https://sneaky.com/path",
+            "//sneaky.com",
+            "//sneaky.com/path",
+            "/\\/sneaky.com",
+            "/\\\\sneaky.com",
+            "/..//sneaky.com",
+            "/trillium::Handler",
+            "/path:with:colons",
+            "/a/b?x=https://sneaky.com",
+            "/@sneaky.com",
+            "/user:pass@sneaky.com",
+            "/foo/../../../etc",
+            "/./..//sneaky.com",
+            "/%2e%2e/sneaky.com",
+            "/normal/path?q=1",
+            "/",
+        ];
+
+        for input in adversarial {
+            if let Ok(url) = input.into_url(Some(&base)) {
+                assert_eq!(
+                    url.host_str(),
+                    Some("something.real"),
+                    "input {input:?} escaped the base origin -> {url}"
+                );
+                assert_eq!(url.scheme(), "https", "input {input:?} -> {url}");
+                assert_eq!(
+                    url.port_or_known_default(),
+                    base.port_or_known_default(),
+                    "input {input:?} -> {url}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn colon_in_first_segment_is_preserved_as_a_path() {
+        assert_eq!(
+            "/trillium::Handler"
+                .into_url(Some(&base()))
+                .unwrap()
+                .as_str(),
+            "https://something.real/trillium::Handler"
+        );
+    }
+
+    #[test]
+    fn embedded_absolute_url_becomes_a_path_segment() {
+        assert_eq!(
+            "/https://sneaky.com"
+                .into_url(Some(&base()))
+                .unwrap()
+                .as_str(),
+            "https://something.real/https://sneaky.com"
+        );
+    }
+
+    #[test]
+    fn same_origin_absolute_str_is_allowed() {
+        assert_eq!(
+            "https://something.real/allowed"
+                .into_url(Some(&base()))
+                .unwrap()
+                .as_str(),
+            "https://something.real/allowed"
+        );
+    }
+
+    #[test]
+    fn cross_origin_absolute_str_is_rejected() {
+        assert!("https://sneaky.com/".into_url(Some(&base())).is_err());
     }
 }

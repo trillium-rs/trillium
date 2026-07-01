@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.8] - 2026-07-01
+
+### Fixed
+- **Security:** a relative path resolved against a client base url can no longer target a host other
+  than the base's. A colon in the first path segment (e.g. `/trillium::Handler`) or an embedded
+  absolute url (e.g. `/https://elsewhere.example`) was previously resolved as an absolute url —
+  sending the request to an attacker-controlled host in the embedded-url case, and failing to resolve
+  otherwise. Such inputs are now always joined as paths against the base.
+- `Client::build_conn` no longer panics on a malformed url; the error is deferred and surfaced when
+  the connection is executed.
+
 ## [0.9.7] - 2026-06-23
 
 ### Added

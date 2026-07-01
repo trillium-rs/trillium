@@ -3,11 +3,28 @@ use std::{
     str::FromStr,
 };
 use test_harness::test;
-use trillium_client::{Client, Status};
+use trillium_client::{Client, Error, Status};
 use trillium_testing::{ServerConnector, TestResult, Url, harness};
 
 fn test_client() -> Client {
     Client::new(ServerConnector::new(Status::Ok))
+}
+
+#[test(harness)]
+async fn malformed_url_defers_error_instead_of_panicking() -> TestResult {
+    let client = test_client();
+
+    // `build_conn` is infallible by contract, so a malformed url must not panic;
+    // the error is stashed and surfaced when the conn is executed. Regression test
+    // for a reverse proxy feeding a `cannot_be_a_base` url (e.g. a request path
+    // like `/trillium::Handler` that parses as scheme `trillium:`).
+    let conn = client.build_conn("get", "data:text/plain,Stuff");
+    assert!(matches!(
+        conn.await.unwrap_err(),
+        Error::UnexpectedUriFormat
+    ));
+
+    Ok(())
 }
 
 #[test(harness)]

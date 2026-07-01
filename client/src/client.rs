@@ -307,12 +307,22 @@ impl Client {
         <M as TryInto<Method>>::Error: Debug,
     {
         let method = method.try_into().unwrap();
-        let (url, request_target) = if let Some(base) = &self.base
+        let (url, request_target, error) = if let Some(base) = &self.base
             && let Some(request_target) = url.request_target(method)
         {
-            ((**base).clone(), Some(request_target))
+            ((**base).clone(), Some(request_target), None)
         } else {
-            (self.build_url(url).unwrap(), None)
+            match self.build_url(url) {
+                Ok(url) => (url, None, None),
+                // `build_conn` is infallible by contract, so a malformed url is
+                // deferred rather than panicked: stash the error (surfaced at the
+                // top of `Conn::exec`) behind a placeholder url that never dials.
+                Err(error) => (
+                    Url::parse("http://invalid.invalid/").expect("literal is a valid url"),
+                    None,
+                    Some(error),
+                ),
+            }
         };
 
         Conn {
@@ -330,7 +340,7 @@ impl Client {
             response_body_state: ReceivedBodyState::End,
             headers_finalized: false,
             halted: false,
-            error: None,
+            error,
             body_override: None,
             timeout: self.timeout,
             http_version: None,

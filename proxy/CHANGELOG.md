@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-07-01
+
+### Fixed
+- **Security:** a request path whose first segment contains a colon (e.g. `/trillium::Handler`) or
+  that embeds an absolute url (e.g. `/https://elsewhere.example`) is now joined onto the configured
+  upstream as a path. Previously such a path was resolved as an absolute url: an embedded absolute
+  url could redirect the request to an attacker-controlled host, and other colon-first paths failed
+  to proxy at all.
+- **Security:** a request path can no longer use `..` traversal to escape a `Url` upstream's base
+  path prefix. A proxy mounted at e.g. `http://backend/app/` previously forwarded `/../secret` to
+  `http://backend/secret`, walking out of the intended mount; such requests are now left unproxied
+  and pass through to the next handler. Percent-encoded traversal (`%2e%2e`) is refused the same way.
+- A `Url` upstream configured without a trailing slash (e.g. `http://backend/api`) now keeps its
+  path as a mount prefix — a request for `/users` proxies to `http://backend/api/users`. Previously
+  the final segment was treated as a file and replaced, dropping the prefix (`http://backend/users`).
+- Upstream connection or response failures now return `502 Bad Gateway` instead of `503 Service
+  Unavailable`.
+
 ## [0.8.1] - 2026-06-21
 
 ### Fixed

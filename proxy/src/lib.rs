@@ -281,10 +281,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
         let mut client_conn = match conn_result {
             Ok(client_conn) => client_conn,
             Err(e) => {
-                return conn
-                    .with_status(Status::ServiceUnavailable)
-                    .halt()
-                    .with_state(e);
+                return conn.with_status(Status::BadGateway).halt().with_state(e);
             }
         };
 
@@ -313,7 +310,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
                 conn.with_body(client_conn).with_status(status)
             }
 
-            None => return conn.with_status(Status::ServiceUnavailable).halt(),
+            None => return conn.with_status(Status::BadGateway).halt(),
         };
 
         if Some(SwitchingProtocols) != conn.status()

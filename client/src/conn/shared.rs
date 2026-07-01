@@ -37,6 +37,13 @@ pub enum ClientSerdeError {
 
 impl Conn {
     pub(crate) async fn exec(&mut self) -> Result<()> {
+        // A build-time error (e.g. a malformed url from `build_conn`) is fatal and
+        // unrecoverable: there is nothing to dial, so short-circuit before running
+        // handlers or touching the network.
+        if let Some(error) = self.error.take() {
+            return Err(error);
+        }
+
         // Arc-clone to dodge conflict with the `&mut self` we pass to `run`.
         let handler = self.client.arc_handler().clone();
         handler.run(self).await?;
