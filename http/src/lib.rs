@@ -27,6 +27,23 @@
 //! crate](https://docs.trillium.rs/trillium), the api is likely to be
 //! less stable than that of the higher level abstractions in Trillium.
 //!
+//! ## Cargo features
+//!
+//! All are off by default.
+//!
+//! - **`serde`** — implements `serde::Serialize` for [`Headers`], [`HeaderName`], [`HeaderValue`],
+//!   and [`HeaderValues`], and both `Serialize` and `Deserialize` for [`Method`], [`Status`], and
+//!   [`Version`]. The header types are serialize-only — suited to logging and inspection rather
+//!   than a faithful round-trip; reach for `rkyv_08` when you need to read the data back.
+//! - **`rkyv_08`** — implements [rkyv](https://docs.rs/rkyv) 0.8's `Archive`, `Serialize`, and
+//!   `Deserialize` for [`Method`], [`Status`], [`Version`], [`HeaderName`], [`HeaderValue`],
+//!   [`HeaderValues`], and [`Headers`], so they round-trip losslessly through `rkyv::to_bytes` /
+//!   `rkyv::from_bytes` — non-utf8 header values and repeated values included. Suited to durable
+//!   binary persistence such as an on-disk response cache.
+//! - **`http-compat-0`** and **`http-compat-1`** — conversions between the core trillium-http types
+//!   and those of the [`http`](https://docs.rs/http) crate, at its 0.x and 1.x releases
+//!   respectively. Enable both to interoperate with each.
+//!
 //! ## Protocol dispatch
 //!
 //! trillium-http supports HTTP/1.0, HTTP/1.1, HTTP/2, and (via `trillium-quinn`)
@@ -143,6 +160,8 @@ mod mut_cow;
 mod priority;
 mod protocol_session;
 mod received_body;
+#[cfg(feature = "rkyv_08")]
+mod rkyv_08;
 mod status;
 mod synthetic;
 mod upgrade;
