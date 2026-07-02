@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-07-02
+
+### Added
+
+- A new `rkyv_08` feature implements rkyv 0.8's `Archive`, `Serialize`, and `Deserialize` for
+  `Version`, `Method`, `Status`, `HeaderName`, `HeaderValue`, `HeaderValues`, and `Headers`. These
+  types round-trip losslessly through `rkyv::to_bytes` / `rkyv::from_bytes` — including non-utf8
+  header values, repeated header values, and the HPACK/QPACK never-indexed bit — making them
+  suitable for durable binary persistence such as an on-disk response cache. Header names are
+  stored as strings, so the format does not depend on the release-unstable `KnownHeaderName`
+  discriminant.
+
 ## [1.3.10] - 2026-06-24
 
 ### Fixed

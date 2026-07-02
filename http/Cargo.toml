@@ -1,6 +1,6 @@
 [package]
 name = "trillium-http"
-version = "1.3.10"
+version = "1.4.0"
 edition = "2024"
 description = "the http implementation for the trillium toolkit"
 license = "MIT OR Apache-2.0"
@@ -14,6 +14,7 @@ unstable = []
 http-compat-0 = ["dep:http0"]
 http-compat-1 = ["dep:http1"]
 serde = ["dep:serde"]
+rkyv_08 = ["dep:rkyv"]
 
 # Vestigial: the trillium-http http/1.x parser is now always selected. This feature is retained as a
 # no-op for semver compatibility
@@ -30,6 +31,7 @@ log = "0.4.29"
 memchr = "2.8.0"
 mime = "0.3.17"
 serde = { version = "1.0.228", features = ["derive"], optional = true }
+rkyv = { version = "0.8.17", optional = true }
 smallvec = { version = "1.15.1", features = ["const_new"] }
 smartcow = "0.2.1"
 smartstring = "1.0.1"

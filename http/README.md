@@ -11,7 +11,7 @@
 [docs-badge]: https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square
 [docs]: https://docs.rs/trillium-http
 
-Low-level HTTP/1.x and HTTP/3 implementation for Trillium. Provides `Conn` for managing a single request/response lifecycle, `HttpContext` for shared server settings, header types (`Headers`, `KnownHeaderName`, `HeaderValue`), and body types. This crate is primarily intended for use by the higher-level [`trillium`](https://docs.rs/trillium) crate and runtime adapters — most users should depend on those instead.
+Low-level HTTP implementation for Trillium. Provides `Conn` for managing a single request/response lifecycle, `HttpContext` for shared server settings, header types (`Headers`, `KnownHeaderName`, `HeaderValue`), and body types. This crate is primarily intended for use by the higher-level [`trillium`](https://docs.rs/trillium) crate and runtime adapters — most users should depend on those instead.
 
 ## Example
 
