@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-07-02
+
+### Fixed
+- `Proxy::without_halting` now applies to the `502 Bad Gateway` responses produced when the upstream
+  connection fails or returns no status. Previously these branches halted the conn unconditionally,
+  contradicting the documented behavior and preventing a subsequent handler from replacing the error
+  with a user-facing body.
+
 ## [0.8.2] - 2026-07-01
 
 ### Fixed

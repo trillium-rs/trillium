@@ -1,6 +1,6 @@
 [package]
 name = "trillium-proxy"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2024"
 description = "reverse proxy for trillium.rs"
 license = "MIT OR Apache-2.0"

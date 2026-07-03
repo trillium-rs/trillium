@@ -553,3 +553,23 @@ async fn upstream_failure_yields_bad_gateway() -> TestResult {
     server.get("/").await.assert_status(502);
     Ok(())
 }
+
+#[test(harness)]
+async fn without_halting_lets_next_handler_replace_bad_gateway() -> TestResult {
+    async fn boom(_conn: Conn) -> Conn {
+        panic!("upstream exploded");
+    }
+    // The 502 produced on upstream failure must honor `without_halting`, so a
+    // following handler can turn it into a user-facing response.
+    let server = TestServer::new((
+        Proxy::new(client_for(boom), UPSTREAM).without_halting(),
+        add_marker,
+    ))
+    .await;
+    server
+        .get("/")
+        .await
+        .assert_status(502)
+        .assert_header("x-fallthrough", "reached");
+    Ok(())
+}
