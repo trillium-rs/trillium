@@ -111,7 +111,11 @@ impl<U: UpstreamSelector> Proxy<U> {
     /// configured, the default behavior for all response statuses is to
     /// halt the trillium conn. To change this behavior, call
     /// without_halting when constructing the proxy, and it will not halt
-    /// the conn. This is useful when passing the proxy reply through
+    /// the conn. This applies to error responses as well: a `502 Bad
+    /// Gateway` produced when the upstream is unreachable or returns no
+    /// status is also left unhalted, allowing a subsequent handler to
+    /// replace it with a user-facing body. This is useful when passing the
+    /// proxy reply through
     /// [`trillium_html_rewriter`](https://docs.trillium.rs/trillium_html_rewriter).
     ///
     /// ```
@@ -162,6 +166,10 @@ impl<U: UpstreamSelector> Proxy<U> {
         }
 
         headers.insert(KnownHeaderName::Via, via);
+    }
+
+    fn halt_unless_configured_otherwise(&self, conn: Conn) -> Conn {
+        if self.halt { conn.halt() } else { conn }
     }
 }
 
@@ -281,7 +289,8 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
         let mut client_conn = match conn_result {
             Ok(client_conn) => client_conn,
             Err(e) => {
-                return conn.with_status(Status::BadGateway).halt().with_state(e);
+                let conn = conn.with_status(Status::BadGateway).with_state(e);
+                return self.halt_unless_configured_otherwise(conn);
             }
         };
 
@@ -310,7 +319,9 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
                 conn.with_body(client_conn).with_status(status)
             }
 
-            None => return conn.with_status(Status::BadGateway).halt(),
+            None => {
+                return self.halt_unless_configured_otherwise(conn.with_status(Status::BadGateway));
+            }
         };
 
         if Some(SwitchingProtocols) != conn.status()
@@ -343,7 +354,7 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
 
         self.set_via_pseudonym(conn.response_headers_mut(), client_conn_version);
 
-        if self.halt { conn.halt() } else { conn }
+        self.halt_unless_configured_otherwise(conn)
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
