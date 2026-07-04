@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-07-03
+
+### Fixed
+- When a response already carried a `Content-Length` header (for example set by
+  an upstream proxy or an earlier handler), compressing its body left that
+  stale length in place, so the declared length no longer matched the
+  compressed body and the response was rejected as malformed. The
+  `Content-Length` is now removed whenever the body is compressed, letting it
+  be recomputed or framed chunked.
+
 ## [0.3.2] - 2026-06-24
 
 ### Fixed
