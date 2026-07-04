@@ -47,7 +47,7 @@ use std::{
 };
 use trillium::{
     Body, Conn, Handler, HeaderValues,
-    KnownHeaderName::{AcceptEncoding, ContentEncoding, ContentType, Vary},
+    KnownHeaderName::{AcceptEncoding, ContentEncoding, ContentLength, ContentType, Vary},
     conn_unwrap,
 };
 
@@ -418,6 +418,8 @@ impl Handler for Compression {
                 (ContentEncoding, HeaderValues::from(algo.as_str())),
                 (Vary, vary),
             ]);
+
+            conn.response_headers_mut().remove(ContentLength);
         }
 
         conn.with_body(body)
