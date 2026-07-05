@@ -257,34 +257,22 @@ impl<U: UpstreamSelector> Handler for Proxy<U> {
 
         self.set_via_pseudonym(&mut request_headers, conn.http_version());
 
-        let content_length = !matches!(
-            conn.request_headers()
-                .get_str(KnownHeaderName::ContentLength),
-            Some("0") | None
-        );
-
-        let chunked = conn
-            .request_headers()
-            .eq_ignore_ascii_case(KnownHeaderName::TransferEncoding, "chunked");
-
+        // Always forward the request body. Whether a body is actually present — and how to frame
+        // it — is decided downstream by the client, which buffers a small/empty streaming body
+        // into an accurate Content-Length (or nothing) and streams a larger one as chunked. This
+        // avoids sniffing headers to detect a body, which an h2/h3 request can legally carry with
+        // neither Content-Length nor Transfer-Encoding (END_STREAM / DATA framing).
         let method = conn.method();
-        let conn_result = if chunked || content_length {
-            let (body_fut, request_body) = stream_body(&mut conn);
+        let (body_fut, request_body) = stream_body(&mut conn);
 
-            let client_fut = self
-                .client
-                .build_conn(method, request_url)
-                .with_request_headers(request_headers)
-                .with_body(request_body)
-                .into_future();
+        let client_fut = self
+            .client
+            .build_conn(method, request_url)
+            .with_request_headers(request_headers)
+            .with_body(request_body)
+            .into_future();
 
-            zip(body_fut, client_fut).await.1
-        } else {
-            self.client
-                .build_conn(method, request_url)
-                .with_request_headers(request_headers)
-                .await
-        };
+        let conn_result = zip(body_fut, client_fut).await.1;
 
         let mut client_conn = match conn_result {
             Ok(client_conn) => client_conn,

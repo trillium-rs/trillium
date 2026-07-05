@@ -545,6 +545,120 @@ async fn expect_100_continue_request_delivers_body() -> TestResult {
 }
 
 #[test(harness)]
+async fn h2_streaming_body_without_content_length_is_forwarded() -> TestResult {
+    use futures_lite::io::Cursor;
+    use trillium_client::{Body, Client as SmolClient, Version};
+
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // Real h2c front connection: the proxy listens on a cleartext port, and a
+    // prior-knowledge h2 client posts a streaming (unknown-length) body. With no
+    // Content-Length the body is framed purely by DATA + END_STREAM — the shape
+    // the proxy's has-body detection must catch without a Content-Length or
+    // Transfer-Encoding: chunked header to key on.
+    let server = trillium_smol::config()
+        .with_host("localhost")
+        .with_port(0)
+        .spawn(Proxy::new(client_for(echo), UPSTREAM));
+    let info = server.info().await;
+    let port = info.tcp_socket_addr().unwrap().port();
+
+    let client = SmolClient::new(trillium_smol::ClientConfig::default())
+        .with_base(format!("http://localhost:{port}"));
+
+    let body = Body::new_streaming(Cursor::new(b"hello upstream".to_vec()), None);
+    let mut conn = client
+        .post("/")
+        .with_http_version(Version::Http2)
+        .with_body(body)
+        .await?;
+
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.http_version(), Version::Http2);
+    assert_eq!(
+        conn.response_body().read_string().await?,
+        "upstream received: hello upstream"
+    );
+
+    server.shut_down().await;
+    Ok(())
+}
+
+#[test(harness)]
+async fn h2_large_streaming_body_without_content_length_is_forwarded() -> TestResult {
+    use futures_lite::io::Cursor;
+    use trillium_client::{Body, Client as SmolClient, Version};
+
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // A streaming body larger than the client's buffer threshold overflows into the chunked
+    // path (buffered prefix + the rest of the source), so this exercises the overflow branch the
+    // small-body test does not.
+    let server = trillium_smol::config()
+        .with_host("localhost")
+        .with_port(0)
+        .spawn(Proxy::new(client_for(echo), UPSTREAM));
+    let info = server.info().await;
+    let port = info.tcp_socket_addr().unwrap().port();
+
+    let client = SmolClient::new(trillium_smol::ClientConfig::default())
+        .with_base(format!("http://localhost:{port}"));
+
+    let payload = "x".repeat(50_000);
+    let body = Body::new_streaming(Cursor::new(payload.clone().into_bytes()), None);
+    let mut conn = client
+        .post("/")
+        .with_http_version(Version::Http2)
+        .with_body(body)
+        .await?;
+
+    assert_eq!(conn.status().unwrap(), 200);
+    let received = conn.response_body().read_string().await?;
+    assert_eq!(received, format!("upstream received: {payload}"));
+
+    server.shut_down().await;
+    Ok(())
+}
+
+#[test(harness)]
+async fn h2_bodyless_get_forwards_without_a_spurious_body() -> TestResult {
+    use trillium_client::{Client as SmolClient, Version};
+
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    // The mirror image of the streaming-body test: an h2 GET carries no body (END_STREAM on
+    // HEADERS). The proxy attaches the request body unconditionally, so the client must resolve
+    // the empty stream to *no body* — no Content-Length, no chunked framing, and no
+    // `Expect: 100-continue` handshake that a bodyless GET would hang on against many upstreams.
+    let server = trillium_smol::config()
+        .with_host("localhost")
+        .with_port(0)
+        .spawn(Proxy::new(client_for(echo), UPSTREAM));
+    let info = server.info().await;
+    let port = info.tcp_socket_addr().unwrap().port();
+
+    let client = SmolClient::new(trillium_smol::ClientConfig::default())
+        .with_base(format!("http://localhost:{port}"));
+
+    let mut conn = client.get("/").with_http_version(Version::Http2).await?;
+
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.http_version(), Version::Http2);
+    // The upstream saw no body: no Content-Length reached it.
+    assert_eq!(
+        conn.response_headers().get_str("echoed-content-length"),
+        Some("(absent)")
+    );
+    assert_eq!(
+        conn.response_body().read_string().await?,
+        "upstream received: "
+    );
+
+    server.shut_down().await;
+    Ok(())
+}
+
+#[test(harness)]
 async fn upstream_failure_yields_bad_gateway() -> TestResult {
     async fn boom(_conn: Conn) -> Conn {
         panic!("upstream exploded");

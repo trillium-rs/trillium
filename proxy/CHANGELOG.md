@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-07-04
+
+### Fixed
+- A request body on an HTTP/2 or HTTP/3 request that carries no `Content-Length` (framed by
+  `END_STREAM` / DATA) is no longer silently dropped. Body presence was previously detected by
+  sniffing the `Content-Length` / `Transfer-Encoding` headers, which an h2/h3 body need not set;
+  the request body is now forwarded unconditionally and the client frames it.
+
 ## [0.8.3] - 2026-07-02
 
 ### Fixed
