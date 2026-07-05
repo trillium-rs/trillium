@@ -766,10 +766,16 @@ where
         self.remove_from_stream_maps(stream_id);
     }
 
-    /// Drop the entry from the driver's private map and the connection's shared map.
+    /// Drop the entry from the driver's private map and the connection's shared map, and release
+    /// any tracked `PRIORITY_UPDATE` for the stream. Pruning the priority here is safe because
+    /// peer stream ids are monotonic — a closed stream's id can never reopen — and it keeps the
+    /// bounded `stream_priorities` table from filling with dead closed-stream entries (which would
+    /// then silently drop later updates at capacity). A `PRIORITY_UPDATE` for a not-yet-opened
+    /// stream is retained: this only fires once a stream has been in the maps.
     pub(super) fn remove_from_stream_maps(&mut self, stream_id: u32) {
         self.streams.remove(&stream_id);
         self.connection.streams_lock().remove(&stream_id);
+        self.stream_priorities.remove(&stream_id);
     }
 }
 

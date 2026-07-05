@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-07-04
+
+### Fixed
+- On a long-lived HTTP/2 connection, RFC 9218 `PRIORITY_UPDATE` signals are no longer silently
+  ignored after many streams have come and gone. A closed stream now releases its tracked
+  priority; previously entries accumulated until the bounded tracking table was full, after which
+  every later `PRIORITY_UPDATE` for a new stream was dropped and that response fell back to
+  default priority.
+
 ## [1.4.1] - 2026-07-04
 
 This release contains only supporting content for `trillium-client`, exposed through the unstable
