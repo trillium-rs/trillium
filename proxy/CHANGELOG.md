@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-07-05
+
+### Fixed
+- A proxied request short-circuited by a client handler that halts before the upstream request is
+  sent — for example a response cache serving a stored hit — no longer hangs without producing a
+  response. This raises the minimum `trillium-client` to 0.9.10, which carries the fix.
+
 ## [0.8.4] - 2026-07-04
 
 ### Fixed

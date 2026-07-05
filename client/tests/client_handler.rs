@@ -3,15 +3,18 @@
 //! These tests use a `ServerConnector` that responds 500, so any test that ends with a 200 is
 //! proving that a handler short-circuited the network call.
 
+use futures_lite::AsyncRead;
 use std::{
     io,
     net::SocketAddr,
+    pin::Pin,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
+    task::{Context, Poll},
 };
-use trillium_client::{Client, ClientHandler, Conn, ConnExt, Status, Url};
+use trillium_client::{Body, Client, ClientHandler, Conn, ConnExt, Status, Url};
 use trillium_http::KnownHeaderName::ContentLength;
 use trillium_server_common::Connector;
 use trillium_testing::{ServerConnector, TestResult, harness, test};
@@ -93,6 +96,56 @@ async fn handler_can_halt_and_synthesize_response() -> TestResult {
     let mut conn = client.get("http://synthetic.invalid/").await?;
     assert_eq!(conn.status(), Some(Status::Ok));
     assert_eq!(conn.response_body().read_string().await?, "synthesized");
+    Ok(())
+}
+
+// A streaming request-body reader that records when it is dropped. It never yields data — a
+// halting handler must never read it — so a poll would park, standing in for any external
+// producer the body is fed from.
+struct DropSignalBody {
+    dropped: Arc<AtomicBool>,
+}
+
+impl Drop for DropSignalBody {
+    fn drop(&mut self) {
+        self.dropped.store(true, Ordering::SeqCst);
+    }
+}
+
+impl AsyncRead for DropSignalBody {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        _buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        Poll::Pending
+    }
+}
+
+#[test(harness)]
+async fn halting_handler_drops_unsent_request_body() -> TestResult {
+    // A handler that halts serves its own response, so the request body is never sent. The conn
+    // must drop it rather than hold it — otherwise an external producer streaming into the body
+    // (e.g. trillium-proxy pumping a forwarded request body) parks forever waiting to be read.
+    let dropped = Arc::new(AtomicBool::new(false));
+    let client =
+        Client::new(ServerConnector::new(Status::InternalServerError)).with_handler(Halter);
+
+    let mut conn = client
+        .post("http://synthetic.invalid/")
+        .with_body(Body::new_streaming(
+            DropSignalBody {
+                dropped: dropped.clone(),
+            },
+            None,
+        ));
+    (&mut conn).await?;
+
+    assert_eq!(conn.status(), Some(Status::Ok));
+    assert!(
+        dropped.load(Ordering::SeqCst),
+        "a halted conn must drop its unsent request body"
+    );
     Ok(())
 }
 

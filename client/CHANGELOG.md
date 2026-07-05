@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.10] - 2026-07-05
+
+### Fixed
+- A request short-circuited by a `ClientHandler` that halts before the request is sent no longer
+  retains its unsent request body. The body was previously held until the conn was dropped, so a
+  streaming body fed by a producer that blocks until its bytes are read would hang; a halted conn
+  now releases its request body immediately.
+
 ## [0.9.9] - 2026-07-04
 
 ### Added
