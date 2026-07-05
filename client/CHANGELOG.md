@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.9] - 2026-07-04
+
+### Added
+- `Client::max_buffered_request_body` (default 1 KiB). A request body of unknown length at or
+  below this size is buffered before the request head is written, then sent with an accurate
+  `Content-Length` in a single shot. Larger or unbounded bodies stream as
+  `Transfer-Encoding: chunked`.
+- `Client::expect_continue_timeout` (default 1 second). When a request is sent with
+  `Expect: 100-continue`, the client now waits at most this long for the `100 (Continue)` interim
+  response before sending the body anyway, rather than waiting indefinitely. This prevents a
+  deadlock against a peer that never sends `100 (Continue)` — e.g. an HTTP/1.0 intermediary that
+  cannot forward it (RFC 9110 §10.1.1).
+
+### Changed
+- `Expect: 100-continue` is no longer sent for every body-carrying request. It is now used only
+  when a body exceeds `max_buffered_request_body` (streaming bodies that overflow the buffer, or
+  known-length bodies larger than it) — a body small enough to buffer is cheaper to send outright
+  than to negotiate. Empty bodies never trigger it (unchanged). This removes a full round-trip from
+  small body-carrying requests.
+
 ## [0.9.8] - 2026-07-01
 
 ### Fixed

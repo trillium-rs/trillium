@@ -1,14 +1,21 @@
-use super::{Conn, H2Pooled};
+use super::{Conn, H2Pooled, request_body_buffer::buffer_request_body};
 use crate::pool::{Acquire, PrimerGuard};
 use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once, io};
 use memchr::memmem::Finder;
 use std::io::Write;
 use trillium_http::{
-    BufWriter, Error, Headers,
+    BufWriter, Buffer, Error, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBodyState, Result, Status, Version,
 };
 use trillium_server_common::{Connector, Transport, url::Origin};
+
+/// Result of the `Expect: 100-continue` wait: whether the interim `100` arrived (send the body)
+/// or a final response preempted it (the request is already complete).
+enum ExpectOutcome {
+    SendBody,
+    FinalResponse,
+}
 
 impl Conn {
     pub(super) fn finalize_headers_h1(&mut self) -> Result<()> {
@@ -41,19 +48,28 @@ impl Conn {
                 self.request_headers.try_insert(TransferEncoding, "chunked");
             }
         } else {
+            let http_1_1 = self.http_version() >= Version::Http1_1;
+            let buffer_threshold = self.client.max_buffered_request_body() as u64;
             match self.body_len() {
                 Some(0) => {}
                 Some(len) => {
-                    if self.http_version() >= Version::Http1_1 {
+                    // A known-length body larger than we would buffer is worth an
+                    // `Expect: 100-continue` round-trip; a small one is cheaper to just send.
+                    if http_1_1 && len > buffer_threshold {
                         self.request_headers.insert(Expect, "100-continue");
                     }
                     self.request_headers.insert(ContentLength, len);
                 }
                 None => {
-                    if self.http_version() >= Version::Http1_1 {
-                        self.request_headers
-                            .insert(Expect, "100-continue")
-                            .insert(TransferEncoding, "chunked");
+                    if http_1_1 {
+                        // A streaming body that overflowed the buffer benefits from asking
+                        // permission first; a fully-buffered one (small, or trailers-only) does
+                        // not — `buffer_request_body` already read it and it will be sent in one
+                        // shot.
+                        if !self.request_body_fully_buffered {
+                            self.request_headers.insert(Expect, "100-continue");
+                        }
+                        self.request_headers.insert(TransferEncoding, "chunked");
                     }
                     // HTTP/1.0: no chunked encoding; raw bytes are sent and connection close
                     // signals end-of-body
@@ -62,6 +78,28 @@ impl Conn {
         }
 
         self.headers_finalized = true;
+        Ok(())
+    }
+
+    /// Buffer a streaming, unknown-length request body up to the client's
+    /// [`max_buffered_request_body`](crate::Client::max_buffered_request_body) so the head can be
+    /// framed precisely. Skipped for upgrades (the stream stays open past the head) and HTTP/1.0
+    /// (raw, close-delimited bodies with no chunked/`Expect` framing).
+    async fn buffer_request_body(&mut self) -> Result<()> {
+        if self.upgrade || self.http_version() < Version::Http1_1 {
+            return Ok(());
+        }
+        let Some(body) = self.request_body.take() else {
+            return Ok(());
+        };
+        if body.len().is_some() {
+            self.request_body = Some(body);
+            return Ok(());
+        }
+        let (body, fully_buffered) =
+            buffer_request_body(body, self.client.max_buffered_request_body()).await?;
+        self.request_body = Some(body);
+        self.request_body_fully_buffered = fully_buffered;
         Ok(())
     }
 
@@ -131,6 +169,18 @@ impl Conn {
     }
 
     async fn read_head(&mut self) -> Result<usize> {
+        // `expand()` zero-fills the buffer to capacity to give `read` scratch space, so
+        // `buffer.len()` runs ahead of the bytes actually received until the head is found and it
+        // is truncated back. If this future is dropped mid-read — e.g. the expect-continue
+        // timeout races an in-progress read — this guard truncates to the real length so the next
+        // `read_head` doesn't parse the zero padding as head bytes.
+        struct TruncateOnDrop<'a>(&'a mut Buffer, usize);
+        impl Drop for TruncateOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.truncate(self.1);
+            }
+        }
+
         let Self {
             buffer,
             transport: Some(transport),
@@ -140,9 +190,9 @@ impl Conn {
             return Err(Error::Closed);
         };
 
+        let finder = Finder::new(b"\r\n\r\n");
         let mut len = buffer.len();
         let mut search_start = 0;
-        let finder = Finder::new(b"\r\n\r\n");
 
         if len > 0 {
             if let Some(index) = finder.find(buffer) {
@@ -151,26 +201,26 @@ impl Conn {
             search_start = len.saturating_sub(3);
         }
 
+        let mut guard = TruncateOnDrop(buffer, len);
+
         loop {
-            buffer.expand();
-            let bytes = transport.read(&mut buffer[len..]).await?;
+            guard.0.expand();
+            let bytes = transport.read(&mut guard.0[len..]).await?;
             len += bytes;
+            guard.1 = len;
 
-            let search = finder.find(&buffer[search_start..len]);
-
-            if let Some(index) = search {
-                buffer.truncate(len);
+            if let Some(index) = finder.find(&guard.0[search_start..len]) {
                 return Ok(search_start + index + 4);
             }
 
             search_start = len.saturating_sub(3);
 
             if bytes == 0 {
-                if len == 0 {
-                    return Err(Error::Closed);
+                return Err(if len == 0 {
+                    Error::Closed
                 } else {
-                    return Err(Error::InvalidHead);
-                }
+                    Error::InvalidHead
+                });
             }
 
             if len >= self.max_head_length {
@@ -225,31 +275,52 @@ impl Conn {
             .eq_ignore_ascii_case(Expect, "100-continue")
         {
             log::trace!("Expecting 100-continue");
-            loop {
-                self.parse_head().await?;
-                match self.status {
-                    Some(Status::Continue) => {
-                        self.reset_interim_response_state();
-                        log::trace!("Received 100-continue, sending request body");
-                        break;
+
+            // Per RFC 9110 §10.1.1, don't wait indefinitely for `100 (Continue)`: it can't
+            // traverse an HTTP/1.0 intermediary and not every peer honors the expectation, so a
+            // client that waited forever would deadlock. On timeout, send the body anyway — the
+            // same thing we'd do without the expectation.
+            let expect_continue_timeout = self.client.expect_continue_timeout();
+            let runtime = self.client.connector().runtime();
+            let outcome = runtime
+                .timeout(expect_continue_timeout, async {
+                    loop {
+                        self.parse_head().await?;
+                        match self.status {
+                            Some(Status::Continue) => {
+                                self.reset_interim_response_state();
+                                log::trace!("Received 100-continue, sending request body");
+                                return Ok(ExpectOutcome::SendBody);
+                            }
+                            Some(other) if is_interim(other) => {
+                                log::trace!(
+                                    "Received interim response {other} while awaiting \
+                                     100-continue, continuing to wait"
+                                );
+                                self.reset_interim_response_state();
+                            }
+                            _ => {
+                                self.request_body.take();
+                                log::trace!(
+                                    "Received a status code other than 100-continue, not sending \
+                                     request body"
+                                );
+                                self.response_body_state = self.initial_response_body_state();
+                                return Ok(ExpectOutcome::FinalResponse);
+                            }
+                        }
                     }
-                    Some(other) if is_interim(other) => {
-                        log::trace!(
-                            "Received interim response {other} while awaiting 100-continue, \
-                             continuing to wait"
-                        );
-                        self.reset_interim_response_state();
-                    }
-                    _ => {
-                        self.request_body.take();
-                        log::trace!(
-                            "Received a status code other than 100-continue, not sending request \
-                             body"
-                        );
-                        self.response_body_state = self.initial_response_body_state();
-                        return Ok(());
-                    }
-                }
+                })
+                .await;
+
+            match outcome {
+                None => log::trace!(
+                    "Timed out after {expect_continue_timeout:?} awaiting 100-continue; sending \
+                     request body"
+                ),
+                Some(Ok(ExpectOutcome::SendBody)) => {}
+                Some(Ok(ExpectOutcome::FinalResponse)) => return Ok(()),
+                Some(Err(e)) => return Err(e),
             }
         }
 
@@ -452,6 +523,7 @@ impl Conn {
             self.http_version = None;
         }
 
+        self.buffer_request_body().await?;
         self.finalize_headers_h1()?;
         let head = self.build_head().await?;
 

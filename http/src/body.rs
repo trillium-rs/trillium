@@ -266,6 +266,21 @@ impl Body {
         matches!(self.0, Streaming { .. })
     }
 
+    /// Consume this body and return its underlying [`BodySource`], if it is a streaming body.
+    ///
+    /// Returns `None` for static and empty bodies, whose content is already in memory and whose
+    /// length is already known. This is the extraction point a sender needs to buffer a
+    /// streaming body while preserving its trailer-producing source — unlike
+    /// [`into_reader`](Self::into_reader), which erases the source to a plain `AsyncRead`.
+    #[cfg(feature = "unstable")]
+    #[doc(hidden)]
+    pub fn into_body_source(self) -> Option<Pin<Box<dyn BodySource>>> {
+        match self.0 {
+            Streaming { async_read, .. } => Some(async_read.into_inner()),
+            _ => None,
+        }
+    }
+
     /// Attempt to clone this body. Returns `None` for streaming bodies, which are one-shot.
     ///
     /// Static bodies clone cheaply — a `Cow` clone, which is a pointer copy for borrowed
