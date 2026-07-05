@@ -25,6 +25,12 @@ const DEFAULT_H2_IDLE_PING_THRESHOLD: Duration = Duration::from_secs(10);
 /// connection is treated as dead and a fresh one is established instead.
 const DEFAULT_H2_IDLE_PING_TIMEOUT: Duration = Duration::from_secs(20);
 
+const DEFAULT_MAX_BUFFERED_REQUEST_BODY: usize = 1024;
+
+/// Default time to wait for a `100 (Continue)` interim response before sending the request body
+/// anyway. Matches curl's fallback.
+const DEFAULT_EXPECT_CONTINUE_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// An HTTP client supporting HTTP/1.x, HTTP/2 (via ALPN), and — when configured with a QUIC
 /// implementation — HTTP/3. See [`Client::new`] and [`Client::new_with_quic`] for construction
 /// information.
@@ -70,6 +76,33 @@ pub struct Client {
     /// default request headers
     #[field(get)]
     default_headers: Arc<Headers>,
+
+    /// Request bodies of unknown length at or below this size are fully buffered before the
+    /// request head is written, letting the client send them with an accurate `Content-Length`.
+    /// Two consequences follow from being able to buffer: a small streaming body is framed with
+    /// `Content-Length` rather than `Transfer-Encoding: chunked`, and no `Expect: 100-continue`
+    /// handshake is used — there is no benefit to asking permission before sending a body we
+    /// have already buffered and can send in one shot. Larger or unbounded bodies stream
+    /// (chunked), and the `Expect: 100-continue` handshake applies to those. A known-length
+    /// body larger than this also uses `Expect: 100-continue`.
+    ///
+    /// Defaults to 1 KiB.
+    #[field(get, set, with, copy)]
+    max_buffered_request_body: usize,
+
+    /// How long to wait for a `100 (Continue)` interim response after sending a request head
+    /// carrying `Expect: 100-continue`, before sending the request body regardless.
+    ///
+    /// Per [RFC 9110 §10.1.1] a client must not wait indefinitely: a `100 (Continue)` cannot
+    /// traverse an HTTP/1.0 intermediary, and not every peer honors the expectation, so a client
+    /// that waited forever would deadlock against them. On timeout the body is sent anyway — the
+    /// same thing the client would do without the expectation.
+    ///
+    /// Defaults to 1 second.
+    ///
+    /// [RFC 9110 §10.1.1]: https://www.rfc-editor.org/rfc/rfc9110#section-10.1.1
+    #[field(get, set, with, copy)]
+    expect_continue_timeout: Duration,
 
     /// optional per-request timeout
     #[field(get, set, with, copy, without, option_set_some)]
@@ -156,6 +189,8 @@ impl Client {
             h2_idle_timeout: Some(DEFAULT_H2_IDLE_TIMEOUT),
             h2_idle_ping_threshold: Some(DEFAULT_H2_IDLE_PING_THRESHOLD),
             h2_idle_ping_timeout: DEFAULT_H2_IDLE_PING_TIMEOUT,
+            max_buffered_request_body: DEFAULT_MAX_BUFFERED_REQUEST_BODY,
+            expect_continue_timeout: DEFAULT_EXPECT_CONTINUE_TIMEOUT,
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
@@ -202,6 +237,8 @@ impl Client {
             h2_idle_timeout: Some(DEFAULT_H2_IDLE_TIMEOUT),
             h2_idle_ping_threshold: Some(DEFAULT_H2_IDLE_PING_THRESHOLD),
             h2_idle_ping_timeout: DEFAULT_H2_IDLE_PING_TIMEOUT,
+            max_buffered_request_body: DEFAULT_MAX_BUFFERED_REQUEST_BODY,
+            expect_continue_timeout: DEFAULT_EXPECT_CONTINUE_TIMEOUT,
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
@@ -333,6 +370,7 @@ impl Client {
             transport: None,
             status: None,
             request_body: None,
+            request_body_fully_buffered: false,
             protocol_session: ProtocolSession::Http1,
             #[cfg(feature = "webtransport")]
             wt_pool_entry: None,

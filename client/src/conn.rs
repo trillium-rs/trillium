@@ -13,6 +13,7 @@ use trillium_server_common::{Transport, url::Url};
 mod h1;
 mod h2;
 mod h3;
+mod request_body_buffer;
 mod shared;
 mod unexpected_status_error;
 
@@ -139,6 +140,11 @@ pub struct Conn {
     /// ```
     #[field(get, with = with_body, argument = body, set, into, take, option_set_some)]
     pub(crate) request_body: Option<Body>,
+
+    /// Whether the request body was fully buffered before sending (see
+    /// [`request_body_buffer`](crate::conn::request_body_buffer)). When true, the h1 send path
+    /// skips the `Expect: 100-continue` handshake — a buffered body is cheap to send in one shot.
+    pub(crate) request_body_fully_buffered: bool,
 
     /// the timeout for this conn
     ///

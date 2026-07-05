@@ -106,15 +106,21 @@ async fn multiple_early_hints_then_final() -> TestResult {
 
 #[test(harness)]
 async fn early_hints_then_continue_then_final() -> TestResult {
-    // POST with a body — finalize_headers_h1 will add `Expect: 100-continue`. The server
-    // sends 103 first (early hints before granting the body), then 100 (granting), then
-    // expects the body, then sends the final 200. The client should:
+    // POST with a body — a zero buffer threshold forces `Expect: 100-continue` even for this
+    // tiny body (a body above the threshold would trigger it naturally). The server sends 103
+    // first (early hints before granting the body), then 100 (granting), then expects the body,
+    // then sends the final 200. The client should:
     //   - tolerate the 103 while still in the pre-body Expect-100 wait
     //   - discard its headers
     //   - proceed to send the body once 100 arrives
     //   - return a final response carrying neither the 103's nor the 100's headers.
-    let (transport, conn_fut) =
-        test_conn(|client| client.post("http://example.com").with_body("body")).await;
+    let (transport, conn_fut) = test_conn(|client| {
+        client
+            .with_max_buffered_request_body(0)
+            .post("http://example.com")
+            .with_body("body")
+    })
+    .await;
 
     let expected_request_head = formatdoc! {"
         POST / HTTP/1.1\r
