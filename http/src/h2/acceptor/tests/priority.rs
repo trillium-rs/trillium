@@ -11,7 +11,7 @@
 use super::fixture::*;
 use crate::{
     Body, Conn, Headers, Method, Priority, Status,
-    h2::{H2Error, H2Transport, frame::Frame},
+    h2::{H2Error, H2ErrorCode, H2Transport, acceptor::recv::MAX_TRACKED_PRIORITIES, frame::Frame},
     headers::hpack::PseudoHeaders,
 };
 use std::task::Poll;
@@ -322,6 +322,66 @@ fn headers_emit_ahead_of_a_monopolizing_body() {
         data_bytes(&frames, 3),
         65_535,
         "stream 3 still consumes the whole window for its body; got {frames:?}",
+    );
+}
+
+/// A `PRIORITY_UPDATE` entry is released when its stream closes. Without this the tracking
+/// table (bounded by `MAX_TRACKED_PRIORITIES` as a DoS guard) fills with dead closed-stream
+/// entries and then silently drops every later update.
+#[test]
+fn priority_entry_is_pruned_when_stream_closes() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    fx.peer_priority_update(1, Priority::new(2));
+    let _ = fx.tick();
+    assert!(
+        fx.driver.stream_priorities.contains_key(&1),
+        "PRIORITY_UPDATE should be tracked while the stream is live",
+    );
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    let _conn = expect_conn(fx.tick());
+
+    fx.peer_rst_stream(1, H2ErrorCode::Cancel);
+    let _ = fx.tick();
+
+    assert!(
+        !fx.driver.stream_priorities.contains_key(&1),
+        "closing the stream should release its PRIORITY_UPDATE entry",
+    );
+}
+
+/// The regression the prune guards against: opening, prioritizing, and closing more than
+/// `MAX_TRACKED_PRIORITIES` distinct streams must not saturate the table with dead entries —
+/// otherwise a fresh `PRIORITY_UPDATE` is dropped for capacity and silently ignored.
+#[test]
+fn closed_streams_do_not_saturate_the_priority_table() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    for i in 0..(MAX_TRACKED_PRIORITIES as u32 + 2) {
+        let id = i * 2 + 1; // odd client-initiated ids, strictly increasing
+        fx.peer_priority_update(id, Priority::new(3));
+        fx.peer_open_stream(id, Method::Get, "/", true);
+        let _conn = expect_conn(fx.tick());
+        fx.peer_rst_stream(id, H2ErrorCode::Cancel);
+        let _ = fx.tick();
+    }
+
+    assert!(
+        fx.driver.stream_priorities.len() < MAX_TRACKED_PRIORITIES,
+        "closed streams accumulated in the priority table: {} entries",
+        fx.driver.stream_priorities.len(),
+    );
+
+    // A fresh update must still be accepted rather than dropped for capacity.
+    let fresh = (MAX_TRACKED_PRIORITIES as u32 + 10) * 2 + 1;
+    fx.peer_priority_update(fresh, Priority::new(1));
+    let _ = fx.tick();
+    assert!(
+        fx.driver.stream_priorities.contains_key(&fresh),
+        "a PRIORITY_UPDATE after many streams closed must still be tracked",
     );
 }
 
