@@ -75,6 +75,10 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         let peer_ip = stream.peer_addr().ok().flatten().map(|addr| addr.ip());
         let listener = self.listener.clone();
         let local_alt_svc = self.local_alt_svc;
+        // Stamped onto each conn like h2/h3 do (see `run_h2` / `run_h3`): trillium-http is
+        // TLS-agnostic and builds conns with `secure = false`, so the acceptor is the only thing
+        // that knows whether this connection is secure.
+        let is_secure = self.acceptor.is_secure();
 
         let mut transport = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
@@ -110,6 +114,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                         let listener = listener.clone();
                         async move {
                             conn.set_peer_ip(peer_ip);
+                            conn.set_secure(is_secure);
                             let mut conn = Conn::from(conn);
                             stamp_listener(&mut conn, listener);
                             if let Some(alt_svc) = local_alt_svc {
@@ -153,6 +158,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                 let listener = listener.clone();
                 async move {
                     conn.set_peer_ip(peer_ip);
+                    conn.set_secure(is_secure);
                     let mut conn = Conn::from(conn);
                     stamp_listener(&mut conn, listener);
                     if let Some(alt_svc) = local_alt_svc {

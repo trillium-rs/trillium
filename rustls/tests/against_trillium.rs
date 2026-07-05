@@ -1,13 +1,19 @@
 use std::{env::var, error::Error, fs::read, future::Future};
 use test_harness::test;
-use trillium_client::Client;
+use trillium::Conn;
+use trillium_client::{Client, Version};
 use trillium_native_tls::{NativeTlsAcceptor, NativeTlsConfig};
 use trillium_rustls::{RustlsAcceptor, RustlsConfig};
 use trillium_server_common::Url;
-use trillium_testing::{block_on, client_config, config};
+use trillium_testing::{block_on, client_config, config, harness};
 
 fn handler() -> impl trillium::Handler {
     "ok"
+}
+
+async fn report_secure(conn: Conn) -> Conn {
+    let secure = conn.is_secure();
+    conn.ok(secure.to_string())
 }
 
 fn pem_and_key() -> Option<(Vec<u8>, Vec<u8>)> {
@@ -93,5 +99,36 @@ async fn rustls_client_rustls_server(url: Url) -> Result<(), Box<dyn Error>> {
 #[test(harness = with_rustls_server)]
 async fn native_tls_client_rustls_server(url: Url) -> Result<(), Box<dyn Error>> {
     let _ = native_tls_client().get(url).await?.success()?;
+    Ok(())
+}
+
+#[test(harness)]
+async fn h1_over_rustls_reports_conn_secure() -> Result<(), Box<dyn Error>> {
+    // An HTTP/1.1 request over direct TLS must report `is_secure()` — it governs the `Secure`
+    // cookie attribute and URL-scheme derivation. The h1 dispatch path historically never
+    // stamped it from the acceptor the way h2/h3 do. Pin the client to HTTP/1.1 so the server
+    // takes the h1 dispatch branch rather than negotiating h2 via ALPN.
+    let Some((pem, key)) = pem_and_key() else {
+        return Ok(());
+    };
+    let port = portpicker::pick_unused_port().expect("could not pick a port");
+    let url: Url = format!("https://localhost:{port}").parse()?;
+
+    let handle = config()
+        .with_host("localhost")
+        .with_port(port)
+        .with_acceptor(RustlsAcceptor::from_single_cert(&pem, &key))
+        .spawn(report_secure);
+    handle.info().await;
+
+    let mut conn = rustls_client()
+        .get(url)
+        .with_http_version(Version::Http1_1)
+        .await?;
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.http_version(), Version::Http1_1);
+    assert_eq!(conn.response_body().read_string().await?, "true");
+
+    handle.shut_down().await;
     Ok(())
 }

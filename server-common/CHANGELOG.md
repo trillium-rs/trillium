@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.8] - 2026-07-04
+
+### Fixed
+- An HTTP/1.x connection accepted over a secure acceptor (direct TLS) now reports
+  `Conn::is_secure() == true`. Previously only the HTTP/2 and HTTP/3 dispatch paths stamped the
+  acceptor's secure-ness onto the conn, so an h1-over-TLS request read as insecure — affecting the
+  `Secure` cookie attribute and URL-scheme derivation. h2/h3 were already correct.
+
 ## [0.7.7] - 2026-06-24
 
 ### Fixed
