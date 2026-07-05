@@ -56,6 +56,11 @@ impl Conn {
             }
         } else {
             log::trace!("conn is halted, skipping network round-trip");
+            // The request body is never sent when halted, so drop it here — matching the
+            // send paths, which all `.take()` it. A streaming body backed by an external
+            // producer would otherwise keep that producer parked, waiting for a read that
+            // never comes.
+            self.request_body = None;
         }
 
         // Reverse order, regardless of halt/error — mirrors server-side `before_send`.

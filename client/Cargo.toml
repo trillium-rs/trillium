@@ -1,6 +1,6 @@
 [package]
 name = "trillium-client"
-version = "0.9.9"
+version = "0.9.10"
 edition = "2024"
 description = "http client for trillium.rs"
 license = "MIT OR Apache-2.0"

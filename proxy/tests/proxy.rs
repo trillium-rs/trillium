@@ -1,6 +1,8 @@
+use std::time::Duration;
 use trillium::{Conn, Handler, KnownHeaderName, Status};
+use trillium_client::{ClientHandler, Conn as ClientConn, ConnExt};
 use trillium_proxy::{Client, Proxy, Url, upstream::RoundRobin};
-use trillium_testing::{ServerConnector, TestResult, TestServer, harness, test};
+use trillium_testing::{RuntimeTrait, ServerConnector, TestResult, TestServer, harness, test};
 
 const UPSTREAM: &str = "http://upstream.example";
 
@@ -685,5 +687,40 @@ async fn without_halting_lets_next_handler_replace_bad_gateway() -> TestResult {
         .await
         .assert_status(502)
         .assert_header("x-fallthrough", "reached");
+    Ok(())
+}
+
+/// A client handler that serves a synthetic response and halts before the upstream request is
+/// sent — the shape of a response cache serving a hit.
+struct ShortCircuit;
+impl ClientHandler for ShortCircuit {
+    async fn run(&self, conn: &mut ClientConn) -> trillium_client::Result<()> {
+        conn.set_status(Status::Ok)
+            .set_response_body("served from short-circuit")
+            .halt();
+        Ok(())
+    }
+}
+
+#[test(harness)]
+async fn short_circuiting_client_handler_does_not_deadlock_the_proxy() -> TestResult {
+    // Regression (trillium-proxy 0.8.4): the request body began being forwarded
+    // unconditionally. A client handler that halts before the upstream request is sent — the
+    // shape of a response-cache hit serving a stored response — never reads the forwarded
+    // request body, so its upload pump parked forever waiting for a reader that never came,
+    // deadlocking the proxy so no response was ever written. The short-circuited response must
+    // be served instead.
+    let client = Client::new(ServerConnector::new(echo)).with_handler(ShortCircuit);
+    let server = TestServer::new(Proxy::new(client, UPSTREAM)).await;
+
+    let conn = trillium_testing::runtime()
+        .timeout(Duration::from_secs(5), async {
+            server.get("/anything").await
+        })
+        .await
+        .expect("proxy deadlocked serving a short-circuited (cache-hit-shaped) request");
+
+    conn.assert_status(200)
+        .assert_body("served from short-circuit");
     Ok(())
 }
