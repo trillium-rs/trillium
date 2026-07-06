@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `H3BidiRequest::with_request_rejection()`: treat an HTTP request on an inbound bidirectional
+  stream as a protocol violation instead of serving it. The handler is skipped, nothing is
+  written to the stream, the `with_reset` hook is invoked with `H3_STREAM_CREATION_ERROR`, and
+  awaiting resolves to that error. For peers — such as HTTP/3 clients — that accept inbound
+  bidirectional streams only for negotiated extensions.
+
 - `HttpConfig::body_write_chunk_len` (default 8 KiB): how many bytes of a streaming body are
   read and framed at a time on the HTTP/1.x and HTTP/3 send paths, and the send-buffer fill
   level that triggers a write to the transport while a body streams. Larger values batch more

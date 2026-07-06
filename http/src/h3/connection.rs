@@ -327,6 +327,7 @@ impl H3Connection {
             handler,
             stream_id,
             reset: None,
+            reject_requests: false,
         }
     }
 
@@ -932,6 +933,7 @@ pub struct H3BidiRequest<Transport, Handler> {
     handler: Handler,
     stream_id: u64,
     reset: Option<ResetHook<Transport>>,
+    reject_requests: bool,
 }
 
 /// Per-stream reset hook: RST both halves with the still-owned transport on a stream-level error.
@@ -961,6 +963,23 @@ impl<Transport, Handler> H3BidiRequest<Transport, Handler> {
         self.reset = Some(Box::new(reset));
         self
     }
+
+    /// Treat an HTTP request on this stream as a protocol violation instead of running the
+    /// handler.
+    ///
+    /// A peer that accepts inbound bidirectional streams only for negotiated extensions —
+    /// an HTTP/3 client, where RFC 9114 makes a server-initiated request stream a connection
+    /// error — enables this to refuse requests without responding to them. When the stream's
+    /// first frame begins an HTTP request, the handler is skipped, nothing is written to the
+    /// stream, the [`with_reset`][Self::with_reset] hook is invoked with
+    /// [`H3ErrorCode::StreamCreationError`], and awaiting resolves to that error. Closing the
+    /// connection is the caller's responsibility, typically inside the reset hook while the
+    /// stream is still alive.
+    #[must_use]
+    pub fn with_request_rejection(mut self) -> Self {
+        self.reject_requests = true;
+        self
+    }
 }
 
 impl<Transport, Handler, Fut> IntoFuture for H3BidiRequest<Transport, Handler>
@@ -980,6 +999,7 @@ where
                 handler,
                 stream_id,
                 reset,
+                reject_requests,
             } = self;
 
             h3.record_accepted_stream(stream_id);
@@ -991,6 +1011,13 @@ where
                 Conn::process_first_frame_h3(&h3, &mut transport, &mut buffer, stream_id).await;
 
             match outcome {
+                Ok(H3FirstFrame::Request { .. }) if reject_requests => {
+                    let code = H3ErrorCode::StreamCreationError;
+                    if let Some(reset) = reset {
+                        reset(&mut transport, code);
+                    }
+                    Err(code.into())
+                }
                 Ok(H3FirstFrame::Request {
                     validated,
                     start_time,
