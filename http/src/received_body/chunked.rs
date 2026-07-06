@@ -209,7 +209,7 @@ pub(super) fn chunk_decode(
     if buf.is_empty() {
         return Err(io::Error::from(ErrorKind::ConnectionAborted));
     }
-    let mut ranges_to_keep = vec![];
+    let mut bytes = 0;
     let mut chunk_start = 0u64;
     let mut chunk_end = remaining;
     let request_body_state = loop {
@@ -218,12 +218,18 @@ pub(super) fn chunk_decode(
             let keep_end = buf
                 .len()
                 .min(usize::try_from(chunk_end - 2).unwrap_or(usize::MAX));
-            ranges_to_keep.push(keep_start..keep_end);
-            let new_bytes = (keep_end - keep_start) as u64;
-            total += new_bytes;
+            total += (keep_end - keep_start) as u64;
             if total > max_len {
                 return Err(io::Error::new(ErrorKind::Unsupported, "content too long"));
             }
+            // Compact in place as each payload range completes: the write cursor
+            // (`bytes`) can't exceed `keep_start` because kept bytes are a subset of
+            // already-parsed bytes, and everything not yet parsed lies at or beyond
+            // `chunk_end` — so this slide never clobbers unparsed input.
+            if keep_start != bytes {
+                buf.copy_within(keep_start..keep_end, bytes);
+            }
+            bytes += keep_end - keep_start;
         }
         chunk_start = chunk_end;
 
@@ -274,14 +280,6 @@ pub(super) fn chunk_decode(
             }
         }
     };
-
-    let mut bytes = 0;
-
-    for range_to_keep in ranges_to_keep {
-        let new_bytes = bytes + range_to_keep.end - range_to_keep.start;
-        buf.copy_within(range_to_keep, bytes);
-        bytes = new_bytes;
-    }
 
     Ok((request_body_state, bytes))
 }

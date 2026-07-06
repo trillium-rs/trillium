@@ -180,7 +180,7 @@ impl H3Frame<'_> {
             return Err(io::Error::from(ErrorKind::UnexpectedEof));
         }
 
-        let mut ranges_to_keep = vec![];
+        let mut bytes = 0usize;
         let mut pos = 0usize;
 
         let state = loop {
@@ -191,7 +191,6 @@ impl H3Frame<'_> {
 
                 match frame_type {
                     H3BodyFrameType::Data => {
-                        ranges_to_keep.push(pos..pos + consume);
                         total += consume as u64;
 
                         if total > max_len {
@@ -206,6 +205,16 @@ impl H3Frame<'_> {
                                 format!("body exceeds content-length, {total} > {expected}"),
                             ));
                         }
+
+                        // Compact in place as each payload segment completes: the write
+                        // cursor (`bytes`) can't exceed `pos` because kept bytes are a
+                        // subset of already-parsed bytes, and everything not yet parsed
+                        // lies at or beyond `pos + consume` — so this slide never
+                        // clobbers unparsed input.
+                        if pos != bytes {
+                            buf.copy_within(pos..pos + consume, bytes);
+                        }
+                        bytes += consume;
                     }
 
                     H3BodyFrameType::Trailers => {
@@ -309,13 +318,6 @@ impl H3Frame<'_> {
                 }
             }
         };
-
-        let mut bytes = 0;
-        for range in ranges_to_keep {
-            let len = range.end - range.start;
-            buf.copy_within(range, bytes);
-            bytes += len;
-        }
 
         Ok((state, bytes))
     }

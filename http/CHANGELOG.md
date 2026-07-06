@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a single vectored write together with the response head; streaming bodies are framed
   directly into the send buffer. Wire output is unchanged.
 
+- Performance: reading a chunked HTTP/1.x body or an HTTP/3 body no longer allocates per read,
+  and payload that is already contiguous at the front of the read buffer is no longer copied
+  onto itself. Decoded output is unchanged.
+
 ### Fixed
 
 - HTTP/3 field-section size enforcement against the peer's declared maximum field section size now
