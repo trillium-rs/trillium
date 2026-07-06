@@ -168,6 +168,9 @@ mod upgrade;
 mod util;
 mod version;
 
+#[cfg(feature = "unstable")]
+#[doc(hidden)]
+pub use body::BodyFraming;
 pub use body::{Body, BodySource};
 #[cfg(feature = "unstable")]
 #[doc(hidden)]

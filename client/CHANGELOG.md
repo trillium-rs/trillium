@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.11] - 2026-07-06
 
+### Changed
+
+- Performance: sending a request body over HTTP/1.x or HTTP/3 no longer allocates an
+  intermediary buffer or copies body content through it.
+
 ### Added
 - `Client::h1_idle_timeout` (default 5 minutes). A pooled HTTP/1.1 keepalive connection that sits
   idle longer than this is closed and dropped from the pool by a background reaper. Set it to
@@ -13,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `with_h1_idle_timeout` / `set_h1_idle_timeout` / `without_h1_idle_timeout`.
 
 ### Fixed
+- A request body constructed with both a known length and trailers previously wrote the trailer
+  lines to the wire after the `Content-Length`-framed body, where the server would read them as
+  the start of the next request. Trailers are now sent only with chunked transfer encoding.
+
 - Idle pooled HTTP/1.1 connections to an origin that stopped being contacted were held open
   indefinitely — their file descriptors were released only when the connection was next reused or
   the pool was manually cleaned up. They are now released after `h1_idle_timeout` (default 5

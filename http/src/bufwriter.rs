@@ -39,7 +39,12 @@ impl<W: AsyncWrite + Unpin> BufWriter<W> {
         &mut self.buffer
     }
 
+    /// Superseded by `Body::write_into`, which frames directly into this buffer instead of
+    /// copying through an intermediary reader.
+    // Retained only so an older `trillium-client` that predates `Body::write_into` still
+    // builds against this crate; remove it at the next breaking release.
     #[doc(hidden)]
+    #[cfg(feature = "unstable")]
     pub async fn copy_from<R: AsyncRead>(
         &mut self,
         reader: R,
@@ -48,7 +53,12 @@ impl<W: AsyncWrite + Unpin> BufWriter<W> {
         crate::copy::copy(reader, self, loops_per_yield).await
     }
 
-    fn poll_flush_buf(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
+    /// Write buffered bytes through to the inner writer without flushing it. Used by
+    /// `Body::write_into` to drain the buffer between chunk reservations.
+    pub(crate) fn poll_flush_buf(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<()>> {
         let Self {
             inner,
             buffer,

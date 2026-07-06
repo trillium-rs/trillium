@@ -4,7 +4,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.3] - 2026-07-06
+## [1.5.0] - 2026-07-06
+
+### Added
+
+- `HttpConfig::body_write_chunk_len` (default 8 KiB): how many bytes of a streaming body are
+  read and framed at a time on the HTTP/1.x and HTTP/3 send paths, and the send-buffer fill
+  level that triggers a write to the transport while a body streams. Larger values batch more
+  bytes per write at the cost of that much buffer memory per in-flight streaming body. The
+  default matches the previously-fixed internal behavior.
+
+### Changed
+
+- Performance: sending a body over HTTP/1.x or HTTP/3 no longer allocates an intermediary
+  buffer or copies body content through it. A response with an in-memory body now goes out in
+  a single vectored write together with the response head; streaming bodies are framed
+  directly into the send buffer. Wire output is unchanged.
 
 ### Fixed
 

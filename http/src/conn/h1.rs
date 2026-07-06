@@ -2,6 +2,7 @@ use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
     Method, ProtocolSession, ReceivedBody, Result, Status, Version,
     after_send::AfterSend,
+    body::BodyFraming,
     conn::{ConnParts, ReceivedBodyState, shared::authority_matches_host},
     headers::date::current_date_header,
     util::encoding,
@@ -98,36 +99,38 @@ where
 
         if self.method != Method::Head
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
-            && let Some(mut body) = self.response_body.take()
+            && let Some(body) = self.response_body.take()
         {
             // Framing follows the finalized response headers: chunked when
-            // `Transfer-Encoding: chunked` is present, raw passthrough (close-delimited,
-            // run to connection close) when neither it nor `Content-Length` is.
+            // `Transfer-Encoding: chunked` is present, raw passthrough (fixed-length or
+            // close-delimited) otherwise. An upgrade leaves the chunked stream
+            // unterminated for the following upgrade to close.
             let chunked = self
                 .response_headers
                 .has_header(KnownHeaderName::TransferEncoding);
 
-            body.set_chunked_framing(chunked);
-            if upgrading {
-                // Leave the chunked stream unterminated for the following upgrade to close.
-                body.set_keep_open();
-            }
+            let framing = if upgrading {
+                BodyFraming::Chunked { keep_open: true }
+            } else if chunked {
+                BodyFraming::Chunked { keep_open: false }
+            } else {
+                BodyFraming::Raw
+            };
 
-            let loops_per_yield = self.context.config.copy_loops_per_yield;
-
-            bufwriter.copy_from(&mut body, loops_per_yield).await?;
+            let trailers = body
+                .write_into(&mut bufwriter, framing, &self.context.config)
+                .await?;
 
             // The trailer-section and its terminator only exist in chunked framing. When an
             // upgrade follows, the upgrade owns the terminator and the body's trailers (if
             // any) ride onto the `Upgrade`. A close-delimited body has no trailer-section —
             // the connection close is the terminator — so trailers are dropped.
             if !upgrading && chunked {
-                // Chunked-trailer-section stitch. `Body::poll_read` emitted the last-chunk
-                // marker `0\r\n` at EOF and stopped there; we own the rest of the framing
-                // because trailers are structured `Headers` (not bytes) and the terminating
-                // CRLF closes the trailer-section. See `Body::poll_read`'s `len: None`
-                // branch for the full rationale.
-                if let Some(trailers) = body.trailers() {
+                // Chunked-trailer-section stitch. `write_into` emitted the last-chunk
+                // marker `0\r\n` and stopped there; we own the rest of the framing because
+                // trailers are structured `Headers` (not bytes) and the terminating CRLF
+                // closes the trailer-section.
+                if let Some(trailers) = trailers {
                     log::trace!("sending trailers:\n{trailers}");
                     write_headers_or_trailers(bufwriter.buffer_mut(), &trailers, &self.context)?;
                     // we don't store the trailers anywhere because the conn is about to be dropped

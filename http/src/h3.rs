@@ -1,5 +1,8 @@
 //! Trillium HTTP/3 types
 
+// Retained only so an older `trillium-client` that predates `Body::write_into` still builds
+// against this crate; remove it at the next breaking release.
+#[cfg(feature = "unstable")]
 mod body_wrapper;
 mod connection;
 mod error;
@@ -10,7 +13,7 @@ pub mod quic_varint;
 pub(crate) mod quic_varint;
 mod settings;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "unstable"))]
 mod tests;
 
 /// An error that may occur during HTTP/3 stream or connection processing.
@@ -32,8 +35,6 @@ pub enum H3Error {
 
 #[cfg(feature = "unstable")]
 pub use body_wrapper::H3Body;
-#[cfg(not(feature = "unstable"))]
-pub(crate) use body_wrapper::H3Body;
 pub use connection::{H3BidiRequest, H3Connection, H3StreamResult, UniStreamResult};
 pub use error::H3ErrorCode;
 pub(crate) use frame::UniStreamType;
