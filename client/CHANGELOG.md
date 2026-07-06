@@ -17,7 +17,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `None` to disable expiry and keep the previous retain-until-reused behavior. Configure via
   `with_h1_idle_timeout` / `set_h1_idle_timeout` / `without_h1_idle_timeout`.
 
+- `Client::h3_idle_timeout` (default 5 minutes). A pooled HTTP/3 connection is dropped this long
+  after it is established — requests in flight on it are unaffected, and the next request to its
+  origin opens a fresh connection. Previously pooled HTTP/3 connections had no expiry at all. Set
+  it to `None` to disable. Configure via `with_h3_idle_timeout` / `set_h3_idle_timeout` /
+  `without_h3_idle_timeout`.
+
 ### Fixed
+- A server-initiated bidirectional stream carrying an HTTP request is now treated as the
+  connection error RFC 9114 defines it to be: the client closes the connection with
+  `H3_STREAM_CREATION_ERROR` and drops it from the pool. Previously the client answered such
+  streams with a 404 response and kept the connection pooled. Connection-level protocol errors
+  on other inbound bidirectional streams now also close the connection and evict it, where
+  previously they were only logged.
+
+- An HTTP/3 connection whose setup failed while opening the mandatory control or QPACK streams
+  was pooled as available anyway, and every request to that origin then failed until the
+  connection was marked broken. Such a connection is now immediately marked dead and evicted.
+
 - A request body constructed with both a known length and trailers previously wrote the trailer
   lines to the wire after the `Content-Length`-framed body, where the server would read them as
   the start of the next request. Trailers are now sent only with chunked transfer encoding.
@@ -26,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indefinitely — their file descriptors were released only when the connection was next reused or
   the pool was manually cleaned up. They are now released after `h1_idle_timeout` (default 5
   minutes) even when the origin is never contacted again.
+
+- Expired pooled HTTP/2 and HTTP/3 connections to an origin that stopped being contacted are now
+  also reclaimed by the background reaper. These connections pool through a cold-start coalescing
+  placeholder, and the resolved placeholder retained a clone of the connection that kept it alive
+  past its expiry until the origin was next contacted.
 
 - An HTTP/3 request whose header fields exceed the server's advertised
   `SETTINGS_MAX_FIELD_SECTION_SIZE` is now rejected before being sent (once the server's settings
