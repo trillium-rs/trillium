@@ -500,12 +500,11 @@ async fn h3_server_prelude_body_then_bidi() -> TestResult {
 // ----- streaming (unknown-length) prelude bodies -----
 //
 // The tests above use fixed-length (`&str`/`Static`) preludes. These use an unknown-length
-// streaming body — the realistic gRPC shape — which hits different framing code: on h1
-// `keep_open` flips the existing `Streaming` flags rather than re-sourcing `Static` content,
-// and on h2/h3 the `Streaming` branch of `into_h2`/`into_h3` frames the payload instead of
-// the `Static` branch. h1 is covered both directions (one `keep_open` path each); h2c and h3
-// are covered client-side (the `into_*` Streaming branch is shared with the server send path,
-// which the fixed-length server tests above already exercise).
+// streaming body — the realistic gRPC shape — which hits different framing code: on h1 and h3
+// the `Streaming` arm of `Body::write_into` frames the payload instead of the `Static` arm,
+// and on h2 the `Streaming` branch of `into_h2`. h1 is covered both directions (one
+// `keep_open` framing each); h2c and h3 are covered client-side (the Streaming arm is shared
+// with the server send path, which the fixed-length server tests above already exercise).
 
 fn streaming_prelude(bytes: &'static [u8]) -> Body {
     Body::new_streaming(Cursor::new(bytes), None)

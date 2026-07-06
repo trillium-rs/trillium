@@ -1,10 +1,10 @@
 use super::{Conn, H2Pooled, request_body_buffer::buffer_request_body};
 use crate::pool::{Acquire, PrimerGuard};
-use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once, io};
+use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once};
 use memchr::memmem::Finder;
 use std::io::Write;
 use trillium_http::{
-    BufWriter, Buffer, Error, Headers,
+    BodyFraming, BufWriter, Buffer, Error, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBodyState, Result, Status, Version,
 };
@@ -348,68 +348,58 @@ impl Conn {
     }
 
     async fn send_body(&mut self) -> Result<()> {
-        let Some(mut body) = self.request_body.take() else {
+        let Some(body) = self.request_body.take() else {
             return Ok(());
         };
 
-        let upgrade = self.upgrade;
-        if upgrade {
-            // Leave the chunked stream unterminated; the `Upgrade` owns the terminator.
-            body = body.keep_open();
-        }
+        // An upgrade leaves the chunked stream unterminated; the `Upgrade` owns the
+        // terminator. HTTP/1.0 doesn't support chunked transfer encoding, so an
+        // unknown-length body streams raw and connection close signals end-of-body.
+        let framing = if self.upgrade {
+            BodyFraming::Chunked { keep_open: true }
+        } else if body.len().is_none() && self.http_version() >= Version::Http1_1 {
+            BodyFraming::Chunked { keep_open: false }
+        } else {
+            BodyFraming::Raw
+        };
 
-        // HTTP/1.0 doesn't support chunked transfer encoding. Stream raw bytes directly;
-        // connection close signals end-of-body to the server.
-        if self.http_version() < Version::Http1_1 && body.len().is_none() {
-            let transport = self.transport.as_mut().ok_or(Error::Closed)?;
-            io::copy(&mut body.into_reader(), transport).await?;
-            return Ok(());
-        }
-
-        let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
-        let Self {
-            transport,
-            request_trailers,
-            ..
-        } = self;
-
-        let transport = transport.as_mut().ok_or(Error::Closed)?;
-
-        let max_buf = self.context.config().response_buffer_max_len();
+        let config = *self.context.config();
+        let transport = self.transport.as_mut().ok_or(Error::Closed)?;
         let mut bufwriter = BufWriter::new_with_buffer(
-            Vec::with_capacity(self.context.config().response_buffer_len()),
+            Vec::with_capacity(config.response_buffer_len()),
             transport,
-            max_buf,
+            config.response_buffer_max_len(),
         );
 
-        bufwriter.copy_from(&mut body, copy_loops_per_yield).await?;
+        let trailers = body.write_into(&mut bufwriter, framing, &config).await?;
 
         // When an upgrade follows, the `Upgrade` owns the terminator; the body's trailers
-        // (if any) ride onto it and merge with whatever the caller emits. Skip the
-        // trailer-section + terminating CRLF here.
-        if !upgrade {
-            *request_trailers = body.trailers();
-            if let Some(trailers) = &*request_trailers {
-                let buf = bufwriter.buffer_mut();
-                for (name, values) in trailers {
-                    if !name.is_valid() {
-                        return Err(Error::InvalidHeaderName);
+        // (if any) ride onto it and merge with whatever the caller emits. Otherwise record
+        // trailers on the conn; only chunked framing has a wire representation for them —
+        // the trailer section, closed by the terminating CRLF.
+        if !self.upgrade {
+            self.request_trailers = trailers;
+            if framing == (BodyFraming::Chunked { keep_open: false }) {
+                if let Some(trailers) = &self.request_trailers {
+                    let buf = bufwriter.buffer_mut();
+                    for (name, values) in trailers {
+                        if !name.is_valid() {
+                            return Err(Error::InvalidHeaderName);
+                        }
+
+                        for value in values {
+                            if !value.is_valid() {
+                                return Err(Error::InvalidHeaderValue(name.to_owned()));
+                            }
+                            write!(buf, "{name}: ")?;
+                            buf.extend_from_slice(value.as_ref());
+                            write!(buf, "\r\n")?;
+                        }
                     }
 
-                    for value in values {
-                        if !value.is_valid() {
-                            return Err(Error::InvalidHeaderValue(name.to_owned()));
-                        }
-                        write!(buf, "{name}: ")?;
-                        buf.extend_from_slice(value.as_ref());
-                        write!(buf, "\r\n")?;
-                    }
+                    log::trace!("sending request trailers: {trailers:?}");
                 }
 
-                log::trace!("sending request trailers: {trailers:?}");
-            }
-
-            if body.len().is_none() {
                 write!(bufwriter.buffer_mut(), "\r\n")?;
             }
         }

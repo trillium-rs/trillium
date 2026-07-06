@@ -3,6 +3,7 @@ use crate::{
     BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet,
     Version,
     after_send::AfterSend,
+    body::BodyFraming,
     h3::{Frame, FrameStream, H3Connection, H3Error, H3ErrorCode},
     headers::{
         date::current_date_header,
@@ -100,8 +101,6 @@ where
         // close (carried via `Upgrade`), not inline.
         let upgrading = self.should_upgrade();
 
-        let loops_per_yield = self.context.config.copy_loops_per_yield;
-
         let max_buf = self.context.config.response_buffer_max_len;
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
 
@@ -109,11 +108,11 @@ where
             && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
             && let Some(body) = self.response_body.take()
         {
-            let mut body = body.into_h3();
+            let trailers = body
+                .write_into(&mut bufwriter, BodyFraming::H3Data, &self.context.config)
+                .await?;
 
-            bufwriter.copy_from(&mut body, loops_per_yield).await?;
-
-            if !upgrading && let Some(trailers) = body.trailers() {
+            if !upgrading && let Some(trailers) = trailers {
                 let Some((h3, stream_id)) = self.protocol_session.as_h3() else {
                     return Err(io::ErrorKind::NotConnected.into());
                 };

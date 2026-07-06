@@ -33,17 +33,30 @@ pub struct HttpConfig {
     /// The initial capacity of the buffer that serializes the response head and batches body
     /// writes.
     ///
-    /// The response head and as much of the body as fits are coalesced into a single transport
-    /// write, so a response up to a few KiB is sent in one write regardless of this value. It
-    /// matters only for large response bodies, where a larger buffer batches more bytes per write
-    /// and so reduces the number of write syscalls on a bulk transfer — at the cost of that much
-    /// initial memory per connection. On the common path the buffer flushes when full rather than
-    /// growing; `response_buffer_max_len` bounds only the separate backpressure-absorption path.
+    /// Sizing it to fit a typical response head avoids one buffer growth per response. Body
+    /// write batching is governed by `body_write_chunk_len`, not this value;
+    /// `response_buffer_max_len` bounds only the separate backpressure-absorption path.
     ///
     /// **Default**: `512`
     ///
     /// **Unit**: byte count
     pub(crate) response_buffer_len: usize,
+
+    /// The maximum bytes of a streaming body read and framed per iteration on the h1 and h3
+    /// send paths, and the buffer fill level that triggers a write to the transport during
+    /// body streaming.
+    ///
+    /// Streaming body content is read directly into the send buffer in slices of at most this
+    /// size, each becoming one h1 chunk or h3 DATA frame; once the buffer holds this many
+    /// bytes it is written through. Larger values batch more bytes per write syscall and
+    /// per-frame overhead at the cost of that much buffer memory per in-flight streaming
+    /// body. Bodies already in memory ignore this and are written whole. Values below `16`
+    /// are treated as `16`.
+    ///
+    /// **Default**: `8kb` in bytes
+    ///
+    /// **Unit**: byte count
+    pub(crate) body_write_chunk_len: usize,
 
     /// Maximum size the response buffer may grow to absorb backpressure.
     ///
@@ -305,6 +318,7 @@ impl HttpConfig {
     /// Default Config
     pub const DEFAULT: Self = HttpConfig {
         response_buffer_len: 512,
+        body_write_chunk_len: 8 * KB as usize,
         response_buffer_max_len: 2 * MB as usize,
         request_buffer_initial_len: 1024,
         head_max_len: 8 * KB as usize,

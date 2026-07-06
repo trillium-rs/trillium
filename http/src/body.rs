@@ -1,5 +1,9 @@
-use crate::{Headers, h2::H2Body, h3::H3Body};
+mod framed;
+#[cfg(feature = "unstable")]
+use crate::h3::H3Body;
+use crate::{Headers, h2::H2Body};
 use BodyType::{Empty, Static, Streaming};
+pub use framed::BodyFraming;
 use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor, ready};
 use pin_project_lite::pin_project;
 use std::{
@@ -83,8 +87,9 @@ impl Body {
     /// of unknown length.
     ///
     /// By default, when a streaming body has no known length, this type's [`AsyncRead`]
-    /// implementation emits chunked framing so the h1 codec can write its bytes directly.
-    /// That framing is wrong for any consumer that wants raw body bytes.
+    /// implementation emits chunked framing. That framing is wrong for any consumer that
+    /// wants raw body bytes. This only affects reading the `Body` directly as an
+    /// [`AsyncRead`]; the send paths choose framing explicitly via `write_into`.
     #[doc(hidden)]
     #[cfg(feature = "unstable")]
     #[must_use]
@@ -111,23 +116,21 @@ impl Body {
     ///
     /// The send site that consumes the body is responsible for *not* writing the
     /// trailer-section terminator either; trailers (if any) ride onto the upgrade.
+    ///
+    /// Superseded by `write_into` with `BodyFraming::Chunked { keep_open: true }`, which
+    /// expresses this as framing instead of body state.
+    // Retained only so an older `trillium-client` that predates `write_into` still builds
+    // against this crate; remove it at the next breaking release.
     #[doc(hidden)]
     #[cfg(feature = "unstable")]
     #[must_use]
     pub fn keep_open(mut self) -> Self {
-        self.set_keep_open();
-        self
-    }
-
-    /// In-crate counterpart to [`keep_open`](Self::keep_open) — the server send path sets
-    /// this from `should_upgrade()` and can't reach the `unstable`-gated public builder.
-    pub(crate) fn set_keep_open(&mut self) {
         // Re-source fixed content through the chunked streaming path so it goes out as
         // chunks instead of raw bytes. Streaming bodies are left in place (preserving their
         // `BodySource`, hence any trailers) and just have their framing flags flipped below.
         if matches!(self.0, Static { .. }) {
-            let reader = std::mem::take(self).into_reader();
-            *self = Self::new_streaming(reader, None);
+            let reader = std::mem::take(&mut self).into_reader();
+            self = Self::new_streaming(reader, None);
         }
 
         if let Streaming {
@@ -141,21 +144,7 @@ impl Body {
             *chunked_framing = true;
             *keep_open = true;
         }
-    }
-
-    /// Set whether this body's [`AsyncRead`] impl emits chunked framing for the
-    /// `len: None` case. The h1 send path drives this from the finalized response
-    /// headers: `chunked` when `Transfer-Encoding: chunked` is present, raw passthrough
-    /// (close-delimited) when neither it nor `Content-Length` is. Has no effect on
-    /// fixed-length or static bodies, which never chunk.
-    pub(crate) fn set_chunked_framing(&mut self, on: bool) {
-        if let Streaming {
-            ref mut chunked_framing,
-            ..
-        } = self.0
-        {
-            *chunked_framing = on;
-        }
+        self
     }
 
     /// Returns trailers from the body source, if any.
@@ -300,15 +289,14 @@ impl Body {
         }
     }
 
-    /// Convert this body into an `H3Body` for reading
+    /// Convert this body into an `H3Body` for reading.
+    ///
+    /// Superseded by [`write_into`][Self::write_into] with [`BodyFraming::H3Data`], which
+    /// frames directly into the send buffer.
+    // Retained only so an older `trillium-client` that predates `write_into` still builds
+    // against this crate; remove it at the next breaking release.
     #[cfg(feature = "unstable")]
     pub fn into_h3(self) -> H3Body {
-        H3Body::new(self)
-    }
-
-    /// Convert this body into an `H3Body` for reading
-    #[cfg(not(feature = "unstable"))]
-    pub(crate) fn into_h3(self) -> H3Body {
         H3Body::new(self)
     }
 

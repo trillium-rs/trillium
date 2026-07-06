@@ -6,8 +6,8 @@ use std::{
     io::{self, ErrorKind},
 };
 use trillium_http::{
-    BufWriter, Error, KnownHeaderName, Method, ProtocolSession, ReceivedBodyState, Result, Status,
-    Version,
+    BodyFraming, BufWriter, Error, KnownHeaderName, Method, ProtocolSession, ReceivedBodyState,
+    Result, Status, Version,
     h3::{Frame, FrameStream, H3Error},
     headers::qpack::{FieldSection, PseudoHeaders},
 };
@@ -272,8 +272,6 @@ impl Conn {
 
         h3.encode_field_section_framed(&field_section, bufwriter.buffer_mut(), stream_id)?;
 
-        let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
-
         // Upgrade / extended CONNECT (RFC 9220 websocket, webtransport, or a raw CONNECT
         // tunnel via `upgrade`) leaves the write side open: any prelude body streams out as
         // DATA frames, then the caller continues writing DATA, trailing HEADERS, and the FIN
@@ -281,12 +279,13 @@ impl Conn {
         let is_upgrade = self.upgrade || self.protocol.is_some();
 
         if let Some(body) = self.request_body.take() {
-            let mut body = body.into_h3();
-            bufwriter.copy_from(&mut body, copy_loops_per_yield).await?;
+            let trailers = body
+                .write_into(&mut bufwriter, BodyFraming::H3Data, self.context.config())
+                .await?;
             // On an open upgrade stream the body's trailers belong at the eventual close
             // (carried via `Upgrade`), not inline after the prelude.
             if !is_upgrade {
-                self.request_trailers = body.trailers();
+                self.request_trailers = trailers;
                 if let Some(trailers) = &self.request_trailers {
                     let field_section = FieldSection::new(PseudoHeaders::default(), trailers);
                     log::trace!("sending trailers:\n{field_section}");
