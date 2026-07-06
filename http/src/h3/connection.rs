@@ -464,6 +464,9 @@ impl H3Connection {
     /// Returns after GOAWAY is sent; keep the stream open until the QUIC connection closes
     /// (closing a control stream is a connection error).
     ///
+    /// Shuts the connection down ([`shut_down`][Self::shut_down]) on return, for the same reason
+    /// as [`run_encoder`][Self::run_encoder].
+    ///
     /// # Errors
     ///
     /// Returns an `H3Error` in case of io error or http/3 semantic error.
@@ -471,30 +474,36 @@ impl H3Connection {
     where
         T: AsyncWrite + Unpin + Send,
     {
-        let mut buf = vec![0; 128];
+        let result: Result<(), H3Error> = async {
+            let mut buf = vec![0; 128];
 
-        let settings = Frame::Settings(H3Settings::from(&self.context.config));
-        log::trace!(
-            "H3 outbound control: sending SETTINGS: {:?}",
-            H3Settings::from(&self.context.config)
-        );
+            let settings = Frame::Settings(H3Settings::from(&self.context.config));
+            log::trace!(
+                "H3 outbound control: sending SETTINGS: {:?}",
+                H3Settings::from(&self.context.config)
+            );
 
-        write(&mut buf, &mut stream, |buf| {
-            let mut written = quic_varint::encode(UniStreamType::Control, buf)?;
-            written += settings.encode(&mut buf[written..])?;
-            Some(written)
-        })
-        .await?;
-        log::trace!("H3 outbound control: SETTINGS sent");
+            write(&mut buf, &mut stream, |buf| {
+                let mut written = quic_varint::encode(UniStreamType::Control, buf)?;
+                written += settings.encode(&mut buf[written..])?;
+                Some(written)
+            })
+            .await?;
+            log::trace!("H3 outbound control: SETTINGS sent");
 
-        self.swansong.clone().await;
+            self.swansong.clone().await;
 
-        write(&mut buf, &mut stream, |buf| {
-            Frame::Goaway(self.goaway_id()).encode(buf)
-        })
-        .await?;
+            write(&mut buf, &mut stream, |buf| {
+                Frame::Goaway(self.goaway_id()).encode(buf)
+            })
+            .await?;
 
-        Ok(())
+            Ok(())
+        }
+        .await;
+
+        self.shut_down();
+        result
     }
 
     /// Run the outbound QPACK encoder stream for the duration of the connection.
@@ -503,6 +512,12 @@ impl H3Connection {
     /// dynamic table as they are enqueued. Returns when the connection shuts down or the table is
     /// marked failed.
     ///
+    /// Shuts the connection down ([`shut_down`][Self::shut_down]) on return. This stream is
+    /// mandatory for the connection's lifetime, so its termination — clean or errored — means the
+    /// connection can no longer function; marking it shut down lets a pooling caller evict it
+    /// rather than hand it back out. Idempotent on the clean path, which returns only after
+    /// shutdown has already begun.
+    ///
     /// # Errors
     ///
     /// Returns an `H3Error` in case of io error.
@@ -510,9 +525,12 @@ impl H3Connection {
     where
         T: AsyncWrite + Unpin + Send,
     {
-        self.encoder_dynamic_table
+        let result = self
+            .encoder_dynamic_table
             .run_writer(&mut stream, self.swansong.clone())
-            .await
+            .await;
+        self.shut_down();
+        result
     }
 
     /// Run the outbound QPACK decoder stream for the duration of the connection.
@@ -521,6 +539,9 @@ impl H3Connection {
     /// Count Increment instructions as they become needed. Returns when the connection
     /// shuts down.
     ///
+    /// Shuts the connection down ([`shut_down`][Self::shut_down]) on return, for the same reason
+    /// as [`run_encoder`][Self::run_encoder].
+    ///
     /// # Errors
     ///
     /// Returns an `H3Error` in case of io error or http/3 semantic error.
@@ -528,9 +549,12 @@ impl H3Connection {
     where
         T: AsyncWrite + Unpin + Send,
     {
-        self.decoder_dynamic_table
+        let result = self
+            .decoder_dynamic_table
             .run_writer(&mut stream, self.swansong.clone())
-            .await
+            .await;
+        self.shut_down();
+        result
     }
 
     /// Handle an inbound unidirectional HTTP/3 stream from the peer.
@@ -1030,3 +1054,6 @@ async fn read<R>(
         *filled += n;
     }
 }
+
+#[cfg(test)]
+mod tests;

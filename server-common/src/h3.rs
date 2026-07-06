@@ -352,8 +352,7 @@ fn spawn_qpack_decoder_stream(
         if let Err(error) = result {
             handle_h3_error(error, &connection, &h3);
         }
-
-        h3.shut_down();
+        // run_decoder shuts the connection down on return.
     });
 }
 
@@ -379,8 +378,7 @@ fn spawn_qpack_encoder_stream(
         if let Err(error) = result {
             handle_h3_error(error, &connection, &h3);
         }
-
-        h3.shut_down();
+        // run_encoder shuts the connection down on return.
     });
 }
 
@@ -406,8 +404,7 @@ fn spawn_outbound_control_stream(
         if let Err(error) = result {
             handle_h3_error(error, &connection, &h3);
         }
-
-        h3.shut_down();
+        // run_outbound_control shuts the connection down on return.
     });
 }
 
