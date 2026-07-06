@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `Client::h1_idle_timeout` (default 5 minutes). A pooled HTTP/1.1 keepalive connection that sits
+  idle longer than this is closed and dropped from the pool by a background reaper. Set it to
+  `None` to disable expiry and keep the previous retain-until-reused behavior. Configure via
+  `with_h1_idle_timeout` / `set_h1_idle_timeout` / `without_h1_idle_timeout`.
+
+### Fixed
+- Idle pooled HTTP/1.1 connections to an origin that stopped being contacted were held open
+  indefinitely — their file descriptors were released only when the connection was next reused or
+  the pool was manually cleaned up. They are now released after `h1_idle_timeout` (default 5
+  minutes) even when the origin is never contacted again.
+
 ## [0.9.10] - 2026-07-05
 
 ### Fixed

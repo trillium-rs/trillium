@@ -547,3 +547,61 @@ async fn override_body_does_not_read_from_transport() -> TestResult {
     );
     Ok(())
 }
+
+/// With `h1_idle_timeout` set short, a pooled h1 keepalive transport that sits idle past the
+/// timeout is not reused: the next request establishes a fresh connection. Observed via the
+/// `CountingConnector`'s per-connect record count.
+#[test(harness)]
+async fn h1_idle_timeout_expires_pooled_connection() -> TestResult {
+    let connector = CountingConnector::new(keepalive_handler());
+    let records = connector.records.clone();
+    let client = Client::new(connector).with_h1_idle_timeout(Duration::from_millis(1));
+
+    {
+        let mut conn = client.get("http://example.test/").await?;
+        assert_eq!(conn.response_body().read_string().await?, "hello world");
+    } // dropped at End -> pooled with a ~1ms expiry
+
+    assert_eq!(records.lock().unwrap().len(), 1, "one connection so far");
+
+    // Let the entry's expiry pass before the next request looks for a candidate.
+    trillium_testing::runtime()
+        .delay(Duration::from_millis(50))
+        .await;
+
+    let mut conn = client.get("http://example.test/").await?;
+    assert_eq!(conn.response_body().read_string().await?, "hello world");
+    assert_eq!(
+        records.lock().unwrap().len(),
+        2,
+        "expired pooled connection should not be reused"
+    );
+    Ok(())
+}
+
+/// The control for `h1_idle_timeout_expires_pooled_connection`: with expiry disabled (`None`),
+/// the idle keepalive transport is reused across requests, so no second connection is made.
+#[test(harness)]
+async fn h1_idle_timeout_none_reuses_pooled_connection() -> TestResult {
+    let connector = CountingConnector::new(keepalive_handler());
+    let records = connector.records.clone();
+    let client = Client::new(connector).without_h1_idle_timeout();
+
+    {
+        let mut conn = client.get("http://example.test/").await?;
+        assert_eq!(conn.response_body().read_string().await?, "hello world");
+    }
+
+    trillium_testing::runtime()
+        .delay(Duration::from_millis(50))
+        .await;
+
+    let mut conn = client.get("http://example.test/").await?;
+    assert_eq!(conn.response_body().read_string().await?, "hello world");
+    assert_eq!(
+        records.lock().unwrap().len(),
+        1,
+        "live pooled connection should be reused"
+    );
+    Ok(())
+}
