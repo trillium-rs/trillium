@@ -249,6 +249,26 @@ impl<'a> FieldSection<'a> {
     pub fn into_parts(self) -> (PseudoHeaders<'a>, Headers) {
         (self.pseudo_headers, self.headers.into_owned())
     }
+
+    /// The *uncompressed* size of this field section: the sum, over every field line, of the
+    /// name's length in bytes, the value's length in bytes, and a 32-byte per-field overhead.
+    /// Pseudo-header names count their leading colon (`:method` is 7).
+    ///
+    /// This is the metric both HTTP/2's `SETTINGS_MAX_HEADER_LIST_SIZE` ([RFC 7540 §6.5.2]) and
+    /// HTTP/3's `SETTINGS_MAX_FIELD_SECTION_SIZE` ([RFC 9114 §4.2.2]) are defined in — the 32-byte
+    /// overhead and the formula are identical, both deriving from the HPACK entry size
+    /// ([RFC 7541 §4.1]). It is independent of HPACK/QPACK compression, which is why it can't be
+    /// read off the encoded byte length.
+    ///
+    /// [RFC 7540 §6.5.2]: https://www.rfc-editor.org/rfc/rfc7540#section-6.5.2
+    /// [RFC 9114 §4.2.2]: https://www.rfc-editor.org/rfc/rfc9114#section-4.2.2
+    /// [RFC 7541 §4.1]: https://www.rfc-editor.org/rfc/rfc7541#section-4.1
+    pub(crate) fn uncompressed_len(&self) -> u64 {
+        self.field_lines()
+            .iter()
+            .map(|(name, value, _)| name.len() as u64 + value.len() as u64 + 32)
+            .sum()
+    }
 }
 
 impl Display for FieldSection<'_> {
@@ -331,5 +351,32 @@ impl FieldLineValue<'_> {
             FieldLineValue::Static(items) | FieldLineValue::Borrowed(items) => items,
             FieldLineValue::Owned(items) => items,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{KnownHeaderName, Method};
+
+    #[test]
+    fn uncompressed_len_sums_name_value_plus_32_per_field() {
+        // :method GET  -> 7 + 3 + 32 = 42
+        // accept: */*  -> 6 + 3 + 32 = 41
+        let mut headers = Headers::new();
+        headers.insert(KnownHeaderName::Accept, "*/*");
+        let pseudo = PseudoHeaders::default().with_method(Method::Get);
+        let field_section = FieldSection::new(pseudo, &headers);
+        assert_eq!(field_section.uncompressed_len(), 42 + 41);
+    }
+
+    #[test]
+    fn uncompressed_len_counts_repeated_values_separately() {
+        // two set-cookie values each count as their own field line
+        let mut headers = Headers::new();
+        headers.append(KnownHeaderName::SetCookie, "a=1"); // 10 + 3 + 32 = 45
+        headers.append(KnownHeaderName::SetCookie, "bb=22"); // 10 + 5 + 32 = 47
+        let field_section = FieldSection::new(PseudoHeaders::default(), &headers);
+        assert_eq!(field_section.uncompressed_len(), 45 + 47);
     }
 }

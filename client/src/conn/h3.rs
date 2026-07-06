@@ -8,7 +8,7 @@ use std::{
 use trillium_http::{
     BufWriter, Error, KnownHeaderName, Method, ProtocolSession, ReceivedBodyState, Result, Status,
     Version,
-    h3::{Frame, FrameStream, H3Connection, H3Error},
+    h3::{Frame, FrameStream, H3Error},
     headers::qpack::{FieldSection, PseudoHeaders},
 };
 use trillium_server_common::url::Origin;
@@ -267,20 +267,10 @@ impl Conn {
             max_buf,
         );
 
-        let initial_cap = self.context.config().request_buffer_initial_len();
-        let max_peer_field_section_size = None;
-
         let field_section = FieldSection::new(pseudo_headers, &self.request_headers);
         log::trace!("sending headers:\n{field_section}");
 
-        encode_field_section_h3(
-            h3,
-            &field_section,
-            max_peer_field_section_size,
-            initial_cap,
-            bufwriter.buffer_mut(),
-            stream_id,
-        )?;
+        h3.encode_field_section_framed(&field_section, bufwriter.buffer_mut(), stream_id)?;
 
         let copy_loops_per_yield = self.context.config().copy_loops_per_yield();
 
@@ -300,11 +290,8 @@ impl Conn {
                 if let Some(trailers) = &self.request_trailers {
                     let field_section = FieldSection::new(PseudoHeaders::default(), trailers);
                     log::trace!("sending trailers:\n{field_section}");
-                    encode_field_section_h3(
-                        h3,
+                    h3.encode_field_section_framed(
                         &field_section,
-                        max_peer_field_section_size,
-                        initial_cap,
                         bufwriter.buffer_mut(),
                         stream_id,
                     )?;
@@ -453,39 +440,4 @@ impl Conn {
             h3.update_alt_svc(alt_svc, &self.url);
         }
     }
-}
-
-fn encode_field_section_h3(
-    h3: &H3Connection,
-    field_section: &FieldSection<'_>,
-    max_peer_field_section_size: Option<u64>,
-    initial_cap: usize,
-    buffer: &mut Vec<u8>,
-    stream_id: u64,
-) -> io::Result<()> {
-    let mut field_section_buf = Vec::with_capacity(initial_cap);
-    h3.encode_field_section(field_section, &mut field_section_buf, stream_id)
-        .map_err(|error| {
-            log::error!("encode error: {error:?}");
-            io::Error::other(error)
-        })?;
-
-    let size = field_section_buf.len() as u64;
-    if let Some(max_size) = max_peer_field_section_size
-        && size > max_size
-    {
-        return Err(io::Error::new(
-            ErrorKind::InvalidData,
-            format!("field section would be longer than peer allows ({size} > {max_size})"),
-        ));
-    }
-
-    let frame = Frame::Headers(field_section_buf.len() as u64);
-    let frame_header_len = frame.encoded_len();
-    let start = buffer.len();
-    buffer.resize(start + frame_header_len, 0);
-    frame.encode(&mut buffer[start..]);
-    buffer.extend_from_slice(&field_section_buf);
-
-    Ok(())
 }

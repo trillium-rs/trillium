@@ -2,7 +2,7 @@ use crate::{
     Buffer, Conn, Headers, HttpContext, KnownHeaderName, Method, ProtocolSession, ReceivedBody,
     Status, TypeSet, Version,
     h2::H2Connection,
-    h3::{Frame, H3Connection, H3Settings},
+    h3::{Frame, H3Connection},
     headers::qpack::{FieldSection, PseudoHeaders},
     received_body::{H3TrailerFuture, ReceivedBodyState, write_chunk},
     util::encoding,
@@ -475,17 +475,8 @@ impl<Transport: AsyncWrite + Unpin> Upgrade<Transport> {
                 let Some((h3, stream_id)) = protocol_session.as_h3() else {
                     return Err(io::ErrorKind::NotConnected.into());
                 };
-                let max_field_section = h3
-                    .peer_settings()
-                    .and_then(H3Settings::max_field_section_size);
                 let field_section = FieldSection::new(PseudoHeaders::default(), &trailers);
-                crate::conn::encode_field_section_h3(
-                    &h3,
-                    &field_section,
-                    max_field_section,
-                    &mut state.pending,
-                    stream_id,
-                )?;
+                h3.encode_field_section_framed(&field_section, &mut state.pending, stream_id)?;
                 state.terminator_written = true;
 
                 transport.write_all(&state.pending).await?;

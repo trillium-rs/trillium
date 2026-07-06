@@ -29,7 +29,7 @@ mod h2;
 mod h3;
 mod shared;
 pub(crate) use h1::{HeadError, write_headers_or_trailers};
-pub(crate) use h3::{H3FirstFrame, encode_field_section_h3};
+pub(crate) use h3::H3FirstFrame;
 pub(crate) use shared::ConnParts;
 
 /// An HTTP connection.
