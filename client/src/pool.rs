@@ -231,13 +231,20 @@ where
             .flatten()
     }
 
-    /// Drop expired entries from every set, then drop any set left with neither a ready
-    /// connection nor an in-flight connect. Unlike a plain empty-set sweep, this reclaims a set
-    /// that is non-empty only because it holds expired entries an idle origin never came back to
-    /// pop — the case a background reaper exists to catch.
+    /// Drop expired entries and resolved connect placeholders from every set, then drop any set
+    /// left with neither a ready connection nor an in-flight connect. Unlike a plain empty-set
+    /// sweep, this reclaims a set that is non-empty only because it holds expired entries an idle
+    /// origin never came back to pop — the case a background reaper exists to catch.
     pub fn reap(&self) {
         self.connections.retain(|_k, set| {
             set.drain_expired();
+            // A resolved placeholder has finished its coordination work — waiters hold their own
+            // Arc to the cell — but it retains a clone of the pooled value, so an expired
+            // connection would otherwise survive the sweep through it. An unresolved cell is a
+            // live in-flight connect and keeps the key alive.
+            if matches!(&set.pending, Some(cell) if cell.get().is_some()) {
+                set.pending = None;
+            }
             !set.is_empty()
         });
     }
@@ -537,6 +544,22 @@ mod tests {
         // an empty-set-only sweep would retain it and leak those fds. reap() drains the expired
         // entries and then drops the emptied set.
         assert_eq!(pool.keys().count(), 1);
+        pool.reap();
+        assert_eq!(pool.keys().count(), 0);
+    }
+
+    #[test]
+    fn reap_drops_resolved_placeholders() {
+        use std::time::Duration;
+        let pool = Pool::new(5);
+        let key = Url::parse("http://127.0.0.1:8080").unwrap().origin();
+        let Acquire::Primer(guard) = pool.acquire(key.clone(), |_: &u8| unreachable!()) else {
+            panic!("empty pool should elect a primer");
+        };
+        guard.resolve_ready(1, Some(Instant::now() - Duration::from_secs(1)));
+        assert_eq!(pool.keys().count(), 1);
+        // The expired ready entry drains, and the resolved placeholder — whose held clone would
+        // otherwise keep both the key and the connection alive — goes with it.
         pool.reap();
         assert_eq!(pool.keys().count(), 0);
     }

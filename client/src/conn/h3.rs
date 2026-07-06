@@ -137,6 +137,7 @@ impl Conn {
                 &addrs,
                 self.client.connector(),
                 &self.context,
+                self.client.h3_idle_timeout(),
             )
             .await
         {

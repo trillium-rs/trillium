@@ -25,6 +25,11 @@ const DEFAULT_H1_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 /// re-establish.
 const DEFAULT_H2_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Default maximum retention for a pooled HTTP/3 connection. Matches the h2 default; QUIC
+/// connections whose transport-level idle timeout already closed them are reclaimed by this
+/// bound even when the origin is never contacted again.
+const DEFAULT_H3_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Default idle threshold above which a pooled HTTP/2 connection is liveness-pinged before
 /// being handed out for a new request. Below this, we trust the connection without probing.
 const DEFAULT_H2_IDLE_PING_THRESHOLD: Duration = Duration::from_secs(10);
@@ -70,6 +75,14 @@ pub struct Client {
     /// Defaults to 5 minutes.
     #[field(get, set, with, without, copy)]
     h2_idle_timeout: Option<Duration>,
+
+    /// How long a pooled HTTP/3 connection is retained after it is established. An expired
+    /// connection is dropped from the pool — requests in flight on it are unaffected — and the
+    /// next request to its origin establishes a fresh connection. `None` disables expiry.
+    ///
+    /// Defaults to 5 minutes.
+    #[field(get, set, with, without, copy)]
+    h3_idle_timeout: Option<Duration>,
 
     /// If a pooled HTTP/2 connection has been idle for longer than this, an active PING is
     /// sent to verify it's still alive before being handed out. `None` disables the probe.
@@ -201,7 +214,12 @@ impl Client {
     pub fn new(connector: impl Connector) -> Self {
         let config = ArcedConnector::new(connector);
         let (pool, h2_pool) = (Pool::default(), Pool::default());
-        crate::reaper::spawn_pool_reaper(config.runtime(), pool.downgrade(), h2_pool.downgrade());
+        crate::reaper::spawn_pool_reaper(
+            config.runtime(),
+            pool.downgrade(),
+            h2_pool.downgrade(),
+            None,
+        );
         Self {
             config,
             h3: None,
@@ -209,6 +227,7 @@ impl Client {
             h2_pool: Some(h2_pool),
             h1_idle_timeout: Some(DEFAULT_H1_IDLE_TIMEOUT),
             h2_idle_timeout: Some(DEFAULT_H2_IDLE_TIMEOUT),
+            h3_idle_timeout: Some(DEFAULT_H3_IDLE_TIMEOUT),
             h2_idle_ping_threshold: Some(DEFAULT_H2_IDLE_PING_THRESHOLD),
             h2_idle_ping_timeout: DEFAULT_H2_IDLE_PING_TIMEOUT,
             max_buffered_request_body: DEFAULT_MAX_BUFFERED_REQUEST_BODY,
@@ -253,14 +272,21 @@ impl Client {
 
         let config = ArcedConnector::new(connector);
         let (pool, h2_pool) = (Pool::default(), Pool::default());
-        crate::reaper::spawn_pool_reaper(config.runtime(), pool.downgrade(), h2_pool.downgrade());
+        let h3 = H3ClientState::new(arced_quic);
+        crate::reaper::spawn_pool_reaper(
+            config.runtime(),
+            pool.downgrade(),
+            h2_pool.downgrade(),
+            Some(h3.pool.downgrade()),
+        );
         Self {
             config,
-            h3: Some(H3ClientState::new(arced_quic)),
+            h3: Some(h3),
             pool: Some(pool),
             h2_pool: Some(h2_pool),
             h1_idle_timeout: Some(DEFAULT_H1_IDLE_TIMEOUT),
             h2_idle_timeout: Some(DEFAULT_H2_IDLE_TIMEOUT),
+            h3_idle_timeout: Some(DEFAULT_H3_IDLE_TIMEOUT),
             h2_idle_ping_threshold: Some(DEFAULT_H2_IDLE_PING_THRESHOLD),
             h2_idle_ping_timeout: DEFAULT_H2_IDLE_PING_TIMEOUT,
             max_buffered_request_body: DEFAULT_MAX_BUFFERED_REQUEST_BODY,

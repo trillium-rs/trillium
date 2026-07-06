@@ -8,7 +8,7 @@ use std::{
     io::{self, ErrorKind},
     net::SocketAddr,
     sync::{Arc, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use trillium_http::{
     HttpContext,
@@ -22,6 +22,9 @@ use trillium_server_common::{
 };
 
 mod alt_svc;
+
+#[cfg(test)]
+mod tests;
 
 /// A pooled HTTP/3 connection: the QUIC connection, the H3 wrapper, and (when the
 /// `webtransport` feature is enabled) a slot for a lazily-created
@@ -91,7 +94,12 @@ impl H3ClientState {
     /// Get a pooled QUIC connection for this origin, or establish a new one.
     ///
     /// When a new connection is established, spawns the mandatory HTTP/3 control and QPACK
-    /// streams.
+    /// streams and pools it for `idle_timeout` (`None` pools it until the pool drops).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one internal call site passes these straight through; a parameter struct \
+                  would add indirection without clarifying anything"
+    )]
     pub(crate) async fn get_or_create_quic_conn(
         &self,
         origin: &Origin,
@@ -100,6 +108,7 @@ impl H3ClientState {
         addrs: &[SocketAddr],
         connector: &ArcedConnector,
         context: &Arc<HttpContext>,
+        idle_timeout: Option<Duration>,
     ) -> io::Result<H3PoolEntry> {
         // QUIC connections are always multiplexed, so concurrent callers to a cold origin should
         // open one connection, not race N handshakes (each of which then stalls ~30s before
@@ -118,7 +127,8 @@ impl H3ClientState {
                     let entry = self
                         .connect_quic(host, port, addrs, connector, context)
                         .await?;
-                    guard.resolve_ready(entry.clone(), None);
+                    let expiry = idle_timeout.map(|timeout| Instant::now() + timeout);
+                    guard.resolve_ready(entry.clone(), expiry);
                     return Ok(entry);
                 }
             }
@@ -251,6 +261,10 @@ fn spawn_outbound_control_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, 
         if let Err(error) = result {
             log::debug!("client H3 control stream error: {error}");
         }
+        // The pump shuts the connection down when it returns, but open_uni can fail before
+        // the pump ever runs; without this, the pooled entry would still classify as
+        // available.
+        h3.shut_down();
     });
 }
 
@@ -262,6 +276,7 @@ fn spawn_qpack_encoder_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, run
         if let Err(error) = result {
             log::debug!("client H3 qpack encoder error: {error}");
         }
+        h3.shut_down();
     });
 }
 
@@ -273,7 +288,17 @@ fn spawn_qpack_decoder_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, run
         if let Err(error) = result {
             log::debug!("client H3 qpack decoder error: {error}");
         }
+        h3.shut_down();
     });
+}
+
+/// Whether an error on a server-initiated bidi stream ends the whole connection.
+///
+/// `StreamCreationError` is a stream-level code when rejecting an early WebTransport stream,
+/// but on this path it marks a server-initiated request stream — which RFC 9114 defines as a
+/// connection error.
+fn bidi_error_ends_connection(code: H3ErrorCode) -> bool {
+    code == H3ErrorCode::StreamCreationError || code.is_connection_error()
 }
 
 fn spawn_inbound_bidi_streams(
@@ -290,13 +315,22 @@ fn spawn_inbound_bidi_streams(
         while let Ok((stream_id, transport)) = conn.accept_bidi().await {
             #[cfg(feature = "webtransport")]
             let dispatcher = dispatcher.clone();
-            let h3 = h3.clone();
+            let (conn, h3) = (conn.clone(), h3.clone());
 
             runtime.spawn(async move {
+                let conn_for_reset = conn.clone();
                 let result = h3
                     .clone()
                     .process_inbound_bidi(transport, |conn| async move { conn }, stream_id)
-                    .with_reset(|t, code| {
+                    .with_request_rejection()
+                    .with_reset(move |t, code| {
+                        // Connection-ending errors close while the stream is still alive:
+                        // dropping the stream first sends STOP_SENDING, and the peer's
+                        // RESET_STREAM response can race ahead of the close, replacing this
+                        // error code on the wire.
+                        if bidi_error_ends_connection(code) {
+                            conn_for_reset.close(code.into(), code.reason().as_bytes());
+                        }
                         let raw = u64::from(code);
                         t.stop(raw);
                         t.reset(raw);
@@ -327,11 +361,18 @@ fn spawn_inbound_bidi_streams(
                         transport.reset(H3ErrorCode::StreamCreationError.into());
                     }
                     Ok(H3StreamResult::Request(_)) => {
-                        // process_inbound_bidi already sent a default response via our identity
-                        // handler; just log the spec violation.
-                        log::warn!(
-                            "server opened a request bidi stream to client (RFC 9114 violation)"
+                        log::error!(
+                            "BUG: request served on a server-initiated bidi stream despite \
+                             request rejection"
                         );
+                    }
+                    Err(H3Error::Protocol(code)) if bidi_error_ends_connection(code) => {
+                        log::warn!(
+                            "closing h3 connection after inbound bidi stream error: {}",
+                            code.reason()
+                        );
+                        conn.close(code.into(), code.reason().as_bytes());
+                        h3.shut_down();
                     }
                     Err(error) => {
                         log::debug!("client H3 inbound bidi stream error: {error}");
@@ -339,6 +380,7 @@ fn spawn_inbound_bidi_streams(
                 }
             });
         }
+        h3.shut_down();
     });
 }
 
@@ -418,5 +460,6 @@ fn spawn_inbound_uni_streams(
                 }
             });
         }
+        h3.shut_down();
     });
 }
