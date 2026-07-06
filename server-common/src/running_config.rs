@@ -243,18 +243,16 @@ async fn handle_h1_result<T, H: Handler>(
             log::debug!("closing connection");
         }
 
+        // UnexpectedEof at the connection loop always means the peer vanished mid-connection —
+        // a TLS client that skipped close_notify, or a plaintext client that dropped mid-request.
+        // Peer misbehavior, not a server error.
         Err(Error::Io(e))
-            if e.kind() == ErrorKind::ConnectionReset || e.kind() == ErrorKind::BrokenPipe =>
+            if matches!(
+                e.kind(),
+                ErrorKind::ConnectionReset | ErrorKind::BrokenPipe | ErrorKind::UnexpectedEof
+            ) =>
         {
-            log::debug!("closing connection");
-        }
-
-        Err(Error::Io(ref e))
-            if e.kind() == ErrorKind::UnexpectedEof
-                && e.get_ref()
-                    .is_some_and(|inner| inner.to_string().contains("TLS close_notify")) =>
-        {
-            log::debug!("closing connection (tls client did not close notify)");
+            log::debug!("closing connection ({e})");
         }
 
         Err(e) => {

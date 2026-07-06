@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.8] - 2026-07-04
 
 ### Fixed
+- A client that disconnects abruptly mid-connection is now logged at debug level regardless of
+  TLS implementation. Detection previously matched rustls's error message text, so the same
+  abrupt disconnect through another TLS acceptor (or none) was logged as an http error.
+
 - An HTTP/1.x connection accepted over a secure acceptor (direct TLS) now reports
   `Conn::is_secure() == true`. Previously only the HTTP/2 and HTTP/3 dispatch paths stamped the
   acceptor's secure-ness onto the conn, so an h1-over-TLS request read as insecure — affecting the
