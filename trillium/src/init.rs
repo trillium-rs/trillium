@@ -1,4 +1,4 @@
-use crate::{Conn, Handler, Info};
+use crate::{Handler, Info};
 use std::{future::Future, mem};
 
 /// Provides support for asynchronous initialization of a handler after
@@ -61,10 +61,6 @@ where
     F: FnOnce(Info) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Info> + Send + 'static,
 {
-    async fn run(&self, conn: Conn) -> Conn {
-        conn
-    }
-
     async fn init(&mut self, info: &mut Info) {
         match self.0.take() {
             Some(init) => {

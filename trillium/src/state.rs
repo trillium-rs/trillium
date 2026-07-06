@@ -83,8 +83,8 @@ pub const fn state<T: Clone + Send + Sync + 'static>(t: T) -> State<T> {
 }
 
 impl<T: Clone + Send + Sync + 'static> Handler for State<T> {
-    async fn run(&self, mut conn: Conn) -> Conn {
+    fn run(&self, mut conn: Conn) -> impl Future<Output = Conn> {
         conn.insert_state(self.0.clone());
-        conn
+        std::future::ready(conn)
     }
 }

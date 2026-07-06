@@ -133,8 +133,8 @@ pub trait Handler: Send + Sync + 'static {
 }
 
 impl Handler for Status {
-    async fn run(&self, conn: Conn) -> Conn {
-        conn.with_status(*self)
+    fn run(&self, conn: Conn) -> impl Future<Output = Conn> {
+        std::future::ready(conn.with_status(*self))
     }
 }
 
@@ -237,8 +237,8 @@ where
 }
 
 impl Handler for &'static str {
-    async fn run(&self, conn: Conn) -> Conn {
-        conn.ok(*self)
+    fn run(&self, conn: Conn) -> impl Future<Output = Conn> {
+        std::future::ready(conn.ok(*self))
     }
 
     fn name(&self) -> Cow<'static, str> {
@@ -247,8 +247,8 @@ impl Handler for &'static str {
 }
 
 impl Handler for String {
-    async fn run(&self, conn: Conn) -> Conn {
-        conn.ok(self.clone())
+    fn run(&self, conn: Conn) -> impl Future<Output = Conn> {
+        std::future::ready(conn.ok(self.clone()))
     }
 
     fn name(&self) -> Cow<'static, str> {
@@ -257,8 +257,8 @@ impl Handler for String {
 }
 
 impl Handler for () {
-    async fn run(&self, conn: Conn) -> Conn {
-        conn
+    fn run(&self, conn: Conn) -> impl Future<Output = Conn> {
+        std::future::ready(conn)
     }
 }
 
@@ -295,9 +295,9 @@ impl<H: Handler> Handler for Option<H> {
 }
 
 impl Handler for Headers {
-    async fn run(&self, mut conn: Conn) -> Conn {
+    fn run(&self, mut conn: Conn) -> impl Future<Output = Conn> {
         conn.response_headers_mut().append_all(self.clone());
-        conn
+        std::future::ready(conn)
     }
 }
 
