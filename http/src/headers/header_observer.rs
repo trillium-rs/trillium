@@ -32,8 +32,11 @@
 //!
 //! This makes the observer safe against value-exfiltration via reflected request
 //! data (a hot reflected name cannot promote into priming, because `Unknown` is
-//! excluded) AND cheap on the hot path (no hashing, no allocation, no mutex per
-//! header line — only at connection close).
+//! excluded) AND cheap on the recording side (no hashing, no allocation, no mutex
+//! per header line — accumulation folds into the shared observer in a single
+//! acquisition at connection close). Querying via `is_hot` does take the shared
+//! mutex; callers keep it off the common path by consulting it only when their
+//! per-connection state has no answer.
 //!
 //! ## Storage shape
 //!
