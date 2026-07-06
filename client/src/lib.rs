@@ -149,6 +149,7 @@ mod dns;
 mod h3;
 mod into_url;
 mod pool;
+mod reaper;
 mod response_body;
 #[cfg(feature = "sse")]
 pub mod sse;

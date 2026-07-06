@@ -515,6 +515,7 @@ impl Conn {
         CleanupContext {
             runtime: self.client.connector().runtime(),
             h1_pool_origin,
+            h1_idle_timeout: self.client.h1_idle_timeout(),
         }
     }
 

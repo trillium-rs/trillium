@@ -6,6 +6,7 @@ use std::{
     io, mem,
     pin::Pin,
     task::{Context, Poll, ready},
+    time::{Duration, Instant},
 };
 use trillium_http::{
     Body, BodySource, Headers, HttpConfig, MutCow, ReceivedBody, ReceivedBodyState,
@@ -81,6 +82,16 @@ type H1Pool = Pool<Origin, Box<dyn Transport>>;
 pub(crate) struct CleanupContext {
     pub(crate) runtime: Runtime,
     pub(crate) h1_pool_origin: Option<(H1Pool, Origin)>,
+    /// Idle lifetime stamped onto a pooled h1 transport, counted from the moment it returns to
+    /// the pool. `None` disables expiry. Sourced from
+    /// [`Client::h1_idle_timeout`][crate::Client::h1_idle_timeout].
+    pub(crate) h1_idle_timeout: Option<Duration>,
+}
+
+/// The expiry [`Instant`] to stamp on an h1 [`PoolEntry`] returning to the pool now, given the
+/// configured idle timeout — i.e. `now + timeout`, or `None` when expiry is disabled.
+fn pool_expiry(h1_idle_timeout: Option<Duration>) -> Option<Instant> {
+    h1_idle_timeout.map(|d| Instant::now() + d)
 }
 
 impl CleanupContext {
@@ -90,7 +101,10 @@ impl CleanupContext {
         match &self.h1_pool_origin {
             Some((pool, origin)) => {
                 log::trace!("body transferred, returning to pool");
-                pool.insert(origin.clone(), PoolEntry::new(transport, None));
+                pool.insert(
+                    origin.clone(),
+                    PoolEntry::new(transport, pool_expiry(self.h1_idle_timeout)),
+                );
             }
             None => {
                 self.runtime.clone().spawn(async move {
@@ -187,7 +201,10 @@ impl AsyncRead for ResponseBody<'_> {
             {
                 self.trailers = Pin::new(&mut rb).trailers();
                 if let Some((pool, origin)) = cleanup.h1_pool_origin {
-                    pool.insert(origin, PoolEntry::new(transport, None));
+                    pool.insert(
+                        origin,
+                        PoolEntry::new(transport, pool_expiry(cleanup.h1_idle_timeout)),
+                    );
                 } else {
                     self.inner = ResponseBodyInner::Closing(Box::pin(async move {
                         log_close_result(transport.close().await);
@@ -404,6 +421,7 @@ fn log_close_result(result: io::Result<()>) {
 async fn recycle(
     mut rb: ReceivedBody<'static, Box<dyn Transport + 'static>>,
     h1_pool_origin: Option<(H1Pool, Origin)>,
+    h1_idle_timeout: Option<Duration>,
 ) {
     if let Some((pool, origin)) = h1_pool_origin {
         match drain(&mut rb).await {
@@ -414,7 +432,10 @@ async fn recycle(
                     log::trace!(
                         "drained {drained} bytes, returning transport to pool for {origin:?}"
                     );
-                    pool.insert(origin, PoolEntry::new(transport, None));
+                    pool.insert(
+                        origin,
+                        PoolEntry::new(transport, pool_expiry(h1_idle_timeout)),
+                    );
                     return;
                 }
             }
@@ -439,9 +460,14 @@ impl Drop for ResponseBody<'_> {
             && let Some(transport) = rb.take_transport()
             && let Some((pool, origin)) = cleanup.h1_pool_origin
         {
-            pool.insert(origin, PoolEntry::new(transport, None));
+            pool.insert(
+                origin,
+                PoolEntry::new(transport, pool_expiry(cleanup.h1_idle_timeout)),
+            );
         } else {
-            cleanup.runtime.spawn(recycle(rb, cleanup.h1_pool_origin));
+            cleanup
+                .runtime
+                .spawn(recycle(rb, cleanup.h1_pool_origin, cleanup.h1_idle_timeout));
         }
     }
 }
@@ -506,7 +532,7 @@ impl ResponseBody<'static> {
             return;
         };
 
-        recycle(rb, cleanup.h1_pool_origin).await;
+        recycle(rb, cleanup.h1_pool_origin, cleanup.h1_idle_timeout).await;
     }
 }
 

@@ -5,7 +5,7 @@ use std::{
     borrow::Borrow,
     fmt::{self, Debug, Formatter},
     hash::Hash,
-    sync::Arc,
+    sync::{Arc, Weak},
     time::Instant,
 };
 
@@ -104,10 +104,24 @@ impl<V> PoolSet<V> {
     }
 
     /// Whether this set holds neither a ready connection nor an in-flight connect. An in-flight
-    /// connect keeps the key alive so [`Pool::cleanup`] can't drop the placeholder out from under
+    /// connect keeps the key alive so [`Pool::reap`] can't drop the placeholder out from under
     /// the primer.
     pub fn is_empty(&self) -> bool {
         self.ready.is_empty() && self.pending.is_none()
+    }
+
+    /// Pop the ready queue, re-pushing only entries that haven't expired. Bounded by the queue's
+    /// snapshot length so a concurrent insert can't make it loop forever.
+    pub fn drain_expired(&self) {
+        let mut remaining = self.ready.len();
+        while remaining > 0
+            && let Some(entry) = self.ready.pop()
+        {
+            remaining -= 1;
+            if !entry.is_expired() {
+                self.ready.force_push(entry);
+            }
+        }
     }
 }
 
@@ -217,8 +231,15 @@ where
             .flatten()
     }
 
-    pub fn cleanup(&self) {
-        self.connections.retain(|_k, v| !v.is_empty())
+    /// Drop expired entries from every set, then drop any set left with neither a ready
+    /// connection nor an in-flight connect. Unlike a plain empty-set sweep, this reclaims a set
+    /// that is non-empty only because it holds expired entries an idle origin never came back to
+    /// pop — the case a background reaper exists to catch.
+    pub fn reap(&self) {
+        self.connections.retain(|_k, set| {
+            set.drain_expired();
+            !set.is_empty()
+        });
     }
 
     /// Returns a clone of a live candidate for `key` without removing it from the pool, asking
@@ -323,6 +344,53 @@ where
             key,
             pending,
             resolved: false,
+        })
+    }
+}
+
+impl<K, V> Pool<K, V> {
+    /// A non-owning handle to this pool's connection map. A background reaper holds one of these so
+    /// that it self-terminates once every owning [`Client`][crate::Client] handle has dropped,
+    /// rather than keeping the pool (and its connections) alive forever.
+    pub fn downgrade(&self) -> WeakPool<K, V> {
+        WeakPool {
+            connections: Arc::downgrade(&self.connections),
+            max_set_size: self.max_set_size,
+        }
+    }
+}
+
+/// A non-owning handle to a [`Pool`], obtained via [`Pool::downgrade`]. [`upgrade`][Self::upgrade]
+/// returns a live `Pool` only while at least one owning handle survives.
+pub struct WeakPool<K, V> {
+    max_set_size: usize,
+    connections: Weak<DashMap<K, PoolSet<V>>>,
+}
+
+impl<K, V> Debug for WeakPool<K, V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WeakPool")
+            .field("max_set_size", &self.max_set_size)
+            .field("live", &(self.connections.strong_count() > 0))
+            .finish()
+    }
+}
+
+impl<K, V> Clone for WeakPool<K, V> {
+    fn clone(&self) -> Self {
+        Self {
+            max_set_size: self.max_set_size,
+            connections: self.connections.clone(),
+        }
+    }
+}
+
+impl<K, V> WeakPool<K, V> {
+    /// Recover an owning [`Pool`] if any owning handle is still alive, otherwise `None`.
+    pub fn upgrade(&self) -> Option<Pool<K, V>> {
+        Some(Pool {
+            connections: self.connections.upgrade()?,
+            max_set_size: self.max_set_size,
         })
     }
 }
@@ -433,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup() {
+    fn reap_drops_emptied_sets() {
         let pool = Pool::new(5);
         for n in 0..10 {
             pool.insert(
@@ -446,13 +514,39 @@ mod tests {
             );
         }
         assert_eq!(pool.keys().count(), 2);
-        pool.cleanup(); // no change
+        pool.reap(); // no change: both sets hold live entries
         assert_eq!(pool.keys().count(), 2);
         let _ = pool
             .candidates(&Url::parse("http://0.0.0.0:1234").unwrap().origin())
             .collect::<Vec<_>>();
-        assert_eq!(pool.keys().count(), 2); // haven't cleaned up
-        pool.cleanup();
+        assert_eq!(pool.keys().count(), 2); // drained by candidates() but set not yet reaped
+        pool.reap();
         assert_eq!(pool.keys().count(), 1);
+    }
+
+    #[test]
+    fn reap_drains_expired_within_nonempty_sets() {
+        use std::time::Duration;
+        let pool = Pool::new(5);
+        let key = Url::parse("http://127.0.0.1:8080").unwrap().origin();
+        let past = Instant::now() - Duration::from_secs(1);
+        for n in 0..3 {
+            pool.insert(key.clone(), PoolEntry::new(n, Some(past)));
+        }
+        // The set is non-empty — it holds three expired entries an idle origin never popped — so
+        // an empty-set-only sweep would retain it and leak those fds. reap() drains the expired
+        // entries and then drops the emptied set.
+        assert_eq!(pool.keys().count(), 1);
+        pool.reap();
+        assert_eq!(pool.keys().count(), 0);
+    }
+
+    #[test]
+    fn downgrade_upgrade_tracks_owning_handle() {
+        let pool = Pool::<String, u8>::new(5);
+        let weak = pool.downgrade();
+        assert!(weak.upgrade().is_some());
+        drop(pool);
+        assert!(weak.upgrade().is_none());
     }
 }

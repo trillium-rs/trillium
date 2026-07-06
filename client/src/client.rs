@@ -12,6 +12,14 @@ use trillium_server_common::{
     url::{Origin, Url},
 };
 
+/// Default maximum idle time for a pooled HTTP/1.1 connection. A warm keepalive connection is
+/// worth holding onto — reusing it saves a full TCP (and, for https, TLS) handshake — so the
+/// timeout exists only to bound *unbounded* retention, not to reclaim connections eagerly. A
+/// connection the origin closed first is discarded cheaply either way: by the reuse-time
+/// liveness probe when it's next reached for, or by the background reaper. Matches the h2
+/// default for the same reason.
+const DEFAULT_H1_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Default maximum idle time for a pooled HTTP/2 connection. Longer than h1 because the
 /// initial h2 handshake (TCP + TLS + ALPN + SETTINGS exchange) is more expensive to
 /// re-establish.
@@ -46,6 +54,16 @@ pub struct Client {
 
     #[field(vis = "pub(crate)", get)]
     h2_pool: Option<Pool<Origin, H2Pooled>>,
+
+    /// Maximum idle time for a pooled HTTP/1.1 connection before a background reaper closes it and
+    /// removes it from the pool. `None` disables expiry, restoring the previous behavior in which
+    /// idle h1 connections were retained until reused (and discarded by a liveness probe) or the
+    /// pool was manually cleaned up — an origin that stopped being contacted then held its idle
+    /// file descriptors indefinitely.
+    ///
+    /// Defaults to 5 minutes.
+    #[field(get, set, with, without, copy)]
+    h1_idle_timeout: Option<Duration>,
 
     /// Maximum idle time for a pooled HTTP/2 connection. `None` disables expiry.
     ///
@@ -181,11 +199,15 @@ impl Client {
 
     /// builds a new client from this `Connector`
     pub fn new(connector: impl Connector) -> Self {
+        let config = ArcedConnector::new(connector);
+        let (pool, h2_pool) = (Pool::default(), Pool::default());
+        crate::reaper::spawn_pool_reaper(config.runtime(), pool.downgrade(), h2_pool.downgrade());
         Self {
-            config: ArcedConnector::new(connector),
+            config,
             h3: None,
-            pool: Some(Pool::default()),
-            h2_pool: Some(Pool::default()),
+            pool: Some(pool),
+            h2_pool: Some(h2_pool),
+            h1_idle_timeout: Some(DEFAULT_H1_IDLE_TIMEOUT),
             h2_idle_timeout: Some(DEFAULT_H2_IDLE_TIMEOUT),
             h2_idle_ping_threshold: Some(DEFAULT_H2_IDLE_PING_THRESHOLD),
             h2_idle_ping_timeout: DEFAULT_H2_IDLE_PING_TIMEOUT,
@@ -229,11 +251,15 @@ impl Client {
                 .set_extended_connect_enabled(true);
         }
 
+        let config = ArcedConnector::new(connector);
+        let (pool, h2_pool) = (Pool::default(), Pool::default());
+        crate::reaper::spawn_pool_reaper(config.runtime(), pool.downgrade(), h2_pool.downgrade());
         Self {
-            config: ArcedConnector::new(connector),
+            config,
             h3: Some(H3ClientState::new(arced_quic)),
-            pool: Some(Pool::default()),
-            h2_pool: Some(Pool::default()),
+            pool: Some(pool),
+            h2_pool: Some(h2_pool),
+            h1_idle_timeout: Some(DEFAULT_H1_IDLE_TIMEOUT),
             h2_idle_timeout: Some(DEFAULT_H2_IDLE_TIMEOUT),
             h2_idle_ping_threshold: Some(DEFAULT_H2_IDLE_PING_THRESHOLD),
             h2_idle_ping_timeout: DEFAULT_H2_IDLE_PING_TIMEOUT,
@@ -408,10 +434,10 @@ impl Client {
     /// method intermittently.
     pub fn clean_up_pool(&self) {
         if let Some(pool) = &self.pool {
-            pool.cleanup();
+            pool.reap();
         }
         if let Some(h2_pool) = &self.h2_pool {
-            h2_pool.cleanup();
+            h2_pool.reap();
         }
     }
 
