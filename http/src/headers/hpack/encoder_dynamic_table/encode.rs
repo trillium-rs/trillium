@@ -115,8 +115,10 @@ fn encode_line(
     //    observer accounting, mirroring the static sensitive-headers list.
     let uncacheable = name.has_uncacheable_value() || never_indexed;
     let hash = (!uncacheable).then(|| RecentPairs::hash(name.as_bytes(), value_bytes));
-    let observer_hot = !uncacheable && observer.is_hot(name, Some(&value));
-    let should_index = hash.is_some_and(|h| state.recent_pairs.seen(h)) || observer_hot;
+    // The ring is checked first so a hit skips is_hot, which takes the observer's shared
+    // cross-listener mutex.
+    let should_index = hash.is_some_and(|h| state.recent_pairs.seen(h))
+        || (!uncacheable && observer.is_hot(name, Some(&value)));
 
     if let Some(h) = hash {
         state.recent_pairs.remember(h);
