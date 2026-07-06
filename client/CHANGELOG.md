@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.11] - 2026-07-06
 
 ### Added
 - `Client::h1_idle_timeout` (default 5 minutes). A pooled HTTP/1.1 keepalive connection that sits
@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indefinitely — their file descriptors were released only when the connection was next reused or
   the pool was manually cleaned up. They are now released after `h1_idle_timeout` (default 5
   minutes) even when the origin is never contacted again.
+
+- An HTTP/3 request whose header fields exceed the server's advertised
+  `SETTINGS_MAX_FIELD_SECTION_SIZE` is now rejected before being sent (once the server's settings
+  are known). Previously the advertised limit was ignored and the request was sent regardless.
 
 ## [0.9.10] - 2026-07-05
 

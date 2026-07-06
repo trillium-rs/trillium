@@ -89,12 +89,6 @@ where
         })
     }
 
-    fn max_peer_field_section_size(&self) -> Option<u64> {
-        self.h3_connection()?
-            .peer_settings()?
-            .max_field_section_size()
-    }
-
     pub(crate) async fn send_h3(mut self) -> io::Result<Self> {
         self.finalize_response_headers_h3();
         let mut output_buffer = Vec::with_capacity(self.context.config.response_buffer_len);
@@ -107,7 +101,6 @@ where
         let upgrading = self.should_upgrade();
 
         let loops_per_yield = self.context.config.copy_loops_per_yield;
-        let max_peer_field_section_size = self.max_peer_field_section_size();
 
         let max_buf = self.context.config.response_buffer_max_len;
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
@@ -126,10 +119,8 @@ where
                 };
 
                 log::trace!("sending trailers: {trailers}");
-                encode_field_section_h3(
-                    &h3,
+                h3.encode_field_section_framed(
                     &FieldSection::new(PseudoHeaders::default(), &trailers),
-                    max_peer_field_section_size,
                     bufwriter.buffer_mut(),
                     stream_id,
                 )?;
@@ -150,13 +141,7 @@ where
             return Err(io::ErrorKind::NotConnected.into());
         };
 
-        encode_field_section_h3(
-            &h3,
-            &field_section,
-            self.max_peer_field_section_size(),
-            buffer,
-            stream_id,
-        )
+        h3.encode_field_section_framed(&field_section, buffer, stream_id)
     }
 
     pub(crate) fn build_h3(
@@ -237,49 +222,4 @@ where
 
         self.response_headers.remove_all(H1_ONLY_HEADERS);
     }
-}
-
-/// Encode an HTTP/3 HEADERS frame (type+length prefix followed by the QPACK-encoded
-/// field section) and append it to `buffer`.
-///
-/// # Errors
-///
-/// Returns the QPACK encoder's error if encoding fails, or [`io::ErrorKind::InvalidData`]
-/// if the field-section size exceeds the peer's `SETTINGS_MAX_FIELD_SECTION_SIZE`.
-pub(crate) fn encode_field_section_h3(
-    h3: &H3Connection,
-    field_section: &FieldSection<'_>,
-    max_peer_field_section_size: Option<u64>,
-    buffer: &mut Vec<u8>,
-    stream_id: u64,
-) -> io::Result<()> {
-    // Encode the QPACK field section directly onto `buffer`, then open a gap in front of it for
-    // the length-prefixed HEADERS frame header. This avoids a transient encode buffer + copy: the
-    // section bytes are written once, then shifted right by the (now-known) header length.
-    let start = buffer.len();
-    h3.encode_field_section(field_section, buffer, stream_id)
-        .map_err(|error| {
-            log::error!("encode error: {error:?}");
-            io::Error::other(error)
-        })?;
-
-    let size = (buffer.len() - start) as u64;
-    if let Some(max_size) = max_peer_field_section_size
-        && size > max_size
-    {
-        buffer.truncate(start);
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("field section would be longer than peer allows ({size} > {max_size})"),
-        ));
-    }
-
-    let frame = Frame::Headers(size);
-    let frame_header_len = frame.encoded_len();
-    let section_len = buffer.len() - start;
-    buffer.resize(buffer.len() + frame_header_len, 0);
-    buffer.copy_within(start..start + section_len, start + frame_header_len);
-    frame.encode(&mut buffer[start..start + frame_header_len]);
-
-    Ok(())
 }

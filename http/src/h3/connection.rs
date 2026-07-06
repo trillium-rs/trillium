@@ -425,13 +425,18 @@ impl H3Connection {
         self.decoder_dynamic_table.decode(encoded, stream_id).await
     }
 
-    /// Encode a QPACK field section from pseudo-headers and headers, consulting the encoder
-    /// dynamic table to emit literal-with-name-reference or indexed representations as the
-    /// table's contents allow.
+    /// Encode a QPACK field section (no HTTP/3 framing) from pseudo-headers and headers,
+    /// consulting the encoder dynamic table to emit literal-with-name-reference or indexed
+    /// representations as the table's contents allow.
+    ///
+    /// Superseded by [`encode_field_section_framed`][Self::encode_field_section_framed], which
+    /// also frames the section and enforces the peer's field-section size limit.
     ///
     /// # Errors
     ///
     /// Returns an `H3Error` in case of http/3 semantic error.
+    // Retained only so an older `trillium-client` that predates the framed method still builds
+    // against this crate; remove it at the next breaking release.
     #[cfg(feature = "unstable")]
     #[allow(clippy::unnecessary_wraps, reason = "future-proofing api")]
     pub fn encode_field_section(
@@ -445,16 +450,74 @@ impl H3Connection {
         Ok(())
     }
 
-    #[cfg(not(feature = "unstable"))]
-    #[allow(clippy::unnecessary_wraps, reason = "future-proofing api")]
-    pub(crate) fn encode_field_section(
+    /// Encode `field_section` as a complete HTTP/3 HEADERS frame — the QPACK-compressed field
+    /// section prefixed with its `type` + `length` frame header — and append it to `buffer`.
+    ///
+    /// If the peer's `SETTINGS_MAX_FIELD_SECTION_SIZE` is known and the section's
+    /// [`uncompressed_len`][crate::headers::FieldSection] exceeds it, the section is rejected
+    /// before encoding and nothing is written. Until the peer's SETTINGS arrive the limit is
+    /// unknown and unenforced (RFC 9114 §4.2.2).
+    ///
+    /// # Errors
+    ///
+    /// [`io::ErrorKind::InvalidData`] if the field section exceeds the peer's advertised limit, or
+    /// the QPACK encoder's error mapped through [`io::Error::other`].
+    #[cfg(feature = "unstable")]
+    #[doc(hidden)]
+    pub fn encode_field_section_framed(
         &self,
         field_section: &FieldSection<'_>,
-        buf: &mut Vec<u8>,
+        buffer: &mut Vec<u8>,
         stream_id: u64,
-    ) -> Result<(), H3Error> {
+    ) -> io::Result<()> {
+        self.encode_field_section_framed_impl(field_section, buffer, stream_id)
+    }
+
+    #[cfg(not(feature = "unstable"))]
+    pub(crate) fn encode_field_section_framed(
+        &self,
+        field_section: &FieldSection<'_>,
+        buffer: &mut Vec<u8>,
+        stream_id: u64,
+    ) -> io::Result<()> {
+        self.encode_field_section_framed_impl(field_section, buffer, stream_id)
+    }
+
+    fn encode_field_section_framed_impl(
+        &self,
+        field_section: &FieldSection<'_>,
+        buffer: &mut Vec<u8>,
+        stream_id: u64,
+    ) -> io::Result<()> {
+        // Enforce the peer's SETTINGS_MAX_FIELD_SECTION_SIZE against the uncompressed size the
+        // limit is defined in (RFC 9114 §4.2.2), before encoding — an over-limit section is
+        // rejected without being written to the wire.
+        if let Some(max_size) = self
+            .peer_settings()
+            .and_then(H3Settings::max_field_section_size)
+        {
+            let size = field_section.uncompressed_len();
+            if size > max_size {
+                return Err(io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!("field section would be longer than peer allows ({size} > {max_size})"),
+                ));
+            }
+        }
+
+        let start = buffer.len();
         self.encoder_dynamic_table
-            .encode(field_section, buf, stream_id);
+            .encode(field_section, buffer, stream_id);
+
+        // The HEADERS frame length is the encoded (compressed) payload length, distinct from the
+        // uncompressed size enforced above. Encode the section in place, then open a gap in front
+        // of it for the now-known frame header and shift the section right into place.
+        let section_len = buffer.len() - start;
+        let frame = Frame::Headers(section_len as u64);
+        let frame_header_len = frame.encoded_len();
+        buffer.resize(buffer.len() + frame_header_len, 0);
+        buffer.copy_within(start..start + section_len, start + frame_header_len);
+        frame.encode(&mut buffer[start..start + frame_header_len]);
         Ok(())
     }
 
