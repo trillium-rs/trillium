@@ -1133,3 +1133,67 @@ async fn h3_server_drop_without_close_does_not_hang() -> TestResult {
     server.shut_down().await;
     Ok(())
 }
+
+/// A browser's WebSocket handshake is a bodyless `GET`: it declares neither
+/// `Transfer-Encoding` nor `Content-Length`. Such a request parses as an empty body
+/// (`ReceivedBodyState::End`), and that framing must not survive into the `Upgrade` — past
+/// the 101 the transport is a raw byte stream. Inheriting it made the first server-side read
+/// return EOF while the peer was still connected, so a proxy relaying the upgrade would
+/// immediately tear down a healthy connection.
+///
+/// Driven over a raw socket on purpose: `trillium-client`'s `.upgrade()` sends a streaming
+/// body, so it always declares chunked framing and never exercises this path.
+#[test(harness)]
+async fn h1_upgrade_without_declared_framing_reads_raw() -> TestResult {
+    use async_net::TcpStream as RawStream;
+
+    let server = H1Server::with_upgrade(
+        |conn: Conn<_>| async move { conn.upgrade().with_status(101) },
+        |upgrade: Upgrade<_>| async move {
+            server_pong_to_eof(upgrade).await.unwrap();
+        },
+    )
+    .await;
+
+    let addr = server
+        .base_url()
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .to_string();
+    let mut socket = RawStream::connect(&*addr).await?;
+
+    // Exactly what a browser sends: no Transfer-Encoding, no Content-Length.
+    socket
+        .write_all(
+            format!(
+                "GET / HTTP/1.1\r\nHost: {addr}\r\nConnection: Upgrade\r\nUpgrade: \
+                 websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: \
+                 SXDK9rww/7aGBCD6Bml0BQ==\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await?;
+
+    // Drain the response head up to the blank line.
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        assert_eq!(socket.read(&mut byte).await?, 1, "EOF during response head");
+        head.push(byte[0]);
+    }
+    let head = String::from_utf8(head).unwrap();
+    assert!(
+        head.starts_with("HTTP/1.1 101"),
+        "unexpected head: {head:?}"
+    );
+
+    // The upgraded stream is raw: the server must still be reading, not at EOF.
+    socket.write_all(b"ping: 0\n").await?;
+    let echoed = read_line_async(&mut socket)
+        .await?
+        .expect("server read EOF on an upgraded socket that is still open");
+    assert_eq!(echoed, "pong: ping: 0\n");
+
+    server.shut_down().await;
+    Ok(())
+}
