@@ -30,7 +30,7 @@ fn new_encoder(
     local_pref: usize,
     recent_pairs: usize,
 ) -> HpackEncoder {
-    let mut enc = HpackEncoder::new(observer, local_pref, recent_pairs);
+    let mut enc = HpackEncoder::new(observer, local_pref, recent_pairs, false);
     enc.set_protocol_max_size(usize::MAX);
     enc
 }
@@ -260,7 +260,7 @@ fn pre_settings_encoder_never_inserts() {
     );
     observer.fold_connection(&accum);
 
-    let mut enc = HpackEncoder::new(observer, 4096, 16);
+    let mut enc = HpackEncoder::new(observer, 4096, 16, false);
     let headers = Headers::new().with_inserted_header(KnownHeaderName::Server, "trillium");
     let section = FieldSection::new(PseudoHeaders::default(), &headers);
 
@@ -284,7 +284,7 @@ fn protocol_max_settings_emits_size_update() {
     // 4096 too, so the §6.3 is accepted; without the §6.3, the decoder would treat any
     // dynamic-table inserts as §4.2 violations (size update MUST occur at start of next
     // section after a change).
-    let mut enc = HpackEncoder::new(observer(), 4096, 16);
+    let mut enc = HpackEncoder::new(observer(), 4096, 16, false);
     enc.set_protocol_max_size(4096);
 
     let headers = Headers::new().with_inserted_header(KnownHeaderName::AcceptEncoding, "gzip");
@@ -316,7 +316,7 @@ fn protocol_max_caps_at_local_preferred() {
     );
     observer.fold_connection(&accum);
 
-    let mut enc = HpackEncoder::new(observer, 1024, 16);
+    let mut enc = HpackEncoder::new(observer, 1024, 16, false);
     enc.set_protocol_max_size(8192);
 
     let headers = Headers::new().with_inserted_header(KnownHeaderName::Server, "trillium");
@@ -353,7 +353,7 @@ fn protocol_max_shrink_evicts_and_emits_size_update() {
         );
         observer.fold_connection(&accum);
     }
-    let mut enc = HpackEncoder::new(observer, 1024, 16);
+    let mut enc = HpackEncoder::new(observer, 1024, 16, false);
     enc.set_protocol_max_size(1024);
 
     // Block 1: insert (server, trillium) and (etag, abc123).
@@ -393,7 +393,7 @@ fn protocol_max_zero_clears_table() {
     );
     observer.fold_connection(&accum);
 
-    let mut enc = HpackEncoder::new(observer, 4096, 16);
+    let mut enc = HpackEncoder::new(observer, 4096, 16, false);
     enc.set_protocol_max_size(4096);
 
     // Seed an entry.
@@ -419,7 +419,7 @@ fn protocol_max_zero_clears_table() {
 #[test]
 fn protocol_max_idempotent() {
     // Repeated `set_protocol_max_size` with the same value is a no-op (no §6.3 re-emit).
-    let mut enc = HpackEncoder::new(observer(), 4096, 16);
+    let mut enc = HpackEncoder::new(observer(), 4096, 16, false);
     enc.set_protocol_max_size(4096);
     let headers = Headers::new().with_inserted_header(KnownHeaderName::AcceptEncoding, "gzip");
     let section = FieldSection::new(PseudoHeaders::default(), &headers);

@@ -35,6 +35,35 @@ use std::{
     fmt::{self, Debug},
 };
 
+/// Warming-insert trigger policy — when does a cacheable `(name, value)` pair earn a
+/// dynamic-table insert?
+///
+/// Production behavior is [`SeenK`](Self::SeenK) with `k` derived from the negotiated
+/// capacity when `recent_pairs_auto` is set ([`RecentPairs::auto_seen_k`]), `SeenK(2)`
+/// otherwise. [`Never`](Self::Never) and other `k` values are corpus-experiment
+/// overrides, reachable through the test-gated `EncoderDynamicTable::set_insert_policy`.
+///
+/// [`RecentPairs::auto_seen_k`]: crate::headers::recent_pairs::RecentPairs::auto_seen_k
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// `Never` is only constructed by cfg(test) code.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::headers) enum InsertPolicy {
+    /// Never insert. The dynamic table stays empty (beyond priming); establishes the
+    /// static-only floor at any capacity.
+    Never,
+    /// Insert on the `k`th sighting within the recent-pairs ring's retention window
+    /// (the ring never dedupes, so each sighting occupies a slot). `SeenK(1)` is
+    /// insert-on-first-sight; `SeenK(2)` — the production default — is the classic
+    /// seen-twice policy.
+    SeenK(u8),
+}
+
+impl Default for InsertPolicy {
+    fn default() -> Self {
+        Self::SeenK(2)
+    }
+}
+
 pub(super) struct TableState {
     /// Entries in insertion order, newest first. `entries[0]` has absolute index
     /// `insert_count - 1`; `entries[i]` has absolute index `insert_count - 1 - i`.
@@ -73,6 +102,26 @@ pub(super) struct TableState {
     /// Per-connection ring of recently-seen `(name, value)` pair hashes. Consulted by
     /// the planner before each warming insert.
     pub(super) recent_pairs: RecentPairs,
+    /// Per-connection ring of recently-seen name hashes, tracking only names with no
+    /// static-table slot. Consulted by the name-only warming pass: a name repeating
+    /// within the window while its values all differ never pair-inserts, so a
+    /// `(name, "")` entry is the only way later literals get a cheap name reference.
+    /// Sized to match `recent_pairs`. Inert unless `name_warm` is set.
+    pub(super) recent_names: RecentPairs,
+    /// When set, a static-table-miss name reaching `name_k` sightings within the
+    /// `recent_names` window with no live dynamic entry warm-inserts `(name, "")`.
+    /// Enabled by `initialize_from_peer_settings` when `recent_pairs_auto`; configuring
+    /// an explicit `recent_pairs_size` restores the pair-only policy.
+    pub(super) name_warm: bool,
+    /// Sighting threshold for name-only warming, mirroring [`InsertPolicy::SeenK`]:
+    /// insert on the `name_k`th windowed sighting of a static-miss name. `3` makes a
+    /// 2-section connection categorically unable to trigger (one sighting per section).
+    pub(super) name_k: u8,
+    /// Which sightings of a cacheable pair trigger a warming insert. Derived from the
+    /// negotiated capacity in `initialize_from_peer_settings` when `recent_pairs_auto`;
+    /// the corpus harness overrides it (via `EncoderDynamicTable::set_insert_policy`) to
+    /// A/B alternative policies offline.
+    pub(super) insert_policy: InsertPolicy,
     /// Running total of entry sizes for priming inserts that succeeded at
     /// connection start. Read by the encode-path dup-drain gate: refresh kicks in when
     /// `headroom < primed_bytes` — i.e. when the table is close enough to full that the
@@ -111,6 +160,10 @@ impl Debug for TableState {
             .field("max_blocked_streams", &self.max_blocked_streams)
             .field("by_name", &self.by_name)
             .field("recent_pairs", &self.recent_pairs)
+            .field("recent_names", &self.recent_names)
+            .field("name_warm", &self.name_warm)
+            .field("name_k", &self.name_k)
+            .field("insert_policy", &self.insert_policy)
             .field("primed_bytes", &self.primed_bytes)
             .field("accum", &self.accum)
             .finish()
@@ -184,6 +237,7 @@ pub(in crate::headers) struct SectionRefs {
 
 impl TableState {
     pub(super) fn new(recent_pairs: RecentPairs) -> Self {
+        let recent_names = RecentPairs::with_size(recent_pairs.size());
         Self {
             entries: VecDeque::new(),
             max_capacity: 0,
@@ -197,6 +251,10 @@ impl TableState {
             max_blocked_streams: 0,
             by_name: HashMap::new(),
             recent_pairs,
+            recent_names,
+            name_warm: false,
+            name_k: 3,
+            insert_policy: InsertPolicy::default(),
             primed_bytes: 0,
             accum: ConnectionAccumulator::default(),
         }
@@ -448,12 +506,24 @@ impl TableState {
             // when the next eviction would touch the pin itself. `>=` (rather than `==`) is
             // defensive — if we ever observe `evicted_abs > pin` we've already evicted a
             // pinned entry, a bug the error here surfaces instead of silently continuing.
-            if floor.is_some_and(|pin| evicted_abs >= pin) {
-                log::error!(
-                    "qpack encoder: eviction blocked (current_size={}, target_size={target_size}, \
-                     evicted_abs={evicted_abs}, floor={floor:?})",
-                    self.current_size,
-                );
+            if let Some(pin) = floor
+                && evicted_abs >= pin
+            {
+                if evicted_abs > pin {
+                    log::error!(
+                        "qpack encoder: eviction proceeded past pinned entry (current_size={}, \
+                         target_size={target_size}, evicted_abs={evicted_abs}, pin={pin})",
+                        self.current_size,
+                    );
+                } else {
+                    // Routine at small capacities: the in-flight section pins the tail, the
+                    // insert/duplicate caller recovers with a literal representation.
+                    log::trace!(
+                        "qpack encoder: eviction blocked by pinned section (current_size={}, \
+                         target_size={target_size}, evicted_abs={evicted_abs}, pin={pin})",
+                        self.current_size,
+                    );
+                }
                 result = Err(H3ErrorCode::QpackEncoderStreamError.into());
                 break;
             }

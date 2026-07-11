@@ -34,7 +34,7 @@ mod state;
 mod tests;
 mod writer;
 
-pub(in crate::headers) use state::SectionRefs;
+pub(in crate::headers) use state::{InsertPolicy, SectionRefs};
 
 /// The encoder-side QPACK dynamic table for a single HTTP/3 connection.
 ///
@@ -54,6 +54,13 @@ pub struct EncoderDynamicTable {
     ///
     /// [`HttpConfig::dynamic_table_capacity`]: crate::HttpConfig::dynamic_table_capacity
     our_max_capacity: usize,
+    /// [`HttpConfig::recent_pairs_auto`] captured at construction: when set,
+    /// [`initialize_from_peer_settings`](Self::initialize_from_peer_settings) derives the
+    /// recent-pairs ring size and insert threshold from the negotiated capacity, and
+    /// enables name-only warming.
+    ///
+    /// [`HttpConfig::recent_pairs_auto`]: crate::HttpConfig::recent_pairs_auto
+    recent_pairs_auto: bool,
     /// Notified on: new op enqueued, peer ack received, failure. The encoder stream writer
     /// task awaits this to wake and drain `pending_ops`.
     event: Event,
@@ -87,12 +94,47 @@ impl EncoderDynamicTable {
             state: Mutex::new(TableState::new(RecentPairs::with_size(recent_pairs_size))),
             observer,
             our_max_capacity: context.config.dynamic_table_capacity,
+            recent_pairs_auto: context.config.recent_pairs_auto,
             event: Event::new(),
         }
     }
 }
 
 impl EncoderDynamicTable {
+    /// Override the warming-insert policy (corpus-experiment scaffolding). Call after
+    /// [`initialize_from_peer_settings`](Self::initialize_from_peer_settings) — that's
+    /// where the production policy is derived when `recent_pairs_auto` is set, and this
+    /// override must win.
+    #[cfg(test)]
+    pub(in crate::headers) fn set_insert_policy(&self, policy: InsertPolicy) {
+        self.state.lock().unwrap().insert_policy = policy;
+    }
+
+    /// Override name-only warming on or off (corpus-experiment scaffolding; production
+    /// enables it via `recent_pairs_auto`). Call after
+    /// [`initialize_from_peer_settings`](Self::initialize_from_peer_settings), where the
+    /// production value is derived.
+    #[cfg(test)]
+    pub(in crate::headers) fn set_name_warm(&self, enabled: bool) {
+        self.state.lock().unwrap().name_warm = enabled;
+    }
+
+    /// Set the sighting threshold for name-only warming (corpus-experiment
+    /// scaffolding). Call before encoding begins.
+    #[cfg(test)]
+    pub(in crate::headers) fn set_name_k(&self, k: u8) {
+        self.state.lock().unwrap().name_k = k;
+    }
+
+    /// Replace the name-only warming ring with one of `size` slots (corpus-experiment
+    /// scaffolding; the ring otherwise matches `recent_pairs`). Call after
+    /// [`initialize_from_peer_settings`](Self::initialize_from_peer_settings) and
+    /// before encoding begins — nothing has been remembered yet at that point.
+    #[cfg(test)]
+    pub(in crate::headers) fn set_name_ring_size(&self, size: usize) {
+        self.state.lock().unwrap().recent_names = RecentPairs::with_size(size);
+    }
+
     /// Initialize the table from peer settings. Sets `max_capacity` (and the working
     /// `capacity`) to `min(our_max_capacity, peer_qpack_max_table_capacity)`, records
     /// `max_blocked_streams` from the peer's settings, and, if the chosen capacity is
@@ -131,6 +173,14 @@ impl EncoderDynamicTable {
         );
         state.max_capacity = chosen;
         state.max_blocked_streams = max_blocked_streams;
+        if self.recent_pairs_auto {
+            // Nothing has been encoded yet (this runs before any request stream), so
+            // replacing the construction-time rings discards no sightings.
+            state.recent_pairs = RecentPairs::with_size(RecentPairs::auto_size(chosen));
+            state.recent_names = RecentPairs::with_size(RecentPairs::auto_size(chosen));
+            state.insert_policy = InsertPolicy::SeenK(RecentPairs::auto_seen_k(chosen));
+            state.name_warm = true;
+        }
         if chosen > 0 {
             state
                 .set_capacity(chosen)

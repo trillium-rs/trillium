@@ -23,6 +23,11 @@
 //! 4. **Literal form** — `LiteralStaticNameRef` → `LiteralDynamicNameRef` (when the pre-insert
 //!    dyn-name lookup is still live and the budget allows) → `LiteralLiteralName`.
 //!
+//! Alongside the pair predictor, a name-only warming pass covers names whose values never
+//! repeat (request ids and the like): a static-table-miss name reaching its sighting
+//! threshold with no live same-name entry warm-inserts `(name, "")`, so later literals can
+//! use a 1–2 byte dynamic name reference instead of literal name bytes.
+//!
 //! ## Blocking budget
 //!
 //! Captured once at planner construction: `can_block_section = is_stream_blocking ||
@@ -38,7 +43,10 @@
 //! ([`EntryName::has_uncacheable_value`]) and values explicitly marked Never-Indexed are
 //! excluded from the predictor and never warm-inserted.
 
-use super::{EncoderDynamicTable, SectionRefs, state::TableState};
+use super::{
+    EncoderDynamicTable, SectionRefs,
+    state::{InsertPolicy, TableState},
+};
 use crate::headers::{
     entry_name::EntryName,
     qpack::{
@@ -241,12 +249,55 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         let uncacheable = name.has_uncacheable_value() || never_indexed;
         let hash = (!uncacheable).then(|| RecentPairs::hash(name.as_bytes(), value.as_bytes()));
 
-        // Indexing decision: a non-sensitive header is eligible for warm insertion the
-        // second (and subsequent) time the encoder sees it on this connection.
-        let should_index = hash.is_some_and(|h| self.state.recent_pairs.seen(h));
+        // Indexing decision: a non-sensitive header is eligible for warm insertion on
+        // its `k`th sighting on this connection, where `k` is capacity-derived under
+        // `recent_pairs_auto` (see `RecentPairs::auto_seen_k`).
+        let should_index = match self.state.insert_policy {
+            InsertPolicy::Never => false,
+            // `seen` short-circuits, so keep it for the k=2 path; higher k materializes
+            // the count from the ring's non-deduped slots.
+            InsertPolicy::SeenK(2) => hash.is_some_and(|h| self.state.recent_pairs.seen(h)),
+            InsertPolicy::SeenK(k) => {
+                hash.is_some_and(|h| self.state.recent_pairs.count(h) + 1 >= usize::from(k))
+            }
+        };
 
-        let emission = self.plan_emission(name, value, should_index, never_indexed);
+        let static_match = static_table_lookup(name, Some(value.as_bytes()));
+
+        // Name-only warming tracks names with no static-table slot: those are the only
+        // ones where a `(name, "")` entry buys later literals anything.
+        let name_hash =
+            (self.state.name_warm && !never_indexed && matches!(static_match, StaticHit::None))
+                .then(|| RecentPairs::hash(name.as_bytes(), b""));
+
+        let emission = self.plan_emission(name, value, should_index, never_indexed, static_match);
         self.emissions.push(emission);
+
+        // A repeating high-cardinality name never passes the pair policy (each value is
+        // a first sighting), so no entry ever carries the name. Warm-insert `(name, "")`
+        // on the name's `name_k`th windowed sighting — unless something already carries
+        // it (a live same-name entry serves literal name refs just as well).
+        if let Some(nh) = name_hash {
+            // Same shape as the pair policy's `SeenK` arms: `seen` short-circuits for
+            // the k=2 case, higher k materializes the count from the ring's slots.
+            let threshold_met = if self.state.name_k == 2 {
+                self.state.recent_names.seen(nh)
+            } else {
+                self.state.recent_names.count(nh) + 1 >= usize::from(self.state.name_k)
+            };
+            if threshold_met && !self.state.by_name.contains_key(name) {
+                let pre_count = self.state.pending_ops.len();
+                let _ = self.state.insert(
+                    name.reborrow(),
+                    FieldLineValue::Static(b""),
+                    self.min_ref_abs_idx,
+                );
+                if self.state.pending_ops.len() > pre_count {
+                    self.made_inserts = true;
+                }
+            }
+            self.state.recent_names.remember(nh);
+        }
 
         // Defer the ring write until after planning — a header is never visible to its
         // own earlier `seen` query.
@@ -263,9 +314,8 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
         value: FieldLineValue<'lines>,
         should_index: bool,
         never_indexed: bool,
+        static_match: StaticHit,
     ) -> Emission<'lines, 'names> {
-        let static_match = static_table_lookup(name, Some(value.as_bytes()));
-
         // 1. Static full match: cheapest possible encoding, no dynamic-table interaction. N=1
         //    fields must use a literal representation, so we skip the indexed shortcut when
         //    never_indexed.

@@ -64,9 +64,31 @@
 //! report is replaced by a curve report showing total bytes per (config, chunk size) — the
 //! reference `.out` files are unchunked, so a like-for-like comparison at N<∞ would need
 //! ls-qpack run through the same chunking harness (not yet implemented).
+//!
+//! ## External corpus
+//!
+//! `QPACK_EXTERNAL_CORPUS_DIR=path` walks `*.qif` in that directory instead of the interop
+//! submodule (experiment scaffolding — e.g. the HTTP Archive response corpus; see the
+//! `httparchive-response-corpus` memory for provenance and generation). External files may
+//! delimit connections with `# connection` comment markers ([`qif::parse_connections`]);
+//! each connection gets a fresh encoder + decoder, and `QPACK_CHUNK_SIZES` composes by
+//! splitting *within* connections. Reference comparisons are skipped (no `.out` files),
+//! and each connection gets a fresh `HeaderObserver` rather than the shared per-cell one:
+//! external-corpus connections belong to different origins — different hypothetical
+//! servers — so cross-connection priming across them would model nothing real.
+//!
+//! ## Policy overrides
+//!
+//! `QPACK_INSERT_POLICY=never|seen-twice|first-sight|seen-<k>`, `QPACK_RING_SIZE=n`,
+//! `QPACK_NAME_WARM=0|1` (name-only warming off/on, overriding the production default),
+//! `QPACK_NAME_K=k` (name-warming sighting threshold), and `QPACK_NAME_RING=n`
+//! (name-warming ring slots) override the warming-insert policy for the whole run (see
+//! [`PolicyOverrides`]). One value per invocation; grid sweeps are shell loops.
 
 use super::{
-    DecoderDynamicTable, EncoderDynamicTable, qif,
+    DecoderDynamicTable, EncoderDynamicTable,
+    encoder_dynamic_table::InsertPolicy,
+    qif,
     reference_out::{
         OutGroup, WireHistogram, classify_encoder_stream, classify_header_block,
         histogram_from_out_file, parse_encoder_stream_for_dump, parse_header_block_for_dump,
@@ -125,6 +147,31 @@ const CONFIGS: &[Config] = &[
     Config::new(4096, 100),
 ];
 
+/// Parse `QPACK_CONFIGS` (`cap:blocked` pairs, comma-separated — e.g.
+/// `QPACK_CONFIGS=0:0,1024:100`) into the config matrix, defaulting to [`CONFIGS`] when
+/// unset. Experiment override: sweeping capacities not in the standard matrix without
+/// paying for the cells that aren't under study.
+fn parse_configs() -> Vec<Config> {
+    match std::env::var("QPACK_CONFIGS").ok() {
+        None => CONFIGS.to_vec(),
+        Some(s) => s
+            .split(',')
+            .map(str::trim)
+            .filter(|tok| !tok.is_empty())
+            .map(|tok| {
+                let parse = |half: &str| {
+                    half.parse()
+                        .unwrap_or_else(|_| panic!("QPACK_CONFIGS: invalid number in {tok:?}"))
+                };
+                match tok.split_once(':') {
+                    Some((cap, blocked)) => Config::new(parse(cap), parse(blocked)),
+                    None => panic!("QPACK_CONFIGS: expected cap:blocked, got {tok:?}"),
+                }
+            })
+            .collect(),
+    }
+}
+
 // --- Stats ---
 
 /// Per-config byte totals for one qif file, summed across every group.
@@ -152,21 +199,6 @@ struct DumpCtx<'a> {
     their_groups: &'a [OutGroup],
 }
 
-/// Run one qif file at one config. Panics on any correctness failure; returns per-config
-/// byte totals for the compression metric, the strategy-counter snapshot, and a
-/// wire-level histogram of our own output classified through the same parser we use on
-/// reference `.out` files — for apples-to-apples comparison.
-///
-/// `chunk_size` = `None` is today's behavior (one encoder + decoder for the whole file, one
-/// long connection). `Some(n)` simulates a fleet of n-group connections: the encoder and
-/// decoder are torn down and reconstructed every n groups, and the returned stats sum
-/// bytes across all chunks. Stream ids are 1-based within each chunk.
-///
-/// If `dump` is `Some`, a side-by-side instruction-level dump of ours-vs-ls-qpack is
-/// appended to `dump.writer` for each group. In chunked mode, the reference `.out` file
-/// that `dump.their_groups` came from is unchunked, so the their-side of the dump is
-/// nonsensical past the first chunk boundary — dumping is intended for debugging the
-/// unchunked case.
 /// Stable-partition a QIF group so all pseudo-header entries (names starting with `:`)
 /// precede all regular-header entries. Preserves declared order within each partition.
 /// Used at QIF parse time to feed our encoder a compliant abstract header set when the
@@ -207,187 +239,250 @@ fn qif_group_is_malformed(group: &qif::QifGroup) -> bool {
     false
 }
 
+/// Which `HeaderObserver` each connection sees.
+///
+/// `Shared` is the single-listener model: one observer accumulates across every connection
+/// in the cell, so cross-connection priming fires once it warms up. `FreshPerEncoder`
+/// makes the observer inert (a fresh observer per encoder session never reaches its warmup
+/// threshold) — the right model for corpora whose connections belong to *different* origins
+/// (each is a different hypothetical server, so cross-connection information transfer would
+/// model nothing real), and for policy measurements that need the within-connection axis
+/// isolated from priming.
+enum ObserverMode {
+    Shared(std::sync::Arc<super::HeaderObserver>),
+    FreshPerEncoder,
+}
+
+/// Run one qif file at one config. Panics on any correctness failure; returns per-config
+/// byte totals for the compression metric, the strategy-counter snapshot, and a
+/// wire-level histogram of our own output classified through the same parser we use on
+/// reference `.out` files — for apples-to-apples comparison.
+///
+/// Each element of `connections` gets a fresh encoder + decoder (the interop corpus parses
+/// as a single connection per file; marker-delimited external corpora parse as many).
+/// `chunk_size = Some(n)` further splits every connection into n-group sub-connections —
+/// resampling long-connection corpora into fleets of short ones. Stream ids are 1-based
+/// within each chunk.
+///
+/// If `dump` is `Some`, a side-by-side instruction-level dump of ours-vs-ls-qpack is
+/// appended to `dump.writer` for each group. In chunked mode, the reference `.out` file
+/// that `dump.their_groups` came from is unchunked, so the their-side of the dump is
+/// nonsensical past the first chunk boundary — dumping is intended for debugging the
+/// unchunked case.
 fn run_qif_at_config(
     qif_path: &Path,
-    groups: &[qif::QifGroup],
+    connections: &[Vec<qif::QifGroup>],
     config: Config,
     chunk_size: Option<usize>,
-    observer: std::sync::Arc<super::HeaderObserver>,
+    observer_mode: &ObserverMode,
+    overrides: PolicyOverrides,
     mut dump: Option<DumpCtx<'_>>,
 ) -> (EncodeStats, WireHistogram) {
     let mut stats = EncodeStats::default();
     let mut wire = WireHistogram::default();
-    if groups.is_empty() {
-        return (stats, wire);
-    }
-    let effective_chunk_size = chunk_size.unwrap_or(groups.len()).max(1);
+    let mut next_global_index = 0usize;
 
-    let mut chunk_start = 0;
-    while chunk_start < groups.len() {
-        let chunk_end = (chunk_start + effective_chunk_size).min(groups.len());
-        let chunk = &groups[chunk_start..chunk_end];
-
-        // Build an HttpContext that holds this cell's shared observer (so cross-
-        // connection priming works) and the cell's max table capacity (the encoder reads
-        // it at construction).
-        let mut context = crate::HttpContext::default();
-        context.observer = observer.clone();
-        context.config.dynamic_table_capacity = config.capacity as usize;
-        let encoder = EncoderDynamicTable::new(&context);
-        encoder.initialize_from_peer_settings(
-            H3Settings::default()
-                .with_qpack_max_table_capacity(config.capacity)
-                .with_qpack_blocked_streams(config.max_blocked),
-        );
-        let decoder =
-            DecoderDynamicTable::new(config.capacity as usize, config.max_blocked as usize);
-
-        // Drain the initial Set Dynamic Table Capacity instruction (if any) into the decoder
-        // so that subsequent Insert instructions are accepted.
-        let initial_ops: Vec<u8> = encoder.drain_pending_ops().into_iter().flatten().collect();
-        stats.encoder_stream_bytes += initial_ops.len();
-        wire.encoder_stream_bytes += initial_ops.len() as u64;
-        classify_encoder_stream(&initial_ops, &mut wire);
-        if !initial_ops.is_empty() {
-            let mut cursor = Cursor::new(&initial_ops[..]);
-            // Tests use process_instructions, not run_reader, to skip the
-            // EOF→H3_CLOSED_CRITICAL_STREAM promotion (run_reader's production semantics
-            // for an unexpected peer FIN).
-            future::block_on(decoder.process_instructions(&mut cursor)).unwrap_or_else(|e| {
-                panic!(
-                    "{}: decoder rejected initial SetDynamicTableCapacity: {e}",
-                    qif_path.display()
-                )
-            });
+    for connection in connections {
+        if connection.is_empty() {
+            continue;
         }
+        let effective_chunk_size = chunk_size.unwrap_or(connection.len()).max(1);
 
-        for (i, group) in chunk.iter().enumerate() {
-            // Interop convention: stream ids start at 1 and increase monotonically within
-            // a connection. In chunked mode each chunk is a fresh connection, so ids restart.
-            let stream_id = (i as u64) + 1;
-            let global_index = chunk_start + i;
-            let field_lines = qif::build_field_lines(group)
-                .unwrap_or_else(|e| panic!("{}: group {global_index}: {e}", qif_path.display()));
-
-            let mut buf = Vec::new();
-            encoder.encode_field_lines(&field_lines, &mut buf, stream_id);
-            stats.section_bytes += buf.len();
-            wire.section_bytes += buf.len() as u64;
-            wire.n_sections += 1;
-            classify_header_block(&buf, &mut wire);
-
-            // Drain encoder-stream ops so the decoder has them when it decodes the header
-            // block.
-            let enc_ops: Vec<u8> = encoder.drain_pending_ops().into_iter().flatten().collect();
-            stats.encoder_stream_bytes += enc_ops.len();
-            wire.encoder_stream_bytes += enc_ops.len() as u64;
-            classify_encoder_stream(&enc_ops, &mut wire);
-
-            // Per-group ASCII dump. Appended to the writer if `dump` was provided — compares
-            // our emission sequence to the reference encoder's for this same group.
-            if let Some(ctx) = dump.as_mut() {
-                let their_group = ctx.their_groups.get(global_index);
-                let our_snapshot = OurStateSnapshot {
-                    insert_count: encoder.insert_count(),
-                    entry_count: encoder.entry_count(),
-                    current_size: encoder.current_size(),
-                    capacity: encoder.capacity(),
-                };
-                dump_group(
-                    ctx.writer,
-                    global_index,
-                    stream_id,
-                    group,
-                    &enc_ops,
-                    &buf,
-                    their_group,
-                    &our_snapshot,
-                );
+        for chunk in connection.chunks(effective_chunk_size) {
+            // Selected per chunk, not per connection: each chunk's encoder folds its
+            // observation accumulator into its observer on drop, so a per-connection
+            // observer would prime later chunks with earlier chunks' pairs — leaking
+            // cross-(sub)connection information into what should be a within-connection
+            // policy measurement. (That warm-reconnect model is interesting for priming
+            // experiments, but it should be a deliberate mode, not a side effect.)
+            let observer = match observer_mode {
+                ObserverMode::Shared(o) => o.clone(),
+                ObserverMode::FreshPerEncoder => std::sync::Arc::default(),
+            };
+            // Build an HttpContext that holds this cell's shared observer (so cross-
+            // connection priming works) and the cell's max table capacity (the encoder reads
+            // it at construction).
+            let mut context = crate::HttpContext::default();
+            context.observer = observer.clone();
+            context.config.dynamic_table_capacity = config.capacity as usize;
+            if let Some(n) = overrides.ring_size {
+                // Through the setter, not the field: pinning the ring must also disable
+                // `recent_pairs_auto` or initialize_from_peer_settings would re-derive it.
+                context.config.set_recent_pairs_size(n);
             }
-            if !enc_ops.is_empty() {
-                let mut cursor = Cursor::new(&enc_ops[..]);
+            let encoder = EncoderDynamicTable::new(&context);
+            encoder.initialize_from_peer_settings(
+                H3Settings::default()
+                    .with_qpack_max_table_capacity(config.capacity)
+                    .with_qpack_blocked_streams(config.max_blocked),
+            );
+            // Post-initialize: policy overrides must win over the auto-derived production
+            // policy; no override means the cell measures production behavior.
+            if let Some(policy) = overrides.insert_policy {
+                encoder.set_insert_policy(policy);
+            }
+            if let Some(warm) = overrides.name_warm {
+                encoder.set_name_warm(warm);
+            }
+            if let Some(k) = overrides.name_k {
+                encoder.set_name_k(k);
+            }
+            if let Some(n) = overrides.name_ring {
+                encoder.set_name_ring_size(n);
+            }
+            let decoder =
+                DecoderDynamicTable::new(config.capacity as usize, config.max_blocked as usize);
+
+            // Drain the initial Set Dynamic Table Capacity instruction (if any) into the decoder
+            // so that subsequent Insert instructions are accepted.
+            let initial_ops: Vec<u8> = encoder.drain_pending_ops().into_iter().flatten().collect();
+            stats.encoder_stream_bytes += initial_ops.len();
+            wire.encoder_stream_bytes += initial_ops.len() as u64;
+            classify_encoder_stream(&initial_ops, &mut wire);
+            if !initial_ops.is_empty() {
+                let mut cursor = Cursor::new(&initial_ops[..]);
+                // Tests use process_instructions, not run_reader, to skip the
+                // EOF→H3_CLOSED_CRITICAL_STREAM promotion (run_reader's production semantics
+                // for an unexpected peer FIN).
                 future::block_on(decoder.process_instructions(&mut cursor)).unwrap_or_else(|e| {
                     panic!(
-                        "{}: group {global_index}: decoder process_instructions failed: {e}",
+                        "{}: decoder rejected initial SetDynamicTableCapacity: {e}",
                         qif_path.display()
                     )
                 });
+            }
 
-                // Mimic the §4.4.3 Insert Count Increment a real peer's decoder would send
-                // after processing those Inserts — without it, KRC stays stuck at 0 for any
-                // section whose RIC is also 0 (the warming-insert pattern), starving every
-                // subsequent encode of references to entries the decoder already has.
-                let increment = encoder.insert_count() - encoder.known_received_count();
-                if increment > 0 {
-                    encoder
-                        .on_insert_count_increment(increment)
-                        .unwrap_or_else(|e| {
+            for (i, group) in chunk.iter().enumerate() {
+                // Interop convention: stream ids start at 1 and increase monotonically within
+                // a connection. In chunked mode each chunk is a fresh connection, so ids restart.
+                let stream_id = (i as u64) + 1;
+                let global_index = next_global_index;
+                next_global_index += 1;
+                let field_lines = qif::build_field_lines(group).unwrap_or_else(|e| {
+                    panic!("{}: group {global_index}: {e}", qif_path.display())
+                });
+
+                let mut buf = Vec::new();
+                encoder.encode_field_lines(&field_lines, &mut buf, stream_id);
+                stats.section_bytes += buf.len();
+                wire.section_bytes += buf.len() as u64;
+                wire.n_sections += 1;
+                classify_header_block(&buf, &mut wire);
+
+                // Drain encoder-stream ops so the decoder has them when it decodes the header
+                // block.
+                let enc_ops: Vec<u8> = encoder.drain_pending_ops().into_iter().flatten().collect();
+                stats.encoder_stream_bytes += enc_ops.len();
+                wire.encoder_stream_bytes += enc_ops.len() as u64;
+                classify_encoder_stream(&enc_ops, &mut wire);
+
+                // Per-group ASCII dump. Appended to the writer if `dump` was provided — compares
+                // our emission sequence to the reference encoder's for this same group.
+                if let Some(ctx) = dump.as_mut() {
+                    let their_group = ctx.their_groups.get(global_index);
+                    let our_snapshot = OurStateSnapshot {
+                        insert_count: encoder.insert_count(),
+                        entry_count: encoder.entry_count(),
+                        current_size: encoder.current_size(),
+                        capacity: encoder.capacity(),
+                    };
+                    dump_group(
+                        ctx.writer,
+                        global_index,
+                        stream_id,
+                        group,
+                        &enc_ops,
+                        &buf,
+                        their_group,
+                        &our_snapshot,
+                    );
+                }
+                if !enc_ops.is_empty() {
+                    let mut cursor = Cursor::new(&enc_ops[..]);
+                    future::block_on(decoder.process_instructions(&mut cursor)).unwrap_or_else(
+                        |e| {
                             panic!(
-                                "{}: group {global_index}: encoder rejected insert count \
-                                 increment {increment}: {e}",
+                                "{}: group {global_index}: decoder process_instructions failed: \
+                                 {e}",
                                 qif_path.display()
                             )
-                        });
+                        },
+                    );
+
+                    // Mimic the §4.4.3 Insert Count Increment a real peer's decoder would send
+                    // after processing those Inserts — without it, KRC stays stuck at 0 for any
+                    // section whose RIC is also 0 (the warming-insert pattern), starving every
+                    // subsequent encode of references to entries the decoder already has.
+                    let increment = encoder.insert_count() - encoder.known_received_count();
+                    if increment > 0 {
+                        encoder
+                            .on_insert_count_increment(increment)
+                            .unwrap_or_else(|e| {
+                                panic!(
+                                    "{}: group {global_index}: encoder rejected insert count \
+                                     increment {increment}: {e}",
+                                    qif_path.display()
+                                )
+                            });
+                    }
                 }
-            }
 
-            let decode_result = future::block_on(decoder.decode(&buf, stream_id));
+                let decode_result = future::block_on(decoder.decode(&buf, stream_id));
 
-            // Real-world QIF traces (e.g. captured Facebook traffic) contain HTTP/1-shaped
-            // header orderings — pseudo-headers interleaved with or following regular
-            // headers, and occasional duplicate pseudos. Our encoder emits the QIF order
-            // faithfully, and our decoder correctly rejects the resulting wire as a
-            // malformed message per RFC 9114 §4.1.1 + §4.3.1. Treat that as expected when
-            // the QIF source is non-conformant; skip the section-ack since the decoder
-            // never accepted the section. The real fix would be encoder-side
-            // normalization, but the production encoder is fed pre-validated
-            // `FieldSection`s from `PseudoHeaders + Headers` so it never sees this
-            // shape — only the corpus test's `encode_field_lines` path does.
-            let field_section = match decode_result {
-                Ok(fs) => fs,
-                Err(e)
-                    if e.to_string().contains("HTTP message was malformed.")
-                        && qif_group_is_malformed(group) =>
-                {
-                    continue;
-                }
-                Err(e) => panic!(
-                    "{}: group {global_index}: decode failed: {e}",
-                    qif_path.display()
-                ),
-            };
-
-            let mut got = qif::field_section_to_pairs(field_section);
-            let mut want = group.clone();
-            got.sort();
-            want.sort();
-            assert!(
-                got == want,
-                "{}: group {global_index} mismatch (section {} bytes, enc-stream {} bytes)\n  \
-                 want: {:?}\n  got:  {:?}",
-                qif_path.display(),
-                buf.len(),
-                enc_ops.len(),
-                want,
-                got,
-            );
-
-            // Always-ack: if the section emitted a non-zero prefix it registered an
-            // outstanding section (see `emit_section_prefix` — section_ric=0 produces
-            // exactly `[0x00, 0x00]`, any RIC>0 produces a non-zero first byte).
-            // Acknowledging advances KRC so the next group can reference entries
-            // non-blockingly and pinned entries can be evicted.
-            if !buf.starts_with(&[0x00, 0x00]) {
-                encoder.on_section_ack(stream_id).unwrap_or_else(|e| {
-                    panic!(
-                        "{}: group {global_index}: encoder rejected section ack: {e}",
+                // Real-world QIF traces (e.g. captured Facebook traffic) contain HTTP/1-shaped
+                // header orderings — pseudo-headers interleaved with or following regular
+                // headers, and occasional duplicate pseudos. Our encoder emits the QIF order
+                // faithfully, and our decoder correctly rejects the resulting wire as a
+                // malformed message per RFC 9114 §4.1.1 + §4.3.1. Treat that as expected when
+                // the QIF source is non-conformant; skip the section-ack since the decoder
+                // never accepted the section. The real fix would be encoder-side
+                // normalization, but the production encoder is fed pre-validated
+                // `FieldSection`s from `PseudoHeaders + Headers` so it never sees this
+                // shape — only the corpus test's `encode_field_lines` path does.
+                let field_section = match decode_result {
+                    Ok(fs) => fs,
+                    Err(e)
+                        if e.to_string().contains("HTTP message was malformed.")
+                            && qif_group_is_malformed(group) =>
+                    {
+                        continue;
+                    }
+                    Err(e) => panic!(
+                        "{}: group {global_index}: decode failed: {e}",
                         qif_path.display()
-                    )
-                });
+                    ),
+                };
+
+                let mut got = qif::field_section_to_pairs(field_section);
+                let mut want = group.clone();
+                got.sort();
+                want.sort();
+                assert!(
+                    got == want,
+                    "{}: group {global_index} mismatch (section {} bytes, enc-stream {} bytes)\n  \
+                     want: {:?}\n  got:  {:?}",
+                    qif_path.display(),
+                    buf.len(),
+                    enc_ops.len(),
+                    want,
+                    got,
+                );
+
+                // Always-ack: if the section emitted a non-zero prefix it registered an
+                // outstanding section (see `emit_section_prefix` — section_ric=0 produces
+                // exactly `[0x00, 0x00]`, any RIC>0 produces a non-zero first byte).
+                // Acknowledging advances KRC so the next group can reference entries
+                // non-blockingly and pinned entries can be evicted.
+                if !buf.starts_with(&[0x00, 0x00]) {
+                    encoder.on_section_ack(stream_id).unwrap_or_else(|e| {
+                        panic!(
+                            "{}: group {global_index}: encoder rejected section ack: {e}",
+                            qif_path.display()
+                        )
+                    });
+                }
             }
         }
-
-        chunk_start = chunk_end;
     }
 
     (stats, wire)
@@ -575,6 +670,73 @@ fn reference_stats_for(
 
 // --- Test entry point ---
 
+/// Encoder-policy overrides for experiment runs, from `QPACK_INSERT_POLICY`
+/// (`never` | `seen-twice` | `first-sight`) and `QPACK_RING_SIZE` (recent-pairs ring
+/// slots). One value per invocation — grid sweeps are shell loops over env values, which
+/// keeps every report shape unchanged. Defaults reproduce production behavior exactly.
+#[derive(Debug, Clone, Copy)]
+struct PolicyOverrides {
+    /// `None` = don't override — the encoder keeps its production policy (which
+    /// `recent_pairs_auto` derives from the cell's capacity).
+    insert_policy: Option<InsertPolicy>,
+    /// `None` = don't override — `recent_pairs_auto` derives the ring from the cell's
+    /// capacity. `Some(n)` pins the ring to `n` slots (disables auto).
+    ring_size: Option<usize>,
+    /// `None` = production behavior (on under `recent_pairs_auto`); `Some` forces
+    /// name-only warming on or off for A/B runs.
+    name_warm: Option<bool>,
+    name_k: Option<u8>,
+    name_ring: Option<usize>,
+}
+
+impl PolicyOverrides {
+    fn from_env() -> Self {
+        let insert_policy = match std::env::var("QPACK_INSERT_POLICY").as_deref() {
+            Err(_) => None,
+            Ok("seen-twice") => Some(InsertPolicy::SeenK(2)),
+            Ok("never") => Some(InsertPolicy::Never),
+            Ok("first-sight") => Some(InsertPolicy::SeenK(1)),
+            Ok(other) => match other.strip_prefix("seen-").and_then(|k| k.parse().ok()) {
+                Some(k) if k >= 1 => Some(InsertPolicy::SeenK(k)),
+                _ => panic!("QPACK_INSERT_POLICY: unknown policy {other:?}"),
+            },
+        };
+        let ring_size = std::env::var("QPACK_RING_SIZE").ok().map(|s| {
+            s.parse()
+                .unwrap_or_else(|_| panic!("QPACK_RING_SIZE: invalid size {s:?}"))
+        });
+        let name_warm = match std::env::var("QPACK_NAME_WARM").as_deref() {
+            Err(_) => None,
+            Ok("0") => Some(false),
+            Ok("1") => Some(true),
+            Ok(other) => panic!("QPACK_NAME_WARM: expected 0 or 1, got {other:?}"),
+        };
+        let name_k = std::env::var("QPACK_NAME_K").ok().map(|s| {
+            s.parse()
+                .unwrap_or_else(|_| panic!("QPACK_NAME_K: invalid threshold {s:?}"))
+        });
+        let name_ring = std::env::var("QPACK_NAME_RING").ok().map(|s| {
+            s.parse()
+                .unwrap_or_else(|_| panic!("QPACK_NAME_RING: invalid size {s:?}"))
+        });
+        Self {
+            insert_policy,
+            ring_size,
+            name_warm,
+            name_k,
+            name_ring,
+        }
+    }
+
+    fn is_default(self) -> bool {
+        self.insert_policy.is_none()
+            && self.ring_size.is_none()
+            && self.name_warm.is_none()
+            && self.name_k.is_none()
+            && self.name_ring.is_none()
+    }
+}
+
 /// Parse `QPACK_CHUNK_SIZES`. Returns `vec![None]` when unset (today's behavior — one
 /// connection per qif). Comma-separated integers become `Some(n)`; `inf` (or empty token)
 /// becomes `None`. Panics on a malformed integer so a typo fails the test loudly.
@@ -599,17 +761,25 @@ fn parse_chunk_sizes() -> Vec<Option<usize>> {
 #[test]
 fn qpack_encoder_corpus() {
     let _ = env_logger::try_init();
+    let external_dir = std::env::var("QPACK_EXTERNAL_CORPUS_DIR")
+        .ok()
+        .map(PathBuf::from);
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/qifs");
-    if !base.exists() {
+    if external_dir.is_none() && !base.exists() {
         eprintln!("qifs submodule not checked out, skipping QPACK encoder corpus test");
         return;
     }
 
-    let qif_dir = base.join("qifs");
+    let qif_dir = external_dir.clone().unwrap_or_else(|| base.join("qifs"));
     let encoded_dir = base.join("encoded/qpack-06");
 
     let filter = std::env::var("QPACK_ENCODER_CORPUS_FILTER").ok();
     let stats_enabled = std::env::var("QPACK_ENCODER_STATS").is_ok_and(|v| v == "1");
+    let overrides = PolicyOverrides::from_env();
+    if !overrides.is_default() {
+        eprintln!("policy overrides: {overrides:?}");
+    }
+    let configs = parse_configs();
     let chunk_sizes = parse_chunk_sizes();
     let chunked_mode = chunk_sizes.iter().any(Option::is_some);
     // When set, dump per-group ours-vs-ls-qpack ASCII to `target/qpack-dump/`. Value is a
@@ -670,8 +840,14 @@ fn qpack_encoder_corpus() {
 
         let content = std::fs::read_to_string(&qif_path)
             .unwrap_or_else(|e| panic!("reading {}: {e}", qif_path.display()));
-        let mut groups = qif::parse(&content);
-        if groups.is_empty() {
+        let mut connections = if external_dir.is_some() {
+            qif::parse_connections(&content)
+        } else {
+            // The interop corpus has no connection markers; one connection per file
+            // preserves the historical baseline exactly.
+            vec![qif::parse(&content)]
+        };
+        if connections.iter().all(Vec::is_empty) {
             continue;
         }
         // Some corpus QIFs (notably the Facebook captures) preserve HTTP/1-style ordering
@@ -683,7 +859,7 @@ fn qpack_encoder_corpus() {
         // set: this expands coverage to the malformed-source groups that we'd otherwise
         // skip via `qif_group_is_malformed`. Decoder corpus has no equivalent normalization
         // because the wire bytes there are external; see `decoder_corpus_tests.rs`.
-        for group in &mut groups {
+        for group in connections.iter_mut().flatten() {
             normalize_pseudos_first(group);
         }
 
@@ -694,7 +870,7 @@ fn qpack_encoder_corpus() {
             .to_owned();
 
         for &chunk_size in &chunk_sizes {
-            for &config in CONFIGS {
+            for &config in &configs {
                 eprintln!(
                     "testing {} @ ({}, {}) chunk={}",
                     qif_path.display(),
@@ -748,19 +924,32 @@ fn qpack_encoder_corpus() {
                     }),
                     _ => None,
                 };
-                let observer = observers
-                    .entry((chunk_size, config))
-                    .or_insert_with(|| std::sync::Arc::new(super::HeaderObserver::default()))
-                    .clone();
-                let (stats, our_wire) =
-                    run_qif_at_config(&qif_path, &groups, config, chunk_size, observer, dump_ctx);
+                let observer_mode = if external_dir.is_some() {
+                    ObserverMode::FreshPerEncoder
+                } else {
+                    ObserverMode::Shared(
+                        observers
+                            .entry((chunk_size, config))
+                            .or_insert_with(std::sync::Arc::default)
+                            .clone(),
+                    )
+                };
+                let (stats, our_wire) = run_qif_at_config(
+                    &qif_path,
+                    &connections,
+                    config,
+                    chunk_size,
+                    &observer_mode,
+                    overrides,
+                    dump_ctx,
+                );
                 tested += 1;
 
                 if stats_enabled {
                     // Reference files are unchunked, so per-encoder refs are only
-                    // meaningful when chunk_size is None. Skip the lookup for chunked
-                    // rows — they render through the curve report which ignores refs.
-                    let refs = if chunk_size.is_none() {
+                    // meaningful when chunk_size is None — and only exist for the interop
+                    // corpus. Skip the lookup for chunked or external rows.
+                    let refs = if chunk_size.is_none() && external_dir.is_none() {
                         reference_stats_for(&encoded_dir, &stem, config)
                     } else {
                         BTreeMap::new()

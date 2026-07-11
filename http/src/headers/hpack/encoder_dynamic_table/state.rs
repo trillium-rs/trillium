@@ -67,6 +67,15 @@ pub(super) struct TableState {
     /// should-index decision and written immediately afterward as part of
     /// the per-line encode walk.
     pub(super) recent_pairs: RecentPairs,
+    /// [`HttpConfig::recent_pairs_auto`] captured at construction: when set,
+    /// [`set_protocol_max_size`](Self::set_protocol_max_size) derives the ring size and
+    /// `seen_k` from the operational table size.
+    ///
+    /// [`HttpConfig::recent_pairs_auto`]: crate::HttpConfig::recent_pairs_auto
+    pub(super) recent_pairs_auto: bool,
+    /// Warming-insert sighting threshold: a pair earns an insert on its `seen_k`th
+    /// sighting within the ring window (the observer hot-flag can promote earlier).
+    pub(super) seen_k: u8,
 }
 
 #[derive(Default)]
@@ -119,7 +128,11 @@ impl Debug for Entry {
 }
 
 impl TableState {
-    pub(super) fn new(local_preferred_size: usize, recent_pairs_size: usize) -> Self {
+    pub(super) fn new(
+        local_preferred_size: usize,
+        recent_pairs_size: usize,
+        recent_pairs_auto: bool,
+    ) -> Self {
         Self {
             entries: VecDeque::new(),
             current_size: 0,
@@ -130,12 +143,16 @@ impl TableState {
             by_name: HashMap::new(),
             accum: ConnectionAccumulator::default(),
             recent_pairs: RecentPairs::with_size(recent_pairs_size),
+            recent_pairs_auto,
+            seen_k: 2,
         }
     }
 
     /// Apply peer's advertised `SETTINGS_HEADER_TABLE_SIZE`. Recomputes the operational
     /// `max_size` as `min(local_preferred_size, peer_advertised)`, evicts to fit if
-    /// shrinking, and queues a Dynamic Table Size Update for the next encode.
+    /// shrinking, and queues a Dynamic Table Size Update for the next encode. When
+    /// `recent_pairs_auto` is set, re-derives the recent-pairs ring and `seen_k` from the
+    /// new operational size.
     ///
     /// Idempotent: a no-op if the new operational size matches the current one.
     pub(super) fn set_protocol_max_size(&mut self, peer_advertised: usize) {
@@ -144,6 +161,13 @@ impl TableState {
             return;
         }
         self.max_size = new_max;
+        if self.recent_pairs_auto {
+            // A mid-connection SETTINGS change discards the ring's sightings along with
+            // its sizing. Acceptable: peers rarely resize after startup, and the ring
+            // refills within one section's worth of traffic.
+            self.recent_pairs = RecentPairs::with_size(RecentPairs::auto_size(new_max));
+            self.seen_k = RecentPairs::auto_seen_k(new_max);
+        }
         if self.current_size > new_max {
             self.evict_until_fits(0);
         }
