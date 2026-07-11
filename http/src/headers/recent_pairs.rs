@@ -54,6 +54,32 @@ impl RecentPairs {
         }
     }
 
+    /// Derive a ring size from a negotiated dynamic-table capacity (bytes): roughly twice
+    /// the entry count the table can hold, clamped to `[8, 256]`.
+    ///
+    /// The window must match table retention: a ring that remembers pairs longer than the
+    /// table could have kept the corresponding entries approves inserts whose repetition
+    /// already aged out — each one is a guaranteed evict/re-insert churn cycle. (An
+    /// oversized ring at a 256-byte table measured *worse than not having a dynamic table
+    /// at all*; matched sizing beat static-only at every capacity swept.)
+    pub(in crate::headers) fn auto_size(table_capacity: usize) -> usize {
+        (table_capacity / 32).clamp(8, 256)
+    }
+
+    /// Derive the warming-insert sighting threshold from a negotiated dynamic-table
+    /// capacity (bytes): insert on the 2nd sighting for tiny tables, the 3rd otherwise.
+    ///
+    /// Real connections are frequently 1–2 responses long. An insert triggered by a
+    /// second sighting pays off only from a *third* — so on a 2-response connection it is
+    /// pure waste, and with a capacity-sized window that waste measured ~20% over a
+    /// static-only encoder at capacities ≥ 1024. Requiring a third sighting makes short
+    /// connections degrade gracefully to no-insert at a small cost on long connections.
+    /// Tiny tables keep the faster trigger: their tight window (8–15 slots) only approves
+    /// pairs repeating within a section or two, which is safe at any connection length.
+    pub(in crate::headers) fn auto_seen_k(table_capacity: usize) -> u8 {
+        if table_capacity >= 512 { 3 } else { 2 }
+    }
+
     /// Compute the ring-indexable hash for one `(name, value)` pair. Pure associated
     /// function — no ring access. Callers reuse the same hash across [`seen`](Self::seen)
     /// and [`remember`](Self::remember) within one header's encode.
@@ -70,10 +96,23 @@ impl RecentPairs {
         truncated
     }
 
+    /// Number of slots in the ring.
+    pub(in crate::headers) fn size(&self) -> usize {
+        self.hashes.len()
+    }
+
     /// Report whether `hash` is in the ring. Pure read — the ring is unchanged, so
     /// callers can query multiple times between [`remember`](Self::remember) calls.
     pub(in crate::headers) fn seen(&self, hash: u32) -> bool {
         self.hashes.contains(&hash)
+    }
+
+    /// Count occurrences of `hash` in the ring. [`remember`](Self::remember) never
+    /// dedupes, so each past sighting within the window occupies its own slot — the ring
+    /// materializes a sliding-window sighting count for free. `count(h) > 0` is
+    /// equivalent to [`seen`](Self::seen).
+    pub(in crate::headers) fn count(&self, hash: u32) -> usize {
+        self.hashes.iter().filter(|&&x| x == hash).count()
     }
 
     /// Write `hash` at the cursor and advance. Intended to be called after the planner's

@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.0] - 2026-07-06
+## [1.5.0] - 2026-07-10
 
 ### Added
 
@@ -19,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   level that triggers a write to the transport while a body streams. Larger values batch more
   bytes per write at the cost of that much buffer memory per in-flight streaming body. The
   default matches the previously-fixed internal behavior.
+
+- `HttpConfig::recent_pairs_auto` (default `true`): the HPACK and QPACK encoders now derive
+  their recently-seen-pair ring size and dynamic-table insert threshold from each
+  connection's negotiated table capacity, instead of using a fixed 64-slot ring and a fixed
+  insert-on-second-sighting trigger at every capacity. Offline measurement against an
+  HTTP Archive response-header corpus showed the fixed tuning losing to a static-table-only
+  encoder at small capacities (evict/re-insert churn) and on short connections
+  (second-sighting inserts that never amortize); the derived tuning never lost to
+  static-only at any measured capacity or connection length. Setting
+  `recent_pairs_size` explicitly disables the derivation and restores the fixed behavior.
+- Under `recent_pairs_auto`, the QPACK encoder also warm-inserts a name-only `(name, "")`
+  dynamic-table entry for a static-table-miss name on its third sighting, so headers whose
+  values never repeat (request ids, trace ids) still earn a 1–2 byte dynamic name reference
+  instead of literal name bytes on every section. QPACK-only: HPACK inserts are inline
+  field lines, so it has no way to add a name without emitting a bogus empty-valued header.
 
 ### Changed
 

@@ -48,7 +48,10 @@ pub(crate) struct HpackEncoder {
 
 impl HpackEncoder {
     /// Construct a new HPACK encoder with the given local preferred dynamic-table capacity
-    /// (bytes) and recent-pairs ring size.
+    /// (bytes) and recent-pairs ring size. When `recent_pairs_auto` is set, the ring size
+    /// and insert threshold are re-derived from the operational table size on each
+    /// [`Self::set_protocol_max_size`], and `recent_pairs_size` only sizes the
+    /// pre-SETTINGS ring (inert — the operational size is 0, so nothing inserts).
     ///
     /// The encoder's operational size starts at 0 and is raised on the first call to
     /// [`Self::set_protocol_max_size`] (typically driven by the peer's
@@ -59,9 +62,10 @@ impl HpackEncoder {
         observer: Arc<HeaderObserver>,
         local_preferred_size: usize,
         recent_pairs_size: usize,
+        recent_pairs_auto: bool,
     ) -> Self {
         Self {
-            state: TableState::new(local_preferred_size, recent_pairs_size),
+            state: TableState::new(local_preferred_size, recent_pairs_size, recent_pairs_auto),
             observer,
         }
     }

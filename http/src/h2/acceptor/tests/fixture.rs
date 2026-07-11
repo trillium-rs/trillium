@@ -104,7 +104,7 @@ impl DriverFixture {
         });
         let connection = H2Connection::new(context);
         let driver = connection.clone().run(driver_transport);
-        let peer_hpack = HpackEncoder::new(Arc::new(HeaderObserver::default()), 0, 0);
+        let peer_hpack = HpackEncoder::new(Arc::new(HeaderObserver::default()), 0, 0, false);
         Self {
             driver,
             connection,
@@ -123,7 +123,7 @@ impl DriverFixture {
         let (driver_transport, peer) = TestTransport::new();
         let connection = H2Connection::new(Arc::new(HttpContext::new()));
         let driver = H2Driver::new(connection.clone(), driver_transport, Role::Client);
-        let peer_hpack = HpackEncoder::new(Arc::new(HeaderObserver::default()), 0, 0);
+        let peer_hpack = HpackEncoder::new(Arc::new(HeaderObserver::default()), 0, 0, false);
         Self {
             driver,
             connection,

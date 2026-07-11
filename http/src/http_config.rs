@@ -186,22 +186,46 @@ pub struct HttpConfig {
     /// Per-connection ring size for the header encoder's recently-seen-pair predictor.
     ///
     /// Applies to both HPACK (HTTP/2) and QPACK (HTTP/3). The predictor lets the encoder
-    /// defer dynamic-table inserts until a `(name, value)` pair has been seen at least
-    /// once on the connection — first sighting emits a literal, subsequent sightings
-    /// within the ring's retention window invest in an insert so future sections can
-    /// index it. A larger ring catches repetitions across more intervening header lines
-    /// (good for header-heavy reverse proxies); a smaller ring forgets faster (fine for
-    /// tiny APIs). A cross-connection observer short-circuits this for already-known-hot
-    /// pairs.
+    /// defer dynamic-table inserts until a `(name, value)` pair has repeated on the
+    /// connection — early sightings emit literals, repetition within the ring's retention
+    /// window invests in an insert so future sections can index it. A cross-connection
+    /// observer short-circuits this for already-known-hot pairs.
     ///
-    /// The predictor is consulted once per emitted header line via a u32 hash compare;
-    /// cost grows linearly with `size` but is dominated by the per-line hash, so
-    /// oversizing here is cheap.
+    /// **Ignored while `recent_pairs_auto` is `true` (the default)**, in which case each
+    /// connection derives its ring size from the negotiated dynamic-table capacity.
+    /// Setting this through [`set_recent_pairs_size`](Self::set_recent_pairs_size) or
+    /// [`with_recent_pairs_size`](Self::with_recent_pairs_size) disables
+    /// `recent_pairs_auto`. The window should track what the table can retain: an
+    /// oversized ring approves inserts whose repetition the table has already evicted,
+    /// churning the table for no reference savings.
     ///
-    /// **Default**: 64
+    /// **Default**: 64, inert behind `recent_pairs_auto`
     ///
     /// **Unit**: Pair count
+    #[field(set = false, with = false)]
     pub(crate) recent_pairs_size: usize,
+
+    /// Derive header-encoder insert-prediction tuning from each connection's negotiated
+    /// dynamic-table capacity.
+    ///
+    /// When `true` (the default), the recently-seen-pair ring is sized to roughly twice
+    /// the entry count the table can hold, and the insert threshold requires a third
+    /// sighting on tables of 512 bytes or larger (second sighting on smaller tables).
+    /// These track the negotiated capacity, so they adapt per connection. QPACK
+    /// connections additionally warm-insert a name-only `(name, "")` entry for a
+    /// static-table-miss name on its third sighting (tracked by a second ring sized like
+    /// the pair ring), so names whose values never repeat — request ids and the like —
+    /// still earn a cheap dynamic name reference. HPACK has no name-only analog: its
+    /// inserts are inline field lines, where an empty-valued entry would be a bogus
+    /// header.
+    ///
+    /// When `false`, the ring uses `recent_pairs_size` verbatim, inserts trigger on the
+    /// second sighting at every capacity, and no name-only warming occurs. Setting
+    /// `recent_pairs_size` explicitly switches this off; mutating it through
+    /// [`recent_pairs_size_mut`](Self::recent_pairs_size_mut) does *not*.
+    ///
+    /// **Default**: `true`
+    pub(crate) recent_pairs_auto: bool,
 
     /// Initial HTTP/2 stream flow-control window advertised to peers as
     /// `SETTINGS_INITIAL_WINDOW_SIZE` — the lower tier of the two-tier per-stream window.
@@ -332,6 +356,7 @@ impl HttpConfig {
         dynamic_table_capacity: 4 * KB as usize,
         h3_blocked_streams: 100,
         recent_pairs_size: 64,
+        recent_pairs_auto: true,
         h3_datagrams_enabled: false,
         h2_initial_stream_window_size: 256 * KB,
         h2_max_stream_recv_window_size: MB,
@@ -342,6 +367,27 @@ impl HttpConfig {
         extended_connect_enabled: false,
         panic_on_invalid_response_headers: cfg!(debug_assertions),
     };
+}
+
+// Hand-written (not fieldwork-derived) so an explicit size disables auto derivation —
+// same signatures fieldwork would generate.
+impl HttpConfig {
+    /// Sets recent pairs size and disables `recent_pairs_auto`, returning `&mut Self` for
+    /// chaining. See [`recent_pairs_size`](Self::recent_pairs_size).
+    pub fn set_recent_pairs_size(&mut self, recent_pairs_size: usize) -> &mut Self {
+        self.recent_pairs_size = recent_pairs_size;
+        self.recent_pairs_auto = false;
+        self
+    }
+
+    /// Owned chainable setter for recent pairs size; disables `recent_pairs_auto`. See
+    /// [`recent_pairs_size`](Self::recent_pairs_size).
+    #[must_use]
+    pub fn with_recent_pairs_size(mut self, recent_pairs_size: usize) -> Self {
+        self.recent_pairs_size = recent_pairs_size;
+        self.recent_pairs_auto = false;
+        self
+    }
 }
 
 impl Default for HttpConfig {

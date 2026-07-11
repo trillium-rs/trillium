@@ -23,11 +23,32 @@ pub(super) type QifGroup = Vec<(String, String)>;
 /// stream, in file order. Blank lines separate groups; `#`-prefixed lines are comments. The
 /// name/value separator within a line is a tab character.
 pub(super) fn parse(content: &str) -> Vec<QifGroup> {
+    parse_connections(content).into_iter().flatten().collect()
+}
+
+/// Parse QIF content into connections of header groups.
+///
+/// A comment line starting with `# connection` begins a new connection; groups before the
+/// first marker (or an entire file without markers, like the interop corpus) form a single
+/// connection. Standard QIF tools ignore the markers as ordinary comments, so marked files
+/// remain valid interop QIF. Used by externally-generated corpora (e.g. the HTTP Archive
+/// response corpus) where per-connection encoder resets are the unit of measurement.
+pub(super) fn parse_connections(content: &str) -> Vec<Vec<QifGroup>> {
+    let mut connections: Vec<Vec<QifGroup>> = Vec::new();
     let mut groups: Vec<QifGroup> = Vec::new();
     let mut current: QifGroup = Vec::new();
 
     for line in content.lines() {
         let line = line.trim_end_matches('\r');
+        if line.starts_with("# connection") {
+            if !current.is_empty() {
+                groups.push(std::mem::take(&mut current));
+            }
+            if !groups.is_empty() {
+                connections.push(std::mem::take(&mut groups));
+            }
+            continue;
+        }
         if line.starts_with('#') {
             continue;
         }
@@ -44,7 +65,10 @@ pub(super) fn parse(content: &str) -> Vec<QifGroup> {
     if !current.is_empty() {
         groups.push(current);
     }
-    groups
+    if !groups.is_empty() {
+        connections.push(groups);
+    }
+    connections
 }
 
 /// Convert a decoded `FieldSection` into a comparable `QifGroup`.

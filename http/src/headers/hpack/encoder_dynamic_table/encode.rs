@@ -116,9 +116,13 @@ fn encode_line(
     let uncacheable = name.has_uncacheable_value() || never_indexed;
     let hash = (!uncacheable).then(|| RecentPairs::hash(name.as_bytes(), value_bytes));
     // The ring is checked first so a hit skips is_hot, which takes the observer's shared
-    // cross-listener mutex.
-    let should_index = hash.is_some_and(|h| state.recent_pairs.seen(h))
-        || (!uncacheable && observer.is_hot(name, Some(&value)));
+    // cross-listener mutex. `seen` short-circuits, so keep it for the k=2 path; higher k
+    // materializes the count from the ring's non-deduped slots.
+    let ring_hit = hash.is_some_and(|h| match state.seen_k {
+        2 => state.recent_pairs.seen(h),
+        k => state.recent_pairs.count(h) + 1 >= usize::from(k),
+    });
+    let should_index = ring_hit || (!uncacheable && observer.is_hot(name, Some(&value)));
 
     if let Some(h) = hash {
         state.recent_pairs.remember(h);

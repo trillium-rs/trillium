@@ -97,8 +97,8 @@ impl H3ClientState {
     /// streams and pools it for `idle_timeout` (`None` pools it until the pool drops).
     #[allow(
         clippy::too_many_arguments,
-        reason = "one internal call site passes these straight through; a parameter struct \
-                  would add indirection without clarifying anything"
+        reason = "one internal call site passes these straight through; a parameter struct would \
+                  add indirection without clarifying anything"
     )]
     pub(crate) async fn get_or_create_quic_conn(
         &self,

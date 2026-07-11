@@ -219,6 +219,7 @@ where
             context.observer.clone(),
             context.config.dynamic_table_capacity(),
             context.config.recent_pairs_size(),
+            context.config.recent_pairs_auto(),
         );
         Self {
             connection,
