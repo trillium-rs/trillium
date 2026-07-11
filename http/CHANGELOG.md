@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-07-11
+
+### Fixed
+
+- On a server-side HTTP/1.x upgrade from a request with no body-framing headers (no
+  `Content-Length` or `Transfer-Encoding` — the shape of a browser's WebSocket handshake),
+  reading from the `Upgrade` returned EOF immediately even though the peer was still
+  connected, so such connections appeared to disconnect as soon as they opened. Reads now
+  yield the peer's post-upgrade bytes. Upgrades from requests that declare chunked framing
+  continue to decode it, as before.
+
 ## [1.5.0] - 2026-07-10
 
 ### Added

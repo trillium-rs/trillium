@@ -582,7 +582,18 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
         let write_state = compute_write_state(version, &response_headers);
         let content_length_in = parse_content_length(&request_headers);
         let inbound_encoding = encoding(&request_headers);
-        let received_body_state = request_body_state;
+        // An h1 request with no framing headers parses to `End` — correct for the request
+        // body, but inherited across the upgrade it would EOF the first read of a live raw
+        // stream (a browser websocket handshake is exactly this shape). Declared framing
+        // does carry over: a chunked request keeps chunked inbound framing.
+        let received_body_state = if matches!(version, Version::Http1_0 | Version::Http1_1)
+            && !request_headers.has_header(KnownHeaderName::TransferEncoding)
+            && !request_headers.has_header(KnownHeaderName::ContentLength)
+        {
+            ReceivedBodyState::Raw { total: 0 }
+        } else {
+            request_body_state
+        };
         let received_trailers = request_trailers.filter(|t| !t.is_empty());
 
         Self {
