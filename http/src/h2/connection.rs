@@ -139,8 +139,10 @@ impl H2Connection {
         self.context.clone()
     }
 
-    /// The connection-scoped [`Swansong`]. Shuts down on peer GOAWAY or when the server-
-    /// level swansong shuts down.
+    /// The connection-scoped [`Swansong`]. Shuts down on peer GOAWAY, when the server-
+    /// level swansong shuts down, or when the connection ends for any other reason
+    /// (peer disconnect, transport error) — once it leaves the running state, the
+    /// connection will never carry another stream.
     pub fn swansong(&self) -> &Swansong {
         &self.swansong
     }

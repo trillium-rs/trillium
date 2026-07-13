@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.12] - 2026-07-13
+
+### Fixed
+
+- When a server closed an HTTP/2 connection abruptly — dropping it without sending GOAWAY,
+  as some CDNs routinely do — the pool kept treating the dead connection as reusable. The
+  request in flight at close time failed with a fast connection error, and every subsequent
+  request routed to that connection (including retries of the failed one) hung indefinitely.
+  Dead connections are now dropped from the pool, so subsequent requests open a fresh
+  connection. The fix lands via the trillium-http dependency.
+
 ## [0.9.11] - 2026-07-10
 
 ### Changed

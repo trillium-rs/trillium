@@ -162,6 +162,53 @@ fn server_goaway_resolves_pending_response_waiter() {
     }
 }
 
+/// A connection whose driver has exited without a peer GOAWAY (abrupt FIN, ECONNRESET, any
+/// I/O error) must refuse new streams. The peer-GOAWAY path shuts the connection swansong
+/// down in `dispatch`, but that is the *only* teardown path that does — a driver that dies
+/// any other way leaves the swansong running, so `open_stream` happily publishes a stream
+/// into a map no driver will ever service and the `response_headers` waiter parks forever.
+/// A pooling client that classifies reusability off the swansong then hands the dead
+/// connection out indefinitely: first request errors fast (teardown fan-out), every retry
+/// hangs.
+#[test]
+fn connection_death_without_goaway_refuses_new_streams() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+
+    // A completed round trip first, so the connection is in the warm-and-reusable state a
+    // pool would hold.
+    let (id, _submit, _transport) = open_get(&mut fx);
+    fx.peer_response_headers(id, Status::Ok, true);
+    let _ = fx.tick();
+
+    // The server closes the connection abruptly: FIN, no GOAWAY frame.
+    fx.peer.shutdown(Shutdown::Both);
+    let mut ticks = 0;
+    while !matches!(fx.tick(), Poll::Ready(None)) {
+        ticks += 1;
+        assert!(ticks < 10, "driver should finish after peer FIN");
+    }
+
+    assert!(
+        !fx.connection.swansong().state().is_running(),
+        "driver exit must shut the connection swansong down — it is the signal reuse decisions \
+         (pool classify, open_stream) key on",
+    );
+
+    let pseudos = PseudoHeaders::default()
+        .with_method(Method::Get)
+        .with_path("/")
+        .with_scheme("http")
+        .with_authority("test");
+    assert!(
+        fx.connection
+            .open_stream(pseudos, Headers::new(), None)
+            .is_none(),
+        "open_stream on a connection whose driver has exited must refuse: a stream published here \
+         is never serviced, so its response_headers waiter hangs forever",
+    );
+}
+
 /// Regression probe
 ///
 /// The deadlock's hung side is the *client* (GOAWAY `last_stream_id=0`): it enters `Closing`
