@@ -1,4 +1,4 @@
-use crate::{Acceptor, ArcHandler, RuntimeTrait, Server, h2};
+use crate::{Acceptor, ArcHandler, RuntimeTrait, Server, h2, unmap_ipv4};
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use std::{io::ErrorKind, sync::Arc};
 use trillium::{Conn, Handler, KnownHeaderName, Listener, Transport};
@@ -72,7 +72,11 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
 
         trillium::log_error!(stream.set_nodelay(self.nodelay));
 
-        let peer_ip = stream.peer_addr().ok().flatten().map(|addr| addr.ip());
+        let peer_ip = stream
+            .peer_addr()
+            .ok()
+            .flatten()
+            .map(|addr| unmap_ipv4(addr.ip()));
         let listener = self.listener.clone();
         let local_alt_svc = self.local_alt_svc;
         // Stamped onto each conn like h2/h3 do (see `run_h2` / `run_h3`): trillium-http is
@@ -83,7 +87,15 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         let mut transport = match self.acceptor.accept(stream).await {
             Ok(stream) => stream,
             Err(e) => {
-                log::error!("acceptor error: {:?}", e);
+                // The peer is named because a connection that fails to accept
+                // dies before any `Conn` exists, so no handler can ever observe
+                // it. This line is the only place a repeated source of
+                // handshake failures — which no browser produces — can be
+                // attributed to a host.
+                match peer_ip {
+                    Some(ip) => log::error!("acceptor error from {ip}: {e:?}"),
+                    None => log::error!("acceptor error from unknown peer: {e:?}"),
+                }
                 return;
             }
         };

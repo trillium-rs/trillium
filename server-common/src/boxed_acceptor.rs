@@ -8,8 +8,18 @@ use std::{
 
 /// Error returned by a type-erased [`BoxedAcceptor`]. The originating acceptor's error type is not
 /// preserved; its `Debug` representation is captured as a string.
-#[derive(Debug)]
 pub struct BoxedAcceptError(String);
+
+/// Both formats write the captured string as-is. In particular `Debug` does *not* derive: the
+/// string it holds is already the source error's `Debug` rendering, so the derive would wrap it a
+/// second time — `BoxedAcceptError("Kind(UnexpectedEof)")` where `Kind(UnexpectedEof)` is what the
+/// reader wanted. Accept failures are logged one per bad connection on a public listener, so that
+/// doubling is worth avoiding.
+impl Debug for BoxedAcceptError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 impl fmt::Display for BoxedAcceptError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
