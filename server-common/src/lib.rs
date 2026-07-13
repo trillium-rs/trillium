@@ -59,6 +59,9 @@ pub use server_handle::{BoundInfo, ServerHandle};
 
 mod arc_handler;
 pub(crate) use arc_handler::ArcHandler;
+
+mod peer_ip;
+pub(crate) use peer_ip::unmap_ipv4;
 pub use swansong::Swansong;
 
 mod listener_config;

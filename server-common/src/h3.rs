@@ -4,7 +4,7 @@ mod priority;
 pub mod web_transport;
 use crate::{
     ArcHandler, ArcedQuicEndpoint, BoxedBidiStream, QuicConnection, QuicTransportReceive,
-    QuicTransportSend, RuntimeTrait,
+    QuicTransportSend, RuntimeTrait, unmap_ipv4,
 };
 use priority::{PrioritizedStream, PriorityRegistry, transport_priority};
 use std::sync::Arc;
@@ -165,7 +165,10 @@ fn handle_bidi_stream(
     let transport: BoxedBidiStream = Box::new(PrioritizedStream::new(transport, slot, stream_id));
 
     runtime.spawn(async move {
-        let peer_ip = connection.remote_address().ip();
+        // Unmapped for the same reason the TCP accept loop unmaps: the QUIC listener is bound
+        // dual-stack too, so an IPv4 client over HTTP/3 arrives as `::ffff:a.b.c.d`. Without this
+        // the same client would key and log differently over h3 than over h1/h2.
+        let peer_ip = unmap_ipv4(connection.remote_address().ip());
         let quic_connection = connection.clone();
         let wt_dispatcher = wt_dispatcher.clone();
 
