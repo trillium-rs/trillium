@@ -269,10 +269,6 @@ impl H2Connection {
         body: Option<Body>,
         is_upgrade: bool,
     ) -> Option<(u32, Arc<StreamState>, H2Transport)> {
-        if !self.swansong.state().is_running() {
-            return None;
-        }
-
         let state = Arc::new(StreamState::default());
 
         // Stage the request parts *before* publishing the stream id to the shared map so they're
@@ -290,6 +286,14 @@ impl H2Connection {
         // streams table in the acceptor.)
         let stream_id = {
             let mut streams = self.streams_lock();
+            // Check the swansong *under the streams lock*, which pairs with driver teardown
+            // (shut_down before its shared-map walk, also under this lock). A stream inserted
+            // here either happens-before the teardown walk (and gets reset + woken by it), or
+            // observes the shutdown and is refused — there is no interleaving that publishes
+            // a stream into a map no driver will service.
+            if !self.swansong.state().is_running() {
+                return None;
+            }
             let stream_id = self
                 .next_client_stream_id
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {

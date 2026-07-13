@@ -478,6 +478,16 @@ where
     /// errors surface as a final `Some(Err(...))` before subsequent polls return `None`.
     fn finish_with_current_outcome(&mut self) -> Option<Result<Conn<H2Transport>, H2Error>> {
         self.finished = true;
+        // Shut the connection swansong down on every exit path, not just peer GOAWAY:
+        // it is the signal reuse decisions key on (`open_stream`, `can_open_stream`, and
+        // pooling clients' classify). A driver that dies on an I/O error or peer FIN while
+        // leaving the swansong running turns the connection into a landmine — a pool hands
+        // it out as available, `open_stream` publishes a stream no driver will ever
+        // service, and the response waiter parks forever. Must happen *before* the shared-
+        // map walk below: `open_stream` checks the swansong under the streams lock, so any
+        // stream that slips in concurrently either observes the shutdown and is refused,
+        // or was published before we take the lock and gets reset by the walk.
+        self.connection.shut_down();
         // Complete every outstanding `H2Connection::send_ping` future with an error so
         // awaiting callers don't block forever. Safe to call regardless of outcome —
         // a no-op if no pings are in flight.
@@ -500,18 +510,22 @@ where
             Some(CloseOutcome::Protocol(code)) => *code,
             _ => H2ErrorCode::NoError,
         };
-        for entry in self.streams.values() {
+        // Walk the *shared* map, not the driver-private mirror: a client stream published
+        // between the driver's last pickup pass and this teardown exists only in the shared
+        // map, and every conn-task waiter (`response_headers`, body reads, `SubmitSend`)
+        // reaches its stream through the shared map — so this walk covers all of them.
+        for state in self.connection.streams_lock().values() {
             // Move each still-live stream to `Closed{Reset}` (a no-op on streams already closed, so
             // an existing reason isn't clobbered), then fan out every recv/send waker so parked
             // tasks observe the close instead of hanging.
-            let _ = entry.shared.apply_event(StreamEvent::RecvReset(reset_code));
-            entry.shared.recv.waker.wake();
-            entry.shared.recv.response_headers_waker.wake();
-            entry.shared.send.outbound_write_waker.wake();
+            let _ = state.apply_event(StreamEvent::RecvReset(reset_code));
+            state.recv.waker.wake();
+            state.recv.response_headers_waker.wake();
+            state.send.outbound_write_waker.wake();
             // A handler already parked in `SubmitSend` (response staged, awaiting the driver to
             // frame it) needs this wake to re-poll and observe the now-reset stream — the recv
             // fan-out above doesn't reach the send-completion waiter.
-            entry.shared.send.completion_waker.wake();
+            state.send.completion_waker.wake();
         }
         match self.close_outcome.take() {
             None | Some(CloseOutcome::Graceful) => None,
