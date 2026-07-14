@@ -1,6 +1,6 @@
 use crate::{Acceptor, ArcHandler, RuntimeTrait, Server, h2, unmap_ipv4};
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
-use std::{io::ErrorKind, sync::Arc};
+use std::{io::ErrorKind, net::IpAddr, sync::Arc};
 use trillium::{Conn, Handler, KnownHeaderName, Listener, Transport};
 use trillium_http::{Error, HttpContext, SERVICE_UNAVAILABLE, Upgrade};
 
@@ -139,7 +139,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                         }
                     })
                     .await;
-                handle_h1_result(result, &handler).await;
+                handle_h1_result(result, &handler, peer_ip).await;
                 return;
             }
             AlpnDispatch::PrefacePeek => {}
@@ -184,7 +184,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
             },
         )
         .await;
-        handle_h1_result(result, &handler).await;
+        handle_h1_result(result, &handler, peer_ip).await;
     }
 
     fn over_capacity(&self) -> bool {
@@ -237,6 +237,7 @@ where
 async fn handle_h1_result<T, H: Handler>(
     result: Result<Option<Upgrade<T>>, Error>,
     handler: &ArcHandler<H>,
+    peer_ip: Option<IpAddr>,
 ) where
     T: Transport + 'static,
 {
@@ -267,8 +268,14 @@ async fn handle_h1_result<T, H: Handler>(
             log::debug!("closing connection ({e})");
         }
 
-        Err(e) => {
-            log::error!("http error: {:?}", e);
-        }
+        // The peer is named for the same reason it is on the acceptor error above: a
+        // malformed request head is indistinguishable from noise unless it can be
+        // attributed to a host, and this is the only place it is visible. `InvalidHead`
+        // in particular is a thing scanners produce in bulk and browsers never do, so
+        // without an address here it can be counted but not acted on.
+        Err(e) => match peer_ip {
+            Some(ip) => log::error!("http error from {ip}: {e:?}"),
+            None => log::error!("http error from unknown peer: {e:?}"),
+        },
     };
 }
