@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-07-14
+
+### Fixed
+
+- The `Modified` handler — and therefore `CachingHeaders` — no longer answers `304 Not Modified` on
+  the strength of `If-Modified-Since` when the request also carries `If-None-Match`. Browsers
+  routinely send both, and previously the timestamp comparison could override an entity tag that had
+  already determined the representation changed, leaving the client to keep rendering a stale body.
+  Such requests are now decided by the entity tag alone, per
+  [RFC 9110 §13.1.3](https://www.rfc-editor.org/rfc/rfc9110#section-13.1.3). A request carrying only
+  `If-Modified-Since` behaves as before.
+
+  This was most likely to bite responses whose `Last-Modified` is coarser than their etag — one that
+  can stay put across a change the etag does capture.
+
 ## [0.4.1] - 2026-06-04
 
 ### Fixed
