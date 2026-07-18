@@ -273,7 +273,7 @@ impl<Transport> Upgrade<Transport> {
             received_trailers: None,
             content_length_in: None,
             write_state: WriteState::Raw,
-            inbound_encoding: encoding_rs::WINDOWS_1252,
+            inbound_encoding: encoding_rs::UTF_8,
             h3_trailer_decode_in: None,
             h3_trailer_payload_in: Vec::new(),
         }

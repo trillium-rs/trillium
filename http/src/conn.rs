@@ -371,7 +371,7 @@ where
     /// ```
     /// # use trillium_testing::HttpTest;
     /// HttpTest::new(|mut conn| async move {
-    ///     assert_eq!(conn.request_encoding(), encoding_rs::WINDOWS_1252); // the default
+    ///     assert_eq!(conn.request_encoding(), encoding_rs::UTF_8); // the default
     ///
     ///     conn.request_headers_mut()
     ///         .insert("content-type", "text/plain;charset=utf-16");
@@ -393,7 +393,7 @@ where
     /// ```
     /// # use trillium_testing::HttpTest;
     /// HttpTest::new(|mut conn| async move {
-    ///     assert_eq!(conn.response_encoding(), encoding_rs::WINDOWS_1252); // the default
+    ///     assert_eq!(conn.response_encoding(), encoding_rs::UTF_8); // the default
     ///     conn.response_headers_mut()
     ///         .insert("content-type", "text/plain;charset=utf-16");
     ///
