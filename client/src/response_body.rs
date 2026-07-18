@@ -252,7 +252,7 @@ impl ResponseBody<'_> {
         match &self.inner {
             ResponseBodyInner::Received(rb) => rb.encoding(),
             ResponseBodyInner::Override(override_body) => override_body.encoding,
-            _ => encoding_rs::WINDOWS_1252,
+            _ => encoding_rs::UTF_8,
         }
     }
 

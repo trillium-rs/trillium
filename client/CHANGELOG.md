@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.13] - 2026-07-18
+
+### Changed
+
+- When a response's content-type declares no recognizable `charset` parameter,
+  `ResponseBody::read_string` now assumes UTF-8 instead of
+  windows-1252. Unlabeled UTF-8 responses — including all `application/json`, which has no
+  charset parameter — previously decoded non-ASCII content to mojibake and now decode
+  correctly. Unlabeled responses that are genuinely windows-1252 now yield replacement
+  characters instead; use `read_bytes` and decode explicitly when talking to a server that
+  sends unlabeled legacy encodings. A declared charset behaves as before.
+
 ## [0.9.12] - 2026-07-13
 
 ### Fixed

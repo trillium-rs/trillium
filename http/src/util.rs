@@ -4,7 +4,7 @@ use mime::Mime;
 use std::str::FromStr;
 
 /// The character encoding declared by the `Content-Type` header's `charset` parameter, or
-/// Windows-1252 if absent or unparseable.
+/// UTF-8 if absent or unparseable.
 pub fn encoding(headers: &Headers) -> &'static Encoding {
     headers
         .get_str(KnownHeaderName::ContentType)
@@ -14,7 +14,7 @@ pub fn encoding(headers: &Headers) -> &'static Encoding {
                 .find(|(name, _)| name.as_str() == "charset")
                 .and_then(|(_, v)| Encoding::for_label(v.as_str().as_bytes()))
         })
-        .unwrap_or(encoding_rs::WINDOWS_1252)
+        .unwrap_or(encoding_rs::UTF_8)
 }
 
 /// Validate and parse an HTTP/1.x `Content-Length` per RFC 9110.
