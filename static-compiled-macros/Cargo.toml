@@ -15,7 +15,7 @@ proc-macro = true
 [dependencies]
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
-syn = "2.0.117"
+syn = "3.0.0"
 etag = { version = "4.0.0", features = ["std"] }
 brotli = { version = "8.0.2", optional = true }
 zstd = { version = "0.13.3", optional = true }
