@@ -10,48 +10,60 @@ body {
   font-weight: 400;
 }
 
-/* ── Light mode — forest floor / parchment ───────────────────────────── */
+/* ── Light mode — dappled forest ─────────────────────────────────────── */
+/* Day palette from design_handoff_palette_system: olive-warm birch ground
+   (~115–130° — forest, not cyan-mint), pine ink, warmth via gold/amber
+   accents. oklch values are the source of truth; hex fallbacks noted. */
 :root {
   --ifm-font-family-base: 'Fira Sans', sans-serif;
 
-  /* Forest green primary scale */
-  --ifm-color-primary:          #2d6a4f;
-  --ifm-color-primary-dark:     #245c43;
-  --ifm-color-primary-darker:   #1b4332;
-  --ifm-color-primary-darkest:  #143527;
-  --ifm-color-primary-light:    #40916c;
-  --ifm-color-primary-lighter:  #52b788;
-  --ifm-color-primary-lightest: #74c69d;
+  /* Design tokens */
+  --trillium-birch:      oklch(0.955 0.016 115); /* #eff2e6 page ground */
+  --trillium-dapple:     oklch(0.9 0.032 130);   /* #d7e3cd hero canopy ground */
+  --trillium-ink:        oklch(0.26 0.035 150);  /* #17291b deep pine headings */
+  --trillium-ink-dapple: oklch(0.24 0.035 150);  /* #132416 ink on canopy */
+  --trillium-body:       oklch(0.34 0.03 145);   /* #2e3c2e */
+  --trillium-tagline:    oklch(0.42 0.08 145);   /* #2f5831 mono/taglines */
+  --trillium-forest:     oklch(0.47 0.09 145);   /* #37683a primary accent */
+  --trillium-living:     oklch(0.6 0.11 148);    /* #4e925a bright accent */
+  --trillium-gold:       oklch(0.7 0.1 90);      /* #b79c51 lichen gold */
+  --trillium-amber:      oklch(0.6 0.1 70);      /* #a67537 bark amber */
 
-  /* Parchment backgrounds */
-  --ifm-background-color:         #f9f4ec;
-  --ifm-background-surface-color: #f9f4ec;
+  /* Forest primary scale */
+  --ifm-color-primary:          var(--trillium-forest);
+  --ifm-color-primary-dark:     oklch(0.43 0.088 145);
+  --ifm-color-primary-darker:   oklch(0.4 0.085 146);
+  --ifm-color-primary-darkest:  oklch(0.34 0.08 147);
+  --ifm-color-primary-light:    oklch(0.52 0.095 146);
+  --ifm-color-primary-lighter:  var(--trillium-living);
+  --ifm-color-primary-lightest: oklch(0.68 0.11 148);
 
-  /* Warm emphasis scale (alternate-band sections, borders, etc.) */
-  --ifm-color-emphasis-100: #ede3cf;
-  --ifm-color-emphasis-200: #dfd3b6;
-  --ifm-color-emphasis-300: #c8ba98;
+  /* Birch backgrounds */
+  --ifm-background-color:         var(--trillium-birch);
+  --ifm-background-surface-color: var(--trillium-birch);
+
+  /* Sage emphasis scale (alternate-band sections, borders, etc.) */
+  --ifm-color-emphasis-100: oklch(0.925 0.022 118); /* #e5e8d8 */
+  --ifm-color-emphasis-200: oklch(0.89 0.028 124);  /* #d7deca */
+  --ifm-color-emphasis-300: oklch(0.83 0.03 128);   /* #c2cbb7 */
+
+  /* Text */
+  --ifm-font-color-base: var(--trillium-body);
+  --ifm-heading-color:   var(--trillium-ink);
 
   /* Navbar */
-  --ifm-navbar-background-color: #f9f4ec;
-  --ifm-navbar-shadow: 0 1px 2px 0 rgba(45, 35, 15, 0.10);
-
-  /* Footer */
-  --ifm-footer-background-color: #1b4332;
-  --ifm-footer-color:            #d8edd9;
-  --ifm-footer-link-color:       #95d5b2;
-  --ifm-footer-link-hover-color: #b7e4c7;
-  --ifm-footer-title-color:      #f0e6d8;
+  --ifm-navbar-background-color: var(--trillium-birch);
+  --ifm-navbar-shadow: 0 1px 2px 0 oklch(0.28 0.03 140 / 0.14);
 
   /* Inline code */
-  --ifm-code-background: #f0e8d8;
-  --ifm-code-color:      #2a1a0a;
+  --ifm-code-background: oklch(0.92 0.025 120); /* #e2e7d5 */
+  --ifm-code-color:      var(--trillium-ink);
 
-  /* Code blocks */
+  /* Code blocks — keep in sync with prismTheme.ts lightTheme */
   --ifm-code-font-size: 95%;
-  --ifm-pre-background:     #f0e8d8;
-  --prism-background-color: #f0e8d8;
-  --docusaurus-highlighted-code-line-bg: rgba(45, 106, 79, 0.12);
+  --ifm-pre-background:     oklch(0.93 0.02 118); /* #e6eadb */
+  --prism-background-color: oklch(0.93 0.02 118);
+  --docusaurus-highlighted-code-line-bg: oklch(0.47 0.09 145 / 0.12);
 }
 
 /* ── Dark mode — forest night ────────────────────────────────────────── */
@@ -78,13 +90,6 @@ body {
   --ifm-navbar-background-color: #111a14;
   --ifm-navbar-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.40);
 
-  /* Footer */
-  --ifm-footer-background-color: #0a1410;
-  --ifm-footer-color:            #c8b89a;
-  --ifm-footer-link-color:       #66b07e;
-  --ifm-footer-link-hover-color: #85c498;
-  --ifm-footer-title-color:      #f0e6d8;
-
   /* Text — warm off-white */
   --ifm-font-color-base:      #f0e6d8;
   --ifm-font-color-secondary: #c8b49a;
@@ -100,15 +105,72 @@ body {
   --docusaurus-highlighted-code-line-bg: rgba(74, 146, 82, 0.15);
 }
 
-/* ── Secondary buttons — warm green-tinted outline ───────────────────── */
+/* ── Footer ──────────────────────────────────────────────────────────── */
+/* footer.style is 'dark' in docusaurus.config.ts, and infima's
+   .footer--dark redefines these vars scoped on the element — :root-level
+   definitions never reach it, so they must be scoped here. */
+.footer--dark {
+  --ifm-footer-background-color: var(--trillium-ink);
+  --ifm-footer-color:            oklch(0.88 0.03 130);
+  --ifm-footer-link-color:       oklch(0.75 0.09 148);
+  --ifm-footer-link-hover-color: oklch(0.83 0.09 148);
+  --ifm-footer-title-color:      oklch(0.93 0.02 118);
+}
+
+[data-theme='dark'] .footer--dark {
+  --ifm-footer-background-color: #0a1410;
+  --ifm-footer-color:            #c8b89a;
+  --ifm-footer-link-color:       #66b07e;
+  --ifm-footer-link-hover-color: #85c498;
+  --ifm-footer-title-color:      #f0e6d8;
+}
+
+/* Column titles are headings, so --ifm-heading-color outranks the footer
+   var without this. */
+.footer--dark .footer__title {
+  color: var(--ifm-footer-title-color);
+}
+
+/* ── Guide sidebar — dappled forest, static ──────────────────────────── */
+/* The homepage hero's canopy texture carried into the doc sidebar, toned
+   down and without scroll motion. Layer opacities are baked into the SVG
+   alpha rows (hero values × ~0.55) since background layers can't take
+   per-layer opacity. */
+.theme-doc-sidebar-container {
+  background-color: oklch(0.915 0.03 128);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.03' numOctaves='2' seed='15' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.95 0 0 0 0 0.92 0 0 0 0 0.7 0.35 0 0 0 -0.16'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23g)'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012' numOctaves='2' seed='9' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.15 0 0 0 0 0.24 0 0 0 0 0.12 0.38 0 0 0 -0.2'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23m)'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse 130px 96px at 235px 22%, rgba(138, 176, 222, 0.42) 0%, rgba(150, 186, 226, 0.18) 46%, transparent 72%),
+    radial-gradient(ellipse 96px 74px at 70px 55%, rgba(138, 176, 222, 0.36) 0%, rgba(150, 186, 226, 0.15) 46%, transparent 72%),
+    radial-gradient(ellipse 84px 70px at 250px 84%, rgba(138, 176, 222, 0.34) 0%, rgba(150, 186, 226, 0.14) 46%, transparent 72%);
+  background-blend-mode: soft-light, multiply, normal, normal, normal;
+  background-size: 520px 520px, 800px 800px, auto, auto, auto;
+  /* Blob layers are viewport-fixed: they hold position on screen while the
+     page scrolls past — canopy gaps at a deeper parallax plane, no JS. */
+  background-attachment: scroll, scroll, fixed, fixed, fixed;
+}
+
+[data-theme='light'] .theme-doc-sidebar-container .menu {
+  --ifm-menu-color: var(--trillium-body);
+  --ifm-menu-color-background-active: oklch(0.98 0.02 130 / 0.65);
+  --ifm-menu-color-background-hover: oklch(0.98 0.02 130 / 0.45);
+}
+
+[data-theme='dark'] .theme-doc-sidebar-container {
+  background-color: transparent;
+  background-image: none;
+}
+
+/* ── Secondary buttons — forest-tinted outline ───────────────────────── */
 .button--secondary {
-  border-color: rgba(45, 106, 79, 0.40);
-  color: #245c43;
+  border-color: oklch(0.47 0.09 145 / 0.4);
+  color: var(--ifm-color-primary-dark);
 }
 .button--secondary:hover {
-  border-color: #2d6a4f;
-  color: #1b4332;
-  background-color: rgba(45, 106, 79, 0.07);
+  border-color: var(--trillium-forest);
+  color: var(--ifm-color-primary-darker);
+  background-color: oklch(0.47 0.09 145 / 0.07);
 }
 
 [data-theme='dark'] .button--secondary {
