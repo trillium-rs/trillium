@@ -21,7 +21,7 @@ json = ["serde_json", "serde"]
 
 [dependencies]
 async-tungstenite = { version = "0.34.0", default-features = false }
-base64 = "0.22.1"
+base64 = "0.23.0"
 fastrand = "2.3.0"
 futures-lite = "2.6.1"
 log = "0.4.29"
