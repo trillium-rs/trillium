@@ -1,28 +1,32 @@
 import type {PrismTheme} from 'prism-react-renderer';
 
 /**
- * Light theme — forest floor
+ * Light theme — dappled forest
  *
- * Token color hierarchy (light mode, parchment bg):
- *   Types / class names  →  #1b4332  darkest green   (the nouns: Conn, Handler, Router)
- *   Builtins / attr      →  #2d6a4f  forest green
- *   Functions            →  #40916c  medium green
- *   Keywords             →  #607060  muted gray-green  (Victor Mono italic does visual work)
- *   Strings              →  #7a5c2e  warm amber-brown
- *   Numbers / booleans   →  #8b5e3c  terracotta
- *   Operators            →  #5a3e1e  dark brown
- *   Punctuation          →  #7a6b55  medium warm brown
- *   Comments             →  #9a8060  taupe, italic     (whisper)
+ * Sage code paper (oklch 0.93 0.02 118) on the birch ground. Greens sit in
+ * the 145–150° pine band; warmth comes from lichen-gold / bark-amber hues
+ * (70–90°) rather than the old parchment browns.
+ *
+ * Token color hierarchy:
+ *   Types / class names  →  #153c1d  deepest pine     (the nouns: Conn, Handler, Router)
+ *   Builtins / attr      →  #37683a  forest green
+ *   Functions            →  #3e7846  living green
+ *   Keywords             →  #556252  muted gray-green  (Victor Mono italic does visual work)
+ *   Strings              →  #866f2c  lichen gold
+ *   Numbers / booleans   →  #966626  bark amber
+ *   Operators            →  #69502e  dark amber-brown
+ *   Punctuation          →  #6e6a4f  olive drab
+ *   Comments             →  #878870  dry moss, italic  (whisper)
  */
 export const lightTheme: PrismTheme = {
   plain: {
-    color: '#2a1a0a',
-    backgroundColor: '#f0e8d8',
+    color: '#233225',
+    backgroundColor: '#e6eadb',
   },
   styles: [
     {
       types: ['comment', 'prolog', 'doctype', 'cdata'],
-      style: {color: '#9a8060', fontStyle: 'italic'},
+      style: {color: '#878870', fontStyle: 'italic'},
     },
     {
       types: ['namespace'],
@@ -30,41 +34,41 @@ export const lightTheme: PrismTheme = {
     },
     {
       types: ['string', 'char', 'attr-value'],
-      style: {color: '#7a5c2e'},
+      style: {color: '#866f2c'},
     },
     {
       types: ['punctuation'],
-      style: {color: '#7a6b55'},
+      style: {color: '#6e6a4f'},
     },
     {
       types: ['operator'],
-      style: {color: '#5a3e1e'},
+      style: {color: '#69502e'},
     },
     {
       types: ['number', 'boolean', 'inserted'],
-      style: {color: '#8b5e3c'},
+      style: {color: '#966626'},
     },
     {
       // Muted — Victor Mono cursive italic (via CSS) does the visual work
       types: ['keyword', 'atrule'],
-      style: {color: '#607060', fontStyle: 'italic'},
+      style: {color: '#556252', fontStyle: 'italic'},
     },
     {
       types: ['builtin', 'attr-name', 'selector'],
-      style: {color: '#2d6a4f'},
+      style: {color: '#37683a'},
     },
     {
       types: ['function', 'function-variable', 'macro'],
-      style: {color: '#40916c'},
+      style: {color: '#3e7846'},
     },
     {
       // Types are the nouns — give them the darkest, most prominent green
       types: ['class-name', 'maybe-class-name', 'tag'],
-      style: {color: '#1b4332'},
+      style: {color: '#153c1d'},
     },
     {
       types: ['constant', 'symbol', 'variable', 'regex'],
-      style: {color: '#6b4c2a'},
+      style: {color: '#7b5e29'},
     },
     {
       types: ['deleted'],
@@ -72,7 +76,7 @@ export const lightTheme: PrismTheme = {
     },
     {
       types: ['important'],
-      style: {color: '#1b4332', fontStyle: 'italic'},
+      style: {color: '#153c1d', fontStyle: 'italic'},
     },
   ],
 };

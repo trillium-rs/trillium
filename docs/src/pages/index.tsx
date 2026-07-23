@@ -8,6 +8,130 @@ import Heading from "@theme/Heading";
 
 import styles from "./index.module.css";
 
+// Parallax "dappled canopy" from design_handoff_palette_system. Layer order
+// (back → front), blend, opacity, and scroll rates reproduce the handoff
+// recipe exactly; the sky is deepest and moves least.
+const SKY_GAPS = [
+  { top: "15%", left: "63%", width: 130, height: 96, blur: 9, core: 0.62, mid: 0.28 },
+  { top: "39%", left: "17%", width: 84, height: 70, blur: 8, core: 0.55, mid: 0.22 },
+  { top: "57%", left: "76%", width: 104, height: 82, blur: 9, core: 0.58, mid: 0.24 },
+  { top: "71%", left: "34%", width: 72, height: 60, blur: 8, core: 0.5, mid: 0.2 },
+  { top: "84%", left: "58%", width: 96, height: 74, blur: 9, core: 0.55, mid: 0.22 },
+];
+
+function DappleNoise({
+  id,
+  baseFrequency,
+  seed,
+  colorMatrix,
+}: {
+  id: string;
+  baseFrequency: number;
+  seed: number;
+  colorMatrix: string;
+}) {
+  return (
+    <svg viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice">
+      <filter id={id}>
+        <feTurbulence
+          type="fractalNoise"
+          baseFrequency={baseFrequency}
+          numOctaves={2}
+          seed={seed}
+          stitchTiles="stitch"
+        />
+        <feColorMatrix type="matrix" values={colorMatrix} />
+      </filter>
+      <rect width="800" height="800" filter={`url(#${id})`} />
+    </svg>
+  );
+}
+
+function DappledCanopy() {
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const layers = Array.from(
+      root.querySelectorAll<HTMLElement>("[data-dapple]"),
+    );
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const y = window.scrollY;
+      for (const layer of layers) {
+        const rate = Number(layer.dataset.dapple);
+        layer.style.transform = `translateY(${-y * rate}px)`;
+      }
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  return (
+    <div ref={ref} className={styles.canopy} aria-hidden="true">
+      <div data-dapple="0.03" className={clsx(styles.canopyLayer, styles.sky)}>
+        {SKY_GAPS.map(({ top, left, width, height, blur, core, mid }, i) => (
+          <span
+            key={i}
+            className={styles.skyGap}
+            style={{
+              top,
+              left,
+              width,
+              height,
+              filter: `blur(${blur}px)`,
+              background: `radial-gradient(circle, rgba(138,176,222,${core}) 0%, rgba(150,186,226,${mid}) 46%, rgba(150,186,226,0) 72%)`,
+            }}
+          />
+        ))}
+      </div>
+      <div
+        data-dapple="0.24"
+        className={clsx(styles.canopyLayer, styles.dappleLarge)}
+      >
+        <DappleNoise
+          id="dappleLarge"
+          baseFrequency={0.004}
+          seed={4}
+          colorMatrix="0 0 0 0 0.13  0 0 0 0 0.22 0 0 0 0 0.11  0.85 0 0 0 -0.42"
+        />
+      </div>
+      <div
+        data-dapple="0.13"
+        className={clsx(styles.canopyLayer, styles.dappleMedium)}
+      >
+        <DappleNoise
+          id="dappleMedium"
+          baseFrequency={0.012}
+          seed={9}
+          colorMatrix="0 0 0 0 0.15  0 0 0 0 0.24 0 0 0 0 0.12  0.85 0 0 0 -0.44"
+        />
+      </div>
+      <div
+        data-dapple="0.05"
+        className={clsx(styles.canopyLayer, styles.dappleSmall)}
+      >
+        <DappleNoise
+          id="dappleSmall"
+          baseFrequency={0.03}
+          seed={15}
+          colorMatrix="0 0 0 0 0.95  0 0 0 0 0.92 0 0 0 0 0.7  0.7 0 0 0 -0.32"
+        />
+      </div>
+    </div>
+  );
+}
+
 const EXAMPLE = `\
 use trillium::{Conn, Handler};
 use trillium_logger::Logger;
@@ -299,7 +423,8 @@ export default function Home(): React.JSX.Element {
   return (
     <Layout title={siteConfig.title} description={siteConfig.tagline}>
       <header className={clsx("hero", styles.hero)}>
-        <div className="container">
+        <DappledCanopy />
+        <div className={clsx("container", styles.heroContent)}>
           <div className={styles.heroInner}>
             <div className={styles.heroText}>
               <Heading as="h1" className={styles.heroTitle}>

@@ -1,6 +1,62 @@
 .hero {
   padding: 4rem 0 5rem;
   overflow: hidden;
+  position: relative;
+  background: var(--trillium-dapple);
+  color: var(--trillium-ink-dapple);
+}
+
+/* ── Dappled canopy (see design_handoff_palette_system) ──────────────── */
+/* Layers overscan vertically (top -40%, height 180%) so scroll-driven
+   translateY never exposes an edge. */
+
+.canopy {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.canopyLayer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -40%;
+  height: 180%;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.canopyLayer svg {
+  width: 100%;
+  height: 100%;
+}
+
+.sky {
+  opacity: 0.8;
+}
+
+.skyGap {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.dappleLarge {
+  mix-blend-mode: multiply;
+  opacity: 0.3;
+}
+
+.dappleMedium {
+  mix-blend-mode: multiply;
+  opacity: 0.62;
+}
+
+.dappleSmall {
+  mix-blend-mode: soft-light;
+  opacity: 0.78;
+}
+
+.heroContent {
+  position: relative;
 }
 
 .heroInner {
@@ -9,28 +65,82 @@
   gap: 3rem;
 }
 
+/* Green glass — copy stands off the canopy */
 .heroText {
   flex: 0 0 auto;
-  max-width: 400px;
+  max-width: 440px;
+  padding: 1.75rem 2rem;
+  background: oklch(0.98 0.02 130 / 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid oklch(0.5 0.04 140 / 0.28);
+  border-radius: 14px;
+  box-shadow: 0 10px 34px oklch(0.28 0.03 140 / 0.14);
 }
 
 .heroTitle {
   font-size: 3.5rem;
   font-weight: 800;
   margin-bottom: 0.5rem;
+  color: var(--trillium-ink-dapple);
 }
 
 .heroSubtitle {
   font-family: 'Fira Code', monospace;
   font-size: 1.2rem;
   margin-bottom: 0.5rem;
-  opacity: 0.85;
+  color: var(--trillium-tagline);
 }
 
 .heroDescription {
   font-size: 1rem;
   margin-bottom: 2rem;
+  opacity: 0.85;
+}
+
+.heroCode :global(.theme-code-block) {
+  border: 1px solid oklch(0.5 0.04 140 / 0.28);
+  border-radius: 14px;
+  box-shadow: 0 10px 34px oklch(0.28 0.03 140 / 0.14);
+}
+
+/* Night view is a separate design pass — keep the previous flat hero */
+[data-theme='dark'] .hero {
+  background: var(--ifm-background-color);
+  color: inherit;
+}
+
+[data-theme='dark'] .canopy {
+  display: none;
+}
+
+[data-theme='dark'] .heroText {
+  padding: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  max-width: 400px;
+}
+
+[data-theme='dark'] .heroTitle {
+  color: inherit;
+}
+
+[data-theme='dark'] .heroSubtitle {
+  color: inherit;
+  opacity: 0.85;
+}
+
+[data-theme='dark'] .heroDescription {
   opacity: 0.75;
+}
+
+[data-theme='dark'] .heroCode :global(.theme-code-block) {
+  border: none;
+  box-shadow: none;
 }
 
 .buttons {
@@ -83,6 +193,11 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: 0.75rem;
+  color: var(--trillium-amber);
+}
+
+[data-theme='dark'] .ecosystemCategoryTitle {
+  color: inherit;
   opacity: 0.5;
 }
 
