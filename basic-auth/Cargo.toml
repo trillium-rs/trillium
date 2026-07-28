@@ -11,7 +11,7 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
-base64 = "0.22.1"
+base64 = "0.23.0"
 fieldwork = "0.5.0"
 trillium.workspace = true
 
