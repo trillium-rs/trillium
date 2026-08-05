@@ -14,14 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Event` can now carry an `id`, via `with_id`/`set_id`/`id`. `Eventable::id` already existed
   but `Event` had no way to populate it.
 - `Event` implements `Default`.
+- `retry:` support, for telling clients how long to wait before reconnecting. `Eventable::retry`
+  returns an optional `Duration`, emitted in milliseconds; `Event::with_retry`/`set_retry` set it.
 
 ### Changed
 
 - **Breaking:** `Eventable::data` returns `Option<&str>` instead of `&str`, so that a message can
-  be sent with no `data:` field. `Event::data` likewise. An `Eventable` with neither data nor a
-  comment is skipped rather than written as an empty frame.
+  be sent with no `data:` field. `Event::data` likewise.
 - Data and comment values containing empty lines now emit a bare `data:`/`:` line for each,
   rather than dropping them.
+- An `Eventable` with no fields set at all is skipped rather than written as a bare message
+  terminator.
 
 ## [0.2.1] - 2026-06-21
 

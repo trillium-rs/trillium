@@ -1,4 +1,5 @@
 use futures_lite::stream;
+use std::time::Duration;
 use trillium::Conn;
 use trillium_sse::{Event, SseConnExt};
 use trillium_testing::{TestServer, harness, test};
@@ -44,4 +45,20 @@ async fn comments_ids_and_multiline_data() {
         // an Event with neither data nor a comment is skipped entirely
         "data: last\n\n",
     ));
+}
+
+#[test(harness)]
+async fn retry_is_emitted_in_milliseconds() {
+    let app = TestServer::new(|conn: Conn| async move {
+        conn.with_sse_stream(stream::iter([
+            Event::default().with_retry(Duration::from_secs(5)),
+            Event::new("hello").with_retry(Duration::from_millis(1500)),
+        ]))
+    })
+    .await;
+
+    app.get("/")
+        .await
+        .assert_ok()
+        .assert_body("retry: 5000\n\nretry: 1500\ndata: hello\n\n");
 }
