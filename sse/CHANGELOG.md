@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Comment messages, the standard SSE keep-alive. `Eventable::comment` returns an optional
+  comment to send alongside (or instead of) data, and `Event::new_comment`/`with_comment`/
+  `set_comment` build them.
+- `Event` can now carry an `id`, via `with_id`/`set_id`/`id`. `Eventable::id` already existed
+  but `Event` had no way to populate it.
+- `Event` implements `Default`.
+
+### Changed
+
+- **Breaking:** `Eventable::data` returns `Option<&str>` instead of `&str`, so that a message can
+  be sent with no `data:` field. `Event::data` likewise. An `Eventable` with neither data nor a
+  comment is skipped rather than written as an empty frame.
+- Data and comment values containing empty lines now emit a bare `data:`/`:` line for each,
+  rather than dropping them.
+
 ## [0.2.1] - 2026-06-21
 
 ### Fixed

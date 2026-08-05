@@ -14,7 +14,8 @@
 [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) for trillium.
 Takes any `Stream` whose items implement [`Eventable`][docs] and streams them to the client as an
 SSE response. `String`, `&'static str`, and the included `Event` type all implement `Eventable`;
-implement it on your own types for custom event/id fields.
+implement it on your own types for custom event/id fields. Events can also carry comments, which
+clients ignore — a comment with no data is the conventional SSE keep-alive.
 
 ## Example
 
