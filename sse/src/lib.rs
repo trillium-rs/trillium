@@ -78,6 +78,7 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 use trillium::{Body, Conn, KnownHeaderName, Status};
 
@@ -112,19 +113,12 @@ fn write_multiline_field(output: &mut String, prefix: &str, value: &str) {
     }
 }
 
-/// Returns `None` for an event that would dispatch nothing on the client — neither a comment
-/// nor data. Emitting it would be an empty frame, and `event:`/`id:` without data are discarded.
+/// Returns `None` for an event with no fields set at all, which would otherwise be written as a
+/// bare message terminator.
 fn encode(event: &impl Eventable) -> Option<String> {
-    let data = event.data();
-    let comment = event.comment();
-
-    if data.is_none() && comment.is_none() {
-        return None;
-    }
-
     let mut output = String::new();
 
-    if let Some(comment) = comment {
+    if let Some(comment) = event.comment() {
         write_multiline_field(&mut output, ":", comment);
     }
 
@@ -136,8 +130,16 @@ fn encode(event: &impl Eventable) -> Option<String> {
         writeln!(&mut output, "id: {id}").unwrap();
     }
 
-    if let Some(data) = data {
+    if let Some(retry) = event.retry() {
+        writeln!(&mut output, "retry: {}", retry.as_millis()).unwrap();
+    }
+
+    if let Some(data) = event.data() {
         write_multiline_field(&mut output, "data:", data);
+    }
+
+    if output.is_empty() {
+        return None;
     }
 
     writeln!(output).unwrap();
@@ -255,6 +257,15 @@ pub trait Eventable: Unpin + Send + Sync + 'static {
     fn id(&self) -> Option<&str> {
         None
     }
+
+    /// return a reconnection time to request of the client, optionally
+    ///
+    /// Sent as a `retry:` field in milliseconds, truncated. Clients that reconnect on their own
+    /// — such as the browser `EventSource` — wait this long before doing so. Whether and how it
+    /// is honored is entirely up to the client.
+    fn retry(&self) -> Option<Duration> {
+        None
+    }
 }
 
 impl Eventable for Event {
@@ -272,6 +283,10 @@ impl Eventable for Event {
 
     fn id(&self) -> Option<&str> {
         Event::id(self)
+    }
+
+    fn retry(&self) -> Option<Duration> {
+        Event::retry(self)
     }
 }
 
@@ -294,6 +309,7 @@ pub struct Event {
     comment: Option<Cow<'static, str>>,
     event_type: Option<Cow<'static, str>>,
     id: Option<Cow<'static, str>>,
+    retry: Option<Duration>,
 }
 
 impl From<&'static str> for Event {
@@ -403,6 +419,27 @@ impl Event {
         self.comment = Some(comment.into());
     }
 
+    /// chainable constructor to set the reconnection time on an event
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// let event = trillium_sse::Event::new("event data").with_retry(Duration::from_secs(5));
+    /// assert_eq!(event.retry(), Some(Duration::from_secs(5)));
+    /// ```
+    pub fn with_retry(mut self, retry: Duration) -> Self {
+        self.set_retry(retry);
+        self
+    }
+
+    /// set the reconnection time for this Event. The default is None.
+    ///
+    /// This is sent to the client as a `retry:` field in milliseconds; see
+    /// [`Eventable::retry`]. A retry can be sent without any data, as
+    /// `Event::default().with_retry(duration)`.
+    pub fn set_retry(&mut self, retry: Duration) {
+        self.retry = Some(retry);
+    }
+
     /// returns this Event's data as a str, if set
     pub fn data(&self) -> Option<&str> {
         self.data.as_deref()
@@ -421,5 +458,10 @@ impl Event {
     /// returns this Event's id as a str, if set
     pub fn id(&self) -> Option<&str> {
         self.id.as_deref()
+    }
+
+    /// returns this Event's reconnection time, if set
+    pub fn retry(&self) -> Option<Duration> {
+        self.retry
     }
 }
