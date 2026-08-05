@@ -58,6 +58,35 @@ conn.with_sse_stream(events)
 
 The `Eventable` trait is also implemented for `String` and `&'static str`, so simple text streams work without wrapping.
 
+## Comments
+
+An event can also carry a comment, which clients ignore. A comment-only message — no `data:`
+field, so nothing is dispatched to the page — is the conventional SSE keep-alive: proxies and
+load balancers will often close a connection that has been idle for some time, and a periodic
+comment keeps traffic flowing without the client seeing anything.
+
+```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-sse = { path = "../sse" }
+# futures-lite = "*"
+#
+# use futures_lite::stream;
+# fn main() {
+#     trillium_smol::run(|conn: trillium::Conn| async move {
+use trillium_sse::{Event, SseConnExt};
+
+let events = stream::iter([
+    Event::new_comment("keep-alive"),
+    Event::new("hello").with_id("1"),
+]);
+
+conn.with_sse_stream(events)
+#     });
+# }
+```
+
 ## Real-time fan-out
 
 In practice, SSE is most useful paired with a broadcast channel so that server-side events reach all connected clients. The exact channel type is up to you — any `Stream` works:

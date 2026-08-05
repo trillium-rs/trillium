@@ -14,6 +14,10 @@
 //! use in your application, for `String`, and for `&'static str`. You can
 //! also implement [`Eventable`] for any type in your application.
 //!
+//! In addition to data events, the stream can carry comments — messages that clients ignore,
+//! used to keep an idle connection from being closed by intermediaries. See
+//! [`Event::new_comment`].
+//!
 //! ## Example usage
 //!
 //! ```
@@ -97,8 +101,33 @@ where
     }
 }
 
-fn encode(event: impl Eventable) -> String {
+fn write_multiline_field(output: &mut String, prefix: &str, value: &str) {
+    for line in value.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.is_empty() {
+            writeln!(output, "{prefix}").unwrap();
+        } else {
+            writeln!(output, "{prefix} {line}").unwrap();
+        }
+    }
+}
+
+/// Returns `None` for an event that would dispatch nothing on the client — neither a comment
+/// nor data. Emitting it would be an empty frame, and `event:`/`id:` without data are discarded.
+fn encode(event: &impl Eventable) -> Option<String> {
+    let data = event.data();
+    let comment = event.comment();
+
+    if data.is_none() && comment.is_none() {
+        return None;
+    }
+
     let mut output = String::new();
+
+    if let Some(comment) = comment {
+        write_multiline_field(&mut output, ":", comment);
+    }
+
     if let Some(event_type) = event.event_type() {
         writeln!(&mut output, "event: {event_type}").unwrap();
     }
@@ -107,13 +136,13 @@ fn encode(event: impl Eventable) -> String {
         writeln!(&mut output, "id: {id}").unwrap();
     }
 
-    for part in event.data().lines() {
-        writeln!(&mut output, "data: {part}").unwrap();
+    if let Some(data) = data {
+        write_multiline_field(&mut output, "data:", data);
     }
 
     writeln!(output).unwrap();
 
-    output
+    Some(output)
 }
 
 impl<S, E> AsyncRead for SseBody<S, E>
@@ -135,19 +164,22 @@ where
             return Poll::Ready(Ok(buffer_read));
         }
 
-        match Pin::new(stream).poll_next(cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(Some(item)) => {
-                let data = encode(item).into_bytes();
-                let writable_len = data.len().min(buf.len());
-                buf[0..writable_len].copy_from_slice(&data[0..writable_len]);
-                if writable_len < data.len() {
-                    buffer.extend_from_slice(&data[writable_len..]);
+        loop {
+            break match Pin::new(&mut *stream).poll_next(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Some(item)) => {
+                    let Some(data) = encode(&item) else { continue };
+                    let data = data.into_bytes();
+                    let writable_len = data.len().min(buf.len());
+                    buf[0..writable_len].copy_from_slice(&data[0..writable_len]);
+                    if writable_len < data.len() {
+                        buffer.extend_from_slice(&data[writable_len..]);
+                    }
+                    Poll::Ready(Ok(writable_len))
                 }
-                Poll::Ready(Ok(writable_len))
-            }
 
-            Poll::Ready(None) => Poll::Ready(Ok(0)),
+                Poll::Ready(None) => Poll::Ready(Ok(0)),
+            };
         }
     }
 }
@@ -200,8 +232,19 @@ impl SseConnExt for Conn {
 /// For a concrete implementation of this trait, you can use [`Event`],
 /// but it is also implemented for [`String`] and [`&'static str`].
 pub trait Eventable: Unpin + Send + Sync + 'static {
-    /// return the data for this event. non-optional.
-    fn data(&self) -> &str;
+    /// return the data for this event, if any
+    ///
+    /// Returning `None` yields a message with no `data:` field. Clients dispatch no event for
+    /// such a message, so it is only useful in combination with [`comment`](Eventable::comment).
+    fn data(&self) -> Option<&str>;
+
+    /// return a comment to send alongside this event, optionally
+    ///
+    /// Comments are ignored by clients. They are chiefly used as a keep-alive, to prevent
+    /// intermediaries from closing an otherwise idle event stream.
+    fn comment(&self) -> Option<&str> {
+        None
+    }
 
     /// return the event type, optionally
     fn event_type(&self) -> Option<&str> {
@@ -215,32 +258,42 @@ pub trait Eventable: Unpin + Send + Sync + 'static {
 }
 
 impl Eventable for Event {
-    fn data(&self) -> &str {
+    fn data(&self) -> Option<&str> {
         Event::data(self)
+    }
+
+    fn comment(&self) -> Option<&str> {
+        Event::comment(self)
     }
 
     fn event_type(&self) -> Option<&str> {
         Event::event_type(self)
     }
+
+    fn id(&self) -> Option<&str> {
+        Event::id(self)
+    }
 }
 
 impl Eventable for &'static str {
-    fn data(&self) -> &str {
-        self
+    fn data(&self) -> Option<&str> {
+        Some(self)
     }
 }
 
 impl Eventable for String {
-    fn data(&self) -> &str {
-        self
+    fn data(&self) -> Option<&str> {
+        Some(self)
     }
 }
 
 /// Events are a concrete implementation of the [`Eventable`] trait.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct Event {
-    data: Cow<'static, str>,
+    data: Option<Cow<'static, str>>,
+    comment: Option<Cow<'static, str>>,
     event_type: Option<Cow<'static, str>>,
+    id: Option<Cow<'static, str>>,
 }
 
 impl From<&'static str> for Event {
@@ -258,8 +311,8 @@ impl From<String> for Event {
 impl From<Cow<'static, str>> for Event {
     fn from(data: Cow<'static, str>) -> Self {
         Event {
-            data,
-            event_type: None,
+            data: Some(data),
+            ..Self::default()
         }
     }
 }
@@ -273,12 +326,29 @@ impl Event {
         Self::from(data.into())
     }
 
+    /// builds a new comment-only [`Event`], with no data
+    ///
+    /// Clients ignore comments and dispatch no event for this message. Sending one periodically
+    /// keeps an otherwise idle event stream from being closed by intermediaries.
+    ///
+    /// ```
+    /// let event = trillium_sse::Event::new_comment("keep-alive");
+    /// assert_eq!(event.comment(), Some("keep-alive"));
+    /// assert_eq!(event.data(), None);
+    /// ```
+    pub fn new_comment(comment: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            comment: Some(comment.into()),
+            ..Self::default()
+        }
+    }
+
     /// chainable constructor to set the type on an event
     ///
     /// ```
     /// let event = trillium_sse::Event::new("event data").with_type("userdata");
     /// assert_eq!(event.event_type(), Some("userdata"));
-    /// assert_eq!(event.data(), "event data");
+    /// assert_eq!(event.data(), Some("event data"));
     /// ```
     pub fn with_type(mut self, event_type: impl Into<Cow<'static, str>>) -> Self {
         self.set_type(event_type);
@@ -297,13 +367,59 @@ impl Event {
         self.event_type = Some(event_type.into());
     }
 
-    /// returns this Event's data as a &str
-    pub fn data(&self) -> &str {
-        &self.data
+    /// chainable constructor to set the id on an event
+    ///
+    /// ```
+    /// let event = trillium_sse::Event::new("event data").with_id("1");
+    /// assert_eq!(event.id(), Some("1"));
+    /// ```
+    pub fn with_id(mut self, id: impl Into<Cow<'static, str>>) -> Self {
+        self.set_id(id);
+        self
+    }
+
+    /// set the id for this Event. The default is None.
+    pub fn set_id(&mut self, id: impl Into<Cow<'static, str>>) {
+        self.id = Some(id.into());
+    }
+
+    /// chainable constructor to attach a comment to an event
+    ///
+    /// Comments are ignored by clients, and can be attached to an event with data as well as
+    /// sent on their own with [`Event::new_comment`].
+    ///
+    /// ```
+    /// let event = trillium_sse::Event::new("event data").with_comment("ignore me");
+    /// assert_eq!(event.comment(), Some("ignore me"));
+    /// assert_eq!(event.data(), Some("event data"));
+    /// ```
+    pub fn with_comment(mut self, comment: impl Into<Cow<'static, str>>) -> Self {
+        self.set_comment(comment);
+        self
+    }
+
+    /// set the comment for this Event. The default is None.
+    pub fn set_comment(&mut self, comment: impl Into<Cow<'static, str>>) {
+        self.comment = Some(comment.into());
+    }
+
+    /// returns this Event's data as a str, if set
+    pub fn data(&self) -> Option<&str> {
+        self.data.as_deref()
+    }
+
+    /// returns this Event's comment as a str, if set
+    pub fn comment(&self) -> Option<&str> {
+        self.comment.as_deref()
     }
 
     /// returns this Event's type as a str, if set
     pub fn event_type(&self) -> Option<&str> {
         self.event_type.as_deref()
+    }
+
+    /// returns this Event's id as a str, if set
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 }
