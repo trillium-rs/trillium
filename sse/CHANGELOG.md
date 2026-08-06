@@ -4,11 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-08-06
 
 ### Added
 
-- Comment messages, the standard SSE keep-alive. `Eventable::comment` returns an optional
+- Comment messages, the standard SSE heartbeat. `Eventable::comment` returns an optional
   comment to send alongside (or instead of) data, and `Event::new_comment`/`with_comment`/
   `set_comment` build them.
 - `Event` can now carry an `id`, via `with_id`/`set_id`/`id`. `Eventable::id` already existed
@@ -17,8 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `retry:` support, for telling clients how long to wait before reconnecting. `Eventable::retry`
   returns an optional `Duration`, emitted in milliseconds; `Event::with_retry`/`set_retry` set it.
 
+- An `Sse` handler, built with `sse()` from any `SseHandler`. Unlike `SseConnExt`, it is a
+  `Handler`, so it obtains a runtime in `init` and can send heartbeat comments via
+  `Sse::with_heartbeat`. `SseHandler` is implemented for any `Fn(&mut Conn) -> Option<Stream>`, and
+  returning `None` passes the conn through to subsequent handlers. The handler also negotiates on
+  `Accept`, declining requests that exclude `text/event-stream`.
+- `SseConnExt::with_sse_stream_and_heartbeat`, which sends an empty comment whenever the given
+  interval elapses without the stream yielding an event. The interval is measured from the most
+  recent event, so a busy stream sends no heartbeats.
+
 ### Changed
 
+- The stream passed to `with_sse_stream` no longer needs to be `Sync`, only `Send`. This admits
+  channel receivers that were previously rejected.
 - **Breaking:** `Eventable::data` returns `Option<&str>` instead of `&str`, so that a message can
   be sent with no `data:` field. `Event::data` likewise.
 - Data and comment values containing empty lines now emit a bare `data:`/`:` line for each,

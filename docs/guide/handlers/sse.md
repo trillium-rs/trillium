@@ -6,9 +6,35 @@ Server-Sent Events (SSE) let a server push a stream of events to a browser over 
 
 SSE is unidirectional: the server sends, the client receives. Use SSE when you need to push updates to the browser and don't need to receive messages back over the same connection. For bidirectional communication, see [WebSockets](./websockets.md) or [Channels](./channels.md).
 
-## Basic usage
+## The Sse handler
 
-The `SseConnExt` trait adds a `with_sse_stream` method to `Conn`. Pass it any `Stream` of items that implement `Eventable`:
+`sse()` builds a handler from any `SseHandler` — most simply, a closure that receives the conn and returns an optional `Stream` of `Eventable` items:
+
+```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-sse = { path = "../sse" }
+# futures-lite = "*"
+#
+# fn main() {
+use futures_lite::stream;
+use trillium::Conn;
+use trillium_sse::sse;
+
+trillium_smol::run(sse(|_: &mut Conn| {
+    stream::iter(["one", "two", "three"])
+}));
+# }
+```
+
+The handler negotiates on the request's `Accept` header, passing the conn through to subsequent handlers if the client doesn't accept `text/event-stream` — so it composes in a tuple without needing a route of its own. A request with no `Accept` header accepts anything. Returning `None` from the closure declines a request for application-level reasons, such as authorization.
+
+Because this is a handler, it is initialized by the server, which is what lets it send heartbeats — see below.
+
+## Conn-level usage
+
+The `SseConnExt` trait adds a `with_sse_stream` method to `Conn`. Use it when you already have a conn in hand. Pass it any `Stream` of items that implement `Eventable`:
 
 ```rust
 # [dependencies]
@@ -61,7 +87,7 @@ The `Eventable` trait is also implemented for `String` and `&'static str`, so si
 ## Comments
 
 An event can also carry a comment, which clients ignore. A comment-only message — no `data:`
-field, so nothing is dispatched to the page — is the conventional SSE keep-alive: proxies and
+field, so nothing is dispatched to the page — is the conventional SSE heartbeat: proxies and
 load balancers will often close a connection that has been idle for some time, and a periodic
 comment keeps traffic flowing without the client seeing anything.
 
@@ -78,7 +104,7 @@ comment keeps traffic flowing without the client seeing anything.
 use trillium_sse::{Event, SseConnExt};
 
 let events = stream::iter([
-    Event::new_comment("keep-alive"),
+    Event::new_comment("heartbeat"),
     Event::new("hello").with_id("1"),
 ]);
 
@@ -86,6 +112,37 @@ conn.with_sse_stream(events)
 #     });
 # }
 ```
+
+## Heartbeats
+
+Long-lived event streams are often idle for minutes at a time, and an idle connection is
+vulnerable — proxies and load balancers tend to close it, and the server itself doesn't discover
+that a client has gone away until it next tries to write. `Sse::with_heartbeat` sends a comment
+whenever the given interval passes without an event, so the stream is never entirely silent:
+
+```rust
+# [dependencies]
+# trillium = { path = "../trillium" }
+# trillium-smol = { path = "../smol" }
+# trillium-sse = { path = "../sse" }
+# futures-lite = "*"
+#
+# fn main() {
+use std::time::Duration;
+use futures_lite::stream;
+use trillium::Conn;
+use trillium_sse::sse;
+
+trillium_smol::run(
+    sse(|_: &mut Conn| stream::pending::<String>())
+        .with_heartbeat(Duration::from_secs(15)),
+);
+# }
+```
+
+The interval is measured from the most recent event rather than on a fixed schedule, so a stream
+that is already sending regularly produces no heartbeats at all. The conn-level equivalent is
+`with_sse_stream_and_heartbeat`.
 
 ## Real-time fan-out
 

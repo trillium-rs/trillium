@@ -1,6 +1,6 @@
 [package]
 name = "trillium-sse"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 description = "server sent events for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -10,8 +10,11 @@ keywords = ["trillium", "framework", "async"]
 categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
+fieldwork = "0.5.3"
 futures-lite = "2.6.1"
+log = "0.4.29"
 trillium.workspace = true
+trillium-server-common.workspace = true
 
 [dev-dependencies]
 broadcaster = "1.0.0"
