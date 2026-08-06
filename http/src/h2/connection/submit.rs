@@ -296,7 +296,7 @@ impl H2Connection {
             }
             let stream_id = self
                 .next_client_stream_id
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                     (n < (1u32 << 31)).then_some(n + 2)
                 })
                 .ok()?;
