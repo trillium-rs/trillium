@@ -14,31 +14,33 @@
 [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) for trillium.
 Takes any `Stream` whose items implement [`Eventable`][docs] and streams them to the client as an
 SSE response. `String`, `&'static str`, and the included `Event` type all implement `Eventable`;
-implement it on your own types for custom event/id fields. Events can also carry comments, which
-clients ignore — a comment with no data is the conventional SSE keep-alive.
+implement it on your own types for custom event/id/retry fields. Events can also carry comments,
+which clients ignore — a comment with no data is the conventional SSE heartbeat.
 
 ## Example
 
 ```rust,no_run
 use broadcaster::BroadcastChannel;
-use trillium::{Conn, State};
-use trillium_sse::SseConnExt;
+use std::time::Duration;
+use trillium::Conn;
+use trillium_sse::sse;
 
-type Channel = BroadcastChannel<String>;
+let channel = BroadcastChannel::<String>::new();
 
-let app = (
-    State::new(Channel::new()),
-    |mut conn: Conn| async move {
-        let channel = conn.take_state::<Channel>().unwrap();
-        conn.with_sse_stream(channel)
-    },
-);
+let app = sse(move |_: &mut Conn| Some(channel.clone()))
+    .with_heartbeat(Duration::from_secs(15));
+
 // run with your chosen runtime adapter, e.g.:
 // trillium_tokio::run(app);
 ```
 
 The connection stays open and events are pushed as items arrive on the stream. The stream is
-automatically interrupted when the client disconnects or the server shuts down.
+automatically interrupted when the client disconnects or the server shuts down. Requests whose
+`Accept` header excludes `text/event-stream` are passed through to subsequent handlers, as are
+requests the closure declines by returning `None`.
+
+`SseConnExt::with_sse_stream` is the lower-level alternative, for when you already have a conn in
+hand rather than composing a handler.
 
 ## Safety
 
