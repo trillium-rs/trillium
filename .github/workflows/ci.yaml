@@ -65,6 +65,16 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      # WinNAT reserves per-protocol port ranges inside the ephemeral range,
+      # so a port obtained by binding TCP :0 can be UDP-excluded, failing the
+      # paired QUIC bind with WSAEACCES. Restarting the service clears the
+      # reservations; nothing in CI recreates them.
+      - name: Clear WinNAT port exclusions (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          net stop winnat
+          net start winnat
+
       - name: Run tests
         run: ${{ matrix.cmd }}
         env:
