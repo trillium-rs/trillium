@@ -48,7 +48,11 @@ Ructe is a compile-time typed template system similar to askama, but using a bui
 
 ### Tera
 
-Tera offers runtime templating. Trillium's tera integration provides an interface very similar to `phoenix` or `rails`, with the notion of `assigns` being set on the conn prior to render.
+Tera offers runtime templating, using a jinja2/django-inspired syntax. Trillium's tera integration provides an interface very similar to `phoenix` or `rails`, with the notion of `assigns` being set on the conn prior to render.
+
+`trillium-tera` tracks tera 2, and enables tera's `fast` feature by default. To
+trim dependencies at the cost of rendering speed, depend on it with
+`default-features = false`.
 
 Given the following file in the same directory as main.rs (examples in this case),
 ```html

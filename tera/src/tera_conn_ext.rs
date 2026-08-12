@@ -1,13 +1,14 @@
 use crate::TeraHandler;
 use serde::Serialize;
+use std::borrow::Cow;
 use tera::{Context, Tera};
 use trillium::{Conn, KnownHeaderName};
 
 /// Extends trillium::Conn with tera template-rendering functionality.
 pub trait TeraConnExt {
-    /// Adds a key-value pair to the assigns [`Context`], where the key is
-    /// a &str and the value is any [`Serialize`] type.
-    fn assign(self, key: &str, value: impl Serialize) -> Self;
+    /// Adds a key-value pair to the assigns [`Context`], where the value is
+    /// any [`Serialize`] type.
+    fn assign(self, key: impl Into<Cow<'static, str>>, value: impl Serialize) -> Self;
 
     /// Uses the accumulated assigns context to render the template by
     /// registered name to the conn body and return the conn. Halts
@@ -33,7 +34,7 @@ pub trait TeraConnExt {
 }
 
 impl TeraConnExt for Conn {
-    fn assign(mut self, key: &str, value: impl Serialize) -> Self {
+    fn assign(mut self, key: impl Into<Cow<'static, str>>, value: impl Serialize) -> Self {
         self.context_mut().insert(key, &value);
         self
     }

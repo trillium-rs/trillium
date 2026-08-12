@@ -13,20 +13,22 @@ impl From<PathBuf> for TeraHandler {
 }
 
 impl From<&str> for TeraHandler {
-    fn from(dir: &str) -> Self {
-        Tera::new(dir).unwrap().into()
+    fn from(glob: &str) -> Self {
+        let mut tera = Tera::new();
+        tera.load_from_glob(glob).unwrap();
+        tera.into()
     }
 }
 
 impl From<&String> for TeraHandler {
-    fn from(dir: &String) -> Self {
-        Tera::new(dir).unwrap().into()
+    fn from(glob: &String) -> Self {
+        glob.as_str().into()
     }
 }
 
 impl From<String> for TeraHandler {
-    fn from(dir: String) -> Self {
-        Tera::new(&dir).unwrap().into()
+    fn from(glob: String) -> Self {
+        glob.as_str().into()
     }
 }
 
@@ -47,7 +49,7 @@ impl TeraHandler {
     /// a directory glob containing templates, or from a
     /// [`tera::Tera`] instance
     /// ```
-    /// # fn main() -> tera::Result<()> {
+    /// # fn main() -> tera::TeraResult<()> {
     /// use std::{iter::FromIterator, path::PathBuf};
     /// use trillium_tera::TeraHandler;
     ///
