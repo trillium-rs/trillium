@@ -15,7 +15,7 @@
 //! [spec]: https://html.spec.whatwg.org/multipage/server-sent-events.html
 //! [es]: https://developer.mozilla.org/en-US/docs/Web/API/EventSource
 
-use crate::{Conn, ResponseBody};
+use crate::Conn;
 use futures_lite::{AsyncRead, stream::Stream};
 use std::{
     collections::VecDeque,
@@ -76,10 +76,7 @@ impl Conn {
             ));
         }
 
-        match self.take_response_body() {
-            Some(body) => Ok(EventStream::new(body)),
-            None => Err(SseError::new(self, SseErrorKind::NoBody)),
-        }
+        Ok(EventStream::new(self))
     }
 }
 
@@ -146,7 +143,7 @@ impl Event {
 /// (no terminating blank line) is discarded per the specification.
 #[derive(Debug)]
 pub struct EventStream {
-    body: ResponseBody<'static>,
+    conn: Conn,
     decoder: Decoder,
     pending: VecDeque<Event>,
     read_buf: Box<[u8]>,
@@ -154,14 +151,20 @@ pub struct EventStream {
 }
 
 impl EventStream {
-    fn new(body: ResponseBody<'static>) -> Self {
+    fn new(conn: Conn) -> Self {
         Self {
-            body,
+            conn,
             decoder: Decoder::default(),
             pending: VecDeque::new(),
             read_buf: vec![0; READ_BUF_LEN].into_boxed_slice(),
             done: false,
         }
+    }
+
+    /// The executed [`Conn`] this stream was created from, for response metadata — status,
+    /// response headers, peer address.
+    pub fn conn(&self) -> &Conn {
+        &self.conn
     }
 }
 
@@ -177,7 +180,9 @@ impl Stream for EventStream {
             if this.done {
                 return Poll::Ready(None);
             }
-            match ready!(Pin::new(&mut this.body).poll_read(cx, &mut this.read_buf)) {
+
+            let mut response_body = this.conn.response_body();
+            match ready!(Pin::new(&mut response_body).poll_read(cx, &mut this.read_buf)) {
                 // EOF: a trailing event without its blank line is discarded per spec.
                 Ok(0) => {
                     this.done = true;
@@ -239,7 +244,7 @@ impl Decoder {
     }
 
     fn process_field(&mut self, line: &[u8]) {
-        let (field, value) = match line.iter().position(|&b| b == b':') {
+        let (field, value) = match memchr::memchr(b':', line) {
             Some(0) => return, // leading colon: comment
             Some(colon) => {
                 let value = &line[colon + 1..];
@@ -251,16 +256,19 @@ impl Decoder {
 
         match field {
             b"event" => self.event_type = Some(String::from_utf8_lossy(value).into_owned()),
+
             b"data" => {
                 self.data.push_str(&String::from_utf8_lossy(value));
                 self.data.push('\n');
                 self.has_data = true;
             }
+
             b"id" => {
                 if !value.contains(&0) {
                     self.id = Some(String::from_utf8_lossy(value).into_owned());
                 }
             }
+
             b"retry" => {
                 if !value.is_empty()
                     && value.iter().all(u8::is_ascii_digit)
@@ -269,6 +277,7 @@ impl Decoder {
                     self.retry = Some(Duration::from_millis(ms));
                 }
             }
+
             _ => {}
         }
     }
