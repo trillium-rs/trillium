@@ -11,11 +11,14 @@
 
 //! # this crate provides the tera templating language for trillium
 //!
-//! See [the tera site](https://tera.netlify.app/) for more information on
+//! See [the tera site](https://keats.github.io/tera/) for more information on
 //! the tera template language.
 //!
+//! This crate tracks tera 2, and enables tera's `fast` feature by default. The
+//! `preserve_order` and `unicode` tera features are also available as passthroughs.
+//!
 //! ```
-//! # fn main() -> tera::Result<()> {
+//! # fn main() -> tera::TeraResult<()> {
 //! use trillium::Conn;
 //! use trillium_tera::{Tera, TeraConnExt, TeraHandler};
 //! use trillium_testing::TestServer;
@@ -48,5 +51,5 @@ mod tera_handler;
 pub use tera_handler::TeraHandler;
 
 mod tera_conn_ext;
-pub use tera::{Context, Filter, Function, Tera, Test};
+pub use tera::{Context, Error, Filter, Function, Tera, TeraResult, Test};
 pub use tera_conn_ext::TeraConnExt;
