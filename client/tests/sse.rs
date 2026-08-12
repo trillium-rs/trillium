@@ -37,6 +37,32 @@ fn round_trip_through_trillium_sse() {
 }
 
 #[test]
+fn event_stream_exposes_the_conn_for_response_metadata() {
+    let handler = |conn: trillium::Conn| async move {
+        let events = vec![ServerEvent::new("only")];
+        conn.with_response_header("x-session", "abc123")
+            .with_sse_stream(stream::iter(events))
+    };
+    let client = Client::new(client_config());
+
+    trillium_testing::with_server(handler, move |url| async move {
+        let mut events = client.get(url).into_sse().await?;
+
+        assert_eq!(events.conn().status(), Some(Status::Ok));
+        assert_eq!(
+            events.conn().response_headers().get_str("x-session"),
+            Some("abc123")
+        );
+
+        // The body belongs to the stream: events still arrive after inspecting the conn.
+        let only = events.next().await.expect("only")?;
+        assert_eq!(only.data(), "only");
+        assert!(events.next().await.is_none());
+        Ok(())
+    });
+}
+
+#[test]
 fn non_success_status_is_recoverable() {
     let handler = |conn: trillium::Conn| async move { conn.with_status(404).with_body("nope") };
     let client = Client::new(client_config());
