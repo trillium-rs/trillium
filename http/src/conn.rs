@@ -286,9 +286,14 @@ where
             .unwrap_or_default()
     }
 
-    /// get the host for this conn, if it exists
+    /// get the host for this conn, if it exists.
+    ///
+    /// On protocol versions where the equivalent of `Host` is `:authority`, this returns
+    /// `:authority`.
     pub fn host(&self) -> Option<&str> {
-        self.request_headers.get_str(Host)
+        self.request_headers
+            .get_str(Host)
+            .or_else(|| self.authority())
     }
 
     /// set the host for this conn
