@@ -551,6 +551,57 @@ fn malformed_request_content_length_is_protocol_error() {
     assert!(!fx.connection.streams_lock().contains_key(&1));
 }
 
+/// HTTP/2 clients convey the request host as the `:authority` pseudo-header and generally
+/// omit a literal `Host` header, so `Conn::host()` falls back to the authority when no
+/// `Host` is present.
+#[test]
+fn host_falls_back_to_authority_when_host_header_is_absent() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    let conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn for stream 1, got {other:?}"),
+    };
+
+    assert!(
+        conn.request_headers()
+            .get_str(KnownHeaderName::Host)
+            .is_none(),
+        "this test is only meaningful if the fixture request carries no Host header",
+    );
+    assert_eq!(conn.authority(), Some("test"));
+    assert_eq!(conn.host(), Some("test"));
+}
+
+/// When a request carries both a `Host` header and `:authority`, `host()` returns the `Host`
+/// header form. §8.1.2 validation requires the two to agree, but only up to scheme-default-port
+/// normalization — `Host: test:80` with `:authority test` under `:scheme http` passes while
+/// keeping the two strings distinguishable, pinning the precedence order.
+#[test]
+fn host_header_takes_precedence_over_authority() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    let pseudos = PseudoHeaders::default()
+        .with_method(Method::Get)
+        .with_path("/")
+        .with_scheme("http")
+        .with_authority("test");
+    let mut fields = Headers::new();
+    fields.insert(KnownHeaderName::Host, "test:80");
+    fx.peer_headers(1, pseudos, &fields, true);
+
+    let conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn for stream 1, got {other:?}"),
+    };
+
+    assert_eq!(conn.host(), Some("test:80"));
+    assert_eq!(conn.authority(), Some("test"));
+}
+
 /// Server-role dual of trillium-http's client-side
 /// `content_length_response_defers_eof_until_end_stream_so_trailers_survive`: a *request* body
 /// that advertises `content-length` must not let `request_body()` report end-of-input (and
