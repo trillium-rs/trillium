@@ -158,7 +158,7 @@ impl EncoderDynamicTable {
             Vec::new()
         };
 
-        log::info!(
+        log::debug!(
             "initialize_from_peer_settings: peer_max_capacity={peer_max_capacity} \
              our_max_capacity={our} chosen={chosen} max_blocked_streams={max_blocked_streams} \
              prime_entries={}",
