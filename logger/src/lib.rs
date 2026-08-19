@@ -20,6 +20,9 @@
 //! Out of the box it uses [`dev_formatter`], a compact colorized development format. To customize
 //! the line, hand [`Logger::with_formatter`] a format built from the components in [`formatters`].
 //!
+//! The line is emitted when the response completes. [`Logger::with_start_logging`] adds a second
+//! line when each request is received, so that requests that never complete still leave a record.
+//!
 //! # The `log_format!` macro
 //!
 //! [`log_format!`] builds a formatter from a [`format_args!`]-style string. Bare `{name}`
@@ -49,7 +52,9 @@
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
 mod readme {}
-pub use crate::formatters::{apache_combined, apache_common, dev_formatter};
+pub use crate::formatters::{
+    DevFormatter, StartFormatter, apache_combined, apache_common, dev_formatter, start_formatter,
+};
 use std::{
     convert::AsMut,
     fmt::{Display, Write},
@@ -215,8 +220,10 @@ pub trait LogFormatter: Send + Sync + 'static {
 }
 
 /// The trillium handler for this crate, and the core type
-pub struct Logger<F> {
+pub struct Logger<F, S = StartFormatter> {
     format: F,
+    start_format: S,
+    start_logging: bool,
     color_mode: ColorMode,
     target: Arc<dyn Targetable>,
     init_message: bool,
@@ -227,13 +234,16 @@ impl Logger<()> {
     ///
     /// Defaults:
     ///
-    /// * formatter: [`dev_formatter`]
+    /// * formatter: [`DevFormatter`]
     /// * color mode: [`ColorMode::Auto`]
     /// * target: [`Target::Stdout`]
     /// * init message: true
-    pub fn new() -> Logger<impl LogFormatter> {
+    /// * start logging: disabled (see [`Logger::with_start_logging`])
+    pub fn new() -> Logger<DevFormatter> {
         Logger {
-            format: dev_formatter,
+            format: DevFormatter,
+            start_format: StartFormatter,
+            start_logging: false,
             color_mode: ColorMode::Auto,
             target: Arc::new(Target::Stdout),
             init_message: true,
@@ -241,7 +251,7 @@ impl Logger<()> {
     }
 }
 
-impl<T> Logger<T> {
+impl<T, S> Logger<T, S> {
     /// replace the formatter with any type that implements [`LogFormatter`]
     ///
     /// see the trait documentation for [`LogFormatter`] for more details. note that this can be
@@ -254,9 +264,36 @@ impl<T> Logger<T> {
     pub fn with_formatter<Formatter: LogFormatter>(
         self,
         formatter: Formatter,
-    ) -> Logger<Formatter> {
+    ) -> Logger<Formatter, S> {
         Logger {
             format: formatter,
+            start_format: self.start_format,
+            start_logging: self.start_logging,
+            color_mode: self.color_mode,
+            target: self.target,
+            init_message: self.init_message,
+        }
+    }
+
+    /// replace the request-start formatter, enabling start logging as if by
+    /// [`Logger::with_start_logging`]
+    ///
+    /// Completion-oriented components like [`formatters::status`] and
+    /// [`formatters::response_time`] do not have meaningful values when the start line is
+    /// formatted, as no handlers have run yet.
+    ///
+    /// ```
+    /// use trillium_logger::{Logger, log_format};
+    /// Logger::new().with_start_formatter(log_format!("Started {method} {url}"));
+    /// ```
+    pub fn with_start_formatter<Formatter: LogFormatter>(
+        self,
+        start_formatter: Formatter,
+    ) -> Logger<T, Formatter> {
+        Logger {
+            format: self.format,
+            start_format: start_formatter,
+            start_logging: true,
             color_mode: self.color_mode,
             target: self.target,
             init_message: self.init_message,
@@ -264,7 +301,7 @@ impl<T> Logger<T> {
     }
 }
 
-impl<F: LogFormatter> Logger<F> {
+impl<F, S> Logger<F, S> {
     /// specify the color mode for this logger.
     ///
     /// see [`ColorMode`] for more details. note that this can be chained
@@ -297,6 +334,23 @@ impl<F: LogFormatter> Logger<F> {
         self.init_message = false;
         self
     }
+
+    /// Also emit a log line when each request is received, before downstream handlers run
+    ///
+    /// The start line is rendered by [`StartFormatter`] as `Started {version} {method} {url}`
+    /// unless replaced with [`Logger::with_start_formatter`]. The completion line is unaffected.
+    ///
+    /// Start and completion lines from concurrent requests interleave; to pair them up, include a
+    /// request identifier in both formatters.
+    ///
+    /// ```
+    /// use trillium_logger::Logger;
+    /// Logger::new().with_start_logging();
+    /// ```
+    pub fn with_start_logging(mut self) -> Self {
+        self.start_logging = true;
+        self
+    }
 }
 
 /// An easily-named `Arc<dyn Targetable>` that is stored in trillium shared state
@@ -316,9 +370,10 @@ impl LogTarget {
 
 struct LoggerWasRun;
 
-impl<F> Handler for Logger<F>
+impl<F, S> Handler for Logger<F, S>
 where
     F: LogFormatter,
+    S: LogFormatter,
 {
     async fn init(&mut self, info: &mut Info) {
         if self.init_message {
@@ -355,6 +410,12 @@ where
     }
 
     async fn run(&self, conn: Conn) -> Conn {
+        if self.start_logging {
+            let output = self
+                .start_format
+                .format(&conn, self.color_mode.is_enabled());
+            self.target.write(output.to_string());
+        }
         conn.with_state(LoggerWasRun)
     }
 
@@ -371,6 +432,6 @@ where
 }
 
 /// Convenience alias for [`Logger::new`]
-pub fn logger() -> Logger<impl LogFormatter> {
+pub fn logger() -> Logger<DevFormatter> {
     Logger::new()
 }

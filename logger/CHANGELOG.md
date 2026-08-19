@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-08-19
+
+### Added
+
+- Opt-in conn-start logging: `Logger::with_start_logging` emits a line when each conn is received,
+  before downstream handlers run, in addition to the existing completion line — so requests that
+  never complete still leave a record. The start line renders as `Started {version} {method} {url}`
+  (the new `trillium_logger::StartFormatter`); `Logger::with_start_formatter` replaces it with any
+  `LogFormatter` and implies `with_start_logging`. The same format is also available as
+  `formatters::start_formatter`, a free function composable in tuples and as `{start_formatter}`
+  in `log_format!`.
+- `DevFormatter`, a unit struct with the same output as `dev_formatter`. `Logger::new()` and
+  `logger()` now return `Logger<DevFormatter>` instead of an opaque type, so a default logger has a
+  nameable type.
+
 ## [0.5.4] - 2026-06-20
 
 ### Added
@@ -20,7 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The startup announcement now enumerates every bound listener via `Info::listeners()` instead of only the primary TCP/Unix address. A TCP-TLS listener and a QUIC listener on the same address collapse onto one line marked `(h3)`; QUIC on a distinct address is listed separately. The canonical `url` line (which can differ from any bound address) is still shown when present.
+- The startup announcement now enumerates every bound listener via `Info::listeners()` instead of
+  only the primary TCP/Unix address. A TCP-TLS listener and a QUIC listener on the same address
+  collapse onto one line marked `(h3)`; QUIC on a distinct address is listed separately. The
+  canonical `url` line (which can differ from any bound address) is still shown when present.
 
 ## [0.5.2] - 2026-05-26
 
@@ -51,10 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Compatible with trillium 1.0
 - `formatters::header()` removed (was deprecated); use `formatters::request_header()` instead
-- `dev_formatter` output now includes HTTP version as the first field: format changed from `METHOD URL TIME STATUS` to `VERSION METHOD URL TIME STATUS`
+- `dev_formatter` output now includes HTTP version as the first field: format changed from `METHOD
+  URL TIME STATUS` to `VERSION METHOD URL TIME STATUS`
 
 ### Added
-- `LogTarget` — accessible via `conn.shared_state::<LogTarget>()`, allowing any handler to emit messages to the configured logger target
+- `LogTarget` — accessible via `conn.shared_state::<LogTarget>()`, allowing any handler to emit
+  messages to the configured logger target
 
 ### Added
 - add deprecation warnings to 0.2 branch in preparation for 1.0
