@@ -67,24 +67,116 @@ pub fn host(conn: &Conn, _color: bool) -> Cow<'static, str> {
         .map_or(Cow::Borrowed("-"), |host| Cow::Owned(host.to_string()))
 }
 
+mod dev_formatter_mod {
+    use super::*;
+    use response_time_mod::ResponseTimeOutput;
+    use status_mod::StatusOutput;
+
+    /// The default formatter: a simple colorized development-mode format
+    ///
+    /// Renders as `{version} {method} {url} {response_time} {status}`, with the same components
+    /// as the formatters of those names. [`dev_formatter`] is the same format as a free function;
+    /// this type exists so the default can be named, as in `Logger<DevFormatter>`.
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct DevFormatter;
+
+    /// The display type for [`DevFormatter`]
+    #[derive(Clone, Debug)]
+    pub struct DevOutput {
+        version: Version,
+        method: Method,
+        url: String,
+        response_time: ResponseTimeOutput,
+        status: StatusOutput,
+    }
+
+    impl Display for DevOutput {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "{} {} {} {} {}",
+                self.version, self.method, self.url, self.response_time, self.status
+            )
+        }
+    }
+
+    impl LogFormatter for DevFormatter {
+        type Output = DevOutput;
+
+        fn format(&self, conn: &Conn, color: bool) -> Self::Output {
+            DevOutput {
+                version: conn.http_version(),
+                method: conn.method(),
+                url: url(conn, color),
+                response_time: response_time(conn, color),
+                status: status(conn, color),
+            }
+        }
+    }
+}
+
+pub use dev_formatter_mod::DevFormatter;
+
 /// simple development-mode formatter
 ///
 /// composed of
 ///
-/// `"`[`method`] [`url()`] [`response_time`] [`status`]`"`
+/// `"`[`method`] [`url`](url()) [`response_time`] [`status`]`"`
+///
+/// This is the same format as [`DevFormatter`], as a free function.
 pub fn dev_formatter(conn: &Conn, color: bool) -> impl Display + Send + 'static + use<> {
-    (
-        version,
-        " ",
-        method,
-        " ",
-        url,
-        " ",
-        response_time,
-        " ",
-        status,
-    )
-        .format(conn, color)
+    DevFormatter.format(conn, color)
+}
+
+mod start_formatter_mod {
+    use super::*;
+
+    /// The default formatter for the request-start line
+    ///
+    /// [`Logger::with_start_logging`](crate::Logger::with_start_logging) emits this line when a
+    /// request is received. It renders as `Started {version} {method} {url}`, with the same
+    /// components as [`version`], [`method`], and [`url`](url()).
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct StartFormatter;
+
+    /// The display type for [`StartFormatter`]
+    #[derive(Clone, Debug)]
+    pub struct StartOutput {
+        version: Version,
+        method: Method,
+        url: String,
+    }
+
+    impl Display for StartOutput {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "Started {} {} {}", self.version, self.method, self.url)
+        }
+    }
+
+    impl LogFormatter for StartFormatter {
+        type Output = StartOutput;
+
+        fn format(&self, conn: &Conn, color: bool) -> Self::Output {
+            StartOutput {
+                version: conn.http_version(),
+                method: conn.method(),
+                url: url(conn, color),
+            }
+        }
+    }
+}
+
+pub use start_formatter_mod::StartFormatter;
+
+/// formatter for the request-start line
+///
+/// composed of
+///
+/// `"Started "` [`version`] [`method`] [`url`](url())
+///
+/// This is the same format as [`StartFormatter`], as a free function.
+pub fn start_formatter(conn: &Conn, color: bool) -> impl Display + Send + 'static + use<> {
+    StartFormatter.format(conn, color)
 }
 
 /// formatter for the peer ip address of the connection
@@ -105,7 +197,7 @@ pub fn ip(conn: &Conn, _color: bool) -> Cow<'static, str> {
 mod status_mod {
     use super::*;
     /// The display type for [`status`]
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Debug)]
     pub struct StatusOutput(Status, bool);
     impl Display for StatusOutput {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -343,6 +435,7 @@ pub fn url(conn: &Conn, _color: bool) -> String {
 mod response_time_mod {
     use super::*;
     /// display output type for the [`response_time`] formatter
+    #[derive(Clone, Copy, Debug)]
     pub struct ResponseTimeOutput(Instant);
     impl Display for ResponseTimeOutput {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

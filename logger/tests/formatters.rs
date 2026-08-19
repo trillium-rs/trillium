@@ -9,7 +9,7 @@ use trillium_logger::{
     ColorMode,
     formatters::{
         body_len_human, bytes, host, ip, method, referer, request_header, response_header,
-        response_time, secure, status, url, user_agent, version,
+        response_time, secure, start_formatter, status, url, user_agent, version,
     },
 };
 use trillium_testing::{harness, test};
@@ -26,6 +26,13 @@ async fn version_renders() {
     let (app, target) = server(version, ColorMode::Off).await;
     app.get("/").await;
     assert_eq!(target.next().await, "HTTP/1.1");
+}
+
+#[test(harness)]
+async fn start_formatter_composes_like_any_other() {
+    let (app, target) = server(("[", start_formatter, "]"), ColorMode::Off).await;
+    app.get("/widgets?id=1").await;
+    assert_eq!(target.next().await, "[Started HTTP/1.1 GET /widgets?id=1]");
 }
 
 #[test(harness)]
