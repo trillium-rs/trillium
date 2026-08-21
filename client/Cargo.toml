@@ -1,6 +1,6 @@
 [package]
 name = "trillium-client"
-version = "0.9.14"
+version = "0.9.15"
 edition = "2024"
 description = "http client for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -35,7 +35,7 @@ parse = []
 encoding_rs = "0.8.35"
 futures-lite = "2.6.1"
 log = "0.4.29"
-trillium-server-common = { version = "0.7.5", path = "../server-common" }
+trillium-server-common = { version = "0.7.11", path = "../server-common" }
 trillium-websockets = { workspace = true, optional = true }
 mime = "0.3.17"
 serde_json = { version = "1.0.149", optional = true }

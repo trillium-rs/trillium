@@ -48,7 +48,7 @@ where
         let (client_transport, server_transport) = TestTransport::new();
         let TestConnector(context, handler, runtime) = self.clone();
 
-        runtime.spawn(async move {
+        runtime.spawn_detached(async move {
             context
                 .run(server_transport, |mut conn| async {
                     conn.set_secure(secure);

@@ -81,7 +81,7 @@ impl<H: Handler> ServerConnector<H> {
             .flatten()
             .map(|addr| addr.ip());
 
-        self.runtime.spawn(async move {
+        self.runtime.spawn_detached(async move {
             context
                 .run(server_transport, |mut conn| {
                     let handler = Arc::clone(&handler);

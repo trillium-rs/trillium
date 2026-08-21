@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.11] - 2026-08-21
+
+### Added
+
+- `Runtime::spawn_detached` and a provided `RuntimeTrait::spawn_detached`, for spawning a task
+  without a join handle. The type-erased `Runtime` path skips the completion-channel and
+  join-handle allocations that `spawn` makes.
+
+### Changed
+
+- Halved the task allocation size for every future spawned through the type-erased `Runtime`:
+  the output-forwarding wrapper is now a hand-written combinator instead of an `async` block
+  that stored the inner future twice. Per-connection (HTTP/1.x) and per-stream (h2/h3) server
+  tasks now use `spawn_detached`, further dropping steady-state memory under high connection
+  or stream concurrency.
+- The default `RuntimeTrait::timeout` implementation no longer stores the timed-out future
+  twice, for the same reason as above.
+
 ## [ 0.7.10] - 2026-07-14
 
 - Include IP addresses in HTTP/1.x errors

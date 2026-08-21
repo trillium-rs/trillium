@@ -254,7 +254,7 @@ fn setup_h3_connection(
 
 fn spawn_outbound_control_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, runtime: &Runtime) {
     let (conn, h3) = (conn.clone(), h3.clone());
-    runtime.spawn(async move {
+    runtime.spawn_detached(async move {
         let _guard = h3.swansong().guard();
         let result: Result<(), H3Error> =
             async { h3.run_outbound_control(conn.open_uni().await?.1).await }.await;
@@ -270,7 +270,7 @@ fn spawn_outbound_control_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, 
 
 fn spawn_qpack_encoder_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, runtime: &Runtime) {
     let (conn, h3) = (conn.clone(), h3.clone());
-    runtime.spawn(async move {
+    runtime.spawn_detached(async move {
         let result: Result<(), H3Error> =
             async { h3.run_encoder(conn.open_uni().await?.1).await }.await;
         if let Err(error) = result {
@@ -282,7 +282,7 @@ fn spawn_qpack_encoder_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, run
 
 fn spawn_qpack_decoder_stream(conn: &QuicConnection, h3: &Arc<H3Connection>, runtime: &Runtime) {
     let (conn, h3) = (conn.clone(), h3.clone());
-    runtime.spawn(async move {
+    runtime.spawn_detached(async move {
         let result: Result<(), H3Error> =
             async { h3.run_decoder(conn.open_uni().await?.1).await }.await;
         if let Err(error) = result {
@@ -317,7 +317,7 @@ fn spawn_inbound_bidi_streams(
             let dispatcher = dispatcher.clone();
             let (conn, h3) = (conn.clone(), h3.clone());
 
-            runtime.spawn(async move {
+            runtime.spawn_detached(async move {
                 let conn_for_reset = conn.clone();
                 let result = h3
                     .clone()
@@ -400,7 +400,7 @@ fn spawn_inbound_uni_streams(
             #[cfg(feature = "webtransport")]
             let dispatcher = dispatcher.clone();
 
-            runtime.spawn(async move {
+            runtime.spawn_detached(async move {
                 // Connection-level protocol errors must close the QUIC connection
                 // before the recv stream drops; otherwise quinn's RecvStream::drop
                 // sends STOP_SENDING and the peer's RESET_STREAM response can race

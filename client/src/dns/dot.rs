@@ -165,9 +165,12 @@ impl Dot {
         );
 
         let (tx, rx) = unbounded();
-        // The handle is dropped deliberately: spawned tasks detach on drop and run to completion,
-        // here until the connection ends or every `Dot` handle is gone (the outbound queue closes).
-        client.connector().runtime().spawn(drive(transport, rx));
+        // The task runs until the connection ends or every `Dot` handle is gone (the outbound
+        // queue closes).
+        client
+            .connector()
+            .runtime()
+            .spawn_detached(drive(transport, rx));
         Ok(tx)
     }
 }

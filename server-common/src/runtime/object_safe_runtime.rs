@@ -7,6 +7,7 @@ pub(super) trait ObjectSafeRuntime: Send + Sync + 'static {
         &self,
         fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
     ) -> Pin<Box<dyn Future<Output = Option<()>> + Send + 'static>>;
+    fn spawn_detached(&self, fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>);
     fn delay<'runtime, 'fut>(
         &'runtime self,
         duration: Duration,
@@ -31,7 +32,11 @@ where
         &self,
         fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
     ) -> Pin<Box<dyn Future<Output = Option<()>> + Send + 'static>> {
-        Box::pin(RuntimeTrait::spawn(self, Box::pin(fut)))
+        Box::pin(RuntimeTrait::spawn(self, fut))
+    }
+
+    fn spawn_detached(&self, fut: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
+        RuntimeTrait::spawn_detached(self, fut);
     }
 
     fn delay<'runtime, 'fut>(

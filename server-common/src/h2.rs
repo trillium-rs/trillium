@@ -57,7 +57,7 @@ impl<S: Server, A: Acceptor<S::Transport>> RunningConfig<S, A> {
                     log::trace!("run_h2: spawning handler task for stream {stream_id:?}");
                     let handler = handler.clone();
                     let listener = listener.clone();
-                    runtime.spawn(async move {
+                    runtime.spawn_detached(async move {
                         let inner_handler = handler.clone();
                         let result = H2Connection::process_inbound(conn, |mut conn| async move {
                             let handler = &inner_handler;
