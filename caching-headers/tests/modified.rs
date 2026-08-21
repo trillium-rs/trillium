@@ -81,3 +81,33 @@ async fn unparseable_if_none_match_still_suppresses_if_modified_since() {
         // conditional at all.
         .assert_status(200);
 }
+
+#[test(harness)]
+async fn error_responses_are_not_rewritten_to_304() {
+    // RFC 9110 §13.2.1: preconditions apply only to responses that would otherwise be
+    // successful. A 500 with a stale Last-Modified must stay a 500.
+    async fn error(conn: Conn) -> Conn {
+        conn.with_status(Status::InternalServerError)
+            .with_body("internal error")
+            .with_last_modified(EPOCH_ISH)
+    }
+    let app = TestServer::new((Modified::new(), error)).await;
+
+    app.get("/")
+        .with_request_header(KnownHeaderName::IfModifiedSince, later())
+        .await
+        .assert_status(500)
+        .assert_body("internal error");
+}
+
+#[test(harness)]
+async fn if_modified_since_is_ignored_on_write_methods() {
+    // RFC 9110 §13.1.3: If-Modified-Since applies only to GET and HEAD.
+    let app = TestServer::new((Modified::new(), last_modified)).await;
+
+    app.post("/")
+        .with_request_header(KnownHeaderName::IfModifiedSince, later())
+        .await
+        .assert_status(200)
+        .assert_body("hello");
+}
