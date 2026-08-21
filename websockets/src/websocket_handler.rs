@@ -153,14 +153,16 @@ pub trait WebSocketHandler: Send + Sync + Sized + 'static {
 
     /// This interface function is called once with every outbound message
     /// in the OutboundStream. You likely do not need to implement this,
-    /// but if you do, you must call `conn.send(message).await` or the
-    /// message will not be sent.
+    /// but if you do, you must call `conn.feed(message).await` (or
+    /// `conn.send`) or the message will not be sent. The event loop flushes
+    /// fed messages before waiting for new events, so bursts of outbound
+    /// messages coalesce into fewer socket writes.
     fn send(
         &self,
         message: Message,
         conn: &mut WebSocketConn,
     ) -> impl Future<Output = Result<(), Error>> + Send {
-        async { conn.send(message).await }
+        async { conn.feed(message).await }
     }
 
     /// This interface function is called with the websocket conn and, in

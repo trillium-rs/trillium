@@ -307,7 +307,21 @@ where
         let inbound = conn.take_inbound_stream();
 
         let mut stream = std::pin::pin!(BidirectionalStream { inbound, outbound });
-        while let Some(message) = stream.next().await {
+        loop {
+            // The conn's own flush-on-pending lives in its Stream impl, but this loop polls the
+            // taken inbound stream directly, so it flushes buffered sends before parking itself.
+            let next = futures_lite::future::poll_fn(|cx| {
+                let poll = stream.as_mut().poll_next(cx);
+                if !matches!(poll, std::task::Poll::Ready(Some(_)))
+                    && let std::task::Poll::Ready(Err(e)) = conn.poll_flush_sink(cx)
+                {
+                    log::debug!("websocket flush error: {e}");
+                }
+                poll
+            })
+            .await;
+
+            let Some(message) = next else { break };
             match message {
                 Direction::Inbound(Ok(Message::Close(close_frame))) => {
                     self.handler.disconnect(&mut conn, close_frame).await;
