@@ -182,11 +182,14 @@ impl Conn {
     pub(super) fn promote_h2(&self, transport: Box<dyn Transport>) -> Arc<H2Connection> {
         let h2 = H2Connection::new(self.context.clone());
         let initiator = h2.clone().run_client(transport);
-        self.client.connector().runtime().spawn(async move {
-            if let Err(e) = initiator.await {
-                log::debug!("h2 client connection terminated: {e}");
-            }
-        });
+        self.client
+            .connector()
+            .runtime()
+            .spawn_detached(async move {
+                if let Err(e) = initiator.await {
+                    log::debug!("h2 client connection terminated: {e}");
+                }
+            });
         h2
     }
 

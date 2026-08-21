@@ -1,6 +1,6 @@
 [package]
 name = "trillium-testing"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
 description = "testing library for trillium applications"
 license = "MIT OR Apache-2.0"
@@ -25,7 +25,9 @@ async-dup = "1.2.4"
 futures-lite = "2.6.1"
 trillium.workspace = true
 trillium-http = { workspace = true, features = ["unstable"] }
-trillium-server-common.workspace = true
+# Declared explicitly (not workspace) to pin a tighter minimum than the rest of the workspace:
+# spawn_detached requires 0.7.11.
+trillium-server-common = { version = "0.7.11", path = "../server-common" }
 cfg-if = "1.0.4"
 url = "2.5.8"
 async-channel = "2.5.0"

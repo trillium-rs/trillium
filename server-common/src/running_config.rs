@@ -45,7 +45,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         while let Some(transport) = swansong.interrupt(listener.accept()).await {
             match transport {
                 Ok(stream) => {
-                    runtime.spawn(
+                    runtime.spawn_detached(
                         Arc::clone(&self).handle_stream(stream, ArcHandler::clone(&handler)),
                     );
                 }

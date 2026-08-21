@@ -43,7 +43,7 @@ pub(crate) async fn run_h3(
         let h3 = H3Connection::new(context.clone());
         let handler = handler.clone();
         let runtime = runtime.clone();
-        runtime.clone().spawn(run_h3_connection(
+        runtime.clone().spawn_detached(run_h3_connection(
             connection,
             h3,
             handler,
@@ -164,7 +164,7 @@ fn handle_bidi_stream(
     let slot = priorities.register(stream_id);
     let transport: BoxedBidiStream = Box::new(PrioritizedStream::new(transport, slot, stream_id));
 
-    runtime.spawn(async move {
+    runtime.spawn_detached(async move {
         // Unmapped for the same reason the TCP accept loop unmaps: the QUIC listener is bound
         // dual-stack too, so an IPv4 client over HTTP/3 arrives as `::ffff:a.b.c.d`. Without this
         // the same client would key and log differently over h3 than over h1/h2.
@@ -269,14 +269,14 @@ fn spawn_inbound_uni_streams(
         runtime.clone(),
         wt_dispatcher.clone(),
     );
-    runtime.clone().spawn(async move {
+    runtime.clone().spawn_detached(async move {
         while let Some(Ok((_stream_id, recv))) =
             h3.swansong().interrupt(connection.accept_uni()).await
         {
             let (connection, h3, wt_dispatcher) =
                 (connection.clone(), h3.clone(), wt_dispatcher.clone());
 
-            runtime.spawn(async move {
+            runtime.spawn_detached(async move {
                 // RFC 9114 §8.1 / RFC 9204 §6 connection-level errors must close the
                 // QUIC connection while the recv stream is still alive — otherwise
                 // quinn's RecvStream::drop sends STOP_SENDING, and the peer's malformed
@@ -339,7 +339,7 @@ fn spawn_qpack_decoder_stream(
 ) {
     let (connection, h3) = (connection.clone(), h3.clone());
 
-    runtime.spawn(async move {
+    runtime.spawn_detached(async move {
         log::trace!("H3: opening outbound QPACK decoder stream");
         let stream = match connection.open_uni().await {
             Ok((_stream_id, stream)) => stream,
@@ -365,7 +365,7 @@ fn spawn_qpack_encoder_stream(
     runtime: &impl RuntimeTrait,
 ) {
     let (connection, h3) = (connection.clone(), h3.clone());
-    runtime.spawn(async move {
+    runtime.spawn_detached(async move {
         log::trace!("H3: opening outbound QPACK encoder stream");
         let stream = match connection.open_uni().await {
             Ok((_stream_id, stream)) => stream,
@@ -391,7 +391,7 @@ fn spawn_outbound_control_stream(
     runtime: &impl RuntimeTrait,
 ) {
     let (connection, h3) = (connection.clone(), h3.clone());
-    runtime.spawn(async move {
+    runtime.spawn_detached(async move {
         log::trace!("H3: opening outbound control stream");
         let stream = match connection.open_uni().await {
             Ok((_stream_id, stream)) => stream,

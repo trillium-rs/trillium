@@ -4,6 +4,7 @@ use std::{
     future::Future,
     pin::Pin,
     sync::Arc,
+    task::{Context, Poll, ready},
     time::Duration,
 };
 
@@ -58,6 +59,17 @@ impl Runtime {
         DroppableFuture::new(Box::pin(fut))
     }
 
+    /// Spawn a future on the runtime without a join handle.
+    ///
+    /// Cheaper than [`spawn`][Self::spawn] when the caller doesn't need the output or
+    /// completion signal: no channel or join-handle allocation is made.
+    pub fn spawn_detached<Fut>(&self, fut: Fut)
+    where
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.0.spawn_detached(Box::pin(fut));
+    }
+
     /// Wake in this amount of wall time
     pub async fn delay(&self, duration: Duration) {
         RuntimeTrait::delay(self, duration).await
@@ -104,13 +116,18 @@ impl RuntimeTrait for Runtime {
         Fut::Output: Send + 'static,
     {
         let (send, receive) = async_channel::bounded(1);
-        let spawn_fut = self.0.spawn(Box::pin(async move {
-            let _ = send.try_send(fut.await);
-        }));
+        let spawn_fut = self.0.spawn(Box::pin(SendOnComplete { fut, send }));
         DroppableFuture::new(Box::pin(async move {
             spawn_fut.await;
             receive.try_recv().ok()
         }))
+    }
+
+    fn spawn_detached<Fut>(&self, fut: Fut)
+    where
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.0.spawn_detached(Box::pin(fut));
     }
 
     fn block_on<Fut>(&self, fut: Fut) -> Fut::Output
@@ -129,5 +146,27 @@ impl RuntimeTrait for Runtime {
         signals: impl IntoIterator<Item = i32>,
     ) -> impl Stream<Item = i32> + Send + 'static {
         self.0.hook_signals(signals.into_iter().collect())
+    }
+}
+
+pin_project_lite::pin_project! {
+    /// Sends the inner future's output on completion. A hand-written combinator rather than an
+    /// `async` block because a generator that captures `fut` and awaits it stores the future
+    /// twice (capture slot + await slot), doubling the task allocation for every spawn.
+    struct SendOnComplete<Fut: Future> {
+        #[pin]
+        fut: Fut,
+        send: async_channel::Sender<Fut::Output>,
+    }
+}
+
+impl<Fut: Future> Future for SendOnComplete<Fut> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let this = self.project();
+        let output = ready!(this.fut.poll(cx));
+        let _ = this.send.try_send(output);
+        Poll::Ready(())
     }
 }
