@@ -1,10 +1,14 @@
 use crate::CachingHeadersExt;
-use trillium::{Conn, Handler, KnownHeaderName, Status};
+use trillium::{Conn, Handler, KnownHeaderName, Method, Status};
 
 /// # A handler for the `Last-Modified` and `If-Modified-Since` header interaction.
 ///
 /// This handler does not set a `Last-Modified` header on its own, but
 /// relies on other handlers doing so.
+///
+/// The conditional comparison applies only to `GET` and `HEAD` requests with successful
+/// responses; responses to other methods, error responses, and redirects pass through
+/// unchanged.
 ///
 /// ## Precedence: `If-None-Match` wins
 ///
@@ -41,6 +45,15 @@ impl Modified {
 
 impl Handler for Modified {
     async fn before_send(&self, conn: Conn) -> Conn {
+        // RFC 9110 §13.1.3 ignores `If-Modified-Since` outright unless the method is GET or
+        // HEAD, and §13.2.1 applies preconditions only when the response would otherwise be
+        // successful — a 500 or a 301 must not become a 304.
+        if !matches!(conn.method(), Method::Get | Method::Head)
+            || conn.status().is_some_and(|status| !status.is_success())
+        {
+            return conn;
+        }
+
         // RFC 9110 §13.1.3: an If-None-Match in the request wholly replaces
         // If-Modified-Since — including when it did not match, which is exactly
         // the case where evaluating both would go wrong.
