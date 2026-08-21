@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-08-21
+
+### Added
+- `WebSocketConn::feed` enqueues a message into an internal write buffer without immediately
+  writing it to the socket, allowing bursts of messages to coalesce into fewer socket writes.
+  Buffered messages are written out when the buffer fills, when the conn (or the
+  `WebSocketHandler` event loop) is polled for an inbound message and none is immediately
+  available, or on `flush`/`send`.
+- `WebSocketConn::flush` writes any buffered outbound messages to the socket.
+
+### Changed
+- Messages delivered via `WebSocketHandler`'s `OutboundStream` are now fed rather than
+  individually flushed; the event loop flushes before waiting for new events, so outbound bursts
+  coalesce. `WebSocketConn::send` is unchanged: it still flushes the message it sends.
+
 ## [0.8.2] - 2026-06-21
 
 ### Fixed

@@ -3,7 +3,8 @@ use async_tungstenite::{
     WebSocketReceiver, WebSocketSender, WebSocketStream,
     tungstenite::{self, Message},
 };
-use futures_lite::{Stream, StreamExt};
+use futures_lite::{Stream, StreamExt, future};
+use futures_sink::Sink;
 use std::{
     borrow::Cow,
     fmt::Debug,
@@ -67,9 +68,32 @@ impl WebSocketConn {
         self.send_string(serde_json::to_string(json)?).await
     }
 
-    /// Sends a [`Message`] to the client
+    /// Sends a [`Message`] to the client and flushes it to the socket
+    ///
+    /// When sending many messages in quick succession, [`feed`][Self::feed] coalesces them into
+    /// fewer socket writes.
     pub async fn send(&mut self, message: Message) -> Result<()> {
-        self.sink.send(message).await.map_err(Into::into)
+        self.feed(message).await?;
+        self.flush().await
+    }
+
+    /// Enqueues a [`Message`] without immediately writing it to the socket
+    ///
+    /// The message is encoded into an internal write buffer. The buffer is written out when it
+    /// fills, when this conn is next polled for an inbound message and none is immediately
+    /// available, or on [`flush`][Self::flush] or [`send`][Self::send]. If you feed a message and
+    /// then await anything other than this conn, call `flush` first.
+    pub async fn feed(&mut self, message: Message) -> Result<()> {
+        future::poll_fn(|cx| Pin::new(&mut self.sink).poll_ready(cx)).await?;
+        Pin::new(&mut self.sink).start_send(message)?;
+        Ok(())
+    }
+
+    /// Writes any buffered outbound messages to the socket
+    pub async fn flush(&mut self) -> Result<()> {
+        future::poll_fn(|cx| Pin::new(&mut self.sink).poll_flush(cx))
+            .await
+            .map_err(Into::into)
     }
 
     /// Create a `WebSocketConn` from an HTTP upgrade, with optional config and the specified role
@@ -194,6 +218,13 @@ impl WebSocketConn {
         self.state.take()
     }
 
+    pub(crate) fn poll_flush_sink(
+        &mut self,
+        cx: &mut task::Context<'_>,
+    ) -> Poll<std::result::Result<(), tungstenite::Error>> {
+        Pin::new(&mut self.sink).poll_flush(cx)
+    }
+
     /// take the inbound Message stream from this conn
     pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult> + use<>> {
         self.stream.take()
@@ -241,9 +272,21 @@ impl Stream for WebSocketConn {
     type Item = MessageResult;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.stream.as_mut() {
-            Some(stream) => stream.poll_next(cx),
+        let this = &mut *self;
+        let poll = match this.stream.as_mut() {
+            Some(stream) => Pin::new(stream).poll_next(cx),
             None => Poll::Ready(None),
+        };
+
+        // About to yield to the caller with nothing to process — write out anything `send`
+        // buffered. Errors are deliberately dropped here; they resurface on the next send or
+        // flush, or as stream termination.
+        if !matches!(poll, Poll::Ready(Some(_)))
+            && let Poll::Ready(Err(e)) = this.poll_flush_sink(cx)
+        {
+            log::debug!("websocket flush error: {e}");
         }
+
+        poll
     }
 }
