@@ -602,11 +602,22 @@ impl Conn {
     }
 
     /// for router implementations. pushes a route segment onto the path
+    ///
+    /// Pushing a path frame around a child handler call in [`Handler::run`][crate::Handler::run]
+    /// takes on a contract that extends beyond `run`: every other hook that dispatches to the
+    /// child by path must reproduce the same path context, or nested delegation will silently
+    /// misroute. Concretely, mirror the push/pop pair around the child call in
+    /// [`Handler::before_send`][crate::Handler::before_send], and use
+    /// [`Upgrade::push_path`][crate::Upgrade::push_path] /
+    /// [`Upgrade::pop_path`][crate::Upgrade::pop_path] when delegating in
+    /// [`Handler::has_upgrade`][crate::Handler::has_upgrade] and
+    /// [`Handler::upgrade`][crate::Handler::upgrade].
     pub fn push_path(&mut self, path: String) {
         self.path.push(path);
     }
 
-    /// for router implementations. removes a route segment onto the path
+    /// for router implementations. removes a route segment pushed by
+    /// [`push_path`][Conn::push_path]
     pub fn pop_path(&mut self) {
         self.path.pop();
     }
