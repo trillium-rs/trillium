@@ -187,42 +187,63 @@ impl Compression {
     }
 
     fn negotiate(&self, header: &str) -> Option<CompressionAlgorithm> {
-        parse_accept_encoding(header)
-            .into_iter()
-            .find_map(|(algo, _)| {
-                if self.algorithms.contains(&algo) {
-                    Some(algo)
-                } else {
-                    None
-                }
+        let entries = parse_accept_encoding(header);
+        let wildcard = entries
+            .iter()
+            .find_map(|&(coding, q)| (coding == Coding::Wildcard).then_some(q));
+
+        let mut candidates = self
+            .algorithms
+            .iter()
+            .filter_map(|&algo| {
+                let q = entries
+                    .iter()
+                    .find_map(|&(coding, q)| (coding == Coding::Algorithm(algo)).then_some(q))
+                    .or(wildcard)?;
+                (q > 0).then_some((algo, q))
             })
+            .collect::<Vec<_>>();
+
+        candidates.sort_by(|(algo_a, a), (algo_b, b)| b.cmp(a).then(algo_a.cmp(algo_b)));
+        candidates.first().map(|&(algo, _)| algo)
     }
 }
 
-fn parse_accept_encoding(header: &str) -> Vec<(CompressionAlgorithm, u8)> {
-    let mut vec = header
+/// A single entry in an `Accept-Encoding` header: either a content-coding this crate implements,
+/// or the `*` wildcard, which supplies a quality value for every coding not named elsewhere in
+/// the header.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+enum Coding {
+    Algorithm(CompressionAlgorithm),
+    Wildcard,
+}
+
+/// Parses `Accept-Encoding` into codings and quality values in thousandths, discarding codings
+/// this crate does not implement. A `q` that does not parse is treated as absent, and an absent
+/// `q` is the RFC 9110 default of 1.
+fn parse_accept_encoding(header: &str) -> Vec<(Coding, u16)> {
+    header
         .split(',')
         .filter_map(|s| {
-            let mut iter = s.trim().split(';');
-            let (algo, q) = (iter.next()?, iter.next());
-            let algo = algo.trim().parse().ok()?;
-            let q = q
-                .and_then(|q| {
-                    q.trim()
+            let mut params = s.trim().split(';');
+            let coding = match params.next()?.trim() {
+                "*" => Coding::Wildcard,
+                algo => Coding::Algorithm(algo.parse().ok()?),
+            };
+
+            let q = params
+                .find_map(|param| {
+                    let param = param.trim();
+                    let q = param
                         .strip_prefix("q=")
-                        .and_then(|q| q.parse::<f32>().map(|f| (f * 100.0) as u8).ok())
+                        .or_else(|| param.strip_prefix("Q="))?;
+                    q.parse::<f32>().ok()
                 })
-                .unwrap_or(100u8);
-            Some((algo, q))
+                .unwrap_or(1.0);
+
+            Some((coding, (q.clamp(0.0, 1.0) * 1000.0) as u16))
         })
-        .collect::<Vec<(CompressionAlgorithm, u8)>>();
-
-    vec.sort_by(|(algo_a, a), (algo_b, b)| match b.cmp(a) {
-        std::cmp::Ordering::Equal => algo_a.cmp(algo_b),
-        other => other,
-    });
-
-    vec
+        .collect()
 }
 
 /// Returns true if the content-type identifies a payload that is already
