@@ -1,6 +1,6 @@
 [package]
 name = "trillium-router"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 description = "router for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -12,7 +12,8 @@ categories = ["web-programming::http-server", "web-programming"]
 [dependencies]
 log = "0.4.29"
 routefinder = { version = "0.5.4", features = ["memchr"] }
-trillium.workspace = true
+# trillium-router needs Upgrade::push_path/Upgrade::pop_path
+trillium = { version = "1.4.0", path = "../trillium" }
 
 [dev-dependencies]
 env_logger = "0.11.10"

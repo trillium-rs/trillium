@@ -563,30 +563,55 @@ impl Handler for Router {
         }
     }
 
-    async fn before_send(&self, conn: Conn) -> Conn {
-        let path = conn.path();
-        if let Some(m) = self.best_match(conn.method(), path) {
-            m.handler().1.before_send(conn).await
-        } else {
+    async fn before_send(&self, mut conn: Conn) -> Conn {
+        let Some((handler, wildcard)) = self
+            .best_match(conn.method(), conn.path())
+            .map(|m| (&m.handler().1, m.captures().wildcard().map(String::from)))
+        else {
+            return conn;
+        };
+
+        // Mirror `run`'s path push so a nested router's `before_send` re-matches against the
+        // same path form its routes are registered in.
+        if let Some(wildcard) = wildcard {
+            conn.push_path(wildcard);
+            let mut conn = handler.before_send(conn).await;
+            conn.pop_path();
             conn
+        } else {
+            handler.before_send(conn).await
         }
     }
 
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
-        if let Some(m) = self.best_match(upgrade.method(), upgrade.path()) {
-            m.1.has_upgrade(upgrade)
-        } else {
-            false
+        let Some(m) = self.best_match(upgrade.method(), upgrade.path()) else {
+            return false;
+        };
+
+        match m.captures().wildcard() {
+            Some(wildcard) => {
+                upgrade.push_path(String::from(wildcard));
+                let has_upgrade = m.1.has_upgrade(upgrade);
+                upgrade.pop_path();
+                has_upgrade
+            }
+            None => m.1.has_upgrade(upgrade),
         }
     }
 
     async fn upgrade(&self, upgrade: Upgrade) {
-        self.best_match(upgrade.method(), upgrade.path())
-            .unwrap()
-            .handler()
-            .1
-            .upgrade(upgrade)
-            .await
+        let (handler, wildcard) = {
+            let m = self
+                .best_match(upgrade.method(), upgrade.path())
+                .expect("upgrade called without has_upgrade");
+            (&m.handler().1, m.captures().wildcard().map(String::from))
+        };
+
+        if let Some(wildcard) = wildcard {
+            upgrade.push_path(wildcard);
+        }
+
+        handler.upgrade(upgrade).await
     }
 
     fn name(&self) -> Cow<'static, str> {

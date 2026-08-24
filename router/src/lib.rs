@@ -119,8 +119,8 @@ macro_rules! routes {
     ($($method:ident $path:literal $(-> )?$handler:expr_2021),+ $(,)?) => {
 	$crate::Router::new()$(
             .$method($path, $handler)
-        )+;
-    };
+        )+
+    }
 }
 
 /// Builds a new [`Router`]. Alias for [`Router::new`].
