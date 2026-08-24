@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   marker was unbounded, letting a single connection pin unbounded memory by streaming trailer bytes
   without a terminator. It is now capped at `HttpConfig::max_header_list_size`.
 
+- HTTP/1.x `Expect: 100-continue`: a request whose body was never read reuses the connection without
+  draining, so body bytes arriving anyway could be parsed as the next request. The response now
+  carries `Connection: close` in that case.
+
 ## [1.6.1] - 2026-08-16
 
 ### Fixed
