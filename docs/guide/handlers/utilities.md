@@ -152,11 +152,19 @@ Enforces HTTP Basic Authentication. Requests without valid credentials receive a
 # trillium-basic-auth = { path = "../basic-auth" }
 #
 # fn main() {
-use trillium_basic_auth::BasicAuth;
+use trillium_basic_auth::{BasicAuth, BasicAuthConnExt};
 
 trillium_smol::run((
     BasicAuth::new("admin", "s3cr3t").with_realm("My App"),
-    |conn: trillium::Conn| async move { conn.ok("authenticated") },
+    |conn: trillium::Conn| async move {
+        let username = conn.basic_auth_username().unwrap_or_default().to_string();
+        conn.ok(format!("authenticated as {username}"))
+    },
 ));
 # }
 ```
+
+`BasicAuth::new` retains only a digest of the credentials, compared in constant time. To check
+credentials against a user table or an api key store instead of a single configured pair, use
+`BasicAuth::validate_fn` or `BasicAuth::validate_async_fn`, which take a predicate over the
+presented `Credentials`.
