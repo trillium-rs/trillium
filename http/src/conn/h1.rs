@@ -85,6 +85,20 @@ where
             self.response_headers
                 .insert(KnownHeaderName::Connection, "close");
         }
+
+        // An `Expect: 100-continue` request whose body was never read skips draining before
+        // the next request head — draining would block forever against a compliant client
+        // that is still waiting for `100 Continue`. Reusing the connection in that state
+        // would parse any late-arriving body bytes as the next request head, so close
+        // instead: responding with a final status and closing without reading the body is
+        // the path RFC 9110 §10.1.1 sanctions for declined expectations.
+        if !self.upgrade
+            && self.needs_100_continue()
+            && self.request_content_length().is_none_or(|len| len > 0)
+        {
+            self.response_headers
+                .insert(KnownHeaderName::Connection, "close");
+        }
     }
 
     pub(crate) async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
