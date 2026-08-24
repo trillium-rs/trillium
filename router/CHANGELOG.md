@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-08-24
+
+### Fixed
+
+- Nested routers now run inner handlers' `before_send` and dispatch inner handlers' upgrades.
+  Previously `before_send`, `has_upgrade`, and `upgrade` re-matched against the outer path form, so
+  any handler mounted behind a wildcard route silently lost its `before_send` behavior
+  (caching-headers, compression, logger flush hooks) and websocket/upgrade routes behind a wildcard
+  were never dispatched.
+
 ## [0.5.2] - 2026-06-10
 
 ### Changed
