@@ -31,6 +31,11 @@ fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
     let chunk_size =
         u64::from_str_radix(str::from_utf8(size_token).map_err(|_| ())?, 16).map_err(|_| ())?;
 
+    // The size token plus its framing allowance must not wrap: a `remaining` that
+    // wrapped into a small number would silently truncate this chunk and reframe
+    // attacker-chosen bytes as the next chunk-size line.
+    let remaining = chunk_size.checked_add(2).ok_or(())?;
+
     let Some(end) = Finder::new(b"\r\n").find(&buf[index..]) else {
         return Ok(None);
     };
@@ -46,7 +51,7 @@ fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
         return Err(());
     }
 
-    Ok(Some((index + end + 2, chunk_size + 2)))
+    Ok(Some((index + end + 2, remaining)))
 }
 
 /// `ext` is the chunk-ext region from the size token's `;` delimiter to the terminating CRLF, or
@@ -357,7 +362,7 @@ fn parse_h1_trailers(bytes: &[u8]) -> io::Result<Headers> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ReceivedBody, ReceivedBodyState, chunk_decode};
+    use super::{ReceivedBody, ReceivedBodyState, chunk_decode, parse_chunk_size};
     use crate::{Buffer, Headers, HttpConfig};
     use encoding_rs::UTF_8;
     use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, io::Cursor};
@@ -1085,5 +1090,51 @@ mod tests {
         let body = rb.read_string().await.unwrap();
         assert_eq!(body, "hello");
         assert!(trailers.is_none(), "no trailers expected");
+    }
+
+    // Regression: a size token within 2 of `u64::MAX` used to wrap the framing
+    // allowance in release builds, silently truncating the chunk and letting an
+    // attacker reframe trailing bytes as the next chunk-size line (request
+    // smuggling on a reused connection).
+    #[test]
+    fn chunk_size_overflow_rejected() {
+        for line in [
+            &b"FFFFFFFFFFFFFFFF\r\n"[..],
+            b"FFFFFFFFFFFFFFFE\r\n",
+            b"ffffffffffffffff\r\n",
+            b"fffffffffffffffe\r\n",
+        ] {
+            assert_eq!(parse_chunk_size(line), Err(()), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn largest_representable_chunk_size_accepted() {
+        let (used, remaining) = parse_chunk_size(b"FFFFFFFFFFFFFFFD\r\n").unwrap().unwrap();
+        assert_eq!(remaining, u64::MAX);
+        assert_eq!(used, 18);
+    }
+
+    #[test(harness)]
+    async fn overflowing_chunk_size_line_is_rejected() {
+        let mut trailers: Option<Headers> = None;
+        let rb = ReceivedBody::new_with_config(
+            None,
+            Buffer::default(),
+            Cursor::new(b"FFFFFFFFFFFFFFFF\r\nwhatever".to_vec()),
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
+            None,
+            UTF_8,
+            &HttpConfig::DEFAULT,
+        )
+        .with_trailers(&mut trailers);
+        let error = rb.read_string().await.unwrap_err();
+        assert!(
+            matches!(&error, crate::Error::Io(io) if io.kind() == io::ErrorKind::InvalidData),
+            "{error:?}"
+        );
     }
 }
