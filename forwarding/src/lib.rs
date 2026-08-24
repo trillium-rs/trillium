@@ -15,6 +15,10 @@
 //! and the narrowest possible trust rules should be used for a given
 //! deployment so as to decrease the chance for a threat actor to generate
 //! a request with forwarded headers that we mistakenly trust.
+//!
+//! Because the forwarded-for chain is append-only, only its trusted suffix is meaningful: the
+//! peer ip is taken from the rightmost entry that is not itself a trusted proxy, walking right to
+//! left. Everything to the left of that is under the control of whoever sent the request.
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
@@ -84,6 +88,42 @@ impl TrustProxy {
             _ => false,
         }
     }
+
+    /// Walks the append-only forwarded-for chain from right to left, adopting each entry in turn
+    /// and stopping at the first one that is not itself a trusted proxy.
+    ///
+    /// Everything to the left of the entry appended by the outermost trusted proxy is under the
+    /// control of whoever sent the request, so only the trusted suffix of the chain may be
+    /// traversed. Entries that do not parse as ip addresses (obfuscated identifiers, `unknown`)
+    /// end the walk.
+    fn rightmost_untrusted(
+        &self,
+        forwarded_for: &[&str],
+        peer_ip: Option<IpAddr>,
+    ) -> Option<IpAddr> {
+        let mut peer_ip = peer_ip;
+        for entry in forwarded_for.iter().rev() {
+            let Some(ip) = parse_node(entry) else { break };
+            peer_ip = Some(ip);
+            if !self.is_trusted(peer_ip) {
+                break;
+            }
+        }
+        peer_ip
+    }
+}
+
+/// Parses an RFC 7239 node identifier such as `192.0.2.60`, `192.0.2.60:8080`,
+/// `[2001:db8::17]`, or `[2001:db8::17]:4711` as an ip address, discarding any port.
+fn parse_node(node: &str) -> Option<IpAddr> {
+    let node = node.trim();
+    if let Some(rest) = node.strip_prefix('[') {
+        return rest.split_once(']')?.0.parse().ok();
+    }
+
+    node.parse()
+        .ok()
+        .or_else(|| node.split_once(':')?.0.parse().ok())
 }
 
 /// Trillium handler for `forwarded`/`x-forwarded-*` headers
@@ -107,9 +147,18 @@ impl Forwarding {
     /// let forwarding = Forwarding::trust_ips(["10.1.10.1"]);
     /// let forwarding = Forwarding::trust_ips(["10.1.10.1", "192.168.0.0/16"]);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if any of the provided strings is neither an ip address nor a CIDR range.
     pub fn trust_ips<'a>(ips: impl IntoIterator<Item = &'a str>) -> Self {
         Self(TrustProxy::Cidr(
-            ips.into_iter().map(|ip| ip.parse().unwrap()).collect(),
+            ips.into_iter()
+                .map(|ip| {
+                    ip.parse()
+                        .unwrap_or_else(|_| panic!("could not parse `{ip}` as an ip or cidr range"))
+                })
+                .collect(),
         ))
     }
 
@@ -170,17 +219,13 @@ impl Handler for Forwarding {
         }
 
         if let Some(proto) = forwarded.proto() {
-            inner_mut.set_secure(proto == "https");
+            inner_mut.set_secure(proto.eq_ignore_ascii_case("https"));
         }
 
-        if let Some(ip) = forwarded.forwarded_for().first()
-            && let Ok(ip_addr) = ip
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .parse::<IpAddr>()
-        {
-            inner_mut.set_peer_ip(Some(ip_addr));
-        }
+        let peer_ip = self
+            .0
+            .rightmost_untrusted(&forwarded.forwarded_for(), inner_mut.peer_ip());
+        inner_mut.set_peer_ip(peer_ip);
 
         conn.with_state(forwarded)
     }
