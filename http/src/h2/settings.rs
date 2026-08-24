@@ -216,7 +216,7 @@ impl H2Settings {
             return Err(H2ErrorCode::FrameSizeError);
         }
         let mut settings = Self::default();
-        for entry in payload.chunks_exact(SETTING_ENTRY_LEN) {
+        for entry in payload.as_chunks::<SETTING_ENTRY_LEN>().0 {
             let id = u16::from_be_bytes([entry[0], entry[1]]);
             let value = u32::from_be_bytes([entry[2], entry[3], entry[4], entry[5]]);
             match id {

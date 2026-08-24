@@ -97,8 +97,7 @@ impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
         let remaining = n - from_buf as u64;
 
         if remaining > 0 {
-            let copied =
-                async_io::copy((&mut self.reader).take(remaining), async_io::sink()).await?;
+            let copied = async_io::copy(self.reader.take(remaining), async_io::sink()).await?;
             if copied < remaining {
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,

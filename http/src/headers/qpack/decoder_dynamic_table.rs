@@ -357,7 +357,7 @@ impl DecoderDynamicTable {
     /// Drain all pending Section Acknowledgements and return the current insert count.
     pub(in crate::headers) fn drain_pending_acks_and_count(&self) -> (Vec<PendingSectionAck>, u64) {
         let mut inner = self.inner.lock().unwrap();
-        let acks = inner.pending_section_acks.drain(..).collect();
+        let acks = std::mem::take(&mut inner.pending_section_acks);
         let count = inner.insert_count;
         (acks, count)
     }

@@ -69,7 +69,7 @@ pub(in crate::headers) fn encoded_length(value: usize, prefix_size: u8) -> usize
     // bits), where `bits_needed` is the bit-width of `remaining = value - prefix_max`. A
     // `remaining` of 0 still needs one terminating byte, so round-up with a clamp to 1.
     let remaining = value - usize::from(prefix_max);
-    let bits_needed = usize::BITS - remaining.leading_zeros();
+    let bits_needed = remaining.bit_width();
     let continuation = (bits_needed.div_ceil(7)).max(1) as usize;
     1 + continuation
 }
