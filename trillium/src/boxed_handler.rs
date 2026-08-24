@@ -8,7 +8,6 @@ use std::{
 };
 
 trait ObjectSafeHandler: Any + Send + Sync + 'static {
-    #[must_use]
     fn run<'handler, 'fut>(
         &'handler self,
         conn: Conn,
@@ -16,7 +15,7 @@ trait ObjectSafeHandler: Any + Send + Sync + 'static {
     where
         'handler: 'fut,
         Self: 'fut;
-    #[must_use]
+
     fn init<'handler, 'info, 'fut>(
         &'handler mut self,
         info: &'info mut Info,
@@ -25,7 +24,7 @@ trait ObjectSafeHandler: Any + Send + Sync + 'static {
         'handler: 'fut,
         'info: 'fut,
         Self: 'fut;
-    #[must_use]
+
     fn before_send<'handler, 'fut>(
         &'handler self,
         conn: Conn,
@@ -34,7 +33,7 @@ trait ObjectSafeHandler: Any + Send + Sync + 'static {
         'handler: 'fut,
         Self: 'fut;
     fn has_upgrade(&self, upgrade: &Upgrade) -> bool;
-    #[must_use]
+
     fn upgrade<'handler, 'fut>(
         &'handler self,
         upgrade: Upgrade,
