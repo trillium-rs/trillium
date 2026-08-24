@@ -93,6 +93,7 @@ where
             &mut buf[..bytes],
             self.max_len,
             &mut self.trailers,
+            self.max_header_list_size,
         ))
     }
 
@@ -113,6 +114,7 @@ where
                 &mut self.trailers,
                 parse_result,
                 total,
+                self.max_header_list_size,
             ));
         }
 
@@ -141,6 +143,7 @@ where
             &mut self.trailers,
             parse_result,
             total,
+            self.max_header_list_size,
         ))
     }
 }
@@ -152,13 +155,14 @@ fn interpret_parse_result(
     trailers: &mut Option<Headers>,
     parse_result: Result<Option<(usize, u64)>, ()>,
     total: u64,
+    max_trailer_len: u64,
 ) -> io::Result<(ReceivedBodyState, usize)> {
     match parse_result {
         Ok(Some((used, remaining))) => {
             buffer.ignore_front(used);
             if remaining == 2 {
                 // terminal chunk — trailer section begins here (in `buffer`)
-                finish_terminal_chunk(buffer, &[], total, trailers)
+                finish_terminal_chunk(buffer, &[], total, trailers, max_trailer_len)
             } else {
                 Ok((Chunked { remaining, total }, 0))
             }
@@ -199,6 +203,7 @@ where
             &buf[..bytes],
             total,
             &mut self.trailers,
+            self.max_header_list_size,
         ))
     }
 }
@@ -210,6 +215,7 @@ pub(super) fn chunk_decode(
     buf: &mut [u8],
     max_len: u64,
     trailers: &mut Option<Headers>,
+    max_trailer_len: u64,
 ) -> io::Result<(ReceivedBodyState, usize)> {
     if buf.is_empty() {
         return Err(io::Error::from(ErrorKind::ConnectionAborted));
@@ -268,7 +274,8 @@ pub(super) fn chunk_decode(
                         .unwrap_or(buf.len())
                         .min(buf.len());
                     self_buffer.prepend(&buf[trailer_start..]);
-                    let (state, _) = finish_terminal_chunk(self_buffer, &[], total, trailers)?;
+                    let (state, _) =
+                        finish_terminal_chunk(self_buffer, &[], total, trailers, max_trailer_len)?;
                     break state;
                 }
             }
@@ -303,6 +310,7 @@ fn finish_terminal_chunk(
     trailer_bytes: &[u8],
     total: u64,
     trailers: &mut Option<Headers>,
+    max_trailer_len: u64,
 ) -> io::Result<(ReceivedBodyState, usize)> {
     let combined: Vec<u8> = if self_buffer.is_empty() {
         trailer_bytes.to_vec()
@@ -314,6 +322,9 @@ fn finish_terminal_chunk(
     };
 
     if let Some((trailer_header_end, consumed)) = find_trailer_end(&combined) {
+        if trailer_header_end as u64 > max_trailer_len {
+            return Err(io::Error::new(InvalidData, "trailer section too long"));
+        }
         if trailer_header_end > 0 {
             *trailers = Some(parse_h1_trailers(&combined[..trailer_header_end])?);
         }
@@ -324,6 +335,13 @@ fn finish_terminal_chunk(
         }
         Ok((End, 0))
     } else {
+        // The trailer-section is bounded like every other header surface (h2/h3
+        // field-sections are capped at the same setting): without a cap, a peer
+        // that streams trailer bytes without ever sending the terminator grows
+        // `self_buffer` without bound on an otherwise valid connection.
+        if combined.len() as u64 > max_trailer_len {
+            return Err(io::Error::new(InvalidData, "trailer section too long"));
+        }
         self_buffer.extend_from_slice(&combined);
         Ok((ReceivedBodyState::ReadingH1Trailers { total }, 0))
     }
@@ -362,7 +380,9 @@ fn parse_h1_trailers(bytes: &[u8]) -> io::Result<Headers> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ReceivedBody, ReceivedBodyState, chunk_decode, parse_chunk_size};
+    use super::{
+        ReceivedBody, ReceivedBodyState, chunk_decode, finish_terminal_chunk, parse_chunk_size,
+    };
     use crate::{Buffer, Headers, HttpConfig};
     use encoding_rs::UTF_8;
     use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, io::Cursor};
@@ -389,6 +409,7 @@ mod tests {
             &mut buf,
             HttpConfig::DEFAULT.received_body_max_len,
             &mut None,
+            HttpConfig::DEFAULT.max_header_list_size,
         )
         .unwrap();
 
@@ -417,6 +438,7 @@ mod tests {
             &mut buf,
             HttpConfig::DEFAULT.received_body_max_len,
             &mut None,
+            HttpConfig::DEFAULT.max_header_list_size,
         );
         assert!(
             result.is_err(),
@@ -1136,5 +1158,111 @@ mod tests {
             matches!(&error, crate::Error::Io(io) if io.kind() == io::ErrorKind::InvalidData),
             "{error:?}"
         );
+    }
+
+    #[test(harness)]
+    async fn oversized_unterminated_trailer_section_errors() {
+        let input = format!("5\r\nhello\r\n0\r\n{}", "x".repeat(64 * 1024));
+        let mut trailers: Option<Headers> = None;
+        let rb = ReceivedBody::new_with_config(
+            None,
+            Buffer::default(),
+            Cursor::new(input.into_bytes()),
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
+            None,
+            UTF_8,
+            &HttpConfig::DEFAULT,
+        )
+        .with_trailers(&mut trailers);
+        let error = rb.read_string().await.unwrap_err();
+        assert!(
+            matches!(error, crate::Error::Io(ref io) if io.kind() == io::ErrorKind::InvalidData),
+            "{error:?}"
+        );
+        assert_eq!(error.to_string(), "trailer section too long");
+    }
+
+    // Pin the boundary: the cap errors only *past* max_header_list_size — a section of
+    // exactly the limit accumulates without tripping it (it would hit UnexpectedEof when
+    // the transport ends instead).
+    #[test(harness)]
+    async fn trailer_section_at_exactly_max_header_list_size_does_not_trip_cap() {
+        let section_len = HttpConfig::DEFAULT.max_header_list_size as usize;
+        let input = format!("0\r\n{}", "x".repeat(section_len));
+        let mut trailers: Option<Headers> = None;
+        let rb = ReceivedBody::new_with_config(
+            None,
+            Buffer::default(),
+            Cursor::new(input.into_bytes()),
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
+            None,
+            UTF_8,
+            &HttpConfig::DEFAULT,
+        )
+        .with_trailers(&mut trailers);
+        let error = rb.read_string().await.unwrap_err();
+        assert!(
+            !error.to_string().contains("trailer section too long"),
+            "exactly-at-cap accumulation must not trip the cap: {error:?}"
+        );
+    }
+
+    #[test(harness)]
+    async fn trailer_section_one_byte_past_max_header_list_size_trips_cap() {
+        let section_len = HttpConfig::DEFAULT.max_header_list_size as usize + 1;
+        let input = format!("0\r\n{}", "x".repeat(section_len));
+        let mut trailers: Option<Headers> = None;
+        let rb = ReceivedBody::new_with_config(
+            None,
+            Buffer::default(),
+            Cursor::new(input.into_bytes()),
+            ReceivedBodyState::Chunked {
+                remaining: 0,
+                total: 0,
+            },
+            None,
+            UTF_8,
+            &HttpConfig::DEFAULT,
+        )
+        .with_trailers(&mut trailers);
+        let error = rb.read_string().await.unwrap_err();
+        assert_eq!(error.to_string(), "trailer section too long");
+    }
+
+    #[test]
+    fn trailer_section_cap_enforced_while_accumulating() {
+        let mut buffer = Buffer::with_capacity(64);
+        buffer.extend_from_slice(b"x-trailer: ");
+        let error = finish_terminal_chunk(&mut buffer, b"value", 0, &mut None, 8)
+            .expect_err("unterminated trailer-section past the cap must be rejected");
+        assert_eq!(error.to_string(), "trailer section too long");
+    }
+
+    #[test]
+    fn terminated_trailer_headers_past_cap_rejected() {
+        // find_trailer_end reports a 6-byte header span for this input
+        let error = finish_terminal_chunk(
+            &mut Buffer::with_capacity(64),
+            b"a: b\r\n\r\n",
+            0,
+            &mut None,
+            4,
+        )
+        .expect_err("trailer headers past the cap must be rejected");
+        assert_eq!(error.to_string(), "trailer section too long");
+    }
+
+    #[test]
+    fn trailer_section_at_cap_accepted() {
+        let (state, _) =
+            finish_terminal_chunk(&mut Buffer::with_capacity(64), b"\r\n", 0, &mut None, 2)
+                .unwrap();
+        assert_eq!(state, ReceivedBodyState::End);
     }
 }

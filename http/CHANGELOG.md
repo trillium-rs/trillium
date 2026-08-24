@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in release builds, silently truncating the chunk and allowing trailing attacker-chosen bytes to be
   reframed as the next request on a reused connection. Such size lines are now rejected.
 
+- HTTP/1.x chunked trailers: the trailer-section accumulated after a chunked body's last-chunk
+  marker was unbounded, letting a single connection pin unbounded memory by streaming trailer bytes
+  without a terminator. It is now capped at `HttpConfig::max_header_list_size`.
+
 ## [1.6.1] - 2026-08-16
 
 ### Fixed
