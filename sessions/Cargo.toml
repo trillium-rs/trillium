@@ -1,7 +1,6 @@
 [package]
 name = "trillium-sessions"
-version = "0.5.0"
-authors = ["Jacob Rothstein <hi@jbr.me>"]
+version = "0.6.0"
 edition = "2024"
 description = "session storage handler for trillium.rs"
 license = "MIT OR Apache-2.0"
@@ -21,5 +20,3 @@ env_logger = "0.11.10"
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 
-[package.metadata.cargo-udeps.ignore]
-development = ["trillium-testing"]
