@@ -111,3 +111,55 @@ async fn test_ipranges() {
         .await
         .assert_body("false Some(192.169.1.1) Some(\"original\")");
 }
+
+#[test(harness)]
+async fn multiple_forwarded_for_entries() {
+    let app = TestServer::new(app(Forwarding::trust_ips([
+        "10.10.10.10",
+        "192.168.0.0/16",
+    ])))
+    .await
+    .with_host("original");
+
+    // the client-supplied prefix of the chain is ignored; the rightmost entry that isn't a
+    // trusted proxy wins
+    app.get("/")
+        .with_request_header("x-forwarded-for", "1.2.3.4, 203.0.113.9")
+        .with_peer_ip([10, 10, 10, 10])
+        .await
+        .assert_body(r#"false Some(203.0.113.9) Some("original")"#);
+
+    // trusted proxies in the chain are walked through
+    app.get("/")
+        .with_request_header("x-forwarded-for", "1.2.3.4, 203.0.113.9, 192.168.1.1")
+        .with_peer_ip([10, 10, 10, 10])
+        .await
+        .assert_body(r#"false Some(203.0.113.9) Some("original")"#);
+
+    // ports are discarded
+    app.get("/")
+        .with_request_header(
+            "forwarded",
+            r#"for="1.2.3.4:1111", for="[2001:db8:cafe::17]:4711""#,
+        )
+        .with_peer_ip([10, 10, 10, 10])
+        .await
+        .assert_body(r#"false Some(2001:db8:cafe::17) Some("original")"#);
+
+    // an entry that isn't an ip address ends the walk
+    app.get("/")
+        .with_request_header(
+            "forwarded",
+            r#"for=1.2.3.4, for="_gazonk", for=192.168.1.1"#,
+        )
+        .with_peer_ip([10, 10, 10, 10])
+        .await
+        .assert_body(r#"false Some(192.168.1.1) Some("original")"#);
+
+    // every entry is trusted, so the walk reaches the leftmost
+    app.get("/")
+        .with_request_header("x-forwarded-for", "1.2.3.4, 192.168.1.1, 192.168.1.2")
+        .with_peer_ip([10, 10, 10, 10])
+        .await
+        .assert_body(r#"false Some(1.2.3.4) Some("original")"#);
+}
