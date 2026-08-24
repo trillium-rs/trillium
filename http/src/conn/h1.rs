@@ -392,10 +392,13 @@ where
     }
 
     async fn finish(self) -> Result<ConnectionStatus<Transport>> {
-        if self.should_close() {
-            Ok(ConnectionStatus::Close)
-        } else if self.should_upgrade() {
+        // Upgrade takes precedence over `Connection: close`: the upgrade owns the rest of the
+        // response (its body bytes are written post-handoff), so handing the conn off is the only
+        // way to finish sending it. The connection still closes when the upgrade completes.
+        if self.should_upgrade() {
             Ok(ConnectionStatus::Upgrade(self.into()))
+        } else if self.should_close() {
+            Ok(ConnectionStatus::Close)
         } else {
             self.next().await
         }

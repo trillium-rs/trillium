@@ -126,6 +126,40 @@ async fn h1_outbound_framing_and_trailers() -> TestResult {
     Ok(())
 }
 
+// Regression: `finish()` must check `should_upgrade()` before `should_close()`. With the
+// order reversed, a `Connection: close` request (any non-pooled client, or HTTP/1.0) made the
+// conn resolve to `ConnectionStatus::Close` after the response head was already written — the
+// transport dropped mid-response and the upgrade handler never ran.
+#[test(harness)]
+async fn h1_upgrade_takes_precedence_over_connection_close() -> TestResult {
+    let server = H1Server::with_upgrade(
+        |conn: Conn<_>| async move { conn.upgrade().with_status(200) },
+        |mut upgrade: Upgrade<_>| async move {
+            upgrade.write_all(b"hello framed").await.unwrap();
+            let mut trailers = Headers::new();
+            trailers.insert("x-result", "ok");
+            upgrade.send_trailers(trailers).await.unwrap();
+        },
+    )
+    .await;
+
+    let client = Client::new(trillium_smol::ClientConfig::default());
+    let mut conn = client
+        .get(server.base_url())
+        .with_request_header("connection", "close")
+        .await?;
+
+    assert_eq!(conn.status().unwrap(), 200);
+    assert_eq!(conn.response_body().read_string().await?, "hello framed");
+    assert_eq!(
+        conn.response_trailers().and_then(|t| t.get_str("x-result")),
+        Some("ok"),
+    );
+
+    server.shut_down().await;
+    Ok(())
+}
+
 #[test(harness)]
 async fn h3_outbound_framing_and_trailers() -> TestResult {
     let server = H3Server::with_upgrade(
