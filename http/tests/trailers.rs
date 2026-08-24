@@ -2,11 +2,12 @@ use futures_lite::{AsyncRead, io::Cursor};
 use std::{
     io,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 use test_harness::test;
-use trillium_http::{Body, BodySource, Conn, Headers};
-use trillium_testing::{HttpTest, TestTransport, harness};
+use trillium_http::{Body, BodySource, Conn, Headers, HttpContext};
+use trillium_testing::{HttpTest, RuntimeTrait, TestTransport, harness};
 
 /// A test-only [`BodySource`] that combines a fixed body with a static set of trailers.
 ///
@@ -125,5 +126,48 @@ async fn bidirectional_trailers() {
     assert_eq!(
         result.response_trailers().and_then(|t| t.get_str("x-pong")),
         Some("pong"),
+    );
+}
+
+/// Regression: a peer that streams trailer bytes after the last-chunk marker without ever
+/// sending the terminator used to grow the connection buffer without bound. The accumulated
+/// trailer-section is now capped at `max_header_list_size` — the same bound the h2/h3
+/// field-section decoders apply.
+#[test(harness)]
+async fn oversized_unterminated_trailer_section_is_bounded() {
+    let runtime = trillium_testing::runtime();
+    let (client, server) = TestTransport::new();
+    let handle = runtime.spawn(async move {
+        Arc::new(HttpContext::new())
+            .run(server, |mut conn: Conn<TestTransport>| async move {
+                match conn.request_body().read_string().await {
+                    Ok(_) => {
+                        conn.set_status(500);
+                        conn.set_response_body("body unexpectedly readable");
+                    }
+                    Err(e) => {
+                        conn.set_status(400);
+                        conn.set_response_body(format!("{e}"));
+                    }
+                }
+                conn
+            })
+            .await
+    });
+
+    client.write_all(b"POST / HTTP/1.1\r\nHost: _\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n");
+    // past the default max_header_list_size of 32 KiB, never terminated
+    client.write_all(vec![b'x'; 64 * 1024]);
+    client.shutdown(std::net::Shutdown::Write);
+
+    let _ = handle.await.unwrap();
+    let response = client.read_available_string().await;
+    assert!(
+        response.contains("HTTP/1.1 400"),
+        "expected a 400 from the capped trailer read: {response:?}"
+    );
+    assert!(
+        response.contains("trailer section too long"),
+        "expected the trailer cap error: {response:?}"
     );
 }

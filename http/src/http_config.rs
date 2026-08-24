@@ -155,6 +155,11 @@ pub struct HttpConfig {
     /// the connection with `ENHANCE_YOUR_CALM`, mitigating the CONTINUATION-flood `DoS`
     /// (CVE-2024-27316 class). Otherwise the peer is expected to self-police.
     ///
+    /// On HTTP/1.1 this bounds the trailer-section accumulated after a chunked body's
+    /// last-chunk marker: a peer that streams trailer bytes without ever sending the
+    /// terminator errors out at this limit rather than growing the connection buffer
+    /// without bound.
+    ///
     /// **Default**: `32 KiB` in bytes
     ///
     /// **Unit**: byte count

@@ -634,6 +634,8 @@ pub enum ReceivedBodyState {
     ///
     /// The trailer bytes (including any partially-received trailer headers) live in
     /// `ReceivedBody::buffer` until a final empty line (`\r\n\r\n` or bare `\r\n`) is found.
+    /// Accumulation is capped at `HttpConfig::max_header_list_size` — the same bound the
+    /// h2/h3 field-section decoders apply — and errors out past it.
     ReadingH1Trailers {
         /// total body bytes read across all chunks (for bounds-checking)
         total: u64,
