@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.2] - 2026-08-23
 
 ### Fixed
 
@@ -17,11 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP/1.x chunked framing: a chunk-size token within 2 of `u64::MAX` wrapped the framing allowance
   in release builds, silently truncating the chunk and allowing trailing attacker-chosen bytes to be
   reframed as the next request on a reused connection. Such size lines are now rejected.
-
 - HTTP/1.x chunked trailers: the trailer-section accumulated after a chunked body's last-chunk
   marker was unbounded, letting a single connection pin unbounded memory by streaming trailer bytes
   without a terminator. It is now capped at `HttpConfig::max_header_list_size`.
-
 - HTTP/1.x `Expect: 100-continue`: a request whose body was never read reuses the connection without
   draining, so body bytes arriving anyway could be parsed as the next request. The response now
   carries `Connection: close` in that case.
