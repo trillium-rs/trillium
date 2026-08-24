@@ -18,15 +18,38 @@ for authenticated requests; unauthenticated requests receive a `401 Unauthorized
 ## Example
 
 ```rust,no_run
-use trillium_basic_auth::BasicAuth;
+use trillium_basic_auth::{BasicAuth, BasicAuthConnExt};
 
 let app = (
     BasicAuth::new("trillium", "hunter2").with_realm("my app"),
-    |conn: trillium::Conn| async move { conn.ok("authenticated!") },
+    |conn: trillium::Conn| async move {
+        let username = conn.basic_auth_username().unwrap_or_default().to_string();
+        conn.ok(format!("authenticated as {username}!"))
+    },
 );
 // run with your chosen runtime adapter, e.g.:
 // trillium_tokio::run(app);
 ```
+
+`BasicAuth::new` retains only a digest of the credentials and compares it in constant time. To
+check credentials against something other than a single configured pair — a user table, an api
+key store — use `BasicAuth::validate_fn` or `BasicAuth::validate_async_fn`:
+
+```rust,no_run
+use trillium_basic_auth::{BasicAuth, Credentials};
+
+# async fn look_up(username: &str) -> Option<String> { None }
+# fn verify(password: &str, hash: &str) -> bool { false }
+let basic_auth = BasicAuth::validate_async_fn(|credentials: Credentials| async move {
+    match look_up(credentials.username()).await {
+        Some(hash) => verify(credentials.password(), &hash),
+        None => false,
+    }
+});
+```
+
+Because HTTP Basic transmits the password in a reversible encoding on every request, it is only
+as confidential as the transport underneath it. Use it over https.
 
 ## Safety
 
