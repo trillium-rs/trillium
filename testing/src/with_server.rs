@@ -42,6 +42,6 @@ where
 {
     block_on(async move {
         let transport = ServerConnector::new(handler).connect(false).await;
-        tests(Box::new(transport));
+        tests(Box::new(transport)).await.unwrap();
     });
 }
