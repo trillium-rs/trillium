@@ -1,3 +1,4 @@
+use crate::SessionStoreError;
 use async_session::{Session, serde::Serialize};
 use trillium::Conn;
 
@@ -15,6 +16,14 @@ pub trait SessionConnExt {
 
     /// retrieve a mutable reference to the current session
     fn session_mut(&mut self) -> &mut Session;
+
+    /// retrieve the error returned by the session store, if this request's session could not be
+    /// loaded
+    ///
+    /// This is only ever present when the handler provided to
+    /// [`SessionHandler::with_store_error_handler`](crate::SessionHandler::with_store_error_handler)
+    /// did not halt.
+    fn session_store_error(&self) -> Option<&SessionStoreError>;
 }
 
 impl SessionConnExt for Conn {
@@ -31,5 +40,9 @@ impl SessionConnExt for Conn {
     fn session_mut(&mut self) -> &mut Session {
         self.state_mut()
             .expect("SessionHandler must be executed before calling SessionConnExt::sessions_mut")
+    }
+
+    fn session_store_error(&self) -> Option<&SessionStoreError> {
+        self.state()
     }
 }

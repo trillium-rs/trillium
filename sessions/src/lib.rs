@@ -65,9 +65,15 @@
 //!
 //! ### If anything goes wrong with the above process
 //!
-//! If there are any failures in the above session retrieval process, a
-//! new empty session is generated for the request, which proceeds through
-//! the application as normal.
+//! If the cookie is missing, malformed, unsigned, or names a session the store does not have, a
+//! new empty session is generated for the request, which proceeds through the application as
+//! normal.
+//!
+//! If the session store itself cannot be reached, the request halts with a `503 Service
+//! Unavailable` by default, because proceeding would mint a replacement session and orphan the
+//! one the visitor actually has. See
+//! [`SessionHandler::with_store_error_handler`](crate::SessionHandler::with_store_error_handler)
+//! to choose something else.
 //!
 //! ## Stale/expired session cleanup
 //!
@@ -143,4 +149,4 @@ pub use session_conn_ext::SessionConnExt;
 
 mod session_handler;
 pub use async_session::{CookieStore, MemoryStore, Session};
-pub use session_handler::{SessionHandler, sessions};
+pub use session_handler::{SessionHandler, SessionStoreError, sessions};

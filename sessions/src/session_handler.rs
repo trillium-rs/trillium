@@ -5,11 +5,12 @@ use async_session::{
     sha2::Sha256,
 };
 use std::{
-    fmt::{self, Debug, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     iter,
+    sync::Arc,
     time::{Duration, SystemTime},
 };
-use trillium::{Conn, Handler};
+use trillium::{BoxedHandler, Conn, Handler, Status};
 use trillium_cookies::{
     CookiesConnExt,
     cookie::{Cookie, Key, SameSite},
@@ -29,6 +30,40 @@ pub struct SessionHandler<Store> {
     same_site_policy: SameSite,
     key: Key,
     older_keys: Vec<Key>,
+    store_error_handler: BoxedHandler,
+}
+
+/// The error returned by a session store that could not be reached
+///
+/// This is set as conn state before the handler provided to
+/// [`SessionHandler::with_store_error_handler`] runs, and remains in state for the rest of the
+/// request if that handler does not halt. Read it with
+/// [`SessionConnExt::session_store_error`](crate::SessionConnExt::session_store_error).
+#[derive(Clone, Debug)]
+pub struct SessionStoreError(Arc<async_session::Error>);
+
+impl Display for SessionStoreError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(&*self.0, f)
+    }
+}
+
+impl std::ops::Deref for SessionStoreError {
+    type Target = async_session::Error;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Halts with a 503, the default response when the session store cannot be reached.
+#[derive(Clone, Copy, Debug)]
+struct ServiceUnavailable;
+
+impl Handler for ServiceUnavailable {
+    async fn run(&self, conn: Conn) -> Conn {
+        conn.with_status(Status::ServiceUnavailable).halt()
+    }
 }
 
 impl<Store: SessionStore> Debug for SessionHandler<Store> {
@@ -41,6 +76,7 @@ impl<Store: SessionStore> Debug for SessionHandler<Store> {
             .field("session_ttl", &self.session_ttl)
             .field("save_unchanged", &self.save_unchanged)
             .field("same_site_policy", &self.same_site_policy)
+            .field("store_error_handler", &self.store_error_handler)
             .field("key", &"<<secret>>")
             .field("older_keys", &"<<secret>>")
             .finish()
@@ -66,15 +102,15 @@ impl<Store: SessionStore> SessionHandler<Store> {
     /// * cookie path: "/"
     /// * cookie name: "trillium.sid"
     /// * session ttl: one day
-    /// * same site: strict
+    /// * same site: lax
     /// * save unchanged: enabled
     /// * older secrets: none
     ///
     /// # Customization
     ///
     /// Although the above defaults are appropriate for most applications, they can be
-    /// overridden. Please be careful changing these settings, as they can weaken your application's
-    /// security:
+    /// overridden. Please be careful changing these settings, as some of them can weaken your
+    /// application's security:
     ///
     /// ```rust
     /// # use std::time::Duration;
@@ -112,7 +148,31 @@ impl<Store: SessionStore> SessionHandler<Store> {
             session_ttl: Some(Duration::from_secs(24 * 60 * 60)),
             key: Key::derive_from(secret.as_ref()),
             older_keys: vec![],
+            store_error_handler: BoxedHandler::new(ServiceUnavailable),
         }
+    }
+
+    /// Sets the handler that runs when the session store cannot be reached.
+    ///
+    /// The default halts with a [`Status::ServiceUnavailable`], because continuing would serve
+    /// the request as though the visitor had no session and then mint a replacement one,
+    /// orphaning the session they actually have and logging them out for good rather than for the
+    /// duration of the outage.
+    ///
+    /// The provided handler runs with a [`SessionStoreError`] in conn state. If it halts, the
+    /// request ends there; if it does not, the request proceeds with an empty session, which is
+    /// the behavior an application that only uses sessions for optional personalization may
+    /// prefer. Passing the noop handler `()` selects that behavior directly.
+    ///
+    /// ```
+    /// # use trillium_sessions::{MemoryStore, SessionHandler};
+    /// # let secret = "01234567890123456789012345678901234567890123456789";
+    /// // serve anonymous traffic through a session store outage
+    /// SessionHandler::new(MemoryStore::new(), secret).with_store_error_handler(());
+    /// ```
+    pub fn with_store_error_handler(mut self, handler: impl Handler) -> Self {
+        self.store_error_handler = BoxedHandler::new(handler);
+        self
     }
 
     /// Sets a cookie path for this session handler.
@@ -153,10 +213,22 @@ impl<Store: SessionStore> SessionHandler<Store> {
         self
     }
 
-    /// Sets the same site policy for the session cookie. Defaults to SameSite::Strict. See
-    /// [incrementally better
-    /// cookies](https://tools.ietf.org/html/draft-west-cookie-incrementalism-01) for more
-    /// information about this setting
+    /// Sets the same site policy for the session cookie.
+    ///
+    /// The default is [`SameSite::Lax`], which withholds the session cookie from the cross-site
+    /// requests that carry csrf risk — form submissions and subresource loads — while still
+    /// sending it when someone follows a link to the application from elsewhere.
+    ///
+    /// [`SameSite::Strict`] additionally withholds it on top-level navigation, so a visitor
+    /// arriving from a link in an email or a search result arrives without their session and has
+    /// to navigate again to get one. That trade is usually worth making only for a second cookie
+    /// gating high-value operations, not for the session itself.
+    ///
+    /// [`SameSite::None`] disables the protection entirely and requires a secure cookie.
+    ///
+    /// See [MDN on
+    /// SameSite](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie#samesitesamesite-value)
+    /// for more information about this setting.
     pub fn with_same_site_policy(mut self, policy: SameSite) -> Self {
         self.same_site_policy = policy;
         self
@@ -181,20 +253,17 @@ impl<Store: SessionStore> SessionHandler<Store> {
 
     //--- methods below here are private ---
 
-    async fn load_or_create(&self, cookie_value: Option<&str>) -> Session {
-        let session = match cookie_value {
-            Some(cookie_value) => self
-                .store
-                .load_session(String::from(cookie_value))
-                .await
-                .ok()
-                .flatten(),
-            None => None,
+    async fn load(&self, cookie_value: Option<&str>) -> Result<Session, async_session::Error> {
+        let Some(cookie_value) = cookie_value else {
+            return Ok(Session::default());
         };
 
-        session
+        Ok(self
+            .store
+            .load_session(String::from(cookie_value))
+            .await?
             .and_then(|session| session.validate())
-            .unwrap_or_default()
+            .unwrap_or_default())
     }
 
     fn build_cookie(&self, secure: bool, cookie_value: String) -> Cookie<'static> {
@@ -275,7 +344,22 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
 
         let mut session = match session {
             Some(session) => session,
-            None => self.load_or_create(cookie_value).await,
+            None => match self.load(cookie_value).await {
+                Ok(session) => session,
+                Err(error) => {
+                    log::error!("could not load session:\n\n{error}");
+                    conn = self
+                        .store_error_handler
+                        .run(conn.with_state(SessionStoreError(Arc::new(error))))
+                        .await;
+
+                    if conn.is_halted() {
+                        return conn;
+                    }
+
+                    Session::default()
+                }
+            },
         };
 
         if let Some(ttl) = self.session_ttl {
@@ -285,7 +369,17 @@ impl<Store: SessionStore> Handler for SessionHandler<Store> {
         conn.with_state(session)
     }
 
+    async fn init(&mut self, info: &mut trillium::Info) {
+        self.store_error_handler.init(info).await;
+    }
+
     async fn before_send(&self, mut conn: Conn) -> Conn {
+        // reverse of run order: the store error handler ran inside this handler's `run`, so its
+        // `before_send` precedes ours
+        if conn.state::<SessionStoreError>().is_some() {
+            conn = self.store_error_handler.before_send(conn).await;
+        }
+
         if let Some(session) = conn.take_state::<Session>() {
             let session_to_keep = session.clone();
             let secure = conn.is_secure();
