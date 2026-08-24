@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-08-24
+
+### Fixed
+- `Accept-Encoding` negotiation honors `q=0`, which RFC 9110 defines as "not acceptable". A coding
+  sent with `q=0` was previously only deprioritized, so `Accept-Encoding: gzip;q=0` still received a
+  gzip-encoded response.
+- The `*` wildcard is understood, supplying a quality value for every coding the header doesn't
+  name, so `*;q=0` opts out of compression entirely.
+
 ## [0.3.3] - 2026-07-03
 
 ### Fixed

@@ -272,3 +272,50 @@ async fn streaming_svg_is_still_compressed() {
         .assert_header("content-encoding", "br")
         .assert_no_header("content-length");
 }
+
+#[test(harness)]
+async fn q0_rejects_and_wildcard_applies_to_unnamed_codings() {
+    let app = TestServer::new((trillium_compression::compression(), COMPRESSIBLE_CONTENT)).await;
+
+    app.get("/")
+        .with_request_header(AcceptEncoding, "gzip;q=0")
+        .await
+        .assert_header("content-length", "500")
+        .assert_no_header("vary")
+        .assert_no_header("content-encoding");
+
+    // q=0 removes a coding from consideration entirely, rather than merely deprioritizing it
+    app.get("/")
+        .with_request_header(AcceptEncoding, "br;q=0, zstd;q=0, gzip;q=0.1")
+        .await
+        .assert_header("content-length", "77")
+        .assert_header("content-encoding", "gzip");
+
+    // the wildcard supplies a q for codings the header doesn't name
+    app.get("/")
+        .with_request_header(AcceptEncoding, "*")
+        .await
+        .assert_header("content-encoding", "br");
+
+    app.get("/")
+        .with_request_header(AcceptEncoding, "*;q=0")
+        .await
+        .assert_header("content-length", "500")
+        .assert_no_header("content-encoding");
+
+    // a named coding wins over the wildcard regardless of order
+    app.get("/")
+        .with_request_header(AcceptEncoding, "*;q=0, gzip")
+        .await
+        .assert_header("content-encoding", "gzip");
+
+    app.get("/")
+        .with_request_header(AcceptEncoding, "gzip, *;q=0")
+        .await
+        .assert_header("content-encoding", "gzip");
+
+    app.get("/")
+        .with_request_header(AcceptEncoding, "br;q=0, *")
+        .await
+        .assert_header("content-encoding", "gzip");
+}
