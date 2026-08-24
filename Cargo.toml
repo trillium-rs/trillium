@@ -79,5 +79,5 @@ trillium-static-compiled = { version = "0.7", path = "static-compiled" }
 trillium-static-compiled-macros = { version = "0.3", path = "static-compiled-macros" }
 trillium-testing = { version = "0.10", path = "testing" }
 trillium-tokio = { version = "0.6", path = "tokio" }
-trillium-websockets = { version = "0.8", path = "websockets" }
+trillium-websockets = { version = "0.9", path = "websockets" }
 trillium-webtransport = { version = "0.2", path = "webtransport" }
