@@ -50,12 +50,47 @@
 //! use case.  See the [`JsonWebSocketHandler`] documentation for example
 //! usage. In order to use this trait, the `json` cargo feature must be
 //! enabled.
+//!
+//! ## Origin checking
+//!
+//! Browsers do not apply CORS to websocket handshakes, so a page on any site can open a socket to
+//! any server, and the browser attaches the visitor's cookies to that handshake. RFC 6455 §10.2
+//! assigns the origin check to the server for exactly this reason; skipping it is the
+//! cross-site websocket hijacking vulnerability.
+//!
+//! By default this handler accepts a handshake only if its `Origin` names the same host as the
+//! request's `Host` or `:authority`, or if there is no `Origin` at all, which means the client is
+//! not a browser. Rejected handshakes receive a `403 Forbidden` and log which origin was refused.
+//!
+//! ```
+//! # use trillium_websockets::{WebSocket, WebSocketConn};
+//! # let handler = |_: WebSocketConn| async {};
+//! WebSocket::new(handler); // same-origin (default)
+//! //
+//! # let handler = |_: WebSocketConn| async {};
+//! WebSocket::new(handler).allow_origins(["https://app.example.com"]);
+//! # let handler = |_: WebSocketConn| async {};
+//! WebSocket::new(handler).allow_origin_fn(|origin| origin == Some("https://app.example.com"));
+//! # let handler = |_: WebSocketConn| async {};
+//! WebSocket::new(handler).allow_any_origin(); // opt out
+//! ```
+//!
+//! An application that serves its pages from one host and its sockets from another — say pages on
+//! `app.example.com` and sockets on `api.example.com` — must name the page origin with
+//! [`allow_origins`][WebSocket::allow_origins].
+//!
+//! ## Message size
+//!
+//! Inbound messages are assembled in memory before they reach a handler, up to tungstenite's
+//! default of 64 MiB per message. Applications that exchange small messages should lower that
+//! with [`with_protocol_config`][WebSocket::with_protocol_config].
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
 mod readme {}
 
 mod bidirectional_stream;
+mod origin;
 mod websocket_connection;
 mod websocket_handler;
 
@@ -69,13 +104,14 @@ pub use async_tungstenite::{
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use bidirectional_stream::{BidirectionalStream, Direction};
 use futures_lite::stream::StreamExt;
+use origin::{OriginPolicy, OriginPredicate};
 use sha1::{Digest, Sha1};
 use std::{
     net::IpAddr,
     ops::{Deref, DerefMut},
 };
 use trillium::{
-    Conn, Handler, Info,
+    Conn, Handler, Info, KnownHeaderName,
     KnownHeaderName::{
         Connection, SecWebsocketAccept, SecWebsocketKey, SecWebsocketProtocol, SecWebsocketVersion,
         Upgrade as UpgradeHeader,
@@ -119,6 +155,7 @@ pub struct WebSocket<H> {
     protocols: Vec<String>,
     config: Option<WebSocketConfig>,
     required: bool,
+    origin_policy: OriginPolicy,
 }
 
 impl<H> Deref for WebSocket<H> {
@@ -155,6 +192,10 @@ where
             } else {
                 return conn;
             }
+        }
+
+        if !self.origin_policy.allows(&conn) {
+            return reject_origin(conn);
         }
 
         if !supported_websocket_version(&conn) {
@@ -198,7 +239,67 @@ where
             protocols: Default::default(),
             config: None,
             required: false,
+            origin_policy: OriginPolicy::default(),
         }
+    }
+
+    /// Accept handshakes only from pages on these origins.
+    ///
+    /// ```
+    /// # use trillium_websockets::{WebSocket, WebSocketConn};
+    /// # let websocket = WebSocket::new(|_: WebSocketConn| async {});
+    /// websocket.allow_origins(["https://app.example.com", "https://admin.example.com"]);
+    /// ```
+    ///
+    /// Origins are compared exactly, after normalizing default ports and idn hosts. Nothing is
+    /// matched by prefix or suffix, because an allowed origin of `example.com` matched by suffix
+    /// also admits `evil-example.com`. For a family of subdomains, use
+    /// [`allow_origin_fn`][Self::allow_origin_fn].
+    ///
+    /// A request with no `Origin` header is allowed, as it did not come from a browser.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any of the provided strings is not a url with a scheme and a host, or if it
+    /// carries a path, query, fragment, or userinfo.
+    pub fn allow_origins<'a>(mut self, origins: impl IntoIterator<Item = &'a str>) -> Self {
+        self.origin_policy = OriginPolicy::list(origins);
+        self
+    }
+
+    /// Accept handshakes for which this predicate returns true.
+    ///
+    /// The argument is the raw `Origin` header, so `None` (a non-browser client) stays
+    /// distinguishable from `Some("null")` (a sandboxed iframe or a `file://` page, which is
+    /// attacker-reachable and should generally be rejected).
+    ///
+    /// ```
+    /// # use trillium_websockets::{WebSocket, WebSocketConn};
+    /// # let websocket = WebSocket::new(|_: WebSocketConn| async {});
+    /// websocket.allow_origin_fn(|origin| match origin {
+    ///     None => true,
+    ///     Some(origin) => origin
+    ///         .strip_prefix("https://")
+    ///         .is_some_and(|host| host == "example.com" || host.ends_with(".example.com")),
+    /// });
+    /// ```
+    pub fn allow_origin_fn<F>(mut self, predicate: F) -> Self
+    where
+        F: Fn(Option<&str>) -> bool + Send + Sync + 'static,
+    {
+        self.origin_policy = OriginPolicy::Predicate(OriginPredicate::from(predicate));
+        self
+    }
+
+    /// Accept handshakes from any origin, disabling the same-origin default.
+    ///
+    /// Any page on the web can then open a socket to this handler and act with the browser's
+    /// ambient authority — the visitor's cookies are attached to the handshake. Only do this if
+    /// the socket is either unauthenticated or authenticated by something the page cannot
+    /// replay, such as a token the client sends in its first message.
+    pub fn allow_any_origin(mut self) -> Self {
+        self.origin_policy = OriginPolicy::Any;
+        self
     }
 
     /// `protocols` is a sequence of known protocols. On successful handshake,
@@ -250,6 +351,10 @@ where
             // bidirectional byte channel carrying WebSocket frames.
             Version::Http2 | Version::Http3 => {
                 if extended_connect_websocket_request(&conn) {
+                    if !self.origin_policy.allows(&conn) {
+                        return reject_origin(conn);
+                    }
+
                     if !supported_websocket_version(&conn) {
                         return reject_unsupported_version(conn);
                     }
@@ -372,6 +477,18 @@ fn upgrade_to_websocket(conn: &Conn) -> bool {
 
 fn supported_websocket_version(conn: &Conn) -> bool {
     conn.request_headers().get_str(SecWebsocketVersion) == Some("13")
+}
+
+fn reject_origin(conn: Conn) -> Conn {
+    log::warn!(
+        "rejecting websocket handshake from origin {:?} for authority {:?}. If this is expected, \
+         configure the origins that may open a websocket with `WebSocket::allow_origins([..])`, \
+         `WebSocket::allow_origin_fn(..)`, or `WebSocket::allow_any_origin()`.",
+        conn.request_headers().get_str(KnownHeaderName::Origin),
+        conn.host()
+    );
+
+    conn.with_status(Status::Forbidden).halt()
 }
 
 fn reject_unsupported_version(conn: Conn) -> Conn {

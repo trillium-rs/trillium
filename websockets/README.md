@@ -28,6 +28,22 @@ let app = websocket(|mut conn: WebSocketConn| async move {
 // trillium_tokio::run(app);
 ```
 
+## Origin checking
+
+Browsers do not apply CORS to websocket handshakes, so by default this handler accepts a handshake
+only if its `Origin` names the same host as the request's `Host`/`:authority`, or if there is no
+`Origin` at all (a non-browser client). Rejected handshakes receive a `403 Forbidden`.
+
+```rust,no_run
+use trillium_websockets::{WebSocketConn, websocket};
+
+# let handler = |_: WebSocketConn| async {};
+websocket(handler).allow_origins(["https://app.example.com"]);
+```
+
+`allow_origin_fn` takes a predicate over the raw header for cases like a family of subdomains, and
+`allow_any_origin` opts out entirely.
+
 ## Safety
 
 This crate uses `#![forbid(unsafe_code)]`.

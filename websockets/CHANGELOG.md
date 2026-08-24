@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-08-24
+
+### Changed
+- **Breaking**: handshakes are now checked against the request's origin. By default a handshake is
+  accepted only if its `Origin` header names the same host as the request's `Host`/`:authority`,
+  or if there is no `Origin` header, which means the client is not a browser. Browsers do not
+  apply CORS to websockets, so without this check any page on the web could open an authenticated
+  socket to your server using the visitor's cookies (cross-site websocket hijacking).
+
+  An application whose pages and sockets are on different hosts must now name the page origin:
+  `WebSocket::new(handler).allow_origins(["https://app.example.com"])`. Rejected handshakes get a
+  `403 Forbidden` and a log line naming the refused origin and the method to call.
+
+### Added
+- `WebSocket::allow_origins`, `WebSocket::allow_origin_fn`, and `WebSocket::allow_any_origin`
+  configure which pages may open a websocket.
+
 ## [0.8.3] - 2026-08-21
 
 ### Added
