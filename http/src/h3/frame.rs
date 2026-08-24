@@ -474,7 +474,10 @@ fn decode_single_varint(
     let payload = require_payload(after_header, payload_length)?;
     let (value, bytes_read) =
         quic_varint::decode::<u64>(payload).map_err(|_| H3ErrorCode::FrameError)?;
-    if bytes_read != after_header.len() {
+    // The payload must be exactly one varint — but bytes beyond this frame belong to the
+    // next one (callers pass buffers that routinely coalesce consecutive frames), so the
+    // check compares against the sliced payload rather than the remaining buffer.
+    if bytes_read != payload.len() {
         return Err(H3ErrorCode::FrameError.into());
     }
     Ok((wrap(value), header_len + payload.len()))

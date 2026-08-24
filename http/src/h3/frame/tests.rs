@@ -153,6 +153,45 @@ fn frame_goaway_trailing_bytes_is_error() {
     );
 }
 
+// Regression: control streams deliver consecutive frames coalesced into one read buffer,
+// so a well-formed single-varint frame followed by the next frame's bytes must decode
+// cleanly rather than misreading the trailing bytes as a length violation.
+#[test]
+fn frame_single_varint_frames_decode_with_following_frames_buffered() {
+    for frame_type in [
+        FrameType::Goaway,
+        FrameType::CancelPush,
+        FrameType::MaxPushId,
+    ] {
+        let mut settings_payload = vec![0; 16];
+        let settings_len = H3Settings::new()
+            .with_max_field_section_size(8192)
+            .encode(&mut settings_payload)
+            .unwrap();
+
+        let mut buf = encode_raw_frame(frame_type, &[0x0C]);
+        buf.extend_from_slice(&encode_raw_frame(
+            FrameType::Settings,
+            &settings_payload[..settings_len],
+        ));
+
+        let expected_frame = match frame_type {
+            FrameType::Goaway => Frame::Goaway(12),
+            FrameType::CancelPush => Frame::CancelPush(12),
+            FrameType::MaxPushId => Frame::MaxPushId(12),
+            other => panic!("unexpected frame type {other:?}"),
+        };
+
+        let (frame, consumed) = Frame::decode(&buf).unwrap();
+        assert_eq!(frame, expected_frame, "{frame_type:?}");
+        assert_eq!(consumed, 3, "{frame_type:?}");
+
+        // the remainder decodes as the next frame
+        let (next, _) = Frame::decode(&buf[consumed..]).unwrap();
+        assert!(matches!(next, Frame::Settings(_)), "{frame_type:?}");
+    }
+}
+
 #[test]
 fn frame_push_promise() {
     // PushPromise payload: varint(push_id) + field section bytes
