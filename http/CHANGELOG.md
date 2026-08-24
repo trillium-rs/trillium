@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the same read buffer as any subsequent frame was misrejected as H3_FRAME_ERROR, closing the
   connection
 
+### Security
+
+- HTTP/1.x chunked framing: a chunk-size token within 2 of `u64::MAX` wrapped the framing allowance
+  in release builds, silently truncating the chunk and allowing trailing attacker-chosen bytes to be
+  reframed as the next request on a reused connection. Such size lines are now rejected.
+
 ## [1.6.1] - 2026-08-16
 
 ### Fixed

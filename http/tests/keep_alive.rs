@@ -48,3 +48,36 @@ async fn keep_alive_serves_pipelined_requests() {
         drive("GET /1 HTTP/1.1\r\nHost: _\r\n\r\nGET /2 HTTP/1.1\r\nHost: _\r\n\r\n").await;
     assert_eq!(response_count(&responses), 2, "{responses:?}");
 }
+
+/// Regression: a chunk-size token within 2 of `u64::MAX` used to wrap `chunk_size + 2` in
+/// release builds, truncating the chunk so an attacker could reframe trailing bytes as the
+/// next pipelined request (request smuggling). The oversized size line must be rejected and
+/// only the first request served.
+#[test(harness)]
+async fn chunk_size_overflow_does_not_smuggle_second_request() {
+    let runtime = trillium_testing::runtime();
+    let (client, server) = TestTransport::new();
+    let res = runtime.spawn(async move {
+        Arc::new(HttpContext::new())
+            .run(server, |mut conn: Conn<TestTransport>| async move {
+                conn.set_status(200);
+                conn.set_response_body(format!("handled {}", conn.path()));
+                conn
+            })
+            .await
+    });
+
+    client.write_all(
+        b"POST /1 HTTP/1.1\r\nHost: _\r\nTransfer-Encoding: chunked\r\n\r\n\
+          FFFFFFFFFFFFFFFF\r\nX0\r\n\r\nGET /2 HTTP/1.1\r\nHost: _\r\n\r\n",
+    );
+    client.shutdown(std::net::Shutdown::Write);
+
+    // The malformed chunked body surfaces as a server-side drain/read error after the
+    // first response; that outcome is expected, unlike a second response.
+    let _ = res.await.unwrap();
+    let responses = client.read_available_string().await;
+    assert!(responses.contains("handled /1"), "{responses:?}");
+    assert!(!responses.contains("handled /2"), "{responses:?}");
+    assert_eq!(response_count(&responses), 1, "{responses:?}");
+}
