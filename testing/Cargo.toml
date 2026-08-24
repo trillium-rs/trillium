@@ -1,6 +1,6 @@
 [package]
 name = "trillium-testing"
-version = "0.10.1"
+version = "0.10.2"
 edition = "2024"
 description = "testing library for trillium applications"
 license = "MIT OR Apache-2.0"
@@ -24,7 +24,8 @@ default = ["sonic-rs"]
 async-dup = "1.2.4"
 futures-lite = "2.6.1"
 trillium.workspace = true
-trillium-http = { workspace = true, features = ["unstable"] }
+# TestServer never uses keepalive, so its upgrade dispatch needs the finish() ordering fix
+trillium-http = { version = "1.6.3", path = "../http", features = ["unstable"] }
 # Declared explicitly (not workspace) to pin a tighter minimum than the rest of the workspace:
 # spawn_detached requires 0.7.11.
 trillium-server-common = { version = "0.7.11", path = "../server-common" }

@@ -82,21 +82,34 @@ impl<H: Handler> ServerConnector<H> {
             .map(|addr| addr.ip());
 
         self.runtime.spawn_detached(async move {
-            context
+            let request_handler = Arc::clone(&handler);
+            let upgrade = context
                 .run(server_transport, |mut conn| {
-                    let handler = Arc::clone(&handler);
+                    let handler = Arc::clone(&request_handler);
                     async move {
                         conn.set_peer_ip(peer_ip).set_secure(secure);
                         let conn = handler.run(conn.into()).await;
                         let conn = handler.before_send(conn).await;
                         let mut inner = conn.into_inner::<TestTransport>();
-                        let state = std::mem::take(inner.state_mut());
-                        *inner.transport().state().write().unwrap() = state;
+                        // an upgrade conn keeps its state so has_upgrade can see it
+                        if !inner.should_upgrade() {
+                            let state = std::mem::take(inner.state_mut());
+                            *inner.transport().state().write().unwrap() = state;
+                        }
                         inner
                     }
                 })
                 .await
                 .unwrap();
+
+            if let Some(upgrade) = upgrade {
+                let upgrade = upgrade.into();
+                if handler.has_upgrade(&upgrade) {
+                    handler.upgrade(upgrade).await;
+                } else {
+                    log::error!("upgrade specified but no upgrade handler provided");
+                }
+            }
         });
 
         client_transport

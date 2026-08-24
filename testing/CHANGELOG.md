@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-08-24
+
+### Fixed
+
+- `with_transport` now awaits the test future instead of dropping it unpolled — previously every
+  `with_transport` test body was silently skipped and the test vacuously passed
+- `ServerConnector` now dispatches upgrades to `Handler::has_upgrade`/`Handler::upgrade` instead of
+  dropping the connection, and leaves conn state in place on upgrade conns so `has_upgrade` can
+  inspect it
+
 ## [0.10.1] - 2026-08-21
 
 ### Changed
