@@ -6,6 +6,10 @@ use std::{
     task::{Context, Poll},
 };
 
+/// Upper bound on bytes buffered from a peer while a handler runs without
+/// reading its request. Beyond this, the socket backs up instead of memory.
+const PROBE_WINDOW_CAP: usize = 16 * 1024;
+
 pub(crate) struct LivenessFut<'a, T>(&'a mut Conn<T>);
 
 impl<'a, T> LivenessFut<'a, T> {
@@ -25,24 +29,24 @@ where
             buffer, transport, ..
         }) = &mut *self;
 
-        let len = buffer.len();
-        buffer.expand();
-        match Pin::new(transport).poll_read(cx, &mut buffer[len..]) {
-            Poll::Pending => {
-                buffer.truncate(len);
-                Poll::Pending
-            }
+        // A peer that pipelines faster than handlers consume is put under
+        // backpressure rather than buffered without bound; a connection this
+        // busy is definitionally alive.
+        let room = PROBE_WINDOW_CAP.saturating_sub(buffer.live_len());
+        if room == 0 {
+            return Poll::Pending;
+        }
 
-            Poll::Ready(Err(_)) => {
-                buffer.truncate(len);
-                Poll::Ready(())
-            }
+        match Pin::new(transport).poll_read(cx, buffer.window(room)) {
+            Poll::Pending => Poll::Pending,
+
+            Poll::Ready(Err(_)) => Poll::Ready(()),
 
             Poll::Ready(Ok(n)) => {
-                buffer.truncate(len + n);
                 if n == 0 {
                     Poll::Ready(())
                 } else {
+                    buffer.advance(n);
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }

@@ -11,6 +11,8 @@ use trillium_http::{
 use trillium_server_common::{Transport, url::Url};
 
 mod h1;
+#[cfg(test)]
+mod h1_tests;
 mod h2;
 mod h3;
 mod request_body_buffer;
@@ -37,7 +39,6 @@ pub struct Conn {
     pub(crate) buffer: Buffer,
     pub(crate) response_body_state: ReceivedBodyState,
     pub(crate) headers_finalized: bool,
-    pub(crate) max_head_length: usize,
     pub(crate) state: TypeSet,
     pub(crate) context: Arc<HttpContext>,
 

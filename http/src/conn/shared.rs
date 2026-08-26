@@ -186,7 +186,7 @@ impl<T> ConnParts<T> {
 
 impl<T> From<Conn<T>> for ConnParts<T> {
     fn from(conn: Conn<T>) -> Self {
-        let buffer = conn.buffer;
+        let mut buffer = conn.buffer;
         let mut state = conn.state;
         let mut request_headers = conn.request_headers;
         let mut response_headers = conn.response_headers;
@@ -195,6 +195,14 @@ impl<T> From<Conn<T>> for ConnParts<T> {
         state.clear();
         request_headers.clear();
         response_headers.clear();
+        // Like the clears above, this drops the previous era of the connection.
+        // The live region survives (pipelined bytes are the next request); only
+        // window space beyond the high-water mark is released, so bytes from an
+        // earlier request can never be re-lent while parsing a later one — the
+        // cross-principal concern when a proxy coalesces many clients onto one
+        // keepalive connection. Capacity is retained; the next lend re-zeroes
+        // the span as it grows.
+        buffer.truncate();
 
         Self {
             buffer,

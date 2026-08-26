@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.16] - 2026-08-25
+
+### Changed
+
+- the http/1.x response-head read is now governed by `HttpConfig::head_max_len` and
+  `HttpConfig::request_buffer_initial_len`, configurable via `Client::set_context`, replacing
+  hardcoded 8kb and 1024-byte values
+### Security
+
+- Response-head reading now bounds its buffer by `max_head_length` with
+  geometric growth: a malicious server pacing a response head one byte at a
+  time can no longer drive per-read allocation doubling. Unread response bytes
+  may now be buffered alongside the head when they arrive in the same read;
+  draining consumes buffered bytes before touching the transport.
+
 ## [0.9.15] - 2026-08-21
 
 ### Changed

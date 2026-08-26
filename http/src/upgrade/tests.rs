@@ -524,3 +524,20 @@ async fn h3_send_trailers_without_h3_protocol_session_errors() {
         .expect_err("send_trailers with no h3 session should error");
     assert_eq!(err.kind(), io::ErrorKind::NotConnected);
 }
+
+#[test]
+fn buffer_accessors_expose_the_received_bytes() {
+    let mut upgrade = Upgrade::new(
+        Headers::new(),
+        "/",
+        Method::Get,
+        (),
+        Buffer::from(b"hello".to_vec()),
+        Version::Http1_1,
+    );
+
+    upgrade.buffer_mut()[0] = b'H';
+    assert_eq!(upgrade.buffer(), b"Hello");
+    assert_eq!(upgrade.take_buffer(), b"Hello".to_vec());
+    assert!(upgrade.buffer_mut().is_empty());
+}

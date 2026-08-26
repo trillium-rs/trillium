@@ -163,7 +163,13 @@ pub struct Upgrade<Transport> {
     ///
     /// It is your responsibility to process these bytes before reading directly from the
     /// transport.
-    #[field(deref = "[u8]", into_field = false, set = false, with = false)]
+    #[field(
+        deref = "[u8]",
+        into_field = false,
+        set = false,
+        with = false,
+        get_mut = false
+    )]
     pub(crate) buffer: Buffer,
 
     /// The [`HttpContext`] shared for this server
@@ -357,6 +363,14 @@ impl<Transport> Upgrade<Transport> {
     /// Take any buffered bytes
     pub fn take_buffer(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.buffer).into()
+    }
+
+    /// Mutably borrow any bytes that have already been read from the underlying transport.
+    ///
+    /// It is your responsibility to process these bytes before reading directly from the
+    /// transport.
+    pub fn buffer_mut(&mut self) -> &mut [u8] {
+        self.buffer.live_mut()
     }
 
     #[doc(hidden)]

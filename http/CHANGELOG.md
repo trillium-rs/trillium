@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-08-25
+
+### Security
+
+- HTTP/1.x request heads: a peer pacing a malformed head one byte at a time (or
+  fragmenting it at the TCP layer) drove the request buffer's capacity to double
+  on every read-loop iteration, reaching multiple gibibytes from a few dozen
+  dribbled bytes and killing the process. Head buffering is now bounded by the
+  `head_max_len` allowance regardless of fragmentation or pacing.
+
+### Changed
+
+- `Conn::cancel_on_disconnect` and `Conn::is_disconnected` now buffer at most
+  16kb of unread bytes from the peer while probing for disconnection,
+  replacing unbounded buffering under pipelining. A peer with 16kb of
+  buffered unread bytes is reported as alive until they are read; reading the
+  request body before long-running work restores full disconnect detection.
+
 ## [1.6.3] - 2026-08-24
 
 ### Fixed

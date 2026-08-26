@@ -12,7 +12,8 @@ use fieldwork::Fieldwork;
 // setter surface worse for callers.
 #[allow(clippy::struct_excessive_bools)]
 pub struct HttpConfig {
-    /// The maximum length allowed before the http body begins for a given request.
+    /// The maximum length of an http head — request headers server-side, response headers
+    /// client-side.
     ///
     /// **Default**: `8kb` in bytes
     ///
@@ -70,10 +71,11 @@ pub struct HttpConfig {
     /// **Unit**: byte count
     pub(crate) response_buffer_max_len: usize,
 
-    /// The initial buffer allocated for the request headers.
+    /// The initial read length for an http head — request headers server-side, response headers
+    /// client-side.
     ///
-    /// Ideally this is the length of the request headers. It will grow nonlinearly until
-    /// `head_max_len` or the end of the headers are reached, whichever happens first.
+    /// Ideally this is the length of the headers. It will grow nonlinearly until `head_max_len`
+    /// or the end of the headers are reached, whichever happens first.
     ///
     /// **Default**: `1024`
     ///

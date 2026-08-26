@@ -8,6 +8,11 @@ use crate::{
 use futures_lite::{AsyncRead, AsyncReadExt, io as async_io};
 use std::io;
 
+/// Upper bound on a single read into the frame buffer. Payload buffering
+/// accumulates in chunks of this size, so memory stays proportional to
+/// arrived bytes rather than to a peer-declared frame length.
+const FRAME_READ_CHUNK: usize = 16 * 1024;
+
 /// A borrowed view over an `AsyncRead` transport that yields H3 frames.
 ///
 /// Unknown/GREASE frames are automatically skipped by [`next`](Self::next).
@@ -81,10 +86,14 @@ impl<'a, R: AsyncRead + Unpin> FrameStream<'a, R> {
     /// Read more bytes from the transport into the buffer.
     /// Returns `false` on EOF.
     async fn read_more(&mut self) -> io::Result<bool> {
-        let before = self.buf.len();
-        self.buf.expand();
-        let n = self.reader.read(&mut self.buf[before..]).await?;
-        self.buf.truncate(before + n);
+        self.read_chunk(FRAME_READ_CHUNK).await
+    }
+
+    /// Read up to `want` more bytes from the transport into the buffer.
+    /// Returns `false` on EOF.
+    async fn read_chunk(&mut self, want: usize) -> io::Result<bool> {
+        let n = self.reader.read(self.buf.window(want)).await?;
+        self.buf.advance(n);
         Ok(n > 0)
     }
 
@@ -147,7 +156,10 @@ impl<R: AsyncRead + Unpin> ActiveFrame<'_, '_, R> {
             )
         })?;
         while self.stream.buf.len() < len {
-            if !self.stream.read_more().await? {
+            // Chunked reads keep buffering proportional to arrived bytes rather
+            // than trusting the peer-declared payload length up front.
+            let want = (len - self.stream.buf.len()).min(FRAME_READ_CHUNK);
+            if !self.stream.read_chunk(want).await? {
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     "stream ended mid-frame payload",

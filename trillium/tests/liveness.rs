@@ -96,6 +96,116 @@ async fn is_disconnected() -> TestResult {
     Ok(())
 }
 
+#[test(harness)]
+async fn bytes_arriving_while_the_handler_runs_are_liveness_not_disconnection() -> TestResult {
+    let connector = ArcedConnector::new(client_config());
+    let (delay_sender, delay_receiver) = async_channel::unbounded();
+    let (disconnected_sender, disconnected_receiver) = async_channel::unbounded();
+    let handle = config()
+        .with_host("localhost")
+        .with_port(0)
+        .spawn(move |mut conn: Conn| {
+            let disconnected_sender = disconnected_sender.clone();
+            let delay_receiver = delay_receiver.clone();
+            async move {
+                delay_receiver.recv().await.unwrap();
+                disconnected_sender
+                    .send(conn.is_disconnected().await)
+                    .await
+                    .unwrap();
+                conn.ok("ok")
+            }
+        });
+
+    let info = handle.info().await;
+    let runtime = handle.runtime();
+    let url = info.url().unwrap();
+    let mut client = connector.connect(url).await?;
+
+    client
+        .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        .await?;
+    // A pipelined second request lands while the first handler is still running;
+    // the probe buffers it as evidence of liveness.
+    client
+        .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        .await?;
+    runtime.delay(Duration::from_millis(10)).await;
+
+    delay_sender.send(()).await?;
+    assert!(
+        !disconnected_receiver.recv().await?,
+        "pipelined bytes are liveness, not disconnection"
+    );
+
+    let s = String::from_utf8(ReadAvailable(&mut client).await?)?;
+    assert!(s.starts_with("HTTP/1.1 200 OK\r\n"));
+
+    // The probed bytes must survive to be served as the next request.
+    delay_sender.send(()).await?;
+    assert!(!disconnected_receiver.recv().await?);
+    let s = String::from_utf8(ReadAvailable(&mut client).await?)?;
+    assert!(s.starts_with("HTTP/1.1 200 OK\r\n"));
+
+    client.close().await?;
+    handle.shut_down().await;
+    Ok(())
+}
+
+#[test(harness)]
+async fn unread_body_reports_alive_even_past_the_buffer_cap() -> TestResult {
+    let connector = ArcedConnector::new(client_config());
+    let (delay_sender, delay_receiver) = async_channel::unbounded();
+    let (probes_sender, probes_receiver) = async_channel::unbounded();
+    let handle = config()
+        .with_host("localhost")
+        .with_port(0)
+        .spawn(move |mut conn: Conn| {
+            let probes_sender = probes_sender.clone();
+            let delay_receiver = delay_receiver.clone();
+            async move {
+                delay_receiver.recv().await.unwrap();
+                let mut any_disconnected = false;
+                // Enough probes to buffer the unread body up to the internal cap,
+                // after which further probes short-circuit without reading.
+                for _ in 0..64 {
+                    any_disconnected |= conn.is_disconnected().await;
+                }
+                probes_sender.send(any_disconnected).await.unwrap();
+                conn.ok("ok")
+            }
+        });
+
+    let info = handle.info().await;
+    let url = info.url().unwrap();
+    let mut client = connector.connect(url).await?;
+
+    let body = vec![b'x'; 32 * 1024];
+    client
+        .write_all(
+            format!(
+                "POST / HTTP/1.1\r\nHost: example.com\r\ncontent-length: {}\r\n\r\n",
+                body.len()
+            )
+            .as_bytes(),
+        )
+        .await?;
+    client.write_all(&body).await?;
+
+    delay_sender.send(()).await?;
+    assert!(
+        !probes_receiver.recv().await?,
+        "an unread request body counts as liveness, not disconnection"
+    );
+
+    let s = String::from_utf8(ReadAvailable(&mut client).await?)?;
+    assert!(s.starts_with("HTTP/1.1 200 OK\r\n"));
+
+    client.close().await?;
+    handle.shut_down().await;
+    Ok(())
+}
+
 struct ReadAvailable<T>(T);
 impl<T: AsyncRead + Unpin> Future for ReadAvailable<T> {
     type Output = io::Result<Vec<u8>>;
