@@ -218,7 +218,7 @@ let client = Client::new(client_config()).with_handler(
 # [dependencies]
 # trillium-client = "0.9"
 # trillium-testing = "0.10"
-# trillium-cache = { version = "0.1", features = ["client"] }
+# trillium-cache = { version = "0.2", features = ["client"] }
 #
 # fn main() {
 use trillium_client::Client;
@@ -240,7 +240,7 @@ As noted under [ordering](#lifecycle-and-ordering), `Cache` goes **last** in the
 # trillium-testing = "0.10"
 # trillium-logger = { version = "0.5", features = ["client"] }
 # trillium-redirect = { version = "0.3", features = ["client"] }
-# trillium-cache = { version = "0.1", features = ["client"] }
+# trillium-cache = { version = "0.2", features = ["client"] }
 #
 # fn main() {
 use trillium_client::Client;

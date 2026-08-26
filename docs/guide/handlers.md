@@ -1,6 +1,6 @@
 # A tour of handler libraries
 
-Trillium is designed so that every feature is opt-in. The crates below are all official, all live in the same repository, and all follow the same `Handler` interface. Add the ones your application needs.
+Trillium is designed so that every feature is opt-in. Each crate below provides a `Handler`; add the ones your application needs.
 
 ## Request handling
 
@@ -14,9 +14,13 @@ Trillium is designed so that every feature is opt-in. The crates below are all o
 
 [**Conn ID**](./handlers/utilities.md#conn-id) — Assigns a unique identifier to each request, accessible on the conn and usable in log output.
 
-## Auth
+## Auth and security
 
 [**Basic Auth**](./handlers/utilities.md#basic-auth) — HTTP Basic Authentication. Returns `401 Unauthorized` with a `WWW-Authenticate` challenge for unauthenticated requests.
+
+[**CORS**](./handlers/cors.md) — Cross-origin resource sharing. Answers browser preflights and adds the headers that let pages on allowed origins read responses.
+
+[**CSRF Protection**](./handlers/csrf.md) — Rejects state-changing cross-origin requests using the metadata browsers attach to every request. No tokens, no cookies, and no configuration needed when frontend and api share an origin.
 
 ## Cookies and sessions
 
@@ -28,11 +32,15 @@ Trillium is designed so that every feature is opt-in. The crates below are all o
 
 [**Static Files**](./handlers/static.md) — Serve files from disk with `trillium-static`, or embed them in the binary at compile time with `trillium-static-compiled`.
 
+[**Frontend**](./handlers/frontend.md) — Serve a compiled JS/TS frontend (Vite, webpack, Next.js) from the same binary as the api: embedded assets in release builds, a live-reloading dev-server proxy in development.
+
 [**Template Engines**](./handlers/templates.md) — Integrations for Askama (compile-time, type-safe), Tera (runtime), and Handlebars (runtime).
 
 [**Compression**](./handlers/compression.md) — Compresses response bodies with zstd, brotli, or gzip, selected based on the client's `Accept-Encoding` header.
 
 [**Caching Headers**](./handlers/utilities.md#caching-headers) — Adds `ETag` and `Last-Modified` support, automatically returning `304 Not Modified` for unchanged resources.
+
+[**Cache**](./handlers/cache.md) — RFC 9111 HTTP cache that stores responses and serves them without re-running the downstream handler while fresh.
 
 ## Real-time
 
