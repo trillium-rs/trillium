@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - the http/1.x response-head read is now governed by `HttpConfig::head_max_len` and
   `HttpConfig::request_buffer_initial_len`, configurable via `Client::set_context`, replacing
   hardcoded 8kb and 1024-byte values
+- dropping an unread response body now drains and pools an h1 keepalive transport
+  synchronously when the remaining bytes are already buffered, instead of deferring to a
+  spawned task that raced subsequent requests
+
 ### Security
 
 - Response-head reading now bounds its buffer by `max_head_length` with

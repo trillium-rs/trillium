@@ -521,18 +521,14 @@ async fn override_body_does_not_read_from_transport() -> TestResult {
     let body = conn.response_body().read_string().await?;
     assert_eq!(body, "synthetic");
 
-    // Drop the conn; transport should already be on its way to the pool via evict_transport.
     drop(conn);
 
-    // Whether the unread response bytes were left on the socket or slurped into
-    // the conn buffer while parsing the head, eviction-drain must leave the
-    // pooled entry reusable. The strongest observable for that is reuse itself:
-    // a second request served by the same transport without a close.
+    // The unread response bytes were slurped into the conn buffer while parsing the
+    // head, so eviction drains synchronously in Drop and pools the transport before
+    // `set_response_body` returns — no waiting. The strongest observable is reuse
+    // itself: a second request served by the same transport without a close.
     assert!(
-        wait_until(Duration::from_secs(2), || {
-            !records.lock().unwrap()[0].dropped.load(SeqCst)
-        })
-        .await,
+        !records.lock().unwrap()[0].dropped.load(SeqCst),
         "transport dropped — should be in pool",
     );
 

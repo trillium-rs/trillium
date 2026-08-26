@@ -4,8 +4,12 @@ use futures_lite::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use std::{
     fmt::{self, Debug, Formatter},
     io, mem,
-    pin::Pin,
-    task::{Context, Poll, ready},
+    pin::{Pin, pin},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    task::{Context, Poll, Wake, Waker, ready},
     time::{Duration, Instant},
 };
 use trillium_http::{
@@ -404,6 +408,40 @@ async fn drain(rb: &mut ReceivedBody<'static, Box<dyn Transport + 'static>>) -> 
     trillium_http::copy(rb, futures_lite::io::sink(), copy_loops_per_yield).await
 }
 
+/// Best-effort synchronous drain of whatever body remainder is already buffered.
+///
+/// Small responses are often slurped in full during head parsing, so reaching
+/// `End` frequently requires no transport IO at all — just consuming buffered
+/// bytes. This drives [`drain`] with a wake-flag waker: cooperative yields
+/// re-poll immediately, and the first genuine IO `Pending` (or a drain error)
+/// stops the attempt, leaving the body wherever it got to for an async caller
+/// to finish. Never parks and never performs IO waits, so it is safe to call
+/// from `Drop` in any context.
+fn drain_buffered(rb: &mut ReceivedBody<'static, Box<dyn Transport + 'static>>) {
+    struct WakeFlag(AtomicBool);
+    impl Wake for WakeFlag {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    let flag = Arc::new(WakeFlag(AtomicBool::new(false)));
+    let waker = Waker::from(flag.clone());
+    let mut cx = Context::from_waker(&waker);
+    let mut drain = pin!(drain(rb));
+    loop {
+        match drain.as_mut().poll(&mut cx) {
+            Poll::Ready(_) => return,
+            Poll::Pending if flag.0.swap(false, Ordering::Relaxed) => {}
+            Poll::Pending => return,
+        }
+    }
+}
+
 /// Report the result of closing a transport we're discarding. `NotConnected` is the expected
 /// "already closed" signal from a finished multiplexed stream — notably h3/QUIC, whose `close`
 /// (unlike h2's) isn't idempotent and errors once the stream has finished — so it's absorbed at
@@ -454,20 +492,33 @@ impl Drop for ResponseBody<'_> {
             return;
         };
 
-        // fast sync path for reclaiming an owned http/1.1 received body that's at End
-        if rb.state() == ReceivedBodyState::End
-            && cleanup.h1_pool_origin.is_some()
-            && let Some(transport) = rb.take_transport()
-            && let Some((pool, origin)) = cleanup.h1_pool_origin
-        {
-            pool.insert(
-                origin,
-                PoolEntry::new(transport, pool_expiry(cleanup.h1_idle_timeout)),
-            );
+        // Sync fast path for reclaiming an owned http/1.1 keepalive body: consume any
+        // remainder that's already buffered, and if that reaches End, pool the transport
+        // before drop returns — so a subsequent request on this client deterministically
+        // reuses it. Bodies with bytes still on the wire fall through to a spawned drain
+        // (Drop can't await IO), as does the no-pool path (`transport.close()` is async).
+        if let Some((pool, origin)) = cleanup.h1_pool_origin {
+            if rb.state() != ReceivedBodyState::End {
+                drain_buffered(&mut rb);
+            }
+
+            if rb.state() == ReceivedBodyState::End
+                && let Some(transport) = rb.take_transport()
+            {
+                pool.insert(
+                    origin,
+                    PoolEntry::new(transport, pool_expiry(cleanup.h1_idle_timeout)),
+                );
+                return;
+            }
+
+            cleanup
+                .runtime
+                .spawn(recycle(rb, Some((pool, origin)), cleanup.h1_idle_timeout));
         } else {
             cleanup
                 .runtime
-                .spawn(recycle(rb, cleanup.h1_pool_origin, cleanup.h1_idle_timeout));
+                .spawn(recycle(rb, None, cleanup.h1_idle_timeout));
         }
     }
 }
