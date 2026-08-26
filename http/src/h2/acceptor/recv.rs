@@ -419,7 +419,7 @@ where
                 "recv buffer exceeded the stream window target under strict flow control"
             );
             if !data.is_empty() {
-                recv.extend_from_slice(data);
+                recv.extend_live(data);
             }
         }
         // Transition recv-closed *after* the data is in the ring, so a reader that observes

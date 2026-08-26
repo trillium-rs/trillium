@@ -4,7 +4,7 @@ use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once};
 use memchr::memmem::Finder;
 use std::io::Write;
 use trillium_http::{
-    BodyFraming, BufWriter, Buffer, Error, Headers,
+    BodyFraming, BufWriter, Error, Headers,
     KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
     Method, ReceivedBodyState, Result, Status, Version,
 };
@@ -168,18 +168,17 @@ impl Conn {
         Ok(buf)
     }
 
-    async fn read_head(&mut self) -> Result<usize> {
-        // `expand()` zero-fills the buffer to capacity to give `read` scratch space, so
-        // `buffer.len()` runs ahead of the bytes actually received until the head is found and it
-        // is truncated back. If this future is dropped mid-read — e.g. the expect-continue
-        // timeout races an in-progress read — this guard truncates to the real length so the next
-        // `read_head` doesn't parse the zero padding as head bytes.
-        struct TruncateOnDrop<'a>(&'a mut Buffer, usize);
-        impl Drop for TruncateOnDrop<'_> {
-            fn drop(&mut self) {
-                self.0.truncate(self.1);
-            }
-        }
+    pub(crate) async fn read_head(&mut self) -> Result<usize> {
+        // Keepalive boundary: release window space beyond the high-water mark so
+        // bytes from an earlier response can't be re-lent while parsing this
+        // one. Live bytes survive (capacity is retained and re-zeroed on
+        // growth), including any head already buffered by a fast path below.
+        self.buffer.truncate();
+
+        let head_max_len = self.context.config().head_max_len();
+        // a zero request_buffer_initial_len must not produce a zero-length window,
+        // which would misread as connection closed
+        let read_floor = self.context.config().request_buffer_initial_len().max(1);
 
         let Self {
             buffer,
@@ -191,7 +190,7 @@ impl Conn {
         };
 
         let finder = Finder::new(b"\r\n\r\n");
-        let mut len = buffer.len();
+        let mut len = buffer.live_len();
         let mut search_start = 0;
 
         if len > 0 {
@@ -201,15 +200,21 @@ impl Conn {
             search_start = len.saturating_sub(3);
         }
 
-        let mut guard = TruncateOnDrop(buffer, len);
-
         loop {
-            guard.0.expand();
-            let bytes = transport.read(&mut guard.0[len..]).await?;
-            len += bytes;
-            guard.1 = len;
+            // Checked before reading: the window below cannot exceed the
+            // remaining allowance, so a peer pacing a response head one byte at
+            // a time can never drive the buffer past head_max_len. Within
+            // that ceiling, lending grows geometrically with received bytes.
+            if len >= head_max_len {
+                return Err(Error::HeadersTooLong);
+            }
 
-            if let Some(index) = finder.find(&guard.0[search_start..len]) {
+            let want = (head_max_len - len).min(read_floor.max(len * 2));
+            let bytes = transport.read(buffer.window(want)).await?;
+            buffer.advance(bytes);
+            len += bytes;
+
+            if let Some(index) = finder.find(&buffer[search_start..len]) {
                 return Ok(search_start + index + 4);
             }
 
@@ -221,10 +226,6 @@ impl Conn {
                 } else {
                     Error::InvalidHead
                 });
-            }
-
-            if len >= self.max_head_length {
-                return Err(Error::HeadersTooLong);
             }
         }
     }

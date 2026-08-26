@@ -439,7 +439,7 @@ where
     } else {
         let self_buffer_len = buffer.len();
         buf[..self_buffer_len].copy_from_slice(buffer);
-        buffer.truncate(0);
+        buffer.clear();
         match Pin::new(transport).poll_read(cx, &mut buf[self_buffer_len..]) {
             Ready(Ok(additional)) => Ready(Ok(additional + self_buffer_len)),
             Pending => Ready(Ok(self_buffer_len)),

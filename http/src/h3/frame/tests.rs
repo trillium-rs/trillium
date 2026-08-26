@@ -356,3 +356,94 @@ fn encode_unknown_is_noop() {
     assert_eq!(frame.encode(&mut buf), Some(0));
     assert_eq!(frame.encoded_len(), 0);
 }
+
+// -- FrameStream payload buffering tests --
+
+mod frame_stream {
+    use super::{FrameStream, encode_raw_header};
+    use crate::Buffer;
+    use futures_lite::future::block_on;
+    use std::{
+        io::ErrorKind,
+        net::Shutdown,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+    use trillium_testing::TestTransport;
+
+    fn noop_context() -> Context<'static> {
+        Context::from_waker(Waker::noop())
+    }
+
+    #[test]
+    fn payload_assembles_across_dripped_reads() {
+        let (test_side, mut conn_side) = TestTransport::new();
+        let mut buffer = Buffer::default();
+        let mut stream = FrameStream::new(&mut conn_side, &mut buffer);
+        let mut cx = noop_context();
+
+        test_side.write_all(encode_raw_header(0x01u64, 12)); // HEADERS
+        let mut active = block_on(stream.next())
+            .expect("decodable frame header")
+            .expect("a frame, not eof");
+
+        let mut payload = pin!(active.buffer_payload());
+        for chunk in [b"abcd", b"efgh"] {
+            assert!(payload.as_mut().poll(&mut cx).is_pending());
+            test_side.write_all(chunk);
+        }
+        test_side.write_all(b"ijkl");
+        let Poll::Ready(Ok(bytes)) = payload.as_mut().poll(&mut cx) else {
+            panic!("payload should be complete after 12 bytes arrived");
+        };
+        assert_eq!(bytes, b"abcdefghijkl");
+    }
+
+    /// The declared frame length is adversary-controlled; buffering must track
+    /// bytes that actually arrive, in reads no larger than `FRAME_READ_CHUNK`.
+    #[test]
+    fn huge_declared_payload_buffers_proportionally_to_arrival() {
+        let (test_side, mut conn_side) = TestTransport::new();
+        let mut buffer = Buffer::default();
+        {
+            let mut stream = FrameStream::new(&mut conn_side, &mut buffer);
+            let mut cx = noop_context();
+
+            test_side.write_all(encode_raw_header(0x00u64, 1 << 30)); // DATA, 1gb declared
+            let mut active = block_on(stream.next())
+                .expect("decodable frame header")
+                .expect("a frame, not eof");
+
+            let mut payload = pin!(active.buffer_payload());
+            for _ in 0..4 {
+                assert!(payload.as_mut().poll(&mut cx).is_pending());
+                test_side.write_all(b"x");
+            }
+            assert!(payload.as_mut().poll(&mut cx).is_pending());
+        }
+
+        assert!(
+            buffer.capacity() <= 64 * 1024,
+            "buffer capacity {} tracked the declared length instead of arrived bytes",
+            buffer.capacity()
+        );
+    }
+
+    #[test]
+    fn eof_mid_payload_is_an_unexpected_eof_error() {
+        let (test_side, mut conn_side) = TestTransport::new();
+        let mut buffer = Buffer::default();
+        let mut stream = FrameStream::new(&mut conn_side, &mut buffer);
+
+        test_side.write_all(encode_raw_header(0x01u64, 8));
+        test_side.write_all(b"abc");
+        test_side.shutdown(Shutdown::Write);
+
+        let mut active = block_on(stream.next())
+            .expect("decodable frame header")
+            .expect("a frame, not eof");
+        let error = block_on(active.buffer_payload())
+            .expect_err("stream ended before the declared payload length");
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+    }
+}

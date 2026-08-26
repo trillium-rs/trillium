@@ -25,6 +25,8 @@ use std::{
     time::Instant,
 };
 mod h1;
+#[cfg(test)]
+mod h1_tests;
 mod h2;
 mod h3;
 mod shared;
@@ -304,13 +306,15 @@ where
 
     /// Cancels and drops the future if reading from the transport results in an error or empty read
     ///
-    /// The use of this method is not advised if your connected http client employs pipelining
-    /// (rarely seen in the wild), as it will buffer an unbounded number of requests one byte at a
-    /// time
-    ///
     /// If the client disconnects from the conn's transport, this function will return None. If the
     /// future completes without disconnection, this future will return Some containing the output
     /// of the future.
+    ///
+    /// Disconnection is detected by reading from the transport, so any bytes the client sends
+    /// while the future runs — an unread request body, or pipelined requests — are buffered, up
+    /// to 16kb. A client that fills that allowance is considered alive for the remainder of the
+    /// future, even if it disconnects afterwards. If the request has a body, read it before
+    /// calling this.
     ///
     /// Note that the inner future cannot borrow conn, so you will need to clone or take any
     /// information needed to execute the future prior to executing this method.
@@ -344,6 +348,11 @@ where
     }
 
     /// Check if the transport is connected by attempting to read from the transport
+    ///
+    /// Any bytes the client sends — an unread request body, or pipelined requests — are buffered,
+    /// up to 16kb, and count as evidence of liveness. A client that fills that allowance is
+    /// reported as connected until the buffered bytes are read, so read the request body before
+    /// polling this in a long-running handler.
     ///
     /// # Example
     ///

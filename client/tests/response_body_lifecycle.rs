@@ -517,7 +517,6 @@ async fn override_body_does_not_read_from_transport() -> TestResult {
     let client = Client::new(connector);
 
     let mut conn = client.get("http://example.test/").await?;
-    let pre_override_reads = records.lock().unwrap()[0].bytes_read.load(SeqCst);
     conn.set_response_body("synthetic");
     let body = conn.response_body().read_string().await?;
     assert_eq!(body, "synthetic");
@@ -525,25 +524,33 @@ async fn override_body_does_not_read_from_transport() -> TestResult {
     // Drop the conn; transport should already be on its way to the pool via evict_transport.
     drop(conn);
 
+    // Whether the unread response bytes were left on the socket or slurped into
+    // the conn buffer while parsing the head, eviction-drain must leave the
+    // pooled entry reusable. The strongest observable for that is reuse itself:
+    // a second request served by the same transport without a close.
     assert!(
         wait_until(Duration::from_secs(2), || {
-            let r = &records.lock().unwrap()[0];
-            // After eviction-drain, body bytes should have been consumed
-            r.bytes_read.load(SeqCst) > pre_override_reads
+            !records.lock().unwrap()[0].dropped.load(SeqCst)
         })
         .await,
-        "expected transport to be drained as part of eviction",
+        "transport dropped — should be in pool",
     );
 
-    let r = &records.lock().unwrap()[0];
+    let mut conn = client.get("http://example.test/").await?;
+    let body = conn.response_body().read_string().await?;
+    assert_eq!(body, "hello world");
+    drop(conn);
+
+    let records = records.lock().unwrap();
     assert_eq!(
-        r.close_calls.load(SeqCst),
+        records.len(),
+        1,
+        "second request must reuse the pooled transport"
+    );
+    assert_eq!(
+        records[0].close_calls.load(SeqCst),
         0,
         "keepalive override eviction should pool, not close"
-    );
-    assert!(
-        !r.dropped.load(SeqCst),
-        "transport dropped — should be in pool"
     );
     Ok(())
 }

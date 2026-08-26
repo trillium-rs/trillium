@@ -248,7 +248,7 @@ impl AsyncWrite for H2Transport {
             self.stream_id,
             buf.len(),
         );
-        outbound.extend_from_slice(&buf[..take]);
+        outbound.extend_live(&buf[..take]);
         drop(outbound);
 
         // Wake the driver (parked on the connection-level waker).
@@ -408,7 +408,7 @@ impl StreamState {
 #[derive(Debug, Default)]
 pub(super) struct RecvState {
     /// Inbound DATA body bytes awaiting handler read. A single persistent ring (append-at-tail,
-    /// `ignore_front`-at-head): the driver appends via `extend_from_slice` when a DATA frame
+    /// `ignore_front`-at-head): the driver appends via `extend_live` when a DATA frame
     /// arrives; the handler reads from the front and virtually drops consumed bytes. When
     /// `ignore_front` catches up to the data end the `Buffer` truncates to zero, so the underlying
     /// `Vec` capacity stays bounded by peak in-flight bytes rather than cumulative traffic — zero

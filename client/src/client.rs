@@ -434,7 +434,6 @@ impl Client {
             body_override: None,
             timeout: self.timeout,
             http_version: None,
-            max_head_length: 8 * 1024,
             state: TypeSet::new(),
             context: self.context.clone(),
             authority: None,

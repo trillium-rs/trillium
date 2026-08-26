@@ -128,7 +128,7 @@ where
             return Ready(Err(io::Error::from(ErrorKind::ConnectionAborted)));
         }
 
-        self.buffer.extend_from_slice(&buf[..bytes]);
+        self.buffer.extend_live(&buf[..bytes]);
 
         // The 256-byte cap bounds the chunk-size header line; once parsing succeeds,
         // bytes past the header are legitimate post-header data drained on the next
@@ -317,7 +317,7 @@ fn finish_terminal_chunk(
     } else {
         let mut v = self_buffer.to_vec();
         v.extend_from_slice(trailer_bytes);
-        self_buffer.truncate(0);
+        self_buffer.clear();
         v
     };
 
@@ -331,7 +331,7 @@ fn finish_terminal_chunk(
         // anything after the trailer terminator is the start of the next request
         let leftover = &combined[consumed..];
         if !leftover.is_empty() {
-            self_buffer.extend_from_slice(leftover);
+            self_buffer.extend_live(leftover);
         }
         Ok((End, 0))
     } else {
@@ -342,7 +342,7 @@ fn finish_terminal_chunk(
         if combined.len() as u64 > max_trailer_len {
             return Err(io::Error::new(InvalidData, "trailer section too long"));
         }
-        self_buffer.extend_from_slice(&combined);
+        self_buffer.extend_live(&combined);
         Ok((ReceivedBodyState::ReadingH1Trailers { total }, 0))
     }
 }
@@ -1238,7 +1238,7 @@ mod tests {
     #[test]
     fn trailer_section_cap_enforced_while_accumulating() {
         let mut buffer = Buffer::with_capacity(64);
-        buffer.extend_from_slice(b"x-trailer: ");
+        buffer.extend_live(b"x-trailer: ");
         let error = finish_terminal_chunk(&mut buffer, b"value", 0, &mut None, 8)
             .expect_err("unterminated trailer-section past the cap must be rejected");
         assert_eq!(error.to_string(), "trailer section too long");

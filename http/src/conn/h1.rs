@@ -274,7 +274,7 @@ where
         Ok(())
     }
 
-    async fn head(
+    pub(crate) async fn head(
         transport: &mut Transport,
         buf: &mut Buffer,
         context: &HttpContext,
@@ -294,20 +294,40 @@ where
                 return Err(Error::HeadersTooLong);
             }
 
+            // The window never exceeds the remaining allowance, so a reader
+            // cannot accumulate more head than head_max_len permits regardless
+            // of how finely the peer fragments its writes. Within that ceiling,
+            // lending grows geometrically with received bytes instead of
+            // front-loading the whole allowance onto every connection.
+            // Prefilled bytes are already inside the high-water mark; only
+            // freshly read bytes move it.
             let bytes = if start_with_read {
-                buf.expand();
-                if total == 0 {
+                let remaining = context.config.head_max_len - total - leading_skipped;
+                let window = buf.window(
+                    remaining.min(
+                        context
+                            .config
+                            .request_buffer_initial_len
+                            .max(total.saturating_mul(2))
+                            // a zero request_buffer_initial_len must not produce a zero-length
+                            // window, which would misread as connection closed
+                            .max(1),
+                    ),
+                );
+                let read = if total == 0 {
                     context
                         .swansong
-                        .interrupt(transport.read(buf))
+                        .interrupt(transport.read(window))
                         .await
                         .ok_or(Error::Closed)??
                 } else {
-                    transport.read(&mut buf[total..]).await?
-                }
+                    transport.read(window).await?
+                };
+                buf.advance(read);
+                read
             } else {
                 start_with_read = true;
-                buf.len()
+                buf.live_len()
             };
 
             if instant.is_none() {
@@ -333,7 +353,6 @@ where
 
             let search_start = scanned.max(3) - 3;
             if let Some(index) = finder.find(&buf[search_start..total]) {
-                buf.truncate(total);
                 return Ok((search_start + index + 4, instant.unwrap()));
             }
             scanned = total;

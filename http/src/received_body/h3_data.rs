@@ -48,7 +48,7 @@ where
                 if bytes == 0 {
                     return Ready(Err(io::Error::from(ErrorKind::UnexpectedEof)));
                 }
-                self.buffer.extend_from_slice(&buf[..bytes]);
+                self.buffer.extend_live(&buf[..bytes]);
             }
 
             let (remaining_in_frame, frame_type, consumed) = match Frame::decode(&self.buffer) {
