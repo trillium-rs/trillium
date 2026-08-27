@@ -1,6 +1,6 @@
 #[cfg(any(feature = "serde_json", feature = "sonic-rs"))]
 use crate::ApiConnExt;
-use crate::FromConn;
+use crate::{FromConn, missing_handler::DEFAULT_MISSING_HANDLER};
 use std::future::Future;
 use trillium::{BoxedHandler, Conn, Handler};
 
@@ -42,10 +42,20 @@ impl TryFromConn for sonic_rs::Value {
 }
 
 impl<T: FromConn> TryFromConn for T {
-    type Error = ();
+    type Error = crate::missing_handler::MissingHandler;
 
     async fn try_from_conn(conn: &mut Conn) -> Result<Self, Self::Error> {
-        Self::from_conn(conn).await.ok_or(())
+        match Self::from_conn(conn).await {
+            Some(t) => Ok(t),
+            None => Err(
+                match conn.shared_state::<crate::missing_handler::MissingHandler>() {
+                    Some(mh) => mh.clone(),
+                    None => DEFAULT_MISSING_HANDLER
+                        .get_or_init(|| crate::missing_handler::MissingHandler::new(()))
+                        .clone(),
+                },
+            ),
+        }
     }
 }
 
