@@ -6,7 +6,6 @@ use async_tungstenite::{
 use futures_lite::{Stream, StreamExt, future};
 use futures_sink::Sink;
 use std::{
-    borrow::Cow,
     fmt::Debug,
     net::IpAddr,
     pin::Pin,
@@ -27,7 +26,8 @@ use trillium_http::{HttpContext, type_set::entry::Entry};
 /// and can be polled with `StreamExt::next`
 pub struct WebSocketConn {
     request_headers: Headers,
-    path: Cow<'static, str>,
+    path: String,
+    querystring: String,
     method: Method,
     state: TypeSet,
     peer_ip: Option<IpAddr>,
@@ -41,6 +41,7 @@ impl Debug for WebSocketConn {
         f.debug_struct("WebSocketConn")
             .field("request_headers", &self.request_headers)
             .field("path", &self.path)
+            .field("querystring", &self.querystring)
             .field("method", &self.method)
             .field("state", &self.state)
             .field("peer_ip", &self.peer_ip)
@@ -108,7 +109,8 @@ impl WebSocketConn {
     ) -> Self {
         let mut upgrade = upgrade.into();
         let request_headers = upgrade.take_request_headers();
-        let path = upgrade.path().to_string().into();
+        let path = upgrade.path().to_string();
+        let querystring = upgrade.querystring().to_string();
         let method = upgrade.method();
         let state = upgrade.take_state();
         let context = upgrade.context().clone();
@@ -129,6 +131,7 @@ impl WebSocketConn {
         Self {
             request_headers,
             path,
+            querystring,
             method,
             state,
             peer_ip,
@@ -167,16 +170,13 @@ impl WebSocketConn {
     /// retrieves the path part of the request url, up to and excluding
     /// any query component
     pub fn path(&self) -> &str {
-        self.path.split('?').next().unwrap_or_default()
+        &self.path
     }
 
     /// Retrieves the query component of the path, excluding `?`. Returns
     /// an empty string if there is no query component.
     pub fn querystring(&self) -> &str {
-        self.path
-            .split_once('?')
-            .map(|(_, query)| query)
-            .unwrap_or_default()
+        &self.querystring
     }
 
     /// retrieve the request method for this conn
