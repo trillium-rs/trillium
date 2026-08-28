@@ -157,3 +157,70 @@ fn test_handler(handler: impl Handler) {
         Ok(())
     });
 }
+
+fn echo_request_target() -> WebSocket<impl WebSocketHandler> {
+    WebSocket::new(|mut conn: WebSocketConn| async move {
+        let reply = format!("path={} query={}", conn.path(), conn.querystring());
+        while let Some(Ok(Message::Text(_))) = conn.next().await {
+            conn.send_string(reply.clone()).await.unwrap();
+        }
+    })
+}
+
+fn assert_request_target(handler: impl Handler, url: &'static str, expected: &'static str) {
+    trillium_testing::with_transport(handler, move |transport| async move {
+        let (mut client, _) = async_tungstenite::client_async(url, transport).await?;
+        client.send(Message::text("hello")).await?;
+        assert_eq!(expected, client.next().await.unwrap()?.to_string());
+        Ok(())
+    });
+}
+
+#[test]
+fn path_and_querystring_are_populated_independently() {
+    assert_request_target(
+        echo_request_target(),
+        "ws://localhost/some/route?foo=bar&baz",
+        "path=/some/route query=foo=bar&baz",
+    );
+}
+
+#[test]
+fn querystring_is_empty_when_absent() {
+    assert_request_target(
+        echo_request_target(),
+        "ws://localhost/some/route",
+        "path=/some/route query=",
+    );
+}
+
+/// The upgrade-dispatch analog of a nested router mount, without depending on `trillium-router`:
+/// all a router does to the path is push the wildcard remainder onto the upgrade.
+struct MountedAt<H>(&'static str, H);
+
+impl<H: Handler> Handler for MountedAt<H> {
+    async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
+        self.1.run(conn).await
+    }
+
+    fn has_upgrade(&self, upgrade: &trillium::Upgrade) -> bool {
+        upgrade.push_path(String::from(self.0));
+        let has_upgrade = self.1.has_upgrade(upgrade);
+        upgrade.pop_path();
+        has_upgrade
+    }
+
+    async fn upgrade(&self, upgrade: trillium::Upgrade) {
+        upgrade.push_path(String::from(self.0));
+        self.1.upgrade(upgrade).await;
+    }
+}
+
+#[test]
+fn a_pushed_path_frame_narrows_the_path_but_not_the_querystring() {
+    assert_request_target(
+        MountedAt("route", echo_request_target()),
+        "ws://localhost/some/route?foo=bar&baz",
+        "path=route query=foo=bar&baz",
+    );
+}

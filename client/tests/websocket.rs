@@ -57,3 +57,31 @@ fn test_websockets_error() {
         Ok(())
     })
 }
+
+#[test]
+fn path_and_querystring_round_trip() {
+    let handler = websocket(|mut conn: WebSocketConn| async move {
+        let reply = format!("path={} query={}", conn.path(), conn.querystring());
+        while let Some(Ok(Message::Text(_))) = conn.next().await {
+            conn.send_string(reply.clone()).await.expect("send_string");
+        }
+    });
+
+    let client = Client::new(client_config());
+
+    trillium_testing::with_server(handler, move |url| async move {
+        let url = url.join("/some/route?foo=bar&baz")?;
+        let mut ws = client.get(url).into_websocket().await?;
+
+        assert_eq!(ws.path(), "/some/route");
+        assert_eq!(ws.querystring(), "foo=bar&baz");
+
+        ws.send_string("hello".to_string()).await?;
+        assert_eq!(
+            ws.next().await.expect("response")?,
+            Message::text("path=/some/route query=foo=bar&baz")
+        );
+
+        Ok(())
+    })
+}
