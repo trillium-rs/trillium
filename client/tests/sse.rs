@@ -1,19 +1,18 @@
 use futures_lite::{StreamExt, stream};
 use trillium_client::{Client, SseErrorKind};
 use trillium_http::Status;
-use trillium_sse::{Event as ServerEvent, SseConnExt};
+use trillium_sse::{Event as ServerEvent, sse};
 use trillium_testing::client_config;
 
 #[test]
 fn round_trip_through_trillium_sse() {
-    let handler = |conn: trillium::Conn| async move {
-        let events = vec![
+    let handler = sse(|_: &mut trillium::Conn| {
+        stream::iter(vec![
             ServerEvent::new("first"),
             ServerEvent::new("second line one\nsecond line two").with_type("custom"),
             ServerEvent::new("third"),
-        ];
-        conn.with_sse_stream(stream::iter(events))
-    };
+        ])
+    });
 
     let client = Client::new(client_config());
 
@@ -38,11 +37,10 @@ fn round_trip_through_trillium_sse() {
 
 #[test]
 fn event_stream_exposes_the_conn_for_response_metadata() {
-    let handler = |conn: trillium::Conn| async move {
-        let events = vec![ServerEvent::new("only")];
-        conn.with_response_header("x-session", "abc123")
-            .with_sse_stream(stream::iter(events))
-    };
+    let handler = sse(|conn: &mut trillium::Conn| {
+        conn.response_headers_mut().insert("x-session", "abc123");
+        stream::iter(vec![ServerEvent::new("only")])
+    });
     let client = Client::new(client_config());
 
     trillium_testing::with_server(handler, move |url| async move {
