@@ -20,4 +20,5 @@ mod priority;
 mod recv_headers;
 mod send;
 mod shutdown;
+mod throughput;
 mod two_driver;

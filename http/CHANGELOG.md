@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-09-01
+
+### Added
+
+- `Upgrade::poll_closed`, a liveness probe that resolves when the peer has abandoned the
+  upgrade. For use when the peer is not expected to send data: on HTTP/1.x it probes by
+  reading, buffering up to a caller-provided allowance of incidental bytes; on HTTP/2 and
+  HTTP/3 it observes stream reset, cancellation, and connection teardown without reading.
+
+- `PeerGone` and `H3BidiRequest::with_peer_gone`, through which a runtime adapter reports
+  QUIC stream abandonment. HTTP/3 signals departure out-of-band from the byte stream, so
+  without this hook `Conn::is_disconnected`, `Conn::cancel_on_disconnect`, and
+  `Upgrade::poll_closed` cannot detect it.
+
+### Fixed
+
+- `Conn::is_disconnected` and `Conn::cancel_on_disconnect` reported every live HTTP/2 and
+  HTTP/3 request as disconnected. Both probed by reading the transport, which is only
+  meaningful on HTTP/1.x — an HTTP/2 request carries `END_STREAM` on its HEADERS and an
+  HTTP/3 client finishes its half of the bidi stream, so the read half of a perfectly
+  healthy request is at end-of-file from the first poll. They now dispatch per protocol,
+  observing stream state on HTTP/2 and peer abandonment on HTTP/3.
+
+### Changed
+
+- An HTTP/1.1 conn marked for upgrade with `Connection: close` set, no response body, and
+  no `Content-Length` now sends a close-delimited response — no `Transfer-Encoding:
+  chunked` — matching the framing non-upgrade responses take under the same headers.
+
 ## [1.6.4] - 2026-08-25
 
 ### Security

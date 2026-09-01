@@ -45,6 +45,7 @@ use std::{
     future::Future,
     io,
     sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool},
+    task::{Context, Poll},
 };
 use swansong::{ShutdownCompletion, Swansong};
 #[cfg(feature = "unstable")]
@@ -235,6 +236,24 @@ impl H2Connection {
         };
         stream.request_reset(code);
         self.outbound_waker.wake();
+    }
+
+    /// Resolves once the stream is fully closed — reset by either side, both halves
+    /// complete, or already gone from the stream map (including connection teardown).
+    /// Registers on the stream's recv-side waker, which the driver fires on every close
+    /// event.
+    pub(crate) fn poll_stream_closed(&self, stream_id: u32, cx: &mut Context<'_>) -> Poll<()> {
+        let Some(stream) = self.streams_lock().get(&stream_id).cloned() else {
+            return Poll::Ready(());
+        };
+        // Register before checking, so a close that lands between the check and the
+        // driver's wake still finds this waker.
+        stream.recv.waker.register(cx.waker());
+        if stream.lifecycle_lock().is_closed() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
     }
 
     /// Bind this `H2Connection` to a TCP transport and return an [`H2Driver`] that drives

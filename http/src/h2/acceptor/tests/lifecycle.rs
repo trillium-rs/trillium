@@ -393,6 +393,63 @@ fn peer_rst_during_open_upgrade_rejects_further_writes() {
     }
 }
 
+/// `poll_stream_closed` is the between-events disconnect signal for an upgrade whose recv
+/// half closed with the request (a GET): reads return EOF immediately, so a reader can
+/// never observe a later reset. It must park while the stream is live, fire its waker on a
+/// peer RST, and resolve on re-poll.
+#[test]
+fn poll_stream_closed_wakes_and_resolves_on_peer_rst() {
+    use crate::headers::hpack::PseudoHeaders;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingWaker(AtomicUsize);
+    impl Wake for CountingWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    let _conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let _submit = fx
+        .connection
+        .submit_upgrade(1, pseudos, Headers::new(), None);
+    let _ = fx.tick();
+    let _ = fx.next_outbound_bytes();
+
+    let counter = Arc::new(CountingWaker(AtomicUsize::new(0)));
+    let waker = Waker::from(counter.clone());
+    let mut cx = Context::from_waker(&waker);
+    assert!(
+        fx.connection.poll_stream_closed(1, &mut cx).is_pending(),
+        "a live upgrade stream should report Pending",
+    );
+
+    fx.peer_rst_stream(1, H2ErrorCode::Cancel);
+    let _ = fx.tick();
+
+    assert!(
+        counter.0.load(Ordering::SeqCst) > 0,
+        "peer RST_STREAM should fire the registered waker",
+    );
+    assert!(
+        fx.connection.poll_stream_closed(1, &mut cx).is_ready(),
+        "poll after the reset should resolve",
+    );
+}
+
 /// A DATA frame arriving after the peer has already sent its own `END_STREAM` (recv half
 /// half-closed-remote) is a `STREAM_CLOSED` stream error (RFC 9113 §5.1). This is the dual
 /// of [`peer_end_stream_after_server_trailers_is_not_reset`]: a *legal* frame after our
@@ -707,4 +764,47 @@ fn peer_rst_during_prelude_body_phase_rejects_writes() {
         ),
         other => panic!("post-RST write should fail with BrokenPipe, got {other:?}"),
     }
+}
+
+/// `is_disconnected` reads the *protocol's* notion of departure, not the transport's. An h2
+/// request carries `END_STREAM` on its HEADERS, so the recv half of a perfectly healthy stream
+/// is closed from the first poll — reading the transport (which is what the h1 probe does)
+/// reports every h2 request as disconnected before the handler has done anything.
+#[test]
+fn is_disconnected_is_false_for_a_live_h2_request() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    let mut conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+
+    assert!(
+        !futures_lite::future::block_on(conn.is_disconnected()),
+        "a live h2 client that merely finished sending its request must not read as disconnected"
+    );
+}
+
+/// The other half of [`is_disconnected_is_false_for_a_live_h2_request`]: once the peer resets
+/// the stream, the probe must report it.
+#[test]
+fn is_disconnected_is_true_after_peer_rst_stream() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    let mut conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+
+    fx.peer_rst_stream(1, H2ErrorCode::Cancel);
+    let _ = fx.tick();
+
+    assert!(
+        futures_lite::future::block_on(conn.is_disconnected()),
+        "a peer RST_STREAM must be reported as a disconnection"
+    );
 }

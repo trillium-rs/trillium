@@ -194,6 +194,7 @@ pub use http_config::HttpConfig;
 #[cfg(feature = "unstable")]
 pub use http_context::parse_head_for_bench;
 pub use http_context::{HttpContext, run_with_initial_bytes};
+pub use liveness::PeerGone;
 pub use method::Method;
 #[cfg(feature = "unstable")]
 #[doc(hidden)]

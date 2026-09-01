@@ -7,7 +7,7 @@ use super::{
     settings::H3Settings,
 };
 use crate::{
-    Buffer, Conn, HttpContext, KnownHeaderName, Priority,
+    Buffer, Conn, HttpContext, KnownHeaderName, PeerGone, Priority,
     conn::H3FirstFrame,
     h3::{H3ErrorCode, MAX_BUFFER_SIZE},
     headers::qpack::{DecoderDynamicTable, EncoderDynamicTable, FieldSection},
@@ -328,6 +328,7 @@ impl H3Connection {
             stream_id,
             reset: None,
             reject_requests: false,
+            peer_gone: None,
         }
     }
 
@@ -376,8 +377,9 @@ impl H3Connection {
                 validated,
                 start_time,
             }) => {
-                let conn =
-                    Conn::build_h3(self, transport, buffer, validated, start_time, stream_id);
+                let conn = Conn::build_h3(
+                    self, transport, buffer, validated, start_time, stream_id, None,
+                );
                 Ok(H3StreamResult::Request(
                     handler(conn).await.send_h3().await?,
                 ))
@@ -934,6 +936,7 @@ pub struct H3BidiRequest<Transport, Handler> {
     stream_id: u64,
     reset: Option<ResetHook<Transport>>,
     reject_requests: bool,
+    peer_gone: Option<PeerGone>,
 }
 
 /// Per-stream reset hook: RST both halves with the still-owned transport on a stream-level error.
@@ -961,6 +964,25 @@ impl<Transport, Handler> H3BidiRequest<Transport, Handler> {
         R: FnOnce(&mut Transport, H3ErrorCode) + Send + 'static,
     {
         self.reset = Some(Box::new(reset));
+        self
+    }
+
+    /// Report peer abandonment of this stream — `STOP_SENDING`, stream reset, or connection
+    /// loss — to [`Conn::is_disconnected`], [`Conn::cancel_on_disconnect`], and
+    /// [`Upgrade::poll_closed`][crate::Upgrade::poll_closed].
+    ///
+    /// QUIC signals departure out-of-band rather than through the byte stream, and an h3
+    /// client half-closes its send side as soon as the request is complete, so reading the
+    /// transport can neither detect abandonment nor be used as a proxy for it. Without this
+    /// hook those three APIs never report a disconnection on HTTP/3.
+    ///
+    /// The future must resolve only on abandonment: an h3 request stream is not finished by
+    /// the peer under normal operation, so a future that also resolves on orderly completion
+    /// (as `quinn::SendStream::stopped` does) is only correct if it is derived from the send
+    /// half of a stream this connection has not yet finished.
+    #[must_use]
+    pub fn with_peer_gone(mut self, peer_gone: PeerGone) -> Self {
+        self.peer_gone = Some(peer_gone);
         self
     }
 
@@ -1000,6 +1022,7 @@ where
                 stream_id,
                 reset,
                 reject_requests,
+                peer_gone,
             } = self;
 
             h3.record_accepted_stream(stream_id);
@@ -1028,8 +1051,9 @@ where
                         .map(Priority::parse)
                         .unwrap_or_default();
                     h3.emit_priority(stream_id, initial_priority, false);
-                    let conn =
-                        Conn::build_h3(h3, transport, buffer, validated, start_time, stream_id);
+                    let conn = Conn::build_h3(
+                        h3, transport, buffer, validated, start_time, stream_id, peer_gone,
+                    );
                     Ok(H3StreamResult::Request(
                         handler(conn).await.send_h3().await?,
                     ))
