@@ -3,8 +3,10 @@ use futures_lite::{AsyncRead, AsyncWrite};
 use quinn::VarInt;
 use std::{
     fmt::{self, Debug, Formatter},
+    future::Future,
     io,
     net::SocketAddr,
+    pin::Pin,
 };
 use trillium_macros::{AsyncRead, AsyncWrite};
 use trillium_server_common::{
@@ -37,10 +39,27 @@ impl QuicTransportReceive for QuinnTransport {
     }
 }
 
+/// quinn resolves `stopped()` on `STOP_SENDING`, on stream reset, and on connection loss — and
+/// also once the peer has read a *finished* stream to completion. Only the abandonment arms can
+/// be reached through this trait: it is called at stream accept, while the send half is still
+/// open, and trillium-http polls it only for the lifetime of a stream it has not finished.
+fn stopped_future(
+    send: &quinn::SendStream,
+) -> Option<Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>> {
+    let stopped = send.stopped();
+    Some(Box::pin(async move {
+        let _ = stopped.await;
+    }))
+}
+
 impl QuicTransportSend for QuinnTransport {
     fn reset(&mut self, code: u64) {
         let error_code = VarInt::from_u64(code).unwrap_or_default();
         let _ = self.send.get_mut().reset(error_code);
+    }
+
+    fn stopped(&self) -> Option<Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>> {
+        stopped_future(self.send.get_ref())
     }
 
     fn set_priority(&mut self, priority: i32) {
@@ -104,6 +123,10 @@ impl QuicTransportSend for QuinnSend {
     fn reset(&mut self, code: u64) {
         let error_code = VarInt::from_u64(code).unwrap_or_default();
         let _ = self.0.get_mut().reset(error_code);
+    }
+
+    fn stopped(&self) -> Option<Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>> {
+        stopped_future(self.0.get_ref())
     }
 
     fn set_priority(&mut self, priority: i32) {

@@ -4,9 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.7] - 2026-09-01
 
 ### Added
+
+- `QuicTransportSend::stopped` is implemented over `quinn::SendStream::stopped`, so
+  `Conn::is_disconnected`, `Conn::cancel_on_disconnect`, and `Upgrade::poll_closed` detect
+  peer departure on HTTP/3. A cancelled request is reported within a round trip; a client
+  that vanishes without signalling is reported at QUIC's negotiated idle timeout.
 
 - `QuicConfig::with_transport_config` — override the quinn `TransportConfig` (flow-control windows,
   send fairness, congestion control, GSO) on a constructed config, composing with the `from_*`
