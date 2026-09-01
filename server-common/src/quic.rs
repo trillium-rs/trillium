@@ -11,6 +11,7 @@ use std::{
     task::{Context, Poll},
 };
 use trillium::Info;
+use trillium_http::PeerGone;
 
 /// Abstraction over the inbound half of a QUIC stream (both bidi and inbound uni)
 pub trait QuicTransportReceive: AsyncRead {
@@ -22,6 +23,19 @@ pub trait QuicTransportReceive: AsyncRead {
 pub trait QuicTransportSend: AsyncWrite {
     /// Close the send stream immediately with the provided error code.
     fn reset(&mut self, code: u64);
+
+    /// A future that resolves when the peer abandons this send stream — `STOP_SENDING`,
+    /// stream reset, or connection loss.
+    ///
+    /// QUIC signals departure out-of-band rather than through the byte stream, so nothing in
+    /// the `AsyncRead` / `AsyncWrite` seam can observe it: writes to an abandoned stream are
+    /// buffered rather than refused, and the recv half is at end-of-file for the whole life of
+    /// a healthy request. This is the only way the layers above can tell.
+    ///
+    /// The default returns `None`, for transports that cannot report abandonment.
+    fn stopped(&self) -> Option<PeerGone> {
+        None
+    }
 
     /// Set this stream's transmission priority relative to other streams on the same
     /// connection. Higher values are sent first when the connection is send-constrained.
@@ -353,6 +367,10 @@ impl QuicTransportSend for BoxedSendStream {
         (**self).reset(code);
     }
 
+    fn stopped(&self) -> Option<PeerGone> {
+        (**self).stopped()
+    }
+
     fn set_priority(&mut self, priority: i32) {
         (**self).set_priority(priority);
     }
@@ -367,6 +385,10 @@ impl QuicTransportReceive for BoxedBidiStream {
 impl QuicTransportSend for BoxedBidiStream {
     fn reset(&mut self, code: u64) {
         (**self).reset(code);
+    }
+
+    fn stopped(&self) -> Option<PeerGone> {
+        (**self).stopped()
     }
 
     fn set_priority(&mut self, priority: i32) {

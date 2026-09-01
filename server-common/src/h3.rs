@@ -162,6 +162,11 @@ fn handle_bidi_stream(
     // send stream as it writes. trillium-http emits the initial priority and any PRIORITY_UPDATE
     // to the connection callback, which stores into this slot.
     let slot = priorities.register(stream_id);
+
+    // Taken before the stream is handed off, while the send half is still reachable: this is
+    // the only channel through which the layers above can observe a QUIC peer's departure.
+    let peer_gone = transport.stopped();
+
     let transport: BoxedBidiStream = Box::new(PrioritizedStream::new(transport, slot, stream_id));
 
     runtime.spawn_detached(async move {
@@ -214,8 +219,12 @@ fn handle_bidi_stream(
                 let raw = u64::from(code);
                 t.stop(raw);
                 t.reset(raw);
-            })
-            .await;
+            });
+
+        let result = match peer_gone {
+            Some(peer_gone) => result.with_peer_gone(peer_gone).await,
+            None => result.await,
+        };
 
         match result {
             Ok(H3StreamResult::Request(conn)) if conn.should_upgrade() => {
