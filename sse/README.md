@@ -27,7 +27,7 @@ use trillium_sse::sse;
 
 let channel = BroadcastChannel::<String>::new();
 
-let app = sse(move |_: &mut Conn| Some(channel.clone()))
+let app = sse(move |_: &mut Conn| channel.clone())
     .with_heartbeat(Duration::from_secs(15));
 
 // run with your chosen runtime adapter, e.g.:
@@ -35,12 +35,9 @@ let app = sse(move |_: &mut Conn| Some(channel.clone()))
 ```
 
 The connection stays open and events are pushed as items arrive on the stream. The stream is
-automatically interrupted when the client disconnects or the server shuts down. Requests whose
-`Accept` header excludes `text/event-stream` are passed through to subsequent handlers, as are
-requests the closure declines by returning `None`.
-
-`SseConnExt::with_sse_stream` is the lower-level alternative, for when you already have a conn in
-hand rather than composing a handler.
+dropped when the client disconnects or the server shuts down, so a stream backed by a
+subscription can use `Drop` to unsubscribe. Requests whose `Accept` header excludes
+`text/event-stream` are passed through to subsequent handlers.
 
 ## Safety
 

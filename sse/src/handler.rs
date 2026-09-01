@@ -1,11 +1,15 @@
-use crate::{Eventable, SseConnExt, heartbeat::WithHeartbeat};
-use futures_lite::Stream;
+use crate::{Eventable, encode};
+use futures_lite::{AsyncWriteExt, Stream};
 use std::{
     fmt::{self, Debug, Formatter},
-    future::Future,
+    future::{self, Future},
+    io,
+    pin::Pin,
+    task::Poll,
     time::Duration,
 };
-use trillium::{Conn, Handler, Info, KnownHeaderName};
+use sync_wrapper::SyncWrapper;
+use trillium::{Conn, Handler, Info, KnownHeaderName, Status, Upgrade};
 use trillium_server_common::Runtime;
 
 /// The trait that defines an event source for the [`Sse`] handler.
@@ -57,9 +61,8 @@ pub trait SseHandler: Send + Sync + Sized + 'static {
 
     /// Called once per request, to build the stream of events for that client.
     ///
-    /// Returning `None` leaves the conn untouched, so it continues on to subsequent handlers.
     /// The conn is borrowed mutably to allow setting response headers or state, but note that
-    /// [`Sse`] sets the status, headers, and body itself when a stream is returned.
+    /// [`Sse`] sets the status, headers, and body itself.
     fn connect(&self, conn: &mut Conn) -> impl Future<Output = Self::EventStream> + Send;
 }
 
@@ -79,13 +82,14 @@ where
 
 /// A [`Handler`] that responds to requests with a server-sent event stream.
 ///
-/// Build one from any [`SseHandler`] with [`Sse::new`] or [`sse`]. Unlike
-/// [`SseConnExt::with_sse_stream`], this can send heartbeat comments, because it obtains a
-/// runtime from the server at startup.
+/// Build one from any [`SseHandler`] with [`Sse::new`] or [`sse`].
 ///
-/// The conn is passed through untouched — continuing on to subsequent handlers — if the request's
-/// `Accept` header excludes `text/event-stream`, or if [`SseHandler::connect`] returns `None`. A
-/// request with no `Accept` header accepts anything, per [RFC 9110 §12.5.1][rfc].
+/// The conn is passed through untouched — continuing on to subsequent handlers — if the
+/// request's `Accept` header excludes `text/event-stream`. A request with no `Accept` header
+/// accepts anything, per [RFC 9110 §12.5.1][rfc].
+///
+/// When the client disconnects, the event stream is dropped: promptly on HTTP/1.x and HTTP/2,
+/// and at the next event or heartbeat on HTTP/3.
 ///
 /// [rfc]: https://www.rfc-editor.org/rfc/rfc9110.html#name-accept
 pub struct Sse<H> {
@@ -114,10 +118,9 @@ impl<H: SseHandler> Sse<H> {
     /// The interval is measured from the most recent event, not from the start of the response,
     /// so a busy stream sends no heartbeats at all. Clients discard the comment.
     ///
-    /// This is a contract about what the server sends, not a guarantee about the connection.
-    /// Regular traffic makes an idle stream less likely to be dropped by an intermediary, and
-    /// makes the server notice a departed client sooner — it only learns of one when it next
-    /// writes — but neither is assured.
+    /// Regular traffic makes an idle stream less likely to be dropped by an intermediary. On
+    /// HTTP/3 it also bounds how long a departed client goes unnoticed, since disconnection is
+    /// detected there by a failed write.
     pub fn with_heartbeat(mut self, heartbeat: Duration) -> Self {
         self.heartbeat = Some(heartbeat);
         self
@@ -153,6 +156,93 @@ fn accepts_event_stream(conn: &Conn) -> bool {
     })
 }
 
+/// Private state key carrying the event stream from [`Handler::run`] to [`Handler::upgrade`].
+/// The [`SyncWrapper`] lets a `!Sync` stream satisfy the state
+/// [`TypeSet`](trillium::TypeSet)'s `Sync` requirement.
+struct SseStream<S>(SyncWrapper<S>);
+
+/// Stray inbound bytes tolerated while probing for disconnection on h1. A conforming client
+/// sends nothing on an event stream, but a pipelining client may have optimistic requests in
+/// flight.
+const READ_ALLOWANCE: usize = 16 * 1024;
+
+enum Tick<E> {
+    Event(E),
+    Heartbeat,
+    StreamEnded,
+    ClientDisconnected,
+}
+
+async fn write_flush(upgrade: &mut Upgrade, bytes: &[u8]) -> io::Result<()> {
+    upgrade.write_all(bytes).await?;
+    upgrade.flush().await
+}
+
+async fn drive_events<S, E>(mut upgrade: Upgrade, stream: S, heartbeat: Option<(Duration, Runtime)>)
+where
+    S: Stream<Item = E> + Unpin + Send + 'static,
+    E: Eventable,
+{
+    let swansong = upgrade.swansong();
+    let mut stream = swansong.interrupt(stream);
+
+    let new_delay = |(duration, runtime): &(Duration, Runtime)| {
+        let duration = *duration;
+        let runtime = runtime.clone();
+        Box::pin(async move { runtime.delay(duration).await })
+            as Pin<Box<dyn Future<Output = ()> + Send>>
+    };
+    let mut delay = heartbeat.as_ref().map(new_delay);
+
+    loop {
+        let tick = future::poll_fn(|cx| {
+            if Pin::new(upgrade.as_mut())
+                .poll_closed(cx, READ_ALLOWANCE)
+                .is_ready()
+            {
+                return Poll::Ready(Tick::ClientDisconnected);
+            }
+
+            match Pin::new(&mut stream).poll_next(cx) {
+                Poll::Ready(Some(event)) => return Poll::Ready(Tick::Event(event)),
+                Poll::Ready(None) => return Poll::Ready(Tick::StreamEnded),
+                Poll::Pending => {}
+            }
+
+            if let Some(delay) = &mut delay
+                && delay.as_mut().poll(cx).is_ready()
+            {
+                return Poll::Ready(Tick::Heartbeat);
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        match tick {
+            Tick::ClientDisconnected => return,
+            Tick::StreamEnded => break,
+            Tick::Event(event) => {
+                delay = heartbeat.as_ref().map(new_delay);
+                let Some(encoded) = encode(&event) else {
+                    continue;
+                };
+                if write_flush(&mut upgrade, encoded.as_bytes()).await.is_err() {
+                    return;
+                }
+            }
+            Tick::Heartbeat => {
+                delay = heartbeat.as_ref().map(new_delay);
+                if write_flush(&mut upgrade, b":\n\n").await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+
+    let _ = upgrade.close().await;
+}
+
 impl<H: SseHandler> Handler for Sse<H> {
     async fn run(&self, mut conn: Conn) -> Conn {
         if !accepts_event_stream(&conn) {
@@ -161,12 +251,17 @@ impl<H: SseHandler> Handler for Sse<H> {
 
         let stream = self.handler.connect(&mut conn).await;
 
-        match (self.heartbeat, &self.runtime) {
-            (Some(heartbeat), Some(runtime)) => {
-                conn.with_sse_stream(WithHeartbeat::new(stream, runtime.clone(), heartbeat))
-            }
-            _ => conn.with_sse_stream(stream),
-        }
+        conn.with_state(SseStream(SyncWrapper::new(stream)))
+            .with_response_header(KnownHeaderName::ContentType, "text/event-stream")
+            .with_response_header(KnownHeaderName::CacheControl, "no-cache")
+            // Close-delimited framing: the event stream carries neither `Content-Length`
+            // nor `Transfer-Encoding`, running until the connection closes. Chunked
+            // transfer-encoding can disrupt event delivery timing for this protocol.
+            // h2 and h3 strip this h1-only header and frame at the stream layer.
+            .with_response_header(KnownHeaderName::Connection, "close")
+            .with_status(Status::Ok)
+            .halt()
+            .upgrade()
     }
 
     async fn init(&mut self, info: &mut Info) {
@@ -178,6 +273,21 @@ impl<H: SseHandler> Handler for Sse<H> {
                  probably not initialized by a trillium runtime adapter."
             );
         }
+    }
+
+    fn has_upgrade(&self, upgrade: &Upgrade) -> bool {
+        upgrade.state().contains::<SseStream<H::EventStream>>()
+    }
+
+    async fn upgrade(&self, mut upgrade: Upgrade) {
+        let Some(SseStream(stream)) = upgrade.state_mut().take::<SseStream<H::EventStream>>()
+        else {
+            return;
+        };
+        let stream = stream.into_inner();
+
+        let heartbeat = self.heartbeat.zip(self.runtime.clone());
+        drive_events(upgrade, stream, heartbeat).await;
     }
 }
 

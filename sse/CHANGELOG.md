@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-01
+
+### Changed
+
+- Client disconnection now drops the event stream promptly instead of waiting for the next write to
+  fail. A stream backed by a subscription can rely on `Drop` to unsubscribe.
+- **Breaking:** `SseConnExt` is removed, along with `with_sse_stream` and
+  `with_sse_stream_and_heartbeat`. The `Sse` handler is the one way to serve an event stream;
+  anywhere `with_sse_stream` was called inside a handler, mount `sse(|conn: &mut Conn| ...)`
+  instead, and replace the heartbeat variant with `Sse::with_heartbeat`.
+
 ## [0.3.0] - 2026-08-06
 
 ### Added
@@ -19,9 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - An `Sse` handler, built with `sse()` from any `SseHandler`. Unlike `SseConnExt`, it is a
   `Handler`, so it obtains a runtime in `init` and can send heartbeat comments via
-  `Sse::with_heartbeat`. `SseHandler` is implemented for any `Fn(&mut Conn) -> Option<Stream>`, and
-  returning `None` passes the conn through to subsequent handlers. The handler also negotiates on
-  `Accept`, declining requests that exclude `text/event-stream`.
+  `Sse::with_heartbeat`. `SseHandler` is implemented for any `Fn(&mut Conn) -> Stream`. The
+  handler also negotiates on `Accept`, passing requests that exclude `text/event-stream`
+  through to subsequent handlers.
 - `SseConnExt::with_sse_stream_and_heartbeat`, which sends an empty comment whenever the given
   interval elapses without the stream yielding an event. The interval is measured from the most
   recent event, so a busy stream sends no heartbeats.

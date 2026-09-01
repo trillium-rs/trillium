@@ -1,15 +1,16 @@
 //! # Trillium tools for server sent events
 //!
-//! There are two ways to use this crate.
-//!
-//! ## The [`Sse`] handler
-//!
 //! [`sse`] builds a [`Handler`](trillium::Handler) from any [`SseHandler`], which produces a
-//! [`Stream`] of [`Eventable`] items per connected client. This is the fuller-featured of the
-//! two, because a handler is initialized by the server and so can send heartbeats.
+//! [`Stream`](futures_lite::Stream) of [`Eventable`] items per connected client. Each event is
+//! written to the client as the stream yields it.
 //!
 //! Requests whose `Accept` header excludes `text/event-stream` are passed through to subsequent
 //! handlers untouched.
+//!
+//! When a client goes away, the event stream is dropped promptly on every protocol, so a
+//! stream backed by a subscription can use `Drop` to unsubscribe. A client that vanishes
+//! without signalling — a killed process, a severed network — is noticed once the transport
+//! notices, which on HTTP/3 is QUIC's negotiated idle timeout.
 //!
 //! ```
 //! use broadcaster::BroadcastChannel;
@@ -20,26 +21,6 @@
 //! let channel = BroadcastChannel::<String>::new();
 //!
 //! let handler = sse(move |_: &mut Conn| channel.clone()).with_heartbeat(Duration::from_secs(15));
-//! ```
-//!
-//! ## [`SseConnExt`]
-//!
-//! [`SseConnExt`] is an extension trait for [`trillium::Conn`] whose
-//! [`with_sse_stream`](crate::SseConnExt::with_sse_stream) chainable method takes a [`Stream`]
-//! where the `Item` implements [`Eventable`]. Use it when you already have a conn in hand and
-//! want to respond with an event stream.
-//!
-//! ```
-//! use broadcaster::BroadcastChannel;
-//! use trillium::{Conn, conn_unwrap};
-//! use trillium_sse::SseConnExt;
-//!
-//! type Channel = BroadcastChannel<String>;
-//!
-//! fn get_sse(mut conn: Conn) -> Conn {
-//!     let broadcaster = conn_unwrap!(conn.take_state::<Channel>(), conn);
-//!     conn.with_sse_stream(broadcaster)
-//! }
 //! ```
 //!
 //! Often, you will want this stream to be something like a channel, but
@@ -54,10 +35,8 @@
 //!
 //! In addition to data events, the stream can carry comments — messages that clients ignore,
 //! sent periodically so that an idle stream is still producing traffic. See
-//! [`Event::new_comment`], or
-//! [`Sse::with_heartbeat`] /
-//! [`with_sse_stream_and_heartbeat`](crate::SseConnExt::with_sse_stream_and_heartbeat) to have them
-//! sent automatically whenever the stream goes quiet.
+//! [`Event::new_comment`], or [`Sse::with_heartbeat`] to have them sent automatically whenever
+//! the stream goes quiet.
 #![forbid(unsafe_code)]
 #![deny(
     missing_copy_implementations,
@@ -73,42 +52,9 @@
 mod readme {}
 
 mod handler;
-mod heartbeat;
 
-use futures_lite::{AsyncRead, stream::Stream};
 pub use handler::{Sse, SseHandler, sse};
-use heartbeat::WithHeartbeat;
-use std::{
-    borrow::Cow,
-    fmt::Write,
-    io,
-    marker::PhantomData,
-    pin::Pin,
-    task::{Context, Poll},
-    time::Duration,
-};
-use trillium::{Body, Conn, KnownHeaderName, Status};
-use trillium_server_common::Runtime;
-
-struct SseBody<S, E> {
-    stream: S,
-    buffer: Vec<u8>,
-    event: PhantomData<E>,
-}
-
-impl<S, E> SseBody<S, E>
-where
-    S: Stream<Item = E> + Unpin + Send + 'static,
-    E: Eventable,
-{
-    pub fn new(stream: S) -> Self {
-        Self {
-            stream,
-            buffer: Vec::new(),
-            event: PhantomData,
-        }
-    }
-}
+use std::{borrow::Cow, fmt::Write, time::Duration};
 
 fn write_multiline_field(output: &mut String, prefix: &str, value: &str) {
     for line in value.split('\n') {
@@ -123,7 +69,7 @@ fn write_multiline_field(output: &mut String, prefix: &str, value: &str) {
 
 /// Returns `None` for an event with no fields set at all, which would otherwise be written as a
 /// bare message terminator.
-fn encode(event: &impl Eventable) -> Option<String> {
+pub(crate) fn encode(event: &impl Eventable) -> Option<String> {
     let mut output = String::new();
 
     if let Some(comment) = event.comment() {
@@ -151,125 +97,6 @@ fn encode(event: &impl Eventable) -> Option<String> {
     } else {
         writeln!(&mut output).ok()?;
         Some(output)
-    }
-}
-
-impl<S, E> AsyncRead for SseBody<S, E>
-where
-    S: Stream<Item = E> + Unpin + Send + 'static,
-    E: Eventable,
-{
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        let Self { buffer, stream, .. } = self.get_mut();
-
-        let buffer_read = buffer.len().min(buf.len());
-        if buffer_read > 0 {
-            buf[0..buffer_read].copy_from_slice(&buffer[0..buffer_read]);
-            buffer.drain(0..buffer_read);
-            return Poll::Ready(Ok(buffer_read));
-        }
-
-        loop {
-            break match Pin::new(&mut *stream).poll_next(cx) {
-                Poll::Pending => Poll::Pending,
-                Poll::Ready(Some(item)) => {
-                    let Some(data) = encode(&item) else { continue };
-                    let data = data.into_bytes();
-                    let writable_len = data.len().min(buf.len());
-                    buf[0..writable_len].copy_from_slice(&data[0..writable_len]);
-                    if writable_len < data.len() {
-                        buffer.extend_from_slice(&data[writable_len..]);
-                    }
-                    Poll::Ready(Ok(writable_len))
-                }
-
-                Poll::Ready(None) => Poll::Ready(Ok(0)),
-            };
-        }
-    }
-}
-
-impl<S, E> From<SseBody<S, E>> for Body
-where
-    S: Stream<Item = E> + Unpin + Send + 'static,
-    E: Eventable,
-{
-    fn from(sse_body: SseBody<S, E>) -> Self {
-        Body::new_streaming(sse_body, None)
-    }
-}
-
-/// Extension trait for server sent events
-pub trait SseConnExt {
-    /// builds and sets a streaming response body that conforms to the
-    /// [server-sent-events
-    /// spec](https://html.spec.whatwg.org/multipage/server-sent-events.html#server-sent-events)
-    /// from a Stream of any [`Eventable`] type (such as
-    /// [`Event`], as well as setting appropiate headers for
-    /// this response.
-    fn with_sse_stream<S, E>(self, sse_stream: S) -> Self
-    where
-        S: Stream<Item = E> + Unpin + Send + 'static,
-        E: Eventable;
-
-    /// as [`with_sse_stream`](SseConnExt::with_sse_stream), but sends an empty comment whenever
-    /// `heartbeat` elapses without the stream yielding an event.
-    ///
-    /// The interval is measured from the most recent event, not from the start of the response,
-    /// so a busy stream sends no heartbeats at all. Clients discard the comment.
-    fn with_sse_stream_and_heartbeat<S, E>(self, sse_stream: S, heartbeat: Duration) -> Self
-    where
-        S: Stream<Item = E> + Unpin + Send + 'static,
-        E: Eventable;
-}
-
-impl SseConnExt for Conn {
-    fn with_sse_stream<S, E>(self, sse_stream: S) -> Self
-    where
-        S: Stream<Item = E> + Unpin + Send + 'static,
-        E: Eventable,
-    {
-        let body = SseBody::new(self.swansong().interrupt(sse_stream));
-        self.set_sse_headers().with_body(body)
-    }
-
-    fn with_sse_stream_and_heartbeat<S, E>(self, sse_stream: S, heartbeat: Duration) -> Self
-    where
-        S: Stream<Item = E> + Unpin + Send + 'static,
-        E: Eventable,
-    {
-        let Some(runtime) = self.shared_state::<Runtime>().cloned() else {
-            log::warn!(
-                "no runtime in shared state; sending sse stream without a heartbeat. this conn \
-                 was probably not served by a trillium server."
-            );
-            return self.with_sse_stream(sse_stream);
-        };
-
-        let stream = WithHeartbeat::new(sse_stream, runtime, heartbeat);
-        let body = SseBody::new(self.swansong().interrupt(stream));
-        self.set_sse_headers().with_body(body)
-    }
-}
-
-trait SseHeaders {
-    fn set_sse_headers(self) -> Self;
-}
-
-impl SseHeaders for Conn {
-    fn set_sse_headers(self) -> Self {
-        self.with_response_header(KnownHeaderName::ContentType, "text/event-stream")
-            .with_response_header(KnownHeaderName::CacheControl, "no-cache")
-            // Close-delimited framing: the event stream carries neither `Content-Length`
-            // nor `Transfer-Encoding`, running until the connection closes. Chunked
-            // transfer-encoding can disrupt event delivery timing for this protocol.
-            .with_response_header(KnownHeaderName::Connection, "close")
-            .with_status(Status::Ok)
-            .halt()
     }
 }
 
