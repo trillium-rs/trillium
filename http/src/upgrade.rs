@@ -1,6 +1,6 @@
 use crate::{
-    Buffer, Conn, Headers, HttpContext, KnownHeaderName, Method, ProtocolSession, ReceivedBody,
-    Status, TypeSet, Version,
+    Buffer, Conn, Headers, HttpContext, KnownHeaderName, Method, PeerGone, ProtocolSession,
+    ReceivedBody, Status, TypeSet, Version,
     h2::H2Connection,
     h3::{Frame, H3Connection},
     headers::qpack::{FieldSection, PseudoHeaders},
@@ -245,6 +245,10 @@ pub struct Upgrade<Transport> {
     /// accumulated trailer bytes back through the frame decoder and double-count them.
     #[field = false]
     pub(crate) h3_trailer_payload_in: Vec<u8>,
+
+    /// Resolves when the peer abandons this stream. HTTP/3 only; see [`PeerGone`].
+    #[field = false]
+    pub(crate) peer_gone: Option<PeerGone>,
 }
 
 impl<Transport> Upgrade<Transport> {
@@ -282,6 +286,7 @@ impl<Transport> Upgrade<Transport> {
             inbound_encoding: encoding_rs::UTF_8,
             h3_trailer_decode_in: None,
             h3_trailer_payload_in: Vec::new(),
+            peer_gone: None,
         }
     }
 
@@ -313,6 +318,9 @@ impl<Transport> Upgrade<Transport> {
         let inbound_encoding = encoding(&received_headers);
 
         Self {
+            // Client-side upgrades have no peer-departure hook; on h3 that leaves
+            // `poll_closed` permanently pending. Client h3 resets surface as read errors.
+            peer_gone: None,
             received_headers,
             sent_headers,
             path,
@@ -434,7 +442,61 @@ impl<Transport> Upgrade<Transport> {
             inbound_encoding: self.inbound_encoding,
             h3_trailer_decode_in: self.h3_trailer_decode_in,
             h3_trailer_payload_in: self.h3_trailer_payload_in,
+            peer_gone: self.peer_gone,
         }
+    }
+}
+
+impl<Transport: AsyncRead + Unpin> Upgrade<Transport> {
+    /// Resolves when the peer has abandoned this upgrade — connection closed, stream
+    /// reset, or transport error.
+    ///
+    /// This is a liveness probe for upgrades the peer is not expected to speak into,
+    /// such as a server-sent event stream. If the peer may legitimately send data, read
+    /// it instead: on HTTP/1.x this probe detects closure *by reading*, treating inbound
+    /// bytes as incidental. Probed bytes accumulate on the internal buffer — where the
+    /// [`AsyncRead`] impl yields them before touching the transport — until the buffer
+    /// holds `read_allowance` bytes, after which the probe goes dormant, returning
+    /// `Poll::Pending` without scheduling a wake until reads drain the buffer.
+    ///
+    /// Per-protocol behavior:
+    /// - HTTP/1.x: reads the transport; end-of-file or a transport error resolves. A half-closed
+    ///   peer that shut down its write side but still reads is indistinguishable from a departed
+    ///   one and counts as closed.
+    /// - HTTP/2: resolves when the stream is reset or fully closed, or the connection is torn down.
+    ///   Never reads the transport; `read_allowance` is unused.
+    /// - HTTP/3: resolves on `STOP_SENDING`, stream reset, or connection loss. Never reads the
+    ///   transport; `read_allowance` is unused. Requires the runtime adapter to have supplied
+    ///   [`H3BidiRequest::with_peer_gone`][crate::h3::H3BidiRequest::with_peer_gone]; without it,
+    ///   this never resolves.
+    ///
+    /// A client that vanishes without signalling — a killed process, a severed network — is
+    /// only detected once the transport notices. On HTTP/3 that is QUIC's idle timeout, which
+    /// is always negotiated and typically under a minute. On HTTP/1.x and HTTP/2 it depends on
+    /// the TCP configuration and can be considerably longer.
+    pub fn poll_closed(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        read_allowance: usize,
+    ) -> Poll<()> {
+        let Self {
+            protocol_session,
+            version,
+            buffer,
+            transport,
+            peer_gone,
+            ..
+        } = self.get_mut();
+
+        crate::liveness::poll_peer_gone(
+            protocol_session,
+            *version,
+            buffer,
+            transport,
+            peer_gone.as_mut(),
+            read_allowance,
+            cx,
+        )
     }
 }
 
@@ -549,6 +611,10 @@ impl<Transport> Debug for Upgrade<Transport> {
                 "h3_trailer_payload_in_len",
                 &self.h3_trailer_payload_in.len(),
             )
+            .field(
+                "peer_gone",
+                &self.peer_gone.as_ref().map(|_| format_args!("..")),
+            )
             .finish()
     }
 }
@@ -581,6 +647,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             // post-send hooks no longer apply; `upgrade` is the marker that brought us here
             after_send: _,
             upgrade: _,
+            peer_gone,
         } = conn;
 
         if let Some(body) = &response_body
@@ -635,6 +702,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             inbound_encoding,
             h3_trailer_decode_in: None,
             h3_trailer_payload_in: Vec::new(),
+            peer_gone,
         }
     }
 }

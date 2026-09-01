@@ -64,11 +64,14 @@ where
 
             if self.version == Version::Http1_1 && !has_content_length {
                 // Close-delimited framing (RFC 9112 §6.3): `Connection: close` on an
-                // unknown-length response opts out of chunked transfer-encoding — the body
-                // runs until the connection closes, carrying neither `Content-Length` nor
-                // `Transfer-Encoding`. Upgrades own their framing separately (chunked
-                // keep-open prelude).
-                if !self.upgrade && self.response_requests_close() {
+                // unknown-length response opts out of chunked transfer-encoding — the bytes
+                // run until the connection closes, carrying neither `Content-Length` nor
+                // `Transfer-Encoding`. A prelude body was already normalized to an open
+                // chunked stream (see `Body::keep_open`), so an upgrade takes this form
+                // only when body-less.
+                let prelude_body =
+                    self.upgrade && self.response_body.as_ref().is_some_and(|b| !b.is_empty());
+                if !prelude_body && self.response_requests_close() {
                     self.response_headers
                         .remove(KnownHeaderName::TransferEncoding);
                 } else {
@@ -690,6 +693,7 @@ where
             protocol_session: ProtocolSession::Http1,
             request_trailers: None,
             upgrade: false,
+            peer_gone: None,
         };
 
         // Cross-header and request-target rules only apply to an otherwise-clean parse; once we

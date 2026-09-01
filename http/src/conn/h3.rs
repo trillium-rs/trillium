@@ -1,7 +1,7 @@
 use super::shared::{H1_ONLY_HEADERS, ValidatedRequest};
 use crate::{
-    BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet,
-    Version,
+    BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, PeerGone, ProtocolSession, Status,
+    TypeSet, Version,
     after_send::AfterSend,
     body::BodyFraming,
     h3::{Frame, FrameStream, H3Connection, H3Error, H3ErrorCode},
@@ -150,6 +150,7 @@ where
         validated: ValidatedRequest,
         start_time: Instant,
         stream_id: u64,
+        peer_gone: Option<PeerGone>,
     ) -> Self {
         let ValidatedRequest {
             method,
@@ -170,6 +171,7 @@ where
         let request_body_state = ReceivedBodyState::new_h3();
 
         Conn {
+            peer_gone,
             context: h3_connection.context(),
             transport,
             request_headers,

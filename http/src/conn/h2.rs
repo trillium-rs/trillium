@@ -79,6 +79,7 @@ where
             },
             request_trailers: None,
             upgrade: false,
+            peer_gone: None,
         })
     }
 

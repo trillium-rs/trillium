@@ -5,7 +5,7 @@ use crate::{
     after_send::{AfterSend, SendStatus},
     h2::H2Connection,
     h3::H3Connection,
-    liveness::{CancelOnDisconnect, LivenessFut},
+    liveness::{CancelOnDisconnect, LivenessFut, PeerGone},
     received_body::ReceivedBodyState,
     util::encoding,
 };
@@ -160,6 +160,12 @@ pub struct Conn<Transport> {
 
     /// Marker set via [`Conn::upgrade`].
     pub(crate) upgrade: bool,
+
+    /// Resolves when the peer abandons this stream. HTTP/3 only — h1 detects departure by
+    /// reading and h2 through its connection driver, but h3's QUIC signals are invisible at
+    /// the transport seam, so the runtime adapter supplies this. See [`PeerGone`].
+    #[field = false]
+    pub(crate) peer_gone: Option<PeerGone>,
 }
 
 impl<Transport> Debug for Conn<Transport> {
@@ -187,6 +193,7 @@ impl<Transport> Debug for Conn<Transport> {
             .field("protocol_session", &self.protocol_session)
             .field("request_trailers", &self.request_trailers)
             .field("upgrade", &self.upgrade)
+            .field("peer_gone", &format_args!(".."))
             .finish()
     }
 }
@@ -304,15 +311,15 @@ where
         self
     }
 
-    /// Cancels and drops the future if reading from the transport results in an error or empty read
+    /// Cancels and drops the future if the peer abandons this request
     ///
-    /// If the client disconnects from the conn's transport, this function will return None. If the
-    /// future completes without disconnection, this future will return Some containing the output
-    /// of the future.
+    /// If the client disconnects, this function will return None. If the future completes
+    /// without disconnection, this future will return Some containing the output of the future.
     ///
-    /// Disconnection is detected by reading from the transport, so any bytes the client sends
-    /// while the future runs — an unread request body, or pipelined requests — are buffered, up
-    /// to 16kb. A client that fills that allowance is considered alive for the remainder of the
+    /// See [`is_disconnected`][Self::is_disconnected] for how departure is detected on each
+    /// protocol. On HTTP/1.x, where detection is by reading, any bytes the client sends while
+    /// the future runs — an unread request body, or pipelined requests — are buffered, up to
+    /// 16kb. A client that fills that allowance is considered alive for the remainder of the
     /// future, even if it disconnects afterwards. If the request has a body, read it before
     /// calling this.
     ///
@@ -347,12 +354,20 @@ where
         CancelOnDisconnect(self, pin!(fut)).await
     }
 
-    /// Check if the transport is connected by attempting to read from the transport
+    /// Check whether the peer has abandoned this request.
     ///
-    /// Any bytes the client sends — an unread request body, or pipelined requests — are buffered,
-    /// up to 16kb, and count as evidence of liveness. A client that fills that allowance is
-    /// reported as connected until the buffered bytes are read, so read the request body before
-    /// polling this in a long-running handler.
+    /// How departure becomes observable is protocol-specific. On HTTP/1.x this reads the
+    /// transport: any bytes the client sends — an unread request body, or pipelined requests —
+    /// are buffered, up to 16kb, and count as evidence of liveness. A client that fills that
+    /// allowance is reported as connected until the buffered bytes are read, so read the request
+    /// body before polling this in a long-running handler. On HTTP/2 this observes stream reset
+    /// and connection teardown, and on HTTP/3 stream cancellation and connection loss; neither
+    /// reads the transport, and neither treats the peer's half-close — which both protocols do
+    /// as a matter of course once the request is complete — as a departure.
+    ///
+    /// A client that vanishes without signalling is only reported once the transport notices,
+    /// which on HTTP/3 is QUIC's negotiated idle timeout and on HTTP/1.x and HTTP/2 depends on
+    /// the TCP configuration.
     ///
     /// # Example
     ///
@@ -523,6 +538,7 @@ where
             protocol_session: self.protocol_session,
             request_trailers: self.request_trailers,
             upgrade: self.upgrade,
+            peer_gone: self.peer_gone,
         }
     }
 

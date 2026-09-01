@@ -160,6 +160,7 @@ impl Conn<Synthetic> {
             protocol_session: ProtocolSession::Http1,
             request_trailers: None,
             upgrade: false,
+            peer_gone: None,
         }
     }
 
