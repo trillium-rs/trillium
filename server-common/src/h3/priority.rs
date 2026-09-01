@@ -26,7 +26,7 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-use trillium_http::Priority;
+use trillium_http::{PeerGone, Priority};
 
 /// Map an RFC 9218 [`Priority`] to a quinn send-scheduling value where higher is sent first.
 ///
@@ -256,6 +256,10 @@ impl<T: QuicTransportReceive + Unpin> QuicTransportReceive for PrioritizedStream
 impl<T: QuicTransportSend + Unpin> QuicTransportSend for PrioritizedStream<T> {
     fn reset(&mut self, code: u64) {
         self.inner.reset(code);
+    }
+
+    fn stopped(&self) -> Option<PeerGone> {
+        self.inner.stopped()
     }
 
     fn set_priority(&mut self, priority: i32) {

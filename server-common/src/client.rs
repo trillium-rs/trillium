@@ -324,7 +324,6 @@ type ConnectResult<'fut> =
     Pin<Box<dyn Future<Output = io::Result<Box<dyn Transport>>> + Send + 'fut>>;
 
 trait ObjectSafeConnector: Send + Sync + 'static {
-    #[must_use]
     fn connect<'connector, 'url, 'fut>(&'connector self, url: &'url Url) -> ConnectResult<'fut>
     where
         'connector: 'fut,
@@ -344,7 +343,6 @@ trait ObjectSafeConnector: Send + Sync + 'static {
         'host: 'fut,
         Self: 'fut;
 
-    #[must_use]
     fn connect_to<'connector, 'fut>(
         &'connector self,
         destination: Destination,
