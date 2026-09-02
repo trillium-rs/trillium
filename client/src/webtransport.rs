@@ -3,7 +3,7 @@
 //! Multiple sessions to the same origin coalesce onto a single underlying QUIC connection;
 //! each `into_webtransport` opens a new bidi stream for the extended CONNECT and registers
 //! the new session with the connection's per-origin
-//! [`Router`][trillium_webtransport::Router].
+//! [`trillium_webtransport::Router`].
 
 use crate::{Client, Conn, IntoUrl};
 use std::{
@@ -20,13 +20,15 @@ impl Client {
     /// Build a [`Conn`] preconfigured for an extended-CONNECT WebTransport handshake to `url`.
     ///
     /// Sets the method to CONNECT, the `:protocol` pseudo-header to `webtransport`, and pins
-    /// the http version to HTTP/3. The conn has not yet been sent — chain
+    /// the http version to HTTP/3 with [`strict_http_version`](Conn::strict_http_version) on,
+    /// since WebTransport has no form on earlier protocols. The conn has not yet been sent — chain
     /// [`Conn::with_request_header`](crate::Conn::with_request_header) etc. as usual, then
     /// `await` it via [`Conn::into_webtransport`] to complete the upgrade and obtain a
     /// [`WebTransportConnection`].
     pub fn webtransport(&self, url: impl IntoUrl) -> Conn {
         let mut conn = self.build_conn(Method::Connect, url);
         conn.http_version = Some(Version::Http3);
+        conn.strict_http_version = true;
         conn.protocol = Some(Cow::Borrowed("webtransport"));
         conn
     }

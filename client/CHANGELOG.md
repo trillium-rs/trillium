@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.18] - 2026-09-02
+
+### Added
+
+- `Conn::with_strict_http_version` / `set_strict_http_version` and the matching `Client` defaults.
+  When on, a request that can't be carried by the protocol it was matched to fails instead of
+  being retried on an earlier protocol. Off by default.
+
+### Changed
+
+- `Conn::into_websocket` now performs the handshake over whichever protocol the request is
+  matched to: an `Upgrade` over HTTP/1.1, or an extended CONNECT over HTTP/2 and HTTP/3. It
+  previously used the h1 upgrade unless `Http2` or `Http3` was hinted explicitly. A peer that
+  speaks h2 or h3 but doesn't support extended CONNECT is retried as an HTTP/1.1 upgrade on a new
+  connection; with a version hint this was previously an `ExtendedConnectUnsupported` error, which
+  is now the strict-mode behavior.
+- `ClientHandler::run` no longer sees the h1 `Upgrade`, `Connection`, and `Sec-WebSocket-Key`
+  request headers on a websocket conn; they are added when the request is sent over HTTP/1.1.
+
 ## [0.9.17] - 2026-09-01
 
 ### Fixed

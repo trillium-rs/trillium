@@ -3,7 +3,8 @@
 //! QUIC endpoint.
 
 use futures_lite::StreamExt;
-use trillium::Handler;
+use std::sync::{Arc, Mutex};
+use trillium::{Handler, Info};
 use trillium_client::{
     Client, Version, WebSocketConn,
     websocket::{self, Message},
@@ -65,6 +66,123 @@ fn echo_websocket() -> impl Handler {
     })
 }
 
+/// Records the http version of every request that reaches the handler chain.
+#[derive(Clone, Default)]
+struct RecordVersion(Arc<Mutex<Vec<Version>>>);
+
+impl Handler for RecordVersion {
+    async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
+        self.0.lock().unwrap().push(conn.http_version());
+        conn
+    }
+}
+
+impl RecordVersion {
+    fn versions(&self) -> Vec<Version> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+/// Undoes the websocket handler's `SETTINGS_ENABLE_CONNECT_PROTOCOL` advertisement on both the
+/// h2 and h3 listeners. Must come *after* the websocket handler in the tuple so its `init` runs
+/// last.
+struct WithoutExtendedConnect;
+
+impl Handler for WithoutExtendedConnect {
+    async fn run(&self, conn: trillium::Conn) -> trillium::Conn {
+        conn
+    }
+
+    async fn init(&mut self, info: &mut Info) {
+        info.config_mut().set_extended_connect_enabled(false);
+    }
+}
+
+fn spawn(handler: impl Handler, cert: &TestCert) -> (trillium_server_common::ServerHandle, Client) {
+    let server = trillium_smol::config()
+        .with_host("localhost")
+        .with_port(0)
+        .with_acceptor(RustlsAcceptor::from_single_cert(
+            &cert.cert_pem,
+            &cert.key_pem,
+        ))
+        .with_quic(QuicConfig::from_single_cert(&cert.cert_pem, &cert.key_pem))
+        .spawn(handler);
+    (server, quic_client(cert))
+}
+
+/// An `Http3` hint against an h3 peer without extended CONNECT: the QUIC connection is fine,
+/// the gate fails before any HEADERS go out, and the upgrade is retried over HTTP/1.1.
+#[test(harness)]
+async fn hinted_h3_falls_back_to_h1() -> TestResult {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let cert = test_cert();
+    let versions = RecordVersion::default();
+    let (server, client) = spawn(
+        (versions.clone(), echo_websocket(), WithoutExtendedConnect),
+        &cert,
+    );
+    let port = server.info().await.tcp_socket_addr().unwrap().port();
+    let client = client.with_base(format!("https://localhost:{port}"));
+
+    let mut ws = client
+        .get("/")
+        .with_http_version(Version::Http3)
+        .into_websocket()
+        .await?;
+    ws.send_string("hello".into()).await?;
+    assert_eq!(
+        ws.next().await.expect("response")?,
+        Message::text("echo:hello")
+    );
+    assert_eq!(versions.versions(), [Version::Http1_1]);
+
+    server.shut_down().await;
+    Ok(())
+}
+
+/// No hint: an earlier response's `Alt-Svc` makes the origin h3-known, so the upgrade is first
+/// attempted on a fresh QUIC connection, then (that connection now pooled) on the pooled one.
+/// Both are gated off and retried over HTTP/1.1, and the h3 connection stays usable for
+/// ordinary requests.
+#[test(harness)]
+async fn websocket_falls_back_to_h1_from_alt_svc_and_pooled_h3() -> TestResult {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let cert = test_cert();
+    let versions = RecordVersion::default();
+    let (server, client) = spawn(
+        (versions.clone(), echo_websocket(), WithoutExtendedConnect),
+        &cert,
+    );
+    let port = server.info().await.tcp_socket_addr().unwrap().port();
+    let client = client.with_base(format!("https://localhost:{port}"));
+
+    let plain = client.get("/").await?;
+    assert!(plain.response_headers().has_header("alt-svc"));
+    drop(plain);
+
+    for _ in 0..2 {
+        let mut ws = client.get("/").into_websocket().await?;
+        ws.send_string("hello".into()).await?;
+        assert_eq!(
+            ws.next().await.expect("response")?,
+            Message::text("echo:hello")
+        );
+    }
+
+    let plain = client.get("/").await?;
+    assert_eq!(plain.http_version(), Version::Http3);
+    drop(plain);
+
+    assert_eq!(
+        &versions.versions()[1..],
+        [Version::Http1_1, Version::Http1_1, Version::Http3]
+    );
+
+    server.shut_down().await;
+    Ok(())
+}
+
 #[test(harness)]
 async fn websocket_over_h3() -> TestResult {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -102,7 +220,7 @@ async fn websocket_over_h3() -> TestResult {
 }
 
 /// A server without a websocket handler doesn't advertise `SETTINGS_ENABLE_CONNECT_PROTOCOL`,
-/// so the h3 extended-CONNECT bootstrap surfaces `ExtendedConnectUnsupported`.
+/// so a strict h3 extended CONNECT surfaces `ExtendedConnectUnsupported`.
 #[test(harness)]
 async fn extended_connect_unsupported_when_server_lacks_setting() -> TestResult {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -124,6 +242,7 @@ async fn extended_connect_unsupported_when_server_lacks_setting() -> TestResult 
     let err = client
         .get("/")
         .with_http_version(Version::Http3)
+        .with_strict_http_version()
         .into_websocket()
         .await
         .expect_err("expected ExtendedConnectUnsupported");

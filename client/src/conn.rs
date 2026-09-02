@@ -187,14 +187,27 @@ pub struct Conn {
     ///
     /// Pre-execution this is the prior-knowledge hint, not the version that will necessarily be
     /// on the wire. `None` means "no hint, use auto-discovery" (Alt-Svc h3, ALPN/pooled h2);
-    /// any `Some(version)` pins the protocol and suppresses auto-discovery. Post-execution this
-    /// is `Some(version)` reflecting the version the request was actually sent over.
+    /// `Some(version)` names the protocol to try first. Post-execution this is `Some(version)`
+    /// reflecting the version the request was actually sent over.
     ///
     /// The public [`http_version`](Conn::http_version) accessor resolves `None` to
     /// [`Version::Http1_1`]. See the crate-level [Protocol selection][crate#protocol-selection]
-    /// documentation for the full hint → behavior table.
+    /// documentation.
     #[field(set, with, option_set_some)]
     pub(crate) http_version: Option<Version>,
+
+    /// Whether a request that cannot be carried by the protocol it was matched to fails
+    /// rather than being retried on an earlier protocol.
+    ///
+    /// Off by default: a websocket handshake that lands on an h2 or h3 connection whose peer
+    /// doesn't support extended CONNECT is retried as an HTTP/1.1 upgrade on a new connection.
+    /// When on, that peer yields an error instead. A version hint sets the protocol to try
+    /// first; this flag decides what happens when that protocol can't carry the request.
+    ///
+    /// This can also be set for every conn on the client with
+    /// [`Client::set_strict_http_version`](crate::Client::set_strict_http_version).
+    #[field(get, set, with, without, copy)]
+    pub(crate) strict_http_version: bool,
 
     /// the :authority pseudo-header, populated during h2 or h3 header finalization
     #[field(get)]
@@ -215,12 +228,10 @@ pub struct Conn {
     #[field(with, set, get, option_set_some, into)]
     pub(crate) request_target: Option<Cow<'static, str>>,
 
-    /// the `:protocol` pseudo-header for an extended-CONNECT bootstrap (RFC 8441 over h2,
-    /// RFC 9220 over h3). Triggers the h2/h3 exec paths to send HEADERS without `END_STREAM`
-    /// and leave the stream open as a bidirectional byte channel.
-    ///
-    /// Only meaningful when method is `CONNECT` and [`http_version`][Self::http_version] is
-    /// `Http2` or `Http3`. h1 and prior-version requests ignore this field.
+    /// The protocol this request switches the connection to, if any: sent as the `Upgrade`
+    /// header over HTTP/1.1 and as the `:protocol` pseudo-header of an extended CONNECT over
+    /// HTTP/2 and HTTP/3. Either way the stream is left open as a bidirectional byte channel
+    /// after the response head.
     #[field(get)]
     pub(crate) protocol: Option<Cow<'static, str>>,
 
@@ -263,13 +274,12 @@ impl Conn {
     /// the http version for this conn
     ///
     /// Pre-execution this resolves the version *hint* — the default (no hint) reports
-    /// [`Version::Http1_1`], which means "use auto-discovery," not "force HTTP/1.1." Setting any
-    /// explicit version via [`with_http_version`](Conn::with_http_version) pins the protocol and
-    /// suppresses auto-discovery. Post-execution this reflects the version the request was actually
-    /// sent over.
+    /// [`Version::Http1_1`], which means "use auto-discovery," not "force HTTP/1.1." An
+    /// explicit version set via [`with_http_version`](Conn::with_http_version) is the protocol
+    /// to try first. Post-execution this reflects the version the request was actually sent
+    /// over.
     ///
-    /// See the crate-level [Protocol selection][crate#protocol-selection] documentation for the
-    /// full hint → behavior table.
+    /// See the crate-level [Protocol selection][crate#protocol-selection] documentation.
     #[must_use]
     pub fn http_version(&self) -> Version {
         self.http_version.unwrap_or(Version::Http1_1)

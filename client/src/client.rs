@@ -139,6 +139,13 @@ pub struct Client {
     #[field(get, set, with, copy, without, option_set_some)]
     timeout: Option<Duration>,
 
+    /// Default for [`Conn::strict_http_version`] on every conn this client builds.
+    ///
+    /// Off by default. When on, a request that cannot be carried by the protocol it was matched
+    /// to fails rather than being retried on an earlier protocol.
+    #[field(get, set, with, without, copy)]
+    strict_http_version: bool,
+
     /// configuration
     #[field(get, get_mut, set, with, into)]
     context: Arc<HttpContext>,
@@ -235,6 +242,7 @@ impl Client {
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
+            strict_http_version: false,
             context: Default::default(),
             handler: ArcedClientHandler::new(()),
             #[cfg(feature = "hickory")]
@@ -294,6 +302,7 @@ impl Client {
             base: None,
             default_headers: Arc::new(default_request_headers()),
             timeout: None,
+            strict_http_version: false,
             context: Arc::new(context),
             handler: ArcedClientHandler::new(()),
             #[cfg(feature = "hickory")]
@@ -434,6 +443,7 @@ impl Client {
             body_override: None,
             timeout: self.timeout,
             http_version: None,
+            strict_http_version: self.strict_http_version,
             state: TypeSet::new(),
             context: self.context.clone(),
             authority: None,
