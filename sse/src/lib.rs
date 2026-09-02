@@ -4,8 +4,9 @@
 //! [`Stream`](futures_lite::Stream) of [`Eventable`] items per connected client. Each event is
 //! written to the client as the stream yields it.
 //!
-//! Requests whose `Accept` header excludes `text/event-stream` are passed through to subsequent
-//! handlers untouched.
+//! Only requests whose `Accept` header names `text/event-stream` are answered with an event
+//! stream; anything else — including a wildcard `Accept` or none at all — is passed through to
+//! subsequent handlers untouched.
 //!
 //! When a client goes away, the event stream is dropped promptly on every protocol, so a
 //! stream backed by a subscription can use `Drop` to unsubscribe. A client that vanishes

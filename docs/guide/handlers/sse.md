@@ -28,7 +28,7 @@ trillium_smol::run(sse(|_: &mut Conn| {
 # }
 ```
 
-The handler negotiates on the request's `Accept` header, passing the conn through to subsequent handlers if the client doesn't accept `text/event-stream` — so it composes in a tuple without needing a route of its own. A request with no `Accept` header accepts anything.
+The handler negotiates on the request's `Accept` header, answering only requests that name `text/event-stream` and passing every other conn through to subsequent handlers — so it composes in a tuple without needing a route of its own, and the same path can also serve an HTML page. Wildcards like `*/*` and an absent `Accept` header don't match: browsers' `EventSource` always sends the media type by name, and a client that didn't ask for it by name almost certainly wants some other representation. To reach the stream from `curl`, pass `-H 'accept: text/event-stream'`.
 
 When a client goes away, the event stream is dropped promptly on every protocol, so a stream backed by a subscription can use `Drop` to unsubscribe. A client that vanishes without signalling — a killed process, a severed network — is noticed once the transport notices, which on HTTP/3 is QUIC's negotiated idle timeout.
 

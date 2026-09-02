@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Client disconnection now drops the event stream promptly instead of waiting for the next write to
   fail. A stream backed by a subscription can rely on `Drop` to unsubscribe.
+- **Breaking:** the `Sse` handler now answers only requests whose `Accept` header names
+  `text/event-stream`. Wildcard ranges (`*/*`, `text/*`) and an absent `Accept` header no longer
+  match, and are passed through to subsequent handlers. Clients that were relying on a wildcard —
+  `curl` without `-H accept:`, a bare `fetch()` — now fall through instead of receiving a stream.
 - **Breaking:** `SseConnExt` is removed, along with `with_sse_stream` and
   `with_sse_stream_and_heartbeat`. The `Sse` handler is the one way to serve an event stream;
   anywhere `with_sse_stream` was called inside a handler, mount `sse(|conn: &mut Conn| ...)`

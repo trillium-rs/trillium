@@ -84,9 +84,9 @@ where
 ///
 /// Build one from any [`SseHandler`] with [`Sse::new`] or [`sse`].
 ///
-/// The conn is passed through untouched — continuing on to subsequent handlers — if the
-/// request's `Accept` header excludes `text/event-stream`. A request with no `Accept` header
-/// accepts anything, per [RFC 9110 §12.5.1][rfc].
+/// The conn is passed through untouched — continuing on to subsequent handlers — unless the
+/// request's [`Accept`][rfc] header names `text/event-stream`. Wildcard ranges and an absent
+/// `Accept` header do not match, so the same route can also serve other representations.
 ///
 /// When the client disconnects, the event stream is dropped: promptly on HTTP/1.x and HTTP/2,
 /// and at the next event or heartbeat on HTTP/3.
@@ -127,24 +127,23 @@ impl<H: SseHandler> Sse<H> {
     }
 }
 
-/// Whether the client is willing to receive `text/event-stream`.
+/// Whether the client asked for `text/event-stream` by name.
 ///
-/// A request with no `Accept` header accepts anything. An otherwise-matching media range with
-/// `q=0` is a refusal. Preference ordering is not considered, as there is only one media type on
-/// offer — the question is acceptability, not which of several to send.
+/// Wildcards (`*/*`, `text/*`) and an absent `Accept` header do not count: they say the client
+/// will take whatever is on offer, not that it speaks the event-stream protocol. Requiring the
+/// media type by name lets an `Sse` handler share a route with handlers serving other
+/// representations. An `Accept` header naming it with `q=0` is a refusal.
 fn accepts_event_stream(conn: &Conn) -> bool {
     let Some(accept) = conn.request_headers().get_str(KnownHeaderName::Accept) else {
-        return true;
+        return false;
     };
 
     accept.split(',').any(|media_range| {
         let mut parts = media_range.split(';').map(str::trim);
 
-        let matches_range = parts.next().is_some_and(|range| {
-            ["text/event-stream", "text/*", "*/*"]
-                .iter()
-                .any(|acceptable| range.eq_ignore_ascii_case(acceptable))
-        });
+        let matches_range = parts
+            .next()
+            .is_some_and(|range| range.eq_ignore_ascii_case("text/event-stream"));
 
         matches_range
             && !parts.any(|parameter| {

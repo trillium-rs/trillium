@@ -24,6 +24,7 @@ async fn sse_stream_is_close_delimited_and_well_formed() {
     .await;
 
     app.get("/")
+        .with_request_header("accept", "text/event-stream")
         .await
         .assert_ok()
         .assert_header("content-type", "text/event-stream")
@@ -47,13 +48,17 @@ async fn comments_ids_and_multiline_data() {
     }))
     .await;
 
-    app.get("/").await.assert_ok().assert_body(concat!(
-        ": heartbeat\n\n",
-        ":\n\n",
-        ": note\nid: 1\ndata: multi\ndata: line\n\n",
-        // an Event with neither data nor a comment is skipped entirely
-        "data: last\n\n",
-    ));
+    app.get("/")
+        .with_request_header("accept", "text/event-stream")
+        .await
+        .assert_ok()
+        .assert_body(concat!(
+            ": heartbeat\n\n",
+            ":\n\n",
+            ": note\nid: 1\ndata: multi\ndata: line\n\n",
+            // an Event with neither data nor a comment is skipped entirely
+            "data: last\n\n",
+        ));
 }
 
 #[test(harness)]
@@ -67,6 +72,7 @@ async fn retry_is_emitted_in_milliseconds() {
     .await;
 
     app.get("/")
+        .with_request_header("accept", "text/event-stream")
         .await
         .assert_ok()
         .assert_body("retry: 5000\n\nretry: 1500\ndata: hello\n\n");
@@ -101,10 +107,8 @@ async fn handler_negotiates_on_accept() {
 
     for accept in [
         "text/event-stream",
-        "*/*",
-        "text/*",
         "application/json, text/event-stream;q=0.9",
-        "*/*; q=0.1",
+        "TEXT/EVENT-STREAM",
     ] {
         app.get("/")
             .with_request_header("accept", accept)
@@ -116,6 +120,9 @@ async fn handler_negotiates_on_accept() {
     for accept in [
         "application/json",
         "text/html, application/xhtml+xml",
+        "*/*",
+        "text/*",
+        "*/*; q=0.1",
         "*/*;q=0",
         "text/event-stream;q=0.0",
         "",
@@ -131,7 +138,7 @@ async fn handler_negotiates_on_accept() {
         .without_request_header("accept")
         .await
         .assert_ok()
-        .assert_body("data: hi\n\n");
+        .assert_body("fallback");
 }
 
 #[test(harness)]
@@ -145,7 +152,13 @@ async fn heartbeats_fill_gaps_between_events() {
     )
     .await;
 
-    assert_heartbeats_then_event(app.get("/").await.assert_ok().body());
+    assert_heartbeats_then_event(
+        app.get("/")
+            .with_request_header("accept", "text/event-stream")
+            .await
+            .assert_ok()
+            .body(),
+    );
 }
 
 #[test(harness)]
@@ -160,6 +173,7 @@ async fn a_busy_stream_sends_no_heartbeats() {
     .await;
 
     app.get("/")
+        .with_request_header("accept", "text/event-stream")
         .await
         .assert_ok()
         .assert_body("data: event 0\n\ndata: event 1\n\ndata: event 2\n\n");
@@ -174,6 +188,7 @@ async fn handler_without_heartbeat_sends_nothing_extra() {
     .await;
 
     app.get("/")
+        .with_request_header("accept", "text/event-stream")
         .await
         .assert_ok()
         .assert_body("data: event 0\n\n");
@@ -234,7 +249,7 @@ fn client_disconnection_drops_the_event_stream() {
 
     with_transport(handler, |mut transport| async move {
         transport
-            .write_all(b"GET / HTTP/1.1\r\nhost: localhost\r\n\r\n")
+            .write_all(b"GET / HTTP/1.1\r\nhost: localhost\r\naccept: text/event-stream\r\n\r\n")
             .await?;
         read_until(&mut transport, "data: hello\n\n").await?;
         drop(transport);
@@ -263,7 +278,7 @@ fn stray_inbound_bytes_do_not_end_the_stream() {
 
     with_transport(handler, |mut transport| async move {
         transport
-            .write_all(b"GET / HTTP/1.1\r\nhost: localhost\r\n\r\n")
+            .write_all(b"GET / HTTP/1.1\r\nhost: localhost\r\naccept: text/event-stream\r\n\r\n")
             .await?;
         let received = read_until(&mut transport, "data: event 0\n\n").await?;
         transport
