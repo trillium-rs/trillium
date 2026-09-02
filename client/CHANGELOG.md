@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.17] - 2026-09-01
+
+### Fixed
+
+- `Conn::into_sse` now sends `Accept: text/event-stream` when the conn carries no `Accept` or
+  the wildcard `*/*`. It previously used a try-insert, which was a no-op because the client's
+  default headers already carry `Accept: */*`, so the request went out without naming the media
+  type. An `Accept` the caller set explicitly is still sent as-is.
+
 ## [0.9.16] - 2026-08-25
 
 ### Changed
