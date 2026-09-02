@@ -34,11 +34,12 @@ impl Conn {
     /// Execute this request and interpret the response body as a [Server-Sent Events][spec]
     /// stream.
     ///
-    /// This is an *execution* method: it sends the request (setting `Accept: text/event-stream`
-    /// if not already present), then validates that the response has a success status and a
-    /// `text/event-stream` content-type before handing back an [`EventStream`]. Calling it on a
-    /// conn that has already been awaited returns [`SseErrorKind::AlreadyExecuted`] — build the
-    /// conn, then call this; don't await it yourself first.
+    /// This is an *execution* method: it sends the request, setting `Accept: text/event-stream`
+    /// unless the conn already carries an `Accept` other than the default `*/*`, then validates
+    /// that the response has a success status and a `text/event-stream` content-type before
+    /// handing back an [`EventStream`]. Calling it on a conn that has already been awaited
+    /// returns [`SseErrorKind::AlreadyExecuted`] — build the conn, then call this; don't await
+    /// it yourself first.
     ///
     /// On any failure the returned [`SseError`] still carries the [`Conn`], so the caller can
     /// inspect the response (status, headers, error body) or convert it back with
@@ -50,8 +51,14 @@ impl Conn {
             return Err(SseError::new(self, SseErrorKind::AlreadyExecuted));
         }
 
-        self.request_headers_mut()
-            .try_insert(KnownHeaderName::Accept, "text/event-stream");
+        // try_insert would never fire: the client's default headers already carry `Accept: */*`.
+        // A wildcard is the absence of a preference, so narrow it; anything else was chosen by
+        // the caller and is left alone.
+        let accept = self.request_headers().get_str(KnownHeaderName::Accept);
+        if accept.is_none_or(|accept| accept.trim() == "*/*") {
+            self.request_headers_mut()
+                .insert(KnownHeaderName::Accept, "text/event-stream");
+        }
 
         if let Err(e) = (&mut self).await {
             return Err(SseError::new(self, e.into()));

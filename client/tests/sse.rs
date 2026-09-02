@@ -94,3 +94,36 @@ fn wrong_content_type_is_recoverable() {
         Ok(())
     });
 }
+
+#[test]
+fn an_explicit_accept_is_preserved() {
+    let handler = |mut conn: trillium::Conn| async move {
+        let accept = conn
+            .request_headers()
+            .get_str("accept")
+            .unwrap_or_default()
+            .to_string();
+        conn.insert_response_header("content-type", "text/event-stream");
+        conn.ok(format!("data: {accept}\n\n"))
+    };
+    let client = Client::new(client_config());
+
+    trillium_testing::with_server(handler, move |url| async move {
+        let mut events = client
+            .get(url.clone())
+            .with_request_header("accept", "text/event-stream, application/x-custom")
+            .into_sse()
+            .await?;
+        assert_eq!(
+            events.next().await.expect("event")?.data(),
+            "text/event-stream, application/x-custom"
+        );
+
+        let mut events = client.get(url).into_sse().await?;
+        assert_eq!(
+            events.next().await.expect("event")?.data(),
+            "text/event-stream"
+        );
+        Ok(())
+    });
+}
