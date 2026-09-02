@@ -5,7 +5,9 @@ use memchr::memmem::Finder;
 use std::io::Write;
 use trillium_http::{
     BodyFraming, BufWriter, Error, Headers,
-    KnownHeaderName::{Connection, ContentLength, Expect, Host, TransferEncoding},
+    KnownHeaderName::{
+        Connection, ContentLength, Expect, Host, TransferEncoding, Upgrade as UpgradeHeader,
+    },
     Method, ReceivedBodyState, Result, Status, Version,
 };
 use trillium_server_common::{Connector, Transport, url::Origin};
@@ -30,6 +32,23 @@ impl Conn {
                 .port()
                 .map_or_else(|| host.to_string(), |port| format!("{host}:{port}"))
         });
+
+        // A `:protocol` intent (see `Conn::protocol`) in its h1 form: the RFC 7230 `Upgrade`
+        // handshake, plus the protocol's own h1-only handshake headers. The same intent is sent
+        // as an extended CONNECT on h2/h3, where these headers are stripped again — see
+        // `finalize_headers_h2` / `finalize_headers_h3`.
+        if let Some(protocol) = self.protocol.clone() {
+            self.request_headers
+                .try_insert(UpgradeHeader, protocol.to_string());
+            self.request_headers.try_insert(Connection, "upgrade");
+            #[cfg(feature = "websockets")]
+            if protocol == "websocket" {
+                self.request_headers.try_insert_with(
+                    crate::KnownHeaderName::SecWebsocketKey,
+                    trillium_websockets::websocket_key,
+                );
+            }
+        }
 
         if self.client.pool().is_none() {
             self.request_headers.try_insert(Connection, "close");

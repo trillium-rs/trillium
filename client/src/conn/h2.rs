@@ -221,6 +221,28 @@ impl Conn {
     }
 
     pub(super) async fn exec_h2_on_connection(&mut self, h2: Arc<H2Connection>) -> Result<()> {
+        if self.protocol.is_some() {
+            // Park on peer SETTINGS before sending `:protocol` — required by RFC 8441 for
+            // extended CONNECT. On a pooled connection SETTINGS arrived long ago; on a fresh
+            // one we may park briefly. `peer_settings` resolves on either receipt or
+            // shutdown, disambiguated via the returned `Option`.
+            //
+            // Gated before any conn state is touched so that an unsupporting peer leaves the
+            // conn exactly as built, ready for the h1 fallback in `exec_network`.
+            let Some(settings) = h2.peer_settings().await else {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionAborted,
+                    "h2 connection closed before peer SETTINGS arrived",
+                )));
+            };
+            if settings.enable_connect_protocol() != Some(true) {
+                return Err(Error::ExtendedConnectUnsupported);
+            }
+            // Extended CONNECT is, by definition, a CONNECT on the wire — whatever method the
+            // intent was built with (an h1 websocket upgrade is a GET).
+            self.method = Method::Connect;
+        }
+
         self.http_version = Some(Version::Http2);
         self.headers_finalized = false;
         self.finalize_headers_h2()?;
@@ -236,19 +258,6 @@ impl Conn {
         }
 
         let (stream_id, transport) = if self.protocol.is_some() {
-            // Park on peer SETTINGS before sending `:protocol` — required by RFC 8441 for
-            // extended CONNECT. On a pooled connection SETTINGS arrived long ago; on a fresh
-            // one we may park briefly. `peer_settings` resolves on either receipt or
-            // shutdown, disambiguated via the returned `Option`.
-            let Some(settings) = h2.peer_settings().await else {
-                return Err(Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionAborted,
-                    "h2 connection closed before peer SETTINGS arrived",
-                )));
-            };
-            if settings.enable_connect_protocol() != Some(true) {
-                return Err(Error::ExtendedConnectUnsupported);
-            }
             // Extended CONNECT (websocket/webtransport) carries no prelude body. Await the
             // submission so the HEADERS are framed before we read the response, matching the
             // raw-upgrade and h1/h3 sequencing.
@@ -412,6 +421,12 @@ impl Conn {
             KnownHeaderName::Upgrade,
             KnownHeaderName::Expect,
         ]);
+        if self.protocol.is_some() {
+            // The h1 websocket handshake's key has no role in extended CONNECT (RFC 8441 §5);
+            // it was rendered by `finalize_headers_h1` before the ALPN promotion.
+            self.request_headers
+                .remove(KnownHeaderName::SecWebsocketKey);
+        }
 
         self.headers_finalized = true;
         Ok(())

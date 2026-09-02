@@ -78,6 +78,27 @@ impl Conn {
             return Err(Error::UnsupportedVersion(Version::Http0_9));
         }
 
+        match self.exec_network_dispatch().await {
+            // The h2/h3 connection stays pooled for ordinary requests; this request re-runs as
+            // an HTTP/1.1 upgrade on a connection pinned to h1. The extended-CONNECT gates run
+            // before method, version, or pseudo-headers are committed, so the only state
+            // carried over is h1 handshake headers from an ALPN promotion, which the h1 path
+            // re-renders idempotently.
+            Err(Error::ExtendedConnectUnsupported)
+                if !self.strict_http_version && self.protocol.is_some() =>
+            {
+                log::debug!(
+                    "peer does not support extended CONNECT; retrying as an HTTP/1.1 upgrade"
+                );
+                self.http_version = Some(Version::Http1_1);
+                self.headers_finalized = false;
+                self.exec_h1_or_promote_h2().await
+            }
+            other => other,
+        }
+    }
+
+    async fn exec_network_dispatch(&mut self) -> Result<()> {
         // Phase 1 — reuse a live pooled connection, best protocol first. No DNS, no new connect.
         // A pooled h2 connection is reused in preference to establishing a new h3 connection: we
         // do not proactively migrate h2→h3, since a general-purpose client can't assume the

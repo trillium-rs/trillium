@@ -189,6 +189,10 @@ impl Conn {
                     trillium_server_common::h3::web_transport::WebTransportDispatcher::new,
                 );
             }
+
+            // Extended CONNECT is, by definition, a CONNECT on the wire — whatever method the
+            // intent was built with (an h1 websocket upgrade is a GET).
+            self.method = Method::Connect;
         }
 
         let (stream_id, transport) = match entry.quic_conn.open_bidi().await {
@@ -370,6 +374,11 @@ impl Conn {
             KnownHeaderName::Upgrade,
             KnownHeaderName::Expect,
         ]);
+        if self.protocol.is_some() {
+            // The h1 websocket handshake's key has no role in extended CONNECT (RFC 9220).
+            self.request_headers
+                .remove(KnownHeaderName::SecWebsocketKey);
+        }
 
         self.headers_finalized = true;
         Ok(())

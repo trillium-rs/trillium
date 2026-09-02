@@ -31,68 +31,80 @@
 //!
 //! ## Protocol selection
 //!
-//! By default, trillium-client auto-discovers the best HTTP version for each request:
+//! Each request picks its HTTP version by four rules:
 //!
-//! - Over `https://` with a TLS connector that advertises `h2` in ALPN *and* exposes the server's selection
-//!   back to trillium (the default for [`trillium_rustls::RustlsConfig`](https://docs.trillium.rs/trillium_rustls/struct.RustlsConfig.html)
-//!   and [`trillium_openssl::OpenSslConfig`](https://docs.trillium.rs/trillium_openssl/struct.OpenSslConfig.html)):
-//!   the server picks h2 or h1.1 during the TLS handshake. Whatever ALPN selects is what the client
-//!   uses.
-//! - Over `https://` with `h2` removed from the ALPN list (e.g. `RustlsConfig::without_http2()`):
-//!   h1 only.
-//! - Over `https://` with a TLS connector that doesn't surface ALPN selection
-//!   (`trillium_native_tls`): h1 only by default, since trillium can't tell whether the server
-//!   picked h2. Use the `Version::Http2` hint described below to force h2 over TLS in that case.
-//! - Over `https://` when the [`Client`] was built with
-//!   [`Client::new_with_quic`](Client::new_with_quic): the client may use h3 for origins that have
-//!   advertised it via [`Alt-Svc`][altsvc], that publish an `alpn=h3` SVCB/HTTPS DNS record (when
-//!   an encrypted resolver is configured — see [Encrypted DNS](#encrypted-dns)), or that the user
-//!   has hinted (see below).
-//! - Over `http://`: h1 only. There is no h2c probing without explicit prior knowledge.
+//! 1. **Reuse before establish, best protocol first.** A live pooled connection to the origin is
+//!    used before a new one is opened, preferring HTTP/3, then HTTP/2, then HTTP/1.1.
+//! 2. **New connections need prior knowledge for h3, and ALPN for h2.** A new connection uses
+//!    HTTP/3 only when the origin is known to speak it: an `Http3` hint, an [`Alt-Svc`][altsvc]
+//!    header from an earlier response, or an `alpn=h3` SVCB/HTTPS DNS record (see
+//!    [Encrypted DNS](#encrypted-dns)). This requires a client built with
+//!    [`Client::new_with_quic`]. Otherwise, over `https://` the server chooses h2 or h1.1 during
+//!    the TLS handshake and the client uses whatever ALPN selected. Over `http://` the client
+//!    speaks HTTP/1.1, unless h2 is hinted.
+//! 3. **A hint is where to start, not where to stop.** If the hinted protocol can't be reached (an
+//!    h3 endpoint that doesn't answer) or can't carry the request (an h2 or h3 peer without
+//!    extended CONNECT for a websocket handshake), the client continues to the next protocol down.
+//!    [`Conn::with_strict_http_version`] turns that continuation into an error.
+//! 4. **The URL scheme never changes.** Continuing to an earlier protocol stays on the same scheme:
+//!    h3 continues to h2 or h1.1 over TLS, and cleartext h2 continues to cleartext h1.1. Nothing is
+//!    ever downgraded from TLS to cleartext.
+//!
+//! ```text
+//!               ┌─ h3 known (hint, Alt-Svc, DNS) ─► QUIC ─ok─► HTTP/3 ─┐
+//!               │                                    │fail             │ can't carry
+//!   request ────┤                                    ▼                 │ the request
+//!               ├─ pooled h2 ───────────────────► HTTP/2 ──────────────┤
+//!               │                                    ▲                 │
+//!               └─ new connection ── ALPN h2 ────────┘                 ▼
+//!                       │     ALPN http/1.1, or cleartext        HTTP/1.1 (new
+//!                       ▼                                          connection)
+//!                    HTTP/1.1
+//! ```
+//!
+//! Over `https://` with a TLS connector that doesn't surface ALPN selection
+//! (`trillium_native_tls`), the client can't tell whether the server picked h2, so it uses h1.1
+//! unless h2 is hinted. To opt out of h2 for every request on a client, remove it from the TLS
+//! configuration's ALPN list (for example `RustlsConfig::without_http2()`).
 //!
 //! [altsvc]: https://datatracker.ietf.org/doc/html/rfc7838
 //!
-//! ### Prior-knowledge hints
+//! ### Version hints
 //!
-//! Setting [`Conn::http_version`](Conn::with_http_version) before sending the request
-//! signals **prior knowledge** of what the server speaks. By default no hint is set, which means
-//! "use auto-discovery." Setting any explicit version **pins** the protocol and suppresses
-//! auto-discovery — no Alt-Svc h3, no ALPN/pooled h2 promotion — and constrains the connection's
-//! ALPN to match (an h1 pin advertises only `http/1.1`, an h2 pin only `h2`), so the pin is honored
-//! over TLS rather than overridden by ALPN. The [`http_version`](Conn::http_version) accessor
-//! reports the unset default as [`Version::Http1_1`].
+//! [`Conn::with_http_version`] names the protocol to try first. It also constrains the new
+//! connection's ALPN to match, so the hint is honored over TLS rather than overridden by the
+//! server's ALPN choice. The [`http_version`](Conn::http_version) accessor reports the unset
+//! default as [`Version::Http1_1`]. Hints are per-[`Conn`]; mix them freely on requests sharing
+//! one [`Client`].
 //!
-//! | hint | URL scheme | behavior | curl equivalent |
-//! |---|---|---|---|
-//! | `Version::Http3` | `https` | Skip the [`Alt-Svc`][altsvc] cache and dial QUIC directly. Falls back to auto-discovery (h2 / h1) if QUIC connect fails. Requires [`Client::new_with_quic`](Client::new_with_quic). | `--http3` |
-//! | `Version::Http2` | `https` | TLS handshake advertising only `h2` in ALPN, then start the h2 driver immediately without checking the negotiated ALPN. **No fallback** — a non-h2-speaking server surfaces as an IO error. Also works with TLS connectors that don't surface ALPN selection. | (curl bundles this with `--http2-prior-knowledge`'s cleartext mode) |
-//! | `Version::Http2` | `http` | h2c immediate preface (cleartext h2 prior knowledge). **No fallback**. | `--http2-prior-knowledge` |
-//! | `Version::Http1_1` | any | Force HTTP/1.1: no h3 Alt-Svc, no h2 ALPN/pool promotion. | `--http1.1` |
-//! | `Version::Http1_0` | any | h1.0 wire format (no `Host`, no chunked encoding, etc.). | `--http1.0` |
-//! | _unset_ (default) | any | Auto-discovery as described above. | (default) |
+//! | hint | behavior | curl equivalent |
+//! |---|---|---|
+//! | `Version::Http3` | Dial QUIC directly, skipping the Alt-Svc cache. Continues to h2 / h1.1 if the QUIC connection fails. | `--http3` |
+//! | `Version::Http2` over `https` | TLS handshake advertising only `h2`, then the h2 preface without checking ALPN. Works with TLS connectors that don't surface ALPN. A server that doesn't speak h2 surfaces as an IO error: the preface commits the connection. | `--http2-prior-knowledge` |
+//! | `Version::Http2` over `http` | Cleartext h2 (h2c) preface. Same commitment as above. | `--http2-prior-knowledge` |
+//! | `Version::Http1_1` | HTTP/1.1 only: no h3, no h2. | `--http1.1` |
+//! | `Version::Http1_0` | HTTP/1.0 wire format (no `Host`, no chunked encoding). | `--http1.0` |
+//! | _unset_ | Rules 1 and 2 above. | (default) |
 //!
-//! Hints are per-[`Conn`]; mix them freely on requests sharing one [`Client`].
+//! ### Strict mode
 //!
-//! ### Forcing h1.1
-//!
-//! Set the [`Version::Http1_1`] hint on the request — the per-request equivalent of curl's
-//! `--http1.1`. It pins HTTP/1.1 even when the connector would otherwise negotiate h2 via ALPN or
-//! use h3 via Alt-Svc, by advertising only `http/1.1` in this connection's ALPN. (Over
-//! `trillium_native_tls`, which doesn't yet honor per-connection ALPN, the pin still skips h2/h3
-//! promotion but can't constrain the handshake — in practice harmless, since native-tls advertises
-//! no ALPN by default.) To opt out of h2 ALPN advertisement at the connection level for *all*
-//! requests on a client, that remains a TLS configuration concern: use
-//! [`RustlsConfig::without_http2()`](https://docs.trillium.rs/trillium_rustls/struct.RustlsConfig.html#method.without_http2)
-//! (or the equivalent on whichever TLS crate you're using) when constructing the
-//! [`Client`].
+//! [`Conn::with_strict_http_version`] (or [`Client::with_strict_http_version`] for every conn)
+//! makes a request fail when the protocol it was matched to can't carry it, instead of
+//! continuing to an earlier protocol. Off by default. It applies to the websocket handshake
+//! below; the h2 prior-knowledge commitment and the h3 connection-failure continuation are the
+//! same either way.
 //!
 //! ## WebSockets and WebTransport
 //!
-//! With the `websockets` cargo feature, `Conn::into_websocket` transforms a built conn into
-//! a `WebSocketConn` (RFC 6455 over h1, RFC 8441 extended CONNECT over h2). With the
+//! With the `websockets` cargo feature, `Conn::into_websocket` performs a websocket handshake
+//! and returns a `WebSocketConn`. Over HTTP/1.1 this is the RFC 6455 `Upgrade` handshake; over
+//! HTTP/2 and HTTP/3 it is an extended CONNECT (RFC 8441, RFC 9220). The version follows the
+//! rules above: a server that speaks h2 or h3 but does not advertise extended CONNECT is retried
+//! as an HTTP/1.1 upgrade on a new connection, or fails under strict mode. With the
 //! `webtransport` cargo feature, `Client::webtransport(url)` + `Conn::into_webtransport()`
 //! open a multiplexed WebTransport-over-h3 session (RFC 9220 +
-//! draft-ietf-webtrans-http3). Multiple WebTransport sessions to the same origin coalesce
+//! draft-ietf-webtrans-http3); WebTransport exists only on HTTP/3, so those conns are strict.
+//! Multiple WebTransport sessions to the same origin coalesce
 //! onto a single underlying QUIC connection — see the `webtransport` module for details.
 //!
 //! ## Server-Sent Events

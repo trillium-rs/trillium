@@ -162,6 +162,7 @@ async fn extended_connect_never_sends_protocol_pseudo_without_peer_setting() -> 
         let result = client
             .get("/")
             .with_http_version(Version::Http2)
+            .with_strict_http_version()
             .into_websocket()
             .await;
         log::info!(
