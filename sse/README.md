@@ -36,7 +36,7 @@ let app = sse(move |_: &mut Conn| channel.clone())
 
 The connection stays open and events are pushed as items arrive on the stream. The stream is
 dropped when the client disconnects or the server shuts down, so a stream backed by a
-subscription can use `Drop` to unsubscribe. Requests whose `Accept` header excludes
+subscription can use `Drop` to unsubscribe. Requests whose `Accept` header does not name
 `text/event-stream` are passed through to subsequent handlers.
 
 ## Safety
