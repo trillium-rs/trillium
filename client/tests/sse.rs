@@ -1,5 +1,5 @@
 use futures_lite::{StreamExt, stream};
-use trillium_client::{Client, SseErrorKind};
+use trillium_client::{Client, EventStream, SseErrorKind};
 use trillium_http::Status;
 use trillium_sse::{Event as ServerEvent, sse};
 use trillium_testing::client_config;
@@ -81,7 +81,10 @@ fn non_success_status_is_recoverable() {
 
 #[test]
 fn wrong_content_type_is_recoverable() {
-    let handler = |conn: trillium::Conn| async move { conn.ok("data: not really sse\n\n") };
+    let handler = |conn: trillium::Conn| async move {
+        conn.with_response_header(trillium::KnownHeaderName::ContentType, "text/plain")
+            .ok("data: not really sse\n\n")
+    };
     let client = Client::new(client_config());
 
     trillium_testing::with_server(handler, move |url| async move {
@@ -93,6 +96,36 @@ fn wrong_content_type_is_recoverable() {
         assert!(matches!(err.kind, SseErrorKind::UnexpectedContentType(_)));
         Ok(())
     });
+}
+
+#[test]
+fn a_missing_content_type_is_rejected_but_recoverable() {
+    let handler = |mut conn: trillium::Conn| async move {
+        conn.response_headers_mut()
+            .remove(trillium::KnownHeaderName::ContentType);
+        conn.with_body("data: unlabeled\n\n").with_status(200)
+    };
+    let client = Client::new(client_config());
+
+    trillium_testing::with_server(handler, move |url| async move {
+        let err = client.get(url).into_sse().await.unwrap_err();
+        assert!(matches!(
+            err.kind,
+            SseErrorKind::UnexpectedContentType(None)
+        ));
+
+        let mut events = EventStream::new(err.into())?;
+        let event = events.next().await.expect("an event")?;
+        assert_eq!(event.data(), "unlabeled");
+        Ok(())
+    });
+}
+
+#[test]
+fn event_stream_new_requires_an_executed_conn() {
+    let client = Client::new(client_config());
+    let err = EventStream::new(client.get("http://localhost/")).unwrap_err();
+    assert!(matches!(err.kind, SseErrorKind::NoBody));
 }
 
 #[test]

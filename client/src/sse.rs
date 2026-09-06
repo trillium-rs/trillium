@@ -37,13 +37,15 @@ impl Conn {
     /// This is an *execution* method: it sends the request, setting `Accept: text/event-stream`
     /// unless the conn already carries an `Accept` other than the default `*/*`, then validates
     /// that the response has a success status and a `text/event-stream` content-type before
-    /// handing back an [`EventStream`]. Calling it on a conn that has already been awaited
-    /// returns [`SseErrorKind::AlreadyExecuted`] — build the conn, then call this; don't await
-    /// it yourself first.
+    /// handing back an [`EventStream`]. As with the browser `EventSource`, a response with no
+    /// content-type is rejected. Calling it on a conn that has already been awaited returns
+    /// [`SseErrorKind::AlreadyExecuted`] — build the conn, then call this; don't await it
+    /// yourself first.
     ///
     /// On any failure the returned [`SseError`] still carries the [`Conn`], so the caller can
     /// inspect the response (status, headers, error body) or convert it back with
-    /// [`From`]/[`Into`].
+    /// [`From`]/[`Into`]. A caller that knows better than the validation — a server that streams
+    /// events without labelling them — can hand the recovered conn to [`EventStream::new`].
     ///
     /// [spec]: https://html.spec.whatwg.org/multipage/server-sent-events.html
     pub async fn into_sse(mut self) -> Result<EventStream, SseError> {
@@ -69,32 +71,28 @@ impl Conn {
             return Err(SseError::new(self, SseErrorKind::Status(status)));
         }
 
-        if !is_event_stream(
-            self.response_headers()
-                .get_str(KnownHeaderName::ContentType),
-        ) {
-            let content_type = self
-                .response_headers()
-                .get_str(KnownHeaderName::ContentType)
-                .map(String::from);
+        let content_type = self
+            .response_headers()
+            .get_str(KnownHeaderName::ContentType);
+        if !content_type.is_some_and(is_event_stream) {
+            let content_type = content_type.map(String::from);
             return Err(SseError::new(
                 self,
                 SseErrorKind::UnexpectedContentType(content_type),
             ));
         }
 
-        Ok(EventStream::new(self))
+        EventStream::new(self)
     }
 }
 
 /// True if `content_type` names the `text/event-stream` media type, ignoring any parameters
 /// (e.g. `; charset=utf-8`) and ASCII case.
-fn is_event_stream(content_type: Option<&str>) -> bool {
-    content_type.is_some_and(|ct| {
-        ct.split(';')
-            .next()
-            .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("text/event-stream"))
-    })
+fn is_event_stream(content_type: &str) -> bool {
+    content_type
+        .split(';')
+        .next()
+        .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("text/event-stream"))
 }
 
 /// A single server-sent event.
@@ -158,14 +156,30 @@ pub struct EventStream {
 }
 
 impl EventStream {
-    fn new(conn: Conn) -> Self {
-        Self {
+    /// Read an already-executed [`Conn`]'s response body as an event stream, with no
+    /// validation of its status or content-type.
+    ///
+    /// [`Conn::into_sse`] is the normal entry point; this is the escape hatch for a response that
+    /// fails its checks but that the caller knows is an event stream anyway — typically recovered
+    /// from an [`SseError`] via [`From`]/[`Into`]. The SSE wire format accepts any input, so a
+    /// body that is not actually an event stream yields no events rather than an error.
+    ///
+    /// # Errors
+    ///
+    /// [`SseErrorKind::NoBody`] if the conn has not been executed, so there is no response to
+    /// read.
+    pub fn new(conn: Conn) -> Result<Self, SseError> {
+        if conn.status().is_none() {
+            return Err(SseError::new(conn, SseErrorKind::NoBody));
+        }
+
+        Ok(Self {
             conn,
             decoder: Decoder::default(),
             pending: VecDeque::new(),
             read_buf: vec![0; READ_BUF_LEN].into_boxed_slice(),
             done: false,
-        }
+        })
     }
 
     /// The executed [`Conn`] this stream was created from, for response metadata — status,
@@ -324,7 +338,7 @@ pub enum SseErrorKind {
     #[error("Unexpected response status {0} for SSE request")]
     Status(Status),
 
-    /// The response content-type was not `text/event-stream`.
+    /// The response content-type was not `text/event-stream`, or was absent (`None`).
     #[error("Unexpected content-type for SSE request: {0:?}")]
     UnexpectedContentType(Option<String>),
 
@@ -337,8 +351,9 @@ pub enum SseErrorKind {
     )]
     AlreadyExecuted,
 
-    /// The response had no body to read as an event stream.
-    #[error("SSE response had no body")]
+    /// [`EventStream::new`] was given a [`Conn`] that has not been executed, so there is no
+    /// response body to read.
+    #[error("SSE conn has no response body to read")]
     NoBody,
 }
 
