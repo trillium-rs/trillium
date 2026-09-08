@@ -145,6 +145,14 @@ impl H2Settings {
         let n = u16::from(fastrand::u8(0..16));
         let grease_id = 0x0A0A | (n << 12) | (n << 4);
         Self {
+            // Always explicit: our decoder is built with this capacity, and it is the bound
+            // the peer's Dynamic Table Size Updates are checked against.
+            header_table_size: Some(
+                config
+                    .dynamic_table_capacity()
+                    .try_into()
+                    .unwrap_or(u32::MAX),
+            ),
             enable_push: Some(false),
             max_concurrent_streams: Some(config.h2_max_concurrent_streams()),
             max_header_list_size: Some(
@@ -157,7 +165,6 @@ impl H2Settings {
             enable_connect_protocol: config.extended_connect_enabled().then_some(true),
             grease_id,
             grease_value: fastrand::u32(..),
-            ..Default::default()
         }
     }
 

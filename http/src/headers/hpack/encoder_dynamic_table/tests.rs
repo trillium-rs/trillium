@@ -147,10 +147,10 @@ fn observer_hot_promotes_on_first_connection_sighting() {
 }
 
 #[test]
-fn oversized_entry_clears_table_per_4_4() {
-    // §4.4: an entry whose own §4.1 size exceeds max_size clears the dynamic table
-    // and is not stored. Set max_size small, seed an entry, then index a too-large
-    // pair — that should clear the table.
+fn oversized_entry_is_sent_without_indexing_and_leaves_table_intact() {
+    // An entry whose own §4.1 size exceeds max_size can't be stored, so it is emitted as
+    // literal-without-indexing rather than triggering the §4.4 clear on both sides. Seed an
+    // entry, then encode a too-large pair — the seeded entry must survive.
     let observer = observer();
     {
         // Seed both pairs in the observer so both pass the should_index gate.
@@ -182,9 +182,8 @@ fn oversized_entry_clears_table_per_4_4() {
     let s2 = FieldSection::new(PseudoHeaders::default(), &h2);
     let buf2 = encode(&mut enc, &s2);
 
-    // §4.4 clear fires inside `state.insert` — table empty afterwards.
-    assert_eq!(entries_len(&enc), 0);
-    assert_eq!(current_size(&enc), 0);
+    assert_eq!(entries_len(&enc), 1);
+    assert_eq!(current_size(&enc), 32 + 6 + 8);
 
     // Decoder roundtrip on both blocks.
     let mut dec = HpackDecoder::new(64);
@@ -202,6 +201,7 @@ fn oversized_entry_clears_table_per_4_4() {
             .get_str(crate::headers::HeaderName::from("x-large")),
         Some(big_value.as_str()),
     );
+    assert_eq!(dec.table.len(), 1, "peer table keeps the seeded entry");
 }
 
 #[test]
@@ -249,9 +249,10 @@ fn intra_block_eviction_resolved_inline() {
 }
 
 #[test]
-fn pre_settings_encoder_never_inserts() {
-    // Without `set_protocol_max_size` the operational size stays at 0; even an
-    // observer-hot pair fails §4.4 (entry size > 0) and the table stays empty.
+fn pre_settings_encoder_assumes_rfc_default_size() {
+    // Before the peer's SETTINGS arrive the encoder works against the 4096-byte default
+    // the peer's decoder assumes, so an observer-hot pair inserts immediately and no size
+    // update is emitted.
     let observer = observer();
     let mut accum = ConnectionAccumulator::default();
     accum.observe(
@@ -266,9 +267,13 @@ fn pre_settings_encoder_never_inserts() {
 
     let buf = encode(&mut enc, &section);
 
-    assert_eq!(entries_len(&enc), 0);
+    assert_eq!(entries_len(&enc), 1);
+    assert_ne!(
+        buf[0] & 0xE0,
+        0x20,
+        "no size update should precede the block"
+    );
 
-    // Decoder still roundtrips — emission falls back to §6.2.2 literal-without-indexing.
     let mut dec = HpackDecoder::new(4096);
     let decoded = dec.decode(&buf).unwrap();
     assert_eq!(
@@ -279,20 +284,19 @@ fn pre_settings_encoder_never_inserts() {
 
 #[test]
 fn protocol_max_settings_emits_size_update() {
-    // After `set_protocol_max_size(4096)`, the next encode prepends a §6.3 instruction
-    // whose new-max = min(local_pref, peer_advertised) = 4096. Decoder's protocol max is
-    // 4096 too, so the §6.3 is accepted; without the §6.3, the decoder would treat any
-    // dynamic-table inserts as §4.2 violations (size update MUST occur at start of next
-    // section after a change).
+    // After `set_protocol_max_size(2048)`, the next encode prepends a §6.3 instruction
+    // whose new-max = min(local_pref, peer_advertised) = 2048. Decoder's protocol max is
+    // 4096, so the §6.3 is accepted; without the §6.3, the decoder would evict on a
+    // different schedule than the encoder.
     let mut enc = HpackEncoder::new(observer(), 4096, 16, false);
-    enc.set_protocol_max_size(4096);
+    enc.set_protocol_max_size(2048);
 
     let headers = Headers::new().with_inserted_header(KnownHeaderName::AcceptEncoding, "gzip");
     let section = FieldSection::new(PseudoHeaders::default(), &headers);
     let buf = encode(&mut enc, &section);
 
-    // First byte: 001xxxxx pattern (0x20-0x3F). 4096 in 5-bit prefix is the multi-byte
-    // form (4096 > 30), so first byte is 0011_1111 = 0x3F.
+    // First byte: 001xxxxx pattern (0x20-0x3F). 2048 in 5-bit prefix is the multi-byte
+    // form (2048 > 30), so first byte is 0011_1111 = 0x3F.
     assert_eq!(buf[0], 0x3F);
 
     // Roundtrip succeeds — the decoder accepts the §6.3.
@@ -514,4 +518,47 @@ fn never_indexed_emits_section_6_2_3_for_static_full_match() {
         .expect("accept-encoding present");
     assert!(v.iter().all(HeaderValue::is_never_indexed));
     assert_eq!(entries_len(&enc), 0);
+}
+
+#[test]
+fn small_local_preference_announces_itself_before_first_block() {
+    // A local preference below the 4096 default must reach the decoder as a §6.3 update
+    // ahead of the first field, or the two sides would evict on different schedules.
+    let mut enc = HpackEncoder::new(observer(), 1024, 16, false);
+    let headers = Headers::new().with_inserted_header(KnownHeaderName::AcceptEncoding, "gzip");
+    let section = FieldSection::new(PseudoHeaders::default(), &headers);
+    let buf = encode(&mut enc, &section);
+    assert_eq!(buf[0] & 0xE0, 0x20, "first byte must be a size update");
+    assert!(HpackDecoder::new(4096).decode(&buf).is_ok());
+}
+
+#[test]
+fn entry_that_cannot_fit_is_sent_without_indexing() {
+    // An observer-hot pair whose entry size exceeds our table must not be sent as
+    // literal-with-indexing: the peer would store what we can never reference.
+    let observer = observer();
+    let mut accum = ConnectionAccumulator::default();
+    accum.observe(
+        &EntryName::Known(KnownHeaderName::Server),
+        &FieldLineValue::Static(b"trillium"),
+    );
+    observer.fold_connection(&accum);
+
+    let mut enc = HpackEncoder::new(observer, 8, 16, false);
+    let headers = Headers::new().with_inserted_header(KnownHeaderName::Server, "trillium");
+    let section = FieldSection::new(PseudoHeaders::default(), &headers);
+    let buf = encode(&mut enc, &section);
+
+    assert_eq!(entries_len(&enc), 0);
+    let mut dec = HpackDecoder::new(4096);
+    let decoded = dec.decode(&buf).unwrap();
+    assert_eq!(
+        decoded.headers().get_str(KnownHeaderName::Server),
+        Some("trillium")
+    );
+    assert_eq!(
+        dec.table.len(),
+        0,
+        "peer table must not receive an unusable insert"
+    );
 }
