@@ -172,6 +172,7 @@ where
 
         Conn {
             peer_gone,
+            spare_request_headers: None,
             context: h3_connection.context(),
             transport,
             request_headers,

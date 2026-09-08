@@ -30,7 +30,6 @@ use crate::{
 };
 use hashbrown::HashMap;
 use std::{
-    borrow::Cow,
     collections::VecDeque,
     fmt::{self, Debug},
 };
@@ -172,10 +171,10 @@ impl Debug for TableState {
 
 #[derive(Default)]
 pub(super) struct NameIndex {
-    /// Per-value map of live `abs_idx` values. Values are raw bytes so the encode path can
-    /// probe the map with `&[u8]` (e.g. `str::as_bytes`) without allocating a `HeaderValue`
-    /// just to build the lookup key.
-    pub(super) by_value: HashMap<Cow<'static, [u8]>, u64>,
+    /// Per-value map of live `abs_idx` values. Keys hash and compare as raw bytes so the
+    /// encode path can probe the map with `&[u8]` (e.g. `str::as_bytes`) without allocating
+    /// a `HeaderValue` just to build the lookup key.
+    pub(super) by_value: HashMap<FieldLineValue<'static>, u64>,
     /// Latest `abs_idx` across all entries in `by_value`. Recomputed on eviction when the
     /// evicted entry was the latest; `by_value.values().max()` is cheap because the same
     /// name rarely has many simultaneous live values.
@@ -190,7 +189,10 @@ impl Debug for NameIndex {
                 &fmt::from_fn(|f| {
                     let mut map = f.debug_map();
                     for (k, v) in &self.by_value {
-                        map.entry(&format_args!("{}", String::from_utf8_lossy(k)), v);
+                        map.entry(
+                            &format_args!("{}", String::from_utf8_lossy(k.as_bytes())),
+                            v,
+                        );
                     }
                     map.finish()
                 }),
@@ -203,7 +205,7 @@ impl Debug for NameIndex {
 #[derive(Clone)]
 pub(super) struct Entry {
     pub(super) name: EntryName<'static>,
-    pub(super) value: Cow<'static, [u8]>,
+    pub(super) value: FieldLineValue<'static>,
     /// `name.len() + value.len() + 32` per RFC 9204.
     pub(super) size: usize,
 }
@@ -214,7 +216,7 @@ impl Debug for Entry {
             .field("name", &self.name)
             .field(
                 "value",
-                &format_args!("{}", String::from_utf8_lossy(&self.value)),
+                &format_args!("{}", String::from_utf8_lossy(self.value.as_bytes())),
             )
             .field("size", &self.size)
             .finish()
@@ -323,14 +325,14 @@ impl TableState {
 
         self.make_room_for(entry_size, combine_floor(variant_floor, extra_floor))?;
         // Eviction succeeded — only now allocate the owned form of the value.
-        let value = value.into_static();
+        let value = value.into_shared();
         Ok(self.insert_entry(name, value, entry_size, wire))
     }
 
     /// Emit a Duplicate instruction for the entry at `abs_idx`, copying its stored
     /// `(name, value)` to the head of the table without re-sending the bytes. The
-    /// source's stored values are cloned (cheap `Cow` clones in the common `'static`
-    /// case) rather than re-allocated from borrowed inputs.
+    /// source's stored values are cloned (a pointer copy or refcount bump) rather than
+    /// re-allocated from borrowed inputs.
     ///
     /// The source `abs_idx` is added to the eviction floor for the duration of
     /// `make_room_for` so it remains live for the post-eviction clone.
@@ -348,7 +350,7 @@ impl TableState {
 
         self.make_room_for(entry_size, combine_floor(Some(abs_idx), extra_floor))?;
         // Preserve floor guarantees `abs_idx` is still live; clone its name+value now —
-        // deferred past eviction so a `Cow::Owned` value isn't allocated on failure.
+        // deferred past eviction so nothing is cloned on failure.
         let entry = self
             .entry_at_abs(abs_idx)
             .expect("preserved by make_room_for floor");
@@ -411,7 +413,7 @@ impl TableState {
     fn insert_entry(
         &mut self,
         name: EntryName<'_>,
-        value: Cow<'static, [u8]>,
+        value: FieldLineValue<'static>,
         entry_size: usize,
         wire: Vec<u8>,
     ) -> u64 {

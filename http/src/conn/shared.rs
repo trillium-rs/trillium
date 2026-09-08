@@ -162,7 +162,11 @@ impl ValidatedRequest {
 pub(crate) struct ConnParts<T> {
     pub(crate) buffer: Buffer,
     pub(crate) state: TypeSet,
+    /// Empty, capacity retained; the next request parses into it.
     pub(crate) request_headers: Headers,
+    /// The previous request's headers, intact, so the next parse can salvage matching entries.
+    /// `None` for a connection's first request.
+    pub(crate) previous_request_headers: Option<Headers>,
     pub(crate) response_headers: Headers,
     pub(crate) context: Arc<HttpContext>,
     pub(crate) transport: T,
@@ -177,6 +181,7 @@ impl<T> ConnParts<T> {
             buffer: initial_bytes.into(),
             state: TypeSet::with_capacity(16),
             request_headers: Headers::with_capacities(request_cap / 2, request_cap / 2),
+            previous_request_headers: None,
             response_headers: Headers::with_capacities(response_cap / 2, response_cap / 2),
             context,
             transport,
@@ -188,12 +193,15 @@ impl<T> From<Conn<T>> for ConnParts<T> {
     fn from(conn: Conn<T>) -> Self {
         let mut buffer = conn.buffer;
         let mut state = conn.state;
-        let mut request_headers = conn.request_headers;
+        let previous_request_headers = Some(conn.request_headers);
+        let context = conn.context;
+        let request_headers = conn.spare_request_headers.unwrap_or_else(|| {
+            let cap = context.config.request_header_initial_capacity;
+            Headers::with_capacities(cap / 2, cap / 2)
+        });
         let mut response_headers = conn.response_headers;
         let transport = conn.transport;
-        let context = conn.context;
         state.clear();
-        request_headers.clear();
         response_headers.clear();
         // Like the clears above, this drops the previous era of the connection.
         // The live region survives (pipelined bytes are the next request); only
@@ -208,6 +216,7 @@ impl<T> From<Conn<T>> for ConnParts<T> {
             buffer,
             state,
             request_headers,
+            previous_request_headers,
             response_headers,
             context,
             transport,

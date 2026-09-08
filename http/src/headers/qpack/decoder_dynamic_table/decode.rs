@@ -4,6 +4,7 @@ use crate::{
     h3::{H3Error, H3ErrorCode},
     headers::{
         entry_name::{EntryName, PseudoHeaderName},
+        field_section::FieldLineValue,
         qpack::{
             FieldSection, PseudoHeaders,
             instruction::{
@@ -159,8 +160,7 @@ async fn apply_instruction(
         } => {
             let (name, _) = static_entry(name_index)?;
             log::trace!("LiteralStaticNameRef {name}: {value:?}");
-            entry_field_line(EntryName::from(*name), value.into_static(), never_indexed)
-                .map_err(Into::into)
+            entry_field_line(EntryName::from(*name), value, never_indexed).map_err(Into::into)
         }
         FieldLineInstruction::LiteralDynamicNameRef {
             relative_index,
@@ -173,7 +173,7 @@ async fn apply_instruction(
                 .ok_or_else(err)?;
             let (name, _) = table.get(abs, required_insert_count).await?;
             log::trace!("LiteralDynamicNameRef {name}: {value:?}");
-            entry_field_line(name, value.into_static(), never_indexed).map_err(Into::into)
+            entry_field_line(name, value, never_indexed).map_err(Into::into)
         }
         FieldLineInstruction::LiteralPostBaseNameRef {
             post_base_index,
@@ -183,7 +183,7 @@ async fn apply_instruction(
             let abs = base.checked_add(post_base_index as u64).ok_or_else(err)?;
             let (name, _) = table.get(abs, required_insert_count).await?;
             log::trace!("LiteralPostBaseNameRef {name}: {value:?}");
-            entry_field_line(name, value.into_static(), never_indexed).map_err(Into::into)
+            entry_field_line(name, value, never_indexed).map_err(Into::into)
         }
         FieldLineInstruction::LiteralLiteralName {
             name,
@@ -191,8 +191,7 @@ async fn apply_instruction(
             never_indexed,
         } => {
             log::trace!("LiteralLiteralName {name}: {value:?}");
-            entry_field_line(name.into_owned(), value.into_static(), never_indexed)
-                .map_err(Into::into)
+            entry_field_line(name.into_owned(), value, never_indexed).map_err(Into::into)
         }
     }
 }
@@ -216,14 +215,14 @@ fn static_table_field_line(name: StaticHeaderName, value: &'static str) -> Field
     }
 }
 
-/// Build a `FieldLine` from a resolved entry name and an owned value.
+/// Build a `FieldLine` from a resolved entry name and a value.
 ///
 /// Rejects values containing CR, LF, or NUL. Values reached via a dynamic-table lookup are
 /// pre-validated on insert, so this check is the load-bearing one for literal field-line
 /// variants whose values were not seen by the encoder-stream parser.
 fn entry_field_line(
     name: EntryName<'_>,
-    value: Cow<'static, [u8]>,
+    value: FieldLineValue<'_>,
     never_indexed: bool,
 ) -> Result<FieldLine, H3ErrorCode> {
     let err = || H3ErrorCode::QpackDecompressionFailed;
@@ -253,8 +252,20 @@ fn entry_field_line(
             return Ok(FieldLine::Pseudo(PseudoHeader::Other(
                 other,
                 Some(match value {
-                    Cow::Borrowed(b) => Cow::Borrowed(std::str::from_utf8(b).map_err(|_| err())?),
-                    Cow::Owned(b) => Cow::Owned(String::from_utf8(b).map_err(|_| err())?),
+                    FieldLineValue::Static(b) => {
+                        Cow::Borrowed(std::str::from_utf8(b).map_err(|_| err())?)
+                    }
+                    FieldLineValue::Borrowed(b) => {
+                        Cow::Owned(std::str::from_utf8(b).map_err(|_| err())?.to_owned())
+                    }
+                    FieldLineValue::Owned(b) => {
+                        Cow::Owned(String::from_utf8(b).map_err(|_| err())?)
+                    }
+                    FieldLineValue::Shared(s) => Cow::Owned(
+                        std::str::from_utf8(s.as_bytes())
+                            .map_err(|_| err())?
+                            .to_owned(),
+                    ),
                 }),
             )));
         }

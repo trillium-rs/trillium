@@ -48,6 +48,12 @@ pub struct Conn<Transport> {
     #[field(get, get_mut)]
     pub(crate) request_headers: Headers,
 
+    /// The previous request's header map, emptied but with its capacity retained. HTTP/1.x
+    /// parses the next request into it, salvaging entries from the current `request_headers`
+    /// as it goes; see `Headers::extend_parse_reusing`. `None` until a connection's second
+    /// request, so single-request connections never allocate it.
+    pub(crate) spare_request_headers: Option<Headers>,
+
     /// response [headers](Headers)
     #[field(get, get_mut)]
     pub(crate) response_headers: Headers,
@@ -173,6 +179,7 @@ impl<Transport> Debug for Conn<Transport> {
         f.debug_struct("Conn")
             .field("context", &self.context)
             .field("request_headers", &self.request_headers)
+            .field("spare_request_headers", &format_args!(".."))
             .field("response_headers", &self.response_headers)
             .field("path", &self.path)
             .field("method", &self.method)
@@ -518,6 +525,7 @@ where
         Conn {
             context: self.context,
             request_headers: self.request_headers,
+            spare_request_headers: self.spare_request_headers,
             response_headers: self.response_headers,
             method: self.method,
             response_body: self.response_body,

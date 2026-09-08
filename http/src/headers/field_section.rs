@@ -11,12 +11,13 @@ use super::{
     Headers,
     entry_name::{EntryName, PseudoHeaderName},
     header_value::HeaderValueInner,
+    shared_value::SharedValue,
 };
-use crate::{Method, Status, compact_cow::CompactCow};
+use crate::{HeaderValue, Method, Status, compact_cow::CompactCow};
 use fieldwork::Fieldwork;
 use smallvec::SmallVec;
 use std::{
-    borrow::Cow,
+    borrow::{Borrow, Cow},
     fmt::{self, Display, Formatter},
     hash,
     ops::Deref,
@@ -156,11 +157,18 @@ impl<'a> FieldSection<'a> {
     /// HPACK / QPACK N bit per value; pseudo-headers are always `false` because they
     /// round-trip through typed `Conn` fields, not the `Headers` map.
     pub(in crate::headers) fn field_lines(&self) -> FieldLines<'_> {
-        fn field_line_value_from(v: &crate::HeaderValue) -> FieldLineValue<'_> {
-            if let HeaderValueInner::Utf8(CompactCow::Borrowed(b)) = &v.inner {
-                FieldLineValue::Static(b.as_bytes())
-            } else {
-                FieldLineValue::Borrowed(v.as_ref())
+        fn field_line_value_from(v: &HeaderValue) -> FieldLineValue<'_> {
+            match &v.inner {
+                HeaderValueInner::Utf8(CompactCow::Borrowed(b)) => {
+                    FieldLineValue::Static(b.as_bytes())
+                }
+                HeaderValueInner::Utf8(CompactCow::Shared(s)) => {
+                    FieldLineValue::Shared(SharedValue::Utf8(s.clone()))
+                }
+                HeaderValueInner::Bytes(b) => FieldLineValue::Shared(SharedValue::Bytes(b.clone())),
+                HeaderValueInner::Utf8(CompactCow::Owned(_)) => {
+                    FieldLineValue::Borrowed(v.as_ref())
+                }
             }
         }
 
@@ -295,7 +303,8 @@ pub(in crate::headers) type FieldLines<'a> =
 /// Serves the same purpose as `Cow<'a, Cow<'static, [u8]>>` but with a cleaner surface. The
 /// `Static` variant lets us keep static literals cheap through the whole encode path;
 /// `Borrowed` lets a decoder yield zero-copy slices into the frame buffer; `Owned` is the
-/// escape hatch for Huffman-decoded bytes and similar transforms.
+/// escape hatch for Huffman-decoded bytes and similar transforms; `Shared` is a value that
+/// lives in a dynamic table and is handed out by refcount bump.
 ///
 /// `PartialEq` / `Eq` / `Hash` delegate to the underlying bytes — provenance is a storage
 /// detail, not a semantic distinction.
@@ -304,6 +313,7 @@ pub(crate) enum FieldLineValue<'a> {
     Static(&'static [u8]),
     Borrowed(&'a [u8]),
     Owned(Vec<u8>),
+    Shared(SharedValue),
 }
 
 impl Deref for FieldLineValue<'_> {
@@ -322,6 +332,14 @@ impl PartialEq for FieldLineValue<'_> {
 
 impl Eq for FieldLineValue<'_> {}
 
+/// `Hash` and `Eq` go through `as_bytes`, so a map keyed by `FieldLineValue` can be probed
+/// with a bare `&[u8]`.
+impl Borrow<[u8]> for FieldLineValue<'_> {
+    fn borrow(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
 impl hash::Hash for FieldLineValue<'_> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.as_bytes().hash(state);
@@ -329,11 +347,12 @@ impl hash::Hash for FieldLineValue<'_> {
 }
 
 impl FieldLineValue<'_> {
-    pub(in crate::headers) fn into_static(self) -> Cow<'static, [u8]> {
+    /// Convert to a form suitable for storage in a dynamic table: `Static` stays static
+    /// (already free to copy), everything else becomes `Shared`.
+    pub(in crate::headers) fn into_shared(self) -> FieldLineValue<'static> {
         match self {
-            FieldLineValue::Static(b) => Cow::Borrowed(b),
-            FieldLineValue::Borrowed(b) => Cow::Owned(b.to_vec()),
-            FieldLineValue::Owned(b) => Cow::Owned(b),
+            FieldLineValue::Static(b) => FieldLineValue::Static(b),
+            other => FieldLineValue::Shared(other.into()),
         }
     }
 
@@ -342,6 +361,7 @@ impl FieldLineValue<'_> {
             FieldLineValue::Static(items) => FieldLineValue::Static(items),
             FieldLineValue::Borrowed(items) => FieldLineValue::Borrowed(items),
             FieldLineValue::Owned(items) => FieldLineValue::Borrowed(items),
+            FieldLineValue::Shared(shared) => FieldLineValue::Shared(shared.clone()),
         }
     }
 
@@ -349,6 +369,30 @@ impl FieldLineValue<'_> {
         match self {
             FieldLineValue::Static(items) | FieldLineValue::Borrowed(items) => items,
             FieldLineValue::Owned(items) => items,
+            FieldLineValue::Shared(shared) => shared.as_bytes(),
+        }
+    }
+}
+
+impl From<Cow<'static, [u8]>> for FieldLineValue<'static> {
+    fn from(value: Cow<'static, [u8]>) -> Self {
+        match value {
+            Cow::Borrowed(b) => FieldLineValue::Static(b),
+            Cow::Owned(v) => FieldLineValue::Owned(v),
+        }
+    }
+}
+
+/// Borrowed bytes are copied straight into a `HeaderValue`'s inline storage when they fit,
+/// so the non-Huffman literal path never round-trips through a `Vec`. Owned bytes hand their
+/// allocation over instead of copying.
+impl From<FieldLineValue<'_>> for HeaderValue {
+    fn from(value: FieldLineValue<'_>) -> Self {
+        match value {
+            FieldLineValue::Static(b) => HeaderValue::from(b),
+            FieldLineValue::Borrowed(b) => HeaderValue::parse(b),
+            FieldLineValue::Owned(v) => HeaderValue::from(v),
+            FieldLineValue::Shared(s) => HeaderValue::from(s),
         }
     }
 }

@@ -342,13 +342,13 @@ fn c_5_response_sequence_with_eviction() {
     assert_table_size(&table, 215);
 }
 
-/// Sanity: `FieldLineValue` for decoded dynamic-table entries should be Owned (came from the
-/// wire, not static string slices).
+/// Sanity: `FieldLineValue` for decoded dynamic-table entries should be Shared (came from
+/// the wire, not static string slices).
 #[test]
-fn inserted_values_are_owned() {
+fn inserted_values_are_shared() {
     let mut table = DynamicTable::new(DEFAULT_MAX);
     decode(C3_REQUEST_1, &mut table, DEFAULT_MAX).unwrap();
     let entry = table.get(1).unwrap();
-    assert!(matches!(entry.value, FieldLineValue::Owned(_)));
+    assert!(matches!(entry.value, FieldLineValue::Shared(_)));
     assert!(matches!(entry.name, EntryName::Pseudo(_)));
 }

@@ -63,6 +63,13 @@ impl UnknownHeaderName<'_> {
                 compact_string.make_ascii_lowercase();
                 Self(CompactCow::Owned(compact_string))
             }
+            CompactCow::Shared(shared) => {
+                if shared.bytes().any(|b| b.is_ascii_uppercase()) {
+                    Self(CompactCow::Owned(shared.to_ascii_lowercase().into()))
+                } else {
+                    Self(CompactCow::Shared(shared))
+                }
+            }
         }
     }
 }
@@ -277,7 +284,7 @@ impl UnknownHeaderName<'static> {
     pub(crate) fn as_static_str(&self) -> Option<&'static str> {
         match self.0 {
             CompactCow::Borrowed(s) => Some(s),
-            CompactCow::Owned(_) => None,
+            CompactCow::Owned(_) | CompactCow::Shared(_) => None,
         }
     }
 
@@ -298,7 +305,7 @@ impl UnknownHeaderName<'static> {
                     Self(CompactCow::Borrowed(s))
                 }
             }
-            CompactCow::Owned(_) => self.into_lower(),
+            CompactCow::Owned(_) | CompactCow::Shared(_) => self.into_lower(),
         }
     }
 }

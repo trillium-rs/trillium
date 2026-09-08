@@ -4,6 +4,7 @@ use compact_str::CompactString;
 use std::{
     borrow::Cow,
     fmt::{Debug, Display, Formatter, Write},
+    sync::Arc,
 };
 
 /// A `HeaderValue` represents the right hand side of a single `name:
@@ -80,7 +81,7 @@ impl From<Cow<'static, [u8]>> for HeaderValue {
 #[derive(Eq, PartialEq, Clone, Hash)]
 pub(crate) enum HeaderValueInner {
     Utf8(CompactCow<'static>),
-    Bytes(Box<[u8]>),
+    Bytes(Arc<[u8]>),
 }
 
 impl PartialOrd for HeaderValueInner {

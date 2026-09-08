@@ -12,11 +12,7 @@ mod rfc7541_vectors;
 #[cfg(test)]
 mod tests;
 
-use super::{
-    HpackDecodeError,
-    dynamic_table::{DynamicTable, Entry},
-    static_table::{StaticHeaderName, static_entry},
-};
+use super::{HpackDecodeError, dynamic_table::DynamicTable, static_table::static_entry};
 use crate::{
     HeaderName, HeaderValue, Headers, Method, Status,
     headers::{
@@ -105,16 +101,16 @@ pub(in crate::headers) fn decode(
             size_updates_allowed = false;
             input = rest;
 
-            table.insert(name.clone(), value.clone());
-            emit_literal(
-                name,
-                value,
+            emit_from_entry(
+                &name,
+                value.reborrow(),
                 false,
                 &mut pseudo_headers,
                 &mut headers,
                 &mut saw_regular,
                 &mut malformed,
             )?;
+            table.insert(name, value.into_shared());
         } else if first & SIZE_UPDATE != 0 {
             if !size_updates_allowed {
                 return Err(CompressionError::UnexpectedEnd.into());
@@ -132,8 +128,8 @@ pub(in crate::headers) fn decode(
             let (name, value, rest) = read_literal_name_value(rest, index, table)?;
             size_updates_allowed = false;
             input = rest;
-            emit_literal(
-                name,
+            emit_from_entry(
+                &name,
                 value,
                 true,
                 &mut pseudo_headers,
@@ -146,8 +142,8 @@ pub(in crate::headers) fn decode(
             let (name, value, rest) = read_literal_name_value(rest, index, table)?;
             size_updates_allowed = false;
             input = rest;
-            emit_literal(
-                name,
+            emit_from_entry(
+                &name,
                 value,
                 false,
                 &mut pseudo_headers,
@@ -176,10 +172,10 @@ fn emit_indexed(
 ) -> Result<(), CompressionError> {
     if index <= 61 {
         let (name, value) = static_entry(index)?;
-        let value_bytes = FieldLineValue::Static(value.as_bytes());
-        emit_from_entry_ref(
-            *name,
-            value_bytes,
+        emit_from_entry(
+            &EntryName::from(*name),
+            FieldLineValue::Static(value.as_bytes()),
+            false,
             pseudo_headers,
             headers,
             saw_regular,
@@ -191,7 +187,8 @@ fn emit_indexed(
             .get(dyn_index)
             .ok_or(CompressionError::InvalidStaticIndex(index))?;
         emit_from_entry(
-            entry,
+            &entry.name,
+            entry.value.reborrow(),
             false,
             pseudo_headers,
             headers,
@@ -210,10 +207,14 @@ fn read_literal_name_value<'a>(
     input: &'a [u8],
     index: usize,
     table: &DynamicTable,
-) -> Result<(EntryName<'static>, FieldLineValue<'static>, &'a [u8]), CompressionError> {
+) -> Result<(EntryName<'static>, FieldLineValue<'a>, &'a [u8]), CompressionError> {
     let (name, rest) = if index == 0 {
         let (bytes, rest) = read_string(input)?;
-        let name = EntryName::try_from(bytes).map_err(|()| CompressionError::InvalidHeaderName)?;
+        let name = match bytes {
+            FieldLineValue::Owned(vec) => EntryName::try_from(vec),
+            other => EntryName::try_from(other.as_bytes()).map(EntryName::into_owned),
+        }
+        .map_err(|()| CompressionError::InvalidHeaderName)?;
         (name, rest)
     } else if index <= 61 {
         let (name, _) = static_entry(index)?;
@@ -228,14 +229,13 @@ fn read_literal_name_value<'a>(
         (entry.name.clone(), input)
     };
 
-    let (value_bytes, rest) = read_string(rest)?;
-    let value = FieldLineValue::Owned(value_bytes);
+    let (value, rest) = read_string(rest)?;
     Ok((name, value, rest))
 }
 
 /// Read a string literal: H-flag (1 bit) + length (7-bit prefix integer) + bytes. Returns
-/// the decoded bytes (Huffman-decoded if H was set) and the unconsumed tail.
-fn read_string(input: &[u8]) -> Result<(Vec<u8>, &[u8]), CompressionError> {
+/// the bytes (borrowed from `input` unless Huffman-decoded) and the unconsumed tail.
+fn read_string(input: &[u8]) -> Result<(FieldLineValue<'_>, &[u8]), CompressionError> {
     let [first, ..] = input else {
         return Err(CompressionError::UnexpectedEnd);
     };
@@ -245,89 +245,44 @@ fn read_string(input: &[u8]) -> Result<(Vec<u8>, &[u8]), CompressionError> {
         return Err(CompressionError::UnexpectedEnd);
     }
     let (bytes, rest) = rest.split_at(length);
-    let decoded = if huffman_encoded {
-        huffman::decode(bytes)?
+    let value = if huffman_encoded {
+        FieldLineValue::Owned(huffman::decode(bytes)?)
     } else {
-        bytes.to_vec()
+        FieldLineValue::Borrowed(bytes)
     };
-    Ok((decoded, rest))
+    Ok((value, rest))
 }
 
-/// Route an owned-form `(EntryName, FieldLineValue)` into pseudos or headers. `never_indexed`
-/// is the N bit lifted onto the produced `HeaderValue` for round-trip fidelity.
-fn emit_literal(
-    name: EntryName<'static>,
-    value: FieldLineValue<'static>,
-    never_indexed: bool,
-    pseudo_headers: &mut PseudoHeaders<'static>,
-    headers: &mut Headers,
-    saw_regular: &mut bool,
-    malformed: &mut Option<MalformedRequest>,
-) -> Result<(), CompressionError> {
-    emit_from_entry(
-        &Entry { name, value },
-        never_indexed,
-        pseudo_headers,
-        headers,
-        saw_regular,
-        malformed,
-    )
-}
-
-/// Route a `StaticHeaderName` + static `FieldLineValue` into pseudos or headers. Indexed
-/// representations never carry the N bit, so callers always pass `never_indexed=false`.
-fn emit_from_entry_ref(
-    name: StaticHeaderName,
-    value: FieldLineValue<'static>,
-    pseudo_headers: &mut PseudoHeaders<'static>,
-    headers: &mut Headers,
-    saw_regular: &mut bool,
-    malformed: &mut Option<MalformedRequest>,
-) -> Result<(), CompressionError> {
-    let entry_name: EntryName<'static> = name.into();
-    emit_from_entry(
-        &Entry {
-            name: entry_name,
-            value,
-        },
-        false,
-        pseudo_headers,
-        headers,
-        saw_regular,
-        malformed,
-    )
-}
-
-/// Shared emission path — takes a borrowed entry (owned by caller, cloned into Headers when
-/// needed) and dispatches to pseudo/header accumulators. Tracks pseudos-before-regulars
-/// ordering and pseudo uniqueness — both surface as [`MalformedRequest`] via the shared
-/// `malformed` slot so the caller can translate to the appropriate stream-level error.
+/// Shared emission path — dispatches a name/value pair to the pseudo/header accumulators.
+/// Tracks pseudos-before-regulars ordering and pseudo uniqueness — both surface as
+/// [`MalformedRequest`] via the shared `malformed` slot so the caller can translate to the
+/// appropriate stream-level error.
 fn emit_from_entry(
-    entry: &Entry,
+    name: &EntryName<'_>,
+    value: FieldLineValue<'_>,
     never_indexed: bool,
     pseudo_headers: &mut PseudoHeaders<'static>,
     headers: &mut Headers,
     saw_regular: &mut bool,
     malformed: &mut Option<MalformedRequest>,
 ) -> Result<(), CompressionError> {
-    let value_bytes: &[u8] = entry.value.as_bytes();
-    let make_value = || {
-        let mut v = HeaderValue::from(value_bytes.to_vec());
+    let make_value = |value: FieldLineValue<'_>| {
+        let mut v = HeaderValue::from(value);
         v.set_never_indexed(never_indexed);
         v
     };
-    match &entry.name {
+    match name {
         EntryName::Known(k) => {
             *saw_regular = true;
-            headers.append(HeaderName::from(*k), make_value());
+            headers.append(HeaderName::from(*k), make_value(value));
         }
         EntryName::Unknown(u) => {
             *saw_regular = true;
-            headers.append(HeaderName::from(u.clone().into_owned()), make_value());
+            headers.append(HeaderName::from(u.clone().into_owned()), make_value(value));
         }
         EntryName::UnknownStatic(s) => {
             *saw_regular = true;
-            headers.append(HeaderName::from(*s), make_value());
+            headers.append(HeaderName::from(*s), make_value(value));
         }
         EntryName::Pseudo(pseudo) => {
             // The N bit on a pseudo header has no place to live (pseudos route to typed
@@ -337,7 +292,7 @@ fn emit_from_entry(
                 log::trace!("hpack: pseudo-header after regular: {pseudo:?}");
                 malformed.get_or_insert(MalformedRequest::PseudoHeaderAfterRegular);
             }
-            insert_pseudo(*pseudo, value_bytes, pseudo_headers, malformed)?;
+            insert_pseudo(*pseudo, value.as_bytes(), pseudo_headers, malformed)?;
         }
     }
     Ok(())

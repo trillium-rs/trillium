@@ -443,7 +443,7 @@ impl<'state, 'lines, 'names> Planner<'state, 'lines, 'names> {
             let value_opt = if oldest.value.is_empty() {
                 None
             } else {
-                Some(FieldLineValue::Owned(oldest.value.to_vec()))
+                Some(oldest.value.clone())
             };
             (oldest_abs, name, value_opt)
         };

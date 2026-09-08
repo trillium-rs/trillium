@@ -17,7 +17,6 @@ use crate::headers::{
 };
 use hashbrown::HashMap;
 use std::{
-    borrow::Cow,
     collections::VecDeque,
     fmt::{self, Debug},
 };
@@ -80,9 +79,9 @@ pub(super) struct TableState {
 
 #[derive(Default)]
 pub(super) struct NameIndex {
-    /// Per-value map of live `abs_idx` values. Values are raw bytes so the encode
-    /// path can probe the map with `&[u8]` without allocating.
-    pub(super) by_value: HashMap<Cow<'static, [u8]>, u64>,
+    /// Per-value map of live `abs_idx` values. Keys hash and compare as raw bytes so
+    /// the encode path can probe the map with `&[u8]` without allocating.
+    pub(super) by_value: HashMap<FieldLineValue<'static>, u64>,
     /// Latest `abs_idx` across all entries in `by_value`. Recomputed on eviction
     /// when the evicted entry was the latest.
     pub(super) latest_any: u64,
@@ -96,7 +95,10 @@ impl Debug for NameIndex {
                 &fmt::from_fn(|f| {
                     let mut map = f.debug_map();
                     for (k, v) in &self.by_value {
-                        map.entry(&format_args!("{}", String::from_utf8_lossy(k)), v);
+                        map.entry(
+                            &format_args!("{}", String::from_utf8_lossy(k.as_bytes())),
+                            v,
+                        );
                     }
                     map.finish()
                 }),
@@ -109,7 +111,7 @@ impl Debug for NameIndex {
 #[derive(Clone)]
 pub(super) struct Entry {
     pub(super) name: EntryName<'static>,
-    pub(super) value: Cow<'static, [u8]>,
+    pub(super) value: FieldLineValue<'static>,
     /// `name.len() + value.len() + 32`.
     pub(super) size: usize,
 }
@@ -120,7 +122,7 @@ impl Debug for Entry {
             .field("name", &self.name)
             .field(
                 "value",
-                &format_args!("{}", String::from_utf8_lossy(&self.value)),
+                &format_args!("{}", String::from_utf8_lossy(self.value.as_bytes())),
             )
             .field("size", &self.size)
             .finish()
@@ -222,7 +224,7 @@ impl TableState {
 
         let abs_idx = self.insert_count;
         let name = name.into_owned();
-        let value = value.into_static();
+        let value = value.into_shared();
         let name_index = self.by_name.entry(name.clone()).or_default();
         name_index.by_value.insert(value.clone(), abs_idx);
         name_index.latest_any = abs_idx;
