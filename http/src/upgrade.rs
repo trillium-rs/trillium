@@ -647,6 +647,8 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             // post-send hooks no longer apply; `upgrade` is the marker that brought us here
             after_send: _,
             upgrade: _,
+            // only meaningful to the h1 keepalive loop, which an upgrade leaves for good
+            spare_request_headers: _,
             peer_gone,
         } = conn;
 

@@ -636,6 +636,7 @@ where
             mut buffer,
             state,
             mut request_headers,
+            mut previous_request_headers,
             mut response_headers,
             context,
             mut transport,
@@ -658,7 +659,16 @@ where
             error: mut first_error,
         } = RequestLine::parse(&buffer[..first_line_index]);
 
-        if let Err(e) = request_headers.extend_parse(&buffer[first_line_index + 2..head_size]) {
+        let header_bytes = &buffer[first_line_index + 2..head_size];
+        let parsed = match &mut previous_request_headers {
+            Some(previous) => {
+                let parsed = request_headers.extend_parse_reusing(header_bytes, previous);
+                previous.clear();
+                parsed
+            }
+            None => request_headers.extend_parse(header_bytes),
+        };
+        if let Err(e) = parsed {
             first_error.get_or_insert(e);
         }
 
@@ -674,6 +684,7 @@ where
             context,
             transport,
             request_headers,
+            spare_request_headers: previous_request_headers,
             method,
             version,
             path,

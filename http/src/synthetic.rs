@@ -141,6 +141,7 @@ impl Conn<Synthetic> {
             context: Arc::default(),
             transport,
             request_headers,
+            spare_request_headers: None,
             response_headers: Headers::new(),
             path: Cow::Owned(path.into()),
             method,

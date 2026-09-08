@@ -54,6 +54,7 @@ where
             .unwrap_or_default();
 
         Ok(Conn {
+            spare_request_headers: None,
             context: h2_connection.context(),
             transport,
             request_headers,

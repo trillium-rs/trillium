@@ -4,14 +4,17 @@ use std::{
     fmt::{Debug, Display, Formatter, Result},
     hash::{Hash, Hasher},
     ops::Deref,
+    sync::Arc,
 };
 
-/// A cow that holds either a borrowed `&str` or an owned [`CompactString`], so that short
-/// runtime-allocated strings stay inline rather than hitting the heap.
+/// A cow that holds a borrowed `&str`, an owned [`CompactString`] (so short runtime strings
+/// stay inline rather than hitting the heap), or a reference-counted `str` shared with
+/// another owner such as a compression dynamic table.
 #[derive(Clone)]
 pub(crate) enum CompactCow<'a> {
     Borrowed(&'a str),
     Owned(CompactString),
+    Shared(Arc<str>),
 }
 
 impl CompactCow<'_> {
@@ -19,6 +22,7 @@ impl CompactCow<'_> {
         match self {
             CompactCow::Borrowed(b) => CompactCow::Owned(CompactString::from(b)),
             CompactCow::Owned(o) => CompactCow::Owned(o),
+            CompactCow::Shared(s) => CompactCow::Shared(s),
         }
     }
 }
@@ -94,6 +98,12 @@ impl From<CompactString> for CompactCow<'_> {
     }
 }
 
+impl From<Arc<str>> for CompactCow<'_> {
+    fn from(s: Arc<str>) -> Self {
+        Self::Shared(s)
+    }
+}
+
 impl Deref for CompactCow<'_> {
     type Target = str;
 
@@ -101,6 +111,7 @@ impl Deref for CompactCow<'_> {
         match self {
             Self::Borrowed(b) => b,
             Self::Owned(o) => o,
+            Self::Shared(s) => s,
         }
     }
 }

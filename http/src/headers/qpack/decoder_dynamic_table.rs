@@ -7,11 +7,10 @@
 
 use crate::{
     h3::{H3Error, H3ErrorCode},
-    headers::entry_name::EntryName,
+    headers::{entry_name::EntryName, field_section::FieldLineValue},
 };
 use event_listener::{Event, EventListener};
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, VecDeque},
     fmt::{self, Debug},
     future::Future,
@@ -113,7 +112,7 @@ pub(in crate::headers) struct PendingSectionAck {
 #[derive(Clone)]
 struct DynamicEntry {
     name: EntryName<'static>,
-    value: Cow<'static, [u8]>,
+    value: FieldLineValue<'static>,
     /// `name.len() + value.len() + 32`.
     size: usize,
 }
@@ -124,7 +123,7 @@ impl Debug for DynamicEntry {
             .field("name", &self.name)
             .field(
                 "value",
-                &format_args!("{}", String::from_utf8_lossy(&self.value)),
+                &format_args!("{}", String::from_utf8_lossy(self.value.as_bytes())),
             )
             .field("size", &self.size)
             .finish()
@@ -263,10 +262,11 @@ impl DecoderDynamicTable {
     pub(in crate::headers) fn insert(
         &self,
         name: impl Into<EntryName<'static>>,
-        value: Cow<'static, [u8]>,
+        value: impl Into<FieldLineValue<'static>>,
     ) -> Result<(), H3Error> {
         let name = name.into();
-        let entry_size = name.len() + value.as_ref().len() + 32;
+        let value = value.into().into_shared();
+        let entry_size = name.len() + value.as_bytes().len() + 32;
         let mut inner = self.inner.lock().unwrap();
 
         if entry_size > inner.capacity {
@@ -390,7 +390,7 @@ impl DecoderDynamicTable {
         &self,
         absolute_index: u64,
         required_insert_count: u64,
-    ) -> Result<(EntryName<'static>, Cow<'static, [u8]>), H3Error> {
+    ) -> Result<(EntryName<'static>, FieldLineValue<'static>), H3Error> {
         ThresholdWait {
             table: self,
             threshold: required_insert_count,
@@ -479,7 +479,7 @@ impl Drop for ThresholdWait<'_> {
 }
 
 impl DecoderDynamicTableInner {
-    fn get(&self, absolute_index: u64) -> Option<(EntryName<'static>, Cow<'static, [u8]>)> {
+    fn get(&self, absolute_index: u64) -> Option<(EntryName<'static>, FieldLineValue<'static>)> {
         // entries[0] = newest = absolute index (insert_count - 1)
         // entries[i] = absolute index (insert_count - 1 - i)
         let i = usize::try_from(

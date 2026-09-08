@@ -269,9 +269,9 @@ fn pseudo_authority_surfaces() {
     assert_eq!(fs.pseudo_headers().authority(), Some("example.com"));
 }
 
-/// Provenance: decoded values are Owned (came from the wire, materialized as Vec).
+/// Provenance: decoded values are Shared (came from the wire, refcounted from the table).
 #[test]
-fn decoded_values_are_owned() {
+fn decoded_values_are_shared() {
     let mut table = fresh_table();
     let mut bytes = vec![0x40, 3];
     bytes.extend_from_slice(b"foo");
@@ -279,5 +279,5 @@ fn decoded_values_are_owned() {
     bytes.extend_from_slice(b"bar");
     decode(&bytes, &mut table, DEFAULT_PROTOCOL_MAX).unwrap();
     let entry = table.get(1).unwrap();
-    assert!(matches!(entry.value, FieldLineValue::Owned(_)));
+    assert!(matches!(entry.value, FieldLineValue::Shared(_)));
 }

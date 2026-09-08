@@ -4,6 +4,7 @@ pub(crate) mod date;
 mod entry;
 mod entry_name;
 mod field_section;
+mod h1_parse;
 mod header_name;
 pub(crate) mod header_observer;
 mod header_value;
@@ -16,6 +17,7 @@ pub(crate) mod huffman;
 mod integer_prefix;
 mod known_header_name;
 pub(in crate::headers) mod recent_pairs;
+mod shared_value;
 mod static_hit;
 mod unknown_header_name;
 
@@ -97,50 +99,6 @@ impl Headers {
             known: HashMap::with_capacity(known),
             unknown: HashMap::with_capacity(unknown),
         }
-    }
-
-    #[doc(hidden)]
-    pub fn extend_parse(&mut self, bytes: &[u8]) -> Result<usize, crate::Error> {
-        use memchr::memmem::Finder;
-
-        let mut new_header_count = 0;
-        let mut last_line = 0;
-        for newline in Finder::new(b"\r\n").find_iter(bytes) {
-            if newline == last_line {
-                continue;
-            }
-
-            let line = &bytes[last_line..newline];
-
-            // Validate each field line as it's parsed, appending the valid ones as we go. On the
-            // first violation we return `Err` with `self` still holding everything before it, so
-            // the request parser can synthesize a response from the partial parse
-            // rather than closing blind. A line with no colon — e.g. an obs-fold
-            // continuation — has no name and is rejected (obs-fold is forbidden in requests).
-            let colon = memchr::memchr(b':', line).ok_or(crate::Error::InvalidHeaderName)?;
-            let name = HeaderName::parse(&line[..colon])?;
-            if !name.is_valid() {
-                return Err(crate::Error::InvalidHeaderName);
-            }
-
-            let mut value_start = colon + 1;
-            while line
-                .get(value_start)
-                .is_some_and(|b| matches!(b, b'\t' | b' '))
-            {
-                value_start += 1;
-            }
-            let value_bytes = line[value_start..].trim_ascii_end();
-            // A field value carries no C0 control except HTAB; obs-text (`0x80..=0xFF`) is allowed.
-            if !value_bytes.iter().all(|&b| b >= 0x20 || b == b'\t') {
-                return Err(crate::Error::InvalidHeaderValue(name.to_owned()));
-            }
-
-            self.append(name.to_owned(), HeaderValue::parse(value_bytes));
-            new_header_count += 1;
-            last_line = newline + 2;
-        }
-        Ok(new_header_count)
     }
 
     #[doc(hidden)]
