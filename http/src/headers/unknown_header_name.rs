@@ -1,6 +1,6 @@
 use super::{HeaderName, HeaderNameInner::UnknownHeader};
+use crate::compact_cow::CompactCow;
 use hashbrown::{Equivalent, HashSet};
-use smartcow::SmartCow;
 use std::{
     cmp::Ordering,
     fmt::{self, Debug, Display, Formatter},
@@ -10,7 +10,7 @@ use std::{
 };
 
 #[derive(Clone)]
-pub(crate) struct UnknownHeaderName<'a>(SmartCow<'a>);
+pub(crate) struct UnknownHeaderName<'a>(CompactCow<'a>);
 
 impl UnknownHeaderName<'_> {
     pub(crate) fn is_valid_lower(&self) -> bool {
@@ -43,9 +43,9 @@ impl UnknownHeaderName<'_> {
 
     pub(crate) fn into_lower(self) -> Self {
         match self.0 {
-            SmartCow::Borrowed(borrowed) => {
+            CompactCow::Borrowed(borrowed) => {
                 if let Some(first_upper) = borrowed.chars().position(|c| c.is_ascii_uppercase()) {
-                    Self(SmartCow::Owned(
+                    Self(CompactCow::Owned(
                         borrowed[..first_upper]
                             .chars()
                             .chain(
@@ -56,12 +56,12 @@ impl UnknownHeaderName<'_> {
                             .collect(),
                     ))
                 } else {
-                    Self(SmartCow::Borrowed(borrowed))
+                    Self(CompactCow::Borrowed(borrowed))
                 }
             }
-            SmartCow::Owned(mut smart_string) => {
-                smart_string.make_ascii_lowercase();
-                Self(SmartCow::Owned(smart_string))
+            CompactCow::Owned(mut compact_string) => {
+                compact_string.make_ascii_lowercase();
+                Self(CompactCow::Owned(compact_string))
             }
         }
     }
@@ -155,7 +155,7 @@ impl UnknownHeaderName<'_> {
 
 impl<'a> UnknownHeaderName<'a> {
     pub(crate) fn reborrow<'b: 'a>(&'b self) -> UnknownHeaderName<'b> {
-        Self(self.0.borrow())
+        Self(CompactCow::Borrowed(&self.0))
     }
 }
 
@@ -171,13 +171,13 @@ impl<'a> From<&'a str> for UnknownHeaderName<'a> {
     }
 }
 
-impl<'a> From<SmartCow<'a>> for UnknownHeaderName<'a> {
-    fn from(value: SmartCow<'a>) -> Self {
+impl<'a> From<CompactCow<'a>> for UnknownHeaderName<'a> {
+    fn from(value: CompactCow<'a>) -> Self {
         Self(value)
     }
 }
 
-impl<'a> From<UnknownHeaderName<'a>> for SmartCow<'a> {
+impl<'a> From<UnknownHeaderName<'a>> for CompactCow<'a> {
     fn from(value: UnknownHeaderName<'a>) -> Self {
         value.0
     }
@@ -273,32 +273,32 @@ fn intern_lowercase(s: &'static str) -> &'static str {
 impl UnknownHeaderName<'static> {
     /// Recover the underlying `&'static str` if this name is backed by a borrowed
     /// reference into static memory (a literal or an interned lowercased literal).
-    /// Returns `None` for runtime-allocated names (`SmartCow::Owned`).
+    /// Returns `None` for runtime-allocated names (`CompactCow::Owned`).
     pub(crate) fn as_static_str(&self) -> Option<&'static str> {
         match self.0 {
-            SmartCow::Borrowed(s) => Some(s),
-            SmartCow::Owned(_) => None,
+            CompactCow::Borrowed(s) => Some(s),
+            CompactCow::Owned(_) => None,
         }
     }
 
     /// Like [`Self::into_lower`], but for the uppercase-borrowed-static case it
     /// interns the lowercased form via [`intern_lowercase`] instead of allocating
-    /// an Owned copy. The result is therefore *always* `SmartCow::Borrowed` (and
+    /// an Owned copy. The result is therefore *always* `CompactCow::Borrowed` (and
     /// hence `&'static str`-recoverable via [`as_static_str`]) when the input was
-    /// `SmartCow::Borrowed`. `Owned` inputs fall back to the regular
+    /// `CompactCow::Borrowed`. `Owned` inputs fall back to the regular
     /// [`Self::into_lower`] path and are not interned.
     ///
     /// [`as_static_str`]: Self::as_static_str
     pub(crate) fn into_lower_static(self) -> Self {
         match self.0 {
-            SmartCow::Borrowed(s) => {
+            CompactCow::Borrowed(s) => {
                 if s.bytes().any(|b| b.is_ascii_uppercase()) {
-                    Self(SmartCow::Borrowed(intern_lowercase(s)))
+                    Self(CompactCow::Borrowed(intern_lowercase(s)))
                 } else {
-                    Self(SmartCow::Borrowed(s))
+                    Self(CompactCow::Borrowed(s))
                 }
             }
-            SmartCow::Owned(_) => self.into_lower(),
+            CompactCow::Owned(_) => self.into_lower(),
         }
     }
 }
@@ -356,14 +356,14 @@ mod tests {
 
     #[test]
     fn into_lower_static_borrowed_uppercase() {
-        let n = UnknownHeaderName(SmartCow::Borrowed("X-Static-Upper")).into_lower_static();
+        let n = UnknownHeaderName(CompactCow::Borrowed("X-Static-Upper")).into_lower_static();
         assert_eq!(n.as_static_str(), Some("x-static-upper"));
     }
 
     #[test]
     fn into_lower_static_borrowed_lowercase_passthrough() {
         let original: &'static str = "x-static-lower";
-        let n = UnknownHeaderName(SmartCow::Borrowed(original)).into_lower_static();
+        let n = UnknownHeaderName(CompactCow::Borrowed(original)).into_lower_static();
         let got = n.as_static_str().unwrap();
         assert!(
             std::ptr::eq(got, original),

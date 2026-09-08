@@ -139,6 +139,7 @@ pub(crate) mod after_send;
 mod body;
 mod buffer;
 mod bufwriter;
+mod compact_cow;
 mod conn;
 mod connection_status;
 mod copy;
