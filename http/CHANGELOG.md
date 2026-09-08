@@ -6,9 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.7.2] - 2026-09-08
 
-### Performance
+### Changed
 
 - Performance: For HTTP 1.1, 2, and 3, parsing headers allocates less
+
+### Fixed
+
+- HTTP/2 header compression did not use the dynamic table when the peer's SETTINGS omitted
+  `SETTINGS_HEADER_TABLE_SIZE`, so repeated headers were sent as full literals on every
+  request. They are now sent as indexed references after their first occurrence.
+
 
 ## [1.7.1] - 2026-09-08
 

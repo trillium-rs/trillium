@@ -21,18 +21,13 @@ mod tests;
 
 /// Per-connection HPACK encoder.
 ///
-/// Construct one per HTTP/2 connection (server or client). The operational table size
-/// starts at 0 (encoder reduces to static-or-literal) until the peer's
-/// `SETTINGS_HEADER_TABLE_SIZE` arrives via [`Self::set_protocol_max_size`]. At that
-/// point, the operational size is raised to `min(local_preferred_size, peer_advertised)`
-/// and a Dynamic Table Size Update is queued for the next encode call. Subsequent peer
-/// SETTINGS changes flow through the same path.
-///
-/// This "wait for peer" posture differs from the spec's stated default of 4096 (we
-/// *could* use the dynamic table from frame zero) but mirrors QPACK's
-/// peer-advertised-capacity model, removes a client-side race where pre-SETTINGS HEADERS
-/// would be emitted assuming 4096 against a peer that intends to advertise less, and
-/// unifies the mental model across HPACK and QPACK.
+/// Construct one per HTTP/2 connection (server or client). The dynamic table starts at
+/// `min(local_preferred_size, 4096)`, the size a peer's decoder assumes until its SETTINGS
+/// say otherwise; a peer that later advertises less must accept the larger size until its
+/// SETTINGS are acknowledged, so encoding against the default from the first frame is safe.
+/// When an explicit `SETTINGS_HEADER_TABLE_SIZE` arrives, [`Self::set_protocol_max_size`]
+/// recomputes the size as `min(local_preferred_size, peer_advertised)` and, if it changed,
+/// queues a Dynamic Table Size Update for the next encode call.
 ///
 /// The cross-connection header observer is shared via `Arc` across all connections on a
 /// listener; this encoder folds its per-connection observation accumulator into the
@@ -50,14 +45,12 @@ impl HpackEncoder {
     /// Construct a new HPACK encoder with the given local preferred dynamic-table capacity
     /// (bytes) and recent-pairs ring size. When `recent_pairs_auto` is set, the ring size
     /// and insert threshold are re-derived from the operational table size on each
-    /// [`Self::set_protocol_max_size`], and `recent_pairs_size` only sizes the
-    /// pre-SETTINGS ring (inert — the operational size is 0, so nothing inserts).
+    /// [`Self::set_protocol_max_size`] and at construction, and `recent_pairs_size` is
+    /// ignored.
     ///
-    /// The encoder's operational size starts at 0 and is raised on the first call to
-    /// [`Self::set_protocol_max_size`] (typically driven by the peer's
-    /// `SETTINGS_HEADER_TABLE_SIZE`). `local_preferred_size = 0` is a valid input: the
-    /// encoder will never insert regardless of what the peer advertises (every candidate
-    /// fails the "entry alone exceeds `max_size`" check).
+    /// The encoder's operational size starts at `min(local_preferred_size, 4096)`.
+    /// `local_preferred_size = 0` is a valid input: the encoder will never insert regardless
+    /// of what the peer advertises (no candidate fits a zero-byte table).
     pub(crate) fn new(
         observer: Arc<HeaderObserver>,
         local_preferred_size: usize,

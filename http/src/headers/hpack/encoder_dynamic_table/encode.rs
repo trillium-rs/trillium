@@ -122,7 +122,8 @@ fn encode_line(
         2 => state.recent_pairs.seen(h),
         k => state.recent_pairs.count(h) + 1 >= usize::from(k),
     });
-    let should_index = ring_hit || (!uncacheable && observer.is_hot(name, Some(&value)));
+    let should_index = state.fits(name, value_bytes.len())
+        && (ring_hit || (!uncacheable && observer.is_hot(name, Some(&value))));
 
     if let Some(h) = hash {
         state.recent_pairs.remember(h);

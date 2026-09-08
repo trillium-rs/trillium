@@ -24,6 +24,9 @@ use std::{
 /// Per-entry overhead used in the size calculation.
 const ENTRY_OVERHEAD: usize = 32;
 
+/// `SETTINGS_HEADER_TABLE_SIZE` when the peer's SETTINGS frame omits it (RFC 9113 §6.5.2).
+const DEFAULT_HEADER_TABLE_SIZE: usize = 4096;
+
 #[derive(Debug)]
 pub(super) struct TableState {
     /// Entries in insertion order, newest first. `entries[0]` has dynamic index 1
@@ -35,9 +38,10 @@ pub(super) struct TableState {
     /// an insert would exceed it. An insert whose own size exceeds `max_size` clears the
     /// table and is not stored.
     ///
-    /// Starts at 0; raised when peer SETTINGS arrives. See
+    /// Starts at `min(local_preferred_size, 4096)` — the RFC default the peer's decoder
+    /// assumes until it advertises otherwise — and is recomputed by
     /// [`HpackEncoder::set_protocol_max_size`][super::HpackEncoder::set_protocol_max_size]
-    /// for the "wait for peer" rationale.
+    /// when an explicit `SETTINGS_HEADER_TABLE_SIZE` arrives.
     pub(super) max_size: usize,
     /// Encoder's local preferred operational size, fixed at construction. `max_size` is
     /// `min(local_preferred_size, peer_advertised_max)` — `peer_advertised_max` arrives
@@ -135,19 +139,37 @@ impl TableState {
         recent_pairs_size: usize,
         recent_pairs_auto: bool,
     ) -> Self {
+        let max_size = local_preferred_size.min(DEFAULT_HEADER_TABLE_SIZE);
+        let (recent_pairs, seen_k) = if recent_pairs_auto {
+            (
+                RecentPairs::with_size(RecentPairs::auto_size(max_size)),
+                RecentPairs::auto_seen_k(max_size),
+            )
+        } else {
+            (RecentPairs::with_size(recent_pairs_size), 2)
+        };
         Self {
             entries: VecDeque::new(),
             current_size: 0,
-            max_size: 0,
+            max_size,
             local_preferred_size,
-            pending_size_update: None,
+            // The decoder assumes 4096 until told otherwise, so only a smaller working size
+            // needs announcing.
+            pending_size_update: (max_size != DEFAULT_HEADER_TABLE_SIZE).then_some(max_size),
             insert_count: 0,
             by_name: HashMap::new(),
             accum: ConnectionAccumulator::default(),
-            recent_pairs: RecentPairs::with_size(recent_pairs_size),
+            recent_pairs,
             recent_pairs_auto,
-            seen_k: 2,
+            seen_k,
         }
+    }
+
+    /// Whether an entry of this name and value would be storable at all under the current
+    /// `max_size`. Encoding an insert for an entry that can't be stored would make the
+    /// peer's decoder churn its table for a reference we'd never emit.
+    pub(super) fn fits(&self, name: &EntryName<'_>, value_len: usize) -> bool {
+        name.len() + value_len + ENTRY_OVERHEAD <= self.max_size
     }
 
     /// Apply peer's advertised `SETTINGS_HEADER_TABLE_SIZE`. Recomputes the operational
@@ -205,21 +227,15 @@ impl TableState {
         Some(self.dyn_idx_of(abs_idx))
     }
 
-    /// Insert `(name, value)` at the newest end. An entry whose own size exceeds
-    /// `max_size` clears the table and is not stored — the wire instruction has already
-    /// been written by the caller, and the decoder applies the same rule on its side, so
-    /// the table stays in sync. Otherwise, oldest entries are evicted FIFO until the new
-    /// entry fits.
+    /// Insert `(name, value)` at the newest end, evicting oldest entries FIFO until it fits.
+    /// Callers check [`fits`](Self::fits) first and send the field without indexing when it
+    /// fails, so the §4.4 oversize-clears rule never has to fire here.
     pub(super) fn insert(&mut self, name: EntryName<'_>, value: FieldLineValue<'_>) {
+        debug_assert!(
+            self.fits(&name, value.len()),
+            "encode gates inserts on `fits`"
+        );
         let entry_size = name.len() + value.len() + ENTRY_OVERHEAD;
-
-        if entry_size > self.max_size {
-            self.entries.clear();
-            self.current_size = 0;
-            self.by_name.clear();
-            return;
-        }
-
         self.evict_until_fits(entry_size);
 
         let abs_idx = self.insert_count;
