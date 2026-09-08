@@ -1,6 +1,6 @@
 [package]
 name = "trillium-http"
-version = "1.7.0"
+version = "1.7.1"
 edition = "2024"
 description = "the http implementation for the trillium toolkit"
 license = "MIT OR Apache-2.0"
@@ -33,8 +33,7 @@ mime = "0.3.17"
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 rkyv = { version = "0.8.17", optional = true }
 smallvec = { version = "1.15.1", features = ["const_new"] }
-smartcow = "0.2.1"
-smartstring = "1.0.1"
+compact_str = "0.10"
 thiserror = "2.0.18"
 trillium-macros.workspace = true
 swansong = "0.3.4"

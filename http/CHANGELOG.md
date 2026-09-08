@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-09-08
+
+### Changed
+
+- Replaced the `smartstring` dependency with `compact_str`, per
+  [RUSTSEC-2026-0249](https://rustsec.org/advisories/RUSTSEC-2026-0249.html). This entails no public
+  API change, and there are no known security or performance consequences. Thanks to
+  [max3163](https://github.com/max3163) for
+  [reporting](https://github.com/trillium-rs/trillium/issues/965)
+
 ## [1.7.0] - 2026-09-01
 
 ### Added

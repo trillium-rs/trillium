@@ -12,10 +12,9 @@ use super::{
     entry_name::{EntryName, PseudoHeaderName},
     header_value::HeaderValueInner,
 };
-use crate::{Method, Status};
+use crate::{Method, Status, compact_cow::CompactCow};
 use fieldwork::Fieldwork;
 use smallvec::SmallVec;
-use smartcow::SmartCow;
 use std::{
     borrow::Cow,
     fmt::{self, Display, Formatter},
@@ -158,7 +157,7 @@ impl<'a> FieldSection<'a> {
     /// round-trip through typed `Conn` fields, not the `Headers` map.
     pub(in crate::headers) fn field_lines(&self) -> FieldLines<'_> {
         fn field_line_value_from(v: &crate::HeaderValue) -> FieldLineValue<'_> {
-            if let HeaderValueInner::Utf8(SmartCow::Borrowed(b)) = &v.inner {
+            if let HeaderValueInner::Utf8(CompactCow::Borrowed(b)) = &v.inner {
                 FieldLineValue::Static(b.as_bytes())
             } else {
                 FieldLineValue::Borrowed(v.as_ref())

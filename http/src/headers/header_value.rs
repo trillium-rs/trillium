@@ -1,6 +1,6 @@
+use crate::compact_cow::CompactCow;
 use HeaderValueInner::{Bytes, Utf8};
-use smartcow::SmartCow;
-use smartstring::SmartString;
+use compact_str::CompactString;
 use std::{
     borrow::Cow,
     fmt::{Debug, Display, Formatter, Write},
@@ -65,12 +65,12 @@ impl From<Cow<'static, [u8]>> for HeaderValue {
     fn from(value: Cow<'static, [u8]>) -> Self {
         match value {
             Cow::Borrowed(bytes) => match std::str::from_utf8(bytes) {
-                Ok(s) => Self::from_inner(Utf8(SmartCow::Borrowed(s))),
+                Ok(s) => Self::from_inner(Utf8(CompactCow::Borrowed(s))),
                 Err(_) => Self::from_inner(Bytes(bytes.into())),
             },
 
             Cow::Owned(bytes) => match String::from_utf8(bytes) {
-                Ok(s) => Self::from_inner(Utf8(SmartCow::Owned(s.into()))),
+                Ok(s) => Self::from_inner(Utf8(CompactCow::Owned(s.into()))),
                 Err(e) => Self::from_inner(Bytes(e.into_bytes().into())),
             },
         }
@@ -79,7 +79,7 @@ impl From<Cow<'static, [u8]>> for HeaderValue {
 
 #[derive(Eq, PartialEq, Clone, Hash)]
 pub(crate) enum HeaderValueInner {
-    Utf8(SmartCow<'static>),
+    Utf8(CompactCow<'static>),
     Bytes(Box<[u8]>),
 }
 
@@ -121,7 +121,7 @@ impl Debug for HeaderValue {
 impl HeaderValue {
     /// Build a new header value from a &'static str at compile time
     pub const fn const_new(value: &'static str) -> Self {
-        Self::from_inner(Utf8(SmartCow::Borrowed(value)))
+        Self::from_inner(Utf8(CompactCow::Borrowed(value)))
     }
 
     /// determine if this header contains no unsafe characters (\r, \n, \0)
@@ -142,7 +142,7 @@ impl HeaderValue {
 impl HeaderValue {
     pub(crate) fn parse(bytes: &[u8]) -> Self {
         match std::str::from_utf8(bytes) {
-            Ok(s) => Self::from_inner(Utf8(SmartCow::Owned(s.into()))),
+            Ok(s) => Self::from_inner(Utf8(CompactCow::Owned(s.into()))),
             Err(_) => Self::from_inner(Bytes(bytes.into())),
         }
     }
@@ -160,7 +160,7 @@ impl Display for HeaderValue {
 impl From<Vec<u8>> for HeaderValue {
     fn from(v: Vec<u8>) -> Self {
         match String::from_utf8(v) {
-            Ok(s) => Self::from_inner(Utf8(SmartCow::Owned(s.into()))),
+            Ok(s) => Self::from_inner(Utf8(CompactCow::Owned(s.into()))),
             Err(e) => Self::from_inner(Bytes(e.into_bytes().into())),
         }
     }
@@ -168,14 +168,14 @@ impl From<Vec<u8>> for HeaderValue {
 
 impl From<Cow<'static, str>> for HeaderValue {
     fn from(c: Cow<'static, str>) -> Self {
-        Self::from_inner(Utf8(SmartCow::from(c)))
+        Self::from_inner(Utf8(CompactCow::from(c)))
     }
 }
 
 impl From<&'static [u8]> for HeaderValue {
     fn from(b: &'static [u8]) -> Self {
         match std::str::from_utf8(b) {
-            Ok(s) => Self::from_inner(Utf8(SmartCow::Borrowed(s))),
+            Ok(s) => Self::from_inner(Utf8(CompactCow::Borrowed(s))),
             Err(_) => Self::from_inner(Bytes(b.into())),
         }
     }
@@ -183,13 +183,13 @@ impl From<&'static [u8]> for HeaderValue {
 
 impl From<String> for HeaderValue {
     fn from(s: String) -> Self {
-        Self::from_inner(Utf8(SmartCow::Owned(s.into())))
+        Self::from_inner(Utf8(CompactCow::Owned(s.into())))
     }
 }
 
 impl From<&'static str> for HeaderValue {
     fn from(s: &'static str) -> Self {
-        Self::from_inner(Utf8(SmartCow::Borrowed(s)))
+        Self::from_inner(Utf8(CompactCow::Borrowed(s)))
     }
 }
 
@@ -209,9 +209,9 @@ delegate_from_to_format!(usize, u64, u16, u32, i32, i64);
 
 impl From<std::fmt::Arguments<'_>> for HeaderValue {
     fn from(value: std::fmt::Arguments<'_>) -> Self {
-        let mut s = SmartString::new();
+        let mut s = CompactString::default();
         s.write_fmt(value).unwrap();
-        Self::from_inner(Utf8(SmartCow::Owned(s)))
+        Self::from_inner(Utf8(CompactCow::Owned(s)))
     }
 }
 
