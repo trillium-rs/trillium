@@ -104,7 +104,13 @@ where
         } else {
             let bytes = ready!(self.read_raw(cx, buf)?);
             if bytes == 0 {
-                return if let Some(expected) = self.content_length
+                return if remaining_in_frame > 0 {
+                    // The stream ended inside a frame payload that promised more bytes.
+                    // Without this the truncation would be indistinguishable from a clean
+                    // end of body whenever the running total happens to satisfy
+                    // content-length — including when there is no content-length at all.
+                    Ready(Err(io::Error::from(ErrorKind::UnexpectedEof)))
+                } else if let Some(expected) = self.content_length
                     && total != expected
                 {
                     Ready(Err(io::Error::new(
