@@ -37,7 +37,7 @@ trillium-server-common = { version = "0.7.12", path = "../server-common" }
 [dev-dependencies]
 async-channel = "2.5.0"
 env_logger = "0.11.10"
-h3i = "0.6.0"
+h3i = "0.7.0"
 rcgen = "0.14.7"
 trillium = { path = "../trillium" }
 trillium-client = { path = "../client" }
