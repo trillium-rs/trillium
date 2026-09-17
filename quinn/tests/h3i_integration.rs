@@ -8,7 +8,7 @@
 
 use futures_lite::AsyncRead;
 use h3i::{
-    actions::h3::{Action, send_headers_frame},
+    actions::h3::{Action, ExpectedStreamSendResult, send_headers_frame},
     client::{
         connection_summary::{CloseTriggerFrames, ConnectionSummary},
         sync_client,
@@ -143,6 +143,7 @@ fn send_data(stream_id: u64, payload: &'static [u8], fin: bool) -> Action {
         frame: quiche::h3::frame::Frame::Data {
             payload: payload.to_vec(),
         },
+        expected_result: ExpectedStreamSendResult::Ok,
     }
 }
 
