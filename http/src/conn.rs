@@ -31,7 +31,7 @@ mod h1_tests;
 mod h2;
 mod h3;
 mod shared;
-pub(crate) use h1::{HeadError, write_headers_or_trailers};
+pub(crate) use h1::{H1Status, HeadError, write_headers_or_trailers};
 pub(crate) use h3::H3FirstFrame;
 
 /// An HTTP connection.
@@ -600,7 +600,7 @@ mod tests {
 
     // Returned by every h1 response on its way back through the keep-alive loop.
     #[test]
-    fn connection_status_is_two_words() {
-        assert!(size_of::<crate::ConnectionStatus<()>>() <= 2 * size_of::<usize>());
+    fn h1_status_is_two_words() {
+        assert!(size_of::<super::H1Status<()>>() <= 2 * size_of::<usize>());
     }
 }

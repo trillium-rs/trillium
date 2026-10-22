@@ -1,7 +1,7 @@
 use super::ConnInner;
 use crate::{
-    BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
-    Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version,
+    BufWriter, Buffer, Conn, Error, Headers, HttpContext, KnownHeaderName, Method, ProtocolSession,
+    ReceivedBody, Result, Status, TypeSet, Upgrade, Version,
     after_send::AfterSend,
     body::BodyFraming,
     conn::ReceivedBodyState,
@@ -15,6 +15,19 @@ use std::{borrow::Cow, io::Write, mem, sync::Arc, time::Instant};
 mod request_head;
 
 pub(crate) use request_head::HeadError;
+
+/// What follows a response on an HTTP/1.x connection.
+pub(crate) enum H1Status<Transport> {
+    /// The next request on the connection.
+    Conn(Conn<Transport>),
+    /// A negotiated upgrade, which takes over the transport.
+    Upgrade(Upgrade<Transport>),
+    /// We're closing the connection, and the client may still be sending.
+    Close(Conn<Transport>),
+    /// The connection ended between requests: the client closed it, or the server is shutting
+    /// down. Nothing is left to read.
+    Ended(Conn<Transport>),
+}
 
 impl<Transport> Conn<Transport>
 where
@@ -121,7 +134,7 @@ where
         }
     }
 
-    pub(crate) async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
+    pub(crate) async fn send(mut self) -> Result<H1Status<Transport>> {
         let response_buffer_len = self.inner.context.config.response_buffer_len;
         let mut output_buffer = mem::take(&mut self.inner.response_buffer);
         output_buffer.reserve_exact(response_buffer_len);
@@ -306,7 +319,7 @@ where
         }
     }
 
-    async fn next(mut self) -> Result<ConnectionStatus<Transport>> {
+    async fn next(mut self) -> Result<H1Status<Transport>> {
         // Drain unless the body was already read to its end (draining allocates a buffer even
         // when there is nothing left), or we set up 100-continue and the client never started
         // sending: in that case no body bytes are coming and draining would block.
@@ -329,20 +342,17 @@ where
             }
             Err(Error::Closed) => {
                 log::trace!("connection closed by client");
-                return Ok(ConnectionStatus::Close);
+                return Ok(H1Status::Ended(self));
             }
             Err(Error::HeadersTooLong) => Err(HeadError::BadRequest(self.reject_oversized_head())),
             Err(e) => return Err(e),
         };
 
         match parsed {
-            Ok(conn) => Ok(ConnectionStatus::Conn(conn)),
+            Ok(conn) => Ok(H1Status::Conn(conn)),
 
-            Err(HeadError::BadRequest(bad)) => {
-                // Box to break the `send -> finish -> next -> send` async-recursion type cycle.
-                Box::pin(bad.send()).await?;
-                Ok(ConnectionStatus::Close)
-            }
+            // Box to break the `send -> finish -> next -> send` async-recursion type cycle.
+            Err(HeadError::BadRequest(bad)) => Box::pin(bad.send()).await,
 
             Err(HeadError::Fatal(e)) => Err(e),
         }
@@ -377,14 +387,14 @@ where
         }
     }
 
-    async fn finish(self) -> Result<ConnectionStatus<Transport>> {
+    async fn finish(self) -> Result<H1Status<Transport>> {
         // Upgrade takes precedence over `Connection: close`: the upgrade owns the rest of the
         // response (its body bytes are written post-handoff), so handing the conn off is the only
         // way to finish sending it. The connection still closes when the upgrade completes.
         if self.should_upgrade() {
-            Ok(ConnectionStatus::Upgrade(self.into()))
+            Ok(H1Status::Upgrade(self.into()))
         } else if self.should_close() {
-            Ok(ConnectionStatus::Close)
+            Ok(H1Status::Close(self))
         } else {
             self.next().await
         }
