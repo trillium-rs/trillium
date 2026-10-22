@@ -1,4 +1,5 @@
-//! A request head longer than `head_max_len` is answered with `431` before the connection closes.
+//! A request head longer than `head_max_len` is answered before the connection closes, with a
+//! status for the part of the head that overflowed.
 use std::{net::Shutdown, sync::Arc};
 use test_harness::test;
 use trillium_http::{Conn, HttpConfig, HttpContext};
@@ -49,6 +50,32 @@ async fn oversized_keep_alive_request_head_gets_431() {
     assert!(ok < too_large, "{response}");
     assert!(
         response[too_large..].contains("Connection: close\r\n"),
+        "{response}"
+    );
+}
+
+#[test(harness)]
+async fn oversized_request_target_gets_414() {
+    let response = drive(&format!(
+        "GET /{} HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        "a".repeat(100)
+    ))
+    .await;
+    assert!(
+        response.starts_with("HTTP/1.1 414 URI Too Long\r\n"),
+        "{response}"
+    );
+}
+
+#[test(harness)]
+async fn oversized_method_gets_400() {
+    let response = drive(&format!(
+        "{} / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        "A".repeat(100)
+    ))
+    .await;
+    assert!(
+        response.starts_with("HTTP/1.1 400 Bad Request\r\n"),
         "{response}"
     );
 }
