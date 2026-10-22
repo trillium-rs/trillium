@@ -33,7 +33,7 @@ mod submit;
 #[cfg(feature = "unstable")]
 use super::H2Initiator;
 use super::{H2Driver, H2Settings, role::Role, transport::StreamState};
-use crate::{Conn, HttpContext};
+use crate::{Conn, HttpContext, http_context::ConnectionContext};
 use atomic_waker::AtomicWaker;
 use event_listener::Event;
 use futures_lite::io::{AsyncRead, AsyncWrite};
@@ -62,7 +62,7 @@ pub use {response::ResponseHeaders, submit::SubmitSend};
 /// connection-level send flow control lives here.
 #[derive(Debug)]
 pub struct H2Connection {
-    pub(super) context: Arc<HttpContext>,
+    pub(super) context: ConnectionContext,
     pub(super) swansong: Swansong,
     /// Driver-side waker that conn tasks fire whenever they produce work the driver should
     /// act on — the is-reading signal on first `H2Transport::poll_read`, and the
@@ -128,7 +128,7 @@ impl H2Connection {
     pub fn new(context: Arc<HttpContext>) -> Arc<Self> {
         let swansong = context.swansong().child();
         Arc::new(Self {
-            context,
+            context: Arc::new(context),
             swansong,
             outbound_waker: AtomicWaker::new(),
             streams: Mutex::new(HashMap::new()),
@@ -145,7 +145,12 @@ impl H2Connection {
 
     /// The [`HttpContext`] this connection was constructed with.
     pub fn context(&self) -> Arc<HttpContext> {
-        self.context.clone()
+        Arc::clone(&*self.context)
+    }
+
+    /// This connection's handle on its [`HttpContext`], for each of its streams' conns to share.
+    pub(crate) fn connection_context(&self) -> ConnectionContext {
+        Arc::clone(&self.context)
     }
 
     /// The connection-scoped [`Swansong`]. Shuts down on peer GOAWAY, when the server-

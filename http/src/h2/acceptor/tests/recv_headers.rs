@@ -14,6 +14,7 @@ use crate::{
 use futures_lite::io::AsyncRead;
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -691,4 +692,23 @@ fn streams_opened_from_one_read_share_a_start_time() {
     fx.peer_open_stream(5, Method::Get, "/", true);
     let third = emitted(fx.tick());
     assert!(third.start_time() > second.start_time());
+}
+
+/// A stream's conn holds its connection's handle on the server's `HttpContext`, so opening and
+/// finishing streams never touches the refcount every connection shares.
+#[test]
+fn streams_do_not_clone_the_server_context() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+    let server_context = fx.connection.context();
+    let held = Arc::strong_count(&server_context);
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    let conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected a new request stream, got {other:?}"),
+    };
+    assert_eq!(Arc::strong_count(&server_context), held);
+    drop(conn);
+    assert_eq!(Arc::strong_count(&server_context), held);
 }

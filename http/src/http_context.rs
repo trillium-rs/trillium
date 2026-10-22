@@ -6,6 +6,13 @@ use fieldwork::Fieldwork;
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{future::Future, sync::Arc};
 use swansong::{ShutdownCompletion, Swansong};
+/// A connection's own handle on the server's [`HttpContext`].
+///
+/// A conn holds this rather than the server's `Arc` directly. The server's is shared by every
+/// connection on every core, so cloning and dropping it for each request or stream would make that
+/// one refcount contended; clones of a connection's handle stay with the connection.
+pub(crate) type ConnectionContext = Arc<Arc<HttpContext>>;
+
 /// Shared configuration and context for an http server.
 ///
 /// Contains tunable parameters in a [`HttpConfig`], the [`Swansong`] graceful shutdown control

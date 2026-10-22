@@ -683,7 +683,7 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
                 method,
                 state,
                 buffer,
-                context,
+                context: Arc::unwrap_or_clone(context),
                 peer_ip,
                 start_time,
                 authority,

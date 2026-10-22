@@ -169,7 +169,7 @@ where
             request_headers,
         } = validated;
 
-        let context = h3_connection.context();
+        let context = h3_connection.connection_context();
         let response_headers = initial_response_headers(&context);
 
         let request_body_state = ReceivedBodyState::new_h3();

@@ -48,7 +48,7 @@ where
             request_headers,
         } = ValidatedRequest::new(request_headers).ok_or(H2ErrorCode::ProtocolError)?;
 
-        let context = h2_connection.context();
+        let context = h2_connection.connection_context();
         let response_headers = initial_response_headers(&context);
 
         Ok(Conn {

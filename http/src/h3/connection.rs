@@ -8,6 +8,7 @@ use super::{
 };
 use crate::{
     Buffer, Conn, HttpContext, KnownHeaderName, PeerGone, Priority,
+    http_context::ConnectionContext,
     conn::H3FirstFrame,
     h3::{H3ErrorCode, MAX_BUFFER_SIZE},
     headers::qpack::{DecoderDynamicTable, EncoderDynamicTable, FieldSection},
@@ -112,7 +113,7 @@ pub enum UniStreamResult<T> {
 #[derive(Debug)]
 pub struct H3Connection {
     /// Shared configuration across all protocols.
-    context: Arc<HttpContext>,
+    context: ConnectionContext,
 
     /// Connection-scoped shutdown signal. Shut down when we receive GOAWAY from the peer or when
     /// the server-level Swansong shuts down.  Request stream tasks use this to interrupt
@@ -173,7 +174,7 @@ impl H3Connection {
         let blocked_streams = context.config.h3_blocked_streams;
         let encoder_dynamic_table = EncoderDynamicTable::new(&context);
         Arc::new(Self {
-            context,
+            context: Arc::new(context),
             swansong,
             peer_settings: OnceLock::new(),
             peer_settings_event: Event::new(),
@@ -270,7 +271,12 @@ impl H3Connection {
 
     /// Retrieve the [`HttpContext`] for this server.
     pub fn context(&self) -> Arc<HttpContext> {
-        self.context.clone()
+        Arc::clone(&*self.context)
+    }
+
+    /// This connection's handle on its [`HttpContext`], for each of its streams' conns to share.
+    pub(crate) fn connection_context(&self) -> ConnectionContext {
+        Arc::clone(&self.context)
     }
 
     /// Returns the peer's HTTP/3 settings, available once the peer's control stream has been

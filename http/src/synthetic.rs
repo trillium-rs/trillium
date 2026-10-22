@@ -171,7 +171,7 @@ impl Conn<Synthetic> {
     /// use a particular shared server config for this synthetic conn
     #[doc(hidden)]
     pub fn set_context(&mut self, context: Arc<HttpContext>) {
-        self.inner.context = context;
+        self.inner.context = Arc::new(context);
     }
 
     /// chainable setter for server config

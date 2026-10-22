@@ -4,6 +4,7 @@ use crate::{
     Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version,
     after_send::AfterSend,
     body::BodyFraming,
+    http_context::ConnectionContext,
     conn::{ReceivedBodyState, shared::authority_matches_host},
     headers::date::current_date_header,
     util::{CRLF, CRLF_CRLF, encoding},
@@ -704,7 +705,7 @@ where
         let (head_size, start_time) = Self::head(&mut transport, &mut buffer, &context)
             .await
             .map_err(HeadError::Fatal)?;
-        let inner = Box::new(ConnInner::new_h1(context, buffer, start_time));
+        let inner = Box::new(ConnInner::new_h1(Arc::new(context), buffer, start_time));
         Self { inner, transport }.parse_head(head_size, None)
     }
 
@@ -792,7 +793,7 @@ where
 
 impl ConnInner {
     /// A connection's state before its first request head is parsed into it.
-    fn new_h1(context: Arc<HttpContext>, buffer: Buffer, start_time: Instant) -> Self {
+    fn new_h1(context: ConnectionContext, buffer: Buffer, start_time: Instant) -> Self {
         // Split each "expected total headers" budget evenly across the known and unknown stores.
         let request_cap = context.config.request_header_initial_capacity;
         let response_cap = context.config.response_header_initial_capacity;
