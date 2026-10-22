@@ -132,7 +132,6 @@ impl H2Connection {
         }
     }
 
-    /// Driver-side: drain the queue of outbound active PING opaque payloads for emission.
     /// Driver-side: whether any PING is queued for emission.
     pub(in crate::h2) fn has_pending_ping_outbound(&self) -> bool {
         !self
@@ -142,6 +141,7 @@ impl H2Connection {
             .is_empty()
     }
 
+    /// Driver-side: drain the queue of outbound active PING opaque payloads for emission.
     pub(in crate::h2) fn drain_pending_ping_outbound(&self) -> Vec<[u8; 8]> {
         let mut queue = self
             .pending_ping_outbound
