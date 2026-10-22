@@ -169,7 +169,8 @@ where
             request_headers,
         } = validated;
 
-        let response_headers = initial_response_headers(&h3_connection.context());
+        let context = h3_connection.context();
+        let response_headers = initial_response_headers(&context);
 
         let request_body_state = ReceivedBodyState::new_h3();
 
@@ -177,7 +178,7 @@ where
             inner: Box::new(ConnInner {
                 peer_gone,
                 spare_request_headers: None,
-                context: h3_connection.context(),
+                context,
                 request_headers,
                 method,
                 version: Version::Http3,

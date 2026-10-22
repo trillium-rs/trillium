@@ -48,12 +48,13 @@ where
             request_headers,
         } = ValidatedRequest::new(request_headers).ok_or(H2ErrorCode::ProtocolError)?;
 
-        let response_headers = initial_response_headers(&h2_connection.context());
+        let context = h2_connection.context();
+        let response_headers = initial_response_headers(&context);
 
         Ok(Conn {
             inner: Box::new(ConnInner {
                 spare_request_headers: None,
-                context: h2_connection.context(),
+                context,
                 request_headers,
                 method,
                 version: Version::Http2,
