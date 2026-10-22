@@ -12,9 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- An HTTP/2 connection that ended while the client was still sending could be closed with a TCP
-  reset, so the client could lose the end of a response or the server's final GOAWAY. The server
-  now closes its sending side first and waits up to a second for the client to close.
+- A connection the server closed while the client was still sending could end with a TCP reset,
+  so the client could lose the end of the response: an HTTP/1.x error or `Connection: close`
+  response, or an HTTP/2 connection's final GOAWAY. The server now closes its sending side first
+  and waits up to a second for the client to close.
 
 ## [0.7.12] - 2026-09-01
 

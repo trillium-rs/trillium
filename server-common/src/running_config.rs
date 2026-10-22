@@ -1,8 +1,16 @@
 use crate::{Acceptor, ArcHandler, RuntimeTrait, Server, h2, unmap_ipv4};
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
-use std::{io::ErrorKind, net::IpAddr, sync::Arc};
+use std::{io::ErrorKind, net::IpAddr, sync::Arc, time::Duration};
 use trillium::{Conn, Handler, KnownHeaderName, Listener, Transport};
-use trillium_http::{Error, HttpContext, SERVICE_UNAVAILABLE, Upgrade};
+use trillium_http::{
+    Error, HttpContext, SERVICE_UNAVAILABLE,
+    h1::{H1Connection, H1ConnectionResult},
+};
+
+/// How long a connection the server is closing waits for the client to close its side before the
+/// transport is dropped anyway. A client that's going to close does so within a round trip of
+/// seeing ours close; this only bounds the ones that don't.
+pub(crate) const PEER_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// How a freshly-accepted connection should be dispatched based on ALPN result.
 #[derive(Clone, Copy)]
@@ -119,10 +127,8 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
             }
             AlpnDispatch::H1 => {
                 let handler_ref = &handler;
-                let result = self
-                    .context
-                    .clone()
-                    .run(transport, |mut conn| {
+                let result = H1Connection::new(self.context.clone(), transport)
+                    .run(|mut conn| {
                         // cloned per request: this closure is `FnMut`, invoked once per keep-alive
                         // request, and each `async move` body takes ownership of its provenance.
                         let listener = listener.clone();
@@ -141,7 +147,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                         }
                     })
                     .await;
-                handle_h1_result(result, &handler, peer_ip).await;
+                handle_h1_result(&self.runtime, result, &handler, peer_ip).await;
                 return;
             }
             AlpnDispatch::PrefacePeek => {}
@@ -164,11 +170,9 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
             return;
         }
         let handler_ref = &handler;
-        let result = trillium_http::run_with_initial_bytes(
-            self.context.clone(),
-            transport,
-            peek,
-            |mut conn| {
+        let result = H1Connection::new(self.context.clone(), transport)
+            .with_initial_bytes(peek)
+            .run(|mut conn| {
                 let listener = listener.clone();
                 async move {
                     conn.set_peer_ip(peer_ip);
@@ -183,10 +187,9 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
                     let conn = handler_ref.before_send(conn).await;
                     conn.into_inner()
                 }
-            },
-        )
-        .await;
-        handle_h1_result(result, &handler, peer_ip).await;
+            })
+            .await;
+        handle_h1_result(&self.runtime, result, &handler, peer_ip).await;
     }
 
     fn over_capacity(&self) -> bool {
@@ -210,8 +213,7 @@ fn stamp_listener(conn: &mut Conn, listener: Option<Listener>) {
 /// Incrementally read up to 24 bytes from the transport, bailing as soon as the bytes
 /// collected no longer form a prefix of the HTTP/2 client preface. On success, returns either
 /// (a) exactly 24 bytes that match the preface, or (b) fewer than 24 bytes that should be
-/// handed to the HTTP/1 parser via
-/// [`run_with_initial_bytes`][trillium_http::run_with_initial_bytes].
+/// handed to the HTTP/1 parser via [`H1Connection::with_initial_bytes`].
 ///
 /// The incremental shape matters because an HTTP/1 request can legitimately consist of fewer
 /// than 24 bytes (e.g. `GET /\r\nHost:x\r\n\r\n` is 20 bytes). Waiting unconditionally for 24
@@ -237,14 +239,15 @@ where
 }
 
 async fn handle_h1_result<T, H: Handler>(
-    result: Result<Option<Upgrade<T>>, Error>,
+    runtime: &impl RuntimeTrait,
+    result: H1ConnectionResult<T>,
     handler: &ArcHandler<H>,
     peer_ip: Option<IpAddr>,
 ) where
     T: Transport + 'static,
 {
     match result {
-        Ok(Some(upgrade)) => {
+        H1ConnectionResult::Upgrade(upgrade) => {
             let upgrade = upgrade.into();
             if handler.has_upgrade(&upgrade) {
                 log::debug!("upgrading...");
@@ -254,14 +257,19 @@ async fn handle_h1_result<T, H: Handler>(
             }
         }
 
-        Err(Error::Closed) | Ok(None) => {
+        H1ConnectionResult::Close(close) => {
+            log::debug!("closing connection");
+            runtime.timeout(PEER_CLOSE_TIMEOUT, close).await;
+        }
+
+        H1ConnectionResult::Error(Error::Closed) => {
             log::debug!("closing connection");
         }
 
         // UnexpectedEof at the connection loop always means the peer vanished mid-connection —
         // a TLS client that skipped close_notify, or a plaintext client that dropped mid-request.
         // Peer misbehavior, not a server error.
-        Err(Error::Io(e))
+        H1ConnectionResult::Error(Error::Io(e))
             if matches!(
                 e.kind(),
                 ErrorKind::ConnectionReset | ErrorKind::BrokenPipe | ErrorKind::UnexpectedEof
@@ -275,9 +283,11 @@ async fn handle_h1_result<T, H: Handler>(
         // attributed to a host, and this is the only place it is visible. `InvalidHead`
         // in particular is a thing scanners produce in bulk and browsers never do, so
         // without an address here it can be counted but not acted on.
-        Err(e) => match peer_ip {
+        H1ConnectionResult::Error(e) => match peer_ip {
             Some(ip) => log::error!("http error from {ip}: {e:?}"),
             None => log::error!("http error from unknown peer: {e:?}"),
         },
+
+        _ => log::debug!("closing connection"),
     };
 }
