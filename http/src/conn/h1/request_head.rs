@@ -92,15 +92,20 @@ where
                 );
                 Ok(self)
             }
-            Some(ref e) => {
-                log::debug!("rejecting malformed request: {e}");
-                self.inner.status = Some(e.into());
-                self.inner
-                    .response_headers
-                    .insert(KnownHeaderName::Connection, "close");
-                Err(HeadError::BadRequest(self))
-            }
+            Some(ref e) => Err(HeadError::BadRequest(self.reject(e))),
         }
+    }
+
+    /// Ready this conn to answer a request head that won't be handled: an error status derived
+    /// from `error`, and `Connection: close`, since the bytes after a rejected head can't be
+    /// trusted to frame another request.
+    pub(super) fn reject(mut self, error: &Error) -> Self {
+        log::debug!("rejecting request: {error}");
+        self.inner.status = Some(error.into());
+        self.inner
+            .response_headers
+            .insert(KnownHeaderName::Connection, "close");
+        self
     }
 
     fn validate_headers_h1(&self) -> Result<()> {

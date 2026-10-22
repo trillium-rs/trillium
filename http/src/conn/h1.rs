@@ -322,17 +322,20 @@ where
             &self.inner.context,
         )
         .await;
-        let (head_size, start_time) = match head {
-            Ok(head) => head,
+        let parsed = match head {
+            Ok((head_size, start_time)) => {
+                self.inner.start_time = start_time;
+                self.parse_head(head_size, Some(previous_request_headers))
+            }
             Err(Error::Closed) => {
                 log::trace!("connection closed by client");
                 return Ok(ConnectionStatus::Close);
             }
+            Err(error @ Error::HeadersTooLong) => Err(HeadError::BadRequest(self.reject(&error))),
             Err(e) => return Err(e),
         };
-        self.inner.start_time = start_time;
 
-        match self.parse_head(head_size, Some(previous_request_headers)) {
+        match parsed {
             Ok(conn) => Ok(ConnectionStatus::Conn(conn)),
 
             Err(HeadError::BadRequest(bad)) => {
@@ -484,11 +487,19 @@ where
         initial_bytes: Vec<u8>,
     ) -> Result<Self, HeadError<T>> {
         let mut buffer = Buffer::from(initial_bytes);
-        let (head_size, start_time) = Self::head(&mut transport, &mut buffer, &context)
-            .await
-            .map_err(HeadError::Fatal)?;
-        let inner = Box::new(ConnInner::new_h1(Arc::new(context), buffer, start_time));
-        Self { inner, transport }.parse_head(head_size, None)
+        match Self::head(&mut transport, &mut buffer, &context).await {
+            Ok((head_size, start_time)) => {
+                let inner = Box::new(ConnInner::new_h1(Arc::new(context), buffer, start_time));
+                Self { inner, transport }.parse_head(head_size, None)
+            }
+            Err(error @ Error::HeadersTooLong) => {
+                let inner = Box::new(ConnInner::new_h1(Arc::new(context), buffer, Instant::now()));
+                Err(HeadError::BadRequest(
+                    Self { inner, transport }.reject(&error),
+                ))
+            }
+            Err(error) => Err(HeadError::Fatal(error)),
+        }
     }
 }
 
