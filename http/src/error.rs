@@ -115,6 +115,7 @@ impl From<&Error> for Status {
         match error {
             Error::UnrecognizedMethod(_) => Status::NotImplemented,
             Error::ExpectationFailed => Status::ExpectationFailed,
+            Error::HeadersTooLong => Status::RequestHeaderFieldsTooLarge,
             Error::Other(_) => Status::InternalServerError,
             _ => Status::BadRequest,
         }

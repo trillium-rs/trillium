@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An HTTP/1.x request with an unrecognized method got `501 Not Implemented` even when it was also
   malformed in some other way, such as an invalid HTTP version or a missing `Host` header. Those
   requests now get `400 Bad Request`, and `501` is reserved for otherwise well-formed requests.
+- An HTTP/1.x request head longer than the configured `head_max_len` closed the connection without
+  a response. It now gets `431 Request Header Fields Too Large`.
 
 
 ## [1.7.2] - 2026-09-08
