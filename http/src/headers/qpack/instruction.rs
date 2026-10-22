@@ -68,7 +68,7 @@ pub(super) async fn read_first_byte(
 async fn read_byte(stream: &mut (impl AsyncRead + Unpin)) -> Result<u8, ReadError> {
     let mut b = [0u8; 1];
     stream.read_exact(&mut b).await.map_err(|e| {
-        log::error!("QPACK: read_byte io error: {e:?}");
+        log::debug!("QPACK: read_byte io error: {e:?}");
         ReadError::Violation
     })?;
     Ok(b[0])
@@ -94,12 +94,12 @@ pub(super) async fn read_varint(
         let byte = read_byte(stream).await?;
         let payload = usize::from(byte & 0x7F);
         let increment = payload.checked_shl(shift).ok_or_else(|| {
-            log::error!("QPACK: varint checked_shl overflow (payload={payload}, shift={shift})");
+            log::debug!("QPACK: varint checked_shl overflow (payload={payload}, shift={shift})");
             ReadError::Violation
         })?;
 
         value = value.checked_add(increment).ok_or_else(|| {
-            log::error!(
+            log::debug!(
                 "QPACK: varint checked_add overflow (value={value}, increment={increment})"
             );
             ReadError::Violation
@@ -126,12 +126,12 @@ pub(super) async fn read_exact(
     stream: &mut (impl AsyncRead + Unpin),
 ) -> Result<Vec<u8>, ReadError> {
     if len > max {
-        log::error!("QPACK: read_exact len {len} exceeds max {max}");
+        log::debug!("QPACK: read_exact len {len} exceeds max {max}");
         return Err(ReadError::Violation);
     }
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf).await.map_err(|e| {
-        log::error!("QPACK: read_exact({len}) io error: {e:?}");
+        log::debug!("QPACK: read_exact({len}) io error: {e:?}");
         ReadError::Violation
     })?;
     Ok(buf)
@@ -151,7 +151,7 @@ pub(super) async fn read_string_with_huffman(
     let raw = read_exact(len, max, stream).await?;
     if is_huffman {
         huffman::decode(&raw).map_err(|e| {
-            log::error!("QPACK: huffman string decode failed ({len} bytes): {e:?}");
+            log::debug!("QPACK: huffman string decode failed ({len} bytes): {e:?}");
             ReadError::Violation
         })
     } else {

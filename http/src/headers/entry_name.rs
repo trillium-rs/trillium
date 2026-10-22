@@ -155,13 +155,13 @@ impl EntryName<'_> {
 impl EntryName<'static> {
     fn known_or_pseudo(bytes: &[u8]) -> Result<Option<Self>, ()> {
         if bytes.is_empty() {
-            log::error!("entry name decode: empty header name");
+            log::debug!("entry name decode: empty header name");
             return Err(());
         }
 
         if bytes.first() == Some(&b':') {
             let pseudo = PseudoHeaderName::lowercase_byte_match(bytes).ok_or_else(|| {
-                log::error!(
+                log::debug!(
                     "entry name decode: unknown pseudo-header in literal name: {:?}",
                     String::from_utf8_lossy(bytes)
                 );
@@ -186,7 +186,7 @@ impl<'a> TryFrom<&'a [u8]> for EntryName<'a> {
         }
 
         let str = std::str::from_utf8(name_bytes).map_err(|_| {
-            log::error!(
+            log::debug!(
                 "entry name decode: non-utf8 header name {:?}",
                 String::from_utf8_lossy(name_bytes)
             );
@@ -195,7 +195,7 @@ impl<'a> TryFrom<&'a [u8]> for EntryName<'a> {
         let uhn = UnknownHeaderName::from(str);
 
         if !uhn.is_valid_lower() {
-            log::error!("entry name decode: non-lower-ascii header name {uhn:?}");
+            log::debug!("entry name decode: non-lower-ascii header name {uhn:?}");
             return Err(());
         }
 
@@ -212,7 +212,7 @@ impl TryFrom<Vec<u8>> for EntryName<'static> {
         }
 
         let string = String::from_utf8(name_bytes).map_err(|e| {
-            log::error!(
+            log::debug!(
                 "entry name decode: non-utf8 header name {:?}",
                 String::from_utf8_lossy(e.as_bytes())
             );
@@ -221,7 +221,7 @@ impl TryFrom<Vec<u8>> for EntryName<'static> {
         let uhn = UnknownHeaderName::from(string);
 
         if !uhn.is_valid_lower() {
-            log::error!("entry name decode: non-lower-ascii header name {uhn:?}");
+            log::debug!("entry name decode: non-lower-ascii header name {uhn:?}");
             return Err(());
         }
 

@@ -244,7 +244,7 @@ impl H3Frame<'_> {
                             .decode_field_section(&encoded, stream_id)
                             .await
                             .map_err(|e| {
-                                log::error!(
+                                log::debug!(
                                     "h3 error encountered in trailers that we are unable to \
                                      respond to: {e:?}"
                                 );
