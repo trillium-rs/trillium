@@ -1,6 +1,6 @@
 use crate::compact_cow::CompactCow;
 use HeaderValueInner::{Bytes, Utf8};
-use compact_str::{CompactString, ToCompactString};
+use compact_str::CompactString;
 use std::{
     borrow::Cow,
     fmt::{Debug, Display, Formatter, Write},
@@ -194,13 +194,16 @@ impl From<&'static str> for HeaderValue {
     }
 }
 
-// `to_compact_string` writes integers straight into the inline buffer, without `core::fmt`.
+// `itoa` writes digits back to front into a stack buffer, without `core::fmt` or first counting
+// them; every integer fits `CompactString`'s inline storage.
 macro_rules! from_integer {
     ($($t:ty),*) => {
         $(
         impl From<$t> for HeaderValue {
             fn from(value: $t) -> Self {
-                Self::from_inner(Utf8(CompactCow::Owned(value.to_compact_string())))
+                let mut digits = itoa::Buffer::new();
+                let value = CompactString::new(digits.format(value));
+                Self::from_inner(Utf8(CompactCow::Owned(value)))
             }
         }
         )*
