@@ -48,6 +48,16 @@ pub enum Error {
     #[error("Unsupported version {0}")]
     UnsupportedVersion(Version),
 
+    /// A request named a well-formed HTTP version that this implementation doesn't speak, such as
+    /// `HTTP/2.0` or `HTTP/0.9` in an HTTP/1.x request-line.
+    #[error("Unsupported HTTP version {major}.{minor}")]
+    UnsupportedVersionNumber {
+        /// The major version digit
+        major: u8,
+        /// The minor version digit
+        minor: u8,
+    },
+
     /// We were unable to parse a [`Version`]
     #[error("Invalid or missing version")]
     InvalidVersion,
@@ -116,6 +126,9 @@ impl From<&Error> for Status {
             Error::UnrecognizedMethod(_) => Status::NotImplemented,
             Error::ExpectationFailed => Status::ExpectationFailed,
             Error::HeadersTooLong => Status::RequestHeaderFieldsTooLarge,
+            Error::UnsupportedVersion(_) | Error::UnsupportedVersionNumber { .. } => {
+                Status::HttpVersionNotSupported
+            }
             Error::Other(_) => Status::InternalServerError,
             _ => Status::BadRequest,
         }
