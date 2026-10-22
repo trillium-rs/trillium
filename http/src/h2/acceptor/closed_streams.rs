@@ -3,7 +3,8 @@
 //! Consulted when a peer frame arrives on a stream id that's no longer in the active map to
 //! pick the right error category. See [`ClosedReason`].
 
-use std::collections::{HashMap, VecDeque};
+use hashbrown::HashMap;
+use std::collections::VecDeque;
 
 /// Why a stream transitioned to the closed state — dictates the error category for any
 /// subsequent frame the peer sends on that stream id:

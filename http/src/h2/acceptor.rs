@@ -57,11 +57,12 @@ use constants::{
     INITIAL_CONNECTION_RECV_WINDOW, MAX_BUFFER_SIZE, MAX_DATA_CHUNK_SIZE, MAX_FLOW_CONTROL_WINDOW,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
+use hashbrown::HashMap;
 use inflow::Inflow;
 use recv::PendingHeaders;
 use send::ScheduleEntry;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     future::Future,
     io,
     pin::Pin,
