@@ -218,6 +218,12 @@ pub struct H2Driver<T> {
     /// clock when the first of them opens, and reset by every read. A burst of new streams reads
     /// the clock once, and no stream's start time predates the read that completed its HEADERS.
     burst_start: Option<Instant>,
+
+    /// Rounds of `drive` work since it last returned `Pending`. Carried across calls because
+    /// emitting a stream ends a call with `Ready`: without it, a burst of new streams would never
+    /// reach the cooperative-yield bound, and every stream in the burst would be built before any
+    /// of their handlers ran, by which time the first streams' state has gone cold.
+    rounds_since_pending: usize,
 }
 
 impl<T> H2Driver<T>
@@ -265,6 +271,7 @@ where
             closed_streams: ClosedStreams::default(),
             config,
             burst_start: None,
+            rounds_since_pending: 0,
         }
     }
 
@@ -299,11 +306,22 @@ where
     /// [`H2Driver`], and [`H2Initiator`][super::H2Initiator]'s client-side Future impl.
     ///
     /// [`Stream`]: futures_lite::stream::Stream
+    pub(super) fn drive(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
+        let poll = self.drive_rounds(cx);
+        if poll.is_pending() {
+            self.rounds_since_pending = 0;
+        }
+        poll
+    }
+
     #[allow(
         clippy::too_many_lines,
         reason = "state-machine orchestration; splitting muddies the read-as-a-recipe shape"
     )]
-    pub(super) fn drive(
+    fn drive_rounds(
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
@@ -311,8 +329,9 @@ where
             return Poll::Ready(None);
         }
 
-        for loop_number in 0..self.config.copy_loops_per_yield() {
-            log::trace!("h2 drive loop number: {loop_number}");
+        while self.rounds_since_pending < self.config.copy_loops_per_yield() {
+            self.rounds_since_pending += 1;
+            log::trace!("h2 drive loop number: {}", self.rounds_since_pending);
             // 1. Conn-task signals. Picks up window-update intent (`is_reading`) and new
             //    `submit_send` submissions, moving them into driver-private state.
             self.service_handler_signals();
@@ -474,8 +493,9 @@ where
         }
 
         // Cooperative yield: we made `copy_loops_per_yield` rounds of progress without
-        // hitting an internal Pending. Re-arm immediately and let the runtime pick up
-        // anything else it has waiting before we resume.
+        // hitting an internal Pending, counting rounds that ended a call by emitting a stream.
+        // Re-arm immediately and let the runtime pick up anything else it has waiting —
+        // notably the handler tasks for the streams just emitted — before we resume.
         cx.waker().wake_by_ref();
         Poll::Pending
     }
