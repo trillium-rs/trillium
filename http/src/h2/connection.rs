@@ -39,13 +39,14 @@ use event_listener::Event;
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use hashbrown::HashMap;
 use ping::PendingPing;
-#[cfg(feature = "unstable")]
-use std::sync::atomic::Ordering;
 use std::{
     collections::VecDeque,
     future::Future,
-    io,
-    sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool},
+    io, mem,
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Poll},
 };
 use swansong::{ShutdownCompletion, Swansong};
@@ -72,6 +73,10 @@ pub struct H2Connection {
     /// removes on close. Conn-task code looks up via private accessors on `H2Connection`
     /// rather than touching the map directly — `StreamState` stays module-private.
     pub(super) streams: Mutex<HashMap<u32, Arc<StreamState>>>,
+    /// Ids of streams with work for the driver, queued by [`Self::signal_driver`]. The driver
+    /// takes the whole queue each tick, so its per-tick work follows the streams that signaled
+    /// rather than every open stream.
+    pub(super) signaled_streams: Mutex<Vec<u32>>,
     /// The peer's most recently announced SETTINGS values. The driver writes on every
     /// inbound SETTINGS frame and is the only reader, so a plain `Mutex` suffices.
     /// `H2Settings` is `Copy`, so readers take the guard, copy out, and release.
@@ -127,6 +132,7 @@ impl H2Connection {
             swansong,
             outbound_waker: AtomicWaker::new(),
             streams: Mutex::new(HashMap::new()),
+            signaled_streams: Mutex::new(Vec::new()),
             peer_settings: Mutex::new(H2Settings::default()),
             peer_settings_received: AtomicBool::new(false),
             peer_settings_event: Event::new(),
@@ -206,6 +212,41 @@ impl H2Connection {
         &self.outbound_waker
     }
 
+    /// Tell the driver `stream` has work for it: queue the stream for the driver's next tick, unless
+    /// it is already queued, and wake the driver. Call after writing the work itself (a staged
+    /// part, consumed bytes, a release), which the driver may pick up as soon as the stream is
+    /// queued.
+    pub(super) fn signal_driver(&self, stream_id: u32, stream: &StreamState) {
+        if !stream.needs_servicing.swap(true, Ordering::AcqRel) {
+            self.signaled_streams
+                .lock()
+                .expect("signaled streams mutex poisoned")
+                .push(stream_id);
+        }
+        self.outbound_waker.wake();
+    }
+
+    /// Driver-side: take every queued signal, leaving `empty` (whose capacity is retained) as the
+    /// new queue so neither side reallocates in steady state.
+    pub(super) fn take_signaled_streams(&self, empty: &mut Vec<u32>) {
+        mem::swap(
+            &mut *self
+                .signaled_streams
+                .lock()
+                .expect("signaled streams mutex poisoned"),
+            empty,
+        );
+    }
+
+    /// Driver-side: whether any stream has signaled since the driver last took the queue.
+    pub(super) fn has_signaled_streams(&self) -> bool {
+        !self
+            .signaled_streams
+            .lock()
+            .expect("signaled streams mutex poisoned")
+            .is_empty()
+    }
+
     /// Lock the per-stream `StreamState` map.
     pub(super) fn streams_lock(&self) -> MutexGuard<'_, HashMap<u32, Arc<StreamState>>> {
         self.streams
@@ -237,7 +278,7 @@ impl H2Connection {
             return;
         };
         stream.request_reset(code);
-        self.outbound_waker.wake();
+        self.signal_driver(stream_id, &stream);
     }
 
     /// Resolves once the stream is fully closed — reset by either side, both halves

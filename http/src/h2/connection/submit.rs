@@ -7,7 +7,7 @@
 //! peer-initiated stream id and stage a request.
 //!
 //! All four entry points share the same shape: stage a batch of [`OutboundPart`]s on the stream's
-//! send queue, raise `needs_servicing`, wake the driver. A `Close` terminator is included for a
+//! send queue, then signal the driver. A `Close` terminator is included for a
 //! determinate send (normal response / request) and omitted for a bidirectional upgrade, which
 //! stays open. The returned [`SubmitSend`] future resolves once the queue first drains (the
 //! prelude handoff for an upgrade; `END_STREAM` otherwise).
@@ -112,7 +112,7 @@ impl H2Connection {
         let stream = self.streams_lock().get(&stream_id).cloned();
         if let Some(state) = &stream {
             state.stage(submission_parts(pseudos, headers.into(), body, true));
-            self.outbound_waker.wake();
+            self.signal_driver(stream_id, state);
         }
         SubmitSend { stream_id, stream }
     }
@@ -139,7 +139,7 @@ impl H2Connection {
         if let Some(state) = &stream {
             state.stage(submission_parts(pseudos, headers.into(), body, false));
             log::trace!("h2 stream {stream_id}: submit_upgrade — parts staged");
-            self.outbound_waker.wake();
+            self.signal_driver(stream_id, state);
         }
         SubmitSend { stream_id, stream }
     }
@@ -163,7 +163,7 @@ impl H2Connection {
         // already closed the part is harmlessly ignored, so we don't gate on state here.
         stream.stage([OutboundPart::Trailers(trailers)]);
         stream.send.outbound_write_waker.wake();
-        self.outbound_waker.wake();
+        self.signal_driver(stream_id, &stream);
         log::trace!("h2 stream {stream_id}: submit_trailers staged trailing HEADERS terminator");
         Ok(())
     }
@@ -273,7 +273,7 @@ impl H2Connection {
 
         // Stage the request parts *before* publishing the stream id to the shared map so they're
         // visible the first time the driver sees the stream — otherwise a second tick would be
-        // needed to start framing. A non-upgrade request closes after its body; an extended-CONNECT
+        // needed to start framing. No signal: the driver services every stream it picks up. A non-upgrade request closes after its body; an extended-CONNECT
         // bootstrap stays open.
         state.stage(submission_parts(pseudos, headers.into(), body, !is_upgrade));
 

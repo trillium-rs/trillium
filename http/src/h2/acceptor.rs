@@ -154,6 +154,10 @@ pub struct H2Driver<T> {
     /// dropped are pruned after each pump tick.
     sending_streams: Vec<u32>,
 
+    /// Reused buffer for the stream ids taken off the connection's signal queue each tick. Empty
+    /// between ticks.
+    signaled_scratch: Vec<u32>,
+
     /// Accumulator for an in-progress HEADERS block that is waiting on further CONTINUATION
     /// frames. `None` outside a HEADERS block. The spec forbids any frame on any stream
     /// from interleaving while this is `Some`.
@@ -250,6 +254,7 @@ where
             stream_priorities: HashMap::new(),
             send_schedule: Vec::new(),
             sending_streams: Vec::new(),
+            signaled_scratch: Vec::new(),
             pending_headers: None,
             close_outcome: None,
             finished: false,

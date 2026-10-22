@@ -1,20 +1,24 @@
 //! Conn-task → driver work-pickup boundary.
 //!
-//! Handler tasks raise the per-stream `needs_servicing` mailbox flag as a side effect of normal
-//! operation; the driver's [`service_handler_signals`][H2Driver::service_handler_signals] tick
-//! consults the mailbox per stream, so idle streams cost a single atomic RMW per tick.
+//! Handler tasks queue their stream on the connection (`H2Connection::signal_driver`) as a side
+//! effect of normal operation; the driver's
+//! [`service_handler_signals`][H2Driver::service_handler_signals] tick takes that queue and
+//! services only the streams on it, so streams waiting on their handlers cost nothing per tick.
 
 use super::{H2Driver, Role, StreamEntry, inflow::Inflow, send::SendCursor};
 use crate::{Priority, h2::transport::StreamState};
 use futures_lite::io::{AsyncRead, AsyncWrite};
-use std::sync::{Arc, atomic::Ordering};
+use std::{
+    mem,
+    sync::{Arc, atomic::Ordering},
+};
 
 impl<T> H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {
-    /// Walk every active stream, consult the per-stream mailbox, and move each signal into
-    /// driver-internal state. Three classes of signal:
+    /// Service every stream that signaled since the last tick (plus newly picked-up client
+    /// streams), moving each mailbox signal into driver-internal state. Three classes of signal:
     ///
     /// - **Recv flow control** (`recv.is_reading`, `recv.bytes_consumed`): emits `WINDOW_UPDATE`
     ///   frames to top up the per-stream and connection-level recv windows.
@@ -26,8 +30,14 @@ where
     /// - **PING outbound queue** (connection-level, not per-stream): drain and queue any pending
     ///   PING frames.
     pub(super) fn service_handler_signals(&mut self) {
-        // Must run before the per-stream walk so new streams' parts are picked up on the same tick.
-        self.pick_up_new_client_streams();
+        let mut signaled = mem::take(&mut self.signaled_scratch);
+        self.connection.take_signaled_streams(&mut signaled);
+        // After taking the queue, so every client stream it names is already published. New
+        // streams are serviced whether or not they signaled: their parts are staged before they
+        // are published, without a signal.
+        self.pick_up_new_client_streams(&mut signaled);
+        signaled.sort_unstable();
+        signaled.dedup();
 
         for opaque in self.connection.drain_pending_ping_outbound() {
             self.queue_active_ping(opaque);
@@ -38,10 +48,14 @@ where
         let mut releases: Vec<u32> = Vec::new();
         let read_target = i64::from(self.config.max_stream_recv_window_size());
 
-        for (&id, entry) in &mut self.streams {
-            if !entry.shared.needs_servicing.swap(false, Ordering::AcqRel) {
+        for &id in &signaled {
+            // Absent: removed since it signaled.
+            let Some(entry) = self.streams.get_mut(&id) else {
                 continue;
-            }
+            };
+            // Clear before reading the mailbox, so a signal racing this pass either lands in what
+            // we read or queues the stream again.
+            entry.shared.needs_servicing.swap(false, Ordering::AcqRel);
 
             // Lazy two-tier promotion: once the handler signals it intends to read the body, grow
             // the stream window from the advertised initial to the read-target in one immediate
@@ -92,6 +106,8 @@ where
                 releases.push(id);
             }
         }
+        signaled.clear();
+        self.signaled_scratch = signaled;
 
         for (stream_id, increment) in stream_updates {
             self.queue_window_update(stream_id, increment);
@@ -110,8 +126,9 @@ where
         }
     }
 
-    /// True if any stream has a conn-task signal pending that we haven't yet serviced. Used by
-    /// `park` to decide whether returning `Pending` is safe or whether we need to loop around.
+    /// True if any conn-task signal is pending that we haven't yet serviced: a signaled stream or a
+    /// newly opened client stream. Used by `park` to decide whether returning `Pending` is safe or
+    /// whether we need to loop around.
     pub(super) fn has_pending_handler_signals(&self) -> bool {
         // Client-role guard: streams the conn task just opened are in the shared map but not yet in
         // `self.streams`. Without this, an `open_stream` landing between `service_handler_signals`
@@ -123,18 +140,16 @@ where
                 return true;
             }
         }
-        self.streams
-            .values()
-            .any(|e| e.shared.needs_servicing.load(Ordering::Acquire))
+        self.connection.has_signaled_streams()
     }
 
     /// Client role: scan [`H2Connection::streams`][crate::h2::H2Connection] for ids the conn task
     /// has published via [`H2Connection::open_stream`][crate::h2::H2Connection::open_stream] that
     /// we don't yet have a [`StreamEntry`] for, and create one per id seeded with the
-    /// peer-advertised initial send window and our own advertised initial recv window. No-op
-    /// for server role (server streams are created by inbound HEADERS in
-    /// [`finalize_new_request_stream`][super::recv]).
-    fn pick_up_new_client_streams(&mut self) {
+    /// peer-advertised initial send window and our own advertised initial recv window, adding
+    /// its id to `picked_up`. No-op for server role (server streams are created by inbound
+    /// HEADERS in [`finalize_new_request_stream`][super::recv]).
+    fn pick_up_new_client_streams(&mut self, picked_up: &mut Vec<u32>) {
         if self.role != Role::Client {
             return;
         }
@@ -157,6 +172,7 @@ where
         let stream_inflow = Inflow::new(i64::from(self.config.initial_stream_window_size()));
         for (id, shared) in new_streams {
             log::trace!("h2 client: driver picked up new client-opened stream {id}");
+            picked_up.push(id);
             self.streams.insert(
                 id,
                 // Client-role streams carry no scheduling signal of their own (we don't emit
