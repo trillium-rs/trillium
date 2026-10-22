@@ -6,13 +6,14 @@
 //! owns the per-connection driver loop and per-stream task spawning that mirrors
 //! [`h3::run_h3`][crate::h3::run_h3].
 
-use crate::{Acceptor, ArcHandler, Runtime, Server, running_config::RunningConfig};
+use crate::{Acceptor, ArcHandler, Runtime, RuntimeTrait, Server, running_config::RunningConfig};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     io,
     net::{IpAddr, SocketAddr},
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 use trillium::{Conn, Handler, KnownHeaderName, Listener, Transport, Upgrade};
 use trillium_http::h2::{H2Connection, H2Transport};
@@ -21,6 +22,11 @@ use trillium_http::h2::{H2Connection, H2Transport};
 /// sends before any frames; the prior-knowledge dispatch path peeks the (cleartext or
 /// post-TLS) stream for these bytes to decide between HTTP/1.1 and HTTP/2.
 pub(crate) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
+/// How long a finished connection waits for the client to close its side before the transport is
+/// dropped anyway. A client that's going to close does so within a round trip of seeing ours close;
+/// this only bounds the ones that don't.
+const PEER_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl<S: Server, A: Acceptor<S::Transport>> RunningConfig<S, A> {
     /// Drive an HTTP/2 connection end-to-end: construct the [`H2Connection`], run its driver
@@ -112,6 +118,9 @@ impl<S: Server, A: Acceptor<S::Transport>> RunningConfig<S, A> {
                 }
             }
         }
+        self.runtime
+            .timeout(PEER_CLOSE_TIMEOUT, driver.close())
+            .await;
         log::trace!("run_h2: driver exhausted, connection done");
     }
 }
@@ -185,7 +194,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Prefixed<T> {
 }
 
 impl<T: Transport> Transport for Prefixed<T> {
-    fn set_linger(&mut self, linger: Option<std::time::Duration>) -> io::Result<()> {
+    fn set_linger(&mut self, linger: Option<Duration>) -> io::Result<()> {
         self.inner.set_linger(linger)
     }
 

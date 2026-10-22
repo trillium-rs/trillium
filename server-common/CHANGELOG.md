@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Performance improvements, particularly on servers with many cores.
 
+### Fixed
+
+- An HTTP/2 connection that ended while the client was still sending could be closed with a TCP
+  reset, so the client could lose the end of a response or the server's final GOAWAY. The server
+  now closes its sending side first and waits up to a second for the client to close.
+
 ## [0.7.12] - 2026-09-01
 
 ### Added
