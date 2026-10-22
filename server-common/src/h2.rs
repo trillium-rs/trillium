@@ -6,7 +6,10 @@
 //! owns the per-connection driver loop and per-stream task spawning that mirrors
 //! [`h3::run_h3`][crate::h3::run_h3].
 
-use crate::{Acceptor, ArcHandler, Runtime, RuntimeTrait, Server, running_config::RunningConfig};
+use crate::{
+    Acceptor, ArcHandler, Runtime, RuntimeTrait, Server,
+    running_config::{PEER_CLOSE_TIMEOUT, RunningConfig},
+};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     io,
@@ -22,11 +25,6 @@ use trillium_http::h2::{H2Connection, H2Transport};
 /// sends before any frames; the prior-knowledge dispatch path peeks the (cleartext or
 /// post-TLS) stream for these bytes to decide between HTTP/1.1 and HTTP/2.
 pub(crate) const CLIENT_PREFACE: &[u8; 24] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
-
-/// How long a finished connection waits for the client to close its side before the transport is
-/// dropped anyway. A client that's going to close does so within a round trip of seeing ours close;
-/// this only bounds the ones that don't.
-const PEER_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
 impl<S: Server, A: Acceptor<S::Transport>> RunningConfig<S, A> {
     /// Drive an HTTP/2 connection end-to-end: construct the [`H2Connection`], run its driver
