@@ -837,12 +837,12 @@ impl ConnInner {
             spare_request_headers,
             response_headers,
             state,
+            path,
+            authority,
+            scheme,
             // set by `parse_head` from the next request
-            path: _,
             method: _,
             version: _,
-            authority: _,
-            scheme: _,
             request_body_state: _,
             start_time: _,
             status,
@@ -865,6 +865,11 @@ impl ConnInner {
         buffer.truncate();
         state.clear();
         response_headers.clear();
+        // The next request sets these too, but they may hold allocations that would otherwise
+        // live as long as the connection idles.
+        *path = Cow::Borrowed("");
+        *authority = None;
+        *scheme = None;
         *status = None;
         *response_body = None;
         *after_send = AfterSend::default();
