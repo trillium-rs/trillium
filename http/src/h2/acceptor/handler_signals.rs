@@ -77,6 +77,9 @@ where
                     .lock()
                     .expect("send queue mutex poisoned");
                 if !queue.is_empty() {
+                    if entry.send.is_none() {
+                        self.sending_streams.push(id);
+                    }
                     let cursor = entry.send.get_or_insert_with(SendCursor::default);
                     for part in queue.drain(..) {
                         cursor.stage_part(part);
