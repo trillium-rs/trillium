@@ -50,6 +50,11 @@ impl<S: Server, A: Acceptor<S::Transport>> RunningConfig<S, A> {
         let h2 = H2Connection::new(self.context.clone());
         let mut driver = h2.clone().run(transport);
 
+        // Each stream task holds the handler. Cloning a connection-local `Arc` for each keeps
+        // that refcount traffic on this connection, rather than on the one count every core's
+        // streams would otherwise share.
+        let handler = ArcHandler::new(handler);
+
         while let Some(result) = driver.next().await {
             match result {
                 Ok(conn) => {
@@ -58,9 +63,11 @@ impl<S: Server, A: Acceptor<S::Transport>> RunningConfig<S, A> {
                     let handler = handler.clone();
                     let listener = listener.clone();
                     runtime.spawn_detached(async move {
-                        let inner_handler = handler.clone();
+                        // A reference, so the `async move` below takes it rather than the handler
+                        // the upgrade still needs.
+                        let borrowed_handler = &handler;
                         let result = H2Connection::process_inbound(conn, |mut conn| async move {
-                            let handler = &inner_handler;
+                            let handler = borrowed_handler;
                             conn.set_peer_ip(peer_ip);
                             conn.set_secure(is_secure);
                             let mut conn = Conn::from(conn);

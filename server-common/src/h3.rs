@@ -82,10 +82,13 @@ async fn run_h3_connection(
     spawn_qpack_encoder_stream(&connection, &h3, &runtime);
     spawn_qpack_decoder_stream(&connection, &h3, &runtime);
     spawn_inbound_uni_streams(&connection, &h3, &runtime, &wt_dispatcher);
+    // Each stream task holds the handler. Cloning a connection-local `Arc` for each keeps that
+    // refcount traffic on this connection, rather than on the one count every core's streams
+    // would otherwise share.
     handle_inbound_bidi_streams(
         connection,
         h3.clone(),
-        handler,
+        ArcHandler::new(handler),
         runtime,
         wt_dispatcher,
         listener,
