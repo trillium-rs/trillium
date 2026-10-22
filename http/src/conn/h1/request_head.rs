@@ -1,7 +1,7 @@
 use crate::{
     Conn, Error, Headers, KnownHeaderName, Method, Result, Status, Version,
     conn::{ConnInner, ReceivedBodyState, shared::authority_matches_host},
-    util::CRLF,
+    util::{CRLF, is_tchar},
 };
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::borrow::Cow;
@@ -346,14 +346,15 @@ fn split_absolute_form(target: &str) -> Option<(String, String, String)> {
 }
 
 /// The status for a request head that outgrew `head_max_len`, by the part that was still
-/// incomplete: header fields get 431, a request-target 414, and the method or anything else in the
-/// request line 400.
+/// incomplete: header fields get 431, a request-target 414, a method token 501, and anything else
+/// in the request line 400.
 fn oversized_head_status(head: &[u8]) -> Status {
     if CRLF.find(head).is_some() {
         return Status::RequestHeaderFieldsTooLarge;
     }
     let mut spaces = memchr::memchr_iter(b' ', head);
     match (spaces.next(), spaces.next()) {
+        (None, _) if head.iter().all(|&b| is_tchar(b)) => Status::NotImplemented,
         (Some(_), None) => Status::UriTooLong,
         _ => Status::BadRequest,
     }
