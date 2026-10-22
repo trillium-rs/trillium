@@ -112,8 +112,10 @@ pub struct HttpConfig {
     ///
     /// **Default**: `16`
     ///
-    /// **Unit**: the number of consecutive `Poll::Ready` async writes to perform before yielding
-    /// the task back to the runtime.
+    /// **Unit**: the number of consecutive units of work a task does without waiting before it
+    /// yields back to the runtime. When copying a body, each write that completes immediately is
+    /// one unit; on an HTTP/2 connection, each round of reading and writing frames is one,
+    /// including a round that hands a new request to its handler.
     pub(crate) copy_loops_per_yield: usize,
 
     /// The initial buffer capacity allocated when reading a chunked http body to bytes or string.

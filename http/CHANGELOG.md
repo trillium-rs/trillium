@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Performance improvements, particularly in the per-request cost of HTTP/1.x and HTTP/2.
+- `HttpConfig::copy_loops_per_yield` now also bounds how many new requests an HTTP/2 connection
+  starts before yielding to the runtime, so a burst of requests on one connection reaches its
+  handlers sooner.
 
 ### Fixed
 
