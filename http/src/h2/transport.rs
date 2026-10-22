@@ -292,10 +292,11 @@ impl AsyncWrite for H2Transport {
 #[derive(Debug)]
 pub(super) enum OutboundPart {
     /// Initial HEADERS block — HPACK-encoded by the driver at frame time so the wire order
-    /// matches the dynamic-table mutation order.
+    /// matches the dynamic-table mutation order. Shared, so a submitter that keeps its headers
+    /// readable after sending doesn't have to copy them.
     Headers {
         pseudos: PseudoHeaders<'static>,
-        headers: Headers,
+        headers: Arc<Headers>,
     },
     /// An owned body source, framed directly into DATA frames under flow control.
     Body(Body),

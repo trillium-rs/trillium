@@ -106,12 +106,12 @@ impl H2Connection {
         &self,
         stream_id: u32,
         pseudos: PseudoHeaders<'static>,
-        headers: Headers,
+        headers: impl Into<Arc<Headers>>,
         body: Option<Body>,
     ) -> SubmitSend {
         let stream = self.streams_lock().get(&stream_id).cloned();
         if let Some(state) = &stream {
-            state.stage(submission_parts(pseudos, headers, body, true));
+            state.stage(submission_parts(pseudos, headers.into(), body, true));
             self.outbound_waker.wake();
         }
         SubmitSend { stream_id, stream }
@@ -132,12 +132,12 @@ impl H2Connection {
         &self,
         stream_id: u32,
         pseudos: PseudoHeaders<'static>,
-        headers: Headers,
+        headers: impl Into<Arc<Headers>>,
         body: Option<Body>,
     ) -> SubmitSend {
         let stream = self.streams_lock().get(&stream_id).cloned();
         if let Some(state) = &stream {
-            state.stage(submission_parts(pseudos, headers, body, false));
+            state.stage(submission_parts(pseudos, headers.into(), body, false));
             log::trace!("h2 stream {stream_id}: submit_upgrade — parts staged");
             self.outbound_waker.wake();
         }
@@ -275,7 +275,7 @@ impl H2Connection {
         // visible the first time the driver sees the stream — otherwise a second tick would be
         // needed to start framing. A non-upgrade request closes after its body; an extended-CONNECT
         // bootstrap stays open.
-        state.stage(submission_parts(pseudos, headers, body, !is_upgrade));
+        state.stage(submission_parts(pseudos, headers.into(), body, !is_upgrade));
 
         // Allocate the id and publish the stream *atomically under the shared map lock*. The id and
         // its wire HEADERS must go out in monotonically increasing order (RFC 9113 §5.1.1); holding
@@ -318,7 +318,7 @@ impl H2Connection {
 /// [`StreamState::stage`]'s `extend` — no transient collection.
 fn submission_parts(
     pseudos: PseudoHeaders<'static>,
-    headers: Headers,
+    headers: Arc<Headers>,
     body: Option<Body>,
     close: bool,
 ) -> impl Iterator<Item = OutboundPart> {
