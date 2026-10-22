@@ -712,3 +712,36 @@ fn streams_do_not_clone_the_server_context() {
     drop(conn);
     assert_eq!(Arc::strong_count(&server_context), held);
 }
+
+/// A burst of new streams counts toward the driver's cooperative-yield bound. Once the round
+/// budget is spent the driver yields and wakes itself, so the runtime can run the emitted streams'
+/// handlers before the driver builds more.
+#[test]
+fn a_burst_of_new_streams_yields_to_their_handlers() {
+    let mut fx =
+        DriverFixture::new_server_with_config(HttpConfig::default().with_copy_loops_per_yield(4));
+    fx.complete_handshake();
+    for stream_id in (1..=15).step_by(2) {
+        fx.peer_open_stream(stream_id, Method::Get, "/", true);
+    }
+
+    let (wakes, waker) = counting_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut emitted = Vec::new();
+    while let Poll::Ready(polled) = fx.driver.drive(&mut cx) {
+        match polled {
+            Some(Ok(conn)) => emitted.push(conn),
+            other => panic!("expected a new request stream, got {other:?}"),
+        }
+    }
+    assert_eq!(emitted.len(), 4);
+    assert_eq!(wakes.count(), 1, "a yield, not a park");
+
+    while let Poll::Ready(polled) = fx.driver.drive(&mut cx) {
+        match polled {
+            Some(Ok(conn)) => emitted.push(conn),
+            other => panic!("expected a new request stream, got {other:?}"),
+        }
+    }
+    assert_eq!(emitted.len(), 8, "the rest of the burst follows the yield");
+}
