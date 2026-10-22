@@ -428,15 +428,17 @@ pub(super) struct RecvState {
     /// Trailers, populated by the driver if a trailing HEADERS frame arrives for this stream.
     /// Always written *before* the lifecycle transitions to recv-closed, so once the handler
     /// observes `Ready(0)` on the recv side, any trailers for this request are guaranteed to
-    /// be in place.
-    pub(super) trailers: Mutex<Option<Headers>>,
+    /// be in place. Boxed, like `response_headers`: every stream carries the slot, but few streams
+    /// fill it, and an inline `Headers` would grow every stream's state for them.
+    pub(super) trailers: Mutex<Option<Box<Headers>>>,
 
     /// Client-role: response HEADERS field section, populated by the driver on the first non-1xx
     /// HEADERS frame arrival for a client-initiated stream. Server role doesn't use this slot.
     /// Single-shot: the conn task takes the `FieldSection` once; subsequent HEADERS arrivals are
     /// interpreted as trailers. Interim 1xx HEADERS frames are discarded by the driver without
-    /// touching this slot or latching `first_response_headers_seen`.
-    pub(super) response_headers: Mutex<Option<FieldSection<'static>>>,
+    /// touching this slot or latching `first_response_headers_seen`. Boxed so that server
+    /// streams, which never fill it, don't carry a `FieldSection`'s worth of empty space.
+    pub(super) response_headers: Mutex<Option<Box<FieldSection<'static>>>>,
 
     /// Client-role: latching flag for "first HEADERS arrived for this stream." Distinct from
     /// `response_headers.is_some()` — the conn task drains that slot when it consumes headers, so

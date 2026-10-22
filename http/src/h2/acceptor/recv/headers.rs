@@ -379,7 +379,7 @@ where
             .recv
             .response_headers
             .lock()
-            .expect("response_headers mutex poisoned") = Some(field_section);
+            .expect("response_headers mutex poisoned") = Some(Box::new(field_section));
         if end_stream {
             let _ = state.apply_event(StreamEvent::RecvHeaders { end_stream: true });
         }
@@ -495,7 +495,7 @@ where
             .recv
             .trailers
             .lock()
-            .expect("recv trailers mutex poisoned") = Some(trailers);
+            .expect("recv trailers mutex poisoned") = Some(Box::new(trailers));
         // Trailing HEADERS always carry END_STREAM (validated above).
         let _ = state.apply_event(StreamEvent::RecvHeaders { end_stream: true });
         state.recv.waker.wake();
