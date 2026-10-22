@@ -30,7 +30,10 @@ fn a_response_submitted_while_the_driver_sleeps_is_framed() {
 
     let pseudos = PseudoHeaders::default().with_status(Status::Ok);
     let _submit = fx.connection.submit_send(1, pseudos, Headers::new(), None);
-    assert!(!parks(&mut fx), "a submitted response must keep the driver awake");
+    assert!(
+        !parks(&mut fx),
+        "a submitted response must keep the driver awake"
+    );
 
     let _ = fx.tick();
     let frames = fx.next_outbound_frames();

@@ -3,11 +3,11 @@
 //! once the submitted message is fully framed.
 //!
 //! Each stream's conn-task-staged parts are picked up into a driver-private [`SendCursor`] in the
-//! parent's `service_handler_signals`. Per tick, `advance_outbound_sends` frames each cursor's work:
-//! an owned [`OutboundPart::Body`] is framed directly under flow control; streaming bytes a handler
-//! wrote through [`H2Transport`][super::super::transport::H2Transport] flow through the per-stream
-//! `outbound` ring, which is drained before any terminator. HEADERS blocks emit to `END_HEADERS`
-//! without yielding to other streams (§6.10).
+//! parent's `service_handler_signals`. Per tick, `advance_outbound_sends` frames each cursor's
+//! work: an owned [`OutboundPart::Body`] is framed directly under flow control; streaming bytes a
+//! handler wrote through [`H2Transport`][super::super::transport::H2Transport] flow through the
+//! per-stream `outbound` ring, which is drained before any terminator. HEADERS blocks emit to
+//! `END_HEADERS` without yielding to other streams (§6.10).
 //!
 //! All methods are on [`super::H2Driver`].
 
@@ -208,8 +208,11 @@ where
         }
 
         self.send_schedule = schedule;
-        self.sending_streams
-            .retain(|id| self.streams.get(id).is_some_and(|entry| entry.send.is_some()));
+        self.sending_streams.retain(|id| {
+            self.streams
+                .get(id)
+                .is_some_and(|entry| entry.send.is_some())
+        });
     }
 
     /// Round-robin one DATA frame at a time across a set of same-urgency incremental streams,
@@ -280,25 +283,25 @@ where
             .iter()
             .filter_map(|id| self.streams.get(id))
             .any(|entry| {
-            let Some(cursor) = &entry.send else {
-                return false;
-            };
-            if cursor.parked {
-                return false;
-            }
-            if !cursor.is_idle() {
-                return true;
-            }
-            // Only the streaming ring could still hold framable bytes.
-            entry.send_window > 0
-                && !entry
-                    .shared
-                    .send
-                    .outbound
-                    .lock()
-                    .expect("outbound mutex poisoned")
-                    .is_empty()
-        })
+                let Some(cursor) = &entry.send else {
+                    return false;
+                };
+                if cursor.parked {
+                    return false;
+                }
+                if !cursor.is_idle() {
+                    return true;
+                }
+                // Only the streaming ring could still hold framable bytes.
+                entry.send_window > 0
+                    && !entry
+                        .shared
+                        .send
+                        .outbound
+                        .lock()
+                        .expect("outbound mutex poisoned")
+                        .is_empty()
+            })
     }
 
     /// Pass 1 of the send pump: emit any pending leading response HEADERS for one stream, then stop
