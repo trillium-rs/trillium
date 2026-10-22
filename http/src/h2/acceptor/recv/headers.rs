@@ -119,7 +119,12 @@ where
             return Ok(Action::Continue);
         }
 
-        let fragment = frame_slice(&self.read_buf, payload_start, header_block_length, total)?;
+        let fragment = frame_slice(
+            &self.read_buf[self.read_start..],
+            payload_start,
+            header_block_length,
+            total,
+        )?;
 
         if end_headers {
             let block = fragment.to_vec();
@@ -154,7 +159,12 @@ where
             return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
 
-        let fragment = frame_slice(&self.read_buf, FRAME_HEADER_LEN, header_block_length, total)?;
+        let fragment = frame_slice(
+            &self.read_buf[self.read_start..],
+            FRAME_HEADER_LEN,
+            header_block_length,
+            total,
+        )?;
         // CONTINUATION-flood guard (CVE-2024-27316 class): a peer that never sets END_HEADERS
         // can grow this block without bound. Cap the accumulated *compressed* bytes at the
         // MAX_HEADER_LIST_SIZE we advertised — a compliant peer's wire bytes never exceed that

@@ -45,8 +45,8 @@ mod tests;
 mod types;
 
 use super::{
-    H2Error, H2ErrorCode, connection::H2Connection, frame::FRAME_HEADER_LEN, role::Role,
-    stream_state::StreamEvent, transport::H2Transport,
+    H2Error, H2ErrorCode, connection::H2Connection, role::Role, stream_state::StreamEvent,
+    transport::H2Transport,
 };
 use crate::{
     Conn, Priority,
@@ -55,6 +55,7 @@ use crate::{
 use closed_streams::{ClosedReason, ClosedStreams};
 use constants::{
     INITIAL_CONNECTION_RECV_WINDOW, MAX_BUFFER_SIZE, MAX_DATA_CHUNK_SIZE, MAX_FLOW_CONTROL_WINDOW,
+    READ_WINDOW,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use hashbrown::HashMap;
@@ -97,11 +98,12 @@ pub struct H2Driver<T> {
     /// early and we never poll this again on the same acceptor.
     shutting_down: ShuttingDown,
 
-    /// Inbound byte cursor. Accumulates bytes from the transport across `drive` calls so
-    /// a partial frame read can survive a return to `Poll::Pending`. Always contains
-    /// exactly the bytes of the current frame being accumulated (header, then payload);
-    /// reset after each complete frame is dispatched.
+    /// Inbound bytes, read ahead of the frame being processed. `read_buf[read_start..read_filled]`
+    /// holds everything received but not yet consumed: the current frame (which begins at
+    /// `read_start`), possibly followed by later frames. Survives a return to `Poll::Pending`,
+    /// so a partially received frame keeps its bytes.
     read_buf: Vec<u8>,
+    read_start: usize,
     read_filled: usize,
     read_phase: ReadPhase,
 
@@ -227,7 +229,8 @@ where
             role,
             state: DriverState::AwaitingPreface,
             shutting_down,
-            read_buf: vec![0u8; FRAME_HEADER_LEN],
+            read_buf: Vec::new(),
+            read_start: 0,
             read_filled: 0,
             read_phase: ReadPhase::NeedHeader,
             write_buf: Vec::new(),
@@ -622,20 +625,28 @@ where
         }
     }
 
-    /// Read bytes from the transport into `read_buf[read_filled..target]` until
-    /// `read_filled >= target`. Cancel-safe: if the caller drops the Future, any bytes
-    /// already placed are preserved in the buffer.
+    /// Make the first `target` bytes of the current frame available at `read_buf[read_start..]`,
+    /// reading from the transport as needed. Each read takes whatever the transport has, up to
+    /// the free space, so it can also pick up frames that follow. Cancel-safe: if the caller
+    /// drops the Future, bytes already read stay buffered.
     ///
     /// A 0-byte read is surfaced as `UnexpectedEof`. The caller maps this to a terminal
     /// I/O error; we don't emit a GOAWAY on peer-initiated close.
     fn poll_fill_to(&mut self, target: usize, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if self.read_buf.len() < target {
-            self.read_buf.resize(target, 0);
-        }
-        while self.read_filled < target {
+        while self.read_filled - self.read_start < target {
+            if self.read_start > 0 {
+                // Slide the partial frame to the front so the read gets all the free space.
+                self.read_buf
+                    .copy_within(self.read_start..self.read_filled, 0);
+                self.read_filled -= self.read_start;
+                self.read_start = 0;
+            }
+            let len = target.max(READ_WINDOW);
+            if self.read_buf.len() < len {
+                self.read_buf.resize(len, 0);
+            }
             let n = ready!(
-                Pin::new(&mut self.transport)
-                    .poll_read(cx, &mut self.read_buf[self.read_filled..target])
+                Pin::new(&mut self.transport).poll_read(cx, &mut self.read_buf[self.read_filled..])
             )?;
             if n == 0 {
                 return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof)));
@@ -643,6 +654,21 @@ where
             self.read_filled += n;
         }
         Poll::Ready(Ok(()))
+    }
+
+    /// Consume `len` bytes from the front of the buffered input: a dispatched frame, or the
+    /// connection preface.
+    fn consume_read(&mut self, len: usize) {
+        self.read_start += len;
+        self.read_phase = ReadPhase::NeedHeader;
+        if self.read_start == self.read_filled {
+            self.read_start = 0;
+            self.read_filled = 0;
+            // Release a buffer that ballooned for a big frame.
+            if self.read_buf.capacity() > MAX_BUFFER_SIZE / 16 {
+                self.read_buf = Vec::new();
+            }
+        }
     }
 
     /// Post-GOAWAY, drain whatever inbound bytes are *immediately* available from the

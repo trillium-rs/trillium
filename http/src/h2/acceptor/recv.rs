@@ -57,7 +57,7 @@ where
         let total = match self.read_phase {
             ReadPhase::NeedHeader => {
                 ready!(self.poll_fill_to(FRAME_HEADER_LEN, cx)).map_err(CloseOutcome::Io)?;
-                let header = FrameHeader::decode(&self.read_buf[..FRAME_HEADER_LEN])
+                let header = FrameHeader::decode(&self.read_buf[self.read_start..])
                     .expect("FRAME_HEADER_LEN bytes already filled");
                 // A frame whose length exceeds our advertised `SETTINGS_MAX_FRAME_SIZE`
                 // is a `FRAME_SIZE_ERROR`. We also enforce [`MAX_BUFFER_SIZE`] as a DoS
@@ -74,11 +74,9 @@ where
             }
             ReadPhase::NeedPayload { total } => total,
         };
-        if self.read_filled < total {
-            ready!(self.poll_fill_to(total, cx)).map_err(CloseOutcome::Io)?;
-        }
+        ready!(self.poll_fill_to(total, cx)).map_err(CloseOutcome::Io)?;
 
-        let frame_bytes = &self.read_buf[..total];
+        let frame_bytes = &self.read_buf[self.read_start..self.read_start + total];
         let (frame, consumed) = match Frame::decode(frame_bytes) {
             Ok(pair) => pair,
             Err(FrameDecodeError::Error(code)) => {
@@ -90,25 +88,23 @@ where
             }
         };
         let action = self.dispatch(frame, consumed, total)?;
-        self.reset_after_frame();
+        self.consume_read(total);
         Poll::Ready(Ok(action))
     }
 
-    /// Read the 24-byte client connection preface and validate it. Uses `read_buf` /
-    /// `read_filled` so a partial preface survives a return to `Poll::Pending`.
+    /// Read the 24-byte client connection preface and validate it. Reads through `read_buf`, so
+    /// a partial preface survives a return to `Poll::Pending`.
     pub(super) fn poll_read_preface(
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), CloseOutcome>> {
         ready!(self.poll_fill_to(CLIENT_PREFACE.len(), cx)).map_err(CloseOutcome::Io)?;
-        if &self.read_buf[..CLIENT_PREFACE.len()] != CLIENT_PREFACE {
+        let preface_end = self.read_start + CLIENT_PREFACE.len();
+        if &self.read_buf[self.read_start..preface_end] != CLIENT_PREFACE {
             return Poll::Ready(Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)));
         }
-        // Preface is NOT a frame — reset the read cursor so the frame reader starts fresh.
-        self.read_buf.clear();
-        self.read_buf.resize(FRAME_HEADER_LEN, 0);
-        self.read_filled = 0;
-        self.read_phase = ReadPhase::NeedHeader;
+        // The preface is not a frame; any bytes read past it are the first frames.
+        self.consume_read(CLIENT_PREFACE.len());
         Poll::Ready(Ok(()))
     }
 
@@ -406,7 +402,12 @@ where
             return Ok(());
         }
 
-        let data = frame_slice(&self.read_buf, payload_start, data_length, total)?;
+        let data = frame_slice(
+            &self.read_buf[self.read_start..],
+            payload_start,
+            data_length,
+            total,
+        )?;
 
         {
             let mut recv = state.recv.buf.lock().expect("recv buf mutex poisoned");
@@ -573,18 +574,6 @@ where
         }
         entry.send_window = new;
         Ok(())
-    }
-
-    /// Clear read cursor state and prepare for the next frame.
-    fn reset_after_frame(&mut self) {
-        self.read_filled = 0;
-        self.read_phase = ReadPhase::NeedHeader;
-        // Shrink if we ballooned above the default capacity for a big frame.
-        if self.read_buf.capacity() > MAX_BUFFER_SIZE / 16 {
-            self.read_buf = vec![0u8; FRAME_HEADER_LEN];
-        } else {
-            self.read_buf.truncate(FRAME_HEADER_LEN);
-        }
     }
 }
 

@@ -4,6 +4,11 @@
 /// prevent runaway allocation under an adversarial peer.
 pub(super) const MAX_BUFFER_SIZE: usize = 1 << 20;
 
+/// Smallest read buffer the driver keeps. Each transport read fills as much of it as the peer
+/// has sent, so frames that arrive together — a burst of requests, say — cost one read rather
+/// than two per frame.
+pub(super) const READ_WINDOW: usize = 8 * 1024;
+
 /// Baseline connection-level flow-control window — 65535 octets for both directions,
 /// unchanged by SETTINGS. Used as the starting value for our send-side window (credited
 /// via peer `WINDOW_UPDATE(0)`) and for our recv-side window before we emit the initial
