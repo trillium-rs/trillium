@@ -126,9 +126,9 @@ where
         }
     }
 
-    /// True if any conn-task signal is pending that we haven't yet serviced: a signaled stream or a
-    /// newly opened client stream. Used by `park` to decide whether returning `Pending` is safe or
-    /// whether we need to loop around.
+    /// True if any conn-task signal is pending that we haven't yet serviced: a signaled stream, a
+    /// newly opened client stream, or a queued PING. Used by `park` to decide whether returning
+    /// `Pending` is safe or whether we need to loop around.
     pub(super) fn has_pending_handler_signals(&self) -> bool {
         // Client-role guard: streams the conn task just opened are in the shared map but not yet in
         // `self.streams`. Without this, an `open_stream` landing between `service_handler_signals`
@@ -140,7 +140,7 @@ where
                 return true;
             }
         }
-        self.connection.has_signaled_streams()
+        self.connection.has_signaled_streams() || self.connection.has_pending_ping_outbound()
     }
 
     /// Client role: scan [`H2Connection::streams`][crate::h2::H2Connection] for ids the conn task

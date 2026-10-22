@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP/3 bodies that ended inside a frame payload were reported as a clean end of body
   instead of an error, so a request or response truncated mid-frame could be read as
   complete. Truncation is now an `UnexpectedEof`.
+- An HTTP/2 PING queued with `H2Connection::send_ping` while the connection was otherwise idle
+  could go unsent, and its future unresolved, until other traffic arrived on the connection.
 
 
 ## [1.7.2] - 2026-09-08
