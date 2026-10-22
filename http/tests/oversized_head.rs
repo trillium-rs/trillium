@@ -68,10 +68,23 @@ async fn oversized_request_target_gets_414() {
 }
 
 #[test(harness)]
-async fn oversized_method_gets_400() {
+async fn oversized_method_gets_501() {
     let response = drive(&format!(
         "{} / HTTP/1.1\r\nHost: example.com\r\n\r\n",
         "A".repeat(100)
+    ))
+    .await;
+    assert!(
+        response.starts_with("HTTP/1.1 501 Not Implemented\r\n"),
+        "{response}"
+    );
+}
+
+#[test(harness)]
+async fn oversized_request_line_that_is_not_a_method_gets_400() {
+    let response = drive(&format!(
+        "{} / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        "<".repeat(100)
     ))
     .await;
     assert!(
