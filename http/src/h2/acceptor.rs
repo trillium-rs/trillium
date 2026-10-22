@@ -214,9 +214,10 @@ pub struct H2Driver<T> {
     /// [`H2Connection::context`]: super::H2Connection::context
     pub(super) config: AcceptorConfig,
 
-    /// When the current burst of inbound frames began: the first clock reading since the driver
-    /// last returned `Pending`, taken lazily when a stream opens. Streams opened in one burst
-    /// share it as their start time, so a burst of new streams reads the clock once.
+    /// When the latest transport read's bytes arrived: the first clock reading since that read,
+    /// taken lazily when a stream opens. Streams opened from one read share it as their start
+    /// time, so a burst of new streams reads the clock once, and no stream's start time predates
+    /// the read that delivered its HEADERS.
     burst_start: Option<Instant>,
 }
 
@@ -299,22 +300,11 @@ where
     /// [`H2Driver`], and [`H2Initiator`][super::H2Initiator]'s client-side Future impl.
     ///
     /// [`Stream`]: futures_lite::stream::Stream
-    pub(super) fn drive(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
-        let poll = self.drive_burst(cx);
-        if poll.is_pending() {
-            self.burst_start = None;
-        }
-        poll
-    }
-
     #[allow(
         clippy::too_many_lines,
         reason = "state-machine orchestration; splitting muddies the read-as-a-recipe shape"
     )]
-    fn drive_burst(
+    pub(super) fn drive(
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
@@ -665,6 +655,7 @@ where
                 return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof)));
             }
             self.read_filled += n;
+            self.burst_start = None;
         }
         Poll::Ready(Ok(()))
     }
