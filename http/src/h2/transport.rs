@@ -149,9 +149,8 @@ impl Drop for H2Transport {
             );
             self.state.request_reset(H2ErrorCode::Cancel);
         }
-        self.state.needs_servicing.store(true, Ordering::Release);
         self.state.send.outbound_write_waker.wake();
-        self.connection.outbound_waker().wake();
+        self.connection.signal_driver(self.stream_id, &self.state);
     }
 }
 
@@ -172,8 +171,7 @@ impl AsyncRead for H2Transport {
         let recv_state = &self.state.recv;
         let connection = &*self.connection;
         if !recv_state.is_reading.swap(true, Ordering::AcqRel) {
-            self.state.needs_servicing.store(true, Ordering::Release);
-            connection.outbound_waker().wake();
+            connection.signal_driver(self.stream_id, &self.state);
         }
 
         let mut recv = recv_state.buf.lock().expect("recv buf mutex poisoned");
@@ -190,8 +188,7 @@ impl AsyncRead for H2Transport {
             recv_state
                 .bytes_consumed
                 .fetch_add(take as u64, Ordering::AcqRel);
-            self.state.needs_servicing.store(true, Ordering::Release);
-            connection.outbound_waker().wake();
+            connection.signal_driver(self.stream_id, &self.state);
             return Poll::Ready(Ok(take));
         }
 
@@ -272,9 +269,8 @@ impl AsyncWrite for H2Transport {
             self.stream_id,
         );
         self.state.request_close();
-        self.state.needs_servicing.store(true, Ordering::Release);
         self.state.send.outbound_write_waker.wake();
-        self.connection.outbound_waker().wake();
+        self.connection.signal_driver(self.stream_id, &self.state);
         Poll::Ready(Ok(()))
     }
 }
@@ -337,15 +333,15 @@ pub(super) struct StreamState {
     /// channel, and the application-release signal.
     pub(super) send: SendState,
 
-    /// Mailbox flag for conn-task → driver work signaling. Set by conn-task code whenever it
-    /// produces work the driver should service (enqueue a part, raise `is_reading`, increment
-    /// `bytes_consumed`, set `transport_dropped`). The driver's `service_handler_signals` consults
-    /// it via `swap(false, AcqRel)` — only streams where it returns `true` pay for the queue-lock
-    /// pickup; idle streams cost a single atomic RMW per tick.
+    /// Whether this stream is already in the connection's queue of signaled streams. Set by
+    /// [`H2Connection::signal_driver`] when it queues the stream, which conn-task code calls
+    /// whenever it produces work for the driver (enqueue a part, raise `is_reading`, increment
+    /// `bytes_consumed`, set `transport_dropped`); cleared by the driver when it takes the stream
+    /// off the queue, *before* it reads the stream's mailbox. So a signal racing the driver
+    /// either lands in what the driver reads or queues the stream again.
     ///
-    /// **Setter ordering rule**: write the underlying state first, then store `true` with
-    /// `Release`, then wake the connection's outbound waker. Over-notification is harmless;
-    /// under-notification would lose a signal.
+    /// Only `signal_driver` may set it: a stream whose flag is set without being queued would
+    /// never be queued again.
     pub(super) needs_servicing: AtomicBool,
 }
 
@@ -366,18 +362,18 @@ impl StreamState {
 
     /// Stage a full submission of outbound parts atomically, so the send pump sees a complete
     /// message rather than a partial one (the `SubmitSend` future keys "done" off the queue
-    /// draining to empty). Raises `needs_servicing`; the caller wakes the driver.
+    /// draining to empty). The caller signals the driver.
     pub(super) fn stage(&self, parts: impl IntoIterator<Item = OutboundPart>) {
         self.send
             .queue
             .lock()
             .expect("send queue mutex poisoned")
             .extend(parts);
-        self.needs_servicing.store(true, Ordering::Release);
     }
 
     /// Enqueue the `END_STREAM` terminator unless one (or a reset) is already queued or the send
-    /// half is already closed. Idempotent — safe to call from repeated `poll_close` / Drop.
+    /// half is already closed. Idempotent — safe to call from repeated `poll_close` / Drop. The
+    /// caller signals the driver.
     pub(super) fn request_close(&self) {
         if self.lifecycle_lock().send_closed() {
             return;
@@ -386,13 +382,11 @@ impl StreamState {
         if queue.back().is_none_or(|p| !p.is_terminal()) {
             queue.push_back(OutboundPart::Close);
         }
-        drop(queue);
-        self.needs_servicing.store(true, Ordering::Release);
     }
 
     /// Clear any queued parts and request `RST_STREAM(code)`. First-wins: a reset already at the
     /// back keeps its code. Nothing else is valid to send after a reset, so clearing the queue
-    /// models the §5.1 sequence faithfully. Raises `needs_servicing`; the caller wakes the driver.
+    /// models the §5.1 sequence faithfully. The caller signals the driver.
     pub(super) fn request_reset(&self, code: H2ErrorCode) {
         let mut queue = self.send.queue.lock().expect("send queue mutex poisoned");
         if matches!(queue.back(), Some(OutboundPart::Reset(_))) {
@@ -400,8 +394,6 @@ impl StreamState {
         }
         queue.clear();
         queue.push_back(OutboundPart::Reset(code));
-        drop(queue);
-        self.needs_servicing.store(true, Ordering::Release);
     }
 }
 
@@ -485,7 +477,7 @@ pub(super) struct RecvState {
 #[derive(Debug, Default)]
 pub(super) struct SendState {
     /// Outbound parts the conn task has handed off, drained by the driver into its private send
-    /// cursor under `needs_servicing`. Cold: a handful of pushes per stream lifetime.
+    /// cursor when the stream is signaled. Cold: a handful of pushes per stream lifetime.
     pub(super) queue: Mutex<VecDeque<OutboundPart>>,
 
     /// Streaming bytes for a bidirectional upgrade: [`H2Transport`]'s `AsyncWrite::poll_write`

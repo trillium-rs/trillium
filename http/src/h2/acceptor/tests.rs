@@ -21,5 +21,6 @@ mod read_ahead;
 mod recv_headers;
 mod send;
 mod shutdown;
+mod signals;
 mod throughput;
 mod two_driver;
