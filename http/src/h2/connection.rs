@@ -37,11 +37,12 @@ use crate::{Conn, HttpContext};
 use atomic_waker::AtomicWaker;
 use event_listener::Event;
 use futures_lite::io::{AsyncRead, AsyncWrite};
+use hashbrown::HashMap;
 use ping::PendingPing;
 #[cfg(feature = "unstable")]
 use std::sync::atomic::Ordering;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     future::Future,
     io,
     sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool},
