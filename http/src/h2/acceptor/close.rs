@@ -1,13 +1,13 @@
 use super::{
     H2Driver,
-    constants::READ_WINDOW,
     types::{CloseOutcome, DriverState},
 };
 use crate::{
     Conn,
+    graceful_close::GracefulClose,
     h2::{H2Error, H2ErrorCode, stream_state::StreamEvent, transport::H2Transport},
 };
-use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     io,
     pin::Pin,
@@ -193,11 +193,7 @@ where
             self.finish_with_current_outcome();
         }
 
-        if self.transport.close().await.is_err() {
-            return;
-        }
-
-        self.read_buf.resize(READ_WINDOW, 0);
-        while let Ok(1..) = self.transport.read(&mut self.read_buf).await {}
+        let reads_per_yield = self.config.copy_loops_per_yield();
+        GracefulClose::new(self.transport, self.read_buf, reads_per_yield).await;
     }
 }
