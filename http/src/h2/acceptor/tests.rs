@@ -13,6 +13,7 @@
 //! cap).
 
 mod client;
+mod close;
 mod fixture;
 mod flow_control;
 mod lifecycle;

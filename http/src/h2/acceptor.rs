@@ -19,6 +19,8 @@
 //! - **`acceptor.rs`** (this file): struct definition, the [`Self::drive`] orchestration loop, I/O
 //!   read primitives (`poll_fill_to`, `poll_drain_peer`), and the supporting enums
 //!   ([`DriverState`], [`ReadPhase`], [`CloseOutcome`], [`Action`], [`StreamEntry`]).
+//! - **`acceptor::close`**: [`H2Driver::close`], the transport close that follows the driver
+//!   finishing.
 //! - **`acceptor::closed_streams`**: bounded ledger of recently-closed streams + reasons, consulted
 //!   to pick the right §5.1 error category for stale peer frames.
 //! - **`acceptor::handler_signals`**: conn-task → driver work-pickup boundary. Owns the
@@ -33,6 +35,7 @@
 //! [`H2Connection::run`]: super::H2Connection::run
 //! [`Stream`]: futures_lite::stream::Stream
 
+mod close;
 mod closed_streams;
 mod constants;
 mod handler_signals;
@@ -357,20 +360,19 @@ where
             }
 
             // 4. If we were closing, outbound is now drained. For graceful (or protocol-error)
-            //    shutdowns, transition to `Drained` and wait for the peer to close its write half —
-            //    otherwise the peer sees our drop as a reset rather than a clean close. For
-            //    I/O-error shutdowns the transport is already untrustworthy, so skip the drain.
-            //    Defer the transition while in-flight streams still have outbound (an active
-            //    SendCursor or queued parts), an open send half (a handler that hasn't submitted
-            //    its response yet — half-closed-remote is *not* drained), OR inbound (recv half not
-            //    yet closed) work. Without this, a handler that submits trailers *after* the
-            //    cancellation race resolves gets stranded with bytes parked in mailboxes; a handler
-            //    that hasn't responded yet when shutdown begins has its response `SubmitSend`
-            //    orphaned by a driver that finished out from under it; and a client receiving
-            //    GOAWAY mid-stream stops decoding incoming frames before the server's trailing
-            //    HEADERS arrive. Falls through to step 6 so the recv pump (also gated on
-            //    Running|Closing now) keeps running and parks on the transport read waker rather
-            //    than the outbound-only `park` here.
+            //    shutdowns, transition to `Drained`, which reads whatever the peer has already sent
+            //    before finishing. For I/O-error shutdowns the transport is already untrustworthy,
+            //    so skip the drain. Defer the transition while in-flight streams still have
+            //    outbound (an active SendCursor or queued parts), an open send half (a handler that
+            //    hasn't submitted its response yet — half-closed-remote is *not* drained), OR
+            //    inbound (recv half not yet closed) work. Without this, a handler that submits
+            //    trailers *after* the cancellation race resolves gets stranded with bytes parked in
+            //    mailboxes; a handler that hasn't responded yet when shutdown begins has its
+            //    response `SubmitSend` orphaned by a driver that finished out from under it; and a
+            //    client receiving GOAWAY mid-stream stops decoding incoming frames before the
+            //    server's trailing HEADERS arrive. Falls through to step 6 so the recv pump (also
+            //    gated on Running|Closing now) keeps running and parks on the transport read waker
+            //    rather than the outbound-only `park` here.
             if self.state == DriverState::Closing {
                 if matches!(self.close_outcome, Some(CloseOutcome::Io(_))) {
                     return Poll::Ready(self.finish_with_current_outcome());
@@ -701,9 +703,8 @@ where
     /// bytes available right now) OR `Ready(0)` (peer FIN already arrived) OR any error.
     ///
     /// Does **not** register the waker on `Pending` — we're actively closing, not
-    /// observing the peer. A peer that happens to send more bytes after our exit will
-    /// have those bytes dropped when the transport is closed; that's a race the peer
-    /// chose to lose by sending after receiving our GOAWAY.
+    /// observing the peer. Bytes the peer sends after this returns are [`Self::close`]'s to
+    /// wait out; dropping the transport instead answers them with a TCP reset.
     ///
     /// Returning `Ready(())` unconditionally (no `Pending` case) lets the caller finalize
     /// immediately. The `Poll` wrapper is kept for symmetry with the rest of the driver's
@@ -718,8 +719,7 @@ where
         for _ in 0..MAX_DISCARD_ITERATIONS {
             // We pass `cx` through for the benefit of the transport's `poll_read` contract,
             // but we *interpret* `Pending` as "done draining" rather than parking on it —
-            // we're actively closing, not observing. A peer that sends more bytes after
-            // our exit loses the race.
+            // we're actively closing, not observing.
             match Pin::new(&mut self.transport).poll_read(cx, &mut scratch) {
                 Poll::Ready(Ok(0) | Err(_)) | Poll::Pending => {
                     return Poll::Ready(());
