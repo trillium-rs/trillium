@@ -47,6 +47,30 @@ fn a_response_submitted_while_the_driver_sleeps_is_framed() {
     );
 }
 
+#[test]
+fn a_ping_queued_while_the_driver_sleeps_is_sent() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+    assert!(fx.tick().is_pending());
+
+    let connection = fx.connection.clone();
+    let _ping = connection.send_ping(*b"pingpong");
+    assert!(!parks(&mut fx), "a queued PING must keep the driver awake");
+
+    let _ = fx.tick();
+    let frames = fx.next_outbound_frames();
+    assert!(
+        frames.iter().any(|f| matches!(
+            f,
+            Frame::Ping {
+                opaque_data,
+                ack: false,
+            } if opaque_data == b"pingpong"
+        )),
+        "expected the queued PING, got {frames:?}",
+    );
+}
+
 /// A client stream whose handler signals before the driver has picked the stream up (here, by
 /// reading the response body at once) is serviced exactly once: its request HEADERS go out once,
 /// and its read intent still earns a WINDOW_UPDATE.
