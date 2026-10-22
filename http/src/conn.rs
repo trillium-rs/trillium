@@ -1,5 +1,6 @@
 use crate::{
     Body, Buffer, Headers, HttpContext,
+    http_context::ConnectionContext,
     KnownHeaderName::Host,
     Method, ProtocolSession, ReceivedBody, Status, Swansong, TypeSet, Version,
     after_send::{AfterSend, SendStatus},
@@ -59,9 +60,9 @@ pub struct Conn<Transport> {
 #[derive(fieldwork::Fieldwork)]
 #[fieldwork(delegatable)]
 pub(crate) struct ConnInner {
-    #[field(get)]
+    #[field(get, deref = HttpContext)]
     /// the shared [`HttpContext`]
-    pub(crate) context: Arc<HttpContext>,
+    pub(crate) context: ConnectionContext,
 
     /// request [headers](Headers)
     #[field(get, get_mut)]
