@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reporting an upgrade, an error, or a close. A close carries an `H1Close`, which closes the
   connection the same way `H2Driver::close` does when awaited, and hangs up immediately when
   dropped. `HttpContext::run` behaves as before.
+- `Error::UnsupportedVersionNumber`, for a request that names a well-formed HTTP version this
+  implementation doesn't speak.
 
 ### Changed
 
@@ -23,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HttpConfig::copy_loops_per_yield` now also bounds how many new requests an HTTP/2 connection
   starts before yielding to the runtime, so a burst of requests on one connection reaches its
   handlers sooner.
+- An HTTP/1.x request-line naming a well-formed HTTP version other than 1.x, such as `HTTP/2.0` or
+  `HTTP/0.9`, now gets `505 HTTP Version Not Supported` instead of `400 Bad Request`. A malformed
+  version still gets 400.
 
 ### Deprecated
 

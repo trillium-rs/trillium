@@ -84,13 +84,25 @@ impl Version {
 
     pub(crate) fn parse(buf: &[u8]) -> crate::Result<Self> {
         // The request-line HTTP-version is case-sensitive (`HTTP-name` is the literal uppercase
-        // bytes), unlike the lenient `FromStr` used elsewhere. Only HTTP/1.x can appear in an h1
-        // request-line — h2/h3 use binary framing — so a higher minor of our major is processed as
-        // 1.1 and everything else (`HTTP/2.0`, lowercase, garbage) is a malformed
-        // request-line (`InvalidVersion` → 400), not an unsupported major.
-        match buf {
-            b"HTTP/1.0" => Ok(Self::Http1_0),
+        // bytes), unlike the lenient `FromStr` used elsewhere. A higher minor of our major is
+        // processed as 1.1. A well-formed version with any other major (`HTTP/2.0`, `HTTP/0.9`) is
+        // one we don't speak; anything else (lowercase, garbage) is a malformed request-line.
+        match *buf {
+            [b'H', b'T', b'T', b'P', b'/', b'1', b'.', b'0'] => Ok(Self::Http1_0),
             [b'H', b'T', b'T', b'P', b'/', b'1', b'.', b'1'..=b'9'] => Ok(Self::Http1_1),
+            [
+                b'H',
+                b'T',
+                b'T',
+                b'P',
+                b'/',
+                major @ b'0'..=b'9',
+                b'.',
+                minor @ b'0'..=b'9',
+            ] => Err(Error::UnsupportedVersionNumber {
+                major: major - b'0',
+                minor: minor - b'0',
+            }),
             _ => Err(Error::InvalidVersion),
         }
     }
