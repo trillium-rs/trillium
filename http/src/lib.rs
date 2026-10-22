@@ -144,6 +144,8 @@ mod conn;
 mod connection_status;
 mod copy;
 mod error;
+mod graceful_close;
+pub mod h1;
 pub mod h2;
 pub mod h3;
 pub mod headers;
@@ -192,9 +194,14 @@ pub(crate) use copy::copy;
 pub use error::{Error, Result};
 pub use headers::{HeaderName, HeaderValue, HeaderValues, Headers, KnownHeaderName, SERVER_HEADER};
 pub use http_config::HttpConfig;
+pub use http_context::HttpContext;
 #[cfg(feature = "unstable")]
 pub use http_context::parse_head_for_bench;
-pub use http_context::{HttpContext, run_with_initial_bytes};
+#[allow(
+    deprecated,
+    reason = "kept exported for compatibility; its own deprecation points callers to H1Connection"
+)]
+pub use http_context::run_with_initial_bytes;
 pub use liveness::PeerGone;
 pub use method::Method;
 #[cfg(feature = "unstable")]

@@ -1,5 +1,5 @@
 use crate::{
-    Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade, conn::HeadError,
+    Conn, HttpConfig, Result, TypeSet, Upgrade, h1::H1Connection,
     headers::header_observer::HeaderObserver,
 };
 use fieldwork::Fieldwork;
@@ -72,6 +72,10 @@ impl HttpContext {
     /// For any given invocation of `HttpContext::run`, the handler function may run any number of
     /// times, depending on whether the connection is reused by the client.
     ///
+    /// When the connection closes, the transport is dropped immediately. To close it gracefully
+    /// instead, use [`H1Connection`], which hands back an
+    /// [`H1Close`](crate::h1::H1Close) to await.
+    ///
     /// # Errors
     ///
     /// This function will return an [`Error`](crate::Error) if any of the http requests is
@@ -86,8 +90,10 @@ impl HttpContext {
         Handler: FnMut(Conn<Transport>) -> Fut,
         Fut: Future<Output = Conn<Transport>>,
     {
-        let initial_bytes = Vec::with_capacity(self.config.request_buffer_initial_len);
-        run_with_initial_bytes(self, transport, initial_bytes, handler).await
+        H1Connection::new(self, transport)
+            .run(handler)
+            .await
+            .into_upgrade()
     }
 
     /// Attempt graceful shutdown of this server.
@@ -127,35 +133,27 @@ impl HttpContext {
 ///
 /// Same as [`HttpContext::run`] — any irrecoverably malformed or noncompliant HTTP/1 request
 /// surfaces as an [`Error`](crate::Error).
+#[deprecated(
+    since = "1.8.0",
+    note = "use `H1Connection::new(context, \
+            transport).with_initial_bytes(initial_bytes).run(handler)`"
+)]
 pub async fn run_with_initial_bytes<Transport, Handler, Fut>(
     context: Arc<HttpContext>,
     transport: Transport,
     initial_bytes: Vec<u8>,
-    mut handler: Handler,
+    handler: Handler,
 ) -> Result<Option<Upgrade<Transport>>>
 where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     Handler: FnMut(Conn<Transport>) -> Fut,
     Fut: Future<Output = Conn<Transport>>,
 {
-    let _guard = context.swansong.guard();
-
-    let mut conn = match Conn::new_h1(context, transport, initial_bytes).await {
-        Ok(conn) => conn,
-        Err(HeadError::BadRequest(bad)) => {
-            bad.send().await?;
-            return Ok(None);
-        }
-        Err(HeadError::Fatal(e)) => return Err(e),
-    };
-
-    loop {
-        conn = match handler(conn).await.send().await? {
-            ConnectionStatus::Upgrade(upgrade) => return Ok(Some(upgrade)),
-            ConnectionStatus::Close => return Ok(None),
-            ConnectionStatus::Conn(next) => next,
-        }
-    }
+    H1Connection::new(context, transport)
+        .with_initial_bytes(initial_bytes)
+        .run(handler)
+        .await
+        .into_upgrade()
 }
 
 /// Parse a single HTTP/1.x request head off `transport` and return the resulting [`Conn`], without
@@ -179,7 +177,7 @@ where
     let initial_bytes = Vec::with_capacity(context.config.request_buffer_initial_len);
     match Conn::new_h1(context, transport, initial_bytes).await {
         Ok(conn) => Ok(conn),
-        Err(HeadError::BadRequest(bad)) => Ok(bad),
-        Err(HeadError::Fatal(e)) => Err(e),
+        Err(crate::conn::HeadError::BadRequest(bad)) => Ok(bad),
+        Err(crate::conn::HeadError::Fatal(e)) => Err(e),
     }
 }

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `H2Driver::close`, which shuts down the sending side of an HTTP/2 connection and then waits for
   the peer to close its side. Dropping the driver instead can answer a peer that is still sending
   with a TCP reset, which may destroy data it hasn't read yet.
+- `h1::H1Connection`, for serving HTTP/1.x on a transport: `H1Connection::new(context, transport)`,
+  optionally `with_initial_bytes`, then `run(handler)`. It resolves to an `H1ConnectionResult`
+  reporting an upgrade, an error, or a close. A close carries an `H1Close`, which closes the
+  connection the same way `H2Driver::close` does when awaited, and hangs up immediately when
+  dropped. `HttpContext::run` behaves as before.
 
 ### Changed
 
@@ -18,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HttpConfig::copy_loops_per_yield` now also bounds how many new requests an HTTP/2 connection
   starts before yielding to the runtime, so a burst of requests on one connection reaches its
   handlers sooner.
+
+### Deprecated
+
+- `run_with_initial_bytes`, in favor of `H1Connection::new(context, transport).with_initial_bytes(..)`.
 
 ### Fixed
 
