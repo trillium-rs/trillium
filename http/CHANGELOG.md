@@ -4,7 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.7.3] - 2026-10-21
+## [1.8.0] - 2026-10-21
+
+### Added
+
+- `H2Driver::close`, which shuts down the sending side of an HTTP/2 connection and then waits for
+  the peer to close its side. Dropping the driver instead can answer a peer that is still sending
+  with a TCP reset, which may destroy data it hasn't read yet.
 
 ### Changed
 
