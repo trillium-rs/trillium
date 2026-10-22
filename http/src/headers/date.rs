@@ -8,64 +8,93 @@
 //! threshold — but the per-response cost drops from two allocations plus
 //! formatting to a single allocation.
 //!
+//! Noticing that the second has changed would take a precise wall-clock read on
+//! every response, so the cache instead records, on a coarse monotonic clock,
+//! when the next second begins. A coarse read skips the precise clock's work,
+//! at the cost of rolling the header over up to one coarse tick late (1–4 ms
+//! on Linux).
+//!
 //! The cache is deliberately thread-local rather than a shared `Arc`/`ArcSwap`:
 //! handing every response an owned shared value would bounce a single refcount
 //! cache line across all cores, the opposite of trillium's thread-per-core
 //! direction. Per-thread state keeps the hot path contention-free.
 
 use crate::HeaderValue;
+use coarsetime::Instant;
 use std::{
     cell::RefCell,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+struct CachedDate {
+    /// When the next wall-clock second begins, and with it a new `Date`.
+    expires: Instant,
+    value: HeaderValue,
+}
+
 thread_local! {
-    static CACHE: RefCell<Option<(u64, HeaderValue)>> = const { RefCell::new(None) };
+    static CACHE: RefCell<Option<CachedDate>> = const { RefCell::new(None) };
 }
 
 /// A [`HeaderValue`] for the current `Date`, ready to insert into a response's
 /// headers. Formatting is amortized to once per second per thread.
 pub(crate) fn current_date_header() -> HeaderValue {
-    let now = SystemTime::now();
-    let secs = now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    // `Instant::now` would also store to a process-wide atomic on every call.
+    let now = Instant::now_without_cache_update();
+    CACHE.with_borrow_mut(|cache| date_header(cache, now, SystemTime::now))
+}
 
-    CACHE.with_borrow_mut(|cache| {
-        if let Some((cached_secs, value)) = cache
-            && *cached_secs == secs
-        {
-            return value.clone();
-        }
-        let value = HeaderValue::from(httpdate::fmt_http_date(now));
-        *cache = Some((secs, value.clone()));
-        value
-    })
+fn date_header(
+    cache: &mut Option<CachedDate>,
+    now: Instant,
+    wall_clock: impl FnOnce() -> SystemTime,
+) -> HeaderValue {
+    if let Some(cached) = cache
+        && now < cached.expires
+    {
+        return cached.value.clone();
+    }
+
+    let wall = wall_clock();
+    let into_second = wall.duration_since(UNIX_EPOCH).map_or(Duration::ZERO, |d| {
+        Duration::from_nanos(u64::from(d.subsec_nanos()))
+    });
+    let value = HeaderValue::from(httpdate::fmt_http_date(wall));
+    *cache = Some(CachedDate {
+        expires: now + Duration::from_secs(1).saturating_sub(into_second).into(),
+        value: value.clone(),
+    });
+    value
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn now_secs() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs())
+    #[test]
+    fn well_formed() {
+        let s = current_date_header();
+        let s = s.as_str().expect("date is utf8");
+        assert_eq!(s.len(), 29, "IMF-fixdate is fixed-length");
+        assert!(s.ends_with(" GMT"), "got {s:?}");
     }
 
     #[test]
-    fn well_formed_and_cached_within_a_second() {
-        let before = now_secs();
-        let a = current_date_header();
-        let b = current_date_header();
-        let after = now_secs();
+    fn cached_until_the_next_second() {
+        let start = Instant::now_without_cache_update();
+        let wall = UNIX_EPOCH + Duration::from_millis(1_700_000_000_250);
+        let mut cache = None;
+        let first = date_header(&mut cache, start, || wall);
 
-        let s = a.as_str().expect("date is utf8");
-        assert_eq!(s.len(), 29, "IMF-fixdate is fixed-length");
-        assert!(s.ends_with(" GMT"), "got {s:?}");
+        let later = start + Duration::from_millis(740).into();
+        let cached = date_header(&mut cache, later, || panic!("should not read the clock"));
+        assert_eq!(cached, first);
 
-        // If both reads landed in the same wall-clock second, the cache must have
-        // served identical values.
-        if before == after {
-            assert_eq!(a, b);
-        }
+        let next_second = start + Duration::from_millis(760).into();
+        let refreshed = date_header(&mut cache, next_second, || {
+            wall + Duration::from_millis(760)
+        });
+        assert_ne!(refreshed, first);
+        assert_eq!(refreshed.as_str(), Some("Tue, 14 Nov 2023 22:13:21 GMT"));
     }
 }

@@ -4,10 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.3] - 2026-10-21
+
+### Changed
+
+- Performance improvements, particularly in the per-request cost of HTTP/1.x and HTTP/2.
 
 ### Fixed
 
+- `Body::into_bytes` could exhaust memory or panic on a streaming body that declared an enormous
+  length, before any of its content arrived. Memory use now follows the content actually received.
 - HTTP/3 bodies that ended inside a frame payload were reported as a clean end of body
   instead of an error, so a request or response truncated mid-frame could be read as
   complete. Truncation is now an `UnexpectedEof`.

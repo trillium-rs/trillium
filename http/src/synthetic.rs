@@ -1,6 +1,6 @@
 use crate::{
     Conn, Headers, HttpConfig, HttpContext, KnownHeaderName, Method, ProtocolSession, TypeSet,
-    Version, after_send::AfterSend, received_body::ReceivedBodyState,
+    Version, after_send::AfterSend, conn::ConnInner, received_body::ReceivedBodyState,
 };
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, Result};
 use std::{
@@ -138,37 +138,40 @@ impl Conn<Synthetic> {
         let request_body_state = ReceivedBodyState::new_h1(Some(transport.len() as u64), false);
 
         Self {
-            context: Arc::default(),
+            inner: Box::new(ConnInner {
+                context: Arc::default(),
+                request_headers,
+                spare_request_headers: None,
+                response_headers: Headers::new(),
+                path: Cow::Owned(path.into()),
+                method,
+                status: None,
+                version: Version::Http1_1,
+                state: TypeSet::new(),
+                response_body: None,
+                buffer: Vec::with_capacity(HttpConfig::DEFAULT.request_buffer_initial_len).into(),
+                response_buffer: Vec::new(),
+                request_body_state,
+                secure: false,
+                after_send: AfterSend::default(),
+                start_time: Instant::now(),
+                peer_ip: None,
+                authority: None,
+                scheme: None,
+                protocol: None,
+                protocol_session: ProtocolSession::Http1,
+                request_trailers: None,
+                upgrade: false,
+                peer_gone: None,
+            }),
             transport,
-            request_headers,
-            spare_request_headers: None,
-            response_headers: Headers::new(),
-            path: Cow::Owned(path.into()),
-            method,
-            status: None,
-            version: Version::Http1_1,
-            state: TypeSet::new(),
-            response_body: None,
-            buffer: Vec::with_capacity(HttpConfig::DEFAULT.request_buffer_initial_len).into(),
-            request_body_state,
-            secure: false,
-            after_send: AfterSend::default(),
-            start_time: Instant::now(),
-            peer_ip: None,
-            authority: None,
-            scheme: None,
-            protocol: None,
-            protocol_session: ProtocolSession::Http1,
-            request_trailers: None,
-            upgrade: false,
-            peer_gone: None,
         }
     }
 
     /// use a particular shared server config for this synthetic conn
     #[doc(hidden)]
     pub fn set_context(&mut self, context: Arc<HttpContext>) {
-        self.context = context;
+        self.inner.context = context;
     }
 
     /// chainable setter for server config
@@ -191,7 +194,8 @@ impl Conn<Synthetic> {
         let transport = body.into();
         self.request_headers_mut()
             .insert(KnownHeaderName::ContentLength, transport.len().to_string());
-        self.request_body_state = ReceivedBodyState::new_h1(Some(transport.len() as u64), false);
+        self.inner.request_body_state =
+            ReceivedBodyState::new_h1(Some(transport.len() as u64), false);
         self.transport = transport;
     }
 }

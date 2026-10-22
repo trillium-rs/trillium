@@ -67,6 +67,7 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll, ready},
+    time::Instant,
 };
 use swansong::ShuttingDown;
 use types::{
@@ -122,13 +123,6 @@ pub struct H2Driver<T> {
     /// `Arc<StreamState>` via [`H2Transport`] and don't consult this table. The entry
     /// bundles the shared state with driver-private bookkeeping (e.g. "have we already
     /// advertised the recv window after seeing `is_reading`?").
-    ///
-    /// A `BTreeMap` (not a hash map) so the send pump iterates streams in ascending
-    /// stream-id order. For the client role this is load-bearing: a client MUST send
-    /// opening HEADERS in monotonically increasing stream-id order (RFC 9113 §5.1.1),
-    /// and concurrent `open_stream` calls would otherwise let the pump frame a higher
-    /// id before a lower one, drawing a `GOAWAY(PROTOCOL_ERROR)` from the peer. (See
-    /// also the allocate-under-`streams_lock` ordering in `open_stream`.)
     streams: BTreeMap<u32, StreamEntry>,
 
     /// Highest peer-initiated stream id seen so far. Peer-initiated (client) stream ids
@@ -144,10 +138,10 @@ pub struct H2Driver<T> {
     /// Lookups are by stream id and nothing iterates this in order, so it's a hash map.
     stream_priorities: HashMap<u32, Priority>,
 
-    /// Reused scratch for the send pump's priority schedule ([`ScheduleEntry`] per active stream),
-    /// rebuilt and sorted each pump tick. Kept on the driver (rather than allocated per tick) so
-    /// the per-tick cost on this hot path is a clear + extend, not a fresh allocation. Empty
-    /// between ticks. See [`Self::advance_outbound_sends`].
+    /// Reused scratch for the send pump's priority schedule ([`ScheduleEntry`] per sending
+    /// stream), rebuilt and sorted each pump tick. Kept on the driver (rather than allocated per
+    /// tick) so the per-tick cost on this hot path is a clear + extend, not a fresh allocation.
+    /// See [`Self::advance_outbound_sends`].
     send_schedule: Vec<ScheduleEntry>,
 
     /// Accumulator for an in-progress HEADERS block that is waiting on further CONTINUATION
@@ -205,6 +199,11 @@ pub struct H2Driver<T> {
     ///
     /// [`H2Connection::context`]: super::H2Connection::context
     pub(super) config: AcceptorConfig,
+
+    /// When the current burst of inbound frames began: the first clock reading since the driver
+    /// last returned `Pending`, taken lazily when a stream opens. Streams opened in one burst
+    /// share it as their start time, so a burst of new streams reads the clock once.
+    burst_start: Option<Instant>,
 }
 
 impl<T> H2Driver<T>
@@ -248,6 +247,7 @@ where
             connection_inflow: Inflow::new(INITIAL_CONNECTION_RECV_WINDOW),
             closed_streams: ClosedStreams::default(),
             config,
+            burst_start: None,
         }
     }
 
@@ -282,11 +282,22 @@ where
     /// [`H2Driver`], and [`H2Initiator`][super::H2Initiator]'s client-side Future impl.
     ///
     /// [`Stream`]: futures_lite::stream::Stream
+    pub(super) fn drive(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
+        let poll = self.drive_burst(cx);
+        if poll.is_pending() {
+            self.burst_start = None;
+        }
+        poll
+    }
+
     #[allow(
         clippy::too_many_lines,
         reason = "state-machine orchestration; splitting muddies the read-as-a-recipe shape"
     )]
-    pub(super) fn drive(
+    fn drive_burst(
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Conn<H2Transport>, H2Error>>> {
@@ -419,7 +430,7 @@ where
                     Poll::Ready(Ok(Action::Continue)) => {}
                     Poll::Ready(Ok(Action::Emit(conn))) => {
                         if self.state == DriverState::Running {
-                            return Poll::Ready(Some(Ok(*conn)));
+                            return Poll::Ready(Some(Ok(conn)));
                         }
                         // Closing — drop the conn; outer loop continues processing
                         // remaining in-flight streams until drained.

@@ -2,7 +2,7 @@ use super::{
     AsyncRead, AsyncWrite, Buffer, Chunked, Context, End, ErrorKind, Headers, PartialChunkSize,
     Pin, Ready, ReceivedBody, ReceivedBodyState, StateOutput, io, ready, slice_from,
 };
-use crate::util::is_tchar;
+use crate::util::{CRLF, CRLF_CRLF, is_tchar};
 use std::io::{ErrorKind::InvalidData, Write};
 
 /// Append `payload` to `out` framed as a single chunk (`{len:X}\r\n<payload>\r\n`). No
@@ -14,7 +14,6 @@ pub(crate) fn write_chunk(out: &mut Vec<u8>, payload: &[u8]) {
 }
 
 fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
-    use memchr::memmem::Finder;
     use std::str;
 
     // A u64 chunk-size is at most 16 hex digits, so the size token + its `;`/CR
@@ -36,7 +35,7 @@ fn parse_chunk_size(buf: &[u8]) -> Result<Option<(usize, u64)>, ()> {
     // attacker-chosen bytes as the next chunk-size line.
     let remaining = chunk_size.checked_add(2).ok_or(())?;
 
-    let Some(end) = Finder::new(b"\r\n").find(&buf[index..]) else {
+    let Some(end) = CRLF.find(&buf[index..]) else {
         return Ok(None);
     };
 
@@ -364,7 +363,7 @@ fn find_trailer_end(bytes: &[u8]) -> Option<(usize, usize)> {
         Some((0, 1))
     } else {
         // Trailers present — look for \r\n\r\n (last header's CRLF + empty line)
-        memchr::memmem::find(bytes, b"\r\n\r\n").map(|pos| (pos + 2, pos + 4))
+        CRLF_CRLF.find(bytes).map(|pos| (pos + 2, pos + 4))
     }
 }
 

@@ -39,6 +39,11 @@ impl<W: AsyncWrite + Unpin> BufWriter<W> {
         &mut self.buffer
     }
 
+    /// Release the inner writer, returning the buffer and any bytes still in it.
+    pub(crate) fn into_buffer(self) -> Vec<u8> {
+        self.buffer
+    }
+
     /// Superseded by `Body::write_into`, which frames directly into this buffer instead of
     /// copying through an intermediary reader.
     // Retained only so an older `trillium-client` that predates `Body::write_into` still

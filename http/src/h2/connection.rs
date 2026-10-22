@@ -99,8 +99,9 @@ pub struct H2Connection {
     /// fail over to a fresh connection).
     ///
     /// Allocation happens **while holding `streams_lock`** (see `open_stream`), so id order
-    /// matches shared-map insertion order — the invariant the BTreeMap-ordered send pump
-    /// relies on to frame opening HEADERS in monotonic order (RFC 9113 §5.1.1). The lock,
+    /// matches shared-map insertion order — the invariant the send pump, which frames
+    /// equal-priority streams in id order, relies on to frame opening HEADERS in monotonic
+    /// order (RFC 9113 §5.1.1). The lock,
     /// not the atomic, is what orders allocations; the `AtomicU32` is just the interior
     /// mutability this `Arc`-shared field needs, so `Relaxed` suffices. The one out-of-band
     /// reader (`can_open_stream`'s exhaustion check) takes `streams_lock` immediately after,

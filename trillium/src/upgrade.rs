@@ -1,4 +1,4 @@
-use crate::{Headers, HttpContext, Method, Transport, TypeSet, Version};
+use crate::{Headers, HttpContext, Method, Transport, TypeSet, Version, transport::box_transport};
 use futures_lite::{AsyncRead, AsyncWrite};
 use std::{
     mem,
@@ -98,7 +98,7 @@ impl PathFrames {
 impl<T: Transport + 'static> From<trillium_http::Upgrade<T>> for Upgrade {
     fn from(value: trillium_http::Upgrade<T>) -> Self {
         Self {
-            inner: value.map_transport(|t| Box::new(t) as Box<dyn Transport>),
+            inner: value.map_transport(box_transport),
             path_frames: PathFrames::default(),
         }
     }

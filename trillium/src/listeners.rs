@@ -60,7 +60,7 @@ impl Display for ListenerKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Listener(Arc<Inner>);
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Inner {
     kind: ListenerKind,
     secure: bool,
@@ -123,6 +123,16 @@ impl Listener {
     pub fn port(&self) -> Option<u16> {
         self.socket_addr().map(|addr| addr.port())
     }
+
+    /// An equal `Listener` that does not share this one's reference count.
+    ///
+    /// Every clone of a `Listener` updates one shared count, which threads cloning it concurrently
+    /// contend on. Clones of an unshared copy update only the copy's count.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn unshared_clone(&self) -> Self {
+        Self(Arc::new((*self.0).clone()))
+    }
 }
 
 impl Display for Listener {
@@ -166,5 +176,20 @@ impl From<Vec<Listener>> for Listeners {
 impl FromIterator<Listener> for Listeners {
     fn from_iter<T: IntoIterator<Item = Listener>>(iter: T) -> Self {
         Self(iter.into_iter().collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Listener;
+    use std::sync::Arc;
+
+    #[test]
+    fn unshared_clone_is_equal_with_its_own_count() {
+        let listener = Listener::tcp(([127, 0, 0, 1], 8080).into(), true);
+        let unshared = listener.unshared_clone();
+        assert_eq!(unshared, listener);
+        assert!(!Arc::ptr_eq(&unshared.0, &listener.0));
+        assert_eq!(Arc::strong_count(&listener.0), 1);
     }
 }

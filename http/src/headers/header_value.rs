@@ -284,3 +284,18 @@ impl PartialEq<String> for &HeaderValue {
         self.as_str() == Some(other)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::HeaderValue;
+
+    #[test]
+    fn integers_format_as_decimal() {
+        assert_eq!(HeaderValue::from(0_u64), "0");
+        assert_eq!(HeaderValue::from(u64::MAX), "18446744073709551615");
+        assert_eq!(HeaderValue::from(i64::MIN), "-9223372036854775808");
+        assert_eq!(HeaderValue::from(1234_usize), "1234");
+        assert_eq!(HeaderValue::from(u16::MAX), "65535");
+        assert_eq!(HeaderValue::from(-42_i32), "-42");
+    }
+}

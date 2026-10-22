@@ -2,7 +2,7 @@ use super::{Conn, H2Pooled, request_body_buffer::buffer_request_body};
 use crate::pool::{Acquire, PrimerGuard};
 use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once};
 use memchr::memmem::Finder;
-use std::io::Write;
+use std::{io::Write, sync::LazyLock};
 use trillium_http::{
     BodyFraming, BufWriter, Error, Headers,
     KnownHeaderName::{
@@ -11,6 +11,10 @@ use trillium_http::{
     Method, ReceivedBodyState, Result, Status, Version,
 };
 use trillium_server_common::{Connector, Transport, url::Origin};
+
+// A `Finder` plans its search strategy on construction, which is wasted work to repeat per parse.
+static CRLF: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(b"\r\n"));
+static CRLF_CRLF: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(b"\r\n\r\n"));
 
 /// Result of the `Expect: 100-continue` wait: whether the interim `100` arrived (send the body)
 /// or a final response preempted it (the request is already complete).
@@ -208,12 +212,11 @@ impl Conn {
             return Err(Error::Closed);
         };
 
-        let finder = Finder::new(b"\r\n\r\n");
         let mut len = buffer.live_len();
         let mut search_start = 0;
 
         if len > 0 {
-            if let Some(index) = finder.find(buffer) {
+            if let Some(index) = CRLF_CRLF.find(buffer) {
                 return Ok(index + 4);
             }
             search_start = len.saturating_sub(3);
@@ -233,7 +236,7 @@ impl Conn {
             buffer.advance(bytes);
             len += bytes;
 
-            if let Some(index) = finder.find(&buffer[search_start..len]) {
+            if let Some(index) = CRLF_CRLF.find(&buffer[search_start..len]) {
                 return Ok(search_start + index + 4);
             }
 
@@ -268,7 +271,7 @@ impl Conn {
         if !matches!(self.buffer.get(space + 4), Some(b' ' | b'\r' | b'\n')) {
             return Err(Error::InvalidHead);
         }
-        let end_of_first_line = 2 + Finder::new("\r\n")
+        let end_of_first_line = 2 + CRLF
             .find(&self.buffer[..head_offset])
             .ok_or(Error::InvalidHead)?;
 

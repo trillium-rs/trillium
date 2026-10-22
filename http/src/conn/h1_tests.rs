@@ -1,4 +1,4 @@
-//! Regression tests for the h1 head-read loop's buffer growth policy.
+//! Regression tests for the h1 connection loop's buffer policies.
 //!
 //! The head loop's window sizing grows geometrically with received bytes, capped
 //! by the remaining `head_max_len` allowance. Under the previous policy the
@@ -13,7 +13,9 @@
 
 use crate::{Buffer, Conn, Error, HttpContext};
 use std::{
+    net::Shutdown,
     pin::pin,
+    sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
 };
 use trillium_testing::{TestTransport, harness, test};
@@ -128,5 +130,44 @@ async fn dribbled_incomplete_head_errors_with_bounded_capacity() {
         buffer.capacity() <= ceiling,
         "head buffer grew to {} bytes for a {allowance}-byte allowance",
         buffer.capacity()
+    );
+}
+
+/// Each keep-alive response is serialized through the buffer the previous one used, unless that
+/// buffer grew past `response_buffer_len`, in which case it was released rather than retained.
+#[test(harness)]
+async fn keepalive_reuses_the_response_buffer() {
+    let (client, server) = TestTransport::new();
+    let context = Arc::new(HttpContext::new());
+    let response_buffer_len = context.config.response_buffer_len;
+
+    client.write_all(
+        "GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /large HTTP/1.1\r\nHost: x\r\n\r\nGET / \
+         HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n",
+    );
+    client.shutdown(Shutdown::Write);
+
+    let capacities = Arc::new(Mutex::new(Vec::new()));
+    context
+        .run(server, |mut conn| {
+            let capacities = Arc::clone(&capacities);
+            async move {
+                capacities
+                    .lock()
+                    .unwrap()
+                    .push(conn.inner.response_buffer.capacity());
+                if conn.path() == "/large" {
+                    conn.response_headers_mut()
+                        .insert("x-large", "x".repeat(2 * response_buffer_len));
+                }
+                conn.with_status(200)
+            }
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        *capacities.lock().unwrap(),
+        [0, response_buffer_len, 0, response_buffer_len]
     );
 }

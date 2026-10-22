@@ -30,6 +30,7 @@ use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     io::Error,
     sync::{Arc, atomic::Ordering},
+    time::Instant,
 };
 
 /// HEADERS + CONTINUATION assembly state.
@@ -411,8 +412,7 @@ where
         let priority = field_section
             .headers()
             .get_str(KnownHeaderName::Priority)
-            .map(Priority::parse)
-            .unwrap_or_default();
+            .map_or_default(Priority::parse);
         log::trace!("h2 stream {stream_id}: initial priority \"{priority}\"");
         self.connection
             .streams_lock()
@@ -430,8 +430,15 @@ where
         self.last_peer_stream_id = stream_id;
 
         let transport = H2Transport::new(self.connection.clone(), stream_id, state);
-        match Conn::new_h2(self.connection.clone(), stream_id, field_section, transport) {
-            Ok(conn) => Action::Emit(Box::new(conn)),
+        let start_time = *self.burst_start.get_or_insert_with(Instant::now);
+        match Conn::new_h2(
+            self.connection.clone(),
+            stream_id,
+            field_section,
+            transport,
+            start_time,
+        ) {
+            Ok(conn) => Action::Emit(conn),
             Err(code) => {
                 log::debug!("h2 stream {stream_id}: rejected during build: {code:?}");
                 self.streams.remove(&stream_id);

@@ -1,7 +1,8 @@
 use super::{HeaderName, HeaderNameInner::UnknownHeader};
 use crate::compact_cow::CompactCow;
-use hashbrown::{Equivalent, HashSet};
+use hashbrown::{Equivalent, HashMap, HashSet};
 use std::{
+    cell::RefCell,
     cmp::Ordering,
     fmt::{self, Debug, Display, Formatter},
     hash::{Hash, Hasher},
@@ -209,8 +210,8 @@ impl Equivalent<UnknownHeaderName<'_>> for &UnknownHeaderName<'_> {
 /// literals bypass this table entirely (no need to intern — they're already
 /// `&'static`).
 ///
-/// `RwLock` because once the application has exercised each uppercase literal
-/// once, the table is steady-state read-only. The hasher is case-insensitive so
+/// It is written once per literal and read once per literal per thread, after which
+/// [`LOCAL_INTERN`] answers, so an `RwLock` is plenty. The hasher is case-insensitive so
 /// we can probe with the original uppercase input without first allocating its
 /// lowercased form.
 ///
@@ -243,9 +244,18 @@ fn intern_table() -> &'static RwLock<HashSet<InternKey>> {
     LOWER_INTERN.get_or_init(|| RwLock::new(HashSet::new()))
 }
 
+thread_local! {
+    /// Per-thread front for [`LOWER_INTERN`], keyed by a literal's address and length, which
+    /// together identify its contents. Even an uncontended `RwLock::read` writes to a lock word
+    /// that every core shares, so a thread that has already seen a literal skips the table.
+    static LOCAL_INTERN: RefCell<HashMap<(usize, usize), &'static str>> =
+        RefCell::new(HashMap::new());
+}
+
 /// Return a canonical lowercased `&'static str` for `s`.
 ///
 /// - If `s` is already all-lowercase: returns `s` directly. No lock, no alloc.
+/// - If this thread has interned `s` before: returns the canonical pointer from [`LOCAL_INTERN`].
 /// - Otherwise: probes the intern table with a case-insensitive hash. On hit, returns the stored
 ///   canonical pointer. On miss, allocates the lowercased form, leaks it to obtain a `&'static
 ///   str`, and inserts.
@@ -256,6 +266,16 @@ fn intern_lowercase(s: &'static str) -> &'static str {
     if !s.bytes().any(|b| b.is_ascii_uppercase()) {
         return s;
     }
+    let key = (s.as_ptr().addr(), s.len());
+    if let Some(interned) = LOCAL_INTERN.with_borrow(|local| local.get(&key).copied()) {
+        return interned;
+    }
+    let interned = intern_lowercase_shared(s);
+    LOCAL_INTERN.with_borrow_mut(|local| local.insert(key, interned));
+    interned
+}
+
+fn intern_lowercase_shared(s: &'static str) -> &'static str {
     let probe = InternKey(s);
     let table = intern_table();
     {
@@ -316,6 +336,18 @@ mod tests {
 
     fn ensure_interned(s: &'static str) -> &'static str {
         intern_lowercase(s)
+    }
+
+    #[test]
+    fn interned_names_are_canonical_across_threads_and_addresses() {
+        let here = ensure_interned("X-Thread-Front");
+        let there = std::thread::spawn(|| ensure_interned("X-Thread-Front"))
+            .join()
+            .unwrap();
+        let elsewhere = ensure_interned(String::from("X-THREAD-FRONT").leak());
+        assert_eq!(here, "x-thread-front");
+        assert_eq!(here.as_ptr(), there.as_ptr());
+        assert_eq!(here.as_ptr(), elsewhere.as_ptr());
     }
 
     #[test]

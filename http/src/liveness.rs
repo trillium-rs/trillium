@@ -100,21 +100,14 @@ where
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let LivenessFut(Conn {
-            buffer,
-            transport,
-            protocol_session,
-            version,
-            peer_gone,
-            ..
-        }) = &mut *self;
+        let LivenessFut(Conn { inner, transport }) = &mut *self;
 
         poll_peer_gone(
-            protocol_session,
-            *version,
-            buffer,
+            &inner.protocol_session,
+            inner.version,
+            &mut inner.buffer,
             transport,
-            peer_gone.as_mut(),
+            inner.peer_gone.as_mut(),
             PROBE_WINDOW_CAP,
             cx,
         )

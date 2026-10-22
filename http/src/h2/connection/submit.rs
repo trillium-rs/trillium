@@ -282,8 +282,8 @@ impl H2Connection {
         // the lock across allocation + insertion means a concurrent opener can't allocate a higher
         // id and make it visible to the driver while this lower id is still mid-publish — which
         // would let the driver frame the higher id's HEADERS first and trip GOAWAY(PROTOCOL_ERROR).
-        // (The driver completes the guarantee by framing streams in id order — see the `BTreeMap`
-        // streams table in the acceptor.)
+        // (The driver completes the guarantee by framing equal-priority streams in id order — see
+        // `ScheduleEntry` in the acceptor's send pump.)
         let stream_id = {
             let mut streams = self.streams_lock();
             // Check the swansong *under the streams lock*, which pairs with driver teardown

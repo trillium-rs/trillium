@@ -1,9 +1,10 @@
 use crate::{
     Body, HeaderName, HeaderValues, Headers, Method, Status, Swansong, Transport, TypeSet, Version,
-    request_body::RequestBody, type_set::Entry,
+    request_body::RequestBody,
+    transport::{box_transport, unbox_transport},
+    type_set::Entry,
 };
 use std::{
-    any::Any,
     fmt::{self, Debug, Formatter},
     future::Future,
     net::IpAddr,
@@ -80,7 +81,7 @@ impl Debug for Conn {
 impl<T: Transport + 'static> From<trillium_http::Conn<T>> for Conn {
     fn from(inner: trillium_http::Conn<T>) -> Self {
         Self {
-            inner: inner.map_transport(|t| Box::new(t) as Box<dyn Transport>),
+            inner: inner.map_transport(box_transport),
             halted: false,
             path: vec![],
         }
@@ -583,11 +584,7 @@ impl Conn {
     ///
     /// This will panic if you attempt to downcast to the wrong Transport type.
     pub fn into_inner<T: Transport>(self) -> trillium_http::Conn<T> {
-        self.inner.map_transport(|t| {
-            *(t as Box<dyn Any>)
-                .downcast()
-                .expect("attempted to downcast to the wrong transport type")
-        })
+        self.inner.map_transport(unbox_transport)
     }
 
     /// retrieves the remote ip address for this conn, if available.
@@ -746,5 +743,19 @@ impl AsMut<TypeSet> for Conn {
 impl AsRef<TypeSet> for Conn {
     fn as_ref(&self) -> &TypeSet {
         self.inner.state()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Conn;
+
+    #[test]
+    fn conn_is_cheap_to_move() {
+        assert!(
+            size_of::<Conn>() <= 64,
+            "Conn is {} bytes",
+            size_of::<Conn>()
+        );
     }
 }
