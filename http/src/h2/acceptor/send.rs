@@ -167,7 +167,7 @@ where
         // don't conflict with borrowing it, then restore it for reuse.
         let mut schedule = std::mem::take(&mut self.send_schedule);
         schedule.clear();
-        schedule.extend(self.streams.keys().map(|&stream_id| {
+        schedule.extend(self.sending_streams.iter().map(|&stream_id| {
             let priority = self.effective_priority(stream_id);
             ScheduleEntry {
                 urgency: priority.urgency(),
@@ -208,6 +208,8 @@ where
         }
 
         self.send_schedule = schedule;
+        self.sending_streams
+            .retain(|id| self.streams.get(id).is_some_and(|entry| entry.send.is_some()));
     }
 
     /// Round-robin one DATA frame at a time across a set of same-urgency incremental streams,
@@ -274,7 +276,10 @@ where
         if self.connection_send_window <= 0 {
             return false;
         }
-        self.streams.values().any(|entry| {
+        self.sending_streams
+            .iter()
+            .filter_map(|id| self.streams.get(id))
+            .any(|entry| {
             let Some(cursor) = &entry.send else {
                 return false;
             };

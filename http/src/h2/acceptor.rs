@@ -147,6 +147,13 @@ pub struct H2Driver<T> {
     /// See [`Self::advance_outbound_sends`].
     send_schedule: Vec<ScheduleEntry>,
 
+    /// Ids of the streams holding a send cursor, which are the only streams the send pump has
+    /// work for. Scheduling from this rather than from every open stream keeps a pump tick
+    /// proportional to the responses in flight: with many concurrent streams, most are waiting
+    /// on their handlers. Pushed when a cursor is installed; ids whose cursor has since been
+    /// dropped are pruned after each pump tick.
+    sending_streams: Vec<u32>,
+
     /// Accumulator for an in-progress HEADERS block that is waiting on further CONTINUATION
     /// frames. `None` outside a HEADERS block. The spec forbids any frame on any stream
     /// from interleaving while this is `Some`.
@@ -242,6 +249,7 @@ where
             last_peer_stream_id: 0,
             stream_priorities: HashMap::new(),
             send_schedule: Vec::new(),
+            sending_streams: Vec::new(),
             pending_headers: None,
             close_outcome: None,
             finished: false,
