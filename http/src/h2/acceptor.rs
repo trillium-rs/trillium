@@ -214,10 +214,9 @@ pub struct H2Driver<T> {
     /// [`H2Connection::context`]: super::H2Connection::context
     pub(super) config: AcceptorConfig,
 
-    /// When the latest transport read's bytes arrived: the first clock reading since that read,
-    /// taken lazily when a stream opens. Streams opened from one read share it as their start
-    /// time, so a burst of new streams reads the clock once, and no stream's start time predates
-    /// the read that delivered its HEADERS.
+    /// The start time shared by streams opened from the latest transport read: read from the
+    /// clock when the first of them opens, and reset by every read. A burst of new streams reads
+    /// the clock once, and no stream's start time predates the read that completed its HEADERS.
     burst_start: Option<Instant>,
 }
 
