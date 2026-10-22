@@ -77,7 +77,9 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
             .ok()
             .flatten()
             .map(|addr| unmap_ipv4(addr.ip()));
-        let listener = self.listener.clone();
+        // Every request clones the listener into its conn's state. A clone of the listener's own
+        // `Arc` would put all of those clones, from every core, on one reference count.
+        let listener = self.listener.as_ref().map(Listener::unshared_clone);
         let local_alt_svc = self.local_alt_svc;
         // Stamped onto each conn like h2/h3 do (see `run_h2` / `run_h3`): trillium-http is
         // TLS-agnostic and builds conns with `secure = false`, so the acceptor is the only thing
@@ -112,7 +114,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
 
         match alpn_dispatch {
             AlpnDispatch::H2 => {
-                self.run_h2(transport, handler, peer_ip).await;
+                self.run_h2(transport, handler, peer_ip, listener).await;
                 return;
             }
             AlpnDispatch::H1 => {
@@ -158,7 +160,7 @@ impl<S: Server, A: Acceptor<<S as Server>::Transport>> RunningConfig<S, A> {
         };
         if peek.as_slice() == h2::CLIENT_PREFACE {
             let transport = h2::Prefixed::new(peek, transport);
-            self.run_h2(transport, handler, peer_ip).await;
+            self.run_h2(transport, handler, peer_ip, listener).await;
             return;
         }
         let handler_ref = &handler;

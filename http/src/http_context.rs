@@ -1,6 +1,5 @@
 use crate::{
-    Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade,
-    conn::{ConnParts, HeadError},
+    Conn, ConnectionStatus, HttpConfig, Result, TypeSet, Upgrade, conn::HeadError,
     headers::header_observer::HeaderObserver,
 };
 use fieldwork::Fieldwork;
@@ -134,9 +133,7 @@ where
 {
     let _guard = context.swansong.guard();
 
-    let parts = ConnParts::new(context, transport, initial_bytes);
-
-    let mut conn = match parts.parse_head().await {
+    let mut conn = match Conn::new_h1(context, transport, initial_bytes).await {
         Ok(conn) => conn,
         Err(HeadError::BadRequest(bad)) => {
             bad.send().await?;
@@ -173,12 +170,9 @@ where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     let initial_bytes = Vec::with_capacity(context.config.request_buffer_initial_len);
-    match ConnParts::new(context, transport, initial_bytes)
-        .parse_head()
-        .await
-    {
+    match Conn::new_h1(context, transport, initial_bytes).await {
         Ok(conn) => Ok(conn),
-        Err(HeadError::BadRequest(bad)) => Ok(*bad),
+        Err(HeadError::BadRequest(bad)) => Ok(bad),
         Err(HeadError::Fatal(e)) => Err(e),
     }
 }

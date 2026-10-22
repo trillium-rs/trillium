@@ -1,6 +1,7 @@
 use crate::{
     Buffer, Conn, Headers, HttpContext, KnownHeaderName, Method, PeerGone, ProtocolSession,
     ReceivedBody, Status, TypeSet, Version,
+    conn::ConnInner,
     h2::H2Connection,
     h3::{Frame, H3Connection},
     headers::qpack::{FieldSection, PseudoHeaders},
@@ -136,6 +137,28 @@ fn encode_h3_data_header(out: &mut Vec<u8>, payload_len: u64) {
 #[derive(Fieldwork)]
 #[fieldwork(get, get_mut, set, with, take, into_field, rename_predicates)]
 pub struct Upgrade<Transport> {
+    /// Everything but the transport, boxed so that an `Upgrade`, and anything that might hold
+    /// one, is cheap to move.
+    #[field(delegate, skip)]
+    pub(crate) inner: Box<UpgradeInner>,
+
+    /// The underlying io (often a `TcpStream` or similar)
+    pub(crate) transport: Transport,
+}
+
+/// Everything in an [`Upgrade`] but its transport.
+#[derive(Fieldwork)]
+#[fieldwork(
+    get,
+    get_mut,
+    set,
+    with,
+    take,
+    into_field,
+    rename_predicates,
+    delegatable
+)]
+pub(crate) struct UpgradeInner {
     /// The http headers the peer sent to us
     #[field(deprecate(was = "request_headers", since = "1.3.0"))]
     pub(crate) received_headers: Headers,
@@ -155,9 +178,6 @@ pub struct Upgrade<Transport> {
 
     /// Any state that has been accumulated on the Conn before negotiating the upgrade
     pub(crate) state: TypeSet,
-
-    /// The underlying io (often a `TcpStream` or similar)
-    pub(crate) transport: Transport,
 
     /// Any bytes that have been read from the underlying transport already.
     ///
@@ -262,31 +282,33 @@ impl<Transport> Upgrade<Transport> {
         version: Version,
     ) -> Self {
         Self {
-            received_headers,
-            sent_headers: Headers::new(),
-            path: path.into(),
-            method,
+            inner: Box::new(UpgradeInner {
+                received_headers,
+                sent_headers: Headers::new(),
+                path: path.into(),
+                method,
+                buffer,
+                state: TypeSet::new(),
+                context: Arc::default(),
+                peer_ip: None,
+                start_time: Instant::now(),
+                authority: None,
+                scheme: None,
+                protocol_session: ProtocolSession::Http1,
+                protocol: None,
+                secure: false,
+                version,
+                status: None,
+                received_body_state: ReceivedBodyState::Raw { total: 0 },
+                received_trailers: None,
+                content_length_in: None,
+                write_state: WriteState::Raw,
+                inbound_encoding: encoding_rs::UTF_8,
+                h3_trailer_decode_in: None,
+                h3_trailer_payload_in: Vec::new(),
+                peer_gone: None,
+            }),
             transport,
-            buffer,
-            state: TypeSet::new(),
-            context: Arc::default(),
-            peer_ip: None,
-            start_time: Instant::now(),
-            authority: None,
-            scheme: None,
-            protocol_session: ProtocolSession::Http1,
-            protocol: None,
-            secure: false,
-            version,
-            status: None,
-            received_body_state: ReceivedBodyState::Raw { total: 0 },
-            received_trailers: None,
-            content_length_in: None,
-            write_state: WriteState::Raw,
-            inbound_encoding: encoding_rs::UTF_8,
-            h3_trailer_decode_in: None,
-            h3_trailer_payload_in: Vec::new(),
-            peer_gone: None,
         }
     }
 
@@ -318,59 +340,61 @@ impl<Transport> Upgrade<Transport> {
         let inbound_encoding = encoding(&received_headers);
 
         Self {
-            // Client-side upgrades have no peer-departure hook; on h3 that leaves
-            // `poll_closed` permanently pending. Client h3 resets surface as read errors.
-            peer_gone: None,
-            received_headers,
-            sent_headers,
-            path,
-            method,
-            state,
+            inner: Box::new(UpgradeInner {
+                // Client-side upgrades have no peer-departure hook; on h3 that leaves
+                // `poll_closed` permanently pending. Client h3 resets surface as read errors.
+                peer_gone: None,
+                received_headers,
+                sent_headers,
+                path,
+                method,
+                state,
+                buffer,
+                context,
+                peer_ip,
+                start_time: Instant::now(),
+                authority,
+                scheme,
+                protocol_session,
+                protocol,
+                version,
+                status,
+                secure,
+                received_body_state,
+                received_trailers,
+                content_length_in,
+                write_state,
+                inbound_encoding,
+                h3_trailer_decode_in: None,
+                h3_trailer_payload_in: Vec::new(),
+            }),
             transport,
-            buffer,
-            context,
-            peer_ip,
-            start_time: Instant::now(),
-            authority,
-            scheme,
-            protocol_session,
-            protocol,
-            version,
-            status,
-            secure,
-            received_body_state,
-            received_trailers,
-            content_length_in,
-            write_state,
-            inbound_encoding,
-            h3_trailer_decode_in: None,
-            h3_trailer_payload_in: Vec::new(),
         }
     }
 
     /// the [`H2Connection`] driver for this upgrade, if it originated from an HTTP/2 stream
     pub fn h2_connection(&self) -> Option<&Arc<H2Connection>> {
-        self.protocol_session.h2_connection()
+        self.inner.protocol_session.h2_connection()
     }
 
     /// the h2 stream id for this upgrade, if it originated from an HTTP/2 stream
     pub fn h2_stream_id(&self) -> Option<u32> {
-        self.protocol_session.h2_stream_id()
+        self.inner.protocol_session.h2_stream_id()
     }
 
     /// the [`H3Connection`] driver for this upgrade, if it originated from an HTTP/3 stream
     pub fn h3_connection(&self) -> Option<&Arc<H3Connection>> {
-        self.protocol_session.h3_connection()
+        self.inner.protocol_session.h3_connection()
     }
 
     /// the h3 stream id for this upgrade, if it originated from an HTTP/3 stream
     pub fn h3_stream_id(&self) -> Option<u64> {
-        self.protocol_session.h3_stream_id()
+        self.inner.protocol_session.h3_stream_id()
     }
 
     /// Take any buffered bytes
     pub fn take_buffer(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.buffer).into()
+        std::mem::take(&mut self.inner.buffer).into()
     }
 
     /// Mutably borrow any bytes that have already been read from the underlying transport.
@@ -378,33 +402,33 @@ impl<Transport> Upgrade<Transport> {
     /// It is your responsibility to process these bytes before reading directly from the
     /// transport.
     pub fn buffer_mut(&mut self) -> &mut [u8] {
-        self.buffer.live_mut()
+        self.inner.buffer.live_mut()
     }
 
     #[doc(hidden)]
     pub fn buffer_and_transport_mut(&mut self) -> (&mut Buffer, &mut Transport) {
-        (&mut self.buffer, &mut self.transport)
+        (&mut self.inner.buffer, &mut self.transport)
     }
 
     /// borrow the shared state [`TypeSet`] for this application
     pub fn shared_state(&self) -> &TypeSet {
-        self.context.shared_state()
+        self.inner.context.shared_state()
     }
 
     /// the http request path up to but excluding any query component
     pub fn path(&self) -> &str {
-        match self.path.split_once('?') {
+        match self.inner.path.split_once('?') {
             Some((path, _)) => path,
-            None => &self.path,
+            None => &self.inner.path,
         }
     }
 
     /// retrieves the query component of the path
     pub fn querystring(&self) -> &str {
-        self.path
+        self.inner
+            .path
             .split_once('?')
-            .map(|(_, query)| query)
-            .unwrap_or_default()
+            .map_or_default(|(_, query)| query)
     }
 
     /// Modify the transport type of this upgrade.
@@ -414,35 +438,9 @@ impl<Transport> Upgrade<Transport> {
         self,
         f: impl Fn(Transport) -> T,
     ) -> Upgrade<T> {
-        // Manual respread: rustc rejects `..self` across a type parameter change without
-        // the unstable `type_changing_struct_update` feature. New fields on `Upgrade`
-        // need to be added here, in `Conn::map_transport`, and in `From<Conn> for Upgrade`.
         Upgrade {
+            inner: self.inner,
             transport: f(self.transport),
-            path: self.path,
-            method: self.method,
-            state: self.state,
-            buffer: self.buffer,
-            received_headers: self.received_headers,
-            sent_headers: self.sent_headers,
-            context: self.context,
-            peer_ip: self.peer_ip,
-            start_time: self.start_time,
-            authority: self.authority,
-            scheme: self.scheme,
-            protocol_session: self.protocol_session,
-            protocol: self.protocol,
-            version: self.version,
-            status: self.status,
-            secure: self.secure,
-            received_body_state: self.received_body_state,
-            received_trailers: self.received_trailers,
-            content_length_in: self.content_length_in,
-            write_state: self.write_state,
-            inbound_encoding: self.inbound_encoding,
-            h3_trailer_decode_in: self.h3_trailer_decode_in,
-            h3_trailer_payload_in: self.h3_trailer_payload_in,
-            peer_gone: self.peer_gone,
         }
     }
 }
@@ -479,21 +477,14 @@ impl<Transport: AsyncRead + Unpin> Upgrade<Transport> {
         cx: &mut Context<'_>,
         read_allowance: usize,
     ) -> Poll<()> {
-        let Self {
-            protocol_session,
-            version,
-            buffer,
-            transport,
-            peer_gone,
-            ..
-        } = self.get_mut();
+        let Self { inner, transport } = self.get_mut();
 
         crate::liveness::poll_peer_gone(
-            protocol_session,
-            *version,
-            buffer,
+            &inner.protocol_session,
+            inner.version,
+            &mut inner.buffer,
             transport,
-            peer_gone.as_mut(),
+            inner.peer_gone.as_mut(),
             read_allowance,
             cx,
         )
@@ -522,12 +513,15 @@ impl<Transport: AsyncWrite + Unpin> Upgrade<Transport> {
     /// `ProtocolSession` is missing the expected driver for h2/h3.
     pub async fn send_trailers(self, trailers: Headers) -> io::Result<()> {
         let Self {
+            inner,
             mut transport,
+        } = self;
+        let UpgradeInner {
             mut write_state,
             context,
             protocol_session,
             ..
-        } = self;
+        } = *inner;
 
         match &mut write_state {
             WriteState::H1Chunked(state) => {
@@ -578,42 +572,43 @@ impl<Transport: AsyncWrite + Unpin> Upgrade<Transport> {
 impl<Transport> Debug for Upgrade<Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct(&format!("Upgrade<{}>", std::any::type_name::<Transport>()))
-            .field("received_headers", &self.received_headers)
-            .field("sent_headers", &self.sent_headers)
-            .field("path", &self.path)
-            .field("method", &self.method)
-            .field("buffer", &self.buffer)
-            .field("context", &self.context)
-            .field("state", &self.state)
+            .field("received_headers", &self.inner.received_headers)
+            .field("sent_headers", &self.inner.sent_headers)
+            .field("path", &self.inner.path)
+            .field("method", &self.inner.method)
+            .field("buffer", &self.inner.buffer)
+            .field("context", &self.inner.context)
+            .field("state", &self.inner.state)
             .field("transport", &format_args!(".."))
-            .field("peer_ip", &self.peer_ip)
-            .field("start_time", &self.start_time)
-            .field("authority", &self.authority)
-            .field("scheme", &self.scheme)
-            .field("protocol_session", &self.protocol_session)
-            .field("protocol", &self.protocol)
-            .field("version", &self.version)
-            .field("status", &self.status)
-            .field("secure", &self.secure)
-            .field("received_body_state", &self.received_body_state)
-            .field("received_trailers", &self.received_trailers)
-            .field("content_length_in", &self.content_length_in)
-            .field("write_state", &self.write_state)
-            .field("inbound_encoding", &self.inbound_encoding.name())
+            .field("peer_ip", &self.inner.peer_ip)
+            .field("start_time", &self.inner.start_time)
+            .field("authority", &self.inner.authority)
+            .field("scheme", &self.inner.scheme)
+            .field("protocol_session", &self.inner.protocol_session)
+            .field("protocol", &self.inner.protocol)
+            .field("version", &self.inner.version)
+            .field("status", &self.inner.status)
+            .field("secure", &self.inner.secure)
+            .field("received_body_state", &self.inner.received_body_state)
+            .field("received_trailers", &self.inner.received_trailers)
+            .field("content_length_in", &self.inner.content_length_in)
+            .field("write_state", &self.inner.write_state)
+            .field("inbound_encoding", &self.inner.inbound_encoding.name())
             .field(
                 "h3_trailer_decode_in",
                 &self
+                    .inner
                     .h3_trailer_decode_in
                     .as_ref()
                     .map(|_| format_args!("..")),
             )
             .field(
                 "h3_trailer_payload_in_len",
-                &self.h3_trailer_payload_in.len(),
+                &self.inner.h3_trailer_payload_in.len(),
             )
             .field(
                 "peer_gone",
-                &self.peer_gone.as_ref().map(|_| format_args!("..")),
+                &self.inner.peer_gone.as_ref().map(|_| format_args!("..")),
             )
             .finish()
     }
@@ -621,15 +616,15 @@ impl<Transport> Debug for Upgrade<Transport> {
 
 impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
     fn from(conn: Conn<Transport>) -> Self {
-        // Exhaustive destructure so new fields on `Conn` force a deliberate carry-vs-drop
-        // decision. Shared drift hazard with `Conn::map_transport` and `Upgrade::map_transport`.
-        let Conn {
+        let Conn { inner, transport } = conn;
+        // Exhaustive destructure so new fields on `ConnInner` force a deliberate carry-vs-drop
+        // decision.
+        let ConnInner {
             request_headers,
             response_headers,
             path,
             method,
             state,
-            transport,
             buffer,
             context,
             peer_ip,
@@ -649,8 +644,9 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
             upgrade: _,
             // only meaningful to the h1 keepalive loop, which an upgrade leaves for good
             spare_request_headers: _,
+            response_buffer: _,
             peer_gone,
-        } = conn;
+        } = *inner;
 
         if let Some(body) = &response_body
             && !body.is_empty()
@@ -680,31 +676,33 @@ impl<Transport> From<Conn<Transport>> for Upgrade<Transport> {
         let received_trailers = request_trailers.filter(|t| !t.is_empty());
 
         Self {
-            received_headers: request_headers,
-            sent_headers: response_headers,
-            path,
-            method,
-            state,
+            inner: Box::new(UpgradeInner {
+                received_headers: request_headers,
+                sent_headers: response_headers,
+                path,
+                method,
+                state,
+                buffer,
+                context,
+                peer_ip,
+                start_time,
+                authority,
+                scheme,
+                protocol_session,
+                protocol,
+                version,
+                status,
+                secure,
+                received_body_state,
+                received_trailers,
+                content_length_in,
+                write_state,
+                inbound_encoding,
+                h3_trailer_decode_in: None,
+                h3_trailer_payload_in: Vec::new(),
+                peer_gone,
+            }),
             transport,
-            buffer,
-            context,
-            peer_ip,
-            start_time,
-            authority,
-            scheme,
-            protocol_session,
-            protocol,
-            version,
-            status,
-            secure,
-            received_body_state,
-            received_trailers,
-            content_length_in,
-            write_state,
-            inbound_encoding,
-            h3_trailer_decode_in: None,
-            h3_trailer_payload_in: Vec::new(),
-            peer_gone,
         }
     }
 }
@@ -721,8 +719,8 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        let Self {
-            transport,
+        let Self { inner, transport } = &mut *self;
+        let UpgradeInner {
             buffer,
             received_body_state,
             content_length_in,
@@ -733,7 +731,7 @@ where
             h3_trailer_payload_in,
             inbound_encoding,
             ..
-        } = &mut *self;
+        } = &mut **inner;
 
         let protocol_session = protocol_session.clone();
         let mut body: ReceivedBody<'_, Transport> = ReceivedBody::new_with_config(
@@ -760,11 +758,8 @@ impl<Transport: AsyncWrite + Unpin> AsyncWrite for Upgrade<Transport> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        let Self {
-            transport,
-            write_state,
-            ..
-        } = &mut *self;
+        let Self { inner, transport } = &mut *self;
+        let write_state = &mut inner.write_state;
         match write_state {
             WriteState::Raw => Pin::new(transport).poll_write(cx, buf),
             WriteState::H1Chunked(state) => {
@@ -807,11 +802,8 @@ impl<Transport: AsyncWrite + Unpin> AsyncWrite for Upgrade<Transport> {
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        let Self {
-            transport,
-            write_state,
-            ..
-        } = &mut *self;
+        let Self { inner, transport } = &mut *self;
+        let write_state = &mut inner.write_state;
         match write_state {
             WriteState::Raw => Pin::new(transport).poll_write_vectored(cx, bufs),
             WriteState::H1Chunked(state) => {
@@ -855,11 +847,8 @@ impl<Transport: AsyncWrite + Unpin> AsyncWrite for Upgrade<Transport> {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let Self {
-            transport,
-            write_state,
-            ..
-        } = &mut *self;
+        let Self { inner, transport } = &mut *self;
+        let write_state = &mut inner.write_state;
         match write_state {
             WriteState::Raw => Pin::new(transport).poll_flush(cx),
             WriteState::H1Chunked(state) => {
@@ -874,11 +863,8 @@ impl<Transport: AsyncWrite + Unpin> AsyncWrite for Upgrade<Transport> {
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let Self {
-            transport,
-            write_state,
-            ..
-        } = &mut *self;
+        let Self { inner, transport } = &mut *self;
+        let write_state = &mut inner.write_state;
         match write_state {
             WriteState::Raw => Pin::new(transport).poll_close(cx),
             WriteState::H1Chunked(state) => {

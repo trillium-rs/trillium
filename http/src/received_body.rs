@@ -2,8 +2,9 @@ use crate::{Body, Buffer, Error, Headers, HttpConfig, MutCow, ProtocolSession, c
 use Poll::{Pending, Ready};
 use ReceivedBodyState::{Chunked, End, PartialChunkSize, Raw};
 use encoding_rs::Encoding;
-use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, ready};
+use futures_lite::{AsyncRead, AsyncWrite, ready};
 use std::{
+    borrow::Cow,
     fmt::{self, Debug, Formatter},
     io::{self, ErrorKind},
     pin::Pin,
@@ -276,8 +277,15 @@ where
     pub async fn read_string(self) -> crate::Result<String> {
         let encoding = self.encoding();
         let bytes = self.read_bytes().await?;
-        let (s, _, _) = encoding.decode(&bytes);
-        Ok(s.to_string())
+        let (decoded, _, _) = encoding.decode(&bytes);
+        if let Cow::Borrowed(decoded) = decoded
+            && decoded.len() == bytes.len()
+        {
+            // The bytes decoded to themselves, so they can become the string without a copy.
+            return Ok(String::from_utf8(bytes)
+                .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()));
+        }
+        Ok(decoded.into_owned())
     }
 
     fn owns_transport(&self) -> bool {
@@ -311,7 +319,7 @@ where
             Vec::with_capacity(self.initial_len)
         };
 
-        self.read_to_end(&mut vec).await?;
+        crate::util::read_to_end(&mut self, &mut vec).await?;
         Ok(vec)
     }
 

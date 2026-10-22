@@ -191,9 +191,8 @@ pub(super) enum Action {
     /// Frame handled; continue the main loop.
     Continue,
     /// A stream just opened and the request validated — return the [`Conn`] to the caller;
-    /// the runtime adapter spawns a handler task per emitted Conn. Boxed to keep the enum
-    /// small — `Conn` is over 500 bytes and most dispatches return `Continue`.
-    Emit(Box<Conn<H2Transport>>),
+    /// the runtime adapter spawns a handler task per emitted Conn.
+    Emit(Conn<H2Transport>),
     /// Begin graceful or erroring close with this outcome.
     Close(CloseOutcome),
 }

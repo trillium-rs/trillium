@@ -1,8 +1,14 @@
-use crate::{
-    Buffer, Conn, Headers, HttpContext, KnownHeaderName, Method, headers::hpack::FieldSection,
-};
-use std::{borrow::Cow, sync::Arc};
-use type_set::TypeSet;
+use crate::{Headers, HttpContext, KnownHeaderName, Method, headers::hpack::FieldSection};
+use std::borrow::Cow;
+
+/// A new HTTP/2 or HTTP/3 stream's response headers: the server's default headers, if any.
+///
+/// Unlike HTTP/1.x, which reuses one map for every request on a connection, each stream starts a
+/// fresh one. Most responses carry only a few headers, and sizing every stream's maps up front
+/// measured slower than letting them grow.
+pub(super) fn initial_response_headers(context: &HttpContext) -> Headers {
+    context.shared_state().get().cloned().unwrap_or_default()
+}
 
 /// Whether a request-target authority (absolute-form authority, or the `:authority`
 /// pseudo-header) is equivalent to a `Host` header value under scheme-based normalization:
@@ -156,71 +162,6 @@ impl ValidatedRequest {
             protocol,
             request_headers,
         })
-    }
-}
-
-pub(crate) struct ConnParts<T> {
-    pub(crate) buffer: Buffer,
-    pub(crate) state: TypeSet,
-    /// Empty, capacity retained; the next request parses into it.
-    pub(crate) request_headers: Headers,
-    /// The previous request's headers, intact, so the next parse can salvage matching entries.
-    /// `None` for a connection's first request.
-    pub(crate) previous_request_headers: Option<Headers>,
-    pub(crate) response_headers: Headers,
-    pub(crate) context: Arc<HttpContext>,
-    pub(crate) transport: T,
-}
-
-impl<T> ConnParts<T> {
-    pub(crate) fn new(context: Arc<HttpContext>, transport: T, initial_bytes: Vec<u8>) -> Self {
-        // Split each "expected total headers" budget evenly across the known and unknown stores.
-        let request_cap = context.config.request_header_initial_capacity;
-        let response_cap = context.config.response_header_initial_capacity;
-        Self {
-            buffer: initial_bytes.into(),
-            state: TypeSet::with_capacity(16),
-            request_headers: Headers::with_capacities(request_cap / 2, request_cap / 2),
-            previous_request_headers: None,
-            response_headers: Headers::with_capacities(response_cap / 2, response_cap / 2),
-            context,
-            transport,
-        }
-    }
-}
-
-impl<T> From<Conn<T>> for ConnParts<T> {
-    fn from(conn: Conn<T>) -> Self {
-        let mut buffer = conn.buffer;
-        let mut state = conn.state;
-        let previous_request_headers = Some(conn.request_headers);
-        let context = conn.context;
-        let request_headers = conn.spare_request_headers.unwrap_or_else(|| {
-            let cap = context.config.request_header_initial_capacity;
-            Headers::with_capacities(cap / 2, cap / 2)
-        });
-        let mut response_headers = conn.response_headers;
-        let transport = conn.transport;
-        state.clear();
-        response_headers.clear();
-        // Like the clears above, this drops the previous era of the connection.
-        // The live region survives (pipelined bytes are the next request); only
-        // window space beyond the high-water mark is released, so bytes from an
-        // earlier request can never be re-lent while parsing a later one — the
-        // cross-principal concern when a proxy coalesces many clients onto one
-        // keepalive connection. Capacity is retained; the next lend re-zeroes
-        // the span as it grows.
-        buffer.truncate();
-
-        Self {
-            buffer,
-            state,
-            request_headers,
-            previous_request_headers,
-            response_headers,
-            context,
-            transport,
-        }
     }
 }
 

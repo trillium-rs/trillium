@@ -1,10 +1,10 @@
 mod framed;
 #[cfg(feature = "unstable")]
 use crate::h3::H3Body;
-use crate::{Headers, h2::H2Body};
+use crate::{Headers, HttpConfig, h2::H2Body};
 use BodyType::{Empty, Static, Streaming};
 pub use framed::BodyFraming;
-use futures_lite::{AsyncRead, AsyncReadExt, io::Cursor, ready};
+use futures_lite::{AsyncRead, io::Cursor, ready};
 use pin_project_lite::pin_project;
 use std::{
     borrow::Cow,
@@ -212,12 +212,17 @@ impl Body {
                 ..
             } => {
                 let mut async_read = async_read.into_inner();
+                // A declared length may come from a peer, so it bounds the preallocation but
+                // doesn't dictate it.
                 let mut buf = len
-                    .and_then(|c| c.try_into().ok())
-                    .map(Vec::with_capacity)
-                    .unwrap_or_default();
+                    .and_then(|len| usize::try_from(len).ok())
+                    .map_or_default(|len| {
+                        Vec::with_capacity(
+                            len.min(HttpConfig::DEFAULT.received_body_max_preallocate),
+                        )
+                    });
 
-                async_read.read_to_end(&mut buf).await?;
+                crate::util::read_to_end(&mut async_read, &mut buf).await?;
 
                 Ok(Cow::Owned(buf))
             }
@@ -720,5 +725,29 @@ mod test_bytes_to_read {
                 used_bytes
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod test_into_bytes {
+    use super::Body;
+    use futures_lite::{future::block_on, io::Cursor};
+
+    #[test]
+    fn a_streaming_body_fills_its_known_length_exactly() {
+        let body = Body::new_streaming(Cursor::new(vec![b'x'; 5000]), Some(5000));
+        let bytes = block_on(body.into_bytes()).unwrap().into_owned();
+        assert_eq!(bytes.len(), 5000);
+        assert_eq!(
+            bytes.capacity(),
+            5000,
+            "the body was reallocated after it was complete"
+        );
+    }
+
+    #[test]
+    fn a_declared_length_does_not_dictate_the_allocation() {
+        let body = Body::new_streaming(Cursor::new(b"hello".to_vec()), Some(u64::MAX));
+        assert_eq!(block_on(body.into_bytes()).unwrap().as_ref(), b"hello");
     }
 }

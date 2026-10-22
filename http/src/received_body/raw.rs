@@ -82,7 +82,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{Buffer, HttpConfig, ReceivedBody, ReceivedBodyState};
-    use encoding_rs::UTF_8;
+    use encoding_rs::{Encoding, UTF_8, WINDOWS_1252};
     use futures_lite::{AsyncRead, AsyncReadExt, future::block_on, io::Cursor};
 
     fn new_with_config(
@@ -207,5 +207,46 @@ mod tests {
                     .is_err()
             );
         });
+    }
+
+    #[test]
+    fn read_bytes_fills_a_known_length_exactly() {
+        block_on(async {
+            let bytes = new_with_config("test ".repeat(1000), &HttpConfig::DEFAULT)
+                .read_bytes()
+                .await
+                .unwrap();
+            assert_eq!(bytes.len(), 5000);
+            assert_eq!(
+                bytes.capacity(),
+                5000,
+                "the body was reallocated after it was complete"
+            );
+        });
+    }
+
+    #[test]
+    fn read_string_decoding() {
+        fn read_string(bytes: &[u8], encoding: &'static Encoding) -> String {
+            block_on(
+                ReceivedBody::new_with_config(
+                    Some(bytes.len() as u64),
+                    Buffer::with_capacity(100),
+                    Cursor::new(bytes.to_vec()),
+                    ReceivedBodyState::Raw { total: 0 },
+                    None,
+                    encoding,
+                    &HttpConfig::DEFAULT,
+                )
+                .read_string(),
+            )
+            .unwrap()
+        }
+
+        assert_eq!(read_string("héllo".as_bytes(), UTF_8), "héllo");
+        assert_eq!(read_string(b"\xEF\xBB\xBFhello", UTF_8), "hello");
+        assert_eq!(read_string(b"caf\xE9", WINDOWS_1252), "café");
+        assert_eq!(read_string(b"plain ascii", WINDOWS_1252), "plain ascii");
+        assert_eq!(read_string(b"bad \xFF utf8", UTF_8), "bad \u{FFFD} utf8");
     }
 }

@@ -1,9 +1,10 @@
-use super::shared::{H1_ONLY_HEADERS, ValidatedRequest};
+use super::shared::{H1_ONLY_HEADERS, ValidatedRequest, initial_response_headers};
 use crate::{
-    BufWriter, Buffer, Conn, Headers, KnownHeaderName, Method, PeerGone, ProtocolSession, Status,
-    TypeSet, Version,
+    BufWriter, Buffer, Conn, KnownHeaderName, Method, PeerGone, ProtocolSession, Status, TypeSet,
+    Version,
     after_send::AfterSend,
     body::BodyFraming,
+    conn::ConnInner,
     h3::{Frame, FrameStream, H3Connection, H3Error, H3ErrorCode},
     headers::{
         date::current_date_header,
@@ -92,7 +93,7 @@ where
 
     pub(crate) async fn send_h3(mut self) -> io::Result<Self> {
         self.finalize_response_headers_h3();
-        let mut output_buffer = Vec::with_capacity(self.context.config.response_buffer_len);
+        let mut output_buffer = Vec::with_capacity(self.inner.context.config.response_buffer_len);
 
         self.encode_headers_h3(&mut output_buffer)?;
 
@@ -101,19 +102,26 @@ where
         // close (carried via `Upgrade`), not inline.
         let upgrading = self.should_upgrade();
 
-        let max_buf = self.context.config.response_buffer_max_len;
+        let max_buf = self.inner.context.config.response_buffer_max_len;
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
 
-        if self.method != Method::Head
-            && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
-            && let Some(body) = self.response_body.take()
+        if self.inner.method != Method::Head
+            && !matches!(
+                self.inner.status,
+                Some(Status::NotModified | Status::NoContent)
+            )
+            && let Some(body) = self.inner.response_body.take()
         {
             let trailers = body
-                .write_into(&mut bufwriter, BodyFraming::H3Data, &self.context.config)
+                .write_into(
+                    &mut bufwriter,
+                    BodyFraming::H3Data,
+                    &self.inner.context.config,
+                )
                 .await?;
 
             if !upgrading && let Some(trailers) = trailers {
-                let Some((h3, stream_id)) = self.protocol_session.as_h3() else {
+                let Some((h3, stream_id)) = self.inner.protocol_session.as_h3() else {
                     return Err(io::ErrorKind::NotConnected.into());
                 };
 
@@ -127,16 +135,16 @@ where
         }
 
         bufwriter.flush().await?;
-        self.after_send.call(true.into());
+        self.inner.after_send.call(true.into());
         Ok(self)
     }
 
     fn encode_headers_h3(&mut self, buffer: &mut Vec<u8>) -> io::Result<()> {
         let pseudo_headers = PseudoHeaders::default().with_status(self.response_status());
 
-        let field_section = FieldSection::new(pseudo_headers, &self.response_headers);
+        let field_section = FieldSection::new(pseudo_headers, &self.inner.response_headers);
         log::trace!("sending:\n{field_section}");
-        let Some((h3, stream_id)) = self.protocol_session.as_h3() else {
+        let Some((h3, stream_id)) = self.inner.protocol_session.as_h3() else {
             return Err(io::ErrorKind::NotConnected.into());
         };
 
@@ -161,43 +169,41 @@ where
             request_headers,
         } = validated;
 
-        let response_headers = h3_connection
-            .context()
-            .shared_state()
-            .get::<Headers>()
-            .cloned()
-            .unwrap_or_default();
+        let response_headers = initial_response_headers(&h3_connection.context());
 
         let request_body_state = ReceivedBodyState::new_h3();
 
         Conn {
-            peer_gone,
-            spare_request_headers: None,
-            context: h3_connection.context(),
+            inner: Box::new(ConnInner {
+                peer_gone,
+                spare_request_headers: None,
+                context: h3_connection.context(),
+                request_headers,
+                method,
+                version: Version::Http3,
+                path,
+                buffer,
+                response_buffer: Vec::new(),
+                response_headers,
+                status: None,
+                state: TypeSet::new(),
+                response_body: None,
+                request_body_state,
+                secure: true,
+                after_send: AfterSend::default(),
+                start_time,
+                peer_ip: None,
+                authority,
+                scheme,
+                protocol,
+                protocol_session: ProtocolSession::Http3 {
+                    connection: h3_connection,
+                    stream_id,
+                },
+                request_trailers: None,
+                upgrade: false,
+            }),
             transport,
-            request_headers,
-            method,
-            version: Version::Http3,
-            path,
-            buffer,
-            response_headers,
-            status: None,
-            state: TypeSet::new(),
-            response_body: None,
-            request_body_state,
-            secure: true,
-            after_send: AfterSend::default(),
-            start_time,
-            peer_ip: None,
-            authority,
-            scheme,
-            protocol,
-            protocol_session: ProtocolSession::Http3 {
-                connection: h3_connection,
-                stream_id,
-            },
-            request_trailers: None,
-            upgrade: false,
         }
     }
 
@@ -211,17 +217,22 @@ where
     /// Parallel to `finalize_response_headers_1x` (h1) and `finalize_response_headers_h2`
     /// (h2); keep the three in sync when changing universal policy.
     pub(super) fn finalize_response_headers_h3(&mut self) {
-        self.response_headers
+        self.inner
+            .response_headers
             .try_insert_with(KnownHeaderName::Date, current_date_header);
 
         if !self.should_upgrade()
-            && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
+            && !matches!(
+                self.inner.status,
+                Some(Status::NotModified | Status::NoContent)
+            )
             && let Some(len) = self.body_len()
         {
-            self.response_headers
+            self.inner
+                .response_headers
                 .try_insert(KnownHeaderName::ContentLength, len);
         }
 
-        self.response_headers.remove_all(H1_ONLY_HEADERS);
+        self.inner.response_headers.remove_all(H1_ONLY_HEADERS);
     }
 }

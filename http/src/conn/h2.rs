@@ -1,7 +1,8 @@
-use super::shared::{H1_ONLY_HEADERS, ValidatedRequest};
+use super::shared::{H1_ONLY_HEADERS, ValidatedRequest, initial_response_headers};
 use crate::{
-    Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet, Version,
+    Buffer, Conn, KnownHeaderName, Method, ProtocolSession, Status, TypeSet, Version,
     after_send::AfterSend,
+    conn::ConnInner,
     h2::{H2Connection, H2ErrorCode},
     headers::{
         date::current_date_header,
@@ -17,8 +18,8 @@ where
     Transport: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     /// Build a `Conn` from the bits an HTTP/2 stream-open hands the driver: the shared
-    /// connection, the stream id, the decoded request field section, and the per-stream
-    /// transport.
+    /// connection, the stream id, the decoded request field section, the per-stream
+    /// transport, and when the request arrived.
     ///
     /// Synchronous — no I/O required at this point because the driver has already decoded the
     /// HEADERS block.
@@ -34,6 +35,7 @@ where
         stream_id: u32,
         request_headers: FieldSection<'static>,
         transport: Transport,
+        start_time: Instant,
     ) -> Result<Self, H2ErrorCode> {
         log::trace!("h2 stream {stream_id}: building Conn from\n{request_headers}");
 
@@ -46,41 +48,39 @@ where
             request_headers,
         } = ValidatedRequest::new(request_headers).ok_or(H2ErrorCode::ProtocolError)?;
 
-        let response_headers = h2_connection
-            .context()
-            .shared_state()
-            .get::<Headers>()
-            .cloned()
-            .unwrap_or_default();
+        let response_headers = initial_response_headers(&h2_connection.context());
 
         Ok(Conn {
-            spare_request_headers: None,
-            context: h2_connection.context(),
+            inner: Box::new(ConnInner {
+                spare_request_headers: None,
+                context: h2_connection.context(),
+                request_headers,
+                method,
+                version: Version::Http2,
+                path,
+                buffer: Buffer::default(),
+                response_buffer: Vec::new(),
+                response_headers,
+                status: None,
+                state: TypeSet::new(),
+                response_body: None,
+                request_body_state: ReceivedBodyState::new_h2(),
+                secure: true,
+                after_send: AfterSend::default(),
+                start_time,
+                peer_ip: None,
+                authority,
+                scheme,
+                protocol,
+                protocol_session: ProtocolSession::Http2 {
+                    connection: h2_connection,
+                    stream_id,
+                },
+                request_trailers: None,
+                upgrade: false,
+                peer_gone: None,
+            }),
             transport,
-            request_headers,
-            method,
-            version: Version::Http2,
-            path,
-            buffer: Buffer::default(),
-            response_headers,
-            status: None,
-            state: TypeSet::new(),
-            response_body: None,
-            request_body_state: ReceivedBodyState::new_h2(),
-            secure: true,
-            after_send: AfterSend::default(),
-            start_time: Instant::now(),
-            peer_ip: None,
-            authority,
-            scheme,
-            protocol,
-            protocol_session: ProtocolSession::Http2 {
-                connection: h2_connection,
-                stream_id,
-            },
-            request_trailers: None,
-            upgrade: false,
-            peer_gone: None,
         })
     }
 
@@ -99,6 +99,7 @@ where
         self.finalize_response_headers_h2();
 
         let (h2, stream_id) = self
+            .inner
             .protocol_session
             .as_h2()
             .ok_or(io::ErrorKind::NotConnected)?;
@@ -106,7 +107,7 @@ where
         // Clone rather than take: the Conn is returned with response_headers intact so
         // after_send / drop hooks can observe them.
         let pseudos = PseudoHeaders::default().with_status(self.response_status());
-        let headers = self.response_headers.clone();
+        let headers = self.inner.response_headers.clone();
 
         let is_upgrade = self.should_upgrade();
         let result = if is_upgrade {
@@ -115,14 +116,17 @@ where
             // The driver frames it as DATA, signals completion once it's on the wire (so this
             // `await` returns only after the prelude is sent — matching h1/h3), then keeps the
             // stream open for the handler's post-handoff writes.
-            let body = self.response_body.take();
+            let body = self.inner.response_body.take();
             h2.submit_upgrade(stream_id, pseudos, headers, body).await
         } else {
             // HEAD / 304 / 204 responses carry no body. Take unconditionally (so post-send
             // Conn state is consistent) and filter out the body itself for those statuses.
-            let allow_body = self.method != Method::Head
-                && !matches!(self.status, Some(Status::NotModified | Status::NoContent));
-            let body = self.response_body.take().filter(|_| allow_body);
+            let allow_body = self.inner.method != Method::Head
+                && !matches!(
+                    self.inner.status,
+                    Some(Status::NotModified | Status::NoContent)
+                );
+            let body = self.inner.response_body.take().filter(|_| allow_body);
             log::trace!(
                 "h2 stream {stream_id}: send_h2 submitting (body={})",
                 body.is_some()
@@ -130,7 +134,7 @@ where
             h2.submit_send(stream_id, pseudos, headers, body).await
         };
         log::trace!("h2 stream {stream_id}: send_h2 completed with {result:?}");
-        self.after_send.call(result.is_ok().into());
+        self.inner.after_send.call(result.is_ok().into());
         result.map(|()| self)
     }
 
@@ -145,17 +149,22 @@ where
     /// Parallel to `finalize_response_headers_1x` (h1) and `finalize_response_headers_h3`
     /// (h3); keep the three in sync when changing universal policy.
     fn finalize_response_headers_h2(&mut self) {
-        self.response_headers
+        self.inner
+            .response_headers
             .try_insert_with(KnownHeaderName::Date, current_date_header);
 
         if !self.should_upgrade()
-            && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
+            && !matches!(
+                self.inner.status,
+                Some(Status::NotModified | Status::NoContent)
+            )
             && let Some(len) = self.body_len()
         {
-            self.response_headers
+            self.inner
+                .response_headers
                 .try_insert(KnownHeaderName::ContentLength, len);
         }
 
-        self.response_headers.remove_all(H1_ONLY_HEADERS);
+        self.inner.response_headers.remove_all(H1_ONLY_HEADERS);
     }
 }

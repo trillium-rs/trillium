@@ -7,8 +7,8 @@ use crate::{
     QuicTransportSend, RuntimeTrait, unmap_ipv4,
 };
 use priority::{PrioritizedStream, PriorityRegistry, transport_priority};
-use std::sync::Arc;
-use trillium::{Handler, KnownHeaderName, Listener, Upgrade};
+use std::{any::Any, sync::Arc};
+use trillium::{Handler, KnownHeaderName, Listener, Transport, Upgrade};
 use trillium_http::{
     HttpContext,
     h3::{H3Connection, H3Error, H3ErrorCode, H3StreamResult, UniStreamResult},
@@ -48,7 +48,7 @@ pub(crate) async fn run_h3(
             h3,
             handler,
             runtime,
-            listener.clone(),
+            listener.as_ref().map(Listener::unshared_clone),
             local_alt_svc,
         ));
     }
@@ -167,7 +167,10 @@ fn handle_bidi_stream(
     // the only channel through which the layers above can observe a QUIC peer's departure.
     let peer_gone = transport.stopped();
 
-    let transport: BoxedBidiStream = Box::new(PrioritizedStream::new(transport, slot, stream_id));
+    // Erased once, as the `Box<dyn Transport>` that `trillium::Conn` holds, so the conn moves into
+    // and out of trillium without being boxed again. The paths that need QUIC stream operations
+    // downcast back to `RequestStream`.
+    let transport: Box<dyn Transport> = Box::new(RequestStream::new(transport, slot, stream_id));
 
     runtime.spawn_detached(async move {
         // Unmapped for the same reason the TCP accept loop unmaps: the QUIC listener is bound
@@ -211,14 +214,16 @@ fn handle_bidi_stream(
         let result = h3
             .clone()
             .process_inbound_bidi(transport, handler_fn, stream_id)
-            .with_reset(|t, code| {
+            .with_reset(|transport, code| {
                 // RFC 9114 §4.1.2: stream-level protocol errors (notably H3_MESSAGE_ERROR)
                 // MUST RST the stream. We stop the recv side and reset the send side with
                 // the same code so the peer sees the error on whichever direction it's
                 // listening on.
-                let raw = u64::from(code);
-                t.stop(raw);
-                t.reset(raw);
+                if let Some(stream) = request_stream(transport) {
+                    let raw = u64::from(code);
+                    stream.stop(raw);
+                    stream.reset(raw);
+                }
             });
 
         let result = match peer_gone {
@@ -241,18 +246,20 @@ fn handle_bidi_stream(
 
             Ok(H3StreamResult::WebTransport {
                 session_id,
-                mut transport,
+                transport,
                 buffer,
             }) => {
-                if let Some(dispatcher) = &wt_dispatcher {
-                    dispatcher.dispatch(WebTransportStream::Bidi {
-                        session_id,
-                        stream: Box::new(transport),
-                        buffer: buffer.into(),
-                    });
-                } else {
-                    transport.stop(H3ErrorCode::StreamCreationError.into());
-                    transport.reset(H3ErrorCode::StreamCreationError.into());
+                if let Some(mut stream) = into_request_stream(transport) {
+                    if let Some(dispatcher) = &wt_dispatcher {
+                        dispatcher.dispatch(WebTransportStream::Bidi {
+                            session_id,
+                            stream,
+                            buffer: buffer.into(),
+                        });
+                    } else {
+                        stream.stop(H3ErrorCode::StreamCreationError.into());
+                        stream.reset(H3ErrorCode::StreamCreationError.into());
+                    }
                 }
             }
 
@@ -264,6 +271,17 @@ fn handle_bidi_stream(
 
         priorities.deregister(stream_id);
     });
+}
+
+/// The concrete type behind every h3 request stream's `Box<dyn Transport>`.
+type RequestStream = PrioritizedStream<BoxedBidiStream>;
+
+fn request_stream(transport: &mut Box<dyn Transport>) -> Option<&mut RequestStream> {
+    (&mut **transport as &mut dyn Any).downcast_mut()
+}
+
+fn into_request_stream(transport: Box<dyn Transport>) -> Option<Box<RequestStream>> {
+    (transport as Box<dyn Any>).downcast().ok()
 }
 
 fn spawn_inbound_uni_streams(
@@ -427,5 +445,81 @@ fn handle_h3_error(error: H3Error, connection: &QuicConnection, h3: &H3Connectio
     {
         connection.close(code.into(), code.reason().as_bytes());
         h3.shut_down();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RequestStream, into_request_stream, priority::PriorityRegistry, request_stream};
+    use crate::{BoxedBidiStream, QuicTransportBidi, QuicTransportReceive, QuicTransportSend};
+    use futures_lite::{AsyncRead, AsyncWrite};
+    use std::{
+        io,
+        pin::Pin,
+        sync::{Arc, Mutex},
+        task::{Context, Poll},
+    };
+    use trillium::Transport;
+
+    /// A bidi stream that records the stream-level signals sent through it.
+    struct RecordingBidi(Arc<Mutex<Vec<String>>>);
+
+    impl AsyncRead for RecordingBidi {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &mut [u8],
+        ) -> Poll<io::Result<usize>> {
+            Poll::Ready(Ok(0))
+        }
+    }
+
+    impl AsyncWrite for RecordingBidi {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl QuicTransportReceive for RecordingBidi {
+        fn stop(&mut self, code: u64) {
+            self.0.lock().unwrap().push(format!("stop {code}"));
+        }
+    }
+
+    impl QuicTransportSend for RecordingBidi {
+        fn reset(&mut self, code: u64) {
+            self.0.lock().unwrap().push(format!("reset {code}"));
+        }
+    }
+
+    impl Transport for RecordingBidi {}
+    impl QuicTransportBidi for RecordingBidi {}
+
+    #[test]
+    fn a_request_stream_is_recoverable_from_its_erased_transport() {
+        let signals = Arc::new(Mutex::new(Vec::new()));
+        let registry = PriorityRegistry::default();
+        let quic_stream: BoxedBidiStream = Box::new(RecordingBidi(Arc::clone(&signals)));
+        let mut transport: Box<dyn Transport> =
+            Box::new(RequestStream::new(quic_stream, registry.register(0), 0));
+
+        let stream = request_stream(&mut transport).expect("erased as a RequestStream");
+        stream.stop(1);
+        stream.reset(2);
+        assert_eq!(*signals.lock().unwrap(), ["stop 1", "reset 2"]);
+
+        assert!(into_request_stream(transport).is_some());
     }
 }

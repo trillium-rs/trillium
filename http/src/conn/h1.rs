@@ -1,22 +1,22 @@
+use super::ConnInner;
 use crate::{
     BufWriter, Buffer, Conn, ConnectionStatus, Error, Headers, HttpContext, KnownHeaderName,
-    Method, ProtocolSession, ReceivedBody, Result, Status, Version,
+    Method, ProtocolSession, ReceivedBody, Result, Status, TypeSet, Version,
     after_send::AfterSend,
     body::BodyFraming,
-    conn::{ConnParts, ReceivedBodyState, shared::authority_matches_host},
+    conn::{ReceivedBodyState, shared::authority_matches_host},
     headers::date::current_date_header,
-    util::encoding,
+    util::{CRLF, CRLF_CRLF, encoding},
 };
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use memchr::memmem::Finder;
-use std::{borrow::Cow, io::Write, time::Instant};
+use std::{borrow::Cow, io::Write, mem, sync::Arc, time::Instant};
 
 /// Outcome of a failed [`Conn::parse_head`].
 pub(crate) enum HeadError<Transport> {
     /// A complete but malformed or noncompliant request head. The carried `Conn` owns the
     /// transport and is preset with an error status + `Connection: close`, ready for the caller to
     /// `send()` as the response before closing the connection.
-    BadRequest(Box<Conn<Transport>>),
+    BadRequest(Conn<Transport>),
     /// An unrecoverable error (incomplete head, closed connection, or transport IO). The transport
     /// is gone; the error is propagated to the server layer, which closes the connection.
     Fatal(Error),
@@ -33,59 +33,81 @@ where
     /// `Connection: close` are h1-only; the h2/h3 paths strip `H1_ONLY_HEADERS`
     /// and let the framing layer signal end-of-stream.
     pub(super) fn finalize_response_headers_1x(&mut self) {
-        if self.status == Some(Status::SwitchingProtocols) {
+        if self.inner.status == Some(Status::SwitchingProtocols) {
             return;
         }
 
-        self.response_headers
+        self.inner
+            .response_headers
             .try_insert_with(KnownHeaderName::Date, current_date_header);
 
-        if !matches!(self.status, Some(Status::NotModified | Status::NoContent)) {
+        if !matches!(
+            self.inner.status,
+            Some(Status::NotModified | Status::NoContent)
+        ) {
             // Upgrade path: don't default to `Content-Length: 0` — body bytes will be
             // written post-handoff. A prelude response body is sent as an open chunked
             // stream (see `Body::keep_open`), so force chunked and drop any Content-Length.
             // With no prelude body, honor an explicit Content-Length; otherwise chunked.
-            let has_content_length = if self.upgrade {
-                if self.response_body.as_ref().is_some_and(|b| !b.is_empty()) {
-                    self.response_headers.remove(KnownHeaderName::ContentLength);
+            let has_content_length = if self.inner.upgrade {
+                if self
+                    .inner
+                    .response_body
+                    .as_ref()
+                    .is_some_and(|b| !b.is_empty())
+                {
+                    self.inner
+                        .response_headers
+                        .remove(KnownHeaderName::ContentLength);
                     false
                 } else {
-                    self.response_headers
+                    self.inner
+                        .response_headers
                         .has_header(KnownHeaderName::ContentLength)
                 }
             } else if let Some(len) = self.body_len() {
-                self.response_headers
+                self.inner
+                    .response_headers
                     .try_insert(KnownHeaderName::ContentLength, len);
                 true
             } else {
-                self.response_headers
+                self.inner
+                    .response_headers
                     .has_header(KnownHeaderName::ContentLength)
             };
 
-            if self.version == Version::Http1_1 && !has_content_length {
+            if self.inner.version == Version::Http1_1 && !has_content_length {
                 // Close-delimited framing (RFC 9112 §6.3): `Connection: close` on an
                 // unknown-length response opts out of chunked transfer-encoding — the bytes
                 // run until the connection closes, carrying neither `Content-Length` nor
                 // `Transfer-Encoding`. A prelude body was already normalized to an open
                 // chunked stream (see `Body::keep_open`), so an upgrade takes this form
                 // only when body-less.
-                let prelude_body =
-                    self.upgrade && self.response_body.as_ref().is_some_and(|b| !b.is_empty());
+                let prelude_body = self.inner.upgrade
+                    && self
+                        .inner
+                        .response_body
+                        .as_ref()
+                        .is_some_and(|b| !b.is_empty());
                 if !prelude_body && self.response_requests_close() {
-                    self.response_headers
+                    self.inner
+                        .response_headers
                         .remove(KnownHeaderName::TransferEncoding);
                 } else {
-                    self.response_headers
+                    self.inner
+                        .response_headers
                         .insert(KnownHeaderName::TransferEncoding, "chunked");
                 }
             } else {
-                self.response_headers
+                self.inner
+                    .response_headers
                     .remove(KnownHeaderName::TransferEncoding);
             }
         }
 
-        if self.context.swansong.state().is_shutting_down() {
-            self.response_headers
+        if self.inner.context.swansong.state().is_shutting_down() {
+            self.inner
+                .response_headers
                 .insert(KnownHeaderName::Connection, "close");
         }
 
@@ -95,34 +117,41 @@ where
         // would parse any late-arriving body bytes as the next request head, so close
         // instead: responding with a final status and closing without reading the body is
         // the path RFC 9110 §10.1.1 sanctions for declined expectations.
-        if !self.upgrade
+        if !self.inner.upgrade
             && self.needs_100_continue()
             && self.request_content_length().is_none_or(|len| len > 0)
         {
-            self.response_headers
+            self.inner
+                .response_headers
                 .insert(KnownHeaderName::Connection, "close");
         }
     }
 
     pub(crate) async fn send(mut self) -> Result<ConnectionStatus<Transport>> {
-        let mut output_buffer = Vec::with_capacity(self.context.config.response_buffer_len);
+        let response_buffer_len = self.inner.context.config.response_buffer_len;
+        let mut output_buffer = mem::take(&mut self.inner.response_buffer);
+        output_buffer.reserve_exact(response_buffer_len);
         self.write_headers(&mut output_buffer)?;
 
         // Read before the bufwriter borrows `self.transport`, so the body block can consult it.
         let upgrading = self.should_upgrade();
 
-        let max_buf = self.context.config.response_buffer_max_len;
+        let max_buf = self.inner.context.config.response_buffer_max_len;
         let mut bufwriter = BufWriter::new_with_buffer(output_buffer, &mut self.transport, max_buf);
 
-        if self.method != Method::Head
-            && !matches!(self.status, Some(Status::NotModified | Status::NoContent))
-            && let Some(body) = self.response_body.take()
+        if self.inner.method != Method::Head
+            && !matches!(
+                self.inner.status,
+                Some(Status::NotModified | Status::NoContent)
+            )
+            && let Some(body) = self.inner.response_body.take()
         {
             // Framing follows the finalized response headers: chunked when
             // `Transfer-Encoding: chunked` is present, raw passthrough (fixed-length or
             // close-delimited) otherwise. An upgrade leaves the chunked stream
             // unterminated for the following upgrade to close.
             let chunked = self
+                .inner
                 .response_headers
                 .has_header(KnownHeaderName::TransferEncoding);
 
@@ -135,7 +164,7 @@ where
             };
 
             let trailers = body
-                .write_into(&mut bufwriter, framing, &self.context.config)
+                .write_into(&mut bufwriter, framing, &self.inner.context.config)
                 .await?;
 
             // The trailer-section and its terminator only exist in chunked framing. When an
@@ -149,7 +178,11 @@ where
                 // closes the trailer-section.
                 if let Some(trailers) = trailers {
                     log::trace!("sending trailers:\n{trailers}");
-                    write_headers_or_trailers(bufwriter.buffer_mut(), &trailers, &self.context)?;
+                    write_headers_or_trailers(
+                        bufwriter.buffer_mut(),
+                        &trailers,
+                        &self.inner.context,
+                    )?;
                     // we don't store the trailers anywhere because the conn is about to be dropped
                 }
 
@@ -159,14 +192,23 @@ where
 
         bufwriter.flush().await?;
 
-        self.after_send.call(true.into());
+        // A buffer that grew past its configured size goes back to the allocator, so one large
+        // response can't pin that memory to an idle keep-alive connection.
+        let mut output_buffer = bufwriter.into_buffer();
+        if output_buffer.capacity() <= response_buffer_len {
+            output_buffer.clear();
+            self.inner.response_buffer = output_buffer;
+        }
+
+        self.inner.after_send.call(true.into());
         self.finish().await
     }
 
     pub(super) fn needs_100_continue(&self) -> bool {
-        self.request_body_state.is_unread()
-            && self.version == Version::Http1_1
+        self.inner.request_body_state.is_unread()
+            && self.inner.version == Version::Http1_1
             && self
+                .inner
                 .request_headers
                 .eq_ignore_ascii_case(KnownHeaderName::Expect, "100-continue")
     }
@@ -175,24 +217,24 @@ where
     pub(super) fn build_request_body(&mut self) -> ReceivedBody<'_, Transport> {
         ReceivedBody::new_with_config(
             self.request_content_length(),
-            &mut self.buffer,
+            &mut self.inner.buffer,
             &mut self.transport,
-            &mut self.request_body_state,
+            &mut self.inner.request_body_state,
             None,
-            encoding(&self.request_headers),
-            &self.context.config,
+            encoding(&self.inner.request_headers),
+            &self.inner.context.config,
         )
-        .with_trailers(&mut self.request_trailers)
-        .with_protocol_session(self.protocol_session.clone())
+        .with_trailers(&mut self.inner.request_trailers)
+        .with_protocol_session(self.inner.protocol_session.clone())
     }
 
     fn validate_headers_h1(&self) -> Result<()> {
-        let Self {
+        let ConnInner {
             ref request_headers,
             version,
             method,
             ..
-        } = *self;
+        } = *self.inner;
         let content_length = request_headers.get_values(KnownHeaderName::ContentLength);
         let transfer_encoding = request_headers.get_values(KnownHeaderName::TransferEncoding);
 
@@ -252,24 +294,24 @@ where
     /// Validate the request target. The asterisk-form (`*`) is only valid for `OPTIONS`. When
     /// absolute-form supplied an authority, it must agree with the `Host` header.
     fn validate_request_target(&self) -> Result<()> {
-        if &*self.path == "*" {
-            if self.method != Method::Options {
+        if &*self.inner.path == "*" {
+            if self.inner.method != Method::Options {
                 return Err(Error::InvalidHead);
             }
-        } else if self.method == Method::Connect {
+        } else if self.inner.method == Method::Connect {
             // authority-form; path was normalized to `/` in parse_head — nothing to validate here.
-        } else if self.path.starts_with('/') {
-            if self.path.contains(['#', '\\']) {
+        } else if self.inner.path.starts_with('/') {
+            if self.inner.path.contains(['#', '\\']) {
                 return Err(Error::InvalidHead);
             }
         } else {
             return Err(Error::InvalidHead);
         }
 
-        if self.method != Method::Connect
-            && let Some(authority) = &self.authority
-            && let Some(host) = self.request_headers.get_str(KnownHeaderName::Host)
-            && !authority_matches_host(authority, host, self.scheme.as_deref())
+        if self.inner.method != Method::Connect
+            && let Some(authority) = &self.inner.authority
+            && let Some(host) = self.inner.request_headers.get_str(KnownHeaderName::Host)
+            && !authority_matches_host(authority, host, self.inner.scheme.as_deref())
         {
             return Err(Error::InvalidHeaderValue(KnownHeaderName::Host.into()));
         }
@@ -291,7 +333,6 @@ where
         // Leading empty lines discarded before the request-line (RFC 9112 §2.2). Counted against
         // head_max_len so a peer streaming bare CRLFs hits the limit rather than looping forever.
         let mut leading_skipped = 0;
-        let finder = Finder::new(b"\r\n\r\n");
         loop {
             if total + leading_skipped >= context.config.head_max_len {
                 return Err(Error::HeadersTooLong);
@@ -355,7 +396,7 @@ where
             }
 
             let search_start = scanned.max(3) - 3;
-            if let Some(index) = finder.find(&buf[search_start..total]) {
+            if let Some(index) = CRLF_CRLF.find(&buf[search_start..total]) {
                 return Ok((search_start + index + 4, instant.unwrap()));
             }
             scanned = total;
@@ -363,23 +404,37 @@ where
     }
 
     async fn next(mut self) -> Result<ConnectionStatus<Transport>> {
-        // Drain unless we set up 100-continue and the client never started sending: in
-        // that case no body bytes are coming and draining would block.
-        if !self.needs_100_continue() {
+        // Drain unless the body was already read to its end (draining allocates a buffer even
+        // when there is nothing left), or we set up 100-continue and the client never started
+        // sending: in that case no body bytes are coming and draining would block.
+        if self.inner.request_body_state != ReceivedBodyState::End && !self.needs_100_continue() {
             self.build_request_body().drain().await?;
         }
 
-        match ConnParts::from(self).parse_head().await {
+        let previous_request_headers = self.inner.recycle_h1();
+
+        let head = Self::head(
+            &mut self.transport,
+            &mut self.inner.buffer,
+            &self.inner.context,
+        )
+        .await;
+        let (head_size, start_time) = match head {
+            Ok(head) => head,
+            Err(Error::Closed) => {
+                log::trace!("connection closed by client");
+                return Ok(ConnectionStatus::Close);
+            }
+            Err(e) => return Err(e),
+        };
+        self.inner.start_time = start_time;
+
+        match self.parse_head(head_size, Some(previous_request_headers)) {
             Ok(conn) => Ok(ConnectionStatus::Conn(conn)),
 
             Err(HeadError::BadRequest(bad)) => {
                 // Box to break the `send -> finish -> next -> send` async-recursion type cycle.
                 Box::pin(bad.send()).await?;
-                Ok(ConnectionStatus::Close)
-            }
-
-            Err(HeadError::Fatal(Error::Closed)) => {
-                log::trace!("connection closed by client");
                 Ok(ConnectionStatus::Close)
             }
 
@@ -389,7 +444,8 @@ where
 
     /// True if the outbound headers carry a `Connection: close` token.
     fn response_requests_close(&self) -> bool {
-        self.response_headers
+        self.inner
+            .response_headers
             .token_iter(KnownHeaderName::Connection)
             .any(|t| t.eq_ignore_ascii_case("close"))
     }
@@ -402,14 +458,16 @@ where
                 .any(|t| t.eq_ignore_ascii_case(token))
         };
 
-        if has_token(&self.request_headers, "close") || has_token(&self.response_headers, "close") {
+        if has_token(&self.inner.request_headers, "close")
+            || has_token(&self.inner.response_headers, "close")
+        {
             true
-        } else if has_token(&self.request_headers, "keep-alive")
-            && has_token(&self.response_headers, "keep-alive")
+        } else if has_token(&self.inner.request_headers, "keep-alive")
+            && has_token(&self.inner.response_headers, "keep-alive")
         {
             false
         } else {
-            self.version == Version::Http1_0
+            self.inner.version == Version::Http1_0
         }
     }
 
@@ -428,13 +486,14 @@ where
 
     fn request_content_length(&self) -> Option<u64> {
         if self
+            .inner
             .request_headers
             .has_header(KnownHeaderName::TransferEncoding)
         {
             None
-        } else if let Some(content_length) = self.request_headers.content_length() {
+        } else if let Some(content_length) = self.inner.request_headers.content_length() {
             Some(content_length)
-        } else if matches!(self.version, Version::Http2 | Version::Http3) {
+        } else if matches!(self.inner.version, Version::Http2 | Version::Http3) {
             // h2 and h3 frame the body via stream-level END_STREAM; there's no equivalent of
             // h1's implicit "no content-length means empty body" default.
             None
@@ -444,7 +503,7 @@ where
     }
 
     pub(super) fn body_len(&self) -> Option<u64> {
-        match self.response_body {
+        match self.inner.response_body {
             Some(ref body) => body.len(),
             None => Some(0),
         }
@@ -456,7 +515,7 @@ where
         write!(
             output_buffer,
             "{} {} {}\r\n",
-            self.version,
+            self.inner.version,
             status as u16,
             status.canonical_reason()
         )?;
@@ -465,12 +524,16 @@ where
 
         log::trace!(
             "sending:\n{} {}\n{}",
-            self.version,
+            self.inner.version,
             status,
-            self.response_headers
+            self.inner.response_headers
         );
 
-        write_headers_or_trailers(output_buffer, &self.response_headers, &self.context)?;
+        write_headers_or_trailers(
+            output_buffer,
+            &self.inner.response_headers,
+            &self.inner.context,
+        )?;
 
         write!(output_buffer, "\r\n")?;
 
@@ -627,27 +690,35 @@ pub(crate) fn write_headers_or_trailers(
     Ok(())
 }
 
-impl<T> ConnParts<T>
+impl<T> Conn<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
-    pub(crate) async fn parse_head(self) -> Result<Conn<T>, HeadError<T>> {
-        let Self {
-            mut buffer,
-            state,
-            mut request_headers,
-            mut previous_request_headers,
-            mut response_headers,
-            context,
-            mut transport,
-        } = self;
-
-        let (head_size, start_time) = Conn::head(&mut transport, &mut buffer, &context)
+    /// Read and parse the first request head on a connection.
+    pub(crate) async fn new_h1(
+        context: Arc<HttpContext>,
+        mut transport: T,
+        initial_bytes: Vec<u8>,
+    ) -> Result<Self, HeadError<T>> {
+        let mut buffer = Buffer::from(initial_bytes);
+        let (head_size, start_time) = Self::head(&mut transport, &mut buffer, &context)
             .await
             .map_err(HeadError::Fatal)?;
+        let inner = Box::new(ConnInner::new_h1(context, buffer, start_time));
+        Self { inner, transport }.parse_head(head_size, None)
+    }
 
-        let first_line_index = Finder::new(b"\r\n")
-            .find(&buffer)
+    /// Parse the request head occupying the first `head_size` bytes of the buffer into this
+    /// conn. `previous_request_headers` holds the prior request's headers on this connection,
+    /// whose values the parse may reuse.
+    fn parse_head(
+        mut self,
+        head_size: usize,
+        mut previous_request_headers: Option<Headers>,
+    ) -> Result<Self, HeadError<T>> {
+        let inner = &mut *self.inner;
+        let first_line_index = CRLF
+            .find(&inner.buffer)
             .ok_or(HeadError::Fatal(Error::InvalidHead))?;
 
         let RequestLine {
@@ -657,62 +728,42 @@ where
             scheme,
             version,
             error: mut first_error,
-        } = RequestLine::parse(&buffer[..first_line_index]);
+        } = RequestLine::parse(&inner.buffer[..first_line_index]);
+        inner.method = method;
+        inner.path = path;
+        inner.authority = authority;
+        inner.scheme = scheme;
+        inner.version = version;
 
-        let header_bytes = &buffer[first_line_index + 2..head_size];
+        let header_bytes = &inner.buffer[first_line_index + 2..head_size];
         let parsed = match &mut previous_request_headers {
             Some(previous) => {
-                let parsed = request_headers.extend_parse_reusing(header_bytes, previous);
+                let parsed = inner
+                    .request_headers
+                    .extend_parse_reusing(header_bytes, previous);
                 previous.clear();
                 parsed
             }
-            None => request_headers.extend_parse(header_bytes),
+            None => inner.request_headers.extend_parse(header_bytes),
         };
+        inner.spare_request_headers = previous_request_headers;
         if let Err(e) = parsed {
             first_error.get_or_insert(e);
         }
 
-        if let Some(default_headers) = context.shared_state().get().cloned() {
-            response_headers.insert_all(default_headers);
+        if let Some(default_headers) = inner.context.shared_state().get().cloned() {
+            inner.response_headers.insert_all(default_headers);
         }
 
-        buffer.ignore_front(head_size);
-
-        let request_body_state = Self::initial_request_body_state(&request_headers);
-
-        let mut conn = Conn {
-            context,
-            transport,
-            request_headers,
-            spare_request_headers: previous_request_headers,
-            method,
-            version,
-            path,
-            buffer,
-            response_headers,
-            status: None,
-            state,
-            response_body: None,
-            request_body_state,
-            secure: false,
-            after_send: AfterSend::default(),
-            start_time,
-            peer_ip: None,
-            authority,
-            scheme,
-            protocol: None,
-            protocol_session: ProtocolSession::Http1,
-            request_trailers: None,
-            upgrade: false,
-            peer_gone: None,
-        };
+        inner.buffer.ignore_front(head_size);
+        inner.request_body_state = initial_request_body_state(&inner.request_headers);
 
         // Cross-header and request-target rules only apply to an otherwise-clean parse; once we
         // already have a violation we're synthesizing a response regardless.
         if first_error.is_none() {
-            first_error = conn
+            first_error = self
                 .validate_headers_h1()
-                .and_then(|()| conn.validate_request_target())
+                .and_then(|()| self.validate_request_target())
                 .err();
         }
 
@@ -720,33 +771,128 @@ where
             None => {
                 log::trace!(
                     "received:\n{} {} {}\n{}",
-                    conn.method,
-                    conn.path,
-                    conn.version,
-                    conn.request_headers
+                    self.inner.method,
+                    self.inner.path,
+                    self.inner.version,
+                    self.inner.request_headers
                 );
-                Ok(conn)
+                Ok(self)
             }
             Some(ref e) => {
                 log::debug!("rejecting malformed request: {e}");
-                conn.status = Some(e.into());
-                conn.response_headers
+                self.inner.status = Some(e.into());
+                self.inner
+                    .response_headers
                     .insert(KnownHeaderName::Connection, "close");
-                Err(HeadError::BadRequest(Box::new(conn)))
+                Err(HeadError::BadRequest(self))
             }
         }
     }
+}
 
-    /// Resolve the initial [`ReceivedBodyState`] for the incoming h1 request body from
-    /// the parsed headers. h1 requests without explicit framing default to an empty
-    /// body — read-to-close on inbound has no sender-side end-of-request signal.
-    fn initial_request_body_state(request_headers: &Headers) -> ReceivedBodyState {
-        let chunked = request_headers.has_header(KnownHeaderName::TransferEncoding);
-        let content_length = if chunked {
-            None
-        } else {
-            request_headers.content_length().or(Some(0))
-        };
-        ReceivedBodyState::new_h1(content_length, chunked)
+impl ConnInner {
+    /// A connection's state before its first request head is parsed into it.
+    fn new_h1(context: Arc<HttpContext>, buffer: Buffer, start_time: Instant) -> Self {
+        // Split each "expected total headers" budget evenly across the known and unknown stores.
+        let request_cap = context.config.request_header_initial_capacity;
+        let response_cap = context.config.response_header_initial_capacity;
+        Self {
+            request_headers: Headers::with_capacities(request_cap / 2, request_cap / 2),
+            spare_request_headers: None,
+            response_headers: Headers::with_capacities(response_cap / 2, response_cap / 2),
+            context,
+            path: Cow::Borrowed("/"),
+            method: Method::Get,
+            status: None,
+            version: Version::Http1_1,
+            state: TypeSet::with_capacity(16),
+            response_body: None,
+            buffer,
+            response_buffer: Vec::new(),
+            request_body_state: ReceivedBodyState::End,
+            after_send: AfterSend::default(),
+            secure: false,
+            start_time,
+            peer_ip: None,
+            authority: None,
+            scheme: None,
+            protocol_session: ProtocolSession::Http1,
+            protocol: None,
+            request_trailers: None,
+            upgrade: false,
+            peer_gone: None,
+        }
     }
+
+    /// Ready this connection's state for its next request: per-request fields are reset, while
+    /// per-connection state and every reusable allocation carry over. Returns the finished
+    /// request's headers, intact, for `parse_head` to salvage values from.
+    fn recycle_h1(&mut self) -> Headers {
+        // No `..`: a new field must be explicitly carried over or reset.
+        let Self {
+            context,
+            buffer,
+            response_buffer: _,
+            request_headers,
+            spare_request_headers,
+            response_headers,
+            state,
+            // set by `parse_head` from the next request
+            path: _,
+            method: _,
+            version: _,
+            authority: _,
+            scheme: _,
+            request_body_state: _,
+            start_time: _,
+            status,
+            response_body,
+            after_send,
+            secure,
+            peer_ip,
+            protocol_session,
+            protocol,
+            request_trailers,
+            upgrade,
+            peer_gone,
+        } = self;
+
+        // The live region survives (pipelined bytes are the next request); only window space
+        // beyond the high-water mark is released, so bytes from an earlier request can never be
+        // re-lent while parsing a later one — the cross-principal concern when a proxy coalesces
+        // many clients onto one keepalive connection. Capacity is retained; the next lend
+        // re-zeroes the span as it grows.
+        buffer.truncate();
+        state.clear();
+        response_headers.clear();
+        *status = None;
+        *response_body = None;
+        *after_send = AfterSend::default();
+        *secure = false;
+        *peer_ip = None;
+        *protocol_session = ProtocolSession::Http1;
+        *protocol = None;
+        *request_trailers = None;
+        *upgrade = false;
+        *peer_gone = None;
+
+        let parse_target = spare_request_headers.take().unwrap_or_else(|| {
+            let cap = context.config.request_header_initial_capacity;
+            Headers::with_capacities(cap / 2, cap / 2)
+        });
+        mem::replace(request_headers, parse_target)
+    }
+}
+
+/// Resolve the initial [`ReceivedBodyState`] for the incoming h1 request body from the parsed
+/// headers. h1 requests without explicit framing default to an empty body — read-to-close on
+/// inbound has no sender-side end-of-request signal.
+fn initial_request_body_state(request_headers: &Headers) -> ReceivedBodyState {
+    let chunked = request_headers.has_header(KnownHeaderName::TransferEncoding);
+    let content_length = if chunked {
+        None
+    } else {
+        request_headers.content_length().or(Some(0))
+    };
+    ReceivedBodyState::new_h1(content_length, chunked)
 }

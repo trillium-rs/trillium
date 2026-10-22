@@ -14,7 +14,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use trillium::{Conn, Handler, KnownHeaderName, Transport, Upgrade};
+use trillium::{Conn, Handler, KnownHeaderName, Listener, Transport, Upgrade};
 use trillium_http::h2::{H2Connection, H2Transport};
 
 /// HTTP/2 client connection preface (RFC 9113 §3.4). The first 24 bytes every HTTP/2 client
@@ -39,11 +39,11 @@ impl<S: Server, A: Acceptor<S::Transport>> RunningConfig<S, A> {
         transport: T,
         handler: ArcHandler<impl Handler>,
         peer_ip: Option<IpAddr>,
+        listener: Option<Listener>,
     ) where
         T: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     {
         let runtime: Runtime = self.runtime.clone().into();
-        let listener = self.listener.clone();
         let local_alt_svc = self.local_alt_svc;
         let is_secure = self.acceptor.is_secure();
 

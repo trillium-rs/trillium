@@ -99,10 +99,63 @@ impl Transport for Box<dyn Transport> {
     }
 }
 
+/// Erase a transport's type. A transport that is already a `Box<dyn Transport>` passes through
+/// as-is rather than gaining a second allocation and vtable hop.
+pub fn box_transport<T: Transport>(transport: T) -> Box<dyn Transport> {
+    same_type::<T, Box<dyn Transport>>(transport).unwrap_or_else(|transport| Box::new(transport))
+}
+
+/// The inverse of [`box_transport`].
+///
+/// # Panics
+///
+/// Panics if `T` is not the type that was erased.
+pub fn unbox_transport<T: Transport>(transport: Box<dyn Transport>) -> T {
+    same_type::<Box<dyn Transport>, T>(transport).unwrap_or_else(|transport| {
+        *(transport as Box<dyn Any>)
+            .downcast()
+            .expect("attempted to downcast to the wrong transport type")
+    })
+}
+
+/// `Ok` if `T` and `U` are the same type, without allocating. Each instantiation compares two
+/// constant `TypeId`s, so this optimizes down to whichever branch applies.
+fn same_type<T: Any, U: Any>(value: T) -> std::result::Result<U, T> {
+    let mut slot = Some(value);
+    if let Some(same) = (&mut slot as &mut dyn Any).downcast_mut::<Option<U>>() {
+        return Ok(same.take().expect("slot was just filled"));
+    }
+    Err(slot.expect("slot was just filled"))
+}
+
 impl Transport for trillium_http::Synthetic {}
 
 impl Transport for trillium_http::h2::H2Transport {
     fn negotiated_alpn(&self) -> Option<Cow<'_, [u8]>> {
         Some(Cow::Borrowed(b"h2"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Transport, box_transport, unbox_transport};
+    use trillium_http::Synthetic;
+
+    fn address(transport: &dyn Transport) -> *const () {
+        std::ptr::from_ref(transport).cast()
+    }
+
+    #[test]
+    fn an_erased_transport_is_not_boxed_again() {
+        let erased: Box<dyn Transport> = Box::new(Synthetic::from("hello"));
+        let original = address(&*erased);
+
+        let reboxed = box_transport(erased);
+        assert_eq!(address(&*reboxed), original);
+
+        let unboxed: Box<dyn Transport> = unbox_transport(reboxed);
+        assert_eq!(address(&*unboxed), original);
+
+        let _: Synthetic = unbox_transport(unboxed);
     }
 }

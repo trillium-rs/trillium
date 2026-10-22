@@ -28,10 +28,6 @@ use swansong::{ShutdownCompletion, Swansong};
 
 /// The result of processing an HTTP/3 bidirectional stream.
 #[derive(Debug)]
-#[allow(
-    clippy::large_enum_variant,
-    reason = "Request is the hot path; boxing it would add an allocation per request"
-)]
 pub enum H3StreamResult<Transport> {
     /// The stream carried a normal HTTP/3 request.
     Request(Conn<Transport>),
@@ -1048,8 +1044,7 @@ where
                     let initial_priority = validated
                         .request_headers
                         .get_str(KnownHeaderName::Priority)
-                        .map(Priority::parse)
-                        .unwrap_or_default();
+                        .map_or_default(Priority::parse);
                     h3.emit_priority(stream_id, initial_priority, false);
                     let conn = Conn::build_h3(
                         h3, transport, buffer, validated, start_time, stream_id, peer_gone,

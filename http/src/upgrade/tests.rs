@@ -90,7 +90,7 @@ fn h1_upgrade(transport: RecordingTransport) -> Upgrade<RecordingTransport> {
     // Override the default Raw write_state: these tests target the h1 chunked output
     // path. `Upgrade::new` doesn't run compute_write_state, so the upgrade-transition
     // path's H1Chunked selection from `TE: chunked` doesn't fire here.
-    upgrade.write_state = WriteState::H1Chunked(H1ChunkedState::default());
+    upgrade.inner.write_state = WriteState::H1Chunked(H1ChunkedState::default());
     upgrade
 }
 
@@ -379,7 +379,7 @@ fn h3_upgrade(transport: RecordingTransport) -> Upgrade<RecordingTransport> {
     );
     // Override the default Raw write_state: h3 should always be framed, but
     // `Upgrade::new` defaults to Raw since it doesn't run compute_write_state.
-    upgrade.write_state = WriteState::H3Framed(H3FramedState::default());
+    upgrade.inner.write_state = WriteState::H3Framed(H3FramedState::default());
     upgrade
 }
 
@@ -540,4 +540,9 @@ fn buffer_accessors_expose_the_received_bytes() {
     assert_eq!(upgrade.buffer(), b"Hello");
     assert_eq!(upgrade.take_buffer(), b"Hello".to_vec());
     assert!(upgrade.buffer_mut().is_empty());
+}
+
+#[test]
+fn an_upgrade_is_one_pointer_plus_its_transport() {
+    assert_eq!(size_of::<Upgrade<()>>(), size_of::<usize>());
 }

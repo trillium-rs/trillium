@@ -32,7 +32,6 @@ mod h3;
 mod shared;
 pub(crate) use h1::{HeadError, write_headers_or_trailers};
 pub(crate) use h3::H3FirstFrame;
-pub(crate) use shared::ConnParts;
 
 /// An HTTP connection.
 ///
@@ -40,6 +39,26 @@ pub(crate) use shared::ConnParts;
 /// transport over which the response will be sent.
 #[derive(fieldwork::Fieldwork)]
 pub struct Conn<Transport> {
+    /// Everything but the transport, boxed because a `Conn` moves through every handler and every
+    /// async state machine on the request path, and a pointer is cheap to move. HTTP/1.x reuses
+    /// the allocation for each request on a connection.
+    #[field(delegate)]
+    pub(crate) inner: Box<ConnInner>,
+
+    /// the transport
+    ///
+    /// This should only be used to call your own custom methods on the transport that do not read
+    /// or write any data. Calling any method that reads from or writes to the transport will
+    /// disrupt the HTTP protocol. If you're looking to transition from HTTP to another protocol,
+    /// use an HTTP upgrade.
+    #[field(get, get_mut)]
+    pub(crate) transport: Transport,
+}
+
+/// Everything in a [`Conn`] but its transport.
+#[derive(fieldwork::Fieldwork)]
+#[fieldwork(delegatable)]
+pub(crate) struct ConnInner {
     #[field(get)]
     /// the shared [`HttpContext`]
     pub(crate) context: Arc<HttpContext>,
@@ -110,16 +129,11 @@ pub struct Conn<Transport> {
     #[field(get, set, into, option_set_some, take, with)]
     pub(crate) response_body: Option<Body>,
 
-    /// the transport
-    ///
-    /// This should only be used to call your own custom methods on the transport that do not read
-    /// or write any data. Calling any method that reads from or writes to the transport will
-    /// disrupt the HTTP protocol. If you're looking to transition from HTTP to another protocol,
-    /// use an HTTP upgrade.
-    #[field(get, get_mut)]
-    pub(crate) transport: Transport,
-
     pub(crate) buffer: Buffer,
+
+    /// HTTP/1.x only: the buffer the previous response on this connection was serialized
+    /// through, emptied with its allocation kept for the next one.
+    pub(crate) response_buffer: Vec<u8>,
 
     pub(crate) request_body_state: ReceivedBodyState,
 
@@ -177,29 +191,30 @@ pub struct Conn<Transport> {
 impl<Transport> Debug for Conn<Transport> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Conn")
-            .field("context", &self.context)
-            .field("request_headers", &self.request_headers)
+            .field("context", &self.inner.context)
+            .field("request_headers", &self.inner.request_headers)
             .field("spare_request_headers", &format_args!(".."))
-            .field("response_headers", &self.response_headers)
-            .field("path", &self.path)
-            .field("method", &self.method)
-            .field("status", &self.status)
-            .field("version", &self.version)
-            .field("state", &self.state)
-            .field("response_body", &self.response_body)
+            .field("response_headers", &self.inner.response_headers)
+            .field("path", &self.inner.path)
+            .field("method", &self.inner.method)
+            .field("status", &self.inner.status)
+            .field("version", &self.inner.version)
+            .field("state", &self.inner.state)
+            .field("response_body", &self.inner.response_body)
             .field("transport", &format_args!(".."))
             .field("buffer", &format_args!(".."))
-            .field("request_body_state", &self.request_body_state)
-            .field("secure", &self.secure)
+            .field("response_buffer", &format_args!(".."))
+            .field("request_body_state", &self.inner.request_body_state)
+            .field("secure", &self.inner.secure)
             .field("after_send", &format_args!(".."))
-            .field("start_time", &self.start_time)
-            .field("peer_ip", &self.peer_ip)
-            .field("authority", &self.authority)
-            .field("scheme", &self.scheme)
-            .field("protocol", &self.protocol)
-            .field("protocol_session", &self.protocol_session)
-            .field("request_trailers", &self.request_trailers)
-            .field("upgrade", &self.upgrade)
+            .field("start_time", &self.inner.start_time)
+            .field("peer_ip", &self.inner.peer_ip)
+            .field("authority", &self.inner.authority)
+            .field("scheme", &self.inner.scheme)
+            .field("protocol", &self.inner.protocol)
+            .field("protocol_session", &self.inner.protocol_session)
+            .field("request_trailers", &self.inner.request_trailers)
+            .field("upgrade", &self.inner.upgrade)
             .field("peer_gone", &format_args!(".."))
             .finish()
     }
@@ -211,7 +226,7 @@ where
 {
     /// Returns the shared state typemap for this conn.
     pub fn shared_state(&self) -> &TypeSet {
-        &self.context.shared_state
+        &self.inner.context.shared_state
     }
 
     /// sets the http status code from any `TryInto<Status>`.
@@ -230,7 +245,7 @@ where
     /// # }).get("/").block().assert_status(Status::ImATeapot);
     /// ```
     pub fn set_status(&mut self, status: impl TryInto<Status>) -> &mut Self {
-        self.status = Some(status.try_into().unwrap_or_else(|_| {
+        self.inner.status = Some(status.try_into().unwrap_or_else(|_| {
             log::error!("attempted to set an invalid status code");
             Status::InternalServerError
         }));
@@ -250,7 +265,7 @@ where
     /// `501 Not Implemented`: an origin server implements no tunnel, and 404's
     /// resource model does not apply to CONNECT's authority-form target.
     pub(crate) fn response_status(&self) -> Status {
-        self.status.unwrap_or(match self.method {
+        self.inner.status.unwrap_or(match self.inner.method {
             Method::Connect => Status::NotImplemented,
             _ => Status::NotFound,
         })
@@ -268,15 +283,15 @@ where
     /// .assert_ok();
     /// ```
     pub fn path(&self) -> &str {
-        match self.path.split_once('?') {
+        match self.inner.path.split_once('?') {
             Some((path, _)) => path,
-            None => &self.path,
+            None => &self.inner.path,
         }
     }
 
     /// retrieves the combined path and any query
     pub fn path_and_query(&self) -> &str {
-        &self.path
+        &self.inner.path
     }
 
     /// retrieves the query component of the path, or an empty &str
@@ -296,10 +311,10 @@ where
     /// server.get("/some/path").block().assert_body("");
     /// ```
     pub fn querystring(&self) -> &str {
-        self.path
+        self.inner
+            .path
             .split_once('?')
-            .map(|(_, query)| query)
-            .unwrap_or_default()
+            .map_or_default(|(_, query)| query)
     }
 
     /// get the host for this conn, if it exists.
@@ -307,14 +322,15 @@ where
     /// On protocol versions where the equivalent of `Host` is `:authority`, this returns
     /// `:authority`.
     pub fn host(&self) -> Option<&str> {
-        self.request_headers
+        self.inner
+            .request_headers
             .get_str(Host)
             .or_else(|| self.authority())
     }
 
     /// set the host for this conn
     pub fn set_host(&mut self, host: String) -> &mut Self {
-        self.request_headers.insert(Host, host);
+        self.inner.request_headers.insert(Host, host);
         self
     }
 
@@ -420,7 +436,7 @@ where
     /// .assert_ok();
     /// ```
     pub fn request_encoding(&self) -> &'static Encoding {
-        encoding(&self.request_headers)
+        encoding(&self.inner.request_headers)
     }
 
     /// returns the [`encoding_rs::Encoding`] for this response, as
@@ -442,7 +458,7 @@ where
     /// .assert_ok();
     /// ```
     pub fn response_encoding(&self) -> &'static Encoding {
-        encoding(&self.response_headers)
+        encoding(&self.inner.response_headers)
     }
 
     /// returns a [`ReceivedBody`] that references this conn. the conn
@@ -476,9 +492,10 @@ where
     /// this to gracefully stop long-running futures and streams
     /// inside of handler functions
     pub fn swansong(&self) -> Swansong {
-        self.protocol_session
-            .h3_connection()
-            .map_or_else(|| self.context.swansong.clone(), |h| h.swansong().clone())
+        self.inner.protocol_session.h3_connection().map_or_else(
+            || self.inner.context.swansong.clone(),
+            |h| h.swansong().clone(),
+        )
     }
 
     /// Registers a function to call after the http response has been
@@ -503,7 +520,7 @@ where
     where
         F: FnOnce(SendStatus) + Send + Sync + 'static,
     {
-        self.after_send.append(after_send);
+        self.inner.after_send.append(after_send);
     }
 
     /// applies a mapping function from one transport to another. This
@@ -517,44 +534,17 @@ where
     where
         NewTransport: AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
     {
-        // Manual respread: rustc treats `Conn<Transport>` and `Conn<NewTransport>` as
-        // disjoint types and rejects `..self` without the unstable
-        // `type_changing_struct_update` feature. If a new field is added to `Conn`,
-        // update this respread, `Upgrade::map_transport`, and `From<Conn> for Upgrade`
-        // (`upgrade.rs`) — they share this drift hazard.
         Conn {
-            context: self.context,
-            request_headers: self.request_headers,
-            spare_request_headers: self.spare_request_headers,
-            response_headers: self.response_headers,
-            method: self.method,
-            response_body: self.response_body,
-            path: self.path,
-            status: self.status,
-            version: self.version,
-            state: self.state,
+            inner: self.inner,
             transport: f(self.transport),
-            buffer: self.buffer,
-            request_body_state: self.request_body_state,
-            secure: self.secure,
-            after_send: self.after_send,
-            start_time: self.start_time,
-            peer_ip: self.peer_ip,
-            authority: self.authority,
-            scheme: self.scheme,
-            protocol: self.protocol,
-            protocol_session: self.protocol_session,
-            request_trailers: self.request_trailers,
-            upgrade: self.upgrade,
-            peer_gone: self.peer_gone,
         }
     }
 
     /// whether this conn is suitable for an http upgrade to another protocol
     pub fn should_upgrade(&self) -> bool {
-        self.upgrade
-            || (self.method() == Method::Connect && self.status == Some(Status::Ok))
-            || self.status == Some(Status::SwitchingProtocols)
+        self.inner.upgrade
+            || (self.method() == Method::Connect && self.inner.status == Some(Status::Ok))
+            || self.inner.status == Some(Status::SwitchingProtocols)
     }
 
     /// Mark this conn to be handed off as an upgrade once the response headers are sent.
@@ -564,13 +554,13 @@ where
     #[doc(hidden)]
     #[must_use]
     pub fn upgrade(mut self) -> Self {
-        self.upgrade = true;
+        self.inner.upgrade = true;
         self
     }
 
     #[doc(hidden)]
     pub fn finalize_headers(&mut self) {
-        if self.version == Version::Http3 {
+        if self.inner.version == Version::Http3 {
             self.finalize_response_headers_h3();
         } else {
             self.finalize_response_headers_1x();
@@ -579,21 +569,37 @@ where
 
     /// the [`H2Connection`] driver for this conn, if this is an HTTP/2 request
     pub fn h2_connection(&self) -> Option<&Arc<H2Connection>> {
-        self.protocol_session.h2_connection()
+        self.inner.protocol_session.h2_connection()
     }
 
     /// the h2 stream id for this conn, if this is an HTTP/2 request
     pub fn h2_stream_id(&self) -> Option<u32> {
-        self.protocol_session.h2_stream_id()
+        self.inner.protocol_session.h2_stream_id()
     }
 
     /// the [`H3Connection`] driver for this conn, if this is an HTTP/3 request
     pub fn h3_connection(&self) -> Option<&Arc<H3Connection>> {
-        self.protocol_session.h3_connection()
+        self.inner.protocol_session.h3_connection()
     }
 
     /// the h3 stream id for this conn, if this is an HTTP/3 request
     pub fn h3_stream_id(&self) -> Option<u64> {
-        self.protocol_session.h3_stream_id()
+        self.inner.protocol_session.h3_stream_id()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Conn;
+
+    #[test]
+    fn a_conn_is_one_pointer_plus_its_transport() {
+        assert_eq!(size_of::<Conn<()>>(), size_of::<usize>());
+    }
+
+    // Returned by every h1 response on its way back through the keep-alive loop.
+    #[test]
+    fn connection_status_is_two_words() {
+        assert!(size_of::<crate::ConnectionStatus<()>>() <= 2 * size_of::<usize>());
     }
 }

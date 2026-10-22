@@ -7,8 +7,8 @@
 
 use super::fixture::*;
 use crate::{
-    Headers, HttpConfig, KnownHeaderName, Method, Status,
-    h2::{H2ErrorCode, frame::Frame},
+    Conn, Headers, HttpConfig, KnownHeaderName, Method, Status,
+    h2::{H2Error, H2ErrorCode, H2Transport, frame::Frame},
     headers::hpack::PseudoHeaders,
 };
 use futures_lite::io::AsyncRead;
@@ -657,10 +657,42 @@ fn request_content_length_defers_eof_until_end_stream_so_trailers_survive() {
         );
     }
     assert_eq!(
-        conn.request_trailers
+        conn.inner
+            .request_trailers
             .as_ref()
             .and_then(|t| t.get_str("x-trailer")),
         Some("present"),
         "request trailers delivered with END_STREAM must be surfaced, not dropped",
     );
+}
+
+/// Streams opened within one burst of inbound frames share a start time, read from the clock
+/// once; a stream arriving after the driver has waited gets a later one.
+#[test]
+fn streams_opened_in_one_burst_share_a_start_time() {
+    fn emitted(poll: Poll<Option<Result<Conn<H2Transport>, H2Error>>>) -> Conn<H2Transport> {
+        match poll {
+            Poll::Ready(Some(Ok(conn))) => conn,
+            other => panic!("expected a new request stream, got {other:?}"),
+        }
+    }
+
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    fx.peer_open_stream(3, Method::Get, "/", true);
+    let first = emitted(fx.tick());
+    let second = emitted(fx.tick());
+    assert_eq!(first.start_time(), second.start_time());
+
+    assert!(
+        fx.tick().is_pending(),
+        "the burst ends when the driver waits"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(1));
+
+    fx.peer_open_stream(5, Method::Get, "/", true);
+    let third = emitted(fx.tick());
+    assert!(third.start_time() > second.start_time());
 }

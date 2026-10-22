@@ -3,7 +3,7 @@
 //! once the submitted message is fully framed.
 //!
 //! Each stream's conn-task-staged parts are picked up into a driver-private [`SendCursor`] in the
-//! parent's `service_handler_signals`. Per tick, [`Self::advance_one_send`] frames a stream's work:
+//! parent's `service_handler_signals`. Per tick, `advance_outbound_sends` frames each cursor's work:
 //! an owned [`OutboundPart::Body`] is framed directly under flow control; streaming bytes a handler
 //! wrote through [`H2Transport`][super::super::transport::H2Transport] flow through the per-stream
 //! `outbound` ring, which is drained before any terminator. HEADERS blocks emit to `END_HEADERS`
@@ -59,6 +59,11 @@ pub(super) struct SendCursor {
 /// derived [`Ord`] sorts by urgency (0 = most urgent first), then non-incremental before
 /// incremental at equal urgency, then ascending stream id — which is exactly the scheduling order
 /// [`advance_outbound_sends`][H2Driver::advance_outbound_sends] walks.
+///
+/// The stream-id tiebreak is also what puts a client's opening HEADERS on the wire in
+/// monotonically increasing stream-id order, as RFC 9113 §5.1.1 requires: client streams all
+/// carry the default priority. A higher id framed first would draw a `GOAWAY(PROTOCOL_ERROR)`
+/// from the peer. (See also the allocate-under-`streams_lock` ordering in `open_stream`.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct ScheduleEntry {
     urgency: u8,
@@ -119,7 +124,8 @@ impl<T> H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {
-    /// Pump outbound bytes, applying RFC 9218 priority. Two passes over the active streams:
+    /// Pump outbound bytes, applying RFC 9218 priority. Two passes over the streams holding a send
+    /// cursor (`sending_streams`):
     ///
     /// 1. **Response-start headers** — emit every stream's pending leading HEADERS block (via
     ///    [`Self::advance_send_headers`]). HEADERS consume no flow-control window, so getting them

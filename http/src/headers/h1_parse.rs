@@ -1,9 +1,8 @@
 //! HTTP/1.x field-line parsing into [`Headers`].
 
 use super::{HeaderName, HeaderNameInner, HeaderValue, HeaderValues, Headers};
-use crate::Error;
+use crate::{Error, util::CRLF};
 use hashbrown::hash_map::EntryRef;
-use memchr::memmem::Finder;
 
 impl Headers {
     /// Parse `bytes` as a sequence of CRLF-terminated field lines and append each to this map.
@@ -39,7 +38,7 @@ impl Headers {
         let mut new_header_count = 0;
         let mut reused = 0;
         let mut last_line = 0;
-        for newline in Finder::new(b"\r\n").find_iter(bytes) {
+        for newline in CRLF.find_iter(bytes) {
             if newline == last_line {
                 continue;
             }
