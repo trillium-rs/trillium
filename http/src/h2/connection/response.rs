@@ -42,6 +42,7 @@ impl Future for ResponseHeaders<'_> {
                 .lock()
                 .expect("response_headers mutex poisoned")
                 .take()
+                .map(|field_section| *field_section)
         };
         if let Some(fs) = try_take() {
             return Poll::Ready(Ok(fs));
@@ -99,5 +100,6 @@ impl H2Connection {
             .lock()
             .expect("recv trailers mutex poisoned")
             .take()
+            .map(|trailers| *trailers)
     }
 }
