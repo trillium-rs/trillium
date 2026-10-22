@@ -41,6 +41,7 @@ where
             scheme,
             version,
             error: mut first_error,
+            unrecognized_method,
         } = RequestLine::parse(&inner.buffer[..first_line_index]);
         inner.method = method;
         inner.path = path;
@@ -80,7 +81,7 @@ where
                 .err();
         }
 
-        match first_error {
+        match first_error.or_else(|| unrecognized_method.map(Error::UnrecognizedMethod)) {
             None => {
                 log::trace!(
                     "received:\n{} {} {}\n{}",
@@ -201,9 +202,14 @@ struct RequestLine {
     authority: Option<Cow<'static, str>>,
     scheme: Option<Cow<'static, str>>,
     version: Version,
-    /// The first component-level violation, if any. `None` is a clean request-line; a `Some` is
-    /// carried up so the caller answers with a status derived from the error rather than closing.
+    /// The first component-level violation other than an unrecognized method, if any. A `Some`
+    /// is carried up so the caller answers with a status derived from the error rather than
+    /// closing.
     error: Option<Error>,
+    /// A well-formed method token that isn't one we recognize. Kept apart from `error` because it
+    /// is only reported when nothing else in the head is malformed: a request that is broken in
+    /// any other way answers 400 even when its method is also unrecognized.
+    unrecognized_method: Option<String>,
 }
 
 impl RequestLine {
@@ -217,10 +223,15 @@ impl RequestLine {
         };
 
         let mut error: Option<Error> = None;
+        let mut unrecognized_method = None;
 
         let method_bytes = &first_line[..first_space];
         let method = match Method::parse(method_bytes) {
             Ok(method) => method,
+            Err(Error::UnrecognizedMethod(token)) => {
+                unrecognized_method = Some(token);
+                Method::Get
+            }
             Err(e) => {
                 error = Some(e);
                 Method::Get
@@ -269,6 +280,7 @@ impl RequestLine {
             scheme,
             version,
             error,
+            unrecognized_method,
         }
     }
 
@@ -280,6 +292,7 @@ impl RequestLine {
             scheme: None,
             version: Version::Http1_1,
             error: Some(error),
+            unrecognized_method: None,
         }
     }
 }

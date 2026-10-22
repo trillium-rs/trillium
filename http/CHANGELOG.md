@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   complete. Truncation is now an `UnexpectedEof`.
 - An HTTP/2 PING queued with `H2Connection::send_ping` while the connection was otherwise idle
   could go unsent, and its future unresolved, until other traffic arrived on the connection.
+- An HTTP/1.x request with an unrecognized method got `501 Not Implemented` even when it was also
+  malformed in some other way, such as an invalid HTTP version or a missing `Host` header. Those
+  requests now get `400 Bad Request`, and `501` is reserved for otherwise well-formed requests.
 
 
 ## [1.7.2] - 2026-09-08
