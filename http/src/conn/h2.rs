@@ -1,6 +1,6 @@
 use super::shared::{H1_ONLY_HEADERS, ValidatedRequest, initial_response_headers};
 use crate::{
-    Buffer, Conn, KnownHeaderName, Method, ProtocolSession, Status, TypeSet, Version,
+    Buffer, Conn, Headers, KnownHeaderName, Method, ProtocolSession, Status, TypeSet, Version,
     after_send::AfterSend,
     conn::ConnInner,
     h2::{H2Connection, H2ErrorCode},
@@ -11,7 +11,7 @@ use crate::{
     received_body::ReceivedBodyState,
 };
 use futures_lite::{AsyncRead, AsyncWrite};
-use std::{io, sync::Arc, time::Instant};
+use std::{io, mem, sync::Arc, time::Instant};
 
 impl<Transport> Conn<Transport>
 where
@@ -105,10 +105,11 @@ where
             .as_h2()
             .ok_or(io::ErrorKind::NotConnected)?;
 
-        // Clone rather than take: the Conn is returned with response_headers intact so
-        // after_send / drop hooks can observe them.
+        // The returned Conn still holds its response headers, which the driver needs to encode
+        // concurrently. Sharing rather than cloning them is cheap because the driver drops its
+        // share as soon as HEADERS is encoded, before completion, so they come back unshared.
         let pseudos = PseudoHeaders::default().with_status(self.response_status());
-        let headers = self.inner.response_headers.clone();
+        let headers = Arc::new(mem::take(&mut self.inner.response_headers));
 
         let is_upgrade = self.should_upgrade();
         let result = if is_upgrade {
@@ -118,7 +119,8 @@ where
             // `await` returns only after the prelude is sent — matching h1/h3), then keeps the
             // stream open for the handler's post-handoff writes.
             let body = self.inner.response_body.take();
-            h2.submit_upgrade(stream_id, pseudos, headers, body).await
+            h2.submit_upgrade(stream_id, pseudos, Arc::clone(&headers), body)
+                .await
         } else {
             // HEAD / 304 / 204 responses carry no body. Take unconditionally (so post-send
             // Conn state is consistent) and filter out the body itself for those statuses.
@@ -132,9 +134,12 @@ where
                 "h2 stream {stream_id}: send_h2 submitting (body={})",
                 body.is_some()
             );
-            h2.submit_send(stream_id, pseudos, headers, body).await
+            h2.submit_send(stream_id, pseudos, Arc::clone(&headers), body)
+                .await
         };
         log::trace!("h2 stream {stream_id}: send_h2 completed with {result:?}");
+        self.inner.response_headers =
+            Arc::try_unwrap(headers).unwrap_or_else(|shared| Headers::clone(&shared));
         self.inner.after_send.call(result.is_ok().into());
         result.map(|()| self)
     }

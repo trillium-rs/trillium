@@ -13,8 +13,9 @@ use crate::{
 };
 use futures_lite::io::AsyncRead;
 use std::{
+    future::Future,
     io,
-    pin::Pin,
+    pin::{Pin, pin},
     task::{Context, Poll},
 };
 
@@ -452,5 +453,42 @@ fn pending_body_source_parks_then_resumes() {
     assert!(
         !fx.connection.streams_lock().contains_key(&1),
         "the completed stream should be removed",
+    );
+}
+
+/// `send_h2` shares the response headers with the driver, which releases its share before signaling
+/// completion, so the returned conn gets them back without a copy.
+#[test]
+fn send_h2_returns_the_conn_with_its_response_headers() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+
+    fx.peer_open_stream(1, Method::Get, "/", true);
+    let mut conn = match fx.tick() {
+        Poll::Ready(Some(Ok(conn))) => conn,
+        other => panic!("expected Conn yielded for stream 1, got {other:?}"),
+    };
+    // Long enough to live on the heap, so its address tells whether it was copied.
+    conn.response_headers_mut().insert("x-kept", "y".repeat(64));
+    let address = conn.response_headers().get_str("x-kept").unwrap().as_ptr();
+
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut send = pin!(conn.with_status(Status::Ok).send_h2());
+    assert!(send.as_mut().poll(&mut cx).is_pending());
+
+    for _ in 0..4 {
+        let _ = fx.tick();
+    }
+
+    let Poll::Ready(Ok(conn)) = send.as_mut().poll(&mut cx) else {
+        panic!("send_h2 did not complete");
+    };
+    let kept = conn.response_headers().get_str("x-kept").unwrap();
+    assert_eq!(kept, "y".repeat(64));
+    assert_eq!(
+        kept.as_ptr(),
+        address,
+        "the driver still held its share at completion, so the headers were copied back"
     );
 }
