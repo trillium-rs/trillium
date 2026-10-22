@@ -273,8 +273,9 @@ impl H2Connection {
 
         // Stage the request parts *before* publishing the stream id to the shared map so they're
         // visible the first time the driver sees the stream — otherwise a second tick would be
-        // needed to start framing. No signal: the driver services every stream it picks up. A non-upgrade request closes after its body; an extended-CONNECT
-        // bootstrap stays open.
+        // needed to start framing. No signal: the driver services every stream it picks up. A
+        // non-upgrade request closes after its body; an extended-CONNECT bootstrap stays
+        // open.
         state.stage(submission_parts(pseudos, headers.into(), body, !is_upgrade));
 
         // Allocate the id and publish the stream *atomically under the shared map lock*. The id and

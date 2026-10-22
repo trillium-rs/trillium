@@ -217,10 +217,10 @@ impl H2Connection {
         &self.outbound_waker
     }
 
-    /// Tell the driver `stream` has work for it: queue the stream for the driver's next tick, unless
-    /// it is already queued, and wake the driver. Call after writing the work itself (a staged
-    /// part, consumed bytes, a release), which the driver may pick up as soon as the stream is
-    /// queued.
+    /// Tell the driver `stream` has work for it: queue the stream for the driver's next tick,
+    /// unless it is already queued, and wake the driver. Call after writing the work itself (a
+    /// staged part, consumed bytes, a release), which the driver may pick up as soon as the
+    /// stream is queued.
     pub(super) fn signal_driver(&self, stream_id: u32, stream: &StreamState) {
         if !stream.needs_servicing.swap(true, Ordering::AcqRel) {
             self.signaled_streams

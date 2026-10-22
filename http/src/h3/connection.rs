@@ -8,10 +8,10 @@ use super::{
 };
 use crate::{
     Buffer, Conn, HttpContext, KnownHeaderName, PeerGone, Priority,
-    http_context::ConnectionContext,
     conn::H3FirstFrame,
     h3::{H3ErrorCode, MAX_BUFFER_SIZE},
     headers::qpack::{DecoderDynamicTable, EncoderDynamicTable, FieldSection},
+    http_context::ConnectionContext,
 };
 use event_listener::Event;
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
