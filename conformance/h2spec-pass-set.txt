@@ -3,6 +3,10 @@
 # Format: one "<package> / <classname>" per line, matching how the conformance runner
 # identifies tests from h2spec's JUnit XML. Lines starting with # and blank lines are ignored.
 #
+# A line prefixed with "[tls] " is only expected to pass over TLS. A cleartext port also serves
+# HTTP/1.x, so a cleartext connection that doesn't open with the HTTP/2 preface gets an HTTP/1.x
+# response rather than an HTTP/2 connection error.
+#
 # Baseline established 2026-04-24 on branch `h2`: 124/146 passing against a real trillium
 # server (previous feature-gated test against an emit-and-drop stub server was ~83/146 —
 # the real server covers substantially more of the suite trivially).
@@ -75,7 +79,7 @@ hpack/5.2 / Sends a Huffman-encoded string literal representation with padding l
 hpack/6.1 / Sends a indexed header field representation with index 0
 hpack/6.3 / Sends a dynamic table size update larger than the value of SETTINGS_HEADER_TABLE_SIZE
 http2/3.5 / Sends client connection preface
-http2/3.5 / Sends invalid connection preface
+[tls] http2/3.5 / Sends invalid connection preface
 http2/4.1 / Sends a frame with reserved field bit
 http2/4.1 / Sends a frame with undefined flag
 http2/4.1 / Sends a frame with unknown type

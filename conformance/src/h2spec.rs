@@ -181,7 +181,7 @@ fn parse_and_diff(junit_path: &Path, runtime: Runtime, tls: Tls) -> anyhow::Resu
     })?;
     let suites = junit_parser::from_reader(xml.as_bytes()).context("parse JUnit XML")?;
 
-    let pass_set = load_pass_set()?;
+    let pass_set = load_pass_set(tls)?;
     let mut seen = HashSet::new();
     let mut regressions = Vec::new();
     let mut unexpected_passes = Vec::new();
@@ -229,7 +229,10 @@ fn parse_and_diff(junit_path: &Path, runtime: Runtime, tls: Tls) -> anyhow::Resu
     })
 }
 
-fn load_pass_set() -> anyhow::Result<HashSet<String>> {
+/// Prefix for a pass-set entry that is only expected to pass over TLS.
+const TLS_ONLY_MARKER: &str = "[tls]";
+
+fn load_pass_set(tls: Tls) -> anyhow::Result<HashSet<String>> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("h2spec-pass-set.txt");
     let contents = fs::read_to_string(&path)
         .with_context(|| format!("h2spec pass-set not found at {}", path.display()))?;
@@ -237,7 +240,10 @@ fn load_pass_set() -> anyhow::Result<HashSet<String>> {
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(String::from)
+        .filter_map(|line| match line.strip_prefix(TLS_ONLY_MARKER) {
+            Some(id) => (tls != Tls::None).then(|| id.trim_start().to_string()),
+            None => Some(line.to_string()),
+        })
         .collect())
 }
 
