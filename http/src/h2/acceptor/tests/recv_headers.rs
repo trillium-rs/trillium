@@ -666,10 +666,10 @@ fn request_content_length_defers_eof_until_end_stream_so_trailers_survive() {
     );
 }
 
-/// Streams opened within one burst of inbound frames share a start time, read from the clock
-/// once; a stream arriving after the driver has waited gets a later one.
+/// Streams opened from one transport read share a start time, read from the clock once. A stream
+/// delivered by a later read gets a later one, even when the driver never waited in between.
 #[test]
-fn streams_opened_in_one_burst_share_a_start_time() {
+fn streams_opened_from_one_read_share_a_start_time() {
     fn emitted(poll: Poll<Option<Result<Conn<H2Transport>, H2Error>>>) -> Conn<H2Transport> {
         match poll {
             Poll::Ready(Some(Ok(conn))) => conn,
@@ -686,10 +686,6 @@ fn streams_opened_in_one_burst_share_a_start_time() {
     let second = emitted(fx.tick());
     assert_eq!(first.start_time(), second.start_time());
 
-    assert!(
-        fx.tick().is_pending(),
-        "the burst ends when the driver waits"
-    );
     std::thread::sleep(std::time::Duration::from_millis(1));
 
     fx.peer_open_stream(5, Method::Get, "/", true);
