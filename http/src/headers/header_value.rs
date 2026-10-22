@@ -1,6 +1,6 @@
 use crate::compact_cow::CompactCow;
 use HeaderValueInner::{Bytes, Utf8};
-use compact_str::CompactString;
+use compact_str::{CompactString, ToCompactString};
 use std::{
     borrow::Cow,
     fmt::{Debug, Display, Formatter, Write},
@@ -194,19 +194,20 @@ impl From<&'static str> for HeaderValue {
     }
 }
 
-macro_rules! delegate_from_to_format {
+// `to_compact_string` writes integers straight into the inline buffer, without `core::fmt`.
+macro_rules! from_integer {
     ($($t:ty),*) => {
         $(
         impl From<$t> for HeaderValue {
             fn from(value: $t) -> Self {
-                format_args!("{value}").into()
+                Self::from_inner(Utf8(CompactCow::Owned(value.to_compact_string())))
             }
         }
         )*
     };
 }
 
-delegate_from_to_format!(usize, u64, u16, u32, i32, i64);
+from_integer!(usize, u64, u16, u32, i32, i64);
 
 impl From<std::fmt::Arguments<'_>> for HeaderValue {
     fn from(value: std::fmt::Arguments<'_>) -> Self {
