@@ -1,5 +1,5 @@
 use crate::{
-    Conn, Error, Headers, KnownHeaderName, Method, Result, Version,
+    Conn, Error, Headers, KnownHeaderName, Method, Result, Status, Version,
     conn::{ConnInner, ReceivedBodyState, shared::authority_matches_host},
     util::CRLF,
 };
@@ -96,12 +96,25 @@ where
         }
     }
 
-    /// Ready this conn to answer a request head that won't be handled: an error status derived
-    /// from `error`, and `Connection: close`, since the bytes after a rejected head can't be
-    /// trusted to frame another request.
-    pub(super) fn reject(mut self, error: &Error) -> Self {
+    /// Ready this conn to answer a request head that won't be handled, with the status for
+    /// `error`.
+    pub(super) fn reject(self, error: &Error) -> Self {
         log::debug!("rejecting request: {error}");
-        self.inner.status = Some(error.into());
+        self.close_with(error.into())
+    }
+
+    /// Ready this conn to answer a request head that outgrew `head_max_len`, with the status for
+    /// whichever part of the head was still incomplete when it did.
+    pub(super) fn reject_oversized_head(self) -> Self {
+        let status = oversized_head_status(&self.inner.buffer);
+        log::debug!("rejecting request: head longer than allowed ({status})");
+        self.close_with(status)
+    }
+
+    /// Respond with `status` and `Connection: close`, since the bytes after a rejected head can't
+    /// be trusted to frame another request.
+    fn close_with(mut self, status: Status) -> Self {
+        self.inner.status = Some(status);
         self.inner
             .response_headers
             .insert(KnownHeaderName::Connection, "close");
@@ -330,6 +343,20 @@ fn split_absolute_form(target: &str) -> Option<(String, String, String)> {
     };
 
     Some((scheme.to_string(), authority.to_string(), path))
+}
+
+/// The status for a request head that outgrew `head_max_len`, by the part that was still
+/// incomplete: header fields get 431, a request-target 414, and the method or anything else in the
+/// request line 400.
+fn oversized_head_status(head: &[u8]) -> Status {
+    if CRLF.find(head).is_some() {
+        return Status::RequestHeaderFieldsTooLarge;
+    }
+    let mut spaces = memchr::memchr_iter(b' ', head);
+    match (spaces.next(), spaces.next()) {
+        (Some(_), None) => Status::UriTooLong,
+        _ => Status::BadRequest,
+    }
 }
 
 /// Resolve the initial [`ReceivedBodyState`] for the incoming h1 request body from the parsed

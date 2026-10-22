@@ -331,7 +331,7 @@ where
                 log::trace!("connection closed by client");
                 return Ok(ConnectionStatus::Close);
             }
-            Err(error @ Error::HeadersTooLong) => Err(HeadError::BadRequest(self.reject(&error))),
+            Err(Error::HeadersTooLong) => Err(HeadError::BadRequest(self.reject_oversized_head())),
             Err(e) => return Err(e),
         };
 
@@ -492,10 +492,10 @@ where
                 let inner = Box::new(ConnInner::new_h1(Arc::new(context), buffer, start_time));
                 Self { inner, transport }.parse_head(head_size, None)
             }
-            Err(error @ Error::HeadersTooLong) => {
+            Err(Error::HeadersTooLong) => {
                 let inner = Box::new(ConnInner::new_h1(Arc::new(context), buffer, Instant::now()));
                 Err(HeadError::BadRequest(
-                    Self { inner, transport }.reject(&error),
+                    Self { inner, transport }.reject_oversized_head(),
                 ))
             }
             Err(error) => Err(HeadError::Fatal(error)),
