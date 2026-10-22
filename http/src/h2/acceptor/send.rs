@@ -333,6 +333,9 @@ where
             cursor.parts.pop_front();
         }
         self.emit_headers_block(stream_id, &FieldSection::new(pseudos, &headers), end_stream);
+        // Release our share before completing the send: the conn task takes its headers back
+        // as soon as it observes completion, and copies them if this share is still alive.
+        drop(headers);
         self.feed_send(stream_id, StreamEvent::SendHeaders { end_stream });
         if end_stream {
             self.finalize_send(stream_id);
