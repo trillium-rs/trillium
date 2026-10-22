@@ -83,13 +83,13 @@ impl DecoderDynamicTable {
             EncoderInstruction::SetCapacity(capacity) => {
                 log::trace!("QPACK encoder: Set Dynamic Table Capacity {capacity}");
                 self.set_capacity(capacity).inspect_err(|e| {
-                    log::error!("QPACK encoder: set_capacity({capacity}) failed: {e:?}");
+                    log::debug!("QPACK encoder: set_capacity({capacity}) failed: {e:?}");
                 })
             }
 
             EncoderInstruction::InsertWithStaticNameRef { name_index, value } => {
                 let (static_name, _) = static_entry(name_index).map_err(|e| {
-                    log::error!("QPACK encoder: static_entry({name_index}) failed: {e:?}");
+                    log::debug!("QPACK encoder: static_entry({name_index}) failed: {e:?}");
                     H3ErrorCode::QpackEncoderStreamError
                 })?;
                 let name = EntryName::from(*static_name);
@@ -105,7 +105,7 @@ impl DecoderDynamicTable {
                 value,
             } => {
                 let name = self.name_at_relative(relative_index).ok_or_else(|| {
-                    log::error!("QPACK encoder: name_at_relative({relative_index}) returned None");
+                    log::debug!("QPACK encoder: name_at_relative({relative_index}) returned None");
                     H3ErrorCode::QpackEncoderStreamError
                 })?;
                 log::trace!(
@@ -126,7 +126,7 @@ impl DecoderDynamicTable {
             EncoderInstruction::Duplicate { relative_index } => {
                 log::trace!("QPACK encoder: Duplicate index {relative_index}");
                 self.duplicate(relative_index).inspect_err(|e| {
-                    log::error!("QPACK encoder: duplicate({relative_index}) failed: {e:?}");
+                    log::debug!("QPACK encoder: duplicate({relative_index}) failed: {e:?}");
                 })
             }
         }

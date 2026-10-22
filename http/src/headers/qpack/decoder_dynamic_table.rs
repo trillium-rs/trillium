@@ -270,7 +270,7 @@ impl DecoderDynamicTable {
         let mut inner = self.inner.lock().unwrap();
 
         if entry_size > inner.capacity {
-            log::error!(
+            log::debug!(
                 "Qpack Decoder table entry {name}: (value) exceeded capacity: {entry_size} > {}",
                 inner.capacity
             );

@@ -127,14 +127,14 @@ async fn parse_inner(
         let name_bytes = read_exact(name_len, max_entry_size, stream).await?;
         let name_bytes = if is_huffman {
             huffman::decode(&name_bytes).map_err(|e| {
-                log::error!("QPACK encoder: huffman name decode failed: {e:?}");
+                log::debug!("QPACK encoder: huffman name decode failed: {e:?}");
                 ReadError::Violation
             })?
         } else {
             name_bytes
         };
         let name = EntryName::try_from(name_bytes).map_err(|()| {
-            log::error!("QPACK encoder: invalid literal name");
+            log::debug!("QPACK encoder: invalid literal name");
             ReadError::Violation
         })?;
         let value = read_string_with_huffman(max_entry_size, stream).await?;
