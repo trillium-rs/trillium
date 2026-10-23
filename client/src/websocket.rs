@@ -29,14 +29,20 @@ impl Conn {
     /// [`ErrorKind::ExtendedConnectUnsupported`]. See the crate-level [Protocol
     /// selection][crate#protocol-selection] documentation.
     pub async fn into_websocket(self) -> Result<WebSocketConn, WebSocketUpgradeError> {
-        self.into_websocket_with_config(WebSocketConfig::default())
-            .await
+        self.upgrade_to_websocket(None).await
     }
 
     /// Like [`Conn::into_websocket`] but with a caller-supplied [`WebSocketConfig`].
     pub async fn into_websocket_with_config(
-        mut self,
+        self,
         config: WebSocketConfig,
+    ) -> Result<WebSocketConn, WebSocketUpgradeError> {
+        self.upgrade_to_websocket(Some(config)).await
+    }
+
+    async fn upgrade_to_websocket(
+        mut self,
+        config: Option<WebSocketConfig>,
     ) -> Result<WebSocketConn, WebSocketUpgradeError> {
         if self.status().is_some() {
             return Err(WebSocketUpgradeError::new(self, ErrorKind::AlreadyExecuted));
@@ -82,7 +88,7 @@ impl Conn {
         }
 
         let peer_ip = self.peer_addr().map(|addr| addr.ip());
-        let mut conn = WebSocketConn::new(Upgrade::from(self), Some(config), Role::Client).await;
+        let mut conn = WebSocketConn::new(Upgrade::from(self), config, Role::Client).await;
         conn.set_peer_ip(peer_ip);
         Ok(conn)
     }

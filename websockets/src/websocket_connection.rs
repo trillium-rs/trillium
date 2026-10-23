@@ -1,10 +1,9 @@
-use crate::{Result, Role, WebSocketConfig};
-use async_tungstenite::{
-    WebSocketReceiver, WebSocketSender, WebSocketStream,
-    tungstenite::{self, Message},
+use crate::{
+    Result, Role, WebSocketConfig,
+    driver::{Driver, MessageResult, default_config},
 };
-use futures_lite::{Stream, StreamExt, future};
-use futures_sink::Sink;
+use futures_lite::{Stream, future};
+use split_compat::DriverSlot;
 use std::{
     fmt::Debug,
     net::IpAddr,
@@ -12,15 +11,17 @@ use std::{
     sync::Arc,
     task::{self, Poll},
 };
-use swansong::{Interrupt, Swansong};
-use trillium::{Headers, Method, Transport, TypeSet, Upgrade};
+use swansong::Swansong;
+use trillium::{Headers, Method, TypeSet, Upgrade};
 use trillium_http::{HttpContext, type_set::entry::Entry};
+use tungstenite::Message;
+
+mod split_compat;
 
 /// A struct that represents an specific websocket connection.
 ///
-/// This can be thought of as a combination of a [`async_tungstenite::WebSocketStream`] and a
-/// [`trillium::Conn`], as it contains a combination of their fields and
-/// associated functions.
+/// This combines a websocket message stream with the request metadata and state of the
+/// [`trillium::Conn`] it was upgraded from.
 ///
 /// The WebSocketConn implements `Stream<Item=Result<Message, Error>>`,
 /// and can be polled with `StreamExt::next`
@@ -32,8 +33,7 @@ pub struct WebSocketConn {
     state: TypeSet,
     peer_ip: Option<IpAddr>,
     context: Arc<HttpContext>,
-    sink: WebSocketSender<Box<dyn Transport>>,
-    stream: Option<WStream>,
+    driver: DriverSlot,
 }
 
 impl Debug for WebSocketConn {
@@ -46,7 +46,6 @@ impl Debug for WebSocketConn {
             .field("state", &self.state)
             .field("peer_ip", &self.peer_ip)
             .field("context", &self.context)
-            .field("stream", &self.stream)
             .finish_non_exhaustive()
     }
 }
@@ -85,14 +84,14 @@ impl WebSocketConn {
     /// available, or on [`flush`][Self::flush] or [`send`][Self::send]. If you feed a message and
     /// then await anything other than this conn, call `flush` first.
     pub async fn feed(&mut self, message: Message) -> Result<()> {
-        future::poll_fn(|cx| Pin::new(&mut self.sink).poll_ready(cx)).await?;
-        Pin::new(&mut self.sink).start_send(message)?;
+        future::poll_fn(|cx| self.driver.poll_ready_to_write(cx)).await?;
+        self.driver.write(message)?;
         Ok(())
     }
 
     /// Writes any buffered outbound messages to the socket
     pub async fn flush(&mut self) -> Result<()> {
-        future::poll_fn(|cx| Pin::new(&mut self.sink).poll_flush(cx))
+        future::poll_fn(|cx| self.driver.poll_flush(cx))
             .await
             .map_err(Into::into)
     }
@@ -102,6 +101,7 @@ impl WebSocketConn {
     /// You should not typically need to call this; the trillium client and server both provide
     /// your code with a `WebSocketConn`.
     #[doc(hidden)]
+    // Async only because published callers await it; make it sync at the next breaking release.
     pub async fn new(
         upgrade: impl Into<Upgrade>,
         config: Option<WebSocketConfig>,
@@ -117,16 +117,13 @@ impl WebSocketConn {
         let peer_ip = upgrade.peer_ip();
         let (buffer, transport) = upgrade.into_transport();
 
-        let wss = if buffer.is_empty() {
-            WebSocketStream::from_raw_socket(transport, role, config).await
-        } else {
-            WebSocketStream::from_partially_read(transport, buffer, role, config).await
-        };
-
-        let (sink, stream) = wss.split();
-        let stream = Some(WStream {
-            stream: context.swansong().interrupt(stream),
-        });
+        let driver = Driver::new(
+            transport,
+            buffer,
+            role,
+            config.unwrap_or_else(default_config),
+        );
+        let driver = DriverSlot::Owned(context.swansong().interrupt(driver));
 
         Self {
             request_headers,
@@ -135,9 +132,8 @@ impl WebSocketConn {
             method,
             state,
             peer_ip,
-            sink,
-            stream,
             context,
+            driver,
         }
     }
 
@@ -147,8 +143,12 @@ impl WebSocketConn {
     }
 
     /// close the websocket connection gracefully
+    ///
+    /// If the peer has already sent a close frame, this sends the reply that completes the
+    /// close handshake.
     pub async fn close(&mut self) -> Result<()> {
-        self.send(Message::Close(None)).await
+        self.driver.close()?;
+        self.flush().await
     }
 
     /// retrieve the request headers for this conn
@@ -217,43 +217,6 @@ impl WebSocketConn {
     pub fn take_state<T: Send + Sync + 'static>(&mut self) -> Option<T> {
         self.state.take()
     }
-
-    pub(crate) fn poll_flush_sink(
-        &mut self,
-        cx: &mut task::Context<'_>,
-    ) -> Poll<std::result::Result<(), tungstenite::Error>> {
-        Pin::new(&mut self.sink).poll_flush(cx)
-    }
-
-    /// take the inbound Message stream from this conn
-    pub fn take_inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult> + use<>> {
-        self.stream.take()
-    }
-
-    /// borrow the inbound Message stream from this conn
-    pub fn inbound_stream(&mut self) -> Option<impl Stream<Item = MessageResult> + '_> {
-        self.stream.as_mut()
-    }
-}
-
-type MessageResult = std::result::Result<Message, tungstenite::Error>;
-
-pub struct WStream {
-    stream: Interrupt<WebSocketReceiver<Box<dyn Transport>>>,
-}
-
-impl Debug for WStream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WStream").finish_non_exhaustive()
-    }
-}
-
-impl Stream for WStream {
-    type Item = MessageResult;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
-        self.stream.poll_next(cx)
-    }
 }
 
 impl AsMut<TypeSet> for WebSocketConn {
@@ -272,21 +235,6 @@ impl Stream for WebSocketConn {
     type Item = MessageResult;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = &mut *self;
-        let poll = match this.stream.as_mut() {
-            Some(stream) => Pin::new(stream).poll_next(cx),
-            None => Poll::Ready(None),
-        };
-
-        // About to yield to the caller with nothing to process — write out anything `send`
-        // buffered. Errors are deliberately dropped here; they resurface on the next send or
-        // flush, or as stream termination.
-        if !matches!(poll, Poll::Ready(Some(_)))
-            && let Poll::Ready(Err(e)) = this.poll_flush_sink(cx)
-        {
-            log::debug!("websocket flush error: {e}");
-        }
-
-        poll
+        self.driver.poll_inbound(cx)
     }
 }

@@ -54,6 +54,7 @@ fn with_channel() {
 }
 
 #[test]
+#[allow(deprecated)] // exercises the deprecated `take_inbound_stream`
 fn with_stream_only() {
     use async_channel::Sender;
     use trillium_websockets::{Message, WebSocket, WebSocketHandler};

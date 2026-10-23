@@ -3,7 +3,6 @@
 //! See the documentation for [`JsonWebSocketHandler`]
 
 use crate::{WebSocket, WebSocketConn, WebSocketHandler};
-use async_tungstenite::tungstenite::{Message, protocol::CloseFrame};
 use futures_lite::{Stream, ready};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
@@ -13,6 +12,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use tungstenite::{Message, protocol::CloseFrame};
 
 /// # Implement this trait to use websockets with a json handler
 ///

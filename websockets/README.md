@@ -11,7 +11,7 @@
 [docs-badge]: https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square
 [docs]: https://docs.rs/trillium-websockets
 
-WebSocket handler for Trillium, built on [`async-tungstenite`](https://docs.rs/async-tungstenite). Accepts WebSocket upgrade requests and hands each connection to an async handler function or a `WebSocketHandler` implementation. Optionally supports the `json` feature for typed JSON message handling via `JsonWebSocketHandler`.
+WebSocket handler for Trillium, built on [`tungstenite`](https://docs.rs/tungstenite). Accepts WebSocket upgrade requests and hands each connection to an async handler function or a `WebSocketHandler` implementation. Optionally supports the `json` feature for typed JSON message handling via `JsonWebSocketHandler`.
 
 ## Example
 
