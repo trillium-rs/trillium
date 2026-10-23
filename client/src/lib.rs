@@ -190,8 +190,12 @@ pub use trillium_http::{
 pub use trillium_server_common::{
     ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Url, url,
 };
+// Retained only so that code naming `trillium_client::async_tungstenite` keeps building;
+// remove it at the next breaking release.
 #[cfg(feature = "websockets")]
-pub use trillium_websockets::{WebSocketConfig, WebSocketConn, async_tungstenite, tungstenite};
+pub use trillium_websockets::async_tungstenite;
+#[cfg(feature = "websockets")]
+pub use trillium_websockets::{WebSocketConfig, WebSocketConn, tungstenite};
 #[cfg(feature = "websockets")]
 pub use websocket::WebSocketUpgradeError;
 

@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-10-23
+
+### Deprecated
+- `WebSocketConn::take_inbound_stream` and `WebSocketConn::inbound_stream`. A `WebSocketConn` is
+  itself the stream of inbound messages; poll it directly. A conn split with `take_inbound_stream`
+  keeps working.
+
+### Fixed
+- When a client started the close handshake with a `WebSocketHandler`, the server dropped the
+  connection without replying and logged a "websocket close error". It now replies before closing.
+  Likewise, `WebSocketConn::close` completes a close the peer started, instead of returning an
+  error.
+
+### Changed
+- Each connection now reads from its socket at most 8 KiB at a time by default, instead of
+  tungstenite's default of 128 KiB, and no longer spends time per message zeroing that buffer.
+  Connections carrying small messages use substantially less memory and CPU. A config passed to
+  `with_protocol_config` still sets the read size through `read_buffer_size`.
+
 ## [0.9.2] - 2026-09-02
 
 ### Changed

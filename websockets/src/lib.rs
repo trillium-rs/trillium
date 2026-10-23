@@ -89,21 +89,17 @@
 #[doc = include_str!("../README.md")]
 mod readme {}
 
-mod bidirectional_stream;
+mod direction;
+mod driver;
 mod origin;
 mod websocket_connection;
 mod websocket_handler;
 
-pub use async_tungstenite::{
-    self,
-    tungstenite::{
-        self, Message,
-        protocol::{Role, WebSocketConfig},
-    },
-};
+// Retained only so that code naming `trillium_websockets::async_tungstenite` keeps building;
+// remove it, and the async-tungstenite dependency, at the next breaking release.
+pub use async_tungstenite;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use bidirectional_stream::{BidirectionalStream, Direction};
-use futures_lite::stream::StreamExt;
+use direction::{Direction, poll_next_direction};
 use origin::{OriginPolicy, OriginPredicate};
 use sha1::{Digest, Sha1};
 use std::{
@@ -117,6 +113,10 @@ use trillium::{
         Upgrade as UpgradeHeader,
     },
     Method, Status, Upgrade, Version,
+};
+pub use tungstenite::{
+    self, Message,
+    protocol::{Role, WebSocketConfig},
 };
 pub use websocket_connection::WebSocketConn;
 pub use websocket_handler::WebSocketHandler;
@@ -313,6 +313,12 @@ where
     }
 
     /// configure the websocket protocol
+    ///
+    /// `read_buffer_size` is the most that is read from the socket at once, allocated once per
+    /// connection. Without a config it is 8 KiB; [`WebSocketConfig::default`] carries
+    /// tungstenite's 128 KiB, so set it explicitly when starting from the default.
+    /// `write_buffer_size` is how much fed output can accumulate before
+    /// [`WebSocketConn::feed`] waits for it to be written.
     pub fn with_protocol_config(self, config: WebSocketConfig) -> Self {
         Self {
             config: Some(config),
@@ -409,20 +415,10 @@ where
             return;
         };
 
-        let inbound = conn.take_inbound_stream();
-
-        let mut stream = std::pin::pin!(BidirectionalStream { inbound, outbound });
+        let mut outbound = std::pin::pin!(outbound);
         loop {
-            // The conn's own flush-on-pending lives in its Stream impl, but this loop polls the
-            // taken inbound stream directly, so it flushes buffered sends before parking itself.
             let next = futures_lite::future::poll_fn(|cx| {
-                let poll = stream.as_mut().poll_next(cx);
-                if !matches!(poll, std::task::Poll::Ready(Some(_)))
-                    && let std::task::Poll::Ready(Err(e)) = conn.poll_flush_sink(cx)
-                {
-                    log::debug!("websocket flush error: {e}");
-                }
-                poll
+                poll_next_direction(&mut conn, outbound.as_mut(), cx)
             })
             .await;
 

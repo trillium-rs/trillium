@@ -1,7 +1,7 @@
 use crate::{Error, WebSocketConn};
-use async_tungstenite::tungstenite::{Message, protocol::CloseFrame};
 use futures_lite::stream::{Pending, Stream};
 use std::future::Future;
+use tungstenite::{Message, protocol::CloseFrame};
 
 /// # This is the trait that defines a handler for trillium websockets.
 ///
