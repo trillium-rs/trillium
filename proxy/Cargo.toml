@@ -20,7 +20,7 @@ fastrand = { version = "2.3.0", optional = true }
 full-duplex-async-copy = "0.1.0"
 futures-lite = "2.6.1"
 log = "0.4.29"
-size = "0.5.0"
+size = "0.6.0"
 sluice = "0.6.0"
 trillium.workspace = true
 trillium-client = { version = "0.9.10", path = "../client" }
