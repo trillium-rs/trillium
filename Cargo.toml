@@ -69,7 +69,7 @@ trillium-native-tls = { version = "0.6", path = "native-tls" }
 trillium-openssl = { version = "0.2", path = "openssl" }
 trillium-proxy = { version = "0.8", path = "proxy" }
 trillium-quinn = { version = "0.1", path = "quinn" }
-trillium-router = { version = "0.5", path = "router" }
+trillium-router = { version = "0.6", path = "router" }
 trillium-rustls = { version = "0.11", path = "rustls" }
 trillium-server-common = { version = "0.7", path = "server-common" }
 trillium-sessions = { version = "0.6", path = "sessions" }
