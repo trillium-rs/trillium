@@ -11,7 +11,7 @@ categories = ["web-programming::http-server", "web-programming"]
 
 [dependencies]
 log = "0.4.29"
-routefinder = { version = "0.5.4", features = ["memchr"] }
+routefinder = { version = "0.6.0", features = ["memchr"] }
 # trillium-router needs Upgrade::push_path/Upgrade::pop_path
 trillium = { version = "1.4.0", path = "../trillium" }
 
