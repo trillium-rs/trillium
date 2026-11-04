@@ -80,12 +80,20 @@ impl IntoUpstreamSelector for String {
     }
 }
 
+/// Select the upstream from an absolute-form request target or HTTP/2/3 scheme and authority.
 #[derive(Debug, Copy, Clone)]
-/// an upstream selector for forward proxy
 pub struct ForwardProxy;
 impl UpstreamSelector for ForwardProxy {
     fn determine_upstream(&self, conn: &mut Conn) -> Option<Url> {
-        conn.path_and_query().parse().ok()
+        let conn: &trillium_http::Conn<_> = conn.as_ref();
+        match (conn.scheme(), conn.authority()) {
+            (Some(scheme), Some(authority)) => {
+                format!("{scheme}://{authority}{}", conn.path_and_query())
+                    .parse()
+                    .ok()
+            }
+            _ => conn.path_and_query().parse().ok(),
+        }
     }
 }
 
