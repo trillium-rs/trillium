@@ -8,8 +8,11 @@ use std::{
 
 /// HTTP response status codes.
 ///
-/// As defined by [rfc7231 section 6](https://tools.ietf.org/html/rfc7231#section-6).
+/// The status codes of [RFC 9110 §15][rfc], plus registered extensions such as `103 Early Hints`
+/// and `429 Too Many Requests`.
 /// [Read more](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status)
+///
+/// [rfc]: https://www.rfc-editor.org/rfc/rfc9110#section-15
 #[repr(u16)]
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -426,6 +429,26 @@ pub enum Status {
 }
 
 impl Status {
+    /// Interprets a status code received from a peer. Never fails.
+    ///
+    /// A recognized code converts exactly, as with [`TryFrom<u16>`]. An unrecognized code from 100
+    /// to 599 becomes the `x00` status of its class, and a code outside that range becomes
+    /// [`Status::InternalServerError`], as [RFC 9110 §15][rfc] directs a client to treat them. The
+    /// original code is not recoverable from the result.
+    ///
+    /// [rfc]: https://www.rfc-editor.org/rfc/rfc9110#section-15
+    #[cfg(feature = "unstable")]
+    #[doc(hidden)]
+    pub fn from_code_lossy(code: u16) -> Self {
+        Self::try_from(code).unwrap_or(match code / 100 {
+            1 => Self::Continue,
+            2 => Self::Ok,
+            3 => Self::MultipleChoice,
+            4 => Self::BadRequest,
+            _ => Self::InternalServerError,
+        })
+    }
+
     /// Retrieve a string representation of the status code (just the number, not the reason).
     ///
     /// See also [`Status::canonical_reason`]
