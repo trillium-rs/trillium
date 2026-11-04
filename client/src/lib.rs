@@ -109,7 +109,7 @@
 //!
 //! ## Server-Sent Events
 //!
-//! With the `sse` cargo feature, [`Conn::into_sse`](sse) executes a request and reads the
+//! With the `sse` cargo feature, [`Conn::into_sse`][into-sse] executes a request and reads the
 //! response body as a `text/event-stream`, returning an [`EventStream`] — a [`Stream`] of
 //! [`Event`]s parsed per the [SSE specification][sse-spec]. Unlike the WebSocket and WebTransport
 //! upgrades, SSE is not a protocol switch: an event stream is an ordinary response whose body is
@@ -117,6 +117,10 @@
 //! single-response stream — it ends when the connection closes and does not implement the
 //! [`EventSource`][es] automatic-reconnection behavior. See the [`sse`] module for details.
 //!
+//! [into-sse]: https://docs.rs/trillium-client/latest/trillium_client/struct.Conn.html#method.into_sse
+//! [`EventStream`]: https://docs.rs/trillium-client/latest/trillium_client/sse/struct.EventStream.html
+//! [`Event`]: https://docs.rs/trillium-client/latest/trillium_client/sse/struct.Event.html
+//! [`sse`]: https://docs.rs/trillium-client/latest/trillium_client/sse/index.html
 //! [`Stream`]: https://docs.rs/futures-core/latest/futures_core/stream/trait.Stream.html
 //! [sse-spec]: https://html.spec.whatwg.org/multipage/server-sent-events.html
 //! [es]: https://developer.mozilla.org/en-US/docs/Web/API/EventSource
