@@ -1,8 +1,7 @@
 use super::{Conn, H2Pooled, request_body_buffer::buffer_request_body};
 use crate::pool::{Acquire, PrimerGuard};
 use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once};
-use memchr::memmem::Finder;
-use std::{io::Write, sync::LazyLock};
+use std::io::Write;
 use trillium_http::{
     BodyFraming, BufWriter, Error, Headers,
     KnownHeaderName::{
@@ -12,9 +11,7 @@ use trillium_http::{
 };
 use trillium_server_common::{Connector, Transport, url::Origin};
 
-// A `Finder` plans its search strategy on construction, which is wasted work to repeat per parse.
-static CRLF: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(b"\r\n"));
-static CRLF_CRLF: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(b"\r\n\r\n"));
+mod response_head;
 
 /// Result of the `Expect: 100-continue` wait: whether the interim `100` arrived (send the body)
 /// or a final response preempted it (the request is already complete).
@@ -192,97 +189,30 @@ impl Conn {
     }
 
     pub(crate) async fn read_head(&mut self) -> Result<usize> {
-        // Keepalive boundary: release window space beyond the high-water mark so
-        // bytes from an earlier response can't be re-lent while parsing this
-        // one. Live bytes survive (capacity is retained and re-zeroed on
-        // growth), including any head already buffered by a fast path below.
-        self.buffer.truncate();
-
-        let head_max_len = self.context.config().head_max_len();
-        // a zero request_buffer_initial_len must not produce a zero-length window,
-        // which would misread as connection closed
-        let read_floor = self.context.config().request_buffer_initial_len().max(1);
-
         let Self {
             buffer,
             transport: Some(transport),
+            context,
             ..
         } = self
         else {
             return Err(Error::Closed);
         };
-
-        let mut len = buffer.live_len();
-        let mut search_start = 0;
-
-        if len > 0 {
-            if let Some(index) = CRLF_CRLF.find(buffer) {
-                return Ok(index + 4);
-            }
-            search_start = len.saturating_sub(3);
-        }
-
-        loop {
-            // Checked before reading: the window below cannot exceed the
-            // remaining allowance, so a peer pacing a response head one byte at
-            // a time can never drive the buffer past head_max_len. Within
-            // that ceiling, lending grows geometrically with received bytes.
-            if len >= head_max_len {
-                return Err(Error::HeadersTooLong);
-            }
-
-            let want = (head_max_len - len).min(read_floor.max(len * 2));
-            let bytes = transport.read(buffer.window(want)).await?;
-            buffer.advance(bytes);
-            len += bytes;
-
-            if let Some(index) = CRLF_CRLF.find(&buffer[search_start..len]) {
-                return Ok(search_start + index + 4);
-            }
-
-            search_start = len.saturating_sub(3);
-
-            if bytes == 0 {
-                return Err(if len == 0 {
-                    Error::Closed
-                } else {
-                    Error::InvalidHead
-                });
-            }
-        }
+        response_head::read_head(transport, buffer, context.config()).await
     }
 
     async fn parse_head(&mut self) -> Result<()> {
-        use std::str;
+        let head_len = self.read_head().await?;
+        let head = response_head::parse_head(&self.buffer[..head_len])?;
+        self.buffer.ignore_front(head_len);
 
-        let head_offset = self.read_head().await?;
-
-        let space = memchr::memchr(b' ', &self.buffer[..head_offset]).ok_or(Error::InvalidHead)?;
-        self.http_version = Some(
-            str::from_utf8(&self.buffer[..space])
-                .map_err(|_| Error::InvalidHead)?
-                .parse()
-                .map_err(|_| Error::InvalidHead)?,
-        );
-        self.status = Some(str::from_utf8(&self.buffer[space + 1..space + 4])?.parse()?);
-        // The status-code is exactly three digits; the next octet must terminate it —
-        // a SP before the reason-phrase, or the CR/LF ending the status-line. Reject a 4th digit so
-        // e.g. `2000` isn't silently truncated to `200`.
-        if !matches!(self.buffer.get(space + 4), Some(b' ' | b'\r' | b'\n')) {
-            return Err(Error::InvalidHead);
-        }
-        let end_of_first_line = 2 + CRLF
-            .find(&self.buffer[..head_offset])
-            .ok_or(Error::InvalidHead)?;
-
+        self.http_version = Some(head.version);
+        self.status = Some(head.status);
         // The network response head is authoritative: replace (not extend) any synthetic response
         // headers a handler may have set — e.g. a `Content-Length` from `set_response_body` — so
         // they can't merge with the wire headers into duplicates. Interim responses are cleared the
         // same way in `reset_interim_response_state`.
-        self.response_headers = Headers::parse(&self.buffer[end_of_first_line..head_offset])
-            .map_err(|_| Error::InvalidHead)?;
-
-        self.buffer.ignore_front(head_offset);
+        self.response_headers = head.headers;
 
         self.validate_response_headers()?;
         Ok(())
