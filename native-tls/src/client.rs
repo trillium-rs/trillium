@@ -63,6 +63,24 @@ impl<Config> AsRef<Config> for NativeTlsConfig<Config> {
     }
 }
 
+fn destination_host(destination: &Destination) -> Result<String> {
+    if let Some(host) = destination.host() {
+        Ok(host.to_owned())
+    } else {
+        Ok(destination
+            .addrs()
+            .first()
+            .ok_or_else(|| {
+                Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "bare-ip destination has no socket address",
+                )
+            })?
+            .ip()
+            .to_string())
+    }
+}
+
 impl<T: Connector> Connector for NativeTlsConfig<T> {
     type Runtime = T::Runtime;
     type Transport = NativeTlsClientTransport<T::Transport>;
@@ -106,6 +124,26 @@ impl<T: Connector> Connector for NativeTlsConfig<T> {
             .await
             .map_err(|e| Error::other(e.to_string()))
             .map(NativeTlsClientTransport::from)
+    }
+
+    async fn connect_over(
+        &self,
+        transport: Box<dyn Transport>,
+        destination: Destination,
+    ) -> Result<Box<dyn Transport>> {
+        if !destination.secure() {
+            return self.tcp_config.connect_over(transport, destination).await;
+        }
+
+        let host = destination_host(&destination)?;
+        let stream = self
+            .tls_connector
+            .connect(host.as_str(), transport)
+            .await
+            .map_err(|e| Error::other(e.to_string()))?;
+        Ok(Box::new(
+            NativeTlsClientTransport::<Box<dyn Transport>>::from(stream),
+        ))
     }
 
     fn runtime(&self) -> Self::Runtime {

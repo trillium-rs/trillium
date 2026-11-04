@@ -92,6 +92,38 @@ impl<C> AsRef<C> for OpenSslConfig<C> {
     }
 }
 
+impl<C: Connector> OpenSslConfig<C> {
+    async fn tls_connect<S: Transport>(
+        &self,
+        host: &str,
+        alpn_wire: Option<&[u8]>,
+        inner: S,
+    ) -> Result<OpenSslClientTransport<S>> {
+        // OpenSSL's `into_ssl` accepts either a domain (setting SNI and hostname verification) or
+        // an IP address literal (skipping SNI and verifying the certificate's IP SAN).
+        let mut ssl = self
+            .ssl_config
+            .as_inner()
+            .configure()
+            .map_err(Error::other)?
+            .into_ssl(host)
+            .map_err(Error::other)?;
+
+        // A per-connection ALPN override replaces the connector's default; absent one, the
+        // configured default stays in place.
+        if let Some(alpn_wire) = alpn_wire {
+            ssl.set_alpn_protos(alpn_wire).map_err(Error::other)?;
+        }
+
+        let mut stream = SslStream::new(ssl, inner).map_err(Error::other)?;
+        Pin::new(&mut stream)
+            .connect()
+            .await
+            .map_err(Error::other)?;
+        Ok(OpenSslClientTransport(Tls(Box::new(stream))))
+    }
+}
+
 impl<C: Connector> Connector for OpenSslConfig<C> {
     type Runtime = C::Runtime;
     type Transport = OpenSslClientTransport<C::Transport>;
@@ -110,36 +142,56 @@ impl<C: Connector> Connector for OpenSslConfig<C> {
                 .map(|t| OpenSslClientTransport(Tcp(t)));
         }
 
-        // OpenSSL's `into_ssl` requires a domain for SNI; a bare-IP destination has none.
-        let mut ssl = self
-            .ssl_config
-            .as_inner()
-            .configure()
-            .map_err(Error::other)?
-            .into_ssl(
-                destination
-                    .host()
-                    .ok_or_else(|| Error::other("missing domain"))?,
-            )
-            .map_err(Error::other)?;
-
-        // A per-connection ALPN override replaces the connector's default; absent one, the
-        // configured default stays in place.
-        if let Some(alpn) = destination.alpn() {
-            ssl.set_alpn_protos(&encode_alpn(alpn))
-                .map_err(Error::other)?;
-        }
-
+        // The server name comes from the destination, never the dialed address; capture a domain
+        // before the dial moves the destination, deferring the host-less (bare-IP) case to the
+        // address actually connected to.
+        let domain = destination.host().map(str::to_owned);
+        let alpn_wire = destination.alpn().map(encode_alpn);
         let inner = self
             .tcp_config
             .connect_to(destination.with_secure(false))
             .await?;
-        let mut stream = SslStream::new(ssl, inner).map_err(Error::other)?;
-        Pin::new(&mut stream)
-            .connect()
-            .await
-            .map_err(Error::other)?;
-        Ok(OpenSslClientTransport(Tls(Box::new(stream))))
+        let host = match domain {
+            Some(domain) => domain,
+            None => inner
+                .peer_addr()?
+                .ok_or_else(|| Error::other("no peer address for bare-ip destination"))?
+                .ip()
+                .to_string(),
+        };
+
+        self.tls_connect(&host, alpn_wire.as_deref(), inner).await
+    }
+
+    async fn connect_over(
+        &self,
+        transport: Box<dyn Transport>,
+        destination: Destination,
+    ) -> Result<Box<dyn Transport>> {
+        if !destination.secure() {
+            return self.tcp_config.connect_over(transport, destination).await;
+        }
+
+        let host = if let Some(host) = destination.host() {
+            host.to_owned()
+        } else {
+            destination
+                .addrs()
+                .first()
+                .ok_or_else(|| {
+                    Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "bare-ip destination has no socket address",
+                    )
+                })?
+                .ip()
+                .to_string()
+        };
+        let alpn_wire = destination.alpn().map(encode_alpn);
+        let stream = self
+            .tls_connect(&host, alpn_wire.as_deref(), transport)
+            .await?;
+        Ok(Box::new(stream))
     }
 
     fn runtime(&self) -> Self::Runtime {
