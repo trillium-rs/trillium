@@ -5,7 +5,10 @@ use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use rcgen::generate_simple_self_signed;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use trillium::Handler;
-use trillium_client::Client;
+use trillium_client::{
+    Client, Proxy,
+    webtransport::{ErrorKind, WebTransportConnectError},
+};
 use trillium_quinn::{ClientQuicConfig, QuicConfig};
 use trillium_rustls::RustlsConfig;
 use trillium_tokio::ClientConfig;
@@ -181,5 +184,38 @@ async fn multiple_webtransport_sessions_share_quic_connection() {
     assert!(
         peers.iter().all(|p| *p == first),
         "all sessions must share the same QUIC connection (peer_addr); got: {peers:?}"
+    );
+}
+
+fn assert_http3_unavailable(result: Result<WebTransportConnection, WebTransportConnectError>) {
+    match result {
+        Err(e) => assert!(
+            matches!(e.kind, ErrorKind::Http3Unavailable),
+            "expected Http3Unavailable, got {e}"
+        ),
+        Ok(_) => panic!("expected Http3Unavailable, got a session"),
+    }
+}
+
+#[tokio::test]
+async fn webtransport_without_quic_is_http3_unavailable() {
+    let client = Client::new(ClientConfig::default());
+    assert_http3_unavailable(
+        client
+            .webtransport("https://localhost:1/wt")
+            .into_webtransport()
+            .await,
+    );
+}
+
+#[tokio::test]
+async fn proxied_webtransport_is_http3_unavailable() {
+    let client =
+        trillium_client(&test_cert()).with_proxy(Proxy::new("http://127.0.0.1:1").unwrap());
+    assert_http3_unavailable(
+        client
+            .webtransport("https://localhost:1/wt")
+            .into_webtransport()
+            .await,
     );
 }

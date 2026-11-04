@@ -215,4 +215,5 @@ If a single `Client` is used against a large number of distinct hosts, the pool 
 
 - [Client middleware](./middleware.md) — logging, cookies, compression, redirect-following, retrying, and caching as composable `ClientHandler`s.
 - [Encrypted DNS](./encrypted-dns.md) — route lookups through DoH/DoT/DoQ for privacy and DNS-level HTTP/3 discovery.
+- [Outbound proxies](./proxies.md) — explicit routing, CONNECT tunnels, environment settings, and bypass rules.
 - [WebSockets, WebTransport, and JSON](./extras.md) — feature-gated client capabilities.

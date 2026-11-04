@@ -1,4 +1,4 @@
-use crate::{Error, Pool, pool::PoolEntry};
+use crate::{Error, Pool, conn::RouteKey, pool::PoolEntry};
 use encoding_rs::Encoding;
 use futures_lite::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use std::{
@@ -15,7 +15,7 @@ use std::{
 use trillium_http::{
     Body, BodySource, Headers, HttpConfig, MutCow, ReceivedBody, ReceivedBodyState,
 };
-use trillium_server_common::{Runtime, Transport, url::Origin};
+use trillium_server_common::{Runtime, Transport};
 
 /// A response body received from a server.
 ///
@@ -71,7 +71,7 @@ enum ResponseBodyInner<'a> {
     Closed,
 }
 
-type H1Pool = Pool<Origin, Box<dyn Transport>>;
+type H1Pool = Pool<RouteKey, Box<dyn Transport>>;
 
 /// Carries everything `Drop for ResponseBody` and [`ResponseBody::recycle`] need to release
 /// a transport without re-deriving from a [`crate::Conn`] (which is gone by then).
@@ -85,7 +85,7 @@ type H1Pool = Pool<Origin, Box<dyn Transport>>;
 #[derive(Clone)]
 pub(crate) struct CleanupContext {
     pub(crate) runtime: Runtime,
-    pub(crate) h1_pool_origin: Option<(H1Pool, Origin)>,
+    pub(crate) h1_pool_origin: Option<(H1Pool, RouteKey)>,
     /// Idle lifetime stamped onto a pooled h1 transport, counted from the moment it returns to
     /// the pool. `None` disables expiry. Sourced from
     /// [`Client::h1_idle_timeout`][crate::Client::h1_idle_timeout].
@@ -458,7 +458,7 @@ fn log_close_result(result: io::Result<()>) {
 
 async fn recycle(
     mut rb: ReceivedBody<'static, Box<dyn Transport + 'static>>,
-    h1_pool_origin: Option<(H1Pool, Origin)>,
+    h1_pool_origin: Option<(H1Pool, RouteKey)>,
     h1_idle_timeout: Option<Duration>,
 ) {
     if let Some((pool, origin)) = h1_pool_origin {

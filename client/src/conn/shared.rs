@@ -74,8 +74,15 @@ impl Conn {
     }
 
     async fn exec_network(&mut self) -> Result<()> {
+        self.select_route();
         if self.http_version == Some(Version::Http0_9) {
             return Err(Error::UnsupportedVersion(Version::Http0_9));
+        }
+        // Dispatch treats an h3 pin as a starting point, so without this a WebTransport request
+        // that can't use h3 would continue down to an h2 or h1 upgrade that can't carry it.
+        #[cfg(feature = "webtransport")]
+        if self.protocol.as_deref() == Some("webtransport") && !self.h3_permitted() {
+            return Err(crate::webtransport::Http3Unavailable.into());
         }
 
         match self.exec_network_dispatch().await {
@@ -107,7 +114,7 @@ impl Conn {
         if self.try_reuse_h3_pool().await? {
             return Ok(());
         }
-        if self.try_exec_h2_pooled().await? {
+        if !self.route.is_forward() && self.try_exec_h2_pooled().await? {
             return Ok(());
         }
 
@@ -154,7 +161,11 @@ impl Conn {
     /// ALPN is left in place, so auto-discovery can promote to h2 via ALPN.
     pub(crate) async fn origin_destination(&self) -> Result<Destination> {
         let mut destination = Destination::from_url(&self.url)?;
-        let addrs = self.origin_socket_addrs().await?;
+        let addrs = if self.route.is_direct() {
+            self.origin_socket_addrs().await?
+        } else {
+            SmallVec::new()
+        };
         if !addrs.is_empty() {
             destination.set_addrs(addrs);
         }

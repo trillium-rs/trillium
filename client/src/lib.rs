@@ -148,6 +148,18 @@
 //! [RFC 7858]: https://www.rfc-editor.org/rfc/rfc7858
 //! [RFC 9250]: https://www.rfc-editor.org/rfc/rfc9250
 //! [RFC 9460]: https://www.rfc-editor.org/rfc/rfc9460
+//!
+//! ## Proxies
+//!
+//! [`Client::with_proxy`] sends requests through HTTP proxies. It takes a [`ProxyRouter`]: a
+//! single [`Proxy`], which carries both HTTP and HTTPS origins unless narrowed and can exempt
+//! hosts with [`Proxy::except`]; a list of proxies, the first that carries a request winning; or
+//! a function of the request URL. [`Proxy::from_env`] builds that list from the `http_proxy` /
+//! `https_proxy` / `all_proxy` / `no_proxy` environment variables. Plain HTTP requests are
+//! forwarded to the proxy. HTTPS and anything else that needs the origin's own connection go
+//! through a CONNECT tunnel, with TLS to the origin inside it. Proxied requests use HTTP/1.1 or
+//! HTTP/2, never fall back to a direct connection, and leave the origin's name for the proxy to
+//! resolve. See [`Proxy`] for the credential rules.
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
@@ -161,7 +173,9 @@ mod dns;
 mod h3;
 mod into_url;
 mod pool;
+mod proxy;
 mod reaper;
+pub use proxy::{Proxy, ProxyConnectError, ProxyRouter, ProxySchemes};
 mod response_body;
 #[cfg(feature = "sse")]
 pub mod sse;

@@ -21,7 +21,9 @@ impl Client {
     ///
     /// Sets the method to CONNECT, the `:protocol` pseudo-header to `webtransport`, and pins
     /// the http version to HTTP/3 with [`strict_http_version`](Conn::strict_http_version) on,
-    /// since WebTransport has no form on earlier protocols. The conn has not yet been sent — chain
+    /// since WebTransport has no form on earlier protocols. A client built without QUIC, or a URL
+    /// that this client's [`ProxyRouter`](crate::ProxyRouter) sends through a proxy, fails with
+    /// [`ErrorKind::Http3Unavailable`]. The conn has not yet been sent — chain
     /// [`Conn::with_request_header`](crate::Conn::with_request_header) etc. as usual, then
     /// `await` it via [`Conn::into_webtransport`] to complete the upgrade and obtain a
     /// [`WebTransportConnection`].
@@ -69,6 +71,11 @@ impl Conn {
             let kind = match e {
                 trillium_http::Error::ExtendedConnectUnsupported => {
                     ErrorKind::ExtendedConnectUnsupported
+                }
+                trillium_http::Error::Io(e)
+                    if e.get_ref().is_some_and(|e| e.is::<Http3Unavailable>()) =>
+                {
+                    ErrorKind::Http3Unavailable
                 }
                 other => other.into(),
             };
@@ -169,10 +176,29 @@ pub enum ErrorKind {
     #[error("peer does not support WebTransport over HTTP/3")]
     ExtendedConnectUnsupported,
 
+    /// The request couldn't use HTTP/3, which WebTransport requires: the client was built without
+    /// QUIC (see [`Client::new_with_quic`]), or its [`ProxyRouter`](crate::ProxyRouter) sent the
+    /// URL through a proxy. Proxied requests use HTTP/1.1 or HTTP/2.
+    #[error("{}", Http3Unavailable)]
+    Http3Unavailable,
+
     /// Internal: the QUIC connection's [`WebTransportDispatcher`] was already initialized
     /// with a router of an unexpected type. Indicates a bug — should not happen in practice.
     #[error("dispatcher already initialized with an incompatible handler type")]
     DispatcherTypeMismatch,
+}
+
+/// Carried inside an [`std::io::Error`] so that a request executed outside `into_webtransport`
+/// still gets a descriptive error, and recognized by `into_webtransport` to report
+/// [`ErrorKind::Http3Unavailable`].
+#[derive(thiserror::Error, Debug)]
+#[error("WebTransport requires HTTP/3, which is unavailable for this request")]
+pub(crate) struct Http3Unavailable;
+
+impl From<Http3Unavailable> for trillium_http::Error {
+    fn from(error: Http3Unavailable) -> Self {
+        std::io::Error::new(std::io::ErrorKind::Unsupported, error).into()
+    }
 }
 
 /// An attempted WebTransport upgrade failed.
