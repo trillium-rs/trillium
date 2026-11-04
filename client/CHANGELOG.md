@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- An HTTP/1.x response's status line must name `HTTP/1.0` or `HTTP/1.1`, and its reason phrase
+  must not contain control characters other than tab; a response that breaks either rule fails
+  with `Error::InvalidHead`. A higher 1.x minor version is read as HTTP/1.1. Previously any version
+  `Version` parses, such as `HTTP/2` or a bare `1.1`, was accepted and reported as the conn's
+  version.
+
 ## [0.9.20] - 2026-10-23
 
 ### Changed

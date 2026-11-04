@@ -207,7 +207,7 @@ impl Conn {
         self.buffer.ignore_front(head_len);
 
         self.http_version = Some(head.version);
-        self.status = Some(head.status);
+        self.status = Some(Status::try_from(head.code)?);
         // The network response head is authoritative: replace (not extend) any synthetic response
         // headers a handler may have set — e.g. a `Content-Length` from `set_response_body` — so
         // they can't merge with the wire headers into duplicates. Interim responses are cleared the

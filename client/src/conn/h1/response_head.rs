@@ -1,7 +1,7 @@
 use futures_lite::{AsyncRead, AsyncReadExt};
 use memchr::memmem::Finder;
-use std::{str, sync::LazyLock};
-use trillium_http::{Buffer, Error, Headers, HttpConfig, Result, Status, Version};
+use std::sync::LazyLock;
+use trillium_http::{Buffer, Error, Headers, HttpConfig, Result, Version};
 
 // A `Finder` plans its search strategy on construction, which is wasted work to repeat per parse.
 static CRLF: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(b"\r\n"));
@@ -10,7 +10,8 @@ static CRLF_CRLF: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new(b"\r\
 /// The status line and header fields of an HTTP/1.x response head.
 pub(crate) struct ResponseHead {
     pub(crate) version: Version,
-    pub(crate) status: Status,
+    /// The three-digit status code, which [`Status`](trillium_http::Status) may not represent.
+    pub(crate) code: u16,
     pub(crate) headers: Headers,
 }
 
@@ -78,23 +79,46 @@ where
 
 /// Parses a complete response head, as measured by [`read_head`].
 pub(crate) fn parse_head(head: &[u8]) -> Result<ResponseHead> {
-    let space = memchr::memchr(b' ', head).ok_or(Error::InvalidHead)?;
-    let version = str::from_utf8(&head[..space])
-        .map_err(|_| Error::InvalidHead)?
-        .parse()
-        .map_err(|_| Error::InvalidHead)?;
-    let status = str::from_utf8(&head[space + 1..space + 4])?.parse()?;
-    // The status-code is exactly three digits; the next octet must terminate it —
-    // a SP before the reason-phrase, or the CR/LF ending the status-line. Reject a 4th digit so
-    // e.g. `2000` isn't silently truncated to `200`.
-    if !matches!(head.get(space + 4), Some(b' ' | b'\r' | b'\n')) {
-        return Err(Error::InvalidHead);
-    }
-    let end_of_first_line = 2 + CRLF.find(head).ok_or(Error::InvalidHead)?;
-    let headers = Headers::parse(&head[end_of_first_line..]).map_err(|_| Error::InvalidHead)?;
+    let line_len = CRLF.find(head).ok_or(Error::InvalidHead)?;
+    let (version, code) = parse_status_line(&head[..line_len])?;
+    let headers = Headers::parse(&head[line_len + 2..]).map_err(|_| Error::InvalidHead)?;
     Ok(ResponseHead {
         version,
-        status,
+        code,
         headers,
     })
+}
+
+/// `HTTP/1.x SP 3DIGIT [SP reason-phrase]` (RFC 9112 §4). A minor version above 1 is read as
+/// HTTP/1.1 (RFC 9110 §2.5). The space before an empty reason phrase is optional, since servers
+/// commonly omit it.
+fn parse_status_line(line: &[u8]) -> Result<(Version, u16)> {
+    let version = match line.get(..9) {
+        Some(b"HTTP/1.0 ") => Version::Http1_0,
+        Some([b'H', b'T', b'T', b'P', b'/', b'1', b'.', minor, b' ']) if minor.is_ascii_digit() => {
+            Version::Http1_1
+        }
+        _ => return Err(Error::InvalidHead),
+    };
+
+    let code = match line.get(9..12) {
+        Some(&[a, b, c]) if [a, b, c].iter().all(u8::is_ascii_digit) => {
+            u16::from(a - b'0') * 100 + u16::from(b - b'0') * 10 + u16::from(c - b'0')
+        }
+        _ => return Err(Error::InvalidStatus),
+    };
+
+    let reason = match &line[12..] {
+        [] => &[][..],
+        [b' ', reason @ ..] => reason,
+        _ => return Err(Error::InvalidHead),
+    };
+    if reason
+        .iter()
+        .any(|&byte| (byte < b' ' && byte != b'\t') || byte == 0x7f)
+    {
+        return Err(Error::InvalidHead);
+    }
+
+    Ok((version, code))
 }
