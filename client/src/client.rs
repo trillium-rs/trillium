@@ -1,6 +1,8 @@
 use crate::{
-    ClientHandler, Conn, IntoUrl, Pool, USER_AGENT, client_handler::ArcedClientHandler,
-    conn::H2Pooled, h3::H3ClientState,
+    ClientHandler, Conn, IntoUrl, Pool, USER_AGENT,
+    client_handler::ArcedClientHandler,
+    conn::{H2Pooled, Route, RouteKey},
+    h3::H3ClientState,
 };
 use std::{any::Any, fmt::Debug, sync::Arc, time::Duration};
 use trillium_http::{
@@ -8,8 +10,7 @@ use trillium_http::{
     ReceivedBodyState, TypeSet,
 };
 use trillium_server_common::{
-    ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Transport,
-    url::{Origin, Url},
+    ArcedConnector, ArcedQuicClientConfig, Connector, QuicClientConfig, Transport, url::Url,
 };
 
 /// Default maximum idle time for a pooled HTTP/1.1 connection. A warm keepalive connection is
@@ -51,14 +52,20 @@ const DEFAULT_EXPECT_CONTINUE_TIMEOUT: Duration = Duration::from_secs(1);
 pub struct Client {
     config: ArcedConnector,
 
+    #[field(
+        get(vis = "pub(crate)"),
+        without(doc = "Remove any proxy router, connecting directly for every request.")
+    )]
+    proxy: Option<crate::proxy::ArcedProxyRouter>,
+
     #[field(vis = "pub(crate)", get)]
     h3: Option<H3ClientState>,
 
     #[field(vis = "pub(crate)", get)]
-    pool: Option<Pool<Origin, Box<dyn Transport>>>,
+    pool: Option<Pool<RouteKey, Box<dyn Transport>>>,
 
     #[field(vis = "pub(crate)", get)]
-    h2_pool: Option<Pool<Origin, H2Pooled>>,
+    h2_pool: Option<Pool<RouteKey, H2Pooled>>,
 
     /// Maximum idle time for a pooled HTTP/1.1 connection before a background reaper closes it and
     /// removes it from the pool. `None` disables expiry, restoring the previous behavior in which
@@ -217,6 +224,14 @@ impl Client {
 
     method!(patch, Patch);
 
+    /// Route requests through the proxies `router` chooses: a [`Proxy`](crate::Proxy), a list
+    /// of them, or a function of the request URL. See [`ProxyRouter`](crate::ProxyRouter).
+    #[must_use]
+    pub fn with_proxy(mut self, router: impl crate::ProxyRouter) -> Self {
+        self.proxy = Some(crate::proxy::ArcedProxyRouter::new(router));
+        self
+    }
+
     /// builds a new client from this `Connector`
     pub fn new(connector: impl Connector) -> Self {
         let config = ArcedConnector::new(connector);
@@ -229,6 +244,7 @@ impl Client {
         );
         Self {
             config,
+            proxy: None,
             h3: None,
             pool: Some(pool),
             h2_pool: Some(h2_pool),
@@ -289,6 +305,7 @@ impl Client {
         );
         Self {
             config,
+            proxy: None,
             h3: Some(h3),
             pool: Some(pool),
             h2_pool: Some(h2_pool),
@@ -429,6 +446,8 @@ impl Client {
             request_headers: Headers::clone(&self.default_headers),
             response_headers: Headers::new(),
             transport: None,
+            route: Route::Direct,
+            route_key: None,
             status: None,
             request_body: None,
             request_body_fully_buffered: false,

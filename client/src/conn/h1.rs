@@ -3,16 +3,16 @@ use crate::pool::{Acquire, PrimerGuard};
 use futures_lite::{AsyncReadExt, AsyncWriteExt, future::poll_once};
 use std::io::Write;
 use trillium_http::{
-    BodyFraming, BufWriter, Error, Headers,
+    BodyFraming, BufWriter, Error, Headers, KnownHeaderName,
     KnownHeaderName::{
         Connection, ContentLength, Expect, Host, TransferEncoding, Upgrade as UpgradeHeader,
     },
     Method, ReceivedBodyState, Result, Status, Version,
 };
-use trillium_server_common::{Connector, Transport, url::Origin};
+use trillium_server_common::Transport;
 
-mod request_head;
-mod response_head;
+pub(crate) mod request_head;
+pub(crate) mod response_head;
 
 /// Result of the `Expect: 100-continue` wait: whether the interim `100` arrived (send the body)
 /// or a final response preempted it (the request is already complete).
@@ -46,7 +46,7 @@ impl Conn {
             #[cfg(feature = "websockets")]
             if protocol == "websocket" {
                 self.request_headers.try_insert_with(
-                    crate::KnownHeaderName::SecWebsocketKey,
+                    KnownHeaderName::SecWebsocketKey,
                     trillium_websockets::websocket_key,
                 );
             }
@@ -127,7 +127,7 @@ impl Conn {
     async fn find_pool_candidate(&self, head: &[u8]) -> Result<Option<Box<dyn Transport>>> {
         let mut byte = [0];
         if let Some(pool) = self.client.pool() {
-            for mut candidate in pool.candidates(&self.url.origin()) {
+            for mut candidate in pool.candidates(&self.pool_key()) {
                 if poll_once(candidate.read(&mut byte)).await.is_none()
                     && candidate.write_all(head).await.is_ok()
                 {
@@ -147,7 +147,13 @@ impl Conn {
         if let Some(target) = &self.request_target
             && matches!(method, Method::Connect | Method::Options)
         {
-            write!(buf, "{target}")?;
+            if method == Method::Options && *target == "*" && self.route.is_forward() {
+                // `*` reaches a proxy, not the origin, so the origin's server-wide OPTIONS is
+                // named in absolute-form with an empty path instead (RFC 9112 §3.2.4).
+                write!(buf, "{}", url.origin().ascii_serialization())?;
+            } else {
+                write!(buf, "{target}")?;
+            }
         } else if method == Method::Connect {
             let host = url.host_str().ok_or(Error::UnexpectedUriFormat)?;
 
@@ -156,6 +162,12 @@ impl Conn {
                 .ok_or(Error::UnexpectedUriFormat)?;
 
             write!(buf, "{host}:{port}")?;
+        } else if self.route.is_forward() {
+            let mut target = url.clone();
+            let _ = target.set_username("");
+            let _ = target.set_password(None);
+            target.set_fragment(None);
+            write!(buf, "{target}")?;
         } else {
             write!(buf, "{}", url.path())?;
             if let Some(query) = url.query() {
@@ -166,10 +178,20 @@ impl Conn {
         write!(buf, " {}\r\n", self.http_version())?;
         request_head::write_headers(&mut buf, &self.request_headers)?;
 
+        if let Some(proxy) = self.route.forward_proxy()
+            && let Some(values) = proxy
+                .connect_headers()
+                .get_values(KnownHeaderName::ProxyAuthorization)
+        {
+            request_head::write_headers(
+                &mut buf,
+                [(KnownHeaderName::ProxyAuthorization.into(), values)],
+            )?;
+        }
         write!(buf, "\r\n")?;
         log::trace!(
             "{}",
-            std::str::from_utf8(&buf).unwrap().replace("\r\n", "\r\n> ")
+            String::from_utf8_lossy(&buf).replace("\r\n", "\r\n> ")
         );
 
         Ok(buf)
@@ -431,7 +453,7 @@ impl Conn {
     }
 
     pub(super) async fn exec_h1_or_promote_h2(&mut self) -> Result<()> {
-        // An h3 hint reaches here only when no h3 client is configured to honor it; resume
+        // An h3 hint reaches here when h3 is unavailable or the route uses a proxy; resume
         // auto-discovery (h1 / ALPN-promoted h2) rather than pinning, matching the
         // h3-connect-failure fallback. An explicit h1.1 / h1.0 pin is left intact.
         if matches!(self.http_version, Some(v) if v > Version::Http1_1) {
@@ -453,13 +475,13 @@ impl Conn {
         // `h2`), a burst opens one connection and the waiters share it rather than each opening
         // their own. An explicit h1 pin skips this — it neither shares an h2 connection nor
         // promotes one — and its connection advertises only `http/1.1` (see `origin_destination`).
-        let h2_pool = if self.http_version.is_none() {
+        let h2_pool = if self.http_version.is_none() && !self.route.is_forward() {
             self.client.h2_pool().cloned()
         } else {
             None
         };
         if let Some(h2_pool) = h2_pool {
-            match h2_pool.acquire(self.url.origin(), |p| p.classify()) {
+            match h2_pool.acquire(self.pool_key(), |p| p.classify()) {
                 Acquire::Ready(pooled) => {
                     return self
                         .exec_h2_on_connection(pooled.connection().clone())
@@ -503,18 +525,18 @@ impl Conn {
     async fn connect_and_dispatch(
         &mut self,
         head: Vec<u8>,
-        guard: Option<PrimerGuard<Origin, H2Pooled>>,
+        guard: Option<PrimerGuard<super::RouteKey, H2Pooled>>,
     ) -> Result<()> {
         // On a connect error, `?` returns and `guard` drops here, waking any waiters to connect
         // for themselves rather than hang.
-        let destination = self.origin_destination().await?;
-        let mut transport = self.client.connector().connect_to(destination).await?;
+        let mut transport = self.connect_route().await?;
         log::debug!("opened new connection to {:?}", transport.peer_addr()?);
 
         // Promote to h2 only when auto-discovering: an explicit h1 pin advertised only `http/1.1`
         // (see `origin_destination`), so a peer that nonetheless reports `h2` here is honored as an
         // h1 connection rather than overriding the pin.
         if self.http_version.is_none()
+            && !self.route.is_forward()
             && self.client.h2_pool().is_some()
             && transport.negotiated_alpn().as_deref() == Some(b"h2")
         {

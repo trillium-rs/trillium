@@ -6,8 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Outbound HTTP proxies. `Client::with_proxy` takes a `ProxyRouter`, which chooses the proxy for
+  each request: a `Proxy` (`Proxy::new("http://user:pass@proxy.example:8080")`, carrying both
+  HTTP and HTTPS origins unless narrowed with `with_schemes(ProxySchemes::…)`, and exempting
+  hosts, IP addresses, and CIDR networks with `except`), an array or `Vec` of them where the
+  first proxy that carries a request wins, an `Option`, or a function of the request URL.
+  `Proxy::from_env` returns that list for the `http_proxy`, `https_proxy`, `all_proxy`, and
+  `no_proxy` environment variables, which are never read implicitly. `Client::without_proxy`
+  removes a router.
+- Plain HTTP requests are forwarded to the proxy. HTTPS requests, and HTTP requests that need the
+  origin's own connection (upgrades such as WebSocket, HTTP/2 prior knowledge, CONNECT), go
+  through a CONNECT tunnel. Both `http://` and `https://` proxy endpoints work. A proxied request
+  never falls back to a direct connection, and the proxy resolves the origin's name. HTTP/3 hints
+  continue over HTTP/1.1 or HTTP/2 through a proxy; WebTransport through a proxy fails with
+  `webtransport::ErrorKind::Http3Unavailable`.
+- `ProxyConnectError` reports a proxy's refusal to open a CONNECT tunnel, with its status and
+  response headers, inside the request's `Error::Io`.
+
 ### Fixed
 
+- `Client::webtransport` on a client built without QUIC fails with
+  `webtransport::ErrorKind::Http3Unavailable` instead of sending the WebTransport request as an
+  HTTP/1.1 or HTTP/2 upgrade.
 - An HTTP/1.x response's status line must name `HTTP/1.0` or `HTTP/1.1`, and its reason phrase
   must not contain control characters other than tab; a response that breaks either rule fails
   with `Error::InvalidHead`. A higher 1.x minor version is read as HTTP/1.1. Previously any version

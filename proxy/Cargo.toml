@@ -32,8 +32,13 @@ url = "2.5.8"
 [dev-dependencies]
 env_logger = "0.11.10"
 querystrong = { version = "0.4.0", features = ["serde"] }
+rcgen = "0.14"
 trillium-api = { path = "../api", features = ["sonic-rs"] }
 trillium-http = { path = "../http", features = ["serde"] }
 trillium-logger = { path = "../logger" }
+trillium-rustls = { path = "../rustls" }
 trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
+
+trillium-client = { path = "../client", features = ["websockets"] }
+trillium-websockets.workspace = true

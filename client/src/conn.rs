@@ -11,12 +11,15 @@ use trillium_http::{
 use trillium_server_common::{Transport, url::Url};
 
 mod h1;
+pub(crate) use h1::{request_head, response_head};
 #[cfg(test)]
 mod h1_tests;
 mod h2;
 mod h3;
 mod request_body_buffer;
+mod route;
 mod shared;
+pub(crate) use route::{Route, RouteKey};
 mod unexpected_status_error;
 
 pub(crate) use h2::H2Pooled;
@@ -41,6 +44,12 @@ pub struct Conn {
     pub(crate) headers_finalized: bool,
     pub(crate) state: TypeSet,
     pub(crate) context: Arc<HttpContext>,
+
+    #[field(skip)]
+    pub(crate) route: Route,
+
+    #[field(skip)]
+    pub(crate) route_key: Option<RouteKey>,
 
     /// the transport for this conn
     ///
@@ -518,7 +527,7 @@ impl Conn {
             && self.is_keep_alive()
             && let Some(pool) = self.client.pool().cloned()
         {
-            Some((pool, self.url.origin()))
+            Some((pool, self.pool_key()))
         } else {
             None
         };
@@ -575,7 +584,10 @@ impl Conn {
         }
     }
 
-    /// attempts to retrieve the connected peer address
+    /// Attempts to retrieve the connected peer address.
+    ///
+    /// When the request is routed through a proxy (forward or `CONNECT` tunnel), this returns the
+    /// proxy's socket address rather than the origin's.
     pub fn peer_addr(&self) -> Option<SocketAddr> {
         self.transport
             .as_ref()

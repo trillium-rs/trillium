@@ -1,4 +1,4 @@
-use super::Conn;
+use super::{Conn, RouteKey};
 use crate::pool::{Acquire, PoolEntry, PoolEntryStatus, PrimerGuard};
 use std::{
     borrow::Cow,
@@ -11,7 +11,7 @@ use trillium_http::{
     h2::H2Connection,
     headers::hpack::{FieldSection, PseudoHeaders},
 };
-use trillium_server_common::{Connector, Transport, url::Origin};
+use trillium_server_common::Transport;
 
 /// Client-side wrapper for a pooled HTTP/2 connection.
 ///
@@ -100,7 +100,7 @@ impl Conn {
         let Some(h2_pool) = self.client.h2_pool() else {
             return Ok(false);
         };
-        let origin = self.url.origin();
+        let origin = self.pool_key();
         let Some(pooled) = h2_pool.peek_candidate_classify(&origin, |p| p.classify()) else {
             return Ok(false);
         };
@@ -150,7 +150,7 @@ impl Conn {
     /// slot so a burst opens one connection rather than racing N.
     pub(super) async fn exec_h2_prior_knowledge(&mut self) -> Result<()> {
         if let Some(h2_pool) = self.client.h2_pool().cloned() {
-            match h2_pool.acquire(self.url.origin(), |p| p.classify()) {
+            match h2_pool.acquire(self.pool_key(), |p| p.classify()) {
                 Acquire::Ready(pooled) => {
                     return self
                         .exec_h2_on_connection(pooled.connection().clone())
@@ -165,15 +165,13 @@ impl Conn {
                     // primer produced no connection; connect for ourselves below.
                 }
                 Acquire::Primer(guard) => {
-                    let destination = self.origin_destination().await?;
-                    let transport = self.client.connector().connect_to(destination).await?;
+                    let transport = self.connect_route().await?;
                     return self.promote_and_exec_h2(transport, Some(guard)).await;
                 }
             }
         }
 
-        let destination = self.origin_destination().await?;
-        let transport = self.client.connector().connect_to(destination).await?;
+        let transport = self.connect_route().await?;
         self.promote_and_exec_h2(transport, None).await
     }
 
@@ -202,7 +200,7 @@ impl Conn {
     pub(super) async fn promote_and_exec_h2(
         &mut self,
         transport: Box<dyn Transport>,
-        guard: Option<PrimerGuard<Origin, H2Pooled>>,
+        guard: Option<PrimerGuard<RouteKey, H2Pooled>>,
     ) -> Result<()> {
         let h2 = self.promote_h2(transport);
         let pooled = H2Pooled::new(h2.clone());
@@ -212,7 +210,7 @@ impl Conn {
             Some(guard) => guard.resolve_ready(pooled, expiry),
             None => {
                 if let Some(h2_pool) = self.client.h2_pool() {
-                    h2_pool.insert(self.url.origin(), PoolEntry::new(pooled, expiry));
+                    h2_pool.insert(self.pool_key(), PoolEntry::new(pooled, expiry));
                 }
             }
         }

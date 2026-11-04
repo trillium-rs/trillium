@@ -1,4 +1,8 @@
-use crate::{conn::H2Pooled, h3::H3PoolEntry, pool::WeakPool};
+use crate::{
+    conn::{H2Pooled, RouteKey},
+    h3::H3PoolEntry,
+    pool::WeakPool,
+};
 use std::{fmt::Debug, hash::Hash, time::Duration};
 use trillium_server_common::{Runtime, Transport, url::Origin};
 
@@ -17,8 +21,8 @@ const REAPER_INTERVAL: Duration = Duration::from_secs(300);
 /// pool (or its connections) alive on its own.
 pub(crate) fn spawn_pool_reaper(
     runtime: Runtime,
-    h1_pool: WeakPool<Origin, Box<dyn Transport>>,
-    h2_pool: WeakPool<Origin, H2Pooled>,
+    h1_pool: WeakPool<RouteKey, Box<dyn Transport>>,
+    h2_pool: WeakPool<RouteKey, H2Pooled>,
     h3_pool: Option<WeakPool<Origin, H3PoolEntry>>,
 ) {
     runtime

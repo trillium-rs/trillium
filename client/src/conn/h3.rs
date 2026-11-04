@@ -59,11 +59,13 @@ impl Conn {
 }
 
 impl Conn {
-    /// Whether h3 may be used for this request: only when h3 is pinned explicitly or no version
-    /// preference was expressed. A prior-knowledge h2, h1.1, or h1.0 pin takes precedence and
-    /// forbids h3 even for an origin we know speaks it.
-    fn h3_permitted(&self) -> bool {
-        self.client.h3().is_some() && matches!(self.http_version, None | Some(Version::Http3))
+    /// Whether h3 may be used for this request: only on a direct route, when h3 is pinned
+    /// explicitly or no version preference was expressed. A prior-knowledge h2, h1.1, or h1.0
+    /// pin takes precedence and forbids h3 even for an origin we know speaks it.
+    pub(super) fn h3_permitted(&self) -> bool {
+        self.route.is_direct()
+            && self.client.h3().is_some()
+            && matches!(self.http_version, None | Some(Version::Http3))
     }
 
     /// Reuse a live pooled HTTP/3 connection for this origin, if one exists.
@@ -445,7 +447,9 @@ impl Conn {
     /// Only the first `h3` entry is used; a value of `clear` removes the cached entry
     /// entirely.
     pub(super) fn update_alt_svc_from_response(&self, h3: &H3ClientState) {
-        if let Some(alt_svc) = self.response_headers.get_str(KnownHeaderName::AltSvc) {
+        if self.route.is_direct()
+            && let Some(alt_svc) = self.response_headers.get_str(KnownHeaderName::AltSvc)
+        {
             h3.update_alt_svc(alt_svc, &self.url);
         }
     }

@@ -57,6 +57,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'client/middleware',
         'client/encrypted-dns',
+        'client/proxies',
         'client/extras',
       ],
     },
