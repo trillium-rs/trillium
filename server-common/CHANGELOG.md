@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `Connector::connect_over` layers a connector's transport security (such as TLS) over an
+  already-open stream — e.g. an HTTP `CONNECT` tunnel — validating the destination's identity
+  rather than the stream's peer. The default passes non-secure destinations through unchanged and
+  returns `Unsupported` for secure ones.
+
 ## [0.7.13] - 2026-10-22
 
 ### Changed
