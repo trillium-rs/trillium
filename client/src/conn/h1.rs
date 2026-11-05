@@ -11,6 +11,7 @@ use trillium_http::{
 };
 use trillium_server_common::{Connector, Transport, url::Origin};
 
+mod request_head;
 mod response_head;
 
 /// Result of the `Expect: 100-continue` wait: whether the interim `100` arrived (send the body)
@@ -163,21 +164,7 @@ impl Conn {
         }
 
         write!(buf, " {}\r\n", self.http_version())?;
-
-        for (name, values) in &self.request_headers {
-            if !name.is_valid() {
-                return Err(Error::InvalidHeaderName);
-            }
-
-            for value in values {
-                if !value.is_valid() {
-                    return Err(Error::InvalidHeaderValue(name.to_owned()));
-                }
-                write!(buf, "{name}: ")?;
-                buf.extend_from_slice(value.as_ref());
-                write!(buf, "\r\n")?;
-            }
-        }
+        request_head::write_headers(&mut buf, &self.request_headers)?;
 
         write!(buf, "\r\n")?;
         log::trace!(
@@ -334,22 +321,7 @@ impl Conn {
             self.request_trailers = trailers;
             if framing == (BodyFraming::Chunked { keep_open: false }) {
                 if let Some(trailers) = &self.request_trailers {
-                    let buf = bufwriter.buffer_mut();
-                    for (name, values) in trailers {
-                        if !name.is_valid() {
-                            return Err(Error::InvalidHeaderName);
-                        }
-
-                        for value in values {
-                            if !value.is_valid() {
-                                return Err(Error::InvalidHeaderValue(name.to_owned()));
-                            }
-                            write!(buf, "{name}: ")?;
-                            buf.extend_from_slice(value.as_ref());
-                            write!(buf, "\r\n")?;
-                        }
-                    }
-
+                    request_head::write_headers(bufwriter.buffer_mut(), trailers)?;
                     log::trace!("sending request trailers: {trailers:?}");
                 }
 
