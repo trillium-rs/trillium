@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-11-06
+
+### Added
+
+- `ClientQuicConfig` implements `Default`. With the new `platform-verifier` feature (enabled by
+  default) it verifies servers with `rustls-platform-verifier` — the operating system's trust store
+  on macOS, iOS, Windows, and Android, and the system CA bundle (or `SSL_CERT_FILE` /
+  `SSL_CERT_DIR`, when set) on Linux and other Unix systems. Without the feature, it trusts the
+  bundled WebPKI roots.
+
+### Changed
+
+- `ClientQuicConfig::with_webpki_roots` no longer requires the `webpki-roots` feature, which now
+  does nothing.
+- No longer depends on the unmaintained `rustls-pemfile` crate
+  ([RUSTSEC-2025-0134](https://rustsec.org/advisories/RUSTSEC-2025-0134)). PEM parsing behaves as
+  before.
+
 ## [0.1.7] - 2026-09-01
 
 ### Added

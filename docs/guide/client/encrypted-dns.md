@@ -85,7 +85,7 @@ DNS-over-QUIC through Quad9. DoQ (like DoH3) needs an HTTP/3-capable client, bui
 # [dependencies]
 # trillium-tokio = { path = "../tokio" }
 # trillium-client = { path = "../client", features = ["hickory"] }
-# trillium-quinn = { path = "../quinn", features = ["webpki-roots"] }
+# trillium-quinn = { path = "../quinn" }
 # trillium-rustls = { path = "../rustls" }
 #
 # fn main() {
@@ -96,7 +96,7 @@ use trillium_tokio::ClientConfig;
 
 let client = Client::new_with_quic(
     RustlsConfig::<ClientConfig>::default(),
-    ClientQuicConfig::with_webpki_roots(),
+    ClientQuicConfig::default(),
 )
 .with_doq("9.9.9.9");
 # let _ = client;
