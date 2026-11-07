@@ -1,0 +1,21 @@
+name: cargo-deny
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - main
+  # Advisories are published independently of changes to this repository.
+  schedule:
+    - cron: "23 14 * * *"
+
+jobs:
+  deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories sources

@@ -1,0 +1,17 @@
+[graph]
+# cargo-deny only resolves the graph and compiles nothing, so mutually exclusive features can't
+# conflict here, and enabling them all puts every optional dependency under audit.
+all-features = true
+
+[advisories]
+# A transitive unmaintained crate can only be replaced upstream. This scope doesn't apply to
+# vulnerabilities, which are reported at any depth.
+unmaintained = "workspace"
+ignore = [
+    { id = "RUSTSEC-2025-0052", reason = "async-std is discontinued; trillium-async-std exists for applications that already run on it" },
+    { id = "RUSTSEC-2026-0258", reason = "h2 0.3 arrives via lamedh_runtime -> hyper 0.14, whose Lambda Runtime API client only speaks HTTP/1.1; no patched h2 0.3 exists" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
